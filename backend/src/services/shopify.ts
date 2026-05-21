@@ -1,6 +1,8 @@
-const DOMAIN = process.env.SHOPIFY_STORE_DOMAIN!;
-const STOREFRONT_TOKEN = process.env.SHOPIFY_STOREFRONT_TOKEN!;
-const ADMIN_TOKEN = process.env.SHOPIFY_ADMIN_TOKEN!;
+const DOMAIN = process.env.SHOPIFY_STORE_DOMAIN ?? '';
+const STOREFRONT_TOKEN = process.env.SHOPIFY_STOREFRONT_TOKEN ?? '';
+const ADMIN_TOKEN = process.env.SHOPIFY_ADMIN_TOKEN ?? '';
+
+const shopifyEnabled = Boolean(DOMAIN && STOREFRONT_TOKEN && ADMIN_TOKEN);
 
 async function storefrontQuery(query: string, variables?: object) {
   const res = await fetch(`https://${DOMAIN}/api/2024-01/graphql.json`, {
@@ -29,6 +31,7 @@ async function adminQuery(query: string, variables?: object) {
 }
 
 export async function getProducts() {
+  if (!shopifyEnabled) return [];
   const data = await storefrontQuery(`
     query {
       products(first: 50) {
@@ -72,6 +75,7 @@ export async function createOrder(params: {
   };
   note?: string;
 }) {
+  if (!shopifyEnabled) throw new Error('Shop not yet available');
   const lineItems = params.items.map(item => ({
     variantId: item.variantId,
     quantity: item.quantity,
