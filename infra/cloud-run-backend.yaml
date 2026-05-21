@@ -8,12 +8,12 @@ spec:
   template:
     metadata:
       annotations:
-        run.googleapis.com/cloudsql-instances: YOUR_PROJECT:YOUR_REGION:axis-bloom-db
+        run.googleapis.com/cloudsql-instances: axis-and-bloom-prod:us-central1:axis-bloom-db
         autoscaling.knative.dev/minScale: "1"
         autoscaling.knative.dev/maxScale: "10"
     spec:
       containers:
-        - image: gcr.io/YOUR_PROJECT/axis-bloom-backend:latest
+        - image: gcr.io/axis-and-bloom-prod/axis-bloom-backend:latest
           ports:
             - containerPort: 4000
           env:

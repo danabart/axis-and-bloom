@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-PROJECT_ID="your-gcp-project-id"
+PROJECT_ID="axis-and-bloom-prod"
 REGION="us-central1"
 REPO="axis-bloom"
 
