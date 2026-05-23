@@ -1,0 +1,433 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.address (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid,
+  address_type text DEFAULT 'shipping'::text,
+  street text NOT NULL,
+  city text NOT NULL,
+  state text NOT NULL,
+  postal_code text NOT NULL,
+  country text DEFAULT 'US'::text,
+  is_default boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT address_pkey PRIMARY KEY (id),
+  CONSTRAINT address_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_profile(id)
+);
+CREATE TABLE public.answer (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  question_id uuid,
+  answer_text text NOT NULL,
+  next_question_id uuid,
+  resulting_archetype_id uuid,
+  vector_impact jsonb,
+  CONSTRAINT answer_pkey PRIMARY KEY (id),
+  CONSTRAINT answer_question_id_fkey FOREIGN KEY (question_id) REFERENCES public.question(id),
+  CONSTRAINT answer_next_question_id_fkey FOREIGN KEY (next_question_id) REFERENCES public.question(id),
+  CONSTRAINT answer_resulting_archetype_id_fkey FOREIGN KEY (resulting_archetype_id) REFERENCES public.archetype(id)
+);
+CREATE TABLE public.archetype (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  name text NOT NULL UNIQUE,
+  description text,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT archetype_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.archetype_relationship (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  from_archetype_id uuid,
+  to_archetype_id uuid,
+  dimension_id uuid,
+  direction text,
+  strength_delta numeric,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT archetype_relationship_pkey PRIMARY KEY (id),
+  CONSTRAINT archetype_relationship_from_archetype_id_fkey FOREIGN KEY (from_archetype_id) REFERENCES public.archetype(id),
+  CONSTRAINT archetype_relationship_to_archetype_id_fkey FOREIGN KEY (to_archetype_id) REFERENCES public.archetype(id),
+  CONSTRAINT archetype_relationship_dimension_id_fkey FOREIGN KEY (dimension_id) REFERENCES public.dimension(id)
+);
+CREATE TABLE public.archetype_tunable_variable (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  archetype_id uuid,
+  dimension_id uuid,
+  display_name text,
+  min_offset numeric DEFAULT '-2.0'::numeric,
+  max_offset numeric DEFAULT 2.0,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT archetype_tunable_variable_pkey PRIMARY KEY (id),
+  CONSTRAINT archetype_tunable_variable_archetype_id_fkey FOREIGN KEY (archetype_id) REFERENCES public.archetype(id),
+  CONSTRAINT archetype_tunable_variable_dimension_id_fkey FOREIGN KEY (dimension_id) REFERENCES public.dimension(id)
+);
+CREATE TABLE public.archetype_vector (
+  archetype_id uuid NOT NULL,
+  dimension_id uuid NOT NULL,
+  ideal_score numeric NOT NULL,
+  min_score numeric,
+  max_score numeric,
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT archetype_vector_pkey PRIMARY KEY (archetype_id, dimension_id),
+  CONSTRAINT archetype_vector_archetype_id_fkey FOREIGN KEY (archetype_id) REFERENCES public.archetype(id),
+  CONSTRAINT archetype_vector_dimension_id_fkey FOREIGN KEY (dimension_id) REFERENCES public.dimension(id)
+);
+CREATE TABLE public.blend (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  roaster_id uuid,
+  archetype_id uuid,
+  blend_name text NOT NULL,
+  shopify_variant_id text,
+  roaster_sku text,
+  cost_to_us numeric,
+  is_active boolean DEFAULT true,
+  coffee_type text DEFAULT 'blend'::text,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  inventory_status text DEFAULT 'in_stock'::text,
+  weight_oz numeric DEFAULT 12.0,
+  inventory_last_synced_at timestamp with time zone,
+  quantity_available integer DEFAULT 0,
+  safety_stock_buffer integer DEFAULT 2,
+  CONSTRAINT blend_pkey PRIMARY KEY (id),
+  CONSTRAINT blend_roaster_id_fkey FOREIGN KEY (roaster_id) REFERENCES public.roaster(id),
+  CONSTRAINT blend_archetype_id_fkey FOREIGN KEY (archetype_id) REFERENCES public.archetype(id)
+);
+CREATE TABLE public.blend_vector (
+  blend_id uuid NOT NULL,
+  dimension_id uuid NOT NULL,
+  score numeric NOT NULL,
+  CONSTRAINT blend_vector_pkey PRIMARY KEY (blend_id, dimension_id),
+  CONSTRAINT blend_vector_blend_id_fkey FOREIGN KEY (blend_id) REFERENCES public.blend(id),
+  CONSTRAINT blend_vector_dimension_id_fkey FOREIGN KEY (dimension_id) REFERENCES public.dimension(id)
+);
+CREATE TABLE public.cupping_note (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  wheel_category text,
+  wheel_subcategory text,
+  descriptor text NOT NULL,
+  intensity_score numeric,
+  ai_metadata jsonb,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT cupping_note_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.cupping_session (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  blend_id uuid,
+  cupped_by_user_id uuid,
+  sample_roast_date date,
+  cupping_date date NOT NULL DEFAULT CURRENT_DATE,
+  overall_quality_score numeric,
+  internal_notes text,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT cupping_session_pkey PRIMARY KEY (id),
+  CONSTRAINT cupping_session_blend_id_fkey FOREIGN KEY (blend_id) REFERENCES public.blend(id),
+  CONSTRAINT cupping_session_cupped_by_user_id_fkey FOREIGN KEY (cupped_by_user_id) REFERENCES public.user_profile(id)
+);
+CREATE TABLE public.cupping_session_note (
+  cupping_session_id uuid NOT NULL,
+  cupping_note_id uuid NOT NULL,
+  CONSTRAINT cupping_session_note_pkey PRIMARY KEY (cupping_session_id, cupping_note_id),
+  CONSTRAINT cupping_session_note_cupping_session_id_fkey FOREIGN KEY (cupping_session_id) REFERENCES public.cupping_session(id),
+  CONSTRAINT cupping_session_note_cupping_note_id_fkey FOREIGN KEY (cupping_note_id) REFERENCES public.cupping_note(id)
+);
+CREATE TABLE public.cupping_session_vector (
+  cupping_session_id uuid NOT NULL,
+  dimension_id uuid NOT NULL,
+  score numeric NOT NULL,
+  CONSTRAINT cupping_session_vector_pkey PRIMARY KEY (cupping_session_id, dimension_id),
+  CONSTRAINT cupping_session_vector_cupping_session_id_fkey FOREIGN KEY (cupping_session_id) REFERENCES public.cupping_session(id),
+  CONSTRAINT cupping_session_vector_dimension_id_fkey FOREIGN KEY (dimension_id) REFERENCES public.dimension(id)
+);
+CREATE TABLE public.dimension (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  name text NOT NULL UNIQUE,
+  data_type text DEFAULT 'numerical'::text,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT dimension_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.dimension_scoring_rule (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  dimension_id uuid,
+  min_value numeric,
+  max_value numeric,
+  allowed_categories jsonb,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT dimension_scoring_rule_pkey PRIMARY KEY (id),
+  CONSTRAINT dimension_scoring_rule_dimension_id_fkey FOREIGN KEY (dimension_id) REFERENCES public.dimension(id)
+);
+CREATE TABLE public.feedback_event (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid,
+  order_id uuid,
+  blend_id uuid,
+  signal_type text NOT NULL,
+  rating integer,
+  s_value numeric,
+  confidence numeric,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT feedback_event_pkey PRIMARY KEY (id),
+  CONSTRAINT feedback_event_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_profile(id),
+  CONSTRAINT feedback_event_order_id_fkey FOREIGN KEY (order_id) REFERENCES public.order(id),
+  CONSTRAINT feedback_event_blend_id_fkey FOREIGN KEY (blend_id) REFERENCES public.blend(id)
+);
+CREATE TABLE public.household (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  household_name text,
+  primary_billing_user_id uuid,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT household_pkey PRIMARY KEY (id),
+  CONSTRAINT fk_primary_billing FOREIGN KEY (primary_billing_user_id) REFERENCES public.user_profile(id)
+);
+CREATE TABLE public.notification_log (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid,
+  order_id uuid,
+  channel text NOT NULL,
+  message_type text NOT NULL,
+  recipient_contact text,
+  delivery_status text DEFAULT 'pending'::text,
+  external_provider_id text,
+  metadata jsonb,
+  sent_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT notification_log_pkey PRIMARY KEY (id),
+  CONSTRAINT notification_log_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_profile(id),
+  CONSTRAINT notification_log_order_id_fkey FOREIGN KEY (order_id) REFERENCES public.order(id)
+);
+CREATE TABLE public.order (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid,
+  household_id uuid,
+  external_shopify_order_id text,
+  fulfillment_status text DEFAULT 'pending'::text,
+  is_subscription boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  subtotal numeric DEFAULT 0.00,
+  shipping_fee_charged numeric DEFAULT 0.00,
+  taxes_collected numeric DEFAULT 0.00,
+  transaction_fee numeric DEFAULT 0.00,
+  total_amount_paid numeric DEFAULT 0.00,
+  currency text DEFAULT 'USD'::text,
+  promo_code_id uuid,
+  CONSTRAINT order_pkey PRIMARY KEY (id),
+  CONSTRAINT order_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_profile(id),
+  CONSTRAINT order_household_id_fkey FOREIGN KEY (household_id) REFERENCES public.household(id)
+);
+CREATE TABLE public.order_line_item (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  order_id uuid,
+  blend_id uuid,
+  intended_for_user_id uuid,
+  quantity integer NOT NULL DEFAULT 1,
+  wholesale_cost numeric,
+  vendor_payout_status text DEFAULT 'pending_invoice'::text,
+  shipment_id uuid,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  unit_price_charged numeric DEFAULT 0.00,
+  discount_amount numeric DEFAULT 0.00,
+  tax_amount_charged numeric DEFAULT 0.00,
+  CONSTRAINT order_line_item_pkey PRIMARY KEY (id),
+  CONSTRAINT order_line_item_order_id_fkey FOREIGN KEY (order_id) REFERENCES public.order(id),
+  CONSTRAINT order_line_item_blend_id_fkey FOREIGN KEY (blend_id) REFERENCES public.blend(id),
+  CONSTRAINT order_line_item_intended_for_user_id_fkey FOREIGN KEY (intended_for_user_id) REFERENCES public.user_profile(id),
+  CONSTRAINT order_line_item_shipment_id_fkey FOREIGN KEY (shipment_id) REFERENCES public.shipment(id)
+);
+CREATE TABLE public.payment_detail (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid,
+  account_type text NOT NULL,
+  provider text NOT NULL,
+  payment_terms text,
+  external_provider_id text,
+  routing_info jsonb,
+  is_default boolean DEFAULT false,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT payment_detail_pkey PRIMARY KEY (id),
+  CONSTRAINT payment_detail_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_profile(id)
+);
+CREATE TABLE public.question (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  quiz_id uuid,
+  q_number integer NOT NULL,
+  q_text text NOT NULL,
+  CONSTRAINT question_pkey PRIMARY KEY (id),
+  CONSTRAINT question_quiz_id_fkey FOREIGN KEY (quiz_id) REFERENCES public.quiz(id)
+);
+CREATE TABLE public.quiz (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  version text NOT NULL,
+  description text,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT quiz_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.quiz_session (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid,
+  context_data jsonb,
+  resulting_archetype_id uuid,
+  completed_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT quiz_session_pkey PRIMARY KEY (id),
+  CONSTRAINT quiz_session_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_profile(id),
+  CONSTRAINT quiz_session_resulting_archetype_id_fkey FOREIGN KEY (resulting_archetype_id) REFERENCES public.archetype(id)
+);
+CREATE TABLE public.quiz_vector (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid,
+  quiz_session_id uuid,
+  dimension_id uuid,
+  score numeric NOT NULL,
+  CONSTRAINT quiz_vector_pkey PRIMARY KEY (id),
+  CONSTRAINT quiz_vector_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_profile(id),
+  CONSTRAINT quiz_vector_quiz_session_id_fkey FOREIGN KEY (quiz_session_id) REFERENCES public.quiz_session(id),
+  CONSTRAINT quiz_vector_dimension_id_fkey FOREIGN KEY (dimension_id) REFERENCES public.dimension(id)
+);
+CREATE TABLE public.recommendation_log (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid,
+  candidates_shown jsonb NOT NULL,
+  chosen_blend_id uuid,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT recommendation_log_pkey PRIMARY KEY (id),
+  CONSTRAINT recommendation_log_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_profile(id),
+  CONSTRAINT recommendation_log_chosen_blend_id_fkey FOREIGN KEY (chosen_blend_id) REFERENCES public.blend(id)
+);
+CREATE TABLE public.roaster (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  api_endpoint text,
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  avg_fulfillment_hours numeric,
+  roaster_notes text,
+  CONSTRAINT roaster_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.shipment (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  order_id uuid,
+  roaster_id uuid,
+  tracking_number text,
+  carrier text,
+  status text DEFAULT 'label_created'::text,
+  postage_cost numeric,
+  shipped_at timestamp with time zone,
+  estimated_delivery timestamp with time zone,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT shipment_pkey PRIMARY KEY (id),
+  CONSTRAINT shipment_order_id_fkey FOREIGN KEY (order_id) REFERENCES public.order(id),
+  CONSTRAINT shipment_roaster_id_fkey FOREIGN KEY (roaster_id) REFERENCES public.roaster(id)
+);
+CREATE TABLE public.subscription (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid,
+  household_id uuid,
+  status text DEFAULT 'active'::text,
+  frequency_days integer DEFAULT 30,
+  next_delivery_date date,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT subscription_pkey PRIMARY KEY (id),
+  CONSTRAINT subscription_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_profile(id),
+  CONSTRAINT subscription_household_id_fkey FOREIGN KEY (household_id) REFERENCES public.household(id)
+);
+CREATE TABLE public.user_archetype_tuning (
+  user_id uuid NOT NULL,
+  archetype_id uuid NOT NULL,
+  dimension_id uuid NOT NULL,
+  user_selected_offset numeric,
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT user_archetype_tuning_pkey PRIMARY KEY (user_id, archetype_id, dimension_id),
+  CONSTRAINT user_archetype_tuning_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_profile(id),
+  CONSTRAINT user_archetype_tuning_archetype_id_fkey FOREIGN KEY (archetype_id) REFERENCES public.archetype(id),
+  CONSTRAINT user_archetype_tuning_dimension_id_fkey FOREIGN KEY (dimension_id) REFERENCES public.dimension(id)
+);
+CREATE TABLE public.user_coffee_profile (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid,
+  archetype_id uuid,
+  match_rank integer NOT NULL,
+  match_confidence numeric,
+  is_active boolean DEFAULT true,
+  assigned_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT user_coffee_profile_pkey PRIMARY KEY (id),
+  CONSTRAINT user_coffee_profile_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_profile(id),
+  CONSTRAINT user_coffee_profile_archetype_id_fkey FOREIGN KEY (archetype_id) REFERENCES public.archetype(id)
+);
+CREATE TABLE public.user_email (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid,
+  email_address text NOT NULL UNIQUE,
+  is_primary boolean DEFAULT false,
+  is_verified boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT user_email_pkey PRIMARY KEY (id),
+  CONSTRAINT user_email_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_profile(id)
+);
+CREATE TABLE public.user_phone (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid,
+  phone_number text NOT NULL UNIQUE,
+  is_primary boolean DEFAULT false,
+  is_verified boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT user_phone_pkey PRIMARY KEY (id),
+  CONSTRAINT user_phone_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_profile(id)
+);
+CREATE TABLE public.user_profile (
+  id uuid NOT NULL,
+  first_name text,
+  last_name text,
+  household_id uuid,
+  is_household_admin boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  stripe_customer_id text,
+  accepts_marketing boolean DEFAULT false,
+  date_of_birth date,
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  user_type_id uuid,
+  CONSTRAINT user_profile_pkey PRIMARY KEY (id),
+  CONSTRAINT user_profile_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id),
+  CONSTRAINT user_profile_household_id_fkey FOREIGN KEY (household_id) REFERENCES public.household(id),
+  CONSTRAINT user_profile_user_type_id_fkey FOREIGN KEY (user_type_id) REFERENCES public.user_type(id)
+);
+CREATE TABLE public.user_roaster_link (
+  user_id uuid NOT NULL,
+  roaster_id uuid NOT NULL,
+  role_at_roastery text,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT user_roaster_link_pkey PRIMARY KEY (user_id, roaster_id),
+  CONSTRAINT user_roaster_link_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_profile(id),
+  CONSTRAINT user_roaster_link_roaster_id_fkey FOREIGN KEY (roaster_id) REFERENCES public.roaster(id)
+);
+CREATE TABLE public.user_type (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  name text NOT NULL UNIQUE,
+  description text,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT user_type_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.user_vector_state (
+  user_id uuid NOT NULL,
+  dimension_id uuid NOT NULL,
+  declared_score numeric,
+  behavior_score numeric,
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT user_vector_state_pkey PRIMARY KEY (user_id, dimension_id),
+  CONSTRAINT user_vector_state_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_profile(id),
+  CONSTRAINT user_vector_state_dimension_id_fkey FOREIGN KEY (dimension_id) REFERENCES public.dimension(id)
+);
