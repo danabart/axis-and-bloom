@@ -31,6 +31,15 @@ app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200 }));
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
+app.get('/health/db', async (_req, res) => {
+  try {
+    const r = await db.query("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename");
+    res.json({ connected: true, tableCount: r.rows.length, tables: r.rows.map((x: any) => x.tablename) });
+  } catch (e: any) {
+    res.status(500).json({ connected: false, error: e.message });
+  }
+});
+
 app.use('/api/auth', authRouter);
 app.use('/api/quiz', quizRouter);
 app.use('/api/shop', shopRouter);
