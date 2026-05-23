@@ -89,10 +89,16 @@ CREATE TABLE IF NOT EXISTS user_profile (
   updated_at       TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
 
--- Close the circular FK now that user_profile exists
-ALTER TABLE household
-  ADD CONSTRAINT IF NOT EXISTS fk_primary_billing
-  FOREIGN KEY (primary_billing_user_id) REFERENCES user_profile(id);
+-- Close the circular FK now that user_profile exists (idempotent)
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE constraint_name = 'fk_primary_billing' AND table_name = 'household'
+  ) THEN
+    ALTER TABLE household ADD CONSTRAINT fk_primary_billing
+      FOREIGN KEY (primary_billing_user_id) REFERENCES user_profile(id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS user_email (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
