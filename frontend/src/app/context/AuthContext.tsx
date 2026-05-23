@@ -35,20 +35,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsub;
   }, []);
 
+  async function syncUser() {
+    const token = await auth.currentUser?.getIdToken();
+    if (!token) return;
+    try {
+      await fetch('/api/auth/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+    } catch (e) {
+      console.error('Failed to sync user:', e);
+    }
+  }
+
   const signIn = async (email: string, password: string) => {
     await signInWithEmailAndPassword(auth, email, password);
+    await syncUser();
   };
 
   const signUp = async (email: string, password: string) => {
     await createUserWithEmailAndPassword(auth, email, password);
+    await syncUser();
   };
 
   const signInWithGoogle = async () => {
     await signInWithPopup(auth, new GoogleAuthProvider());
+    await syncUser();
   };
 
   const signInWithApple = async () => {
     await signInWithPopup(auth, new OAuthProvider('apple.com'));
+    await syncUser();
   };
 
   const logout = async () => {

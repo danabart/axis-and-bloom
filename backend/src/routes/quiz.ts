@@ -10,22 +10,28 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
   if (!archetype || !scores || !answers) { res.status(400).json({ error: 'archetype, scores, and answers required' }); return; }
 
   try {
-    // Upsert user
-    await db.query(
-      'INSERT INTO users (uid, email) VALUES ($1, $2) ON CONFLICT (uid) DO UPDATE SET updated_at = NOW()',
-      [req.uid, req.email ?? '']
+    // Upsert user_profile and get its id
+    const profileResult = await db.query(
+      `INSERT INTO user_profile (firebase_uid)
+       VALUES ($1)
+       ON CONFLICT (firebase_uid) DO UPDATE SET updated_at = NOW()
+       RETURNING id`,
+      [req.uid]
     );
+    const profileId = profileResult.rows[0].id;
 
-    // Save quiz result
-    const result = await db.query(
-      'INSERT INTO quiz_results (uid, archetype, scores, answers, decaf) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-      [req.uid, archetype, JSON.stringify(scores), JSON.stringify(answers), decaf ?? false]
+    // Save quiz session (archetype name + full scores stored in context_data until seed data exists)
+    const sessionResult = await db.query(
+      `INSERT INTO quiz_session (user_id, context_data)
+       VALUES ($1, $2)
+       RETURNING id`,
+      [profileId, JSON.stringify({ archetype, scores, answers, decaf: decaf ?? false })]
     );
 
     // Get AI recommendation
     const recommendation = await getRecommendation(archetype, decaf ?? false);
 
-    res.json({ id: result.rows[0].id, recommendation });
+    res.json({ id: sessionResult.rows[0].id, recommendation });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to save quiz result' });
@@ -35,7 +41,11 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
 router.get('/results/latest', requireAuth, async (req: AuthRequest, res) => {
   try {
     const result = await db.query(
-      'SELECT * FROM quiz_results WHERE uid = $1 ORDER BY created_at DESC LIMIT 1',
+      `SELECT qs.* FROM quiz_session qs
+       JOIN user_profile up ON up.id = qs.user_id
+       WHERE up.firebase_uid = $1
+       ORDER BY qs.completed_at DESC
+       LIMIT 1`,
       [req.uid]
     );
     res.json(result.rows[0] ?? null);
