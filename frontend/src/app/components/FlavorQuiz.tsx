@@ -228,11 +228,8 @@ export default function FlavorQuiz() {
           <div className="w-full max-w-[480px] flex flex-col justify-center mx-auto lg:ml-[15%]">
             <AnimatePresence mode="wait">
               <motion.div key={currentStep} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.7 }} className="flex flex-col">
-                <div className="text-[10px] uppercase tracking-[0.3em] text-[#a33726]/40 mb-2">
+                <div className="text-[10px] uppercase tracking-[0.3em] text-[#a33726]/40 mb-6">
                   {currentStep + 1} / {questions.length}
-                </div>
-                <div className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/30 mb-6">
-                  {question.category}
                 </div>
                 <h1 className="text-[2rem] lg:text-[2.8rem] text-[#ee5974] leading-[1.15] font-normal tracking-tight mb-12">
                   {question.text}
