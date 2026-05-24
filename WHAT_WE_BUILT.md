@@ -425,6 +425,10 @@ ssl: process.env.NODE_ENV === 'production' && !isUnixSocket ? { rejectUnauthoriz
 **Error**: Profile page silently showed "no archetype" fallback; backend was returning 500  
 **Fix**: `users.ts` was written against a pre-migration placeholder schema (`users`, `quiz_results`, `orders` tables with a `uid` column). Rewrote the route to query the real 38-table schema: `user_profile` (firebase_uid), `user_email`, `quiz_session` → `archetype`, `"order"` + `order_line_item`.
 
+### 12. Quiz V2 — replaced 15-question system with 4-question design
+**Change**: Original quiz had 15 questions, 6 archetypes (Floral, Fruity, Balanced, Chocolate, Spicy, Experimental) and a complex multi-dimensional scoring system.  
+**New design** (from `Quiz V2.xlsx`): 4 focused questions, 3 archetypes, simple vote-counting — each answer = +1 for one archetype, most votes wins. Q3 has a neutral "I'm not sure" option that awards no votes.
+
 ### 11. Password reset emails going to spam
 **Cause**: Firebase sends from `noreply@axis-and-bloom-prod.firebaseapp.com` — unknown domain, no SPF/DKIM for axisandbloomcoffee.com  
 **Fix**: Replaced Firebase's `sendPasswordResetEmail()` with a backend route (`POST /api/auth/reset-password`) that uses `admin.auth().generatePasswordResetLink()` + Resend SDK to send from `noreply@axisandbloomcoffee.com` with proper DKIM/SPF. Added DNS records in Namecheap.
@@ -475,6 +479,7 @@ This keeps Firebase's secure token generation while giving us full control over 
 | Email/password auth | ✅ Working |
 | Google sign-in | ✅ Working (was already enabled) |
 | Apple sign-in | ⚠️ Not configured |
+| Flavor quiz (V2) | ✅ 4 questions, 3 archetypes (Chocolate & Nutty, Balanced & Sweet, Fruity & Complex) |
 | Transactional email | ✅ Resend — sends from noreply@axisandbloomcoffee.com |
 | Claude AI chat | ✅ Wired up, API key in Secret Manager |
 | Shopify | ⚠️ Stubbed — waiting for roastery account |
@@ -482,12 +487,45 @@ This keeps Firebase's secure token generation while giving us full control over 
 
 ---
 
+## Flavor Quiz (V2)
+
+The quiz lives in `frontend/src/app/components/FlavorQuiz.tsx`. V2 (from `Quiz V2.xlsx`) replaced the original 15-question, 6-archetype system with a focused 4-question, 3-archetype design.
+
+### Questions
+
+| # | Category | Question |
+|---|---|---|
+| 1 | Identity | How would you describe your relationship with coffee? |
+| 2 | Food instinct | Someone puts something in front of you as a treat. Which do you reach for? |
+| 3 | Black coffee reaction | You try a new coffee black. What's your first reaction? |
+| 4 | Disappointment | Which coffee would disappoint you the most? |
+
+### Archetypes
+
+| Archetype | Color | Personality |
+|---|---|---|
+| **Chocolate & Nutty** | `#a54c2d` | Daily ritual drinker — bold, rich, comforting, particular |
+| **Balanced & Sweet** | `#d1ac11` | Reliable habit — smooth, easy, approachable |
+| **Fruity & Complex** | `#ca445f` | Curious discoverer — bright, lively, complex |
+
+### Scoring logic
+
+- Each answer = **+1 vote** for one archetype
+- Q3 option D ("I'm not sure") is **neutral** — no vote awarded
+- Most votes at the end wins
+- **Tie-break order**: Balanced > Chocolate > Fruity
+
+### On completion
+
+If the user is signed in, the quiz calls `POST /api/quiz/results` with `{ archetype, scores, answers, decaf: false }`. The result is saved to `quiz_session` in the database and displayed on the Profile page.
+
+---
+
 ## What's Still To Do
 
 ### Ready to do now
 1. **Seed reference data** — the schema has all the tables but they're empty. Need to insert: flavor `dimension` rows, `archetype` rows with their flavor vectors, quiz `question` and `answer` rows, and at least some `blend` rows. This is what the quiz and AI recommendation engine will run on.
-2. **Wire the quiz to the vector engine** — `FlavorQuiz.tsx` needs to call `/api/quiz/complete`, which should compute the user's dimension vector and assign an archetype.
-3. **Wire AI recommendations** — the agent route needs to fetch the user's `user_coffee_profile` and use it to narrow recommendations.
+2. **Wire AI recommendations** — the agent route needs to fetch the user's `user_coffee_profile` and use it to narrow recommendations.
 
 ### When your Shopify/roastery account is ready
 4. **Enable Shopify** — add 3 secrets to Secret Manager (`SHOPIFY_STORE_DOMAIN`, `SHOPIFY_STOREFRONT_TOKEN`, `SHOPIFY_ADMIN_TOKEN`). No code changes needed.
