@@ -2,8 +2,6 @@ import React, { useState } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft } from 'lucide-react';
-import { sendPasswordResetEmail } from 'firebase/auth';
-import { auth } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 
 export default function SignIn() {
@@ -39,7 +37,12 @@ export default function SignIn() {
   const handleForgotPassword = async () => {
     if (!email) { setError('Enter your email address above first.'); return; }
     try {
-      await sendPasswordResetEmail(auth, email);
+      const res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      if (!res.ok) throw new Error('Could not send reset email.');
       setResetSent(true);
       setError('');
     } catch (err: any) {
