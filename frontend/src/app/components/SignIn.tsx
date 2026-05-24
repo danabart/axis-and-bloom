@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft } from 'lucide-react';
+import { sendPasswordResetEmail } from 'firebase/auth';
+import { auth } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
 
 export default function SignIn() {
@@ -10,6 +12,7 @@ export default function SignIn() {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [resetSent, setResetSent] = useState(false);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { signIn, signUp, signInWithGoogle, signInWithApple } = useAuth();
@@ -27,11 +30,35 @@ export default function SignIn() {
       }
       navigate('/profile');
     } catch (err: any) {
-      setError(err.message ?? 'Authentication failed');
+      setError(friendlyError(err.message ?? 'Authentication failed'));
     } finally {
       setIsLoading(false);
     }
   };
+
+  const handleForgotPassword = async () => {
+    if (!email) { setError('Enter your email address above first.'); return; }
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setResetSent(true);
+      setError('');
+    } catch (err: any) {
+      setError(err.message ?? 'Could not send reset email.');
+    }
+  };
+
+  // Map Firebase error codes to friendlier messages
+  function friendlyError(msg: string): string {
+    if (msg.includes('wrong-password') || msg.includes('invalid-credential'))
+      return 'Wrong password. Try "Forgot password?" below, or sign in with Google if you created your account that way.';
+    if (msg.includes('user-not-found'))
+      return 'No account found with that email. Use "Create Profile" to sign up.';
+    if (msg.includes('email-already-in-use'))
+      return 'An account with this email already exists. Switch to "Sign In".';
+    if (msg.includes('weak-password'))
+      return 'Password must be at least 6 characters.';
+    return msg;
+  }
 
   const handleGoogle = async () => {
     try {
@@ -91,6 +118,7 @@ export default function SignIn() {
           </div>
 
           {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
+          {resetSent && <p className="text-sm text-green-700 mb-4">Password reset email sent — check your inbox (and spam folder).</p>}
 
           <AnimatePresence mode="wait">
             <motion.form
@@ -127,6 +155,15 @@ export default function SignIn() {
                 >
                   {isLoading ? 'Processing...' : (activeTab === 'create' ? 'Save my taste profile' : 'Sign In')}
                 </button>
+                {activeTab === 'signin' && (
+                  <button
+                    type="button"
+                    onClick={handleForgotPassword}
+                    className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 hover:text-[#a33726] transition-colors"
+                  >
+                    Forgot password?
+                  </button>
+                )}
               </div>
 
               <div className="mt-12 flex flex-col gap-4">
