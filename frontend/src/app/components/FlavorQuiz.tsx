@@ -1,81 +1,49 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { saveQuizResult } from '../lib/api';
 
-// ─── Quiz V2 — 4 questions, 3 archetypes ─────────────────────────────────────
-// Each answer maps to one archetype (+1 vote). Most votes wins.
-// Option with archetype: null is treated as neutral (no vote awarded).
+// ─── API types ────────────────────────────────────────────────────────────────
+
+interface ApiAnswer {
+  id: string;
+  text: string;
+  archetype_id: string | null;
+  archetype_name: string | null; // e.g. 'Chocolate & Nutty' | 'Balanced & Sweet' | 'Fruity & Complex' | null
+}
+
+interface ApiQuestion {
+  question_id: string;
+  q_number: number;
+  q_text: string;
+  answers: ApiAnswer[];
+}
+
+// ─── Static question images (keyed by q_number) ───────────────────────────────
+// Images are managed in the frontend; questions & answers come from the DB.
+
+const QUESTION_IMAGES: Record<number, string> = {
+  1: 'https://i.imgur.com/NQRCzNU.jpeg',
+  2: 'https://i.imgur.com/k2KrVf1.jpeg',
+  3: 'https://i.imgur.com/ahLdfc7.jpeg',
+  4: 'https://i.imgur.com/S46KQYC.jpeg',
+};
+
+// ─── Archetype short-key helpers ──────────────────────────────────────────────
 
 type Archetype = 'chocolate' | 'balanced' | 'fruity';
 
-interface Option {
-  text: string;
-  archetype: Archetype | null;
-}
+const ARCHETYPE_NAME_TO_KEY: Record<string, Archetype> = {
+  'Chocolate & Nutty': 'chocolate',
+  'Balanced & Sweet':  'balanced',
+  'Fruity & Complex':  'fruity',
+};
 
-interface Question {
-  id: number;
-  category: string;
-  text: string;
-  image: string;
-  options: Option[];
-}
-
-const questions: Question[] = [
-  {
-    id: 1,
-    category: 'Identity',
-    text: 'How would you describe your relationship with coffee?',
-    image: 'https://i.imgur.com/NQRCzNU.jpeg',
-    options: [
-      { text: "It's a daily ritual. I'm particular about it.", archetype: 'chocolate' },
-      { text: "It's a reliable habit. I just like having it.", archetype: 'balanced' },
-      { text: "It's something I'm still discovering. I'm curious about it.", archetype: 'fruity' },
-    ],
-  },
-  {
-    id: 2,
-    category: 'Food instinct',
-    text: 'Someone puts something in front of you as a treat. Which do you reach for?',
-    image: 'https://i.imgur.com/k2KrVf1.jpeg',
-    options: [
-      { text: 'Something rich and comforting — dark chocolate, roasted nuts, a warm brownie.', archetype: 'chocolate' },
-      { text: 'Something soft and sweet — a ripe peach, a vanilla biscuit, caramel.', archetype: 'balanced' },
-      { text: 'Something fresh and lively — a green apple, fresh berries, citrus.', archetype: 'fruity' },
-    ],
-  },
-  {
-    id: 3,
-    category: 'Black coffee reaction',
-    text: 'You try a new coffee black. What\'s your first reaction?',
-    image: 'https://i.imgur.com/ahLdfc7.jpeg',
-    options: [
-      { text: 'It feels complete. I\'d drink it as is, or add milk to make it even richer.', archetype: 'chocolate' },
-      { text: "It's fine, easy to drink. I might add something to smooth it out.", archetype: 'balanced' },
-      { text: 'Interesting… what flavors am I getting here?', archetype: 'fruity' },
-      { text: "I'm not sure. I don't usually drink it black.", archetype: null },
-    ],
-  },
-  {
-    id: 4,
-    category: 'Disappointment',
-    text: 'Which coffee would disappoint you the most?',
-    image: 'https://i.imgur.com/S46KQYC.jpeg',
-    options: [
-      { text: 'Feels too thin or watery.', archetype: 'chocolate' },
-      { text: 'Feels too heavy or strong.', archetype: 'balanced' },
-      { text: 'Every sip tastes exactly the same.', archetype: 'fruity' },
-    ],
-  },
-];
-
-// ─── Archetypes ───────────────────────────────────────────────────────────────
+// ─── Archetypes display data ──────────────────────────────────────────────────
 
 const ARCHETYPES = {
   chocolate: {
-    id: 'chocolate',
     name: 'Chocolate & Nutty',
     color: '#a54c2d',
     description: 'A rich, bold, and comforting profile. You know exactly what you like and you like it satisfying.',
@@ -86,68 +54,97 @@ const ARCHETYPES = {
     ],
     coffees: [
       { name: 'Sumatra Mandheling', flavor: 'Dark Chocolate, Cedar, Walnut', match: '97%' },
-      { name: 'Mexico Cerrado', flavor: 'Cocoa Nibs, Hazelnut, Molasses', match: '91%' },
+      { name: 'Mexico Cerrado',     flavor: 'Cocoa Nibs, Hazelnut, Molasses', match: '91%' },
     ],
   },
   balanced: {
-    id: 'balanced',
     name: 'Balanced & Sweet',
     color: '#d1ac11',
-    description: 'A smooth, round, and approachable profile. You want coffee that\'s easy, pleasant, and never surprising.',
+    description: "A smooth, round, and approachable profile. You want coffee that's easy, pleasant, and never surprising.",
     features: [
       'You prefer lower acidity and a round body',
       'You enjoy caramelized and nutty sweetness',
       'You appreciate a coffee that never gets in the way',
     ],
     coffees: [
-      { name: 'Brazil Los Santos', flavor: 'Milk Chocolate, Caramel, Peanut', match: '99%' },
-      { name: 'Guatemala Honey Process', flavor: 'Brown Sugar, Red Apple, Pecan', match: '94%' },
+      { name: 'Brazil Los Santos',        flavor: 'Milk Chocolate, Caramel, Peanut', match: '99%' },
+      { name: 'Guatemala Honey Process',  flavor: 'Brown Sugar, Red Apple, Pecan',   match: '94%' },
     ],
   },
   fruity: {
-    id: 'fruity',
     name: 'Fruity & Complex',
     color: '#ca445f',
-    description: 'A vibrant, curious, and layered profile. You\'re here for the experience, not just the caffeine.',
+    description: "A vibrant, curious, and layered profile. You're here for the experience, not just the caffeine.",
     features: [
       'You prefer bright, juicy acidity and lively notes',
       'You enjoy vibrant fruit-forward flavors',
       'You appreciate a coffee that keeps you guessing',
     ],
     coffees: [
-      { name: 'Kenya Guji', flavor: 'Blueberry, Peach, Rose', match: '96%' },
-      { name: 'Costa Rica Pink Bourbon', flavor: 'Strawberry, Watermelon, Hibiscus', match: '89%' },
+      { name: 'Kenya Guji',              flavor: 'Blueberry, Peach, Rose',             match: '96%' },
+      { name: 'Costa Rica Pink Bourbon', flavor: 'Strawberry, Watermelon, Hibiscus',   match: '89%' },
     ],
   },
 };
 
 // ─── Scoring ──────────────────────────────────────────────────────────────────
+// Count archetype votes from DB answer data. Neutral answers (archetype_name = null) award no vote.
 
-function computeArchetype(answers: Record<number, number>): Archetype {
+function computeArchetype(answers: Record<number, number>, questions: ApiQuestion[]): Archetype {
   const scores: Record<Archetype, number> = { chocolate: 0, balanced: 0, fruity: 0 };
 
   Object.entries(answers).forEach(([qIdx, optIdx]) => {
-    const option = questions[parseInt(qIdx)]?.options[optIdx];
-    if (option?.archetype) scores[option.archetype]++;
+    const q      = questions[parseInt(qIdx)];
+    const answer = q?.answers[optIdx];
+    if (answer?.archetype_name) {
+      const key = ARCHETYPE_NAME_TO_KEY[answer.archetype_name];
+      if (key) scores[key]++;
+    }
   });
 
   // Most votes wins; tie-break: balanced > chocolate > fruity (most accessible first)
   return (Object.entries(scores) as [Archetype, number][])
-    .sort((a, b) => b[1] - a[1] || ['balanced', 'chocolate', 'fruity'].indexOf(a[0]) - ['balanced', 'chocolate', 'fruity'].indexOf(b[0]))
-    [0][0];
+    .sort(
+      (a, b) =>
+        b[1] - a[1] ||
+        ['balanced', 'chocolate', 'fruity'].indexOf(a[0]) -
+        ['balanced', 'chocolate', 'fruity'].indexOf(b[0])
+    )[0][0];
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function FlavorQuiz() {
-  const [hasStarted, setHasStarted] = useState(false);
-  const [userName, setUserName] = useState('');
+  const [hasStarted, setHasStarted]   = useState(false);
+  const [userName, setUserName]       = useState('');
   const [currentStep, setCurrentStep] = useState(0);
-  const [answers, setAnswers] = useState<Record<number, number>>({});
-  const [isComplete, setIsComplete] = useState(false);
+  const [answers, setAnswers]         = useState<Record<number, number>>({});
+  const [isComplete, setIsComplete]   = useState(false);
+
+  // API state
+  const [questions, setQuestions]   = useState<ApiQuestion[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [loadError, setLoadError]   = useState(false);
+
   const { user } = useAuth();
 
-  React.useEffect(() => {
+  // Fetch questions from backend on mount
+  useEffect(() => {
+    fetch('/api/quiz/questions')
+      .then(r => r.json())
+      .then(data => {
+        if (data.questions?.length) {
+          setQuestions(data.questions);
+        } else {
+          setLoadError(true);
+        }
+      })
+      .catch(() => setLoadError(true))
+      .finally(() => setLoading(false));
+  }, []);
+
+  // Pick up name pre-filled from another page (e.g. homepage)
+  useEffect(() => {
     const savedName = sessionStorage.getItem('axisBloomCustomerName');
     if (savedName) {
       setUserName(savedName);
@@ -156,7 +153,10 @@ export default function FlavorQuiz() {
     }
   }, []);
 
-  const archetypeKey = useMemo(() => computeArchetype(answers), [answers]);
+  const archetypeKey = useMemo(
+    () => (questions.length ? computeArchetype(answers, questions) : 'balanced'),
+    [answers, questions]
+  );
   const archetype = ARCHETYPES[archetypeKey];
 
   const handleNext = () => {
@@ -165,26 +165,66 @@ export default function FlavorQuiz() {
     } else {
       setIsComplete(true);
       if (user) {
-        const scores = { chocolate: 0, balanced: 0, fruity: 0 };
+        // Recompute scores for the API payload
+        const scores: Record<Archetype, number> = { chocolate: 0, balanced: 0, fruity: 0 };
         Object.entries(answers).forEach(([qIdx, optIdx]) => {
-          const opt = questions[parseInt(qIdx)]?.options[optIdx];
-          if (opt?.archetype) scores[opt.archetype]++;
+          const q      = questions[parseInt(qIdx)];
+          const answer = q?.answers[optIdx];
+          if (answer?.archetype_name) {
+            const key = ARCHETYPE_NAME_TO_KEY[answer.archetype_name];
+            if (key) scores[key]++;
+          }
         });
-        saveQuizResult({ archetype: archetypeKey, scores, answers, decaf: false }).catch(console.error);
+        // Send the full DB archetype name so backend can resolve the UUID
+        saveQuizResult({ archetype: archetype.name, scores, answers, decaf: false })
+          .catch(console.error);
       }
     }
   };
 
-  // ── Name screen ─────────────────────────────────────────────────────────────
+  // ── Loading state ────────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div
+        className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center"
+        style={{ fontFamily: '"Genova", sans-serif' }}
+      >
+        <p className="text-[#a33726]/50 text-sm uppercase tracking-[0.2em]">Loading…</p>
+      </div>
+    );
+  }
+
+  // ── Error state ──────────────────────────────────────────────────────────────
+  if (loadError || !questions.length) {
+    return (
+      <div
+        className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center"
+        style={{ fontFamily: '"Genova", sans-serif' }}
+      >
+        <p className="text-[#a33726]/70 text-sm uppercase tracking-[0.2em]">
+          Quiz unavailable. Please try again later.
+        </p>
+      </div>
+    );
+  }
+
+  // ── Name screen ──────────────────────────────────────────────────────────────
   if (!hasStarted) {
     return (
-      <div className="relative w-full min-h-screen bg-[#f2f1ea] flex overflow-hidden" style={{ fontFamily: '"Genova", sans-serif' }}>
+      <div
+        className="relative w-full min-h-screen bg-[#f2f1ea] flex overflow-hidden"
+        style={{ fontFamily: '"Genova", sans-serif' }}
+      >
         <div className="absolute inset-0">
           <img src="https://i.imgur.com/3NAnXgR.jpeg" alt="" className="w-full h-full object-cover" />
         </div>
         <div className="relative z-10 w-full p-8 pt-16 md:p-16 lg:p-24 flex flex-col justify-start items-start">
-          <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.7 }}
-            className="w-full max-w-[480px] flex flex-col items-start">
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.7 }}
+            className="w-full max-w-[480px] flex flex-col items-start"
+          >
             <h1 className="text-[2.5rem] lg:text-[3.5rem] text-[#ee5974] leading-[1.05] font-normal tracking-tight mb-8">
               Whose palate are we profiling today?
             </h1>
@@ -200,7 +240,11 @@ export default function FlavorQuiz() {
               <button
                 onClick={() => setHasStarted(true)}
                 disabled={!userName.trim()}
-                className={`text-[10px] uppercase tracking-[0.3em] font-medium transition-all pb-1 border-b ${!userName.trim() ? 'text-[#a33726] opacity-30 border-transparent cursor-not-allowed' : 'text-[#a33726] border-[#a33726]/40 hover:border-[#ee5974] hover:text-[#ee5974]'}`}
+                className={`text-[10px] uppercase tracking-[0.3em] font-medium transition-all pb-1 border-b ${
+                  !userName.trim()
+                    ? 'text-[#a33726] opacity-30 border-transparent cursor-not-allowed'
+                    : 'text-[#a33726] border-[#a33726]/40 hover:border-[#ee5974] hover:text-[#ee5974]'
+                }`}
               >
                 Begin Profile
               </button>
@@ -214,36 +258,61 @@ export default function FlavorQuiz() {
   // ── Question screen ──────────────────────────────────────────────────────────
   if (!isComplete) {
     const question = questions[currentStep];
+    const image    = QUESTION_IMAGES[question.q_number] ?? QUESTION_IMAGES[1];
+
     return (
-      <div className="w-full min-h-screen flex flex-col lg:flex-row bg-[#f2f1ea]" style={{ fontFamily: '"Genova", sans-serif' }}>
+      <div
+        className="w-full min-h-screen flex flex-col lg:flex-row bg-[#f2f1ea]"
+        style={{ fontFamily: '"Genova", sans-serif' }}
+      >
+        {/* Left — photo */}
         <div className="w-full lg:w-1/2 h-[40vh] lg:h-screen relative overflow-hidden bg-[#1a1a1a]">
           <AnimatePresence mode="wait">
-            <motion.div key={currentStep} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 1.2 }} className="absolute inset-0">
-              <img src={question.image} alt={question.text} className="w-full h-full object-cover" />
+            <motion.div
+              key={currentStep}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 1.2 }}
+              className="absolute inset-0"
+            >
+              <img src={image} alt={question.q_text} className="w-full h-full object-cover" />
             </motion.div>
           </AnimatePresence>
         </div>
 
+        {/* Right — question */}
         <div className="w-full lg:w-1/2 min-h-[60vh] lg:h-screen bg-[#f2f1ea] px-12 py-16 lg:p-24 flex flex-col justify-center relative overflow-y-auto">
           <div className="w-full max-w-[480px] flex flex-col justify-center mx-auto lg:ml-[15%]">
             <AnimatePresence mode="wait">
-              <motion.div key={currentStep} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.7 }} className="flex flex-col">
+              <motion.div
+                key={currentStep}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ duration: 0.7 }}
+                className="flex flex-col"
+              >
                 <div className="text-[10px] uppercase tracking-[0.3em] text-[#a33726]/40 mb-6">
                   {currentStep + 1} / {questions.length}
                 </div>
                 <h1 className="text-[2rem] lg:text-[2.8rem] text-[#ee5974] leading-[1.15] font-normal tracking-tight mb-12">
-                  {question.text}
+                  {question.q_text}
                 </h1>
                 <div className="flex flex-col gap-4 w-full">
-                  {question.options.map((option, idx) => {
+                  {question.answers.map((answer, idx) => {
                     const isSelected = answers[currentStep] === idx;
                     return (
                       <button
-                        key={idx}
+                        key={answer.id}
                         onClick={() => setAnswers(prev => ({ ...prev, [currentStep]: idx }))}
-                        className={`w-full text-left text-[1.05rem] lg:text-[1.15rem] tracking-wide transition-all duration-500 px-8 py-5 rounded-[2.5rem] border-[1px] ${isSelected ? 'text-[#ee5974] border-[#ee5974]' : 'text-[#a33726] border-[#a33726]/20 opacity-70 hover:opacity-100 hover:border-[#ee5974]/50 hover:text-[#ee5974]'}`}
+                        className={`w-full text-left text-[1.05rem] lg:text-[1.15rem] tracking-wide transition-all duration-500 px-8 py-5 rounded-[2.5rem] border-[1px] ${
+                          isSelected
+                            ? 'text-[#ee5974] border-[#ee5974]'
+                            : 'text-[#a33726] border-[#a33726]/20 opacity-70 hover:opacity-100 hover:border-[#ee5974]/50 hover:text-[#ee5974]'
+                        }`}
                       >
-                        {option.text}
+                        {answer.text}
                       </button>
                     );
                   })}
@@ -255,12 +324,19 @@ export default function FlavorQuiz() {
               <button
                 onClick={handleNext}
                 disabled={answers[currentStep] === undefined}
-                className={`text-[10px] uppercase tracking-[0.3em] font-medium transition-all pb-1 border-b ${answers[currentStep] === undefined ? 'text-[#a33726] opacity-20 border-transparent cursor-not-allowed' : 'text-[#a33726] border-[#a33726]/30 hover:border-[#ee5974] hover:text-[#ee5974]'}`}
+                className={`text-[10px] uppercase tracking-[0.3em] font-medium transition-all pb-1 border-b ${
+                  answers[currentStep] === undefined
+                    ? 'text-[#a33726] opacity-20 border-transparent cursor-not-allowed'
+                    : 'text-[#a33726] border-[#a33726]/30 hover:border-[#ee5974] hover:text-[#ee5974]'
+                }`}
               >
                 {currentStep < questions.length - 1 ? 'Next Question' : 'See My Profile'}
               </button>
               {!user && (
-                <Link to="/sign-in" className="text-[11px] uppercase tracking-[0.1em] text-[#a33726] opacity-40 hover:opacity-100 transition-opacity mt-8 font-medium">
+                <Link
+                  to="/sign-in"
+                  className="text-[11px] uppercase tracking-[0.1em] text-[#a33726] opacity-40 hover:opacity-100 transition-opacity mt-8 font-medium"
+                >
                   Sign in to save progress
                 </Link>
               )}
@@ -273,19 +349,32 @@ export default function FlavorQuiz() {
 
   // ── Results screen ───────────────────────────────────────────────────────────
   return (
-    <div className="w-full min-h-screen flex flex-col lg:flex-row bg-[#f2f1ea]" style={{ fontFamily: '"Genova", sans-serif' }}>
+    <div
+      className="w-full min-h-screen flex flex-col lg:flex-row bg-[#f2f1ea]"
+      style={{ fontFamily: '"Genova", sans-serif' }}
+    >
       <div className="w-full lg:w-1/2 h-[40vh] lg:h-screen fixed lg:sticky top-0 left-0 overflow-hidden bg-[#1a1a1a]">
         <img src="https://i.imgur.com/3WOJLhq.jpeg" alt="" className="w-full h-full object-cover" />
       </div>
 
       <div className="w-full lg:w-1/2 min-h-[60vh] lg:min-h-screen bg-[#f2f1ea] px-8 py-16 md:px-16 lg:p-24 flex flex-col items-start relative ml-auto z-10 overflow-y-auto">
         <div className="w-full max-w-[480px] flex flex-col mx-auto lg:mx-0">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.2 }} className="w-full">
-
-            <h3 className="text-[10px] uppercase tracking-[0.3em] mb-4 font-medium" style={{ color: archetype.color }}>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.2 }}
+            className="w-full"
+          >
+            <h3
+              className="text-[10px] uppercase tracking-[0.3em] mb-4 font-medium"
+              style={{ color: archetype.color }}
+            >
               {userName.trim() ? `${userName}'s Profile` : 'Your Profile'}
             </h3>
-            <h1 className="text-[3.5rem] lg:text-[4rem] leading-[1.05] font-normal tracking-tight mb-6" style={{ color: archetype.color }}>
+            <h1
+              className="text-[3.5rem] lg:text-[4rem] leading-[1.05] font-normal tracking-tight mb-6"
+              style={{ color: archetype.color }}
+            >
               {archetype.name}
             </h1>
             <p className="text-lg text-[#a33726]/70 font-light leading-relaxed mb-12 font-sans">
@@ -310,14 +399,22 @@ export default function FlavorQuiz() {
               <h2 className="text-2xl text-[#a33726] font-normal mb-8">Coffees selected for you</h2>
               <div className="flex flex-col gap-4">
                 {archetype.coffees.map((coffee, i) => (
-                  <div key={i} className="flex flex-row items-center gap-6 p-4 border border-[#a33726]/20 bg-white/40 hover:bg-white/70 transition-colors">
+                  <div
+                    key={i}
+                    className="flex flex-row items-center gap-6 p-4 border border-[#a33726]/20 bg-white/40 hover:bg-white/70 transition-colors"
+                  >
                     <div className="flex flex-col flex-1 py-2">
                       <div className="flex justify-between items-start mb-1">
                         <h4 className="text-lg text-[#a33726] font-medium">{coffee.name}</h4>
-                        <span className="text-[10px] font-bold px-2 py-1 bg-[#a33726]/10 text-[#a33726] rounded-sm">{coffee.match} Match</span>
+                        <span className="text-[10px] font-bold px-2 py-1 bg-[#a33726]/10 text-[#a33726] rounded-sm">
+                          {coffee.match} Match
+                        </span>
                       </div>
                       <p className="text-sm text-[#a33726]/70 mb-5 font-light">{coffee.flavor}</p>
-                      <Link to="/shop" className="text-[10px] uppercase tracking-[0.2em] font-medium text-[#a33726] hover:text-[#ee5974] transition-colors w-fit border-b border-[#a33726]/30 hover:border-[#ee5974] pb-0.5">
+                      <Link
+                        to="/shop"
+                        className="text-[10px] uppercase tracking-[0.2em] font-medium text-[#a33726] hover:text-[#ee5974] transition-colors w-fit border-b border-[#a33726]/30 hover:border-[#ee5974] pb-0.5"
+                      >
                         Get this coffee
                       </Link>
                     </div>
@@ -334,7 +431,10 @@ export default function FlavorQuiz() {
               {user ? (
                 <p className="text-sm text-[#ee5974]">Profile saved! Check your account.</p>
               ) : (
-                <Link to="/sign-in" className="w-full max-w-[280px] py-4 text-center text-[10px] font-medium uppercase tracking-[0.2em] text-[#f2f1ea] bg-[#a33726] hover:bg-[#ee5974] transition-colors mb-6">
+                <Link
+                  to="/sign-in"
+                  className="w-full max-w-[280px] py-4 text-center text-[10px] font-medium uppercase tracking-[0.2em] text-[#f2f1ea] bg-[#a33726] hover:bg-[#ee5974] transition-colors mb-6"
+                >
                   Save my taste profile
                 </Link>
               )}

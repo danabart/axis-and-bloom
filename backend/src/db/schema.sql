@@ -441,6 +441,81 @@ CREATE TABLE IF NOT EXISTS newsletter_subscriber (
 );
 
 -- ─────────────────────────────────────────────
+-- SEED DATA  (Quiz V2 — idempotent)
+-- Runs on every startup; skipped if already seeded.
+-- ─────────────────────────────────────────────
+
+-- 1. Archetypes (name is UNIQUE — safe to re-run)
+INSERT INTO archetype (name, description) VALUES
+  ('Chocolate & Nutty', 'A rich, bold, and comforting profile. You know exactly what you like and you like it satisfying.'),
+  ('Balanced & Sweet',  'A smooth, round, and approachable profile. You want coffee that''s easy, pleasant, and never surprising.'),
+  ('Fruity & Complex',  'A vibrant, curious, and layered profile. You''re here for the experience, not just the caffeine.')
+ON CONFLICT (name) DO NOTHING;
+
+-- 2. Quiz v2 + questions + answers (only inserts if v2 doesn't exist yet)
+DO $seed$
+DECLARE
+  v_quiz_id  UUID;
+  v_q1_id    UUID;
+  v_q2_id    UUID;
+  v_q3_id    UUID;
+  v_q4_id    UUID;
+  v_choc_id  UUID;
+  v_bal_id   UUID;
+  v_fruit_id UUID;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM quiz WHERE version = 'v2') THEN
+
+    SELECT id INTO v_choc_id  FROM archetype WHERE name = 'Chocolate & Nutty';
+    SELECT id INTO v_bal_id   FROM archetype WHERE name = 'Balanced & Sweet';
+    SELECT id INTO v_fruit_id FROM archetype WHERE name = 'Fruity & Complex';
+
+    INSERT INTO quiz (version, description, is_active)
+      VALUES ('v2', 'Axis & Bloom Flavor Finder — 4 questions', true)
+      RETURNING id INTO v_quiz_id;
+
+    INSERT INTO question (quiz_id, q_number, q_text)
+      VALUES (v_quiz_id, 1, 'How would you describe your relationship with coffee?')
+      RETURNING id INTO v_q1_id;
+
+    INSERT INTO question (quiz_id, q_number, q_text)
+      VALUES (v_quiz_id, 2, 'Someone puts something in front of you as a treat. Which do you reach for?')
+      RETURNING id INTO v_q2_id;
+
+    INSERT INTO question (quiz_id, q_number, q_text)
+      VALUES (v_quiz_id, 3, 'You try a new coffee black. What''s your first reaction?')
+      RETURNING id INTO v_q3_id;
+
+    INSERT INTO question (quiz_id, q_number, q_text)
+      VALUES (v_quiz_id, 4, 'Which coffee would disappoint you the most?')
+      RETURNING id INTO v_q4_id;
+
+    INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
+      (v_q1_id, 'It''s a daily ritual. I''m particular about it.',               v_choc_id),
+      (v_q1_id, 'It''s a reliable habit. I just like having it.',                v_bal_id),
+      (v_q1_id, 'It''s something I''m still discovering. I''m curious about it.', v_fruit_id);
+
+    INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
+      (v_q2_id, 'Something rich and comforting — dark chocolate, roasted nuts, a warm brownie.', v_choc_id),
+      (v_q2_id, 'Something soft and sweet — a ripe peach, a vanilla biscuit, caramel.',         v_bal_id),
+      (v_q2_id, 'Something fresh and lively — a green apple, fresh berries, citrus.',            v_fruit_id);
+
+    -- Option D is neutral (no archetype vote)
+    INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
+      (v_q3_id, 'It feels complete. I''d drink it as is, or add milk to make it even richer.', v_choc_id),
+      (v_q3_id, 'It''s fine, easy to drink. I might add something to smooth it out.',           v_bal_id),
+      (v_q3_id, 'Interesting… what flavors am I getting here?',                                  v_fruit_id),
+      (v_q3_id, 'I''m not sure. I don''t usually drink it black.',                               NULL);
+
+    INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
+      (v_q4_id, 'Feels too thin or watery.',         v_choc_id),
+      (v_q4_id, 'Feels too heavy or strong.',        v_bal_id),
+      (v_q4_id, 'Every sip tastes exactly the same.', v_fruit_id);
+
+  END IF;
+END $seed$;
+
+-- ─────────────────────────────────────────────
 -- INDEXES
 -- ─────────────────────────────────────────────
 
