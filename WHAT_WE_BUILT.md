@@ -271,8 +271,9 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | GET | `/health/db` | No | Returns connected status + all table names |
 | POST | `/api/auth/sync` | Yes | Creates/updates user_profile row after Firebase sign-in |
 | POST | `/api/auth/reset-password` | No | Sends branded password-reset email via Resend from axisandbloomcoffee.com |
-| GET | `/api/quiz/start` | No | Returns quiz questions |
-| POST | `/api/quiz/complete` | Yes | Saves quiz results, returns archetype |
+| GET | `/api/quiz/questions` | No | Returns active quiz questions + answers from DB (with archetype names) |
+| POST | `/api/quiz/results` | Yes | Saves completed quiz session; resolves archetype UUID by name; returns session ID |
+| GET | `/api/quiz/results/latest` | Yes | Returns user's most recent quiz session with archetype name |
 | GET | `/api/shop/products` | No | Returns Shopify products (empty list until Shopify wired) |
 | POST | `/api/shop/order` | Yes | Creates Shopify order |
 | POST | `/api/agent/chat` | Yes | Claude AI chat with coffee context |
@@ -313,7 +314,7 @@ There is no separate migration tool. The schema runs on every backend startup:
 // backend/src/index.ts
 async function start() {
   const schema = readFileSync(join(__dirname, 'db', 'schema.sql'), 'utf-8');
-  await db.query(schema);           // All statements are CREATE TABLE IF NOT EXISTS
+  await db.query(schema);           // CREATE TABLE IF NOT EXISTS + idempotent seed data
   app.listen(PORT, ...);
 }
 ```
@@ -326,6 +327,7 @@ RUN npm run build && cp src/db/schema.sql dist/db/schema.sql
 This means:
 - New tables appear automatically when you deploy a new schema
 - Existing tables and data are never touched
+- Seed data (archetypes, quiz v2, questions, answers) runs on every startup but is fully idempotent — `ON CONFLICT DO NOTHING` for archetypes; a `DO $seed$ IF NOT EXISTS ... END $seed$` block for the quiz
 - To add a column you'd need an ALTER TABLE migration (same pattern — wrap in a DO block checking information_schema)
 
 ---
@@ -429,6 +431,10 @@ ssl: process.env.NODE_ENV === 'production' && !isUnixSocket ? { rejectUnauthoriz
 **Change**: Original quiz had 15 questions, 6 archetypes (Floral, Fruity, Balanced, Chocolate, Spicy, Experimental) and a complex multi-dimensional scoring system.  
 **New design** (from `Quiz V2.xlsx`): 4 focused questions, 3 archetypes, simple vote-counting — each answer = +1 for one archetype, most votes wins. Q3 has a neutral "I'm not sure" option that awards no votes.
 
+### 13. Quiz questions moved from hardcoded frontend to the database
+**Problem**: Quiz questions and answers were hardcoded in `FlavorQuiz.tsx`. Changing a question required a code deploy.  
+**Fix**: Added idempotent seed data to `schema.sql` (archetypes + quiz v2 + 4 questions + 13 answers). Rewrote `quiz.ts` with a `GET /api/quiz/questions` endpoint that serves the active quiz from the DB. Updated `FlavorQuiz.tsx` to fetch questions from the API on mount, with loading and error states. Scoring now uses `archetype_name` strings from the DB response. Any future question changes only require a DB edit, not a code deploy.
+
 ### 11. Password reset emails going to spam
 **Cause**: Firebase sends from `noreply@axis-and-bloom-prod.firebaseapp.com` — unknown domain, no SPF/DKIM for axisandbloomcoffee.com  
 **Fix**: Replaced Firebase's `sendPasswordResetEmail()` with a backend route (`POST /api/auth/reset-password`) that uses `admin.auth().generatePasswordResetLink()` + Resend SDK to send from `noreply@axisandbloomcoffee.com` with proper DKIM/SPF. Added DNS records in Namecheap.
@@ -479,7 +485,7 @@ This keeps Firebase's secure token generation while giving us full control over 
 | Email/password auth | ✅ Working |
 | Google sign-in | ✅ Working (was already enabled) |
 | Apple sign-in | ⚠️ Not configured |
-| Flavor quiz (V2) | ✅ 4 questions, 3 archetypes (Chocolate & Nutty, Balanced & Sweet, Fruity & Complex) |
+| Flavor quiz (V2) | ✅ 4 questions, 3 archetypes — fully DB-driven (questions served from API, not hardcoded) |
 | Transactional email | ✅ Resend — sends from noreply@axisandbloomcoffee.com |
 | Claude AI chat | ✅ Wired up, API key in Secret Manager |
 | Shopify | ⚠️ Stubbed — waiting for roastery account |
@@ -489,7 +495,7 @@ This keeps Firebase's secure token generation while giving us full control over 
 
 ## Flavor Quiz (V2)
 
-The quiz lives in `frontend/src/app/components/FlavorQuiz.tsx`. V2 (from `Quiz V2.xlsx`) replaced the original 15-question, 6-archetype system with a focused 4-question, 3-archetype design.
+The quiz lives in `frontend/src/app/components/FlavorQuiz.tsx`. V2 (from `Quiz V2.xlsx`) replaced the original 15-question, 6-archetype system with a focused 4-question, 3-archetype design. **Questions and answers are no longer hardcoded** — they are seeded into the database and fetched at runtime via `GET /api/quiz/questions`.
 
 ### Questions
 
@@ -515,17 +521,25 @@ The quiz lives in `frontend/src/app/components/FlavorQuiz.tsx`. V2 (from `Quiz V
 - Most votes at the end wins
 - **Tie-break order**: Balanced > Chocolate > Fruity
 
+### How the frontend fetches questions
+
+```
+mount → GET /api/quiz/questions
+     ← { quizId, questions: [{ q_number, q_text, answers: [{ id, text, archetype_name }] }] }
+```
+
+The frontend maps `archetype_name` (`'Chocolate & Nutty'` etc.) to a short display key using a local lookup table. Question images are still managed in the frontend (keyed by `q_number`) since images aren't stored in the DB.
+
 ### On completion
 
-If the user is signed in, the quiz calls `POST /api/quiz/results` with `{ archetype, scores, answers, decaf: false }`. The result is saved to `quiz_session` in the database and displayed on the Profile page.
+If the user is signed in, the quiz calls `POST /api/quiz/results` with `{ archetype: 'Chocolate & Nutty', scores, answers, decaf: false }`. The backend resolves the archetype name to its UUID and saves the session to `quiz_session` with the real FK. The result is also returned immediately so the results screen can display it.
 
 ---
 
 ## What's Still To Do
 
 ### Ready to do now
-1. **Seed reference data** — the schema has all the tables but they're empty. Need to insert: flavor `dimension` rows, `archetype` rows with their flavor vectors, quiz `question` and `answer` rows, and at least some `blend` rows. This is what the quiz and AI recommendation engine will run on.
-2. **Wire AI recommendations** — the agent route needs to fetch the user's `user_coffee_profile` and use it to narrow recommendations.
+1. **Wire AI recommendations** — the agent route needs to fetch the user's `user_coffee_profile` and use it to narrow recommendations.
 
 ### When your Shopify/roastery account is ready
 4. **Enable Shopify** — add 3 secrets to Secret Manager (`SHOPIFY_STORE_DOMAIN`, `SHOPIFY_STOREFRONT_TOKEN`, `SHOPIFY_ADMIN_TOKEN`). No code changes needed.
