@@ -212,7 +212,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 - `archetype` — named flavor profiles: Chocolate & Nutty, Balanced & Sweet, Fruity, Floral, Earthy, Experimental
 - `roaster` — drop-ship roastery partners
 - `quiz` — quiz versions
-- `cupping_note` — flavor wheel descriptors
+- `cupping_note` — SCA Coffee Taster's Flavor Wheel: 84 descriptors across 9 categories and ~25 subcategories; `intensity_score` is NULL by default (assigned per cupping session, not at descriptor level)
 
 **Users**
 - `household` — shared account grouping (one household, multiple members)
@@ -574,7 +574,7 @@ This keeps Firebase's secure token generation while giving us full control over 
 | Transactional email | ✅ Resend — sends from noreply@axisandbloomcoffee.com |
 | Claude AI chat | ✅ Wired up, API key in Secret Manager |
 | Shopify | ⚠️ Stubbed — waiting for roastery account |
-| Cupping tool schema | ✅ 8 tables + 3 enums + 12 seeded dimensions — no backend routes or UI yet |
+| Cupping tool schema | ✅ 8 tables + 3 enums + 12 seeded dimensions + 84 SCA flavor wheel descriptors — no backend routes or UI yet |
 | CI/CD | ✅ Push to main deploys everything |
 
 ---
@@ -653,6 +653,31 @@ archetype total = SUM( question.weight × answer.weight × answer_archetype_scor
 ```
 
 Question images are still managed in the frontend (keyed by `q_number`) since images aren't stored in the DB.
+
+---
+
+## SCA Flavor Wheel (`cupping_note`)
+
+84 descriptors seeded from the SCA Coffee Taster's Flavor Wheel (source: Specialty Coffee Association / World Coffee Research Sensory Lexicon). Three-level hierarchy: `wheel_category` → `wheel_subcategory` → `descriptor`. Descriptors with no subcategory have `wheel_subcategory = NULL`.
+
+**Seed file**: `backend/src/db/seeds/cupping_notes_sca_wheel.sql` — idempotent, skips if table already has rows.
+
+| Category | Subcategories | Descriptors |
+|---|---|---|
+| Floral | Floral | Black Tea, Chamomile, Rose, Jasmine |
+| Fruity | Berry, Dried Fruit, Other Fruit, Citrus Fruit | Blackberry, Raspberry, Blueberry, Strawberry, Raisin, Prune, Coconut, Cherry, Pomegranate, Pineapple, Grape, Apple, Peach, Pear, Grapefruit, Orange, Lemon, Lime |
+| Sour / Fermented | Sour, Alcohol / Fermented | Sour Aromatics, Acetic Acid, Butyric Acid, Isovaleric Acid, Citric Acid, Malic Acid, Winey, Whiskey, Fermented, Overripe |
+| Green / Vegetative | Raw | Olive Oil, Beany, Under-ripe, Peapod, Fresh, Dark Green, Vegetative, Hay-like, Herb-like |
+| Other | Papery / Musty, Chemical | Stale, Cardboard, Papery, Woody, Moldy/Damp, Musty/Dusty, Musty/Earthy, Animalic, Meaty/Brothy, Phenolic, Bitter, Salty, Medicinal, Petroleum, Skunky, Rubber |
+| Roasted | Burnt, Cereal | Pipe Tobacco, Tobacco, Acrid, Ashy, Smoky, Brown, Roast, Malt, Grain |
+| Spices | Pungent, Brown Spice | Pepper, Anise, Nutmeg, Cinnamon, Clove |
+| Nutty / Cocoa | Nutty, Cocoa | Peanuts, Hazelnut, Almond, Chocolate, Dark Chocolate |
+| Sweet | Brown Sugar | Molasses, Maple Syrup, Caramelized, Honey, Vanilla, Vanillin, Overall Sweet, Sweet Aromatics |
+
+**Check it:**
+```sql
+SELECT wheel_category, COUNT(*) FROM cupping_note GROUP BY wheel_category ORDER BY wheel_category;
+```
 
 ---
 
