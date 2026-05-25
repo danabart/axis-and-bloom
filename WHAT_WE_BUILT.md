@@ -595,6 +595,52 @@ Session data is stored in the cupping tool tables and inserted manually via Clou
 
 ---
 
+## Useful DB Queries (run in Cloud SQL Studio)
+
+### Check all tables
+```sql
+SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename;
+```
+
+### Check enum values — single enum
+```sql
+SELECT unnest(enum_range(NULL::archetype_enum)) AS value;
+```
+
+### Check all cupping tool enums at once
+```sql
+SELECT t.typname AS enum_name, e.enumlabel AS value, e.enumsortorder AS sort_order
+FROM pg_type t
+JOIN pg_enum e ON e.enumtypid = t.oid
+WHERE t.typname IN ('archetype_enum', 'brew_method_enum', 'confidence_enum')
+ORDER BY t.typname, e.enumsortorder;
+```
+
+### Check archetype rows
+```sql
+SELECT id, name, created_at FROM archetype ORDER BY name;
+```
+
+### Check cupping session data
+```sql
+SELECT cs.id, cs.session_date, cs.location, sc.display_order, c.name AS coffee
+FROM cupping_sessions cs
+JOIN session_coffees sc ON sc.session_id = cs.id
+JOIN coffees c ON c.id = sc.coffee_id
+ORDER BY cs.session_date, sc.display_order;
+```
+
+### Check archetype assignments (current only)
+```sql
+SELECT c.name AS coffee, aa.archetype, aa.confidence, aa.notes
+FROM archetype_assignments aa
+JOIN coffees c ON c.id = aa.coffee_id
+WHERE aa.superseded_at IS NULL
+ORDER BY c.name;
+```
+
+---
+
 ## What's Still To Do
 
 ### Ready to do now
