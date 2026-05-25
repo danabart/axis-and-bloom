@@ -516,41 +516,53 @@ CREATE TABLE IF NOT EXISTS session_coffees (
   display_order INTEGER
 );
 
--- Scores per (session_coffee, taster). Unique so a taster can't double-submit.
--- is_merged = true for the combined/averaged row produced after all tasters submit.
+-- Cupping dimensions catalogue (replaces wide per-attribute columns in cupping_scores)
+-- is_numeric = false → text notes only; is_numeric = true → value_min/value_max on scale
+CREATE TABLE IF NOT EXISTS dimensions (
+  id               SERIAL PRIMARY KEY,
+  name             TEXT NOT NULL UNIQUE,
+  description      TEXT,
+  scale_min_label  TEXT,
+  scale_max_label  TEXT,
+  scale_min        NUMERIC DEFAULT 0,
+  scale_max        NUMERIC DEFAULT 15,
+  is_numeric       BOOLEAN DEFAULT true,
+  display_order    INT
+);
+
+-- Drop old wide-column cupping_scores if it exists (detected by sweetness_min column)
+-- and replace with the normalised design linked to dimensions via cupping_score_values.
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'cupping_scores' AND column_name = 'sweetness_min'
+  ) THEN
+    DROP TABLE cupping_scores CASCADE;
+  END IF;
+END $$;
+
+-- Scores per (session_coffee, taster) — metadata only; actual values in cupping_score_values.
+-- is_merged = true for the combined row produced after all tasters submit.
 CREATE TABLE IF NOT EXISTS cupping_scores (
-  id                  SERIAL PRIMARY KEY,
-  session_coffee_id   INTEGER NOT NULL REFERENCES session_coffees(id) ON DELETE CASCADE,
-  taster_name         TEXT NOT NULL,
-  is_merged           BOOLEAN DEFAULT false,
-  sweetness_min       NUMERIC,
-  sweetness_max       NUMERIC,
-  sweetness_notes     TEXT,
-  acidity_min         NUMERIC,
-  acidity_max         NUMERIC,
-  acidity_notes       TEXT,
-  bitterness_min      NUMERIC,
-  bitterness_max      NUMERIC,
-  bitterness_notes    TEXT,
-  body_min            NUMERIC,
-  body_max            NUMERIC,
-  body_notes          TEXT,
-  texture_min         NUMERIC,
-  texture_max         NUMERIC,
-  texture_notes       TEXT,
-  savory_depth_min    NUMERIC,
-  savory_depth_max    NUMERIC,
-  savory_depth_notes  TEXT,
-  finish_length_min   NUMERIC,
-  finish_length_max   NUMERIC,
-  finish_length_notes TEXT,
-  fragrance_notes     TEXT,
-  aroma_notes         TEXT,
-  flavor_notes        TEXT,
-  mouthfeel_notes     TEXT,
-  overall_notes       TEXT,
-  created_at          TIMESTAMPTZ DEFAULT now(),
+  id                SERIAL PRIMARY KEY,
+  session_coffee_id INTEGER NOT NULL REFERENCES session_coffees(id) ON DELETE CASCADE,
+  taster_name       TEXT NOT NULL,
+  is_merged         BOOLEAN DEFAULT false,
+  overall_notes     TEXT,
+  created_at        TIMESTAMPTZ DEFAULT now(),
   UNIQUE (session_coffee_id, taster_name)
+);
+
+-- One row per (cupping_score, dimension) — normalised score values.
+-- value_min / value_max used for numeric dimensions; notes for free-text dimensions.
+CREATE TABLE IF NOT EXISTS cupping_score_values (
+  id               SERIAL PRIMARY KEY,
+  cupping_score_id INTEGER NOT NULL REFERENCES cupping_scores(id) ON DELETE CASCADE,
+  dimension_id     INTEGER NOT NULL REFERENCES dimensions(id) ON DELETE CASCADE,
+  value_min        NUMERIC,
+  value_max        NUMERIC,
+  notes            TEXT,
+  UNIQUE (cupping_score_id, dimension_id)
 );
 
 -- Brew parameters for each coffee in a session (all method-specific fields nullable)
@@ -597,6 +609,26 @@ ON CONFLICT (name) DO NOTHING;
 
 -- Rename 'Fruity & Complex' → 'Fruity' in existing DBs (idempotent)
 UPDATE archetype SET name = 'Fruity', updated_at = NOW() WHERE name = 'Fruity & Complex';
+
+-- 2. Cupping dimensions (OVERRIDING SYSTEM VALUE lets us set explicit SERIAL IDs)
+INSERT INTO dimensions (id, name, description, scale_min_label, scale_max_label, scale_min, scale_max, is_numeric, display_order)
+OVERRIDING SYSTEM VALUE VALUES
+  ( 1, 'Fragrance',       'Dry grounds smell before water',          NULL,                       NULL,                        NULL, NULL,   false,  1),
+  ( 2, 'Aroma',           'Wet aroma after water added',             NULL,                       NULL,                        NULL, NULL,   false,  2),
+  ( 3, 'Flavor',          'Taste in the cup',                        NULL,                       NULL,                        NULL, NULL,   false,  3),
+  ( 4, 'Sweetness',       'Perceived sweetness',                     'no sweetness',             'very sweet',                0,    15,     true,   4),
+  ( 5, 'Acidity',         'Brightness and acidity',                  'flat',                     'very bright / sharp',       0,    15,     true,   5),
+  ( 6, 'Bitterness',      'Bitterness level',                        'none',                     'very bitter',               0,    15,     true,   6),
+  ( 7, 'Body',            'Weight and fullness',                     'watery / light',           'very heavy',                0,    15,     true,   7),
+  ( 8, 'Texture',         'Mouthfeel texture',                       'very smooth / silky',      'very drying / rough',       0,    15,     true,   8),
+  ( 9, 'Savory / Depth',  'Complexity and depth',                    'transparent / clean',      'very deep / complex',       0,    15,     true,   9),
+  (10, 'Finish Length',   'How long the finish lasts',               'disappears immediately',   'very long lingering',       0,    15,     true,  10),
+  (11, 'Finish Character','Quality and character of the finish',     NULL,                       NULL,                        NULL, NULL,   false, 11),
+  (12, 'Mouthfeel',       'Overall mouthfeel description',           NULL,                       NULL,                        NULL, NULL,   false, 12)
+ON CONFLICT (id) DO NOTHING;
+
+-- Reset the dimensions sequence so future inserts auto-increment from 13
+SELECT setval('dimensions_id_seq', (SELECT MAX(id) FROM dimensions));
 
 -- 2. Quiz v2 + questions + answers (only inserts if v2 doesn't exist yet)
 DO $seed$
@@ -681,6 +713,8 @@ CREATE INDEX IF NOT EXISTS idx_cupping_sessions_date        ON cupping_sessions(
 CREATE INDEX IF NOT EXISTS idx_session_coffees_session      ON session_coffees(session_id);
 CREATE INDEX IF NOT EXISTS idx_session_coffees_coffee       ON session_coffees(coffee_id);
 CREATE INDEX IF NOT EXISTS idx_cupping_scores_session_cof   ON cupping_scores(session_coffee_id);
+CREATE INDEX IF NOT EXISTS idx_cupping_score_values_score   ON cupping_score_values(cupping_score_id);
+CREATE INDEX IF NOT EXISTS idx_cupping_score_values_dim     ON cupping_score_values(dimension_id);
 CREATE INDEX IF NOT EXISTS idx_brew_params_session_cof      ON brew_params(session_coffee_id);
 CREATE INDEX IF NOT EXISTS idx_archetype_assign_coffee      ON archetype_assignments(coffee_id);
 CREATE INDEX IF NOT EXISTS idx_archetype_assign_session     ON archetype_assignments(assigned_from_session_id);
