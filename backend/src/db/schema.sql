@@ -441,6 +441,127 @@ CREATE TABLE IF NOT EXISTS newsletter_subscriber (
 );
 
 -- ─────────────────────────────────────────────
+-- CUPPING TOOL
+-- Separate from the main schema's cupping_session (singular).
+-- These tables power the standalone cupping / QC workflow.
+-- ─────────────────────────────────────────────
+
+-- Enums (idempotent: ignore if already exists)
+DO $$ BEGIN
+  CREATE TYPE brew_method_enum AS ENUM ('filter', 'espresso', 'cold_brew', 'other');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE TYPE archetype_enum AS ENUM ('chocolate_nutty', 'balanced_sweet', 'fruity_floral', 'spicy_earthy', 'floral');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE TYPE confidence_enum AS ENUM ('low', 'medium', 'high');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Coffee catalogue
+CREATE TABLE IF NOT EXISTS coffees (
+  id                         SERIAL PRIMARY KEY,
+  name                       TEXT NOT NULL,
+  roaster                    TEXT,
+  origin                     TEXT,
+  blend_or_single            TEXT,
+  process                    TEXT,
+  roast_level                TEXT,
+  roast_shade                TEXT,
+  flavor_descriptors_roaster TEXT[],
+  created_at                 TIMESTAMPTZ DEFAULT now()
+);
+
+-- Cupping sessions (plural — distinct from legacy cupping_session)
+CREATE TABLE IF NOT EXISTS cupping_sessions (
+  id            SERIAL PRIMARY KEY,
+  session_date  DATE,
+  brew_method   brew_method_enum,
+  location      TEXT,
+  session_notes TEXT,
+  created_at    TIMESTAMPTZ DEFAULT now()
+);
+
+-- Junction: which coffees were in a given session, and in what order
+CREATE TABLE IF NOT EXISTS session_coffees (
+  id            SERIAL PRIMARY KEY,
+  session_id    INTEGER NOT NULL REFERENCES cupping_sessions(id) ON DELETE CASCADE,
+  coffee_id     INTEGER NOT NULL REFERENCES coffees(id) ON DELETE CASCADE,
+  display_order INTEGER
+);
+
+-- Scores per (session_coffee, taster). Unique so a taster can't double-submit.
+-- is_merged = true for the combined/averaged row produced after all tasters submit.
+CREATE TABLE IF NOT EXISTS cupping_scores (
+  id                  SERIAL PRIMARY KEY,
+  session_coffee_id   INTEGER NOT NULL REFERENCES session_coffees(id) ON DELETE CASCADE,
+  taster_name         TEXT NOT NULL,
+  is_merged           BOOLEAN DEFAULT false,
+  sweetness_min       NUMERIC,
+  sweetness_max       NUMERIC,
+  sweetness_notes     TEXT,
+  acidity_min         NUMERIC,
+  acidity_max         NUMERIC,
+  acidity_notes       TEXT,
+  bitterness_min      NUMERIC,
+  bitterness_max      NUMERIC,
+  bitterness_notes    TEXT,
+  body_min            NUMERIC,
+  body_max            NUMERIC,
+  body_notes          TEXT,
+  texture_min         NUMERIC,
+  texture_max         NUMERIC,
+  texture_notes       TEXT,
+  savory_depth_min    NUMERIC,
+  savory_depth_max    NUMERIC,
+  savory_depth_notes  TEXT,
+  finish_length_min   NUMERIC,
+  finish_length_max   NUMERIC,
+  finish_length_notes TEXT,
+  fragrance_notes     TEXT,
+  aroma_notes         TEXT,
+  flavor_notes        TEXT,
+  mouthfeel_notes     TEXT,
+  overall_notes       TEXT,
+  created_at          TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (session_coffee_id, taster_name)
+);
+
+-- Brew parameters for each coffee in a session (all method-specific fields nullable)
+CREATE TABLE IF NOT EXISTS brew_params (
+  id                        SERIAL PRIMARY KEY,
+  session_coffee_id         INTEGER NOT NULL REFERENCES session_coffees(id) ON DELETE CASCADE,
+  dose_grams                NUMERIC,
+  water_grams               NUMERIC,
+  yield_grams               NUMERIC,
+  ratio                     NUMERIC,
+  water_temperature_celsius NUMERIC,
+  grind_size                TEXT,
+  extraction_time_seconds   NUMERIC,
+  pressure_bar              NUMERIC,
+  steep_time_minutes        NUMERIC,
+  brew_device               TEXT,
+  notes                     TEXT
+);
+
+-- Archetype assignments per coffee, with history.
+-- superseded_at = NULL → current assignment; populated when a newer one replaces it.
+CREATE TABLE IF NOT EXISTS archetype_assignments (
+  id                       SERIAL PRIMARY KEY,
+  coffee_id                INTEGER NOT NULL REFERENCES coffees(id) ON DELETE CASCADE,
+  archetype                archetype_enum NOT NULL,
+  confidence               confidence_enum NOT NULL,
+  assigned_from_session_id INTEGER REFERENCES cupping_sessions(id) ON DELETE SET NULL,
+  superseded_at            TIMESTAMPTZ,
+  notes                    TEXT,
+  created_at               TIMESTAMPTZ DEFAULT now()
+);
+
+-- ─────────────────────────────────────────────
 -- SEED DATA  (Quiz V2 — idempotent)
 -- Runs on every startup; skipped if already seeded.
 -- ─────────────────────────────────────────────
@@ -527,5 +648,14 @@ CREATE INDEX IF NOT EXISTS idx_order_line_item_order   ON order_line_item(order_
 CREATE INDEX IF NOT EXISTS idx_shipment_order          ON shipment(order_id);
 CREATE INDEX IF NOT EXISTS idx_feedback_user           ON feedback_event(user_id);
 CREATE INDEX IF NOT EXISTS idx_chat_message_user       ON chat_message(user_id);
-CREATE INDEX IF NOT EXISTS idx_blend_archetype         ON blend(archetype_id);
-CREATE INDEX IF NOT EXISTS idx_user_coffee_profile_user ON user_coffee_profile(user_id);
+CREATE INDEX IF NOT EXISTS idx_blend_archetype              ON blend(archetype_id);
+CREATE INDEX IF NOT EXISTS idx_user_coffee_profile_user     ON user_coffee_profile(user_id);
+
+-- Cupping tool indexes
+CREATE INDEX IF NOT EXISTS idx_cupping_sessions_date        ON cupping_sessions(session_date);
+CREATE INDEX IF NOT EXISTS idx_session_coffees_session      ON session_coffees(session_id);
+CREATE INDEX IF NOT EXISTS idx_session_coffees_coffee       ON session_coffees(coffee_id);
+CREATE INDEX IF NOT EXISTS idx_cupping_scores_session_cof   ON cupping_scores(session_coffee_id);
+CREATE INDEX IF NOT EXISTS idx_brew_params_session_cof      ON brew_params(session_coffee_id);
+CREATE INDEX IF NOT EXISTS idx_archetype_assign_coffee      ON archetype_assignments(coffee_id);
+CREATE INDEX IF NOT EXISTS idx_archetype_assign_session     ON archetype_assignments(assigned_from_session_id);
