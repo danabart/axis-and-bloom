@@ -453,7 +453,7 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  CREATE TYPE archetype_enum AS ENUM ('chocolate_nutty', 'balanced_sweet', 'fruity', 'earthy', 'floral');
+  CREATE TYPE archetype_enum AS ENUM ('chocolate_nutty', 'balanced_sweet', 'fruity', 'earthy', 'floral', 'experimental');
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
@@ -475,6 +475,9 @@ DO $$ BEGIN
     ALTER TYPE archetype_enum RENAME VALUE 'spicy_earthy' TO 'earthy';
   END IF;
 END $$;
+
+-- Add 'experimental' if not already present (ADD VALUE IF NOT EXISTS is idempotent)
+ALTER TYPE archetype_enum ADD VALUE IF NOT EXISTS 'experimental';
 
 DO $$ BEGIN
   CREATE TYPE confidence_enum AS ENUM ('low', 'medium', 'high');
