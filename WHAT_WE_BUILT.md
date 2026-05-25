@@ -199,7 +199,7 @@ axis-and-bloom/
 
 ---
 
-## Database Schema (44 Tables)
+## Database Schema (46 Tables)
 
 The schema lives in `backend/src/db/schema.sql` and runs automatically on every backend startup (`CREATE TABLE IF NOT EXISTS` — fully idempotent, safe to run repeatedly).
 
@@ -265,9 +265,28 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 - `coffees` — coffee catalogue (name, roaster, origin, process, roast level/shade, roaster flavor descriptors)
 - `cupping_sessions` — session header (date, brew method, location, notes)
 - `session_coffees` — junction: which coffees appeared in a session and in what order
-- `cupping_scores` — per-taster scores with min/max ranges and notes for 7 attributes (sweetness, acidity, bitterness, body, texture, savory depth, finish length) plus fragrance/aroma/flavor/mouthfeel/overall; unique on `(session_coffee_id, taster_name)`; `is_merged = true` for the combined row
+- `dimensions` — cupping dimension catalogue, 12 seeded rows; `is_numeric = true` → scored 0–15 with scale labels; `is_numeric = false` → free-text notes only
+- `cupping_scores` — per-taster score header (session_coffee_id, taster_name, is_merged, overall_notes); unique on `(session_coffee_id, taster_name)`; `is_merged = true` for the combined row
+- `cupping_score_values` — one row per (cupping_score, dimension); `value_min` / `value_max` for numeric dims, `notes` for free-text dims; unique on `(cupping_score_id, dimension_id)`
 - `brew_params` — brew parameters per session-coffee (dose, water, yield, ratio, temp, grind, extraction time, pressure, steep time, device); all nullable
 - `archetype_assignments` — archetype tag per coffee with confidence level; `superseded_at = NULL` for the current assignment, populated when a newer one replaces it
+
+### Dimensions (seeded, 12 rows)
+
+| ID | Name | Type | Scale |
+|---|---|---|---|
+| 1 | Fragrance | Free-text | — |
+| 2 | Aroma | Free-text | — |
+| 3 | Flavor | Free-text | — |
+| 4 | Sweetness | Numeric | 0 (no sweetness) → 15 (very sweet) |
+| 5 | Acidity | Numeric | 0 (flat) → 15 (very bright / sharp) |
+| 6 | Bitterness | Numeric | 0 (none) → 15 (very bitter) |
+| 7 | Body | Numeric | 0 (watery / light) → 15 (very heavy) |
+| 8 | Texture | Numeric | 0 (very smooth / silky) → 15 (very drying / rough) |
+| 9 | Savory / Depth | Numeric | 0 (transparent / clean) → 15 (very deep / complex) |
+| 10 | Finish Length | Numeric | 0 (disappears immediately) → 15 (very long lingering) |
+| 11 | Finish Character | Free-text | — |
+| 12 | Mouthfeel | Free-text | — |
 
 ### Enums (cupping tool)
 
@@ -454,6 +473,15 @@ ssl: process.env.NODE_ENV === 'production' && !isUnixSocket ? { rejectUnauthoriz
 **Change**: `fruity_floral` → `fruity` and `spicy_earthy` → `earthy`.  
 **Fix**: Updated the `CREATE TYPE` for fresh installs, and added two idempotent `DO` blocks that check `pg_enum` before calling `ALTER TYPE archetype_enum RENAME VALUE`. Safe to run on every startup — the blocks no-op once the rename is done.
 
+### 18. Refactored cupping scores to normalised dimensions model
+**Problem**: `cupping_scores` had 27 hardcoded columns (sweetness_min, sweetness_max, sweetness_notes, etc.) — adding or renaming a dimension required a schema change.  
+**Fix**: Replaced with a 3-table normalised design:
+- `dimensions` — 12-row catalogue defining each attribute (name, scale labels, min/max, is_numeric flag)
+- `cupping_scores` — slim header row per taster (session_coffee_id, taster_name, is_merged, overall_notes)
+- `cupping_score_values` — one row per (score, dimension) with value_min, value_max, notes
+
+Migration is idempotent: a DO block detects the old `sweetness_min` column and drops the table before the new `CREATE TABLE IF NOT EXISTS` runs. Sequence for `dimensions` reset to 13 after seeding IDs 1–12.
+
 ### 17. Added `experimental` to `archetype_enum` and 3 new `archetype` rows
 **Change**: Added `experimental` to the `archetype_enum` (the cupping tool enum). Also inserted three new rows into the `archetype` table (UUID-based, used by the quiz): `Floral`, `Earthy`, `Experimental`.  
 **How**: `ALTER TYPE archetype_enum ADD VALUE IF NOT EXISTS 'experimental'` — fully idempotent, safe to re-run. `CREATE TYPE` in schema.sql updated to include `experimental` for fresh installs. Archetype rows inserted via Cloud SQL Studio with `ON CONFLICT (name) DO NOTHING`.
@@ -516,7 +544,7 @@ This keeps Firebase's secure token generation while giving us full control over 
 |---|---|
 | Frontend deployed | ✅ https://axis-and-bloom-prod.web.app |
 | Backend deployed | ✅ https://axis-bloom-backend-oiub7eumya-uc.a.run.app |
-| Database connected | ✅ 44 tables verified via /health/db |
+| Database connected | ✅ 46 tables verified via /health/db |
 | Email/password auth | ✅ Working |
 | Google sign-in | ✅ Working (was already enabled) |
 | Apple sign-in | ⚠️ Not configured |
@@ -524,7 +552,7 @@ This keeps Firebase's secure token generation while giving us full control over 
 | Transactional email | ✅ Resend — sends from noreply@axisandbloomcoffee.com |
 | Claude AI chat | ✅ Wired up, API key in Secret Manager |
 | Shopify | ⚠️ Stubbed — waiting for roastery account |
-| Cupping tool schema | ✅ 6 tables + 3 enums in DB — no backend routes or UI yet |
+| Cupping tool schema | ✅ 8 tables + 3 enums + 12 seeded dimensions — no backend routes or UI yet |
 | CI/CD | ✅ Push to main deploys everything |
 
 ---
@@ -619,6 +647,12 @@ ORDER BY t.typname, e.enumsortorder;
 ### Check archetype rows
 ```sql
 SELECT id, name, created_at FROM archetype ORDER BY name;
+```
+
+### Check dimensions
+```sql
+SELECT id, name, is_numeric, scale_min_label, scale_max_label, display_order
+FROM dimensions ORDER BY display_order;
 ```
 
 ### Check cupping session data
