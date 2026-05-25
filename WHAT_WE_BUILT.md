@@ -199,7 +199,7 @@ axis-and-bloom/
 
 ---
 
-## Database Schema (46 Tables)
+## Database Schema (40 Tables)
 
 The schema lives in `backend/src/db/schema.sql` and runs automatically on every backend startup (`CREATE TABLE IF NOT EXISTS` — fully idempotent, safe to run repeatedly).
 
@@ -209,7 +209,6 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 
 **Lookup / reference**
 - `user_type` — subscriber, admin, roaster partner, etc.
-- `dimension` — flavor dimensions (acidity, body, roast level, etc.)
 - `archetype` — named flavor profiles: Chocolate & Nutty, Balanced & Sweet, Fruity, Floral, Earthy, Experimental
 - `roaster` — drop-ship roastery partners
 - `quiz` — quiz versions
@@ -227,7 +226,6 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 - `archetype_vector` — where each archetype sits in flavor-dimension space
 - `archetype_relationship` — which archetypes are adjacent/complementary
 - `archetype_tunable_variable` — dials users can adjust within their archetype
-- `dimension_scoring_rule` — valid score ranges per dimension
 - `user_vector_state` — where each user sits in flavor-dimension space (declared + behavioral)
 - `user_archetype_tuning` — user's personal adjustments to their archetype
 - `user_coffee_profile` — their ranked archetype matches
@@ -236,9 +234,6 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 - `blend` — coffee blends available for purchase; links to Shopify variant IDs
 - `blend_vector` — where each blend sits in flavor-dimension space
 - `user_roaster_link` — roastery staff accounts
-- `cupping_session` — legacy QC cupping records
-- `cupping_session_note` — notes on each legacy cupping session
-- `cupping_session_vector` — dimension scores from a legacy cupping session
 
 **Quiz**
 - `question`
@@ -473,6 +468,14 @@ ssl: process.env.NODE_ENV === 'production' && !isUnixSocket ? { rejectUnauthoriz
 **Change**: `fruity_floral` → `fruity` and `spicy_earthy` → `earthy`.  
 **Fix**: Updated the `CREATE TYPE` for fresh installs, and added two idempotent `DO` blocks that check `pg_enum` before calling `ALTER TYPE archetype_enum RENAME VALUE`. Safe to run on every startup — the blocks no-op once the rename is done.
 
+### 19. Dropped unused legacy tables
+**Removed from schema and live DB:**
+- `dimension` (UUID-based) — replaced by `dimensions` (SERIAL, cupping tool). FK references stripped from `archetype_vector`, `archetype_relationship`, `archetype_tunable_variable`, `user_vector_state`, `user_archetype_tuning`, `blend_vector`, `cupping_session_vector`, `quiz_vector` — columns kept, FKs removed.
+- `cupping_session`, `cupping_session_note`, `cupping_session_vector` — legacy QC tables replaced by the new cupping tool (`cupping_sessions`, `session_coffees`, `cupping_scores`, `cupping_score_values`).
+- `dimension_scoring_rule` — no longer needed without the `dimension` table.
+
+All dropped via `DROP TABLE ... CASCADE` in Cloud SQL Studio. Removed from `schema.sql` so they won't be recreated on future deploys.
+
 ### 18. Refactored cupping scores to normalised dimensions model
 **Problem**: `cupping_scores` had 27 hardcoded columns (sweetness_min, sweetness_max, sweetness_notes, etc.) — adding or renaming a dimension required a schema change.  
 **Fix**: Replaced with a 3-table normalised design:
@@ -544,7 +547,7 @@ This keeps Firebase's secure token generation while giving us full control over 
 |---|---|
 | Frontend deployed | ✅ https://axis-and-bloom-prod.web.app |
 | Backend deployed | ✅ https://axis-bloom-backend-oiub7eumya-uc.a.run.app |
-| Database connected | ✅ 46 tables verified via /health/db |
+| Database connected | ✅ 40 tables verified via /health/db |
 | Email/password auth | ✅ Working |
 | Google sign-in | ✅ Working (was already enabled) |
 | Apple sign-in | ⚠️ Not configured |
