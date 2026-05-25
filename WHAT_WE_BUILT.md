@@ -210,7 +210,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 **Lookup / reference**
 - `user_type` — subscriber, admin, roaster partner, etc.
 - `dimension` — flavor dimensions (acidity, body, roast level, etc.)
-- `archetype` — named flavor profiles (e.g. "Chocolate & Nutty")
+- `archetype` — named flavor profiles: Chocolate & Nutty, Balanced & Sweet, Fruity, Floral, Earthy, Experimental
 - `roaster` — drop-ship roastery partners
 - `quiz` — quiz versions
 - `cupping_note` — flavor wheel descriptors
@@ -274,7 +274,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | Enum | Values |
 |---|---|
 | `brew_method_enum` | `filter`, `espresso`, `cold_brew`, `other` |
-| `archetype_enum` | `chocolate_nutty`, `balanced_sweet`, `fruity`, `earthy`, `floral` |
+| `archetype_enum` | `chocolate_nutty`, `balanced_sweet`, `fruity`, `earthy`, `floral`, `experimental` |
 | `confidence_enum` | `low`, `medium`, `high` |
 
 ---
@@ -453,6 +453,10 @@ ssl: process.env.NODE_ENV === 'production' && !isUnixSocket ? { rejectUnauthoriz
 ### 15. Renamed `archetype_enum` values
 **Change**: `fruity_floral` → `fruity` and `spicy_earthy` → `earthy`.  
 **Fix**: Updated the `CREATE TYPE` for fresh installs, and added two idempotent `DO` blocks that check `pg_enum` before calling `ALTER TYPE archetype_enum RENAME VALUE`. Safe to run on every startup — the blocks no-op once the rename is done.
+
+### 17. Added `experimental` to `archetype_enum` and 3 new `archetype` rows
+**Change**: Added `experimental` to the `archetype_enum` (the cupping tool enum). Also inserted three new rows into the `archetype` table (UUID-based, used by the quiz): `Floral`, `Earthy`, `Experimental`.  
+**How**: `ALTER TYPE archetype_enum ADD VALUE IF NOT EXISTS 'experimental'` — fully idempotent, safe to re-run. `CREATE TYPE` in schema.sql updated to include `experimental` for fresh installs. Archetype rows inserted via Cloud SQL Studio with `ON CONFLICT (name) DO NOTHING`.
 
 ### 16. Renamed `archetype` table row 'Fruity & Complex' → 'Fruity'
 **Change**: The `archetype` table (UUID-based, used by the quiz) had the row named `'Fruity & Complex'`. Renamed to `'Fruity'` to match the cupping tool's `archetype_enum` and simplify the label.  
