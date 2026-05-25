@@ -783,3 +783,25 @@ CREATE INDEX IF NOT EXISTS idx_archetype_assign_session     ON archetype_assignm
 -- Quiz scoring indexes
 CREATE INDEX IF NOT EXISTS idx_answer_arch_score_answer     ON answer_archetype_score(answer_id);
 CREATE INDEX IF NOT EXISTS idx_answer_arch_score_archetype  ON answer_archetype_score(archetype_id);
+
+-- ─────────────────────────────────────────────
+-- VIEWS
+-- ─────────────────────────────────────────────
+
+-- Full quiz scoring matrix — one row per (question, answer, archetype)
+-- Shows all three scoring levels: question weight, answer weight, archetype-specific score.
+-- Lambda formula: q_weight × ans_weight × ans_score = effective contribution per archetype.
+CREATE OR REPLACE VIEW v_quiz_scoring_matrix AS
+SELECT
+  q.q_number,
+  q.q_text,
+  q.weight    AS q_weight,
+  a.answer_text,
+  ar.name     AS archetype,
+  aas.score   AS ans_score,
+  a.weight    AS ans_weight
+FROM answer_archetype_score aas
+JOIN answer    a  ON a.id  = aas.answer_id
+JOIN question  q  ON q.id  = aas.question_id
+JOIN archetype ar ON ar.id = aas.archetype_id
+ORDER BY q.q_number, aas.score DESC;
