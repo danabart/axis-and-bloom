@@ -301,7 +301,8 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | GET | `/health/db` | No | Returns connected status + all table names |
 | POST | `/api/auth/sync` | Yes | Creates/updates user_profile row after Firebase sign-in |
 | POST | `/api/auth/reset-password` | No | Sends branded password-reset email via Resend from axisandbloomcoffee.com |
-| GET | `/api/quiz/questions` | No | Returns active quiz questions + answers from DB (with archetype names) |
+| GET | `/api/quiz/questions` | No | Returns active quiz questions + answers from DB (with archetype names and answer UUIDs) |
+| POST | `/api/quiz/score` | No | Takes `{ answerIds[] }`, counts archetype votes in DB, returns winning archetype + scores. All scoring logic lives here — no logic in the frontend. |
 | POST | `/api/quiz/results` | Yes | Saves completed quiz session; resolves archetype UUID by name; returns session ID |
 | GET | `/api/quiz/results/latest` | Yes | Returns user's most recent quiz session with archetype name |
 | GET | `/api/shop/products` | No | Returns Shopify products (empty list until Shopify wired) |
@@ -468,6 +469,10 @@ ssl: process.env.NODE_ENV === 'production' && !isUnixSocket ? { rejectUnauthoriz
 **Change**: `fruity_floral` → `fruity` and `spicy_earthy` → `earthy`.  
 **Fix**: Updated the `CREATE TYPE` for fresh installs, and added two idempotent `DO` blocks that check `pg_enum` before calling `ALTER TYPE archetype_enum RENAME VALUE`. Safe to run on every startup — the blocks no-op once the rename is done.
 
+### 20. Moved quiz scoring to backend (POST /api/quiz/score)
+**Problem**: Archetype was determined in the frontend by `computeArchetype()` — a JavaScript function counting votes locally. Business logic should not live in the browser.  
+**Fix**: Added `POST /api/quiz/score` to the backend. Frontend now sends the selected answer UUIDs; backend looks them up in the `answer` table, counts votes per archetype, applies tie-break logic, and returns the winner. The frontend only renders the result — it makes no decisions. `computeArchetype()` was removed entirely.
+
 ### 19. Dropped unused legacy tables
 **Removed from schema and live DB:**
 - `dimension` (UUID-based) — replaced by `dimensions` (SERIAL, cupping tool). FK references stripped from `archetype_vector`, `archetype_relationship`, `archetype_tunable_variable`, `user_vector_state`, `user_archetype_tuning`, `blend_vector`, `cupping_session_vector`, `quiz_vector` — columns kept, FKs removed.
@@ -551,7 +556,7 @@ This keeps Firebase's secure token generation while giving us full control over 
 | Email/password auth | ✅ Working |
 | Google sign-in | ✅ Working (was already enabled) |
 | Apple sign-in | ⚠️ Not configured |
-| Flavor quiz (V2) | ✅ 4 questions, 3 archetypes — fully DB-driven (questions served from API, not hardcoded) |
+| Flavor quiz (V2) | ✅ Fully DB-driven — questions from API, scoring on backend, zero logic in frontend |
 | Transactional email | ✅ Resend — sends from noreply@axisandbloomcoffee.com |
 | Claude AI chat | ✅ Wired up, API key in Secret Manager |
 | Shopify | ⚠️ Stubbed — waiting for roastery account |
@@ -586,20 +591,25 @@ The quiz lives in `frontend/src/app/components/FlavorQuiz.tsx`. V2 (from `Quiz V
 - Each answer = **+1 vote** for one archetype
 - Q3 option D ("I'm not sure") is **neutral** — no vote awarded
 - Most votes at the end wins
-- **Tie-break order**: Balanced > Chocolate > Fruity
+- **Tie-break order**: Balanced & Sweet > Chocolate & Nutty > Fruity
+- **All scoring runs on the backend** — the frontend has zero scoring logic
 
-### How the frontend fetches questions
+### Full flow
 
 ```
-mount → GET /api/quiz/questions
-     ← { quizId, questions: [{ q_number, q_text, answers: [{ id, text, archetype_name }] }] }
+1. mount       → GET  /api/quiz/questions
+               ← { questions: [{ q_text, answers: [{ id, text, archetype_name }] }] }
+
+2. user answers → frontend tracks selected answer UUIDs (one per question)
+
+3. last answer  → POST /api/quiz/score  { answerIds: ["uuid1", "uuid2", "uuid3", "uuid4"] }
+               ← { archetype: "Chocolate & Nutty", archetypeId: "uuid", scores: { ... } }
+
+4. if signed in → POST /api/quiz/results  { archetype, scores, answers, decaf: false }
+               ← { id: sessionId }   (saved to quiz_session with real FK)
 ```
 
-The frontend maps `archetype_name` (`'Chocolate & Nutty'` etc.) to a short display key using a local lookup table. Question images are still managed in the frontend (keyed by `q_number`) since images aren't stored in the DB.
-
-### On completion
-
-If the user is signed in, the quiz calls `POST /api/quiz/results` with `{ archetype: 'Chocolate & Nutty', scores, answers, decaf: false }`. The backend resolves the archetype name to its UUID and saves the session to `quiz_session` with the real FK. The result is also returned immediately so the results screen can display it.
+Question images are still managed in the frontend (keyed by `q_number`) since images aren't stored in the DB.
 
 ---
 
