@@ -453,8 +453,27 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  CREATE TYPE archetype_enum AS ENUM ('chocolate_nutty', 'balanced_sweet', 'fruity_floral', 'spicy_earthy', 'floral');
+  CREATE TYPE archetype_enum AS ENUM ('chocolate_nutty', 'balanced_sweet', 'fruity', 'earthy', 'floral');
 EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Rename old enum values in existing DBs (idempotent — checks pg_enum before altering)
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_enum e JOIN pg_type t ON e.enumtypid = t.oid
+    WHERE t.typname = 'archetype_enum' AND e.enumlabel = 'fruity_floral'
+  ) THEN
+    ALTER TYPE archetype_enum RENAME VALUE 'fruity_floral' TO 'fruity';
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_enum e JOIN pg_type t ON e.enumtypid = t.oid
+    WHERE t.typname = 'archetype_enum' AND e.enumlabel = 'spicy_earthy'
+  ) THEN
+    ALTER TYPE archetype_enum RENAME VALUE 'spicy_earthy' TO 'earthy';
+  END IF;
 END $$;
 
 DO $$ BEGIN
