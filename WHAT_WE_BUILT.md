@@ -236,9 +236,9 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 - `user_roaster_link` — roastery staff accounts
 
 **Quiz**
-- `question` — includes `weight NUMERIC DEFAULT 1` (question-level scoring weight)
-- `answer` — branching logic via `next_question_id`, vector impact stored as JSONB; includes `weight NUMERIC DEFAULT 1`
-- `answer_archetype_score` — normalised scoring table: one row per (answer, archetype); `score` is the points awarded; `archetype_id = NULL` = neutral answer; UNIQUE on `(answer_id, archetype_id)`
+- `question` — includes `weight NUMERIC DEFAULT 1`; question-level multiplier applied uniformly to all answers in that question
+- `answer` — branching logic via `next_question_id`, vector impact stored as JSONB; includes `weight NUMERIC DEFAULT 1`; answer-level multiplier applied uniformly across all archetype rows for that answer
+- `answer_archetype_score` — the scoring matrix: one row per (answer, archetype); `score` is the archetype-specific impact (positive or negative); `archetype_id = NULL` = neutral answer (no points); UNIQUE on `(answer_id, archetype_id)`
 - `quiz_session` — a user's completed quiz
 - `quiz_vector` — dimension scores from a quiz session
 
@@ -266,6 +266,12 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 - `cupping_score_values` — one row per (cupping_score, dimension); `value_min` / `value_max` for numeric dims, `notes` for free-text dims; unique on `(cupping_score_id, dimension_id)`
 - `brew_params` — brew parameters per session-coffee (dose, water, yield, ratio, temp, grind, extraction time, pressure, steep time, device); all nullable
 - `archetype_assignments` — archetype tag per coffee with confidence level; `superseded_at = NULL` for the current assignment, populated when a newer one replaces it
+
+### Views
+
+| View | Description |
+|---|---|
+| `v_quiz_scoring_matrix` | Full scoring matrix — one row per (question, answer, archetype). Columns: `q_number`, `q_text`, `q_weight`, `answer_text`, `archetype`, `ans_score`, `ans_weight`. Use this to inspect or debug the scoring data. Lambda formula: `q_weight × ans_weight × ans_score`. |
 
 ### Dimensions (seeded, 12 rows)
 
@@ -595,21 +601,40 @@ The quiz lives in `frontend/src/app/components/FlavorQuiz.tsx`. V2 replaced the 
 | **Balanced & Sweet** | `#d1ac11` | Reliable habit — smooth, easy, approachable |
 | **Fruity** | `#ca445f` | Curious discoverer — bright, lively, complex |
 
-### Scoring logic (weighted, via `answer_archetype_score`)
+### Scoring model — three-level normalised matrix
 
-Scoring is stored in the `answer_archetype_score` table — one row per (answer, archetype). The backend SUMs points for all submitted answer UUIDs. Q3 option D is neutral (no row, no points).
+Scoring is split across three fields, each with a distinct role. All three are kept separate (normalised) so any level can be tuned independently without touching the others.
 
-| Question | Points per answer |
-|---|---|
-| Q1 — Identity | 1 pt |
-| Q2 — Food instinct | 2 pts |
-| Q3 — Black coffee reaction | 1 pt (option D = neutral, 0 pts) |
-| Q4 — Disappointment | 2 pts |
-| Q5 — Bitterness tolerance | 3 pts (strongest signal) |
+| Field | Table | Role | Scope |
+|---|---|---|---|
+| `question.weight` | `question` | How important this question is relative to others | Applies to all answers in the question |
+| `answer.weight` | `answer` | How decisive/strong this answer is as a signal | Applies uniformly across all archetype rows for this answer |
+| `answer_archetype_score.score` | `answer_archetype_score` | The archetype-specific impact — positive or negative | One row per (answer, archetype) |
 
-**Max possible score for one archetype**: 1 + 2 + 1 + 2 + 3 = **9 pts**  
+**Lambda formula:**
+```
+archetype total = SUM( question.weight × answer.weight × answer_archetype_score.score )
+```
+
+**Current seeded values** (all weights = 1; point difference is baked into `score`):
+
+| Question | `score` per answer | Effective pts |
+|---|---|---|
+| Q1 — Identity | 1 | 1 pt |
+| Q2 — Food instinct | 2 | 2 pts |
+| Q3 — Black coffee reaction | 1 (option D = no row) | 1 pt |
+| Q4 — Disappointment | 2 | 2 pts |
+| Q5 — Bitterness tolerance | 3 | 3 pts (strongest signal) |
+
+**Max possible score for one archetype**: 1 + 2 + 1 + 2 + 3 = **9 pts**
+
+**Tuning examples — no code changes needed, just DB updates:**
+- Q5 should matter even more → `UPDATE question SET weight = 2 WHERE q_number = 5`
+- A specific answer is an unusually strong signal → `UPDATE answer SET weight = 1.5 WHERE answer_text = '...'`
+- An answer should also hurt a competing archetype → `INSERT INTO answer_archetype_score (..., archetype_id, score) VALUES (..., <fruity_id>, -2)`
+
 **Tie-break** (rare with weighted scoring): Balanced & Sweet > Chocolate & Nutty > Fruity  
-**All scoring runs on the backend** — the frontend has zero scoring logic.
+**All scoring runs on the backend (Lambda)** — the frontend has zero scoring logic.
 
 ### Full flow
 
@@ -704,7 +729,12 @@ WHERE aa.superseded_at IS NULL
 ORDER BY c.name;
 ```
 
-### Check quiz scoring table (should be 14 rows — Q3-D neutral has no row)
+### Check quiz scoring matrix (view — should be 14 rows, Q3-D neutral has no row)
+```sql
+SELECT * FROM v_quiz_scoring_matrix;
+```
+
+### Check quiz scoring table directly
 ```sql
 SELECT q.q_number, a.answer_text, ar.name AS archetype, aas.score
 FROM answer_archetype_score aas
