@@ -199,7 +199,7 @@ axis-and-bloom/
 
 ---
 
-## Database Schema (40 Tables)
+## Database Schema (41 Tables)
 
 The schema lives in `backend/src/db/schema.sql` and runs automatically on every backend startup (`CREATE TABLE IF NOT EXISTS` — fully idempotent, safe to run repeatedly).
 
@@ -236,8 +236,9 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 - `user_roaster_link` — roastery staff accounts
 
 **Quiz**
-- `question`
-- `answer` — branching logic via `next_question_id`, vector impact stored as JSONB
+- `question` — includes `weight NUMERIC DEFAULT 1` (question-level scoring weight)
+- `answer` — branching logic via `next_question_id`, vector impact stored as JSONB; includes `weight NUMERIC DEFAULT 1`
+- `answer_archetype_score` — normalised scoring table: one row per (answer, archetype); `score` is the points awarded; `archetype_id = NULL` = neutral answer; UNIQUE on `(answer_id, archetype_id)`
 - `quiz_session` — a user's completed quiz
 - `quiz_vector` — dimension scores from a quiz session
 
@@ -302,7 +303,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | POST | `/api/auth/sync` | Yes | Creates/updates user_profile row after Firebase sign-in |
 | POST | `/api/auth/reset-password` | No | Sends branded password-reset email via Resend from axisandbloomcoffee.com |
 | GET | `/api/quiz/questions` | No | Returns active quiz questions + answers from DB (with archetype names and answer UUIDs) |
-| POST | `/api/quiz/score` | No | Takes `{ answerIds[] }`, counts archetype votes in DB, returns winning archetype + scores. All scoring logic lives here — no logic in the frontend. |
+| POST | `/api/quiz/score` | No | Takes `{ answerIds[] }`, SUMs weighted scores from `answer_archetype_score`, returns winning archetype + full score map. All scoring logic lives here — zero logic in the frontend. |
 | POST | `/api/quiz/results` | Yes | Saves completed quiz session; resolves archetype UUID by name; returns session ID |
 | GET | `/api/quiz/results/latest` | Yes | Returns user's most recent quiz session with archetype name |
 | GET | `/api/shop/products` | No | Returns Shopify products (empty list until Shopify wired) |
@@ -469,6 +470,13 @@ ssl: process.env.NODE_ENV === 'production' && !isUnixSocket ? { rejectUnauthoriz
 **Change**: `fruity_floral` → `fruity` and `spicy_earthy` → `earthy`.  
 **Fix**: Updated the `CREATE TYPE` for fresh installs, and added two idempotent `DO` blocks that check `pg_enum` before calling `ALTER TYPE archetype_enum RENAME VALUE`. Safe to run on every startup — the blocks no-op once the rename is done.
 
+### 21. Upgraded quiz to 5 questions with weighted `answer_archetype_score` table
+**Problem**: The original backend scoring counted one vote per answer using `resulting_archetype_id` — flat, unweighted, inflexible. Adding a new archetype or changing scoring weights required code changes.  
+**Fix**: Added a normalised `answer_archetype_score` table (one row per answer + archetype, with a `score` column). Also added `weight NUMERIC DEFAULT 1` to both `question` and `answer` tables for future question-level weighting. Scoring weights for Q1–Q5:
+- Q1 = 1 pt, Q2 = 2 pts, Q3 = 1 pt (Q3-D neutral → no row), Q4 = 2 pts, Q5 = 3 pts
+Added Q5 ("You're handed an espresso — straight, no milk, no sugar. How does it land?") to quiz v2 via idempotent DO block. `POST /api/quiz/score` now JOINs `answer_archetype_score`, GROUPs BY archetype, and returns SUM of scores instead of counting votes.  
+**Seed file**: `backend/src/db/seeds/scoring_v1.sql` — run once in Cloud SQL Studio; idempotent, ON CONFLICT DO NOTHING.
+
 ### 20. Moved quiz scoring to backend (POST /api/quiz/score)
 **Problem**: Archetype was determined in the frontend by `computeArchetype()` — a JavaScript function counting votes locally. Business logic should not live in the browser.  
 **Fix**: Added `POST /api/quiz/score` to the backend. Frontend now sends the selected answer UUIDs; backend looks them up in the `answer` table, counts votes per archetype, applies tie-break logic, and returns the winner. The frontend only renders the result — it makes no decisions. `computeArchetype()` was removed entirely.
@@ -552,7 +560,7 @@ This keeps Firebase's secure token generation while giving us full control over 
 |---|---|
 | Frontend deployed | ✅ https://axis-and-bloom-prod.web.app |
 | Backend deployed | ✅ https://axis-bloom-backend-oiub7eumya-uc.a.run.app |
-| Database connected | ✅ 40 tables verified via /health/db |
+| Database connected | ✅ 41 tables verified via /health/db |
 | Email/password auth | ✅ Working |
 | Google sign-in | ✅ Working (was already enabled) |
 | Apple sign-in | ⚠️ Not configured |
@@ -567,7 +575,7 @@ This keeps Firebase's secure token generation while giving us full control over 
 
 ## Flavor Quiz (V2)
 
-The quiz lives in `frontend/src/app/components/FlavorQuiz.tsx`. V2 (from `Quiz V2.xlsx`) replaced the original 15-question, 6-archetype system with a focused 4-question, 3-archetype design. **Questions and answers are no longer hardcoded** — they are seeded into the database and fetched at runtime via `GET /api/quiz/questions`.
+The quiz lives in `frontend/src/app/components/FlavorQuiz.tsx`. V2 replaced the original 15-question, 6-archetype system with a focused 5-question, 3-archetype design. **Questions and answers are no longer hardcoded** — they are seeded into the database and fetched at runtime via `GET /api/quiz/questions`.
 
 ### Questions
 
@@ -577,6 +585,7 @@ The quiz lives in `frontend/src/app/components/FlavorQuiz.tsx`. V2 (from `Quiz V
 | 2 | Food instinct | Someone puts something in front of you as a treat. Which do you reach for? |
 | 3 | Black coffee reaction | You try a new coffee black. What's your first reaction? |
 | 4 | Disappointment | Which coffee would disappoint you the most? |
+| 5 | Bitterness tolerance | You're handed an espresso — straight, no milk, no sugar. How does it land? |
 
 ### Archetypes
 
@@ -586,27 +595,36 @@ The quiz lives in `frontend/src/app/components/FlavorQuiz.tsx`. V2 (from `Quiz V
 | **Balanced & Sweet** | `#d1ac11` | Reliable habit — smooth, easy, approachable |
 | **Fruity** | `#ca445f` | Curious discoverer — bright, lively, complex |
 
-### Scoring logic
+### Scoring logic (weighted, via `answer_archetype_score`)
 
-- Each answer = **+1 vote** for one archetype
-- Q3 option D ("I'm not sure") is **neutral** — no vote awarded
-- Most votes at the end wins
-- **Tie-break order**: Balanced & Sweet > Chocolate & Nutty > Fruity
-- **All scoring runs on the backend** — the frontend has zero scoring logic
+Scoring is stored in the `answer_archetype_score` table — one row per (answer, archetype). The backend SUMs points for all submitted answer UUIDs. Q3 option D is neutral (no row, no points).
+
+| Question | Points per answer |
+|---|---|
+| Q1 — Identity | 1 pt |
+| Q2 — Food instinct | 2 pts |
+| Q3 — Black coffee reaction | 1 pt (option D = neutral, 0 pts) |
+| Q4 — Disappointment | 2 pts |
+| Q5 — Bitterness tolerance | 3 pts (strongest signal) |
+
+**Max possible score for one archetype**: 1 + 2 + 1 + 2 + 3 = **9 pts**  
+**Tie-break** (rare with weighted scoring): Balanced & Sweet > Chocolate & Nutty > Fruity  
+**All scoring runs on the backend** — the frontend has zero scoring logic.
 
 ### Full flow
 
 ```
-1. mount       → GET  /api/quiz/questions
-               ← { questions: [{ q_text, answers: [{ id, text, archetype_name }] }] }
+1. mount        → GET  /api/quiz/questions
+                ← { questions: [{ q_text, answers: [{ id, text, archetype_name }] }] }
 
 2. user answers → frontend tracks selected answer UUIDs (one per question)
 
-3. last answer  → POST /api/quiz/score  { answerIds: ["uuid1", "uuid2", "uuid3", "uuid4"] }
-               ← { archetype: "Chocolate & Nutty", archetypeId: "uuid", scores: { ... } }
+3. last answer  → POST /api/quiz/score  { answerIds: ["uuid1", ..., "uuid5"] }
+                ← { archetype: "Chocolate & Nutty", archetypeId: "uuid", scores: { ... } }
+                   (backend SUMs answer_archetype_score rows for submitted UUIDs)
 
 4. if signed in → POST /api/quiz/results  { archetype, scores, answers, decaf: false }
-               ← { id: sessionId }   (saved to quiz_session with real FK)
+                ← { id: sessionId }   (saved to quiz_session with real FK)
 ```
 
 Question images are still managed in the frontend (keyed by `q_number`) since images aren't stored in the DB.
@@ -684,6 +702,29 @@ FROM archetype_assignments aa
 JOIN coffees c ON c.id = aa.coffee_id
 WHERE aa.superseded_at IS NULL
 ORDER BY c.name;
+```
+
+### Check quiz scoring table (should be 14 rows — Q3-D neutral has no row)
+```sql
+SELECT q.q_number, a.answer_text, ar.name AS archetype, aas.score
+FROM answer_archetype_score aas
+JOIN answer    a  ON a.id  = aas.answer_id
+JOIN question  q  ON q.id  = aas.question_id
+JOIN archetype ar ON ar.id = aas.archetype_id
+ORDER BY q.q_number, ar.name;
+```
+
+### Check all questions in quiz v2
+```sql
+SELECT q.q_number, q.q_text,
+       json_agg(json_build_object('text', a.answer_text, 'archetype', ar.name) ORDER BY a.id) AS answers
+FROM quiz qz
+JOIN question q ON q.quiz_id = qz.id
+JOIN answer   a ON a.question_id = q.id
+LEFT JOIN archetype ar ON ar.id = a.resulting_archetype_id
+WHERE qz.version = 'v2'
+GROUP BY q.q_number, q.q_text
+ORDER BY q.q_number;
 ```
 
 ---

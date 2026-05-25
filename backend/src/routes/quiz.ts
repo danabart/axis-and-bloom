@@ -52,8 +52,9 @@ router.get('/questions', async (_req, res) => {
 });
 
 // ─── POST /api/quiz/score ────────────────────────────────────────────────────
-// Takes an array of selected answer UUIDs, counts archetype votes in the DB,
-// and returns the winning archetype name + scores. No auth required.
+// Takes an array of selected answer UUIDs, SUMs weighted scores from
+// answer_archetype_score, and returns the winning archetype + full score map.
+// No auth required.
 router.post('/score', async (req, res) => {
   const { answerIds } = req.body;
   if (!Array.isArray(answerIds) || !answerIds.length) {
@@ -62,29 +63,30 @@ router.post('/score', async (req, res) => {
   }
 
   try {
-    // Fetch archetype vote for each selected answer
+    // Sum weighted scores per archetype for the submitted answers.
+    // Rows with archetype_id = NULL are neutral answers — excluded by the JOIN.
     const result = await db.query(
-      `SELECT a.resulting_archetype_id, ar.name AS archetype_name
-       FROM answer a
-       LEFT JOIN archetype ar ON ar.id = a.resulting_archetype_id
-       WHERE a.id = ANY($1::uuid[])`,
+      `SELECT ar.name AS archetype_name, SUM(aas.score)::numeric AS total
+       FROM answer_archetype_score aas
+       JOIN archetype ar ON ar.id = aas.archetype_id
+       WHERE aas.answer_id = ANY($1::uuid[])
+       GROUP BY ar.name`,
       [answerIds]
     );
 
-    // Count votes per archetype (null archetype_name = neutral answer, skip)
-    const scores: Record<string, number> = {};
-    for (const row of result.rows) {
-      if (row.archetype_name) {
-        scores[row.archetype_name] = (scores[row.archetype_name] ?? 0) + 1;
-      }
-    }
-
-    if (!Object.keys(scores).length) {
+    if (!result.rows.length) {
       res.status(400).json({ error: 'No scoreable answers found' });
       return;
     }
 
-    // Most votes wins. Tie-break: Balanced & Sweet > Chocolate & Nutty > Fruity
+    // Build scores map { archetypeName: totalPoints }
+    const scores: Record<string, number> = {};
+    for (const row of result.rows) {
+      scores[row.archetype_name] = Number(row.total);
+    }
+
+    // Highest score wins.
+    // Tie-break (unlikely with weighted scoring): Balanced & Sweet > Chocolate & Nutty > Fruity
     const TIE_BREAK = ['Balanced & Sweet', 'Chocolate & Nutty', 'Fruity'];
     const [winnerName] = Object.entries(scores).sort(
       (a, b) =>
