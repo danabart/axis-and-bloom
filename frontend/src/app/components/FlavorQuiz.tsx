@@ -37,7 +37,7 @@ type Archetype = 'chocolate' | 'balanced' | 'fruity';
 const ARCHETYPE_NAME_TO_KEY: Record<string, Archetype> = {
   'Chocolate & Nutty': 'chocolate',
   'Balanced & Sweet':  'balanced',
-  'Fruity & Complex':  'fruity',
+  'Fruity':            'fruity',
 };
 
 // ─── Archetypes display data ──────────────────────────────────────────────────
@@ -72,7 +72,7 @@ const ARCHETYPES = {
     ],
   },
   fruity: {
-    name: 'Fruity & Complex',
+    name: 'Fruity',
     color: '#ca445f',
     description: "A vibrant, curious, and layered profile. You're here for the experience, not just the caffeine.",
     features: [

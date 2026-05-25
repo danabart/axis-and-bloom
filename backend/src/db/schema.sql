@@ -589,8 +589,11 @@ CREATE TABLE IF NOT EXISTS archetype_assignments (
 INSERT INTO archetype (name, description) VALUES
   ('Chocolate & Nutty', 'A rich, bold, and comforting profile. You know exactly what you like and you like it satisfying.'),
   ('Balanced & Sweet',  'A smooth, round, and approachable profile. You want coffee that''s easy, pleasant, and never surprising.'),
-  ('Fruity & Complex',  'A vibrant, curious, and layered profile. You''re here for the experience, not just the caffeine.')
+  ('Fruity',            'A vibrant, curious, and layered profile. You''re here for the experience, not just the caffeine.')
 ON CONFLICT (name) DO NOTHING;
+
+-- Rename 'Fruity & Complex' → 'Fruity' in existing DBs (idempotent)
+UPDATE archetype SET name = 'Fruity', updated_at = NOW() WHERE name = 'Fruity & Complex';
 
 -- 2. Quiz v2 + questions + answers (only inserts if v2 doesn't exist yet)
 DO $seed$
@@ -608,7 +611,7 @@ BEGIN
 
     SELECT id INTO v_choc_id  FROM archetype WHERE name = 'Chocolate & Nutty';
     SELECT id INTO v_bal_id   FROM archetype WHERE name = 'Balanced & Sweet';
-    SELECT id INTO v_fruit_id FROM archetype WHERE name = 'Fruity & Complex';
+    SELECT id INTO v_fruit_id FROM archetype WHERE name = 'Fruity';
 
     INSERT INTO quiz (version, description, is_active)
       VALUES ('v2', 'Axis & Bloom Flavor Finder — 4 questions', true)
