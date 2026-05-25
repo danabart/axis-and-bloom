@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
@@ -88,43 +88,26 @@ const ARCHETYPES = {
 };
 
 // ─── Scoring ──────────────────────────────────────────────────────────────────
-// Count archetype votes from DB answer data. Neutral answers (archetype_name = null) award no vote.
-
-function computeArchetype(answers: Record<number, number>, questions: ApiQuestion[]): Archetype {
-  const scores: Record<Archetype, number> = { chocolate: 0, balanced: 0, fruity: 0 };
-
-  Object.entries(answers).forEach(([qIdx, optIdx]) => {
-    const q      = questions[parseInt(qIdx)];
-    const answer = q?.answers[optIdx];
-    if (answer?.archetype_name) {
-      const key = ARCHETYPE_NAME_TO_KEY[answer.archetype_name];
-      if (key) scores[key]++;
-    }
-  });
-
-  // Most votes wins; tie-break: balanced > chocolate > fruity (most accessible first)
-  return (Object.entries(scores) as [Archetype, number][])
-    .sort(
-      (a, b) =>
-        b[1] - a[1] ||
-        ['balanced', 'chocolate', 'fruity'].indexOf(a[0]) -
-        ['balanced', 'chocolate', 'fruity'].indexOf(b[0])
-    )[0][0];
-}
+// Scoring is done entirely on the backend via POST /api/quiz/score.
+// The frontend collects selected answer UUIDs and sends them to the server.
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function FlavorQuiz() {
-  const [hasStarted, setHasStarted]   = useState(false);
-  const [userName, setUserName]       = useState('');
-  const [currentStep, setCurrentStep] = useState(0);
-  const [answers, setAnswers]         = useState<Record<number, number>>({});
-  const [isComplete, setIsComplete]   = useState(false);
+  const [hasStarted, setHasStarted]     = useState(false);
+  const [userName, setUserName]         = useState('');
+  const [currentStep, setCurrentStep]   = useState(0);
+  const [answers, setAnswers]           = useState<Record<number, number>>({});    // step → option index (for UI selection highlight)
+  const [selectedIds, setSelectedIds]   = useState<Record<number, string>>({});   // step → answer UUID (sent to /api/quiz/score)
+  const [isComplete, setIsComplete]     = useState(false);
+  const [isScoring, setIsScoring]       = useState(false);
+  const [archetypeKey, setArchetypeKey] = useState<Archetype>('balanced');
+  const [scoreError, setScoreError]     = useState(false);
 
   // API state
-  const [questions, setQuestions]   = useState<ApiQuestion[]>([]);
-  const [loading, setLoading]       = useState(true);
-  const [loadError, setLoadError]   = useState(false);
+  const [questions, setQuestions] = useState<ApiQuestion[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   const { user } = useAuth();
 
@@ -153,32 +136,41 @@ export default function FlavorQuiz() {
     }
   }, []);
 
-  const archetypeKey = useMemo(
-    () => (questions.length ? computeArchetype(answers, questions) : 'balanced'),
-    [answers, questions]
-  );
   const archetype = ARCHETYPES[archetypeKey];
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (currentStep < questions.length - 1) {
       setCurrentStep(p => p + 1);
-    } else {
+      return;
+    }
+
+    // Last question — send answer IDs to backend for scoring
+    setIsScoring(true);
+    try {
+      const answerIds = Object.values(selectedIds);
+      const res = await fetch('/api/quiz/score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answerIds }),
+      });
+
+      if (!res.ok) throw new Error('Score request failed');
+
+      const { archetype: archetypeName, scores } = await res.json();
+      const key = ARCHETYPE_NAME_TO_KEY[archetypeName] ?? 'balanced';
+      setArchetypeKey(key);
       setIsComplete(true);
+
+      // Save to DB if signed in
       if (user) {
-        // Recompute scores for the API payload
-        const scores: Record<Archetype, number> = { chocolate: 0, balanced: 0, fruity: 0 };
-        Object.entries(answers).forEach(([qIdx, optIdx]) => {
-          const q      = questions[parseInt(qIdx)];
-          const answer = q?.answers[optIdx];
-          if (answer?.archetype_name) {
-            const key = ARCHETYPE_NAME_TO_KEY[answer.archetype_name];
-            if (key) scores[key]++;
-          }
-        });
-        // Send the full DB archetype name so backend can resolve the UUID
-        saveQuizResult({ archetype: archetype.name, scores, answers, decaf: false })
+        saveQuizResult({ archetype: archetypeName, scores, answers, decaf: false })
           .catch(console.error);
       }
+    } catch (err) {
+      console.error('[quiz/score]', err);
+      setScoreError(true);
+    } finally {
+      setIsScoring(false);
     }
   };
 
@@ -305,7 +297,10 @@ export default function FlavorQuiz() {
                     return (
                       <button
                         key={answer.id}
-                        onClick={() => setAnswers(prev => ({ ...prev, [currentStep]: idx }))}
+                        onClick={() => {
+                          setAnswers(prev => ({ ...prev, [currentStep]: idx }));
+                          setSelectedIds(prev => ({ ...prev, [currentStep]: answer.id }));
+                        }}
                         className={`w-full text-left text-[1.05rem] lg:text-[1.15rem] tracking-wide transition-all duration-500 px-8 py-5 rounded-[2.5rem] border-[1px] ${
                           isSelected
                             ? 'text-[#ee5974] border-[#ee5974]'
@@ -323,15 +318,20 @@ export default function FlavorQuiz() {
             <div className="mt-16 flex flex-col items-start w-full">
               <button
                 onClick={handleNext}
-                disabled={answers[currentStep] === undefined}
+                disabled={answers[currentStep] === undefined || isScoring}
                 className={`text-[10px] uppercase tracking-[0.3em] font-medium transition-all pb-1 border-b ${
-                  answers[currentStep] === undefined
+                  answers[currentStep] === undefined || isScoring
                     ? 'text-[#a33726] opacity-20 border-transparent cursor-not-allowed'
                     : 'text-[#a33726] border-[#a33726]/30 hover:border-[#ee5974] hover:text-[#ee5974]'
                 }`}
               >
-                {currentStep < questions.length - 1 ? 'Next Question' : 'See My Profile'}
+                {isScoring ? 'Finding your profile…' : currentStep < questions.length - 1 ? 'Next Question' : 'See My Profile'}
               </button>
+              {scoreError && (
+                <p className="text-[11px] text-[#ee5974] mt-4">
+                  Something went wrong. Please try again.
+                </p>
+              )}
               {!user && (
                 <Link
                   to="/sign-in"
@@ -439,7 +439,7 @@ export default function FlavorQuiz() {
                 </Link>
               )}
               <button
-                onClick={() => { setIsComplete(false); setCurrentStep(0); setAnswers({}); }}
+                onClick={() => { setIsComplete(false); setCurrentStep(0); setAnswers({}); setSelectedIds({}); setScoreError(false); setArchetypeKey('balanced'); }}
                 className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/50 hover:text-[#ee5974] transition-colors border-b border-transparent hover:border-[#ee5974] pb-0.5 mt-4"
               >
                 Retake Taste Finder

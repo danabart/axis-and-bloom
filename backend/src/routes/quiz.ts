@@ -51,6 +51,65 @@ router.get('/questions', async (_req, res) => {
   }
 });
 
+// ─── POST /api/quiz/score ────────────────────────────────────────────────────
+// Takes an array of selected answer UUIDs, counts archetype votes in the DB,
+// and returns the winning archetype name + scores. No auth required.
+router.post('/score', async (req, res) => {
+  const { answerIds } = req.body;
+  if (!Array.isArray(answerIds) || !answerIds.length) {
+    res.status(400).json({ error: 'answerIds (array of UUIDs) required' });
+    return;
+  }
+
+  try {
+    // Fetch archetype vote for each selected answer
+    const result = await db.query(
+      `SELECT a.resulting_archetype_id, ar.name AS archetype_name
+       FROM answer a
+       LEFT JOIN archetype ar ON ar.id = a.resulting_archetype_id
+       WHERE a.id = ANY($1::uuid[])`,
+      [answerIds]
+    );
+
+    // Count votes per archetype (null archetype_name = neutral answer, skip)
+    const scores: Record<string, number> = {};
+    for (const row of result.rows) {
+      if (row.archetype_name) {
+        scores[row.archetype_name] = (scores[row.archetype_name] ?? 0) + 1;
+      }
+    }
+
+    if (!Object.keys(scores).length) {
+      res.status(400).json({ error: 'No scoreable answers found' });
+      return;
+    }
+
+    // Most votes wins. Tie-break: Balanced & Sweet > Chocolate & Nutty > Fruity
+    const TIE_BREAK = ['Balanced & Sweet', 'Chocolate & Nutty', 'Fruity'];
+    const [winnerName] = Object.entries(scores).sort(
+      (a, b) =>
+        b[1] - a[1] ||
+        (TIE_BREAK.indexOf(a[0]) === -1 ? 99 : TIE_BREAK.indexOf(a[0])) -
+        (TIE_BREAK.indexOf(b[0]) === -1 ? 99 : TIE_BREAK.indexOf(b[0]))
+    )[0];
+
+    // Fetch the archetype UUID for the winner
+    const archetypeResult = await db.query(
+      `SELECT id FROM archetype WHERE name = $1`,
+      [winnerName]
+    );
+
+    res.json({
+      archetype: winnerName,
+      archetypeId: archetypeResult.rows[0]?.id ?? null,
+      scores,
+    });
+  } catch (err) {
+    console.error('[quiz/score]', err);
+    res.status(500).json({ error: 'Failed to compute archetype score' });
+  }
+});
+
 // ─── POST /api/quiz/results ──────────────────────────────────────────────────
 // Saves a completed quiz session, linking the real archetype FK from the DB.
 router.post('/results', requireAuth, async (req: AuthRequest, res) => {
