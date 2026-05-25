@@ -454,6 +454,14 @@ ssl: process.env.NODE_ENV === 'production' && !isUnixSocket ? { rejectUnauthoriz
 **Change**: `fruity_floral` → `fruity` and `spicy_earthy` → `earthy`.  
 **Fix**: Updated the `CREATE TYPE` for fresh installs, and added two idempotent `DO` blocks that check `pg_enum` before calling `ALTER TYPE archetype_enum RENAME VALUE`. Safe to run on every startup — the blocks no-op once the rename is done.
 
+### 16. Renamed `archetype` table row 'Fruity & Complex' → 'Fruity'
+**Change**: The `archetype` table (UUID-based, used by the quiz) had the row named `'Fruity & Complex'`. Renamed to `'Fruity'` to match the cupping tool's `archetype_enum` and simplify the label.  
+**Fix**: Three places updated together to stay in sync:
+- `schema.sql` INSERT seed: `'Fruity & Complex'` → `'Fruity'` (for fresh installs)
+- `schema.sql` added idempotent `UPDATE archetype SET name = 'Fruity' WHERE name = 'Fruity & Complex'` (runs on startup, no-ops once done)
+- `schema.sql` DO $seed$ block: archetype lookup updated to `WHERE name = 'Fruity'`
+- `FlavorQuiz.tsx`: `ARCHETYPE_NAME_TO_KEY` and `ARCHETYPES.fruity.name` both updated to `'Fruity'`
+
 ### 13. Quiz questions moved from hardcoded frontend to the database
 **Problem**: Quiz questions and answers were hardcoded in `FlavorQuiz.tsx`. Changing a question required a code deploy.  
 **Fix**: Added idempotent seed data to `schema.sql` (archetypes + quiz v2 + 4 questions + 13 answers). Rewrote `quiz.ts` with a `GET /api/quiz/questions` endpoint that serves the active quiz from the DB. Updated `FlavorQuiz.tsx` to fetch questions from the API on mount, with loading and error states. Scoring now uses `archetype_name` strings from the DB response. Any future question changes only require a DB edit, not a code deploy.
@@ -536,7 +544,7 @@ The quiz lives in `frontend/src/app/components/FlavorQuiz.tsx`. V2 (from `Quiz V
 |---|---|---|
 | **Chocolate & Nutty** | `#a54c2d` | Daily ritual drinker — bold, rich, comforting, particular |
 | **Balanced & Sweet** | `#d1ac11` | Reliable habit — smooth, easy, approachable |
-| **Fruity & Complex** | `#ca445f` | Curious discoverer — bright, lively, complex |
+| **Fruity** | `#ca445f` | Curious discoverer — bright, lively, complex |
 
 ### Scoring logic
 
@@ -557,6 +565,29 @@ The frontend maps `archetype_name` (`'Chocolate & Nutty'` etc.) to a short displ
 ### On completion
 
 If the user is signed in, the quiz calls `POST /api/quiz/results` with `{ archetype: 'Chocolate & Nutty', scores, answers, decaf: false }`. The backend resolves the archetype name to its UUID and saves the session to `quiz_session` with the real FK. The result is also returned immediately so the results screen can display it.
+
+---
+
+## Cupping Sessions
+
+Session data is stored in the cupping tool tables and inserted manually via Cloud SQL Studio. Seed files live in `backend/src/db/seeds/` (for reference only — do not add to `schema.sql`).
+
+### Session 001 — Path Coffee Roasters, 2026-05-27
+**File**: `backend/src/db/seeds/session_001_path_2026_05_27.sql`  
+**Tasters**: Dana, Camila (first cupping — scores treated as directional)  
+**Brew method**: Filter  
+**Notes**: Scores merged into one result set (`taster_name = 'session_1_merged'`, `is_merged = true`)
+
+| Coffee | Origin | Blend/Single | Process | Roast | Archetype | Confidence |
+|---|---|---|---|---|---|---|
+| Crosshatch | Nicaragua & Ethiopia | Blend | Washed | Light-medium | Balanced & Sweet | High |
+| Ethiopia | Ethiopia | Single | Washed | Light-medium | Fruity | High |
+| Feather In Cap | Colombia & Ethiopia | Blend | Washed | Medium-dark | Chocolate & Nutty | Medium |
+
+**Score highlights:**
+- **Crosshatch**: sweetness 9–11 (honey, sweet), acidity 6–8 (apple, banana, coconut — soft and round), bitterness 3–5
+- **Ethiopia**: sweetness 6–8 (fruit-driven brightness), acidity 8–10 (pineapple — brightest of the three), bitterness 0–2 (trace only), tea-like body
+- **Feather In Cap**: sweetness 7–9 (sweet on nose, tobacco took over in cup), acidity 2–4 (low), bitterness 5–7 (tobacco/burnt character — adjusted down), drying finish
 
 ---
 
