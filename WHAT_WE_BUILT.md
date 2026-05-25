@@ -199,18 +199,18 @@ axis-and-bloom/
 
 ---
 
-## Database Schema (38 Tables)
+## Database Schema (44 Tables)
 
 The schema lives in `backend/src/db/schema.sql` and runs automatically on every backend startup (`CREATE TABLE IF NOT EXISTS` — fully idempotent, safe to run repeatedly).
 
-It was merged from your original Supabase design plus adaptations for Firebase Auth (Firebase UID used as the user identifier instead of Supabase's auth.users).
+It was merged from your original Supabase design plus adaptations for Firebase Auth (Firebase UID used as the user identifier instead of Supabase's auth.users). The cupping tool tables (added May 2026) are a separate group with SERIAL PKs rather than UUIDs.
 
 ### Table groups
 
 **Lookup / reference**
 - `user_type` — subscriber, admin, roaster partner, etc.
 - `dimension` — flavor dimensions (acidity, body, roast level, etc.)
-- `archetype` — named flavor profiles (e.g. "The Bright Fruit Lover")
+- `archetype` — named flavor profiles (e.g. "Chocolate & Nutty")
 - `roaster` — drop-ship roastery partners
 - `quiz` — quiz versions
 - `cupping_note` — flavor wheel descriptors
@@ -236,9 +236,9 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 - `blend` — coffee blends available for purchase; links to Shopify variant IDs
 - `blend_vector` — where each blend sits in flavor-dimension space
 - `user_roaster_link` — roastery staff accounts
-- `cupping_session` — QC cupping records
-- `cupping_session_note` — notes on each cupping session
-- `cupping_session_vector` — dimension scores from a cupping session
+- `cupping_session` — legacy QC cupping records
+- `cupping_session_note` — notes on each legacy cupping session
+- `cupping_session_vector` — dimension scores from a legacy cupping session
 
 **Quiz**
 - `question`
@@ -260,6 +260,22 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 **Chat & newsletter**
 - `chat_message` — Claude AI chat history per user
 - `newsletter_subscriber`
+
+**Cupping tool** *(added May 2026 — SERIAL PKs, standalone from the main schema)*
+- `coffees` — coffee catalogue (name, roaster, origin, process, roast level/shade, roaster flavor descriptors)
+- `cupping_sessions` — session header (date, brew method, location, notes)
+- `session_coffees` — junction: which coffees appeared in a session and in what order
+- `cupping_scores` — per-taster scores with min/max ranges and notes for 7 attributes (sweetness, acidity, bitterness, body, texture, savory depth, finish length) plus fragrance/aroma/flavor/mouthfeel/overall; unique on `(session_coffee_id, taster_name)`; `is_merged = true` for the combined row
+- `brew_params` — brew parameters per session-coffee (dose, water, yield, ratio, temp, grind, extraction time, pressure, steep time, device); all nullable
+- `archetype_assignments` — archetype tag per coffee with confidence level; `superseded_at = NULL` for the current assignment, populated when a newer one replaces it
+
+### Enums (cupping tool)
+
+| Enum | Values |
+|---|---|
+| `brew_method_enum` | `filter`, `espresso`, `cold_brew`, `other` |
+| `archetype_enum` | `chocolate_nutty`, `balanced_sweet`, `fruity`, `earthy`, `floral` |
+| `confidence_enum` | `low`, `medium`, `high` |
 
 ---
 
@@ -431,6 +447,13 @@ ssl: process.env.NODE_ENV === 'production' && !isUnixSocket ? { rejectUnauthoriz
 **Change**: Original quiz had 15 questions, 6 archetypes (Floral, Fruity, Balanced, Chocolate, Spicy, Experimental) and a complex multi-dimensional scoring system.  
 **New design** (from `Quiz V2.xlsx`): 4 focused questions, 3 archetypes, simple vote-counting — each answer = +1 for one archetype, most votes wins. Q3 has a neutral "I'm not sure" option that awards no votes.
 
+### 14. Cupping tool schema added (May 2026)
+**Change**: Added 3 PostgreSQL enums and 6 new tables to support a standalone cupping / QC workflow. Tables use SERIAL PKs (not UUIDs) and are fully separate from the existing `cupping_session` (singular) legacy table. All idempotent — enums wrapped in `DO $$ BEGIN ... EXCEPTION WHEN duplicate_object THEN NULL; END $$;`, tables use `CREATE TABLE IF NOT EXISTS`.
+
+### 15. Renamed `archetype_enum` values
+**Change**: `fruity_floral` → `fruity` and `spicy_earthy` → `earthy`.  
+**Fix**: Updated the `CREATE TYPE` for fresh installs, and added two idempotent `DO` blocks that check `pg_enum` before calling `ALTER TYPE archetype_enum RENAME VALUE`. Safe to run on every startup — the blocks no-op once the rename is done.
+
 ### 13. Quiz questions moved from hardcoded frontend to the database
 **Problem**: Quiz questions and answers were hardcoded in `FlavorQuiz.tsx`. Changing a question required a code deploy.  
 **Fix**: Added idempotent seed data to `schema.sql` (archetypes + quiz v2 + 4 questions + 13 answers). Rewrote `quiz.ts` with a `GET /api/quiz/questions` endpoint that serves the active quiz from the DB. Updated `FlavorQuiz.tsx` to fetch questions from the API on mount, with loading and error states. Scoring now uses `archetype_name` strings from the DB response. Any future question changes only require a DB edit, not a code deploy.
@@ -475,13 +498,13 @@ This keeps Firebase's secure token generation while giving us full control over 
 
 ---
 
-## Current State (as of 2026-05-24)
+## Current State (as of 2026-05-25)
 
 | Component | Status |
 |---|---|
 | Frontend deployed | ✅ https://axis-and-bloom-prod.web.app |
 | Backend deployed | ✅ https://axis-bloom-backend-oiub7eumya-uc.a.run.app |
-| Database connected | ✅ 38 tables verified via /health/db |
+| Database connected | ✅ 44 tables verified via /health/db |
 | Email/password auth | ✅ Working |
 | Google sign-in | ✅ Working (was already enabled) |
 | Apple sign-in | ⚠️ Not configured |
@@ -489,6 +512,7 @@ This keeps Firebase's secure token generation while giving us full control over 
 | Transactional email | ✅ Resend — sends from noreply@axisandbloomcoffee.com |
 | Claude AI chat | ✅ Wired up, API key in Secret Manager |
 | Shopify | ⚠️ Stubbed — waiting for roastery account |
+| Cupping tool schema | ✅ 6 tables + 3 enums in DB — no backend routes or UI yet |
 | CI/CD | ✅ Push to main deploys everything |
 
 ---
@@ -540,11 +564,11 @@ If the user is signed in, the quiz calls `POST /api/quiz/results` with `{ archet
 
 ### Ready to do now
 1. **Wire AI recommendations** — the agent route needs to fetch the user's `user_coffee_profile` and use it to narrow recommendations.
+2. **Cupping tool API + UI** — the DB schema is ready (`coffees`, `cupping_sessions`, `session_coffees`, `cupping_scores`, `brew_params`, `archetype_assignments`). Next step is backend routes and a frontend interface for logging cupping sessions.
 
 ### When your Shopify/roastery account is ready
-4. **Enable Shopify** — add 3 secrets to Secret Manager (`SHOPIFY_STORE_DOMAIN`, `SHOPIFY_STOREFRONT_TOKEN`, `SHOPIFY_ADMIN_TOKEN`). No code changes needed.
+3. **Enable Shopify** — add 3 secrets to Secret Manager (`SHOPIFY_STORE_DOMAIN`, `SHOPIFY_STOREFRONT_TOKEN`, `SHOPIFY_ADMIN_TOKEN`). No code changes needed.
 
 ### Optional
-5. **Apple sign-in** — requires an Apple Developer account ($99/year). Low priority.
-6. **Subscription management UI** — the schema and backend route exist but there's no frontend page yet.
-7. **Cupping session tool** — for your roastery partner to log QC data on blends.
+4. **Apple sign-in** — requires an Apple Developer account ($99/year). Low priority.
+5. **Subscription management UI** — the schema and backend route exist but there's no frontend page yet.
