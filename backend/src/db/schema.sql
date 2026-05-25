@@ -13,13 +13,6 @@ CREATE TABLE IF NOT EXISTS user_type (
   updated_at  TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
 
-CREATE TABLE IF NOT EXISTS dimension (
-  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name       TEXT NOT NULL UNIQUE,
-  data_type  TEXT DEFAULT 'numerical',
-  created_at TIMESTAMPTZ DEFAULT timezone('utc', now()),
-  updated_at TIMESTAMPTZ DEFAULT timezone('utc', now())
-);
 
 CREATE TABLE IF NOT EXISTS archetype (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -154,7 +147,7 @@ CREATE TABLE IF NOT EXISTS payment_detail (
 
 CREATE TABLE IF NOT EXISTS archetype_vector (
   archetype_id UUID NOT NULL REFERENCES archetype(id) ON DELETE CASCADE,
-  dimension_id UUID NOT NULL REFERENCES dimension(id) ON DELETE CASCADE,
+  dimension_id UUID NOT NULL,
   ideal_score  NUMERIC NOT NULL,
   min_score    NUMERIC,
   max_score    NUMERIC,
@@ -163,10 +156,10 @@ CREATE TABLE IF NOT EXISTS archetype_vector (
 );
 
 CREATE TABLE IF NOT EXISTS archetype_relationship (
-  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   from_archetype_id UUID REFERENCES archetype(id) ON DELETE CASCADE,
   to_archetype_id   UUID REFERENCES archetype(id) ON DELETE CASCADE,
-  dimension_id      UUID REFERENCES dimension(id),
+  dimension_id      UUID,
   direction         TEXT,
   strength_delta    NUMERIC,
   created_at        TIMESTAMPTZ DEFAULT now()
@@ -175,7 +168,7 @@ CREATE TABLE IF NOT EXISTS archetype_relationship (
 CREATE TABLE IF NOT EXISTS archetype_tunable_variable (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   archetype_id UUID REFERENCES archetype(id) ON DELETE CASCADE,
-  dimension_id UUID REFERENCES dimension(id) ON DELETE CASCADE,
+  dimension_id UUID,
   display_name TEXT,
   min_offset   NUMERIC DEFAULT -2.0,
   max_offset   NUMERIC DEFAULT 2.0,
@@ -183,29 +176,29 @@ CREATE TABLE IF NOT EXISTS archetype_tunable_variable (
 );
 
 CREATE TABLE IF NOT EXISTS dimension_scoring_rule (
-  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  dimension_id     UUID REFERENCES dimension(id) ON DELETE CASCADE,
-  min_value        NUMERIC,
-  max_value        NUMERIC,
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  dimension_id       UUID,
+  min_value          NUMERIC,
+  max_value          NUMERIC,
   allowed_categories JSONB,
-  created_at       TIMESTAMPTZ DEFAULT timezone('utc', now()),
-  updated_at       TIMESTAMPTZ DEFAULT timezone('utc', now())
+  created_at         TIMESTAMPTZ DEFAULT timezone('utc', now()),
+  updated_at         TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
 
 -- Per-user flavor position and tuning
 CREATE TABLE IF NOT EXISTS user_vector_state (
-  user_id         UUID NOT NULL REFERENCES user_profile(id) ON DELETE CASCADE,
-  dimension_id    UUID NOT NULL REFERENCES dimension(id) ON DELETE CASCADE,
-  declared_score  NUMERIC,
-  behavior_score  NUMERIC,
-  updated_at      TIMESTAMPTZ DEFAULT timezone('utc', now()),
+  user_id        UUID NOT NULL REFERENCES user_profile(id) ON DELETE CASCADE,
+  dimension_id   UUID NOT NULL,
+  declared_score NUMERIC,
+  behavior_score NUMERIC,
+  updated_at     TIMESTAMPTZ DEFAULT timezone('utc', now()),
   PRIMARY KEY (user_id, dimension_id)
 );
 
 CREATE TABLE IF NOT EXISTS user_archetype_tuning (
   user_id              UUID NOT NULL REFERENCES user_profile(id) ON DELETE CASCADE,
   archetype_id         UUID NOT NULL REFERENCES archetype(id) ON DELETE CASCADE,
-  dimension_id         UUID NOT NULL REFERENCES dimension(id) ON DELETE CASCADE,
+  dimension_id         UUID NOT NULL,
   user_selected_offset NUMERIC,
   updated_at           TIMESTAMPTZ DEFAULT now(),
   PRIMARY KEY (user_id, archetype_id, dimension_id)
@@ -246,7 +239,7 @@ CREATE TABLE IF NOT EXISTS blend (
 
 CREATE TABLE IF NOT EXISTS blend_vector (
   blend_id     UUID NOT NULL REFERENCES blend(id) ON DELETE CASCADE,
-  dimension_id UUID NOT NULL REFERENCES dimension(id) ON DELETE CASCADE,
+  dimension_id UUID NOT NULL,
   score        NUMERIC NOT NULL,
   PRIMARY KEY (blend_id, dimension_id)
 );
@@ -279,7 +272,7 @@ CREATE TABLE IF NOT EXISTS cupping_session_note (
 
 CREATE TABLE IF NOT EXISTS cupping_session_vector (
   cupping_session_id UUID NOT NULL REFERENCES cupping_session(id) ON DELETE CASCADE,
-  dimension_id       UUID NOT NULL REFERENCES dimension(id) ON DELETE CASCADE,
+  dimension_id       UUID NOT NULL,
   score              NUMERIC NOT NULL,
   PRIMARY KEY (cupping_session_id, dimension_id)
 );
@@ -316,7 +309,7 @@ CREATE TABLE IF NOT EXISTS quiz_vector (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id         UUID REFERENCES user_profile(id) ON DELETE CASCADE,
   quiz_session_id UUID REFERENCES quiz_session(id) ON DELETE CASCADE,
-  dimension_id    UUID REFERENCES dimension(id) ON DELETE CASCADE,
+  dimension_id    UUID,
   score           NUMERIC NOT NULL
 );
 
