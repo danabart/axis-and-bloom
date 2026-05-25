@@ -175,15 +175,6 @@ CREATE TABLE IF NOT EXISTS archetype_tunable_variable (
   created_at   TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS dimension_scoring_rule (
-  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  dimension_id       UUID,
-  min_value          NUMERIC,
-  max_value          NUMERIC,
-  allowed_categories JSONB,
-  created_at         TIMESTAMPTZ DEFAULT timezone('utc', now()),
-  updated_at         TIMESTAMPTZ DEFAULT timezone('utc', now())
-);
 
 -- Per-user flavor position and tuning
 CREATE TABLE IF NOT EXISTS user_vector_state (
