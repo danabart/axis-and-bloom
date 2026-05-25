@@ -252,30 +252,6 @@ CREATE TABLE IF NOT EXISTS user_roaster_link (
   PRIMARY KEY (user_id, roaster_id)
 );
 
--- Cupping / QC sessions
-CREATE TABLE IF NOT EXISTS cupping_session (
-  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  blend_id              UUID REFERENCES blend(id),
-  cupped_by_user_id     UUID REFERENCES user_profile(id),
-  sample_roast_date     DATE,
-  cupping_date          DATE NOT NULL DEFAULT CURRENT_DATE,
-  overall_quality_score NUMERIC,
-  internal_notes        TEXT,
-  created_at            TIMESTAMPTZ DEFAULT timezone('utc', now())
-);
-
-CREATE TABLE IF NOT EXISTS cupping_session_note (
-  cupping_session_id UUID NOT NULL REFERENCES cupping_session(id) ON DELETE CASCADE,
-  cupping_note_id    UUID NOT NULL REFERENCES cupping_note(id) ON DELETE CASCADE,
-  PRIMARY KEY (cupping_session_id, cupping_note_id)
-);
-
-CREATE TABLE IF NOT EXISTS cupping_session_vector (
-  cupping_session_id UUID NOT NULL REFERENCES cupping_session(id) ON DELETE CASCADE,
-  dimension_id       UUID NOT NULL,
-  score              NUMERIC NOT NULL,
-  PRIMARY KEY (cupping_session_id, dimension_id)
-);
 
 -- ─────────────────────────────────────────────
 -- QUIZ SYSTEM
