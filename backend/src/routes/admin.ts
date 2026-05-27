@@ -5,6 +5,30 @@ import { db } from '../db/client.js';
 const router = Router();
 router.use(requireAdmin);
 
+// ── GET /api/admin/lookups ────────────────────────────────────────────────────
+// Returns all lookup categories as { category, values: [{value, label}][] }
+router.get('/lookups', async (_req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT category, value, label
+       FROM lookup_value
+       ORDER BY category, sort_order, label`
+    );
+    // Group by category
+    const grouped = result.rows.reduce<Record<string, { value: string; label: string }[]>>(
+      (acc, row) => {
+        (acc[row.category] ??= []).push({ value: row.value, label: row.label });
+        return acc;
+      },
+      {}
+    );
+    res.json(grouped);
+  } catch (err) {
+    console.error('[admin/lookups]', err);
+    res.status(500).json({ error: 'Failed to fetch lookups' });
+  }
+});
+
 // ── GET /api/admin/stats ──────────────────────────────────────────────────────
 router.get('/stats', async (_req, res) => {
   try {

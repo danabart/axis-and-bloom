@@ -626,15 +626,57 @@ CREATE TABLE IF NOT EXISTS archetype_assignments (
 );
 
 -- ─────────────────────────────────────────────
+-- LOOKUP VALUES  (controlled vocabulary)
+-- ─────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS lookup_value (
+  id         SERIAL PRIMARY KEY,
+  category   TEXT NOT NULL,
+  value      TEXT NOT NULL,
+  label      TEXT NOT NULL,          -- display label (can differ from value)
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (category, value)
+);
+
+-- ─────────────────────────────────────────────
 -- SEED DATA  (Quiz V2 — idempotent)
 -- Runs on every startup; skipped if already seeded.
 -- ─────────────────────────────────────────────
 
--- 0. User types
+-- 0a. User types
 INSERT INTO user_type (name, description) VALUES
   ('admin',    'Internal team — full access to admin portal'),
   ('customer', 'Regular subscriber')
 ON CONFLICT (name) DO NOTHING;
+
+-- 0b. Lookup values (controlled vocabulary for dropdowns)
+INSERT INTO lookup_value (category, value, label, sort_order) VALUES
+  -- roast level
+  ('roast_level', 'light',        'Light',        1),
+  ('roast_level', 'light-medium', 'Light-Medium',  2),
+  ('roast_level', 'medium',       'Medium',        3),
+  ('roast_level', 'medium-dark',  'Medium-Dark',   4),
+  ('roast_level', 'dark',         'Dark',          5),
+  -- process
+  ('process', 'washed',     'Washed',     1),
+  ('process', 'natural',    'Natural',    2),
+  ('process', 'honey',      'Honey',      3),
+  ('process', 'anaerobic',  'Anaerobic',  4),
+  ('process', 'wet-hulled', 'Wet-Hulled', 5),
+  ('process', 'other',      'Other',      6),
+  -- blend type
+  ('blend_or_single', 'single', 'Single Origin', 1),
+  ('blend_or_single', 'blend',  'Blend',         2),
+  -- brew method
+  ('brew_method', 'cupping',      'Cupping',      1),
+  ('brew_method', 'filter',       'Filter',       2),
+  ('brew_method', 'pour-over',    'Pour-Over',    3),
+  ('brew_method', 'espresso',     'Espresso',     4),
+  ('brew_method', 'french-press', 'French Press', 5),
+  ('brew_method', 'aeropress',    'AeroPress',    6),
+  ('brew_method', 'other',        'Other',        7)
+ON CONFLICT (category, value) DO UPDATE
+  SET label = EXCLUDED.label, sort_order = EXCLUDED.sort_order;
 
 -- 1. Archetypes (name is UNIQUE — safe to re-run)
 INSERT INTO archetype (name, description) VALUES

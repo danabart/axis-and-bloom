@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useAdminLookups } from '../../hooks/useAdminLookups';
 
 interface Coffee {
   id: number;
@@ -14,26 +15,50 @@ interface Coffee {
   confidence: number | null;
 }
 
-const ROAST_LEVELS = ['light', 'light-medium', 'medium', 'medium-dark', 'dark'];
-const PROCESSES   = ['washed', 'natural', 'honey', 'anaerobic', 'wet-hulled', 'other'];
-
 const EMPTY_FORM = {
   name: '',
   roaster: '',
   origin: '',
-  blend_or_single: 'single',
-  process: 'washed',
-  roast_level: 'medium',
+  blend_or_single: '',
+  process: '',
+  roast_level: '',
   flavor_descriptors_roaster: '',
 };
 
+function LookupSelect({
+  category,
+  value,
+  onChange,
+  lookups,
+}: {
+  category: string;
+  value: string;
+  onChange: (v: string) => void;
+  lookups: Record<string, { value: string; label: string }[]>;
+}) {
+  const options = lookups[category] ?? [];
+  return (
+    <select
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      className="w-full border border-stone-300 rounded px-3 py-2 text-sm"
+    >
+      <option value="">— select —</option>
+      {options.map(o => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+    </select>
+  );
+}
+
 export default function AdminCoffees() {
   const { user } = useAuth();
-  const [coffees, setCoffees]   = useState<Coffee[]>([]);
-  const [error, setError]       = useState('');
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm]         = useState(EMPTY_FORM);
-  const [saving, setSaving]     = useState(false);
+  const { lookups } = useAdminLookups();
+  const [coffees, setCoffees]     = useState<Coffee[]>([]);
+  const [error, setError]         = useState('');
+  const [showForm, setShowForm]   = useState(false);
+  const [form, setForm]           = useState(EMPTY_FORM);
+  const [saving, setSaving]       = useState(false);
   const [saveError, setSaveError] = useState('');
 
   async function load() {
@@ -72,6 +97,9 @@ export default function AdminCoffees() {
     }
   }
 
+  const field = (key: keyof typeof EMPTY_FORM) => (v: string) =>
+    setForm(f => ({ ...f, [key]: v }));
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -95,7 +123,7 @@ export default function AdminCoffees() {
             <input
               required
               value={form.name}
-              onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+              onChange={e => field('name')(e.target.value)}
               className="w-full border border-stone-300 rounded px-3 py-2 text-sm"
               placeholder="e.g. Yirgacheffe Natural"
             />
@@ -104,7 +132,7 @@ export default function AdminCoffees() {
             <label className="block text-xs text-stone-500 mb-1">Roaster</label>
             <input
               value={form.roaster}
-              onChange={e => setForm(f => ({ ...f, roaster: e.target.value }))}
+              onChange={e => field('roaster')(e.target.value)}
               className="w-full border border-stone-300 rounded px-3 py-2 text-sm"
               placeholder="e.g. Path Coffee Roasters"
             />
@@ -113,41 +141,22 @@ export default function AdminCoffees() {
             <label className="block text-xs text-stone-500 mb-1">Origin</label>
             <input
               value={form.origin}
-              onChange={e => setForm(f => ({ ...f, origin: e.target.value }))}
+              onChange={e => field('origin')(e.target.value)}
               className="w-full border border-stone-300 rounded px-3 py-2 text-sm"
               placeholder="e.g. Ethiopia"
             />
           </div>
           <div>
             <label className="block text-xs text-stone-500 mb-1">Blend or Single</label>
-            <select
-              value={form.blend_or_single}
-              onChange={e => setForm(f => ({ ...f, blend_or_single: e.target.value }))}
-              className="w-full border border-stone-300 rounded px-3 py-2 text-sm"
-            >
-              <option value="single">Single Origin</option>
-              <option value="blend">Blend</option>
-            </select>
+            <LookupSelect category="blend_or_single" value={form.blend_or_single} onChange={field('blend_or_single')} lookups={lookups} />
           </div>
           <div>
             <label className="block text-xs text-stone-500 mb-1">Process</label>
-            <select
-              value={form.process}
-              onChange={e => setForm(f => ({ ...f, process: e.target.value }))}
-              className="w-full border border-stone-300 rounded px-3 py-2 text-sm"
-            >
-              {PROCESSES.map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
+            <LookupSelect category="process" value={form.process} onChange={field('process')} lookups={lookups} />
           </div>
           <div>
             <label className="block text-xs text-stone-500 mb-1">Roast Level</label>
-            <select
-              value={form.roast_level}
-              onChange={e => setForm(f => ({ ...f, roast_level: e.target.value }))}
-              className="w-full border border-stone-300 rounded px-3 py-2 text-sm"
-            >
-              {ROAST_LEVELS.map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
+            <LookupSelect category="roast_level" value={form.roast_level} onChange={field('roast_level')} lookups={lookups} />
           </div>
           <div className="md:col-span-2">
             <label className="block text-xs text-stone-500 mb-1">
@@ -155,7 +164,7 @@ export default function AdminCoffees() {
             </label>
             <input
               value={form.flavor_descriptors_roaster}
-              onChange={e => setForm(f => ({ ...f, flavor_descriptors_roaster: e.target.value }))}
+              onChange={e => field('flavor_descriptors_roaster')(e.target.value)}
               className="w-full border border-stone-300 rounded px-3 py-2 text-sm"
               placeholder="e.g. blueberry, dark chocolate, jasmine"
             />
@@ -192,23 +201,27 @@ export default function AdminCoffees() {
             {coffees.length === 0 && (
               <tr><td colSpan={7} className="py-8 text-center text-stone-400">No coffees yet</td></tr>
             )}
-            {coffees.map(c => (
-              <tr key={c.id} className="border-b border-stone-100 hover:bg-stone-50">
-                <td className="py-3 pr-4 font-medium text-stone-800">{c.name}</td>
-                <td className="py-3 pr-4 text-stone-500">{c.roaster ?? '—'}</td>
-                <td className="py-3 pr-4 text-stone-500">{c.origin ?? '—'}</td>
-                <td className="py-3 pr-4 text-stone-500">{c.process ?? '—'}</td>
-                <td className="py-3 pr-4 text-stone-500">{c.roast_level ?? '—'}</td>
-                <td className="py-3 pr-4">
-                  {c.archetype
-                    ? <span className="px-2 py-0.5 rounded-full text-xs text-white" style={{ backgroundColor: '#b05642' }}>{c.archetype}</span>
-                    : <span className="text-stone-300">—</span>}
-                </td>
-                <td className="py-3 text-stone-400">
-                  {c.confidence != null ? `${(Number(c.confidence) * 100).toFixed(0)}%` : '—'}
-                </td>
-              </tr>
-            ))}
+            {coffees.map(c => {
+              const roastLabel = lookups.roast_level?.find(o => o.value === c.roast_level)?.label ?? c.roast_level ?? '—';
+              const processLabel = lookups.process?.find(o => o.value === c.process)?.label ?? c.process ?? '—';
+              return (
+                <tr key={c.id} className="border-b border-stone-100 hover:bg-stone-50">
+                  <td className="py-3 pr-4 font-medium text-stone-800">{c.name}</td>
+                  <td className="py-3 pr-4 text-stone-500">{c.roaster ?? '—'}</td>
+                  <td className="py-3 pr-4 text-stone-500">{c.origin ?? '—'}</td>
+                  <td className="py-3 pr-4 text-stone-500">{processLabel}</td>
+                  <td className="py-3 pr-4 text-stone-500">{roastLabel}</td>
+                  <td className="py-3 pr-4">
+                    {c.archetype
+                      ? <span className="px-2 py-0.5 rounded-full text-xs text-white" style={{ backgroundColor: '#b05642' }}>{c.archetype}</span>
+                      : <span className="text-stone-300">—</span>}
+                  </td>
+                  <td className="py-3 text-stone-400">
+                    {c.confidence != null ? `${(Number(c.confidence) * 100).toFixed(0)}%` : '—'}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

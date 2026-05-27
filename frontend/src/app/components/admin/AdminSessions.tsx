@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useAdminLookups } from '../../hooks/useAdminLookups';
 
 interface Session {
   id: number;
@@ -10,17 +11,16 @@ interface Session {
   coffee_count: string;
 }
 
-const BREW_METHODS = ['filter', 'espresso', 'cupping', 'pour-over', 'french press', 'aeropress', 'other'];
-
 const EMPTY_FORM = {
   session_date: '',
-  brew_method: 'cupping',
+  brew_method: '',
   location: '',
   session_notes: '',
 };
 
 export default function AdminSessions() {
   const { user } = useAuth();
+  const { lookups } = useAdminLookups();
   const [sessions, setSessions]   = useState<Session[]>([]);
   const [error, setError]         = useState('');
   const [showForm, setShowForm]   = useState(false);
@@ -68,6 +68,10 @@ export default function AdminSessions() {
     return new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
+  const brewMethods = lookups.brew_method ?? [];
+  const brewLabel = (value: string | null) =>
+    brewMethods.find(o => o.value === value)?.label ?? value ?? '—';
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -103,7 +107,10 @@ export default function AdminSessions() {
               onChange={e => setForm(f => ({ ...f, brew_method: e.target.value }))}
               className="w-full border border-stone-300 rounded px-3 py-2 text-sm"
             >
-              {BREW_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+              <option value="">— select —</option>
+              {brewMethods.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
             </select>
           </div>
           <div>
@@ -158,7 +165,7 @@ export default function AdminSessions() {
               <tr key={s.id} className="border-b border-stone-100 hover:bg-stone-50">
                 <td className="py-3 pr-4 font-medium text-stone-800">{formatDate(s.session_date)}</td>
                 <td className="py-3 pr-4 text-stone-500">{s.location ?? '—'}</td>
-                <td className="py-3 pr-4 text-stone-500">{s.brew_method ?? '—'}</td>
+                <td className="py-3 pr-4 text-stone-500">{brewLabel(s.brew_method)}</td>
                 <td className="py-3 pr-4 text-stone-500">{Number(s.coffee_count)}</td>
                 <td className="py-3 text-stone-400 max-w-xs truncate">{s.session_notes ?? '—'}</td>
               </tr>
