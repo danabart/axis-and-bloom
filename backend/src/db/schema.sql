@@ -521,7 +521,7 @@ BEGIN
       AND column_name = 'brew_method'
       AND udt_name = 'brew_method_enum'
   ) THEN
-    ALTER TABLE cupping_sessions ALTER COLUMN brew_method TYPE TEXT;
+    ALTER TABLE cupping_sessions ALTER COLUMN brew_method TYPE TEXT USING brew_method::TEXT;
   END IF;
 END $$;
 

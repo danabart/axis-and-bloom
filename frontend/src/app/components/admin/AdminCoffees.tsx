@@ -15,6 +15,8 @@ interface Coffee {
   confidence: string | null;
 }
 
+interface RoasterOption { id: string; name: string; }
+
 const ARCHETYPE_OPTIONS = [
   { value: 'chocolate_nutty', label: 'Chocolate & Nutty' },
   { value: 'balanced_sweet',  label: 'Balanced & Sweet'  },
@@ -66,6 +68,7 @@ export default function AdminCoffees() {
   const [form, setForm]               = useState(EMPTY_FORM);
   const [saving, setSaving]           = useState(false);
   const [saveError, setSaveError]     = useState('');
+  const [roasterOptions, setRoasterOptions] = useState<RoasterOption[]>([]);
 
   // Archetype assignment state
   const [assigningId, setAssigningId] = useState<number | null>(null);
@@ -81,7 +84,16 @@ export default function AdminCoffees() {
     } catch { setError('Failed to load coffees'); }
   }
 
-  useEffect(() => { load(); }, [user]);
+  async function loadRoasters() {
+    try {
+      const token = await user!.getIdToken();
+      const res = await fetch('/api/admin/roasters', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (Array.isArray(data)) setRoasterOptions(data.filter((r: { is_active: boolean }) => r.is_active));
+    } catch { /* non-critical */ }
+  }
+
+  useEffect(() => { if (user) { load(); loadRoasters(); } }, [user]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setSaveError('');
@@ -155,9 +167,16 @@ export default function AdminCoffees() {
           </div>
           <div>
             <label className="block text-xs text-stone-500 mb-1">Roaster</label>
-            <input value={form.roaster} onChange={e => field('roaster')(e.target.value)}
+            <input
+              list="coffee-roaster-list"
+              value={form.roaster}
+              onChange={e => field('roaster')(e.target.value)}
               className="w-full border border-stone-300 rounded px-3 py-2 text-sm"
-              placeholder="e.g. Path Coffee Roasters" />
+              placeholder="e.g. Path Coffee Roasters"
+            />
+            <datalist id="coffee-roaster-list">
+              {roasterOptions.map(r => <option key={r.id} value={r.name} />)}
+            </datalist>
           </div>
           <div>
             <label className="block text-xs text-stone-500 mb-1">Origin</label>

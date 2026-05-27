@@ -24,6 +24,7 @@ interface SessionCoffee {
 }
 
 interface Coffee { id: number; name: string; roaster: string | null; }
+interface RoasterOption { id: string; name: string; }
 
 const EMPTY_FORM = { session_date: '', brew_method: '', location: '', session_notes: '' };
 
@@ -41,6 +42,9 @@ export default function AdminSessions() {
   const [allCoffees, setAllCoffees]     = useState<Coffee[]>([]);
   const [pendingCoffeeId, setPendingCoffeeId] = useState('');
   const [pendingCoffees, setPendingCoffees]   = useState<Coffee[]>([]);
+
+  // Roaster dropdown for session form
+  const [roasterOptions, setRoasterOptions] = useState<RoasterOption[]>([]);
 
   // Expand panel state
   const [expandedId, setExpandedId]     = useState<number | null>(null);
@@ -63,6 +67,15 @@ export default function AdminSessions() {
     try {
       const res = await fetch('/api/admin/coffees', { headers: { Authorization: `Bearer ${await getToken()}` } });
       setAllCoffees(await res.json());
+    } catch { /* non-critical */ }
+  }
+
+  async function loadRoasters() {
+    if (roasterOptions.length > 0) return;
+    try {
+      const res = await fetch('/api/admin/roasters', { headers: { Authorization: `Bearer ${await getToken()}` } });
+      const data = await res.json();
+      if (Array.isArray(data)) setRoasterOptions(data.filter((r: { is_active: boolean }) => r.is_active));
     } catch { /* non-critical */ }
   }
 
@@ -180,7 +193,7 @@ export default function AdminSessions() {
             className="px-4 py-2 rounded text-sm font-medium text-stone-600 border border-stone-200 hover:bg-stone-50">
             Score Entry →
           </Link>
-          <button onClick={() => { setShowForm(v => !v); if (!showForm) loadAllCoffees(); }}
+          <button onClick={() => { setShowForm(v => !v); if (!showForm) { loadAllCoffees(); loadRoasters(); } }}
             className="px-4 py-2 rounded text-sm font-medium text-white hover:opacity-80"
             style={{ backgroundColor: '#b05642' }}>
             {showForm ? 'Cancel' : '+ New Session'}
@@ -209,11 +222,21 @@ export default function AdminSessions() {
               </select>
             </div>
             <div>
-              <label className="block text-xs text-stone-500 mb-1">Location</label>
-              <input value={form.location}
-                onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
-                className="w-full border border-stone-300 rounded px-3 py-2 text-sm"
-                placeholder="e.g. HQ Brew Bar" />
+              <label className="block text-xs text-stone-500 mb-1">Roastery</label>
+              {roasterOptions.length > 0
+                ? <select
+                    value={form.location}
+                    onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
+                    className="w-full border border-stone-300 rounded px-3 py-2 text-sm">
+                    <option value="">— select roastery —</option>
+                    {roasterOptions.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                  </select>
+                : <input
+                    value={form.location}
+                    onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
+                    className="w-full border border-stone-300 rounded px-3 py-2 text-sm"
+                    placeholder="e.g. Path Coffee Roasters" />
+              }
             </div>
             <div>
               <label className="block text-xs text-stone-500 mb-1">Notes</label>
@@ -270,7 +293,7 @@ export default function AdminSessions() {
           <thead>
             <tr className="border-b border-stone-200 text-xs text-stone-400 uppercase tracking-wide">
               <th className="pb-3 pr-4">Date</th>
-              <th className="pb-3 pr-4">Location</th>
+              <th className="pb-3 pr-4">Roastery</th>
               <th className="pb-3 pr-4">Brew Method</th>
               <th className="pb-3 pr-4">Coffees</th>
               <th className="pb-3">Notes</th>

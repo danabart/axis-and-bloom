@@ -16,25 +16,28 @@ interface Roaster {
   created_at: string;
 }
 
-const EMPTY_FORM = {
+type RoasterFormData = {
+  name: string; api_endpoint: string; avg_fulfillment_hours: string; roaster_notes: string;
+  address: string; email: string; phone: string; contact_person: string; website: string;
+};
+
+const EMPTY_FORM: RoasterFormData = {
   name: '', api_endpoint: '', avg_fulfillment_hours: '', roaster_notes: '',
   address: '', email: '', phone: '', contact_person: '', website: '',
 };
 
-type FormData = typeof EMPTY_FORM;
-
 function RoasterForm({
   initial, onSave, onCancel, submitLabel,
 }: {
-  initial: FormData;
-  onSave: (data: FormData) => Promise<void>;
+  initial: RoasterFormData;
+  onSave: (data: RoasterFormData) => Promise<void>;
   onCancel: () => void;
   submitLabel: string;
 }) {
-  const [form, setForm] = useState<FormData>(initial);
+  const [form, setForm] = useState<RoasterFormData>(initial);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
-  const f = (k: keyof FormData) => (v: string) => setForm(prev => ({ ...prev, [k]: v }));
+  const f = (k: keyof RoasterFormData) => (v: string) => setForm(prev => ({ ...prev, [k]: v }));
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setSaveError('');
@@ -45,7 +48,6 @@ function RoasterForm({
 
   return (
     <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      {/* Row 1 */}
       <div className="md:col-span-2">
         <label className="block text-xs text-stone-500 mb-1">Name *</label>
         <input required value={form.name} onChange={e => f('name')(e.target.value)}
@@ -119,24 +121,39 @@ function RoasterForm({
 
 export default function AdminRoasters() {
   const { user } = useAuth();
-  const [roasters, setRoasters]     = useState<Roaster[]>([]);
-  const [error, setError]           = useState('');
+  const [roasters, setRoasters]       = useState<Roaster[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
-  const [editingId, setEditingId]   = useState<string | null>(null);
-  const [toggling, setToggling]     = useState<string | null>(null);
+  const [editingId, setEditingId]     = useState<string | null>(null);
+  const [toggling, setToggling]       = useState<string | null>(null);
 
   async function getToken() { return user!.getIdToken(); }
 
   async function load() {
     try {
-      const res = await fetch('/api/admin/roasters', { headers: { Authorization: `Bearer ${await getToken()}` } });
-      setRoasters(await res.json());
-    } catch { setError('Failed to load roasters'); }
+      const res = await fetch('/api/admin/roasters', {
+        headers: { Authorization: `Bearer ${await getToken()}` },
+      });
+      const data = await res.json();
+      // Guard: if API returned an error object instead of an array, show error
+      if (!Array.isArray(data)) {
+        setError(data?.error ?? 'Failed to load roasteries');
+        setRoasters([]);
+      } else {
+        setRoasters(data);
+        setError('');
+      }
+    } catch {
+      setError('Failed to load roasteries');
+    } finally {
+      setLoading(false);
+    }
   }
 
-  useEffect(() => { load(); }, [user]);
+  useEffect(() => { if (user) load(); }, [user]);
 
-  async function handleAdd(data: FormData) {
+  async function handleAdd(data: RoasterFormData) {
     const res = await fetch('/api/admin/roasters', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getToken()}` },
@@ -146,7 +163,7 @@ export default function AdminRoasters() {
     setShowAddForm(false); await load();
   }
 
-  async function handleEdit(id: string, data: FormData) {
+  async function handleEdit(id: string, data: RoasterFormData) {
     const res = await fetch(`/api/admin/roasters/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getToken()}` },
@@ -167,11 +184,13 @@ export default function AdminRoasters() {
     finally { setToggling(null); }
   }
 
-  function roasterToForm(r: Roaster): FormData {
+  function roasterToForm(r: Roaster): RoasterFormData {
     return {
-      name: r.name, api_endpoint: r.api_endpoint ?? '', avg_fulfillment_hours: r.avg_fulfillment_hours?.toString() ?? '',
-      roaster_notes: r.roaster_notes ?? '', address: r.address ?? '', email: r.email ?? '',
-      phone: r.phone ?? '', contact_person: r.contact_person ?? '', website: r.website ?? '',
+      name: r.name, api_endpoint: r.api_endpoint ?? '',
+      avg_fulfillment_hours: r.avg_fulfillment_hours?.toString() ?? '',
+      roaster_notes: r.roaster_notes ?? '', address: r.address ?? '',
+      email: r.email ?? '', phone: r.phone ?? '',
+      contact_person: r.contact_person ?? '', website: r.website ?? '',
     };
   }
 
@@ -199,15 +218,20 @@ export default function AdminRoasters() {
         </div>
       )}
 
+      {loading && <p className="text-stone-400 text-sm py-8 text-center">Loading…</p>}
+
+      {!loading && roasters.length === 0 && !showAddForm && (
+        <div className="py-12 text-center text-stone-400">
+          <p className="text-lg mb-1">No roasteries yet</p>
+          <p className="text-sm">Click "+ Add Roastery" to add your first partner roastery.</p>
+        </div>
+      )}
+
       <div className="space-y-3">
-        {roasters.length === 0 && !showAddForm && (
-          <p className="py-8 text-center text-stone-400">No roasteries yet</p>
-        )}
         {roasters.map(r => (
           <div key={r.id} className="border border-stone-200 rounded-lg overflow-hidden">
-            {/* Row */}
             <div className="flex items-start justify-between px-5 py-4 hover:bg-stone-50 transition-colors">
-              <div className="space-y-1 flex-1 min-w-0">
+              <div className="space-y-1 flex-1 min-w-0 pr-4">
                 <div className="flex items-center gap-2 flex-wrap">
                   <p className="font-medium text-stone-800">{r.name}</p>
                   <button onClick={() => toggleActive(r.id)} disabled={toggling === r.id}
@@ -217,24 +241,32 @@ export default function AdminRoasters() {
                     {toggling === r.id ? '…' : r.is_active ? 'Active' : 'Inactive'}
                   </button>
                 </div>
-                <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-stone-400">
+                <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-stone-500">
                   {r.contact_person && <span>👤 {r.contact_person}</span>}
-                  {r.email         && <span>✉ {r.email}</span>}
-                  {r.phone         && <span>📞 {r.phone}</span>}
-                  {r.address       && <span>📍 {r.address}</span>}
-                  {r.website       && <a href={r.website} target="_blank" rel="noreferrer" className="underline hover:text-stone-600" onClick={e => e.stopPropagation()}>🔗 Website</a>}
-                  {r.avg_fulfillment_hours && <span>⏱ {r.avg_fulfillment_hours}h fulfillment</span>}
+                  {r.email          && <span>✉ {r.email}</span>}
+                  {r.phone          && <span>📞 {r.phone}</span>}
+                  {r.address        && <span>📍 {r.address}</span>}
+                  {r.website        && (
+                    <a href={r.website} target="_blank" rel="noreferrer"
+                      className="underline hover:text-stone-700">
+                      🔗 Website
+                    </a>
+                  )}
+                  {r.avg_fulfillment_hours != null && (
+                    <span>⏱ {r.avg_fulfillment_hours}h fulfillment</span>
+                  )}
                 </div>
-                {r.roaster_notes && <p className="text-xs text-stone-400 truncate max-w-xl">{r.roaster_notes}</p>}
+                {r.roaster_notes && (
+                  <p className="text-xs text-stone-400 truncate max-w-xl">{r.roaster_notes}</p>
+                )}
               </div>
               <button
                 onClick={() => setEditingId(editingId === r.id ? null : r.id)}
-                className="ml-4 shrink-0 px-3 py-1.5 rounded text-xs font-medium border border-stone-200 text-stone-500 hover:bg-stone-100">
+                className="shrink-0 px-3 py-1.5 rounded text-xs font-medium border border-stone-200 text-stone-500 hover:bg-stone-100">
                 {editingId === r.id ? 'Cancel' : '✏️ Edit'}
               </button>
             </div>
 
-            {/* Inline edit form */}
             {editingId === r.id && (
               <div className="border-t border-stone-200 px-5 py-5 bg-stone-50">
                 <RoasterForm
