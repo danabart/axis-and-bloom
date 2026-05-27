@@ -833,13 +833,22 @@ ORDER BY q.q_number;
 
 ## What's Still To Do
 
-### Ready to do now
-1. **Wire AI recommendations** — the agent route needs to fetch the user's `user_coffee_profile` and use it to narrow recommendations.
-2. **Cupping tool API + UI** — the DB schema is ready (`coffees`, `cupping_sessions`, `session_coffees`, `cupping_scores`, `brew_params`, `archetype_assignments`). Next step is backend routes and a frontend interface for logging cupping sessions.
+### Quiz / scoring
+1. **Implement Lambda scoring** — the DB is ready (`answer_archetype_score`, `question.weight`, `answer.weight`). Formula: `SUM(question.weight × answer.weight × aas.score)` per archetype. Currently handled by `POST /api/quiz/score` on the backend; move to Lambda when ready.
+2. **Populate cross-archetype scoring** — current `answer_archetype_score` rows only have one positive score per answer. Add negative rows for competing archetypes (e.g. Q5 answer A → Chocolate +3, Balanced −1, Fruity −2) to make the matrix fully competitive.
 
-### When your Shopify/roastery account is ready
-3. **Enable Shopify** — add 3 secrets to Secret Manager (`SHOPIFY_STORE_DOMAIN`, `SHOPIFY_STOREFRONT_TOKEN`, `SHOPIFY_ADMIN_TOKEN`). No code changes needed.
+### Cupping tool
+3. **Cupping tool API** — schema is complete (11 tables, 2 views). Next: backend routes for logging sessions, entering scores, selecting descriptors from the SCA wheel, and querying the collaborative flavor wheel.
+4. **Cupping tool UI** — frontend interface for logging cupping sessions: score sliders per dimension, descriptor picker from the SCA wheel, archetype assignment.
+5. **Roastery descriptor entry** — populate `coffee_roastery_descriptors` with structured bag notes for Path Coffee Roasters session 001 coffees (Crosshatch, Ethiopia, Feather In Cap).
+
+### Collaborative flavor wheel
+6. **Client feedback flow** — post-delivery email/prompt asking customers to pick descriptors from the SCA wheel. Stores results in `client_flavor_feedback`. Schema is ready; needs backend route + frontend feedback UI.
+7. **Wire AI recommendations to flavor wheel** — use `v_collaborative_flavor_wheel` to inform Claude recommendations. If a user's archetype is Fruity, surface coffees with high Blueberry / Citrus / Pineapple mentions across all three sources.
+
+### Commerce
+8. **Enable Shopify** — add 3 secrets to Secret Manager (`SHOPIFY_STORE_DOMAIN`, `SHOPIFY_STOREFRONT_TOKEN`, `SHOPIFY_ADMIN_TOKEN`). No code changes needed — the stub lifts automatically.
 
 ### Optional
-4. **Apple sign-in** — requires an Apple Developer account ($99/year). Low priority.
-5. **Subscription management UI** — the schema and backend route exist but there's no frontend page yet.
+9. **Apple sign-in** — requires an Apple Developer account ($99/year). Low priority.
+10. **Subscription management UI** — the schema and backend route exist but there's no frontend page yet.
