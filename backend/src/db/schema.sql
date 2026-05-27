@@ -929,27 +929,46 @@ CREATE INDEX IF NOT EXISTS idx_answer_arch_score_archetype  ON answer_archetype_
 
 -- Collaborative flavor wheel — all descriptor observations per coffee, with source label.
 -- Sources: 'internal' (cupping sessions), 'roastery' (bag notes), 'client' (post-delivery feedback).
--- Join to cupping_note for descriptor details; GROUP BY coffee_id + descriptor for aggregation.
+-- Includes coffee name and full descriptor details — no extra JOINs needed at query time.
+-- One row per observation. GROUP BY coffee_id + descriptor to aggregate across sources.
 CREATE OR REPLACE VIEW v_collaborative_flavor_wheel AS
   SELECT sc.coffee_id,
+         c.name            AS coffee_name,
          csd.cupping_note_id,
-         'internal'   AS source,
+         cn.wheel_category,
+         cn.wheel_subcategory,
+         cn.descriptor,
+         'internal'        AS source,
          csd.intensity
   FROM cupping_score_descriptors csd
   JOIN cupping_scores  cs ON cs.id = csd.cupping_score_id
   JOIN session_coffees sc ON sc.id = cs.session_coffee_id
+  JOIN coffees          c ON c.id  = sc.coffee_id
+  JOIN cupping_note    cn ON cn.id = csd.cupping_note_id
 UNION ALL
-  SELECT coffee_id,
-         cupping_note_id,
-         'roastery'   AS source,
-         NULL         AS intensity
-  FROM coffee_roastery_descriptors
+  SELECT crd.coffee_id,
+         c.name            AS coffee_name,
+         crd.cupping_note_id,
+         cn.wheel_category,
+         cn.wheel_subcategory,
+         cn.descriptor,
+         'roastery'        AS source,
+         NULL              AS intensity
+  FROM coffee_roastery_descriptors crd
+  JOIN coffees      c  ON c.id  = crd.coffee_id
+  JOIN cupping_note cn ON cn.id = crd.cupping_note_id
 UNION ALL
-  SELECT coffee_id,
-         cupping_note_id,
-         'client'     AS source,
-         intensity
-  FROM client_flavor_feedback;
+  SELECT cff.coffee_id,
+         c.name            AS coffee_name,
+         cff.cupping_note_id,
+         cn.wheel_category,
+         cn.wheel_subcategory,
+         cn.descriptor,
+         'client'          AS source,
+         cff.intensity
+  FROM client_flavor_feedback cff
+  JOIN coffees      c  ON c.id  = cff.coffee_id
+  JOIN cupping_note cn ON cn.id = cff.cupping_note_id;
 
 -- Full quiz scoring matrix — one row per (question, answer, archetype)
 -- Shows all three scoring levels: question weight, answer weight, archetype-specific score.

@@ -274,7 +274,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 
 | View | Description |
 |---|---|
-| `v_collaborative_flavor_wheel` | All descriptor observations per coffee with source label (`internal`, `roastery`, `client`). Join to `cupping_note` for descriptor details. GROUP BY coffee + descriptor to aggregate across sources. |
+| `v_collaborative_flavor_wheel` | All descriptor observations per coffee with source label (`internal`, `roastery`, `client`). Columns: `coffee_id`, `coffee_name`, `cupping_note_id`, `wheel_category`, `wheel_subcategory`, `descriptor`, `source`, `intensity`. No extra JOINs needed — names are already resolved. One row per observation; GROUP BY coffee + descriptor to aggregate. |
 | `v_quiz_scoring_matrix` | Full scoring matrix — one row per (question, answer, archetype). Columns: `q_number`, `q_text`, `q_weight`, `answer_text`, `archetype`, `ans_score`, `ans_weight`. Lambda formula: `q_weight × ans_weight × ans_score`. |
 
 ### Dimensions (seeded, 12 rows)
@@ -791,13 +791,13 @@ ORDER BY c.name;
 
 ### Collaborative flavor wheel for a specific coffee
 ```sql
-SELECT cn.wheel_category, cn.descriptor, v.source,
-       COUNT(*)            AS mentions,
-       AVG(v.intensity)    AS avg_intensity
-FROM v_collaborative_flavor_wheel v
-JOIN cupping_note cn ON cn.id = v.cupping_note_id
-WHERE v.coffee_id = 1   -- replace with target coffee id
-GROUP BY cn.wheel_category, cn.descriptor, v.source
+-- View already includes coffee_name, wheel_category, wheel_subcategory, descriptor — no extra JOINs needed
+SELECT coffee_name, wheel_category, descriptor, source,
+       COUNT(*)         AS mentions,
+       AVG(intensity)   AS avg_intensity
+FROM v_collaborative_flavor_wheel
+WHERE coffee_id = 1   -- replace with target coffee id
+GROUP BY coffee_name, wheel_category, descriptor, source
 ORDER BY mentions DESC;
 ```
 
