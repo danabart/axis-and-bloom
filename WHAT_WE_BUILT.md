@@ -657,6 +657,32 @@ Question images are still managed in the frontend (keyed by `q_number`) since im
 
 ---
 
+## Cupping Tool Data Model
+
+The cupping tool is built around a 9-table normalised schema. Here's how everything connects:
+
+```
+cupping_sessions
+    └── session_coffees  (which coffees, in what order)
+            ├── brew_params              (dose, ratio, grind, temp…)
+            └── cupping_scores           (one row per taster; is_merged=true for combined)
+                    ├── cupping_score_values      → dimensions   (numeric: sweetness 9–11, acidity 6–8…)
+                    └── cupping_score_descriptors → cupping_note (flavor wheel: Blueberry, Dark Chocolate…)
+
+coffees
+    └── archetype_assignments  (current + historical archetype tags per coffee)
+
+cupping_note  (SCA wheel reference — 84 descriptors, static)
+dimensions    (12 cupping dimensions — numeric or free-text, static)
+```
+
+**Design decisions:**
+- `cupping_score_values` handles **numeric dimensions** (sweetness, acidity, bitterness, body…) with `value_min` / `value_max` on a 0–15 scale
+- `cupping_score_descriptors` handles **flavor descriptors** as FK references to the SCA wheel instead of free text — structured and queryable; `intensity` (0–15) captures how prominent a descriptor was; `custom_notes` is the escape hatch for off-wheel descriptors
+- `cupping_note` is intentionally **not** further normalized (wheel_category / wheel_subcategory repeat as TEXT) — 84 rows of fixed reference data doesn't justify the JOIN complexity of a 3-table split
+
+---
+
 ## SCA Flavor Wheel (`cupping_note`)
 
 84 descriptors seeded from the SCA Coffee Taster's Flavor Wheel (source: Specialty Coffee Association / World Coffee Research Sensory Lexicon). Three-level hierarchy: `wheel_category` → `wheel_subcategory` → `descriptor`. Descriptors with no subcategory have `wheel_subcategory = NULL`.
