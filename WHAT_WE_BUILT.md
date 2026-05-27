@@ -136,9 +136,19 @@ axis-and-bloom/
 │   │       │   ├── FlavorQuiz.tsx
 │   │       │   ├── Shop.tsx
 │   │       │   ├── Profile.tsx
+│   │       │   ├── PublicLayout.tsx # Nav + Footer + Outlet wrapper for public routes
+│   │       │   ├── admin/
+│   │       │   │   ├── AdminRoute.tsx       # Role guard — redirects non-admins to /
+│   │       │   │   ├── AdminLayout.tsx      # Sidebar nav + Outlet + Back to site link
+│   │       │   │   ├── AdminDashboard.tsx   # 6 stat cards (counts across tables)
+│   │       │   │   ├── AdminCoffees.tsx     # Coffee catalogue table + add form
+│   │       │   │   ├── AdminSessions.tsx    # Cupping sessions table + add form
+│   │       │   │   └── AdminFlavorWheel.tsx # Per-coffee descriptor view (3 sources)
 │   │       │   └── ...
 │   │       ├── context/
-│   │       │   └── AuthContext.tsx  # Firebase auth state + signIn/signUp/Google/Apple
+│   │       │   └── AuthContext.tsx  # Firebase auth state + signIn/signUp/Google/Apple + isAdmin
+│   │       ├── hooks/
+│   │       │   └── useAdminLookups.ts  # Fetches lookup_value table once per admin session
 │   │       └── lib/
 │   │           ├── firebase.ts     # Firebase app init
 │   │           └── api.ts          # Backend API client
@@ -152,14 +162,15 @@ axis-and-bloom/
 │   │   │   ├── client.ts       # pg Pool (SSL-aware for Cloud SQL socket)
 │   │   │   └── schema.sql      # 38-table schema, runs on every startup
 │   │   ├── middleware/
-│   │   │   └── auth.ts         # Firebase token verification
+│   │   │   └── auth.ts         # Firebase token verification + requireAdmin middleware
 │   │   ├── routes/
 │   │   │   ├── auth.ts         # /api/auth — profile sync + password reset (Resend)
 │   │   │   ├── quiz.ts         # /api/quiz — flavor quiz
 │   │   │   ├── shop.ts         # /api/shop — Shopify products/orders
 │   │   │   ├── agent.ts        # /api/agent — Claude AI chat
 │   │   │   ├── orders.ts       # /api/orders
-│   │   │   ├── users.ts        # /api/users
+│   │   │   ├── users.ts        # /api/users (includes isAdmin flag)
+│   │   │   ├── admin.ts        # /api/admin — all routes behind requireAdmin middleware
 │   │   │   └── newsletter.ts   # /api/newsletter
 │   │   └── services/
 │   │       └── shopify.ts      # Shopify client (stubbed when no credentials)
@@ -199,7 +210,7 @@ axis-and-bloom/
 
 ---
 
-## Database Schema (44 Tables)
+## Database Schema (45 Tables)
 
 The schema lives in `backend/src/db/schema.sql` and runs automatically on every backend startup (`CREATE TABLE IF NOT EXISTS` — fully idempotent, safe to run repeatedly).
 
@@ -213,6 +224,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 - `roaster` — drop-ship roastery partners
 - `quiz` — quiz versions
 - `cupping_note` — SCA Coffee Taster's Flavor Wheel: 84 descriptors across 9 categories and ~25 subcategories; `intensity_score` is NULL by default (assigned per cupping session, not at descriptor level)
+- `lookup_value` — controlled vocabulary for admin dropdowns: `category` + `value` + `label` + `sort_order`; seeded with 20 values across 4 categories (`roast_level`, `process`, `blend_or_single`, `brew_method`); `ON CONFLICT DO UPDATE` so labels/order stay current on every deploy without duplicating rows
 
 **Users**
 - `household` — shared account grouping (one household, multiple members)
@@ -322,6 +334,14 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | GET | `/api/orders` | Yes | User's order history |
 | GET | `/api/users/profile` | Yes | User's full profile |
 | POST | `/api/newsletter/subscribe` | No | Newsletter signup |
+| GET | `/api/admin/lookups` | Admin | All dropdown options grouped by category (`roast_level`, `process`, `blend_or_single`, `brew_method`) |
+| GET | `/api/admin/stats` | Admin | Count of coffees, sessions, internal/roastery/client descriptors, SCA entries |
+| GET | `/api/admin/coffees` | Admin | All coffees with current archetype assignment |
+| POST | `/api/admin/coffees` | Admin | Add a coffee to the catalogue |
+| GET | `/api/admin/sessions` | Admin | All cupping sessions with coffee count |
+| POST | `/api/admin/sessions` | Admin | Create a cupping session |
+| GET | `/api/admin/flavor-wheel/:coffeeId` | Admin | All descriptors for a coffee across all three sources (internal, roastery, client), grouped |
+| GET | `/api/admin/cupping-notes` | Admin | All 84 SCA wheel descriptors for the descriptor picker |
 
 ---
 
@@ -569,13 +589,13 @@ This keeps Firebase's secure token generation while giving us full control over 
 
 ---
 
-## Current State (as of 2026-05-25)
+## Current State (as of 2026-05-27)
 
 | Component | Status |
 |---|---|
 | Frontend deployed | ✅ https://axis-and-bloom-prod.web.app |
 | Backend deployed | ✅ https://axis-bloom-backend-oiub7eumya-uc.a.run.app |
-| Database connected | ✅ 44 tables verified via /health/db |
+| Database connected | ✅ 45 tables verified via /health/db |
 | Email/password auth | ✅ Working |
 | Google sign-in | ✅ Working (was already enabled) |
 | Apple sign-in | ⚠️ Not configured |
@@ -583,7 +603,9 @@ This keeps Firebase's secure token generation while giving us full control over 
 | Transactional email | ✅ Resend — sends from noreply@axisandbloomcoffee.com |
 | Claude AI chat | ✅ Wired up, API key in Secret Manager |
 | Shopify | ⚠️ Stubbed — waiting for roastery account |
-| Cupping tool schema | ✅ 11 tables + 3 enums + 12 seeded dimensions + 84 SCA flavor wheel descriptors + collaborative flavor wheel view — no backend routes or UI yet |
+| Cupping tool schema | ✅ 11 tables + 3 enums + 12 seeded dimensions + 84 SCA flavor wheel descriptors + collaborative flavor wheel view |
+| Admin portal | ✅ `/admin/*` — role-gated (DB role check via `requireAdmin`), sidebar nav, dashboard, coffees, sessions, flavor wheel; dropdowns driven by `lookup_value` table |
+| Lookup values | ✅ `lookup_value` table — 20 values across 4 categories; single `GET /api/admin/lookups` call populates all admin dropdowns |
 | CI/CD | ✅ Push to main deploys everything |
 
 ---
@@ -886,6 +908,47 @@ ORDER BY q.q_number;
 
 ---
 
+## Admin Portal
+
+The admin portal lives at `/admin/*` within the same site and deployment. It uses a completely separate layout (no public nav or footer) with a sidebar for navigation.
+
+### Access control
+- `requireAdmin` middleware verifies the Firebase token, then checks `user_profile JOIN user_type WHERE name = 'admin'`
+- `AuthContext` fetches `isAdmin` from `GET /api/users/profile` on every sign-in — no token re-issue needed
+- `AdminRoute` component redirects non-admins to `/`
+- The "Admin" link in the public nav is hidden unless `isAdmin === true`
+
+### To grant admin access to a user
+```sql
+UPDATE user_profile
+SET user_type_id = (SELECT id FROM user_type WHERE name = 'admin')
+WHERE firebase_uid = '<firebase-uid>';
+```
+Firebase UID is visible in Firebase Console → Authentication → Users.
+
+### Admin pages
+
+| Route | Page | What it shows |
+|---|---|---|
+| `/admin` | Dashboard | 6 stat cards: coffees, sessions, internal/roastery/client descriptors, SCA entries |
+| `/admin/coffees` | Coffees | Coffee catalogue table + "Add Coffee" form |
+| `/admin/sessions` | Cupping Sessions | Session list + "New Session" form |
+| `/admin/flavor-wheel` | Flavor Wheel | Per-coffee descriptor view, grouped by source (Internal · Roastery · Client) |
+
+### Dropdown values (lookup_value table)
+All select inputs in admin forms are driven by the `lookup_value` table — not hardcoded in the frontend. The `useAdminLookups` hook fetches all categories in one call (`GET /api/admin/lookups`) and memoises them for the session.
+
+| Category | Values |
+|---|---|
+| `roast_level` | Light, Light-Medium, Medium, Medium-Dark, Dark |
+| `process` | Washed, Natural, Honey, Anaerobic, Wet-Hulled, Other |
+| `blend_or_single` | Single Origin, Blend |
+| `brew_method` | Cupping, Filter, Pour-Over, Espresso, French Press, AeroPress, Other |
+
+To add or rename an option: update the seed in `schema.sql` and deploy — no frontend change needed.
+
+---
+
 ## What's Still To Do
 
 ### Quiz / scoring
@@ -895,15 +958,14 @@ ORDER BY q.q_number;
 ### Cupping tool
 3. **Cupping tool API** — schema is complete (11 tables, 2 views). Next: backend routes for logging sessions, entering scores, selecting descriptors from the SCA wheel, and querying the collaborative flavor wheel.
 4. **Cupping tool UI** — frontend interface for logging cupping sessions: score sliders per dimension, descriptor picker from the SCA wheel, archetype assignment.
-5. **Roastery descriptor entry** — populate `coffee_roastery_descriptors` with structured bag notes for Path Coffee Roasters session 001 coffees (Crosshatch, Ethiopia, Feather In Cap).
 
 ### Collaborative flavor wheel
-6. **Client feedback flow** — post-delivery email/prompt asking customers to pick descriptors from the SCA wheel. Stores results in `client_flavor_feedback`. Schema is ready; needs backend route + frontend feedback UI.
-7. **Wire AI recommendations to flavor wheel** — use `v_collaborative_flavor_wheel` to inform Claude recommendations. If a user's archetype is Fruity, surface coffees with high Blueberry / Citrus / Pineapple mentions across all three sources.
+5. **Client feedback flow** — post-delivery email/prompt asking customers to pick descriptors from the SCA wheel. Stores results in `client_flavor_feedback`. Schema is ready; needs backend route + frontend feedback UI.
+6. **Wire AI recommendations to flavor wheel** — use `v_collaborative_flavor_wheel` to inform Claude recommendations. If a user's archetype is Fruity, surface coffees with high Blueberry / Citrus / Pineapple mentions across all three sources.
 
 ### Commerce
-8. **Enable Shopify** — add 3 secrets to Secret Manager (`SHOPIFY_STORE_DOMAIN`, `SHOPIFY_STOREFRONT_TOKEN`, `SHOPIFY_ADMIN_TOKEN`). No code changes needed — the stub lifts automatically.
+7. **Enable Shopify** — add 3 secrets to Secret Manager (`SHOPIFY_STORE_DOMAIN`, `SHOPIFY_STOREFRONT_TOKEN`, `SHOPIFY_ADMIN_TOKEN`). No code changes needed — the stub lifts automatically.
 
 ### Optional
-9. **Apple sign-in** — requires an Apple Developer account ($99/year). Low priority.
-10. **Subscription management UI** — the schema and backend route exist but there's no frontend page yet.
+8. **Apple sign-in** — requires an Apple Developer account ($99/year). Low priority.
+9. **Subscription management UI** — the schema and backend route exist but there's no frontend page yet.
