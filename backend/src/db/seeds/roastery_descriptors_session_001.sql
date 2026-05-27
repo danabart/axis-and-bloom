@@ -17,8 +17,10 @@
 -- Safe to re-run: ON CONFLICT (coffee_id, cupping_note_id) DO NOTHING
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- Also re-creates the view in case it hasn't updated from the last deploy.
-CREATE OR REPLACE VIEW v_collaborative_flavor_wheel AS
+-- Re-creates the view with updated column names.
+-- DROP first — CREATE OR REPLACE cannot rename existing columns (PG restriction).
+DROP VIEW IF EXISTS v_collaborative_flavor_wheel;
+CREATE VIEW v_collaborative_flavor_wheel AS
   SELECT sc.coffee_id,
          c.name            AS coffee_name,
          csd.cupping_note_id,

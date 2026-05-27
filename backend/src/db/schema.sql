@@ -931,7 +931,9 @@ CREATE INDEX IF NOT EXISTS idx_answer_arch_score_archetype  ON answer_archetype_
 -- Sources: 'internal' (cupping sessions), 'roastery' (bag notes), 'client' (post-delivery feedback).
 -- Includes coffee name and full descriptor details — no extra JOINs needed at query time.
 -- One row per observation. GROUP BY coffee_id + descriptor to aggregate across sources.
-CREATE OR REPLACE VIEW v_collaborative_flavor_wheel AS
+-- DROP first — CREATE OR REPLACE cannot rename existing columns (PG restriction).
+DROP VIEW IF EXISTS v_collaborative_flavor_wheel;
+CREATE VIEW v_collaborative_flavor_wheel AS
   SELECT sc.coffee_id,
          c.name            AS coffee_name,
          csd.cupping_note_id,
