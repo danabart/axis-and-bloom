@@ -15,6 +15,7 @@ import AdminCoffees from './components/admin/AdminCoffees';
 import AdminSessions from './components/admin/AdminSessions';
 import AdminFlavorWheel from './components/admin/AdminFlavorWheel';
 import AdminRoasters from './components/admin/AdminRoasters';
+import AdminCupping from './components/admin/AdminCupping';
 
 export default function App() {
   return (
@@ -35,6 +36,7 @@ export default function App() {
             <Route path="sessions" element={<AdminSessions />} />
             <Route path="flavor-wheel" element={<AdminFlavorWheel />} />
             <Route path="roasters" element={<AdminRoasters />} />
+            <Route path="cupping" element={<AdminCupping />} />
           </Route>
 
           {/* ── Public site — shared nav + footer ── */}

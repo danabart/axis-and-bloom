@@ -4,6 +4,7 @@ const NAV = [
   { to: '/admin',              label: 'Dashboard',       end: true },
   { to: '/admin/coffees',      label: 'Coffees'                   },
   { to: '/admin/sessions',     label: 'Cupping Sessions'          },
+  { to: '/admin/cupping',      label: 'Score Entry'               },
   { to: '/admin/flavor-wheel', label: 'Flavor Wheel'              },
   { to: '/admin/roasters',     label: 'Roasteries'                },
 ];
