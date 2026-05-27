@@ -31,7 +31,7 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- ── Crosshatch ───────────────────────────────────────────────────────────────
-INSERT INTO cupping_score_descriptors (cupping_score_id, cupping_note_id, notes)
+INSERT INTO cupping_score_descriptors (cupping_score_id, cupping_note_id, custom_notes)
 SELECT
   cs.id,
   cn.id,
@@ -52,7 +52,7 @@ JOIN coffees c ON c.id = sc.coffee_id
 ON CONFLICT (cupping_score_id, cupping_note_id) DO NOTHING;
 
 -- ── Ethiopia ─────────────────────────────────────────────────────────────────
-INSERT INTO cupping_score_descriptors (cupping_score_id, cupping_note_id, notes)
+INSERT INTO cupping_score_descriptors (cupping_score_id, cupping_note_id, custom_notes)
 SELECT
   cs.id,
   cn.id,
@@ -73,7 +73,7 @@ JOIN coffees c ON c.id = sc.coffee_id
 ON CONFLICT (cupping_score_id, cupping_note_id) DO NOTHING;
 
 -- ── Feather In Cap ───────────────────────────────────────────────────────────
-INSERT INTO cupping_score_descriptors (cupping_score_id, cupping_note_id, notes)
+INSERT INTO cupping_score_descriptors (cupping_score_id, cupping_note_id, custom_notes)
 SELECT
   cs.id,
   cn.id,
