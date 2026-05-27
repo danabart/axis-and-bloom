@@ -14,6 +14,7 @@ import AdminDashboard from './components/admin/AdminDashboard';
 import AdminCoffees from './components/admin/AdminCoffees';
 import AdminSessions from './components/admin/AdminSessions';
 import AdminFlavorWheel from './components/admin/AdminFlavorWheel';
+import AdminRoasters from './components/admin/AdminRoasters';
 
 export default function App() {
   return (
@@ -33,6 +34,7 @@ export default function App() {
             <Route path="coffees" element={<AdminCoffees />} />
             <Route path="sessions" element={<AdminSessions />} />
             <Route path="flavor-wheel" element={<AdminFlavorWheel />} />
+            <Route path="roasters" element={<AdminRoasters />} />
           </Route>
 
           {/* ── Public site — shared nav + footer ── */}

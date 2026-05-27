@@ -5,6 +5,7 @@ const NAV = [
   { to: '/admin/coffees',      label: 'Coffees'                   },
   { to: '/admin/sessions',     label: 'Cupping Sessions'          },
   { to: '/admin/flavor-wheel', label: 'Flavor Wheel'              },
+  { to: '/admin/roasters',     label: 'Roasteries'                },
 ];
 
 export default function AdminLayout() {

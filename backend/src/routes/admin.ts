@@ -142,6 +142,56 @@ router.get('/flavor-wheel/:coffeeId', async (req, res) => {
   }
 });
 
+// ── GET /api/admin/roasters ───────────────────────────────────────────────────
+router.get('/roasters', async (_req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT id, name, api_endpoint, is_active, avg_fulfillment_hours, roaster_notes, created_at
+       FROM roaster
+       ORDER BY name`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[admin/roasters]', err);
+    res.status(500).json({ error: 'Failed to fetch roasters' });
+  }
+});
+
+// ── POST /api/admin/roasters ──────────────────────────────────────────────────
+router.post('/roasters', async (req, res) => {
+  const { name, api_endpoint, avg_fulfillment_hours, roaster_notes } = req.body;
+  if (!name) { res.status(400).json({ error: 'name is required' }); return; }
+  try {
+    const result = await db.query(
+      `INSERT INTO roaster (name, api_endpoint, avg_fulfillment_hours, roaster_notes)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [name, api_endpoint ?? null, avg_fulfillment_hours ? Number(avg_fulfillment_hours) : null, roaster_notes ?? null]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('[admin/roasters POST]', err);
+    res.status(500).json({ error: 'Failed to add roaster' });
+  }
+});
+
+// ── PATCH /api/admin/roasters/:id/toggle ─────────────────────────────────────
+router.patch('/roasters/:id/toggle', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await db.query(
+      `UPDATE roaster SET is_active = NOT is_active, updated_at = now()
+       WHERE id = $1 RETURNING id, name, is_active`,
+      [id]
+    );
+    if (result.rowCount === 0) { res.status(404).json({ error: 'Roaster not found' }); return; }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[admin/roasters PATCH]', err);
+    res.status(500).json({ error: 'Failed to toggle roaster' });
+  }
+});
+
 // ── GET /api/admin/cupping-notes ──────────────────────────────────────────────
 // Returns all SCA wheel descriptors grouped for use in a picker
 router.get('/cupping-notes', async (_req, res) => {
