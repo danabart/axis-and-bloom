@@ -351,9 +351,11 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | GET | `/api/admin/sessions/:id/coffees` | Admin | Coffees linked to a session with display order |
 | POST | `/api/admin/sessions/:id/coffees` | Admin | Link a coffee to a session (auto display_order) |
 | DELETE | `/api/admin/sessions/:sessionId/coffees/:scId` | Admin | Unlink a coffee from a session |
+| DELETE | `/api/admin/sessions/:id` | Admin | Delete a cupping session and its coffee links (CASCADE) |
 | GET | `/api/admin/dimensions` | Admin | All 12 cupping dimensions with scale labels and numeric flag |
 | GET | `/api/admin/scores/session-coffee/:scId` | Admin | Existing scores + dimension values + descriptors for a session_coffee |
 | POST | `/api/admin/scores` | Admin | Upsert a full cupping score (header + dimension values + descriptors) in one call |
+| DELETE | `/api/admin/scores/:scoreId` | Admin | Delete a cupping score and all its dimension values + descriptors (CASCADE) |
 
 ---
 

@@ -122,6 +122,25 @@ router.post('/sessions', async (req, res) => {
   }
 });
 
+// ── DELETE /api/admin/sessions/:id ───────────────────────────────────────────
+// Deletes a session and its session_coffee links (CASCADE). Scores must be removed first.
+router.delete('/sessions/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await db.query(
+      `DELETE FROM cupping_sessions WHERE id = $1 RETURNING id`,
+      [id]
+    );
+    if (result.rowCount === 0) {
+      res.status(404).json({ error: 'Session not found' }); return;
+    }
+    res.json({ ok: true, deleted: result.rows[0].id });
+  } catch (err) {
+    console.error('[admin/sessions DELETE]', err);
+    res.status(500).json({ error: 'Failed to delete session' });
+  }
+});
+
 // ── GET /api/admin/flavor-wheel/:coffeeId ────────────────────────────────────
 router.get('/flavor-wheel/:coffeeId', async (req, res) => {
   const { coffeeId } = req.params;
@@ -380,10 +399,28 @@ router.post('/scores', async (req, res) => {
     }
 
     res.status(201).json({ id: scoreId });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
+  } catch (err) {
     console.error('[admin/scores POST]', err);
-    res.status(500).json({ error: 'Failed to save score', detail: msg });
+    res.status(500).json({ error: 'Failed to save score' });
+  }
+});
+
+// ── DELETE /api/admin/scores/:scoreId ────────────────────────────────────────
+// Deletes a cupping score and all its values + descriptors (CASCADE).
+router.delete('/scores/:scoreId', async (req, res) => {
+  const { scoreId } = req.params;
+  try {
+    const result = await db.query(
+      `DELETE FROM cupping_scores WHERE id = $1 RETURNING id`,
+      [scoreId]
+    );
+    if (result.rowCount === 0) {
+      res.status(404).json({ error: 'Score not found' }); return;
+    }
+    res.json({ ok: true, deleted: result.rows[0].id });
+  } catch (err) {
+    console.error('[admin/scores DELETE]', err);
+    res.status(500).json({ error: 'Failed to delete score' });
   }
 });
 
