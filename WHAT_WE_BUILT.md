@@ -738,6 +738,23 @@ Session data is stored in the cupping tool tables and inserted manually via Clou
 - **Ethiopia**: sweetness 6–8 (fruit-driven brightness), acidity 8–10 (pineapple — brightest of the three), bitterness 0–2 (trace only), tea-like body
 - **Feather In Cap**: sweetness 7–9 (sweet on nose, tobacco took over in cup), acidity 2–4 (low), bitterness 5–7 (tobacco/burnt character — adjusted down), drying finish
 
+**Roastery descriptors** (`coffee_roastery_descriptors`) — seeded from bag notes:  
+File: `backend/src/db/seeds/roastery_descriptors_session_001.sql`
+
+Roastery bag notes use subcategory-level language ("Dried Fruit", "Citrus") rather than SCA leaf descriptors. Each is mapped to the closest SCA leaf; the roaster's exact language is stored in the `notes` column.
+
+| Coffee | Bag note | → SCA descriptor | Wheel category |
+|---|---|---|---|
+| Crosshatch | Caramel | Caramelized | Sweet / Brown Sugar |
+| Crosshatch | Dried Fruit | Raisin | Fruity / Dried Fruit |
+| Crosshatch | Citrus | Lemon | Fruity / Citrus Fruit |
+| Ethiopia | Stone Fruit | Cherry | Fruity / Other Fruit |
+| Ethiopia | Floral | Jasmine | Floral / Floral |
+| Ethiopia | Citrus | Lemon | Fruity / Citrus Fruit |
+| Feather In Cap | Brown Sugar | Caramelized | Sweet / Brown Sugar |
+| Feather In Cap | Cocoa | Chocolate | Nutty / Cocoa |
+| Feather In Cap | Dried Fruit | Prune | Fruity / Dried Fruit |
+
 ---
 
 ## Useful DB Queries (run in Cloud SQL Studio)
