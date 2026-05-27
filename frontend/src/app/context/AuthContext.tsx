@@ -14,6 +14,7 @@ import { auth } from '../lib/firebase';
 interface AuthContextType {
   user: User | null;
   loading: boolean;
+  isAdmin: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
@@ -26,10 +27,25 @@ const AuthContext = createContext<AuthContextType | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
+      if (u) {
+        try {
+          const token = await u.getIdToken();
+          const res = await fetch('/api/users/profile', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const data = await res.json();
+          setIsAdmin(data.isAdmin === true);
+        } catch {
+          setIsAdmin(false);
+        }
+      } else {
+        setIsAdmin(false);
+      }
       setLoading(false);
     });
     return unsub;
@@ -73,7 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signUp, signInWithGoogle, signInWithApple, logout }}>
+    <AuthContext.Provider value={{ user, loading, isAdmin, signIn, signUp, signInWithGoogle, signInWithApple, logout }}>
       {children}
     </AuthContext.Provider>
   );

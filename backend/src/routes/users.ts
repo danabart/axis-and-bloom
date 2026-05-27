@@ -35,8 +35,8 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
       );
     }
 
-    // Fetch email, latest quiz session, and recent orders in parallel
-    const [emailResult, quizResult, ordersResult] = await Promise.all([
+    // Fetch email, quiz, orders, and role in parallel
+    const [emailResult, quizResult, ordersResult, roleResult] = await Promise.all([
       db.query(
         `SELECT email_address FROM user_email WHERE user_id = $1 AND is_primary = true LIMIT 1`,
         [profileId]
@@ -61,6 +61,12 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
          LIMIT 10`,
         [profileId]
       ),
+      db.query(
+        `SELECT ut.name FROM user_profile up
+         LEFT JOIN user_type ut ON ut.id = up.user_type_id
+         WHERE up.firebase_uid = $1`,
+        [req.uid]
+      ),
     ]);
 
     const quiz = quizResult.rows[0];
@@ -70,7 +76,8 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
 
     res.json({
       email: emailResult.rows[0]?.email_address ?? req.email ?? null,
-      displayName: null,   // update when first_name / last_name are collected
+      displayName: null,
+      isAdmin: roleResult.rows[0]?.name === 'admin',
       archetype: archetypeData ? { ...archetypeData, id: archetypeKey } : null,
       orders: ordersResult.rows.map(o => ({
         id: o.id,

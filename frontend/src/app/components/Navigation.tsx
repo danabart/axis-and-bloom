@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 
 export default function Navigation() {
   const location = useLocation();
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const menuColor = '#a33726';
 
   return (
@@ -20,6 +20,11 @@ export default function Navigation() {
         <Link to="/find-my-flavor" className="hover:opacity-60 transition-opacity">Find my flavor</Link>
         <Link to="/about" className="hover:opacity-60 transition-opacity">About</Link>
         <Link to="/shop" className="hover:opacity-60 transition-opacity">Shop</Link>
+        {isAdmin && (
+          <Link to="/admin" className="hover:opacity-60 transition-opacity text-xs opacity-60">
+            Admin
+          </Link>
+        )}
         <span className="mx-1 opacity-50">|</span>
         <Link to={user ? '/profile' : '/sign-in'} className="flex items-center gap-2 hover:opacity-60 transition-opacity">
           <User size={16} strokeWidth={1.5} />

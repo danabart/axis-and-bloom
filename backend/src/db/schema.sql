@@ -630,6 +630,12 @@ CREATE TABLE IF NOT EXISTS archetype_assignments (
 -- Runs on every startup; skipped if already seeded.
 -- ─────────────────────────────────────────────
 
+-- 0. User types
+INSERT INTO user_type (name, description) VALUES
+  ('admin',    'Internal team — full access to admin portal'),
+  ('customer', 'Regular subscriber')
+ON CONFLICT (name) DO NOTHING;
+
 -- 1. Archetypes (name is UNIQUE — safe to re-run)
 INSERT INTO archetype (name, description) VALUES
   ('Chocolate & Nutty', 'A rich, bold, and comforting profile. You know exactly what you like and you like it satisfying.'),
