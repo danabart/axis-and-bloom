@@ -557,6 +557,19 @@ CREATE TABLE IF NOT EXISTS cupping_score_values (
   UNIQUE (cupping_score_id, dimension_id)
 );
 
+-- Flavor descriptors selected from the SCA wheel for a given score row.
+-- Replaces free-text flavor notes with structured FK references to cupping_note.
+-- custom_notes = escape hatch for descriptors not on the SCA wheel.
+-- intensity = how prominent this descriptor was (0–15, same scale as dimensions).
+CREATE TABLE IF NOT EXISTS cupping_score_descriptors (
+  id               SERIAL PRIMARY KEY,
+  cupping_score_id INTEGER NOT NULL REFERENCES cupping_scores(id) ON DELETE CASCADE,
+  cupping_note_id  UUID    NOT NULL REFERENCES cupping_note(id)   ON DELETE CASCADE,
+  intensity        NUMERIC,
+  custom_notes     TEXT,
+  UNIQUE (cupping_score_id, cupping_note_id)
+);
+
 -- Brew parameters for each coffee in a session (all method-specific fields nullable)
 CREATE TABLE IF NOT EXISTS brew_params (
   id                        SERIAL PRIMARY KEY,
@@ -871,6 +884,8 @@ CREATE INDEX IF NOT EXISTS idx_cupping_scores_session_cof   ON cupping_scores(se
 CREATE INDEX IF NOT EXISTS idx_cupping_score_values_score   ON cupping_score_values(cupping_score_id);
 CREATE INDEX IF NOT EXISTS idx_cupping_score_values_dim     ON cupping_score_values(dimension_id);
 CREATE INDEX IF NOT EXISTS idx_brew_params_session_cof      ON brew_params(session_coffee_id);
+CREATE INDEX IF NOT EXISTS idx_score_descriptors_score      ON cupping_score_descriptors(cupping_score_id);
+CREATE INDEX IF NOT EXISTS idx_score_descriptors_note       ON cupping_score_descriptors(cupping_note_id);
 CREATE INDEX IF NOT EXISTS idx_archetype_assign_coffee      ON archetype_assignments(coffee_id);
 CREATE INDEX IF NOT EXISTS idx_archetype_assign_session     ON archetype_assignments(assigned_from_session_id);
 

@@ -199,7 +199,7 @@ axis-and-bloom/
 
 ---
 
-## Database Schema (41 Tables)
+## Database Schema (42 Tables)
 
 The schema lives in `backend/src/db/schema.sql` and runs automatically on every backend startup (`CREATE TABLE IF NOT EXISTS` — fully idempotent, safe to run repeatedly).
 
@@ -264,6 +264,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 - `dimensions` — cupping dimension catalogue, 12 seeded rows; `is_numeric = true` → scored 0–15 with scale labels; `is_numeric = false` → free-text notes only
 - `cupping_scores` — per-taster score header (session_coffee_id, taster_name, is_merged, overall_notes); unique on `(session_coffee_id, taster_name)`; `is_merged = true` for the combined row
 - `cupping_score_values` — one row per (cupping_score, dimension); `value_min` / `value_max` for numeric dims, `notes` for free-text dims; unique on `(cupping_score_id, dimension_id)`
+- `cupping_score_descriptors` — structured flavor notes: links a score row to one or more SCA wheel descriptors (`cupping_note`) instead of free text; `intensity` (0–15) captures how prominent the descriptor was; `custom_notes` is an escape hatch for off-wheel descriptors; unique on `(cupping_score_id, cupping_note_id)`
 - `brew_params` — brew parameters per session-coffee (dose, water, yield, ratio, temp, grind, extraction time, pressure, steep time, device); all nullable
 - `archetype_assignments` — archetype tag per coffee with confidence level; `superseded_at = NULL` for the current assignment, populated when a newer one replaces it
 
@@ -566,7 +567,7 @@ This keeps Firebase's secure token generation while giving us full control over 
 |---|---|
 | Frontend deployed | ✅ https://axis-and-bloom-prod.web.app |
 | Backend deployed | ✅ https://axis-bloom-backend-oiub7eumya-uc.a.run.app |
-| Database connected | ✅ 41 tables verified via /health/db |
+| Database connected | ✅ 42 tables verified via /health/db |
 | Email/password auth | ✅ Working |
 | Google sign-in | ✅ Working (was already enabled) |
 | Apple sign-in | ⚠️ Not configured |
@@ -574,7 +575,7 @@ This keeps Firebase's secure token generation while giving us full control over 
 | Transactional email | ✅ Resend — sends from noreply@axisandbloomcoffee.com |
 | Claude AI chat | ✅ Wired up, API key in Secret Manager |
 | Shopify | ⚠️ Stubbed — waiting for roastery account |
-| Cupping tool schema | ✅ 8 tables + 3 enums + 12 seeded dimensions + 84 SCA flavor wheel descriptors — no backend routes or UI yet |
+| Cupping tool schema | ✅ 9 tables + 3 enums + 12 seeded dimensions + 84 SCA flavor wheel descriptors — no backend routes or UI yet |
 | CI/CD | ✅ Push to main deploys everything |
 
 ---
