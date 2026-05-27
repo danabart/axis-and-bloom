@@ -144,7 +144,8 @@ axis-and-bloom/
 │   │       │   │   ├── AdminCoffees.tsx     # Coffee catalogue table + add form
 │   │       │   │   ├── AdminSessions.tsx    # Cupping sessions table + add form
 │   │       │   │   ├── AdminFlavorWheel.tsx # Per-coffee descriptor view (3 sources)
-│   │       │   │   └── AdminRoasters.tsx    # Roastery partners + add form + active toggle
+│   │       │   │   ├── AdminRoasters.tsx    # Roastery partners + add form + active toggle
+│   │       │   │   └── AdminCupping.tsx     # Score entry: session+coffee → 12 dims + SCA picker
 │   │       │   └── ...
 │   │       ├── context/
 │   │       │   └── AuthContext.tsx  # Firebase auth state + signIn/signUp/Google/Apple + isAdmin
@@ -346,6 +347,13 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | GET | `/api/admin/roasters` | Admin | All roastery partners ordered by name |
 | POST | `/api/admin/roasters` | Admin | Add a roastery (name, api_endpoint, avg_fulfillment_hours, roaster_notes) |
 | PATCH | `/api/admin/roasters/:id/toggle` | Admin | Flip `is_active` on a roastery without a full update |
+| POST | `/api/admin/coffees/:id/archetype` | Admin | Assign archetype + confidence to a coffee; supersedes current assignment |
+| GET | `/api/admin/sessions/:id/coffees` | Admin | Coffees linked to a session with display order |
+| POST | `/api/admin/sessions/:id/coffees` | Admin | Link a coffee to a session (auto display_order) |
+| DELETE | `/api/admin/sessions/:sessionId/coffees/:scId` | Admin | Unlink a coffee from a session |
+| GET | `/api/admin/dimensions` | Admin | All 12 cupping dimensions with scale labels and numeric flag |
+| GET | `/api/admin/scores/session-coffee/:scId` | Admin | Existing scores + dimension values + descriptors for a session_coffee |
+| POST | `/api/admin/scores` | Admin | Upsert a full cupping score (header + dimension values + descriptors) in one call |
 
 ---
 
@@ -935,8 +943,9 @@ Firebase UID is visible in Firebase Console → Authentication → Users.
 | Route | Page | What it shows |
 |---|---|---|
 | `/admin` | Dashboard | 6 stat cards: coffees, sessions, internal/roastery/client descriptors, SCA entries |
-| `/admin/coffees` | Coffees | Coffee catalogue table + "Add Coffee" form |
-| `/admin/sessions` | Cupping Sessions | Session list + "New Session" form |
+| `/admin/coffees` | Coffees | Coffee catalogue table + "Add Coffee" form + inline archetype assignment per row |
+| `/admin/sessions` | Cupping Sessions | Session list + "New Session" form + expandable coffee panel (link/unlink coffees) |
+| `/admin/cupping` | Score Entry | Full cupping score entry: pick session + coffee → 12 dimensions + SCA descriptor picker → save |
 | `/admin/flavor-wheel` | Flavor Wheel | Per-coffee descriptor view, grouped by source (Internal · Roastery · Client) |
 | `/admin/roasters` | Roasteries | Roastery partner list + "Add Roastery" form + active/inactive toggle |
 
@@ -952,6 +961,18 @@ All select inputs in admin forms are driven by the `lookup_value` table — not 
 
 To add or rename an option: update the seed in `schema.sql` and deploy — no frontend change needed.
 
+### Archetype assignment
+The archetype and confidence dropdowns on the Coffees page are **not** in `lookup_value` — they map directly to PostgreSQL enum types (`archetype_enum`, `confidence_enum`) whose values are fixed at the schema level. Changing them requires a schema migration regardless of where the labels live, so they are hardcoded frontend constants (`ARCHETYPE_OPTIONS`, `CONFIDENCE_OPTIONS` in `AdminCoffees.tsx`).
+
+### Cupping score entry workflow
+1. Go to **Score Entry** in the admin sidebar
+2. Select a session — the coffee dropdown populates from `session_coffees` (link coffees to sessions first in the Sessions page)
+3. Select a coffee — if a score already exists for that taster it pre-loads
+4. Enter taster name (or `session_merged` for a combined row)
+5. Fill in numeric dimensions (min/max on 0–15) and free-text dimensions
+6. Open descriptor categories and check any SCA wheel descriptors that were present; set intensity (0–15) per descriptor
+7. Add overall notes and hit Save — the backend upserts all three tables (`cupping_scores`, `cupping_score_values`, `cupping_score_descriptors`) in one call
+
 ---
 
 ## What's Still To Do
@@ -961,8 +982,8 @@ To add or rename an option: update the seed in `schema.sql` and deploy — no fr
 2. **Populate cross-archetype scoring** — current `answer_archetype_score` rows only have one positive score per answer. Add negative rows for competing archetypes (e.g. Q5 answer A → Chocolate +3, Balanced −1, Fruity −2) to make the matrix fully competitive.
 
 ### Cupping tool
-3. **Cupping tool API** — schema is complete (11 tables, 2 views). Next: backend routes for logging sessions, entering scores, selecting descriptors from the SCA wheel, and querying the collaborative flavor wheel.
-4. **Cupping tool UI** — frontend interface for logging cupping sessions: score sliders per dimension, descriptor picker from the SCA wheel, archetype assignment.
+3. **Populate negative archetype scores** — current `answer_archetype_score` rows only award positive points. Add negative rows for competing archetypes (e.g. Q5 answer A → Chocolate +3, Balanced −1, Fruity −2) to make the scoring matrix fully competitive.
+4. **Brew parameters UI** — the `brew_params` table exists but has no entry form. Could be added to the Score Entry page alongside dimension scores.
 
 ### Collaborative flavor wheel
 5. **Client feedback flow** — post-delivery email/prompt asking customers to pick descriptors from the SCA wheel. Stores results in `client_flavor_feedback`. Schema is ready; needs backend route + frontend feedback UI.
