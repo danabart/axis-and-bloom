@@ -480,6 +480,11 @@ ssl: process.env.NODE_ENV === 'production' && !isUnixSocket ? { rejectUnauthoriz
 **Change**: `fruity_floral` → `fruity` and `spicy_earthy` → `earthy`.  
 **Fix**: Updated the `CREATE TYPE` for fresh installs, and added two idempotent `DO` blocks that check `pg_enum` before calling `ALTER TYPE archetype_enum RENAME VALUE`. Safe to run on every startup — the blocks no-op once the rename is done.
 
+### 22. `CREATE OR REPLACE VIEW` cannot rename columns in PostgreSQL
+**Error**: `pq: cannot change name of view column "cupping_note_id" to "coffee_name"`  
+**Cause**: PostgreSQL's `CREATE OR REPLACE VIEW` can add new columns at the end but cannot rename or reorder existing ones. The original `v_collaborative_flavor_wheel` had `cupping_note_id` as column 2; the updated version inserted `coffee_name` before it.  
+**Fix**: Switch to `DROP VIEW IF EXISTS` + `CREATE VIEW` in both `schema.sql` and the seed file. Safe because no other views or tables depend on this view.
+
 ### 21. Upgraded quiz to 5 questions with weighted `answer_archetype_score` table
 **Problem**: The original backend scoring counted one vote per answer using `resulting_archetype_id` — flat, unweighted, inflexible. Adding a new archetype or changing scoring weights required code changes.  
 **Fix**: Added a normalised `answer_archetype_score` table (one row per answer + archetype, with a `score` column). Also added `weight NUMERIC DEFAULT 1` to both `question` and `answer` tables for future question-level weighting. Scoring weights for Q1–Q5:
@@ -754,6 +759,38 @@ Roastery bag notes use subcategory-level language ("Dried Fruit", "Citrus") rath
 | Feather In Cap | Brown Sugar | Caramelized | Sweet / Brown Sugar |
 | Feather In Cap | Cocoa | Chocolate | Nutty / Cocoa |
 | Feather In Cap | Dried Fruit | Prune | Fruity / Dried Fruit |
+
+**Internal cupping descriptors** (`cupping_score_descriptors`) — seeded from merged session notes:  
+File: `backend/src/db/seeds/internal_descriptors_session_001.sql`
+
+Free-text flavor notes from `cupping_scores` mapped to SCA leaf descriptors; original language stored in `custom_notes`.
+
+| Coffee | Session note | → SCA descriptor | Wheel category |
+|---|---|---|---|
+| Crosshatch | dark chocolate | Dark Chocolate | Nutty / Cocoa |
+| Crosshatch | cocoa | Chocolate | Nutty / Cocoa |
+| Crosshatch | dried fruit | Raisin | Fruity / Dried Fruit |
+| Crosshatch | citrus | Lemon | Fruity / Citrus Fruit |
+| Crosshatch | honey / sweet | Honey | Sweet / Brown Sugar |
+| Ethiopia | black tea | Black Tea | Floral |
+| Ethiopia | floral | Jasmine | Floral / Floral |
+| Ethiopia | berries | Blueberry | Fruity / Berry |
+| Ethiopia | dried fruits | Raisin | Fruity / Dried Fruit |
+| Ethiopia | citrus / lemon | Lemon | Fruity / Citrus Fruit |
+| Feather In Cap | cocoa | Chocolate | Nutty / Cocoa |
+| Feather In Cap | earthy | Musty / Earthy | Other / Papery / Musty |
+| Feather In Cap | tobacco | Tobacco | Roasted |
+| Feather In Cap | smoky | Smoky | Roasted / Burnt |
+| Feather In Cap | burnt | Roast | Roasted / Burnt |
+| Feather In Cap | spices | Pepper | Spices |
+
+**Collaborative flavor wheel** — query all three sources together:
+```sql
+SELECT coffee_name, descriptor, wheel_category, source
+FROM v_collaborative_flavor_wheel
+ORDER BY coffee_name, source, descriptor;
+```
+Returns 25 rows for session 001: 16 internal (5+5+6) + 9 roastery (3+3+3).
 
 ---
 
