@@ -587,6 +587,31 @@ CREATE TABLE IF NOT EXISTS brew_params (
   notes                     TEXT
 );
 
+-- Roastery descriptor notes — structured FK version of coffees.flavor_descriptors_roaster TEXT[].
+-- One row per (coffee, descriptor). notes = roaster's exact language if it differs from the descriptor name.
+CREATE TABLE IF NOT EXISTS coffee_roastery_descriptors (
+  id              SERIAL PRIMARY KEY,
+  coffee_id       INTEGER NOT NULL REFERENCES coffees(id) ON DELETE CASCADE,
+  cupping_note_id UUID    NOT NULL REFERENCES cupping_note(id) ON DELETE CASCADE,
+  notes           TEXT,
+  UNIQUE (coffee_id, cupping_note_id)
+);
+
+-- Client flavor feedback — collected via post-delivery feedback requests.
+-- Lightweight: no session, no brew params. User picks descriptors from the SCA wheel.
+-- intensity = how strongly they perceived it (0–15, optional).
+-- order_id links back to the specific delivery that triggered the feedback request.
+CREATE TABLE IF NOT EXISTS client_flavor_feedback (
+  id              SERIAL PRIMARY KEY,
+  user_id         UUID    NOT NULL REFERENCES user_profile(id) ON DELETE CASCADE,
+  coffee_id       INTEGER NOT NULL REFERENCES coffees(id)      ON DELETE CASCADE,
+  order_id        UUID    REFERENCES "order"(id)               ON DELETE SET NULL,
+  cupping_note_id UUID    NOT NULL REFERENCES cupping_note(id) ON DELETE CASCADE,
+  intensity       NUMERIC,
+  notes           TEXT,
+  created_at      TIMESTAMPTZ DEFAULT now()
+);
+
 -- Archetype assignments per coffee, with history.
 -- superseded_at = NULL → current assignment; populated when a newer one replaces it.
 CREATE TABLE IF NOT EXISTS archetype_assignments (
@@ -886,6 +911,11 @@ CREATE INDEX IF NOT EXISTS idx_cupping_score_values_dim     ON cupping_score_val
 CREATE INDEX IF NOT EXISTS idx_brew_params_session_cof      ON brew_params(session_coffee_id);
 CREATE INDEX IF NOT EXISTS idx_score_descriptors_score      ON cupping_score_descriptors(cupping_score_id);
 CREATE INDEX IF NOT EXISTS idx_score_descriptors_note       ON cupping_score_descriptors(cupping_note_id);
+CREATE INDEX IF NOT EXISTS idx_roastery_desc_coffee         ON coffee_roastery_descriptors(coffee_id);
+CREATE INDEX IF NOT EXISTS idx_roastery_desc_note           ON coffee_roastery_descriptors(cupping_note_id);
+CREATE INDEX IF NOT EXISTS idx_client_feedback_user         ON client_flavor_feedback(user_id);
+CREATE INDEX IF NOT EXISTS idx_client_feedback_coffee       ON client_flavor_feedback(coffee_id);
+CREATE INDEX IF NOT EXISTS idx_client_feedback_order        ON client_flavor_feedback(order_id);
 CREATE INDEX IF NOT EXISTS idx_archetype_assign_coffee      ON archetype_assignments(coffee_id);
 CREATE INDEX IF NOT EXISTS idx_archetype_assign_session     ON archetype_assignments(assigned_from_session_id);
 
@@ -896,6 +926,30 @@ CREATE INDEX IF NOT EXISTS idx_answer_arch_score_archetype  ON answer_archetype_
 -- ─────────────────────────────────────────────
 -- VIEWS
 -- ─────────────────────────────────────────────
+
+-- Collaborative flavor wheel — all descriptor observations per coffee, with source label.
+-- Sources: 'internal' (cupping sessions), 'roastery' (bag notes), 'client' (post-delivery feedback).
+-- Join to cupping_note for descriptor details; GROUP BY coffee_id + descriptor for aggregation.
+CREATE OR REPLACE VIEW v_collaborative_flavor_wheel AS
+  SELECT sc.coffee_id,
+         csd.cupping_note_id,
+         'internal'   AS source,
+         csd.intensity
+  FROM cupping_score_descriptors csd
+  JOIN cupping_scores  cs ON cs.id = csd.cupping_score_id
+  JOIN session_coffees sc ON sc.id = cs.session_coffee_id
+UNION ALL
+  SELECT coffee_id,
+         cupping_note_id,
+         'roastery'   AS source,
+         NULL         AS intensity
+  FROM coffee_roastery_descriptors
+UNION ALL
+  SELECT coffee_id,
+         cupping_note_id,
+         'client'     AS source,
+         intensity
+  FROM client_flavor_feedback;
 
 -- Full quiz scoring matrix — one row per (question, answer, archetype)
 -- Shows all three scoring levels: question weight, answer weight, archetype-specific score.

@@ -199,7 +199,7 @@ axis-and-bloom/
 
 ---
 
-## Database Schema (42 Tables)
+## Database Schema (44 Tables)
 
 The schema lives in `backend/src/db/schema.sql` and runs automatically on every backend startup (`CREATE TABLE IF NOT EXISTS` — fully idempotent, safe to run repeatedly).
 
@@ -265,6 +265,8 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 - `cupping_scores` — per-taster score header (session_coffee_id, taster_name, is_merged, overall_notes); unique on `(session_coffee_id, taster_name)`; `is_merged = true` for the combined row
 - `cupping_score_values` — one row per (cupping_score, dimension); `value_min` / `value_max` for numeric dims, `notes` for free-text dims; unique on `(cupping_score_id, dimension_id)`
 - `cupping_score_descriptors` — structured flavor notes: links a score row to one or more SCA wheel descriptors (`cupping_note`) instead of free text; `intensity` (0–15) captures how prominent the descriptor was; `custom_notes` is an escape hatch for off-wheel descriptors; unique on `(cupping_score_id, cupping_note_id)`
+- `coffee_roastery_descriptors` — structured version of `coffees.flavor_descriptors_roaster TEXT[]`; links a coffee to SCA wheel descriptors as reported by the roaster (bag notes); unique on `(coffee_id, cupping_note_id)`
+- `client_flavor_feedback` — post-delivery feedback from customers; links user + coffee + order to SCA wheel descriptors they perceived; `intensity` optional; no session or brew params — lightweight by design
 - `brew_params` — brew parameters per session-coffee (dose, water, yield, ratio, temp, grind, extraction time, pressure, steep time, device); all nullable
 - `archetype_assignments` — archetype tag per coffee with confidence level; `superseded_at = NULL` for the current assignment, populated when a newer one replaces it
 
@@ -272,7 +274,8 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 
 | View | Description |
 |---|---|
-| `v_quiz_scoring_matrix` | Full scoring matrix — one row per (question, answer, archetype). Columns: `q_number`, `q_text`, `q_weight`, `answer_text`, `archetype`, `ans_score`, `ans_weight`. Use this to inspect or debug the scoring data. Lambda formula: `q_weight × ans_weight × ans_score`. |
+| `v_collaborative_flavor_wheel` | All descriptor observations per coffee with source label (`internal`, `roastery`, `client`). Join to `cupping_note` for descriptor details. GROUP BY coffee + descriptor to aggregate across sources. |
+| `v_quiz_scoring_matrix` | Full scoring matrix — one row per (question, answer, archetype). Columns: `q_number`, `q_text`, `q_weight`, `answer_text`, `archetype`, `ans_score`, `ans_weight`. Lambda formula: `q_weight × ans_weight × ans_score`. |
 
 ### Dimensions (seeded, 12 rows)
 
@@ -567,7 +570,7 @@ This keeps Firebase's secure token generation while giving us full control over 
 |---|---|
 | Frontend deployed | ✅ https://axis-and-bloom-prod.web.app |
 | Backend deployed | ✅ https://axis-bloom-backend-oiub7eumya-uc.a.run.app |
-| Database connected | ✅ 42 tables verified via /health/db |
+| Database connected | ✅ 44 tables verified via /health/db |
 | Email/password auth | ✅ Working |
 | Google sign-in | ✅ Working (was already enabled) |
 | Apple sign-in | ⚠️ Not configured |
@@ -575,7 +578,7 @@ This keeps Firebase's secure token generation while giving us full control over 
 | Transactional email | ✅ Resend — sends from noreply@axisandbloomcoffee.com |
 | Claude AI chat | ✅ Wired up, API key in Secret Manager |
 | Shopify | ⚠️ Stubbed — waiting for roastery account |
-| Cupping tool schema | ✅ 9 tables + 3 enums + 12 seeded dimensions + 84 SCA flavor wheel descriptors — no backend routes or UI yet |
+| Cupping tool schema | ✅ 11 tables + 3 enums + 12 seeded dimensions + 84 SCA flavor wheel descriptors + collaborative flavor wheel view — no backend routes or UI yet |
 | CI/CD | ✅ Push to main deploys everything |
 
 ---
@@ -670,15 +673,20 @@ cupping_sessions
                     └── cupping_score_descriptors → cupping_note (flavor wheel: Blueberry, Dark Chocolate…)
 
 coffees
-    └── archetype_assignments  (current + historical archetype tags per coffee)
+    ├── archetype_assignments       (current + historical archetype tags per coffee)
+    ├── coffee_roastery_descriptors → cupping_note  (roaster bag notes, structured)
+    └── client_flavor_feedback      → cupping_note  (post-delivery customer feedback)
 
 cupping_note  (SCA wheel reference — 84 descriptors, static)
 dimensions    (12 cupping dimensions — numeric or free-text, static)
+
+v_collaborative_flavor_wheel  (view — unions all three descriptor sources with 'internal' | 'roastery' | 'client' label)
 ```
 
 **Design decisions:**
 - `cupping_score_values` handles **numeric dimensions** (sweetness, acidity, bitterness, body…) with `value_min` / `value_max` on a 0–15 scale
 - `cupping_score_descriptors` handles **flavor descriptors** as FK references to the SCA wheel instead of free text — structured and queryable; `intensity` (0–15) captures how prominent a descriptor was; `custom_notes` is the escape hatch for off-wheel descriptors
+- **Three separate tables** for internal / roastery / client sources — each has a different shape (session context, static bag notes, user+order context). A single `source` column on `cupping_sessions` would force client feedback into a cupping session structure it doesn't fit
 - `cupping_note` is intentionally **not** further normalized (wheel_category / wheel_subcategory repeat as TEXT) — 84 rows of fixed reference data doesn't justify the JOIN complexity of a 3-table split
 
 ---
@@ -779,6 +787,18 @@ FROM archetype_assignments aa
 JOIN coffees c ON c.id = aa.coffee_id
 WHERE aa.superseded_at IS NULL
 ORDER BY c.name;
+```
+
+### Collaborative flavor wheel for a specific coffee
+```sql
+SELECT cn.wheel_category, cn.descriptor, v.source,
+       COUNT(*)            AS mentions,
+       AVG(v.intensity)    AS avg_intensity
+FROM v_collaborative_flavor_wheel v
+JOIN cupping_note cn ON cn.id = v.cupping_note_id
+WHERE v.coffee_id = 1   -- replace with target coffee id
+GROUP BY cn.wheel_category, cn.descriptor, v.source
+ORDER BY mentions DESC;
 ```
 
 ### Check quiz scoring matrix (view — should be 14 rows, Q3-D neutral has no row)
