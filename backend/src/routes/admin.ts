@@ -380,9 +380,10 @@ router.post('/scores', async (req, res) => {
     }
 
     res.status(201).json({ id: scoreId });
-  } catch (err) {
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
     console.error('[admin/scores POST]', err);
-    res.status(500).json({ error: 'Failed to save score' });
+    res.status(500).json({ error: 'Failed to save score', detail: msg });
   }
 });
 
