@@ -143,7 +143,8 @@ axis-and-bloom/
 │   │       │   │   ├── AdminDashboard.tsx   # 6 stat cards (counts across tables)
 │   │       │   │   ├── AdminCoffees.tsx     # Coffee catalogue table + add form
 │   │       │   │   ├── AdminSessions.tsx    # Cupping sessions table + add form
-│   │       │   │   └── AdminFlavorWheel.tsx # Per-coffee descriptor view (3 sources)
+│   │       │   │   ├── AdminFlavorWheel.tsx # Per-coffee descriptor view (3 sources)
+│   │       │   │   └── AdminRoasters.tsx    # Roastery partners + add form + active toggle
 │   │       │   └── ...
 │   │       ├── context/
 │   │       │   └── AuthContext.tsx  # Firebase auth state + signIn/signUp/Google/Apple + isAdmin
@@ -342,6 +343,9 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | POST | `/api/admin/sessions` | Admin | Create a cupping session |
 | GET | `/api/admin/flavor-wheel/:coffeeId` | Admin | All descriptors for a coffee across all three sources (internal, roastery, client), grouped |
 | GET | `/api/admin/cupping-notes` | Admin | All 84 SCA wheel descriptors for the descriptor picker |
+| GET | `/api/admin/roasters` | Admin | All roastery partners ordered by name |
+| POST | `/api/admin/roasters` | Admin | Add a roastery (name, api_endpoint, avg_fulfillment_hours, roaster_notes) |
+| PATCH | `/api/admin/roasters/:id/toggle` | Admin | Flip `is_active` on a roastery without a full update |
 
 ---
 
@@ -934,6 +938,7 @@ Firebase UID is visible in Firebase Console → Authentication → Users.
 | `/admin/coffees` | Coffees | Coffee catalogue table + "Add Coffee" form |
 | `/admin/sessions` | Cupping Sessions | Session list + "New Session" form |
 | `/admin/flavor-wheel` | Flavor Wheel | Per-coffee descriptor view, grouped by source (Internal · Roastery · Client) |
+| `/admin/roasters` | Roasteries | Roastery partner list + "Add Roastery" form + active/inactive toggle |
 
 ### Dropdown values (lookup_value table)
 All select inputs in admin forms are driven by the `lookup_value` table — not hardcoded in the frontend. The `useAdminLookups` hook fetches all categories in one call (`GET /api/admin/lookups`) and memoises them for the session.
