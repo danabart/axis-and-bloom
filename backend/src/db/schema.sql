@@ -30,9 +30,21 @@ CREATE TABLE IF NOT EXISTS roaster (
   is_active             BOOLEAN DEFAULT true,
   avg_fulfillment_hours NUMERIC,
   roaster_notes         TEXT,
+  address               TEXT,
+  email                 TEXT,
+  phone                 TEXT,
+  contact_person        TEXT,
+  website               TEXT,
   created_at            TIMESTAMPTZ DEFAULT timezone('utc', now()),
   updated_at            TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
+
+-- Add new roaster contact fields to existing DBs (idempotent)
+ALTER TABLE roaster ADD COLUMN IF NOT EXISTS address        TEXT;
+ALTER TABLE roaster ADD COLUMN IF NOT EXISTS email          TEXT;
+ALTER TABLE roaster ADD COLUMN IF NOT EXISTS phone          TEXT;
+ALTER TABLE roaster ADD COLUMN IF NOT EXISTS contact_person TEXT;
+ALTER TABLE roaster ADD COLUMN IF NOT EXISTS website        TEXT;
 
 CREATE TABLE IF NOT EXISTS quiz (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -494,11 +506,24 @@ CREATE TABLE IF NOT EXISTS coffees (
 CREATE TABLE IF NOT EXISTS cupping_sessions (
   id            SERIAL PRIMARY KEY,
   session_date  DATE,
-  brew_method   brew_method_enum,
+  brew_method   TEXT,
   location      TEXT,
   session_notes TEXT,
   created_at    TIMESTAMPTZ DEFAULT now()
 );
+
+-- Migrate brew_method column from enum to TEXT on existing DBs (idempotent)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'cupping_sessions'
+      AND column_name = 'brew_method'
+      AND udt_name = 'brew_method_enum'
+  ) THEN
+    ALTER TABLE cupping_sessions ALTER COLUMN brew_method TYPE TEXT;
+  END IF;
+END $$;
 
 -- Junction: which coffees were in a given session, and in what order
 CREATE TABLE IF NOT EXISTS session_coffees (

@@ -229,11 +229,15 @@ export default function AdminCoffees() {
                         className="flex items-center gap-1.5 group"
                       >
                         {c.archetype
-                          ? <span className="px-2 py-0.5 rounded-full text-xs text-white" style={{ backgroundColor: '#b05642' }}>
-                              {ARCHETYPE_LABEL[c.archetype] ?? c.archetype}
-                            </span>
-                          : <span className="text-stone-300 text-xs">— assign</span>}
-                        <span className="text-stone-300 text-xs opacity-0 group-hover:opacity-100 transition-opacity">✏️</span>
+                          ? <>
+                              <span className="px-2 py-0.5 rounded-full text-xs text-white" style={{ backgroundColor: '#b05642' }}>
+                                {ARCHETYPE_LABEL[c.archetype] ?? c.archetype}
+                              </span>
+                              <span className="text-stone-300 text-xs opacity-0 group-hover:opacity-100 transition-opacity">✏️</span>
+                            </>
+                          : <span className="px-2 py-0.5 rounded border border-dashed border-stone-300 text-xs text-stone-400 hover:border-stone-400 hover:text-stone-600">
+                              + Assign archetype
+                            </span>}
                       </button>
                     </td>
                     <td className="py-3 text-stone-400 capitalize">{c.confidence ?? '—'}</td>

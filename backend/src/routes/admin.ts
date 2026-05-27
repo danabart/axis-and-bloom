@@ -113,7 +113,7 @@ router.post('/sessions', async (req, res) => {
     const result = await db.query(
       `INSERT INTO cupping_sessions (session_date, brew_method, location, session_notes)
        VALUES ($1, $2, $3, $4) RETURNING *`,
-      [session_date, brew_method ?? 'filter', location ?? null, session_notes ?? null]
+      [session_date, brew_method || null, location || null, session_notes || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -165,7 +165,8 @@ router.get('/flavor-wheel/:coffeeId', async (req, res) => {
 router.get('/roasters', async (_req, res) => {
   try {
     const result = await db.query(
-      `SELECT id, name, api_endpoint, is_active, avg_fulfillment_hours, roaster_notes, created_at
+      `SELECT id, name, api_endpoint, is_active, avg_fulfillment_hours, roaster_notes,
+              address, email, phone, contact_person, website, created_at
        FROM roaster
        ORDER BY name`
     );
@@ -178,19 +179,50 @@ router.get('/roasters', async (_req, res) => {
 
 // ── POST /api/admin/roasters ──────────────────────────────────────────────────
 router.post('/roasters', async (req, res) => {
-  const { name, api_endpoint, avg_fulfillment_hours, roaster_notes } = req.body;
+  const { name, api_endpoint, avg_fulfillment_hours, roaster_notes,
+          address, email, phone, contact_person, website } = req.body;
   if (!name) { res.status(400).json({ error: 'name is required' }); return; }
   try {
     const result = await db.query(
-      `INSERT INTO roaster (name, api_endpoint, avg_fulfillment_hours, roaster_notes)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO roaster (name, api_endpoint, avg_fulfillment_hours, roaster_notes,
+                            address, email, phone, contact_person, website)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
-      [name, api_endpoint ?? null, avg_fulfillment_hours ? Number(avg_fulfillment_hours) : null, roaster_notes ?? null]
+      [name, api_endpoint || null, avg_fulfillment_hours ? Number(avg_fulfillment_hours) : null,
+       roaster_notes || null, address || null, email || null, phone || null,
+       contact_person || null, website || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('[admin/roasters POST]', err);
     res.status(500).json({ error: 'Failed to add roaster' });
+  }
+});
+
+// ── PATCH /api/admin/roasters/:id ────────────────────────────────────────────
+// Full edit of a roaster record (all fields)
+router.patch('/roasters/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, api_endpoint, avg_fulfillment_hours, roaster_notes,
+          address, email, phone, contact_person, website } = req.body;
+  if (!name) { res.status(400).json({ error: 'name is required' }); return; }
+  try {
+    const result = await db.query(
+      `UPDATE roaster SET
+         name = $1, api_endpoint = $2, avg_fulfillment_hours = $3, roaster_notes = $4,
+         address = $5, email = $6, phone = $7, contact_person = $8, website = $9,
+         updated_at = now()
+       WHERE id = $10
+       RETURNING *`,
+      [name, api_endpoint || null, avg_fulfillment_hours ? Number(avg_fulfillment_hours) : null,
+       roaster_notes || null, address || null, email || null, phone || null,
+       contact_person || null, website || null, id]
+    );
+    if (result.rowCount === 0) { res.status(404).json({ error: 'Roaster not found' }); return; }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[admin/roasters PATCH]', err);
+    res.status(500).json({ error: 'Failed to update roaster' });
   }
 });
 

@@ -112,6 +112,46 @@ export default function AdminFlavorWheel() {
         </div>
       )}
 
+      {!loading && rows.length > 0 && (() => {
+        const totalMentions   = rows.reduce((s, r) => s + Number(r.mentions), 0);
+        const uniqueDescs     = new Set(rows.map(r => r.descriptor)).size;
+        const topDescriptors  = [...rows]
+          .sort((a, b) => Number(b.mentions) - Number(a.mentions))
+          .slice(0, 3);
+        const sourceCounts    = rows.reduce<Record<string,number>>((acc, r) => {
+          acc[r.source] = (acc[r.source] ?? 0) + Number(r.mentions); return acc;
+        }, {});
+        return (
+          <div className="mb-6 grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="border border-stone-200 rounded-lg px-4 py-3">
+              <p className="text-xs text-stone-400 mb-1">Total mentions</p>
+              <p className="text-2xl font-semibold text-stone-800">{totalMentions}</p>
+            </div>
+            <div className="border border-stone-200 rounded-lg px-4 py-3">
+              <p className="text-xs text-stone-400 mb-1">Unique descriptors</p>
+              <p className="text-2xl font-semibold text-stone-800">{uniqueDescs}</p>
+            </div>
+            <div className="border border-stone-200 rounded-lg px-4 py-3 md:col-span-2">
+              <p className="text-xs text-stone-400 mb-1">Top descriptors</p>
+              <div className="flex flex-wrap gap-1.5 mt-1">
+                {topDescriptors.map(r => (
+                  <span key={r.descriptor} className="px-2 py-0.5 rounded-full text-xs font-medium text-white"
+                    style={{ backgroundColor: SOURCE_COLORS[r.source] }}>
+                    {r.descriptor} ×{r.mentions}
+                  </span>
+                ))}
+              </div>
+            </div>
+            {Object.entries(sourceCounts).map(([src, count]) => (
+              <div key={src} className="border border-stone-200 rounded-lg px-4 py-3">
+                <p className="text-xs text-stone-400 mb-1">{SOURCE_LABELS[src]}</p>
+                <p className="text-lg font-semibold" style={{ color: SOURCE_COLORS[src] }}>{count} mentions</p>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
       {!loading && rows.length > 0 && (
         <div className="space-y-8">
           {['internal', 'roastery', 'client'].map(source => {
