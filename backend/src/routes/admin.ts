@@ -456,4 +456,59 @@ router.delete('/scores/:scoreId', async (req, res) => {
   }
 });
 
+// ── POST /api/admin/grant-admin ───────────────────────────────────────────────
+// Grant admin role to a user by email address.
+// Only callable by an existing admin.
+router.post('/grant-admin', async (req, res) => {
+  const { email } = req.body as { email?: string };
+  if (!email) { res.status(400).json({ error: 'email is required' }); return; }
+
+  try {
+    const result = await db.query(
+      `UPDATE user_profile up
+       SET user_type_id = (SELECT id FROM user_type WHERE name = 'admin')
+       FROM user_email ue
+       WHERE up.id = ue.user_id
+         AND ue.email_address = $1
+       RETURNING up.id`,
+      [email.toLowerCase().trim()]
+    );
+    if (result.rowCount === 0) {
+      res.status(404).json({ error: 'No user found with that email. They must have logged in at least once.' });
+      return;
+    }
+    res.json({ ok: true, message: `${email} is now an admin` });
+  } catch (err) {
+    console.error('[admin/grant-admin]', err);
+    res.status(500).json({ error: 'Failed to grant admin' });
+  }
+});
+
+// ── DELETE /api/admin/revoke-admin ────────────────────────────────────────────
+// Revoke admin role from a user by email (sets them back to 'customer').
+router.delete('/revoke-admin', async (req, res) => {
+  const { email } = req.body as { email?: string };
+  if (!email) { res.status(400).json({ error: 'email is required' }); return; }
+
+  try {
+    const result = await db.query(
+      `UPDATE user_profile up
+       SET user_type_id = (SELECT id FROM user_type WHERE name = 'customer')
+       FROM user_email ue
+       WHERE up.id = ue.user_id
+         AND ue.email_address = $1
+       RETURNING up.id`,
+      [email.toLowerCase().trim()]
+    );
+    if (result.rowCount === 0) {
+      res.status(404).json({ error: 'No user found with that email.' });
+      return;
+    }
+    res.json({ ok: true, message: `${email} is now a regular customer` });
+  } catch (err) {
+    console.error('[admin/revoke-admin]', err);
+    res.status(500).json({ error: 'Failed to revoke admin' });
+  }
+});
+
 export default router;
