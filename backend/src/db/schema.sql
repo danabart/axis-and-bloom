@@ -664,6 +664,76 @@ CREATE TABLE IF NOT EXISTS lookup_value (
 );
 
 -- ─────────────────────────────────────────────
+-- ADMIN HELPER FUNCTIONS
+-- ─────────────────────────────────────────────
+
+-- grant_admin(email) → sets a user's type to 'admin'
+-- Usage: SELECT grant_admin('user@example.com');
+CREATE OR REPLACE FUNCTION grant_admin(p_email TEXT)
+RETURNS TEXT
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_rows INT;
+BEGIN
+  UPDATE user_profile up
+  SET user_type_id = (SELECT id FROM user_type WHERE name = 'admin')
+  FROM user_email ue
+  WHERE up.id = ue.user_id
+    AND ue.email_address = LOWER(TRIM(p_email));
+
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+
+  IF v_rows = 0 THEN
+    RETURN 'No user found with email: ' || p_email ||
+           '. Make sure they have logged in at least once.';
+  END IF;
+
+  RETURN p_email || ' is now an admin.';
+END;
+$$;
+
+-- revoke_admin(email) → sets a user's type back to 'customer'
+-- Usage: SELECT revoke_admin('user@example.com');
+CREATE OR REPLACE FUNCTION revoke_admin(p_email TEXT)
+RETURNS TEXT
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_rows INT;
+BEGIN
+  UPDATE user_profile up
+  SET user_type_id = (SELECT id FROM user_type WHERE name = 'customer')
+  FROM user_email ue
+  WHERE up.id = ue.user_id
+    AND ue.email_address = LOWER(TRIM(p_email));
+
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+
+  IF v_rows = 0 THEN
+    RETURN 'No user found with email: ' || p_email;
+  END IF;
+
+  RETURN p_email || ' has been set back to customer.';
+END;
+$$;
+
+-- list_admins() → returns all users with admin role
+-- Usage: SELECT * FROM list_admins();
+CREATE OR REPLACE FUNCTION list_admins()
+RETURNS TABLE(email TEXT, created_at TIMESTAMPTZ)
+LANGUAGE sql
+AS $$
+  SELECT ue.email_address, up.created_at
+  FROM user_profile up
+  JOIN user_type    ut ON ut.id = up.user_type_id
+  JOIN user_email   ue ON ue.user_id = up.id
+  WHERE ut.name = 'admin'
+    AND ue.is_primary = true
+  ORDER BY up.created_at;
+$$;
+
+-- ─────────────────────────────────────────────
 -- SEED DATA  (Quiz V2 — idempotent)
 -- Runs on every startup; skipped if already seeded.
 -- ─────────────────────────────────────────────
