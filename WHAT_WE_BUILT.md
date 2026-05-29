@@ -587,6 +587,16 @@ Migration is idempotent: a DO block detects the old `sweetness_min` column and d
 **Cause**: `cupping_sessions.brew_method` was typed as `brew_method_enum`. The `lookup_value` table for `brew_method` includes values like `cupping`, `pour-over`, `french-press`, `aeropress` — none of which existed in the enum. Additionally, an empty-string selection slipped past the `?? 'filter'` fallback (because `'' ?? 'filter'` = `''`, not `'filter'`).  
 **Fix**: Migrated the column to `TEXT` using an idempotent `DO` block in `schema.sql` that checks `information_schema.columns` for the old enum type before running `ALTER TABLE cupping_sessions ALTER COLUMN brew_method TYPE TEXT`. Also changed the backend fallback from `brew_method ?? null` to `brew_method || null` so empty string correctly maps to `null`. `brew_method_enum` is still defined (for any future use) but no longer applied to the column.
 
+### 28. Quiz V3 — Perfect cup theme + experimental gate
+**Change**: Introduced quiz V3 as the active version. V2 is deactivated (`is_active = FALSE`). Key changes:
+- Q2 completely replaced: "Food instinct" (food choices) → "Perfect cup" (coffee experience descriptions)
+- Q3-C gains `is_experimental_gate = TRUE` flag — scoring backend returns `experimental: true` when selected; stored in `quiz_session.context_data`; recommendation engine should add a discovery coffee to the result
+- Q3-D scoring changed: was neutral (no row) in V2 → +0.5 Chocolate & Nutty in a mid-session fix → now correctly splits +0.5 CN + +0.5 BS (two rows in `answer_archetype_score` for the same answer)
+- Q4 answer texts updated: "Feels too thin/watery" → "It has no bitterness or intensity"; "Feels too heavy or strong" → "It's too bitter or too intense"
+- Q5-B and Q5-C updated to softer, more evocative language
+- `answer` table gained `is_experimental_gate BOOLEAN DEFAULT FALSE` column (idempotent ALTER TABLE)
+- Source file: `backend/src/quizes/Coffee_Quiz_Scoring_v3.xlsx` (committed to repo)
+
 ### 27. Tie-break was a static priority list, not spec-compliant
 **Problem**: `POST /api/quiz/score` resolved ties with a hardcoded order (Balanced & Sweet > Chocolate & Nutty > Fruity) regardless of the user's actual answers. This meant two users with identical scores but different answers would always get the same archetype — wrong by design.  
 **Fix**: Replaced with a veto cascade: Q5 → Q4 → Q2 → Q1. For each question in that order, if the user's answer pointed to one of the tied archetypes, that archetype wins. Q3 is intentionally excluded (contributes to raw score only). Fallback: Balanced & Sweet. A second DB query fetches the `q_number → archetype` mapping from `answer_archetype_score` only when a tie is detected — no extra cost on the happy path.
@@ -643,7 +653,7 @@ This keeps Firebase's secure token generation while giving us full control over 
 | Email/password auth | ✅ Working |
 | Google sign-in | ✅ Working (was already enabled) |
 | Apple sign-in | ⚠️ Not configured |
-| Flavor quiz (V2) | ✅ Fully DB-driven — questions from API, scoring on backend, zero logic in frontend |
+| Flavor quiz (V3) | ✅ Active — V3 replaces V2; new Q2 "Perfect cup" theme, experimental gate on Q3-C, Q3-D splits 0.5 to CN + 0.5 to BS, updated Q4/Q5 answer texts |
 | Transactional email | ✅ Resend — sends from noreply@axisandbloomcoffee.com |
 | Claude AI chat | ✅ Wired up, API key in Secret Manager |
 | Shopify | ⚠️ Stubbed — waiting for roastery account |
@@ -655,16 +665,21 @@ This keeps Firebase's secure token generation while giving us full control over 
 
 ---
 
-## Flavor Quiz (V2)
+## Flavor Quiz (V3)
 
-The quiz lives in `frontend/src/app/components/FlavorQuiz.tsx`. V2 replaced the original 15-question, 6-archetype system with a focused 5-question, 3-archetype design. **Questions and answers are no longer hardcoded** — they are seeded into the database and fetched at runtime via `GET /api/quiz/questions`.
+The quiz lives in `frontend/src/app/components/FlavorQuiz.tsx`. The active quiz version is always served dynamically via `GET /api/quiz/questions` (queries `quiz WHERE is_active = TRUE`) — no frontend deploy needed to switch versions.
 
-### Questions
+**Version history:**
+- **V1** — 15 questions, 6 archetypes, hardcoded in frontend (replaced)
+- **V2** — 5 questions, 3 archetypes, DB-driven scoring (deactivated)
+- **V3** — 5 questions, 3 archetypes, new "Perfect cup" Q2, experimental gate on Q3-C, updated answer texts; source file: `backend/src/quizes/Coffee_Quiz_Scoring_v3.xlsx`
+
+### Questions (V3 — active)
 
 | # | Category | Question |
 |---|---|---|
 | 1 | Identity | How would you describe your relationship with coffee? |
-| 2 | Food instinct | Someone puts something in front of you as a treat. Which do you reach for? |
+| 2 | Perfect cup | Think about a coffee that really worked for you. What made it perfect? |
 | 3 | Black coffee reaction | You try a new coffee black. What's your first reaction? |
 | 4 | Disappointment | Which coffee would disappoint you the most? |
 | 5 | Bitterness tolerance | You're handed an espresso — straight, no milk, no sugar. How does it land? |
@@ -692,15 +707,37 @@ Scoring is split across three fields, each with a distinct role. All three are k
 archetype total = SUM( question.weight × answer.weight × answer_archetype_score.score )
 ```
 
-**Current seeded values** (all weights = 1; point difference is baked into `score`):
+**V3 seeded values** (all question/answer weights = 1; point difference is baked into `score`):
 
-| Question | `score` per answer | Effective pts |
-|---|---|---|
-| Q1 — Identity | 1 | 1 pt |
-| Q2 — Food instinct | 2 | 2 pts |
-| Q3 — Black coffee reaction | 1 (option D → +1 Chocolate & Nutty) | 1 pt |
-| Q4 — Disappointment | 2 | 2 pts |
-| Q5 — Bitterness tolerance | 3 | 3 pts (strongest signal) |
+| Question | Answer | Archetype | Score |
+|---|---|---|---|
+| Q1 — Identity | It's a daily ritual. I'm particular about it. | Chocolate & Nutty | +1 |
+| Q1 — Identity | It's a reliable habit. I just like having it. | Balanced & Sweet | +1 |
+| Q1 — Identity | It's something I'm still discovering. I'm curious about it. | Fruity | +1 |
+| Q2 — Perfect cup | It was strong and satisfying — I felt it. | Chocolate & Nutty | +2 |
+| Q2 — Perfect cup | It was smooth and easy the whole way through — nothing got in the way. | Balanced & Sweet | +2 |
+| Q2 — Perfect cup | It felt alive — bright and changing. Every sip was a little different. | Fruity | +2 |
+| Q3 — Black coffee | It feels complete. I'd drink it as is, or add milk to make it even richer. | Chocolate & Nutty | +1 |
+| Q3 — Black coffee | It's fine, easy to drink. I might add something to smooth it out. | Balanced & Sweet | +1 |
+| Q3 — Black coffee | Interesting… what flavors am I getting here? ⚑ | Fruity | +1 |
+| Q3 — Black coffee | I'm not sure. I don't usually drink it black. | CN + BS split | +0.5 each |
+| Q4 — Disappointment | It has no bitterness or intensity. | Chocolate & Nutty | +2 |
+| Q4 — Disappointment | It's too bitter or too intense. | Balanced & Sweet | +2 |
+| Q4 — Disappointment | Every sip tastes exactly the same. | Fruity | +2 |
+| Q5 — Bitterness | I don't mind. Actually I kind of like it. It tastes serious. | Chocolate & Nutty | +3 |
+| Q5 — Bitterness | I'd rather have something gentler and smoother. | Balanced & Sweet | +3 |
+| Q5 — Bitterness | It feels burnt to me. I'd rather have something fresher or more alive. | Fruity | +3 |
+
+⚑ = experimental gate — see below.
+
+| Question weight | Max score per archetype |
+|---|---|
+| Q1 × 1 | 1 pt |
+| Q2 × 2 | 2 pts |
+| Q3 × 1 | 1 pt |
+| Q4 × 2 | 2 pts |
+| Q5 × 3 | 3 pts |
+| **Total** | **9 pts** |
 
 **Max possible score for one archetype**: 1 + 2 + 1 + 2 + 3 = **9 pts**
 
@@ -708,6 +745,14 @@ archetype total = SUM( question.weight × answer.weight × answer_archetype_scor
 - Q5 should matter even more → `UPDATE question SET weight = 2 WHERE q_number = 5`
 - A specific answer is an unusually strong signal → `UPDATE answer SET weight = 1.5 WHERE answer_text = '...'`
 - An answer should also hurt a competing archetype → `INSERT INTO answer_archetype_score (..., archetype_id, score) VALUES (..., <fruity_id>, -2)`
+
+**Experimental gate (Q3-C)**
+
+Q3 answer C ("Interesting… what flavors am I getting here?") is flagged `is_experimental_gate = TRUE` in the `answer` table. When a user selects it, `POST /api/quiz/score` returns `experimental: true` alongside the archetype result. `POST /api/quiz/results` stores this in `quiz_session.context_data`.
+
+The recommendation engine should use this flag to surface a **discovery coffee** alongside the primary archetype recommendation — regardless of which archetype won. This is additive: the primary archetype result is still returned normally; experimental is an additional signal.
+
+Q3-C still awards +1 to Fruity in the scoring table — the gate is a separate flag, not a scoring override.
 
 **Tie-break — veto cascade** (only fires when two or more archetypes share the top score):
 
@@ -731,16 +776,18 @@ The response also includes a `tied` array when a tie occurred, useful for debugg
 
 ```
 1. mount        → GET  /api/quiz/questions
-                ← { questions: [{ q_text, answers: [{ id, text, archetype_name }] }] }
+                ← { quizId, questions: [{ q_text, answers: [{ id, text, archetype_name }] }] }
 
 2. user answers → frontend tracks selected answer UUIDs (one per question)
 
 3. last answer  → POST /api/quiz/score  { answerIds: ["uuid1", ..., "uuid5"] }
-                ← { archetype: "Chocolate & Nutty", archetypeId: "uuid", scores: { ... } }
-                   (backend SUMs answer_archetype_score rows for submitted UUIDs)
+                ← { archetype: "Chocolate & Nutty", archetypeId: "uuid", scores: { ... },
+                    experimental: false,        ← true if Q3-C was selected
+                    tied: ["...", "..."] }       ← only present when veto cascade fired
 
-4. if signed in → POST /api/quiz/results  { archetype, scores, answers, decaf: false }
-                ← { id: sessionId }   (saved to quiz_session with real FK)
+4. if signed in → POST /api/quiz/results  { archetype, scores, answers, decaf: false, experimental: false }
+                ← { id: sessionId, recommendation }
+                   (saved to quiz_session; experimental stored in context_data JSONB)
 ```
 
 Question images are still managed in the frontend (keyed by `q_number`) since images aren't stored in the DB.
