@@ -587,6 +587,12 @@ Migration is idempotent: a DO block detects the old `sweetness_min` column and d
 **Cause**: `cupping_sessions.brew_method` was typed as `brew_method_enum`. The `lookup_value` table for `brew_method` includes values like `cupping`, `pour-over`, `french-press`, `aeropress` — none of which existed in the enum. Additionally, an empty-string selection slipped past the `?? 'filter'` fallback (because `'' ?? 'filter'` = `''`, not `'filter'`).  
 **Fix**: Migrated the column to `TEXT` using an idempotent `DO` block in `schema.sql` that checks `information_schema.columns` for the old enum type before running `ALTER TABLE cupping_sessions ALTER COLUMN brew_method TYPE TEXT`. Also changed the backend fallback from `brew_method ?? null` to `brew_method || null` so empty string correctly maps to `null`. `brew_method_enum` is still defined (for any future use) but no longer applied to the column.
 
+### 27. Tie-break was a static priority list, not spec-compliant
+**Problem**: `POST /api/quiz/score` resolved ties with a hardcoded order (Balanced & Sweet > Chocolate & Nutty > Fruity) regardless of the user's actual answers. This meant two users with identical scores but different answers would always get the same archetype — wrong by design.  
+**Fix**: Replaced with a veto cascade: Q5 → Q4 → Q2 → Q1. For each question in that order, if the user's answer pointed to one of the tied archetypes, that archetype wins. Q3 is intentionally excluded (contributes to raw score only). Fallback: Balanced & Sweet. A second DB query fetches the `q_number → archetype` mapping from `answer_archetype_score` only when a tie is detected — no extra cost on the happy path.
+
+Also fixed: Q3-D ("I'm not sure. I don't usually drink it black.") was previously neutral (no row in `answer_archetype_score`). Now correctly awards +1 to Chocolate & Nutty per the scoring spec. Added to the schema.sql seed (idempotent — `ON CONFLICT DO NOTHING`).
+
 ### 11. Password reset emails going to spam
 **Cause**: Firebase sends from `noreply@axis-and-bloom-prod.firebaseapp.com` — unknown domain, no SPF/DKIM for axisandbloomcoffee.com  
 **Fix**: Replaced Firebase's `sendPasswordResetEmail()` with a backend route (`POST /api/auth/reset-password`) that uses `admin.auth().generatePasswordResetLink()` + Resend SDK to send from `noreply@axisandbloomcoffee.com` with proper DKIM/SPF. Added DNS records in Namecheap.
@@ -692,7 +698,7 @@ archetype total = SUM( question.weight × answer.weight × answer_archetype_scor
 |---|---|---|
 | Q1 — Identity | 1 | 1 pt |
 | Q2 — Food instinct | 2 | 2 pts |
-| Q3 — Black coffee reaction | 1 (option D = no row) | 1 pt |
+| Q3 — Black coffee reaction | 1 (option D → +1 Chocolate & Nutty) | 1 pt |
 | Q4 — Disappointment | 2 | 2 pts |
 | Q5 — Bitterness tolerance | 3 | 3 pts (strongest signal) |
 
@@ -703,8 +709,23 @@ archetype total = SUM( question.weight × answer.weight × answer_archetype_scor
 - A specific answer is an unusually strong signal → `UPDATE answer SET weight = 1.5 WHERE answer_text = '...'`
 - An answer should also hurt a competing archetype → `INSERT INTO answer_archetype_score (..., archetype_id, score) VALUES (..., <fruity_id>, -2)`
 
-**Tie-break** (rare with weighted scoring): Balanced & Sweet > Chocolate & Nutty > Fruity  
-**All scoring runs on the backend (Lambda)** — the frontend has zero scoring logic.
+**Tie-break — veto cascade** (only fires when two or more archetypes share the top score):
+
+```
+Priority: Q5 → Q4 → Q2 → Q1   (Q3 excluded — contributes to score but not tie-breaking)
+
+For each question in that order:
+  if the user's answer pointed to one of the tied archetypes → that archetype wins
+  else → continue to next question
+
+Fallback (cascade exhausted without resolution): Balanced & Sweet
+```
+
+The cascade uses the user's actual submitted answers (looked up from `answer_archetype_score`) — not a static priority list. This means the same two-way tie can resolve differently depending on which answers the user gave.
+
+The response also includes a `tied` array when a tie occurred, useful for debugging.
+
+**All scoring runs on the backend (Cloud Run)** — the frontend has zero scoring logic.
 
 ### Full flow
 
@@ -1044,7 +1065,6 @@ The archetype and confidence dropdowns on the Coffees page are **not** in `looku
 
 ### Quiz / scoring
 1. **Populate cross-archetype negative scores** — current `answer_archetype_score` rows only award one positive score per answer. Add negative rows for competing archetypes (e.g. Q5 answer A → Chocolate +3, Balanced −1, Fruity −2) to make the matrix fully competitive. Run via Cloud SQL Studio — no code deploy needed.
-2. **Move scoring to Lambda** (optional) — `POST /api/quiz/score` handles scoring on Cloud Run today; migrate to a Lambda/Cloud Function if you want scoring isolated from the main API. Low priority.
 
 ### Cupping tool
 3. **Brew parameters UI** — the `brew_params` table exists (dose, water, yield, ratio, temp, grind, extraction time, pressure, steep time, device) but has no entry form. Could be added to the Score Entry page as a collapsible "Brew Params" section.
