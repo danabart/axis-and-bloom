@@ -312,6 +312,9 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- Add experimental gate flag to answer (idempotent)
+ALTER TABLE answer ADD COLUMN IF NOT EXISTS is_experimental_gate BOOLEAN DEFAULT FALSE;
+
 -- Per-answer archetype scoring (normalised, multi-archetype support)
 -- archetype_id = NULL means a neutral answer (no points awarded to any archetype)
 -- UNIQUE (answer_id, archetype_id) prevents duplicate rows per deploy
@@ -935,6 +938,137 @@ BEGIN
     ON CONFLICT (answer_id, archetype_id) DO NOTHING;
   END IF;
 END $scoring$;
+
+-- ─────────────────────────────────────────────
+-- QUIZ V3 — "Perfect Cup" edition
+-- Changes from V2:
+--   Q2: new question + new answer texts (Perfect cup theme)
+--   Q3-C: experimental gate flag → scoring returns experimental:true
+--   Q3-D: splits 0.5 to CN + 0.5 to BS (was neutral)
+--   Q4: new answer texts
+--   Q5 B+C: new answer texts
+--   V2 deactivated, V3 activated
+-- ─────────────────────────────────────────────
+DO $v3$
+DECLARE
+  v_quiz_id  UUID;
+  v_q1_id    UUID;
+  v_q2_id    UUID;
+  v_q3_id    UUID;
+  v_q4_id    UUID;
+  v_q5_id    UUID;
+  v_choc_id  UUID;
+  v_bal_id   UUID;
+  v_fruit_id UUID;
+BEGIN
+  IF EXISTS (SELECT 1 FROM quiz WHERE version = 'v3') THEN RETURN; END IF;
+
+  SELECT id INTO v_choc_id  FROM archetype WHERE name = 'Chocolate & Nutty';
+  SELECT id INTO v_bal_id   FROM archetype WHERE name = 'Balanced & Sweet';
+  SELECT id INTO v_fruit_id FROM archetype WHERE name = 'Fruity';
+
+  -- Deactivate V2 (and any other active quiz)
+  UPDATE quiz SET is_active = FALSE;
+
+  -- Create V3
+  INSERT INTO quiz (version, description, is_active)
+    VALUES ('v3', 'Axis & Bloom Flavor Finder — V3 with experimental gate', TRUE)
+    RETURNING id INTO v_quiz_id;
+
+  -- Q1 — Identity (same text as V2, same answers)
+  INSERT INTO question (quiz_id, q_number, q_text, weight)
+    VALUES (v_quiz_id, 1, 'How would you describe your relationship with coffee?', 1)
+    RETURNING id INTO v_q1_id;
+  INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
+    (v_q1_id, 'It''s a daily ritual. I''m particular about it.',                     v_choc_id),
+    (v_q1_id, 'It''s a reliable habit. I just like having it.',                      v_bal_id),
+    (v_q1_id, 'It''s something I''m still discovering. I''m curious about it.',      v_fruit_id);
+
+  -- Q2 — Perfect cup (NEW question + NEW answer texts)
+  INSERT INTO question (quiz_id, q_number, q_text, weight)
+    VALUES (v_quiz_id, 2, 'Think about a coffee that really worked for you. What made it perfect?', 2)
+    RETURNING id INTO v_q2_id;
+  INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
+    (v_q2_id, 'It was strong and satisfying — I felt it.',                                          v_choc_id),
+    (v_q2_id, 'It was smooth and easy the whole way through — nothing got in the way.',             v_bal_id),
+    (v_q2_id, 'It felt alive — bright and changing. Every sip was a little different.',             v_fruit_id);
+
+  -- Q3 — Black coffee (same A/B/C text; C gets experimental gate; D splits 0.5+0.5)
+  INSERT INTO question (quiz_id, q_number, q_text, weight)
+    VALUES (v_quiz_id, 3, 'You try a new coffee black. What''s your first reaction?', 1)
+    RETURNING id INTO v_q3_id;
+  INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
+    (v_q3_id, 'It feels complete. I''d drink it as is, or add milk to make it even richer.',  v_choc_id),
+    (v_q3_id, 'It''s fine, easy to drink. I might add something to smooth it out.',           v_bal_id),
+    (v_q3_id, 'Interesting… what flavors am I getting here?',                                  v_fruit_id),
+    (v_q3_id, 'I''m not sure. I don''t usually drink it black.',                               NULL);
+
+  -- Mark Q3-C as the experimental gate
+  UPDATE answer
+    SET is_experimental_gate = TRUE
+    WHERE question_id = v_q3_id
+      AND answer_text = 'Interesting… what flavors am I getting here?';
+
+  -- Q4 — Disappointment (NEW answer texts)
+  INSERT INTO question (quiz_id, q_number, q_text, weight)
+    VALUES (v_quiz_id, 4, 'Which coffee would disappoint you the most?', 2)
+    RETURNING id INTO v_q4_id;
+  INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
+    (v_q4_id, 'It has no bitterness or intensity.',    v_choc_id),
+    (v_q4_id, 'It''s too bitter or too intense.',      v_bal_id),
+    (v_q4_id, 'Every sip tastes exactly the same.',    v_fruit_id);
+
+  -- Q5 — Bitterness (A same, B + C new texts)
+  INSERT INTO question (quiz_id, q_number, q_text, weight)
+    VALUES (v_quiz_id, 5, 'You''re handed an espresso — straight, no milk, no sugar. How does it land?', 3)
+    RETURNING id INTO v_q5_id;
+  INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
+    (v_q5_id, 'I don''t mind. Actually I kind of like it. It tastes serious.',           v_choc_id),
+    (v_q5_id, 'I''d rather have something gentler and smoother.',                        v_bal_id),
+    (v_q5_id, 'It feels burnt to me. I''d rather have something fresher or more alive.', v_fruit_id);
+
+END $v3$;
+
+-- Seed answer_archetype_score for V3 (idempotent — ON CONFLICT DO NOTHING)
+-- Q3-D splits: 0.5 to Chocolate & Nutty + 0.5 to Balanced & Sweet
+DO $v3_scoring$
+DECLARE
+  v_quiz_id UUID;
+BEGIN
+  SELECT id INTO v_quiz_id FROM quiz WHERE version = 'v3';
+  IF v_quiz_id IS NULL THEN RETURN; END IF;
+
+  INSERT INTO answer_archetype_score (answer_id, question_id, archetype_id, score)
+  SELECT a.id, q.id, ar.id, data.score
+  FROM (VALUES
+    -- Q1 (weight 1)
+    (1, 'It''s a daily ritual. I''m particular about it.',                              'Chocolate & Nutty', 1.0),
+    (1, 'It''s a reliable habit. I just like having it.',                               'Balanced & Sweet',  1.0),
+    (1, 'It''s something I''m still discovering. I''m curious about it.',               'Fruity',            1.0),
+    -- Q2 (weight 2)
+    (2, 'It was strong and satisfying — I felt it.',                                    'Chocolate & Nutty', 2.0),
+    (2, 'It was smooth and easy the whole way through — nothing got in the way.',       'Balanced & Sweet',  2.0),
+    (2, 'It felt alive — bright and changing. Every sip was a little different.',       'Fruity',            2.0),
+    -- Q3 (weight 1; D splits 0.5 CN + 0.5 BS — two rows for the same answer)
+    (3, 'It feels complete. I''d drink it as is, or add milk to make it even richer.',  'Chocolate & Nutty', 1.0),
+    (3, 'It''s fine, easy to drink. I might add something to smooth it out.',           'Balanced & Sweet',  1.0),
+    (3, 'Interesting… what flavors am I getting here?',                                  'Fruity',            1.0),
+    (3, 'I''m not sure. I don''t usually drink it black.',                              'Chocolate & Nutty', 0.5),
+    (3, 'I''m not sure. I don''t usually drink it black.',                              'Balanced & Sweet',  0.5),
+    -- Q4 (weight 2)
+    (4, 'It has no bitterness or intensity.',                                            'Chocolate & Nutty', 2.0),
+    (4, 'It''s too bitter or too intense.',                                              'Balanced & Sweet',  2.0),
+    (4, 'Every sip tastes exactly the same.',                                            'Fruity',            2.0),
+    -- Q5 (weight 3)
+    (5, 'I don''t mind. Actually I kind of like it. It tastes serious.',                'Chocolate & Nutty', 3.0),
+    (5, 'I''d rather have something gentler and smoother.',                              'Balanced & Sweet',  3.0),
+    (5, 'It feels burnt to me. I''d rather have something fresher or more alive.',      'Fruity',            3.0)
+  ) AS data(q_number, answer_text, archetype_name, score)
+  JOIN question  q  ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
+  JOIN answer    a  ON a.question_id = q.id  AND a.answer_text = data.answer_text
+  JOIN archetype ar ON ar.name = data.archetype_name
+  ON CONFLICT (answer_id, archetype_id) DO NOTHING;
+END $v3_scoring$;
 
 -- SCA Coffee Taster's Flavor Wheel — seed cupping_note (skips if already populated)
 DO $sca$

@@ -141,11 +141,21 @@ router.post('/score', async (req, res) => {
       [winnerName]
     );
 
+    // 4. Check experimental gate — Q3-C in V3 flags the user as open to exploration.
+    //    When true, the recommendation engine should surface a discovery coffee
+    //    alongside the primary archetype recommendation.
+    const expResult = await db.query(
+      `SELECT 1 FROM answer WHERE id = ANY($1::uuid[]) AND is_experimental_gate = TRUE LIMIT 1`,
+      [answerIds]
+    );
+    const experimental = expResult.rows.length > 0;
+
     res.json({
       archetype: winnerName,
       archetypeId: archetypeResult.rows[0]?.id ?? null,
       scores,
-      tied: tied.length > 1 ? tied : undefined, // include for debugging if tie occurred
+      experimental,
+      tied: tied.length > 1 ? tied : undefined,
     });
   } catch (err) {
     console.error('[quiz/score]', err);
@@ -156,7 +166,7 @@ router.post('/score', async (req, res) => {
 // ─── POST /api/quiz/results ──────────────────────────────────────────────────
 // Saves a completed quiz session, linking the real archetype FK from the DB.
 router.post('/results', requireAuth, async (req: AuthRequest, res) => {
-  const { archetype, scores, answers, decaf } = req.body;
+  const { archetype, scores, answers, decaf, experimental } = req.body;
   if (!archetype || !scores || !answers) {
     res.status(400).json({ error: 'archetype, scores, and answers required' });
     return;
@@ -185,7 +195,7 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
       `INSERT INTO quiz_session (user_id, resulting_archetype_id, context_data)
        VALUES ($1, $2, $3)
        RETURNING id`,
-      [profileId, archetypeId, JSON.stringify({ archetype, scores, answers, decaf: decaf ?? false })]
+      [profileId, archetypeId, JSON.stringify({ archetype, scores, answers, decaf: decaf ?? false, experimental: experimental ?? false })]
     );
 
     // Get AI recommendation

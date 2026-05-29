@@ -1,0 +1,33 @@
+Coffee Quiz — Scoring Table,,,,,,,
+Maximum possible score per archetype: 9 pts  |  Veto cascade (on tie): Q5 ? Q4 ? Q2 ? Q1  |  Fallback: Balanced & Sweet  |  Experimental gate: Q3 answer C,,,,,,,
+,,,,,,,
+Question,Q Number,Weight,Answer,Answer Text,Archetype,Score,Points per Archetype
+Identity,1,1,A,It's a daily ritual. I'm particular about it.,Chocolate & Nutty,1,+1 CN  |  0 BS  |  0 F
+Identity,1,1,B,It's a reliable habit. I just like having it.,Balanced & Sweet,1,0 CN  |  +1 BS  |  0 F
+Identity,1,1,C,It's something I'm still discovering. I'm curious about it.,Fruity,1,0 CN  |  0 BS  |  +1 F
+Perfect cup,2,2,A,It was strong and satisfying — I felt it,Chocolate & Nutty,2,+2 CN  |  0 BS  |  0 F
+Perfect cup,2,2,B,It was smooth and easy the whole way through — nothing got in the way,Balanced & Sweet,2,0 CN  |  +2 BS  |  0 F
+Perfect cup,2,2,C,It felt alive — bright and changing. Every sip was a little different.,Fruity,2,0 CN  |  0 BS  |  +2 F
+Black coffee,3,1,A,"It feels complete. I'd drink it as is, or add milk to make it even richer.",Chocolate & Nutty,1,+1 CN  |  0 BS  |  0 F
+Black coffee,3,1,B,"It's fine, easy to drink. I might add something to smooth it out.",Balanced & Sweet,1,0 CN  |  +1 BS  |  0 F
+Black coffee,3,1,C,Interesting… what flavors am I getting here? ? EXPERIMENTAL GATE,Fruity,1,0 CN  |  0 BS  |  +1 F
+Black coffee,3,1,D,I'm not sure. I don't usually drink it black.,CN + BS,0.5,+0.5 CN  |  +0.5 BS  |  0 F
+Disappointment,4,2,A,It has no bitterness or intensity,Chocolate & Nutty,2,+2 CN  |  0 BS  |  0 F
+Disappointment,4,2,B,It's too bitter or too intense,Balanced & Sweet,2,0 CN  |  +2 BS  |  0 F
+Disappointment,4,2,C,Every sip tastes exactly the same,Fruity,2,0 CN  |  0 BS  |  +2 F
+Bitterness,5,3,A,I don't mind. Actually I kind of like it. It tastes serious.,Chocolate & Nutty,3,+3 CN  |  0 BS  |  0 F
+Bitterness,5,3,B,I'd rather have something gentler and smoother.,Balanced & Sweet,3,0 CN  |  +3 BS  |  0 F
+Bitterness,5,3,C,It feels burnt to me. I'd rather have something fresher or more alive.,Fruity,3,0 CN  |  0 BS  |  +3 F
+,,,,,,,
+Maximum Score Summary,,,,,,,
+Question,Weight,Max Chocolate & Nutty,Max Balanced & Sweet,Max Fruity,,,
+Q1 — Identity,1,1,1,1,,,
+Q2 — Perfect cup,2,2,2,2,,,
+Q3 — Black coffee,1,1,1,1,,,
+Q4 — Disappointment,2,2,2,2,,,
+Q5 — Bitterness,3,3,3,3,,,
+Total,9,9,9,9,,,
+,,,,,,,
+,,,,,,,
+Experimental Gate,,,,,,,
+"Q3 answer C flags the person as open to exploration. Output: experimental: true. Recommendation engine should suggest a discovery coffee alongside the primary archetype recommendation, regardless of final archetype classification.",,,,,,,
