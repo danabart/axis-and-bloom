@@ -518,6 +518,7 @@ CREATE TABLE IF NOT EXISTS cupping_sessions (
 -- Migrate brew_method column from enum to TEXT on existing DBs (idempotent)
 DO $$
 BEGIN
+  -- Step 1: convert enum → TEXT if not done yet
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_name = 'cupping_sessions'
@@ -525,6 +526,15 @@ BEGIN
       AND udt_name = 'brew_method_enum'
   ) THEN
     ALTER TABLE cupping_sessions ALTER COLUMN brew_method TYPE TEXT USING brew_method::TEXT;
+  END IF;
+
+  -- Step 2: drop the stranded brew_method_new column from a previous failed migration
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'cupping_sessions'
+      AND column_name = 'brew_method_new'
+  ) THEN
+    ALTER TABLE cupping_sessions DROP COLUMN brew_method_new;
   END IF;
 END $$;
 
