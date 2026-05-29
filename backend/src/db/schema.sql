@@ -515,20 +515,22 @@ CREATE TABLE IF NOT EXISTS cupping_sessions (
   created_at    TIMESTAMPTZ DEFAULT now()
 );
 
--- Migrate brew_method column from enum to TEXT on existing DBs (idempotent)
+-- Migrate brew_method column from enum to TEXT on existing DBs (idempotent).
+-- Must drop v_cupping_scores_readable first — it references brew_method and blocks ALTER TYPE.
 DO $$
 BEGIN
-  -- Step 1: convert enum → TEXT if not done yet
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_name = 'cupping_sessions'
       AND column_name = 'brew_method'
       AND udt_name = 'brew_method_enum'
   ) THEN
+    -- Drop the view that blocks the type change, then convert, then drop stranded column.
+    DROP VIEW IF EXISTS v_cupping_scores_readable;
     ALTER TABLE cupping_sessions ALTER COLUMN brew_method TYPE TEXT USING brew_method::TEXT;
   END IF;
 
-  -- Step 2: drop the stranded brew_method_new column from a previous failed migration
+  -- Drop the stranded brew_method_new column from a previous failed migration attempt.
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_name = 'cupping_sessions'
@@ -1214,6 +1216,44 @@ CREATE INDEX IF NOT EXISTS idx_answer_arch_score_archetype  ON answer_archetype_
 -- ─────────────────────────────────────────────
 -- VIEWS
 -- ─────────────────────────────────────────────
+
+-- Readable cupping scores — one row per score × dimension, with session + coffee context.
+-- brew_method comes from cupping_sessions (TEXT after migration).
+DROP VIEW IF EXISTS v_cupping_scores_readable;
+CREATE VIEW v_cupping_scores_readable AS
+  SELECT
+    cs_sess.session_date,
+    cs_sess.brew_method,
+    cs_sess.location,
+    c.name               AS coffee,
+    c.roaster,
+    c.origin,
+    c.blend_or_single,
+    c.roast_level,
+    cs.taster_name,
+    cs.is_merged,
+    d.name               AS dimension,
+    d.is_numeric,
+    d.display_order      AS dimension_order,
+    csv.value_min,
+    csv.value_max,
+    CASE
+      WHEN d.is_numeric AND csv.value_min IS NOT NULL AND csv.value_max IS NOT NULL
+      THEN ROUND((csv.value_min + csv.value_max) / 2.0, 1)
+      ELSE NULL
+    END                  AS value_midpoint,
+    csv.notes,
+    sc.display_order     AS coffee_order,
+    aa.archetype,
+    aa.confidence        AS archetype_confidence
+  FROM cupping_score_values csv
+  JOIN cupping_scores        cs      ON cs.id      = csv.cupping_score_id
+  JOIN session_coffees        sc      ON sc.id      = cs.session_coffee_id
+  JOIN cupping_sessions       cs_sess ON cs_sess.id = sc.session_id
+  JOIN coffees                c       ON c.id       = sc.coffee_id
+  JOIN dimensions             d       ON d.id       = csv.dimension_id
+  LEFT JOIN archetype_assignments aa  ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
+  ORDER BY cs_sess.session_date, sc.display_order, cs.taster_name, d.display_order;
 
 -- Collaborative flavor wheel — all descriptor observations per coffee, with source label.
 -- Sources: 'internal' (cupping sessions), 'roastery' (bag notes), 'client' (post-delivery feedback).
