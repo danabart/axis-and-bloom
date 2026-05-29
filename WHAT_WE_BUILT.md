@@ -358,6 +358,8 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | GET | `/api/admin/scores/session-coffee/:scId` | Admin | Existing scores + dimension values + descriptors for a session_coffee |
 | POST | `/api/admin/scores` | Admin | Upsert a full cupping score (header + dimension values + descriptors) in one call |
 | DELETE | `/api/admin/scores/:scoreId` | Admin | Delete a cupping score and all its dimension values + descriptors (CASCADE) |
+| POST | `/api/admin/grant-admin` | Admin | Grant admin role to a user by email — body: `{ "email": "..." }` |
+| DELETE | `/api/admin/revoke-admin` | Admin | Revoke admin role (sets back to customer) — body: `{ "email": "..." }` |
 
 ---
 
@@ -565,6 +567,21 @@ Migration is idempotent: a DO block detects the old `sweetness_min` column and d
 **Problem**: Quiz questions and answers were hardcoded in `FlavorQuiz.tsx`. Changing a question required a code deploy.  
 **Fix**: Added idempotent seed data to `schema.sql` (archetypes + quiz v2 + 4 questions + 13 answers). Rewrote `quiz.ts` with a `GET /api/quiz/questions` endpoint that serves the active quiz from the DB. Updated `FlavorQuiz.tsx` to fetch questions from the API on mount, with loading and error states. Scoring now uses `archetype_name` strings from the DB response. Any future question changes only require a DB edit, not a code deploy.
 
+### 24. Roaster contact columns missing from production DB
+**Error**: `GET /api/admin/roasters` returned 500 "Failed to fetch roasters" — the Roasteries admin page was completely blank.  
+**Cause**: A previous backend deploy added `address`, `email`, `phone`, `contact_person`, `website` to the `SELECT` query and the `schema.sql` migration, but the backend crashed at startup (due to issue #23's `USING` clause bug) before those `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements could run. Cloud Run fell back to the old revision. The new revision's code selected columns that didn't exist in the DB yet.  
+**Fix**: Ran the five `ALTER TABLE roaster ADD COLUMN IF NOT EXISTS ...` statements manually in Cloud SQL Studio. Also fixed in `schema.sql` so future deploys add the columns on startup.
+
+### 25. Manual frontend build used wrong Firebase credentials
+**Error**: After a manual `npm run build` + Firebase deploy, all users got `auth/api-key-not-valid` on the login page.  
+**Cause**: The build command was run with Firebase config values from a previous context summary that contained stale/incorrect project credentials (wrong `MESSAGING_SENDER_ID` and `APP_ID`). Vite bakes env vars into the JS bundle at build time, so the wrong API key was shipped in the deployed assets.  
+**Fix**: Rebuilt using the correct credentials from `frontend/.env` (which has the real Firebase web app config) with only `VITE_API_URL` swapped to the production Cloud Run URL. Rule: for manual deploys, always source Firebase vars from `.env`; the CI/CD pipeline reads the correct values from GitHub secrets.
+
+### 26. `ALTER TABLE` blocked by backend connection pool during DB restart
+**Error**: `ALTER TABLE cupping_sessions ALTER COLUMN brew_method TYPE TEXT USING brew_method::TEXT` failed with "another role is using the table" even after stopping and starting the Cloud SQL instance.  
+**Cause**: The instance stop/start triggered a GCP maintenance update, which extended the restart to ~15 minutes. During this time Cloud SQL Studio showed "There was an error loading your databases" even after the instance showed green — the DB wasn't fully accepting connections yet.  
+**Fix**: Waited for the instance to fully come up (maintenance update completed), then ran the `ALTER TABLE` successfully in Cloud SQL Studio.
+
 ### 23. `brew_method_enum` caused session creation to silently fail
 **Error**: `POST /api/admin/sessions` returned 500 "Failed to create session" for any brew method other than `filter`, `espresso`, `cold_brew`, or `other`.  
 **Cause**: `cupping_sessions.brew_method` was typed as `brew_method_enum`. The `lookup_value` table for `brew_method` includes values like `cupping`, `pour-over`, `french-press`, `aeropress` — none of which existed in the enum. Additionally, an empty-string selection slipped past the `?? 'filter'` fallback (because `'' ?? 'filter'` = `''`, not `'filter'`).  
@@ -610,7 +627,7 @@ This keeps Firebase's secure token generation while giving us full control over 
 
 ---
 
-## Current State (as of 2026-05-27)
+## Current State (as of 2026-05-28)
 
 | Component | Status |
 |---|---|
@@ -625,7 +642,8 @@ This keeps Firebase's secure token generation while giving us full control over 
 | Claude AI chat | ✅ Wired up, API key in Secret Manager |
 | Shopify | ⚠️ Stubbed — waiting for roastery account |
 | Cupping tool schema | ✅ 11 tables + 3 enums + 12 seeded dimensions + 84 SCA flavor wheel descriptors + collaborative flavor wheel view |
-| Admin portal | ✅ 6 pages: Dashboard, Coffees (+ archetype assignment), Sessions (+ coffee linking), Score Entry (read-only + edit), Flavor Wheel (+ stats), Roasteries (+ edit + contact fields) |
+| Admin portal | ✅ 6 pages: Dashboard, Coffees (roaster autocomplete dropdown), Sessions (roastery dropdown), Score Entry (read-only + edit), Flavor Wheel (+ stats), Roasteries (inline edit + all contact fields) |
+| Admin user management | ✅ `grant_admin()` / `revoke_admin()` / `list_admins()` stored DB functions + matching API endpoints |
 | Lookup values | ✅ `lookup_value` table — 20 values across 4 categories; single `GET /api/admin/lookups` call populates all admin dropdowns |
 | CI/CD | ✅ Push to main deploys everything |
 
@@ -904,6 +922,18 @@ ORDER BY mentions DESC;
 SELECT * FROM v_quiz_scoring_matrix;
 ```
 
+### Admin user management
+```sql
+-- Grant admin
+SELECT grant_admin('user@example.com');
+
+-- Revoke admin (back to customer — user is not deleted)
+SELECT revoke_admin('user@example.com');
+
+-- List all admins
+SELECT * FROM list_admins();
+```
+
 ### Check quiz scoring table directly
 ```sql
 SELECT q.q_number, a.answer_text, ar.name AS archetype, aas.score
@@ -939,21 +969,34 @@ The admin portal lives at `/admin/*` within the same site and deployment. It use
 - `AdminRoute` component redirects non-admins to `/`
 - The "Admin" link in the public nav is hidden unless `isAdmin === true`
 
-### To grant admin access to a user
+### To grant/revoke admin access
+
+Three stored PostgreSQL functions are created automatically at backend startup (idempotent `CREATE OR REPLACE FUNCTION`):
+
 ```sql
-UPDATE user_profile
-SET user_type_id = (SELECT id FROM user_type WHERE name = 'admin')
-WHERE firebase_uid = '<firebase-uid>';
+-- Grant admin to any user (they must have logged in at least once)
+SELECT grant_admin('user@example.com');
+
+-- Revoke admin (sets them back to 'customer' — user stays in system)
+SELECT revoke_admin('user@example.com');
+
+-- List all current admins
+SELECT * FROM list_admins();
 ```
-Firebase UID is visible in Firebase Console → Authentication → Users.
+
+The same operations are also available as API endpoints (requires an existing admin token):
+- `POST /api/admin/grant-admin` — body: `{ "email": "..." }`
+- `DELETE /api/admin/revoke-admin` — body: `{ "email": "..." }`
+
+`revoke_admin` only changes the user type — it does **not** delete the user or any of their data.
 
 ### Admin pages
 
 | Route | Page | What it shows |
 |---|---|---|
 | `/admin` | Dashboard | 6 stat cards: coffees, sessions, internal/roastery/client descriptors, SCA entries |
-| `/admin/coffees` | Coffees | Coffee catalogue table + "Add Coffee" form + inline archetype assignment per row (dashed "+ Assign archetype" button, visible without hover) |
-| `/admin/sessions` | Cupping Sessions | Session list + "New Session" form (with coffee pre-selection) + expandable coffee panel (link/unlink coffees); row auto-expands after creation; "Score Entry →" shortcut in header |
+| `/admin/coffees` | Coffees | Coffee catalogue table + "Add Coffee" form + inline archetype assignment per row (dashed "+ Assign archetype" button, visible without hover); Roaster field uses `<input list>` + `<datalist>` autocomplete from active roasters in the DB — still accepts free text for roasters not in the system |
+| `/admin/sessions` | Cupping Sessions | Session list + "New Session" form (with coffee pre-selection) + expandable coffee panel (link/unlink coffees); row auto-expands after creation; "Score Entry →" shortcut in header; "Location" field renamed to "Roastery" — renders as a `<select>` dropdown populated from active roasters in the DB |
 | `/admin/cupping` | Score Entry | Pick session + coffee → read-only score card (view mode) with "✏️ Edit" button; edit mode shows 12 dimensions + SCA descriptor picker + save; new coffee goes straight to edit mode; "New Session" link in header |
 | `/admin/flavor-wheel` | Flavor Wheel | Summary stats cards (total mentions, unique descriptors, top 3, per-source counts) + per-coffee descriptor table grouped by source (Internal · Roastery · Client) |
 | `/admin/roasters` | Roasteries | Roastery card list + "Add Roastery" form + active/inactive toggle + "✏️ Edit" inline form per card; fields: name, contact person, email, phone, website, address, fulfillment hours, API endpoint, notes |
