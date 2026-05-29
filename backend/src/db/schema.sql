@@ -915,10 +915,11 @@ BEGIN
       (2, 'Something rich and comforting — dark chocolate, roasted nuts, a warm brownie.',            'Chocolate & Nutty', 2),
       (2, 'Something soft and sweet — a ripe peach, a vanilla biscuit, caramel.',                    'Balanced & Sweet',  2),
       (2, 'Something fresh and lively — a green apple, fresh berries, citrus.',                      'Fruity',            2),
-      -- Q3 (1 pt each; option D = neutral → no row inserted)
+      -- Q3 (1 pt each; option D → Chocolate & Nutty per scoring spec)
       (3, 'It feels complete. I''d drink it as is, or add milk to make it even richer.',             'Chocolate & Nutty', 1),
       (3, 'It''s fine, easy to drink. I might add something to smooth it out.',                      'Balanced & Sweet',  1),
       (3, 'Interesting… what flavors am I getting here?',                                              'Fruity',            1),
+      (3, 'I''m not sure. I don''t usually drink it black.',                                         'Chocolate & Nutty', 1),
       -- Q4 (2 pts each)
       (4, 'Feels too thin or watery.',                                                                'Chocolate & Nutty', 2),
       (4, 'Feels too heavy or strong.',                                                               'Balanced & Sweet',  2),

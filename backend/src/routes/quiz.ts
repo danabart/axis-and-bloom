@@ -54,6 +54,15 @@ router.get('/questions', async (_req, res) => {
 // ─── POST /api/quiz/score ────────────────────────────────────────────────────
 // Takes an array of selected answer UUIDs, SUMs weighted scores from
 // answer_archetype_score, and returns the winning archetype + full score map.
+//
+// Tie resolution — veto cascade (only triggered when two or more archetypes
+// share the highest score):
+//   Priority: Q5 → Q4 → Q2 → Q1
+//   For each question in that order: if the user's answer pointed to one of
+//   the tied archetypes, that archetype wins. Q3 is intentionally excluded
+//   from the cascade (it contributes to the score but not tie-breaking).
+//   Fallback (cascade exhausted without resolution): Balanced & Sweet.
+//
 // No auth required.
 router.post('/score', async (req, res) => {
   const { answerIds } = req.body;
@@ -63,8 +72,8 @@ router.post('/score', async (req, res) => {
   }
 
   try {
-    // Sum weighted scores per archetype for the submitted answers.
-    // Rows with archetype_id = NULL are neutral answers — excluded by the JOIN.
+    // 1. Sum weighted scores per archetype for the submitted answers.
+    //    Answers with no archetype_score row are neutral — excluded by the JOIN.
     const result = await db.query(
       `SELECT ar.name AS archetype_name, SUM(aas.score)::numeric AS total
        FROM answer_archetype_score aas
@@ -85,17 +94,48 @@ router.post('/score', async (req, res) => {
       scores[row.archetype_name] = Number(row.total);
     }
 
-    // Highest score wins.
-    // Tie-break (unlikely with weighted scoring): Balanced & Sweet > Chocolate & Nutty > Fruity
-    const TIE_BREAK = ['Balanced & Sweet', 'Chocolate & Nutty', 'Fruity'];
-    const [winnerName] = Object.entries(scores).sort(
-      (a, b) =>
-        b[1] - a[1] ||
-        (TIE_BREAK.indexOf(a[0]) === -1 ? 99 : TIE_BREAK.indexOf(a[0])) -
-        (TIE_BREAK.indexOf(b[0]) === -1 ? 99 : TIE_BREAK.indexOf(b[0]))
-    )[0];
+    // 2. Find winner — veto cascade on tie.
+    const maxScore = Math.max(...Object.values(scores));
+    const tied = Object.keys(scores).filter(n => scores[n] === maxScore);
 
-    // Fetch the archetype UUID for the winner
+    let winnerName: string;
+
+    if (tied.length === 1) {
+      // Clear winner — no cascade needed.
+      winnerName = tied[0];
+    } else {
+      // Tie: run the veto cascade.
+      // Fetch which archetype each submitted answer points to, keyed by q_number.
+      // LEFT JOIN so neutral answers (score row missing) still appear with null archetype.
+      const cascadeRows = await db.query(
+        `SELECT q.q_number, ar.name AS archetype_name
+         FROM answer a
+         JOIN question q ON q.id = a.question_id
+         LEFT JOIN answer_archetype_score aas
+               ON aas.answer_id = a.id AND aas.score > 0
+         LEFT JOIN archetype ar ON ar.id = aas.archetype_id
+         WHERE a.id = ANY($1::uuid[])`,
+        [answerIds]
+      );
+
+      // q_number → archetype the user's answer pointed to (null if neutral)
+      const byQ: Record<number, string | null> = {};
+      for (const row of cascadeRows.rows) {
+        byQ[Number(row.q_number)] = row.archetype_name ?? null;
+      }
+
+      // Walk cascade: first tied archetype found wins; fallback = Balanced & Sweet.
+      winnerName = 'Balanced & Sweet';
+      for (const qNum of [5, 4, 2, 1]) {
+        const pointsTo = byQ[qNum];
+        if (pointsTo && tied.includes(pointsTo)) {
+          winnerName = pointsTo;
+          break;
+        }
+      }
+    }
+
+    // 3. Fetch the archetype UUID for the winner.
     const archetypeResult = await db.query(
       `SELECT id FROM archetype WHERE name = $1`,
       [winnerName]
@@ -105,6 +145,7 @@ router.post('/score', async (req, res) => {
       archetype: winnerName,
       archetypeId: archetypeResult.rows[0]?.id ?? null,
       scores,
+      tied: tied.length > 1 ? tied : undefined, // include for debugging if tie occurred
     });
   } catch (err) {
     console.error('[quiz/score]', err);
