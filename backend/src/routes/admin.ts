@@ -116,9 +116,9 @@ router.post('/sessions', async (req, res) => {
       [session_date, brew_method || null, location || null, session_notes || null]
     );
     res.status(201).json(result.rows[0]);
-  } catch (err) {
+  } catch (err: any) {
     console.error('[admin/sessions POST]', err);
-    res.status(500).json({ error: 'Failed to create session' });
+    res.status(500).json({ error: 'Failed to create session', detail: err?.message ?? String(err) });
   }
 });
 

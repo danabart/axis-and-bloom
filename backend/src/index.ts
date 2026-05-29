@@ -41,6 +41,21 @@ app.get('/health/db', async (_req, res) => {
   }
 });
 
+// Diagnostic: show actual column types for cupping_sessions in the live DB
+app.get('/health/session-cols', async (_req, res) => {
+  try {
+    const r = await db.query(`
+      SELECT column_name, data_type, udt_name, is_nullable, column_default
+      FROM information_schema.columns
+      WHERE table_name = 'cupping_sessions'
+      ORDER BY ordinal_position
+    `);
+    res.json(r.rows);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.use('/api/auth', authRouter);
 app.use('/api/quiz', quizRouter);
 app.use('/api/shop', shopRouter);
