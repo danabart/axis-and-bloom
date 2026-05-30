@@ -55,10 +55,20 @@ export default function AdminSessions() {
 
   async function getToken() { return user!.getIdToken(); }
 
+  /** Fetch helper — always bypasses browser cache */
+  async function apiFetch(url: string, options: RequestInit = {}) {
+    const token = await getToken();
+    return fetch(url, {
+      cache: 'no-store',
+      ...options,
+      headers: { Authorization: `Bearer ${token}`, ...(options.headers as Record<string, string> ?? {}) },
+    });
+  }
+
   async function load() {
     if (!user) return;
     try {
-      const res = await fetch('/api/admin/sessions', { headers: { Authorization: `Bearer ${await getToken()}` } });
+      const res = await apiFetch('/api/admin/sessions');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setSessions(await res.json());
       setError('');
@@ -70,15 +80,16 @@ export default function AdminSessions() {
   async function loadAllCoffees() {
     if (allCoffees.length > 0) return;
     try {
-      const res = await fetch('/api/admin/coffees', { headers: { Authorization: `Bearer ${await getToken()}` } });
-      setAllCoffees(await res.json());
+      const res = await apiFetch('/api/admin/coffees');
+      if (res.ok) setAllCoffees(await res.json());
     } catch { /* non-critical */ }
   }
 
   async function loadRoasters() {
     if (roasterOptions.length > 0) return;
     try {
-      const res = await fetch('/api/admin/roasters', { headers: { Authorization: `Bearer ${await getToken()}` } });
+      const res = await apiFetch('/api/admin/roasters');
+      if (!res.ok) return;
       const data = await res.json();
       if (Array.isArray(data)) setRoasterOptions(data.filter((r: { is_active: boolean }) => r.is_active));
     } catch { /* non-critical */ }
@@ -86,10 +97,9 @@ export default function AdminSessions() {
 
   async function loadSessionCoffees(sessionId: number) {
     try {
-      const res = await fetch(`/api/admin/sessions/${sessionId}/coffees`, {
-        headers: { Authorization: `Bearer ${await getToken()}` },
-      });
-      setSessionCoffees(await res.json());
+      const res = await apiFetch(`/api/admin/sessions/${sessionId}/coffees`);
+      if (res.ok) setSessionCoffees(await res.json());
+      else setSessionCoffees([]);
     } catch { setSessionCoffees([]); }
   }
 
@@ -119,11 +129,10 @@ export default function AdminSessions() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setSaveError('');
     try {
-      const token = await getToken();
       // 1. Create session
-      const res = await fetch('/api/admin/sessions', {
+      const res = await apiFetch('/api/admin/sessions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? 'Failed to create session');
@@ -131,9 +140,9 @@ export default function AdminSessions() {
 
       // 2. Link pre-selected coffees
       for (const c of pendingCoffees) {
-        await fetch(`/api/admin/sessions/${session.id}/coffees`, {
+        await apiFetch(`/api/admin/sessions/${session.id}/coffees`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ coffee_id: c.id }),
         });
       }
@@ -153,10 +162,9 @@ export default function AdminSessions() {
     if (!addingCoffeeId || !expandedId) return;
     setLinking(true);
     try {
-      const token = await getToken();
-      await fetch(`/api/admin/sessions/${expandedId}/coffees`, {
+      await apiFetch(`/api/admin/sessions/${expandedId}/coffees`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ coffee_id: Number(addingCoffeeId) }),
       });
       setAddingCoffeeId('');
@@ -168,10 +176,7 @@ export default function AdminSessions() {
   async function handleRemoveCoffee(scId: number, sessionId: number) {
     setRemoving(scId);
     try {
-      const token = await getToken();
-      await fetch(`/api/admin/sessions/${sessionId}/coffees/${scId}`, {
-        method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
-      });
+      await apiFetch(`/api/admin/sessions/${sessionId}/coffees/${scId}`, { method: 'DELETE' });
       await Promise.all([loadSessionCoffees(sessionId), load()]);
     } catch { setError('Failed to remove coffee'); }
     finally { setRemoving(null); }

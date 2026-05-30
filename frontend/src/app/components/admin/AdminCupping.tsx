@@ -61,17 +61,26 @@ export default function AdminCupping() {
 
   async function getToken() { return user!.getIdToken(); }
 
+  /** Fetch helper — always bypasses browser cache */
+  async function apiFetch(url: string, options: RequestInit = {}) {
+    const token = await getToken();
+    return fetch(url, {
+      cache: 'no-store',
+      ...options,
+      headers: { Authorization: `Bearer ${token}`, ...(options.headers as Record<string, string> ?? {}) },
+    });
+  }
+
   // ── Load reference data ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!user) return;
     setLoadError('');
     (async () => {
       try {
-        const headers = { Authorization: `Bearer ${await getToken()}` };
         const [sessRes, dimRes, notesRes] = await Promise.all([
-          fetch('/api/admin/sessions', { headers }),
-          fetch('/api/admin/dimensions', { headers }),
-          fetch('/api/admin/cupping-notes', { headers }),
+          apiFetch('/api/admin/sessions'),
+          apiFetch('/api/admin/dimensions'),
+          apiFetch('/api/admin/cupping-notes'),
         ]);
         if (!sessRes.ok)  throw new Error(`Sessions: HTTP ${sessRes.status}`);
         if (!dimRes.ok)   throw new Error(`Dimensions: HTTP ${dimRes.status}`);
@@ -91,9 +100,7 @@ export default function AdminCupping() {
     if (!sessionId || !user) return;
     (async () => {
       try {
-        const res = await fetch(`/api/admin/sessions/${sessionId}/coffees`, {
-          headers: { Authorization: `Bearer ${await getToken()}` },
-        });
+        const res = await apiFetch(`/api/admin/sessions/${sessionId}/coffees`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         setScCoffees(await res.json());
       } catch (err: unknown) {
@@ -145,9 +152,7 @@ export default function AdminCupping() {
 
   /** Fetch scores for current scId and return {scores, values, descriptors}. */
   async function fetchScores(scIdParam: string) {
-    const res = await fetch(`/api/admin/scores/session-coffee/${scIdParam}`, {
-      headers: { Authorization: `Bearer ${await getToken()}` },
-    });
+    const res = await apiFetch(`/api/admin/scores/session-coffee/${scIdParam}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json() as Promise<{ scores: ScoreHeader[]; values: ScoreValue[]; descriptors: ScoreDescriptor[] }>;
   }
@@ -181,9 +186,9 @@ export default function AdminCupping() {
     if (!scId || !tasterName.trim()) { setError('Select a coffee and enter a taster name'); return; }
     setSaving(true); setError(''); setSaveMsg('');
     try {
-      const res = await fetch('/api/admin/scores', {
+      const res = await apiFetch('/api/admin/scores', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getToken()}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           session_coffee_id: Number(scId),
           taster_name: tasterName.trim(),
