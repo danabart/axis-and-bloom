@@ -56,10 +56,15 @@ export default function AdminSessions() {
   async function getToken() { return user!.getIdToken(); }
 
   async function load() {
+    if (!user) return;
     try {
       const res = await fetch('/api/admin/sessions', { headers: { Authorization: `Bearer ${await getToken()}` } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setSessions(await res.json());
-    } catch { setError('Failed to load sessions'); }
+      setError('');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load sessions');
+    }
   }
 
   async function loadAllCoffees() {
@@ -184,10 +189,25 @@ export default function AdminSessions() {
   const availableForSession = allCoffees.filter(c => !linkedCoffeeIds.has(c.id));
   const availableForPending = allCoffees.filter(c => !pendingIds.has(c.id));
 
+  const [refreshing, setRefreshing] = useState(false);
+  async function handleRefresh() {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold text-stone-800">Cupping Sessions</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl font-semibold text-stone-800">Cupping Sessions</h1>
+          <button onClick={handleRefresh} disabled={refreshing}
+            title="Refresh from database"
+            className="text-stone-400 hover:text-stone-700 disabled:opacity-40 transition-colors text-base leading-none"
+            style={{ fontSize: '1.1rem' }}>
+            {refreshing ? '…' : '↻'}
+          </button>
+        </div>
         <div className="flex items-center gap-3">
           <Link to="/admin/cupping"
             className="px-4 py-2 rounded text-sm font-medium text-stone-600 border border-stone-200 hover:bg-stone-50">

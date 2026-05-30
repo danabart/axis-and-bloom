@@ -30,6 +30,9 @@ app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json());
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200 }));
 
+// Prevent browsers and CDNs from caching any API response
+app.use('/api', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 app.get('/health/db', async (_req, res) => {
