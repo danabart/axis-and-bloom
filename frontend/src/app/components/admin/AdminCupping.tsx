@@ -10,6 +10,9 @@ interface Dimension {
   scale_min: number; scale_max: number; is_numeric: boolean; display_order: number;
 }
 interface CuppingNote { id: string; wheel_category: string; wheel_subcategory: string | null; descriptor: string; }
+interface ScoreHeader { id: number; taster_name: string; is_merged: boolean; overall_notes: string | null; }
+interface ScoreValue { cupping_score_id: number; dimension_id: number; value_min: number | null; value_max: number | null; notes: string | null; }
+interface ScoreDescriptor { cupping_score_id: number; cupping_note_id: string; intensity: number | null; }
 
 type DimValue = { value_min?: number; value_max?: number; notes?: string };
 type DescriptorEntry = { cupping_note_id: string; intensity?: number };
@@ -25,23 +28,29 @@ export default function AdminCupping() {
   const [sessions, setSessions]         = useState<Session[]>([]);
   const [dimensions, setDimensions]     = useState<Dimension[]>([]);
   const [cuppingNotes, setCuppingNotes] = useState<CuppingNote[]>([]);
+  const [loadError, setLoadError]       = useState('');
 
   // Selection
   const [sessionId, setSessionId]       = useState('');
   const [scCoffees, setScCoffees]       = useState<SessionCoffee[]>([]);
   const [scId, setScId]                 = useState('');
 
+  // All scores for selected session_coffee
+  const [allScores, setAllScores]           = useState<ScoreHeader[]>([]);
+  const [allValues, setAllValues]           = useState<ScoreValue[]>([]);
+  const [allDescriptors, setAllDescriptors] = useState<ScoreDescriptor[]>([]);
+
   // View vs Edit mode
   const [mode, setMode]                 = useState<'view' | 'edit'>('view');
 
-  // Form
+  // Form (reflects whichever taster is active)
   const [tasterName, setTasterName]     = useState('');
   const [isMerged, setIsMerged]         = useState(false);
   const [overallNotes, setOverallNotes] = useState('');
   const [dimValues, setDimValues]       = useState<Record<number, DimValue>>({});
   const [selectedDesc, setSelectedDesc] = useState<Record<string, DescriptorEntry>>({});
 
-  // For view mode snapshot (we keep a stable copy to display read-only)
+  // The score id currently displayed / being edited
   const [existingScoreId, setExistingScoreId] = useState<number | null>(null);
 
   // UI state
@@ -55,16 +64,24 @@ export default function AdminCupping() {
   // ── Load reference data ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!user) return;
+    setLoadError('');
     (async () => {
-      const headers = { Authorization: `Bearer ${await getToken()}` };
-      const [sessRes, dimRes, notesRes] = await Promise.all([
-        fetch('/api/admin/sessions', { headers }),
-        fetch('/api/admin/dimensions', { headers }),
-        fetch('/api/admin/cupping-notes', { headers }),
-      ]);
-      setSessions(await sessRes.json());
-      setDimensions(await dimRes.json());
-      setCuppingNotes(await notesRes.json());
+      try {
+        const headers = { Authorization: `Bearer ${await getToken()}` };
+        const [sessRes, dimRes, notesRes] = await Promise.all([
+          fetch('/api/admin/sessions', { headers }),
+          fetch('/api/admin/dimensions', { headers }),
+          fetch('/api/admin/cupping-notes', { headers }),
+        ]);
+        if (!sessRes.ok)  throw new Error(`Sessions: HTTP ${sessRes.status}`);
+        if (!dimRes.ok)   throw new Error(`Dimensions: HTTP ${dimRes.status}`);
+        if (!notesRes.ok) throw new Error(`Cupping notes: HTTP ${notesRes.status}`);
+        setSessions(await sessRes.json());
+        setDimensions(await dimRes.json());
+        setCuppingNotes(await notesRes.json());
+      } catch (err: unknown) {
+        setLoadError(err instanceof Error ? err.message : 'Failed to load page data');
+      }
     })();
   }, [user]);
 
@@ -73,54 +90,89 @@ export default function AdminCupping() {
     setScId(''); setScCoffees([]);
     if (!sessionId || !user) return;
     (async () => {
-      const res = await fetch(`/api/admin/sessions/${sessionId}/coffees`, {
-        headers: { Authorization: `Bearer ${await getToken()}` },
-      });
-      setScCoffees(await res.json());
+      try {
+        const res = await fetch(`/api/admin/sessions/${sessionId}/coffees`, {
+          headers: { Authorization: `Bearer ${await getToken()}` },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        setScCoffees(await res.json());
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Failed to load coffees');
+      }
     })();
   }, [sessionId, user]);
 
-  // ── Load existing score when session_coffee changes ──────────────────────────
+  // ── Load all scores for a session_coffee, then activate first taster ─────────
   const resetForm = useCallback(() => {
     setTasterName(''); setIsMerged(false); setOverallNotes('');
     setDimValues({}); setSelectedDesc({}); setExistingScoreId(null);
   }, []);
 
+  /** Populate form state from a specific score id using already-loaded arrays. */
+  function activateTaster(
+    scoreId: number,
+    scores: ScoreHeader[],
+    values: ScoreValue[],
+    descriptors: ScoreDescriptor[],
+  ) {
+    const score = scores.find(s => s.id === scoreId);
+    if (!score) return;
+    setExistingScoreId(score.id);
+    setTasterName(score.taster_name);
+    setIsMerged(score.is_merged);
+    setOverallNotes(score.overall_notes ?? '');
+
+    const dvMap: Record<number, DimValue> = {};
+    for (const v of values.filter(v => v.cupping_score_id === score.id)) {
+      dvMap[v.dimension_id] = {
+        value_min: v.value_min ?? undefined,
+        value_max: v.value_max ?? undefined,
+        notes: v.notes ?? undefined,
+      };
+    }
+    setDimValues(dvMap);
+
+    const descMap: Record<string, DescriptorEntry> = {};
+    for (const d of descriptors.filter(d => d.cupping_score_id === score.id)) {
+      descMap[d.cupping_note_id] = {
+        cupping_note_id: d.cupping_note_id,
+        intensity: d.intensity ?? undefined,
+      };
+    }
+    setSelectedDesc(descMap);
+    setMode('view');
+  }
+
+  /** Fetch scores for current scId and return {scores, values, descriptors}. */
+  async function fetchScores(scIdParam: string) {
+    const res = await fetch(`/api/admin/scores/session-coffee/${scIdParam}`, {
+      headers: { Authorization: `Bearer ${await getToken()}` },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json() as Promise<{ scores: ScoreHeader[]; values: ScoreValue[]; descriptors: ScoreDescriptor[] }>;
+  }
+
   useEffect(() => {
     resetForm(); setSaveMsg(''); setMode('view');
+    setAllScores([]); setAllValues([]); setAllDescriptors([]);
+    setError('');
     if (!scId || !user) return;
     (async () => {
-      const res = await fetch(`/api/admin/scores/session-coffee/${scId}`, {
-        headers: { Authorization: `Bearer ${await getToken()}` },
-      });
-      const data = await res.json();
-      if (!data.scores?.length) {
-        // No existing score — go straight to edit mode for new entry
-        setMode('edit');
-        return;
+      try {
+        const data = await fetchScores(scId);
+        setAllScores(data.scores);
+        setAllValues(data.values ?? []);
+        setAllDescriptors(data.descriptors ?? []);
+
+        if (!data.scores.length) {
+          // No scores yet — go straight to edit mode for first entry
+          setMode('edit');
+        } else {
+          activateTaster(data.scores[0].id, data.scores, data.values ?? [], data.descriptors ?? []);
+        }
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Failed to load scores');
       }
-
-      // Pre-load the most recent / merged score
-      const score = data.scores[data.scores.length - 1];
-      setExistingScoreId(score.id);
-      setTasterName(score.taster_name);
-      setIsMerged(score.is_merged);
-      setOverallNotes(score.overall_notes ?? '');
-
-      const dvMap: Record<number, DimValue> = {};
-      for (const v of data.values.filter((v: { cupping_score_id: number }) => v.cupping_score_id === score.id)) {
-        dvMap[v.dimension_id] = { value_min: v.value_min, value_max: v.value_max, notes: v.notes };
-      }
-      setDimValues(dvMap);
-
-      const descMap: Record<string, DescriptorEntry> = {};
-      for (const d of data.descriptors.filter((d: { cupping_score_id: number }) => d.cupping_score_id === score.id)) {
-        descMap[d.cupping_note_id] = { cupping_note_id: d.cupping_note_id, intensity: d.intensity };
-      }
-      setSelectedDesc(descMap);
-
-      // Existing score → start in read-only view
-      setMode('view');
     })();
   }, [scId, user, resetForm]);
 
@@ -143,9 +195,15 @@ export default function AdminCupping() {
       });
       if (!res.ok) throw new Error((await res.json()).error ?? 'Unknown error');
       const saved = await res.json();
-      setExistingScoreId(saved.id);
+
+      // Reload all scores so the tab list and data stay in sync
+      const data = await fetchScores(scId);
+      setAllScores(data.scores);
+      setAllValues(data.values ?? []);
+      setAllDescriptors(data.descriptors ?? []);
+      activateTaster(saved.id, data.scores, data.values ?? [], data.descriptors ?? []);
+
       setSaveMsg('Saved ✓');
-      setMode('view');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to save');
     } finally { setSaving(false); }
@@ -279,6 +337,19 @@ export default function AdminCupping() {
         </Link>
       </div>
 
+      {/* ── Fatal load error ── */}
+      {loadError && (
+        <div className="mb-6 p-4 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm">
+          <p className="font-medium mb-1">Failed to load page data</p>
+          <p className="text-red-600">{loadError}</p>
+          <button
+            onClick={() => { setLoadError(''); window.location.reload(); }}
+            className="mt-2 text-xs underline text-red-500 hover:text-red-700">
+            Reload page
+          </button>
+        </div>
+      )}
+
       {/* ── Session + Coffee selectors ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
         <div>
@@ -292,7 +363,7 @@ export default function AdminCupping() {
               </option>
             ))}
           </select>
-          {sessions.length === 0 && (
+          {!loadError && sessions.length === 0 && (
             <p className="text-xs text-stone-400 mt-1">
               No sessions yet — <Link to="/admin/sessions" className="underline hover:text-stone-700">create one in Sessions</Link>
             </p>
@@ -319,7 +390,7 @@ export default function AdminCupping() {
       </div>
 
       {/* ── No selection state ── */}
-      {!sessionId && (
+      {!sessionId && !loadError && (
         <p className="text-stone-400 text-sm">Select a session to begin.</p>
       )}
       {sessionId && !scId && scCoffees.length > 0 && (
@@ -329,6 +400,40 @@ export default function AdminCupping() {
       {/* ── Score area ── */}
       {scId && (
         <>
+          {/* ── Taster tabs ── */}
+          {(allScores.length > 0 || mode === 'view') && (
+            <div className="flex items-center gap-2 flex-wrap mb-5 pb-4 border-b border-stone-200">
+              {allScores.map(s => (
+                <button
+                  key={s.id}
+                  onClick={() => {
+                    activateTaster(s.id, allScores, allValues, allDescriptors);
+                    setSaveMsg('');
+                  }}
+                  className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
+                    existingScoreId === s.id
+                      ? 'bg-stone-800 text-white border-stone-800'
+                      : 'border-stone-300 text-stone-600 hover:bg-stone-50'
+                  }`}
+                >
+                  {s.taster_name}
+                  {s.is_merged && <span className="ml-1 text-xs opacity-60">(merged)</span>}
+                </button>
+              ))}
+              <button
+                onClick={() => { resetForm(); setMode('edit'); setSaveMsg(''); setError(''); }}
+                className="px-3 py-1.5 text-sm rounded-full border border-dashed border-stone-300 text-stone-400 hover:text-stone-600 hover:border-stone-400 transition-colors"
+              >
+                + Add Taster
+              </button>
+            </div>
+          )}
+
+          {/* ── Inline error ── */}
+          {error && (
+            <p className="text-red-500 text-sm mb-4">{error}</p>
+          )}
+
           {/* ── View mode ── */}
           {mode === 'view' && existingScoreId != null && (
             <div className="border border-stone-200 rounded-lg p-6 bg-stone-50">
@@ -342,7 +447,7 @@ export default function AdminCupping() {
             <>
               {existingScoreId != null && (
                 <div className="flex items-center justify-between mb-4">
-                  <p className="text-sm text-stone-500">Editing existing score</p>
+                  <p className="text-sm text-stone-500">Editing existing score for <strong>{tasterName}</strong></p>
                   <button onClick={() => setMode('view')}
                     className="text-sm text-stone-400 hover:text-stone-700 underline">
                     Cancel edit
