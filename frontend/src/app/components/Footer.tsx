@@ -4,7 +4,7 @@ export default function Footer() {
       <div className="relative z-10 py-5 px-12" style={{ backgroundColor: '#f2f1ea', borderTop: '1px solid rgba(163,55,38,0.15)' }}>
         <div className="flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex flex-wrap justify-center gap-8 text-sm items-center" style={{ color: '#9a2918' }}>
-            <span className="font-semibold text-xs uppercase tracking-wider">© 2026 Axis & Bloom</span>
+            <span className="font-normal text-xs uppercase tracking-wider">© 2026 Axis & Bloom</span>
             <a href="/about" className="hover:opacity-80 transition-opacity">About</a>
             <a href="#contact" className="hover:opacity-80 transition-opacity">Contact</a>
             <a href="#privacy" className="hover:opacity-80 transition-opacity">Privacy Policy</a>

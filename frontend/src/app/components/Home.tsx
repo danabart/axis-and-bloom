@@ -32,7 +32,7 @@ export default function Home() {
               <div className="flex flex-col items-start w-full" style={{ color: '#a33726' }}>
                 <span className="block font-light leading-none w-full" style={{ fontSize: 'clamp(2.5rem, 7.5vw, 8.5rem)', letterSpacing: '0.38em' }}>COMING</span>
                 <div className="my-5 w-full" style={{ height: '1px', backgroundColor: '#a33726', opacity: 0.3 }} />
-                <span className="block font-bold leading-none" style={{ fontSize: 'clamp(6rem, 17vw, 19rem)', letterSpacing: '-0.02em' }}>SOON</span>
+                <span className="block font-normal leading-none" style={{ fontSize: 'clamp(6rem, 17vw, 19rem)', letterSpacing: '-0.02em' }}>SOON</span>
               </div>
             </motion.div>
 
@@ -59,7 +59,7 @@ export default function Home() {
           <div className="relative z-10 w-full flex overflow-hidden whitespace-nowrap py-3" style={{ backgroundColor: '#ee5974', color: '#f2f1ea' }}>
             <motion.div animate={{ x: ['0%', '-50%'] }} transition={{ repeat: Infinity, ease: 'linear', duration: 35 }} className="flex w-max">
               {[...Array(20)].map((_, i) => (
-                <div key={i} className="flex gap-8 items-center shrink-0 pr-8 text-[11px] uppercase tracking-[0.3em] font-medium">
+                <div key={i} className="flex gap-8 items-center shrink-0 pr-8 text-[11px] uppercase tracking-[0.3em] font-normal">
                   <span>THE TASTE FINDER</span>
                   <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: '#f2f1ea' }} />
                   <span>DISCOVER YOUR ARCHETYPE</span>

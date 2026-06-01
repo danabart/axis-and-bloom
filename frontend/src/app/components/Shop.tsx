@@ -92,7 +92,7 @@ export default function Shop() {
                   </div>
                 </div>
                 <div className="flex items-center gap-3 mb-3">
-                  <span className="text-xs uppercase tracking-[0.2em] font-medium" style={{ color: getArchetypeColor(coffee.archetype) }}>{coffee.archetype}</span>
+                  <span className="text-xs uppercase tracking-[0.2em] font-normal" style={{ color: getArchetypeColor(coffee.archetype) }}>{coffee.archetype}</span>
                   <FlavorBars archetype={coffee.archetype} />
                 </div>
                 <h3 className="text-2xl text-[#a33726] mb-2">{coffee.name}</h3>

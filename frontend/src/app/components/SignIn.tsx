@@ -107,7 +107,7 @@ export default function SignIn() {
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`flex-1 pb-4 text-[11px] uppercase tracking-[0.2em] font-medium transition-colors ${activeTab === tab ? 'text-[#a33726]' : 'text-[#a33726]/40 hover:text-[#a33726]/70'}`}
+                className={`flex-1 pb-4 text-[11px] uppercase tracking-[0.2em] font-normal transition-colors ${activeTab === tab ? 'text-[#a33726]' : 'text-[#a33726]/40 hover:text-[#a33726]/70'}`}
               >
                 {tab === 'create' ? 'Create Profile' : 'Sign In'}
               </button>
@@ -154,7 +154,7 @@ export default function SignIn() {
                 <button
                   type="submit"
                   disabled={isLoading || !email || !password}
-                  className={`text-[10px] uppercase tracking-[0.3em] font-medium transition-all duration-500 pb-1 border-b ${(isLoading || !email || !password) ? 'text-[#a33726] opacity-30 border-transparent cursor-not-allowed' : 'text-[#a33726] border-[#a33726]/40 hover:border-[#ee5974] hover:text-[#ee5974]'}`}
+                  className={`text-[10px] uppercase tracking-[0.3em] font-normal transition-all duration-500 pb-1 border-b ${(isLoading || !email || !password) ? 'text-[#a33726] opacity-30 border-transparent cursor-not-allowed' : 'text-[#a33726] border-[#a33726]/40 hover:border-[#ee5974] hover:text-[#ee5974]'}`}
                 >
                   {isLoading ? 'Processing...' : (activeTab === 'create' ? 'Save my taste profile' : 'Sign In')}
                 </button>
@@ -172,10 +172,10 @@ export default function SignIn() {
               <div className="mt-12 flex flex-col gap-4">
                 <div className="flex items-center gap-4 mb-4">
                   <div className="h-[1px] flex-1 bg-[#a33726]/10" />
-                  <span className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 font-medium">Or continue with</span>
+                  <span className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 font-normal">Or continue with</span>
                   <div className="h-[1px] flex-1 bg-[#a33726]/10" />
                 </div>
-                <button type="button" onClick={handleGoogle} className="w-full flex items-center justify-center gap-3 py-4 border border-[#a33726]/20 bg-white/50 hover:bg-white/80 transition-colors text-[11px] uppercase tracking-[0.1em] text-[#a33726] font-medium">
+                <button type="button" onClick={handleGoogle} className="w-full flex items-center justify-center gap-3 py-4 border border-[#a33726]/20 bg-white/50 hover:bg-white/80 transition-colors text-[11px] uppercase tracking-[0.1em] text-[#a33726] font-normal">
                   <svg viewBox="0 0 24 24" width="16" height="16" xmlns="http://www.w3.org/2000/svg">
                     <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
                     <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
@@ -184,7 +184,7 @@ export default function SignIn() {
                   </svg>
                   Google
                 </button>
-                <button type="button" onClick={handleApple} className="w-full flex items-center justify-center gap-3 py-4 border border-[#a33726]/20 bg-white/50 hover:bg-white/80 transition-colors text-[11px] uppercase tracking-[0.1em] text-[#a33726] font-medium">
+                <button type="button" onClick={handleApple} className="w-full flex items-center justify-center gap-3 py-4 border border-[#a33726]/20 bg-white/50 hover:bg-white/80 transition-colors text-[11px] uppercase tracking-[0.1em] text-[#a33726] font-normal">
                   Apple
                 </button>
               </div>

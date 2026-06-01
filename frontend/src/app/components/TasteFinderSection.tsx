@@ -57,7 +57,7 @@ export function TasteFinderSection() {
           style={{ transform: `translateX(${maskX}%)` }}
         >
           <div className="w-full md:w-1/2 h-1/2 md:h-full flex flex-col justify-center p-12 md:p-24" style={{ backgroundColor: '#f2f1ea' }}>
-            <div className="flex flex-col items-start w-full font-medium">
+            <div className="flex flex-col items-start w-full font-normal">
               <div className="mb-6">
                 <span className="inline-block text-base md:text-2xl tracking-widest uppercase px-6 py-2" style={{ color: '#ee5974', backgroundColor: '#f2f1ea' }}>
                   THE TASTE FINDER

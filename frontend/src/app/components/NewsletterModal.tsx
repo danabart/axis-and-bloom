@@ -64,13 +64,13 @@ export default function NewsletterModal() {
             <div className="w-full md:w-1/2 p-10 md:p-16 flex flex-col justify-center text-[#a33726]">
               {hasSubmitted ? (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center text-center space-y-4">
-                  <p className="text-xs uppercase tracking-[0.2em] font-medium" style={{ color: '#ee5974' }}>Welcome to the ritual</p>
+                  <p className="text-xs uppercase tracking-[0.2em] font-normal" style={{ color: '#ee5974' }}>Welcome to the ritual</p>
                   <h2 className="text-3xl md:text-4xl">Check your inbox.</h2>
                   <p className="text-[#838686] font-light mt-4">Your 10% discount code is on its way.</p>
                 </motion.div>
               ) : (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col">
-                  <p className="text-xs uppercase tracking-[0.2em] font-medium mb-4" style={{ color: '#ee5974' }}>Join the Ritual</p>
+                  <p className="text-xs uppercase tracking-[0.2em] font-normal mb-4" style={{ color: '#ee5974' }}>Join the Ritual</p>
                   <h2 className="text-4xl md:text-5xl leading-none mb-6">Take 10% off<br />your first order.</h2>
                   <p className="text-sm text-[#838686] font-light leading-relaxed mb-10">Sign up to receive 10% off your first bag, plus early access to new archetype releases.</p>
                   <form onSubmit={handleSubmit} className="flex flex-col space-y-4">

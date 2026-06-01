@@ -261,28 +261,28 @@ export default function AdminCupping() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-semibold text-stone-800">
+            <p className="text-sm font-normal text-stone-800">
               {tasterName}
               {isMerged && <span className="ml-2 px-2 py-0.5 rounded-full text-xs bg-stone-100 text-stone-500">merged</span>}
             </p>
             {overallNotes && <p className="text-sm text-stone-500 mt-1">{overallNotes}</p>}
           </div>
           <button onClick={() => setMode('edit')}
-            className="px-4 py-1.5 rounded text-sm font-medium border border-stone-300 text-stone-600 hover:bg-stone-50">
+            className="px-4 py-1.5 rounded text-sm font-normal border border-stone-300 text-stone-600 hover:bg-stone-50">
             ✏️ Edit
           </button>
         </div>
 
         {filledNumeric.length > 0 && (
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-stone-400 mb-2">Numeric Scores</p>
+            <p className="text-xs font-normal uppercase tracking-wide text-stone-400 mb-2">Numeric Scores</p>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
               {filledNumeric.map(dim => {
                 const val = dimValues[dim.id];
                 return (
                   <div key={dim.id} className="border border-stone-200 rounded-lg px-3 py-2">
                     <p className="text-xs text-stone-400 mb-0.5">{dim.name}</p>
-                    <p className="text-sm font-semibold text-stone-800">
+                    <p className="text-sm font-normal text-stone-800">
                       {val?.value_min ?? '—'} – {val?.value_max ?? '—'}
                     </p>
                     {val?.notes && <p className="text-xs text-stone-400 mt-0.5 truncate">{val.notes}</p>}
@@ -295,7 +295,7 @@ export default function AdminCupping() {
 
         {filledText.length > 0 && (
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-stone-400 mb-2">Free-Text Notes</p>
+            <p className="text-xs font-normal uppercase tracking-wide text-stone-400 mb-2">Free-Text Notes</p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {filledText.map(dim => (
                 <div key={dim.id} className="border border-stone-200 rounded-lg px-3 py-2">
@@ -309,13 +309,13 @@ export default function AdminCupping() {
 
         {descriptorList.length > 0 && (
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-stone-400 mb-2">Flavor Descriptors</p>
+            <p className="text-xs font-normal uppercase tracking-wide text-stone-400 mb-2">Flavor Descriptors</p>
             <div className="flex flex-wrap gap-2">
               {descriptorList.map(d => {
                 const note = cuppingNotes.find(n => n.id === d.cupping_note_id);
                 return (
                   <span key={d.cupping_note_id}
-                    className="px-3 py-1 rounded-full text-xs font-medium border border-stone-200 text-stone-700">
+                    className="px-3 py-1 rounded-full text-xs font-normal border border-stone-200 text-stone-700">
                     {note?.descriptor ?? d.cupping_note_id}
                     {d.intensity != null && <span className="ml-1 text-stone-400">({d.intensity})</span>}
                   </span>
@@ -335,7 +335,7 @@ export default function AdminCupping() {
   return (
     <div className="max-w-4xl">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold text-stone-800">Cupping Score Entry</h1>
+        <h1 className="text-xl font-normal text-stone-800">Cupping Score Entry</h1>
         <Link to="/admin/sessions"
           className="text-sm text-stone-400 hover:text-stone-700 underline">
           + New Session
@@ -345,7 +345,7 @@ export default function AdminCupping() {
       {/* ── Fatal load error ── */}
       {loadError && (
         <div className="mb-6 p-4 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm">
-          <p className="font-medium mb-1">Failed to load page data</p>
+          <p className="font-normal mb-1">Failed to load page data</p>
           <p className="text-red-600">{loadError}</p>
           <button
             onClick={() => { setLoadError(''); window.location.reload(); }}
@@ -479,14 +479,14 @@ export default function AdminCupping() {
 
               {/* Numeric dimensions */}
               <section className="mb-8 pb-8 border-b border-stone-100">
-                <h2 className="text-sm font-semibold text-stone-700 mb-4">Numeric Scores <span className="text-stone-400 font-normal">(0–15 scale)</span></h2>
+                <h2 className="text-sm font-normal text-stone-700 mb-4">Numeric Scores <span className="text-stone-400 font-normal">(0–15 scale)</span></h2>
                 <div className="space-y-3">
                   {numericDims.map(dim => {
                     const val = dimValues[dim.id] ?? {};
                     return (
                       <div key={dim.id} className="flex items-center gap-4">
                         <div className="w-36 shrink-0">
-                          <p className="text-sm font-medium text-stone-700">{dim.name}</p>
+                          <p className="text-sm font-normal text-stone-700">{dim.name}</p>
                           {(dim.scale_min_label || dim.scale_max_label) && (
                             <p className="text-xs text-stone-400 leading-tight">
                               {dim.scale_min_label} → {dim.scale_max_label}
@@ -518,7 +518,7 @@ export default function AdminCupping() {
 
               {/* Free-text dimensions */}
               <section className="mb-8 pb-8 border-b border-stone-100">
-                <h2 className="text-sm font-semibold text-stone-700 mb-4">Free-Text Notes</h2>
+                <h2 className="text-sm font-normal text-stone-700 mb-4">Free-Text Notes</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {textDims.map(dim => (
                     <div key={dim.id}>
@@ -536,7 +536,7 @@ export default function AdminCupping() {
               {/* SCA Descriptor picker */}
               <section className="mb-8 pb-8 border-b border-stone-100">
                 <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-sm font-semibold text-stone-700">
+                  <h2 className="text-sm font-normal text-stone-700">
                     Flavor Descriptors
                     {selectedCount > 0 && (
                       <span className="ml-2 px-2 py-0.5 rounded-full text-xs text-white font-normal" style={{ backgroundColor: '#b05642' }}>
@@ -559,7 +559,7 @@ export default function AdminCupping() {
                         <button
                           className="w-full flex items-center justify-between px-4 py-2.5 text-sm text-left hover:bg-stone-50"
                           onClick={() => toggleCategory(cat)}>
-                          <span className="font-medium text-stone-700">{cat}</span>
+                          <span className="font-normal text-stone-700">{cat}</span>
                           <span className="flex items-center gap-2">
                             {catSelected > 0 && (
                               <span className="text-xs text-white px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#b05642' }}>
@@ -577,7 +577,7 @@ export default function AdminCupping() {
                                 <div key={note.id}
                                   className={`rounded border p-2 cursor-pointer transition-colors ${isSelected ? 'border-stone-400 bg-stone-100' : 'border-stone-200 hover:border-stone-300'}`}
                                   onClick={() => toggleDescriptor(note)}>
-                                  <p className={`text-xs font-medium ${isSelected ? 'text-stone-800' : 'text-stone-600'}`}>
+                                  <p className={`text-xs font-normal ${isSelected ? 'text-stone-800' : 'text-stone-600'}`}>
                                     {note.descriptor}
                                   </p>
                                   {note.wheel_subcategory && (
@@ -616,7 +616,7 @@ export default function AdminCupping() {
 
                 <div className="flex gap-3">
                   <button onClick={handleSave} disabled={saving || !tasterName.trim()}
-                    className="px-6 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
+                    className="px-6 py-2 rounded text-sm font-normal text-white disabled:opacity-50"
                     style={{ backgroundColor: '#b05642' }}>
                     {saving ? 'Saving…' : 'Save Score'}
                   </button>

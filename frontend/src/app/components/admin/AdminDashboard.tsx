@@ -40,12 +40,12 @@ export default function AdminDashboard() {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold text-stone-800 mb-6">Dashboard</h1>
+      <h1 className="text-xl font-normal text-stone-800 mb-6">Dashboard</h1>
       {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         {CARDS.map(({ key, label }) => (
           <div key={key} className="border border-stone-200 rounded-lg p-5">
-            <p className="text-3xl font-semibold text-stone-800">
+            <p className="text-3xl font-normal text-stone-800">
               {stats ? Number(stats[key as keyof Stats]).toLocaleString() : '—'}
             </p>
             <p className="text-sm text-stone-400 mt-1">{label}</p>

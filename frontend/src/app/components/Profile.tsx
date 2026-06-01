@@ -42,7 +42,7 @@ export default function Profile() {
 
       <div className="w-full lg:w-1/2 flex flex-col p-8 md:p-16 lg:p-24 relative z-10 overflow-y-auto">
         <div className="mt-16 lg:mt-8 mb-16">
-          <h3 className="text-[10px] uppercase tracking-[0.3em] text-[#a33726]/60 mb-4 font-medium">
+          <h3 className="text-[10px] uppercase tracking-[0.3em] text-[#a33726]/60 mb-4 font-normal">
             {user ? `Welcome back, ${user.displayName ?? user.email}` : 'Your Profile'}
           </h3>
           <h1 className="text-[3rem] lg:text-[4rem] text-[#a33726] leading-[1.05] font-normal tracking-tight">
@@ -52,7 +52,7 @@ export default function Profile() {
 
         <div className="flex w-full mb-12 border-b border-[#a33726]/20 relative gap-8">
           {(['memory', 'orders', 'settings'] as Tab[]).map((tab) => (
-            <button key={tab} onClick={() => setActiveTab(tab)} className={`pb-4 text-[11px] uppercase tracking-[0.2em] font-medium transition-colors relative ${activeTab === tab ? 'text-[#ee5974]' : 'text-[#a33726]/40 hover:text-[#a33726]/70'}`}>
+            <button key={tab} onClick={() => setActiveTab(tab)} className={`pb-4 text-[11px] uppercase tracking-[0.2em] font-normal transition-colors relative ${activeTab === tab ? 'text-[#ee5974]' : 'text-[#a33726]/40 hover:text-[#a33726]/70'}`}>
               {tab === 'memory' ? 'Flavor Memory' : tab === 'orders' ? 'Past Orders' : 'Settings'}
               {activeTab === tab && <motion.div layoutId="profile-tab-indicator" className="absolute bottom-0 left-0 right-0 h-[1px] bg-[#ee5974]" />}
             </button>
@@ -99,10 +99,10 @@ export default function Profile() {
                       <div key={idx} className="flex flex-col border border-[#a33726]/20 bg-white/40 p-6">
                         <div className="flex justify-between items-end mb-6 pb-6 border-b border-[#a33726]/10">
                           <div>
-                            <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 mb-2 font-medium">Order {order.id}</p>
-                            <p className="text-sm text-[#a33726] font-sans font-medium">{order.date}</p>
+                            <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 mb-2 font-normal">Order {order.id}</p>
+                            <p className="text-sm text-[#a33726] font-sans font-normal">{order.date}</p>
                           </div>
-                          <span className="text-[10px] font-bold px-2 py-1 bg-[#a33726]/10 text-[#a33726] rounded-sm uppercase tracking-[0.1em]">{order.status}</span>
+                          <span className="text-[10px] font-normal px-2 py-1 bg-[#a33726]/10 text-[#a33726] rounded-sm uppercase tracking-[0.1em]">{order.status}</span>
                         </div>
                         <p className="text-lg text-[#a33726]">Total: {order.total}</p>
                       </div>
@@ -115,7 +115,7 @@ export default function Profile() {
             {activeTab === 'settings' && (
               <motion.div key="settings" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.4 }} className="flex flex-col gap-8 font-sans">
                 <div className="flex flex-col gap-2 border-b border-[#a33726]/10 pb-6">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 font-medium">Email</p>
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 font-normal">Email</p>
                   <p className="text-lg text-[#a33726] font-light">{user?.email ?? '—'}</p>
                 </div>
                 <div className="mt-8">

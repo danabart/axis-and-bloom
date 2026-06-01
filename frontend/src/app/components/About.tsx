@@ -12,7 +12,7 @@ export default function About() {
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20 pt-16">
           <motion.div initial={{ scale: 0, rotate: -45, opacity: 0 }} animate={{ scale: 1, rotate: 0, opacity: 1 }} transition={{ duration: 1.2, ease: [0.34, 1.56, 0.64, 1], delay: 1.2 }}
             className="flex items-center justify-center">
-            <span className="text-[20rem] font-bold leading-none" style={{ color: '#f2f1ea', opacity: 0.3 }}>&</span>
+            <span className="text-[20rem] font-normal leading-none" style={{ color: '#f2f1ea', opacity: 0.3 }}>&</span>
           </motion.div>
         </div>
       </div>

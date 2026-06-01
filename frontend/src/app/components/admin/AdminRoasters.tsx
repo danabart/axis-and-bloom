@@ -110,7 +110,7 @@ function RoasterForm({
           Cancel
         </button>
         <button type="submit" disabled={saving}
-          className="px-5 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
+          className="px-5 py-2 rounded text-sm font-normal text-white disabled:opacity-50"
           style={{ backgroundColor: '#b05642' }}>
           {saving ? 'Saving…' : submitLabel}
         </button>
@@ -197,9 +197,9 @@ export default function AdminRoasters() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold text-stone-800">Roasteries</h1>
+        <h1 className="text-xl font-normal text-stone-800">Roasteries</h1>
         <button onClick={() => { setShowAddForm(v => !v); setEditingId(null); }}
-          className="px-4 py-2 rounded text-sm font-medium text-white hover:opacity-80"
+          className="px-4 py-2 rounded text-sm font-normal text-white hover:opacity-80"
           style={{ backgroundColor: '#b05642' }}>
           {showAddForm ? 'Cancel' : '+ Add Roastery'}
         </button>
@@ -233,9 +233,9 @@ export default function AdminRoasters() {
             <div className="flex items-start justify-between px-5 py-4 hover:bg-stone-50 transition-colors">
               <div className="space-y-1 flex-1 min-w-0 pr-4">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <p className="font-medium text-stone-800">{r.name}</p>
+                  <p className="font-normal text-stone-800">{r.name}</p>
                   <button onClick={() => toggleActive(r.id)} disabled={toggling === r.id}
-                    className={`px-2 py-0.5 rounded-full text-xs font-medium transition-opacity hover:opacity-70 disabled:opacity-40 ${
+                    className={`px-2 py-0.5 rounded-full text-xs font-normal transition-opacity hover:opacity-70 disabled:opacity-40 ${
                       r.is_active ? 'bg-green-100 text-green-700' : 'bg-stone-100 text-stone-400'
                     }`}>
                     {toggling === r.id ? '…' : r.is_active ? 'Active' : 'Inactive'}
@@ -262,7 +262,7 @@ export default function AdminRoasters() {
               </div>
               <button
                 onClick={() => setEditingId(editingId === r.id ? null : r.id)}
-                className="shrink-0 px-3 py-1.5 rounded text-xs font-medium border border-stone-200 text-stone-500 hover:bg-stone-100">
+                className="shrink-0 px-3 py-1.5 rounded text-xs font-normal border border-stone-200 text-stone-500 hover:bg-stone-100">
                 {editingId === r.id ? 'Cancel' : '✏️ Edit'}
               </button>
             </div>

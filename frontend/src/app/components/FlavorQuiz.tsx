@@ -232,7 +232,7 @@ export default function FlavorQuiz() {
               <button
                 onClick={() => setHasStarted(true)}
                 disabled={!userName.trim()}
-                className={`text-[10px] uppercase tracking-[0.3em] font-medium transition-all pb-1 border-b ${
+                className={`text-[10px] uppercase tracking-[0.3em] font-normal transition-all pb-1 border-b ${
                   !userName.trim()
                     ? 'text-[#a33726] opacity-30 border-transparent cursor-not-allowed'
                     : 'text-[#a33726] border-[#a33726]/40 hover:border-[#ee5974] hover:text-[#ee5974]'
@@ -319,7 +319,7 @@ export default function FlavorQuiz() {
               <button
                 onClick={handleNext}
                 disabled={answers[currentStep] === undefined || isScoring}
-                className={`text-[10px] uppercase tracking-[0.3em] font-medium transition-all pb-1 border-b ${
+                className={`text-[10px] uppercase tracking-[0.3em] font-normal transition-all pb-1 border-b ${
                   answers[currentStep] === undefined || isScoring
                     ? 'text-[#a33726] opacity-20 border-transparent cursor-not-allowed'
                     : 'text-[#a33726] border-[#a33726]/30 hover:border-[#ee5974] hover:text-[#ee5974]'
@@ -335,7 +335,7 @@ export default function FlavorQuiz() {
               {!user && (
                 <Link
                   to="/sign-in"
-                  className="text-[11px] uppercase tracking-[0.1em] text-[#a33726] opacity-40 hover:opacity-100 transition-opacity mt-8 font-medium"
+                  className="text-[11px] uppercase tracking-[0.1em] text-[#a33726] opacity-40 hover:opacity-100 transition-opacity mt-8 font-normal"
                 >
                   Sign in to save progress
                 </Link>
@@ -366,7 +366,7 @@ export default function FlavorQuiz() {
             className="w-full"
           >
             <h3
-              className="text-[10px] uppercase tracking-[0.3em] mb-4 font-medium"
+              className="text-[10px] uppercase tracking-[0.3em] mb-4 font-normal"
               style={{ color: archetype.color }}
             >
               {userName.trim() ? `${userName}'s Profile` : 'Your Profile'}
@@ -405,15 +405,15 @@ export default function FlavorQuiz() {
                   >
                     <div className="flex flex-col flex-1 py-2">
                       <div className="flex justify-between items-start mb-1">
-                        <h4 className="text-lg text-[#a33726] font-medium">{coffee.name}</h4>
-                        <span className="text-[10px] font-bold px-2 py-1 bg-[#a33726]/10 text-[#a33726] rounded-sm">
+                        <h4 className="text-lg text-[#a33726] font-normal">{coffee.name}</h4>
+                        <span className="text-[10px] font-normal px-2 py-1 bg-[#a33726]/10 text-[#a33726] rounded-sm">
                           {coffee.match} Match
                         </span>
                       </div>
                       <p className="text-sm text-[#a33726]/70 mb-5 font-light">{coffee.flavor}</p>
                       <Link
                         to="/shop"
-                        className="text-[10px] uppercase tracking-[0.2em] font-medium text-[#a33726] hover:text-[#ee5974] transition-colors w-fit border-b border-[#a33726]/30 hover:border-[#ee5974] pb-0.5"
+                        className="text-[10px] uppercase tracking-[0.2em] font-normal text-[#a33726] hover:text-[#ee5974] transition-colors w-fit border-b border-[#a33726]/30 hover:border-[#ee5974] pb-0.5"
                       >
                         Get this coffee
                       </Link>
@@ -433,7 +433,7 @@ export default function FlavorQuiz() {
               ) : (
                 <Link
                   to="/sign-in"
-                  className="w-full max-w-[280px] py-4 text-center text-[10px] font-medium uppercase tracking-[0.2em] text-[#f2f1ea] bg-[#a33726] hover:bg-[#ee5974] transition-colors mb-6"
+                  className="w-full max-w-[280px] py-4 text-center text-[10px] font-normal uppercase tracking-[0.2em] text-[#f2f1ea] bg-[#a33726] hover:bg-[#ee5974] transition-colors mb-6"
                 >
                   Save my taste profile
                 </Link>

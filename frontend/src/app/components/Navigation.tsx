@@ -10,7 +10,7 @@ export default function Navigation() {
   return (
     <nav className="fixed top-0 left-0 right-0 w-full px-12 py-4 flex justify-between items-center z-50">
       <Link to="/" className="flex items-center gap-2 hover:opacity-60 transition-opacity">
-        <span className="text-sm tracking-wide font-semibold" style={{ color: '#b05642' }}>
+        <span className="text-sm tracking-wide font-normal" style={{ color: '#b05642' }}>
           AXIS & BLOOM
         </span>
       </Link>

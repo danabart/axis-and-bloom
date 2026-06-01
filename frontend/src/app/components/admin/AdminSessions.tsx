@@ -205,7 +205,7 @@ export default function AdminSessions() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <h1 className="text-xl font-semibold text-stone-800">Cupping Sessions</h1>
+          <h1 className="text-xl font-normal text-stone-800">Cupping Sessions</h1>
           <button onClick={handleRefresh} disabled={refreshing}
             title="Refresh from database"
             className="text-stone-400 hover:text-stone-700 disabled:opacity-40 transition-colors text-base leading-none"
@@ -215,11 +215,11 @@ export default function AdminSessions() {
         </div>
         <div className="flex items-center gap-3">
           <Link to="/admin/cupping"
-            className="px-4 py-2 rounded text-sm font-medium text-stone-600 border border-stone-200 hover:bg-stone-50">
+            className="px-4 py-2 rounded text-sm font-normal text-stone-600 border border-stone-200 hover:bg-stone-50">
             Score Entry →
           </Link>
           <button onClick={() => { setShowForm(v => !v); if (!showForm) { loadAllCoffees(); loadRoasters(); } }}
-            className="px-4 py-2 rounded text-sm font-medium text-white hover:opacity-80"
+            className="px-4 py-2 rounded text-sm font-normal text-white hover:opacity-80"
             style={{ backgroundColor: '#b05642' }}>
             {showForm ? 'Cancel' : '+ New Session'}
           </button>
@@ -285,7 +285,7 @@ export default function AdminSessions() {
                 ))}
               </select>
               <button type="button" onClick={addPendingCoffee} disabled={!pendingCoffeeId}
-                className="px-3 py-1.5 rounded text-sm font-medium border border-stone-300 text-stone-600 hover:bg-stone-100 disabled:opacity-40">
+                className="px-3 py-1.5 rounded text-sm font-normal border border-stone-300 text-stone-600 hover:bg-stone-100 disabled:opacity-40">
                 Add
               </button>
             </div>
@@ -305,7 +305,7 @@ export default function AdminSessions() {
           {saveError && <p className="text-red-500 text-sm">{saveError}</p>}
           <div className="flex justify-end">
             <button type="submit" disabled={saving}
-              className="px-5 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
+              className="px-5 py-2 rounded text-sm font-normal text-white disabled:opacity-50"
               style={{ backgroundColor: '#b05642' }}>
               {saving ? 'Saving…' : 'Create Session'}
             </button>
@@ -333,7 +333,7 @@ export default function AdminSessions() {
                 <tr key={s.id}
                   className={`border-b border-stone-100 cursor-pointer transition-colors ${expandedId === s.id ? 'bg-stone-50' : 'hover:bg-stone-50'}`}
                   onClick={() => toggleExpand(s)}>
-                  <td className="py-3 pr-4 font-medium text-stone-800 flex items-center gap-2">
+                  <td className="py-3 pr-4 font-normal text-stone-800 flex items-center gap-2">
                     <span className={`text-stone-300 text-xs transition-transform inline-block ${expandedId === s.id ? 'rotate-90' : ''}`}>▶</span>
                     {formatDate(s.session_date)}
                   </td>
@@ -354,7 +354,7 @@ export default function AdminSessions() {
                               <li key={sc.session_coffee_id} className="flex items-center justify-between gap-4 text-sm text-stone-700">
                                 <span>
                                   <span className="text-stone-400 text-xs mr-2">#{i + 1}</span>
-                                  <span className="font-medium">{sc.name}</span>
+                                  <span className="font-normal">{sc.name}</span>
                                   {sc.roaster && <span className="text-stone-400 ml-1">· {sc.roaster}</span>}
                                 </span>
                                 <button
@@ -378,7 +378,7 @@ export default function AdminSessions() {
                           ))}
                         </select>
                         <button onClick={handleAddCoffee} disabled={!addingCoffeeId || linking}
-                          className="px-4 py-1.5 rounded text-sm font-medium text-white disabled:opacity-40"
+                          className="px-4 py-1.5 rounded text-sm font-normal text-white disabled:opacity-40"
                           style={{ backgroundColor: '#b05642' }}>
                           {linking ? 'Adding…' : 'Add'}
                         </button>

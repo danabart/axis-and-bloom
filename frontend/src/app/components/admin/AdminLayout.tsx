@@ -14,7 +14,7 @@ export default function AdminLayout() {
     <div className="flex min-h-screen" style={{ fontFamily: 'inherit' }}>
       {/* Sidebar */}
       <aside className="w-52 shrink-0 border-r border-stone-200 bg-stone-50 px-4 py-8 flex flex-col">
-        <p className="text-xs font-semibold tracking-widest uppercase mb-6" style={{ color: '#b05642' }}>
+        <p className="text-xs font-normal tracking-widest uppercase mb-6" style={{ color: '#b05642' }}>
           Admin
         </p>
         <nav className="flex flex-col gap-1">
@@ -26,7 +26,7 @@ export default function AdminLayout() {
               className={({ isActive }) =>
                 `px-3 py-2 rounded text-sm transition-colors ${
                   isActive
-                    ? 'bg-stone-200 font-medium text-stone-800'
+                    ? 'bg-stone-200 font-normal text-stone-800'
                     : 'text-stone-500 hover:text-stone-800 hover:bg-stone-100'
                 }`
               }

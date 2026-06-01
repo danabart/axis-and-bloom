@@ -147,9 +147,9 @@ export default function AdminCoffees() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold text-stone-800">Coffees</h1>
+        <h1 className="text-xl font-normal text-stone-800">Coffees</h1>
         <button onClick={() => setShowForm(v => !v)}
-          className="px-4 py-2 rounded text-sm font-medium text-white hover:opacity-80"
+          className="px-4 py-2 rounded text-sm font-normal text-white hover:opacity-80"
           style={{ backgroundColor: '#b05642' }}>
           {showForm ? 'Cancel' : '+ Add Coffee'}
         </button>
@@ -205,7 +205,7 @@ export default function AdminCoffees() {
           {saveError && <p className="md:col-span-2 text-red-500 text-sm">{saveError}</p>}
           <div className="md:col-span-2 flex justify-end">
             <button type="submit" disabled={saving}
-              className="px-5 py-2 rounded text-sm font-medium text-white disabled:opacity-50"
+              className="px-5 py-2 rounded text-sm font-normal text-white disabled:opacity-50"
               style={{ backgroundColor: '#b05642' }}>
               {saving ? 'Saving…' : 'Save Coffee'}
             </button>
@@ -237,7 +237,7 @@ export default function AdminCoffees() {
               return (
                 <>
                   <tr key={c.id} className="border-b border-stone-100 hover:bg-stone-50">
-                    <td className="py-3 pr-4 font-medium text-stone-800">{c.name}</td>
+                    <td className="py-3 pr-4 font-normal text-stone-800">{c.name}</td>
                     <td className="py-3 pr-4 text-stone-500">{c.roaster ?? '—'}</td>
                     <td className="py-3 pr-4 text-stone-500">{c.origin ?? '—'}</td>
                     <td className="py-3 pr-4 text-stone-500">{processLabel}</td>
@@ -292,7 +292,7 @@ export default function AdminCoffees() {
                           </div>
                           <div className="flex gap-2">
                             <button onClick={() => handleArchetypeAssign(c.id)} disabled={archSaving}
-                              className="px-4 py-1.5 rounded text-sm font-medium text-white disabled:opacity-50"
+                              className="px-4 py-1.5 rounded text-sm font-normal text-white disabled:opacity-50"
                               style={{ backgroundColor: '#b05642' }}>
                               {archSaving ? 'Saving…' : 'Save'}
                             </button>
