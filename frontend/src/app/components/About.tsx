@@ -3,7 +3,7 @@ import { TasteFinderSection } from './TasteFinderSection';
 
 export default function About() {
   return (
-    <div className="w-full bg-[#f2f1ea]" style={{ fontFamily: 'Geneva, sans-serif' }}>
+    <div className="w-full bg-[#f2f1ea]">
       <div className="h-screen relative overflow-hidden">
         <div className="absolute inset-0 flex">
           <motion.div initial={{ x: '-100%' }} animate={{ x: 0 }} transition={{ duration: 1.2, ease: [0.6, 0.05, 0.01, 0.9] }} className="w-1/2 relative" style={{ backgroundColor: '#a33726' }} />

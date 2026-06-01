@@ -35,7 +35,7 @@ export default function Profile() {
   const pastOrders = profile?.orders ?? [];
 
   return (
-    <div className="w-full h-screen bg-[#f2f1ea] flex overflow-hidden" style={{ fontFamily: '"Genova", sans-serif' }}>
+    <div className="w-full h-screen bg-[#f2f1ea] flex overflow-hidden">
       <div className="hidden lg:flex w-1/2 bg-[#1a1a1a] relative flex-col justify-center items-center overflow-hidden">
         <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url('https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=1080&q=80')` }} />
       </div>

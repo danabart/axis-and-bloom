@@ -16,7 +16,7 @@ export default function Home() {
   };
 
   return (
-    <div className="w-full bg-[#f2f1ea]" style={{ fontFamily: 'Geneva, sans-serif' }}>
+    <div className="w-full bg-[#f2f1ea]" >
       <div className="relative z-10 bg-[#e5e5da]">
         {/* Hero */}
         <div className="h-screen relative overflow-hidden">

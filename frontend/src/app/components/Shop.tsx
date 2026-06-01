@@ -52,7 +52,7 @@ export default function Shop() {
   }, []);
 
   return (
-    <div className="w-full min-h-screen bg-[#f2f1ea] text-[#a33726]" style={{ fontFamily: '"Genova", sans-serif' }}>
+    <div className="w-full min-h-screen bg-[#f2f1ea] text-[#a33726]">
       <section className="pt-40 pb-20 px-6 md:px-12 lg:px-24 max-w-[1400px] mx-auto text-center flex flex-col items-center">
         <motion.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }} className="text-5xl md:text-7xl text-[#ee5974] font-normal tracking-tight mb-6">SHOP COFFEE</motion.h1>
         <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.1 }} className="text-lg md:text-xl text-[#838686] font-light max-w-2xl leading-relaxed mb-10">

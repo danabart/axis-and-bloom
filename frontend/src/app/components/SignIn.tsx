@@ -82,7 +82,7 @@ export default function SignIn() {
   };
 
   return (
-    <div className="w-full h-screen bg-[#f2f1ea] flex overflow-hidden" style={{ fontFamily: '"Genova", sans-serif' }}>
+    <div className="w-full h-screen bg-[#f2f1ea] flex overflow-hidden">
       <div className="hidden lg:flex w-1/2 bg-[#1a1a1a] relative flex-col justify-center items-center overflow-hidden">
         <div className="absolute inset-0 bg-[url('https://i.imgur.com/NQRCzNU.jpeg')] bg-cover bg-center" />
       </div>

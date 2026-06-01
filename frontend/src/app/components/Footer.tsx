@@ -1,6 +1,6 @@
 export default function Footer() {
   return (
-    <footer className="w-full relative mt-auto" style={{ fontFamily: '"Genova", sans-serif' }}>
+    <footer className="w-full relative mt-auto">
       <div className="relative z-10 py-5 px-12" style={{ backgroundColor: '#f2f1ea', borderTop: '1px solid rgba(163,55,38,0.15)' }}>
         <div className="flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex flex-wrap justify-center gap-8 text-sm items-center" style={{ color: '#9a2918' }}>

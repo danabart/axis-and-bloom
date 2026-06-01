@@ -179,7 +179,7 @@ export default function FlavorQuiz() {
     return (
       <div
         className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center"
-        style={{ fontFamily: '"Genova", sans-serif' }}
+       
       >
         <p className="text-[#a33726]/50 text-sm uppercase tracking-[0.2em]">Loading…</p>
       </div>
@@ -191,7 +191,7 @@ export default function FlavorQuiz() {
     return (
       <div
         className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center"
-        style={{ fontFamily: '"Genova", sans-serif' }}
+       
       >
         <p className="text-[#a33726]/70 text-sm uppercase tracking-[0.2em]">
           Quiz unavailable. Please try again later.
@@ -205,7 +205,7 @@ export default function FlavorQuiz() {
     return (
       <div
         className="relative w-full min-h-screen bg-[#f2f1ea] flex overflow-hidden"
-        style={{ fontFamily: '"Genova", sans-serif' }}
+       
       >
         <div className="absolute inset-0">
           <img src="https://i.imgur.com/3NAnXgR.jpeg" alt="" className="w-full h-full object-cover" />
@@ -255,7 +255,7 @@ export default function FlavorQuiz() {
     return (
       <div
         className="w-full min-h-screen flex flex-col lg:flex-row bg-[#f2f1ea]"
-        style={{ fontFamily: '"Genova", sans-serif' }}
+       
       >
         {/* Left — photo */}
         <div className="w-full lg:w-1/2 h-[40vh] lg:h-screen relative overflow-hidden bg-[#1a1a1a]">
@@ -351,7 +351,7 @@ export default function FlavorQuiz() {
   return (
     <div
       className="w-full min-h-screen flex flex-col lg:flex-row bg-[#f2f1ea]"
-      style={{ fontFamily: '"Genova", sans-serif' }}
+     
     >
       <div className="w-full lg:w-1/2 h-[40vh] lg:h-screen fixed lg:sticky top-0 left-0 overflow-hidden bg-[#1a1a1a]">
         <img src="https://i.imgur.com/3WOJLhq.jpeg" alt="" className="w-full h-full object-cover" />
