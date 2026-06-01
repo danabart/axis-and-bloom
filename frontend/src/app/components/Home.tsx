@@ -28,11 +28,11 @@ export default function Home() {
           </div>
 
           <div className="relative z-10 h-full flex pt-24">
-            <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.8, delay: 0.6 }} className="w-1/2 h-full flex items-center justify-start pl-10 pr-6">
-              <div className="flex flex-col items-start w-full" style={{ color: '#a33726' }}>
-                <span className="block font-light leading-none w-full" style={{ fontSize: 'clamp(2.5rem, 7.5vw, 8.5rem)', letterSpacing: '0.38em' }}>COMING</span>
+            <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.8, delay: 0.6 }} className="w-1/2 h-full flex items-center justify-center px-8">
+              <div className="flex flex-col items-center w-full" style={{ color: '#a33726' }}>
+                <span className="block font-light leading-none w-full text-center" style={{ fontSize: 'clamp(2.5rem, 7.5vw, 8.5rem)', letterSpacing: '0.38em' }}>COMING</span>
                 <div className="my-5 w-full" style={{ height: '1px', backgroundColor: '#a33726', opacity: 0.3 }} />
-                <span className="block font-normal leading-none" style={{ fontSize: 'clamp(6rem, 17vw, 19rem)', letterSpacing: '-0.02em' }}>SOON</span>
+                <span className="block font-normal leading-none text-center" style={{ fontSize: 'clamp(6rem, 17vw, 19rem)', letterSpacing: '-0.02em' }}>SOON</span>
               </div>
             </motion.div>
 
