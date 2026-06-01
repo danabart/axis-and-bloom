@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router';
 import { AuthProvider } from './context/AuthContext';
+import PreLaunch from './components/PreLaunch';
 import PublicLayout from './components/PublicLayout';
 import Home from './components/Home';
 import HowItWorks from './components/HowItWorks';
@@ -17,7 +18,11 @@ import AdminFlavorWheel from './components/admin/AdminFlavorWheel';
 import AdminRoasters from './components/admin/AdminRoasters';
 import AdminCupping from './components/admin/AdminCupping';
 
+const PRELAUNCH = import.meta.env.VITE_PRELAUNCH_MODE === 'true';
+
 export default function App() {
+  if (PRELAUNCH) return <PreLaunch />;
+
   return (
     <AuthProvider>
       <BrowserRouter>
