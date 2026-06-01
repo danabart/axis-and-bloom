@@ -29,7 +29,11 @@ export default function Home() {
 
           <div className="relative z-10 h-full flex pt-24">
             <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.8, delay: 0.6 }} className="w-1/2 flex items-center justify-start pl-16">
-              <div className="text-8xl font-bold tracking-tighter" style={{ color: '#a33726' }}>A&B</div>
+              <div className="flex flex-col items-start" style={{ color: '#a33726' }}>
+                <span className="block font-light tracking-[0.45em] leading-none" style={{ fontSize: 'clamp(1.8rem, 5vw, 5.5rem)' }}>COMING</span>
+                <div className="my-4" style={{ width: '100%', height: '1px', backgroundColor: '#a33726', opacity: 0.3 }} />
+                <span className="block font-bold tracking-[0.12em] leading-none" style={{ fontSize: 'clamp(3.5rem, 9vw, 10rem)' }}>SOON</span>
+              </div>
             </motion.div>
 
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.8 }} className="w-1/2 flex flex-col items-start justify-start pt-32 pl-8">
