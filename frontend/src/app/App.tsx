@@ -21,12 +21,13 @@ import AdminCupping from './components/admin/AdminCupping';
 const PRELAUNCH = import.meta.env.VITE_PRELAUNCH_MODE === 'true';
 
 export default function App() {
-  if (PRELAUNCH) return <PreLaunch />;
-
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          {/* ── Pre-launch — root only, no nav/footer ── */}
+          {PRELAUNCH && <Route path="/" element={<PreLaunch />} />}
+
           {/* ── Admin portal — own layout, no public nav/footer ── */}
           <Route
             path="/admin"
