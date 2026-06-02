@@ -92,17 +92,18 @@ Changed the COMING SOON block from left-aligned (`justify-start`, `items-start`)
 Created a full-screen pre-launch page that shows at `axisandbloom.com/` while the site is in pre-launch mode. All other routes (`/about`, `/shop`, `/admin`, etc.) remain fully accessible.
 
 **Layout — split screen:**
-- Left half (`#f0ebe1`): inline SVG logo mark — AXIS / decorative & / BLOOM — in Genova Thin, centered
+- Left half (`#f0ebe1`): `LogoLines.svg` from `src/design/LOGO/`, centered, max-width 280px
 - Dividing line: `1px solid #a3372620`
-- Right half (`#f0ebe1`): centered column with three elements:
-  1. Tagline text — Genova Regular, `1.1rem`, `#a33726`, `letter-spacing: 0.05em`, uppercase: `YOUR COFFEE IDENTITY. COMING SEPTEMBER 1.`
+- Right half (`#f0ebe1`): centered column with:
+  1. Tagline — Genova Regular, `1.1rem`, `#a33726`, `letter-spacing: 0.05em`, uppercase: `YOUR COFFEE IDENTITY. COMING SEPTEMBER 1.`
   2. Thin separator line — `1px solid #a3372630`
-  3. Email input — border-bottom only (`1px solid #a33726`), transparent background, Genova `0.9rem`, placeholder in `#a3372680`
-  4. `JOIN →` button — no background, no border, Genova Regular, `0.85rem`, `letter-spacing: 0.1em`, hover opacity `0.6`
+  3. First name input — border-bottom only, transparent background, Genova `0.9rem`, placeholder `your first name`
+  4. Email input — same styling, placeholder `your email`
+  5. `JOIN →` button — no background, no border, Genova Regular, `0.85rem`, hover opacity `0.6`
 
 **Mobile:** stacks vertically — logo on top half, content on bottom half (breakpoint: 768px).
 
-**Email submission:** wires to the existing `/api/newsletter/subscribe` backend endpoint. On success, shows "You're on the list."
+**Form submission:** POSTs `{ email, firstName, source: 'pre_launch' }` to `/api/newsletter/subscribe`. On success, shows "You're on the list."
 
 **Controlled via environment variable:**
 
@@ -129,15 +130,53 @@ Added a secret preview bypass so the team can access the full site while the pre
 
 ---
 
+### 7. Newsletter — first name field + Mailchimp integration
+**Files:** `backend/src/routes/newsletter.ts`, `backend/src/db/schema.sql`
+
+Updated the newsletter subscribe endpoint to accept and store a first name, and forward it to Mailchimp.
+
+**Database:**
+- Added `first_name TEXT` column to `newsletter_subscriber` table (idempotent `ADD COLUMN IF NOT EXISTS` migration)
+- `subscriber_source` table added by Dana in the same sprint — tracks where each signup came from (`pre_launch`, `newsletter`, `post_quiz`, `footer`)
+
+**Backend route (`/api/newsletter/subscribe` and backward-compat `/api/newsletter`):**
+- Accepts `{ email, firstName?, source? }` — `source` defaults to `'newsletter'`
+- Stores `first_name` and `source_id` in the DB
+- Forwards to Mailchimp via the Marketing API (`PUT /lists/{list_id}/members/{email_hash}`) with `FNAME` merge field
+- Mailchimp call is non-blocking — if it fails, the signup still completes
+- Mailchimp is skipped entirely when credentials are not configured (`MC_ENABLED = false`)
+
+**To activate Mailchimp**, add two secrets to GCP Secret Manager then add them to `--set-secrets` in `deploy.yml`:
+
+| Secret name | What it is |
+|---|---|
+| `MAILCHIMP_API_KEY` | Mailchimp API key (format: `key-us21`) |
+| `MAILCHIMP_LIST_ID` | Mailchimp audience / list ID |
+
+---
+
+### 8. Fix — backend deployment failure after Mailchimp secrets were added
+**File:** `.github/workflows/deploy.yml`
+
+Cloud Run's `--set-secrets` flag fails the entire deployment if any referenced secret does not exist in GCP Secret Manager. Adding `MAILCHIMP_API_KEY` and `MAILCHIMP_LIST_ID` to `--set-secrets` before creating them in Secret Manager caused the backend deploy to fail.
+
+**Fix:** Removed the two Mailchimp entries from `--set-secrets`. The newsletter code handles missing env vars gracefully. Re-add them to `--set-secrets` once the secrets are created in GCP.
+
+---
+
 ## File Reference
 
 | File | What changed |
 |---|---|
 | `frontend/src/app/components/Home.tsx` | COMING SOON hero, font cleanup |
-| `frontend/src/app/components/PreLaunch.tsx` | New — pre-launch curtain page |
+| `frontend/src/app/components/Home.tsx` | COMING SOON hero, font cleanup |
+| `frontend/src/app/components/PreLaunch.tsx` | New — pre-launch curtain page with logo, first name + email form |
 | `frontend/src/app/App.tsx` | Conditional pre-launch routing + preview bypass |
 | `frontend/src/styles/fonts.css` | Genova @font-face declarations |
 | `frontend/src/styles/theme.css` | Global font-family on body, heading weights set to 400 |
 | `frontend/src/design/FONT/genova/` | Genova font files (added to repo) |
-| `.github/workflows/deploy.yml` | `VITE_PRELAUNCH_MODE: 'true'` added to build env |
+| `frontend/src/design/LOGO/` | Logo files (LogoLines.svg used in pre-launch) |
+| `backend/src/routes/newsletter.ts` | firstName support, Mailchimp integration |
+| `backend/src/db/schema.sql` | first_name column on newsletter_subscriber |
+| `.github/workflows/deploy.yml` | VITE_PRELAUNCH_MODE added; Mailchimp secrets removed until created in GCP |
 | All component files | Removed inline fontFamily styles, replaced all bold weights with font-normal |
