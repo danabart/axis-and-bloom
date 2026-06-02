@@ -32,6 +32,43 @@ To turn off the pre-launch page permanently when ready to launch:
 
 ---
 
+## How to Activate Mailchimp
+
+Signups currently save to the database only. To also sync them to your Mailchimp audience, follow these steps:
+
+### Step 1 — Get your Mailchimp credentials
+1. Log in to Mailchimp
+2. **API key**: go to Account → Extras → API keys → Create A Key
+3. **List ID**: go to Audience → All contacts → Settings → Audience name and defaults → Audience ID
+
+### Step 2 — Add secrets to GCP Secret Manager
+Go to [GCP Secret Manager](https://console.cloud.google.com/security/secret-manager?project=axis-and-bloom-prod) and create two new secrets:
+
+| Secret name | Value |
+|---|---|
+| `MAILCHIMP_API_KEY` | Your Mailchimp API key (e.g. `abc123-us21`) |
+| `MAILCHIMP_LIST_ID` | Your Mailchimp audience ID |
+
+For each: click **Create secret** → enter the name → paste the value → click **Create secret**.
+
+### Step 3 — Add secrets to the Cloud Run deploy command
+Open `.github/workflows/deploy.yml` and find the `--set-secrets` line in the `Deploy to Cloud Run` step. Add the two Mailchimp entries at the end:
+
+```
+...,RESEND_API_KEY=RESEND_API_KEY:latest,MAILCHIMP_API_KEY=MAILCHIMP_API_KEY:latest,MAILCHIMP_LIST_ID=MAILCHIMP_LIST_ID:latest"
+```
+
+### Step 4 — Push to deploy
+```
+git add .github/workflows/deploy.yml
+git commit -m "feat: activate Mailchimp integration"
+git push origin main
+```
+
+Once deployed, every new signup from the pre-launch form will be added to your Mailchimp audience with their first name as `FNAME`. Existing DB signups are not back-filled automatically.
+
+---
+
 ## Changes Log
 
 ### 1. Hero — replaced A&B with COMING SOON
