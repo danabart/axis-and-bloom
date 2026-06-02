@@ -101,6 +101,8 @@ All backend secrets live in GCP Secret Manager (`axis-and-bloom-prod`). Cloud Ru
 | `SHOPIFY_STOREFRONT_TOKEN` | Shopify Storefront API token (placeholder) |
 | `SHOPIFY_ADMIN_TOKEN` | Shopify Admin API token (placeholder) |
 | `RESEND_API_KEY` | Resend transactional email API key (sends from noreply@axisandbloomcoffee.com) |
+| `MAILCHIMP_API_KEY` | Mailchimp API key (format: `key-dc`, e.g. `abc123-us21`) — syncs newsletter signups to audience |
+| `MAILCHIMP_LIST_ID` | Mailchimp audience / list ID |
 
 ---
 
@@ -133,6 +135,7 @@ axis-and-bloom/
 │   │       ├── components/     # All pages and UI components
 │   │       │   ├── SignIn.tsx       # Auth page (email + Google + Apple)
 │   │       │   ├── Home.tsx
+│   │       │   ├── PreLaunch.tsx    # Full-screen pre-launch curtain (email + firstName signup; hides site until launch)
 │   │       │   ├── FlavorQuiz.tsx
 │   │       │   ├── Shop.tsx
 │   │       │   ├── Profile.tsx
@@ -201,6 +204,7 @@ axis-and-bloom/
 | Animations | motion/react |
 | Auth | Firebase Auth (Email/Password + Google) |
 | Transactional email | Resend (sends from noreply@axisandbloomcoffee.com) |
+| Marketing email | Mailchimp (newsletter subscribers synced on signup with FNAME merge field) |
 | Backend | Node.js + Express + TypeScript |
 | Database | PostgreSQL 15 on Cloud SQL |
 | AI | Anthropic Claude (claude-sonnet-4-6 for chat, claude-haiku-4-5 for recommendations) |
@@ -270,7 +274,8 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 
 **Chat & newsletter**
 - `chat_message` — Claude AI chat history per user
-- `newsletter_subscriber`
+- `subscriber_source` — normalised reference table for signup origins; 4 seeded rows: `pre_launch` (Pre-Launch Popup), `newsletter` (Newsletter Modal), `post_quiz` (Post-Quiz Signup), `footer` (Footer Widget)
+- `newsletter_subscriber` — `email` PK; `first_name TEXT`; `source_id` FK → `subscriber_source`; `user_id` FK → `user_profile` (optional); `subscribed BOOLEAN`; `created_at`
 
 **Cupping tool** *(added May 2026 — SERIAL PKs, standalone from the main schema)*
 - `coffees` — coffee catalogue (name, roaster, origin, process, roast level/shade, roaster flavor descriptors)
@@ -336,7 +341,8 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | POST | `/api/agent/chat` | Yes | Claude AI chat with coffee context |
 | GET | `/api/orders` | Yes | User's order history |
 | GET | `/api/users/profile` | Yes | User's full profile |
-| POST | `/api/newsletter/subscribe` | No | Newsletter signup |
+| POST | `/api/newsletter/subscribe` | No | Newsletter signup — accepts `{ email, firstName?, source? }`; upserts `newsletter_subscriber` (preserving existing first_name if new value is blank); syncs to Mailchimp non-blocking if credentials configured; `source` defaults to `'newsletter'` |
+| POST | `/api/newsletter` | No | Backward-compat alias for `/subscribe` — called by `NewsletterModal`; identical logic |
 | GET | `/api/admin/lookups` | Admin | All dropdown options grouped by category (`roast_level`, `process`, `blend_or_single`, `brew_method`) |
 | GET | `/api/admin/stats` | Admin | Count of coffees, sessions, internal/roastery/client descriptors, SCA entries |
 | GET | `/api/admin/coffees` | Admin | All coffees with current archetype assignment |
@@ -587,6 +593,38 @@ Migration is idempotent: a DO block detects the old `sweetness_min` column and d
 **Cause**: `cupping_sessions.brew_method` was typed as `brew_method_enum`. The `lookup_value` table for `brew_method` includes values like `cupping`, `pour-over`, `french-press`, `aeropress` — none of which existed in the enum. Additionally, an empty-string selection slipped past the `?? 'filter'` fallback (because `'' ?? 'filter'` = `''`, not `'filter'`).  
 **Fix**: Migrated the column to `TEXT` using an idempotent `DO` block in `schema.sql` that checks `information_schema.columns` for the old enum type before running `ALTER TABLE cupping_sessions ALTER COLUMN brew_method TYPE TEXT`. Also changed the backend fallback from `brew_method ?? null` to `brew_method || null` so empty string correctly maps to `null`. `brew_method_enum` is still defined (for any future use) but no longer applied to the column.
 
+### 29. Browser heuristic caching causing stale admin data
+**Problem**: The admin sessions page was showing old data even after the DB was updated, because browsers can heuristically cache `200 OK` responses that have no `Cache-Control` header.  
+**Fix**: Three layers applied together:
+1. **Backend** — added `Cache-Control: no-store` middleware for all `/api/*` routes in `backend/src/index.ts`
+2. **Frontend** — all `fetch()` calls in admin components now use `cache: 'no-store'` via a shared `apiFetch()` helper that also injects the Firebase auth token
+3. **Firebase Hosting** — added explicit `no-cache, no-store, must-revalidate` header for `index.html` in `firebase.json`; added `max-age=31536000, immutable` for fingerprinted JS/CSS assets
+
+### 30. Multi-taster support in Score Entry (AdminCupping)
+**Problem**: `AdminCupping.tsx` loaded only `data.scores[data.scores.length - 1]` — always the last score row, regardless of how many tasters had entered scores. Camila's scores were the only ones visible.  
+**Fix**: Complete rewrite of the component. All scores for the selected session_coffee are fetched and stored in state (`allScores`, `allValues`, `allDescriptors`). A **taster tab bar** renders at the top — one tab per taster name. Clicking a tab populates the form with that taster's values. "+ Add Taster" tab creates a fresh blank form for a new entry. After saving, scores are re-fetched and the saved taster's tab re-activates automatically.
+
+Also fixed: no try-catch around the `Promise.all` loading three parallel API calls — any single 404 left all state as `[]` and the page rendered nothing silently. Now wrapped in try-catch with a visible error banner and reload link.
+
+### 31. Newsletter subscribe endpoint returning 404
+**Problem**: `PreLaunch.tsx` POSTed to `/api/newsletter/subscribe` but the newsletter router only had `router.post('/')` — no `/subscribe` subroute. Every pre-launch signup silently failed with a 404.  
+**Fix**: Added `router.post('/subscribe', ...)` as the canonical endpoint. The original `router.post('/')` kept as a backward-compat alias (called by `NewsletterModal`). Both share the same `handleSubscribe()` logic.
+
+### 32. Newsletter table name typo
+**Problem**: `newsletter.ts` queried table `newsletter_subscribers` (plural) — the actual table is `newsletter_subscriber` (singular). Every insert failed with `relation "newsletter_subscribers" does not exist`.  
+**Fix**: Corrected to `newsletter_subscriber` throughout the route handler.
+
+### 33. Pre-launch page + subscriber source tracking
+**Change**: Added a full-screen pre-launch curtain page (`PreLaunch.tsx`) that sits at the root URL. Added normalised source tracking so every signup records where it came from.
+
+**`subscriber_source` table** — 4 seeded rows: `pre_launch`, `newsletter`, `post_quiz`, `footer`. The newsletter route looks up the source by name and stores its integer FK in `newsletter_subscriber.source_id`.
+
+**`newsletter_subscriber` columns added** (idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`):
+- `first_name TEXT` — collected from the pre-launch form and newsletter modal
+- `source_id INT REFERENCES subscriber_source(id)` — which touchpoint captured the signup
+
+**`ON CONFLICT` upsert strategy**: on duplicate email, `subscribed` is reset to `TRUE`; `first_name` is updated only if the new value is non-empty (preserves existing name if not provided); `source_id` is kept from the first signup (not overwritten).
+
 ### 28. Quiz V3 — Perfect cup theme + experimental gate
 **Change**: Introduced quiz V3 as the active version. V2 is deactivated (`is_active = FALSE`). Key changes:
 - Q2 completely replaced: "Food instinct" (food choices) → "Perfect cup" (coffee experience descriptions)
@@ -643,22 +681,56 @@ This keeps Firebase's secure token generation while giving us full control over 
 
 ---
 
-## Current State (as of 2026-05-28)
+## Pre-Launch Page
+
+The site shows a full-screen pre-launch curtain at `axisandbloom.com/` while `VITE_PRELAUNCH_MODE=true` in the CI/CD pipeline. All other routes (`/about`, `/shop`, `/admin`, etc.) remain fully accessible.
+
+**File**: `frontend/src/app/components/PreLaunch.tsx`
+
+### Layout
+Split-screen, responsive:
+- **Left half** (`#f2f1ea`): `LogoLines.svg` centered, 480px wide (scales to `min(480px, 85vw)`)
+- **Dividing line**: `1px solid #a3372620`
+- **Right half** (`#deded1`): centered column — tagline → thin separator → first name input → email input → JOIN → button
+
+On mobile (< 768px) stacks vertically: logo panel takes 45vh, content panel takes 55vh.
+
+### How it works
+- Form POSTs `{ email, firstName, source: 'pre_launch' }` to `POST /api/newsletter/subscribe`
+- On success, renders "You're on the list." in place of the form
+- Errors fail silently — the success message still shows (UX: don't alarm the user)
+
+### Team bypass
+Visit `axisandbloom.com/?preview=true` to skip the curtain and see the full site. Stored in `sessionStorage` — resets when you close the browser.
+
+Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that reads `useSearchParams` and `sessionStorage`.
+
+### To turn off pre-launch when you're ready to launch
+1. Open `.github/workflows/deploy.yml`
+2. Remove or change to `false`: `VITE_PRELAUNCH_MODE: 'true'`
+3. Push to `main` — deploys automatically
+
+---
+
+## Current State (as of 2026-06-02)
 
 | Component | Status |
 |---|---|
-| Frontend deployed | ✅ https://axis-and-bloom-prod.web.app |
+| Frontend deployed | ✅ https://axisandbloom.com (custom domain) / https://axis-and-bloom-prod.web.app |
 | Backend deployed | ✅ https://axis-bloom-backend-oiub7eumya-uc.a.run.app |
-| Database connected | ✅ 45 tables verified via /health/db |
+| Database connected | ✅ 47 tables verified via /health/db |
 | Email/password auth | ✅ Working |
 | Google sign-in | ✅ Working (was already enabled) |
 | Apple sign-in | ⚠️ Not configured |
 | Flavor quiz (V3) | ✅ Active — V3 replaces V2; new Q2 "Perfect cup" theme, experimental gate on Q3-C, Q3-D splits 0.5 to CN + 0.5 to BS, updated Q4/Q5 answer texts |
 | Transactional email | ✅ Resend — sends from noreply@axisandbloomcoffee.com |
+| Marketing email / Mailchimp | ✅ Active — new signups synced to Mailchimp audience with FNAME merge field; credentials in Secret Manager |
 | Claude AI chat | ✅ Wired up, API key in Secret Manager |
 | Shopify | ⚠️ Stubbed — waiting for roastery account |
+| Pre-launch page | ✅ Live — full-screen curtain at axisandbloom.com; email + first name capture saves to DB + Mailchimp; bypass via `?preview=true` |
+| Newsletter subscriber tracking | ✅ `subscriber_source` table tracks signup origin (`pre_launch`, `newsletter`, `post_quiz`, `footer`); `first_name` stored |
 | Cupping tool schema | ✅ 11 tables + 3 enums + 12 seeded dimensions + 84 SCA flavor wheel descriptors + collaborative flavor wheel view |
-| Admin portal | ✅ 6 pages: Dashboard, Coffees (roaster autocomplete dropdown), Sessions (roastery dropdown), Score Entry (read-only + edit), Flavor Wheel (+ stats), Roasteries (inline edit + all contact fields) |
+| Admin portal | ✅ 6 pages: Dashboard, Coffees (roaster autocomplete dropdown), Sessions (roastery dropdown), Score Entry (multi-taster tabs + read-only/edit), Flavor Wheel (+ stats), Roasteries (inline edit + all contact fields) |
 | Admin user management | ✅ `grant_admin()` / `revoke_admin()` / `list_admins()` stored DB functions + matching API endpoints |
 | Lookup values | ✅ `lookup_value` table — 20 values across 4 categories; single `GET /api/admin/lookups` call populates all admin dropdowns |
 | CI/CD | ✅ Push to main deploys everything |
@@ -990,6 +1062,23 @@ ORDER BY mentions DESC;
 SELECT * FROM v_quiz_scoring_matrix;
 ```
 
+### Newsletter subscriber list (pre-launch leads)
+```sql
+SELECT ns.email, ns.first_name, ss.label AS source, ns.subscribed, ns.created_at
+FROM newsletter_subscriber ns
+LEFT JOIN subscriber_source ss ON ss.id = ns.source_id
+ORDER BY ns.created_at DESC;
+```
+
+### Check signup counts by source
+```sql
+SELECT ss.label AS source, COUNT(*) AS signups
+FROM newsletter_subscriber ns
+JOIN subscriber_source ss ON ss.id = ns.source_id
+GROUP BY ss.label
+ORDER BY signups DESC;
+```
+
 ### Admin user management
 ```sql
 -- Grant admin
@@ -1065,7 +1154,7 @@ The same operations are also available as API endpoints (requires an existing ad
 | `/admin` | Dashboard | 6 stat cards: coffees, sessions, internal/roastery/client descriptors, SCA entries |
 | `/admin/coffees` | Coffees | Coffee catalogue table + "Add Coffee" form + inline archetype assignment per row (dashed "+ Assign archetype" button, visible without hover); Roaster field uses `<input list>` + `<datalist>` autocomplete from active roasters in the DB — still accepts free text for roasters not in the system |
 | `/admin/sessions` | Cupping Sessions | Session list + "New Session" form (with coffee pre-selection) + expandable coffee panel (link/unlink coffees); row auto-expands after creation; "Score Entry →" shortcut in header; "Location" field renamed to "Roastery" — renders as a `<select>` dropdown populated from active roasters in the DB |
-| `/admin/cupping` | Score Entry | Pick session + coffee → read-only score card (view mode) with "✏️ Edit" button; edit mode shows 12 dimensions + SCA descriptor picker + save; new coffee goes straight to edit mode; "New Session" link in header |
+| `/admin/cupping` | Score Entry | Pick session + coffee → **taster tabs** at top (one tab per taster who scored that coffee, "+ Add Taster" for new entry); each tab shows a read-only score card with "✏️ Edit"; edit mode shows 12 dimensions + SCA descriptor picker + save; new coffee goes straight to edit mode; "New Session" link in header |
 | `/admin/flavor-wheel` | Flavor Wheel | Summary stats cards (total mentions, unique descriptors, top 3, per-source counts) + per-coffee descriptor table grouped by source (Internal · Roastery · Client) |
 | `/admin/roasters` | Roasteries | Roastery card list + "Add Roastery" form + active/inactive toggle + "✏️ Edit" inline form per card; fields: name, contact person, email, phone, website, address, fulfillment hours, API endpoint, notes |
 
@@ -1099,7 +1188,7 @@ The archetype and confidence dropdowns on the Coffees page are **not** in `looku
    - If scores already exist → shows a **read-only card** (taster name, all dimension values, descriptor tags)
    - Click **"✏️ Edit"** to switch to edit mode, or **"Cancel"** to return to read-only
    - If no scores exist → goes straight to edit mode for new entry
-4. In edit mode: enter taster name (or `session_merged` for a combined row), fill in numeric dimensions (min/max on 0–15), free-text dimensions, and SCA flavor descriptors
+4. In edit mode: taster name is pre-filled for the active tab; fill in numeric dimensions (min/max on 0–15), free-text dimensions, and SCA flavor descriptors
 5. Click **Save Score** — the backend upserts all three tables (`cupping_scores`, `cupping_score_values`, `cupping_score_descriptors`) in one call and returns to read-only view
 
 **Cleanup (test data):**
@@ -1115,7 +1204,6 @@ The archetype and confidence dropdowns on the Coffees page are **not** in `looku
 
 ### Cupping tool
 3. **Brew parameters UI** — the `brew_params` table exists (dose, water, yield, ratio, temp, grind, extraction time, pressure, steep time, device) but has no entry form. Could be added to the Score Entry page as a collapsible "Brew Params" section.
-4. **Multi-taster score view** — Score Entry currently loads the last score for a session_coffee. If multiple tasters scored the same coffee, there's no UI to browse by taster or compare scores side by side.
 
 ### Collaborative flavor wheel
 5. **Client feedback flow** — post-delivery email/prompt asking customers to pick descriptors from the SCA wheel. Stores results in `client_flavor_feedback`. Schema is ready; needs backend route + frontend feedback UI.
