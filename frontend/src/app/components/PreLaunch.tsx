@@ -44,6 +44,13 @@ export default function PreLaunch() {
           opacity: 0.45;
           font-family: Genova, sans-serif;
         }
+        @media (max-width: 767px) {
+          .pl-logo {
+            max-width: 60vw !important;
+            max-height: calc(45vh - 64px) !important;
+            width: auto !important;
+          }
+        }
       `}</style>
 
       <div
@@ -66,6 +73,7 @@ export default function PreLaunch() {
           <img
             src={logoLines}
             alt="Axis & Bloom"
+            className="pl-logo"
             style={{ width: '480px', maxWidth: 'min(480px, 85vw)' }}
           />
         </div>
