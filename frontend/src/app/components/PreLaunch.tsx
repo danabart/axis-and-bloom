@@ -1,8 +1,22 @@
 import { useState } from 'react';
+import logoUrl from '../../design/LOGO/LogoLines.svg';
 
 const BRAND = '#a33726';
 
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  border: 'none',
+  borderBottom: `1px solid ${BRAND}`,
+  background: 'transparent',
+  padding: '12px 0',
+  fontFamily: 'Genova, sans-serif',
+  fontSize: '0.9rem',
+  color: BRAND,
+  outline: 'none',
+};
+
 export default function PreLaunch() {
+  const [firstName, setFirstName] = useState('');
   const [email, setEmail] = useState('');
   const [submitted, setSubmitted] = useState(false);
 
@@ -13,7 +27,7 @@ export default function PreLaunch() {
       await fetch('/api/newsletter/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, source: 'pre_launch' }),
+        body: JSON.stringify({ email, firstName, source: 'pre_launch' }),
       });
     } catch {
       // fail silently — still show confirmation
@@ -31,57 +45,11 @@ export default function PreLaunch() {
         className="w-full h-1/2 md:w-1/2 md:h-full flex items-center justify-center"
         style={{ backgroundColor: '#f0ebe1', borderRight: '1px solid #a3372620', borderBottom: '1px solid #a3372620' }}
       >
-        <svg
-          viewBox="0 0 180 140"
-          xmlns="http://www.w3.org/2000/svg"
-          className="w-48 md:w-64"
-          aria-label="Axis & Bloom"
-        >
-          {/* AXIS */}
-          <text
-            x="90" y="38"
-            textAnchor="middle"
-            fontFamily="Genova, sans-serif"
-            fontWeight="100"
-            fontSize="18"
-            fill={BRAND}
-            letterSpacing="10"
-          >
-            AXIS
-          </text>
-
-          {/* thin rule above & */}
-          <line x1="55" y1="48" x2="125" y2="48" stroke={BRAND} strokeWidth="0.5" opacity="0.4" />
-
-          {/* & */}
-          <text
-            x="90" y="92"
-            textAnchor="middle"
-            fontFamily="Genova, sans-serif"
-            fontWeight="100"
-            fontSize="58"
-            fill={BRAND}
-            opacity="0.85"
-          >
-            &amp;
-          </text>
-
-          {/* thin rule below & */}
-          <line x1="55" y1="102" x2="125" y2="102" stroke={BRAND} strokeWidth="0.5" opacity="0.4" />
-
-          {/* BLOOM */}
-          <text
-            x="90" y="122"
-            textAnchor="middle"
-            fontFamily="Genova, sans-serif"
-            fontWeight="100"
-            fontSize="18"
-            fill={BRAND}
-            letterSpacing="8"
-          >
-            BLOOM
-          </text>
-        </svg>
+        <img
+          src={logoUrl}
+          alt="Axis & Bloom"
+          style={{ maxWidth: '280px', width: '100%' }}
+        />
       </div>
 
       {/* Right half — content */}
@@ -108,7 +76,7 @@ export default function PreLaunch() {
           {/* Thin separator */}
           <div style={{ height: '1px', backgroundColor: '#a3372630', margin: '2rem 0' }} />
 
-          {/* Email form */}
+          {/* Form */}
           {submitted ? (
             <p style={{
               fontFamily: 'Genova, sans-serif',
@@ -123,23 +91,19 @@ export default function PreLaunch() {
           ) : (
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
               <input
+                type="text"
+                value={firstName}
+                onChange={e => setFirstName(e.target.value)}
+                placeholder="your first name"
+                style={inputStyle}
+              />
+              <input
                 type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 placeholder="your email"
                 required
-                style={{
-                  width: '100%',
-                  border: 'none',
-                  borderBottom: `1px solid ${BRAND}`,
-                  background: 'transparent',
-                  padding: '12px 0',
-                  fontFamily: 'Genova, sans-serif',
-                  fontSize: '0.9rem',
-                  color: BRAND,
-                  outline: 'none',
-                }}
-                onFocus={e => (e.target.style.borderBottomColor = BRAND)}
+                style={inputStyle}
               />
               <button
                 type="submit"

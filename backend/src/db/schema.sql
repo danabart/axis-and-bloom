@@ -456,13 +456,16 @@ ON CONFLICT (name) DO UPDATE SET label = EXCLUDED.label;
 
 CREATE TABLE IF NOT EXISTS newsletter_subscriber (
   email      TEXT PRIMARY KEY,
+  first_name TEXT,
   user_id    UUID REFERENCES user_profile(id) ON DELETE SET NULL,
   source_id  INT  REFERENCES subscriber_source(id) ON DELETE SET NULL,
   subscribed BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
 
--- Add source_id to existing DBs (idempotent)
+-- Add columns to existing DBs (idempotent)
+ALTER TABLE newsletter_subscriber
+  ADD COLUMN IF NOT EXISTS first_name TEXT;
 ALTER TABLE newsletter_subscriber
   ADD COLUMN IF NOT EXISTS source_id INT REFERENCES subscriber_source(id) ON DELETE SET NULL;
 
