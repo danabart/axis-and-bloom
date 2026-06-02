@@ -201,13 +201,61 @@ Cloud Run's `--set-secrets` flag fails the entire deployment if any referenced s
 
 ---
 
+### 9. PreLaunch visual redesign — final state
+**File:** `frontend/src/app/components/PreLaunch.tsx`
+
+Iterated through several visual versions of the pre-launch page. Current final state:
+
+**Left half:**
+- Background: `#f2f1ea`
+- `LogoLines.svg` imported as a plain `<img>` tag — original terracotta, pink, and gray stroke colors fully preserved, no CSS filter
+- Logo width: 480px, capped at `min(480px, 85vw)` for responsive scaling
+
+**Right half:**
+- Background: `#deded1`
+- Content centered with 80px padding on desktop, 40px on mobile
+- Tagline: Genova Regular, `1rem`, `#a33726`, `letter-spacing: 0.12em`, `line-height: 1.8`, split across two lines
+- Thin separator: `1px solid #a3372640`, 32px margin above and below
+- First name input + email input: `1.5px` border-bottom, `1rem`, `32px` gap between fields
+- `JOIN →` button: `0.95rem`, `letter-spacing: 0.15em`
+- Placeholder text styled via `::placeholder` CSS rule at 45% opacity in Genova
+
+**Dividing line:** `1px solid #a3372620`
+
+---
+
+### 10. Fix — frontend build failure (missing LOGO assets)
+**File:** `frontend/src/design/LOGO/` (6 SVG files added to git)
+
+`PreLaunch.tsx` imports `LogoLines.svg` from `src/design/LOGO/`. The folder existed locally but was never committed to git. CI clones the repo fresh, so the import resolved to a missing file and the Vite build failed with a module not found error.
+
+**Fix:** Staged and committed all 6 logo files (`LogoLines.svg`, `LogoCircle.svg`, `LogoQuarter1–4.svg`).
+
+---
+
+### 11. Fix — PreLaunch mobile layout (logo clipping)
+**File:** `frontend/src/app/components/PreLaunch.tsx`
+
+On screens below 768px the logo was being clipped. Four mobile-specific fixes applied:
+
+| Fix | Before | After |
+|---|---|---|
+| Top panel height | `h-2/5` (40%) | `h-[45vh]` |
+| Bottom panel height | `h-3/5` (60%) | `h-[55vh]` |
+| Logo max-width | `85%` of container | `min(480px, 85vw)` |
+| Panel padding (mobile) | none | `p-6` (24px all sides) via Tailwind responsive |
+| Overflow | not set | `overflow: hidden` |
+
+Desktop layout (50/50 split, 80px padding, 480px logo) is completely unchanged.
+
+---
+
 ## File Reference
 
 | File | What changed |
 |---|---|
 | `frontend/src/app/components/Home.tsx` | COMING SOON hero, font cleanup |
-| `frontend/src/app/components/Home.tsx` | COMING SOON hero, font cleanup |
-| `frontend/src/app/components/PreLaunch.tsx` | New — pre-launch curtain page with logo, first name + email form |
+| `frontend/src/app/components/PreLaunch.tsx` | New — pre-launch curtain page; iterated visually; mobile layout fixed |
 | `frontend/src/app/App.tsx` | Conditional pre-launch routing + preview bypass |
 | `frontend/src/styles/fonts.css` | Genova @font-face declarations |
 | `frontend/src/styles/theme.css` | Global font-family on body, heading weights set to 400 |
