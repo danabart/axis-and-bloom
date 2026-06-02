@@ -1,6 +1,8 @@
 import { motion } from 'motion/react';
 import { Link, useNavigate } from 'react-router';
 import { TasteFinderSection } from './TasteFinderSection';
+import beansPhoto from '../../design/images/A_B03.png'
+import chaffPhoto from '../../design/images/A_B06.png'
 
 export default function Home() {
   const navigate = useNavigate();
@@ -21,21 +23,16 @@ export default function Home() {
         {/* Hero */}
         <div className="h-screen relative overflow-hidden">
           <div className="absolute inset-0 flex">
-            <motion.div initial={{ x: '-100%' }} animate={{ x: 0 }} transition={{ duration: 1.2, ease: [0.6, 0.05, 0.01, 0.9] }} className="w-1/2" style={{ backgroundColor: '#f2f1ea' }} />
+            <motion.div initial={{ x: '-100%' }} animate={{ x: 0 }} transition={{ duration: 1.2, ease: [0.6, 0.05, 0.01, 0.9] }} className="w-1/2" style={{ position: 'relative', overflow: 'hidden' }}>
+                <img src={beansPhoto} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }} />
+                <img src="/src/design/LOGO/LogoQuarter1.svg" alt="" style={{ position: 'absolute', top: 40, left: 40, maxWidth: 60, width: 60, filter: 'brightness(0) invert(1) sepia(1) saturate(0) brightness(2)' }} />
+              </motion.div>
             <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} transition={{ duration: 1.2, ease: [0.6, 0.05, 0.01, 0.9] }} className="w-1/2 relative overflow-hidden" style={{ backgroundColor: '#deded1' }}>
               <video autoPlay loop muted playsInline className="absolute inset-0 w-full h-full object-cover" src="https://i.imgur.com/HKuT8YR.mp4" />
             </motion.div>
           </div>
 
           <div className="relative z-10 h-full flex pt-24">
-            <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.8, delay: 0.6 }} className="w-1/2 h-full flex items-center justify-center px-8">
-              <div className="flex flex-col items-center w-full" style={{ color: '#a33726' }}>
-                <span className="block font-light leading-none w-full text-center" style={{ fontSize: 'clamp(2.5rem, 7.5vw, 8.5rem)', letterSpacing: '0.38em' }}>COMING</span>
-                <div className="my-5 w-full" style={{ height: '1px', backgroundColor: '#a33726', opacity: 0.3 }} />
-                <span className="block font-normal leading-none text-center" style={{ fontSize: 'clamp(6rem, 17vw, 19rem)', letterSpacing: '-0.02em' }}>SOON</span>
-              </div>
-            </motion.div>
-
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.8 }} className="w-1/2 flex flex-col items-start justify-start pt-32 pl-8">
               <h1 className="text-7xl leading-tight mb-6" style={{ color: '#a33726' }}>
                 Coffee,<br />
