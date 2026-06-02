@@ -52,7 +52,7 @@ export default function PreLaunch() {
       >
         {/* ── Left — logo ───────────────────────────────────────── */}
         <div
-          className="w-full h-2/5 md:w-1/2 md:h-full"
+          className="w-full h-[45vh] md:w-1/2 md:h-full p-6 md:p-0"
           style={{
             backgroundColor: '#f2f1ea',
             borderRight: '1px solid #a3372620',
@@ -60,18 +60,19 @@ export default function PreLaunch() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
+            overflow: 'hidden',
           }}
         >
           <img
             src={logoLines}
             alt="Axis & Bloom"
-            style={{ width: '480px', maxWidth: '85%' }}
+            style={{ width: '480px', maxWidth: 'min(480px, 85vw)' }}
           />
         </div>
 
         {/* ── Right — beige ─────────────────────────────────────── */}
         <div
-          className="w-full h-3/5 md:w-1/2 md:h-full flex items-center justify-center p-10 md:p-20"
+          className="w-full h-[55vh] md:w-1/2 md:h-full flex items-center justify-center p-10 md:p-20"
           style={{ backgroundColor: '#deded1' }}
         >
           <div style={{ width: '100%' }}>
