@@ -13,7 +13,7 @@ export default function PreLaunch() {
       await fetch('/api/newsletter/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, source: 'pre_launch' }),
       });
     } catch {
       // fail silently — still show confirmation

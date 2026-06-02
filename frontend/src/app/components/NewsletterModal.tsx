@@ -23,10 +23,10 @@ export default function NewsletterModal() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await fetch('/api/newsletter', {
+      await fetch('/api/newsletter/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, source: 'newsletter' }),
       });
     } catch {}
     setHasSubmitted(true);

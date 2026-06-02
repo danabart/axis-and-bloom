@@ -440,12 +440,31 @@ CREATE TABLE IF NOT EXISTS chat_message (
   created_at TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
 
+-- Where did this subscriber come from?
+CREATE TABLE IF NOT EXISTS subscriber_source (
+  id    SERIAL PRIMARY KEY,
+  name  TEXT NOT NULL UNIQUE,   -- machine key  e.g. 'pre_launch'
+  label TEXT NOT NULL           -- human label  e.g. 'Pre-Launch Popup'
+);
+
+INSERT INTO subscriber_source (name, label) VALUES
+  ('pre_launch', 'Pre-Launch Popup'),
+  ('newsletter',  'Newsletter Modal'),
+  ('post_quiz',   'Post-Quiz Signup'),
+  ('footer',      'Footer Widget')
+ON CONFLICT (name) DO UPDATE SET label = EXCLUDED.label;
+
 CREATE TABLE IF NOT EXISTS newsletter_subscriber (
   email      TEXT PRIMARY KEY,
   user_id    UUID REFERENCES user_profile(id) ON DELETE SET NULL,
+  source_id  INT  REFERENCES subscriber_source(id) ON DELETE SET NULL,
   subscribed BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
+
+-- Add source_id to existing DBs (idempotent)
+ALTER TABLE newsletter_subscriber
+  ADD COLUMN IF NOT EXISTS source_id INT REFERENCES subscriber_source(id) ON DELETE SET NULL;
 
 -- ─────────────────────────────────────────────
 -- CUPPING TOOL
