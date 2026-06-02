@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router';
+import { BrowserRouter, Routes, Route, useSearchParams } from 'react-router';
 import { AuthProvider } from './context/AuthContext';
 import PreLaunch from './components/PreLaunch';
 import PublicLayout from './components/PublicLayout';
@@ -20,23 +20,20 @@ import AdminCupping from './components/admin/AdminCupping';
 
 const PRELAUNCH = import.meta.env.VITE_PRELAUNCH_MODE === 'true';
 
-function usePrelaunchActive() {
-  const bypassFromUrl = new URLSearchParams(window.location.search).get('preview') === 'true';
-  if (bypassFromUrl) sessionStorage.setItem('abPreview', 'true');
-  const bypassed = bypassFromUrl || sessionStorage.getItem('abPreview') === 'true';
-  return PRELAUNCH && !bypassed;
+function HomeOrPrelaunch() {
+  const [searchParams] = useSearchParams();
+  const fromUrl = searchParams.get('preview') === 'true';
+  if (fromUrl) sessionStorage.setItem('abPreview', 'true');
+  const bypassed = fromUrl || sessionStorage.getItem('abPreview') === 'true';
+  if (PRELAUNCH && !bypassed) return <PreLaunch />;
+  return <Home />;
 }
 
 export default function App() {
-  const prelaunchActive = usePrelaunchActive();
-
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* ── Pre-launch — root only, bypassed via /?preview=true ── */}
-          {prelaunchActive && <Route path="/" element={<PreLaunch />} />}
-
           {/* ── Admin portal — own layout, no public nav/footer ── */}
           <Route
             path="/admin"
@@ -56,7 +53,7 @@ export default function App() {
 
           {/* ── Public site — shared nav + footer ── */}
           <Route element={<PublicLayout />}>
-            <Route path="/" element={<Home />} />
+            <Route path="/" element={<HomeOrPrelaunch />} />
             <Route path="/how-it-works" element={<HowItWorks />} />
             <Route path="/find-my-flavor" element={<FlavorQuiz />} />
             <Route path="/about" element={<About />} />
