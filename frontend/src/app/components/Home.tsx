@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router';
 import { TasteFinderSection } from './TasteFinderSection';
 import beansPhoto from '../../design/IMAGES/lifestyle/CoffeePic03.png'
 import chaffPhoto from '../../design/IMAGES/A_B06.png'
+import logoQuarter1 from '../../design/LOGO/LogoQuarter1.svg'
 
 export default function Home() {
   const navigate = useNavigate();
@@ -25,7 +26,7 @@ export default function Home() {
           <div className="absolute inset-0 flex">
             <motion.div initial={{ x: '-100%' }} animate={{ x: 0 }} transition={{ duration: 1.2, ease: [0.6, 0.05, 0.01, 0.9] }} className="w-1/2" style={{ position: 'relative', overflow: 'hidden' }}>
                 <img src={beansPhoto} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }} />
-                <img src="/src/design/LOGO/LogoQuarter1.svg" alt="" style={{ position: 'absolute', top: 40, left: 40, maxWidth: 60, width: 60, filter: 'brightness(0) invert(1) sepia(1) saturate(0) brightness(2)' }} />
+                <img src={logoQuarter1} alt="" style={{ position: 'absolute', top: 40, left: 40, maxWidth: 60, width: 60, filter: 'brightness(0) invert(1) sepia(1) saturate(0) brightness(2)' }} />
               </motion.div>
             <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} transition={{ duration: 1.2, ease: [0.6, 0.05, 0.01, 0.9] }} className="w-1/2 relative overflow-hidden" style={{ backgroundColor: '#deded1' }}>
               <video autoPlay loop muted playsInline className="absolute inset-0 w-full h-full object-cover" src="https://i.imgur.com/HKuT8YR.mp4" />
