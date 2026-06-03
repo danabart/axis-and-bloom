@@ -250,17 +250,72 @@ Desktop layout (50/50 split, 80px padding, 480px logo) is completely unchanged.
 
 ---
 
+### 12. Act 1 hero — beans photo left panel, removed COMING SOON, logo watermark
+**File:** `frontend/src/app/components/Home.tsx`
+
+Replaced the plain `#f2f1ea` background on the left hero panel with a full-bleed product photo and a watermark logo overlay. Removed the COMING SOON typographic treatment entirely.
+
+**Left panel (background layer):**
+- `motion.div` wrapper: `position: relative`, `overflow: hidden` (replaces `backgroundColor: '#f2f1ea'`)
+- Full-bleed `<img>` of `A_B03.png`: `position: absolute`, `inset: 0`, `width/height: 100%`, `objectFit: cover`
+- Logo watermark: `LogoQuarter1.svg`, `position: absolute`, `top: 40px`, `left: 40px`, `60×60px`, CSS filter `brightness(0) invert(1) sepia(1) saturate(0) brightness(2)` renders it in cream
+
+**Removed:** The `motion.div` with `initial={{ opacity: 0, scale: 0.8 }}` that contained "COMING" / horizontal rule / "SOON" — deleted entirely from the z-10 overlay layer.
+
+**New imports added:**
+```ts
+import beansPhoto from '../../design/IMAGES/A_B03.png'
+import chaffPhoto from '../../design/IMAGES/A_B06.png'  // reserved for TasteFinderSection
+```
+
+---
+
+### 13. Assets — added A_B03 and A_B06 product photos
+**Files:** `frontend/src/design/IMAGES/A_B03.png`, `frontend/src/design/IMAGES/A_B06.png`
+
+Committed two product photo assets to the repo. Files were originally named `A&B03.png` / `A&B06.png` (ampersands) and renamed to underscores to match the import paths in `Home.tsx` and to avoid shell escaping issues. Directory casing also corrected from `images` → `IMAGES` to match the on-disk folder name and avoid Linux case-sensitive build failures.
+
+---
+
+### 14. Navbar — logo mark + Genova font on all nav text
+**File:** `frontend/src/app/components/Navigation.tsx`
+
+Updated the left side of the navbar from a plain text wordmark to a logo + text lockup, and applied Genova to all right-side nav links.
+
+**Left side (logo lockup):**
+- `LogoQuarter1.svg` imported and rendered as `<img>` at `28×28px`
+- Wordmark `<span>`: Genova Regular, `#b05642`, `0.75rem`, `letter-spacing: 0.15em`
+- Removed `hover:opacity-60 transition-opacity` from the wrapper link
+
+**Right side:**
+- Added `fontFamily: 'Genova, sans-serif'` to the container `<div>` so it cascades to all nav links (How it works, Find my flavor, About, Shop, Admin, Sign in)
+
+---
+
+### 15. Fix — hero headline anchored to right panel
+**File:** `frontend/src/app/components/Home.tsx`
+
+The hero text `motion.div` (headline + CTAs) was positioned in normal flow, occupying the left half of the overlay layer now that COMING SOON was removed. Fixed by making it absolutely positioned and pinning it to the right half.
+
+- `className`: added `absolute right-0`, removed implicit left-flow positioning
+- `style`: added `top: 0, bottom: 0` to fill the full height of the hero
+- Starting vertical position: `pt-48` (changed from original `pt-32` to lower the headline)
+
+---
+
 ## File Reference
 
 | File | What changed |
 |---|---|
-| `frontend/src/app/components/Home.tsx` | COMING SOON hero, font cleanup |
+| `frontend/src/app/components/Home.tsx` | Act 1 hero: beans photo left panel, COMING SOON removed, logo watermark, hero text anchored right, pt-48 |
+| `frontend/src/app/components/Navigation.tsx` | Logo mark + wordmark lockup, Genova applied to all nav links |
 | `frontend/src/app/components/PreLaunch.tsx` | New — pre-launch curtain page; iterated visually; mobile layout fixed |
 | `frontend/src/app/App.tsx` | Conditional pre-launch routing + preview bypass |
 | `frontend/src/styles/fonts.css` | Genova @font-face declarations |
 | `frontend/src/styles/theme.css` | Global font-family on body, heading weights set to 400 |
 | `frontend/src/design/FONT/genova/` | Genova font files (added to repo) |
-| `frontend/src/design/LOGO/` | Logo files (LogoLines.svg used in pre-launch) |
+| `frontend/src/design/LOGO/` | Logo files (LogoLines.svg, LogoQuarter1.svg used in nav + hero watermark) |
+| `frontend/src/design/IMAGES/` | A_B03.png, A_B06.png product photos (added to repo, renamed from ampersand) |
 | `backend/src/routes/newsletter.ts` | firstName support, Mailchimp integration |
 | `backend/src/db/schema.sql` | first_name column on newsletter_subscriber |
 | `.github/workflows/deploy.yml` | VITE_PRELAUNCH_MODE added; Mailchimp secrets removed until created in GCP |
