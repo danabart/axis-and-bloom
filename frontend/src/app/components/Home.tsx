@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import { Link, useNavigate } from 'react-router';
 import { TasteFinderSection } from './TasteFinderSection';
-import beansPhoto from '../../design/IMAGES/A_B03.png'
+import beansPhoto from '../../design/IMAGES/lifestyle/CoffeePic03.png'
 import chaffPhoto from '../../design/IMAGES/A_B06.png'
 
 export default function Home() {
