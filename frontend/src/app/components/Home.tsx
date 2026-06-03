@@ -33,7 +33,7 @@ export default function Home() {
           </div>
 
           <div className="relative z-10 h-full flex pt-24">
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.8 }} className="w-1/2 flex flex-col items-start justify-start pt-32 pl-8">
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.8 }} className="absolute right-0 w-1/2 flex flex-col items-start justify-start pt-32 pl-8" style={{ top: 0, bottom: 0 }}>
               <h1 className="text-7xl leading-tight mb-6" style={{ color: '#a33726' }}>
                 Coffee,<br />
                 <span style={{ backgroundColor: '#ee5974', color: '#DEDED1', paddingLeft: '12px', paddingRight: '12px', display: 'inline-block' }}>matched</span> to your<br />
