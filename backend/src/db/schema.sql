@@ -1339,3 +1339,17 @@ JOIN answer    a  ON a.id  = aas.answer_id
 JOIN question  q  ON q.id  = aas.question_id
 JOIN archetype ar ON ar.id = aas.archetype_id
 ORDER BY q.q_number, aas.score DESC;
+
+-- Newsletter subscriber list — all signups with source label, ordered newest first.
+-- Columns: email, first_name, source (human-readable label), subscribed, signed_up_at
+DROP VIEW IF EXISTS v_newsletter_subscribers;
+CREATE VIEW v_newsletter_subscribers AS
+SELECT
+  ns.email,
+  ns.first_name,
+  ss.label        AS source,
+  ns.subscribed,
+  ns.created_at   AS signed_up_at
+FROM newsletter_subscriber ns
+LEFT JOIN subscriber_source ss ON ss.id = ns.source_id
+ORDER BY ns.created_at DESC;

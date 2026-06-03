@@ -296,6 +296,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 |---|---|
 | `v_collaborative_flavor_wheel` | All descriptor observations per coffee with source label (`internal`, `roastery`, `client`). Columns: `coffee_id`, `coffee_name`, `cupping_note_id`, `wheel_category`, `wheel_subcategory`, `descriptor`, `source`, `intensity`. No extra JOINs needed — names are already resolved. One row per observation; GROUP BY coffee + descriptor to aggregate. |
 | `v_quiz_scoring_matrix` | Full scoring matrix — one row per (question, answer, archetype). Columns: `q_number`, `q_text`, `q_weight`, `answer_text`, `archetype`, `ans_score`, `ans_weight`. Lambda formula: `q_weight × ans_weight × ans_score`. |
+| `v_newsletter_subscribers` | All newsletter signups with human-readable source label. Columns: `email`, `first_name`, `source` (e.g. `Pre-Launch Popup`), `subscribed`, `signed_up_at`. Ordered newest first. |
 
 ### Dimensions (seeded, 12 rows)
 
@@ -1064,18 +1065,14 @@ SELECT * FROM v_quiz_scoring_matrix;
 
 ### Newsletter subscriber list (pre-launch leads)
 ```sql
-SELECT ns.email, ns.first_name, ss.label AS source, ns.subscribed, ns.created_at
-FROM newsletter_subscriber ns
-LEFT JOIN subscriber_source ss ON ss.id = ns.source_id
-ORDER BY ns.created_at DESC;
+SELECT * FROM v_newsletter_subscribers;
 ```
 
 ### Check signup counts by source
 ```sql
-SELECT ss.label AS source, COUNT(*) AS signups
-FROM newsletter_subscriber ns
-JOIN subscriber_source ss ON ss.id = ns.source_id
-GROUP BY ss.label
+SELECT source, COUNT(*) AS signups
+FROM v_newsletter_subscribers
+GROUP BY source
 ORDER BY signups DESC;
 ```
 
