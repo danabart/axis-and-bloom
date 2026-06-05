@@ -28,7 +28,7 @@ interface ProfileData {
   orders: any[];
 }
 
-const EMPTY_ADDRESS = { street: '', city: '', state: '', postalCode: '', country: 'US' };
+const EMPTY_ADDRESS = { street: '', city: '', state: '', postalCode: '', country: 'US', addressType: 'shipping' as 'shipping' | 'billing' };
 
 export default function Profile() {
   const [activeTab, setActiveTab]         = useState<Tab>('memory');
@@ -90,7 +90,7 @@ export default function Profile() {
       const res = await fetch('/api/users/addresses', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ ...addressForm, isDefault: (profile?.addresses ?? []).length === 0 }),
+        body: JSON.stringify({ ...addressForm }),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
       const newAddr = await res.json();
@@ -100,6 +100,22 @@ export default function Profile() {
     } catch (err: any) {
       setAddressError(err.message ?? 'Failed to save address');
     } finally { setSavingAddress(false); }
+  }
+
+  async function handleSetDefault(id: string, type: string) {
+    try {
+      const token = await user!.getIdToken();
+      await fetch(`/api/users/addresses/${id}/default`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setProfile(p => p ? {
+        ...p,
+        addresses: p.addresses.map(a =>
+          a.address_type === type ? { ...a, is_default: a.id === id } : a
+        ),
+      } : p);
+    } catch { /* silent */ }
   }
 
   async function handleDeleteAddress(id: string) {
@@ -241,64 +257,83 @@ export default function Profile() {
                   </div>
                 </form>
 
-                {/* Shipping addresses */}
-                <div className="flex flex-col gap-4 border-t border-[#a33726]/10 pt-8">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 font-normal">Shipping Addresses</p>
+                {/* Addresses — Shipping + Billing */}
+                {(['shipping', 'billing'] as const).map(type => {
+                  const typeAddresses = (profile?.addresses ?? []).filter(a => a.address_type === type);
+                  const isThisFormOpen = showAddressForm && addressForm.addressType === type;
+                  return (
+                    <div key={type} className="flex flex-col gap-4 border-t border-[#a33726]/10 pt-8">
+                      <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 font-normal">
+                        {type === 'shipping' ? 'Shipping Addresses' : 'Billing Addresses'}
+                      </p>
 
-                  {(profile?.addresses ?? []).map(addr => (
-                    <div key={addr.id} className="flex items-start justify-between border border-[#a33726]/15 p-4 bg-white/40">
-                      <div>
-                        {addr.is_default && <span className="text-[9px] uppercase tracking-widest text-[#a33726]/50 block mb-1">Default</span>}
-                        <p className="text-sm text-[#a33726] font-light">{addr.street}</p>
-                        <p className="text-sm text-[#a33726]/70 font-light">{addr.city}, {addr.state} {addr.postal_code}</p>
-                        <p className="text-sm text-[#a33726]/50 font-light">{addr.country}</p>
-                      </div>
-                      <button onClick={() => handleDeleteAddress(addr.id)}
-                        className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/30 hover:text-[#a33726] transition-colors ml-4 mt-1">
-                        Remove
-                      </button>
+                      {typeAddresses.map(addr => (
+                        <div key={addr.id} className="flex items-start justify-between border border-[#a33726]/15 p-4 bg-white/40">
+                          <div>
+                            {addr.is_default && (
+                              <span className="text-[9px] uppercase tracking-widest text-[#a33726]/50 block mb-1">Default</span>
+                            )}
+                            <p className="text-sm text-[#a33726] font-light">{addr.street}</p>
+                            <p className="text-sm text-[#a33726]/70 font-light">{addr.city}, {addr.state} {addr.postal_code}</p>
+                            <p className="text-sm text-[#a33726]/50 font-light">{addr.country}</p>
+                          </div>
+                          <div className="flex flex-col items-end gap-2 ml-4 mt-1 shrink-0">
+                            {!addr.is_default && (
+                              <button onClick={() => handleSetDefault(addr.id, type)}
+                                className="text-[9px] uppercase tracking-[0.2em] text-[#a33726]/40 hover:text-[#a33726] transition-colors">
+                                Set Default
+                              </button>
+                            )}
+                            <button onClick={() => handleDeleteAddress(addr.id)}
+                              className="text-[9px] uppercase tracking-[0.2em] text-[#a33726]/30 hover:text-[#a33726] transition-colors">
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+
+                      {!isThisFormOpen ? (
+                        <button
+                          onClick={() => { setShowAddressForm(true); setAddressForm({ ...EMPTY_ADDRESS, addressType: type }); setAddressError(''); }}
+                          className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/50 hover:text-[#a33726] transition-colors border-b border-[#a33726]/20 pb-1 w-fit">
+                          + Add {type === 'shipping' ? 'Shipping' : 'Billing'} Address
+                        </button>
+                      ) : (
+                        <form onSubmit={handleAddAddress} className="flex flex-col gap-4 border border-[#a33726]/15 p-4 bg-white/40">
+                          <div>
+                            <label className={labelClass}>Street</label>
+                            <input required value={addressForm.street} onChange={e => setAddressForm(f => ({ ...f, street: e.target.value }))} placeholder="123 Main St" className={inputClass} />
+                          </div>
+                          <div className="flex gap-3">
+                            <div className="flex-1">
+                              <label className={labelClass}>City</label>
+                              <input required value={addressForm.city} onChange={e => setAddressForm(f => ({ ...f, city: e.target.value }))} placeholder="New York" className={inputClass} />
+                            </div>
+                            <div className="w-20">
+                              <label className={labelClass}>State</label>
+                              <input required value={addressForm.state} onChange={e => setAddressForm(f => ({ ...f, state: e.target.value }))} placeholder="NY" maxLength={2} className={inputClass} />
+                            </div>
+                            <div className="w-24">
+                              <label className={labelClass}>ZIP</label>
+                              <input required value={addressForm.postalCode} onChange={e => setAddressForm(f => ({ ...f, postalCode: e.target.value }))} placeholder="10001" className={inputClass} />
+                            </div>
+                          </div>
+                          {addressError && <p className="text-xs text-red-600">{addressError}</p>}
+                          <div className="flex gap-4 pt-2">
+                            <button type="submit" disabled={savingAddress}
+                              className="text-[10px] uppercase tracking-[0.3em] text-[#a33726] border-b border-[#a33726]/40 pb-1 hover:border-[#ee5974] hover:text-[#ee5974] transition-colors disabled:opacity-30">
+                              {savingAddress ? 'Saving…' : 'Save Address'}
+                            </button>
+                            <button type="button" onClick={() => { setShowAddressForm(false); setAddressForm(EMPTY_ADDRESS); setAddressError(''); }}
+                              className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 hover:text-[#a33726] transition-colors">
+                              Cancel
+                            </button>
+                          </div>
+                        </form>
+                      )}
                     </div>
-                  ))}
-
-                  {!showAddressForm ? (
-                    <button onClick={() => setShowAddressForm(true)}
-                      className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/50 hover:text-[#a33726] transition-colors border-b border-[#a33726]/20 pb-1 w-fit">
-                      + Add Address
-                    </button>
-                  ) : (
-                    <form onSubmit={handleAddAddress} className="flex flex-col gap-4 border border-[#a33726]/15 p-4 bg-white/40">
-                      <div>
-                        <label className={labelClass}>Street</label>
-                        <input required value={addressForm.street} onChange={e => setAddressForm(f => ({ ...f, street: e.target.value }))} placeholder="123 Main St" className={inputClass} />
-                      </div>
-                      <div className="flex gap-3">
-                        <div className="flex-1">
-                          <label className={labelClass}>City</label>
-                          <input required value={addressForm.city} onChange={e => setAddressForm(f => ({ ...f, city: e.target.value }))} placeholder="New York" className={inputClass} />
-                        </div>
-                        <div className="w-20">
-                          <label className={labelClass}>State</label>
-                          <input required value={addressForm.state} onChange={e => setAddressForm(f => ({ ...f, state: e.target.value }))} placeholder="NY" maxLength={2} className={inputClass} />
-                        </div>
-                        <div className="w-24">
-                          <label className={labelClass}>ZIP</label>
-                          <input required value={addressForm.postalCode} onChange={e => setAddressForm(f => ({ ...f, postalCode: e.target.value }))} placeholder="10001" className={inputClass} />
-                        </div>
-                      </div>
-                      {addressError && <p className="text-xs text-red-600">{addressError}</p>}
-                      <div className="flex gap-4 pt-2">
-                        <button type="submit" disabled={savingAddress}
-                          className="text-[10px] uppercase tracking-[0.3em] text-[#a33726] border-b border-[#a33726]/40 pb-1 hover:border-[#ee5974] hover:text-[#ee5974] transition-colors disabled:opacity-30">
-                          {savingAddress ? 'Saving…' : 'Save Address'}
-                        </button>
-                        <button type="button" onClick={() => { setShowAddressForm(false); setAddressForm(EMPTY_ADDRESS); setAddressError(''); }}
-                          className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 hover:text-[#a33726] transition-colors">
-                          Cancel
-                        </button>
-                      </div>
-                    </form>
-                  )}
-                </div>
+                  );
+                })}
 
                 {/* Sign out */}
                 <div className="border-t border-[#a33726]/10 pt-8">

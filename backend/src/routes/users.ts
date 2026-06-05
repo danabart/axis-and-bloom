@@ -119,11 +119,12 @@ router.patch('/profile', requireAuth, async (req: AuthRequest, res) => {
 
 // ── POST /api/users/addresses ─────────────────────────────────────────────────
 router.post('/addresses', requireAuth, async (req: AuthRequest, res) => {
-  const { street, city, state, postalCode, country = 'US', isDefault = false } = req.body ?? {};
+  const { street, city, state, postalCode, country = 'US', addressType = 'shipping', isDefault = false } = req.body ?? {};
   if (!street || !city || !state || !postalCode) {
     res.status(400).json({ error: 'street, city, state, and postalCode are required' });
     return;
   }
+  const type = addressType === 'billing' ? 'billing' : 'shipping';
   try {
     const profileResult = await db.query(
       `SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]
@@ -131,19 +132,61 @@ router.post('/addresses', requireAuth, async (req: AuthRequest, res) => {
     const profileId = profileResult.rows[0]?.id;
     if (!profileId) { res.status(404).json({ error: 'Profile not found' }); return; }
 
-    if (isDefault) {
-      await db.query(`UPDATE address SET is_default = false WHERE user_id = $1`, [profileId]);
+    // Auto-default if this is the first address of its type, or if explicitly requested
+    const existingCount = await db.query(
+      `SELECT COUNT(*) FROM address WHERE user_id = $1 AND address_type = $2`, [profileId, type]
+    );
+    const shouldDefault = isDefault || Number(existingCount.rows[0].count) === 0;
+    if (shouldDefault) {
+      await db.query(
+        `UPDATE address SET is_default = false WHERE user_id = $1 AND address_type = $2`,
+        [profileId, type]
+      );
     }
 
     const result = await db.query(
-      `INSERT INTO address (user_id, street, city, state, postal_code, country, is_default)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [profileId, street, city, state, postalCode, country, isDefault]
+      `INSERT INTO address (user_id, address_type, street, city, state, postal_code, country, is_default)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [profileId, type, street, city, state, postalCode, country, shouldDefault]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('[POST /api/users/addresses]', err);
     res.status(500).json({ error: 'Failed to save address' });
+  }
+});
+
+// ── PATCH /api/users/addresses/:id/default ───────────────────────────────────
+router.patch('/addresses/:id/default', requireAuth, async (req: AuthRequest, res) => {
+  const { id } = req.params;
+  try {
+    const profileResult = await db.query(
+      `SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]
+    );
+    const profileId = profileResult.rows[0]?.id;
+    if (!profileId) { res.status(404).json({ error: 'Profile not found' }); return; }
+
+    // Find the address and its type (ownership check included)
+    const addrResult = await db.query(
+      `SELECT address_type FROM address WHERE id = $1 AND user_id = $2`,
+      [id, profileId]
+    );
+    if (!addrResult.rows.length) { res.status(404).json({ error: 'Address not found' }); return; }
+    const { address_type } = addrResult.rows[0];
+
+    // Unset default for all addresses of this type, then set the target
+    await db.query(
+      `UPDATE address SET is_default = false WHERE user_id = $1 AND address_type = $2`,
+      [profileId, address_type]
+    );
+    await db.query(
+      `UPDATE address SET is_default = true WHERE id = $1`,
+      [id]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[PATCH /api/users/addresses/:id/default]', err);
+    res.status(500).json({ error: 'Failed to update default address' });
   }
 });
 
