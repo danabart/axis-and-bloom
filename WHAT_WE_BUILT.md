@@ -237,7 +237,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 - `user_profile` — core user record; `firebase_uid` is the join key from Firebase Auth; columns added: `first_name TEXT`, `last_name TEXT`, `date_of_birth DATE` (all idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`)
 - `user_email` — multiple email addresses per user
 - `user_phone`
-- `address` — shipping addresses (street, city, state, postal_code, country, is_default); collected from the profile page Settings tab
+- `address` — shipping and billing addresses (street, city, state, postal_code, country, is_default, address_type: `'shipping' | 'billing'`); collected from the profile page Settings tab; first address of each type auto-set as default
 - `payment_detail` — Stripe customer links and payment info
 
 **Flavor / archetype engine**
@@ -344,8 +344,9 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | GET | `/api/orders` | Yes | User's order history |
 | GET | `/api/users/profile` | Yes | User's full profile — returns `firstName`, `lastName`, `dateOfBirth`, `email`, `archetype`, `addresses[]`, `orders[]`, `isAdmin` |
 | PATCH | `/api/users/profile` | Yes | Update `firstName`, `lastName`, `dateOfBirth` — uses `COALESCE` so omitted fields are not cleared |
-| POST | `/api/users/addresses` | Yes | Add a shipping address; first address auto-set as default |
-| DELETE | `/api/users/addresses/:id` | Yes | Remove a shipping address (ownership-checked) |
+| POST | `/api/users/addresses` | Yes | Add a shipping or billing address (`addressType: 'shipping' \| 'billing'`); first address of each type auto-set as default |
+| PATCH | `/api/users/addresses/:id/default` | Yes | Set an address as default for its type — unsets all others of the same type |
+| DELETE | `/api/users/addresses/:id` | Yes | Remove an address (ownership-checked) |
 | POST | `/api/newsletter/subscribe` | No | Newsletter signup — accepts `{ email, firstName?, source? }`; upserts `newsletter_subscriber` (preserving existing first_name if new value is blank); syncs to Mailchimp non-blocking if credentials configured; `source` defaults to `'newsletter'` |
 | POST | `/api/newsletter` | No | Backward-compat alias for `/subscribe` — called by `NewsletterModal`; identical logic |
 | GET | `/api/admin/lookups` | Admin | All dropdown options grouped by category (`roast_level`, `process`, `blend_or_single`, `brew_method`) |
@@ -679,6 +680,8 @@ Logic documented in `misc/v4/logic_notes.csv` (13 rules).
 **Welcome header**: now shows `"Welcome back, {first_name}"` using the name from the DB, falling back to `displayName` then email.
 
 **Birthday decision**: collected on the profile page (not at sign-up) to keep registration friction low. Users opt in at their own pace.
+
+**Address types (added in follow-up)**: Profile Settings now has two separate sections — Shipping Addresses and Billing Addresses. Each section has its own "+ Add" button; `addressType` is passed to `POST /api/users/addresses`. Each address card shows a "Set Default" button (hidden on the current default) which calls `PATCH /api/users/addresses/:id/default` — unsets all others of the same type before setting the target. First address of each type auto-becomes default on creation.
 
 ### 39. AI tasting notes billed per visitor — cached in DB
 **Problem**: `GET /api/coffees/:id/ai-summary` called Claude haiku on every page load. Every visitor triggered a billable Claude API call, once per coffee they viewed.
