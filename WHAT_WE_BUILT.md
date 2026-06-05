@@ -289,6 +289,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 - `client_flavor_feedback` — post-delivery feedback from customers; **one row per descriptor per user per coffee** (e.g. a client who tasted Blueberry and Dark Chocolate = 2 rows); links user + coffee + order to SCA wheel descriptors; `intensity` optional; no session or brew params — lightweight by design
 - `brew_params` — brew parameters per session-coffee (dose, water, yield, ratio, temp, grind, extraction time, pressure, steep time, device); all nullable
 - `archetype_assignments` — archetype tag per coffee with confidence level; `superseded_at = NULL` for the current assignment, populated when a newer one replaces it
+- `coffees.ai_summary TEXT` — AI-generated tasting note cached in the DB (added via idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`); generated once on first public page load, updated only via admin refresh; never regenerates on visitor traffic
 
 ### Views
 
@@ -367,6 +368,11 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | DELETE | `/api/admin/scores/:scoreId` | Admin | Delete a cupping score and all its dimension values + descriptors (CASCADE) |
 | POST | `/api/admin/grant-admin` | Admin | Grant admin role to a user by email — body: `{ "email": "..." }` |
 | DELETE | `/api/admin/revoke-admin` | Admin | Revoke admin role (sets back to customer) — body: `{ "email": "..." }` |
+| POST | `/api/admin/coffees/:id/refresh-summary` | Admin | Force-regenerates and stores the AI tasting note for a coffee — use after new cupping data is added |
+| GET | `/api/coffees` | No | Public coffee list with name, roaster, origin, process, roast level, and current archetype assignment |
+| GET | `/api/coffees/:id/flavor-wheel` | No | Flavor descriptors for one coffee aggregated from all 3 sources via `v_collaborative_flavor_wheel` |
+| GET | `/api/coffees/:id/dimensions` | No | Numeric dimension ranges (avg min/max per dimension) from all cupping scores + session overall notes |
+| GET | `/api/coffees/:id/ai-summary` | No | Returns cached `ai_summary` from DB if it exists; otherwise generates via Claude haiku, stores, and returns |
 
 ---
 
@@ -650,6 +656,19 @@ Experimental modifier: if `experimental = true AND food == secondary` → strong
 
 Logic documented in `misc/v4/logic_notes.csv` (13 rules).
 
+### 39. AI tasting notes billed per visitor — cached in DB
+**Problem**: `GET /api/coffees/:id/ai-summary` called Claude haiku on every page load. Every visitor triggered a billable Claude API call, once per coffee they viewed.
+**Fix**: Added `ai_summary TEXT` column to `coffees` table (idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`). Endpoint now checks the DB first — if populated, returns immediately with no Claude call. On first request (null), generates, stores, and returns. Admins can force-regenerate via `POST /api/admin/coffees/:id/refresh-summary` after new cupping data is added; "↺ Refresh" button added to Admin → Coffees.
+**Why:** You are the account holder billed for all Claude API usage. Visitor-triggered generation is unbounded and unpredictable.
+
+### 38. Dimension bars not showing for some coffees
+**Problem**: `GET /api/coffees/:id/dimensions` returned 0 rows for Noam Blend and Nocturnal despite cupping score data existing in the DB. Crosshatch/Ethiopia/Feather showed bars correctly.
+**Cause**: The query had `AND cs.is_merged = true`. Session 001 coffees have a merged score row; Noam Blend and Nocturnal were scored without the merge flag set. The filter silently excluded all their data.
+**Fix**: Removed `AND cs.is_merged = true` from all three dimensions-related queries in `coffees.ts` and the ai-summary endpoint. All cupping scores are now included and averaged regardless of merge status.
+
+### 37. Public `/coffees` page — flavor intelligence for customers
+**Change**: Added a new public page at `/coffees` (`CoffeesPage.tsx`) backed by three new public endpoints. Replaces the admin-only flavor wheel as the customer-facing view. Features: coffee selector sidebar, AI tasting note (DB-cached), dimension bars (range bars on 0–15 scale), bubble cloud (descriptors as growing circles sized by √mentions). "Our coffees" added to main nav.
+
 ### 36. `v_quiz_scoring_matrix` view expanded and fixed
 **Change**: View updated to include `quiz_version` (from `quiz` table), `a_number` (generated via `ROW_NUMBER() OVER (PARTITION BY q.id ORDER BY a.id)`), `q_weight`, and `ans_weight`. Column order changed.
 
@@ -742,7 +761,7 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 
 ---
 
-## Current State (as of 2026-06-05)
+## Current State (as of 2026-06-05 — updated)
 
 | Component | Status |
 |---|---|
@@ -758,6 +777,7 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 | Marketing email / Mailchimp | ✅ Active — new signups synced to Mailchimp audience with FNAME merge field; credentials in Secret Manager |
 | Claude AI chat | ✅ Wired up, API key in Secret Manager |
 | Claude recommendations | ✅ 6 mode-specific prompts in `getRecommendation()` — primary_only, primary_plus_introduce_secondary, primary_plus_active_secondary, primary_plus_note_secondary, primary_as_starting_point, ai_agent |
+| Our Coffees page (`/coffees`) | ✅ Public page — coffee selector sidebar, AI tasting note, dimension bars (cupping profile), bubble cloud (descriptor visualization). AI summary cached in DB; regenerated on demand via admin. |
 | Shopify | ⚠️ Stubbed — waiting for roastery account |
 | Pre-launch page | ✅ Live — full-screen curtain at axisandbloom.com; email + first name capture saves to DB + Mailchimp; bypass via `?preview=true` |
 | Newsletter subscriber tracking | ✅ `subscriber_source` table tracks signup origin (`pre_launch`, `newsletter`, `post_quiz`, `footer`); `first_name` stored |
@@ -766,6 +786,48 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 | Admin user management | ✅ `grant_admin()` / `revoke_admin()` / `list_admins()` stored DB functions + matching API endpoints |
 | Lookup values | ✅ `lookup_value` table — 20 values across 4 categories; single `GET /api/admin/lookups` call populates all admin dropdowns |
 | CI/CD | ✅ Push to main deploys everything |
+
+---
+
+## Our Coffees Page (`/coffees`)
+
+A public consumer-facing page at `/coffees` that presents each coffee's full flavor intelligence in one view. No auth required.
+
+**File**: `frontend/src/app/components/CoffeesPage.tsx`  
+**Backend**: `backend/src/routes/coffees.ts`
+
+### Layout
+
+Left sidebar (desktop) / horizontal scroll (mobile): coffee cards with name, roaster, and archetype pill. Click to select.
+
+Right panel per selected coffee:
+
+**1. AI tasting note card** — 2–3 sentence tasting note generated by Claude haiku, labeled "AI". Fetched from `coffees.ai_summary` in the DB. Generated once on first request, served from DB cache on all subsequent requests. Zero visitor-triggered Claude calls after the first.
+
+**2. Dimension bars** — one horizontal range bar per numeric cupping dimension (Sweetness, Acidity, Bitterness, Body, etc.). Shows the average min–max range on a 0–15 scale across all cupping scores for that coffee. Scale labels anchor each end. Staggered motion animation on load.
+
+**3. Bubble cloud** — all flavor descriptors shown as circles. Size scales with `√(totalMentions)` so circle area is proportional to signal weight. Colored by primary source (rust = internal cupping, sage = roastery notes, purple = customer feedback). Sorted largest-first. Spring-animated in on coffee select. Hover any bubble for full source breakdown.
+
+### Data sources
+
+| Section | Query |
+|---|---|
+| Dimension bars | `cupping_score_values` → `cupping_scores` → `session_coffees` → `dimensions` (all scores, no `is_merged` filter) |
+| Bubble cloud | `v_collaborative_flavor_wheel` (unions internal + roastery + client) |
+| AI summary | `coffees.ai_summary` (DB cache); fallback generates via Claude haiku |
+
+### AI summary caching
+
+`coffees.ai_summary TEXT` column added to the `coffees` table. Flow:
+1. `GET /api/coffees/:id/ai-summary` checks `coffees.ai_summary` first
+2. If null → fetches dimensions + top descriptors + overall notes → calls Claude haiku → stores result → returns
+3. If populated → returns immediately, no Claude call
+4. Admin can force-regenerate via `POST /api/admin/coffees/:id/refresh-summary` (e.g. after new cupping data)
+5. "↺ Refresh" button added to Admin → Coffees table
+
+### Navigation
+
+"Our coffees" link added to the main nav between "Find my flavor" and "About".
 
 ---
 
