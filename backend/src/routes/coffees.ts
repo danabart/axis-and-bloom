@@ -60,7 +60,6 @@ router.get('/:id/dimensions', async (req, res) => {
          JOIN session_coffees sc   ON sc.id  = cs.session_coffee_id
          JOIN dimensions d         ON d.id   = csv.dimension_id
          WHERE sc.coffee_id = $1
-           AND cs.is_merged = true
            AND d.is_numeric = true
            AND csv.value_min IS NOT NULL
          GROUP BY d.id, d.name, d.scale_min_label, d.scale_max_label, d.display_order
@@ -73,7 +72,6 @@ router.get('/:id/dimensions', async (req, res) => {
          JOIN session_coffees sc  ON sc.id  = cs.session_coffee_id
          JOIN cupping_sessions css ON css.id = sc.session_id
          WHERE sc.coffee_id = $1
-           AND cs.is_merged = true
            AND cs.overall_notes IS NOT NULL
          ORDER BY css.session_date DESC`,
         [id]
@@ -106,7 +104,7 @@ router.get('/:id/ai-summary', async (req, res) => {
          JOIN cupping_scores cs  ON cs.id = csv.cupping_score_id
          JOIN session_coffees sc ON sc.id = cs.session_coffee_id
          JOIN dimensions d       ON d.id  = csv.dimension_id
-         WHERE sc.coffee_id = $1 AND cs.is_merged = true AND d.is_numeric = true AND csv.value_min IS NOT NULL
+         WHERE sc.coffee_id = $1 AND d.is_numeric = true AND csv.value_min IS NOT NULL
          GROUP BY d.id, d.name, d.scale_min_label, d.scale_max_label, d.display_order
          ORDER BY d.display_order`,
         [id]
@@ -132,7 +130,7 @@ router.get('/:id/ai-summary', async (req, res) => {
     const notesResult = await db.query(
       `SELECT cs.overall_notes FROM cupping_scores cs
        JOIN session_coffees sc ON sc.id = cs.session_coffee_id
-       WHERE sc.coffee_id = $1 AND cs.is_merged = true AND cs.overall_notes IS NOT NULL
+       WHERE sc.coffee_id = $1 AND cs.overall_notes IS NOT NULL
        ORDER BY cs.id DESC LIMIT 1`,
       [id]
     );
