@@ -1,12 +1,23 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Link, useNavigate } from 'react-router';
 import { TasteFinderSection } from './TasteFinderSection';
-import beansPhoto from '../../design/IMAGES/lifestyle/CoffeePic03.png'
 import chaffPhoto from '../../design/IMAGES/A_B06.png'
-import logoQuarter1 from '../../design/LOGO/LogoQuarter1.svg'
+import logoLines from '../../design/LOGO/LogoLines.svg'
+import logoCircle from '../../design/LOGO/LogoCircle.svg'
 
 export default function Home() {
   const navigate = useNavigate();
+  const [linesVisible, setLinesVisible] = useState(false);
+  const [showCircle, setShowCircle] = useState(false);
+
+  useEffect(() => {
+    // After slide-in (1.2s): fade LogoLines in
+    const t1 = setTimeout(() => setLinesVisible(true), 1200);
+    // After slide-in (1.2s) + fade-in (0.8s) + rest (1s): cross-fade to LogoCircle
+    const t2 = setTimeout(() => setShowCircle(true), 3000);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, []);
 
   const handleProfileStart = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -24,10 +35,38 @@ export default function Home() {
         {/* Hero */}
         <div className="h-screen relative overflow-hidden">
           <div className="absolute inset-0 flex">
-            <motion.div initial={{ x: '-100%' }} animate={{ x: 0 }} transition={{ duration: 1.2, ease: [0.6, 0.05, 0.01, 0.9] }} className="w-1/2" style={{ position: 'relative', overflow: 'hidden' }}>
-                <img src={beansPhoto} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }} />
-                <img src={logoQuarter1} alt="" style={{ position: 'absolute', top: 40, left: 40, maxWidth: 60, width: 60, filter: 'brightness(0) invert(1) sepia(1) saturate(0) brightness(2)' }} />
-              </motion.div>
+
+            {/* Left panel: logo bloom animation */}
+            <motion.div
+              initial={{ x: '-100%' }}
+              animate={{ x: 0 }}
+              transition={{ duration: 1.2, ease: [0.6, 0.05, 0.01, 0.9] }}
+              className="w-1/2"
+              style={{ position: 'relative', overflow: 'hidden', backgroundColor: '#f2f1ea', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              {/* Stacked logo container — LogoLines over LogoCircle */}
+              <div style={{ position: 'relative', width: '60%' }}>
+                {/* LogoCircle: beneath, blooms in on cross-fade */}
+                <motion.div
+                  style={{ position: 'absolute', inset: 0 }}
+                  initial={{ opacity: 0, scale: 0.96 }}
+                  animate={showCircle ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.96 }}
+                  transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  <img src={logoCircle} alt="Axis & Bloom" style={{ width: '100%', height: 'auto', display: 'block' }} />
+                </motion.div>
+
+                {/* LogoLines: on top, fades in after slide-in then fades out on cross-fade */}
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: linesVisible && !showCircle ? 1 : 0 }}
+                  transition={{ duration: showCircle ? 0.9 : 0.8, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  <img src={logoLines} alt="" style={{ width: '100%', height: 'auto', display: 'block' }} />
+                </motion.div>
+              </div>
+            </motion.div>
+
             <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} transition={{ duration: 1.2, ease: [0.6, 0.05, 0.01, 0.9] }} className="w-1/2 relative overflow-hidden" style={{ backgroundColor: '#deded1' }}>
               <video autoPlay loop muted playsInline className="absolute inset-0 w-full h-full object-cover" src="https://i.imgur.com/HKuT8YR.mp4" />
             </motion.div>
