@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 import { getRecommendation } from '../services/claude.js';
+import { rankScores, findWinner, findSecondary, isSecondaryClose, computeConfidenceAndMode } from '../services/quizScoring.js';
 
 const router = Router();
 
@@ -89,8 +90,7 @@ router.post('/score', async (req, res) => {
       scores[row.archetype_name] = Number(row.total);
     }
 
-    // Ranked list: [['Chocolate & Nutty', 7], ['Fruity', 4], ...]
-    const ranked = Object.entries(scores).sort(([, a], [, b]) => b - a);
+    const ranked = rankScores(scores);
     const maxScore = ranked[0][1];
     const tied = ranked.filter(([, s]) => s === maxScore).map(([n]) => n);
 
@@ -126,22 +126,10 @@ router.post('/score', async (req, res) => {
     }
 
     // 3. Winner — veto cascade on tie (Q6 → Q5 → Q3 → Q1, fallback: Balanced & Sweet).
-    let winnerName: string;
-    if (tied.length === 1) {
-      winnerName = tied[0];
-    } else {
-      winnerName = 'Balanced & Sweet';
-      for (const qNum of [6, 5, 3, 1]) {
-        const pointsTo = byQ[qNum];
-        if (pointsTo && tied.includes(pointsTo)) {
-          winnerName = pointsTo;
-          break;
-        }
-      }
-    }
+    const winnerName = findWinner(ranked, byQ);
 
     // 4. Secondary archetype — 2nd highest scoring archetype.
-    const secondaryArchetype = ranked.find(([n]) => n !== winnerName)?.[0] ?? null;
+    const secondaryArchetype = findSecondary(ranked, winnerName);
 
     // 5. Experimental gate.
     const expResult = await db.query(
@@ -151,42 +139,12 @@ router.post('/score', async (req, res) => {
     const experimental = expResult.rows.length > 0;
 
     // 6. Option B close threshold: secondary is meaningful if it scored on Q5 or Q6.
-    const secondaryScoredHighWeight =
-      secondaryArchetype !== null &&
-      (byQ[6] === secondaryArchetype || byQ[5] === secondaryArchetype);
+    const secondaryScoredHighWeight = isSecondaryClose(byQ, secondaryArchetype);
 
     // 7. Confidence + recommendation mode from food signal scenarios.
-    type RecommendationMode =
-      | 'primary_only'
-      | 'primary_plus_introduce_secondary'
-      | 'primary_plus_active_secondary'
-      | 'primary_plus_note_secondary'
-      | 'primary_as_starting_point'
-      | 'ai_agent';
-
-    let confidence: 'high' | 'medium' | 'low' = 'high';
-    let recommendationMode: RecommendationMode = 'primary_only';
-
-    if (foodSignal === winnerName) {
-      if (experimental) {
-        confidence = 'medium';
-        recommendationMode = 'primary_as_starting_point';
-      } else if (secondaryScoredHighWeight) {
-        confidence = 'medium';
-        recommendationMode = 'primary_plus_note_secondary';
-      } else {
-        confidence = 'high';
-        recommendationMode = 'primary_only';
-      }
-    } else if (foodSignal === secondaryArchetype) {
-      confidence = 'medium';
-      recommendationMode = experimental
-        ? 'primary_plus_active_secondary'
-        : 'primary_plus_introduce_secondary';
-    } else if (foodSignal !== null) {
-      confidence = 'low';
-      recommendationMode = 'ai_agent';
-    }
+    const { confidence, recommendationMode } = computeConfidenceAndMode(
+      foodSignal, winnerName, secondaryArchetype, experimental, secondaryScoredHighWeight
+    );
 
     // 8. Archetype UUID for winner.
     const archetypeResult = await db.query(

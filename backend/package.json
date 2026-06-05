@@ -7,7 +7,8 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "db:migrate": "node -e \"import('./src/db/migrate.js').then(m => m.migrate())\""
+    "db:migrate": "node -e \"import('./src/db/migrate.js').then(m => m.migrate())\"",
+    "test": "vitest run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.36.3",
@@ -27,6 +28,7 @@
     "@types/node": "^20.14.2",
     "@types/pg": "^8.11.6",
     "tsx": "^4.15.6",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "vitest": "^4.1.8"
   }
 }
