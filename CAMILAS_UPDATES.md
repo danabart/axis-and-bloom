@@ -303,19 +303,95 @@ The hero text `motion.div` (headline + CTAs) was positioned in normal flow, occu
 
 ---
 
+### 16. Brand color tokens — Tailwind v4 @theme
+**File:** `frontend/src/styles/theme.css`
+
+Added 12 named brand color tokens to the `@theme inline` block so Tailwind utility classes (`text-terracotta-dark`, `bg-beige-light`, etc.) become available across the codebase. No existing component code was changed — only the token definitions were added.
+
+| Token | Hex | Role |
+|---|---|---|
+| `--color-terracotta-dark` | `#a33726` | Primary UI text + CTAs |
+| `--color-terracotta-mid` | `#b15643` | Section 2 headings |
+| `--color-terracotta-line` | `#ba3d24` | LogoLines stroke color |
+| `--color-terracotta-fill` | `#a8462c` | LogoCircle fill color |
+| `--color-pink` | `#ee5974` | Highlight + hover states |
+| `--color-pink-logo` | `#ca526d` | Logo SVG pink paths |
+| `--color-gray-logo` | `#858585` | Logo SVG gray paths |
+| `--color-beige-light` | `#f2f1ea` | Page bg, inputs |
+| `--color-beige-mid` | `#deded1` | Right hero bg, section bg |
+| `--color-beige-dark` | `#e5e5da` | Wrapper bg |
+| `--color-sand` | `#ddc1a6` | LogoCircle warm beige paths |
+| `--color-cream` | `#ead8bf` | LogoLines cream stroke |
+
+---
+
+### 17. Hero left panel — logo bloom animation (safe opacity/scale)
+**File:** `frontend/src/app/components/Home.tsx`
+
+Replaced the hero left panel (previously a full-bleed photo + watermark) with a centered logo bloom animation on a solid `#ebebe3` background. Uses only `opacity` and `scale` — no `pathLength` (which crashed in Motion v12).
+
+**Animation sequence:**
+1. Left panel slides in over 1.2s (existing entrance)
+2. At 1.2s: `LogoLines.svg` fades in over 0.8s
+3. Rests for 1s (fully visible at ~2.0s)
+4. At 3.0s: cross-fade — LogoLines fades out, LogoCircle fades in with scale 0.96→1.0, both over 0.9s
+5. End state: full-color `LogoCircle.svg` resting centered
+
+**Implementation:**
+- Two states: `linesVisible` (set at 1200ms) and `showCircle` (set at 3000ms)
+- Stacked layout: `position: relative` container at 60% width; LogoCircle absolutely positioned beneath; LogoLines in flow on top
+- Both SVGs imported as Vite assets (`import logoLines/logoCircle from '../../design/LOGO/...'`)
+
+**Removed:** `beansPhoto`, `logoQuarter1` imports; `logoContainerVariants`, `logoPathVariants`, `CROSSFADE_DELAY_MS` constants; all `motion.path` pathLength animation code.
+
+---
+
+### 18. Full image library committed + image directory reorganised
+**Files:** `frontend/src/design/IMAGES/` (35 files added)
+
+Committed the full design asset library to the repo, organised into subfolders:
+
+| Folder | Contents |
+|---|---|
+| `archetypes/` | 6 archetype JPGs (Balanced-&-Sweet, Chocolate-&-Nutty, Experimental, Floral, Fruity, Spicy-&-Earthy) |
+| `bags/` | TransparentBag01–03.png |
+| `elements/` | 4 SVG design elements (Bars, axis1–3) |
+| `lifestyle/` | CoffeePic01–17 (.png and .jpg) |
+| `patterns/` | 3 SVG pattern files |
+| `references/` | colorpalette.png |
+
+---
+
+### 19. Manifesto strip — replaced ticker section
+**File:** `frontend/src/app/components/Home.tsx`
+
+Replaced the entire pink ticker/marquee + "Whose palate are we profiling today?" taste finder form block with a full-width typographic strip.
+
+**Design:**
+- Background: `#a94936` (terracotta-80)
+- Padding: 120px top and bottom
+- Max-width: 800px, centered
+- Line 1: `clamp(2rem, 4vw, 3.5rem)`, weight 300, `#f2f1ea`, line-height 1.2
+- Line 2: `clamp(1rem, 1.8vw, 1.25rem)`, weight 300, `#f2f1ea` at 80% opacity, letter-spacing 0.08em
+- Entrance: `whileInView` on each `motion.p` — opacity 0→1, y 30→0, 0.9s ease `[0.16, 1, 0.3, 1]`; Line 2 delayed 0.25s
+
+**Removed along with the section:** `handleProfileStart` function, `useNavigate` hook and import (all now dead code).
+
+---
+
 ## File Reference
 
 | File | What changed |
 |---|---|
-| `frontend/src/app/components/Home.tsx` | Act 1 hero: beans photo left panel, COMING SOON removed, logo watermark, hero text anchored right, pt-48 |
+| `frontend/src/app/components/Home.tsx` | Logo bloom animation left panel; manifesto strip replacing ticker; hero text anchored right |
 | `frontend/src/app/components/Navigation.tsx` | Logo mark + wordmark lockup, Genova applied to all nav links |
 | `frontend/src/app/components/PreLaunch.tsx` | New — pre-launch curtain page; iterated visually; mobile layout fixed |
 | `frontend/src/app/App.tsx` | Conditional pre-launch routing + preview bypass |
 | `frontend/src/styles/fonts.css` | Genova @font-face declarations |
-| `frontend/src/styles/theme.css` | Global font-family on body, heading weights set to 400 |
+| `frontend/src/styles/theme.css` | Global font-family on body, heading weights set to 400; 12 brand color tokens added |
 | `frontend/src/design/FONT/genova/` | Genova font files (added to repo) |
-| `frontend/src/design/LOGO/` | Logo files (LogoLines.svg, LogoQuarter1.svg used in nav + hero watermark) |
-| `frontend/src/design/IMAGES/` | A_B03.png, A_B06.png product photos (added to repo, renamed from ampersand) |
+| `frontend/src/design/LOGO/` | LogoLines.svg + LogoCircle.svg used in hero bloom; LogoQuarter1.svg in navbar |
+| `frontend/src/design/IMAGES/` | Full image library (35 files): archetypes, bags, lifestyle, elements, patterns, references |
 | `backend/src/routes/newsletter.ts` | firstName support, Mailchimp integration |
 | `backend/src/db/schema.sql` | first_name column on newsletter_subscriber |
 | `.github/workflows/deploy.yml` | VITE_PRELAUNCH_MODE added; Mailchimp secrets removed until created in GCP |
