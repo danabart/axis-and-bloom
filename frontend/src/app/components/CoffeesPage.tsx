@@ -159,7 +159,6 @@ export default function CoffeesPage() {
   const [wheelRows, setWheelRows]           = useState<WheelRow[]>([]);
   const [dimensions, setDimensions]         = useState<DimensionRow[]>([]);
   const [aiSummary, setAiSummary]           = useState<string>('');
-  const [summaryCache, setSummaryCache]     = useState<Record<number, string>>({});
   const [loading, setLoading]               = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [error, setError]                   = useState('');
@@ -176,7 +175,7 @@ export default function CoffeesPage() {
     setLoading(true);
     setWheelRows([]);
     setDimensions([]);
-    setAiSummary(summaryCache[selectedId] ?? '');
+    setAiSummary('');
 
     Promise.all([
       fetch(`/api/coffees/${selectedId}/flavor-wheel`).then(r => r.json()),
@@ -186,18 +185,12 @@ export default function CoffeesPage() {
       setDimensions(dimData.dimensions ?? []);
       setLoading(false);
 
-      if (!summaryCache[selectedId]) {
-        setSummaryLoading(true);
-        fetch(`/api/coffees/${selectedId}/ai-summary`)
-          .then(r => r.json())
-          .then(data => {
-            const text = data.summary ?? '';
-            setAiSummary(text);
-            setSummaryCache(prev => ({ ...prev, [selectedId]: text }));
-          })
-          .catch(() => {})
-          .finally(() => setSummaryLoading(false));
-      }
+      setSummaryLoading(true);
+      fetch(`/api/coffees/${selectedId}/ai-summary`)
+        .then(r => r.json())
+        .then(data => setAiSummary(data.summary ?? ''))
+        .catch(() => {})
+        .finally(() => setSummaryLoading(false));
     }).catch(() => { setError('Failed to load coffee data'); setLoading(false); });
   }, [selectedId]);
 

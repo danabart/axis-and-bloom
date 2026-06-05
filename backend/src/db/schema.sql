@@ -527,6 +527,8 @@ CREATE TABLE IF NOT EXISTS coffees (
   created_at                 TIMESTAMPTZ DEFAULT now()
 );
 
+ALTER TABLE coffees ADD COLUMN IF NOT EXISTS ai_summary TEXT;
+
 -- Cupping sessions (plural — distinct from legacy cupping_session)
 CREATE TABLE IF NOT EXISTS cupping_sessions (
   id            SERIAL PRIMARY KEY,

@@ -71,10 +71,13 @@ export default function AdminCoffees() {
   const [roasterOptions, setRoasterOptions] = useState<RoasterOption[]>([]);
 
   // Archetype assignment state
-  const [assigningId, setAssigningId] = useState<number | null>(null);
-  const [archForm, setArchForm]       = useState({ archetype: '', confidence: 'medium', notes: '' });
-  const [archSaving, setArchSaving]   = useState(false);
-  const [archError, setArchError]     = useState('');
+  const [assigningId, setAssigningId]       = useState<number | null>(null);
+  const [archForm, setArchForm]             = useState({ archetype: '', confidence: 'medium', notes: '' });
+  const [archSaving, setArchSaving]         = useState(false);
+  const [archError, setArchError]           = useState('');
+
+  // AI summary refresh state
+  const [refreshingId, setRefreshingId]     = useState<number | null>(null);
 
   async function load() {
     try {
@@ -130,6 +133,19 @@ export default function AdminCoffees() {
     } catch (err: unknown) {
       setArchError(err instanceof Error ? err.message : 'Failed to assign');
     } finally { setArchSaving(false); }
+  }
+
+  async function handleRefreshSummary(coffeeId: number) {
+    setRefreshingId(coffeeId);
+    try {
+      const token = await user!.getIdToken();
+      await fetch(`/api/admin/coffees/${coffeeId}/refresh-summary`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch { /* non-critical */ } finally {
+      setRefreshingId(null);
+    }
   }
 
   function openAssign(coffee: Coffee) {
@@ -223,7 +239,8 @@ export default function AdminCoffees() {
               <th className="pb-3 pr-4">Process</th>
               <th className="pb-3 pr-4">Roast</th>
               <th className="pb-3 pr-4">Archetype</th>
-              <th className="pb-3">Confidence</th>
+              <th className="pb-3 pr-4">Confidence</th>
+              <th className="pb-3">AI Summary</th>
             </tr>
           </thead>
           <tbody>
@@ -259,12 +276,22 @@ export default function AdminCoffees() {
                             </span>}
                       </button>
                     </td>
-                    <td className="py-3 text-stone-400 capitalize">{c.confidence ?? '—'}</td>
+                    <td className="py-3 pr-4 text-stone-400 capitalize">{c.confidence ?? '—'}</td>
+                    <td className="py-3">
+                      <button
+                        onClick={() => handleRefreshSummary(c.id)}
+                        disabled={refreshingId === c.id}
+                        className="text-xs px-2 py-1 rounded border border-stone-200 text-stone-400 hover:text-stone-600 hover:border-stone-400 disabled:opacity-40 transition-colors"
+                        title="Regenerate AI tasting note"
+                      >
+                        {refreshingId === c.id ? '…' : '↺ Refresh'}
+                      </button>
+                    </td>
                   </tr>
 
                   {isAssigning && (
                     <tr key={`assign-${c.id}`} className="border-b border-stone-200 bg-stone-50">
-                      <td colSpan={7} className="px-4 py-4">
+                      <td colSpan={8} className="px-4 py-4">
                         <div className="flex flex-wrap items-end gap-3">
                           <div>
                             <label className="block text-xs text-stone-500 mb-1">Archetype</label>

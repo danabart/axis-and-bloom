@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAdmin, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
+import { generateAndStoreSummary } from './coffees.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -508,6 +509,19 @@ router.delete('/revoke-admin', async (req, res) => {
   } catch (err) {
     console.error('[admin/revoke-admin]', err);
     res.status(500).json({ error: 'Failed to revoke admin' });
+  }
+});
+
+// ── POST /api/admin/coffees/:id/refresh-summary ───────────────────────────────
+// Force-regenerates and stores the AI tasting note for a coffee.
+router.post('/coffees/:id/refresh-summary', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const summary = await generateAndStoreSummary(id);
+    res.json({ summary });
+  } catch (err) {
+    console.error('[admin/refresh-summary]', err);
+    res.status(500).json({ error: 'Failed to refresh summary' });
   }
 });
 
