@@ -1,13 +1,12 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Link, useNavigate } from 'react-router';
+import { Link } from 'react-router';
 import { TasteFinderSection } from './TasteFinderSection';
 import chaffPhoto from '../../design/IMAGES/A_B06.png'
 import logoLines from '../../design/LOGO/LogoLines.svg'
 import logoCircle from '../../design/LOGO/LogoCircle.svg'
 
 export default function Home() {
-  const navigate = useNavigate();
   const [linesVisible, setLinesVisible] = useState(false);
   const [showCircle, setShowCircle] = useState(false);
 
@@ -18,16 +17,6 @@ export default function Home() {
     const t2 = setTimeout(() => setShowCircle(true), 3000);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
-
-  const handleProfileStart = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const name = formData.get('name');
-    if (name) {
-      sessionStorage.setItem('axisBloomCustomerName', name.toString());
-      navigate('/find-my-flavor');
-    }
-  };
 
   return (
     <div className="w-full bg-[#f2f1ea]" >
@@ -91,46 +80,16 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Ticker */}
-        <div className="w-full relative z-20 shadow-2xl overflow-hidden" style={{ backgroundColor: '#deded1' }}>
-          <div className="relative z-10 w-full flex overflow-hidden whitespace-nowrap py-3" style={{ backgroundColor: '#ee5974', color: '#f2f1ea' }}>
-            <motion.div animate={{ x: ['0%', '-50%'] }} transition={{ repeat: Infinity, ease: 'linear', duration: 35 }} className="flex w-max">
-              {[...Array(20)].map((_, i) => (
-                <div key={i} className="flex gap-8 items-center shrink-0 pr-8 text-[11px] uppercase tracking-[0.3em] font-normal">
-                  <span>THE TASTE FINDER</span>
-                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: '#f2f1ea' }} />
-                  <span>DISCOVER YOUR ARCHETYPE</span>
-                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: '#f2f1ea' }} />
-                </div>
-              ))}
-            </motion.div>
+        {/* Manifesto strip */}
+        <div style={{ backgroundColor: '#a94936', paddingTop: 120, paddingBottom: 120, width: '100%' }}>
+          <div style={{ maxWidth: 800, margin: '0 auto', padding: '0 24px', textAlign: 'center' }}>
+            <p style={{ fontSize: 'clamp(2rem, 4vw, 3.5rem)', fontWeight: 300, color: '#f2f1ea', lineHeight: 1.2, marginBottom: '2rem' }}>
+              You already know what you love. You just don't have the words for it yet.
+            </p>
+            <p style={{ fontSize: 'clamp(1rem, 1.8vw, 1.25rem)', fontWeight: 300, color: '#f2f1ea', opacity: 0.8, letterSpacing: '0.08em' }}>
+              A ritual mapped to your mood.
+            </p>
           </div>
-
-          <motion.div
-            initial="hidden" whileInView="visible" viewport={{ once: true, margin: '-10%' }}
-            variants={{ visible: { transition: { staggerChildren: 0.15 } }, hidden: {} }}
-            className="relative z-10 max-w-[1400px] mx-auto px-12 md:px-20 lg:px-32 py-16 md:py-24 flex flex-col md:flex-row items-center justify-between gap-12"
-          >
-            <div className="flex-1 flex flex-col items-start gap-10 overflow-hidden">
-              <motion.h3
-                variants={{ hidden: { y: '100%', opacity: 0 }, visible: { y: 0, opacity: 1, transition: { duration: 0.8, ease: [0.16, 1, 0.3, 1] } } }}
-                className="text-4xl md:text-5xl lg:text-6xl tracking-tight text-left leading-[1.1]"
-                style={{ color: '#a33726' }}
-              >
-                Whose palate are we<br/>profiling today?
-              </motion.h3>
-
-              <motion.div variants={{ hidden: { opacity: 0, y: 30 }, visible: { opacity: 1, y: 0, transition: { duration: 0.8 } } }} className="w-full max-w-xl">
-                <form onSubmit={handleProfileStart} className="flex flex-col sm:flex-row items-stretch w-full shadow-xl">
-                  <input type="text" name="name" required placeholder="Enter your name..." className="w-full sm:w-80 px-8 py-5 text-xl outline-none border-none transition-colors" style={{ backgroundColor: '#f2f1ea', color: '#a33726' }} />
-                  <button type="submit" className="w-full sm:w-auto px-10 py-5 text-sm uppercase tracking-[0.2em] whitespace-nowrap flex items-center justify-center gap-3 transition-colors group" style={{ backgroundColor: '#a33726', color: '#f2f1ea' }} onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#ee5974')} onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#a33726')}>
-                    <span>Begin Profile</span>
-                    <span className="text-lg leading-none transform transition-transform group-hover:translate-x-2">→</span>
-                  </button>
-                </form>
-              </motion.div>
-            </div>
-          </motion.div>
         </div>
 
         {/* Section 2 */}
