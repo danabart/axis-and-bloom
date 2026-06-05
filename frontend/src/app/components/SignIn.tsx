@@ -8,6 +8,8 @@ export default function SignIn() {
   const [activeTab, setActiveTab] = useState<'create' | 'signin'>('create');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [resetSent, setResetSent] = useState(false);
@@ -22,7 +24,7 @@ export default function SignIn() {
     setError('');
     try {
       if (activeTab === 'create') {
-        await signUp(email, password);
+        await signUp(email, password, firstName.trim() || undefined, lastName.trim() || undefined);
       } else {
         await signIn(email, password);
       }
@@ -133,6 +135,24 @@ export default function SignIn() {
               onSubmit={handleSubmit}
               className="w-full flex flex-col gap-8"
             >
+              {activeTab === 'create' && (
+                <div className="flex gap-4">
+                  <input
+                    type="text"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    placeholder="First name"
+                    className="w-full text-left text-[1.25rem] tracking-wide transition-all duration-500 py-3 rounded-none border-b-[1px] border-[#a33726]/30 bg-transparent focus:outline-none focus:border-[#ee5974] text-[#a33726] placeholder-[#a33726]/40"
+                  />
+                  <input
+                    type="text"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    placeholder="Last name"
+                    className="w-full text-left text-[1.25rem] tracking-wide transition-all duration-500 py-3 rounded-none border-b-[1px] border-[#a33726]/30 bg-transparent focus:outline-none focus:border-[#ee5974] text-[#a33726] placeholder-[#a33726]/40"
+                  />
+                </div>
+              )}
               <input
                 type="email"
                 value={email}

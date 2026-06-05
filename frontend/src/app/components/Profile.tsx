@@ -7,32 +7,124 @@ import { getUserProfile } from '../lib/api';
 
 type Tab = 'memory' | 'orders' | 'settings';
 
+interface Address {
+  id: string;
+  street: string;
+  city: string;
+  state: string;
+  postal_code: string;
+  country: string;
+  is_default: boolean;
+}
+
+interface ProfileData {
+  email: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  dateOfBirth: string | null;
+  isAdmin: boolean;
+  archetype: any;
+  addresses: Address[];
+  orders: any[];
+}
+
+const EMPTY_ADDRESS = { street: '', city: '', state: '', postalCode: '', country: 'US' };
+
 export default function Profile() {
-  const [activeTab, setActiveTab] = useState<Tab>('memory');
-  const [profile, setProfile] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const { user, logout } = useAuth();
-  const navigate = useNavigate();
+  const [activeTab, setActiveTab]         = useState<Tab>('memory');
+  const [profile, setProfile]             = useState<ProfileData | null>(null);
+  const [loading, setLoading]             = useState(true);
+  const { user, logout }                  = useAuth();
+  const navigate                          = useNavigate();
+
+  // Settings form state
+  const [firstName, setFirstName]         = useState('');
+  const [lastName, setLastName]           = useState('');
+  const [dateOfBirth, setDateOfBirth]     = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileSaved, setProfileSaved]   = useState(false);
+
+  // Address form state
+  const [showAddressForm, setShowAddressForm] = useState(false);
+  const [addressForm, setAddressForm]         = useState(EMPTY_ADDRESS);
+  const [savingAddress, setSavingAddress]     = useState(false);
+  const [addressError, setAddressError]       = useState('');
 
   useEffect(() => {
     if (!user) { navigate('/sign-in'); return; }
     getUserProfile()
-      .then(setProfile)
+      .then((data: ProfileData) => {
+        setProfile(data);
+        setFirstName(data.firstName ?? '');
+        setLastName(data.lastName ?? '');
+        setDateOfBirth(data.dateOfBirth ? data.dateOfBirth.slice(0, 10) : '');
+      })
       .catch(() => setProfile(null))
       .finally(() => setLoading(false));
   }, [user]);
 
-  const handleLogout = async () => {
-    await logout();
-    navigate('/');
-  };
+  const handleLogout = async () => { await logout(); navigate('/'); };
+
+  async function handleSaveProfile(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingProfile(true);
+    setProfileSaved(false);
+    try {
+      const token = await user!.getIdToken();
+      await fetch('/api/users/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ firstName: firstName || null, lastName: lastName || null, dateOfBirth: dateOfBirth || null }),
+      });
+      setProfile(p => p ? { ...p, firstName, lastName, dateOfBirth: dateOfBirth || null } : p);
+      setProfileSaved(true);
+      setTimeout(() => setProfileSaved(false), 3000);
+    } catch { /* silent */ } finally { setSavingProfile(false); }
+  }
+
+  async function handleAddAddress(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingAddress(true); setAddressError('');
+    try {
+      const token = await user!.getIdToken();
+      const res = await fetch('/api/users/addresses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ...addressForm, isDefault: (profile?.addresses ?? []).length === 0 }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
+      const newAddr = await res.json();
+      setProfile(p => p ? { ...p, addresses: [...p.addresses, newAddr] } : p);
+      setAddressForm(EMPTY_ADDRESS);
+      setShowAddressForm(false);
+    } catch (err: any) {
+      setAddressError(err.message ?? 'Failed to save address');
+    } finally { setSavingAddress(false); }
+  }
+
+  async function handleDeleteAddress(id: string) {
+    try {
+      const token = await user!.getIdToken();
+      await fetch(`/api/users/addresses/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setProfile(p => p ? { ...p, addresses: p.addresses.filter(a => a.id !== id) } : p);
+    } catch { /* silent */ }
+  }
 
   if (loading) {
     return <div className="w-full h-screen bg-[#f2f1ea] flex items-center justify-center"><p className="text-[#a33726] text-sm uppercase tracking-widest">Loading...</p></div>;
   }
 
-  const archetype = profile?.archetype;
+  const archetype  = profile?.archetype;
   const pastOrders = profile?.orders ?? [];
+  const displayName = profile?.firstName
+    ? `${profile.firstName}${profile.lastName ? ' ' + profile.lastName : ''}`
+    : (user?.displayName ?? user?.email ?? '');
+
+  const inputClass = "w-full text-left text-base tracking-wide transition-all duration-300 py-2.5 rounded-none border-b border-[#a33726]/30 bg-transparent focus:outline-none focus:border-[#ee5974] text-[#a33726] placeholder-[#a33726]/40";
+  const labelClass = "block text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 mb-1.5 font-normal";
 
   return (
     <div className="w-full h-screen bg-[#f2f1ea] flex overflow-hidden">
@@ -43,7 +135,7 @@ export default function Profile() {
       <div className="w-full lg:w-1/2 flex flex-col p-8 md:p-16 lg:p-24 relative z-10 overflow-y-auto">
         <div className="mt-16 lg:mt-8 mb-16">
           <h3 className="text-[10px] uppercase tracking-[0.3em] text-[#a33726]/60 mb-4 font-normal">
-            {user ? `Welcome back, ${user.displayName ?? user.email}` : 'Your Profile'}
+            Welcome back, {displayName}
           </h3>
           <h1 className="text-[3rem] lg:text-[4rem] text-[#a33726] leading-[1.05] font-normal tracking-tight">
             {archetype ? 'Your flavor memory.' : 'Trust your taste.'}
@@ -61,6 +153,8 @@ export default function Profile() {
 
         <div className="flex-grow w-full max-w-[480px]">
           <AnimatePresence mode="wait">
+
+            {/* ── Flavor Memory ── */}
             {activeTab === 'memory' && (
               <motion.div key="memory" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.4 }} className="flex flex-col gap-12">
                 {!archetype ? (
@@ -85,6 +179,7 @@ export default function Profile() {
               </motion.div>
             )}
 
+            {/* ── Past Orders ── */}
             {activeTab === 'orders' && (
               <motion.div key="orders" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.4 }} className="flex flex-col gap-8">
                 {pastOrders.length === 0 ? (
@@ -112,19 +207,109 @@ export default function Profile() {
               </motion.div>
             )}
 
+            {/* ── Settings ── */}
             {activeTab === 'settings' && (
-              <motion.div key="settings" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.4 }} className="flex flex-col gap-8 font-sans">
-                <div className="flex flex-col gap-2 border-b border-[#a33726]/10 pb-6">
-                  <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 font-normal">Email</p>
-                  <p className="text-lg text-[#a33726] font-light">{user?.email ?? '—'}</p>
+              <motion.div key="settings" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.4 }} className="flex flex-col gap-10 font-sans">
+
+                {/* Personal info */}
+                <form onSubmit={handleSaveProfile} className="flex flex-col gap-6">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 font-normal">Personal Info</p>
+                  <div className="flex gap-4">
+                    <div className="flex-1">
+                      <label className={labelClass}>First name</label>
+                      <input value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="First name" className={inputClass} />
+                    </div>
+                    <div className="flex-1">
+                      <label className={labelClass}>Last name</label>
+                      <input value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Last name" className={inputClass} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className={labelClass}>Email</label>
+                    <p className="text-base text-[#a33726]/60 py-2.5 border-b border-[#a33726]/10">{profile?.email ?? user?.email ?? '—'}</p>
+                  </div>
+                  <div>
+                    <label className={labelClass}>Birthday <span className="opacity-50 normal-case tracking-normal">— for exclusive promos</span></label>
+                    <input type="date" value={dateOfBirth} onChange={e => setDateOfBirth(e.target.value)} className={inputClass} style={{ colorScheme: 'light' }} />
+                  </div>
+                  <div className="flex items-center gap-4 pt-2">
+                    <button type="submit" disabled={savingProfile}
+                      className="text-[10px] uppercase tracking-[0.3em] text-[#a33726] border-b border-[#a33726]/40 pb-1 hover:border-[#ee5974] hover:text-[#ee5974] transition-colors disabled:opacity-30">
+                      {savingProfile ? 'Saving…' : 'Save Changes'}
+                    </button>
+                    {profileSaved && <span className="text-[10px] uppercase tracking-[0.2em] text-green-700">Saved</span>}
+                  </div>
+                </form>
+
+                {/* Shipping addresses */}
+                <div className="flex flex-col gap-4 border-t border-[#a33726]/10 pt-8">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 font-normal">Shipping Addresses</p>
+
+                  {(profile?.addresses ?? []).map(addr => (
+                    <div key={addr.id} className="flex items-start justify-between border border-[#a33726]/15 p-4 bg-white/40">
+                      <div>
+                        {addr.is_default && <span className="text-[9px] uppercase tracking-widest text-[#a33726]/50 block mb-1">Default</span>}
+                        <p className="text-sm text-[#a33726] font-light">{addr.street}</p>
+                        <p className="text-sm text-[#a33726]/70 font-light">{addr.city}, {addr.state} {addr.postal_code}</p>
+                        <p className="text-sm text-[#a33726]/50 font-light">{addr.country}</p>
+                      </div>
+                      <button onClick={() => handleDeleteAddress(addr.id)}
+                        className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/30 hover:text-[#a33726] transition-colors ml-4 mt-1">
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+
+                  {!showAddressForm ? (
+                    <button onClick={() => setShowAddressForm(true)}
+                      className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/50 hover:text-[#a33726] transition-colors border-b border-[#a33726]/20 pb-1 w-fit">
+                      + Add Address
+                    </button>
+                  ) : (
+                    <form onSubmit={handleAddAddress} className="flex flex-col gap-4 border border-[#a33726]/15 p-4 bg-white/40">
+                      <div>
+                        <label className={labelClass}>Street</label>
+                        <input required value={addressForm.street} onChange={e => setAddressForm(f => ({ ...f, street: e.target.value }))} placeholder="123 Main St" className={inputClass} />
+                      </div>
+                      <div className="flex gap-3">
+                        <div className="flex-1">
+                          <label className={labelClass}>City</label>
+                          <input required value={addressForm.city} onChange={e => setAddressForm(f => ({ ...f, city: e.target.value }))} placeholder="New York" className={inputClass} />
+                        </div>
+                        <div className="w-20">
+                          <label className={labelClass}>State</label>
+                          <input required value={addressForm.state} onChange={e => setAddressForm(f => ({ ...f, state: e.target.value }))} placeholder="NY" maxLength={2} className={inputClass} />
+                        </div>
+                        <div className="w-24">
+                          <label className={labelClass}>ZIP</label>
+                          <input required value={addressForm.postalCode} onChange={e => setAddressForm(f => ({ ...f, postalCode: e.target.value }))} placeholder="10001" className={inputClass} />
+                        </div>
+                      </div>
+                      {addressError && <p className="text-xs text-red-600">{addressError}</p>}
+                      <div className="flex gap-4 pt-2">
+                        <button type="submit" disabled={savingAddress}
+                          className="text-[10px] uppercase tracking-[0.3em] text-[#a33726] border-b border-[#a33726]/40 pb-1 hover:border-[#ee5974] hover:text-[#ee5974] transition-colors disabled:opacity-30">
+                          {savingAddress ? 'Saving…' : 'Save Address'}
+                        </button>
+                        <button type="button" onClick={() => { setShowAddressForm(false); setAddressForm(EMPTY_ADDRESS); setAddressError(''); }}
+                          className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 hover:text-[#a33726] transition-colors">
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  )}
                 </div>
-                <div className="mt-8">
+
+                {/* Sign out */}
+                <div className="border-t border-[#a33726]/10 pt-8">
                   <button onClick={handleLogout} className="flex items-center gap-3 text-[11px] uppercase tracking-[0.2em] text-[#a33726]/60 hover:text-[#a33726] transition-colors">
                     <LogOut size={14} /> Sign Out
                   </button>
                 </div>
+
               </motion.div>
             )}
+
           </AnimatePresence>
         </div>
       </div>

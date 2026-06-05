@@ -529,6 +529,10 @@ CREATE TABLE IF NOT EXISTS coffees (
 
 ALTER TABLE coffees ADD COLUMN IF NOT EXISTS ai_summary TEXT;
 
+ALTER TABLE user_profile ADD COLUMN IF NOT EXISTS first_name TEXT;
+ALTER TABLE user_profile ADD COLUMN IF NOT EXISTS last_name TEXT;
+ALTER TABLE user_profile ADD COLUMN IF NOT EXISTS date_of_birth DATE;
+
 -- Cupping sessions (plural — distinct from legacy cupping_session)
 CREATE TABLE IF NOT EXISTS cupping_sessions (
   id            SERIAL PRIMARY KEY,

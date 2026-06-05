@@ -10,13 +10,17 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 // ─── POST /api/auth/sync ─────────────────────────────────────────────────────
 // Called after Firebase sign-in/sign-up to sync user to our DB
 router.post('/sync', requireAuth, async (req: AuthRequest, res) => {
+  const { firstName, lastName } = req.body ?? {};
   try {
     const profileResult = await db.query(
-      `INSERT INTO user_profile (firebase_uid)
-       VALUES ($1)
-       ON CONFLICT (firebase_uid) DO UPDATE SET updated_at = NOW()
+      `INSERT INTO user_profile (firebase_uid, first_name, last_name)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (firebase_uid) DO UPDATE SET
+         first_name = COALESCE($2, user_profile.first_name),
+         last_name  = COALESCE($3, user_profile.last_name),
+         updated_at = NOW()
        RETURNING id`,
-      [req.uid]
+      [req.uid, firstName || null, lastName || null]
     );
     const profileId = profileResult.rows[0].id;
 

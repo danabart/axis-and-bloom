@@ -16,7 +16,7 @@ interface AuthContextType {
   loading: boolean;
   isAdmin: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string, firstName?: string, lastName?: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signInWithApple: () => Promise<void>;
   logout: () => Promise<void>;
@@ -51,13 +51,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsub;
   }, []);
 
-  async function syncUser() {
+  async function syncUser(firstName?: string, lastName?: string) {
     const token = await auth.currentUser?.getIdToken();
     if (!token) return;
     try {
       await fetch('/api/auth/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ firstName, lastName }),
       });
     } catch (e) {
       console.error('Failed to sync user:', e);
@@ -69,9 +70,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await syncUser();
   };
 
-  const signUp = async (email: string, password: string) => {
+  const signUp = async (email: string, password: string, firstName?: string, lastName?: string) => {
     await createUserWithEmailAndPassword(auth, email, password);
-    await syncUser();
+    await syncUser(firstName, lastName);
   };
 
   const signInWithGoogle = async () => {
