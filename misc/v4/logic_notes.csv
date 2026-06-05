@@ -1,0 +1,14 @@
+rule,description,trigger,action,output_field
+primary_scoring,Add points to archetype based on answer,Q1 Q3 Q4 Q5 Q6 answers,scores[archetype] += score,scores
+secondary_signal,Record food instinct answer as secondary signal,Q2 answer,map answer to archetype,food_signal
+experimental_gate,Flag person as open to discovery,Q4 answer = C,set experimental to true,experimental
+split_answer,Split points between two archetypes,Q4 answer = D,scores[chocolate_nutty] += 0.5 and scores[balanced_sweet] += 0.5,scores
+veto_cascade,Resolve tie by checking questions in priority order,tie between 2 or more archetypes,check Q6 then Q5 then Q3 then Q1,primary_archetype
+fallback,Default if cascade does not resolve,cascade exhausted without resolution,return balanced_sweet,primary_archetype
+secondary_archetype,Identify second highest scoring archetype,after primary winner found,find archetype with second highest score,secondary_archetype_candidate
+food_signal_match_primary,Food signal matches primary archetype — high confidence,food_signal == primary_archetype,confidence = high — recommend primary only,confidence
+food_signal_match_secondary,Food signal matches secondary archetype — two independent signals confirm secondary,food_signal == secondary_archetype_candidate,confidence = medium — recommend primary + introduce secondary as discovery,confidence
+food_signal_match_neither,Food signal matches neither primary nor secondary — mixed signals,food_signal != primary AND food_signal != secondary,confidence = low — route to AI agent for deeper conversation,confidence
+food_signal_confirms_primary_secondary_close,Food signal confirms primary but secondary scored on Q5 or Q6 — secondary is a real signal,food_signal == primary_archetype AND secondary_archetype scored on Q5 or Q6,confidence = medium — recommend primary + note secondary for future,confidence
+experimental_and_food_matches_secondary,Experimental gate open and food signal confirms secondary — strongest possible secondary signal,experimental == true AND food_signal == secondary_archetype_candidate,actively recommend a secondary discovery coffee not just hint at it,confidence
+experimental_and_food_matches_primary,Experimental gate open but food signal confirms primary — curious person firmly rooted in primary,experimental == true AND food_signal == primary_archetype,recommend primary but frame as a starting point not a destination,confidence
