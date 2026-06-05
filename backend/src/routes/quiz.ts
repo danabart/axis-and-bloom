@@ -55,13 +55,10 @@ router.get('/questions', async (_req, res) => {
 // Takes an array of selected answer UUIDs, SUMs weighted scores from
 // answer_archetype_score, and returns the winning archetype + full score map.
 //
-// Tie resolution — veto cascade (only triggered when two or more archetypes
-// share the highest score):
-//   Priority: Q5 → Q4 → Q2 → Q1
-//   For each question in that order: if the user's answer pointed to one of
-//   the tied archetypes, that archetype wins. Q3 is intentionally excluded
-//   from the cascade (it contributes to the score but not tie-breaking).
-//   Fallback (cascade exhausted without resolution): Balanced & Sweet.
+// Tie resolution — veto cascade (Q6 → Q5 → Q3 → Q1, fallback: Balanced & Sweet).
+//
+// Food signal (Q2) is captured separately from resulting_archetype_id and used
+// alongside the secondary archetype to determine confidence + recommendation mode.
 //
 // No auth required.
 router.post('/score', async (req, res) => {
@@ -72,9 +69,8 @@ router.post('/score', async (req, res) => {
   }
 
   try {
-    // 1. Sum weighted scores per archetype for the submitted answers.
-    //    Answers with no archetype_score row are neutral — excluded by the JOIN.
-    const result = await db.query(
+    // 1. Sum weighted scores per archetype (Q2 excluded — no rows in answer_archetype_score).
+    const scoreResult = await db.query(
       `SELECT ar.name AS archetype_name, SUM(aas.score)::numeric AS total
        FROM answer_archetype_score aas
        JOIN archetype ar ON ar.id = aas.archetype_id
@@ -83,50 +79,59 @@ router.post('/score', async (req, res) => {
       [answerIds]
     );
 
-    if (!result.rows.length) {
+    if (!scoreResult.rows.length) {
       res.status(400).json({ error: 'No scoreable answers found' });
       return;
     }
 
-    // Build scores map { archetypeName: totalPoints }
     const scores: Record<string, number> = {};
-    for (const row of result.rows) {
+    for (const row of scoreResult.rows) {
       scores[row.archetype_name] = Number(row.total);
     }
 
-    // 2. Find winner — veto cascade on tie.
-    const maxScore = Math.max(...Object.values(scores));
-    const tied = Object.keys(scores).filter(n => scores[n] === maxScore);
+    // Ranked list: [['Chocolate & Nutty', 7], ['Fruity', 4], ...]
+    const ranked = Object.entries(scores).sort(([, a], [, b]) => b - a);
+    const maxScore = ranked[0][1];
+    const tied = ranked.filter(([, s]) => s === maxScore).map(([n]) => n);
 
+    // 2. Fetch per-answer metadata in one query:
+    //    score_archetype — from answer_archetype_score (cascade + secondary close check)
+    //    result_archetype — from answer.resulting_archetype_id (food signal for Q2)
+    const metaResult = await db.query(
+      `SELECT
+         q.q_number,
+         ar_score.name  AS score_archetype,
+         ar_result.name AS result_archetype
+       FROM answer a
+       JOIN question q ON q.id = a.question_id
+       LEFT JOIN answer_archetype_score aas
+             ON aas.answer_id = a.id AND aas.score > 0
+       LEFT JOIN archetype ar_score  ON ar_score.id  = aas.archetype_id
+       LEFT JOIN archetype ar_result ON ar_result.id = a.resulting_archetype_id
+       WHERE a.id = ANY($1::uuid[])`,
+      [answerIds]
+    );
+
+    // q_number → score archetype (first non-null wins; split answers only affect Q4 which is not in cascade)
+    const byQ: Record<number, string | null> = {};
+    let foodSignal: string | null = null;
+
+    for (const row of metaResult.rows) {
+      const qNum = Number(row.q_number);
+      if (qNum === 2) {
+        foodSignal = row.result_archetype ?? null;
+      } else if (!byQ[qNum] && row.score_archetype) {
+        byQ[qNum] = row.score_archetype;
+      }
+    }
+
+    // 3. Winner — veto cascade on tie (Q6 → Q5 → Q3 → Q1, fallback: Balanced & Sweet).
     let winnerName: string;
-
     if (tied.length === 1) {
-      // Clear winner — no cascade needed.
       winnerName = tied[0];
     } else {
-      // Tie: run the veto cascade.
-      // Fetch which archetype each submitted answer points to, keyed by q_number.
-      // LEFT JOIN so neutral answers (score row missing) still appear with null archetype.
-      const cascadeRows = await db.query(
-        `SELECT q.q_number, ar.name AS archetype_name
-         FROM answer a
-         JOIN question q ON q.id = a.question_id
-         LEFT JOIN answer_archetype_score aas
-               ON aas.answer_id = a.id AND aas.score > 0
-         LEFT JOIN archetype ar ON ar.id = aas.archetype_id
-         WHERE a.id = ANY($1::uuid[])`,
-        [answerIds]
-      );
-
-      // q_number → archetype the user's answer pointed to (null if neutral)
-      const byQ: Record<number, string | null> = {};
-      for (const row of cascadeRows.rows) {
-        byQ[Number(row.q_number)] = row.archetype_name ?? null;
-      }
-
-      // Walk cascade: first tied archetype found wins; fallback = Balanced & Sweet.
       winnerName = 'Balanced & Sweet';
-      for (const qNum of [5, 4, 2, 1]) {
+      for (const qNum of [6, 5, 3, 1]) {
         const pointsTo = byQ[qNum];
         if (pointsTo && tied.includes(pointsTo)) {
           winnerName = pointsTo;
@@ -135,26 +140,69 @@ router.post('/score', async (req, res) => {
       }
     }
 
-    // 3. Fetch the archetype UUID for the winner.
-    const archetypeResult = await db.query(
-      `SELECT id FROM archetype WHERE name = $1`,
-      [winnerName]
-    );
+    // 4. Secondary archetype — 2nd highest scoring archetype.
+    const secondaryArchetype = ranked.find(([n]) => n !== winnerName)?.[0] ?? null;
 
-    // 4. Check experimental gate — Q3-C in V3 flags the user as open to exploration.
-    //    When true, the recommendation engine should surface a discovery coffee
-    //    alongside the primary archetype recommendation.
+    // 5. Experimental gate.
     const expResult = await db.query(
       `SELECT 1 FROM answer WHERE id = ANY($1::uuid[]) AND is_experimental_gate = TRUE LIMIT 1`,
       [answerIds]
     );
     const experimental = expResult.rows.length > 0;
 
+    // 6. Option B close threshold: secondary is meaningful if it scored on Q5 or Q6.
+    const secondaryScoredHighWeight =
+      secondaryArchetype !== null &&
+      (byQ[6] === secondaryArchetype || byQ[5] === secondaryArchetype);
+
+    // 7. Confidence + recommendation mode from food signal scenarios.
+    type RecommendationMode =
+      | 'primary_only'
+      | 'primary_plus_introduce_secondary'
+      | 'primary_plus_active_secondary'
+      | 'primary_plus_note_secondary'
+      | 'primary_as_starting_point'
+      | 'ai_agent';
+
+    let confidence: 'high' | 'medium' | 'low' = 'high';
+    let recommendationMode: RecommendationMode = 'primary_only';
+
+    if (foodSignal === winnerName) {
+      if (experimental) {
+        confidence = 'medium';
+        recommendationMode = 'primary_as_starting_point';
+      } else if (secondaryScoredHighWeight) {
+        confidence = 'medium';
+        recommendationMode = 'primary_plus_note_secondary';
+      } else {
+        confidence = 'high';
+        recommendationMode = 'primary_only';
+      }
+    } else if (foodSignal === secondaryArchetype) {
+      confidence = 'medium';
+      recommendationMode = experimental
+        ? 'primary_plus_active_secondary'
+        : 'primary_plus_introduce_secondary';
+    } else if (foodSignal !== null) {
+      confidence = 'low';
+      recommendationMode = 'ai_agent';
+    }
+
+    // 8. Archetype UUID for winner.
+    const archetypeResult = await db.query(
+      `SELECT id FROM archetype WHERE name = $1`,
+      [winnerName]
+    );
+
     res.json({
       archetype: winnerName,
       archetypeId: archetypeResult.rows[0]?.id ?? null,
       scores,
       experimental,
+      secondaryArchetype,
+      foodSignal,
+      confidence,
+      recommendationMode,
       tied: tied.length > 1 ? tied : undefined,
     });
   } catch (err) {
@@ -166,7 +214,7 @@ router.post('/score', async (req, res) => {
 // ─── POST /api/quiz/results ──────────────────────────────────────────────────
 // Saves a completed quiz session, linking the real archetype FK from the DB.
 router.post('/results', requireAuth, async (req: AuthRequest, res) => {
-  const { archetype, scores, answers, decaf, experimental } = req.body;
+  const { archetype, scores, answers, decaf, experimental, secondaryArchetype, foodSignal, confidence, recommendationMode } = req.body;
   if (!archetype || !scores || !answers) {
     res.status(400).json({ error: 'archetype, scores, and answers required' });
     return;
@@ -195,11 +243,16 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
       `INSERT INTO quiz_session (user_id, resulting_archetype_id, context_data)
        VALUES ($1, $2, $3)
        RETURNING id`,
-      [profileId, archetypeId, JSON.stringify({ archetype, scores, answers, decaf: decaf ?? false, experimental: experimental ?? false })]
+      [profileId, archetypeId, JSON.stringify({ archetype, scores, answers, decaf: decaf ?? false, experimental: experimental ?? false, secondaryArchetype: secondaryArchetype ?? null, foodSignal: foodSignal ?? null, confidence: confidence ?? 'high', recommendationMode: recommendationMode ?? 'primary_only' })]
     );
 
     // Get AI recommendation
-    const recommendation = await getRecommendation(archetype, decaf ?? false);
+    const recommendation = await getRecommendation(archetype, decaf ?? false, {
+      secondaryArchetype: secondaryArchetype ?? null,
+      confidence,
+      recommendationMode,
+      experimental: experimental ?? false,
+    });
 
     res.json({ id: sessionResult.rows[0].id, recommendation });
   } catch (err) {

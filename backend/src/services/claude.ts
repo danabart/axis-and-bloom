@@ -46,15 +46,47 @@ export async function chatWithAgent(
   return block.type === 'text' ? block.text : '';
 }
 
-export async function getRecommendation(archetype: string, decaf: boolean): Promise<string> {
+export async function getRecommendation(
+  archetype: string,
+  decaf: boolean,
+  context?: {
+    secondaryArchetype?: string | null;
+    confidence?: 'high' | 'medium' | 'low';
+    recommendationMode?: string;
+    experimental?: boolean;
+  }
+): Promise<string> {
+  const mode = context?.recommendationMode ?? 'primary_only';
+  const secondary = context?.secondaryArchetype;
+  const decafNote = decaf ? ' and who prefers decaf' : '';
+
+  const prompts: Record<string, string> = {
+    primary_only:
+      `Generate a confident personalized coffee recommendation for a customer whose archetype is "${archetype}"${decafNote}. Be specific about tasting notes and why this matches their profile. Keep it under 150 words.`,
+
+    primary_plus_introduce_secondary:
+      `Generate a coffee recommendation for a customer whose primary archetype is "${archetype}"${decafNote}. Their secondary archetype is "${secondary}". Recommend a coffee that fits their primary archetype, then gently introduce their secondary as a discovery option worth exploring when they're ready. Keep it under 200 words.`,
+
+    primary_plus_active_secondary:
+      `Generate a coffee recommendation for a customer whose primary archetype is "${archetype}"${decafNote}. Their secondary archetype is "${secondary}" and two independent signals confirm it is genuine. Recommend their primary coffee, then actively recommend a second specific discovery coffee for their secondary archetype — not just a hint, a real suggestion with tasting notes. Keep it under 200 words.`,
+
+    primary_plus_note_secondary:
+      `Generate a coffee recommendation for a customer whose primary archetype is "${archetype}"${decafNote}. Their secondary archetype is "${secondary}" showed up on key questions. Recommend their primary coffee confidently, and mention that their secondary archetype may be worth exploring in the future. Keep it under 200 words.`,
+
+    primary_as_starting_point:
+      `Generate a coffee recommendation for a curious, open-minded customer whose primary archetype is "${archetype}"${decafNote}. Recommend their primary coffee but frame it as a starting point — the beginning of a journey rather than a fixed destination. Keep it under 150 words.`,
+
+    ai_agent:
+      `Generate a warm, open-ended coffee recommendation for a customer whose primary archetype is "${archetype}"${decafNote}. Their signals were mixed so don't be too prescriptive. Recommend something approachable and invite them to share more about what they enjoy so you can refine the recommendation. Keep it under 150 words.`,
+  };
+
+  const content = prompts[mode] ?? prompts['primary_only'];
+
   const response = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 300,
     system: SYSTEM_PROMPT,
-    messages: [{
-      role: 'user',
-      content: `Generate a personalized coffee recommendation for a customer whose archetype is "${archetype}"${decaf ? ' and who prefers decaf' : ''}. Be specific about tasting notes and why this matches their profile. Keep it under 150 words.`,
-    }],
+    messages: [{ role: 'user', content }],
   });
 
   const block = response.content[0];
