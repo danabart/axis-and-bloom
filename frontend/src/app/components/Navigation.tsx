@@ -18,6 +18,7 @@ export default function Navigation() {
       <div className="flex items-center gap-10 text-sm" style={{ color: menuColor, fontFamily: 'Genova, sans-serif' }}>
         <Link to="/how-it-works" className="hover:opacity-60 transition-opacity">How it works</Link>
         <Link to="/find-my-flavor" className="hover:opacity-60 transition-opacity">Find my flavor</Link>
+        <Link to="/coffees" className="hover:opacity-60 transition-opacity">Our coffees</Link>
         <Link to="/about" className="hover:opacity-60 transition-opacity">About</Link>
         <Link to="/shop" className="hover:opacity-60 transition-opacity">Shop</Link>
         {isAdmin && (
