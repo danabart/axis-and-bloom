@@ -5,6 +5,21 @@ import { TasteFinderSection } from './TasteFinderSection';
 import chaffPhoto from '../../design/IMAGES/A_B06.png'
 import logoLines from '../../design/LOGO/LogoLines.svg'
 import logoCircle from '../../design/LOGO/LogoCircle.svg'
+import imgFloral from '../../design/IMAGES/archetypes/Floral.jpg'
+import imgFruity from '../../design/IMAGES/archetypes/Fruity.jpg'
+import imgBalanced from '../../design/IMAGES/archetypes/Balanced-&-Sweet.jpg'
+import imgChocolate from '../../design/IMAGES/archetypes/Chocolate-&-Nutty.jpg'
+import imgSpicy from '../../design/IMAGES/archetypes/Spicy-&-Earthy.jpg'
+import imgExperimental from '../../design/IMAGES/archetypes/Experimental.jpg'
+
+const archetypes = [
+  { num: '01', name: 'Floral',            bg: '#a34b78', img: imgFloral,       desc: 'Light, elegant, and aromatic. Hints of jasmine, citrus, and a tea-like clarity.',                              keywords: 'FRAGRANT · BRIGHT · DELICATE · CLEAN'   },
+  { num: '02', name: 'Fruity',            bg: '#ca445f', img: imgFruity,        desc: 'Juicy and lively with notes of berries and ripe fruit.',                                                       keywords: 'SWEET · VIBRANT · EXPRESSIVE · LIVELY'  },
+  { num: '03', name: 'Balanced & Sweet',  bg: '#d1ac11', img: imgBalanced,      desc: 'Round, smooth, and comforting. Notes of caramel, honey, and soft fruit.',                                     keywords: 'SMOOTH · SWEET · HARMONIOUS · EASY'     },
+  { num: '04', name: 'Chocolate & Nutty', bg: '#a54c2d', img: imgChocolate,     desc: 'Deep and satisfying with cocoa, roasted nuts, and a rich presence.',                                          keywords: 'RICH · GROUNDED · FULL · COMFORTING'    },
+  { num: '05', name: 'Spicy & Earthy',    bg: '#912f2f', img: imgSpicy,         desc: 'Warm and bold with hints of spice, wood, and lingering depth.',                                               keywords: 'WARM · DEEP · BOLD · LASTING'           },
+  { num: '06', name: 'Experimental',      bg: '#056c7a', img: imgExperimental,  desc: 'Ever-changing and wonderfully unconventional. A rotating selection of boundary-pushing coffees.',             keywords: 'WILD · UNIQUE · SURPRISING'             },
+];
 
 export default function Home() {
   const [linesVisible, setLinesVisible] = useState(false);
@@ -104,28 +119,50 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Section 2 */}
-        <div className="h-screen relative">
-          <div className="absolute inset-0 flex">
-            <div className="w-1/2" style={{ backgroundColor: '#f2f1ea' }} />
-            <div className="w-1/2" style={{ backgroundColor: '#deded1' }} />
-          </div>
-          <div className="relative z-10 h-full flex">
-            <div className="w-1/2 flex flex-col justify-center px-12 md:px-20 lg:px-32">
-              <motion.div initial={{ opacity: 0, y: 40 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: '-100px' }} transition={{ duration: 1 }}>
-                <h2 className="text-7xl lg:text-[110px] xl:text-[130px] leading-[0.95] tracking-tight mb-12" style={{ color: '#b15643' }}>
-                  Where taste<br />becomes<br />a match.
-                </h2>
-                <p className="text-2xl lg:text-4xl leading-tight mb-16" style={{ color: '#b15643' }}>
-                  A personalized system<br />for finding coffee that<br />fits your taste.
-                </p>
-                <Link to="/how-it-works" className="text-xl lg:text-2xl uppercase tracking-widest group relative inline-flex items-center" style={{ color: '#b15643' }}>
-                  <span className="relative pb-1">How it works<span className="absolute bottom-0 left-0 w-0 h-[2px] transition-all duration-500 ease-out group-hover:w-full" style={{ backgroundColor: '#b15643' }} /></span>
-                  <span className="ml-4 transition-transform duration-500 group-hover:translate-x-3">→</span>
-                </Link>
-              </motion.div>
+        {/* Archetype grid */}
+        <div style={{ backgroundColor: '#ebebe3', paddingTop: 100, paddingBottom: 100, width: '100%' }}>
+          <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 24px' }}>
+
+            {/* Section header */}
+            <div style={{ textAlign: 'center', marginBottom: '4rem' }}>
+              <p style={{ fontSize: '0.75rem', letterSpacing: '0.2em', fontWeight: 400, color: '#a94936', marginBottom: '1rem' }}>
+                THE SIX ARCHETYPES
+              </p>
+              <p style={{ fontSize: 'clamp(1.8rem, 3vw, 2.8rem)', fontWeight: 300, color: '#9a2918', lineHeight: 1.2 }}>
+                Which world feels like yours?
+              </p>
             </div>
-            <div className="w-1/2" />
+
+            {/* Grid */}
+            <motion.div
+              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+              initial={{ opacity: 0, y: 40 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, amount: 0.2 }}
+              transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+            >
+              {archetypes.map((a) => (
+                <motion.div
+                  key={a.num}
+                  whileHover={{ scale: 1.02 }}
+                  transition={{ duration: 0.3 }}
+                  style={{ position: 'relative', overflow: 'hidden', borderRadius: 4, minHeight: 380, backgroundColor: a.bg, display: 'flex', flexDirection: 'column', padding: '2.5rem' }}
+                >
+                  {/* Faint pattern overlay */}
+                  <div style={{ position: 'absolute', inset: 0, opacity: 0.12 }}>
+                    <img src={a.img} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
+                  </div>
+
+                  {/* Card content */}
+                  <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+                    <span style={{ fontSize: '0.75rem', letterSpacing: '0.15em', fontWeight: 400, color: '#f2f1ea', opacity: 0.8 }}>{a.num} —</span>
+                    <p style={{ fontSize: 'clamp(1.8rem, 2.5vw, 2.2rem)', fontWeight: 300, color: '#f2f1ea', lineHeight: 1.1, marginTop: '1rem' }}>{a.name}</p>
+                    <p style={{ fontSize: '0.95rem', fontWeight: 300, color: '#f2f1ea', lineHeight: 1.6, opacity: 0.85, marginTop: 'auto', paddingTop: '2rem' }}>{a.desc}</p>
+                    <p style={{ fontSize: '0.65rem', letterSpacing: '0.2em', fontWeight: 400, color: '#f2f1ea', opacity: 0.7, marginTop: '1.5rem', textTransform: 'uppercase' }}>{a.keywords}</p>
+                  </div>
+                </motion.div>
+              ))}
+            </motion.div>
           </div>
         </div>
       </div>
