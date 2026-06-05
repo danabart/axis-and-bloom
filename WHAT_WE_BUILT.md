@@ -666,6 +666,32 @@ Logic documented in `misc/v4/logic_notes.csv` (13 rules).
 **Cause**: The query had `AND cs.is_merged = true`. Session 001 coffees have a merged score row; Noam Blend and Nocturnal were scored without the merge flag set. The filter silently excluded all their data.
 **Fix**: Removed `AND cs.is_merged = true` from all three dimensions-related queries in `coffees.ts` and the ai-summary endpoint. All cupping scores are now included and averaged regardless of merge status.
 
+### 40. Quiz scoring logic extracted + 31 unit tests
+**Change**: The pure scoring logic from `POST /api/quiz/score` was extracted into `backend/src/services/quizScoring.ts` (no DB, no Express dependencies) so it can be tested independently. The route handler now imports and calls these functions instead of having logic inline.
+
+**Functions extracted:**
+- `rankScores(scores)` — sort archetypes by total score descending
+- `findWinner(ranked, byQ)` — veto cascade (Q6 → Q5 → Q3 → Q1, fallback: Balanced & Sweet)
+- `findSecondary(ranked, winner)` — second highest scoring archetype
+- `isSecondaryClose(byQ, secondary)` — Option B: secondary scored on Q5 or Q6
+- `computeConfidenceAndMode(foodSignal, winner, secondary, experimental, secondaryClose)` — all 4 scenarios + 2 experimental modifiers
+
+**Test file**: `backend/src/services/quizScoring.test.ts` — 31 tests covering:
+- Clear winner (no cascade)
+- Veto cascade: Q6, Q5, Q3, Q1 resolution in order
+- Cascade exhausted → Balanced & Sweet fallback
+- Q4 and Q2 correctly excluded from cascade
+- Three-way tie
+- Secondary archetype determination
+- Option B close threshold (Q5/Q6 vs low-weight questions)
+- All 4 food signal confidence scenarios
+- Both experimental modifiers
+- Experimental overrides Scenario 4
+- Null food signal defaults
+- Secondary = null edge case
+
+**Test runner**: Vitest (added to devDependencies — better ESM support than Jest for this project). Run with `npm test` from `backend/`.
+
 ### 37. Public `/coffees` page — flavor intelligence for customers
 **Change**: Added a new public page at `/coffees` (`CoffeesPage.tsx`) backed by three new public endpoints. Replaces the admin-only flavor wheel as the customer-facing view. Features: coffee selector sidebar, AI tasting note (DB-cached), dimension bars (range bars on 0–15 scale), bubble cloud (descriptors as growing circles sized by √mentions). "Our coffees" added to main nav.
 
@@ -785,6 +811,7 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 | Admin portal | ✅ 6 pages: Dashboard, Coffees (roaster autocomplete dropdown), Sessions (roastery dropdown), Score Entry (multi-taster tabs + read-only/edit), Flavor Wheel (+ stats), Roasteries (inline edit + all contact fields) |
 | Admin user management | ✅ `grant_admin()` / `revoke_admin()` / `list_admins()` stored DB functions + matching API endpoints |
 | Lookup values | ✅ `lookup_value` table — 20 values across 4 categories; single `GET /api/admin/lookups` call populates all admin dropdowns |
+| Quiz scoring unit tests | ✅ 31 tests in `quizScoring.test.ts` — veto cascade, confidence/mode logic, all edge cases; run with `npm test` from `backend/` |
 | CI/CD | ✅ Push to main deploys everything |
 
 ---
