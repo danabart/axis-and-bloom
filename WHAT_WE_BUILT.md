@@ -237,7 +237,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 - `user_profile` — core user record; `firebase_uid` is the join key from Firebase Auth; columns added: `first_name TEXT`, `last_name TEXT`, `date_of_birth DATE` (all idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`)
 - `user_email` — multiple email addresses per user
 - `user_phone`
-- `address` — shipping and billing addresses (street, city, state, postal_code, country, is_default, address_type: `'shipping' | 'billing'`); collected from the profile page Settings tab; first address of each type auto-set as default
+- `address` — shipping and billing addresses (street, city, state, postal_code, country, is_default, address_type: `address_type_enum`); collected from the profile page Settings tab; first address of each type auto-set as default
 - `payment_detail` — Stripe customer links and payment info
 
 **Flavor / archetype engine**
@@ -323,6 +323,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | `brew_method_enum` | `filter`, `espresso`, `cold_brew`, `other` | Defined but no longer used as a column type — `cupping_sessions.brew_method` was migrated to `TEXT` |
 | `archetype_enum` | `chocolate_nutty`, `balanced_sweet`, `fruity`, `earthy`, `floral`, `experimental` | `archetype_assignments.archetype` |
 | `confidence_enum` | `low`, `medium`, `high` | `archetype_assignments.confidence` |
+| `address_type_enum` | `shipping`, `billing` | `address.address_type`; migrated from `TEXT` via idempotent `DO` block on deploy |
 
 ---
 
@@ -1211,7 +1212,7 @@ SELECT unnest(enum_range(NULL::archetype_enum)) AS value;
 SELECT t.typname AS enum_name, e.enumlabel AS value, e.enumsortorder AS sort_order
 FROM pg_type t
 JOIN pg_enum e ON e.enumtypid = t.oid
-WHERE t.typname IN ('archetype_enum', 'brew_method_enum', 'confidence_enum')
+WHERE t.typname IN ('archetype_enum', 'brew_method_enum', 'confidence_enum', 'address_type_enum')
 ORDER BY t.typname, e.enumsortorder;
 ```
 
