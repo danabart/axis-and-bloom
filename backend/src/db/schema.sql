@@ -1325,7 +1325,8 @@ UNION ALL
 -- Full quiz scoring matrix — one row per (question, answer, archetype)
 -- Shows all three scoring levels: question weight, answer weight, archetype-specific score.
 -- Lambda formula: q_weight × ans_weight × ans_score = effective contribution per archetype.
-CREATE OR REPLACE VIEW v_quiz_scoring_matrix AS
+DROP VIEW IF EXISTS v_quiz_scoring_matrix;
+CREATE VIEW v_quiz_scoring_matrix AS
 SELECT *
 FROM (
   SELECT
