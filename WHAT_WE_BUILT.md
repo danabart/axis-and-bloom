@@ -234,10 +234,10 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 
 **Users**
 - `household` — shared account grouping (one household, multiple members)
-- `user_profile` — core user record; `firebase_uid` is the join key from Firebase Auth
+- `user_profile` — core user record; `firebase_uid` is the join key from Firebase Auth; columns added: `first_name TEXT`, `last_name TEXT`, `date_of_birth DATE` (all idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`)
 - `user_email` — multiple email addresses per user
 - `user_phone`
-- `address` — shipping addresses
+- `address` — shipping addresses (street, city, state, postal_code, country, is_default); collected from the profile page Settings tab
 - `payment_detail` — Stripe customer links and payment info
 
 **Flavor / archetype engine**
@@ -332,7 +332,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 |---|---|---|---|
 | GET | `/health` | No | Returns `{"status":"ok"}` |
 | GET | `/health/db` | No | Returns connected status + all table names |
-| POST | `/api/auth/sync` | Yes | Creates/updates user_profile row after Firebase sign-in |
+| POST | `/api/auth/sync` | Yes | Creates/updates user_profile row after Firebase sign-in; accepts `{ firstName, lastName }` — saves on signup, uses `COALESCE` so re-login never overwrites existing names |
 | POST | `/api/auth/reset-password` | No | Sends branded password-reset email via Resend from axisandbloomcoffee.com |
 | GET | `/api/quiz/questions` | No | Returns active quiz questions + answers from DB (with archetype names and answer UUIDs) |
 | POST | `/api/quiz/score` | No | Takes `{ answerIds[] }`, SUMs weighted scores from `answer_archetype_score`, returns winning archetype, secondary archetype, food signal, confidence level, and recommendation mode. Veto cascade: Q6 → Q5 → Q3 → Q1. All scoring logic lives here — zero logic in the frontend. |
@@ -342,7 +342,10 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | POST | `/api/shop/order` | Yes | Creates Shopify order |
 | POST | `/api/agent/chat` | Yes | Claude AI chat with coffee context |
 | GET | `/api/orders` | Yes | User's order history |
-| GET | `/api/users/profile` | Yes | User's full profile |
+| GET | `/api/users/profile` | Yes | User's full profile — returns `firstName`, `lastName`, `dateOfBirth`, `email`, `archetype`, `addresses[]`, `orders[]`, `isAdmin` |
+| PATCH | `/api/users/profile` | Yes | Update `firstName`, `lastName`, `dateOfBirth` — uses `COALESCE` so omitted fields are not cleared |
+| POST | `/api/users/addresses` | Yes | Add a shipping address; first address auto-set as default |
+| DELETE | `/api/users/addresses/:id` | Yes | Remove a shipping address (ownership-checked) |
 | POST | `/api/newsletter/subscribe` | No | Newsletter signup — accepts `{ email, firstName?, source? }`; upserts `newsletter_subscriber` (preserving existing first_name if new value is blank); syncs to Mailchimp non-blocking if credentials configured; `source` defaults to `'newsletter'` |
 | POST | `/api/newsletter` | No | Backward-compat alias for `/subscribe` — called by `NewsletterModal`; identical logic |
 | GET | `/api/admin/lookups` | Admin | All dropdown options grouped by category (`roast_level`, `process`, `blend_or_single`, `brew_method`) |
@@ -656,6 +659,27 @@ Experimental modifier: if `experimental = true AND food == secondary` → strong
 
 Logic documented in `misc/v4/logic_notes.csv` (13 rules).
 
+### 41. Profile page — user data collection (name, birthday, address)
+**Change**: Extended the sign-up and profile flows to collect and persist real user data.
+
+**Sign-up (`SignIn.tsx`)**: "Create Profile" tab now shows First name + Last name fields above email. Names are passed to `signUp()` → `AuthContext.syncUser()` → `POST /api/auth/sync` → `user_profile.first_name / last_name`. The Sign In tab is unchanged. Names are optional — sign-up still works without them.
+
+**Schema additions** (idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`):
+- `user_profile.first_name TEXT`
+- `user_profile.last_name TEXT`
+- `user_profile.date_of_birth DATE`
+
+**`POST /api/auth/sync`**: now accepts `{ firstName, lastName }` in the request body. Uses `COALESCE` so subsequent sign-ins never overwrite an existing name with null.
+
+**Profile Settings tab** (rebuilt):
+- Editable first/last name + read-only email + optional birthday (labeled "for exclusive promos"). Saves via `PATCH /api/users/profile`.
+- Shipping address section — lists saved addresses, Remove button per address, "+ Add Address" form (street, city, state, ZIP). First address auto-set as default. `POST /api/users/addresses` → `address` table. Ready for checkout when Shopify is wired.
+- Sign Out button moved to bottom of Settings.
+
+**Welcome header**: now shows `"Welcome back, {first_name}"` using the name from the DB, falling back to `displayName` then email.
+
+**Birthday decision**: collected on the profile page (not at sign-up) to keep registration friction low. Users opt in at their own pace.
+
 ### 39. AI tasting notes billed per visitor — cached in DB
 **Problem**: `GET /api/coffees/:id/ai-summary` called Claude haiku on every page load. Every visitor triggered a billable Claude API call, once per coffee they viewed.
 **Fix**: Added `ai_summary TEXT` column to `coffees` table (idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`). Endpoint now checks the DB first — if populated, returns immediately with no Claude call. On first request (null), generates, stores, and returns. Admins can force-regenerate via `POST /api/admin/coffees/:id/refresh-summary` after new cupping data is added; "↺ Refresh" button added to Admin → Coffees.
@@ -812,6 +836,7 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 | Admin user management | ✅ `grant_admin()` / `revoke_admin()` / `list_admins()` stored DB functions + matching API endpoints |
 | Lookup values | ✅ `lookup_value` table — 20 values across 4 categories; single `GET /api/admin/lookups` call populates all admin dropdowns |
 | Quiz scoring unit tests | ✅ 31 tests in `quizScoring.test.ts` — veto cascade, confidence/mode logic, all edge cases; run with `npm test` from `backend/` |
+| Profile — user data collection | ✅ Sign-up collects first + last name; profile Settings tab has editable name, optional birthday, and shipping address management — all written to DB |
 | CI/CD | ✅ Push to main deploys everything |
 
 ---
