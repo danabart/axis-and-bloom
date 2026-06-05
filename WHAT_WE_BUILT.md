@@ -295,7 +295,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | View | Description |
 |---|---|
 | `v_collaborative_flavor_wheel` | All descriptor observations per coffee with source label (`internal`, `roastery`, `client`). Columns: `coffee_id`, `coffee_name`, `cupping_note_id`, `wheel_category`, `wheel_subcategory`, `descriptor`, `source`, `intensity`. No extra JOINs needed — names are already resolved. One row per observation; GROUP BY coffee + descriptor to aggregate. |
-| `v_quiz_scoring_matrix` | Full scoring matrix — one row per (question, answer, archetype). Columns: `q_number`, `q_text`, `q_weight`, `answer_text`, `archetype`, `ans_score`, `ans_weight`. Lambda formula: `q_weight × ans_weight × ans_score`. |
+| `v_quiz_scoring_matrix` | Full scoring matrix — one row per (question, answer, archetype). Columns: `quiz_version`, `q_number`, `q_text`, `a_number` (generated via ROW_NUMBER), `answer_text`, `q_weight`, `ans_weight`, `archetype`, `ans_score`. Lambda formula: `q_weight × ans_weight × ans_score`. Uses `DROP VIEW IF EXISTS` + `CREATE VIEW` (not `CREATE OR REPLACE`) to allow column reordering. |
 | `v_newsletter_subscribers` | All newsletter signups with human-readable source label. Columns: `email`, `first_name`, `source` (e.g. `Pre-Launch Popup`), `subscribed`, `signed_up_at`. Ordered newest first. |
 
 ### Dimensions (seeded, 12 rows)
@@ -334,8 +334,8 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | POST | `/api/auth/sync` | Yes | Creates/updates user_profile row after Firebase sign-in |
 | POST | `/api/auth/reset-password` | No | Sends branded password-reset email via Resend from axisandbloomcoffee.com |
 | GET | `/api/quiz/questions` | No | Returns active quiz questions + answers from DB (with archetype names and answer UUIDs) |
-| POST | `/api/quiz/score` | No | Takes `{ answerIds[] }`, SUMs weighted scores from `answer_archetype_score`, returns winning archetype + full score map. All scoring logic lives here — zero logic in the frontend. |
-| POST | `/api/quiz/results` | Yes | Saves completed quiz session; resolves archetype UUID by name; returns session ID |
+| POST | `/api/quiz/score` | No | Takes `{ answerIds[] }`, SUMs weighted scores from `answer_archetype_score`, returns winning archetype, secondary archetype, food signal, confidence level, and recommendation mode. Veto cascade: Q6 → Q5 → Q3 → Q1. All scoring logic lives here — zero logic in the frontend. |
+| POST | `/api/quiz/results` | Yes | Saves completed quiz session with full scoring context (including secondaryArchetype, foodSignal, confidence, recommendationMode in context_data JSONB); calls Claude with mode-specific prompt; returns session ID + recommendation |
 | GET | `/api/quiz/results/latest` | Yes | Returns user's most recent quiz session with archetype name |
 | GET | `/api/shop/products` | No | Returns Shopify products (empty list until Shopify wired) |
 | POST | `/api/shop/order` | Yes | Creates Shopify order |
@@ -626,6 +626,35 @@ Also fixed: no try-catch around the `Promise.all` loading three parallel API cal
 
 **`ON CONFLICT` upsert strategy**: on duplicate email, `subscribed` is reset to `TRUE`; `first_name` is updated only if the new value is non-empty (preserves existing name if not provided); `source_id` is kept from the first signup (not overwritten).
 
+### 34. Quiz V4 — Food instinct signal, 6 questions, weighted scoring, full matching logic
+**Change**: Introduced quiz V4 as the active version. V3 deactivated (`is_active = FALSE`). Source files in `misc/v4/`.
+
+Key changes from V3:
+- 6 questions (V3 had 5) — added Q2 "Food instinct" (secondary signal) and Q6 "Bitterness tolerance" (new highest-weight question; Q5 in V3 became Q6 in V4)
+- Q2 has `weight = 0` — not in `answer_archetype_score` at all; answer archetype comes from `answer.resulting_archetype_id` and is captured as `food_signal`
+- Q4 gains experimental gate (was Q3-C in V3)
+- Q4-D split: +0.5 to Chocolate & Nutty AND +0.5 to Balanced & Sweet (two rows in `answer_archetype_score`, `resulting_archetype_id = NULL`)
+- Veto cascade corrected to Q6 → Q5 → Q3 → Q1 (was Q5 → Q4 → Q2 → Q1 in V3)
+- `POST /api/quiz/score` now returns `secondaryArchetype`, `foodSignal`, `confidence`, `recommendationMode` in addition to the existing fields
+- `POST /api/quiz/results` saves all new fields to `quiz_session.context_data`
+- `getRecommendation()` (claude.ts) updated with 6 mode-specific prompts driven by `recommendationMode`
+
+### 35. Food signal × secondary archetype matching logic
+**Change**: Defined and implemented a 4-scenario × 2-modifier decision matrix that uses the Q2 food instinct answer to determine how confident the classification is and what kind of recommendation to generate.
+
+Scenarios: food matches primary (high confidence) / food matches secondary (medium, introduce secondary) / food matches neither (low, route to AI) / food matches primary with a close secondary (medium, note secondary for future).
+
+Close secondary threshold — **Option B**: secondary is meaningful only if it scored on Q5 or Q6 (the two highest-weight questions). Low-weight signals (Q1, Q4) don't qualify.
+
+Experimental modifier: if `experimental = true AND food == secondary` → strongest signal, actively push discovery coffee. If `experimental = true AND food == primary` → curious person firmly rooted, frame primary as a starting point.
+
+Logic documented in `misc/v4/logic_notes.csv` (13 rules).
+
+### 36. `v_quiz_scoring_matrix` view expanded and fixed
+**Change**: View updated to include `quiz_version` (from `quiz` table), `a_number` (generated via `ROW_NUMBER() OVER (PARTITION BY q.id ORDER BY a.id)`), `q_weight`, and `ans_weight`. Column order changed.
+
+**Fix**: `CREATE OR REPLACE VIEW` in PostgreSQL cannot rename or reorder existing columns — only append. Switched to `DROP VIEW IF EXISTS` + `CREATE VIEW` (same fix as `v_collaborative_flavor_wheel`). Seeded `misc/v4/` files committed to repo.
+
 ### 28. Quiz V3 — Perfect cup theme + experimental gate
 **Change**: Introduced quiz V3 as the active version. V2 is deactivated (`is_active = FALSE`). Key changes:
 - Q2 completely replaced: "Food instinct" (food choices) → "Perfect cup" (coffee experience descriptions)
@@ -713,7 +742,7 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 
 ---
 
-## Current State (as of 2026-06-02)
+## Current State (as of 2026-06-05)
 
 | Component | Status |
 |---|---|
@@ -723,10 +752,12 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 | Email/password auth | ✅ Working |
 | Google sign-in | ✅ Working (was already enabled) |
 | Apple sign-in | ⚠️ Not configured |
-| Flavor quiz (V3) | ✅ Active — V3 replaces V2; new Q2 "Perfect cup" theme, experimental gate on Q3-C, Q3-D splits 0.5 to CN + 0.5 to BS, updated Q4/Q5 answer texts |
+| Flavor quiz (V4) | ✅ Active — V4 replaces V3; 6 questions, weighted scoring, food instinct question (Q2, secondary signal only), experimental gate on Q4-C, split answer on Q4-D; full food signal × secondary archetype matching logic with confidence levels and 6 recommendation modes |
+| Quiz matching logic | ✅ Food signal drives confidence (high/medium/low) and recommendation mode; Option B close threshold (secondary scored on Q5 or Q6); experimental gate modifier; `POST /api/quiz/score` returns full scoring context |
 | Transactional email | ✅ Resend — sends from noreply@axisandbloomcoffee.com |
 | Marketing email / Mailchimp | ✅ Active — new signups synced to Mailchimp audience with FNAME merge field; credentials in Secret Manager |
 | Claude AI chat | ✅ Wired up, API key in Secret Manager |
+| Claude recommendations | ✅ 6 mode-specific prompts in `getRecommendation()` — primary_only, primary_plus_introduce_secondary, primary_plus_active_secondary, primary_plus_note_secondary, primary_as_starting_point, ai_agent |
 | Shopify | ⚠️ Stubbed — waiting for roastery account |
 | Pre-launch page | ✅ Live — full-screen curtain at axisandbloom.com; email + first name capture saves to DB + Mailchimp; bypass via `?preview=true` |
 | Newsletter subscriber tracking | ✅ `subscriber_source` table tracks signup origin (`pre_launch`, `newsletter`, `post_quiz`, `footer`); `first_name` stored |
@@ -738,24 +769,26 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 
 ---
 
-## Flavor Quiz (V3)
+## Flavor Quiz (V4)
 
 The quiz lives in `frontend/src/app/components/FlavorQuiz.tsx`. The active quiz version is always served dynamically via `GET /api/quiz/questions` (queries `quiz WHERE is_active = TRUE`) — no frontend deploy needed to switch versions.
 
 **Version history:**
 - **V1** — 15 questions, 6 archetypes, hardcoded in frontend (replaced)
 - **V2** — 5 questions, 3 archetypes, DB-driven scoring (deactivated)
-- **V3** — 5 questions, 3 archetypes, new "Perfect cup" Q2, experimental gate on Q3-C, updated answer texts; source file: `backend/src/quizes/Coffee_Quiz_Scoring_v3.xlsx`
+- **V3** — 5 questions, 3 archetypes, new "Perfect cup" Q2, experimental gate on Q3-C, updated answer texts; source file: `backend/src/quizes/Coffee_Quiz_Scoring_v3.xlsx` (deactivated)
+- **V4** — 6 questions, 3 archetypes, weighted scoring, food instinct Q2 (secondary signal only), experimental gate on Q4-C, split answer on Q4-D, full food signal matching logic; source files: `misc/v4/`
 
-### Questions (V3 — active)
+### Questions (V4 — active)
 
-| # | Category | Question |
-|---|---|---|
-| 1 | Identity | How would you describe your relationship with coffee? |
-| 2 | Perfect cup | Think about a coffee that really worked for you. What made it perfect? |
-| 3 | Black coffee reaction | You try a new coffee black. What's your first reaction? |
-| 4 | Disappointment | Which coffee would disappoint you the most? |
-| 5 | Bitterness tolerance | You're handed an espresso — straight, no milk, no sugar. How does it land? |
+| # | Weight | Category | Question | Notes |
+|---|---|---|---|---|
+| 1 | 1 | Identity | How would you describe your relationship with coffee? | Lowest weight — most rationalizable |
+| 2 | 0 | Food instinct | Someone places a small treat next to your coffee. Without thinking, which do you grab? | Secondary signal only — not in primary scoring |
+| 3 | 2 | Perfect cup | When you finish a really good cup of coffee, what made it good? | Second highest weight |
+| 4 | 1 | Black coffee reaction | You try a new coffee black. What's your first reaction? | Experimental gate + split answer live here |
+| 5 | 2 | Disappointment | Which of these would bother you most about a cup of coffee? | Strong negative framing |
+| 6 | 3 | Bitterness tolerance | Someone hands you a coffee that's a little more bitter than expected. What's your honest reaction? | Strongest signal, highest weight |
 
 ### Archetypes
 
@@ -780,57 +813,57 @@ Scoring is split across three fields, each with a distinct role. All three are k
 archetype total = SUM( question.weight × answer.weight × answer_archetype_score.score )
 ```
 
-**V3 seeded values** (all question/answer weights = 1; point difference is baked into `score`):
+**V4 seeded values** (point difference baked into `score`; Q2 excluded from `answer_archetype_score`):
 
-| Question | Answer | Archetype | Score |
-|---|---|---|---|
-| Q1 — Identity | It's a daily ritual. I'm particular about it. | Chocolate & Nutty | +1 |
-| Q1 — Identity | It's a reliable habit. I just like having it. | Balanced & Sweet | +1 |
-| Q1 — Identity | It's something I'm still discovering. I'm curious about it. | Fruity | +1 |
-| Q2 — Perfect cup | It was strong and satisfying — I felt it. | Chocolate & Nutty | +2 |
-| Q2 — Perfect cup | It was smooth and easy the whole way through — nothing got in the way. | Balanced & Sweet | +2 |
-| Q2 — Perfect cup | It felt alive — bright and changing. Every sip was a little different. | Fruity | +2 |
-| Q3 — Black coffee | It feels complete. I'd drink it as is, or add milk to make it even richer. | Chocolate & Nutty | +1 |
-| Q3 — Black coffee | It's fine, easy to drink. I might add something to smooth it out. | Balanced & Sweet | +1 |
-| Q3 — Black coffee | Interesting… what flavors am I getting here? ⚑ | Fruity | +1 |
-| Q3 — Black coffee | I'm not sure. I don't usually drink it black. | CN + BS split | +0.5 each |
-| Q4 — Disappointment | It has no bitterness or intensity. | Chocolate & Nutty | +2 |
-| Q4 — Disappointment | It's too bitter or too intense. | Balanced & Sweet | +2 |
-| Q4 — Disappointment | Every sip tastes exactly the same. | Fruity | +2 |
-| Q5 — Bitterness | I don't mind. Actually I kind of like it. It tastes serious. | Chocolate & Nutty | +3 |
-| Q5 — Bitterness | I'd rather have something gentler and smoother. | Balanced & Sweet | +3 |
-| Q5 — Bitterness | It feels burnt to me. I'd rather have something fresher or more alive. | Fruity | +3 |
+| Question | Weight | Answer | Archetype | Score |
+|---|---|---|---|---|
+| Q1 — Identity | 1 | It's a daily ritual. I'm particular about it. | Chocolate & Nutty | +1 |
+| Q1 — Identity | 1 | It's a reliable habit. I just like having it. | Balanced & Sweet | +1 |
+| Q1 — Identity | 1 | It's something I'm still discovering. I'm curious about it. | Fruity | +1 |
+| Q2 — Food instinct | 0 | (secondary signal — not scored, captured as food_signal) | — | — |
+| Q3 — Perfect cup | 2 | It was strong and satisfying. I felt it. | Chocolate & Nutty | +2 |
+| Q3 — Perfect cup | 2 | It was smooth and easy the whole way through. Nothing got in the way. | Balanced & Sweet | +2 |
+| Q3 — Perfect cup | 2 | It felt alive — bright and changing. Every sip was a little different. | Fruity | +2 |
+| Q4 — Black coffee | 1 | It feels complete. I'd drink it as is, or add milk to make it even richer. | Chocolate & Nutty | +1 |
+| Q4 — Black coffee | 1 | It's fine, easy to drink. I might add something to smooth it out. | Balanced & Sweet | +1 |
+| Q4 — Black coffee | 1 | Interesting — what flavors am I getting here? ⚑ | Fruity | +1 |
+| Q4 — Black coffee | 1 | I'm not sure. I don't usually drink it black. | CN + BS split | +0.5 each |
+| Q5 — Disappointment | 2 | It has no bitterness or intensity. | Chocolate & Nutty | +2 |
+| Q5 — Disappointment | 2 | It's too bitter or too intense. | Balanced & Sweet | +2 |
+| Q5 — Disappointment | 2 | Every sip tastes exactly the same. | Fruity | +2 |
+| Q6 — Bitterness | 3 | I don't mind. Actually I kind of like it. It tastes serious. | Chocolate & Nutty | +3 |
+| Q6 — Bitterness | 3 | I'd rather have something gentler and smoother. | Balanced & Sweet | +3 |
+| Q6 — Bitterness | 3 | It feels burnt to me. I'd rather have something fresher or more alive. | Fruity | +3 |
 
 ⚑ = experimental gate — see below.
 
-| Question weight | Max score per archetype |
-|---|---|
-| Q1 × 1 | 1 pt |
-| Q2 × 2 | 2 pts |
-| Q3 × 1 | 1 pt |
-| Q4 × 2 | 2 pts |
-| Q5 × 3 | 3 pts |
-| **Total** | **9 pts** |
+| Question | Weight | Max score per archetype |
+|---|---|---|
+| Q1 | 1 | 1 pt |
+| Q2 | 0 | — (secondary signal only) |
+| Q3 | 2 | 2 pts |
+| Q4 | 1 | 1 pt |
+| Q5 | 2 | 2 pts |
+| Q6 | 3 | 3 pts |
+| **Total** | | **9 pts** |
 
 **Max possible score for one archetype**: 1 + 2 + 1 + 2 + 3 = **9 pts**
 
 **Tuning examples — no code changes needed, just DB updates:**
-- Q5 should matter even more → `UPDATE question SET weight = 2 WHERE q_number = 5`
+- Q6 should matter even more → `UPDATE question SET weight = 4 WHERE q_number = 6`
 - A specific answer is an unusually strong signal → `UPDATE answer SET weight = 1.5 WHERE answer_text = '...'`
 - An answer should also hurt a competing archetype → `INSERT INTO answer_archetype_score (..., archetype_id, score) VALUES (..., <fruity_id>, -2)`
 
-**Experimental gate (Q3-C)**
+**Experimental gate (Q4-C)**
 
-Q3 answer C ("Interesting… what flavors am I getting here?") is flagged `is_experimental_gate = TRUE` in the `answer` table. When a user selects it, `POST /api/quiz/score` returns `experimental: true` alongside the archetype result. `POST /api/quiz/results` stores this in `quiz_session.context_data`.
+Q4 answer C ("Interesting — what flavors am I getting here?") is flagged `is_experimental_gate = TRUE` in the `answer` table. When selected, `POST /api/quiz/score` returns `experimental: true`. This is a modifier on top of the base confidence/recommendation logic — see food signal section below.
 
-The recommendation engine should use this flag to surface a **discovery coffee** alongside the primary archetype recommendation — regardless of which archetype won. This is additive: the primary archetype result is still returned normally; experimental is an additional signal.
-
-Q3-C still awards +1 to Fruity in the scoring table — the gate is a separate flag, not a scoring override.
+Q4-C still awards +1 to Fruity in the scoring table — the gate is a separate flag, not a scoring override.
 
 **Tie-break — veto cascade** (only fires when two or more archetypes share the top score):
 
 ```
-Priority: Q5 → Q4 → Q2 → Q1   (Q3 excluded — contributes to score but not tie-breaking)
+Priority: Q6 → Q5 → Q3 → Q1   (Q2 and Q4 excluded from cascade)
 
 For each question in that order:
   if the user's answer pointed to one of the tied archetypes → that archetype wins
@@ -839,9 +872,55 @@ For each question in that order:
 Fallback (cascade exhausted without resolution): Balanced & Sweet
 ```
 
-The cascade uses the user's actual submitted answers (looked up from `answer_archetype_score`) — not a static priority list. This means the same two-way tie can resolve differently depending on which answers the user gave.
+The cascade uses the user's actual submitted answers looked up from `answer_archetype_score` — not a static priority list. The same tie can resolve differently depending on which answers the user gave.
 
-The response also includes a `tied` array when a tie occurred, useful for debugging.
+### Food signal matching logic
+
+After the primary winner and secondary archetype are determined, Q2's answer is used as a food signal to compute **confidence** and **recommendation mode**. Logic lives in `POST /api/quiz/score` and stored in `misc/v4/logic_notes.csv`.
+
+**Base scenarios (food_signal vs primary/secondary):**
+
+| Scenario | Condition | Confidence | Recommendation mode |
+|---|---|---|---|
+| 1 | food == primary (no close secondary) | high | `primary_only` |
+| 2 | food == secondary | medium | `primary_plus_introduce_secondary` |
+| 3 | food ≠ primary AND food ≠ secondary | low | `ai_agent` |
+| 4 | food == primary AND secondary scored on Q5 or Q6 | medium | `primary_plus_note_secondary` |
+
+**"Close secondary" threshold — Option B**: secondary is considered meaningful if its score appeared on Q5 (weight 2) or Q6 (weight 3) — i.e., the user's Q5 or Q6 answer pointed to the secondary archetype. Low-weight questions (Q1, Q4) contributing to a secondary don't qualify.
+
+**Experimental gate modifiers** (override recommendation mode):
+
+| Condition | Recommendation mode |
+|---|---|
+| experimental AND food == secondary | `primary_plus_active_secondary` — actively push secondary discovery coffee |
+| experimental AND food == primary | `primary_as_starting_point` — frame primary as beginning of a journey |
+
+**`POST /api/quiz/score` full response:**
+```json
+{
+  "archetype": "Chocolate & Nutty",
+  "archetypeId": "uuid",
+  "scores": { "Chocolate & Nutty": 7, "Balanced & Sweet": 3, "Fruity": 2 },
+  "experimental": false,
+  "secondaryArchetype": "Balanced & Sweet",
+  "foodSignal": "Fruity",
+  "confidence": "low",
+  "recommendationMode": "ai_agent",
+  "tied": ["...", "..."]
+}
+```
+
+**Claude recommendation modes** (`getRecommendation()` in `backend/src/services/claude.ts`):
+
+| Mode | Prompt behaviour |
+|---|---|
+| `primary_only` | Confident single recommendation — tasting notes + why it matches |
+| `primary_plus_introduce_secondary` | Primary recommendation + gentle introduction of secondary as a future discovery |
+| `primary_plus_active_secondary` | Primary + actively recommend a specific secondary discovery coffee (not just a hint) |
+| `primary_plus_note_secondary` | Primary + mention secondary may be worth exploring in future |
+| `primary_as_starting_point` | Primary framed as the beginning of a journey, not a fixed destination |
+| `ai_agent` | Approachable open-ended recommendation; invites user to share more |
 
 **All scoring runs on the backend (Cloud Run)** — the frontend has zero scoring logic.
 
@@ -853,14 +932,16 @@ The response also includes a `tied` array when a tie occurred, useful for debugg
 
 2. user answers → frontend tracks selected answer UUIDs (one per question)
 
-3. last answer  → POST /api/quiz/score  { answerIds: ["uuid1", ..., "uuid5"] }
-                ← { archetype: "Chocolate & Nutty", archetypeId: "uuid", scores: { ... },
-                    experimental: false,        ← true if Q3-C was selected
-                    tied: ["...", "..."] }       ← only present when veto cascade fired
+3. last answer  → POST /api/quiz/score  { answerIds: ["uuid1", ..., "uuid6"] }
+                ← { archetype, archetypeId, scores, experimental,
+                    secondaryArchetype, foodSignal, confidence, recommendationMode,
+                    tied? }
 
-4. if signed in → POST /api/quiz/results  { archetype, scores, answers, decaf: false, experimental: false }
+4. if signed in → POST /api/quiz/results  { archetype, scores, answers, decaf,
+                                            experimental, secondaryArchetype,
+                                            foodSignal, confidence, recommendationMode }
                 ← { id: sessionId, recommendation }
-                   (saved to quiz_session; experimental stored in context_data JSONB)
+                   (all fields saved to quiz_session.context_data JSONB)
 ```
 
 Question images are still managed in the frontend (keyed by `q_number`) since images aren't stored in the DB.
