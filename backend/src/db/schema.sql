@@ -125,10 +125,15 @@ CREATE TABLE IF NOT EXISTS user_phone (
   updated_at   TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
 
+DO $$ BEGIN
+  CREATE TYPE address_type_enum AS ENUM ('shipping', 'billing');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 CREATE TABLE IF NOT EXISTS address (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id      UUID REFERENCES user_profile(id) ON DELETE CASCADE,
-  address_type TEXT DEFAULT 'shipping',
+  address_type address_type_enum DEFAULT 'shipping',
   street       TEXT NOT NULL,
   city         TEXT NOT NULL,
   state        TEXT NOT NULL,
@@ -138,6 +143,19 @@ CREATE TABLE IF NOT EXISTS address (
   created_at   TIMESTAMPTZ DEFAULT timezone('utc', now()),
   updated_at   TIMESTAMPTZ DEFAULT now()
 );
+
+-- Migrate existing TEXT column to enum (idempotent — only runs if still TEXT)
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'address' AND column_name = 'address_type' AND data_type = 'text'
+  ) THEN
+    ALTER TABLE address
+      ALTER COLUMN address_type TYPE address_type_enum
+        USING address_type::address_type_enum,
+      ALTER COLUMN address_type SET DEFAULT 'shipping'::address_type_enum;
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS payment_detail (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
