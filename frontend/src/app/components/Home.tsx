@@ -83,12 +83,24 @@ export default function Home() {
         {/* Manifesto strip */}
         <div style={{ backgroundColor: '#a94936', paddingTop: 120, paddingBottom: 120, width: '100%' }}>
           <div style={{ maxWidth: 800, margin: '0 auto', padding: '0 24px', textAlign: 'center' }}>
-            <p style={{ fontSize: 'clamp(2rem, 4vw, 3.5rem)', fontWeight: 300, color: '#f2f1ea', lineHeight: 1.2, marginBottom: '2rem' }}>
+            <motion.p
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, amount: 0.5 }}
+              transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
+              style={{ fontSize: 'clamp(2rem, 4vw, 3.5rem)', fontWeight: 300, color: '#f2f1ea', lineHeight: 1.2, marginBottom: '2rem' }}
+            >
               You already know what you love. You just don't have the words for it yet.
-            </p>
-            <p style={{ fontSize: 'clamp(1rem, 1.8vw, 1.25rem)', fontWeight: 300, color: '#f2f1ea', opacity: 0.8, letterSpacing: '0.08em' }}>
+            </motion.p>
+            <motion.p
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, amount: 0.5 }}
+              transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1], delay: 0.25 }}
+              style={{ fontSize: 'clamp(1rem, 1.8vw, 1.25rem)', fontWeight: 300, color: '#f2f1ea', opacity: 0.8, letterSpacing: '0.08em' }}
+            >
               A ritual mapped to your mood.
-            </p>
+            </motion.p>
           </div>
         </div>
 
