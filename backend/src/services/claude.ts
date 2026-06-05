@@ -92,3 +92,37 @@ export async function getRecommendation(
   const block = response.content[0];
   return block.type === 'text' ? block.text : '';
 }
+
+export async function getCoffeeSummary(params: {
+  coffeeName: string;
+  archetype: string | null;
+  dimensions: Array<{ dimension: string; avg_min: number; avg_max: number; scale_min_label: string; scale_max_label: string }>;
+  topDescriptors: string[];
+  overallNotes: string | null;
+}): Promise<string> {
+  const { coffeeName, archetype, dimensions, topDescriptors, overallNotes } = params;
+
+  const dimLines = dimensions
+    .map(d => `  ${d.dimension}: ${d.avg_min}–${d.avg_max}/15 (${d.scale_min_label} → ${d.scale_max_label})`)
+    .join('\n');
+
+  const content = `Write a 2–3 sentence tasting note for "${coffeeName}"${archetype ? `, a ${archetype} coffee` : ''}.
+
+Cupping data:
+${dimLines || '  (no numeric data)'}
+
+Top flavor descriptors: ${topDescriptors.length ? topDescriptors.join(', ') : 'none recorded'}
+${overallNotes ? `\nCupper's notes: "${overallNotes}"` : ''}
+
+Be warm and specific. Name actual flavors and textures. No marketing language. Under 80 words.`;
+
+  const response = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 200,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: 'user', content }],
+  });
+
+  const block = response.content[0];
+  return block.type === 'text' ? block.text : '';
+}
