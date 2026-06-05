@@ -49,6 +49,7 @@ export default function Profile() {
   const [addressForm, setAddressForm]         = useState(EMPTY_ADDRESS);
   const [savingAddress, setSavingAddress]     = useState(false);
   const [addressError, setAddressError]       = useState('');
+  const [sameAsShipping, setSameAsShipping]   = useState(false);
 
   useEffect(() => {
     if (!user) { navigate('/sign-in'); return; }
@@ -261,6 +262,8 @@ export default function Profile() {
                 {(['shipping', 'billing'] as const).map(type => {
                   const typeAddresses = (profile?.addresses ?? []).filter(a => a.address_type === type);
                   const isThisFormOpen = showAddressForm && addressForm.addressType === type;
+                  const defaultShipping = (profile?.addresses ?? []).find(a => a.address_type === 'shipping' && a.is_default);
+
                   return (
                     <div key={type} className="flex flex-col gap-4 border-t border-[#a33726]/10 pt-8">
                       <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 font-normal">
@@ -268,10 +271,15 @@ export default function Profile() {
                       </p>
 
                       {typeAddresses.map(addr => (
-                        <div key={addr.id} className="flex items-start justify-between border border-[#a33726]/15 p-4 bg-white/40">
+                        <div key={addr.id}
+                          className="flex items-start justify-between p-4 bg-white/40"
+                          style={{ border: `1px solid ${addr.is_default ? '#a33726' : 'rgba(163,55,38,0.15)'}` }}
+                        >
                           <div>
                             {addr.is_default && (
-                              <span className="text-[9px] uppercase tracking-widest text-[#a33726]/50 block mb-1">Default</span>
+                              <span className="text-[9px] uppercase tracking-widest font-normal block mb-1.5" style={{ color: '#a33726' }}>
+                                ✓ Default {type} address
+                              </span>
                             )}
                             <p className="text-sm text-[#a33726] font-light">{addr.street}</p>
                             <p className="text-sm text-[#a33726]/70 font-light">{addr.city}, {addr.state} {addr.postal_code}</p>
@@ -280,8 +288,8 @@ export default function Profile() {
                           <div className="flex flex-col items-end gap-2 ml-4 mt-1 shrink-0">
                             {!addr.is_default && (
                               <button onClick={() => handleSetDefault(addr.id, type)}
-                                className="text-[9px] uppercase tracking-[0.2em] text-[#a33726]/40 hover:text-[#a33726] transition-colors">
-                                Set Default
+                                className="text-[9px] uppercase tracking-[0.2em] text-[#a33726]/50 hover:text-[#a33726] transition-colors whitespace-nowrap">
+                                Use as default
                               </button>
                             )}
                             <button onClick={() => handleDeleteAddress(addr.id)}
@@ -294,28 +302,64 @@ export default function Profile() {
 
                       {!isThisFormOpen ? (
                         <button
-                          onClick={() => { setShowAddressForm(true); setAddressForm({ ...EMPTY_ADDRESS, addressType: type }); setAddressError(''); }}
+                          onClick={() => {
+                            setSameAsShipping(false);
+                            setShowAddressForm(true);
+                            setAddressForm({ ...EMPTY_ADDRESS, addressType: type });
+                            setAddressError('');
+                          }}
                           className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/50 hover:text-[#a33726] transition-colors border-b border-[#a33726]/20 pb-1 w-fit">
                           + Add {type === 'shipping' ? 'Shipping' : 'Billing'} Address
                         </button>
                       ) : (
                         <form onSubmit={handleAddAddress} className="flex flex-col gap-4 border border-[#a33726]/15 p-4 bg-white/40">
+
+                          {/* Same as shipping checkbox — billing only */}
+                          {type === 'billing' && defaultShipping && (
+                            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={sameAsShipping}
+                                onChange={e => {
+                                  const checked = e.target.checked;
+                                  setSameAsShipping(checked);
+                                  if (checked) {
+                                    setAddressForm(f => ({
+                                      ...f,
+                                      street: defaultShipping.street,
+                                      city: defaultShipping.city,
+                                      state: defaultShipping.state,
+                                      postalCode: defaultShipping.postal_code,
+                                      country: defaultShipping.country,
+                                    }));
+                                  } else {
+                                    setAddressForm(f => ({ ...f, street: '', city: '', state: '', postalCode: '', country: 'US' }));
+                                  }
+                                }}
+                                className="accent-[#a33726]"
+                              />
+                              <span className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60">
+                                Same as my shipping address
+                              </span>
+                            </label>
+                          )}
+
                           <div>
                             <label className={labelClass}>Street</label>
-                            <input required value={addressForm.street} onChange={e => setAddressForm(f => ({ ...f, street: e.target.value }))} placeholder="123 Main St" className={inputClass} />
+                            <input required value={addressForm.street} onChange={e => setAddressForm(f => ({ ...f, street: e.target.value }))} placeholder="123 Main St" className={inputClass} disabled={sameAsShipping} />
                           </div>
                           <div className="flex gap-3">
                             <div className="flex-1">
                               <label className={labelClass}>City</label>
-                              <input required value={addressForm.city} onChange={e => setAddressForm(f => ({ ...f, city: e.target.value }))} placeholder="New York" className={inputClass} />
+                              <input required value={addressForm.city} onChange={e => setAddressForm(f => ({ ...f, city: e.target.value }))} placeholder="New York" className={inputClass} disabled={sameAsShipping} />
                             </div>
                             <div className="w-20">
                               <label className={labelClass}>State</label>
-                              <input required value={addressForm.state} onChange={e => setAddressForm(f => ({ ...f, state: e.target.value }))} placeholder="NY" maxLength={2} className={inputClass} />
+                              <input required value={addressForm.state} onChange={e => setAddressForm(f => ({ ...f, state: e.target.value }))} placeholder="NY" maxLength={2} className={inputClass} disabled={sameAsShipping} />
                             </div>
                             <div className="w-24">
                               <label className={labelClass}>ZIP</label>
-                              <input required value={addressForm.postalCode} onChange={e => setAddressForm(f => ({ ...f, postalCode: e.target.value }))} placeholder="10001" className={inputClass} />
+                              <input required value={addressForm.postalCode} onChange={e => setAddressForm(f => ({ ...f, postalCode: e.target.value }))} placeholder="10001" className={inputClass} disabled={sameAsShipping} />
                             </div>
                           </div>
                           {addressError && <p className="text-xs text-red-600">{addressError}</p>}
@@ -324,7 +368,7 @@ export default function Profile() {
                               className="text-[10px] uppercase tracking-[0.3em] text-[#a33726] border-b border-[#a33726]/40 pb-1 hover:border-[#ee5974] hover:text-[#ee5974] transition-colors disabled:opacity-30">
                               {savingAddress ? 'Saving…' : 'Save Address'}
                             </button>
-                            <button type="button" onClick={() => { setShowAddressForm(false); setAddressForm(EMPTY_ADDRESS); setAddressError(''); }}
+                            <button type="button" onClick={() => { setShowAddressForm(false); setSameAsShipping(false); setAddressForm(EMPTY_ADDRESS); setAddressError(''); }}
                               className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 hover:text-[#a33726] transition-colors">
                               Cancel
                             </button>
