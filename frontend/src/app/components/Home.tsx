@@ -42,7 +42,7 @@ export default function Home() {
               animate={{ x: 0 }}
               transition={{ duration: 1.2, ease: [0.6, 0.05, 0.01, 0.9] }}
               className="w-1/2"
-              style={{ position: 'relative', overflow: 'hidden', backgroundColor: '#f2f1ea', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              style={{ position: 'relative', overflow: 'hidden', backgroundColor: '#ebebe3', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
               {/* Stacked logo container — LogoLines over LogoCircle */}
               <div style={{ position: 'relative', width: '60%' }}>
