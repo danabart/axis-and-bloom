@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
+import { ArrowRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { saveQuizResult } from '../lib/api';
+import { saveQuizResult, getUserProfile } from '../lib/api';
 
 // ─── API types ────────────────────────────────────────────────────────────────
 
@@ -97,19 +98,24 @@ export default function FlavorQuiz() {
   const [hasStarted, setHasStarted]     = useState(false);
   const [userName, setUserName]         = useState('');
   const [currentStep, setCurrentStep]   = useState(0);
-  const [answers, setAnswers]           = useState<Record<number, number>>({});    // step → option index (for UI selection highlight)
-  const [selectedIds, setSelectedIds]   = useState<Record<number, string>>({});   // step → answer UUID (sent to /api/quiz/score)
+  const [answers, setAnswers]           = useState<Record<number, number>>({});
+  const [selectedIds, setSelectedIds]   = useState<Record<number, string>>({});
   const [isComplete, setIsComplete]     = useState(false);
   const [isScoring, setIsScoring]       = useState(false);
   const [archetypeKey, setArchetypeKey] = useState<Archetype>('balanced');
   const [scoreError, setScoreError]     = useState(false);
 
   // API state
-  const [questions, setQuestions] = useState<ApiQuestion[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [loadError, setLoadError] = useState(false);
+  const [questions, setQuestions]   = useState<ApiQuestion[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [loadError, setLoadError]   = useState(false);
+
+  // Returning user state
+  const [userProfile, setUserProfile]     = useState<any>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
 
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   // Fetch questions from backend on mount
   useEffect(() => {
@@ -125,6 +131,24 @@ export default function FlavorQuiz() {
       .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   }, []);
+
+  // Fetch profile for signed-in users to check existing archetype
+  useEffect(() => {
+    if (!user) return;
+    setProfileLoading(true);
+    getUserProfile()
+      .then(p => {
+        setUserProfile(p);
+        // If signed in but no archetype yet, pre-fill name and skip name screen
+        if (!p?.archetype && (p?.firstName || user.displayName)) {
+          const name = p?.firstName ?? user.displayName ?? '';
+          setUserName(name);
+          setHasStarted(true);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setProfileLoading(false));
+  }, [user]);
 
   // Pick up name pre-filled from another page (e.g. homepage)
   useEffect(() => {
@@ -200,6 +224,80 @@ export default function FlavorQuiz() {
     );
   }
 
+  // ── Returning user screen ────────────────────────────────────────────────────
+  if (user && !hasStarted && (profileLoading || userProfile?.archetype)) {
+    if (profileLoading) {
+      return (
+        <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center">
+          <p className="text-[#a33726]/50 text-sm uppercase tracking-[0.2em]">Loading…</p>
+        </div>
+      );
+    }
+
+    const existingArchetype = userProfile?.archetype;
+    const firstName = userProfile?.firstName ?? user.displayName?.split(' ')[0] ?? 'there';
+    const archetypeColor = existingArchetype?.color ?? '#a33726';
+
+    return (
+      <div className="relative w-full min-h-screen bg-[#f2f1ea] flex overflow-hidden">
+        <div className="absolute inset-0">
+          <img src="https://i.imgur.com/3NAnXgR.jpeg" alt="" className="w-full h-full object-cover" />
+        </div>
+        <div className="relative z-10 w-full p-8 pt-16 md:p-16 lg:p-24 flex flex-col justify-start items-start">
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.7 }}
+            className="w-full max-w-[520px] flex flex-col items-start"
+          >
+            <p className="text-[10px] uppercase tracking-[0.3em] mb-4 font-normal" style={{ color: archetypeColor }}>
+              Welcome back, {firstName}
+            </p>
+            <h1 className="text-[2.5rem] lg:text-[3.5rem] leading-[1.05] font-normal tracking-tight mb-3" style={{ color: '#ee5974' }}>
+              {existingArchetype?.name ?? 'Your profile is ready.'}
+            </h1>
+            {existingArchetype?.description && (
+              <p className="text-lg font-light leading-relaxed mb-12" style={{ color: 'rgba(163,55,38,0.7)' }}>
+                {existingArchetype.description}
+              </p>
+            )}
+
+            <div className="flex flex-col gap-6 w-full mt-2">
+              {[
+                { label: 'Retake the quiz',             action: () => { setUserName(firstName); setHasStarted(true); } },
+                { label: 'Talk to our coffee sommelier', href: '/' },
+                { label: 'View my profile',             href: '/profile' },
+                { label: 'Explore our coffees',         href: '/coffees' },
+              ].map(item => (
+                item.href ? (
+                  <Link
+                    key={item.label}
+                    to={item.href}
+                    className="flex items-center justify-between group text-[1rem] font-light tracking-wide py-4 border-b transition-all duration-300"
+                    style={{ color: '#a33726', borderColor: 'rgba(163,55,38,0.15)' }}
+                  >
+                    <span className="group-hover:text-[#ee5974] transition-colors">{item.label}</span>
+                    <ArrowRight size={14} className="opacity-30 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                  </Link>
+                ) : (
+                  <button
+                    key={item.label}
+                    onClick={item.action}
+                    className="flex items-center justify-between group text-[1rem] font-light tracking-wide py-4 border-b transition-all duration-300 w-full text-left"
+                    style={{ color: '#a33726', borderColor: 'rgba(163,55,38,0.15)' }}
+                  >
+                    <span className="group-hover:text-[#ee5974] transition-colors">{item.label}</span>
+                    <ArrowRight size={14} className="opacity-30 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                  </button>
+                )
+              ))}
+            </div>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
+
   // ── Name screen ──────────────────────────────────────────────────────────────
   if (!hasStarted) {
     return (
@@ -240,6 +338,12 @@ export default function FlavorQuiz() {
               >
                 Begin Profile
               </button>
+              <Link
+                to="/sign-in"
+                className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 hover:text-[#a33726] transition-colors mt-6"
+              >
+                Already have a profile? Sign in →
+              </Link>
             </div>
           </motion.div>
         </div>
