@@ -237,63 +237,97 @@ export default function FlavorQuiz() {
     const existingArchetype = userProfile?.archetype;
     const firstName = userProfile?.firstName ?? user.displayName?.split(' ')[0] ?? 'there';
     const archetypeColor = existingArchetype?.color ?? '#a33726';
+    const lastQuizDate = userProfile?.lastQuizDate
+      ? new Date(userProfile.lastQuizDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+      : null;
+
+    const navItems = [
+      { label: 'Retake the quiz',              action: () => { setUserName(firstName); setHasStarted(true); } },
+      { label: 'Talk to our coffee sommelier', href: '/' },
+      { label: 'View my profile',              href: '/profile' },
+      { label: 'Explore our coffees',          href: '/coffees' },
+    ];
 
     return (
-      <div className="relative w-full min-h-screen bg-[#f2f1ea] flex overflow-hidden">
-        <div className="absolute inset-0">
-          <img src="https://i.imgur.com/3NAnXgR.jpeg" alt="" className="w-full h-full object-cover" />
-        </div>
-        <div className="relative z-10 w-full p-8 pt-16 md:p-16 lg:p-24 flex flex-col justify-start items-start">
+      <div className="relative w-full min-h-screen bg-[#f2f1ea] flex flex-col lg:flex-row overflow-hidden">
+
+        {/* Left — photo + welcome + options */}
+        <div className="w-full lg:w-1/2 h-[50vh] lg:h-screen relative overflow-hidden flex flex-col">
+          <div className="absolute inset-0">
+            <img src="https://i.imgur.com/3NAnXgR.jpeg" alt="" className="w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-black/25" />
+          </div>
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.7 }}
-            className="w-full max-w-[520px] flex flex-col items-start"
+            className="relative z-10 h-full flex flex-col justify-end p-8 md:p-12 lg:p-16"
           >
-            <p className="text-[10px] uppercase tracking-[0.3em] mb-4 font-normal" style={{ color: archetypeColor }}>
+            <p className="text-[10px] uppercase tracking-[0.3em] mb-8 font-normal text-white/60">
               Welcome back, {firstName}
             </p>
-            <h1 className="text-[2.5rem] lg:text-[3.5rem] leading-[1.05] font-normal tracking-tight mb-3" style={{ color: '#ee5974' }}>
-              {existingArchetype?.name ?? 'Your profile is ready.'}
-            </h1>
-            {existingArchetype?.description && (
-              <p className="text-lg font-light leading-relaxed mb-12" style={{ color: 'rgba(163,55,38,0.7)' }}>
-                {existingArchetype.description}
-              </p>
-            )}
-
-            <div className="flex flex-col gap-6 w-full mt-2">
-              {[
-                { label: 'Retake the quiz',             action: () => { setUserName(firstName); setHasStarted(true); } },
-                { label: 'Talk to our coffee sommelier', href: '/' },
-                { label: 'View my profile',             href: '/profile' },
-                { label: 'Explore our coffees',         href: '/coffees' },
-              ].map(item => (
+            <div className="flex flex-col w-full max-w-[360px]">
+              {navItems.map(item =>
                 item.href ? (
                   <Link
                     key={item.label}
                     to={item.href}
-                    className="flex items-center justify-between group text-[1rem] font-light tracking-wide py-4 border-b transition-all duration-300"
-                    style={{ color: '#a33726', borderColor: 'rgba(163,55,38,0.15)' }}
+                    className="flex items-center justify-between group text-[0.95rem] font-light tracking-wide py-4 border-b border-white/10 hover:border-white/30 text-white/75 hover:text-white transition-all duration-300"
                   >
-                    <span className="group-hover:text-[#ee5974] transition-colors">{item.label}</span>
+                    <span>{item.label}</span>
                     <ArrowRight size={14} className="opacity-30 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
                   </Link>
                 ) : (
                   <button
                     key={item.label}
                     onClick={item.action}
-                    className="flex items-center justify-between group text-[1rem] font-light tracking-wide py-4 border-b transition-all duration-300 w-full text-left"
-                    style={{ color: '#a33726', borderColor: 'rgba(163,55,38,0.15)' }}
+                    className="flex items-center justify-between group text-[0.95rem] font-light tracking-wide py-4 border-b border-white/10 hover:border-white/30 text-white/75 hover:text-white transition-all duration-300 w-full text-left"
                   >
-                    <span className="group-hover:text-[#ee5974] transition-colors">{item.label}</span>
+                    <span>{item.label}</span>
                     <ArrowRight size={14} className="opacity-30 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
                   </button>
                 )
-              ))}
+              )}
             </div>
           </motion.div>
         </div>
+
+        {/* Right — profile card */}
+        <div className="w-full lg:w-1/2 min-h-[50vh] lg:h-screen bg-[#f2f1ea] flex items-center">
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.7, delay: 0.15 }}
+            className="w-full px-8 py-12 md:px-12 lg:px-20 max-w-[520px] mx-auto lg:mx-0"
+          >
+            <p className="text-[10px] uppercase tracking-[0.3em] mb-10 text-[#a33726]/30">
+              Your coffee profile
+            </p>
+
+            <p className="text-[0.85rem] font-light tracking-wide text-[#a33726]/50 mb-2">
+              Your primary profile is
+            </p>
+            <h1
+              className="text-[3rem] lg:text-[3.5rem] leading-[1.05] font-normal tracking-tight mb-5"
+              style={{ color: archetypeColor }}
+            >
+              {existingArchetype?.name ?? '—'}
+            </h1>
+            {existingArchetype?.description && (
+              <p className="text-base font-light leading-relaxed text-[#a33726]/60 mb-10">
+                {existingArchetype.description}
+              </p>
+            )}
+
+            {lastQuizDate && (
+              <div className="border-t border-[#a33726]/10 pt-8 flex flex-col gap-1">
+                <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/30">Last quiz taken</p>
+                <p className="text-[0.95rem] font-light text-[#a33726]/60">{lastQuizDate}</p>
+              </div>
+            )}
+          </motion.div>
+        </div>
+
       </div>
     );
   }

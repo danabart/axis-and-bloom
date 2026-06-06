@@ -82,6 +82,7 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
       displayName: null,
       isAdmin:     roleResult.rows[0]?.name === 'admin',
       archetype:   archetypeData ? { ...archetypeData, id: archetypeKey } : null,
+      lastQuizDate: quiz?.completed_at ?? null,
       addresses:   addressResult.rows,
       orders:      ordersResult.rows.map(o => ({
         id:            o.id,

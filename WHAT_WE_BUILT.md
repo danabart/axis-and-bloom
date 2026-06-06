@@ -661,10 +661,18 @@ Experimental modifier: if `experimental = true AND food == secondary` → strong
 
 Logic documented in `misc/v4/logic_notes.csv` (13 rules).
 
+### 43. Find My Flavor page — returning user split-screen layout
+**Change**: Redesigned the returning user screen (State 1) into a two-column layout.
+
+- **Left panel**: Background photo with a dark overlay. "Welcome back, {firstName}" at the bottom, followed by the four row-link options (Retake quiz / Sommelier / Profile / Coffees) as white text over the image.
+- **Right panel**: Clean cream panel. Small "Your coffee profile" label → "Your primary profile is" sentence → archetype name large in its brand color → archetype description → "Last quiz taken: [date]" below a separator line.
+
+The quiz date comes from `lastQuizDate` — added to `GET /api/users/profile` response (`users.ts`). The field was already being queried from `quiz_session.completed_at`; it just wasn't being returned.
+
 ### 42. Find My Flavor page — auth-aware states
 **Change**: `FlavorQuiz.tsx` now fetches `GET /api/users/profile` on mount when a user is signed in, and renders one of four states:
 
-1. **Returning user (signed in + has archetype)**: personalised landing screen — welcome, archetype name/description, and four options (retake quiz, AI sommelier, profile, coffees). Replaces the generic "Whose palate are we profiling today?" screen for known users.
+1. **Returning user (signed in + has archetype)**: personalised landing screen — split-screen with options on the left and archetype profile card on the right.
 2. **Signed in, no archetype**: name screen skipped; `firstName` pre-filled from DB; quiz starts automatically.
 3. **Guest**: original name screen + "Already have a profile? Sign in →" link added below Begin Profile button.
 4. **Quiz in progress / results**: unchanged.
@@ -853,7 +861,7 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 | Lookup values | ✅ `lookup_value` table — 20 values across 4 categories; single `GET /api/admin/lookups` call populates all admin dropdowns |
 | Quiz scoring unit tests | ✅ 31 tests in `quizScoring.test.ts` — veto cascade, confidence/mode logic, all edge cases; run with `npm test` from `backend/` |
 | Profile — user data collection | ✅ Sign-up collects first + last name; profile Settings tab has editable name, optional birthday, and shipping + billing address management — all written to DB |
-| Find My Flavor page (`/find-my-flavor`) | ✅ Auth-aware — returning users with an archetype see a personalised landing screen with 4 options; signed-in users without an archetype skip the name screen; guests see the original flow + "Already have a profile? Sign in →" |
+| Find My Flavor page (`/find-my-flavor`) | ✅ Auth-aware split-screen — returning users see a two-column layout: left panel has photo + nav options, right panel shows "Your primary profile is [archetype]", description, and last quiz date; signed-in users without an archetype skip the name screen; guests see original flow + "Already have a profile? Sign in →" |
 | CI/CD | ✅ Push to main deploys everything |
 
 ---
