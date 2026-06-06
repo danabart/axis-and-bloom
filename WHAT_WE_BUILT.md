@@ -661,6 +661,14 @@ Experimental modifier: if `experimental = true AND food == secondary` → strong
 
 Logic documented in `misc/v4/logic_notes.csv` (13 rules).
 
+### 42. Find My Flavor page — auth-aware states
+**Change**: `FlavorQuiz.tsx` now fetches `GET /api/users/profile` on mount when a user is signed in, and renders one of four states:
+
+1. **Returning user (signed in + has archetype)**: personalised landing screen — welcome, archetype name/description, and four options (retake quiz, AI sommelier, profile, coffees). Replaces the generic "Whose palate are we profiling today?" screen for known users.
+2. **Signed in, no archetype**: name screen skipped; `firstName` pre-filled from DB; quiz starts automatically.
+3. **Guest**: original name screen + "Already have a profile? Sign in →" link added below Begin Profile button.
+4. **Quiz in progress / results**: unchanged.
+
 ### 41. Profile page — user data collection (name, birthday, address)
 **Change**: Extended the sign-up and profile flows to collect and persist real user data.
 
@@ -844,7 +852,8 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 | Admin user management | ✅ `grant_admin()` / `revoke_admin()` / `list_admins()` stored DB functions + matching API endpoints |
 | Lookup values | ✅ `lookup_value` table — 20 values across 4 categories; single `GET /api/admin/lookups` call populates all admin dropdowns |
 | Quiz scoring unit tests | ✅ 31 tests in `quizScoring.test.ts` — veto cascade, confidence/mode logic, all edge cases; run with `npm test` from `backend/` |
-| Profile — user data collection | ✅ Sign-up collects first + last name; profile Settings tab has editable name, optional birthday, and shipping address management — all written to DB |
+| Profile — user data collection | ✅ Sign-up collects first + last name; profile Settings tab has editable name, optional birthday, and shipping + billing address management — all written to DB |
+| Find My Flavor page (`/find-my-flavor`) | ✅ Auth-aware — returning users with an archetype see a personalised landing screen with 4 options; signed-in users without an archetype skip the name screen; guests see the original flow + "Already have a profile? Sign in →" |
 | CI/CD | ✅ Push to main deploys everything |
 
 ---
@@ -888,6 +897,37 @@ Right panel per selected coffee:
 ### Navigation
 
 "Our coffees" link added to the main nav between "Find my flavor" and "About".
+
+---
+
+## Find My Flavor Page (`/find-my-flavor`)
+
+The quiz entry page is auth-aware and renders one of four states based on sign-in status and whether the user already has an archetype.
+
+**File**: `frontend/src/app/components/FlavorQuiz.tsx`
+
+### State 1 — Signed in + has archetype (returning user screen)
+
+On mount, fetches `GET /api/users/profile`. If the user is signed in and has an archetype, shows a personalised landing screen instead of the quiz:
+
+- **"Welcome back, {firstName}"** subheading + archetype name and description as headline
+- Four row-link options with arrow:
+  1. **Retake the quiz** — starts the quiz immediately with their name pre-filled, no name screen
+  2. **Talk to our coffee sommelier** → `/`
+  3. **View my profile** → `/profile`
+  4. **Explore our coffees** → `/coffees`
+
+### State 2 — Signed in + no archetype yet
+
+Profile is fetched, archetype is null. The name screen is skipped entirely — `firstName` from the DB (or `displayName` from Firebase) is pre-filled and the quiz starts automatically. No friction for users who already created an account but haven't taken the quiz.
+
+### State 3 — Not signed in (guest)
+
+Original experience: "Whose palate are we profiling today?" name input. **"Already have a profile? Sign in →"** link added below the Begin Profile button.
+
+### State 4 — Quiz in progress / results
+
+Unchanged from before. "Sign in to save progress" link still shown during the quiz for guests.
 
 ---
 
