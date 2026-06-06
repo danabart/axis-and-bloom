@@ -914,16 +914,24 @@ The quiz entry page is auth-aware and renders one of four states based on sign-i
 
 **File**: `frontend/src/app/components/FlavorQuiz.tsx`
 
+On mount, fetches `GET /api/users/profile` (signed-in users only). The profile response includes `archetype` (name, description, color, features) and `lastQuizDate` (from `quiz_session.completed_at`).
+
 ### State 1 — Signed in + has archetype (returning user screen)
 
-On mount, fetches `GET /api/users/profile`. If the user is signed in and has an archetype, shows a personalised landing screen instead of the quiz:
+Two-column split-screen layout:
 
-- **"Welcome back, {firstName}"** subheading + archetype name and description as headline
-- Four row-link options with arrow:
-  1. **Retake the quiz** — starts the quiz immediately with their name pre-filled, no name screen
-  2. **Talk to our coffee sommelier** → `/`
-  3. **View my profile** → `/profile`
-  4. **Explore our coffees** → `/coffees`
+**Left panel** — background photo with dark overlay. "Welcome back, {firstName}" label at the bottom, then four row-link options in white text:
+1. **Retake the quiz** — starts the quiz immediately with name pre-filled, no name screen
+2. **Talk to our coffee sommelier** → `/`
+3. **View my profile** → `/profile`
+4. **Explore our coffees** → `/coffees`
+
+**Right panel** — clean cream background. Laid out top to bottom:
+- Small "Your coffee profile" label
+- "Your primary profile is" sentence
+- Archetype name large, in its brand color (rust / gold / rose)
+- Archetype description in muted text
+- Separator line → "Last quiz taken" label + formatted date (e.g. "June 1, 2026")
 
 ### State 2 — Signed in + no archetype yet
 
@@ -935,7 +943,7 @@ Original experience: "Whose palate are we profiling today?" name input. **"Alrea
 
 ### State 4 — Quiz in progress / results
 
-Unchanged from before. "Sign in to save progress" link still shown during the quiz for guests.
+Unchanged. "Sign in to save progress" link still shown during the quiz for guests.
 
 ---
 
