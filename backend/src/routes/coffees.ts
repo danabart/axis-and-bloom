@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { db } from '../db/client.js';
 import { getCoffeeSummary, getCoffeeSurpriseNote, getCoffeeThreeVoiceStory } from '../services/claude.js';
-import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 
 const router = Router();
 
@@ -145,16 +144,6 @@ export async function generateAndStoreAllContent(
     values.push(coffeeId);
     await db.query(`UPDATE coffees SET ${updates.join(', ')} WHERE id = $${idx}`, values);
   }
-
-  // Write to Firestore — non-blocking, Cloud SQL is source of truth
-  firestoreDb.collection('coffees').doc(String(coffeeId)).set({
-    aiSummary,
-    surpriseNote,
-    threeVoiceNarrative: threeVoiceStory,
-    generatedAt: FieldValue.serverTimestamp(),
-  }, { merge: true }).catch((err: unknown) => {
-    console.error('[coffees/firestore-write]', err);
-  });
 
   return { aiSummary, surpriseNote, threeVoiceStory };
 }
