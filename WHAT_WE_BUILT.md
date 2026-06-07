@@ -95,7 +95,9 @@ Firebase is used for **auth, hosting, and Firestore**. Structured relational dat
 | Mode | Firestore Native |
 | Region | `us-central1` (single region) |
 
-Firestore is the AI-agent-oriented data layer. Structured relational data stays in Cloud SQL; Firestore holds user-centric and AI-feedable documents that are easier to query contextually than SQL joins.
+Firestore is the AI-agent-oriented data layer for **user-centric data only**. The split:
+- **Cloud SQL** — all structured relational data, including coffee records and their AI-generated content (ai_summary, surprise_note, three_voice_story). AI content is cached on the coffees table — it belongs there because it's a property of a coffee, not a property of a user.
+- **Firestore** — user profiles, quiz session history, and future user feedback. Data the AI agent needs to understand a person's taste journey over time.
 
 ### Security rules
 
@@ -124,9 +126,6 @@ service cloud.firestore {
 ### Collection structure
 
 ```
-coffees/
-  {coffeeId}/            ← AI content cache (aiSummary, surpriseNote, threeVoiceNarrative, generatedAt)
-
 users/
   {uid}/                 ← Profile snapshot (email, firstName, lastName, archetype, archetypeLabel, lastQuizDate, syncedAt)
     quiz_sessions/
@@ -140,9 +139,10 @@ users/
 | `GET /api/users/profile` | Upserts `users/{uid}` with current profile snapshot (fire-and-forget) |
 | `PATCH /api/users/profile` | Updates `firstName` / `lastName` on `users/{uid}` (fire-and-forget) |
 | `POST /api/quiz/results` | Updates archetype on `users/{uid}` (fire-and-forget) + **awaits** write to `users/{uid}/quiz_sessions/{sessionId}` |
-| `GET /api/coffees/:id/content` or `POST /api/admin/coffees/:id/refresh-content` | Upserts `coffees/{id}` with all three AI fields (fire-and-forget) |
 
 The quiz session write is awaited (not fire-and-forget) because it creates a new subcollection document and needs to complete before the Cloud Run instance can be suspended. All other writes are non-blocking — Cloud SQL is the source of truth.
+
+Coffee AI content (`ai_summary`, `surprise_note`, `three_voice_story`) is **not** written to Firestore — it lives only in the `coffees` SQL table. It's a property of a coffee record, not user-centric data, so it belongs in Cloud SQL alongside the rest of the coffee metadata.
 
 ### Backend wiring
 
@@ -963,7 +963,7 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 | Quiz scoring unit tests | ✅ 31 tests in `quizScoring.test.ts` — veto cascade, confidence/mode logic, all edge cases; run with `npm test` from `backend/` |
 | Profile — user data collection | ✅ Sign-up collects first + last name; profile Settings tab has editable name, optional birthday, and shipping + billing address management — all written to DB |
 | Find My Flavor page (`/find-my-flavor`) | ✅ Auth-aware split-screen — returning users see a two-column layout: left panel has photo + nav options, right panel shows "Your primary profile is [archetype]", description, and last quiz date; signed-in users without an archetype skip the name screen; guests see original flow + "Already have a profile? Sign in →" |
-| Firestore (`axis-bloom-fs`) | ✅ Live — `coffees/{id}` (AI content), `users/{uid}` (profile snapshot), `users/{uid}/quiz_sessions` (full session history) |
+| Firestore (`axis-bloom-fs`) | ✅ Live — `users/{uid}` (profile snapshot), `users/{uid}/quiz_sessions` (full session history) |
 | CI/CD | ✅ Push to main deploys everything |
 
 ---
@@ -1005,7 +1005,7 @@ All three AI fields generated together via `GET /api/coffees/:id/content` (new e
 
 `POST /api/admin/coffees/:id/refresh-content` force-regenerates all three fields (admin only). "↺ Refresh content" button in Admin → Coffees.
 
-**Firestore write**: After SQL persist, backend writes `{ aiSummary, surpriseNote, threeVoiceNarrative, generatedAt }` to `coffees/{id}` in Firestore. Non-blocking — if Firestore write fails, it logs and continues. Cloud SQL is the source of truth.
+All three fields are stored in Cloud SQL only (`coffees` table). Coffee AI content is not written to Firestore — it's a property of the coffee record, not user-centric data.
 
 ### Content layer 2 — Personalization (logged-in users with archetype)
 
