@@ -1,4 +1,5 @@
 import admin from 'firebase-admin';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -10,4 +11,6 @@ if (!admin.apps.length) {
   });
 }
 
+export const firestoreDb = getFirestore(admin.app(), 'axis-bloom-fs');
+export { FieldValue };
 export default admin;
