@@ -215,7 +215,7 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
       syncedAt:       FieldValue.serverTimestamp(),
     }, { merge: true }).catch((err: unknown) => console.error('[quiz/firestore-profile]', err));
 
-    firestoreDb.doc(`users/${req.uid}/quiz_sessions/${sessionId}`).set({
+    await firestoreDb.doc(`users/${req.uid}/quiz_sessions/${sessionId}`).set({
       archetype,
       secondaryArchetype:  secondaryArchetype ?? null,
       foodSignal:          foodSignal ?? null,
