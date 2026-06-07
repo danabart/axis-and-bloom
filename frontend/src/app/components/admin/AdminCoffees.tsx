@@ -135,11 +135,11 @@ export default function AdminCoffees() {
     } finally { setArchSaving(false); }
   }
 
-  async function handleRefreshSummary(coffeeId: number) {
+  async function handleRefreshContent(coffeeId: number) {
     setRefreshingId(coffeeId);
     try {
       const token = await user!.getIdToken();
-      await fetch(`/api/admin/coffees/${coffeeId}/refresh-summary`, {
+      await fetch(`/api/admin/coffees/${coffeeId}/refresh-content`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -279,12 +279,12 @@ export default function AdminCoffees() {
                     <td className="py-3 pr-4 text-stone-400 capitalize">{c.confidence ?? '—'}</td>
                     <td className="py-3">
                       <button
-                        onClick={() => handleRefreshSummary(c.id)}
+                        onClick={() => handleRefreshContent(c.id)}
                         disabled={refreshingId === c.id}
                         className="text-xs px-2 py-1 rounded border border-stone-200 text-stone-400 hover:text-stone-600 hover:border-stone-400 disabled:opacity-40 transition-colors"
-                        title="Regenerate AI tasting note"
+                        title="Regenerate all AI content (tasting note, surprise angle, three-voice story)"
                       >
-                        {refreshingId === c.id ? '…' : '↺ Refresh'}
+                        {refreshingId === c.id ? '…' : '↺ Refresh content'}
                       </button>
                     </td>
                   </tr>

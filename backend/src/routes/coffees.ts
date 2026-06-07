@@ -1,11 +1,17 @@
 import { Router } from 'express';
 import { db } from '../db/client.js';
-import { getCoffeeSummary } from '../services/claude.js';
+import { getCoffeeSummary, getCoffeeSurpriseNote, getCoffeeThreeVoiceStory } from '../services/claude.js';
+import admin from '../services/firebase-admin.js';
 
 const router = Router();
 
-// ── Shared helper: generate + persist a summary for one coffee ───────────────
-export async function generateAndStoreSummary(coffeeId: string | number): Promise<string> {
+const ARCHETYPE_LABEL: Record<string, string> = {
+  chocolate_nutty: 'Chocolate & Nutty', balanced_sweet: 'Balanced & Sweet',
+  fruity: 'Fruity', earthy: 'Earthy', floral: 'Floral', experimental: 'Experimental',
+};
+
+// ── Fetch all data needed for AI content generation ───────────────────────────
+async function fetchCoffeeDataForContent(coffeeId: string | number) {
   const [coffeeResult, dimsResult, descriptorResult] = await Promise.all([
     db.query(
       `SELECT c.name, aa.archetype
@@ -28,17 +34,16 @@ export async function generateAndStoreSummary(coffeeId: string | number): Promis
       [coffeeId]
     ),
     db.query(
-      `SELECT descriptor, COUNT(*) AS mentions
+      `SELECT descriptor, source, COUNT(*) AS mentions
        FROM v_collaborative_flavor_wheel
        WHERE coffee_id = $1
-       GROUP BY descriptor ORDER BY mentions DESC LIMIT 8`,
+       GROUP BY descriptor, source
+       ORDER BY mentions DESC`,
       [coffeeId]
     ),
   ]);
 
   if (!coffeeResult.rows.length) throw new Error('Coffee not found');
-
-  const coffee = coffeeResult.rows[0];
 
   const notesResult = await db.query(
     `SELECT cs.overall_notes FROM cupping_scores cs
@@ -48,30 +53,138 @@ export async function generateAndStoreSummary(coffeeId: string | number): Promis
     [coffeeId]
   );
 
-  const ARCHETYPE_LABEL: Record<string, string> = {
-    chocolate_nutty: 'Chocolate & Nutty', balanced_sweet: 'Balanced & Sweet',
-    fruity: 'Fruity', earthy: 'Earthy', floral: 'Floral', experimental: 'Experimental',
+  return {
+    coffee:       coffeeResult.rows[0],
+    dimensions:   dimsResult.rows,
+    descriptors:  descriptorResult.rows,
+    overallNotes: notesResult.rows[0]?.overall_notes ?? null,
   };
+}
+
+// ── Generate and store all three AI content fields ────────────────────────────
+// force=false: only generate fields that are currently null in the DB
+// force=true:  regenerate all three (admin refresh)
+export async function generateAndStoreAllContent(
+  coffeeId: string | number,
+  options: { force?: boolean } = {}
+): Promise<{ aiSummary: string; surpriseNote: string | null; threeVoiceStory: string | null }> {
+  const { force = false } = options;
+
+  // Check what is already cached
+  const cachedResult = await db.query(
+    `SELECT ai_summary, surprise_note, three_voice_story FROM coffees WHERE id = $1`,
+    [coffeeId]
+  );
+  const cached = cachedResult.rows[0] ?? {};
+
+  const needsSummary  = force || !cached.ai_summary;
+  const needsSurprise = force || !cached.surprise_note;
+  const needsStory    = force || !cached.three_voice_story;
+
+  if (!needsSummary && !needsSurprise && !needsStory) {
+    return {
+      aiSummary:      cached.ai_summary,
+      surpriseNote:   cached.surprise_note,
+      threeVoiceStory: cached.three_voice_story,
+    };
+  }
+
+  const data = await fetchCoffeeDataForContent(coffeeId);
+  const archetypeLabel = data.coffee.archetype
+    ? (ARCHETYPE_LABEL[data.coffee.archetype] ?? data.coffee.archetype)
+    : null;
+
+  const dimensionParams = data.dimensions.map((r: any) => ({
+    dimension:       r.dimension,
+    avg_min:         Number(r.avg_min),
+    avg_max:         Number(r.avg_max),
+    scale_min_label: r.scale_min_label,
+    scale_max_label: r.scale_max_label,
+  }));
+
+  const topDescriptors = [...new Set(data.descriptors.map((r: any) => r.descriptor as string))].slice(0, 8);
+
+  // Build per-source descriptor lists for three-voice story
+  const sourceMap: Record<string, string[]> = {};
+  for (const row of data.descriptors) {
+    if (!sourceMap[row.source]) sourceMap[row.source] = [];
+    if (sourceMap[row.source].length < 5) sourceMap[row.source].push(row.descriptor);
+  }
+  const sourceData = Object.entries(sourceMap).map(([source, descriptors]) => ({
+    source: source as 'internal' | 'roastery' | 'client',
+    descriptors,
+  }));
+
+  // Run only what is needed, in parallel
+  const [newSummary, newSurprise, newStory] = await Promise.all([
+    needsSummary
+      ? getCoffeeSummary({ coffeeName: data.coffee.name, archetype: archetypeLabel, dimensions: dimensionParams, topDescriptors, overallNotes: data.overallNotes })
+      : Promise.resolve<string | null>(null),
+    needsSurprise
+      ? getCoffeeSurpriseNote({ coffeeName: data.coffee.name, archetype: archetypeLabel, dimensions: dimensionParams, topDescriptors, overallNotes: data.overallNotes })
+      : Promise.resolve<string | null>(null),
+    needsStory && sourceData.length >= 2
+      ? getCoffeeThreeVoiceStory({ coffeeName: data.coffee.name, sourceData })
+      : Promise.resolve<string | null>(null),
+  ]);
+
+  const aiSummary      = newSummary      ?? cached.ai_summary      ?? '';
+  const surpriseNote   = newSurprise     ?? cached.surprise_note   ?? null;
+  const threeVoiceStory = newStory       ?? cached.three_voice_story ?? null;
+
+  // Persist to Cloud SQL — only update fields that were regenerated
+  const updates: string[] = [];
+  const values: unknown[] = [];
+  let idx = 1;
+  if (newSummary  !== null) { updates.push(`ai_summary = $${idx++}`);       values.push(newSummary); }
+  if (newSurprise !== null) { updates.push(`surprise_note = $${idx++}`);    values.push(newSurprise); }
+  // For three_voice_story: if force=true and story is null (not enough sources), explicitly clear it
+  if (needsStory)           { updates.push(`three_voice_story = $${idx++}`); values.push(newStory); }
+
+  if (updates.length) {
+    values.push(coffeeId);
+    await db.query(`UPDATE coffees SET ${updates.join(', ')} WHERE id = $${idx}`, values);
+  }
+
+  // Write to Firestore — non-blocking, Cloud SQL is source of truth
+  admin.firestore().collection('coffees').doc(String(coffeeId)).set({
+    aiSummary,
+    surpriseNote,
+    threeVoiceNarrative: threeVoiceStory,
+    generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true }).catch((err: unknown) => {
+    console.error('[coffees/firestore-write]', err);
+  });
+
+  return { aiSummary, surpriseNote, threeVoiceStory };
+}
+
+// ── Backward-compat wrapper — still used by admin refresh-summary endpoint ────
+export async function generateAndStoreSummary(coffeeId: string | number): Promise<string> {
+  const data = await fetchCoffeeDataForContent(coffeeId);
+  const archetypeLabel = data.coffee.archetype
+    ? (ARCHETYPE_LABEL[data.coffee.archetype] ?? data.coffee.archetype)
+    : null;
 
   const summary = await getCoffeeSummary({
-    coffeeName: coffee.name,
-    archetype: coffee.archetype ? (ARCHETYPE_LABEL[coffee.archetype] ?? coffee.archetype) : null,
-    dimensions: dimsResult.rows.map((r: any) => ({
-      dimension: r.dimension,
-      avg_min: Number(r.avg_min),
-      avg_max: Number(r.avg_max),
+    coffeeName:      data.coffee.name,
+    archetype:       archetypeLabel,
+    dimensions:      data.dimensions.map((r: any) => ({
+      dimension:       r.dimension,
+      avg_min:         Number(r.avg_min),
+      avg_max:         Number(r.avg_max),
       scale_min_label: r.scale_min_label,
       scale_max_label: r.scale_max_label,
     })),
-    topDescriptors: descriptorResult.rows.map((r: any) => r.descriptor),
-    overallNotes: notesResult.rows[0]?.overall_notes ?? null,
+    topDescriptors:  [...new Set(data.descriptors.map((r: any) => r.descriptor as string))].slice(0, 8),
+    overallNotes:    data.overallNotes,
   });
 
   await db.query(`UPDATE coffees SET ai_summary = $1 WHERE id = $2`, [summary, coffeeId]);
   return summary;
 }
 
-// GET /api/coffees — public coffee list with current archetype assignment
+// GET /api/coffees ─────────────────────────────────────────────────────────────
 router.get('/', async (_req, res) => {
   try {
     const result = await db.query(
@@ -89,7 +202,7 @@ router.get('/', async (_req, res) => {
   }
 });
 
-// GET /api/coffees/:id/flavor-wheel — public flavor wheel for one coffee
+// GET /api/coffees/:id/flavor-wheel ───────────────────────────────────────────
 router.get('/:id/flavor-wheel', async (req, res) => {
   const { id } = req.params;
   try {
@@ -109,7 +222,7 @@ router.get('/:id/flavor-wheel', async (req, res) => {
   }
 });
 
-// GET /api/coffees/:id/dimensions — numeric dimension ranges from cupping scores
+// GET /api/coffees/:id/dimensions ─────────────────────────────────────────────
 router.get('/:id/dimensions', async (req, res) => {
   const { id } = req.params;
   try {
@@ -151,7 +264,25 @@ router.get('/:id/dimensions', async (req, res) => {
   }
 });
 
-// GET /api/coffees/:id/ai-summary — return cached summary or generate + cache
+// GET /api/coffees/:id/content ────────────────────────────────────────────────
+// Returns all three AI content fields. Generates missing ones on first request.
+router.get('/:id/content', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const content = await generateAndStoreAllContent(id, { force: false });
+    res.json({
+      aiSummary:       content.aiSummary,
+      surpriseNote:    content.surpriseNote,
+      threeVoiceStory: content.threeVoiceStory,
+    });
+  } catch (err) {
+    console.error('[coffees/content]', err);
+    res.status(500).json({ error: 'Failed to fetch content' });
+  }
+});
+
+// GET /api/coffees/:id/ai-summary ─────────────────────────────────────────────
+// Kept for backward compatibility. New code should use /content.
 router.get('/:id/ai-summary', async (req, res) => {
   const { id } = req.params;
   try {

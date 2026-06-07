@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAdmin, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
-import { generateAndStoreSummary } from './coffees.js';
+import { generateAndStoreSummary, generateAndStoreAllContent } from './coffees.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -513,7 +513,7 @@ router.delete('/revoke-admin', async (req, res) => {
 });
 
 // ── POST /api/admin/coffees/:id/refresh-summary ───────────────────────────────
-// Force-regenerates and stores the AI tasting note for a coffee.
+// Kept for backward compatibility. Prefer refresh-content.
 router.post('/coffees/:id/refresh-summary', async (req, res) => {
   const { id } = req.params;
   try {
@@ -522,6 +522,20 @@ router.post('/coffees/:id/refresh-summary', async (req, res) => {
   } catch (err) {
     console.error('[admin/refresh-summary]', err);
     res.status(500).json({ error: 'Failed to refresh summary' });
+  }
+});
+
+// ── POST /api/admin/coffees/:id/refresh-content ───────────────────────────────
+// Force-regenerates all three AI content fields (ai_summary, surprise_note,
+// three_voice_story) and updates both Cloud SQL and Firestore.
+router.post('/coffees/:id/refresh-content', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const content = await generateAndStoreAllContent(id, { force: true });
+    res.json(content);
+  } catch (err) {
+    console.error('[admin/refresh-content]', err);
+    res.status(500).json({ error: 'Failed to refresh content' });
   }
 });
 

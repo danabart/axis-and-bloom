@@ -126,3 +126,67 @@ Be warm and specific. Name actual flavors and textures. No marketing language. U
   const block = response.content[0];
   return block.type === 'text' ? block.text : '';
 }
+
+export async function getCoffeeSurpriseNote(params: {
+  coffeeName: string;
+  archetype: string | null;
+  dimensions: Array<{ dimension: string; avg_min: number; avg_max: number; scale_min_label: string; scale_max_label: string }>;
+  topDescriptors: string[];
+  overallNotes: string | null;
+}): Promise<string> {
+  const { coffeeName, archetype, dimensions, topDescriptors, overallNotes } = params;
+  const dimLines = dimensions
+    .map(d => `  ${d.dimension}: ${d.avg_min}–${d.avg_max}/15 (${d.scale_min_label} → ${d.scale_max_label})`)
+    .join('\n');
+
+  const content = `Write 1–2 sentences surfacing what is surprising or unusual about "${coffeeName}"${archetype ? ` (${archetype} archetype)` : ''}.
+
+This is NOT a tasting note. It is a hook that makes a curious person want to try it. Find the most unexpected or noteworthy thing — a contradiction, an unusual characteristic, something that defies the archetype.
+
+Cupping dimensions:
+${dimLines || '  (no numeric data)'}
+Top flavor descriptors: ${topDescriptors.length ? topDescriptors.join(', ') : 'none recorded'}${overallNotes ? `\nCupper's notes: "${overallNotes}"` : ''}
+
+Be direct and editorial. Do not start with the coffee name. Do not use marketing language. Under 50 words.`;
+
+  const surpriseResponse = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 150,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: 'user', content }],
+  });
+  const surpriseBlock = surpriseResponse.content[0];
+  return surpriseBlock.type === 'text' ? surpriseBlock.text : '';
+}
+
+export async function getCoffeeThreeVoiceStory(params: {
+  coffeeName: string;
+  sourceData: Array<{ source: 'internal' | 'roastery' | 'client'; descriptors: string[] }>;
+}): Promise<string | null> {
+  const { coffeeName, sourceData } = params;
+  if (sourceData.length < 2) return null;
+
+  const SOURCE_NAME: Record<string, string> = {
+    internal: 'Our cupping team',
+    roastery: 'The roaster',
+    client:   'Customers',
+  };
+  const lines = sourceData
+    .map(s => `  ${SOURCE_NAME[s.source] ?? s.source}: ${s.descriptors.join(', ')}`)
+    .join('\n');
+
+  const content = `Write 2–4 sentences narrating how the flavor sources see "${coffeeName}". Where do they agree? Where do they diverge?
+
+${lines}
+
+Write this as editorial storytelling — not a list. Name the agreement and divergence naturally. Example style: "Our team kept coming back to blueberry and black tea. The roaster's bag notes said stone fruit and floral — closer than it sounds. Customers have been landing on citrus." Under 80 words.`;
+
+  const storyResponse = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 200,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: 'user', content }],
+  });
+  const storyBlock = storyResponse.content[0];
+  return storyBlock.type === 'text' ? storyBlock.text : null;
+}
