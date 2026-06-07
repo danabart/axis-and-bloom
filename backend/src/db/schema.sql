@@ -145,15 +145,16 @@ CREATE TABLE IF NOT EXISTS address (
 );
 
 -- Migrate existing TEXT column to enum (idempotent — only runs if still TEXT)
+-- Drop default first; PostgreSQL cannot cast a TEXT default implicitly during ALTER COLUMN TYPE.
 DO $$ BEGIN
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_name = 'address' AND column_name = 'address_type' AND data_type = 'text'
   ) THEN
-    ALTER TABLE address
-      ALTER COLUMN address_type TYPE address_type_enum
-        USING address_type::address_type_enum,
-      ALTER COLUMN address_type SET DEFAULT 'shipping'::address_type_enum;
+    ALTER TABLE address ALTER COLUMN address_type DROP DEFAULT;
+    ALTER TABLE address ALTER COLUMN address_type TYPE address_type_enum
+      USING address_type::address_type_enum;
+    ALTER TABLE address ALTER COLUMN address_type SET DEFAULT 'shipping'::address_type_enum;
   END IF;
 END $$;
 
