@@ -63,7 +63,7 @@ GitHub (danabart/axis-and-bloom)
 | Auth providers enabled | Email/Password, Google |
 | Authorized domains | `localhost`, `axis-and-bloom-prod.web.app`, `axis-and-bloom-prod.firebaseapp.com` |
 
-Firebase is used for **auth and hosting only**. The database is Cloud SQL (PostgreSQL), not Firestore.
+Firebase is used for **auth, hosting, and Firestore**. Structured relational data lives in Cloud SQL (PostgreSQL); user-centric and AI-feedable data (profiles, quiz sessions, AI content) lives in Firestore (`axis-bloom-fs`).
 
 ---
 
@@ -83,6 +83,75 @@ Firebase is used for **auth and hosting only**. The database is Cloud SQL (Postg
 **Connection strings:**
 - From Cloud Run (Unix socket): `postgresql://axisbloom:AxBloomApp2026%23!@/axisandbloom?host=/cloudsql/axis-and-bloom-prod:us-central1:axis-bloom-db`
 - From local tools: `postgresql://axisbloom:AxBloomApp2026#!@35.223.155.186:5432/axisandbloom`
+
+---
+
+## Firestore
+
+| Field | Value |
+|---|---|
+| Database name | `axis-bloom-fs` |
+| Edition | Standard |
+| Mode | Firestore Native |
+| Region | `us-central1` (single region) |
+
+Firestore is the AI-agent-oriented data layer. Structured relational data stays in Cloud SQL; Firestore holds user-centric and AI-feedable documents that are easier to query contextually than SQL joins.
+
+### Security rules
+
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /coffees/{coffeeId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /users/{userId} {
+      allow read, write: if request.auth != null
+                         && request.auth.uid == userId;
+      match /{subcollection}/{docId} {
+        allow read, write: if request.auth != null
+                           && request.auth.uid == userId;
+      }
+    }
+  }
+}
+```
+
+`coffees` — public read, backend-only write. `users` — each user can only read/write their own document and subcollections. Backend Admin SDK bypasses all rules.
+
+### Collection structure
+
+```
+coffees/
+  {coffeeId}/            ← AI content cache (aiSummary, surpriseNote, threeVoiceNarrative, generatedAt)
+
+users/
+  {uid}/                 ← Profile snapshot (email, firstName, lastName, archetype, archetypeLabel, lastQuizDate, syncedAt)
+    quiz_sessions/
+      {sessionId}/       ← One document per quiz taken (archetype, scores, secondaryArchetype, foodSignal, confidence, recommendationMode, experimental, completedAt)
+```
+
+### Sync points (all backend, non-blocking unless noted)
+
+| Trigger | Firestore write |
+|---|---|
+| `GET /api/users/profile` | Upserts `users/{uid}` with current profile snapshot (fire-and-forget) |
+| `PATCH /api/users/profile` | Updates `firstName` / `lastName` on `users/{uid}` (fire-and-forget) |
+| `POST /api/quiz/results` | Updates archetype on `users/{uid}` (fire-and-forget) + **awaits** write to `users/{uid}/quiz_sessions/{sessionId}` |
+| `GET /api/coffees/:id/content` or `POST /api/admin/coffees/:id/refresh-content` | Upserts `coffees/{id}` with all three AI fields (fire-and-forget) |
+
+The quiz session write is awaited (not fire-and-forget) because it creates a new subcollection document and needs to complete before the Cloud Run instance can be suspended. All other writes are non-blocking — Cloud SQL is the source of truth.
+
+### Backend wiring
+
+`backend/src/services/firebase-admin.ts` exports:
+- `firestoreDb` — named Firestore instance (`getFirestore(admin.app(), 'axis-bloom-fs')`)
+- `FieldValue` — re-exported from `firebase-admin/firestore` for `serverTimestamp()` calls
+- `default` (admin) — Firebase Admin SDK singleton (unchanged)
+
+`frontend/src/app/lib/firebase.ts` exports `firestore = getFirestore(app, 'axis-bloom-fs')` — wired but not yet used for direct reads; frontend always goes through the backend API.
 
 ---
 
@@ -203,6 +272,7 @@ axis-and-bloom/
 | Routing | React Router v7 |
 | Animations | motion/react |
 | Auth | Firebase Auth (Email/Password + Google) |
+| Document store | Firestore (`axis-bloom-fs`) — user profiles, quiz sessions, AI content |
 | Transactional email | Resend (sends from noreply@axisandbloomcoffee.com) |
 | Marketing email | Mailchimp (newsletter subscribers synced on signup with FNAME merge field) |
 | Backend | Node.js + Express + TypeScript |
@@ -866,7 +936,7 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 
 ---
 
-## Current State (as of 2026-06-05 — updated)
+## Current State (as of 2026-06-07 — updated)
 
 | Component | Status |
 |---|---|
@@ -893,6 +963,7 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 | Quiz scoring unit tests | ✅ 31 tests in `quizScoring.test.ts` — veto cascade, confidence/mode logic, all edge cases; run with `npm test` from `backend/` |
 | Profile — user data collection | ✅ Sign-up collects first + last name; profile Settings tab has editable name, optional birthday, and shipping + billing address management — all written to DB |
 | Find My Flavor page (`/find-my-flavor`) | ✅ Auth-aware split-screen — returning users see a two-column layout: left panel has photo + nav options, right panel shows "Your primary profile is [archetype]", description, and last quiz date; signed-in users without an archetype skip the name screen; guests see original flow + "Already have a profile? Sign in →" |
+| Firestore (`axis-bloom-fs`) | ✅ Live — `coffees/{id}` (AI content), `users/{uid}` (profile snapshot), `users/{uid}/quiz_sessions` (full session history) |
 | CI/CD | ✅ Push to main deploys everything |
 
 ---
@@ -1519,6 +1590,18 @@ The archetype and confidence dropdowns on the Coffees page are **not** in `looku
 **Cleanup (test data):**
 - `DELETE /api/admin/scores/:scoreId` removes a score and all its values + descriptors (CASCADE)
 - `DELETE /api/admin/sessions/:id` removes a session and its coffee links (CASCADE)
+
+---
+
+### 45. `address_type` enum migration failing on every deploy
+**Error**: `DB migration error (non-fatal): error: default for column "address_type" cannot be cast automatically to type address_type_enum` — logged on every backend startup.
+**Cause**: The migration `DO` block tried to run `ALTER TABLE address ALTER COLUMN address_type TYPE address_type_enum ... ALTER COLUMN address_type SET DEFAULT 'shipping'::address_type_enum` as a single multi-clause ALTER. PostgreSQL cannot implicitly cast the column's existing TEXT DEFAULT value during the type conversion.
+**Fix**: Split into three separate statements inside the DO block — `DROP DEFAULT` first, then `ALTER COLUMN TYPE ... USING`, then `SET DEFAULT 'shipping'::address_type_enum`. The idempotency check (only runs when `data_type = 'text'`) is unchanged.
+
+### 46. Express rate limiter misconfigured behind Cloud Run proxy
+**Error**: `ValidationError: The 'X-Forwarded-For' header is set but the Express 'trust proxy' setting is false` — logged on every request.
+**Cause**: Cloud Run sits behind Google's load balancer, which adds an `X-Forwarded-For` header. Express defaults to `trust proxy = false`, so `express-rate-limit` refused to use the header and threw a validation error on every request — meaning rate limiting was effectively not working correctly.
+**Fix**: Added `app.set('trust proxy', 1)` before the rate limiter in `backend/src/index.ts`. This tells Express to trust one proxy hop, allowing `express-rate-limit` to correctly identify the real client IP.
 
 ---
 
