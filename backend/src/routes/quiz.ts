@@ -3,6 +3,7 @@ import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 import { getRecommendation } from '../services/claude.js';
 import { rankScores, findWinner, findSecondary, isSecondaryClose, computeConfidenceAndMode } from '../services/quizScoring.js';
+import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 
 const router = Router();
 
@@ -204,6 +205,27 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
       [profileId, archetypeId, JSON.stringify({ archetype, scores, answers, decaf: decaf ?? false, experimental: experimental ?? false, secondaryArchetype: secondaryArchetype ?? null, foodSignal: foodSignal ?? null, confidence: confidence ?? 'high', recommendationMode: recommendationMode ?? 'primary_only' })]
     );
 
+    const sessionId = sessionResult.rows[0].id;
+
+    // Sync to Firestore — non-blocking, Cloud SQL is source of truth
+    firestoreDb.doc(`users/${req.uid}`).set({
+      archetype:      archetype.toLowerCase(),
+      archetypeLabel: archetype,
+      lastQuizDate:   FieldValue.serverTimestamp(),
+      syncedAt:       FieldValue.serverTimestamp(),
+    }, { merge: true }).catch((err: unknown) => console.error('[quiz/firestore-profile]', err));
+
+    firestoreDb.doc(`users/${req.uid}/quiz_sessions/${sessionId}`).set({
+      archetype,
+      secondaryArchetype:  secondaryArchetype ?? null,
+      foodSignal:          foodSignal ?? null,
+      confidence:          confidence ?? 'high',
+      recommendationMode:  recommendationMode ?? 'primary_only',
+      experimental:        experimental ?? false,
+      scores,
+      completedAt:         FieldValue.serverTimestamp(),
+    }).catch((err: unknown) => console.error('[quiz/firestore-session]', err));
+
     // Get AI recommendation
     const recommendation = await getRecommendation(archetype, decaf ?? false, {
       secondaryArchetype: secondaryArchetype ?? null,
@@ -212,7 +234,7 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
       experimental: experimental ?? false,
     });
 
-    res.json({ id: sessionResult.rows[0].id, recommendation });
+    res.json({ id: sessionId, recommendation });
   } catch (err) {
     console.error('[quiz/results]', err);
     res.status(500).json({ error: 'Failed to save quiz result' });

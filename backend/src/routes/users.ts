@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
+import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 
 const router = Router();
 
@@ -74,6 +75,17 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
     const archetypeKey = quiz?.archetype_name?.toLowerCase() ?? null;
     const archetypeData = archetypeKey ? (ARCHETYPES[archetypeKey] ?? { name: quiz.archetype_name, features: [], color: '#a33726' }) : null;
 
+    // Sync to Firestore — non-blocking, Cloud SQL is source of truth
+    firestoreDb.doc(`users/${req.uid}`).set({
+      email:          emailResult.rows[0]?.email_address ?? req.email ?? null,
+      firstName:      profileRow.first_name ?? null,
+      lastName:       profileRow.last_name ?? null,
+      archetype:      archetypeKey,
+      archetypeLabel: archetypeData?.name ?? null,
+      lastQuizDate:   quiz?.completed_at ?? null,
+      syncedAt:       FieldValue.serverTimestamp(),
+    }, { merge: true }).catch((err: unknown) => console.error('[users/firestore-sync]', err));
+
     res.json({
       email:       emailResult.rows[0]?.email_address ?? req.email ?? null,
       firstName:   profileRow.first_name ?? null,
@@ -111,6 +123,13 @@ router.patch('/profile', requireAuth, async (req: AuthRequest, res) => {
        WHERE firebase_uid = $1`,
       [req.uid, firstName || null, lastName || null, dateOfBirth || null]
     );
+
+    const fsUpdate: Record<string, unknown> = { syncedAt: FieldValue.serverTimestamp() };
+    if (firstName) fsUpdate.firstName = firstName;
+    if (lastName)  fsUpdate.lastName  = lastName;
+    firestoreDb.doc(`users/${req.uid}`).set(fsUpdate, { merge: true })
+      .catch((err: unknown) => console.error('[users/firestore-patch]', err));
+
     res.json({ ok: true });
   } catch (err) {
     console.error('[PATCH /api/users/profile]', err);
