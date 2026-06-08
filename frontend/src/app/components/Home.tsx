@@ -28,7 +28,7 @@ export default function Home() {
   };
 
   return (
-    <div className="w-full bg-[#f2f1ea]" >
+    <div className="w-full bg-[#f2f1ea]">
       <div className="relative z-10 bg-[#e5e5da]">
 
         {/* Hero */}
@@ -84,102 +84,104 @@ export default function Home() {
           </div>
         </div>
 
-        {/* CTA Section */}
-        <div style={{ backgroundColor: '#9a2918', paddingTop: 80, paddingBottom: 80, width: '100%' }}>
-          <div style={{ paddingLeft: 64, paddingRight: 64 }}>
-            <div style={{ maxWidth: 600 }}>
+        {/* CTA + Bridge — one full-bleed photo section */}
+        <div style={{ position: 'relative', width: '100%', height: '90vh', overflow: 'hidden' }}>
 
-              {/* Headline */}
-              <motion.p
-                initial={{ opacity: 0, y: 30 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, amount: 0.4 }}
-                transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
-                style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(2rem, 4vw, 3.5rem)', fontWeight: 400, color: '#f2f1ea', lineHeight: 1.2, margin: 0 }}
-              >
-                You already know what you love. You just don't have the words for it yet.
-              </motion.p>
-
-              {/* Profile form */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, amount: 0.4 }}
-                transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1], delay: 0.2 }}
-                style={{ marginTop: 48 }}
-              >
-                <p style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.2rem, 2.5vw, 2.2rem)', fontWeight: 400, color: '#f2f1ea', margin: 0 }}>
-                  Whose palate are we profiling today?
-                </p>
-
-                <form onSubmit={handleProfileStart}>
-                  <input
-                    type="text"
-                    name="name"
-                    required
-                    placeholder="Enter your name"
-                    style={{
-                      display: 'block',
-                      marginTop: 24,
-                      width: 320,
-                      maxWidth: '100%',
-                      background: 'none',
-                      border: 'none',
-                      borderBottom: '1px solid #f2f1ea',
-                      borderRadius: 0,
-                      outline: 'none',
-                      fontFamily: "'Genova', sans-serif",
-                      fontSize: '1rem',
-                      fontWeight: 400,
-                      color: '#f2f1ea',
-                      padding: '8px 0',
-                    }}
-                    onFocus={e => e.currentTarget.style.borderBottomColor = '#ffffff'}
-                    onBlur={e => e.currentTarget.style.borderBottomColor = '#f2f1ea'}
-                  />
-                  <style>{`input[name="name"]::placeholder { color: rgba(255,255,255,0.5); }`}</style>
-                  <button
-                    type="submit"
-                    style={{
-                      display: 'block',
-                      marginTop: 20,
-                      background: 'none',
-                      border: 'none',
-                      padding: 0,
-                      cursor: 'pointer',
-                      fontFamily: "'Genova', sans-serif",
-                      fontSize: 13,
-                      fontWeight: 400,
-                      color: '#f2f1ea',
-                      letterSpacing: '0.15em',
-                      textTransform: 'uppercase',
-                      textDecoration: 'underline',
-                      textUnderlineOffset: '3px',
-                      textDecorationColor: 'rgba(242,241,234,0.5)',
-                      transition: 'text-decoration-color 0.2s',
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.textDecorationColor = '#f2f1ea'}
-                    onMouseLeave={e => e.currentTarget.style.textDecorationColor = 'rgba(242,241,234,0.5)'}
-                  >
-                    BEGIN PROFILE →
-                  </button>
-                </form>
-              </motion.div>
-
-            </div>
-          </div>
-        </div>
-
-        {/* Bridge section */}
-        <div style={{ position: 'relative', width: '100%', height: '60vh', overflow: 'hidden' }}>
+          {/* Background photo */}
           <img
             src={coffeePic16}
             alt=""
             style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%', display: 'block' }}
           />
-          <p style={{ position: 'absolute', bottom: 48, right: 48, margin: 0, textAlign: 'right', maxWidth: 280, color: '#f2f1ea', fontFamily: "'Genova', sans-serif", fontSize: 20, fontWeight: 400, lineHeight: 1.4 }}>
-            There are six taste identities. One is made for you.
-          </p>
+
+          {/* Subtle right gradient for legibility */}
+          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to left, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0) 55%)' }} />
+
+          {/* Text + form — top right */}
+          <div style={{
+            position: 'absolute',
+            top: 'clamp(72px, 10vh, 120px)',
+            right: 'clamp(32px, 5vw, 64px)',
+            maxWidth: 420,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-end',
+            textAlign: 'right',
+          }}>
+            <p style={{
+              fontFamily: "'Genova', sans-serif",
+              fontSize: 'clamp(1.6rem, 3vw, 2.8rem)',
+              fontWeight: 400,
+              color: '#f2f1ea',
+              lineHeight: 1.2,
+              margin: 0,
+            }}>
+              You already know what you love. You just don't have the words for it yet.
+            </p>
+
+            <p style={{
+              fontFamily: "'Genova', sans-serif",
+              fontSize: 'clamp(1rem, 1.8vw, 1.4rem)',
+              fontWeight: 400,
+              color: '#f2f1ea',
+              lineHeight: 1.3,
+              margin: '32px 0 0',
+            }}>
+              Whose palate are we profiling today?
+            </p>
+
+            <form onSubmit={handleProfileStart} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '100%' }}>
+              <style>{`#profile-name::placeholder { color: rgba(242,241,234,0.5); }`}</style>
+              <input
+                id="profile-name"
+                type="text"
+                name="name"
+                required
+                placeholder="Enter your name"
+                style={{
+                  marginTop: 24,
+                  width: '100%',
+                  maxWidth: 320,
+                  background: 'none',
+                  border: 'none',
+                  borderBottom: '1px solid rgba(242,241,234,0.7)',
+                  borderRadius: 0,
+                  outline: 'none',
+                  fontFamily: "'Genova', sans-serif",
+                  fontSize: '1rem',
+                  fontWeight: 400,
+                  color: '#f2f1ea',
+                  padding: '8px 0',
+                  textAlign: 'right',
+                }}
+              />
+              <button
+                type="submit"
+                style={{
+                  marginTop: 20,
+                  background: 'none',
+                  border: 'none',
+                  padding: 0,
+                  cursor: 'pointer',
+                  fontFamily: "'Genova', sans-serif",
+                  fontSize: 13,
+                  fontWeight: 400,
+                  color: '#f2f1ea',
+                  letterSpacing: '0.15em',
+                  textTransform: 'uppercase',
+                  textDecoration: 'underline',
+                  textUnderlineOffset: '3px',
+                  textDecorationColor: 'rgba(242,241,234,0.5)',
+                  transition: 'text-decoration-color 0.2s',
+                }}
+                onMouseEnter={e => e.currentTarget.style.textDecorationColor = '#f2f1ea'}
+                onMouseLeave={e => e.currentTarget.style.textDecorationColor = 'rgba(242,241,234,0.5)'}
+              >
+                BEGIN PROFILE →
+              </button>
+            </form>
+          </div>
+
         </div>
 
       </div>
