@@ -146,7 +146,7 @@ export default function FamilyTab() {
       <div className="flex flex-col gap-8 py-4">
         <div className="flex flex-col gap-3">
           <Users size={32} className="text-[#a33726]/30" strokeWidth={1} />
-          <p className="text-lg text-[#a33726]/70 font-sans tracking-wide font-light leading-relaxed">
+          <p className="text-lg text-[#a33726]/70 tracking-wide font-light leading-relaxed">
             A Family Bundle lets everyone in your household get coffee matched to their own palate, delivered together.
           </p>
         </div>
@@ -177,7 +177,7 @@ export default function FamilyTab() {
   const canLeave = !(household.isAdmin && household.members.length > 1);
 
   return (
-    <div className="flex flex-col gap-10 font-sans">
+    <div className="flex flex-col gap-10">
 
       <div>
         <p className={labelClass}>Household</p>

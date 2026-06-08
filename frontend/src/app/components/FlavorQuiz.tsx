@@ -515,7 +515,7 @@ export default function FlavorQuiz() {
             >
               {archetype.name}
             </h1>
-            <p className="text-lg text-[#a33726]/70 font-light leading-relaxed mb-12 font-sans">
+            <p className="text-lg text-[#a33726]/70 font-light leading-relaxed mb-12">
               {archetype.description}
             </p>
 

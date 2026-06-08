@@ -103,7 +103,7 @@ export default function SignIn() {
         <div className="w-full max-w-[400px] flex flex-col items-start mt-12 lg:mt-0">
           <div className="mb-12">
             <h2 className="text-[3rem] lg:text-[3.5rem] text-[#ee5974] leading-[1.05] mb-4 font-normal tracking-tight">Trust your taste.</h2>
-            <p className="text-lg text-[#a33726]/80 font-sans tracking-wide font-light">Sign in to save your flavor memory, re-order your favorites, and explore exact matches.</p>
+            <p className="text-lg text-[#a33726]/80 tracking-wide font-light">Sign in to save your flavor memory, re-order your favorites, and explore exact matches.</p>
           </div>
 
           <div className="flex w-full mb-12 border-b border-[#a33726]/20 relative">

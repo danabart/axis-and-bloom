@@ -178,7 +178,7 @@ export default function Profile() {
                 {!archetype ? (
                   <div className="flex flex-col items-start gap-6 py-8">
                     <Heart size={32} className="text-[#a33726]/30" strokeWidth={1} />
-                    <p className="text-lg text-[#a33726]/70 font-sans tracking-wide font-light leading-relaxed">You haven't discovered your flavor archetype yet. Take the quiz to unlock exact matches tailored to your palate.</p>
+                    <p className="text-lg text-[#a33726]/70 tracking-wide font-light leading-relaxed">You haven't discovered your flavor archetype yet. Take the quiz to unlock exact matches tailored to your palate.</p>
                     <Link to="/find-my-flavor" className="mt-4 flex items-center gap-3 text-[11px] uppercase tracking-[0.2em] text-[#a33726] border-b border-[#a33726]/30 pb-1 hover:border-[#a33726] hover:text-[#ee5974] transition-colors">Start the Quiz <ArrowRight size={14} /></Link>
                   </div>
                 ) : (
@@ -188,7 +188,7 @@ export default function Profile() {
                       {(archetype.features ?? []).map((f: string, i: number) => (
                         <li key={i} className="flex items-start gap-5">
                           <div className="w-[1px] h-8 shrink-0 opacity-40 mt-1" style={{ backgroundColor: '#ee5974' }} />
-                          <span className="text-lg text-[#a33726]/80 font-light leading-relaxed font-sans">{f}</span>
+                          <span className="text-lg text-[#a33726]/80 font-light leading-relaxed">{f}</span>
                         </li>
                       ))}
                     </ul>
@@ -203,7 +203,7 @@ export default function Profile() {
                 {pastOrders.length === 0 ? (
                   <div className="flex flex-col items-start gap-6 py-8">
                     <Package size={32} className="text-[#a33726]/30" strokeWidth={1} />
-                    <p className="text-lg text-[#a33726]/70 font-sans tracking-wide font-light leading-relaxed">You haven't placed any orders yet.</p>
+                    <p className="text-lg text-[#a33726]/70 tracking-wide font-light leading-relaxed">You haven't placed any orders yet.</p>
                     <Link to="/shop" className="mt-4 flex items-center gap-3 text-[11px] uppercase tracking-[0.2em] text-[#a33726] border-b border-[#a33726]/30 pb-1 hover:border-[#a33726] hover:text-[#ee5974] transition-colors">Explore the Shop <ArrowRight size={14} /></Link>
                   </div>
                 ) : (
@@ -213,7 +213,7 @@ export default function Profile() {
                         <div className="flex justify-between items-end mb-6 pb-6 border-b border-[#a33726]/10">
                           <div>
                             <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 mb-2 font-normal">Order {order.id}</p>
-                            <p className="text-sm text-[#a33726] font-sans font-normal">{order.date}</p>
+                            <p className="text-sm text-[#a33726] font-normal">{order.date}</p>
                           </div>
                           <span className="text-[10px] font-normal px-2 py-1 bg-[#a33726]/10 text-[#a33726] rounded-sm uppercase tracking-[0.1em]">{order.status}</span>
                         </div>
@@ -234,7 +234,7 @@ export default function Profile() {
 
             {/* ── Settings ── */}
             {activeTab === 'settings' && (
-              <motion.div key="settings" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.4 }} className="flex flex-col gap-10 font-sans">
+              <motion.div key="settings" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.4 }} className="flex flex-col gap-10">
 
                 {/* Personal info */}
                 <form onSubmit={handleSaveProfile} className="flex flex-col gap-6">

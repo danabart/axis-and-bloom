@@ -77,7 +77,7 @@ export default function JoinHousehold() {
               <h1 className="text-[2.5rem] text-[#a33726] leading-tight font-normal">
                 This invitation is no longer valid.
               </h1>
-              <p className="text-base text-[#a33726]/60 font-sans font-light">{fetchError}</p>
+              <p className="text-base text-[#a33726]/60 font-light">{fetchError}</p>
               <Link
                 to="/"
                 className="text-[10px] uppercase tracking-[0.2em] text-[#a33726] border-b border-[#a33726]/30 pb-1 hover:border-[#a33726] hover:text-[#ee5974] transition-colors w-fit"
@@ -97,7 +97,7 @@ export default function JoinHousehold() {
                 </h1>
               </div>
 
-              <p className="text-lg text-[#a33726]/70 font-sans font-light leading-relaxed">
+              <p className="text-lg text-[#a33726]/70 font-light leading-relaxed">
                 You've been invited to join{' '}
                 <strong className="text-[#a33726] font-normal">
                   {invite.householdName ?? 'a Family Bundle'}
@@ -118,7 +118,7 @@ export default function JoinHousehold() {
                   </button>
                 ) : (
                   <div className="flex flex-col gap-3">
-                    <p className="text-sm text-[#a33726]/60 font-sans font-light">
+                    <p className="text-sm text-[#a33726]/60 font-light">
                       This invitation was sent to{' '}
                       <strong className="font-normal">{invite.invitedEmail}</strong>.
                       You're signed in as {user.email}.
@@ -133,7 +133,7 @@ export default function JoinHousehold() {
                 )
               ) : (
                 <div className="flex flex-col gap-4">
-                  <p className="text-sm text-[#a33726]/60 font-sans font-light">
+                  <p className="text-sm text-[#a33726]/60 font-light">
                     Sign in to accept this invitation.
                   </p>
                   <Link
