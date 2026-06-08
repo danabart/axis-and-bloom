@@ -379,6 +379,59 @@ Replaced the entire pink ticker/marquee + "Whose palate are we profiling today?"
 
 ---
 
+### 20. Archetype grid section — replaced "Where taste becomes a match"
+**File:** `frontend/src/app/components/Home.tsx`
+
+Replaced the full-screen "Where taste becomes a match" split section with a full-width archetype card grid.
+
+**Section header (centered, above grid):**
+- Label: "THE SIX ARCHETYPES" — `0.75rem`, `letter-spacing: 0.2em`, weight 400, `#a94936`
+- Heading: "Which world feels like yours?" — `clamp(1.8rem, 3vw, 2.8rem)`, weight 300, `#9a2918`
+
+**Grid layout:** 3 columns desktop / 2 tablet / 1 mobile, no gap (cards sit flush), full viewport width (no max-width, no horizontal padding on the grid container). Background: `#ebebe3`.
+
+**Card design:** Flat solid background per archetype (no texture or image overlay), `min-height: 460px`, `padding: 2.5rem`. All card text uses `fontFamily: "'Genova', sans-serif"` and `fontWeight: 100` (Genova Thin) throughout.
+
+**Six archetypes:**
+| # | Name | Background |
+|---|---|---|
+| 01 | Floral | `#a34b78` |
+| 02 | Fruity | `#ca445f` |
+| 03 | Balanced & Sweet | `#d1ac11` |
+| 04 | Chocolate & Nutty | `#a54c2d` |
+| 05 | Spicy & Earthy | `#912f2f` |
+| 06 | Experimental | `#056c7a` |
+
+**Entrance animation:** `whileInView` on the grid container — opacity 0→1, y 40→0, 0.8s. Cards have `whileHover={{ scale: 1.02 }}` over 0.3s.
+
+**Note on bundle size:** The project's `vite.config.ts` has a custom `inlineRasterImages` plugin that base64-encodes all `.png`/`.jpg` imports into the JS bundle. The 6 archetype JPG imports push the bundle to ~10 MB. Images are kept imported for future use; this should be resolved by moving images to `public/` or disabling the plugin for large assets.
+
+---
+
+### 21. Manifesto strip — left-aligned layout, removed subline, added text CTA
+**File:** `frontend/src/app/components/Home.tsx`
+
+Redesigned the terracotta manifesto band (below the split hero, above the archetype grid).
+
+**Layout changes:**
+- Text block changed from center-aligned to **left-aligned**
+- Left inset uses `paddingLeft: clamp(24px, 8vw, 120px)` — scales from mobile gutter to ~120px on wide screens
+- Text constrained to `maxWidth: 600px`; right two-thirds of the band is intentionally empty
+- Vertical padding: `clamp(80px, 12vw, 160px)` top and bottom (responsive, scales down on mobile)
+
+**Content changes:**
+- Removed "A ritual mapped to your mood." entirely
+- Headline ("You already know what you love...") kept; explicit `fontFamily: "'Genova', sans-serif"` added
+- Added text CTA below headline with `marginTop: clamp(28px, 3vw, 40px)`:
+  - Renders as: `Find your flavor →`
+  - Links to `/find-my-flavor` (same route as the nav "Find my flavor" item)
+  - Plain text, no background or border box
+  - Underline on "Find your flavor" only (not the arrow): `1px`, `textUnderlineOffset: 3px`, faint `rgba(242,241,234,0.55)` at rest
+  - Hover: underline strengthens to full `#f2f1ea`, opacity lifts to 1.0
+  - Genova weight 300, `#f2f1ea`
+
+---
+
 ## File Reference
 
 | File | What changed |
