@@ -96,26 +96,36 @@ export default function Home() {
         </div>
 
         {/* Manifesto strip */}
-        <div style={{ backgroundColor: '#a94936', paddingTop: 120, paddingBottom: 120, width: '100%' }}>
-          <div style={{ maxWidth: 800, margin: '0 auto', padding: '0 24px', textAlign: 'center' }}>
-            <motion.p
-              initial={{ opacity: 0, y: 30 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, amount: 0.5 }}
-              transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
-              style={{ fontSize: 'clamp(2rem, 4vw, 3.5rem)', fontWeight: 300, color: '#f2f1ea', lineHeight: 1.2, marginBottom: '2rem' }}
-            >
-              You already know what you love. You just don't have the words for it yet.
-            </motion.p>
-            <motion.p
-              initial={{ opacity: 0, y: 30 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, amount: 0.5 }}
-              transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1], delay: 0.25 }}
-              style={{ fontSize: 'clamp(1rem, 1.8vw, 1.25rem)', fontWeight: 300, color: '#f2f1ea', opacity: 0.8, letterSpacing: '0.08em' }}
-            >
-              A ritual mapped to your mood.
-            </motion.p>
+        <div style={{ backgroundColor: '#a94936', paddingTop: 'clamp(80px, 12vw, 160px)', paddingBottom: 'clamp(80px, 12vw, 160px)', width: '100%' }}>
+          <div style={{ paddingLeft: 'clamp(24px, 8vw, 120px)', paddingRight: '24px' }}>
+            <div style={{ maxWidth: 600 }}>
+              <motion.p
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.5 }}
+                transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
+                style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(2rem, 4vw, 3.5rem)', fontWeight: 300, color: '#f2f1ea', lineHeight: 1.2, marginBottom: 0 }}
+              >
+                You already know what you love. You just don't have the words for it yet.
+              </motion.p>
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.5 }}
+                transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1], delay: 0.25 }}
+                style={{ marginTop: 'clamp(28px, 3vw, 40px)' }}
+              >
+                <Link
+                  to="/find-my-flavor"
+                  style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(0.95rem, 1.4vw, 1.1rem)', fontWeight: 300, color: '#f2f1ea', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.4em' }}
+                  onMouseEnter={e => { (e.currentTarget.querySelector('span') as HTMLElement).style.textDecorationColor = '#f2f1ea'; (e.currentTarget.querySelector('span') as HTMLElement).style.opacity = '1'; }}
+                  onMouseLeave={e => { (e.currentTarget.querySelector('span') as HTMLElement).style.textDecorationColor = 'rgba(242,241,234,0.55)'; (e.currentTarget.querySelector('span') as HTMLElement).style.opacity = '0.85'; }}
+                >
+                  <span style={{ textDecoration: 'underline', textUnderlineOffset: '3px', textDecorationColor: 'rgba(242,241,234,0.55)', textDecorationThickness: '1px', opacity: 0.85, transition: 'opacity 0.2s, text-decoration-color 0.2s' }}>Find your flavor</span>
+                  <span style={{ opacity: 0.85 }}>→</span>
+                </Link>
+              </motion.div>
+            </div>
           </div>
         </div>
 
