@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowRight, Package, Heart, LogOut } from 'lucide-react';
+import { ArrowRight, Package, Heart, LogOut, Users } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { getUserProfile } from '../lib/api';
+import FamilyTab from './FamilyTab';
 
-type Tab = 'memory' | 'orders' | 'settings';
+type Tab = 'memory' | 'orders' | 'settings' | 'family';
 
 interface Address {
   id: string;
@@ -160,9 +161,9 @@ export default function Profile() {
         </div>
 
         <div className="flex w-full mb-12 border-b border-[#a33726]/20 relative gap-8">
-          {(['memory', 'orders', 'settings'] as Tab[]).map((tab) => (
+          {(['memory', 'orders', 'settings', 'family'] as Tab[]).map((tab) => (
             <button key={tab} onClick={() => setActiveTab(tab)} className={`pb-4 text-[11px] uppercase tracking-[0.2em] font-normal transition-colors relative ${activeTab === tab ? 'text-[#ee5974]' : 'text-[#a33726]/40 hover:text-[#a33726]/70'}`}>
-              {tab === 'memory' ? 'Flavor Memory' : tab === 'orders' ? 'Past Orders' : 'Settings'}
+              {tab === 'memory' ? 'Flavor Memory' : tab === 'orders' ? 'Past Orders' : tab === 'settings' ? 'Settings' : 'Family'}
               {activeTab === tab && <motion.div layoutId="profile-tab-indicator" className="absolute bottom-0 left-0 right-0 h-[1px] bg-[#ee5974]" />}
             </button>
           ))}
@@ -221,6 +222,13 @@ export default function Profile() {
                     ))}
                   </div>
                 )}
+              </motion.div>
+            )}
+
+            {/* ── Family ── */}
+            {activeTab === 'family' && (
+              <motion.div key="family" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.4 }}>
+                <FamilyTab />
               </motion.div>
             )}
 

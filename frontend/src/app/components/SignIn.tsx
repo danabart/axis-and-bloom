@@ -18,6 +18,8 @@ export default function SignIn() {
   const { signIn, signUp, signInWithGoogle, signInWithApple } = useAuth();
   const fromQuiz = searchParams.get('quiz_id');
 
+  const redirectTo = searchParams.get('redirect') ?? '/profile';
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -28,7 +30,7 @@ export default function SignIn() {
       } else {
         await signIn(email, password);
       }
-      navigate('/profile');
+      navigate(redirectTo);
     } catch (err: any) {
       setError(friendlyError(err.message ?? 'Authentication failed'));
     } finally {
@@ -68,7 +70,7 @@ export default function SignIn() {
   const handleGoogle = async () => {
     try {
       await signInWithGoogle();
-      navigate('/profile');
+      navigate(redirectTo);
     } catch (err: any) {
       setError(err.message ?? 'Google sign-in failed');
     }
@@ -77,7 +79,7 @@ export default function SignIn() {
   const handleApple = async () => {
     try {
       await signInWithApple();
-      navigate('/profile');
+      navigate(redirectTo);
     } catch (err: any) {
       setError(err.message ?? 'Apple sign-in failed');
     }

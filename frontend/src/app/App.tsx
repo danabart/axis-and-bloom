@@ -18,6 +18,7 @@ import AdminFlavorWheel from './components/admin/AdminFlavorWheel';
 import AdminRoasters from './components/admin/AdminRoasters';
 import AdminCupping from './components/admin/AdminCupping';
 import CoffeesPage from './components/CoffeesPage';
+import JoinHousehold from './components/JoinHousehold';
 
 const PRELAUNCH = import.meta.env.VITE_PRELAUNCH_MODE === 'true';
 
@@ -62,6 +63,7 @@ export default function App() {
             <Route path="/sign-in" element={<SignIn />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/coffees" element={<CoffeesPage />} />
+            <Route path="/join-household" element={<JoinHousehold />} />
           </Route>
         </Routes>
       </BrowserRouter>

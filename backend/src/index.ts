@@ -17,6 +17,7 @@ import usersRouter from './routes/users.js';
 import newsletterRouter from './routes/newsletter.js';
 import adminRouter from './routes/admin.js';
 import coffeesRouter from './routes/coffees.js';
+import householdRouter from './routes/household.js';
 
 const app = express();
 const PORT = process.env.PORT ?? 4000;
@@ -70,6 +71,7 @@ app.use('/api/users', usersRouter);
 app.use('/api/newsletter', newsletterRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/coffees', coffeesRouter);
+app.use('/api/household', householdRouter);
 
 async function start() {
   try {

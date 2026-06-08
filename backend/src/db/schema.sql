@@ -105,6 +105,17 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+CREATE TABLE IF NOT EXISTS household_invitation (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  household_id   UUID NOT NULL REFERENCES household(id) ON DELETE CASCADE,
+  invited_email  TEXT NOT NULL,
+  invited_by_id  UUID NOT NULL REFERENCES user_profile(id),
+  token          TEXT NOT NULL UNIQUE,
+  status         TEXT NOT NULL DEFAULT 'pending',
+  created_at     TIMESTAMPTZ DEFAULT timezone('utc', now()),
+  expires_at     TIMESTAMPTZ DEFAULT timezone('utc', now()) + INTERVAL '7 days'
+);
+
 CREATE TABLE IF NOT EXISTS user_email (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id       UUID REFERENCES user_profile(id) ON DELETE CASCADE,
