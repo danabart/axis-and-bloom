@@ -121,10 +121,10 @@ export default function Home() {
 
         {/* Archetype grid */}
         <div style={{ backgroundColor: '#ebebe3', paddingTop: 100, paddingBottom: 100, width: '100%' }}>
-          <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 24px' }}>
+          <div style={{ padding: 0 }}>
 
             {/* Section header */}
-            <div style={{ textAlign: 'center', marginBottom: '4rem' }}>
+            <div style={{ textAlign: 'center', marginBottom: '4rem', padding: '0 24px' }}>
               <p style={{ fontSize: '0.75rem', letterSpacing: '0.2em', fontWeight: 400, color: '#a94936', marginBottom: '1rem' }}>
                 THE SIX ARCHETYPES
               </p>
@@ -135,7 +135,8 @@ export default function Home() {
 
             {/* Grid */}
             <motion.div
-              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
+              style={{ gap: 0 }}
               initial={{ opacity: 0, y: 40 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, amount: 0.2 }}
@@ -146,19 +147,14 @@ export default function Home() {
                   key={a.num}
                   whileHover={{ scale: 1.02 }}
                   transition={{ duration: 0.3 }}
-                  style={{ position: 'relative', overflow: 'hidden', borderRadius: 4, minHeight: 380, backgroundColor: a.bg, display: 'flex', flexDirection: 'column', padding: '2.5rem' }}
+                  style={{ minHeight: 460, backgroundColor: a.bg, display: 'flex', flexDirection: 'column', padding: '2.5rem' }}
                 >
-                  {/* Faint pattern overlay */}
-                  <div style={{ position: 'absolute', inset: 0, opacity: 0.12 }}>
-                    <img src={a.img} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
-                  </div>
-
                   {/* Card content */}
-                  <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
-                    <span style={{ fontSize: '0.75rem', letterSpacing: '0.15em', fontWeight: 400, color: '#f2f1ea', opacity: 0.8 }}>{a.num} —</span>
-                    <p style={{ fontSize: 'clamp(1.8rem, 2.5vw, 2.2rem)', fontWeight: 300, color: '#f2f1ea', lineHeight: 1.1, marginTop: '1rem' }}>{a.name}</p>
-                    <p style={{ fontSize: '0.95rem', fontWeight: 300, color: '#f2f1ea', lineHeight: 1.6, opacity: 0.85, marginTop: 'auto', paddingTop: '2rem' }}>{a.desc}</p>
-                    <p style={{ fontSize: '0.65rem', letterSpacing: '0.2em', fontWeight: 400, color: '#f2f1ea', opacity: 0.7, marginTop: '1.5rem', textTransform: 'uppercase' }}>{a.keywords}</p>
+                  <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+                    <span style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.75rem', letterSpacing: '0.15em', fontWeight: 100, color: '#f2f1ea', opacity: 0.8 }}>{a.num} —</span>
+                    <p style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.8rem, 2.5vw, 2.2rem)', fontWeight: 100, color: '#f2f1ea', lineHeight: 1.1, marginTop: '1rem' }}>{a.name}</p>
+                    <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.95rem', fontWeight: 100, color: '#f2f1ea', lineHeight: 1.6, opacity: 0.85, marginTop: 'auto', paddingTop: '2rem' }}>{a.desc}</p>
+                    <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.65rem', letterSpacing: '0.2em', fontWeight: 100, color: '#f2f1ea', opacity: 0.7, marginTop: '1.5rem', textTransform: 'uppercase' }}>{a.keywords}</p>
                   </div>
                 </motion.div>
               ))}
