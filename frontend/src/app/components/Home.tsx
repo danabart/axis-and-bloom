@@ -5,21 +5,7 @@ import { TasteFinderSection } from './TasteFinderSection';
 import chaffPhoto from '../../design/IMAGES/A_B06.png'
 import logoLines from '../../design/LOGO/LogoLines.svg'
 import logoCircle from '../../design/LOGO/LogoCircle.svg'
-import imgFloral from '../../design/IMAGES/archetypes/Floral.jpg'
-import imgFruity from '../../design/IMAGES/archetypes/Fruity.jpg'
-import imgBalanced from '../../design/IMAGES/archetypes/Balanced-&-Sweet.jpg'
-import imgChocolate from '../../design/IMAGES/archetypes/Chocolate-&-Nutty.jpg'
-import imgSpicy from '../../design/IMAGES/archetypes/Spicy-&-Earthy.jpg'
-import imgExperimental from '../../design/IMAGES/archetypes/Experimental.jpg'
-
-const archetypes = [
-  { num: '01', name: 'Floral',            bg: '#a34b78', img: imgFloral,       desc: 'Light, elegant, and aromatic. Hints of jasmine, citrus, and a tea-like clarity.',                              keywords: 'FRAGRANT · BRIGHT · DELICATE · CLEAN'   },
-  { num: '02', name: 'Fruity',            bg: '#ca445f', img: imgFruity,        desc: 'Juicy and lively with notes of berries and ripe fruit.',                                                       keywords: 'SWEET · VIBRANT · EXPRESSIVE · LIVELY'  },
-  { num: '03', name: 'Balanced & Sweet',  bg: '#d1ac11', img: imgBalanced,      desc: 'Round, smooth, and comforting. Notes of caramel, honey, and soft fruit.',                                     keywords: 'SMOOTH · SWEET · HARMONIOUS · EASY'     },
-  { num: '04', name: 'Chocolate & Nutty', bg: '#a54c2d', img: imgChocolate,     desc: 'Deep and satisfying with cocoa, roasted nuts, and a rich presence.',                                          keywords: 'RICH · GROUNDED · FULL · COMFORTING'    },
-  { num: '05', name: 'Spicy & Earthy',    bg: '#912f2f', img: imgSpicy,         desc: 'Warm and bold with hints of spice, wood, and lingering depth.',                                               keywords: 'WARM · DEEP · BOLD · LASTING'           },
-  { num: '06', name: 'Experimental',      bg: '#056c7a', img: imgExperimental,  desc: 'Ever-changing and wonderfully unconventional. A rotating selection of boundary-pushing coffees.',             keywords: 'WILD · UNIQUE · SURPRISING'             },
-];
+import coffeePic16 from '../../design/IMAGES/lifestyle/CoffeePic16.jpg'
 
 export default function Home() {
   const [linesVisible, setLinesVisible] = useState(false);
@@ -129,47 +115,16 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Archetype grid */}
-        <div style={{ backgroundColor: '#ebebe3', paddingTop: 100, paddingBottom: 100, width: '100%' }}>
-          <div style={{ padding: 0 }}>
-
-            {/* Section header */}
-            <div style={{ textAlign: 'center', marginBottom: '4rem', padding: '0 24px' }}>
-              <p style={{ fontSize: '0.75rem', letterSpacing: '0.2em', fontWeight: 400, color: '#a94936', marginBottom: '1rem' }}>
-                THE SIX ARCHETYPES
-              </p>
-              <p style={{ fontSize: 'clamp(1.8rem, 3vw, 2.8rem)', fontWeight: 300, color: '#9a2918', lineHeight: 1.2 }}>
-                Which world feels like yours?
-              </p>
-            </div>
-
-            {/* Grid */}
-            <motion.div
-              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
-              style={{ gap: 0 }}
-              initial={{ opacity: 0, y: 40 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, amount: 0.2 }}
-              transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-            >
-              {archetypes.map((a) => (
-                <motion.div
-                  key={a.num}
-                  whileHover={{ scale: 1.02 }}
-                  transition={{ duration: 0.3 }}
-                  style={{ minHeight: 460, backgroundColor: a.bg, display: 'flex', flexDirection: 'column', padding: '2.5rem' }}
-                >
-                  {/* Card content */}
-                  <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-                    <span style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.75rem', letterSpacing: '0.15em', fontWeight: 100, color: '#f2f1ea', opacity: 0.8 }}>{a.num} —</span>
-                    <p style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.8rem, 2.5vw, 2.2rem)', fontWeight: 100, color: '#f2f1ea', lineHeight: 1.1, marginTop: '1rem' }}>{a.name}</p>
-                    <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.95rem', fontWeight: 100, color: '#f2f1ea', lineHeight: 1.6, opacity: 0.85, marginTop: 'auto', paddingTop: '2rem' }}>{a.desc}</p>
-                    <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.65rem', letterSpacing: '0.2em', fontWeight: 100, color: '#f2f1ea', opacity: 0.7, marginTop: '1.5rem', textTransform: 'uppercase' }}>{a.keywords}</p>
-                  </div>
-                </motion.div>
-              ))}
-            </motion.div>
-          </div>
+        {/* Bridge section */}
+        <div style={{ position: 'relative', width: '100%', height: '60vh', overflow: 'hidden' }}>
+          <img
+            src={coffeePic16}
+            alt=""
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }}
+          />
+          <p style={{ position: 'absolute', bottom: 'clamp(32px, 4vw, 56px)', left: 'clamp(32px, 4vw, 56px)', margin: 0, color: '#ffffff', fontFamily: "'Genova', sans-serif", fontSize: 'clamp(20px, 1.8vw, 22px)', fontWeight: 400, lineHeight: 1.4 }}>
+            There are six taste identities. One is made for you.
+          </p>
         </div>
       </div>
 
