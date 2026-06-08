@@ -40,7 +40,7 @@ export function TasteFinderSection() {
             <img
               src={transparentBag03}
               alt="Axis & Bloom coffee bag"
-              style={{ width: '60%', maxWidth: 320, height: '70%', objectFit: 'contain', objectPosition: 'center', display: 'block' }}
+              style={{ width: '120%', maxWidth: 640, height: '100%', objectFit: 'contain', objectPosition: 'center', display: 'block' }}
             />
           </div>
           {/* Right: quiz copy + CTA */}
