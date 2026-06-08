@@ -120,7 +120,7 @@ export default function Home() {
           <img
             src={coffeePic16}
             alt=""
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center top', display: 'block' }}
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 25%', display: 'block' }}
           />
           <p style={{ position: 'absolute', bottom: 'clamp(32px, 4vw, 56px)', left: 'clamp(32px, 4vw, 56px)', margin: 0, color: '#ffffff', fontFamily: "'Genova', sans-serif", fontSize: 'clamp(20px, 1.8vw, 22px)', fontWeight: 400, lineHeight: 1.4 }}>
             There are six taste identities. One is made for you.
