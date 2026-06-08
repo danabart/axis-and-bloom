@@ -432,11 +432,59 @@ Redesigned the terracotta manifesto band (below the split hero, above the archet
 
 ---
 
+### 22. Genova font enforcement — removed font-sans site-wide
+**Files:** `FamilyTab.tsx`, `FlavorQuiz.tsx`, `JoinHousehold.tsx`, `Profile.tsx`, `SignIn.tsx`
+
+Tailwind's `font-sans` utility explicitly sets the system font stack (`ui-sans-serif, system-ui, -apple-system...`), overriding the inherited Genova from `body`. Removed all 13 occurrences across 5 components so every element now inherits Genova correctly.
+
+| File | Occurrences removed |
+|---|---|
+| `Profile.tsx` | 5 |
+| `JoinHousehold.tsx` | 4 |
+| `FamilyTab.tsx` | 2 |
+| `FlavorQuiz.tsx` | 1 |
+| `SignIn.tsx` | 1 |
+
+---
+
+### 23. Archetype cards replaced with CoffeePic16 bridge section
+**File:** `frontend/src/app/components/Home.tsx`
+
+Replaced the archetype card grid with a simple full-width image bridge section.
+
+- Height: `60vh`
+- Image: `CoffeePic16.jpg` (lifestyle), full-bleed cover, `objectPosition: 'center bottom'` to show the cup edge
+- Single line of text overlaid bottom-left: *"There are six taste identities. One is made for you."*
+- Text: Genova Regular (400), white, `22px` (`clamp(20px, 1.8vw, 22px)`), `padding: clamp(32px, 4vw, 56px)`
+- Completely static — no animation, no hover, no overlay
+
+Also removed: 6 archetype JPG imports and the `archetypes` data array (significant bundle size reduction).
+
+---
+
+### 24. Curtain section — chaff photo surface, coffee bag + quiz copy revealed
+**File:** `frontend/src/app/components/TasteFinderSection.tsx`
+
+Replaced content inside the existing scroll-driven curtain animation (animation mechanic unchanged).
+
+**Curtain surface (moving layer):**
+- `CoffeePic13.png` (lifestyle/chaff) as full-bleed cover image filling the entire curtain
+- Headline ("Which archetype is yours?") kept exactly in place, riding with the curtain as before
+- Text block backgrounds changed from solid `#f2f1ea` to `rgba(242,241,234,0.85)` for readability over the photo; pink "archetype" word retains solid `#ee5974` bg
+
+**Revealed underneath:**
+- Left: `TransparentBag03.png` — `objectFit: contain`, centered, `width: 120%`, `maxWidth: 640px` (doubled from original 320px)
+- Right: quiz copy unchanged; link updated from `<Link to="/find-my-flavor">` → `<a href="https://axisandbloomcoffee.com/find-my-flavor">`
+- `Link` import removed (no longer used)
+
+---
+
 ## File Reference
 
 | File | What changed |
 |---|---|
-| `frontend/src/app/components/Home.tsx` | Logo bloom animation left panel; manifesto strip replacing ticker; hero text anchored right |
+| `frontend/src/app/components/Home.tsx` | Logo bloom animation; manifesto strip; bridge section (CoffeePic16); font-sans removed |
+| `frontend/src/app/components/TasteFinderSection.tsx` | Curtain: chaff photo surface; revealed: coffee bag + quiz copy; quiz link updated |
 | `frontend/src/app/components/Navigation.tsx` | Logo mark + wordmark lockup, Genova applied to all nav links |
 | `frontend/src/app/components/PreLaunch.tsx` | New — pre-launch curtain page; iterated visually; mobile layout fixed |
 | `frontend/src/app/App.tsx` | Conditional pre-launch routing + preview bypass |
@@ -448,4 +496,4 @@ Redesigned the terracotta manifesto band (below the split hero, above the archet
 | `backend/src/routes/newsletter.ts` | firstName support, Mailchimp integration |
 | `backend/src/db/schema.sql` | first_name column on newsletter_subscriber |
 | `.github/workflows/deploy.yml` | VITE_PRELAUNCH_MODE added; Mailchimp secrets removed until created in GCP |
-| All component files | Removed inline fontFamily styles, replaced all bold weights with font-normal |
+| All component files | Removed font-sans; replaced all bold weights with font-normal |
