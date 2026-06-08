@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { TasteFinderSection } from './TasteFinderSection';
 import chaffPhoto from '../../design/IMAGES/A_B06.png'
 import logoLines from '../../design/LOGO/LogoLines.svg'
@@ -8,25 +8,32 @@ import logoCircle from '../../design/LOGO/LogoCircle.svg'
 import coffeePic16 from '../../design/IMAGES/lifestyle/CoffeePic16.jpg'
 
 export default function Home() {
+  const navigate = useNavigate();
   const [linesVisible, setLinesVisible] = useState(false);
   const [showCircle, setShowCircle] = useState(false);
 
   useEffect(() => {
-    // After slide-in (1.2s): fade LogoLines in
     const t1 = setTimeout(() => setLinesVisible(true), 1200);
-    // After slide-in (1.2s) + fade-in (0.8s) + rest (1s): cross-fade to LogoCircle
     const t2 = setTimeout(() => setShowCircle(true), 3000);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
 
+  const handleProfileStart = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const name = new FormData(e.currentTarget).get('name');
+    if (name) {
+      sessionStorage.setItem('axisBloomCustomerName', name.toString());
+      navigate('/find-my-flavor');
+    }
+  };
+
   return (
     <div className="w-full bg-[#f2f1ea]" >
       <div className="relative z-10 bg-[#e5e5da]">
+
         {/* Hero */}
         <div className="h-screen relative overflow-hidden">
           <div className="absolute inset-0 flex">
-
-            {/* Left panel: logo bloom animation */}
             <motion.div
               initial={{ x: '-100%' }}
               animate={{ x: 0 }}
@@ -34,9 +41,7 @@ export default function Home() {
               className="w-1/2"
               style={{ position: 'relative', overflow: 'hidden', backgroundColor: '#ebebe3', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
-              {/* Stacked logo container — LogoLines over LogoCircle */}
               <div style={{ position: 'relative', width: '60%' }}>
-                {/* LogoCircle: beneath, blooms in on cross-fade */}
                 <motion.div
                   style={{ position: 'absolute', inset: 0 }}
                   initial={{ opacity: 0, scale: 0.96 }}
@@ -45,8 +50,6 @@ export default function Home() {
                 >
                   <img src={logoCircle} alt="Axis & Bloom" style={{ width: '100%', height: 'auto', display: 'block' }} />
                 </motion.div>
-
-                {/* LogoLines: on top, fades in after slide-in then fades out on cross-fade */}
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: linesVisible && !showCircle ? 1 : 0 }}
@@ -81,36 +84,88 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Manifesto strip */}
-        <div style={{ backgroundColor: '#a94936', paddingTop: 'clamp(80px, 12vw, 160px)', paddingBottom: 'clamp(80px, 12vw, 160px)', width: '100%' }}>
-          <div style={{ paddingLeft: 'clamp(24px, 8vw, 120px)', paddingRight: '24px' }}>
+        {/* CTA Section */}
+        <div style={{ backgroundColor: '#9a2918', paddingTop: 80, paddingBottom: 80, width: '100%' }}>
+          <div style={{ paddingLeft: 64, paddingRight: 64 }}>
             <div style={{ maxWidth: 600 }}>
+
+              {/* Headline */}
               <motion.p
                 initial={{ opacity: 0, y: 30 }}
                 whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, amount: 0.5 }}
+                viewport={{ once: true, amount: 0.4 }}
                 transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
-                style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(2rem, 4vw, 3.5rem)', fontWeight: 300, color: '#f2f1ea', lineHeight: 1.2, marginBottom: 0 }}
+                style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(2rem, 4vw, 3.5rem)', fontWeight: 400, color: '#f2f1ea', lineHeight: 1.2, margin: 0 }}
               >
                 You already know what you love. You just don't have the words for it yet.
               </motion.p>
+
+              {/* Profile form */}
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, amount: 0.5 }}
-                transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1], delay: 0.25 }}
-                style={{ marginTop: 'clamp(28px, 3vw, 40px)' }}
+                viewport={{ once: true, amount: 0.4 }}
+                transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1], delay: 0.2 }}
+                style={{ marginTop: 48 }}
               >
-                <Link
-                  to="/find-my-flavor"
-                  style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(0.95rem, 1.4vw, 1.1rem)', fontWeight: 300, color: '#f2f1ea', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.4em' }}
-                  onMouseEnter={e => { (e.currentTarget.querySelector('span') as HTMLElement).style.textDecorationColor = '#f2f1ea'; (e.currentTarget.querySelector('span') as HTMLElement).style.opacity = '1'; }}
-                  onMouseLeave={e => { (e.currentTarget.querySelector('span') as HTMLElement).style.textDecorationColor = 'rgba(242,241,234,0.55)'; (e.currentTarget.querySelector('span') as HTMLElement).style.opacity = '0.85'; }}
-                >
-                  <span style={{ textDecoration: 'underline', textUnderlineOffset: '3px', textDecorationColor: 'rgba(242,241,234,0.55)', textDecorationThickness: '1px', opacity: 0.85, transition: 'opacity 0.2s, text-decoration-color 0.2s' }}>Find your flavor</span>
-                  <span style={{ opacity: 0.85 }}>→</span>
-                </Link>
+                <p style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.2rem, 2.5vw, 2.2rem)', fontWeight: 400, color: '#f2f1ea', margin: 0 }}>
+                  Whose palate are we profiling today?
+                </p>
+
+                <form onSubmit={handleProfileStart}>
+                  <input
+                    type="text"
+                    name="name"
+                    required
+                    placeholder="Enter your name"
+                    style={{
+                      display: 'block',
+                      marginTop: 24,
+                      width: 320,
+                      maxWidth: '100%',
+                      background: 'none',
+                      border: 'none',
+                      borderBottom: '1px solid #f2f1ea',
+                      borderRadius: 0,
+                      outline: 'none',
+                      fontFamily: "'Genova', sans-serif",
+                      fontSize: '1rem',
+                      fontWeight: 400,
+                      color: '#f2f1ea',
+                      padding: '8px 0',
+                    }}
+                    onFocus={e => e.currentTarget.style.borderBottomColor = '#ffffff'}
+                    onBlur={e => e.currentTarget.style.borderBottomColor = '#f2f1ea'}
+                  />
+                  <style>{`input[name="name"]::placeholder { color: rgba(255,255,255,0.5); }`}</style>
+                  <button
+                    type="submit"
+                    style={{
+                      display: 'block',
+                      marginTop: 20,
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      cursor: 'pointer',
+                      fontFamily: "'Genova', sans-serif",
+                      fontSize: 13,
+                      fontWeight: 400,
+                      color: '#f2f1ea',
+                      letterSpacing: '0.15em',
+                      textTransform: 'uppercase',
+                      textDecoration: 'underline',
+                      textUnderlineOffset: '3px',
+                      textDecorationColor: 'rgba(242,241,234,0.5)',
+                      transition: 'text-decoration-color 0.2s',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.textDecorationColor = '#f2f1ea'}
+                    onMouseLeave={e => e.currentTarget.style.textDecorationColor = 'rgba(242,241,234,0.5)'}
+                  >
+                    BEGIN PROFILE →
+                  </button>
+                </form>
               </motion.div>
+
             </div>
           </div>
         </div>
@@ -120,12 +175,13 @@ export default function Home() {
           <img
             src={coffeePic16}
             alt=""
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 25%', display: 'block' }}
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%', display: 'block' }}
           />
-          <p style={{ position: 'absolute', bottom: 'clamp(32px, 4vw, 56px)', left: 'clamp(32px, 4vw, 56px)', margin: 0, color: '#ffffff', fontFamily: "'Genova', sans-serif", fontSize: 'clamp(20px, 1.8vw, 22px)', fontWeight: 400, lineHeight: 1.4 }}>
+          <p style={{ position: 'absolute', bottom: 48, right: 48, margin: 0, textAlign: 'right', maxWidth: 280, color: '#f2f1ea', fontFamily: "'Genova', sans-serif", fontSize: 20, fontWeight: 400, lineHeight: 1.4 }}>
             There are six taste identities. One is made for you.
           </p>
         </div>
+
       </div>
 
       <TasteFinderSection />

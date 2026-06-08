@@ -75,24 +75,27 @@ export function TasteFinderSection() {
             style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }}
           />
 
+          {/* Gradient overlay — darkens left side for text readability */}
+          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to right, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0) 60%)', zIndex: 1 }} />
+
           {/* Left: headline rides with curtain */}
-          <div className="w-full md:w-1/2 h-1/2 md:h-full flex flex-col justify-center p-12 md:p-24" style={{ position: 'relative', zIndex: 1 }}>
-            <div className="flex flex-col items-start w-full font-normal">
+          <div className="w-full md:w-1/2 h-1/2 md:h-full flex flex-col justify-center p-12 md:p-24" style={{ position: 'relative', zIndex: 2 }}>
+            <div className="flex flex-col items-start w-full">
               <div className="mb-6">
-                <span className="inline-block text-base md:text-2xl tracking-widest uppercase px-6 py-2" style={{ color: '#ee5974', backgroundColor: 'rgba(242,241,234,0.85)' }}>
+                <span className="inline-block text-base md:text-2xl tracking-widest uppercase px-6 py-2" style={{ color: '#f2f1ea' }}>
                   THE TASTE FINDER
                 </span>
               </div>
               <div className="text-7xl md:text-8xl lg:text-[120px] xl:text-[140px] leading-[1.05] tracking-tight flex flex-col items-start">
-                <span className="inline-block px-6 py-2 mb-2 -ml-6" style={{ color: '#b25946', backgroundColor: 'rgba(242,241,234,0.85)' }}>Which</span>
+                <span className="inline-block px-6 py-2 mb-2 -ml-6" style={{ color: '#f2f1ea' }}>Which</span>
                 <span className="inline-block px-6 py-2 mb-2 -ml-6" style={{ color: '#f2f1ea', backgroundColor: '#ee5974' }}>archetype</span>
-                <span className="inline-block px-6 py-2 -ml-6" style={{ color: '#b25946', backgroundColor: 'rgba(242,241,234,0.85)' }}>is yours?</span>
+                <span className="inline-block px-6 py-2 -ml-6" style={{ color: '#f2f1ea' }}>is yours?</span>
               </div>
             </div>
           </div>
 
           {/* Right: empty — photo shows through */}
-          <div className="w-full md:w-1/2 h-1/2 md:h-full" style={{ position: 'relative', zIndex: 1 }} />
+          <div className="w-full md:w-1/2 h-1/2 md:h-full" style={{ position: 'relative', zIndex: 2 }} />
         </motion.div>
 
       </div>
