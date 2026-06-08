@@ -453,7 +453,7 @@ Tailwind's `font-sans` utility explicitly sets the system font stack (`ui-sans-s
 Replaced the archetype card grid with a simple full-width image bridge section.
 
 - Height: `60vh`
-- Image: `CoffeePic16.jpg` (lifestyle), full-bleed cover, `objectPosition: 'center bottom'` to show the cup edge
+- Image: `CoffeePic16.jpg` (lifestyle), full-bleed cover, `objectPosition: 'center 25%'` (iterated: bottom → top → 25% to show the right crop)
 - Single line of text overlaid bottom-left: *"There are six taste identities. One is made for you."*
 - Text: Genova Regular (400), white, `22px` (`clamp(20px, 1.8vw, 22px)`), `padding: clamp(32px, 4vw, 56px)`
 - Completely static — no animation, no hover, no overlay
@@ -476,6 +476,21 @@ Replaced content inside the existing scroll-driven curtain animation (animation 
 - Left: `TransparentBag03.png` — `objectFit: contain`, centered, `width: 120%`, `maxWidth: 640px` (doubled from original 320px)
 - Right: quiz copy unchanged; link updated from `<Link to="/find-my-flavor">` → `<a href="https://axisandbloomcoffee.com/find-my-flavor">`
 - `Link` import removed (no longer used)
+
+---
+
+### 25. Genova font audit — confirmed clean site-wide
+**Files checked:** all `.tsx`, `.ts`, `.css` files in `frontend/src`
+
+Full audit run after removing `font-sans`. Results:
+
+- **Zero** remaining `font-sans`, `font-serif`, or `font-mono` Tailwind classes
+- **Zero** `fontFamily` values pointing to any non-Genova font
+- `AdminLayout.tsx` has `fontFamily: 'inherit'` — correct, inherits Genova from body
+- Global body font (`'Genova', sans-serif`) set in `theme.css` cascades to all elements unless overridden
+- All explicit `fontFamily` overrides in `Home.tsx`, `Navigation.tsx`, `PreLaunch.tsx`, `HowItWorks.tsx`, `CoffeesPage.tsx` all correctly reference `'Genova', sans-serif`
+
+No code changes needed — site is fully on Genova.
 
 ---
 
