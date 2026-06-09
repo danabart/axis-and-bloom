@@ -494,20 +494,99 @@ No code changes needed — site is fully on Genova.
 
 ---
 
+### 26. Nav logo proportions + font-display fix
+**Files:** `frontend/src/app/components/Navigation.tsx`, `frontend/src/styles/fonts.css`
+
+**Logo proportions:**
+- Mark: changed from `width: 28, height: 28` (squashed — viewBox is 139×155, aspect ratio 0.89) to `height: 20, width: auto` (preserves ratio, ~17.9px wide)
+- Wordmark: increased from `0.75rem` (12px) to `20px` to optically match the mark height
+- `letterSpacing` reduced from `0.15em` to `0.1em` (adjusted for larger size)
+- `lineHeight: 1` added to prevent extra vertical space
+- Gap: explicit `9px`
+
+**font-display iteration:**
+- Changed `swap` → `block` (to prevent Helvetica flash) — caused invisible text for up to 3s
+- Reverted `block` → `swap` — text shows immediately in system fallback, then Genova swaps in when loaded. This is the correct balance.
+
+---
+
+### 27. Homepage full editorial redesign
+**Files:** `Home.tsx`, `Navigation.tsx`, `Footer.tsx`
+
+Complete homepage redesign for a cinematic, airy, editorial feel. Only the homepage, nav, and footer were changed. Quiz, shop, admin, and all other routes untouched.
+
+**Navigation redesign:**
+- Solid `#f2f1ea` background (was transparent/default), `64px` height
+- `1px solid rgba(154,41,24,0.1)` border-bottom
+- Logo lockup: 20px mark + 20px "AXIS & BLOOM" wordmark in Genova
+- Middle links: How it works / Find my flavor / Our coffees / About / Shop (hidden on mobile via `hidden md:flex`)
+- Removed: Admin link, `|` separator, text labels on right icons
+- Right side: User icon + Cart icon only, pink dot badge on cart
+- All Genova, terracotta `#9a2918` throughout
+
+**Footer redesign:**
+- Off-white `#f2f1ea`, editorial 3-column layout
+- Left: Logo + "Coffee matched to your personal flavor" tagline
+- Centre: Explore links (Find my flavor, Our coffees, Shop, How it works)
+- Right: Company links (About, Contact, Instagram)
+- Bottom bar: © 2026 + Privacy / Terms
+- All Genova, terracotta/gray-beige text
+
+**Homepage — 9 sections:**
+
+| # | Section | Background | Notes |
+|---|---|---|---|
+| 1 | **Hero** | Dark video overlay | Full-screen video-ready component; current placeholder `imgur.com/HKuT8YR.mp4`; `poster={coffeePic16}`; bottom-left headline + 2 CTAs; bottom-weighted gradient |
+| 2 | **Concept** | `#f2f1ea` | "You already know what you love…" quote + supporting copy; `whileInView` fade-up |
+| 3 | **How It Works** | `#e5e5da` | 3-step numbered grid; stagger animation on scroll |
+| 4 | **Profile Entry** | CoffeePic16 photo (`90vh`) | Right-side form overlay with gradient; "BEGIN PROFILE →" submits name and navigates to `/find-my-flavor` |
+| 5 | **The Flavor Map** | `#f2f1ea` | 2-column: LogoCircle SVG left, text description right |
+| 6 | **Cinematic** | Dark video overlay (`65vh`) | Second video-ready placeholder; caption bottom-left |
+| 7 | **Coffee Collection** | `#f2f1ea` | 3 bag cards in `#e5e5da` tile containers; CTA to `/shop` |
+| 8 | **Human + AI** | `#9a2918` terracotta | "Guided by AI. Curated by taste." centred copy |
+| 9 | **TasteFinderSection** | Unchanged | Curtain scroll animation, unchanged |
+
+Removed: logo bloom animation (was an intro-era sequence); all `font-sans` overrides; `chaffPhoto` unused import; `logoLines` from hero.
+
+**Video-ready pattern** — both video sections built with:
+```tsx
+<video autoPlay loop muted playsInline poster={fallbackImage}>
+  <source src="[URL — swap this for real video]" type="video/mp4" />
+</video>
+```
+
+---
+
+### 28. Genova font-display investigation and fix
+**File:** `frontend/src/styles/fonts.css`
+
+Full font audit run on request. Findings:
+
+- **Font files:** `.otf` only — no `.woff2`/`.woff` exist. Files at `frontend/src/design/FONT/genova/`
+- **`@font-face` declarations:** already correct in `fonts.css` with proper relative paths and `format('opentype')`
+- **Build output:** all 4 weights confirmed bundled and fingerprinted in `dist/assets/` (e.g. `Genova-BhqGBCC4.otf`)
+- **Root cause of "not loading" appearance:** `font-display: block` (set in entry 26) causes text to be invisible for up to 3 seconds while the font downloads — makes it look like the font isn't working
+- **Fix:** restored `font-display: swap` on all 4 weights — text renders immediately in system fallback, then swaps to Genova once the `.otf` file loads
+
+**To verify in DevTools:** Hard-refresh (`Cmd+Shift+R`) → wait ~1-2s → inspect any text → Computed tab → `font-family` should show `Genova` at top of resolved stack.
+
+---
+
 ## File Reference
 
 | File | What changed |
 |---|---|
-| `frontend/src/app/components/Home.tsx` | Logo bloom animation; manifesto strip; bridge section (CoffeePic16); font-sans removed |
+| `frontend/src/app/components/Home.tsx` | Full editorial redesign: 9-section structure, video-ready hero, profile form, flavor map, bag preview, Human+AI section |
+| `frontend/src/app/components/Navigation.tsx` | Solid bg, refined lockup, admin removed, separator removed, icons only on right |
+| `frontend/src/app/components/Footer.tsx` | Editorial 3-column layout, Genova throughout, logo + links + copyright |
 | `frontend/src/app/components/TasteFinderSection.tsx` | Curtain: chaff photo surface; revealed: coffee bag + quiz copy; quiz link updated |
-| `frontend/src/app/components/Navigation.tsx` | Logo mark + wordmark lockup, Genova applied to all nav links |
 | `frontend/src/app/components/PreLaunch.tsx` | New — pre-launch curtain page; iterated visually; mobile layout fixed |
 | `frontend/src/app/App.tsx` | Conditional pre-launch routing + preview bypass |
-| `frontend/src/styles/fonts.css` | Genova @font-face declarations |
+| `frontend/src/styles/fonts.css` | Genova @font-face declarations; font-display iterated (swap → block → swap) |
 | `frontend/src/styles/theme.css` | Global font-family on body, heading weights set to 400; 12 brand color tokens added |
 | `frontend/src/design/FONT/genova/` | Genova font files (added to repo) |
-| `frontend/src/design/LOGO/` | LogoLines.svg + LogoCircle.svg used in hero bloom; LogoQuarter1.svg in navbar |
-| `frontend/src/design/IMAGES/` | Full image library (35 files): archetypes, bags, lifestyle, elements, patterns, references |
+| `frontend/src/design/LOGO/` | LogoCircle.svg in Flavor Map section; LogoQuarter1.svg in nav/footer |
+| `frontend/src/design/IMAGES/` | Full image library: bags (used in collection), lifestyle (CoffeePic16 in hero/profile) |
 | `backend/src/routes/newsletter.ts` | firstName support, Mailchimp integration |
 | `backend/src/db/schema.sql` | first_name column on newsletter_subscriber |
 | `.github/workflows/deploy.yml` | VITE_PRELAUNCH_MODE added; Mailchimp secrets removed until created in GCP |
