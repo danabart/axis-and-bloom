@@ -10,9 +10,9 @@ export default function Navigation() {
 
   return (
     <nav className="fixed top-0 left-0 right-0 w-full px-12 py-4 flex justify-between items-center z-50">
-      <Link to="/" className="flex items-center gap-2">
-        <img src={logoMark} alt="Axis & Bloom" style={{ width: 28, height: 28 }} />
-        <span style={{ fontFamily: 'Genova, sans-serif', color: '#b05642', fontSize: '0.75rem', letterSpacing: '0.15em', fontWeight: 400 }}>AXIS & BLOOM</span>
+      <Link to="/" className="flex items-center" style={{ gap: 9 }}>
+        <img src={logoMark} alt="Axis & Bloom" style={{ height: 20, width: 'auto' }} />
+        <span style={{ fontFamily: 'Genova, sans-serif', color: '#b05642', fontSize: '20px', letterSpacing: '0.1em', fontWeight: 400, lineHeight: 1 }}>AXIS & BLOOM</span>
       </Link>
 
       <div className="flex items-center gap-10 text-sm" style={{ color: menuColor, fontFamily: 'Genova, sans-serif' }}>
