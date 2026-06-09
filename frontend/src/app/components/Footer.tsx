@@ -1,25 +1,74 @@
+import { Link } from 'react-router';
+import logoMark from '../../design/LOGO/LogoQuarter1.svg'
+
 export default function Footer() {
   return (
-    <footer className="w-full relative mt-auto">
-      <div className="relative z-10 py-5 px-12" style={{ backgroundColor: '#f2f1ea', borderTop: '1px solid rgba(163,55,38,0.15)' }}>
-        <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="flex flex-wrap justify-center gap-8 text-sm items-center" style={{ color: '#9a2918' }}>
-            <span className="font-normal text-xs uppercase tracking-wider">© 2026 Axis & Bloom</span>
-            <a href="/about" className="hover:opacity-80 transition-opacity">About</a>
-            <a href="#contact" className="hover:opacity-80 transition-opacity">Contact</a>
-            <a href="#privacy" className="hover:opacity-80 transition-opacity">Privacy Policy</a>
-            <a href="#terms" className="hover:opacity-80 transition-opacity">Terms</a>
+    <footer style={{ backgroundColor: '#f2f1ea', borderTop: '1px solid rgba(154,41,24,0.1)' }}>
+      <div style={{ padding: 'clamp(56px, 7vw, 96px) clamp(24px, 5vw, 64px) clamp(32px, 4vw, 48px)', maxWidth: 1200, margin: '0 auto' }}>
+
+        {/* Top row: brand + nav columns */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'clamp(40px, 6vw, 80px)', marginBottom: 'clamp(40px, 5vw, 64px)' }}>
+
+          {/* Brand */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+              <img src={logoMark} alt="" style={{ height: 16, width: 'auto' }} />
+              <span style={{ fontFamily: "'Genova', sans-serif", color: '#9a2918', fontSize: 16, letterSpacing: '0.1em', fontWeight: 400 }}>AXIS & BLOOM</span>
+            </div>
+            <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.875rem', color: '#7b7f80', lineHeight: 1.7, margin: 0, maxWidth: 260 }}>
+              Coffee matched to your personal flavor. Discover what feels like you.
+            </p>
           </div>
-          <div className="flex gap-6 items-center">
-            <a href="#instagram" className="hover:opacity-80 transition-opacity" aria-label="Instagram">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9a2918" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/>
-                <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/>
-                <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/>
-              </svg>
-            </a>
+
+          {/* Explore */}
+          <div>
+            <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.65rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 16px', opacity: 0.6 }}>Explore</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {[
+                { to: '/find-my-flavor', label: 'Find my flavor' },
+                { to: '/coffees', label: 'Our coffees' },
+                { to: '/shop', label: 'Shop' },
+                { to: '/how-it-works', label: 'How it works' },
+              ].map(l => (
+                <Link key={l.to} to={l.to} style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.875rem', color: '#9a2918', textDecoration: 'none', opacity: 0.75 }} className="hover:opacity-100 transition-opacity">
+                  {l.label}
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          {/* Company */}
+          <div>
+            <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.65rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 16px', opacity: 0.6 }}>Company</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {[
+                { to: '/about', label: 'About' },
+                { href: '#contact', label: 'Contact' },
+                { href: '#instagram', label: 'Instagram' },
+              ].map(l => (
+                l.to
+                  ? <Link key={l.to} to={l.to} style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.875rem', color: '#9a2918', textDecoration: 'none', opacity: 0.75 }} className="hover:opacity-100 transition-opacity">{l.label}</Link>
+                  : <a key={l.href} href={l.href} style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.875rem', color: '#9a2918', textDecoration: 'none', opacity: 0.75 }} className="hover:opacity-100 transition-opacity">{l.label}</a>
+              ))}
+            </div>
+          </div>
+
+        </div>
+
+        {/* Bottom: copyright + legal */}
+        <div style={{ borderTop: '1px solid rgba(154,41,24,0.1)', paddingTop: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <span style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.75rem', color: '#7b7f80', letterSpacing: '0.04em' }}>
+            © 2026 Axis & Bloom
+          </span>
+          <div style={{ display: 'flex', gap: 24 }}>
+            {[{ href: '#privacy', label: 'Privacy' }, { href: '#terms', label: 'Terms' }].map(l => (
+              <a key={l.href} href={l.href} style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.75rem', color: '#7b7f80', textDecoration: 'none', opacity: 0.7 }} className="hover:opacity-100 transition-opacity">
+                {l.label}
+              </a>
+            ))}
           </div>
         </div>
+
       </div>
     </footer>
   );
