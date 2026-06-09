@@ -84,7 +84,7 @@ export default function Home() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 1, delay: 0.3, ease: [0.16, 1, 0.3, 1] }}
-            style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(2.4rem, 5vw, 4.8rem)', fontWeight: 300, color: '#f2f1ea', lineHeight: 1.1, margin: '0 0 20px', letterSpacing: '-0.01em' }}
+            style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(2.4rem, 5vw, 4.8rem)', fontWeight: 400, color: '#f2f1ea', lineHeight: 1.1, margin: '0 0 20px', letterSpacing: '-0.01em' }}
           >
             Coffee matched to<br />your personal flavor.
           </motion.h1>
@@ -121,7 +121,7 @@ export default function Home() {
       {/* ━━━ 2. CONCEPT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(80px, 12vw, 140px) clamp(32px, 6vw, 96px)' }}>
         <div style={{ maxWidth: 760 }}>
-          <motion.p {...fadeUp(0)} style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.8rem, 3.5vw, 3rem)', fontWeight: 300, color: '#9a2918', lineHeight: 1.2, margin: '0 0 32px' }}>
+          <motion.p {...fadeUp(0)} style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.8rem, 3.5vw, 3rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.2, margin: '0 0 32px' }}>
             You already know what you love. You just don't have the words for it yet.
           </motion.p>
           <motion.p {...fadeUp(0.18)} style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(0.95rem, 1.5vw, 1.05rem)', fontWeight: 400, color: '#7b7f80', lineHeight: 1.85, margin: 0, maxWidth: 520 }}>
@@ -199,7 +199,7 @@ export default function Home() {
           </motion.div>
           <motion.div {...fadeUp(0.15)}>
             <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 18px' }}>The Flavor Map</p>
-            <h2 style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.8rem, 3vw, 2.8rem)', fontWeight: 300, color: '#9a2918', lineHeight: 1.15, margin: '0 0 22px' }}>
+            <h2 style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.8rem, 3vw, 2.8rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.15, margin: '0 0 22px' }}>
               Every coffee has a direction.
             </h2>
             <p style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(0.95rem, 1.5vw, 1.05rem)', fontWeight: 400, color: '#7b7f80', lineHeight: 1.85, margin: '0 0 32px' }}>
@@ -248,7 +248,7 @@ export default function Home() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 'clamp(40px, 5vw, 64px)', flexWrap: 'wrap', gap: 16 }}>
             <motion.div {...fadeUp(0)}>
               <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 10px' }}>The Collection</p>
-              <h2 style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.8rem, 3vw, 2.8rem)', fontWeight: 300, color: '#9a2918', margin: 0, lineHeight: 1.1 }}>Find your bag.</h2>
+              <h2 style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.8rem, 3vw, 2.8rem)', fontWeight: 400, color: '#9a2918', margin: 0, lineHeight: 1.1 }}>Find your bag.</h2>
             </motion.div>
             <Link
               to="/shop"
@@ -275,7 +275,7 @@ export default function Home() {
       {/* ━━━ 8. HUMAN + AI ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <section style={{ backgroundColor: '#9a2918', padding: 'clamp(80px, 10vw, 120px) clamp(32px, 6vw, 96px)' }}>
         <div style={{ maxWidth: 620, margin: '0 auto', textAlign: 'center' }}>
-          <motion.h2 {...fadeUp(0)} style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.8rem, 3vw, 2.8rem)', fontWeight: 300, color: '#f2f1ea', lineHeight: 1.2, margin: '0 0 24px' }}>
+          <motion.h2 {...fadeUp(0)} style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.8rem, 3vw, 2.8rem)', fontWeight: 400, color: '#f2f1ea', lineHeight: 1.2, margin: '0 0 24px' }}>
             Guided by AI. Curated by taste.
           </motion.h2>
           <motion.p {...fadeUp(0.18)} style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(0.95rem, 1.5vw, 1.05rem)', fontWeight: 400, color: 'rgba(242,241,234,0.72)', lineHeight: 1.85, margin: 0 }}>
