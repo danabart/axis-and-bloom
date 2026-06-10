@@ -33,7 +33,7 @@ export function TasteFinderSection() {
     <div ref={containerRef} className="h-[200vh] relative z-0" style={{ backgroundColor: '#f2f1ea' }}>
       <div className="sticky top-0 h-screen w-full overflow-hidden">
 
-        {/* Revealed layer — underneath the curtain */}
+        {/* Revealed layer — underneath the curtain (unchanged) */}
         <div className="absolute inset-0 z-0 w-full h-full flex flex-col md:flex-row" style={{ backgroundColor: '#f2f1ea' }}>
           {/* Left: coffee bag */}
           <div className="w-full md:w-1/2 h-1/2 md:h-full flex items-center justify-center relative overflow-hidden">
@@ -63,39 +63,43 @@ export function TasteFinderSection() {
           </div>
         </div>
 
-        {/* Curtain layer — slides on scroll */}
+        {/* Curtain layer — split layout, slides on scroll */}
         <motion.div
           className="absolute inset-0 z-10 w-full h-full flex flex-col md:flex-row will-change-transform"
           style={{ transform: `translateX(${maskX}%)` }}
         >
-          {/* Chaff photo fills the entire curtain */}
-          <img
-            src={coffeePic13}
-            alt=""
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }}
-          />
-
-          {/* Gradient overlay — darkens left side for text readability */}
-          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to right, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0) 60%)', zIndex: 1 }} />
-
-          {/* Left: headline rides with curtain */}
-          <div className="w-full md:w-1/2 h-1/2 md:h-full flex flex-col justify-center p-12 md:p-24" style={{ position: 'relative', zIndex: 2 }}>
-            <div className="flex flex-col items-start w-full">
-              <div className="mb-6">
-                <span className="inline-block text-base md:text-2xl tracking-widest uppercase px-6 py-2" style={{ color: '#f2f1ea' }}>
-                  THE TASTE FINDER
-                </span>
-              </div>
-              <div className="text-7xl md:text-8xl lg:text-[120px] xl:text-[140px] leading-[1.05] tracking-tight flex flex-col items-start">
-                <span className="inline-block px-6 py-2 mb-2 -ml-6" style={{ color: '#f2f1ea' }}>Which</span>
-                <span className="inline-block px-6 py-2 mb-2 -ml-6" style={{ color: '#f2f1ea', backgroundColor: '#ee5974' }}>archetype</span>
-                <span className="inline-block px-6 py-2 -ml-6" style={{ color: '#f2f1ea' }}>is yours?</span>
-              </div>
+          {/* Left: editorial text on clean background */}
+          <div
+            className="w-full md:w-1/2 h-1/2 md:h-full flex flex-col justify-center"
+            style={{ backgroundColor: '#f2f1ea', padding: 'clamp(40px, 6vw, 80px) clamp(32px, 5vw, 64px)' }}
+          >
+            <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 28px' }}>
+              The Taste Finder
+            </p>
+            <div style={{ fontFamily: "'Genova', sans-serif", fontWeight: 400, lineHeight: 1.05, margin: '0 0 32px' }}>
+              <span style={{ display: 'block', fontSize: 'clamp(2rem, 4vw, 3.6rem)', color: '#111110' }}>Which</span>
+              <span style={{ display: 'inline-block', fontSize: 'clamp(2rem, 4vw, 3.6rem)', backgroundColor: '#9a2918', color: '#f2f1ea', padding: '2px 10px', margin: '4px 0' }}>archetype</span>
+              <span style={{ display: 'block', fontSize: 'clamp(2rem, 4vw, 3.6rem)', color: '#111110', marginTop: 4 }}>is yours?</span>
             </div>
+            <p style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(0.88rem, 1.3vw, 1rem)', fontWeight: 400, color: '#7b7f80', lineHeight: 1.8, margin: '0 0 32px', maxWidth: 360 }}>
+              Our flavor system removes the guesswork — answer a few questions and find your perfect coffee match.
+            </p>
+            <a
+              href="/find-my-flavor"
+              style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.78rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,0.4)', paddingBottom: 4, width: 'fit-content' }}
+            >
+              TAKE THE QUIZ →
+            </a>
           </div>
 
-          {/* Right: empty — photo shows through */}
-          <div className="w-full md:w-1/2 h-1/2 md:h-full" style={{ position: 'relative', zIndex: 2 }} />
+          {/* Right: chaff photo contained to this half */}
+          <div className="w-full md:w-1/2 h-1/2 md:h-full" style={{ position: 'relative', overflow: 'hidden' }}>
+            <img
+              src={coffeePic13}
+              alt=""
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }}
+            />
+          </div>
         </motion.div>
 
       </div>

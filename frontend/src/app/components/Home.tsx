@@ -1,30 +1,21 @@
 import { motion } from 'motion/react';
 import { Link, useNavigate } from 'react-router';
 import { TasteFinderSection } from './TasteFinderSection';
-import logoCircle from '../../design/LOGO/LogoCircle.svg'
 import coffeePic16 from '../../design/IMAGES/lifestyle/CoffeePic16.jpg'
 import bag1 from '../../design/IMAGES/bags/TransparentBag01.png'
 import bag2 from '../../design/IMAGES/bags/TransparentBag02.png'
 import bag3 from '../../design/IMAGES/bags/TransparentBag03.png'
+import placeholderVideo from '../../design/IMAGES/videos/PlaceHolder01.mp4'
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
-const steps = [
-  {
-    num: '01',
-    title: 'Tell us how you drink coffee',
-    body: 'Your routine, your taste, your milk habits, your mood, your curiosity.',
-  },
-  {
-    num: '02',
-    title: 'We map your flavor profile',
-    body: 'Our system connects your answers to flavor notes, roast level, body, acidity, and aroma.',
-  },
-  {
-    num: '03',
-    title: 'Receive your coffee match',
-    body: 'A curated coffee chosen for your profile, with room to explore.',
-  },
+const archetypes = [
+  { name: 'Floral',              bg: '#d4bec8', text: '#2c1810' },
+  { name: 'Fruity',              bg: '#c06040', text: '#f2f1ea' },
+  { name: 'Balanced\n& Sweet',   bg: '#c8a878', text: '#2c1810' },
+  { name: 'Chocolate\n& Nutty',  bg: '#3a2012', text: '#f2f1ea' },
+  { name: 'Spicy\n& Earthy',     bg: '#9a2918', text: '#f2f1ea' },
+  { name: 'Experimental',        bg: '#2a3830', text: '#f2f1ea' },
 ];
 
 const bags = [
@@ -64,7 +55,6 @@ export default function Home() {
         Video-ready hero. To swap in real brand video:
           1. Replace the <source src="..."> with the new video URL
           2. Update poster={} to your hero still-frame
-          3. Adjust objectPosition if needed
       */}
       <section style={{ position: 'relative', height: '100vh', overflow: 'hidden', backgroundColor: '#111110' }}>
         <video
@@ -75,18 +65,18 @@ export default function Home() {
           <source src="https://i.imgur.com/HKuT8YR.mp4" type="video/mp4" />
         </video>
 
-        {/* Bottom-weighted gradient for text legibility */}
         <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(17,17,16,0.72) 0%, rgba(17,17,16,0.28) 45%, rgba(17,17,16,0.06) 100%)' }} />
 
-        {/* Content — bottom left */}
-        <div style={{ position: 'absolute', bottom: 'clamp(48px, 8vh, 96px)', left: 'clamp(32px, 6vw, 96px)', maxWidth: 600 }}>
+        <div style={{ position: 'absolute', bottom: 'clamp(48px, 8vh, 96px)', left: 'clamp(32px, 6vw, 96px)', maxWidth: 640 }}>
           <motion.h1
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 1, delay: 0.3, ease: [0.16, 1, 0.3, 1] }}
             style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(2.4rem, 5vw, 4.8rem)', fontWeight: 400, color: '#f2f1ea', lineHeight: 1.1, margin: '0 0 20px', letterSpacing: '-0.01em' }}
           >
-            Coffee matched to<br />your personal flavor.
+            Coffee matched<br />
+            to your personal{' '}
+            <span style={{ backgroundColor: '#9a2918', padding: '0 10px 3px' }}>flavor.</span>
           </motion.h1>
           <motion.p
             initial={{ opacity: 0, y: 14 }}
@@ -118,53 +108,24 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ━━━ 2. CONCEPT ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(80px, 12vw, 140px) clamp(32px, 6vw, 96px)' }}>
-        <div style={{ maxWidth: 760 }}>
-          <motion.p {...fadeUp(0)} style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.8rem, 3.5vw, 3rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.2, margin: '0 0 32px' }}>
-            You already know what you love. You just don't have the words for it yet.
-          </motion.p>
-          <motion.p {...fadeUp(0.18)} style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(0.95rem, 1.5vw, 1.05rem)', fontWeight: 400, color: '#7b7f80', lineHeight: 1.85, margin: 0, maxWidth: 520 }}>
-            Axis & Bloom translates your habits, preferences, and rituals into a coffee profile — so you can find coffees that actually feel like you.
-          </motion.p>
-        </div>
-      </section>
-
-      {/* ━━━ 3. HOW IT WORKS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ backgroundColor: '#e5e5da', padding: 'clamp(80px, 10vw, 120px) clamp(32px, 6vw, 96px)' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-          <motion.p {...fadeUp(0)} style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 52px' }}>
-            How it works
-          </motion.p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'clamp(40px, 5vw, 64px)' }}>
-            {steps.map((step, i) => (
-              <motion.div key={step.num} {...fadeUp(i * 0.13)}>
-                <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.68rem', letterSpacing: '0.15em', color: '#9a2918', margin: '0 0 16px', opacity: 0.55 }}>{step.num}</p>
-                <p style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.05rem, 1.6vw, 1.25rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.3, margin: '0 0 14px' }}>{step.title}</p>
-                <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.9rem', fontWeight: 400, color: '#7b7f80', lineHeight: 1.75, margin: 0 }}>{step.body}</p>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ━━━ 4. PROFILE ENTRY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {/* ━━━ 2. PROFILE ENTRY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <section style={{ position: 'relative', width: '100%', height: '90vh', overflow: 'hidden' }}>
         <img
           src={coffeePic16}
           alt=""
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%', display: 'block' }}
         />
-        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to left, rgba(0,0,0,0.38) 0%, rgba(0,0,0,0) 55%)' }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to left, rgba(0,0,0,0.42) 0%, rgba(0,0,0,0) 58%)' }} />
 
-        {/* Form — top right */}
-        <div style={{ position: 'absolute', top: 'clamp(72px, 10vh, 120px)', right: 'clamp(32px, 5vw, 64px)', maxWidth: 400, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', textAlign: 'right' }}>
-          <p style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.5rem, 2.8vw, 2.6rem)', fontWeight: 400, color: '#f2f1ea', lineHeight: 1.2, margin: 0 }}>
-            You already know what you love. You just don't have the words for it yet.
-          </p>
-          <p style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1rem, 1.6vw, 1.3rem)', fontWeight: 400, color: '#f2f1ea', lineHeight: 1.3, margin: '28px 0 0' }}>
+        <div style={{ position: 'absolute', top: 'clamp(72px, 10vh, 120px)', right: 'clamp(32px, 5vw, 64px)', maxWidth: 380, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', textAlign: 'right' }}>
+          <motion.p
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.9, delay: 0.2 }}
+            style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1rem, 1.6vw, 1.3rem)', fontWeight: 400, color: '#f2f1ea', lineHeight: 1.35, margin: 0 }}
+          >
             Whose palate are we profiling today?
-          </p>
+          </motion.p>
           <form onSubmit={handleProfileStart} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '100%' }}>
             <style>{`#profile-name::placeholder { color: rgba(242,241,234,0.48); }`}</style>
             <input
@@ -187,40 +148,65 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ━━━ 5. THE FLAVOR MAP ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(80px, 10vw, 120px) clamp(32px, 6vw, 96px)' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 'clamp(48px, 7vw, 96px)', alignItems: 'center' }}>
-          <motion.div {...fadeUp(0)} style={{ display: 'flex', justifyContent: 'center' }}>
-            <img
-              src={logoCircle}
-              alt="The Axis & Bloom flavor map"
-              style={{ width: '100%', maxWidth: 360, height: 'auto', display: 'block' }}
-            />
-          </motion.div>
-          <motion.div {...fadeUp(0.15)}>
-            <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 18px' }}>The Flavor Map</p>
-            <h2 style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.8rem, 3vw, 2.8rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.15, margin: '0 0 22px' }}>
-              Every coffee has a direction.
+      {/* ━━━ 3. FLAVOR MAP — archetype color blocks ━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(72px, 10vw, 112px) clamp(32px, 6vw, 96px)' }}>
+        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+          <motion.div {...fadeUp(0)} style={{ marginBottom: 'clamp(36px, 5vw, 52px)' }}>
+            <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 16px' }}>
+              The Flavor Map
+            </p>
+            <h2 style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.6rem, 2.5vw, 2.4rem)', fontWeight: 400, color: '#111110', lineHeight: 1.15, margin: '0 0 14px' }}>
+              Every palate has a direction.
             </h2>
-            <p style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(0.95rem, 1.5vw, 1.05rem)', fontWeight: 400, color: '#7b7f80', lineHeight: 1.85, margin: '0 0 32px' }}>
-              Chocolatey, floral, fruity, spicy, earthy, balanced, experimental. Our system helps locate the profile that feels most like you — and points you toward the coffees that belong in your cup.
+            <p style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(0.88rem, 1.3vw, 0.98rem)', fontWeight: 400, color: '#7b7f80', lineHeight: 1.8, margin: '0 0 20px', maxWidth: 480 }}>
+              Six flavor archetypes. Each one maps to a different way of experiencing coffee.
             </p>
             <Link
               to="/how-it-works"
-              style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.78rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,0.35)', paddingBottom: 4 }}
+              style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.75rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,0.35)', paddingBottom: 3 }}
             >
               How it works →
             </Link>
           </motion.div>
+
+          {/* Horizontal row on desktop — scroll on mobile */}
+          <div style={{ display: 'flex', gap: 3, overflowX: 'auto', width: '100%', paddingBottom: 2 }}>
+            {archetypes.map((arch, i) => (
+              <motion.div
+                key={arch.name}
+                {...fadeUp(i * 0.07)}
+                style={{
+                  flex: '1 0 clamp(140px, 15vw, 200px)',
+                  height: 224,
+                  backgroundColor: arch.bg,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'flex-end',
+                  padding: '18px 16px',
+                }}
+              >
+                <p style={{
+                  fontFamily: "'Genova', sans-serif",
+                  fontSize: '0.72rem',
+                  letterSpacing: '0.1em',
+                  textTransform: 'uppercase',
+                  fontWeight: 400,
+                  color: arch.text,
+                  margin: 0,
+                  lineHeight: 1.5,
+                  whiteSpace: 'pre-line',
+                }}>
+                  {arch.name}
+                </p>
+              </motion.div>
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* ━━━ 6. CINEMATIC VIDEO PLACEHOLDER ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {/* ━━━ 4. CINEMATIC VIDEO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       {/*
-        Video-ready component. To swap in brand video:
-          1. Replace <source src="..."> with real video URL
-          2. Update poster={} to the still-frame image
-          3. Optional: update the caption below
+        To swap in a different video: replace <source src={...}> and update poster={}
       */}
       <section style={{ position: 'relative', height: '65vh', overflow: 'hidden', backgroundColor: '#111110' }}>
         <video
@@ -228,7 +214,7 @@ export default function Home() {
           poster={coffeePic16}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%' }}
         >
-          <source src="https://i.imgur.com/HKuT8YR.mp4" type="video/mp4" />
+          <source src={placeholderVideo} type="video/mp4" />
         </video>
         <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.28)' }} />
         <p style={{
@@ -240,11 +226,10 @@ export default function Home() {
         </p>
       </section>
 
-      {/* ━━━ 7. COFFEE COLLECTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {/* ━━━ 5. COFFEE COLLECTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(80px, 10vw, 120px) clamp(32px, 6vw, 96px)' }}>
         <div style={{ maxWidth: 1100, margin: '0 auto' }}>
 
-          {/* Section header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 'clamp(40px, 5vw, 64px)', flexWrap: 'wrap', gap: 16 }}>
             <motion.div {...fadeUp(0)}>
               <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 10px' }}>The Collection</p>
@@ -258,7 +243,6 @@ export default function Home() {
             </Link>
           </div>
 
-          {/* Bag cards */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'clamp(20px, 3vw, 36px)' }}>
             {bags.map((bag, i) => (
               <motion.div key={i} {...fadeUp(i * 0.1)} style={{ display: 'flex', flexDirection: 'column' }}>
@@ -272,19 +256,19 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ━━━ 8. HUMAN + AI ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ backgroundColor: '#9a2918', padding: 'clamp(80px, 10vw, 120px) clamp(32px, 6vw, 96px)' }}>
-        <div style={{ maxWidth: 620, margin: '0 auto', textAlign: 'center' }}>
-          <motion.h2 {...fadeUp(0)} style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.8rem, 3vw, 2.8rem)', fontWeight: 400, color: '#f2f1ea', lineHeight: 1.2, margin: '0 0 24px' }}>
+      {/* ━━━ 6. HUMAN + AI — quiet editorial statement ━━━━━━━━━━━━━━━━━━━━━━ */}
+      <section style={{ backgroundColor: '#f2f1ea', borderTop: '1px solid rgba(154,41,24,0.18)', padding: 'clamp(48px, 6vw, 72px) clamp(32px, 6vw, 96px)' }}>
+        <div style={{ maxWidth: 520, margin: '0 auto', textAlign: 'center' }}>
+          <motion.p {...fadeUp(0)} style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.72rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 18px' }}>
             Guided by AI. Curated by taste.
-          </motion.h2>
-          <motion.p {...fadeUp(0.18)} style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(0.95rem, 1.5vw, 1.05rem)', fontWeight: 400, color: 'rgba(242,241,234,0.72)', lineHeight: 1.85, margin: 0 }}>
-            Our system helps decode your preferences, but every match is shaped by real coffees, sensory language, and human judgment.
+          </motion.p>
+          <motion.p {...fadeUp(0.12)} style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(0.88rem, 1.4vw, 1rem)', fontWeight: 400, color: '#7b7f80', lineHeight: 1.85, margin: 0 }}>
+            Every match is shaped by real coffees, sensory language, and human judgment.
           </motion.p>
         </div>
       </section>
 
-      {/* ━━━ 9. CURTAIN (unchanged) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {/* ━━━ 7. TASTE FINDER (curtain animation) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <TasteFinderSection />
 
     </div>
