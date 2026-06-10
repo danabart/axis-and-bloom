@@ -10,12 +10,48 @@ import placeholderVideo from '../../design/IMAGES/videos/PlaceHolder01.mp4'
 // ─── Data ────────────────────────────────────────────────────────────────────
 
 const archetypes = [
-  { name: 'Floral',              bg: '#a34b78', text: '#f2f1ea' },
-  { name: 'Fruity',              bg: '#ca445f', text: '#f2f1ea' },
-  { name: 'Balanced\n& Sweet',   bg: '#d1ac11', text: '#111110' },
-  { name: 'Chocolate\n& Nutty',  bg: '#a54c2d', text: '#f2f1ea' },
-  { name: 'Spicy\n& Earthy',     bg: '#912f2f', text: '#f2f1ea' },
-  { name: 'Experimental',        bg: '#056c7a', text: '#f2f1ea' },
+  {
+    num: '01',
+    name: 'Floral',
+    body: 'Light, elegant, and aromatic. Hints of jasmine, citrus, and a tea-like clarity.',
+    footer: 'FRAGRANT, BRIGHT, DELICATE, CLEAN',
+    bg: '#a34b78',
+  },
+  {
+    num: '02',
+    name: 'Fruity',
+    body: 'Juicy and lively with notes of berries and ripe fruit.',
+    footer: 'SWEET, VIBRANT, EXPRESSIVE, LIVELY',
+    bg: '#ca445f',
+  },
+  {
+    num: '03',
+    name: 'Balanced & Sweet',
+    body: 'Round, smooth, and comforting. Notes of caramel, honey, and soft fruit.',
+    footer: 'SMOOTH, SWEET, HARMONIOUS, EASY',
+    bg: '#d1ac11',
+  },
+  {
+    num: '04',
+    name: 'Chocolate & Nutty',
+    body: 'Deep and satisfying with cocoa, roasted nuts, and a rich presence.',
+    footer: 'RICH, GROUNDED, FULL, COMFORTING',
+    bg: '#a54c2d',
+  },
+  {
+    num: '05',
+    name: 'Spicy & Earthy',
+    body: 'Warm and bold with hints of spice, wood, and lingering depth.',
+    footer: 'WARM, DEEP, BOLD, LASTING',
+    bg: '#912f2f',
+  },
+  {
+    num: '06',
+    name: 'Experimental',
+    body: 'Ever-changing and wonderfully unconventional. A rotating selection of boundary-pushing coffees that are always unique and distinctly amazing.',
+    footer: 'WILD, UNIQUE, SURPRISING',
+    bg: '#056c7a',
+  },
 ];
 
 const bags = [
@@ -62,7 +98,6 @@ export default function Home() {
         >
           <source src="https://i.imgur.com/HKuT8YR.mp4" type="video/mp4" />
         </video>
-
         <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(17,17,16,0.68) 0%, rgba(17,17,16,0.22) 50%, rgba(17,17,16,0.04) 100%)' }} />
 
         <div style={{ position: 'absolute', bottom: 'clamp(48px, 8vh, 96px)', left: 'clamp(32px, 6vw, 96px)' }}>
@@ -79,7 +114,6 @@ export default function Home() {
             <span style={{ display: 'block', color: '#9a2918' }}>to your</span>
             <span style={{ display: 'block', color: '#9a2918' }}>personal flavor.</span>
           </motion.h1>
-
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -102,17 +136,17 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ━━━ 2. PROFILE CTA — lightweight transition band ━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ backgroundColor: '#e5e5da', padding: 'clamp(52px, 6vw, 72px) clamp(32px, 6vw, 96px)' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', justifyContent: 'flex-end' }}>
+      {/* ━━━ 2. PROFILE CTA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <section style={{ backgroundColor: '#e5e5da', padding: 'clamp(64px, 9vw, 104px) clamp(32px, 6vw, 96px)' }}>
+        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
           <motion.div
             {...fadeUp(0)}
-            style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', textAlign: 'right' }}
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', textAlign: 'right', maxWidth: 540, marginLeft: 'auto' }}
           >
-            <p style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(0.95rem, 1.4vw, 1.15rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.4, margin: 0 }}>
-              Whose palate are we profiling today?
+            <p style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.5rem, 2.4vw, 2.4rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.2, margin: 0 }}>
+              Whose palate are we<br />profiling today?
             </p>
-            <form onSubmit={handleProfileStart} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '100%', marginTop: 20 }}>
+            <form onSubmit={handleProfileStart} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '100%', marginTop: 28 }}>
               <style>{`#profile-name::placeholder { color: rgba(154,41,24,0.36); }`}</style>
               <input
                 id="profile-name"
@@ -120,11 +154,11 @@ export default function Home() {
                 name="name"
                 required
                 placeholder="Enter your name"
-                style={{ width: 240, background: 'none', border: 'none', borderBottom: '1px solid rgba(154,41,24,0.38)', borderRadius: 0, outline: 'none', fontFamily: "'Genova', sans-serif", fontSize: '0.95rem', fontWeight: 400, color: '#9a2918', padding: '6px 0', textAlign: 'right' }}
+                style={{ width: '100%', maxWidth: 340, background: 'none', border: 'none', borderBottom: '1px solid rgba(154,41,24,0.42)', borderRadius: 0, outline: 'none', fontFamily: "'Genova', sans-serif", fontSize: '1.1rem', fontWeight: 400, color: '#9a2918', padding: '8px 0', textAlign: 'right' }}
               />
               <button
                 type="submit"
-                style={{ marginTop: 14, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: "'Genova', sans-serif", fontSize: '0.72rem', fontWeight: 400, color: '#9a2918', letterSpacing: '0.2em', textTransform: 'uppercase', textDecoration: 'underline', textUnderlineOffset: '3px', textDecorationColor: 'rgba(154,41,24,0.32)', transition: 'text-decoration-color 0.2s' }}
+                style={{ marginTop: 18, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: "'Genova', sans-serif", fontSize: '0.8rem', fontWeight: 400, color: '#9a2918', letterSpacing: '0.22em', textTransform: 'uppercase', textDecoration: 'underline', textUnderlineOffset: '3px', textDecorationColor: 'rgba(154,41,24,0.32)', transition: 'text-decoration-color 0.2s' }}
                 onMouseEnter={e => e.currentTarget.style.textDecorationColor = '#9a2918'}
                 onMouseLeave={e => e.currentTarget.style.textDecorationColor = 'rgba(154,41,24,0.32)'}
               >
@@ -135,11 +169,11 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ━━━ 3. FLAVOR MAP — archetype blocks ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(64px, 9vw, 100px) clamp(32px, 6vw, 96px)' }}>
+      {/* ━━━ 3. FLAVOR MAP — archetype cards ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(56px, 8vw, 88px) clamp(32px, 6vw, 96px)' }}>
         <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-          <motion.div {...fadeUp(0)} style={{ marginBottom: 'clamp(32px, 4vw, 48px)' }}>
-            <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 14px' }}>
+          <motion.div {...fadeUp(0)} style={{ marginBottom: 'clamp(28px, 4vw, 44px)' }}>
+            <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 12px' }}>
               The Flavor Map
             </p>
             <h2 style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.5rem, 2.2vw, 2.2rem)', fontWeight: 400, color: '#111110', lineHeight: 1.15, margin: 0 }}>
@@ -147,33 +181,48 @@ export default function Home() {
             </h2>
           </motion.div>
 
-          {/* Static row on desktop — horizontal scroll on mobile */}
-          <div style={{ display: 'flex', gap: 3, overflowX: 'auto', width: '100%', paddingBottom: 2 }}>
+          {/* One row — fills width on desktop, scrolls on mobile */}
+          <div style={{ display: 'flex', gap: 3, overflowX: 'auto', width: '100%', alignItems: 'stretch' }}>
             {archetypes.map((arch) => (
               <div
-                key={arch.name}
+                key={arch.num}
                 style={{
-                  flex: '1 0 clamp(130px, 14vw, 190px)',
-                  height: 200,
+                  flex: '1 0 clamp(130px, 14vw, 200px)',
+                  minHeight: 360,
                   backgroundColor: arch.bg,
                   display: 'flex',
                   flexDirection: 'column',
-                  justifyContent: 'flex-end',
-                  padding: '16px 14px',
+                  justifyContent: 'space-between',
+                  padding: '22px 16px 18px',
+                  boxSizing: 'border-box',
                 }}
               >
+                {/* Top: number + headline + body */}
+                <div>
+                  <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.6rem', letterSpacing: '0.2em', color: '#ebebe3', margin: '0 0 10px', opacity: 0.65 }}>
+                    {arch.num}
+                  </p>
+                  <h3 style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1rem, 1.5vw, 1.3rem)', fontWeight: 400, color: '#ebebe3', margin: '0 0 14px', lineHeight: 1.2 }}>
+                    {arch.name}
+                  </h3>
+                  <p style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(0.72rem, 0.9vw, 0.8rem)', color: '#ebebe3', lineHeight: 1.65, margin: 0, opacity: 0.88 }}>
+                    {arch.body}
+                  </p>
+                </div>
+                {/* Bottom: keywords */}
                 <p style={{
                   fontFamily: "'Genova', sans-serif",
-                  fontSize: '0.68rem',
-                  letterSpacing: '0.12em',
+                  fontSize: '0.58rem',
+                  letterSpacing: '0.13em',
                   textTransform: 'uppercase',
-                  fontWeight: 400,
-                  color: arch.text,
-                  margin: 0,
-                  lineHeight: 1.5,
-                  whiteSpace: 'pre-line',
+                  color: '#ebebe3',
+                  margin: '16px 0 0',
+                  opacity: 0.58,
+                  borderTop: '1px solid rgba(235,235,227,0.22)',
+                  paddingTop: 10,
+                  lineHeight: 1.6,
                 }}>
-                  {arch.name}
+                  {arch.footer}
                 </p>
               </div>
             ))}
@@ -216,7 +265,6 @@ export default function Home() {
       {/* ━━━ 5. COFFEE COLLECTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(80px, 10vw, 120px) clamp(32px, 6vw, 96px)' }}>
         <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 'clamp(40px, 5vw, 64px)', flexWrap: 'wrap', gap: 16 }}>
             <motion.div {...fadeUp(0)}>
               <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 10px' }}>The Collection</p>
@@ -229,7 +277,6 @@ export default function Home() {
               Shop all coffees →
             </Link>
           </div>
-
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'clamp(20px, 3vw, 36px)' }}>
             {bags.map((bag, i) => (
               <motion.div key={i} {...fadeUp(i * 0.1)} style={{ display: 'flex', flexDirection: 'column' }}>

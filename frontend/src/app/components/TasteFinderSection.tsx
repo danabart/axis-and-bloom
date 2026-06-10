@@ -31,7 +31,7 @@ export function TasteFinderSection() {
 
   return (
     <div ref={containerRef} className="h-[160vh] relative z-0" style={{ backgroundColor: '#f2f1ea' }}>
-      <div className="sticky top-0 h-[65vh] w-full overflow-hidden">
+      <div className="sticky top-0 h-screen w-full overflow-hidden">
 
         {/* Revealed layer — coffee bag + quiz copy */}
         <div className="absolute inset-0 z-0 w-full h-full flex flex-col md:flex-row" style={{ backgroundColor: '#f2f1ea' }}>
