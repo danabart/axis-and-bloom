@@ -169,32 +169,32 @@ export default function Home() {
 
       {/* ━━━ 3. FLAVOR MAP — archetype cards ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(56px, 8vw, 88px) clamp(32px, 6vw, 96px)' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-          <motion.div {...fadeUp(0)} style={{ marginBottom: 'clamp(28px, 4vw, 44px)' }}>
-            <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 12px' }}>
-              The Flavor Map
-            </p>
-            <h2 style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.5rem, 2.2vw, 2.2rem)', fontWeight: 400, color: '#111110', lineHeight: 1.15, margin: 0 }}>
-              Every palate has a direction.
-            </h2>
-          </motion.div>
+        {/* Header — constrained width */}
+        <motion.div {...fadeUp(0)} style={{ maxWidth: 1100, margin: '0 auto', marginBottom: 'clamp(28px, 4vw, 44px)' }}>
+          <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 12px' }}>
+            The Flavor Map
+          </p>
+          <h2 style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.5rem, 2.2vw, 2.2rem)', fontWeight: 400, color: '#111110', lineHeight: 1.15, margin: 0 }}>
+            Every palate has a direction.
+          </h2>
+        </motion.div>
 
-          {/* One row — fills width on desktop, scrolls on mobile */}
-          <div style={{ display: 'flex', gap: 3, overflowX: 'auto', width: '100%', alignItems: 'stretch' }}>
-            {archetypes.map((arch) => (
-              <div
-                key={arch.num}
-                style={{
-                  flex: '1 0 clamp(130px, 14vw, 200px)',
-                  minHeight: 360,
-                  backgroundColor: arch.bg,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  padding: '22px 16px 18px',
-                  boxSizing: 'border-box',
-                }}
-              >
+        {/* Blocks — full width between section paddings, scroll on narrow screens */}
+        <div style={{ display: 'flex', gap: 3, overflowX: 'auto' }}>
+          {archetypes.map((arch) => (
+            <div
+              key={arch.num}
+              style={{
+                flex: '1 0 140px',
+                minHeight: 360,
+                backgroundColor: arch.bg,
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                padding: '22px 16px 18px',
+                boxSizing: 'border-box',
+              }}
+            >
                 {/* Top: number + headline + body */}
                 <div>
                   <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.6rem', letterSpacing: '0.2em', color: '#ebebe3', margin: '0 0 10px', opacity: 0.65 }}>
@@ -224,7 +224,6 @@ export default function Home() {
                 </p>
               </div>
             ))}
-          </div>
         </div>
       </section>
 
