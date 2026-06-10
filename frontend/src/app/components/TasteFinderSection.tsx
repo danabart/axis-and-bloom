@@ -73,9 +73,9 @@ export function TasteFinderSection() {
               The Taste Finder
             </p>
             <div style={{ fontFamily: "'Genova', sans-serif", fontWeight: 400, lineHeight: 1.0, margin: '0 0 24px' }}>
-              <span style={{ display: 'block', fontSize: 'clamp(1.8rem, 3.5vw, 3.2rem)', color: '#111110' }}>Which</span>
+              <span style={{ display: 'block', fontSize: 'clamp(1.8rem, 3.5vw, 3.2rem)', color: '#9a2918' }}>Which</span>
               <span style={{ display: 'inline-block', fontSize: 'clamp(1.8rem, 3.5vw, 3.2rem)', backgroundColor: '#ee5974', color: '#f2f1ea', padding: '2px 10px', margin: '3px 0' }}>archetype</span>
-              <span style={{ display: 'block', fontSize: 'clamp(1.8rem, 3.5vw, 3.2rem)', color: '#111110', marginTop: 3 }}>is yours?</span>
+              <span style={{ display: 'block', fontSize: 'clamp(1.8rem, 3.5vw, 3.2rem)', color: '#9a2918', marginTop: 3 }}>is yours?</span>
             </div>
             <p style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(0.82rem, 1.1vw, 0.92rem)', fontWeight: 400, color: '#7b7f80', lineHeight: 1.75, margin: '0 0 24px', maxWidth: 320 }}>
               Our flavor system removes the guesswork — answer a few questions and find your perfect coffee match.

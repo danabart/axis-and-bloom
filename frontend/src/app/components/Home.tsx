@@ -168,13 +168,13 @@ export default function Home() {
       </section>
 
       {/* ━━━ 3. FLAVOR MAP — archetype cards ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(56px, 8vw, 88px) clamp(32px, 6vw, 96px)' }}>
-        {/* Header — constrained width */}
-        <motion.div {...fadeUp(0)} style={{ maxWidth: 1100, margin: '0 auto', marginBottom: 'clamp(28px, 4vw, 44px)' }}>
+      <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(56px, 8vw, 88px) clamp(24px, 4vw, 64px)' }}>
+        {/* Header — left-aligned with the blocks (no centering wrapper) */}
+        <motion.div {...fadeUp(0)} style={{ marginBottom: 'clamp(28px, 4vw, 44px)' }}>
           <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 12px' }}>
             The Flavor Map
           </p>
-          <h2 style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.5rem, 2.2vw, 2.2rem)', fontWeight: 400, color: '#111110', lineHeight: 1.15, margin: 0 }}>
+          <h2 style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.5rem, 2.2vw, 2.2rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.15, margin: 0 }}>
             Every palate has a direction.
           </h2>
         </motion.div>
