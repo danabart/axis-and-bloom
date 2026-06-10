@@ -572,6 +572,31 @@ Full font audit run on request. Findings:
 
 ---
 
+### 29. TasteFinderSection — vertical curtain lift, bag + text revealed underneath
+**File:** `frontend/src/app/components/TasteFinderSection.tsx`
+
+Redesigned the curtain reveal section at the bottom of the homepage. The scroll animation mechanic is preserved (200vh container + sticky viewport), but the curtain direction and revealed content were both changed.
+
+**Problem with previous version:** The curtain slid horizontally (translateX). The chaff photo occupies the right 58% of the editorial stripe, centered vertically — the same vertical zone as the coffee bag in the revealed layer. As the stripe slid left, the chaff photo dragged across the bag, creating an awkward accidental overlap.
+
+**Fix:** Changed the curtain slide direction to **vertical** (translateY 0 → -100%). The curtain lifts straight up out of the viewport; the bag is revealed cleanly from below. The chaff photo and bag no longer share a path of motion.
+
+**Curtain layer (unchanged visually):**
+- Full-viewport `#f2f1ea` panel, centered, z-index 10
+- Editorial stripe: 380px tall, text panel left (42%) / chaff photo right (58%)
+- Text: "THE TASTE FINDER" eyebrow → "Which / [archetype] / is yours?" headline (pink `#ee5974` pill on "archetype", `#f2f1ea` text) → body copy → "TAKE THE QUIZ →" CTA
+- Stripe lifts with the curtain panel as a single unit
+
+**Revealed layer (new):**
+- Left 50%: `TransparentBag03.png` — centered, `height: 65vh`, `objectFit: contain`, left padding scales with viewport
+- Right 50%: right-aligned text block, nudged below center via `paddingTop: 8vh`
+  - Body: *"Our flavor system is designed to remove the guesswork. Answer a few questions and find your perfect coffee match."* — Genova Regular, `clamp(1rem, 1.4vw, 1.2rem)`, terracotta `#9a2918`, `lineHeight: 1.75`
+  - CTA: `TAKE THE QUIZ →` — `0.78rem`, `letter-spacing: 0.2em`, terracotta `#9a2918`, underline border-bottom
+
+**Animation timing:** Curtain lifts from 10%→90% of scroll progress through the 200vh section. Footer appears naturally in document flow after the section completes.
+
+---
+
 ## File Reference
 
 | File | What changed |
@@ -579,7 +604,7 @@ Full font audit run on request. Findings:
 | `frontend/src/app/components/Home.tsx` | Full editorial redesign: 9-section structure, video-ready hero, profile form, flavor map, bag preview, Human+AI section |
 | `frontend/src/app/components/Navigation.tsx` | Solid bg, refined lockup, admin removed, separator removed, icons only on right |
 | `frontend/src/app/components/Footer.tsx` | Editorial 3-column layout, Genova throughout, logo + links + copyright |
-| `frontend/src/app/components/TasteFinderSection.tsx` | Curtain: chaff photo surface; revealed: coffee bag + quiz copy; quiz link updated |
+| `frontend/src/app/components/TasteFinderSection.tsx` | Curtain: vertical lift (translateY), editorial stripe preserved; revealed: TransparentBag03 + right-aligned text/CTA |
 | `frontend/src/app/components/PreLaunch.tsx` | New — pre-launch curtain page; iterated visually; mobile layout fixed |
 | `frontend/src/app/App.tsx` | Conditional pre-launch routing + preview bypass |
 | `frontend/src/styles/fonts.css` | Genova @font-face declarations; font-display iterated (swap → block → swap) |
