@@ -137,36 +137,34 @@ export default function Home() {
       </section>
 
       {/* ━━━ 2. PROFILE CTA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ backgroundColor: '#e5e5da', padding: 'clamp(64px, 9vw, 104px) clamp(32px, 6vw, 96px)' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-          <motion.div
-            {...fadeUp(0)}
-            style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', textAlign: 'right', maxWidth: 540, marginLeft: 'auto' }}
-          >
-            <p style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.5rem, 2.4vw, 2.4rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.2, margin: 0 }}>
-              Whose palate are we<br />profiling today?
-            </p>
-            <form onSubmit={handleProfileStart} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '100%', marginTop: 28 }}>
-              <style>{`#profile-name::placeholder { color: rgba(154,41,24,0.36); }`}</style>
-              <input
-                id="profile-name"
-                type="text"
-                name="name"
-                required
-                placeholder="Enter your name"
-                style={{ width: '100%', maxWidth: 340, background: 'none', border: 'none', borderBottom: '1px solid rgba(154,41,24,0.42)', borderRadius: 0, outline: 'none', fontFamily: "'Genova', sans-serif", fontSize: '1.1rem', fontWeight: 400, color: '#9a2918', padding: '8px 0', textAlign: 'right' }}
-              />
-              <button
-                type="submit"
-                style={{ marginTop: 18, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: "'Genova', sans-serif", fontSize: '0.8rem', fontWeight: 400, color: '#9a2918', letterSpacing: '0.22em', textTransform: 'uppercase', textDecoration: 'underline', textUnderlineOffset: '3px', textDecorationColor: 'rgba(154,41,24,0.32)', transition: 'text-decoration-color 0.2s' }}
-                onMouseEnter={e => e.currentTarget.style.textDecorationColor = '#9a2918'}
-                onMouseLeave={e => e.currentTarget.style.textDecorationColor = 'rgba(154,41,24,0.32)'}
-              >
-                BEGIN PROFILE →
-              </button>
-            </form>
-          </motion.div>
-        </div>
+      <section style={{ backgroundColor: '#e5e5da', padding: 'clamp(72px, 10vw, 120px) clamp(32px, 6vw, 96px)' }}>
+        <motion.div
+          {...fadeUp(0)}
+          style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', textAlign: 'right', maxWidth: 600, marginLeft: 'auto' }}
+        >
+          <p style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(2rem, 3.6vw, 3.6rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.15, margin: 0 }}>
+            Whose palate are we<br />profiling today?
+          </p>
+          <form onSubmit={handleProfileStart} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '100%', marginTop: 36 }}>
+            <style>{`#profile-name::placeholder { color: rgba(154,41,24,0.36); }`}</style>
+            <input
+              id="profile-name"
+              type="text"
+              name="name"
+              required
+              placeholder="Enter your name"
+              style={{ width: '100%', maxWidth: 400, background: 'none', border: 'none', borderBottom: '1px solid rgba(154,41,24,0.42)', borderRadius: 0, outline: 'none', fontFamily: "'Genova', sans-serif", fontSize: '1.25rem', fontWeight: 400, color: '#9a2918', padding: '10px 0', textAlign: 'right' }}
+            />
+            <button
+              type="submit"
+              style={{ marginTop: 22, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: "'Genova', sans-serif", fontSize: '0.88rem', fontWeight: 400, color: '#9a2918', letterSpacing: '0.22em', textTransform: 'uppercase', textDecoration: 'underline', textUnderlineOffset: '4px', textDecorationColor: 'rgba(154,41,24,0.32)', transition: 'text-decoration-color 0.2s' }}
+              onMouseEnter={e => e.currentTarget.style.textDecorationColor = '#9a2918'}
+              onMouseLeave={e => e.currentTarget.style.textDecorationColor = 'rgba(154,41,24,0.32)'}
+            >
+              BEGIN PROFILE →
+            </button>
+          </form>
+        </motion.div>
       </section>
 
       {/* ━━━ 3. FLAVOR MAP — archetype cards ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
