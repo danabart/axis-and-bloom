@@ -597,6 +597,66 @@ Redesigned the curtain reveal section at the bottom of the homepage. The scroll 
 
 ---
 
+### 30. About page — full editorial redesign
+**File:** `frontend/src/app/components/About.tsx`
+
+Complete redesign of the About page. Replaced the old corporate team-directory layout (split hero, separate founder photos, bio cards) with a cinematic, intimate, editorial page using the same visual language as the homepage.
+
+**Removed:**
+- Animated split-screen hero with terracotta/cream panels and spinning `&` ampersand
+- Separate Dana photo (was loading from imgur)
+- Separate founder bio cards
+- `TasteFinderSection` at the bottom
+
+**Page structure — 7 sections:**
+
+**1. Hero**
+- Full-viewport (`100vh`) with `FamilyEdit.jpg` as full-bleed background, `objectPosition: center 30%`
+- Bottom-weighted gradient overlay: `rgba(15,12,11,0.75)` → transparent
+- Bottom-left text block: "OUR STORY" eyebrow (`#bf6a58`), "About Axis & Bloom" h1 (`#f2f1ea`, `clamp(3rem, 6vw, 6rem)`), italic-free subheading at 72% cream opacity
+- `motion.div` entrance: `opacity 0→1`, `y 22→0`, 1.1s delay 0.3s
+
+**2. Brand Story**
+- `#f2f1ea` background, generous vertical padding (`clamp(88px, 11vw, 148px)`)
+- Two-column flex: left (`~26%`) has "WHAT WE ARE" eyebrow + "A new way to discover coffee." heading; right (max 640px) has 5-paragraph editorial body copy
+- Key paragraph in terracotta for emphasis: "Instead of asking you to become a coffee expert…"
+- Full brand narrative from the brief, edited for web readability
+
+**3. Axis / Bloom**
+- `#e5e5da` background
+- "THE NAME" eyebrow + two side-by-side blocks (3px gap):
+  - **Axis block**: `#9a2918` terracotta background, ghost "Axis" lettering at 12% opacity (Genova Black), "The point of orientation." heading in cream, body copy at 62% cream opacity
+  - **Bloom block**: `#f2f1ea` background with terracotta border, ghost "Bloom" lettering at 8% opacity, "What opens from there." heading in terracotta, body in gray
+- Both blocks `minHeight: 340px`, flex column with space-between
+
+**4. A Note from Us**
+- `#f2f1ea` background, same two-column structure as Brand Story
+- Left: "A NOTE FROM US" eyebrow, "Camila & Dana" label, thin 32px divider, "Partners in life and in this project." small caps
+- Right: 5-paragraph personal letter — warm, intimate tone; opening paragraph in larger terracotta for emphasis
+
+**5. Emotional Video**
+- `68vh` section, `PlaceHolder08.mp4` autoplay loop muted
+- 42% dark overlay
+- Bottom-left caption: "For us, coffee is a morning [pause], a shared table, a moment alone, a return." — "pause" in `#ee5974` pink pill (`#f2f1ea` text inside)
+
+**6. Archetype Bridge**
+- `#f2f1ea` background
+- Two-column header: left has "THE FLAVOR SYSTEM" eyebrow + "Every palate belongs to a sensory world." heading; right has single supporting sentence
+- Six archetype color swatches (72px tall, 3px gap, `overflowX: auto` for mobile) with small-caps name labels
+
+**7. Final CTA**
+- `#9a2918` terracotta background, centered
+- "Which / [archetype] / is yours?" — same typographic treatment as TasteFinderSection (pink `#ee5974` pill on "archetype")
+- "TAKE THE QUIZ →" link to `/find-my-flavor`, cream with faint underline
+
+**Design system compliance:**
+- All colors from palette: `#f2f1ea`, `#e5e5da`, `#9a2918`, `#bf6a58`, `#ee5974`, `#7b7f80` (gray body text)
+- Genova throughout, weights 400 and 900 only
+- No pure white, no pure black
+- `fadeUp` animation preset (opacity/y, `whileInView`, `once: true`) consistent with homepage
+
+---
+
 ## File Reference
 
 | File | What changed |
@@ -605,6 +665,7 @@ Redesigned the curtain reveal section at the bottom of the homepage. The scroll 
 | `frontend/src/app/components/Navigation.tsx` | Solid bg, refined lockup, admin removed, separator removed, icons only on right |
 | `frontend/src/app/components/Footer.tsx` | Editorial 3-column layout, Genova throughout, logo + links + copyright |
 | `frontend/src/app/components/TasteFinderSection.tsx` | Curtain: vertical lift (translateY), editorial stripe preserved; revealed: TransparentBag03 + right-aligned text/CTA |
+| `frontend/src/app/components/About.tsx` | Full editorial redesign: FamilyEdit.jpg hero, brand story, Axis/Bloom name blocks, founders' note, video, archetype bridge, final CTA |
 | `frontend/src/app/components/PreLaunch.tsx` | New — pre-launch curtain page; iterated visually; mobile layout fixed |
 | `frontend/src/app/App.tsx` | Conditional pre-launch routing + preview bypass |
 | `frontend/src/styles/fonts.css` | Genova @font-face declarations; font-display iterated (swap → block → swap) |
