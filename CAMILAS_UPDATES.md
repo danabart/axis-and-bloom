@@ -657,6 +657,41 @@ Complete redesign of the About page. Replaced the old corporate team-directory l
 
 ---
 
+### 31. Font audit — italic removed, Medium weight dropped, @font-face trimmed to three weights
+**Files:** `frontend/src/styles/fonts.css`, `frontend/src/app/components/Shop.tsx`, `frontend/src/app/components/CoffeesPage.tsx`
+
+Full font audit run across all CSS and component files. Findings and fixes:
+
+**What was verified as correct:**
+- `@font-face` declarations in `fonts.css` pointing to correct `.otf` files in `frontend/src/design/FONT/genova/`
+- `body { font-family: 'Genova', sans-serif }` set globally in `theme.css` — cascades to all elements
+- No foreign font families anywhere (`font-sans`, Arial, Helvetica, Geneva typo, system-ui) — zero occurrences
+- No invalid inline `fontWeight` values (300, 600, 700, 800) in any `.tsx` file
+- `* { font-style: normal !important }` guard already in place in `fonts.css`
+
+**Fixes applied:**
+
+1. **`fonts.css` — removed Genova-Medium (weight 500) from `@font-face`**
+   - Weight 500 was registered but never used anywhere in the codebase (no `fontWeight: 500` in inline styles, no `font-medium` Tailwind class in use)
+   - Preferred Genova weights confirmed by Camila: **400 Regular**, **100 Thin**, **900 Black**
+   - `fonts.css` now declares exactly these three weights and nothing else
+
+2. **`Shop.tsx` line 103 — removed `italic` Tailwind class**
+   - Was: `<div className="text-xs text-[#a33726] italic">{coffee.notes}</div>`
+   - Now: `<div className="text-xs text-[#a33726]">{coffee.notes}</div>`
+   - Applied to tasting notes text in the coffee card
+
+3. **`CoffeesPage.tsx` line 603 — removed `italic` Tailwind class**
+   - Was: `className="text-lg font-light leading-relaxed italic"`
+   - Now: `className="text-lg font-light leading-relaxed"`
+   - Applied to the surprise note text in the coffee detail view
+
+**Standing rule:** Never use italic (no `italic` class, no `fontStyle: 'italic'`) anywhere unless explicitly requested. The `font-style: normal !important` guard in `fonts.css` remains as a belt-and-suspenders safeguard.
+
+**Remaining known issue:** `font-light` (Tailwind weight 300) appears in ~40 places across unredesigned pages (`FlavorQuiz.tsx`, `Shop.tsx`, `CoffeesPage.tsx`, `Profile.tsx`, `JoinHousehold.tsx`, `SignIn.tsx`, `FamilyTab.tsx`, `NewsletterModal.tsx`). Genova has no weight 300 — the browser falls back to Thin (100). These will be cleaned up during each page's redesign pass.
+
+---
+
 ## File Reference
 
 | File | What changed |
@@ -668,7 +703,9 @@ Complete redesign of the About page. Replaced the old corporate team-directory l
 | `frontend/src/app/components/About.tsx` | Full editorial redesign: FamilyEdit.jpg hero, brand story, Axis/Bloom name blocks, founders' note, video, archetype bridge, final CTA |
 | `frontend/src/app/components/PreLaunch.tsx` | New — pre-launch curtain page; iterated visually; mobile layout fixed |
 | `frontend/src/app/App.tsx` | Conditional pre-launch routing + preview bypass |
-| `frontend/src/styles/fonts.css` | Genova @font-face declarations; font-display iterated (swap → block → swap) |
+| `frontend/src/styles/fonts.css` | Genova @font-face: 3 weights only (400, 100, 900); Medium removed; italic guard in place |
+| `frontend/src/app/components/Shop.tsx` | Italic removed from tasting notes; font-light instances remain (pre-redesign) |
+| `frontend/src/app/components/CoffeesPage.tsx` | Italic removed from surprise note text |
 | `frontend/src/styles/theme.css` | Global font-family on body, heading weights set to 400; 12 brand color tokens added |
 | `frontend/src/design/FONT/genova/` | Genova font files (added to repo) |
 | `frontend/src/design/LOGO/` | LogoCircle.svg in Flavor Map section; LogoQuarter1.svg in nav/footer |
