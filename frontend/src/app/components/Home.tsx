@@ -1,3 +1,4 @@
+import { useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Link, useNavigate } from 'react-router';
 import { TasteFinderSection } from './TasteFinderSection';
@@ -74,6 +75,19 @@ const fadeUp = (delay = 0) => ({
 
 export default function Home() {
   const navigate = useNavigate();
+  const heroVideoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const video = heroVideoRef.current;
+    if (!video) return;
+    const handleTimeUpdate = () => {
+      if (video.duration && video.currentTime >= video.duration - 0.15) {
+        video.currentTime = 0;
+      }
+    };
+    video.addEventListener('timeupdate', handleTimeUpdate);
+    return () => video.removeEventListener('timeupdate', handleTimeUpdate);
+  }, []);
 
   const handleProfileStart = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -93,7 +107,8 @@ export default function Home() {
       */}
       <section style={{ position: 'relative', height: '100vh', overflow: 'hidden', backgroundColor: '#111110' }}>
         <video
-          autoPlay loop muted playsInline
+          ref={heroVideoRef}
+          autoPlay muted playsInline
           poster={coffeePic16}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%' }}
         >
