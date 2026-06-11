@@ -2,6 +2,11 @@ import { useRef, useEffect, useState } from 'react';
 import coffeePic13 from '../../design/IMAGES/lifestyle/CoffeePic13.png'
 import bag3 from '../../design/IMAGES/bags/TransparentBag03.png'
 
+// Stripe height defines everything — no viewport-relative sizing
+const STRIPE_H = 320;
+// Extra scroll distance for the animation — compact, not 200vh
+const SCROLL_ZONE = 440;
+
 export function TasteFinderSection() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [progress, setProgress] = useState(0);
@@ -9,110 +14,122 @@ export function TasteFinderSection() {
   useEffect(() => {
     const handleScroll = () => {
       if (!containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const viewportHeight = window.innerHeight;
-      const totalScroll = rect.height - viewportHeight;
-      const scrolled = -rect.top;
-      setProgress(Math.max(0, Math.min(1, scrolled / totalScroll)));
+      const top = containerRef.current.getBoundingClientRect().top;
+      // Animates as the section scrolls through SCROLL_ZONE px past the top of viewport
+      setProgress(Math.min(1, Math.max(0, -top / SCROLL_ZONE)));
     };
-    window.addEventListener('scroll', handleScroll, true);
+    window.addEventListener('scroll', handleScroll, { passive: true });
     window.addEventListener('resize', handleScroll);
     handleScroll();
     return () => {
-      window.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('scroll', handleScroll);
       window.removeEventListener('resize', handleScroll);
     };
   }, []);
 
-  // Curtain lifts upward: 10%→90% of scroll progress → translateY 0% → -100%
-  let maskY = 0;
-  if (progress > 0.9) maskY = -100;
-  else if (progress > 0.1) maskY = -((progress - 0.1) / 0.8) * 100;
+  // Curtain slides LEFT: 0% → -100%
+  const curtainX = -(progress * 100);
 
   return (
-    <div ref={containerRef} className="h-[200vh] relative z-0" style={{ backgroundColor: '#f2f1ea' }}>
-      <div className="sticky top-0 h-screen w-full overflow-hidden">
+    /*
+      Container = STRIPE_H (sticky stripe) + SCROLL_ZONE (animation scroll space).
+      Total ≈ 760px — compact, not a full-screen scene.
+    */
+    <div
+      ref={containerRef}
+      style={{
+        position: 'relative',
+        height: STRIPE_H + SCROLL_ZONE,
+        backgroundColor: '#f2f1ea',
+      }}
+    >
+      {/* Sticky wrapper — pins the stripe at viewport top during the scroll zone */}
+      <div style={{ position: 'sticky', top: 0, height: STRIPE_H }}>
 
-        {/* ── Layer 1: revealed content — bag left, text right ── */}
-        <div style={{
-          position: 'absolute',
-          inset: 0,
-          backgroundColor: '#f2f1ea',
-          display: 'flex',
-          alignItems: 'center',
-        }}>
-          {/* Left: bag image */}
+        {/* Clip wrapper — keeps the curtain from spilling outside the stripe */}
+        <div style={{ position: 'relative', height: STRIPE_H, overflow: 'hidden' }}>
+
+          {/* ── REVEALED LAYER (underneath) ──────────────────────────────────── */}
+          {/* text/CTA left · coffee bag right */}
           <div style={{
-            width: '50%',
+            position: 'absolute', inset: 0,
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            paddingLeft: 'clamp(40px, 6vw, 96px)',
-          }}>
-            <img
-              src={bag3}
-              alt="Axis & Bloom coffee bag"
-              style={{ height: '65vh', width: 'auto', objectFit: 'contain', display: 'block' }}
-            />
-          </div>
-
-          {/* Right: text + CTA, right-aligned, nudged below center */}
-          <div style={{
-            width: '50%',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center',
-            paddingTop: '8vh',
-            paddingRight: 'clamp(40px, 6vw, 96px)',
-            alignItems: 'flex-end',
-            textAlign: 'right',
-          }}>
-            <p style={{
-              fontFamily: "'Genova', sans-serif",
-              fontSize: 'clamp(1rem, 1.4vw, 1.2rem)',
-              fontWeight: 400,
-              color: '#9a2918',
-              lineHeight: 1.75,
-              margin: '0 0 28px',
-              maxWidth: 380,
-            }}>
-              Our flavor system is designed to remove the guesswork. Answer a few questions and find your perfect coffee match.
-            </p>
-            <a
-              href="/find-my-flavor"
-              style={{
-                fontFamily: "'Genova', sans-serif",
-                fontSize: '0.78rem',
-                letterSpacing: '0.2em',
-                textTransform: 'uppercase',
-                color: '#9a2918',
-                textDecoration: 'none',
-                borderBottom: '1px solid rgba(154,41,24,0.4)',
-                paddingBottom: 3,
-              }}
-            >
-              TAKE THE QUIZ →
-            </a>
-          </div>
-        </div>
-
-        {/* ── Layer 2: curtain — full-viewport panel, lifts upward on scroll ── */}
-        <div
-          className="will-change-transform"
-          style={{
-            position: 'absolute',
-            inset: 0,
             backgroundColor: '#f2f1ea',
-            transform: `translateY(${maskY}%)`,
-            display: 'flex',
-            alignItems: 'center',
-            zIndex: 10,
-          }}
-        >
-          {/* Editorial stripe: 380px tall, text left / chaff photo right */}
-          <div style={{ width: '100%', height: 380, display: 'flex', overflow: 'hidden' }}>
+          }}>
 
-            {/* Left text panel — 42% */}
+            {/* Left: explanatory text + CTA */}
+            <div style={{
+              width: '42%',
+              flexShrink: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              padding: '32px clamp(28px, 4vw, 64px)',
+            }}>
+              <p style={{
+                fontFamily: "'Genova', sans-serif",
+                fontSize: 'clamp(0.84rem, 1.1vw, 0.95rem)',
+                fontWeight: 400,
+                color: '#7b7f80',
+                lineHeight: 1.7,
+                margin: '0 0 18px',
+                maxWidth: 340,
+              }}>
+                Our flavor system is designed to remove the guesswork. Answer a few questions and find your perfect coffee match.
+              </p>
+              <a
+                href="/find-my-flavor"
+                style={{
+                  fontFamily: "'Genova', sans-serif",
+                  fontSize: '0.78rem',
+                  letterSpacing: '0.18em',
+                  textTransform: 'uppercase',
+                  color: '#9a2918',
+                  textDecoration: 'none',
+                  borderBottom: '1px solid rgba(154,41,24,0.4)',
+                  paddingBottom: 3,
+                  width: 'fit-content',
+                }}
+              >
+                TAKE THE QUIZ →
+              </a>
+            </div>
+
+            {/* Right: coffee bag — revealed last as chaff exits left */}
+            <div style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              overflow: 'hidden',
+            }}>
+              <img
+                src={bag3}
+                alt="Axis & Bloom coffee bag"
+                style={{
+                  height: '88%',
+                  width: 'auto',
+                  objectFit: 'contain',
+                  display: 'block',
+                }}
+              />
+            </div>
+
+          </div>
+
+          {/* ── CURTAIN LAYER (on top, slides LEFT on scroll) ────────────────── */}
+          {/* Same height as stripe — no extra vertical space */}
+          <div
+            style={{
+              position: 'absolute', inset: 0,
+              display: 'flex',
+              transform: `translateX(${curtainX}%)`,
+              willChange: 'transform',
+              zIndex: 10,
+            }}
+          >
+
+            {/* Left panel: editorial text */}
             <div style={{
               width: '42%',
               flexShrink: 0,
@@ -133,7 +150,12 @@ export function TasteFinderSection() {
                 The Taste Finder
               </p>
 
-              <div style={{ fontFamily: "'Genova', sans-serif", fontWeight: 400, lineHeight: 0.92, margin: '0 0 18px' }}>
+              <div style={{
+                fontFamily: "'Genova', sans-serif",
+                fontWeight: 400,
+                lineHeight: 0.92,
+                margin: '0 0 18px',
+              }}>
                 <span style={{ display: 'block', fontSize: 'clamp(2.4rem, 4.5vw, 4.5rem)', color: '#9a2918' }}>
                   Which
                 </span>
@@ -182,26 +204,23 @@ export function TasteFinderSection() {
               </a>
             </div>
 
-            {/* Right: chaff photo — fills remaining 58% */}
+            {/* Right panel: chaff photo — fills remaining 58% */}
             <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
               <img
                 src={coffeePic13}
                 alt=""
                 style={{
-                  position: 'absolute',
-                  inset: 0,
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                  objectPosition: 'center',
+                  position: 'absolute', inset: 0,
+                  width: '100%', height: '100%',
+                  objectFit: 'cover', objectPosition: 'center',
                   display: 'block',
                 }}
               />
             </div>
 
           </div>
-        </div>
 
+        </div>
       </div>
     </div>
   );
