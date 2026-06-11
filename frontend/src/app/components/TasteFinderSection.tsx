@@ -5,54 +5,85 @@ import Footer from './Footer';
 
 const STRIPE_H = 320;
 
+/*
+  How this works:
+  - The page scrolls normally until it hits its natural bottom.
+  - At that point, further wheel/swipe motion opens the curtain LEFT instead of scrolling.
+  - The curtain must be fully closed and visible before any animation begins.
+  - Scrolling back up closes the curtain before the page scrolls up again.
+*/
+const WHEEL_OPEN = 480; // total deltaY needed to fully open curtain
+
 export function TasteFinderSection() {
-  const stripeRef = useRef<HTMLDivElement>(null);
   const [progress, setProgress] = useState(0);
+  const acc = useRef(0);
 
   useEffect(() => {
-    const calc = () => {
-      if (!stripeRef.current) return;
-      const { top } = stripeRef.current.getBoundingClientRect();
-      const vh = window.innerHeight;
+    // ── Mouse / trackpad wheel ──────────────────────────────────────────────
+    const onWheel = (e: WheelEvent) => {
+      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+      const atBottom = window.scrollY >= maxScroll - 3;
 
-      // Force full open at page bottom (safety net)
-      if (window.scrollY + vh >= document.documentElement.scrollHeight - 5) {
-        setProgress(1);
+      if (atBottom && e.deltaY > 0 && acc.current < WHEEL_OPEN) {
+        // At page bottom, scrolling down → open curtain instead of scrolling
+        e.preventDefault();
+        acc.current = Math.min(WHEEL_OPEN, acc.current + e.deltaY);
+        setProgress(acc.current / WHEEL_OPEN);
         return;
       }
 
-      // Animation window: stripe enters viewport bottom → completes just before max scroll
-      // Using 0.75 * vh as the scroll distance → animation finishes ~50px before max scroll
-      const raw = (vh - top) / (vh * 0.75);
-      setProgress(Math.max(0, Math.min(1, raw)));
+      if (e.deltaY < 0 && acc.current > 0) {
+        // Curtain partially open, scrolling up → close curtain before page scrolls
+        e.preventDefault();
+        acc.current = Math.max(0, acc.current + e.deltaY); // deltaY is negative
+        setProgress(acc.current / WHEEL_OPEN);
+      }
     };
 
-    window.addEventListener('scroll', calc, { passive: true });
-    window.addEventListener('resize', calc);
-    calc();
+    // ── Touch (mobile) ──────────────────────────────────────────────────────
+    let touchY = 0;
+
+    const onTouchStart = (e: TouchEvent) => {
+      touchY = e.touches[0].clientY;
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+      const atBottom = window.scrollY >= maxScroll - 3;
+      const delta = touchY - e.touches[0].clientY; // positive = finger moving up = scroll down
+      touchY = e.touches[0].clientY;
+
+      if (atBottom && delta > 0 && acc.current < WHEEL_OPEN) {
+        e.preventDefault();
+        acc.current = Math.min(WHEEL_OPEN, acc.current + delta * 2.2);
+        setProgress(acc.current / WHEEL_OPEN);
+      } else if (delta < 0 && acc.current > 0) {
+        e.preventDefault();
+        acc.current = Math.max(0, acc.current + delta * 2.2);
+        setProgress(acc.current / WHEEL_OPEN);
+      }
+    };
+
+    window.addEventListener('wheel', onWheel, { passive: false });
+    window.addEventListener('touchstart', onTouchStart, { passive: true });
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+
     return () => {
-      window.removeEventListener('scroll', calc);
-      window.removeEventListener('resize', calc);
+      window.removeEventListener('wheel', onWheel);
+      window.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchmove', onTouchMove);
     };
   }, []);
 
   return (
-    /*
-      Wrapper has no explicit height — it sizes to the revealed layer (stripe + footer).
-      overflow:hidden clips the curtain as it exits left, no horizontal scroll.
-      The curtain is absolute and covers the full wrapper height (stripe + footer),
-      so the footer is hidden behind the curtain and revealed last.
-    */
     <div style={{ position: 'relative', overflow: 'hidden' }}>
 
       {/* ── REVEALED LAYER: normal flow → defines wrapper height ─────────────── */}
       <div>
 
         {/* Stripe row: bag LEFT · text RIGHT */}
-        <div
-          ref={stripeRef}
-          style={{ height: STRIPE_H, display: 'flex', backgroundColor: '#f2f1ea' }}
-        >
+        <div style={{ height: STRIPE_H, display: 'flex', backgroundColor: '#f2f1ea' }}>
+
           {/* Left 50% — coffee bag */}
           <div style={{
             width: '50%',
@@ -109,7 +140,7 @@ export function TasteFinderSection() {
           </div>
         </div>
 
-        {/* Footer lives behind the curtain — revealed when curtain fully opens */}
+        {/* Footer lives behind the curtain — the last thing revealed */}
         <Footer />
       </div>
 
@@ -120,17 +151,17 @@ export function TasteFinderSection() {
           inset: 0,
           display: 'flex',
           transform: `translateX(${-(progress * 100)}%)`,
+          transition: 'transform 0.08s ease-out',
           willChange: 'transform',
           zIndex: 10,
         }}
       >
-        {/* Left 40% — editorial text panel (cream, only fills stripe height) */}
+        {/* Left 40% — editorial text panel */}
         <div style={{
           width: '40%',
           flexShrink: 0,
           backgroundColor: '#f2f1ea',
         }}>
-          {/* Text is centered within stripe height; below that is plain cream over footer */}
           <div style={{
             height: STRIPE_H,
             display: 'flex',
@@ -203,10 +234,10 @@ export function TasteFinderSection() {
               TAKE THE QUIZ →
             </a>
           </div>
-          {/* Plain cream fills the footer area behind the curtain */}
+          {/* Plain cream continues below stripe height, covering the footer area */}
         </div>
 
-        {/* Right 60% — chaff photo, full-bleed across the entire curtain height */}
+        {/* Right 60% — chaff photo, full-bleed across entire curtain height */}
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
           <img
             src={coffeePic13}
