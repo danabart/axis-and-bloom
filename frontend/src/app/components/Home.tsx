@@ -6,6 +6,7 @@ import bag1 from '../../design/IMAGES/bags/TransparentBag01.png'
 import bag2 from '../../design/IMAGES/bags/TransparentBag02.png'
 import bag3 from '../../design/IMAGES/bags/TransparentBag03.png'
 import placeholderVideo from '../../design/IMAGES/videos/PlaceHolder01.mp4'
+import heroVideo from '../../design/IMAGES/videos/PlaceHolder10.mp4'
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
@@ -96,7 +97,7 @@ export default function Home() {
           poster={coffeePic16}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%' }}
         >
-          <source src="https://i.imgur.com/HKuT8YR.mp4" type="video/mp4" />
+          <source src={heroVideo} type="video/mp4" />
         </video>
         <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(17,17,16,0.68) 0%, rgba(17,17,16,0.22) 50%, rgba(17,17,16,0.04) 100%)' }} />
 
