@@ -962,7 +962,7 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 
 ---
 
-## Current State (as of 2026-06-07 — updated)
+## Current State (as of 2026-06-11)
 
 | Component | Status |
 |---|---|
@@ -975,13 +975,18 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 | Flavor quiz (V4) | ✅ Active — V4 replaces V3; 6 questions, weighted scoring, food instinct question (Q2, secondary signal only), experimental gate on Q4-C, split answer on Q4-D; full food signal × secondary archetype matching logic with confidence levels and 6 recommendation modes |
 | Quiz matching logic | ✅ Food signal drives confidence (high/medium/low) and recommendation mode; Option B close threshold (secondary scored on Q5 or Q6); experimental gate modifier; `POST /api/quiz/score` returns full scoring context |
 | Transactional email | ✅ Resend — sends from noreply@axisandbloomcoffee.com |
-| Marketing email / Mailchimp | ✅ Active — new signups synced to Mailchimp audience with FNAME merge field; credentials in Secret Manager |
+| Marketing email / Mailchimp | ✅ Active — new signups synced to Mailchimp audience with FNAME merge field; credentials in Secret Manager; API key trimmed in code to guard against whitespace |
 | Claude AI chat | ✅ Wired up, API key in Secret Manager |
 | Claude recommendations | ✅ 6 mode-specific prompts in `getRecommendation()` — primary_only, primary_plus_introduce_secondary, primary_plus_active_secondary, primary_plus_note_secondary, primary_as_starting_point, ai_agent |
 | Our Coffees page (`/coffees`) | ✅ Redesigned — three content layers: (1) AI editorial content (surprise angle, three-voice story, collapsible AI note — all cached in SQL + Firestore); (2) personalization layer for logged-in users (compatibility badge + dimension comparison text); (3) data layer (dimension bars + bubble cloud). Compare mode: ⇄ toggle shows two coffees side-by-side with dimension diff bars. |
 | Shopify | ⚠️ Stubbed — waiting for roastery account |
 | Pre-launch page | ✅ Live — full-screen curtain at axisandbloom.com; email + first name capture saves to DB + Mailchimp; bypass via `?preview=true` |
 | Newsletter subscriber tracking | ✅ `subscriber_source` table tracks signup origin (`pre_launch`, `newsletter`, `post_quiz`, `footer`); `first_name` stored |
+| Homepage editorial redesign | ✅ 9 sections: full-screen video hero, concept band, how it works grid, profile entry form (CoffeePic16 bg), flavor map, cinematic video, coffee bag collection, Human+AI terracotta band, TasteFinderSection curtain |
+| About page editorial redesign | ✅ 7 sections: FamilyEdit.jpg hero, brand story, Axis/Bloom name blocks, founders' note, video section, archetype bridge, final CTA — full editorial tone, cinematic layout |
+| TasteFinderSection | ✅ Vertical curtain lift (translateY 0→-100%); editorial stripe preserved; revealed layer shows TransparentBag03 + right-aligned quiz copy |
+| Design system | ✅ Genova font site-wide — 3 weights only: 100 Thin, 400 Regular, 900 Black; no italic; 12 brand color tokens in `theme.css` @theme block |
+| Frontend performance | ✅ `inlineRasterImages` Vite plugin removed — images now served as separate files; page load reduced from 10–15s to ~1–2s |
 | Cupping tool schema | ✅ 11 tables + 3 enums + 12 seeded dimensions + 84 SCA flavor wheel descriptors + collaborative flavor wheel view |
 | Admin portal | ✅ 6 pages: Dashboard, Coffees (roaster autocomplete dropdown), Sessions (roastery dropdown), Score Entry (multi-taster tabs + read-only/edit), Flavor Wheel (+ stats), Roasteries (inline edit + all contact fields) |
 | Admin user management | ✅ `grant_admin()` / `revoke_admin()` / `list_admins()` stored DB functions + matching API endpoints |
@@ -1630,6 +1635,18 @@ The archetype and confidence dropdowns on the Coffees page are **not** in `looku
 **Cause**: Cloud Run sits behind Google's load balancer, which adds an `X-Forwarded-For` header. Express defaults to `trust proxy = false`, so `express-rate-limit` refused to use the header and threw a validation error on every request — meaning rate limiting was effectively not working correctly.
 **Fix**: Added `app.set('trust proxy', 1)` before the rate limiter in `backend/src/index.ts`. This tells Express to trust one proxy hop, allowing `express-rate-limit` to correctly identify the real client IP.
 
+### 48. Mailchimp API key corrupted by trailing newline in Secret Manager
+**Problem**: Newsletter signups were saving to the DB correctly but never reaching Mailchimp. Cloud Run logs showed `403 "The API key provided is linked to a different datacenter."`
+**Cause**: When the API key was added to Secret Manager by piping a PowerShell string (`$key | gcloud secrets versions add ...`), PowerShell appended a trailing `\n`. The backend code derives the datacenter from the key with `MC_API_KEY.split('-')[1]` — with the newline, this produced `us11\n` instead of `us11`, so the URL and Authorization header were mismatched.
+**Fix**: Two changes together:
+1. Re-stored the secret cleanly using `[System.IO.File]::WriteAllText()` to write the key file without any line ending before passing it to `--data-file`
+2. Added `.trim()` to the key read in `newsletter.ts`: `const MC_API_KEY = (process.env.MAILCHIMP_API_KEY ?? '').trim()` — permanent defensive guard against whitespace in the secret value
+
+### 49. `inlineRasterImages` Vite plugin causing 10–15 second page load
+**Problem**: The site took 10–15 seconds to load — the browser progress bar would stall at ~50% before the pre-launch page appeared.
+**Cause**: `frontend/vite.config.ts` had a custom `inlineRasterImages` plugin that base64-encoded every `.png` and `.jpg` import directly into the JS bundle. With 35+ images in the full asset library, the bundle grew to ~10 MB. The browser had to fully download and parse the entire JS file before rendering a single pixel — even on the lightweight pre-launch page.
+**Fix**: Removed the `inlineRasterImages` plugin entirely. Vite's native image handling takes over — imported images are output as separate hashed files (e.g. `A_B03-BhqGBCC4.png`) and the browser loads them in parallel, lazily, as needed. No component code changes were needed — `import beansPhoto from '...'` still works; the import now returns a URL instead of a base64 data string. Page load dropped to ~1–2 seconds.
+
 ---
 
 ## What's Still To Do
@@ -1647,6 +1664,10 @@ The archetype and confidence dropdowns on the Coffees page are **not** in `looku
 ### Commerce
 7. **Enable Shopify** — add 3 secrets to Secret Manager (`SHOPIFY_STORE_DOMAIN`, `SHOPIFY_STOREFRONT_TOKEN`, `SHOPIFY_ADMIN_TOKEN`). No code changes needed — the stub lifts automatically.
 
+### Frontend
+10. **Replace video placeholders** — the hero and cinematic sections in `Home.tsx` and About's video section use placeholder `<source src>` URLs. Swap these for real video files when ready. No other code changes needed — the `<video autoPlay loop muted playsInline>` pattern is already in place.
+11. **`font-light` cleanup** — ~40 instances of `font-light` (Tailwind weight 300) remain on unredesigned pages (`FlavorQuiz.tsx`, `Shop.tsx`, `CoffeesPage.tsx`, `Profile.tsx`, `JoinHousehold.tsx`, `SignIn.tsx`, `FamilyTab.tsx`, `NewsletterModal.tsx`). Genova has no weight 300 so the browser falls back to Thin (100). Clean up page by page during each redesign pass.
+
 ### Optional
-8. **Apple sign-in** — requires an Apple Developer account ($99/year). Low priority.
-9. **Subscription management UI** — the schema and backend route exist but there's no frontend page yet.
+12. **Apple sign-in** — requires an Apple Developer account ($99/year). Low priority.
+13. **Subscription management UI** — the schema and backend route exist but there's no frontend page yet.
