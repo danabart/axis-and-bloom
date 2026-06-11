@@ -2,7 +2,7 @@ import { useRef, useEffect, useState } from 'react';
 import coffeePic13 from '../../design/IMAGES/lifestyle/CoffeePic13.png'
 import bag3 from '../../design/IMAGES/bags/TransparentBag03.png'
 
-const STRIPE_H = 320; // px — curtain height matches chaff image height exactly
+const STRIPE_H = 380; // matches the reference image proportions
 
 export function TasteFinderSection() {
   const sectionRef = useRef<HTMLDivElement>(null);
@@ -14,12 +14,13 @@ export function TasteFinderSection() {
       const { top } = sectionRef.current.getBoundingClientRect();
       const vh = window.innerHeight;
       /*
-        Animation window: section enters viewport (top = vh) → section top
-        reaches 20% from top of viewport (top = vh * 0.2).
-        Scroll distance ≈ 0.8 × vh (~720px on a 900px screen) — smooth,
-        no sticky, no extra container space.
+        Animation window:
+          start  → section just fully entered viewport: top = vh - STRIPE_H
+          end    → section top at viewport top:         top = 0
+        Scroll distance ≈ vh - STRIPE_H  (~520px at 900px viewport).
+        Progress clamps 0→1, curtain fully gone when top reaches 0.
       */
-      const raw = (vh - top) / (vh * 0.8);
+      const raw = (vh - STRIPE_H - top) / (vh - STRIPE_H);
       setProgress(Math.max(0, Math.min(1, raw)));
     };
     window.addEventListener('scroll', calc, { passive: true });
@@ -31,14 +32,13 @@ export function TasteFinderSection() {
     };
   }, []);
 
-  // Curtain slides LEFT from 0% → -100%
+  // Curtain slides LEFT: 0% → -100% (completely exits left edge)
   const curtainX = -(progress * 100);
 
   return (
     /*
-      Section is EXACTLY STRIPE_H tall — no extra scroll zone, no empty gap.
-      overflow:hidden clips the curtain as it slides left.
-      Footer follows immediately in the normal page flow.
+      Section = exactly STRIPE_H tall, overflow:hidden clips curtain.
+      No scroll zone, no sticky — footer sits directly below, tight.
     */
     <div
       ref={sectionRef}
@@ -50,55 +50,16 @@ export function TasteFinderSection() {
       }}
     >
 
-      {/* ── REVEALED LAYER ─────────────────────────────────────────────────── */}
-      {/* text/CTA left · coffee bag right */}
+      {/* ── REVEALED LAYER: bag LEFT · text/CTA RIGHT ──────────────────────── */}
       <div style={{
         position: 'absolute', inset: 0,
         display: 'flex',
         backgroundColor: '#f2f1ea',
       }}>
 
-        {/* Left: text + CTA */}
+        {/* Left 50%: coffee bag centered */}
         <div style={{
-          width: '42%',
-          flexShrink: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center',
-          padding: '32px clamp(28px, 4vw, 64px)',
-        }}>
-          <p style={{
-            fontFamily: "'Genova', sans-serif",
-            fontSize: 'clamp(0.84rem, 1.1vw, 0.95rem)',
-            fontWeight: 400,
-            color: '#7b7f80',
-            lineHeight: 1.7,
-            margin: '0 0 18px',
-            maxWidth: 340,
-          }}>
-            Our flavor system is designed to remove the guesswork. Answer a few questions and find your perfect coffee match.
-          </p>
-          <a
-            href="/find-my-flavor"
-            style={{
-              fontFamily: "'Genova', sans-serif",
-              fontSize: '0.78rem',
-              letterSpacing: '0.18em',
-              textTransform: 'uppercase',
-              color: '#9a2918',
-              textDecoration: 'none',
-              borderBottom: '1px solid rgba(154,41,24,0.4)',
-              paddingBottom: 3,
-              width: 'fit-content',
-            }}
-          >
-            TAKE THE QUIZ →
-          </a>
-        </div>
-
-        {/* Right: coffee bag — first thing revealed as chaff exits left */}
-        <div style={{
-          flex: 1,
+          width: '50%',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -116,10 +77,47 @@ export function TasteFinderSection() {
           />
         </div>
 
+        {/* Right 50%: explanatory text + CTA */}
+        <div style={{
+          width: '50%',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          padding: '32px clamp(28px, 4vw, 64px) 32px 24px',
+        }}>
+          <p style={{
+            fontFamily: "'Genova', sans-serif",
+            fontSize: 'clamp(0.88rem, 1.15vw, 1rem)',
+            fontWeight: 400,
+            color: '#7b7f80',
+            lineHeight: 1.75,
+            margin: '0 0 20px',
+            maxWidth: 360,
+          }}>
+            Our flavor system is designed to remove the guesswork. Answer a few questions and find your perfect coffee match.
+          </p>
+          <a
+            href="/find-my-flavor"
+            style={{
+              fontFamily: "'Genova', sans-serif",
+              fontSize: '0.78rem',
+              letterSpacing: '0.2em',
+              textTransform: 'uppercase',
+              color: '#9a2918',
+              textDecoration: 'none',
+              borderBottom: '1px solid rgba(154,41,24,0.4)',
+              paddingBottom: 3,
+              width: 'fit-content',
+            }}
+          >
+            TAKE THE QUIZ →
+          </a>
+        </div>
+
       </div>
 
-      {/* ── CURTAIN LAYER ──────────────────────────────────────────────────── */}
-      {/* Same height as section — slides LEFT on scroll */}
+      {/* ── CURTAIN: text LEFT (40%) · chaff photo RIGHT (60%) ─────────────── */}
+      {/* Slides entirely LEFT on scroll — exits through left edge of section */}
       <div
         style={{
           position: 'absolute', inset: 0,
@@ -130,9 +128,9 @@ export function TasteFinderSection() {
         }}
       >
 
-        {/* Left: editorial text */}
+        {/* Left 40%: editorial text on cream background */}
         <div style={{
-          width: '42%',
+          width: '40%',
           flexShrink: 0,
           display: 'flex',
           flexDirection: 'column',
@@ -142,11 +140,11 @@ export function TasteFinderSection() {
         }}>
           <p style={{
             fontFamily: "'Genova', sans-serif",
-            fontSize: '0.74rem',
+            fontSize: '0.72rem',
             letterSpacing: '0.22em',
             textTransform: 'uppercase',
             color: '#9a2918',
-            margin: '0 0 16px',
+            margin: '0 0 14px',
           }}>
             The Taste Finder
           </p>
@@ -154,34 +152,34 @@ export function TasteFinderSection() {
           <div style={{
             fontFamily: "'Genova', sans-serif",
             fontWeight: 400,
-            lineHeight: 0.92,
-            margin: '0 0 14px',
+            lineHeight: 0.95,
+            margin: '0 0 18px',
           }}>
-            <span style={{ display: 'block', fontSize: 'clamp(2rem, 3.8vw, 3.8rem)', color: '#9a2918' }}>
+            <span style={{ display: 'block', fontSize: 'clamp(2.6rem, 4vw, 4rem)', color: '#9a2918' }}>
               Which
             </span>
             <span style={{
               display: 'inline-block',
-              fontSize: 'clamp(2rem, 3.8vw, 3.8rem)',
+              fontSize: 'clamp(2.6rem, 4vw, 4rem)',
               backgroundColor: '#ee5974',
               color: '#f2f1ea',
-              padding: '2px 10px',
-              margin: '3px 0',
+              padding: '2px 12px',
+              margin: '5px 0',
             }}>
               archetype
             </span>
-            <span style={{ display: 'block', fontSize: 'clamp(2rem, 3.8vw, 3.8rem)', color: '#9a2918', marginTop: 3 }}>
+            <span style={{ display: 'block', fontSize: 'clamp(2.6rem, 4vw, 4rem)', color: '#9a2918', marginTop: 5 }}>
               is yours?
             </span>
           </div>
 
           <p style={{
             fontFamily: "'Genova', sans-serif",
-            fontSize: 'clamp(0.78rem, 1vw, 0.88rem)',
+            fontSize: 'clamp(0.82rem, 1vw, 0.9rem)',
             fontWeight: 400,
             color: '#7b7f80',
             lineHeight: 1.65,
-            margin: '0 0 14px',
+            margin: '0 0 16px',
             maxWidth: 300,
           }}>
             Our flavor system removes the guesswork — answer a few questions and find your perfect coffee match.
@@ -205,7 +203,7 @@ export function TasteFinderSection() {
           </a>
         </div>
 
-        {/* Right: chaff photo — fills remaining 58% */}
+        {/* Right 60%: chaff photo full-bleed */}
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
           <img
             src={coffeePic13}
@@ -213,7 +211,8 @@ export function TasteFinderSection() {
             style={{
               position: 'absolute', inset: 0,
               width: '100%', height: '100%',
-              objectFit: 'cover', objectPosition: 'center',
+              objectFit: 'cover',
+              objectPosition: 'center',
               display: 'block',
             }}
           />
