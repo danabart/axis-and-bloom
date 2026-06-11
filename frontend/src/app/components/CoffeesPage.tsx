@@ -600,7 +600,7 @@ export default function CoffeesPage() {
                           <ContentSkeleton />
                         ) : content?.surpriseNote ? (
                           <p
-                            className="text-lg font-light leading-relaxed italic"
+                            className="text-lg font-light leading-relaxed"
                             style={{ color: '#3a3020', borderLeft: '2px solid #b0564240', paddingLeft: '1rem' }}
                           >
                             {content.surpriseNote}

@@ -100,7 +100,7 @@ export default function Shop() {
                 <div className="grid grid-cols-2 gap-4 border-t border-b border-[#a8462c]/10 py-4 mb-6">
                   <div><div className="text-[9px] uppercase tracking-widest text-[#838686] mb-1">Roast</div><div className="text-xs text-[#a33726]">{coffee.roast}</div></div>
                   <div><div className="text-[9px] uppercase tracking-widest text-[#838686] mb-1">Best For</div><div className="text-xs text-[#a33726]">{coffee.brew}</div></div>
-                  <div className="col-span-2"><div className="text-[9px] uppercase tracking-widest text-[#838686] mb-1">Tasting Notes</div><div className="text-xs text-[#a33726] italic">{coffee.notes}</div></div>
+                  <div className="col-span-2"><div className="text-[9px] uppercase tracking-widest text-[#838686] mb-1">Tasting Notes</div><div className="text-xs text-[#a33726]">{coffee.notes}</div></div>
                 </div>
                 <div className="flex items-center justify-between mt-auto pt-2">
                   <span className="text-lg">{coffee.price}</span>
