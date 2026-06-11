@@ -5,7 +5,7 @@ import crypto from 'crypto';
 const router = Router();
 
 // ── Mailchimp ─────────────────────────────────────────────────────────────────
-const MC_API_KEY = process.env.MAILCHIMP_API_KEY ?? '';
+const MC_API_KEY = (process.env.MAILCHIMP_API_KEY ?? '').trim();
 const MC_LIST_ID = process.env.MAILCHIMP_LIST_ID ?? '';
 const MC_ENABLED = Boolean(MC_API_KEY && MC_LIST_ID);
 const MC_DC      = MC_API_KEY.split('-')[1] ?? '';
