@@ -4,19 +4,31 @@ import bag3 from '../../design/IMAGES/bags/TransparentBag03.png';
 import Footer from './Footer';
 
 /*
-  Scroll-driven curtain reveal — 5 stages:
+  Scroll-driven curtain reveal.
 
-  Stage 1 (progress 0–0.15):   Full chaff image visible — user "sees the wrapping paper"
-  Stage 2–3 (0.15–0.65):       Curtain (chaff) slides LEFT revealing the bag + text underneath
-  Stage 4 (0.65–1.0):          Hold — bag + text fully visible, footer NOT yet in view
-  Stage 5 (progress = 1.0):    Scroll container ends, footer enters in normal document flow
+  Architecture:
+  - 400vh scroll container with a 100vh sticky viewport inside.
+  - The sticky viewport holds a single STRIPE (STRIPE_H tall) centered vertically.
+    Above and below the stripe: plain cream background.
+  - Inside the stripe, two layers stack:
+      REVEALED (bottom): bag left | text right — always there, gets uncovered
+      CURTAIN (top):     cream text panel left | chaff photo right — slides LEFT
 
-  The 400vh container gives ~300vh of scrollable distance through the sticky viewport.
-  Footer is placed AFTER the container in normal flow — it cannot appear until the
-  entire 300vh of scroll is consumed.
+  The curtain is a single solid horizontal panel that slides left as one piece.
+  The left panel carries the "Which archetype is yours?" headline on cream background,
+  separate from the chaff photo (they sit side-by-side, not overlaid).
+
+  Footer lives in normal document flow AFTER the 400vh container so it cannot
+  appear until the full scroll + hold cycle is complete.
+
+  Stage timing (progress 0→1 maps to ~300vh of scroll):
+    0.00–0.15  Stage 1: full curtain stripe visible
+    0.15–0.65  Stage 2–3: curtain slides left, bag + text revealed
+    0.65–1.00  Stage 4: hold — bag + text fully visible, footer still off-screen
+    1.00+      Stage 5: footer enters in normal flow below the scroll container
 */
 
-const SCROLL_HEIGHT = '400vh';
+const STRIPE_H = 400; // px — tall enough for a large bag + the bigger headline
 const OPEN_START = 0.15;
 const OPEN_END = 0.65;
 
@@ -47,171 +59,192 @@ export function TasteFinderSection() {
   return (
     <>
       <style>{`
-        .tsf-revealed { display: flex; align-items: center; }
+        /* ── Revealed layer ── */
+        .tsf-revealed { display: flex; height: 100%; }
         .tsf-bag-col {
-          width: 50%; height: 100%;
-          display: flex; align-items: center; justify-content: center;
-          padding-left: clamp(24px, 5vw, 80px);
+          width: 50%; display: flex; align-items: center;
+          justify-content: center; padding-left: clamp(24px, 5vw, 72px);
         }
         .tsf-text-col {
-          width: 50%;
-          display: flex; flex-direction: column; justify-content: center;
-          align-items: flex-end; text-align: right;
-          padding: 0 clamp(32px, 5vw, 80px) 0 24px;
+          width: 50%; display: flex; flex-direction: column;
+          justify-content: center; align-items: flex-end; text-align: right;
+          padding: 0 clamp(32px, 5vw, 72px) 0 24px;
         }
-        @media (max-width: 640px) {
+        /* ── Curtain layer ── */
+        .tsf-curtain { display: flex; height: 100%; }
+        .tsf-curtain-text {
+          width: 40%; flex-shrink: 0; background: #f2f1ea;
+          display: flex; flex-direction: column; justify-content: center;
+          padding: 28px clamp(20px, 3.5vw, 52px);
+        }
+        .tsf-curtain-photo { flex: 1; position: relative; overflow: hidden; }
+        /* ── Mobile: stack both layers vertically ── */
+        @media (max-width: 600px) {
           .tsf-revealed { flex-direction: column; }
-          .tsf-bag-col {
-            width: 100% !important; height: 55% !important;
-            padding: 28px 28px 0 28px !important;
-          }
-          .tsf-text-col {
-            width: 100% !important; height: 45% !important;
-            align-items: center !important; text-align: center !important;
-            padding: 20px 28px 32px !important;
-          }
+          .tsf-bag-col   { width: 100% !important; height: 55% !important; padding: 20px 24px 0 !important; }
+          .tsf-text-col  { width: 100% !important; height: 45% !important; align-items: center !important; text-align: center !important; padding: 12px 24px 20px !important; }
+          .tsf-curtain   { flex-direction: column; }
+          .tsf-curtain-text  { width: 100% !important; height: 45% !important; padding: 20px 24px 12px !important; }
+          .tsf-curtain-photo { height: 55% !important; }
         }
       `}</style>
 
-      {/* ── Tall scroll container — creates the scroll room for all 5 stages ── */}
-      <div ref={containerRef} style={{ height: SCROLL_HEIGHT, position: 'relative' }}>
+      {/* ── Tall scroll container — 300vh of scroll drives the 5 stages ──────── */}
+      <div ref={containerRef} style={{ height: '400vh', position: 'relative' }}>
 
-        {/* Sticky viewport — pinned for the full 300vh of scroll distance */}
+        {/* ── Sticky viewport — stays pinned while progress goes 0→1 ─────────── */}
         <div style={{
           position: 'sticky',
           top: 0,
           height: '100vh',
           overflow: 'hidden',
           backgroundColor: '#f2f1ea',
+          display: 'flex',
+          alignItems: 'center',
         }}>
 
-          {/* ── REVEALED LAYER: the gift ──────────────────────────────────────── */}
-          <div className="tsf-revealed" style={{ position: 'absolute', inset: 0 }}>
+          {/* ── Stripe zone — fixed height, full viewport width ─────────────── */}
+          {/* Both layers are absolutely positioned inside this relative container */}
+          <div style={{ width: '100%', height: STRIPE_H, position: 'relative' }}>
 
-            {/* Left — coffee bag */}
-            <div className="tsf-bag-col">
-              <img
-                src={bag3}
-                alt="Axis & Bloom coffee bag"
-                style={{
-                  height: 'clamp(300px, 60vh, 540px)',
-                  width: 'auto',
-                  objectFit: 'contain',
-                  display: 'block',
-                }}
-              />
-            </div>
+            {/* ── REVEALED LAYER: the gift ─────────────────────────────────── */}
+            <div className="tsf-revealed" style={{ position: 'absolute', inset: 0, backgroundColor: '#f2f1ea' }}>
 
-            {/* Right — text + CTA */}
-            <div className="tsf-text-col">
-              <p style={{
-                fontFamily: "'Genova', sans-serif",
-                fontSize: 'clamp(1rem, 1.4vw, 1.3rem)',
-                fontWeight: 400,
-                color: '#9a2918',
-                opacity: 0.65,
-                lineHeight: 1.85,
-                margin: '0 0 28px',
-                maxWidth: 420,
-              }}>
-                Our flavor system is designed to remove the guesswork.
-                Answer a few questions and find your perfect coffee match.
-              </p>
-              <a
-                href="/find-my-flavor"
-                style={{
+              {/* Left — large coffee bag */}
+              <div className="tsf-bag-col">
+                <img
+                  src={bag3}
+                  alt="Axis & Bloom coffee bag"
+                  style={{
+                    height: '88%',
+                    width: 'auto',
+                    objectFit: 'contain',
+                    display: 'block',
+                  }}
+                />
+              </div>
+
+              {/* Right — text + CTA */}
+              <div className="tsf-text-col">
+                <p style={{
                   fontFamily: "'Genova', sans-serif",
-                  fontSize: '0.85rem',
-                  letterSpacing: '0.22em',
-                  textTransform: 'uppercase',
+                  fontSize: 'clamp(1rem, 1.4vw, 1.3rem)',
+                  fontWeight: 400,
                   color: '#9a2918',
-                  textDecoration: 'none',
-                  borderBottom: '1px solid rgba(154,41,24,0.4)',
-                  paddingBottom: 3,
-                }}
-              >
-                TAKE THE QUIZ →
-              </a>
+                  opacity: 0.65,
+                  lineHeight: 1.85,
+                  margin: '0 0 28px',
+                  maxWidth: 420,
+                }}>
+                  Our flavor system is designed to remove the guesswork.
+                  Answer a few questions and find your perfect coffee match.
+                </p>
+                <a
+                  href="/find-my-flavor"
+                  style={{
+                    fontFamily: "'Genova', sans-serif",
+                    fontSize: '0.88rem',
+                    letterSpacing: '0.22em',
+                    textTransform: 'uppercase',
+                    color: '#9a2918',
+                    textDecoration: 'none',
+                    borderBottom: '1px solid rgba(154,41,24,0.4)',
+                    paddingBottom: 3,
+                  }}
+                >
+                  TAKE THE QUIZ →
+                </a>
+              </div>
             </div>
-          </div>
 
-          {/* ── CURTAIN LAYER: the wrapping paper ────────────────────────────── */}
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              transform: `translateX(${curtainX}%)`,
-              transition: 'transform 0.07s ease-out',
-              willChange: 'transform',
-              zIndex: 10,
-            }}
-          >
-            {/* Full-bleed chaff photo */}
-            <img
-              src={coffeePic13}
-              alt=""
+            {/* ── CURTAIN LAYER: the wrapping paper, slides LEFT ───────────── */}
+            {/* Left 40%: cream panel with headline (separate from chaff photo) */}
+            {/* Right 60%: chaff photo                                          */}
+            {/* Both panels move as one solid horizontal piece                  */}
+            <div
+              className="tsf-curtain"
               style={{
                 position: 'absolute',
                 inset: 0,
-                width: '100%',
-                height: '100%',
-                objectFit: 'cover',
-                objectPosition: 'center',
-                display: 'block',
+                transform: `translateX(${curtainX}%)`,
+                transition: 'transform 0.07s ease-out',
+                willChange: 'transform',
+                zIndex: 10,
               }}
-            />
-
-            {/* Soft left-edge gradient — lifts text off the photo */}
-            <div style={{
-              position: 'absolute',
-              inset: 0,
-              background: 'linear-gradient(to right, rgba(242,241,234,0.52) 0%, rgba(242,241,234,0.18) 38%, transparent 60%)',
-            }} />
-
-            {/* Editorial headline — top left, 2× original size */}
-            <div style={{
-              position: 'absolute',
-              top: 'clamp(48px, 7vh, 88px)',
-              left: 'clamp(32px, 5vw, 72px)',
-              zIndex: 2,
-            }}>
-              <p style={{
-                fontFamily: "'Genova', sans-serif",
-                fontSize: 'clamp(0.68rem, 0.8vw, 0.78rem)',
-                letterSpacing: '0.22em',
-                textTransform: 'uppercase',
-                color: '#9a2918',
-                margin: '0 0 18px',
-                opacity: 0.8,
-              }}>
-                The Taste Finder
-              </p>
-              <div style={{ fontFamily: "'Genova', sans-serif", fontWeight: 400, lineHeight: 0.95 }}>
-                <span style={{ display: 'block', fontSize: 'clamp(3rem, 5.5vw, 5.5rem)', color: '#9a2918' }}>
-                  Which
-                </span>
-                <span style={{
-                  display: 'inline-block',
-                  fontSize: 'clamp(3rem, 5.5vw, 5.5rem)',
-                  backgroundColor: '#ee5974',
-                  color: '#f2f1ea',
-                  padding: '4px 16px 8px',
-                  margin: '8px 0',
+            >
+              {/* Left panel — cream with editorial headline */}
+              <div className="tsf-curtain-text">
+                <p style={{
+                  fontFamily: "'Genova', sans-serif",
+                  fontSize: '0.68rem',
+                  letterSpacing: '0.22em',
+                  textTransform: 'uppercase',
+                  color: '#9a2918',
+                  margin: '0 0 14px',
+                  opacity: 0.7,
                 }}>
-                  archetype
-                </span>
-                <span style={{ display: 'block', fontSize: 'clamp(3rem, 5.5vw, 5.5rem)', color: '#9a2918', marginTop: 8 }}>
-                  is yours?
-                </span>
+                  The Taste Finder
+                </p>
+                <div style={{ fontFamily: "'Genova', sans-serif", fontWeight: 400, lineHeight: 0.95, margin: '0 0 18px' }}>
+                  <span style={{ display: 'block', fontSize: 'clamp(2.2rem, 3.2vw, 3.4rem)', color: '#9a2918' }}>
+                    Which
+                  </span>
+                  <span style={{
+                    display: 'inline-block',
+                    fontSize: 'clamp(2.2rem, 3.2vw, 3.4rem)',
+                    backgroundColor: '#ee5974',
+                    color: '#f2f1ea',
+                    padding: '3px 12px 6px',
+                    margin: '6px 0',
+                  }}>
+                    archetype
+                  </span>
+                  <span style={{ display: 'block', fontSize: 'clamp(2.2rem, 3.2vw, 3.4rem)', color: '#9a2918', marginTop: 6 }}>
+                    is yours?
+                  </span>
+                </div>
+                <a
+                  href="/find-my-flavor"
+                  style={{
+                    fontFamily: "'Genova', sans-serif",
+                    fontSize: '0.72rem',
+                    letterSpacing: '0.18em',
+                    textTransform: 'uppercase',
+                    color: '#9a2918',
+                    textDecoration: 'none',
+                    borderBottom: '1px solid rgba(154,41,24,0.38)',
+                    paddingBottom: 3,
+                    width: 'fit-content',
+                  }}
+                >
+                  TAKE THE QUIZ →
+                </a>
+              </div>
+
+              {/* Right panel — chaff photo, full-bleed within its panel */}
+              <div className="tsf-curtain-photo">
+                <img
+                  src={coffeePic13}
+                  alt=""
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    objectPosition: 'center',
+                    display: 'block',
+                  }}
+                />
               </div>
             </div>
-          </div>
 
-        </div>
-      </div>
+          </div>{/* /stripe zone */}
+        </div>{/* /sticky viewport */}
+      </div>{/* /scroll container */}
 
-      {/* Footer — normal document flow, AFTER the 400vh container.             */}
-      {/* It cannot enter the viewport until the entire scroll container ends.  */}
+      {/* Footer — normal document flow after the 400vh container.           */}
+      {/* Cannot enter the viewport until the full scroll + hold is done.   */}
       <Footer />
     </>
   );
