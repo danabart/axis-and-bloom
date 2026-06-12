@@ -1497,6 +1497,23 @@ BEGIN
 
 END $v4$;
 
+-- Archetype dimension vectors — one row per archetype × dimension.
+-- Joins archetype_vector to archetype (by FK) and dimensions (via md5(name)::uuid match).
+-- Columns: archetype, dimension, min_score, ideal_score, max_score
+DROP VIEW IF EXISTS v_archetype_vectors;
+CREATE VIEW v_archetype_vectors AS
+SELECT
+  a.name                        AS archetype,
+  d.name                        AS dimension,
+  d.display_order,
+  av.min_score,
+  av.ideal_score,
+  av.max_score
+FROM archetype_vector av
+JOIN archetype  a ON a.id = av.archetype_id
+JOIN dimensions d ON md5(d.name)::uuid = av.dimension_id
+ORDER BY a.name, d.display_order;
+
 -- Newsletter subscriber list — all signups with source label, ordered newest first.
 -- Columns: email, first_name, source (human-readable label), subscribed, signed_up_at
 DROP VIEW IF EXISTS v_newsletter_subscribers;
