@@ -18,6 +18,7 @@ import newsletterRouter from './routes/newsletter.js';
 import adminRouter from './routes/admin.js';
 import coffeesRouter from './routes/coffees.js';
 import householdRouter from './routes/household.js';
+import axisRouter from './routes/axis.js';
 
 const app = express();
 const PORT = process.env.PORT ?? 4000;
@@ -72,6 +73,7 @@ app.use('/api/newsletter', newsletterRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/coffees', coffeesRouter);
 app.use('/api/household', householdRouter);
+app.use('/api/axis', axisRouter);
 
 async function start() {
   try {

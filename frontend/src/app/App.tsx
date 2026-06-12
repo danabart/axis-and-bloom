@@ -19,6 +19,7 @@ import AdminRoasters from './components/admin/AdminRoasters';
 import AdminCupping from './components/admin/AdminCupping';
 import CoffeesPage from './components/CoffeesPage';
 import JoinHousehold from './components/JoinHousehold';
+import TheAxis from './components/TheAxis';
 
 const PRELAUNCH = import.meta.env.VITE_PRELAUNCH_MODE === 'true';
 
@@ -64,6 +65,7 @@ export default function App() {
             <Route path="/profile" element={<Profile />} />
             <Route path="/coffees" element={<CoffeesPage />} />
             <Route path="/join-household" element={<JoinHousehold />} />
+            <Route path="/the-axis" element={<TheAxis />} />
           </Route>
         </Routes>
       </BrowserRouter>

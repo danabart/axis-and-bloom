@@ -451,6 +451,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | GET | `/api/coffees/:id/flavor-wheel` | No | Flavor descriptors for one coffee aggregated from all 3 sources via `v_collaborative_flavor_wheel` |
 | GET | `/api/coffees/:id/dimensions` | No | Numeric dimension ranges (avg min/max per dimension) from all cupping scores + session overall notes |
 | GET | `/api/coffees/:id/ai-summary` | No | Returns cached `ai_summary` from DB if it exists; otherwise generates via Claude haiku, stores, and returns |
+| GET | `/api/axis/vectors` | No | Returns all archetype dimension vectors from `v_archetype_vectors`, grouped by archetype name — used by the `/the-axis` methodology page |
 | POST | `/api/household/create` | Yes | Create a household; caller becomes admin; fails if already in a household |
 | GET | `/api/household/mine` | Yes | Returns current household with members + pending invitations, or `null` if not in one |
 | POST | `/api/household/invite` | Yes (admin) | Invite a member by email — sends branded Resend email with join link; cancels any prior pending invite for the same email |
@@ -964,7 +965,7 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 
 ---
 
-## Current State (as of 2026-06-11)
+## Current State (as of 2026-06-12)
 
 | Component | Status |
 |---|---|
@@ -980,6 +981,7 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 | Marketing email / Mailchimp | ✅ Active — new signups synced to Mailchimp audience with FNAME merge field; credentials in Secret Manager; API key trimmed in code to guard against whitespace |
 | Claude AI chat | ✅ Wired up, API key in Secret Manager |
 | Claude recommendations | ✅ 6 mode-specific prompts in `getRecommendation()` — primary_only, primary_plus_introduce_secondary, primary_plus_active_secondary, primary_plus_note_secondary, primary_as_starting_point, ai_agent |
+| The Axis page (`/the-axis`) | ✅ Public methodology page — three sections: parallel coordinates chart (all archetypes × 7 dimensions), interactive dimension bars + custom SVG radar chart, static match plot + tier cards. All dimension data DB-driven via `GET /api/axis/vectors`. "The Axis" added to main nav. |
 | Our Coffees page (`/coffees`) | ✅ Redesigned — three content layers: (1) AI editorial content (surprise angle, three-voice story, collapsible AI note — all cached in SQL + Firestore); (2) personalization layer for logged-in users (compatibility badge + dimension comparison text); (3) data layer (dimension bars + bubble cloud). Compare mode: ⇄ toggle shows two coffees side-by-side with dimension diff bars. |
 | Shopify | ⚠️ Stubbed — waiting for roastery account |
 | Pre-launch page | ✅ Live — full-screen curtain at axisandbloom.com; email + first name capture saves to DB + Mailchimp; bypass via `?preview=true` |

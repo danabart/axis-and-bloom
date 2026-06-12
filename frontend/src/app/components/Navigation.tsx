@@ -38,6 +38,7 @@ export default function Navigation() {
 
       {/* Primary nav — hidden on mobile */}
       <div className="hidden md:flex" style={{ alignItems: 'center', gap: 'clamp(20px, 3vw, 40px)' }}>
+        <Link to="/the-axis" style={NAV_LINK} className="hover:opacity-50 transition-opacity">The Axis</Link>
         <Link to="/how-it-works" style={NAV_LINK} className="hover:opacity-50 transition-opacity">How it works</Link>
         <Link to="/find-my-flavor" style={NAV_LINK} className="hover:opacity-50 transition-opacity">Find my flavor</Link>
         <Link to="/coffees" style={NAV_LINK} className="hover:opacity-50 transition-opacity">Our coffees</Link>
