@@ -14,16 +14,16 @@ JOIN (VALUES
   -- Chocolate & Nutty
   ('Chocolate & Nutty', md5('Sweetness')::uuid,      8.0,  7.0,  9.0),
   ('Chocolate & Nutty', md5('Acidity')::uuid,         4.0,  3.0,  5.0),
-  ('Chocolate & Nutty', md5('Bitterness')::uuid,     10.0,  9.0, 11.0),
+  ('Chocolate & Nutty', md5('Bitterness')::uuid,      9.0,  7.0, 11.0),
   ('Chocolate & Nutty', md5('Body')::uuid,           11.5, 10.0, 13.0),
-  ('Chocolate & Nutty', md5('Texture')::uuid,         4.0,  3.0,  5.0),
+  ('Chocolate & Nutty', md5('Texture')::uuid,         9.0,  7.0, 11.0),
   ('Chocolate & Nutty', md5('Savory / Depth')::uuid,  8.0,  7.0,  9.0),
   ('Chocolate & Nutty', md5('Finish Length')::uuid,  10.0,  9.0, 11.0),
 
   -- Balanced & Sweet
   ('Balanced & Sweet',  md5('Sweetness')::uuid,      10.0,  9.0, 11.0),
   ('Balanced & Sweet',  md5('Acidity')::uuid,         7.0,  6.0,  8.0),
-  ('Balanced & Sweet',  md5('Bitterness')::uuid,      7.0,  6.0,  8.0),
+  ('Balanced & Sweet',  md5('Bitterness')::uuid,      3.5,  2.0,  5.0),
   ('Balanced & Sweet',  md5('Body')::uuid,            8.0,  7.0,  9.0),
   ('Balanced & Sweet',  md5('Texture')::uuid,         3.0,  2.0,  4.0),
   ('Balanced & Sweet',  md5('Savory / Depth')::uuid,  5.0,  4.0,  6.0),
@@ -34,14 +34,14 @@ JOIN (VALUES
   ('Earthy',            md5('Acidity')::uuid,         4.0,  3.0,  5.0),
   ('Earthy',            md5('Bitterness')::uuid,      9.0,  8.0, 10.0),
   ('Earthy',            md5('Body')::uuid,           13.0, 12.0, 14.0),
-  ('Earthy',            md5('Texture')::uuid,        10.0,  9.0, 11.0),
+  ('Earthy',            md5('Texture')::uuid,        12.5, 10.0, 15.0),
   ('Earthy',            md5('Savory / Depth')::uuid, 13.0, 12.0, 14.0),
   ('Earthy',            md5('Finish Length')::uuid,  13.0, 12.0, 14.0),
 
   -- Floral
   ('Floral',            md5('Sweetness')::uuid,       8.0,  7.0,  9.0),
   ('Floral',            md5('Acidity')::uuid,        11.0, 10.0, 12.0),
-  ('Floral',            md5('Bitterness')::uuid,      4.0,  3.0,  5.0),
+  ('Floral',            md5('Bitterness')::uuid,      2.5,  1.0,  4.0),
   ('Floral',            md5('Body')::uuid,            6.0,  5.0,  7.0),
   ('Floral',            md5('Texture')::uuid,         3.0,  2.0,  4.0),
   ('Floral',            md5('Savory / Depth')::uuid,  4.0,  3.0,  5.0),
@@ -50,7 +50,7 @@ JOIN (VALUES
   -- Fruity
   ('Fruity',            md5('Sweetness')::uuid,       8.0,  7.0,  9.0),
   ('Fruity',            md5('Acidity')::uuid,        13.0, 12.0, 14.0),
-  ('Fruity',            md5('Bitterness')::uuid,      6.0,  5.0,  7.0),
+  ('Fruity',            md5('Bitterness')::uuid,      2.5,  1.0,  4.0),
   ('Fruity',            md5('Body')::uuid,            6.0,  5.0,  7.0),
   ('Fruity',            md5('Texture')::uuid,         4.0,  3.0,  5.0),
   ('Fruity',            md5('Savory / Depth')::uuid,  4.0,  3.0,  5.0),
