@@ -78,21 +78,6 @@ function ParallelChart({ archetypes }: { archetypes: ArchetypeData[] }) {
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }}>
-      {/* Horizontal grid lines */}
-      {[0, 5, 10, 15].map(v => (
-        <line key={v}
-          x1={pl} y1={yOf(v)} x2={W - pr} y2={yOf(v)}
-          stroke="rgba(0,0,0,0.06)" strokeWidth={1}
-        />
-      ))}
-      {/* Y axis ticks */}
-      {[0, 5, 10, 15].map(v => (
-        <text key={v}
-          x={pl - 4} y={yOf(v) + 3.5}
-          textAnchor="end" fontSize={9} fill="rgba(0,0,0,0.28)"
-          fontFamily="Arial,sans-serif"
-        >{v}</text>
-      ))}
       {/* Vertical axes */}
       {DIM_ORDER.map((dim, i) => {
         const x = xOf(i);
@@ -110,7 +95,7 @@ function ParallelChart({ archetypes }: { archetypes: ArchetypeData[] }) {
               fill={isFinish ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.45)'}
               fontFamily="Arial,sans-serif"
             >
-              {isFinish ? 'Finish*' : DIM_SHORT[dim]}
+              {DIM_SHORT[dim]}
             </text>
           </g>
         );
@@ -168,15 +153,6 @@ function RadarChartSvg({ archetypes }: { archetypes: ArchetypeData[] }) {
           />
         );
       })}
-      {/* Grid value labels along y-axis (i=0, pointing up) */}
-      {[5, 10, 15].map(v => (
-        <text key={v}
-          x={cx + 4}
-          y={cy - (v / 15) * r + 3}
-          fontSize={8} fill="rgba(0,0,0,0.28)"
-          fontFamily="Arial,sans-serif"
-        >{v}</text>
-      ))}
       {/* Spokes */}
       {DIM_ORDER.map((dim, i) => {
         const isFinish = dim === 'Finish Length';
@@ -219,7 +195,7 @@ function RadarChartSvg({ archetypes }: { archetypes: ArchetypeData[] }) {
             fontSize={10} fontFamily="Arial,sans-serif"
             fill={isFinish ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.5)'}
           >
-            {isFinish ? 'Finish*' : DIM_SHORT[dim]}
+            {DIM_SHORT[dim]}
           </text>
         );
       })}
@@ -247,7 +223,7 @@ function DimBars({ arch }: { arch: ArchetypeData }) {
               color: isFinish ? 'rgba(0,0,0,0.38)' : 'rgba(0,0,0,0.55)',
               fontFamily: 'Arial,sans-serif',
             }}>
-              {dimName}{isFinish ? '*' : ''}
+              {dimName}
             </span>
             <div style={{
               flex: 1, height: 6,
@@ -270,18 +246,9 @@ function DimBars({ arch }: { arch: ArchetypeData }) {
                 opacity: isFinish ? 0.5 : 1,
               }} />
             </div>
-            <span style={{
-              fontSize: 11, width: 36, textAlign: 'right', flexShrink: 0,
-              color: 'rgba(0,0,0,0.38)', fontFamily: 'Arial,sans-serif',
-            }}>
-              {d.min}–{d.max}
-            </span>
           </div>
         );
       })}
-      <p style={{ fontSize: 10.5, color: 'rgba(0,0,0,0.35)', margin: '2px 0 0', fontFamily: 'Arial,sans-serif' }}>
-        * Finish Length is measured in seconds; other dimensions on 0–15
-      </p>
     </div>
   );
 }
@@ -452,7 +419,7 @@ export default function TheAxis() {
             Step 2 — the seven dimensions
           </p>
           <h2 style={{ fontSize: 20, fontWeight: 400, margin: '0 0 1.5rem', color: '#9a2918' }}>
-            A coffee is a vector, not a word.
+            A coffee is a shape, not a word.
           </h2>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
@@ -556,43 +523,17 @@ export default function TheAxis() {
               </div>
 
               <div style={{
-                background: 'rgba(242,241,234,0.7)',
-                borderRadius: 12, padding: '1.1rem',
+                background: '#f2f1ea',
+                border: '0.5px solid rgba(154,41,24,0.15)',
+                borderRadius: 12, padding: '1.1rem 1.25rem',
               }}>
-                <p style={{ fontSize: 12.5, fontWeight: 500, margin: '0 0 10px', color: '#9a2918' }}>
-                  Distance between two vectors
+                <p style={{ fontSize: 12.5, fontWeight: 500, margin: '0 0 6px', color: '#9a2918' }}>
+                  How matching works
                 </p>
-                <div style={{
-                  textAlign: 'center',
-                  fontSize: 17, fontFamily: 'Georgia, serif',
-                  color: '#9a2918', letterSpacing: '0.03em',
-                  padding: '8px 0',
-                }}>
-                  d(u,&thinsp;c)&nbsp;=&nbsp;&#8730;<span style={{
-                    borderTop: '1.5px solid currentColor',
-                    padding: '1px 6px 0',
-                  }}>
-                    &thinsp;
-                    <span style={{ fontSize: 13 }}>&#8721;</span>
-                    <sub style={{ fontSize: 9 }}>i=1..7</sub>
-                    &thinsp;(u<sub>i</sub>&minus;c<sub>i</sub>)<sup>2</sup>
-                    &thinsp;
-                  </span>
-                </div>
-                <div style={{
-                  display: 'flex', justifyContent: 'center', gap: 14,
-                  fontSize: 11, color: 'rgba(0,0,0,0.4)',
-                  marginTop: 8, flexWrap: 'wrap',
-                }}>
-                  <span>u = your vector</span>
-                  <span>c = coffee's vector</span>
-                  <span>7 dimensions</span>
-                </div>
-                <p style={{
-                  fontSize: 12.5, color: 'rgba(0,0,0,0.5)',
-                  margin: '10px 0 0', lineHeight: 1.55, textAlign: 'center',
-                }}>
-                  d&nbsp;=&nbsp;0 means perfect alignment. Both vectors are recalibrated as feedback accumulates.
+                <p style={{ fontSize: 13, color: 'rgba(0,0,0,0.5)', margin: 0, lineHeight: 1.65 }}>
+                  We calculate the flavor distance between your profile and every coffee in our catalogue.
+                  The closer the match, the more precisely the coffee fits who you are as a drinker —
+                  across every dimension at once.
                 </p>
               </div>
             </div>
