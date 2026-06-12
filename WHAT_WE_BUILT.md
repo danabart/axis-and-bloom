@@ -451,7 +451,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | GET | `/api/coffees/:id/flavor-wheel` | No | Flavor descriptors for one coffee aggregated from all 3 sources via `v_collaborative_flavor_wheel` |
 | GET | `/api/coffees/:id/dimensions` | No | Numeric dimension ranges (avg min/max per dimension) from all cupping scores + session overall notes |
 | GET | `/api/coffees/:id/ai-summary` | No | Returns cached `ai_summary` from DB if it exists; otherwise generates via Claude haiku, stores, and returns |
-| GET | `/api/axis/vectors` | No | Returns all archetype dimension vectors from `v_archetype_vectors`, grouped by archetype name — used by the `/the-axis` methodology page |
+| GET | `/api/axis/vectors` | No | Returns all archetype dimension vectors from `v_archetype_vectors`, grouped by archetype name — endpoint exists and is ready; not currently fetched by the public `/the-axis` page (which is static) |
 | POST | `/api/household/create` | Yes | Create a household; caller becomes admin; fails if already in a household |
 | GET | `/api/household/mine` | Yes | Returns current household with members + pending invitations, or `null` if not in one |
 | POST | `/api/household/invite` | Yes (admin) | Invite a member by email — sends branded Resend email with join link; cancels any prior pending invite for the same email |
@@ -981,7 +981,7 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 | Marketing email / Mailchimp | ✅ Active — new signups synced to Mailchimp audience with FNAME merge field; credentials in Secret Manager; API key trimmed in code to guard against whitespace |
 | Claude AI chat | ✅ Wired up, API key in Secret Manager |
 | Claude recommendations | ✅ 6 mode-specific prompts in `getRecommendation()` — primary_only, primary_plus_introduce_secondary, primary_plus_active_secondary, primary_plus_note_secondary, primary_as_starting_point, ai_agent |
-| The Axis page (`/the-axis`) | ✅ Public methodology page — three sections: parallel coordinates chart (all archetypes × 7 dimensions), interactive dimension bars + custom SVG radar chart, static match plot + tier cards. All dimension data DB-driven via `GET /api/axis/vectors`. "The Axis" added to main nav. |
+| The Axis page (`/the-axis`) | ✅ Public methodology page — fully static, no API calls. Three sections: (1) illustrative parallel coordinates showing five distinct flavor shapes across 7 labeled axes (hand-coded concept values, not real archetype calibration); (2) data sources explainer + 7-dimension glossary + "How matching works" card; (3) static match plot + tier cards. Real archetype calibration data is intentionally withheld from the public page — `GET /api/axis/vectors` is ready for authenticated/post-quiz use when needed. "The Axis" added to main nav. |
 | Our Coffees page (`/coffees`) | ✅ Redesigned — three content layers: (1) AI editorial content (surprise angle, three-voice story, collapsible AI note — all cached in SQL + Firestore); (2) personalization layer for logged-in users (compatibility badge + dimension comparison text); (3) data layer (dimension bars + bubble cloud). Compare mode: ⇄ toggle shows two coffees side-by-side with dimension diff bars. |
 | Shopify | ⚠️ Stubbed — waiting for roastery account |
 | Pre-launch page | ✅ Live — full-screen curtain at axisandbloom.com; email + first name capture saves to DB + Mailchimp; bypass via `?preview=true` |
@@ -1689,6 +1689,24 @@ Note: Earthy has no cupping sessions yet so its values are expert judgement only
 **Two new views added:**
 - `v_archetype_vectors` — archetype × dimension with target min/ideal/max
 - `v_archetype_dimension_comparison` — same plus `avg_actual` (average cupping score for coffees assigned to that archetype) and `coffee_count`. Bridges `archetype_enum` → `archetype.name` via CASE since the two systems use different identifiers.
+
+---
+
+### 51. The Axis page — methodology page at `/the-axis`
+**Change**: Added a new public page explaining the flavor-matching methodology. Three sections:
+
+1. **The Flavor Space** — illustrative parallel coordinates chart showing five distinct flavor profiles across seven labeled sensory dimensions. Five colored lines, hand-coded concept values (not real archetype calibration data).
+2. **The Seven Dimensions** — data sources explainer (trained cuppers / roastery notes / customer feedback), "profiles evolve continuously" callout, a 7-dimension glossary (name + one-line description each), and a "How matching works" prose card.
+3. **Matching** — static conceptual match plot (SVG) showing a "You" dot surrounded by the five archetype dots at varying distances, with wheelhouse/exploring/outside-comfort-zone rings and arrow tiers. Three tier cards explain each tier without technical notation.
+
+**Files**:
+- `backend/src/routes/axis.ts` — `GET /api/axis/vectors`, returns archetype vectors from `v_archetype_vectors` grouped by archetype
+- `frontend/src/app/components/TheAxis.tsx` — fully static page component (no API calls)
+- `backend/src/index.ts` — route registered as `app.use('/api/axis', axisRouter)`
+- `App.tsx` — `/the-axis` route added inside `PublicLayout`
+- `Navigation.tsx` — "The Axis" added as first nav link
+
+**Competitive information decision**: The page is intentionally static. Real archetype calibration data (the dimension vectors) is not exposed publicly — `GET /api/axis/vectors` is ready for authenticated/post-quiz use when that feature is built. The illustrative chart shows the *concept* of dimension-based profiling without revealing actual archetype positions in flavor space.
 
 ---
 
