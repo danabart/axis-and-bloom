@@ -852,7 +852,10 @@ ON CONFLICT (category, value) DO UPDATE
 INSERT INTO archetype (name, description) VALUES
   ('Chocolate & Nutty', 'A rich, bold, and comforting profile. You know exactly what you like and you like it satisfying.'),
   ('Balanced & Sweet',  'A smooth, round, and approachable profile. You want coffee that''s easy, pleasant, and never surprising.'),
-  ('Fruity',            'A vibrant, curious, and layered profile. You''re here for the experience, not just the caffeine.')
+  ('Fruity',            'A vibrant, curious, and layered profile. You''re here for the experience, not just the caffeine.'),
+  ('Earthy',            'A deep, complex, and grounded profile. You''re drawn to coffees with weight, structure, and earthy depth.'),
+  ('Floral',            'A delicate, aromatic, and tea-like profile. You''re drawn to brightness and floral complexity over body and bitterness.'),
+  ('Experimental',      'A boundary-pushing, discovery-first profile. You seek the unexpected — unusual processing, exotic origins, unconventional flavors.')
 ON CONFLICT (name) DO NOTHING;
 
 -- Rename 'Fruity & Complex' → 'Fruity' in existing DBs (idempotent)
