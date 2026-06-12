@@ -5,8 +5,8 @@ import NewsletterModal from './NewsletterModal';
 
 export default function PublicLayout() {
   const { pathname } = useLocation();
-  // Home page renders Footer inside TasteFinderSection (behind the curtain reveal)
-  const footerInPage = pathname === '/';
+  // These pages render Footer inside TasteFinderSection (behind the curtain reveal)
+  const footerInPage = pathname === '/' || pathname === '/about';
 
   return (
     <div className="flex flex-col min-h-screen">

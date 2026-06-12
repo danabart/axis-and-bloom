@@ -45,11 +45,17 @@ export function TasteFinderSection() {
         return;
       }
 
-      // ── Scrolling up while curtain is open → close curtain (pre-hold only) ─
-      if (e.deltaY < 0 && acc.current > 0 && !footerShown.current) {
+      // ── Scrolling up while curtain is open → close curtain ───────────────
+      // Works at any stage (including after footer has appeared).
+      // When curtain reaches 0, footer is hidden so the section resets cleanly.
+      if (e.deltaY < 0 && acc.current > 0) {
         e.preventDefault();
         acc.current = Math.max(0, acc.current + e.deltaY);
         setProgress(Math.min(1, acc.current / WHEEL_OPEN));
+        if (acc.current === 0 && footerShown.current) {
+          footerShown.current = false;
+          setFooterVisible(false);
+        }
       }
     };
 
@@ -57,7 +63,6 @@ export function TasteFinderSection() {
     let touchY = 0;
     const onTouchStart = (e: TouchEvent) => { touchY = e.touches[0].clientY; };
     const onTouchMove  = (e: TouchEvent) => {
-      if (footerShown.current) return;
       const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
       const atBottom  = window.scrollY >= maxScroll - 3;
       const delta     = touchY - e.touches[0].clientY;
@@ -67,7 +72,7 @@ export function TasteFinderSection() {
         e.preventDefault();
         acc.current = Math.min(WHEEL_HOLD, acc.current + delta * 2.2);
         setProgress(Math.min(1, acc.current / WHEEL_OPEN));
-        if (acc.current >= WHEEL_HOLD) {
+        if (acc.current >= WHEEL_HOLD && !footerShown.current) {
           footerShown.current = true;
           setFooterVisible(true);
         }
@@ -75,6 +80,10 @@ export function TasteFinderSection() {
         e.preventDefault();
         acc.current = Math.max(0, acc.current + delta * 2.2);
         setProgress(Math.min(1, acc.current / WHEEL_OPEN));
+        if (acc.current === 0 && footerShown.current) {
+          footerShown.current = false;
+          setFooterVisible(false);
+        }
       }
     };
 
