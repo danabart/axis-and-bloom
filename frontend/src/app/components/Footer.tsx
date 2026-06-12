@@ -4,10 +4,10 @@ import logoMark from '../../design/LOGO/LogoQuarter1.svg'
 export default function Footer() {
   return (
     <footer style={{ backgroundColor: '#f2f1ea', borderTop: '1px solid rgba(154,41,24,0.1)' }}>
-      <div style={{ padding: 'clamp(56px, 7vw, 96px) clamp(24px, 5vw, 64px) clamp(32px, 4vw, 48px)', maxWidth: 1200, margin: '0 auto' }}>
+      <div style={{ padding: 'clamp(28px, 3.5vw, 44px) clamp(24px, 5vw, 64px) clamp(16px, 2vw, 24px)', maxWidth: 1200, margin: '0 auto' }}>
 
         {/* Top row: brand + nav columns */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'clamp(40px, 6vw, 80px)', marginBottom: 'clamp(40px, 5vw, 64px)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'clamp(20px, 4vw, 48px)', marginBottom: 'clamp(20px, 3vw, 32px)' }}>
 
           {/* Brand */}
           <div>
@@ -23,7 +23,7 @@ export default function Footer() {
           {/* Explore */}
           <div>
             <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.65rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 16px', opacity: 0.6 }}>Explore</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {[
                 { to: '/find-my-flavor', label: 'Find my flavor' },
                 { to: '/coffees', label: 'Our coffees' },
@@ -40,7 +40,7 @@ export default function Footer() {
           {/* Company */}
           <div>
             <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.65rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 16px', opacity: 0.6 }}>Company</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {[
                 { to: '/about', label: 'About' },
                 { href: '#contact', label: 'Contact' },
@@ -56,7 +56,7 @@ export default function Footer() {
         </div>
 
         {/* Bottom: copyright + legal */}
-        <div style={{ borderTop: '1px solid rgba(154,41,24,0.1)', paddingTop: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ borderTop: '1px solid rgba(154,41,24,0.1)', paddingTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <span style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.75rem', color: '#7b7f80', letterSpacing: '0.04em' }}>
             © 2026 Axis & Bloom
           </span>
