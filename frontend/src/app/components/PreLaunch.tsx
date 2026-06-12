@@ -10,7 +10,7 @@ const inputStyle: React.CSSProperties = {
   borderBottom: `1.5px solid ${BRAND}`,
   background: 'transparent',
   padding: '14px 0',
-  fontFamily: 'Genova, sans-serif',
+  fontFamily: 'Arial, sans-serif',
   fontSize: '1rem',
   color: BRAND,
   outline: 'none',
@@ -42,7 +42,7 @@ export default function PreLaunch() {
         .pl-input::placeholder {
           color: ${BRAND};
           opacity: 0.45;
-          font-family: Genova, sans-serif;
+          font-family: Arial, sans-serif;
         }
         @media (max-width: 767px) {
           .pl-logo {
@@ -55,7 +55,7 @@ export default function PreLaunch() {
 
       <div
         className="fixed inset-0 z-[9999] flex flex-col md:flex-row"
-        style={{ fontFamily: 'Genova, sans-serif' }}
+        style={{ fontFamily: 'Arial, sans-serif' }}
       >
         {/* ── Left — logo ───────────────────────────────────────── */}
         <div
@@ -87,7 +87,7 @@ export default function PreLaunch() {
 
             {/* Tagline */}
             <p style={{
-              fontFamily: 'Genova, sans-serif',
+              fontFamily: 'Arial, sans-serif',
               fontWeight: 400,
               color: BRAND,
               fontSize: '1rem',
@@ -105,7 +105,7 @@ export default function PreLaunch() {
             {/* Form / confirmation */}
             {submitted ? (
               <p style={{
-                fontFamily: 'Genova, sans-serif',
+                fontFamily: 'Arial, sans-serif',
                 fontWeight: 400,
                 color: BRAND,
                 fontSize: '0.95rem',
@@ -141,7 +141,7 @@ export default function PreLaunch() {
                   style={{
                     background: 'none',
                     border: 'none',
-                    fontFamily: 'Genova, sans-serif',
+                    fontFamily: 'Arial, sans-serif',
                     fontWeight: 400,
                     fontSize: '0.95rem',
                     color: BRAND,

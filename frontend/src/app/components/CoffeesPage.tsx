@@ -429,7 +429,7 @@ export default function CoffeesPage() {
       <div className="pt-32 pb-16 px-8 md:px-16 max-w-[1400px] mx-auto">
         <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7 }}>
           <p className="uppercase tracking-widest text-xs mb-3" style={{ color: '#b05642' }}>Our Coffees</p>
-          <h1 className="text-5xl md:text-7xl font-normal leading-tight mb-4" style={{ color: '#b05642', fontFamily: 'Genova, sans-serif' }}>
+          <h1 className="text-5xl md:text-7xl font-normal leading-tight mb-4" style={{ color: '#b05642', fontFamily: 'Arial, sans-serif' }}>
             Flavor Intelligence
           </h1>
           <p className="text-lg font-light max-w-xl" style={{ color: '#8a8070' }}>
@@ -489,7 +489,7 @@ export default function CoffeesPage() {
                 <div className="mb-8 pb-6 border-b border-stone-200">
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div className="flex-1">
-                      <h2 className="text-3xl font-normal" style={{ color: '#b05642', fontFamily: 'Genova, sans-serif' }}>
+                      <h2 className="text-3xl font-normal" style={{ color: '#b05642', fontFamily: 'Arial, sans-serif' }}>
                         {selectedCoffee.name}
                       </h2>
                       <div className="flex flex-wrap gap-3 mt-2 text-sm" style={{ color: '#8a8070' }}>

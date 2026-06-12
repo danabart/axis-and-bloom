@@ -121,7 +121,7 @@ export default function Home() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 1, delay: 0.3, ease: [0.16, 1, 0.3, 1] }}
-            style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(3rem, 6.5vw, 6.5rem)', fontWeight: 400, lineHeight: 1.0, margin: '0 0 28px', letterSpacing: '-0.02em' }}
+            style={{ fontFamily: "Arial, sans-serif", fontSize: 'clamp(3rem, 6.5vw, 6.5rem)', fontWeight: 400, lineHeight: 1.0, margin: '0 0 28px', letterSpacing: '-0.02em' }}
           >
             <span style={{ display: 'block', color: '#9a2918' }}>Coffee,</span>
             <span style={{ display: 'block', margin: '6px 0' }}>
@@ -138,13 +138,13 @@ export default function Home() {
           >
             <Link
               to="/find-my-flavor"
-              style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.78rem', fontWeight: 400, color: '#f2f1ea', letterSpacing: '0.18em', textTransform: 'uppercase', textDecoration: 'none', borderBottom: '1px solid rgba(242,241,234,0.65)', paddingBottom: 4 }}
+              style={{ fontFamily: "Arial, sans-serif", fontSize: '0.78rem', fontWeight: 400, color: '#f2f1ea', letterSpacing: '0.18em', textTransform: 'uppercase', textDecoration: 'none', borderBottom: '1px solid rgba(242,241,234,0.65)', paddingBottom: 4 }}
             >
               Find my flavor →
             </Link>
             <Link
               to="/shop"
-              style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.78rem', fontWeight: 400, color: 'rgba(242,241,234,0.52)', letterSpacing: '0.18em', textTransform: 'uppercase', textDecoration: 'none', borderBottom: '1px solid rgba(242,241,234,0.22)', paddingBottom: 4 }}
+              style={{ fontFamily: "Arial, sans-serif", fontSize: '0.78rem', fontWeight: 400, color: 'rgba(242,241,234,0.52)', letterSpacing: '0.18em', textTransform: 'uppercase', textDecoration: 'none', borderBottom: '1px solid rgba(242,241,234,0.22)', paddingBottom: 4 }}
             >
               Explore coffees →
             </Link>
@@ -158,7 +158,7 @@ export default function Home() {
           {...fadeUp(0)}
           style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', textAlign: 'right', maxWidth: 600, marginLeft: 'auto' }}
         >
-          <p style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(2rem, 3.6vw, 3.6rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.15, margin: 0 }}>
+          <p style={{ fontFamily: "Arial, sans-serif", fontSize: 'clamp(2rem, 3.6vw, 3.6rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.15, margin: 0 }}>
             Whose palate are we<br />profiling today?
           </p>
           <form onSubmit={handleProfileStart} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '100%', marginTop: 36 }}>
@@ -169,11 +169,11 @@ export default function Home() {
               name="name"
               required
               placeholder="Enter your name"
-              style={{ width: '100%', maxWidth: 400, background: 'none', border: 'none', borderBottom: '1px solid rgba(154,41,24,0.42)', borderRadius: 0, outline: 'none', fontFamily: "'Genova', sans-serif", fontSize: '1.25rem', fontWeight: 400, color: '#9a2918', padding: '10px 0', textAlign: 'right' }}
+              style={{ width: '100%', maxWidth: 400, background: 'none', border: 'none', borderBottom: '1px solid rgba(154,41,24,0.42)', borderRadius: 0, outline: 'none', fontFamily: "Arial, sans-serif", fontSize: '1.25rem', fontWeight: 400, color: '#9a2918', padding: '10px 0', textAlign: 'right' }}
             />
             <button
               type="submit"
-              style={{ marginTop: 22, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: "'Genova', sans-serif", fontSize: '0.88rem', fontWeight: 400, color: '#9a2918', letterSpacing: '0.22em', textTransform: 'uppercase', textDecoration: 'underline', textUnderlineOffset: '4px', textDecorationColor: 'rgba(154,41,24,0.32)', transition: 'text-decoration-color 0.2s' }}
+              style={{ marginTop: 22, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: "Arial, sans-serif", fontSize: '0.88rem', fontWeight: 400, color: '#9a2918', letterSpacing: '0.22em', textTransform: 'uppercase', textDecoration: 'underline', textUnderlineOffset: '4px', textDecorationColor: 'rgba(154,41,24,0.32)', transition: 'text-decoration-color 0.2s' }}
               onMouseEnter={e => e.currentTarget.style.textDecorationColor = '#9a2918'}
               onMouseLeave={e => e.currentTarget.style.textDecorationColor = 'rgba(154,41,24,0.32)'}
             >
@@ -187,10 +187,10 @@ export default function Home() {
       <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(56px, 8vw, 88px) clamp(24px, 4vw, 64px)' }}>
         {/* Header — left-aligned with the blocks (no centering wrapper) */}
         <motion.div {...fadeUp(0)} style={{ marginBottom: 'clamp(28px, 4vw, 44px)' }}>
-          <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 12px' }}>
+          <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 12px' }}>
             The Flavor Map
           </p>
-          <h2 style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.5rem, 2.2vw, 2.2rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.15, margin: 0 }}>
+          <h2 style={{ fontFamily: "Arial, sans-serif", fontSize: 'clamp(1.5rem, 2.2vw, 2.2rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.15, margin: 0 }}>
             Every palate has a direction.
           </h2>
         </motion.div>
@@ -213,19 +213,19 @@ export default function Home() {
             >
                 {/* Top: number + headline + body */}
                 <div>
-                  <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.6rem', letterSpacing: '0.2em', color: '#ebebe3', margin: '0 0 10px', opacity: 0.65 }}>
+                  <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.6rem', letterSpacing: '0.2em', color: '#ebebe3', margin: '0 0 10px', opacity: 0.65 }}>
                     {arch.num}
                   </p>
-                  <h3 style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1rem, 1.5vw, 1.3rem)', fontWeight: 400, color: '#ebebe3', margin: '0 0 14px', lineHeight: 1.2 }}>
+                  <h3 style={{ fontFamily: "Arial, sans-serif", fontSize: 'clamp(1rem, 1.5vw, 1.3rem)', fontWeight: 400, color: '#ebebe3', margin: '0 0 14px', lineHeight: 1.2 }}>
                     {arch.name}
                   </h3>
-                  <p style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(0.72rem, 0.9vw, 0.8rem)', color: '#ebebe3', lineHeight: 1.65, margin: 0, opacity: 0.88 }}>
+                  <p style={{ fontFamily: "Arial, sans-serif", fontSize: 'clamp(0.72rem, 0.9vw, 0.8rem)', color: '#ebebe3', lineHeight: 1.65, margin: 0, opacity: 0.88 }}>
                     {arch.body}
                   </p>
                 </div>
                 {/* Bottom: keywords */}
                 <p style={{
-                  fontFamily: "'Genova', sans-serif",
+                  fontFamily: "Arial, sans-serif",
                   fontSize: '0.58rem',
                   letterSpacing: '0.13em',
                   textTransform: 'uppercase',
@@ -260,7 +260,7 @@ export default function Home() {
           position: 'absolute',
           bottom: 'clamp(32px, 5vh, 56px)',
           left: 'clamp(32px, 6vw, 64px)',
-          fontFamily: "'Genova', sans-serif",
+          fontFamily: "Arial, sans-serif",
           fontSize: 'clamp(1.05rem, 1.9vw, 1.45rem)',
           fontWeight: 400,
           color: '#f2f1ea',
@@ -280,12 +280,12 @@ export default function Home() {
         <div style={{ maxWidth: 1100, margin: '0 auto' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 'clamp(40px, 5vw, 64px)', flexWrap: 'wrap', gap: 16 }}>
             <motion.div {...fadeUp(0)}>
-              <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 10px' }}>The Collection</p>
-              <h2 style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(1.8rem, 3vw, 2.8rem)', fontWeight: 400, color: '#9a2918', margin: 0, lineHeight: 1.1 }}>Find your bag.</h2>
+              <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 10px' }}>The Collection</p>
+              <h2 style={{ fontFamily: "Arial, sans-serif", fontSize: 'clamp(1.8rem, 3vw, 2.8rem)', fontWeight: 400, color: '#9a2918', margin: 0, lineHeight: 1.1 }}>Find your bag.</h2>
             </motion.div>
             <Link
               to="/shop"
-              style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.78rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,0.35)', paddingBottom: 4, alignSelf: 'flex-end' }}
+              style={{ fontFamily: "Arial, sans-serif", fontSize: '0.78rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,0.35)', paddingBottom: 4, alignSelf: 'flex-end' }}
             >
               Shop all coffees →
             </Link>
@@ -296,7 +296,7 @@ export default function Home() {
                 <div style={{ backgroundColor: '#e5e5da', aspectRatio: '3/4', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginBottom: 14 }}>
                   <img src={bag.img} alt={bag.label} style={{ width: '70%', height: '80%', objectFit: 'contain', display: 'block' }} />
                 </div>
-                <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.8rem', letterSpacing: '0.1em', color: '#9a2918', margin: 0, textAlign: 'center' }}>{bag.label}</p>
+                <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.8rem', letterSpacing: '0.1em', color: '#9a2918', margin: 0, textAlign: 'center' }}>{bag.label}</p>
               </motion.div>
             ))}
           </div>
@@ -306,10 +306,10 @@ export default function Home() {
       {/* ━━━ 6. HUMAN + AI — quiet editorial statement ━━━━━━━━━━━━━━━━━━━━━━ */}
       <section style={{ backgroundColor: '#f2f1ea', borderTop: '1px solid rgba(154,41,24,0.18)', padding: 'clamp(48px, 6vw, 72px) clamp(32px, 6vw, 96px)' }}>
         <div style={{ maxWidth: 520, margin: '0 auto', textAlign: 'center' }}>
-          <motion.p {...fadeUp(0)} style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.72rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 18px' }}>
+          <motion.p {...fadeUp(0)} style={{ fontFamily: "Arial, sans-serif", fontSize: '0.72rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 18px' }}>
             Guided by AI. Curated by taste.
           </motion.p>
-          <motion.p {...fadeUp(0.12)} style={{ fontFamily: "'Genova', sans-serif", fontSize: 'clamp(0.88rem, 1.4vw, 1rem)', fontWeight: 400, color: '#7b7f80', lineHeight: 1.85, margin: 0 }}>
+          <motion.p {...fadeUp(0.12)} style={{ fontFamily: "Arial, sans-serif", fontSize: 'clamp(0.88rem, 1.4vw, 1rem)', fontWeight: 400, color: '#7b7f80', lineHeight: 1.85, margin: 0 }}>
             Every match is shaped by real coffees, sensory language, and human judgment.
           </motion.p>
         </div>

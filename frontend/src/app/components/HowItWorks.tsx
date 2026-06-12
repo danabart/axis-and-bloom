@@ -5,7 +5,7 @@ import { TasteFinderSection } from './TasteFinderSection';
 
 export default function HowItWorks() {
   return (
-    <div className="w-full bg-[#f2f1ea]" style={{ fontFamily: '"Genova", sans-serif' }}>
+    <div className="w-full bg-[#f2f1ea]" style={{ fontFamily: 'Arial, sans-serif' }}>
       <div className="w-full min-h-screen flex flex-col md:flex-row relative z-10">
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1, duration: 1 }} className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 hidden md:flex flex-col items-center gap-2 text-[#838686]">
           <span className="uppercase text-xs tracking-[0.2em]">Scroll</span>

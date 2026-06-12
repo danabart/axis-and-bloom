@@ -13,16 +13,16 @@ export default function Footer() {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
               <img src={logoMark} alt="" style={{ height: 16, width: 'auto' }} />
-              <span style={{ fontFamily: "'Genova', sans-serif", color: '#9a2918', fontSize: 16, letterSpacing: '0.1em', fontWeight: 400 }}>AXIS & BLOOM</span>
+              <span style={{ fontFamily: "Arial, sans-serif", color: '#9a2918', fontSize: 16, letterSpacing: '0.1em', fontWeight: 400 }}>AXIS & BLOOM</span>
             </div>
-            <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.875rem', color: '#7b7f80', lineHeight: 1.7, margin: 0, maxWidth: 260 }}>
+            <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.875rem', color: '#7b7f80', lineHeight: 1.7, margin: 0, maxWidth: 260 }}>
               Coffee matched to your personal flavor. Discover what feels like you.
             </p>
           </div>
 
           {/* Explore */}
           <div>
-            <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.65rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 16px', opacity: 0.6 }}>Explore</p>
+            <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.65rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 16px', opacity: 0.6 }}>Explore</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {[
                 { to: '/find-my-flavor', label: 'Find my flavor' },
@@ -30,7 +30,7 @@ export default function Footer() {
                 { to: '/shop', label: 'Shop' },
                 { to: '/how-it-works', label: 'How it works' },
               ].map(l => (
-                <Link key={l.to} to={l.to} style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.875rem', color: '#9a2918', textDecoration: 'none', opacity: 0.75 }} className="hover:opacity-100 transition-opacity">
+                <Link key={l.to} to={l.to} style={{ fontFamily: "Arial, sans-serif", fontSize: '0.875rem', color: '#9a2918', textDecoration: 'none', opacity: 0.75 }} className="hover:opacity-100 transition-opacity">
                   {l.label}
                 </Link>
               ))}
@@ -39,7 +39,7 @@ export default function Footer() {
 
           {/* Company */}
           <div>
-            <p style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.65rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 16px', opacity: 0.6 }}>Company</p>
+            <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.65rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 16px', opacity: 0.6 }}>Company</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {[
                 { to: '/about', label: 'About' },
@@ -47,8 +47,8 @@ export default function Footer() {
                 { href: '#instagram', label: 'Instagram' },
               ].map(l => (
                 l.to
-                  ? <Link key={l.to} to={l.to} style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.875rem', color: '#9a2918', textDecoration: 'none', opacity: 0.75 }} className="hover:opacity-100 transition-opacity">{l.label}</Link>
-                  : <a key={l.href} href={l.href} style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.875rem', color: '#9a2918', textDecoration: 'none', opacity: 0.75 }} className="hover:opacity-100 transition-opacity">{l.label}</a>
+                  ? <Link key={l.to} to={l.to} style={{ fontFamily: "Arial, sans-serif", fontSize: '0.875rem', color: '#9a2918', textDecoration: 'none', opacity: 0.75 }} className="hover:opacity-100 transition-opacity">{l.label}</Link>
+                  : <a key={l.href} href={l.href} style={{ fontFamily: "Arial, sans-serif", fontSize: '0.875rem', color: '#9a2918', textDecoration: 'none', opacity: 0.75 }} className="hover:opacity-100 transition-opacity">{l.label}</a>
               ))}
             </div>
           </div>
@@ -57,12 +57,12 @@ export default function Footer() {
 
         {/* Bottom: copyright + legal */}
         <div style={{ borderTop: '1px solid rgba(154,41,24,0.1)', paddingTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-          <span style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.75rem', color: '#7b7f80', letterSpacing: '0.04em' }}>
+          <span style={{ fontFamily: "Arial, sans-serif", fontSize: '0.75rem', color: '#7b7f80', letterSpacing: '0.04em' }}>
             © 2026 Axis & Bloom
           </span>
           <div style={{ display: 'flex', gap: 24 }}>
             {[{ href: '#privacy', label: 'Privacy' }, { href: '#terms', label: 'Terms' }].map(l => (
-              <a key={l.href} href={l.href} style={{ fontFamily: "'Genova', sans-serif", fontSize: '0.75rem', color: '#7b7f80', textDecoration: 'none', opacity: 0.7 }} className="hover:opacity-100 transition-opacity">
+              <a key={l.href} href={l.href} style={{ fontFamily: "Arial, sans-serif", fontSize: '0.75rem', color: '#7b7f80', textDecoration: 'none', opacity: 0.7 }} className="hover:opacity-100 transition-opacity">
                 {l.label}
               </a>
             ))}

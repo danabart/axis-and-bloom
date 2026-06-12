@@ -153,7 +153,7 @@ export function TasteFinderSection() {
 
           <div className="tsf-text-col">
             <p style={{
-              fontFamily: "'Genova', sans-serif",
+              fontFamily: "Arial, sans-serif",
               fontSize: 'clamp(0.95rem, 1.35vw, 1.25rem)',
               fontWeight: 400,
               color: '#9a2918',
@@ -168,7 +168,7 @@ export function TasteFinderSection() {
             <a
               href="/find-my-flavor"
               style={{
-                fontFamily: "'Genova', sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: '0.85rem',
                 letterSpacing: '0.22em',
                 textTransform: 'uppercase',
@@ -198,7 +198,7 @@ export function TasteFinderSection() {
           {/* Left cream panel — "Which archetype is yours?" on cream, not on chaff */}
           <div className="tsf-curtain-text">
             <p style={{
-              fontFamily: "'Genova', sans-serif",
+              fontFamily: "Arial, sans-serif",
               fontSize: '0.68rem',
               letterSpacing: '0.22em',
               textTransform: 'uppercase',
@@ -208,7 +208,7 @@ export function TasteFinderSection() {
             }}>
               The Taste Finder
             </p>
-            <div style={{ fontFamily: "'Genova', sans-serif", fontWeight: 400, lineHeight: 0.95, margin: '0 0 16px' }}>
+            <div style={{ fontFamily: "Arial, sans-serif", fontWeight: 400, lineHeight: 0.95, margin: '0 0 16px' }}>
               <span style={{ display: 'block', fontSize: 'clamp(1.9rem, 2.8vw, 3rem)', color: '#9a2918' }}>
                 Which
               </span>
@@ -229,7 +229,7 @@ export function TasteFinderSection() {
             <a
               href="/find-my-flavor"
               style={{
-                fontFamily: "'Genova', sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: '0.72rem',
                 letterSpacing: '0.18em',
                 textTransform: 'uppercase',

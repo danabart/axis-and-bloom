@@ -37,8 +37,8 @@
 }
 
 @theme inline {
-  /* Override Tailwind's default sans stack so font-sans utility uses Genova */
-  --font-sans: 'Genova', ui-sans-serif, system-ui, sans-serif;
+  /* Override Tailwind's default sans stack so font-sans utility uses Arial */
+  --font-sans: Arial, ui-sans-serif, system-ui, sans-serif;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -96,12 +96,12 @@
 
   html {
     font-size: var(--font-size);
-    font-family: 'Genova', ui-sans-serif, system-ui, sans-serif;
+    font-family: Arial, ui-sans-serif, system-ui, sans-serif;
   }
 
   body {
     @apply bg-background text-foreground;
-    font-family: 'Genova', ui-sans-serif, system-ui, sans-serif;
+    font-family: Arial, ui-sans-serif, system-ui, sans-serif;
   }
 
   h1 { font-size: var(--text-2xl); font-weight: var(--font-weight-medium); line-height: 1.5; }

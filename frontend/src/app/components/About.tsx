@@ -83,7 +83,7 @@ export default function About() {
         >
           {/* Eyebrow */}
           <p style={{
-            fontFamily: "'Genova', sans-serif",
+            fontFamily: "Arial, sans-serif",
             fontSize: '0.7rem',
             letterSpacing: '0.28em',
             textTransform: 'uppercase',
@@ -95,7 +95,7 @@ export default function About() {
 
           {/* Display heading — terracotta, cinematic scale */}
           <h1 style={{
-            fontFamily: "'Genova', sans-serif",
+            fontFamily: "Arial, sans-serif",
             fontSize: 'clamp(3rem, 6.5vw, 6.5rem)',
             fontWeight: 400,
             lineHeight: 1.0,
@@ -109,7 +109,7 @@ export default function About() {
 
           {/* Sub-heading — "personal" highlighted in pink */}
           <p style={{
-            fontFamily: "'Genova', sans-serif",
+            fontFamily: "Arial, sans-serif",
             fontSize: 'clamp(0.95rem, 1.4vw, 1.15rem)',
             fontWeight: 400,
             color: 'rgba(242,241,234,0.78)',
@@ -138,14 +138,14 @@ export default function About() {
 
             <motion.div {...fadeUp(0)} style={{ flex: '0 0 auto', width: 'clamp(200px, 26%, 280px)' }}>
               <p style={{
-                fontFamily: "'Genova', sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: '0.68rem', letterSpacing: '0.24em',
                 textTransform: 'uppercase', color: '#9a2918', margin: '0 0 20px',
               }}>
                 What we are
               </p>
               <h2 style={{
-                fontFamily: "'Genova', sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: 'clamp(1.7rem, 2.6vw, 2.6rem)',
                 fontWeight: 400, color: '#9a2918', lineHeight: 1.1, margin: 0,
               }}>
@@ -155,7 +155,7 @@ export default function About() {
 
             <motion.div {...fadeUp(0.15)} style={{ flex: '1 1 380px', maxWidth: 640 }}>
               <div style={{
-                fontFamily: "'Genova', sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: 'clamp(0.95rem, 1.2vw, 1.05rem)',
                 fontWeight: 400, color: '#7b7f80', lineHeight: 1.9,
               }}>
@@ -194,7 +194,7 @@ export default function About() {
         <div style={{ maxWidth: 1160, margin: '0 auto' }}>
 
           <motion.p {...fadeUp(0)} style={{
-            fontFamily: "'Genova', sans-serif",
+            fontFamily: "Arial, sans-serif",
             fontSize: '0.68rem', letterSpacing: '0.24em',
             textTransform: 'uppercase', color: '#9a2918',
             margin: '0 0 clamp(48px, 7vw, 80px)',
@@ -209,7 +209,7 @@ export default function About() {
             <motion.div {...fadeUp(0)} style={{ flex: '1 1 280px' }}>
               {/* Ghost display word */}
               <p style={{
-                fontFamily: "'Genova', sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: 'clamp(5rem, 9vw, 9rem)',
                 fontWeight: 400,
                 color: '#9a2918',
@@ -224,7 +224,7 @@ export default function About() {
               </p>
               {/* Headline */}
               <p style={{
-                fontFamily: "'Genova', sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: 'clamp(1.4rem, 2.2vw, 2rem)',
                 fontWeight: 400,
                 color: '#9a2918',
@@ -237,7 +237,7 @@ export default function About() {
               <div style={{ width: 40, height: 1, backgroundColor: '#9a2918', opacity: 0.22, margin: '0 0 20px' }} />
               {/* Body */}
               <p style={{
-                fontFamily: "'Genova', sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: 'clamp(0.9rem, 1.15vw, 1rem)',
                 fontWeight: 400,
                 color: '#7b7f80',
@@ -270,7 +270,7 @@ export default function About() {
               </div>
               {/* Ghost display word */}
               <p style={{
-                fontFamily: "'Genova', sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: 'clamp(5rem, 9vw, 9rem)',
                 fontWeight: 400,
                 color: '#9a2918',
@@ -285,7 +285,7 @@ export default function About() {
               </p>
               {/* Headline */}
               <p style={{
-                fontFamily: "'Genova', sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: 'clamp(1.4rem, 2.2vw, 2rem)',
                 fontWeight: 400,
                 color: '#9a2918',
@@ -298,7 +298,7 @@ export default function About() {
               <div style={{ width: 40, height: 1, backgroundColor: '#9a2918', opacity: 0.22, margin: '0 0 20px' }} />
               {/* Body */}
               <p style={{
-                fontFamily: "'Genova', sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: 'clamp(0.9rem, 1.15vw, 1rem)',
                 fontWeight: 400,
                 color: '#7b7f80',
@@ -326,14 +326,14 @@ export default function About() {
             {/* Left: meta + photo */}
             <motion.div {...fadeUp(0)} style={{ flex: '0 0 auto', width: 'clamp(220px, 32%, 360px)' }}>
               <p style={{
-                fontFamily: "'Genova', sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: '0.68rem', letterSpacing: '0.24em',
                 textTransform: 'uppercase', color: '#9a2918', margin: '0 0 20px',
               }}>
                 A note from us
               </p>
               <p style={{
-                fontFamily: "'Genova', sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: 'clamp(1.1rem, 1.5vw, 1.35rem)',
                 fontWeight: 400, color: '#9a2918', lineHeight: 1.4, margin: '0 0 16px',
               }}>
@@ -341,7 +341,7 @@ export default function About() {
               </p>
               <div style={{ width: 32, height: 1, backgroundColor: '#9a2918', opacity: 0.25, margin: '0 0 14px' }} />
               <p style={{
-                fontFamily: "'Genova', sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: '0.7rem', letterSpacing: '0.12em',
                 textTransform: 'uppercase', color: '#9a2918', opacity: 0.55,
                 lineHeight: 1.7, margin: '0 0 clamp(28px, 4vw, 44px)',
@@ -370,7 +370,7 @@ export default function About() {
             {/* Right: letter copy */}
             <motion.div {...fadeUp(0.15)} style={{ flex: '1 1 380px', maxWidth: 620 }}>
               <div style={{
-                fontFamily: "'Genova', sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: 'clamp(0.95rem, 1.2vw, 1.05rem)',
                 fontWeight: 400, color: '#7b7f80', lineHeight: 1.9,
               }}>
@@ -415,7 +415,7 @@ export default function About() {
           left: 'clamp(32px, 6vw, 96px)',
         }}>
           <p style={{
-            fontFamily: "'Genova', sans-serif",
+            fontFamily: "Arial, sans-serif",
             fontSize: 'clamp(1.05rem, 2vw, 1.55rem)',
             fontWeight: 400,
             color: '#f2f1ea',
@@ -447,14 +447,14 @@ export default function About() {
           }}>
             <motion.div {...fadeUp(0)} style={{ flex: '1 1 320px' }}>
               <p style={{
-                fontFamily: "'Genova', sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: '0.68rem', letterSpacing: '0.24em',
                 textTransform: 'uppercase', color: '#9a2918', margin: '0 0 16px',
               }}>
                 The flavor system
               </p>
               <h2 style={{
-                fontFamily: "'Genova', sans-serif",
+                fontFamily: "Arial, sans-serif",
                 fontSize: 'clamp(1.6rem, 2.6vw, 2.4rem)',
                 fontWeight: 400, color: '#9a2918', lineHeight: 1.15, margin: 0,
               }}>
@@ -463,7 +463,7 @@ export default function About() {
             </motion.div>
             <motion.p {...fadeUp(0.1)} style={{
               flex: '1 1 280px', maxWidth: 400,
-              fontFamily: "'Genova', sans-serif",
+              fontFamily: "Arial, sans-serif",
               fontSize: 'clamp(0.88rem, 1.1vw, 0.98rem)',
               fontWeight: 400, color: '#7b7f80', lineHeight: 1.85, margin: 0,
             }}>
@@ -486,7 +486,7 @@ export default function About() {
                 }}
               >
                 <span style={{
-                  fontFamily: "'Genova', sans-serif",
+                  fontFamily: "Arial, sans-serif",
                   fontSize: '0.58rem',
                   letterSpacing: '0.1em',
                   textTransform: 'uppercase',
