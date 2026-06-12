@@ -369,6 +369,8 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | `v_collaborative_flavor_wheel` | All descriptor observations per coffee with source label (`internal`, `roastery`, `client`). Columns: `coffee_id`, `coffee_name`, `cupping_note_id`, `wheel_category`, `wheel_subcategory`, `descriptor`, `source`, `intensity`. No extra JOINs needed — names are already resolved. One row per observation; GROUP BY coffee + descriptor to aggregate. |
 | `v_quiz_scoring_matrix` | Full scoring matrix — one row per (question, answer, archetype). Columns: `quiz_version`, `q_number`, `q_text`, `a_number` (generated via ROW_NUMBER), `answer_text`, `q_weight`, `ans_weight`, `archetype`, `ans_score`. Lambda formula: `q_weight × ans_weight × ans_score`. Uses `DROP VIEW IF EXISTS` + `CREATE VIEW` (not `CREATE OR REPLACE`) to allow column reordering. |
 | `v_newsletter_subscribers` | All newsletter signups with human-readable source label. Columns: `email`, `first_name`, `source` (e.g. `Pre-Launch Popup`), `subscribed`, `signed_up_at`. Ordered newest first. |
+| `v_archetype_vectors` | Archetype dimension targets — one row per archetype × dimension. Columns: `archetype`, `dimension`, `display_order`, `min_score`, `ideal_score`, `max_score`. Joins `archetype_vector` to `archetype` (FK) and `dimensions` (via `md5(name)::uuid`). |
+| `v_archetype_dimension_comparison` | Target vs actual — same as `v_archetype_vectors` plus `avg_actual` (average of actual cupping scores for coffees assigned to that archetype) and `coffee_count`. Bridges `archetype_enum` → `archetype.name` via CASE. `avg_actual` is NULL for archetypes with no cupping data yet. |
 
 ### Dimensions (seeded, 12 rows)
 
@@ -1494,6 +1496,15 @@ ORDER BY mentions DESC;
 SELECT * FROM v_quiz_scoring_matrix;
 ```
 
+### Archetype vectors — targets vs actual cupping scores
+```sql
+-- Targets only
+SELECT * FROM v_archetype_vectors;
+
+-- Targets vs actual cupping averages
+SELECT * FROM v_archetype_dimension_comparison;
+```
+
 ### Newsletter subscriber list (pre-launch leads)
 ```sql
 SELECT * FROM v_newsletter_subscribers;
@@ -1646,6 +1657,23 @@ The archetype and confidence dropdowns on the Coffees page are **not** in `looku
 **Problem**: The site took 10–15 seconds to load — the browser progress bar would stall at ~50% before the pre-launch page appeared.
 **Cause**: `frontend/vite.config.ts` had a custom `inlineRasterImages` plugin that base64-encoded every `.png` and `.jpg` import directly into the JS bundle. With 35+ images in the full asset library, the bundle grew to ~10 MB. The browser had to fully download and parse the entire JS file before rendering a single pixel — even on the lightweight pre-launch page.
 **Fix**: Removed the `inlineRasterImages` plugin entirely. Vite's native image handling takes over — imported images are output as separate hashed files (e.g. `A_B03-BhqGBCC4.png`) and the browser loads them in parallel, lazily, as needed. No component code changes were needed — `import beansPhoto from '...'` still works; the import now returns a URL instead of a base64 data string. Page load dropped to ~1–2 seconds.
+
+---
+
+### 50. Archetype dimension vectors populated
+**Change**: Populated `archetype_vector` with target dimension ranges for all 5 archetypes (Chocolate & Nutty, Balanced & Sweet, Earthy, Floral, Fruity) across 7 numeric dimensions (Sweetness, Acidity, Bitterness, Body, Texture, Savory/Depth, Finish Length). Source: `backend/src/dimensions/dimensions-vector.JPG`.
+
+**Seed file**: `backend/src/db/seeds/archetype_vectors.sql` — 35 rows, fully idempotent. Run manually in Cloud SQL Studio.
+
+**dimension_id**: The `archetype_vector.dimension_id` column is UUID (FK to the old `dimension` table was removed in issue #19). Since the `dimensions` table now uses SERIAL integers, dimension UUIDs are derived deterministically via `md5(dimension_name)::uuid`. This makes the seed idempotent and consistent without requiring a schema change.
+
+**ideal_score**: Currently the midpoint of min–max (placeholder). Will be calibrated to expert judgement or data-driven averages as cupping data grows.
+
+**Schema fix**: Added Earthy, Floral, and Experimental to the `archetype` seed in `schema.sql` — they previously existed only in the production DB (inserted manually). Fresh installs now get all 6 archetypes automatically.
+
+**Two new views added:**
+- `v_archetype_vectors` — archetype × dimension with target min/ideal/max
+- `v_archetype_dimension_comparison` — same plus `avg_actual` (average cupping score for coffees assigned to that archetype) and `coffee_count`. Bridges `archetype_enum` → `archetype.name` via CASE since the two systems use different identifiers.
 
 ---
 
