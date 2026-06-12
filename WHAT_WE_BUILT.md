@@ -1669,6 +1669,19 @@ The archetype and confidence dropdowns on the Coffees page are **not** in `looku
 
 **ideal_score**: Currently the midpoint of min–max (placeholder). Will be calibrated to expert judgement or data-driven averages as cupping data grows.
 
+**Calibration pass (2026-06-12):** Six values corrected after review:
+
+| Archetype | Dimension | Before | After |
+|---|---|---|---|
+| Balanced & Sweet | Bitterness | 6–8 | 2–5 |
+| Chocolate & Nutty | Bitterness | 9–11 | 7–11 |
+| Chocolate & Nutty | Texture | 3–5 | 7–11 |
+| Earthy | Texture | 9–11 | 10–15 |
+| Floral | Bitterness | 3–5 | 1–4 |
+| Fruity | Bitterness | 5–7 | 1–4 |
+
+Note: Earthy has no cupping sessions yet so its values are expert judgement only — `avg_actual` will be NULL in `v_archetype_dimension_comparison` until an Earthy coffee is added to a session.
+
 **Schema fix**: Added Earthy, Floral, and Experimental to the `archetype` seed in `schema.sql` — they previously existed only in the production DB (inserted manually). Fresh installs now get all 6 archetypes automatically.
 
 **Two new views added:**
