@@ -11,15 +11,26 @@ import Footer from './Footer';
   - The footer is NOT in the DOM until the hold phase completes (footerShown ref).
     When footer appears, page scrollHeight grows and the user can naturally scroll to it.
 
-  Stage timeline (driven by accumulated deltaY):
-    0 → WHEEL_OPEN (480):  curtain slides left, progress 0→1
-    480 → WHEEL_HOLD (700): hold — curtain at 100%, nothing moves
-    700:                    footer added to DOM, wheel interception ends
+  Stage timeline — acc range [-CLOSE_HOLD, WHEEL_HOLD]:
+
+  Opening (acc 0 → WHEEL_HOLD):
+    0 → WHEEL_OPEN (480):   curtain slides open, progress 0→1
+    480 → WHEEL_HOLD (700): open hold — curtain at 100%, nothing moves
+    700:                    footer added to DOM
+
+  Closing (acc 0 → -CLOSE_HOLD):
+    0 → -CLOSE_HOLD (-180): close hold — curtain sits fully closed,
+                             page scroll still intercepted for a beat
+    -180:                   interception released, page scrolls up normally
+
+  Re-opening: when acc < 0 and user scrolls down, acc resets to 0
+  immediately so the curtain starts moving without a dead zone.
 */
 
-const STRIPE_H = 360;       // section visual height in px
-const WHEEL_OPEN = 480;     // deltaY to reach progress = 1 (curtain fully open)
-const WHEEL_HOLD = 700;     // deltaY before footer appears (hold = 700 − 480 = 220)
+const STRIPE_H        = 360;  // section visual height in px
+const WHEEL_OPEN      = 480;  // deltaY to fully open curtain (progress 0→1)
+const WHEEL_HOLD      = 700;  // open hold before footer appears (220 units)
+const WHEEL_CLOSE_HOLD = 180; // close hold after curtain shuts before page scrolls up
 
 export function TasteFinderSection() {
   const [progress, setProgress]     = useState(0);
@@ -32,34 +43,37 @@ export function TasteFinderSection() {
       const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
       const atBottom  = window.scrollY >= maxScroll - 3;
 
-      // ── Scrolling down at page bottom → open curtain / hold ──────────────
+      // ── Scrolling down at page bottom → open curtain / open hold ────────
       if (atBottom && e.deltaY > 0 && acc.current < WHEEL_HOLD) {
         e.preventDefault();
+        // Skip the close-hold dead zone on re-open so curtain moves immediately
+        if (acc.current < 0) acc.current = 0;
         acc.current = Math.min(WHEEL_HOLD, acc.current + e.deltaY);
-        setProgress(Math.min(1, acc.current / WHEEL_OPEN));
-
+        setProgress(Math.max(0, Math.min(1, acc.current / WHEEL_OPEN)));
         if (acc.current >= WHEEL_HOLD && !footerShown.current) {
           footerShown.current = true;
-          setFooterVisible(true); // adds footer to DOM; page grows; user can scroll to it
+          setFooterVisible(true);
         }
         return;
       }
 
-      // ── Scrolling up while curtain is open → close curtain ───────────────
-      // Works at any stage (including after footer has appeared).
-      // When curtain reaches 0, footer is hidden so the section resets cleanly.
-      if (e.deltaY < 0 && acc.current > 0) {
+      // ── Scrolling up → close curtain + close hold ────────────────────────
+      // acc goes:  WHEEL_HOLD → 0       (curtain slides closed, progress 1→0)
+      //            0 → -WHEEL_CLOSE_HOLD (close hold: curtain shut, page still intercepted)
+      // After -WHEEL_CLOSE_HOLD: interception released, page scrolls up.
+      if (e.deltaY < 0 && acc.current > -WHEEL_CLOSE_HOLD) {
         e.preventDefault();
-        acc.current = Math.max(0, acc.current + e.deltaY);
-        setProgress(Math.min(1, acc.current / WHEEL_OPEN));
-        if (acc.current === 0 && footerShown.current) {
+        acc.current = Math.max(-WHEEL_CLOSE_HOLD, acc.current + e.deltaY);
+        setProgress(Math.max(0, Math.min(1, acc.current / WHEEL_OPEN)));
+        // Hide footer as soon as curtain is fully closed (acc ≤ 0)
+        if (acc.current <= 0 && footerShown.current) {
           footerShown.current = false;
           setFooterVisible(false);
         }
       }
     };
 
-    // ── Touch (mobile) ────────────────────────────────────────────────────────
+    // ── Touch (mobile) — same logic, 2.2× multiplier for finger velocity ─────
     let touchY = 0;
     const onTouchStart = (e: TouchEvent) => { touchY = e.touches[0].clientY; };
     const onTouchMove  = (e: TouchEvent) => {
@@ -70,17 +84,18 @@ export function TasteFinderSection() {
 
       if (atBottom && delta > 0 && acc.current < WHEEL_HOLD) {
         e.preventDefault();
+        if (acc.current < 0) acc.current = 0;
         acc.current = Math.min(WHEEL_HOLD, acc.current + delta * 2.2);
-        setProgress(Math.min(1, acc.current / WHEEL_OPEN));
+        setProgress(Math.max(0, Math.min(1, acc.current / WHEEL_OPEN)));
         if (acc.current >= WHEEL_HOLD && !footerShown.current) {
           footerShown.current = true;
           setFooterVisible(true);
         }
-      } else if (delta < 0 && acc.current > 0) {
+      } else if (delta < 0 && acc.current > -WHEEL_CLOSE_HOLD) {
         e.preventDefault();
-        acc.current = Math.max(0, acc.current + delta * 2.2);
-        setProgress(Math.min(1, acc.current / WHEEL_OPEN));
-        if (acc.current === 0 && footerShown.current) {
+        acc.current = Math.max(-WHEEL_CLOSE_HOLD, acc.current + delta * 2.2);
+        setProgress(Math.max(0, Math.min(1, acc.current / WHEEL_OPEN)));
+        if (acc.current <= 0 && footerShown.current) {
           footerShown.current = false;
           setFooterVisible(false);
         }
