@@ -1500,6 +1500,7 @@ END $v4$;
 -- Archetype dimension vectors — one row per archetype × dimension.
 -- Joins archetype_vector to archetype (by FK) and dimensions (via md5(name)::uuid match).
 -- Columns: archetype, dimension, min_score, ideal_score, max_score
+DROP VIEW IF EXISTS v_archetype_dimension_comparison;
 DROP VIEW IF EXISTS v_archetype_vectors;
 CREATE VIEW v_archetype_vectors AS
 SELECT
@@ -1512,6 +1513,43 @@ SELECT
 FROM archetype_vector av
 JOIN archetype  a ON a.id = av.archetype_id
 JOIN dimensions d ON md5(d.name)::uuid = av.dimension_id
+ORDER BY a.name, d.display_order;
+
+-- Archetype vector vs actual cupping scores — one row per archetype × dimension.
+-- Shows the target range (from archetype_vector) alongside the average actual score
+-- from cupping data for coffees currently assigned to that archetype.
+-- avg_actual is NULL when no cupping data exists for that archetype yet.
+-- archetype_enum → archetype.name bridged via CASE so no schema change needed.
+DROP VIEW IF EXISTS v_archetype_dimension_comparison;
+CREATE VIEW v_archetype_dimension_comparison AS
+SELECT
+  a.name                                                          AS archetype,
+  d.name                                                          AS dimension,
+  d.display_order,
+  av.min_score                                                    AS target_min,
+  av.ideal_score                                                  AS target_ideal,
+  av.max_score                                                    AS target_max,
+  ROUND(AVG((csv.value_min + csv.value_max) / 2.0), 2)           AS avg_actual,
+  COUNT(DISTINCT aa.coffee_id)                                    AS coffee_count
+FROM archetype_vector av
+JOIN archetype  a ON a.id = av.archetype_id
+JOIN dimensions d ON md5(d.name)::uuid = av.dimension_id
+LEFT JOIN archetype_assignments aa
+  ON aa.superseded_at IS NULL
+  AND CASE aa.archetype
+        WHEN 'chocolate_nutty' THEN 'Chocolate & Nutty'
+        WHEN 'balanced_sweet'  THEN 'Balanced & Sweet'
+        WHEN 'fruity'          THEN 'Fruity'
+        WHEN 'earthy'          THEN 'Earthy'
+        WHEN 'floral'          THEN 'Floral'
+        WHEN 'experimental'    THEN 'Experimental'
+      END = a.name
+LEFT JOIN session_coffees      sc  ON sc.coffee_id = aa.coffee_id
+LEFT JOIN cupping_scores       cs  ON cs.session_coffee_id = sc.id
+LEFT JOIN cupping_score_values csv ON csv.cupping_score_id = cs.id
+                                   AND csv.dimension_id = d.id
+GROUP BY a.name, d.name, d.display_order,
+         av.min_score, av.ideal_score, av.max_score
 ORDER BY a.name, d.display_order;
 
 -- Newsletter subscriber list — all signups with source label, ordered newest first.
