@@ -981,7 +981,7 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 | Marketing email / Mailchimp | ✅ Active — new signups synced to Mailchimp audience with FNAME merge field; credentials in Secret Manager; API key trimmed in code to guard against whitespace |
 | Claude AI chat | ✅ Wired up, API key in Secret Manager |
 | Claude recommendations | ✅ 6 mode-specific prompts in `getRecommendation()` — primary_only, primary_plus_introduce_secondary, primary_plus_active_secondary, primary_plus_note_secondary, primary_as_starting_point, ai_agent |
-| The Axis page (`/the-axis`) | ✅ Public methodology page — fully static, no API calls. Three sections: (1) illustrative parallel coordinates showing five distinct flavor shapes across 7 labeled axes (hand-coded concept values, not real archetype calibration); (2) data sources explainer + 7-dimension glossary + "How matching works" card; (3) static match plot + tier cards. Real archetype calibration data is intentionally withheld from the public page — `GET /api/axis/vectors` is ready for authenticated/post-quiz use when needed. "The Axis" added to main nav. |
+| The Axis page (`/the-axis`) | ✅ Full rebuild from `axis v2.docx` — "Black Box Transparency" strategy. Fully static, no API calls. Hero + 5 sections: The Problem (origin-vs-profile split visual + pull quote), The Inputs (quiz/coffee input cards + 5 archetype cards with mini radar shapes + unlabeled concept parallel coordinates), The Engine (distance plot + 3-point explainer + subscription callout), The Feedback Loop (3 feedback bullets + circular loop diagram + editorial callout), CTA → `/find-my-flavor`. No calibration data exposed. |
 | Our Coffees page (`/coffees`) | ✅ Redesigned — three content layers: (1) AI editorial content (surprise angle, three-voice story, collapsible AI note — all cached in SQL + Firestore); (2) personalization layer for logged-in users (compatibility badge + dimension comparison text); (3) data layer (dimension bars + bubble cloud). Compare mode: ⇄ toggle shows two coffees side-by-side with dimension diff bars. |
 | Shopify | ⚠️ Stubbed — waiting for roastery account |
 | Pre-launch page | ✅ Live — full-screen curtain at axisandbloom.com; email + first name capture saves to DB + Mailchimp; bypass via `?preview=true` |
@@ -1692,21 +1692,30 @@ Note: Earthy has no cupping sessions yet so its values are expert judgement only
 
 ---
 
-### 51. The Axis page — methodology page at `/the-axis`
-**Change**: Added a new public page explaining the flavor-matching methodology. Three sections:
+### 51. The Axis page — full rebuild from `axis v2.docx`
+**Strategy**: "Black Box Transparency" — explain the methodology with authority, reveal none of the calibration. Target audience: coffee enthusiasts + busy professionals. Tone: technical authority, warm confidence, no jargon overload.
 
-1. **The Flavor Space** — illustrative parallel coordinates chart showing five distinct flavor profiles across seven labeled sensory dimensions. Five colored lines, hand-coded concept values (not real archetype calibration data).
-2. **The Seven Dimensions** — data sources explainer (trained cuppers / roastery notes / customer feedback), "profiles evolve continuously" callout, a 7-dimension glossary (name + one-line description each), and a "How matching works" prose card.
-3. **Matching** — static conceptual match plot (SVG) showing a "You" dot surrounded by the five archetype dots at varying distances, with wheelhouse/exploring/outside-comfort-zone rings and arrow tiers. Three tier cards explain each tier without technical notation.
+**Page is fully static** — no API calls, no loading state. `GET /api/axis/vectors` exists and is ready for authenticated/post-quiz use when that feature is built; it is not called by this page.
+
+**Five sections + hero:**
+
+- **Hero** — "Every cup you love has a location. We built a system to find it — and keep finding it, every time." Body copy frames origin-based shopping as guesswork; The Axis changes the question from *where* to *what*.
+- **Section 1 — The Problem** — "Coffee is agriculture. Agriculture is seasonal. Your morning isn't." Two-column layout: copy explaining the origin-consistency problem on the left; SVG split visual (map with location pins → clean radar polygon) + italic pull quote on the right.
+- **Section 2 — The Inputs** — "Mapping your palate. Mapping the coffee. Two profiles. One coordinate system." Two input cards (your profile via quiz / every coffee via SCA scoring), five archetype cards each with name + 2-line sensory description + mini inline radar SVG showing flavor shape, and an unlabeled concept parallel coordinates chart (five colored lines, hand-coded values — no real calibration data exposed).
+- **Section 3 — The Engine** — "Not a filter. A distance." Copy explains multidimensional distance analysis. Three-point explainer: *Proprietary vector mapping · Multidimensional distance analysis · Dynamic rotation*. Subscription callout: "Your subscription doesn't lock you to a coffee. It locks you to a flavor profile." Distance plot SVG (same conceptual match plot — "You" dot + five archetype dots + wheelhouse/exploring rings) on the right.
+- **Section 4 — The Feedback Loop** — "The more you drink, the smarter it gets." Three feedback bullets (Sharpen your profile / Refine the coffee's position / Improve the match for everyone). Circular three-node SVG diagram: "You take the quiz" → "We match & deliver" → "You log tasting notes" → back. Editorial callout: *"Most recommendation engines optimize for clicks. Ours optimizes for your palate."*
+- **Section 5 — CTA** — "Find your archetype." → `Link` to `/find-my-flavor`. Microcopy: "Free to take. No commitment. Your results are yours."
+
+**Copy source**: `backend/src/axis page/axis v2.docx`. All section headings, subheads, body copy, and callout text taken verbatim or near-verbatim from the doc.
+
+**Terminology used consistently** (per doc): "flavor vector", "flavor space", "sensory archetype", "multidimensional distance analysis", "proprietary vector mapping", "Collaborative Flavor Wheel" (capitalized). Avoided: specific scales, "algorithm" casually, "AI"/"machine learning" without framing, "blend" as positive.
 
 **Files**:
-- `backend/src/routes/axis.ts` — `GET /api/axis/vectors`, returns archetype vectors from `v_archetype_vectors` grouped by archetype
-- `frontend/src/app/components/TheAxis.tsx` — fully static page component (no API calls)
+- `frontend/src/app/components/TheAxis.tsx` — fully static page component
+- `backend/src/routes/axis.ts` — `GET /api/axis/vectors` (ready, not used by this page)
 - `backend/src/index.ts` — route registered as `app.use('/api/axis', axisRouter)`
-- `App.tsx` — `/the-axis` route added inside `PublicLayout`
-- `Navigation.tsx` — "The Axis" added as first nav link
-
-**Competitive information decision**: The page is intentionally static. Real archetype calibration data (the dimension vectors) is not exposed publicly — `GET /api/axis/vectors` is ready for authenticated/post-quiz use when that feature is built. The illustrative chart shows the *concept* of dimension-based profiling without revealing actual archetype positions in flavor space.
+- `frontend/src/app/App.tsx` — `/the-axis` route inside `PublicLayout`
+- `frontend/src/app/components/Navigation.tsx` — "The Axis" as first nav link
 
 ---
 
