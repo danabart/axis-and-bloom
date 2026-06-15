@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import coffeePic16 from '../../design/IMAGES/lifestyle/CoffeePic16.jpg';
+import coffeeCup from '../../design/IMAGES/lifestyle/CoffeePic15Vertical.jpg';
 
 const BRAND = '#a33726';
 const CREAM = '#f0ebe1';
@@ -61,16 +61,15 @@ export default function PreLaunch() {
           }}
         >
           <img
-            src={coffeePic16}
+            src={coffeeCup}
             alt=""
             style={{
               position: 'absolute',
               inset: 0,
               width: '100%',
               height: '100%',
-              objectFit: 'contain',
-              objectPosition: 'center',
-              backgroundColor: '#1a1715',
+              objectFit: 'cover',
+              objectPosition: 'center center',
             }}
           />
         </div>
