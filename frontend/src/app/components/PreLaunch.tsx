@@ -56,8 +56,6 @@ export default function PreLaunch() {
           style={{
             position: 'relative',
             overflow: 'hidden',
-            borderRight: '1px solid #a3372620',
-            borderBottom: '1px solid #a3372620',
           }}
         >
           <img
