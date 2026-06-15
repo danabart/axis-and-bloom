@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import logoLines from '../../design/LOGO/LogoLines.svg';
+import coffeePic16 from '../../design/IMAGES/lifestyle/CoffeePic16.jpg';
 
 const BRAND = '#a33726';
 const CREAM = '#f0ebe1';
@@ -44,60 +44,65 @@ export default function PreLaunch() {
           opacity: 0.45;
           font-family: Arial, sans-serif;
         }
-        @media (max-width: 767px) {
-          .pl-logo {
-            max-width: 60vw !important;
-            max-height: calc(45vh - 64px) !important;
-            width: auto !important;
-          }
-        }
       `}</style>
 
       <div
         className="fixed inset-0 z-[9999] flex flex-col md:flex-row"
         style={{ fontFamily: 'Arial, sans-serif' }}
       >
-        {/* ── Left — logo ───────────────────────────────────────── */}
+        {/* ── Left — full-bleed photo ───────────────────────────── */}
         <div
-          className="w-full h-[45vh] md:w-1/2 md:h-full p-6 md:p-0"
+          className="w-full h-[45vh] md:w-1/2 md:h-full"
           style={{
-            backgroundColor: '#f2f1ea',
+            position: 'relative',
+            overflow: 'hidden',
             borderRight: '1px solid #a3372620',
             borderBottom: '1px solid #a3372620',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            overflow: 'hidden',
           }}
         >
           <img
-            src={logoLines}
-            alt="Axis & Bloom"
-            className="pl-logo"
-            style={{ width: '480px', maxWidth: 'min(480px, 85vw)' }}
+            src={coffeePic16}
+            alt=""
+            style={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain',
+              objectPosition: 'center',
+              backgroundColor: '#1a1715',
+            }}
           />
         </div>
 
         {/* ── Right — beige ─────────────────────────────────────── */}
         <div
           className="w-full h-[55vh] md:w-1/2 md:h-full flex items-center justify-center p-10 md:p-20"
-          style={{ backgroundColor: '#deded1' }}
+          style={{ backgroundColor: '#f2f1ea' }}
         >
           <div style={{ width: '100%' }}>
 
             {/* Tagline */}
-            <p style={{
+            <div style={{
               fontFamily: 'Arial, sans-serif',
               fontWeight: 400,
-              color: BRAND,
               fontSize: '1rem',
               letterSpacing: '0.12em',
               textTransform: 'uppercase',
               lineHeight: 1.8,
-              margin: 0,
             }}>
-              Your coffee identity.<br />Coming September 1.
-            </p>
+              <p style={{ color: BRAND, margin: '0 0 10px' }}>
+                Your coffee identity.
+              </p>
+              <span style={{
+                display: 'inline-block',
+                backgroundColor: '#ee5974',
+                color: '#f2f1ea',
+                padding: '5px 14px 7px',
+              }}>
+                Coming September 1.
+              </span>
+            </div>
 
             {/* Separator */}
             <div style={{ height: '1px', backgroundColor: '#a3372640', margin: '32px 0' }} />
