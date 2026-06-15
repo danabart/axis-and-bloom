@@ -75,18 +75,24 @@ const fadeUp = (delay = 0) => ({
 
 export default function Home() {
   const navigate = useNavigate();
-  const heroVideoRef = useRef<HTMLVideoElement>(null);
+  const heroVideoRef      = useRef<HTMLVideoElement>(null);
+  const cinematicVideoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
-    const video = heroVideoRef.current;
-    if (!video) return;
-    const handleTimeUpdate = () => {
-      if (video.duration && video.currentTime >= video.duration - 0.15) {
-        video.currentTime = 0;
-      }
+    const attachLoop = (ref: React.RefObject<HTMLVideoElement | null>) => {
+      const video = ref.current;
+      if (!video) return () => {};
+      const onTimeUpdate = () => {
+        if (video.duration && video.currentTime >= video.duration - 0.15) {
+          video.currentTime = 0;
+        }
+      };
+      video.addEventListener('timeupdate', onTimeUpdate);
+      return () => video.removeEventListener('timeupdate', onTimeUpdate);
     };
-    video.addEventListener('timeupdate', handleTimeUpdate);
-    return () => video.removeEventListener('timeupdate', handleTimeUpdate);
+    const cleanHero      = attachLoop(heroVideoRef);
+    const cleanCinematic = attachLoop(cinematicVideoRef);
+    return () => { cleanHero(); cleanCinematic(); };
   }, []);
 
   const handleProfileStart = (e: React.FormEvent<HTMLFormElement>) => {
@@ -249,7 +255,8 @@ export default function Home() {
       */}
       <section style={{ position: 'relative', height: '65vh', overflow: 'hidden', backgroundColor: '#111110' }}>
         <video
-          autoPlay loop muted playsInline
+          ref={cinematicVideoRef}
+          autoPlay muted playsInline
           poster={coffeePic16}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%' }}
         >
