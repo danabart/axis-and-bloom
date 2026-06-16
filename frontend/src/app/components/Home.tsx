@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { Link, useNavigate } from 'react-router';
 import { TasteFinderSection } from './TasteFinderSection';
@@ -8,6 +8,9 @@ import bag2 from '../../design/IMAGES/bags/TransparentBag02.png'
 import bag3 from '../../design/IMAGES/bags/TransparentBag03.png'
 import placeholderVideo from '../../design/IMAGES/videos/PlaceHolder01.mp4'
 import heroVideo from '../../design/IMAGES/videos/PlaceHolder10.mp4'
+import archetypeFloral   from '../../design/IMAGES/lifestyle/ARCHETYPE_Floral01.png'
+import archetypeBalanced from '../../design/IMAGES/lifestyle/ARCHETYPE_Balanced_Sweet01.png'
+import archetypeSpicy    from '../../design/IMAGES/lifestyle/ARCHETYPE_Spicy_Earthy01.png'
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
@@ -57,9 +60,9 @@ const archetypes = [
 ];
 
 const bags = [
-  { img: bag1, label: 'No. 01 — Floral' },
-  { img: bag2, label: 'No. 02 — Balanced' },
-  { img: bag3, label: 'No. 03 — Bold' },
+  { img: bag1, label: 'No. 01 — Floral',   hoverImg: archetypeFloral   },
+  { img: bag2, label: 'No. 02 — Balanced', hoverImg: archetypeBalanced },
+  { img: bag3, label: 'No. 03 — Bold',     hoverImg: archetypeSpicy    },
 ];
 
 // ─── Shared animation preset ─────────────────────────────────────────────────
@@ -77,6 +80,7 @@ export default function Home() {
   const navigate = useNavigate();
   const heroVideoRef      = useRef<HTMLVideoElement>(null);
   const cinematicVideoRef = useRef<HTMLVideoElement>(null);
+  const [hoveredBag, setHoveredBag] = useState<number | null>(null);
 
   useEffect(() => {
     const attachLoop = (ref: React.RefObject<HTMLVideoElement | null>) => {
@@ -299,11 +303,34 @@ export default function Home() {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'clamp(20px, 3vw, 36px)' }}>
             {bags.map((bag, i) => (
-              <motion.div key={i} {...fadeUp(i * 0.1)} style={{ display: 'flex', flexDirection: 'column' }}>
-                <div style={{ backgroundColor: '#e5e5da', aspectRatio: '3/4', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginBottom: 14 }}>
+              <motion.div
+                key={i}
+                {...fadeUp(i * 0.1)}
+                style={{ display: 'flex', flexDirection: 'column', cursor: 'default' }}
+                onMouseEnter={() => setHoveredBag(i)}
+                onMouseLeave={() => setHoveredBag(null)}
+              >
+                {/* Bag tile */}
+                <div style={{ backgroundColor: '#e5e5da', aspectRatio: '3/4', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                   <img src={bag.img} alt={bag.label} style={{ width: '70%', height: '80%', objectFit: 'contain', display: 'block' }} />
                 </div>
-                <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.8rem', letterSpacing: '0.1em', color: '#9a2918', margin: 0, textAlign: 'center' }}>{bag.label}</p>
+
+                {/* Archetype image — slides in below the tile on hover */}
+                <div style={{
+                  overflow: 'hidden',
+                  maxHeight: hoveredBag === i ? '260px' : '0px',
+                  transition: 'max-height 0.55s cubic-bezier(0.16, 1, 0.3, 1)',
+                  marginTop: 3,
+                }}>
+                  <img
+                    src={bag.hoverImg}
+                    alt=""
+                    style={{ width: '100%', height: '260px', objectFit: 'cover', objectPosition: 'center', display: 'block' }}
+                  />
+                </div>
+
+                {/* Label */}
+                <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.8rem', letterSpacing: '0.1em', color: '#9a2918', margin: '14px 0 0', textAlign: 'center' }}>{bag.label}</p>
               </motion.div>
             ))}
           </div>
