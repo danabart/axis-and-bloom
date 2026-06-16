@@ -14,17 +14,17 @@ import Footer from './Footer';
   Stage timeline — acc range [-CLOSE_HOLD, HOLD_END]:
 
   Opening (scroll down):
-    0   → PRE_OPEN (240):          pre-open wait — nothing moves, page still at bottom
-    240 → PRE_OPEN+OPEN (720):     curtain slides open, progress 0→1
-    720 → HOLD_END (940):          open hold — curtain at 100%, nothing moves
-    940:                           footer added to DOM
+    0    → PRE_OPEN (400):           pre-open wait — nothing moves, page still at bottom
+    400  → PRE_OPEN+OPEN (1800):     curtain slides open, progress 0→1  ← slow / deliberate
+    1800 → HOLD_END (2060):          open hold — curtain at 100%, nothing moves
+    2060:                            footer added to DOM
 
   Closing (scroll up) — mirrors opening in reverse:
-    940 → 720:                     open hold reverse (curtain stays at 100%)
-    720 → 240:                     curtain slides closed, progress 1→0
-    240 → 0:                       pre-open wait reverse (curtain shut, page intercepted)
-    0   → -CLOSE_HOLD (-240):      close hold — curtain stays shut, page still intercepted
-    -240:                          interception released, page scrolls up
+    2060 → 1800:                     open hold reverse (curtain stays at 100%)
+    1800 → 400:                      curtain slides closed, progress 1→0
+    400  → 0:                        pre-open wait reverse (curtain shut, page intercepted)
+    0    → -CLOSE_HOLD (-400):       close hold — curtain stays shut, page still intercepted
+    -400:                            interception released, page scrolls up
 
   Re-opening from close hold: acc snaps to 0 so curtain moves immediately.
 
@@ -32,10 +32,10 @@ import Footer from './Footer';
 */
 
 const STRIPE_H         = 360;
-const WHEEL_PRE_OPEN   = 240;  // wait before curtain starts opening
-const WHEEL_OPEN       = 480;  // curtain travel distance (progress 0→1)
-const WHEEL_HOLD_END   = WHEEL_PRE_OPEN + WHEEL_OPEN + 220; // 940: footer appears
-const WHEEL_CLOSE_HOLD = 240;  // wait after curtain closes before page scrolls up
+const WHEEL_PRE_OPEN   = 400;   // wait before curtain starts opening
+const WHEEL_OPEN       = 1400;  // curtain travel distance — 3× longer = slow, gift-unwrapping pace
+const WHEEL_HOLD_END   = WHEEL_PRE_OPEN + WHEEL_OPEN + 260; // 2060: footer appears
+const WHEEL_CLOSE_HOLD = 400;   // wait after curtain closes before page scrolls up
 
 export function TasteFinderSection() {
   const [progress, setProgress]     = useState(0);
@@ -206,7 +206,7 @@ export function TasteFinderSection() {
             position: 'absolute',
             inset: 0,
             transform: `translateX(${-(progress * 100)}%)`,
-            transition: 'transform 0.08s ease-out',
+            transition: 'transform 0.05s ease-out',
             willChange: 'transform',
             zIndex: 10,
           }}
