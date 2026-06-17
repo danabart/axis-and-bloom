@@ -310,23 +310,25 @@ export default function Home() {
                 onMouseEnter={() => setHoveredBag(i)}
                 onMouseLeave={() => setHoveredBag(null)}
               >
-                {/* Bag tile */}
-                <div style={{ backgroundColor: '#e5e5da', aspectRatio: '3/4', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                  <img src={bag.img} alt={bag.label} style={{ width: '70%', height: '80%', objectFit: 'contain', display: 'block' }} />
-                </div>
-
-                {/* Archetype image — slides in below the tile on hover */}
-                <div style={{
-                  overflow: 'hidden',
-                  maxHeight: hoveredBag === i ? '260px' : '0px',
-                  transition: 'max-height 0.55s cubic-bezier(0.16, 1, 0.3, 1)',
-                  marginTop: 3,
-                }}>
-                  <img
-                    src={bag.hoverImg}
-                    alt=""
-                    style={{ width: '100%', height: '260px', objectFit: 'cover', objectPosition: 'center', display: 'block' }}
-                  />
+                {/* Tile — bag and archetype image crossfade within the same container */}
+                <div style={{ backgroundColor: '#e5e5da', aspectRatio: '3/4', position: 'relative', overflow: 'hidden' }}>
+                  {/* Bag — fades out on hover */}
+                  <div style={{
+                    position: 'absolute', inset: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    opacity: hoveredBag === i ? 0 : 1,
+                    transition: 'opacity 0.45s ease',
+                  }}>
+                    <img src={bag.img} alt={bag.label} style={{ width: '70%', height: '80%', objectFit: 'contain', display: 'block' }} />
+                  </div>
+                  {/* Archetype photo — fades in on hover */}
+                  <div style={{
+                    position: 'absolute', inset: 0,
+                    opacity: hoveredBag === i ? 1 : 0,
+                    transition: 'opacity 0.45s ease',
+                  }}>
+                    <img src={bag.hoverImg} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
+                  </div>
                 </div>
 
                 {/* Label */}
