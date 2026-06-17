@@ -2,7 +2,6 @@ import { useRef, useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { Link, useNavigate } from 'react-router';
 import { TasteFinderSection } from './TasteFinderSection';
-import coffeePic16 from '../../design/IMAGES/lifestyle/CoffeePic16.jpg'
 import bag1 from '../../design/IMAGES/bags/TransparentBag01.png'
 import bag2 from '../../design/IMAGES/bags/TransparentBag02.png'
 import bag3 from '../../design/IMAGES/bags/TransparentBag03.png'
@@ -81,18 +80,23 @@ export default function Home() {
   const heroVideoRef      = useRef<HTMLVideoElement>(null);
   const cinematicVideoRef = useRef<HTMLVideoElement>(null);
   const [hoveredBag, setHoveredBag] = useState<number | null>(null);
+  const [heroReady, setHeroReady]           = useState(false);
+  const [cinematicReady, setCinematicReady] = useState(false);
 
   useEffect(() => {
+    // rAF-based loop: fires every frame (~60fps) so we catch the end before any black frame
     const attachLoop = (ref: React.RefObject<HTMLVideoElement | null>) => {
       const video = ref.current;
       if (!video) return () => {};
-      const onTimeUpdate = () => {
-        if (video.duration && video.currentTime >= video.duration - 0.15) {
+      let rafId: number;
+      const tick = () => {
+        if (video.duration && video.currentTime >= video.duration - 0.3) {
           video.currentTime = 0;
         }
+        rafId = requestAnimationFrame(tick);
       };
-      video.addEventListener('timeupdate', onTimeUpdate);
-      return () => video.removeEventListener('timeupdate', onTimeUpdate);
+      rafId = requestAnimationFrame(tick);
+      return () => cancelAnimationFrame(rafId);
     };
     const cleanHero      = attachLoop(heroVideoRef);
     const cleanCinematic = attachLoop(cinematicVideoRef);
@@ -119,8 +123,8 @@ export default function Home() {
         <video
           ref={heroVideoRef}
           autoPlay muted playsInline
-          poster={coffeePic16}
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%' }}
+          onPlaying={() => setHeroReady(true)}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%', opacity: heroReady ? 1 : 0, transition: 'opacity 0.5s ease' }}
         >
           <source src={heroVideo} type="video/mp4" />
         </video>
@@ -254,8 +258,8 @@ export default function Home() {
         <video
           ref={cinematicVideoRef}
           autoPlay muted playsInline
-          poster={coffeePic16}
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%' }}
+          onPlaying={() => setCinematicReady(true)}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%', opacity: cinematicReady ? 1 : 0, transition: 'opacity 0.5s ease' }}
         >
           <source src={placeholderVideo} type="video/mp4" />
         </video>
