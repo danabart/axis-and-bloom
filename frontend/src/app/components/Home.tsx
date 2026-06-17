@@ -193,7 +193,93 @@ export default function Home() {
         </motion.div>
       </section>
 
-      {/* ━━━ 3. FLAVOR MAP — archetype cards ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {/* ━━━ 3. COFFEE COLLECTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(80px, 10vw, 120px) clamp(32px, 6vw, 96px)' }}>
+        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 'clamp(40px, 5vw, 64px)', flexWrap: 'wrap', gap: 16 }}>
+            <motion.div {...fadeUp(0)}>
+              <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 10px' }}>The Collection</p>
+              <h2 style={{ fontFamily: "Arial, sans-serif", fontSize: 'clamp(1.8rem, 3vw, 2.8rem)', fontWeight: 400, color: '#9a2918', margin: 0, lineHeight: 1.1 }}>Find your bag.</h2>
+            </motion.div>
+            <Link
+              to="/shop"
+              style={{ fontFamily: "Arial, sans-serif", fontSize: '0.78rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,0.35)', paddingBottom: 4, alignSelf: 'flex-end' }}
+            >
+              Shop all coffees →
+            </Link>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'clamp(20px, 3vw, 36px)' }}>
+            {bags.map((bag, i) => (
+              <motion.div
+                key={i}
+                {...fadeUp(i * 0.1)}
+                style={{ display: 'flex', flexDirection: 'column', cursor: 'default' }}
+                onMouseEnter={() => setHoveredBag(i)}
+                onMouseLeave={() => setHoveredBag(null)}
+              >
+                {/* Tile — bag and archetype image crossfade within the same container */}
+                <div style={{ backgroundColor: '#e5e5da', aspectRatio: '3/4', position: 'relative', overflow: 'hidden' }}>
+                  {/* Bag — fades out on hover */}
+                  <div style={{
+                    position: 'absolute', inset: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    opacity: hoveredBag === i ? 0 : 1,
+                    transition: 'opacity 0.45s ease',
+                  }}>
+                    <img src={bag.img} alt={bag.label} style={{ width: '70%', height: '80%', objectFit: 'contain', display: 'block' }} />
+                  </div>
+                  {/* Archetype photo — fades in on hover */}
+                  <div style={{
+                    position: 'absolute', inset: 0,
+                    opacity: hoveredBag === i ? 1 : 0,
+                    transition: 'opacity 0.45s ease',
+                  }}>
+                    <img src={bag.hoverImg} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
+                  </div>
+                </div>
+
+                {/* Label */}
+                <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.8rem', letterSpacing: '0.1em', color: '#9a2918', margin: '14px 0 0', textAlign: 'center' }}>{bag.label}</p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ━━━ 4. CINEMATIC VIDEO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {/*
+        To swap in a different video: replace <source src={...}> and update poster={}
+      */}
+      <section style={{ position: 'relative', height: '65vh', overflow: 'hidden', backgroundColor: '#111110' }}>
+        <video
+          ref={cinematicVideoRef}
+          autoPlay muted playsInline
+          poster={coffeePic16}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%' }}
+        >
+          <source src={placeholderVideo} type="video/mp4" />
+        </video>
+        <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(17,17,16,0.3)' }} />
+        <p style={{
+          position: 'absolute',
+          bottom: 'clamp(32px, 5vh, 56px)',
+          left: 'clamp(32px, 6vw, 64px)',
+          fontFamily: "Arial, sans-serif",
+          fontSize: 'clamp(1.05rem, 1.9vw, 1.45rem)',
+          fontWeight: 400,
+          color: '#f2f1ea',
+          margin: 0,
+          maxWidth: 500,
+          lineHeight: 1.6,
+        }}>
+          Coffee is never just flavor.<br />
+          It is morning,{' '}
+          <span style={{ backgroundColor: '#ee5974', color: '#f2f1ea', padding: '0 7px 2px', display: 'inline' }}>memory</span>,<br />
+          temperature, texture, time.
+        </p>
+      </section>
+
+      {/* ━━━ 5. FLAVOR MAP — archetype cards ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(56px, 8vw, 88px) clamp(24px, 4vw, 64px)' }}>
         {/* Header — left-aligned with the blocks (no centering wrapper) */}
         <motion.div {...fadeUp(0)} style={{ marginBottom: 'clamp(28px, 4vw, 44px)' }}>
@@ -250,92 +336,6 @@ export default function Home() {
                 </p>
               </div>
             ))}
-        </div>
-      </section>
-
-      {/* ━━━ 4. CINEMATIC VIDEO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      {/*
-        To swap in a different video: replace <source src={...}> and update poster={}
-      */}
-      <section style={{ position: 'relative', height: '65vh', overflow: 'hidden', backgroundColor: '#111110' }}>
-        <video
-          ref={cinematicVideoRef}
-          autoPlay muted playsInline
-          poster={coffeePic16}
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%' }}
-        >
-          <source src={placeholderVideo} type="video/mp4" />
-        </video>
-        <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(17,17,16,0.3)' }} />
-        <p style={{
-          position: 'absolute',
-          bottom: 'clamp(32px, 5vh, 56px)',
-          left: 'clamp(32px, 6vw, 64px)',
-          fontFamily: "Arial, sans-serif",
-          fontSize: 'clamp(1.05rem, 1.9vw, 1.45rem)',
-          fontWeight: 400,
-          color: '#f2f1ea',
-          margin: 0,
-          maxWidth: 500,
-          lineHeight: 1.6,
-        }}>
-          Coffee is never just flavor.<br />
-          It is morning,{' '}
-          <span style={{ backgroundColor: '#ee5974', color: '#f2f1ea', padding: '0 7px 2px', display: 'inline' }}>memory</span>,<br />
-          temperature, texture, time.
-        </p>
-      </section>
-
-      {/* ━━━ 5. COFFEE COLLECTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(80px, 10vw, 120px) clamp(32px, 6vw, 96px)' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 'clamp(40px, 5vw, 64px)', flexWrap: 'wrap', gap: 16 }}>
-            <motion.div {...fadeUp(0)}>
-              <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 10px' }}>The Collection</p>
-              <h2 style={{ fontFamily: "Arial, sans-serif", fontSize: 'clamp(1.8rem, 3vw, 2.8rem)', fontWeight: 400, color: '#9a2918', margin: 0, lineHeight: 1.1 }}>Find your bag.</h2>
-            </motion.div>
-            <Link
-              to="/shop"
-              style={{ fontFamily: "Arial, sans-serif", fontSize: '0.78rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,0.35)', paddingBottom: 4, alignSelf: 'flex-end' }}
-            >
-              Shop all coffees →
-            </Link>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'clamp(20px, 3vw, 36px)' }}>
-            {bags.map((bag, i) => (
-              <motion.div
-                key={i}
-                {...fadeUp(i * 0.1)}
-                style={{ display: 'flex', flexDirection: 'column', cursor: 'default' }}
-                onMouseEnter={() => setHoveredBag(i)}
-                onMouseLeave={() => setHoveredBag(null)}
-              >
-                {/* Tile — bag and archetype image crossfade within the same container */}
-                <div style={{ backgroundColor: '#e5e5da', aspectRatio: '3/4', position: 'relative', overflow: 'hidden' }}>
-                  {/* Bag — fades out on hover */}
-                  <div style={{
-                    position: 'absolute', inset: 0,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    opacity: hoveredBag === i ? 0 : 1,
-                    transition: 'opacity 0.45s ease',
-                  }}>
-                    <img src={bag.img} alt={bag.label} style={{ width: '70%', height: '80%', objectFit: 'contain', display: 'block' }} />
-                  </div>
-                  {/* Archetype photo — fades in on hover */}
-                  <div style={{
-                    position: 'absolute', inset: 0,
-                    opacity: hoveredBag === i ? 1 : 0,
-                    transition: 'opacity 0.45s ease',
-                  }}>
-                    <img src={bag.hoverImg} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
-                  </div>
-                </div>
-
-                {/* Label */}
-                <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.8rem', letterSpacing: '0.1em', color: '#9a2918', margin: '14px 0 0', textAlign: 'center' }}>{bag.label}</p>
-              </motion.div>
-            ))}
-          </div>
         </div>
       </section>
 
