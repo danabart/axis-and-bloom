@@ -111,9 +111,9 @@ export function TasteFinderSection() {
           display: flex;
           flex-direction: column;
           justify-content: center;
-          align-items: flex-end;
-          text-align: right;
-          padding: 0 clamp(28px, 5vw, 72px) 0 20px;
+          align-items: flex-start;
+          text-align: left;
+          padding: 0 clamp(20px, 3vw, 48px) 0 clamp(32px, 4vw, 56px);
         }
         @media (max-width: 600px) {
           .tsf-main        { flex-direction: column; }
@@ -156,12 +156,12 @@ export function TasteFinderSection() {
                 The Taste Finder
               </p>
               <div style={{ fontFamily: "Arial, sans-serif", fontWeight: 400, lineHeight: 0.95, margin: '0 0 24px' }}>
-                <span style={{ display: 'block', fontSize: 'clamp(2.8rem, 4.2vw, 5rem)', color: '#9a2918' }}>
+                <span style={{ display: 'block', fontSize: 'clamp(3.2rem, 4.8vw, 5.6rem)', color: '#9a2918' }}>
                   Which
                 </span>
                 <span style={{
                   display: 'inline-block',
-                  fontSize: 'clamp(2.8rem, 4.2vw, 5rem)',
+                  fontSize: 'clamp(3.2rem, 4.8vw, 5.6rem)',
                   backgroundColor: '#ee5974',
                   color: '#f2f1ea',
                   padding: '4px 14px 8px',
@@ -169,7 +169,7 @@ export function TasteFinderSection() {
                 }}>
                   archetype
                 </span>
-                <span style={{ display: 'block', fontSize: 'clamp(2.8rem, 4.2vw, 5rem)', color: '#9a2918', marginTop: 6 }}>
+                <span style={{ display: 'block', fontSize: 'clamp(3.2rem, 4.8vw, 5.6rem)', color: '#9a2918', marginTop: 6 }}>
                   is yours?
                 </span>
               </div>
