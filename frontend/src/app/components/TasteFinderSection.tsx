@@ -104,13 +104,15 @@ export function TasteFinderSection() {
           display: flex;
           align-items: center;
           justify-content: center;
-          padding-left: clamp(24px, 5vw, 72px);
+          padding: 0 clamp(16px, 3vw, 40px);
         }
         .tsf-text-col {
           width: 50%;
           display: flex;
           flex-direction: column;
           justify-content: center;
+          align-items: flex-end;
+          text-align: right;
           padding: 0 clamp(28px, 5vw, 72px) 0 20px;
         }
         @media (max-width: 600px) {
@@ -137,7 +139,7 @@ export function TasteFinderSection() {
               <img
                 src={bag3}
                 alt="Axis & Bloom coffee bag"
-                style={{ height: '80%', width: 'auto', maxHeight: 500, objectFit: 'contain', display: 'block' }}
+                style={{ height: '88%', width: 'auto', maxHeight: 560, objectFit: 'contain', display: 'block' }}
               />
             </div>
 
@@ -148,26 +150,26 @@ export function TasteFinderSection() {
                 letterSpacing: '0.22em',
                 textTransform: 'uppercase',
                 color: '#9a2918',
-                margin: '0 0 12px',
+                margin: '0 0 14px',
                 opacity: 0.7,
               }}>
                 The Taste Finder
               </p>
-              <div style={{ fontFamily: "Arial, sans-serif", fontWeight: 400, lineHeight: 0.95, margin: '0 0 20px' }}>
-                <span style={{ display: 'block', fontSize: 'clamp(2rem, 3vw, 3.2rem)', color: '#9a2918' }}>
+              <div style={{ fontFamily: "Arial, sans-serif", fontWeight: 400, lineHeight: 0.95, margin: '0 0 24px' }}>
+                <span style={{ display: 'block', fontSize: 'clamp(2.8rem, 4.2vw, 5rem)', color: '#9a2918' }}>
                   Which
                 </span>
                 <span style={{
                   display: 'inline-block',
-                  fontSize: 'clamp(2rem, 3vw, 3.2rem)',
+                  fontSize: 'clamp(2.8rem, 4.2vw, 5rem)',
                   backgroundColor: '#ee5974',
                   color: '#f2f1ea',
-                  padding: '3px 10px 5px',
-                  margin: '5px 0',
+                  padding: '4px 14px 8px',
+                  margin: '6px 0',
                 }}>
                   archetype
                 </span>
-                <span style={{ display: 'block', fontSize: 'clamp(2rem, 3vw, 3.2rem)', color: '#9a2918', marginTop: 5 }}>
+                <span style={{ display: 'block', fontSize: 'clamp(2.8rem, 4.2vw, 5rem)', color: '#9a2918', marginTop: 6 }}>
                   is yours?
                 </span>
               </div>
@@ -200,7 +202,7 @@ export function TasteFinderSection() {
         <div
           style={{
             position: 'absolute', inset: 0,
-            transform: `translateY(${-(progress * 100)}%)`,
+            transform: `translateX(${-(progress * 100)}%)`,
             transition: 'transform 0.12s ease-out',
             willChange: 'transform',
             zIndex: 10,
