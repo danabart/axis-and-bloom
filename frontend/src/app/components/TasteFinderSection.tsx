@@ -5,76 +5,62 @@ import Footer from './Footer';
 
 /*
   Architecture:
-  - The wrapper is exactly STRIPE_H tall in normal document flow — no empty space.
-  - The curtain (chaff photo) sits position:absolute over the stripe and slides LEFT.
-  - Wheel / touch events are intercepted at page-bottom to drive the animation.
-  - The footer is NOT in the DOM until the hold phase completes (footerShown ref).
-    When footer appears, page scrollHeight grows and the user can naturally scroll to it.
+  - Wrapper is exactly 100vh in document flow.
+  - The revealed layer (bag + taste finder text + footer) sits position:absolute, inset:0.
+  - The curtain (full-screen chaff photo, no text) sits above it, position:absolute, inset:0, z-index 10.
+  - Wheel / touch events are intercepted at page-bottom to drive the translateY animation.
+  - Footer is always in the DOM (inside the revealed layer) — no dynamic height changes.
 
-  Stage timeline — acc range [-CLOSE_HOLD, HOLD_END]:
+  Stage timeline — acc range [-WHEEL_CLOSE_HOLD, WHEEL_HOLD_END]:
 
   Opening (scroll down):
-    0   → PRE_OPEN (240):          pre-open wait — nothing moves, page still at bottom
-    240 → PRE_OPEN+OPEN (720):     curtain slides open, progress 0→1
-    720 → HOLD_END (940):          open hold — curtain at 100%, nothing moves
-    940:                           footer added to DOM
+    0 → WHEEL_PRE_OPEN (200):               pre-open wait — curtain still covers
+    200 → WHEEL_PRE_OPEN+WHEEL_OPEN (1100): curtain lifts, progress 0→1
+    1100 → WHEEL_HOLD_END (1300):           open hold — curtain at 100%
+    1300+:                                  nothing moves (curtain fully open)
 
-  Closing (scroll up) — mirrors opening in reverse:
-    940 → 720:                     open hold reverse (curtain stays at 100%)
-    720 → 240:                     curtain slides closed, progress 1→0
-    240 → 0:                       pre-open wait reverse (curtain shut, page intercepted)
-    0   → -CLOSE_HOLD (-240):      close hold — curtain stays shut, page still intercepted
-    -240:                          interception released, page scrolls up
+  Closing (scroll up) — mirrors in reverse:
+    1300 → 1100:                            open hold reverse
+    1100 → 200:                             curtain lowers, progress 1→0
+    200 → 0:                                pre-close wait
+    0 → -WHEEL_CLOSE_HOLD (-500):           close hold — page still intercepted
+    -500:                                   interception released, page scrolls up
 
-  Re-opening from close hold: acc snaps to 0 so curtain moves immediately.
-
-  progress = max(0, min(1, (acc - PRE_OPEN) / OPEN))
+  progress = max(0, min(1, (acc - WHEEL_PRE_OPEN) / WHEEL_OPEN))
 */
 
-const STRIPE_H         = 360;
-const WHEEL_PRE_OPEN   = 240;  // wait before curtain starts opening
-const WHEEL_OPEN       = 480;  // curtain travel distance (progress 0→1)
-const WHEEL_HOLD_END   = WHEEL_PRE_OPEN + WHEEL_OPEN + 220; // 940: footer appears
-const WHEEL_CLOSE_HOLD = 240;  // wait after curtain closes before page scrolls up
+const WHEEL_PRE_OPEN   = 200;
+const WHEEL_OPEN       = 900;   // large value = slow, user-controlled curtain travel
+const WHEEL_HOLD_END   = WHEEL_PRE_OPEN + WHEEL_OPEN + 200; // 1300
+const WHEEL_CLOSE_HOLD = 500;   // generous hold before page scrolls up on close
 
 export function TasteFinderSection() {
-  const [progress, setProgress]     = useState(0);
-  const [footerVisible, setFooterVisible] = useState(false);
-  const acc         = useRef(0);
-  const footerShown = useRef(false); // ref so event handler sees latest value without re-binding
+  const [progress, setProgress] = useState(0);
+  const acc = useRef(0);
 
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {
       const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
       const atBottom  = window.scrollY >= maxScroll - 3;
 
-      // ── Scrolling down at page bottom → pre-open wait → open → hold ─────
+      // Scrolling down at page bottom → pre-open wait → open → hold
       if (atBottom && e.deltaY > 0 && acc.current < WHEEL_HOLD_END) {
         e.preventDefault();
-        if (acc.current < 0) acc.current = 0; // skip close-hold zone on re-open
+        if (acc.current < 0) acc.current = 0; // skip close-hold on re-open
         acc.current = Math.min(WHEEL_HOLD_END, acc.current + e.deltaY);
         setProgress(Math.max(0, Math.min(1, (acc.current - WHEEL_PRE_OPEN) / WHEEL_OPEN)));
-        if (acc.current >= WHEEL_HOLD_END && !footerShown.current) {
-          footerShown.current = true;
-          setFooterVisible(true);
-        }
         return;
       }
 
-      // ── Scrolling up → open-hold reverse → curtain closes → close hold ───
+      // Scrolling up → open-hold reverse → curtain closes → close hold
       if (e.deltaY < 0 && acc.current > -WHEEL_CLOSE_HOLD) {
         e.preventDefault();
         acc.current = Math.max(-WHEEL_CLOSE_HOLD, acc.current + e.deltaY);
         setProgress(Math.max(0, Math.min(1, (acc.current - WHEEL_PRE_OPEN) / WHEEL_OPEN)));
-        // Hide footer the moment curtain reaches fully closed (acc ≤ PRE_OPEN, progress = 0)
-        if (acc.current <= WHEEL_PRE_OPEN && footerShown.current) {
-          footerShown.current = false;
-          setFooterVisible(false);
-        }
       }
     };
 
-    // ── Touch (mobile) — same logic, 2.2× multiplier for finger velocity ─────
+    // Touch — same logic, 2.2× multiplier for finger velocity
     let touchY = 0;
     const onTouchStart = (e: TouchEvent) => { touchY = e.touches[0].clientY; };
     const onTouchMove  = (e: TouchEvent) => {
@@ -88,18 +74,10 @@ export function TasteFinderSection() {
         if (acc.current < 0) acc.current = 0;
         acc.current = Math.min(WHEEL_HOLD_END, acc.current + delta * 2.2);
         setProgress(Math.max(0, Math.min(1, (acc.current - WHEEL_PRE_OPEN) / WHEEL_OPEN)));
-        if (acc.current >= WHEEL_HOLD_END && !footerShown.current) {
-          footerShown.current = true;
-          setFooterVisible(true);
-        }
       } else if (delta < 0 && acc.current > -WHEEL_CLOSE_HOLD) {
         e.preventDefault();
         acc.current = Math.max(-WHEEL_CLOSE_HOLD, acc.current + delta * 2.2);
         setProgress(Math.max(0, Math.min(1, (acc.current - WHEEL_PRE_OPEN) / WHEEL_OPEN)));
-        if (acc.current <= WHEEL_PRE_OPEN && footerShown.current) {
-          footerShown.current = false;
-          setFooterVisible(false);
-        }
       }
     };
 
@@ -116,170 +94,130 @@ export function TasteFinderSection() {
   return (
     <>
       <style>{`
-        /* ── Stripe wrapper: fixed height on both breakpoints ── */
-        .tsf-stripe { position: relative; overflow: hidden; }
-        @media (min-width: 601px) { .tsf-stripe { height: ${STRIPE_H}px; } }
-        @media (max-width: 600px) { .tsf-stripe { height: 440px; } }
-
-        /* ── Revealed layer ── */
-        .tsf-revealed { display: flex; height: 100%; background: #f2f1ea; }
-        .tsf-bag-col  {
-          width: 50%; display: flex; align-items: center;
-          justify-content: center; padding-left: clamp(24px, 5vw, 72px);
+        .tsf-main {
+          flex: 1;
+          display: flex;
+          min-height: 0;
+        }
+        .tsf-bag-col {
+          width: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding-left: clamp(24px, 5vw, 72px);
         }
         .tsf-text-col {
-          width: 50%; display: flex; flex-direction: column;
-          justify-content: center; align-items: flex-end; text-align: right;
+          width: 50%;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
           padding: 0 clamp(28px, 5vw, 72px) 0 20px;
         }
-
-        /* ── Curtain layer ── */
-        .tsf-curtain       { display: flex; height: 100%; }
-        .tsf-curtain-text  {
-          width: 40%; flex-shrink: 0; background: #f2f1ea;
-          display: flex; flex-direction: column; justify-content: center;
-          padding: 24px clamp(18px, 3.2vw, 48px);
-        }
-        .tsf-curtain-photo { flex: 1; position: relative; overflow: hidden; }
-
-        /* ── Mobile: stack vertically ── */
         @media (max-width: 600px) {
-          .tsf-revealed { flex-direction: column; }
-          .tsf-bag-col  { width: 100% !important; height: 55% !important; padding: 20px 24px 0 !important; }
-          .tsf-text-col { width: 100% !important; height: 45% !important; align-items: center !important; text-align: center !important; padding: 12px 24px 20px !important; }
-          .tsf-curtain       { flex-direction: column; }
-          .tsf-curtain-text  { width: 100% !important; height: 42% !important; padding: 18px 24px 10px !important; }
-          .tsf-curtain-photo { flex: 1 !important; }
+          .tsf-main        { flex-direction: column; }
+          .tsf-bag-col     { width: 100% !important; height: 55%; padding-left: 0 !important; justify-content: center; }
+          .tsf-text-col    { width: 100% !important; height: auto; padding: 0 24px 20px !important; align-items: center; text-align: center; }
         }
       `}</style>
 
-      {/* ── Stripe wrapper — exactly STRIPE_H tall, no extra space ──────────── */}
-      <div className="tsf-stripe">
+      {/* ── Wrapper: 100vh, clips both layers ─────────────────────────────── */}
+      <div style={{ position: 'relative', height: '100vh', overflow: 'hidden' }}>
 
-        {/* ── REVEALED LAYER: bag left / text right ─────────────────────────── */}
-        <div className="tsf-revealed" style={{ position: 'absolute', inset: 0 }}>
+        {/* ── REVEALED LAYER: bag + taste finder text + footer ───────────── */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          display: 'flex', flexDirection: 'column',
+          backgroundColor: '#f2f1ea',
+        }}>
 
-          <div className="tsf-bag-col">
-            <img
-              src={bag3}
-              alt="Axis & Bloom coffee bag"
-              style={{ height: '88%', width: 'auto', objectFit: 'contain', display: 'block' }}
-            />
-          </div>
+          {/* Main row: bag (left) + taste finder text (right) */}
+          <div className="tsf-main">
 
-          <div className="tsf-text-col">
-            <p style={{
-              fontFamily: "Arial, sans-serif",
-              fontSize: 'clamp(0.95rem, 1.35vw, 1.25rem)',
-              fontWeight: 400,
-              color: '#9a2918',
-              opacity: 0.65,
-              lineHeight: 1.85,
-              margin: '0 0 24px',
-              maxWidth: 400,
-            }}>
-              Our flavor system is designed to remove the guesswork.
-              Answer a few questions and find your perfect coffee match.
-            </p>
-            <a
-              href="/find-my-flavor"
-              style={{
+            <div className="tsf-bag-col">
+              <img
+                src={bag3}
+                alt="Axis & Bloom coffee bag"
+                style={{ height: '80%', width: 'auto', maxHeight: 500, objectFit: 'contain', display: 'block' }}
+              />
+            </div>
+
+            <div className="tsf-text-col">
+              <p style={{
                 fontFamily: "Arial, sans-serif",
-                fontSize: '0.85rem',
+                fontSize: '0.68rem',
                 letterSpacing: '0.22em',
                 textTransform: 'uppercase',
                 color: '#9a2918',
-                textDecoration: 'none',
-                borderBottom: '1px solid rgba(154,41,24,0.4)',
-                paddingBottom: 3,
-              }}
-            >
-              TAKE THE QUIZ →
-            </a>
+                margin: '0 0 12px',
+                opacity: 0.7,
+              }}>
+                The Taste Finder
+              </p>
+              <div style={{ fontFamily: "Arial, sans-serif", fontWeight: 400, lineHeight: 0.95, margin: '0 0 20px' }}>
+                <span style={{ display: 'block', fontSize: 'clamp(2rem, 3vw, 3.2rem)', color: '#9a2918' }}>
+                  Which
+                </span>
+                <span style={{
+                  display: 'inline-block',
+                  fontSize: 'clamp(2rem, 3vw, 3.2rem)',
+                  backgroundColor: '#ee5974',
+                  color: '#f2f1ea',
+                  padding: '3px 10px 5px',
+                  margin: '5px 0',
+                }}>
+                  archetype
+                </span>
+                <span style={{ display: 'block', fontSize: 'clamp(2rem, 3vw, 3.2rem)', color: '#9a2918', marginTop: 5 }}>
+                  is yours?
+                </span>
+              </div>
+              <a
+                href="/find-my-flavor"
+                style={{
+                  fontFamily: "Arial, sans-serif",
+                  fontSize: '0.72rem',
+                  letterSpacing: '0.18em',
+                  textTransform: 'uppercase',
+                  color: '#9a2918',
+                  textDecoration: 'none',
+                  borderBottom: '1px solid rgba(154,41,24,0.38)',
+                  paddingBottom: 3,
+                  width: 'fit-content',
+                }}
+              >
+                TAKE THE QUIZ →
+              </a>
+            </div>
+
           </div>
+
+          {/* Footer — always visible once curtain lifts */}
+          <Footer />
+
         </div>
 
-        {/* ── CURTAIN LAYER: cream text panel + chaff photo, slides LEFT ──────── */}
+        {/* ── CURTAIN: full-screen chaff photo, lifts up as progress → 1 ── */}
         <div
-          className="tsf-curtain"
           style={{
-            position: 'absolute',
-            inset: 0,
-            transform: `translateX(${-(progress * 100)}%)`,
-            transition: 'transform 0.08s ease-out',
+            position: 'absolute', inset: 0,
+            transform: `translateY(${-(progress * 100)}%)`,
+            transition: 'transform 0.12s ease-out',
             willChange: 'transform',
             zIndex: 10,
           }}
         >
-          {/* Left cream panel — "Which archetype is yours?" on cream, not on chaff */}
-          <div className="tsf-curtain-text">
-            <p style={{
-              fontFamily: "Arial, sans-serif",
-              fontSize: '0.68rem',
-              letterSpacing: '0.22em',
-              textTransform: 'uppercase',
-              color: '#9a2918',
-              margin: '0 0 12px',
-              opacity: 0.7,
-            }}>
-              The Taste Finder
-            </p>
-            <div style={{ fontFamily: "Arial, sans-serif", fontWeight: 400, lineHeight: 0.95, margin: '0 0 16px' }}>
-              <span style={{ display: 'block', fontSize: 'clamp(1.9rem, 2.8vw, 3rem)', color: '#9a2918' }}>
-                Which
-              </span>
-              <span style={{
-                display: 'inline-block',
-                fontSize: 'clamp(1.9rem, 2.8vw, 3rem)',
-                backgroundColor: '#ee5974',
-                color: '#f2f1ea',
-                padding: '3px 10px 5px',
-                margin: '5px 0',
-              }}>
-                archetype
-              </span>
-              <span style={{ display: 'block', fontSize: 'clamp(1.9rem, 2.8vw, 3rem)', color: '#9a2918', marginTop: 5 }}>
-                is yours?
-              </span>
-            </div>
-            <a
-              href="/find-my-flavor"
-              style={{
-                fontFamily: "Arial, sans-serif",
-                fontSize: '0.72rem',
-                letterSpacing: '0.18em',
-                textTransform: 'uppercase',
-                color: '#9a2918',
-                textDecoration: 'none',
-                borderBottom: '1px solid rgba(154,41,24,0.38)',
-                paddingBottom: 3,
-                width: 'fit-content',
-              }}
-            >
-              TAKE THE QUIZ →
-            </a>
-          </div>
-
-          {/* Right chaff photo — full-bleed within its 60% panel */}
-          <div className="tsf-curtain-photo">
-            <img
-              src={coffeePic13}
-              alt=""
-              style={{
-                position: 'absolute', inset: 0,
-                width: '100%', height: '100%',
-                objectFit: 'cover', objectPosition: 'center',
-                display: 'block',
-              }}
-            />
-          </div>
+          <img
+            src={coffeePic13}
+            alt=""
+            style={{
+              width: '100%', height: '100%',
+              objectFit: 'cover', objectPosition: 'center',
+              display: 'block',
+            }}
+          />
         </div>
 
-      </div>{/* /stripe wrapper */}
-
-      {/* Footer — added to DOM only after hold completes.                        */}
-      {/* Page scrollHeight grows when it appears; user scrolls naturally to it. */}
-      {footerVisible && <Footer />}
+      </div>
     </>
   );
 }

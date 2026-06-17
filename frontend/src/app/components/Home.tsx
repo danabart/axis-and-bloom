@@ -337,14 +337,19 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ━━━ 6. HUMAN + AI — quiet editorial statement ━━━━━━━━━━━━━━━━━━━━━━ */}
+      {/* ━━━ 6. QUIZ CTA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <section style={{ backgroundColor: '#f2f1ea', borderTop: '1px solid rgba(154,41,24,0.18)', padding: 'clamp(48px, 6vw, 72px) clamp(32px, 6vw, 96px)' }}>
         <div style={{ maxWidth: 520, margin: '0 auto', textAlign: 'center' }}>
-          <motion.p {...fadeUp(0)} style={{ fontFamily: "Arial, sans-serif", fontSize: '0.72rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 18px' }}>
-            Guided by AI. Curated by taste.
-          </motion.p>
-          <motion.p {...fadeUp(0.12)} style={{ fontFamily: "Arial, sans-serif", fontSize: 'clamp(0.88rem, 1.4vw, 1rem)', fontWeight: 400, color: '#7b7f80', lineHeight: 1.85, margin: 0 }}>
-            Every match is shaped by real coffees, sensory language, and human judgment.
+          <motion.div {...fadeUp(0)} style={{ marginBottom: 22 }}>
+            <a
+              href="/find-my-flavor"
+              style={{ fontFamily: "Arial, sans-serif", fontSize: '0.85rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,0.4)', paddingBottom: 3 }}
+            >
+              TAKE THE QUIZ →
+            </a>
+          </motion.div>
+          <motion.p {...fadeUp(0.12)} style={{ fontFamily: "Arial, sans-serif", fontSize: 'clamp(0.88rem, 1.4vw, 1rem)', fontWeight: 400, color: '#9a2918', opacity: 0.62, lineHeight: 1.85, margin: 0 }}>
+            Our flavor system is designed to remove the guesswork. Answer a few questions and find your perfect coffee match.
           </motion.p>
         </div>
       </section>
