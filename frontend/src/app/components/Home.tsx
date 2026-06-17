@@ -90,8 +90,8 @@ export default function Home() {
       if (!video) return () => {};
       let rafId: number;
       const tick = () => {
-        if (video.duration && video.currentTime >= video.duration - 0.3) {
-          video.currentTime = 0;
+        if (video.duration && video.currentTime >= video.duration - 0.5) {
+          video.currentTime = 0.05; // skip black first frame; cut end 500ms early
         }
         rafId = requestAnimationFrame(tick);
       };
@@ -123,7 +123,7 @@ export default function Home() {
         <video
           ref={heroVideoRef}
           autoPlay muted playsInline
-          onPlaying={() => setHeroReady(true)}
+          onCanPlay={() => setHeroReady(true)}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%', opacity: heroReady ? 1 : 0, transition: 'opacity 0.5s ease' }}
         >
           <source src={heroVideo} type="video/mp4" />
@@ -258,7 +258,7 @@ export default function Home() {
         <video
           ref={cinematicVideoRef}
           autoPlay muted playsInline
-          onPlaying={() => setCinematicReady(true)}
+          onCanPlay={() => setCinematicReady(true)}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%', opacity: cinematicReady ? 1 : 0, transition: 'opacity 0.5s ease' }}
         >
           <source src={placeholderVideo} type="video/mp4" />
