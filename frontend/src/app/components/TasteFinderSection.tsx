@@ -189,6 +189,24 @@ export function TasteFinderSection() {
               >
                 TAKE THE QUIZ →
               </a>
+              <a
+                href="/sign-in"
+                style={{
+                  fontFamily: "Arial, sans-serif",
+                  fontSize: '0.68rem',
+                  letterSpacing: '0.14em',
+                  textTransform: 'uppercase',
+                  color: '#9a2918',
+                  textDecoration: 'none',
+                  opacity: 0.45,
+                  borderBottom: '1px solid rgba(154,41,24,0.25)',
+                  paddingBottom: 2,
+                  width: 'fit-content',
+                  marginTop: 12,
+                }}
+              >
+                or sign in →
+              </a>
             </div>
 
           </div>
