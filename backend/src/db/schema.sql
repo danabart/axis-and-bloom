@@ -1403,25 +1403,26 @@ UNION ALL
 -- Lambda formula: q_weight × ans_weight × ans_score = effective contribution per archetype.
 DROP VIEW IF EXISTS v_quiz_scoring_matrix;
 CREATE VIEW v_quiz_scoring_matrix AS
-SELECT *
-FROM (
-  SELECT
-    qz.version  AS quiz_version,
-    q.q_number,
-    q.q_text,
-    ROW_NUMBER() OVER (PARTITION BY q.id ORDER BY a.id) AS a_number,
-    a.answer_text,
-    q.weight    AS q_weight,
-    a.weight    AS ans_weight,
-    ar.name     AS archetype,
-    aas.score   AS ans_score
-  FROM answer_archetype_score aas
-  JOIN answer    a  ON a.id  = aas.answer_id
-  JOIN question  q  ON q.id  = aas.question_id
-  JOIN quiz      qz ON qz.id = q.quiz_id
-  JOIN archetype ar ON ar.id = aas.archetype_id
-) sub
-ORDER BY quiz_version, q_number, a_number, ans_score DESC;
+SELECT
+  qz.version                                                        AS quiz_version,
+  qt.name                                                           AS quiz_type,
+  q.q_number,
+  q.q_text,
+  ROW_NUMBER() OVER (PARTITION BY q.id ORDER BY a.id)              AS a_number,
+  a.answer_text,
+  q.weight                                                          AS q_weight,
+  a.weight                                                          AS ans_weight,
+  ar_ans.name                                                       AS resulting_archetype,
+  ar_score.name                                                     AS scored_archetype,
+  aas.score                                                         AS ans_score
+FROM quiz_answer a
+JOIN question  q       ON q.id  = a.question_id
+JOIN quiz      qz      ON qz.id = q.quiz_id
+LEFT JOIN quiz_type qt ON qt.id = qz.quiz_type_id
+LEFT JOIN archetype ar_ans   ON ar_ans.id = a.resulting_archetype_id
+LEFT JOIN answer_archetype_score aas ON aas.answer_id = a.id
+LEFT JOIN archetype ar_score ON ar_score.id = aas.archetype_id
+ORDER BY quiz_version, q_number, a_number, ans_score DESC NULLS LAST;
 
 -- QUIZ V4 — "Instinct" edition (6 questions, weighted scoring, veto cascade)
 DO $v4$
