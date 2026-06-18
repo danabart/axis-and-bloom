@@ -190,7 +190,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 
-CREATE TABLE IF NOT EXISTS payment_detail (
+CREATE TABLE IF NOT EXISTS user_payment_detail (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id             UUID REFERENCES user_profile(id) ON DELETE CASCADE,
   account_type        TEXT NOT NULL,
@@ -291,7 +291,7 @@ CREATE TABLE IF NOT EXISTS roaster_blend (
   updated_at            TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
 
-CREATE TABLE IF NOT EXISTS blend_vector (
+CREATE TABLE IF NOT EXISTS roastery_blend_vector (
   blend_id     UUID NOT NULL REFERENCES roaster_blend(id) ON DELETE CASCADE,
   dimension_id UUID NOT NULL,
   score        NUMERIC NOT NULL,
@@ -364,6 +364,55 @@ END $$;
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'coffee_roastery_descriptors' AND schemaname = 'public') THEN
     ALTER TABLE coffee_roastery_descriptors RENAME TO roastery_coffee_descriptors;
+  END IF;
+END $$;
+
+-- Rename session_coffees → cupping_session_coffees (idempotent)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'session_coffees' AND schemaname = 'public') THEN
+    ALTER TABLE session_coffees RENAME TO cupping_session_coffees;
+  END IF;
+END $$;
+
+-- Rename blend_vector → roastery_blend_vector (idempotent)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'blend_vector' AND schemaname = 'public') THEN
+    ALTER TABLE blend_vector RENAME TO roastery_blend_vector;
+  END IF;
+END $$;
+
+-- Rename client_flavor_feedback → user_flavor_feedback (idempotent)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'client_flavor_feedback' AND schemaname = 'public') THEN
+    ALTER TABLE client_flavor_feedback RENAME TO user_flavor_feedback;
+  END IF;
+END $$;
+
+-- Rename feedback_event → user_feedback_event (idempotent)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'feedback_event' AND schemaname = 'public') THEN
+    ALTER TABLE feedback_event RENAME TO user_feedback_event;
+  END IF;
+END $$;
+
+-- Rename payment_detail → user_payment_detail (idempotent)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'payment_detail' AND schemaname = 'public') THEN
+    ALTER TABLE payment_detail RENAME TO user_payment_detail;
+  END IF;
+END $$;
+
+-- Rename recommendation_log → user_recommendation_log (idempotent)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'recommendation_log' AND schemaname = 'public') THEN
+    ALTER TABLE recommendation_log RENAME TO user_recommendation_log;
+  END IF;
+END $$;
+
+-- Rename shipment → roastery_shipment_details (idempotent)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'shipment' AND schemaname = 'public') THEN
+    ALTER TABLE shipment RENAME TO roastery_shipment_details;
   END IF;
 END $$;
 
@@ -467,7 +516,7 @@ CREATE TABLE IF NOT EXISTS "order" (
   updated_at               TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
 
-CREATE TABLE IF NOT EXISTS shipment (
+CREATE TABLE IF NOT EXISTS roastery_shipment_details (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   order_id          UUID REFERENCES "order"(id),
   roaster_id        UUID REFERENCES roaster(id),
@@ -486,7 +535,7 @@ CREATE TABLE IF NOT EXISTS order_line_item (
   order_id             UUID REFERENCES "order"(id) ON DELETE CASCADE,
   blend_id             UUID REFERENCES roaster_blend(id),
   intended_for_user_id UUID REFERENCES user_profile(id),
-  shipment_id          UUID REFERENCES shipment(id),
+  shipment_id          UUID REFERENCES roastery_shipment_details(id),
   quantity             INTEGER NOT NULL DEFAULT 1,
   unit_price_charged   NUMERIC DEFAULT 0.00,
   wholesale_cost       NUMERIC,
@@ -514,7 +563,7 @@ CREATE TABLE IF NOT EXISTS notification_log (
   sent_at             TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
 
-CREATE TABLE IF NOT EXISTS feedback_event (
+CREATE TABLE IF NOT EXISTS user_feedback_event (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id      UUID REFERENCES user_profile(id),
   order_id     UUID REFERENCES "order"(id),
@@ -526,7 +575,7 @@ CREATE TABLE IF NOT EXISTS feedback_event (
   created_at   TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
 
-CREATE TABLE IF NOT EXISTS recommendation_log (
+CREATE TABLE IF NOT EXISTS user_recommendation_log (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id         UUID REFERENCES user_profile(id),
   candidates_shown JSONB NOT NULL,
@@ -678,7 +727,7 @@ BEGIN
 END $$;
 
 -- Junction: which coffees were in a given session, and in what order
-CREATE TABLE IF NOT EXISTS session_coffees (
+CREATE TABLE IF NOT EXISTS cupping_session_coffees (
   id            SERIAL PRIMARY KEY,
   session_id    INTEGER NOT NULL REFERENCES cupping_sessions(id) ON DELETE CASCADE,
   coffee_id     INTEGER NOT NULL REFERENCES coffees(id) ON DELETE CASCADE,
@@ -714,7 +763,7 @@ END $$;
 -- is_merged = true for the combined row produced after all tasters submit.
 CREATE TABLE IF NOT EXISTS cupping_scores (
   id                SERIAL PRIMARY KEY,
-  session_coffee_id INTEGER NOT NULL REFERENCES session_coffees(id) ON DELETE CASCADE,
+  session_coffee_id INTEGER NOT NULL REFERENCES cupping_session_coffees(id) ON DELETE CASCADE,
   taster_name       TEXT NOT NULL,
   is_merged         BOOLEAN DEFAULT false,
   overall_notes     TEXT,
@@ -750,7 +799,7 @@ CREATE TABLE IF NOT EXISTS cupping_score_descriptors (
 -- Brew parameters for each coffee in a session (all method-specific fields nullable)
 CREATE TABLE IF NOT EXISTS cupping_brew_params (
   id                        SERIAL PRIMARY KEY,
-  session_coffee_id         INTEGER NOT NULL REFERENCES session_coffees(id) ON DELETE CASCADE,
+  session_coffee_id         INTEGER NOT NULL REFERENCES cupping_session_coffees(id) ON DELETE CASCADE,
   dose_grams                NUMERIC,
   water_grams               NUMERIC,
   yield_grams               NUMERIC,
@@ -778,7 +827,7 @@ CREATE TABLE IF NOT EXISTS roastery_coffee_descriptors (
 -- Lightweight: no session, no brew params. User picks descriptors from the SCA wheel.
 -- intensity = how strongly they perceived it (0–15, optional).
 -- order_id links back to the specific delivery that triggered the feedback request.
-CREATE TABLE IF NOT EXISTS client_flavor_feedback (
+CREATE TABLE IF NOT EXISTS user_flavor_feedback (
   id              SERIAL PRIMARY KEY,
   user_id         UUID    NOT NULL REFERENCES user_profile(id) ON DELETE CASCADE,
   coffee_id       INTEGER NOT NULL REFERENCES coffees(id)      ON DELETE CASCADE,
@@ -1325,16 +1374,16 @@ CREATE INDEX IF NOT EXISTS idx_quiz_session_user       ON quiz_session(user_id);
 CREATE INDEX IF NOT EXISTS idx_quiz_vector_user        ON quiz_vector(user_id);
 CREATE INDEX IF NOT EXISTS idx_order_user              ON "order"(user_id);
 CREATE INDEX IF NOT EXISTS idx_order_line_item_order   ON order_line_item(order_id);
-CREATE INDEX IF NOT EXISTS idx_shipment_order          ON shipment(order_id);
-CREATE INDEX IF NOT EXISTS idx_feedback_user           ON feedback_event(user_id);
+CREATE INDEX IF NOT EXISTS idx_roastery_shipment_order  ON roastery_shipment_details(order_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_user           ON user_feedback_event(user_id);
 CREATE INDEX IF NOT EXISTS idx_chat_message_user       ON chat_message(user_id);
 CREATE INDEX IF NOT EXISTS idx_roaster_blend_archetype      ON roaster_blend(archetype_id);
 CREATE INDEX IF NOT EXISTS idx_user_coffee_profile_user     ON user_coffee_profile(user_id);
 
 -- Cupping tool indexes
 CREATE INDEX IF NOT EXISTS idx_cupping_sessions_date        ON cupping_sessions(session_date);
-CREATE INDEX IF NOT EXISTS idx_session_coffees_session      ON session_coffees(session_id);
-CREATE INDEX IF NOT EXISTS idx_session_coffees_coffee       ON session_coffees(coffee_id);
+CREATE INDEX IF NOT EXISTS idx_cupping_session_coffees_session      ON cupping_session_coffees(session_id);
+CREATE INDEX IF NOT EXISTS idx_cupping_session_coffees_coffee       ON cupping_session_coffees(coffee_id);
 CREATE INDEX IF NOT EXISTS idx_cupping_scores_session_cof   ON cupping_scores(session_coffee_id);
 CREATE INDEX IF NOT EXISTS idx_cupping_score_values_score   ON cupping_score_values(cupping_score_id);
 CREATE INDEX IF NOT EXISTS idx_cupping_score_values_dim     ON cupping_score_values(dimension_id);
@@ -1343,9 +1392,9 @@ CREATE INDEX IF NOT EXISTS idx_score_descriptors_score      ON cupping_score_des
 CREATE INDEX IF NOT EXISTS idx_score_descriptors_note       ON cupping_score_descriptors(cupping_note_id);
 CREATE INDEX IF NOT EXISTS idx_roastery_desc_coffee         ON roastery_coffee_descriptors(coffee_id);
 CREATE INDEX IF NOT EXISTS idx_roastery_desc_note           ON roastery_coffee_descriptors(cupping_note_id);
-CREATE INDEX IF NOT EXISTS idx_client_feedback_user         ON client_flavor_feedback(user_id);
-CREATE INDEX IF NOT EXISTS idx_client_feedback_coffee       ON client_flavor_feedback(coffee_id);
-CREATE INDEX IF NOT EXISTS idx_client_feedback_order        ON client_flavor_feedback(order_id);
+CREATE INDEX IF NOT EXISTS idx_client_feedback_user         ON user_flavor_feedback(user_id);
+CREATE INDEX IF NOT EXISTS idx_client_feedback_coffee       ON user_flavor_feedback(coffee_id);
+CREATE INDEX IF NOT EXISTS idx_client_feedback_order        ON user_flavor_feedback(order_id);
 CREATE INDEX IF NOT EXISTS idx_archetype_assign_coffee      ON archetype_assignments(coffee_id);
 CREATE INDEX IF NOT EXISTS idx_archetype_assign_session     ON archetype_assignments(assigned_from_session_id);
 
@@ -1388,7 +1437,7 @@ CREATE VIEW v_cupping_scores_readable AS
     aa.confidence        AS archetype_confidence
   FROM cupping_score_values csv
   JOIN cupping_scores        cs      ON cs.id      = csv.cupping_score_id
-  JOIN session_coffees        sc      ON sc.id      = cs.session_coffee_id
+  JOIN cupping_session_coffees        sc      ON sc.id      = cs.session_coffee_id
   JOIN cupping_sessions       cs_sess ON cs_sess.id = sc.session_id
   JOIN coffees                c       ON c.id       = sc.coffee_id
   JOIN coffee_dimensions            d       ON d.id       = csv.dimension_id
@@ -1412,7 +1461,7 @@ CREATE VIEW v_collaborative_flavor_wheel AS
          csd.intensity
   FROM cupping_score_descriptors csd
   JOIN cupping_scores  cs ON cs.id = csd.cupping_score_id
-  JOIN session_coffees sc ON sc.id = cs.session_coffee_id
+  JOIN cupping_session_coffees sc ON sc.id = cs.session_coffee_id
   JOIN coffees          c ON c.id  = sc.coffee_id
   JOIN cupping_note    cn ON cn.id = csd.cupping_note_id
 UNION ALL
@@ -1436,7 +1485,7 @@ UNION ALL
          cn.descriptor,
          'client'          AS source,
          cff.intensity
-  FROM client_flavor_feedback cff
+  FROM user_flavor_feedback cff
   JOIN coffees      c  ON c.id  = cff.coffee_id
   JOIN cupping_note cn ON cn.id = cff.cupping_note_id;
 
@@ -1787,7 +1836,7 @@ LEFT JOIN archetype_assignments aa
         WHEN 'floral'          THEN 'Floral'
         WHEN 'experimental'    THEN 'Experimental'
       END = a.name
-LEFT JOIN session_coffees      sc  ON sc.coffee_id = aa.coffee_id
+LEFT JOIN cupping_session_coffees      sc  ON sc.coffee_id = aa.coffee_id
 LEFT JOIN cupping_scores       cs  ON cs.session_coffee_id = sc.id
 LEFT JOIN cupping_score_values csv ON csv.cupping_score_id = cs.id
                                    AND csv.dimension_id = d.id

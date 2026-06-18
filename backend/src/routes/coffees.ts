@@ -25,7 +25,7 @@ async function fetchCoffeeDataForContent(coffeeId: string | number) {
               ROUND(AVG(csv.value_max)::numeric, 1) AS avg_max
        FROM cupping_score_values csv
        JOIN cupping_scores cs  ON cs.id = csv.cupping_score_id
-       JOIN session_coffees sc ON sc.id = cs.session_coffee_id
+       JOIN cupping_session_coffees sc ON sc.id = cs.session_coffee_id
        JOIN coffee_dimensions d       ON d.id  = csv.dimension_id
        WHERE sc.coffee_id = $1 AND d.is_numeric = true AND csv.value_min IS NOT NULL
        GROUP BY d.id, d.name, d.scale_min_label, d.scale_max_label, d.display_order
@@ -46,7 +46,7 @@ async function fetchCoffeeDataForContent(coffeeId: string | number) {
 
   const notesResult = await db.query(
     `SELECT cs.overall_notes FROM cupping_scores cs
-     JOIN session_coffees sc ON sc.id = cs.session_coffee_id
+     JOIN cupping_session_coffees sc ON sc.id = cs.session_coffee_id
      WHERE sc.coffee_id = $1 AND cs.overall_notes IS NOT NULL
      ORDER BY cs.id DESC LIMIT 1`,
     [coffeeId]
@@ -226,7 +226,7 @@ router.get('/:id/dimensions', async (req, res) => {
                 COUNT(DISTINCT cs.id) AS session_count
          FROM cupping_score_values csv
          JOIN cupping_scores cs    ON cs.id  = csv.cupping_score_id
-         JOIN session_coffees sc   ON sc.id  = cs.session_coffee_id
+         JOIN cupping_session_coffees sc   ON sc.id  = cs.session_coffee_id
          JOIN coffee_dimensions d         ON d.id   = csv.dimension_id
          WHERE sc.coffee_id = $1
            AND d.is_numeric = true
@@ -238,7 +238,7 @@ router.get('/:id/dimensions', async (req, res) => {
       db.query(
         `SELECT cs.overall_notes, css.session_date
          FROM cupping_scores cs
-         JOIN session_coffees sc   ON sc.id  = cs.session_coffee_id
+         JOIN cupping_session_coffees sc   ON sc.id  = cs.session_coffee_id
          JOIN cupping_sessions css ON css.id = sc.session_id
          WHERE sc.coffee_id = $1
            AND cs.overall_notes IS NOT NULL

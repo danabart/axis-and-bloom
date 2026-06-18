@@ -39,7 +39,7 @@ router.get('/stats', async (_req, res) => {
         (SELECT COUNT(*) FROM cupping_sessions)           AS sessions,
         (SELECT COUNT(*) FROM cupping_score_descriptors)  AS internal_descriptors,
         (SELECT COUNT(*) FROM roastery_coffee_descriptors)AS roastery_descriptors,
-        (SELECT COUNT(*) FROM client_flavor_feedback)     AS client_feedback,
+        (SELECT COUNT(*) FROM user_flavor_feedback)     AS client_feedback,
         (SELECT COUNT(*) FROM cupping_note)               AS sca_descriptors
     `);
     res.json(result.rows[0]);
@@ -95,7 +95,7 @@ router.get('/sessions', async (_req, res) => {
       SELECT cs.id, cs.session_date, cs.location, cs.brew_method, cs.session_notes,
              COUNT(sc.id) AS coffee_count
       FROM cupping_sessions cs
-      LEFT JOIN session_coffees sc ON sc.session_id = cs.id
+      LEFT JOIN cupping_session_coffees sc ON sc.session_id = cs.id
       GROUP BY cs.id
       ORDER BY cs.session_date DESC
     `);
@@ -292,7 +292,7 @@ router.get('/sessions/:id/coffees', async (req, res) => {
     const result = await db.query(
       `SELECT sc.id AS session_coffee_id, sc.display_order,
               c.id AS coffee_id, c.name, c.roaster, c.origin, c.process, c.roast_level
-       FROM session_coffees sc
+       FROM cupping_session_coffees sc
        JOIN coffees c ON c.id = sc.coffee_id
        WHERE sc.session_id = $1
        ORDER BY sc.display_order NULLS LAST, c.name`,
@@ -312,11 +312,11 @@ router.post('/sessions/:id/coffees', async (req, res) => {
   if (!coffee_id) { res.status(400).json({ error: 'coffee_id is required' }); return; }
   try {
     const orderResult = await db.query(
-      `SELECT COALESCE(MAX(display_order), 0) + 1 AS next_order FROM session_coffees WHERE session_id = $1`,
+      `SELECT COALESCE(MAX(display_order), 0) + 1 AS next_order FROM cupping_session_coffees WHERE session_id = $1`,
       [id]
     );
     const result = await db.query(
-      `INSERT INTO session_coffees (session_id, coffee_id, display_order)
+      `INSERT INTO cupping_session_coffees (session_id, coffee_id, display_order)
        VALUES ($1, $2, $3) RETURNING *`,
       [id, coffee_id, orderResult.rows[0].next_order]
     );
@@ -331,7 +331,7 @@ router.post('/sessions/:id/coffees', async (req, res) => {
 router.delete('/sessions/:sessionId/coffees/:scId', async (req, res) => {
   const { scId } = req.params;
   try {
-    await db.query(`DELETE FROM session_coffees WHERE id = $1`, [scId]);
+    await db.query(`DELETE FROM cupping_session_coffees WHERE id = $1`, [scId]);
     res.json({ ok: true });
   } catch (err) {
     console.error('[admin/sessions coffees DELETE]', err);

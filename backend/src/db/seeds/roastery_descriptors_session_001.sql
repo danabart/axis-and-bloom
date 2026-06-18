@@ -31,7 +31,7 @@ CREATE VIEW v_collaborative_flavor_wheel AS
          csd.intensity
   FROM cupping_score_descriptors csd
   JOIN cupping_scores  cs ON cs.id = csd.cupping_score_id
-  JOIN session_coffees sc ON sc.id = cs.session_coffee_id
+  JOIN cupping_session_coffees sc ON sc.id = cs.session_coffee_id
   JOIN coffees          c ON c.id  = sc.coffee_id
   JOIN cupping_note    cn ON cn.id = csd.cupping_note_id
 UNION ALL
@@ -55,7 +55,7 @@ UNION ALL
          cn.descriptor,
          'client'          AS source,
          cff.intensity
-  FROM client_flavor_feedback cff
+  FROM user_flavor_feedback cff
   JOIN coffees      c  ON c.id  = cff.coffee_id
   JOIN cupping_note cn ON cn.id = cff.cupping_note_id;
 

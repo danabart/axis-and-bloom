@@ -45,7 +45,7 @@ FROM (VALUES
 ) AS data(descriptor, notes)
 JOIN cupping_note cn ON cn.descriptor = data.descriptor
 JOIN cupping_scores cs ON cs.taster_name = 'session_1_merged'
-JOIN session_coffees sc ON sc.id = cs.session_coffee_id
+JOIN cupping_session_coffees sc ON sc.id = cs.session_coffee_id
 JOIN coffees c ON c.id = sc.coffee_id
   AND c.name = 'Crosshatch'
   AND c.roaster = 'Path Coffee Roasters'
@@ -66,7 +66,7 @@ FROM (VALUES
 ) AS data(descriptor, notes)
 JOIN cupping_note cn ON cn.descriptor = data.descriptor
 JOIN cupping_scores cs ON cs.taster_name = 'session_1_merged'
-JOIN session_coffees sc ON sc.id = cs.session_coffee_id
+JOIN cupping_session_coffees sc ON sc.id = cs.session_coffee_id
 JOIN coffees c ON c.id = sc.coffee_id
   AND c.name = 'Ethiopia'
   AND c.roaster = 'Path Coffee Roasters'
@@ -88,7 +88,7 @@ FROM (VALUES
 ) AS data(descriptor, notes)
 JOIN cupping_note cn ON cn.descriptor = data.descriptor
 JOIN cupping_scores cs ON cs.taster_name = 'session_1_merged'
-JOIN session_coffees sc ON sc.id = cs.session_coffee_id
+JOIN cupping_session_coffees sc ON sc.id = cs.session_coffee_id
 JOIN coffees c ON c.id = sc.coffee_id
   AND c.name = 'Feather In Cap'
   AND c.roaster = 'Path Coffee Roasters'

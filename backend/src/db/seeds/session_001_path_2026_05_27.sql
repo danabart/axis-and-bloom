@@ -62,19 +62,19 @@ ins_feather AS (
 
 -- 3. Session–coffee junctions (display_order = tasting order)
 ins_sc_crosshatch AS (
-  INSERT INTO session_coffees (session_id, coffee_id, display_order)
+  INSERT INTO cupping_session_coffees (session_id, coffee_id, display_order)
   SELECT session_id, coffee_id, 1 FROM ins_session, ins_crosshatch
   RETURNING id AS sc_id
 ),
 
 ins_sc_ethiopia AS (
-  INSERT INTO session_coffees (session_id, coffee_id, display_order)
+  INSERT INTO cupping_session_coffees (session_id, coffee_id, display_order)
   SELECT session_id, coffee_id, 2 FROM ins_session, ins_ethiopia
   RETURNING id AS sc_id
 ),
 
 ins_sc_feather AS (
-  INSERT INTO session_coffees (session_id, coffee_id, display_order)
+  INSERT INTO cupping_session_coffees (session_id, coffee_id, display_order)
   SELECT session_id, coffee_id, 3 FROM ins_session, ins_feather
   RETURNING id AS sc_id
 ),
