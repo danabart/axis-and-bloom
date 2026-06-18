@@ -37,7 +37,7 @@ router.get('/questions', async (_req, res) => {
            )
            ORDER BY a.id
          ) AS answers
-       FROM question q
+       FROM quiz_question q
        JOIN quiz_answer a ON a.question_id = q.id
        LEFT JOIN archetype ar ON ar.id = a.resulting_archetype_id
        WHERE q.quiz_id = $1
@@ -104,7 +104,7 @@ router.post('/score', async (req, res) => {
          ar_score.name  AS score_archetype,
          ar_result.name AS result_archetype
        FROM quiz_answer a
-       JOIN question q ON q.id = a.question_id
+       JOIN quiz_question q ON q.id = a.question_id
        LEFT JOIN answer_archetype_score aas
              ON aas.answer_id = a.id AND aas.score > 0
        LEFT JOIN archetype ar_score  ON ar_score.id  = aas.archetype_id
@@ -277,7 +277,7 @@ router.get('/branch', async (req, res) => {
            ORDER BY a.id
          ) AS answers
        FROM quiz         bq
-       JOIN question      q  ON q.quiz_id = bq.id
+       JOIN quiz_question  q  ON q.quiz_id = bq.id
        JOIN quiz_answer   a  ON a.question_id = q.id
        LEFT JOIN archetype ar ON ar.id = a.resulting_archetype_id
        WHERE bq.parent_quiz_id = $1

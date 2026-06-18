@@ -311,12 +311,19 @@ CREATE TABLE IF NOT EXISTS user_roaster_link (
 -- QUIZ SYSTEM
 -- ─────────────────────────────────────────────
 
-CREATE TABLE IF NOT EXISTS question (
+CREATE TABLE IF NOT EXISTS quiz_question (
   id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   quiz_id  UUID REFERENCES quiz(id) ON DELETE CASCADE,
   q_number INTEGER NOT NULL,
   q_text   TEXT NOT NULL
 );
+
+-- Rename question → quiz_question (idempotent)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'question' AND schemaname = 'public') THEN
+    ALTER TABLE question RENAME TO quiz_question;
+  END IF;
+END $$;
 
 -- Rename answer → quiz_answer (idempotent)
 DO $$ BEGIN
@@ -350,13 +357,13 @@ CREATE TABLE IF NOT EXISTS quiz_vector (
   score           NUMERIC NOT NULL
 );
 
--- Add weight to question (idempotent for existing DBs)
+-- Add weight to quiz_question (idempotent for existing DBs)
 DO $$ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_name = 'question' AND column_name = 'weight'
   ) THEN
-    ALTER TABLE question ADD COLUMN weight NUMERIC DEFAULT 1;
+    ALTER TABLE quiz_question ADD COLUMN weight NUMERIC DEFAULT 1;
   END IF;
 END $$;
 
@@ -938,19 +945,19 @@ BEGIN
       VALUES ('v2', 'Axis & Bloom Flavor Finder — 4 questions', true)
       RETURNING id INTO v_quiz_id;
 
-    INSERT INTO question (quiz_id, q_number, q_text)
+    INSERT INTO quiz_question (quiz_id, q_number, q_text)
       VALUES (v_quiz_id, 1, 'How would you describe your relationship with coffee?')
       RETURNING id INTO v_q1_id;
 
-    INSERT INTO question (quiz_id, q_number, q_text)
+    INSERT INTO quiz_question (quiz_id, q_number, q_text)
       VALUES (v_quiz_id, 2, 'Someone puts something in front of you as a treat. Which do you reach for?')
       RETURNING id INTO v_q2_id;
 
-    INSERT INTO question (quiz_id, q_number, q_text)
+    INSERT INTO quiz_question (quiz_id, q_number, q_text)
       VALUES (v_quiz_id, 3, 'You try a new coffee black. What''s your first reaction?')
       RETURNING id INTO v_q3_id;
 
-    INSERT INTO question (quiz_id, q_number, q_text)
+    INSERT INTO quiz_question (quiz_id, q_number, q_text)
       VALUES (v_quiz_id, 4, 'Which coffee would disappoint you the most?')
       RETURNING id INTO v_q4_id;
 
@@ -990,13 +997,13 @@ DECLARE
 BEGIN
   SELECT id INTO v_quiz_id FROM quiz WHERE version = 'v2';
   IF v_quiz_id IS NOT NULL AND NOT EXISTS (
-    SELECT 1 FROM question WHERE quiz_id = v_quiz_id AND q_number = 5
+    SELECT 1 FROM quiz_question WHERE quiz_id = v_quiz_id AND q_number = 5
   ) THEN
     SELECT id INTO v_choc_id  FROM archetype WHERE name = 'Chocolate & Nutty';
     SELECT id INTO v_bal_id   FROM archetype WHERE name = 'Balanced & Sweet';
     SELECT id INTO v_fruit_id FROM archetype WHERE name = 'Fruity';
 
-    INSERT INTO question (quiz_id, q_number, q_text)
+    INSERT INTO quiz_question (quiz_id, q_number, q_text)
       VALUES (v_quiz_id, 5, 'You''re handed an espresso — straight, no milk, no sugar. How does it land?')
       RETURNING id INTO v_q5_id;
 
@@ -1042,7 +1049,7 @@ BEGIN
       (5, 'I''ll reach for milk or sugar. I don''t want that.',                                      'Balanced & Sweet',  3),
       (5, 'It feels flat or burnt to me. I''d rather have something bright or light.',               'Fruity',            3)
     ) AS data(q_number, answer_text, archetype_name, score)
-    JOIN question q ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
+    JOIN quiz_question q ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
     JOIN answer  a ON a.question_id = q.id AND a.answer_text = data.answer_text
     JOIN archetype ar ON ar.name = data.archetype_name
     ON CONFLICT (answer_id, archetype_id) DO NOTHING;
@@ -1086,7 +1093,7 @@ BEGIN
     RETURNING id INTO v_quiz_id;
 
   -- Q1 — Identity (same text as V2, same answers)
-  INSERT INTO question (quiz_id, q_number, q_text, weight)
+  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 1, 'How would you describe your relationship with coffee?', 1)
     RETURNING id INTO v_q1_id;
   INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
@@ -1095,7 +1102,7 @@ BEGIN
     (v_q1_id, 'It''s something I''m still discovering. I''m curious about it.',      v_fruit_id);
 
   -- Q2 — Perfect cup (NEW question + NEW answer texts)
-  INSERT INTO question (quiz_id, q_number, q_text, weight)
+  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 2, 'Think about a coffee that really worked for you. What made it perfect?', 2)
     RETURNING id INTO v_q2_id;
   INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
@@ -1104,7 +1111,7 @@ BEGIN
     (v_q2_id, 'It felt alive — bright and changing. Every sip was a little different.',             v_fruit_id);
 
   -- Q3 — Black coffee (same A/B/C text; C gets experimental gate; D splits 0.5+0.5)
-  INSERT INTO question (quiz_id, q_number, q_text, weight)
+  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 3, 'You try a new coffee black. What''s your first reaction?', 1)
     RETURNING id INTO v_q3_id;
   INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
@@ -1120,7 +1127,7 @@ BEGIN
       AND answer_text = 'Interesting… what flavors am I getting here?';
 
   -- Q4 — Disappointment (NEW answer texts)
-  INSERT INTO question (quiz_id, q_number, q_text, weight)
+  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 4, 'Which coffee would disappoint you the most?', 2)
     RETURNING id INTO v_q4_id;
   INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
@@ -1129,7 +1136,7 @@ BEGIN
     (v_q4_id, 'Every sip tastes exactly the same.',    v_fruit_id);
 
   -- Q5 — Bitterness (A same, B + C new texts)
-  INSERT INTO question (quiz_id, q_number, q_text, weight)
+  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 5, 'You''re handed an espresso — straight, no milk, no sugar. How does it land?', 3)
     RETURNING id INTO v_q5_id;
   INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
@@ -1174,7 +1181,7 @@ BEGIN
     (5, 'I''d rather have something gentler and smoother.',                              'Balanced & Sweet',  3.0),
     (5, 'It feels burnt to me. I''d rather have something fresher or more alive.',      'Fruity',            3.0)
   ) AS data(q_number, answer_text, archetype_name, score)
-  JOIN question  q  ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
+  JOIN quiz_question q ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
   JOIN answer    a  ON a.question_id = q.id  AND a.answer_text = data.answer_text
   JOIN archetype ar ON ar.name = data.archetype_name
   ON CONFLICT (answer_id, archetype_id) DO NOTHING;
@@ -1416,7 +1423,7 @@ SELECT
   ar_score.name                                                     AS scored_archetype,
   aas.score                                                         AS ans_score
 FROM quiz_answer a
-JOIN question  q       ON q.id  = a.question_id
+JOIN quiz_question q    ON q.id  = a.question_id
 JOIN quiz      qz      ON qz.id = q.quiz_id
 LEFT JOIN quiz_type qt ON qt.id = qz.quiz_type_id
 LEFT JOIN archetype ar_ans   ON ar_ans.id = a.resulting_archetype_id
@@ -1447,7 +1454,7 @@ BEGIN
     RETURNING id INTO v_quiz_id;
 
   -- Q1 (weight 1 — identity question)
-  INSERT INTO question (quiz_id, q_number, q_text, weight)
+  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 1, 'How would you describe your relationship with coffee?', 1)
     RETURNING id INTO v_q1_id;
   INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
@@ -1456,7 +1463,7 @@ BEGIN
     (v_q1_id, 'It''s something I''m still discovering. I''m curious about it.', v_fruit_id);
 
   -- Q2 (weight 0 — food instinct, secondary signal only, not in primary scoring)
-  INSERT INTO question (quiz_id, q_number, q_text, weight)
+  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 2, 'Someone places a small treat next to your coffee. Without thinking, which do you grab?', 0)
     RETURNING id INTO v_q2_id;
   INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
@@ -1465,7 +1472,7 @@ BEGIN
     (v_q2_id, 'Something fresh and lively. A green apple, fresh berries, citrus.',            v_fruit_id);
 
   -- Q3 (weight 2 — perfect cup)
-  INSERT INTO question (quiz_id, q_number, q_text, weight)
+  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 3, 'When you finish a really good cup of coffee, what made it good?', 2)
     RETURNING id INTO v_q3_id;
   INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
@@ -1474,7 +1481,7 @@ BEGIN
     (v_q3_id, 'It felt alive — bright and changing. Every sip was a little different.', v_fruit_id);
 
   -- Q4 (weight 1 — black coffee reaction, experimental gate lives here)
-  INSERT INTO question (quiz_id, q_number, q_text, weight)
+  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 4, 'You try a new coffee black. What''s your first reaction?', 1)
     RETURNING id INTO v_q4_id;
   INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
@@ -1486,7 +1493,7 @@ BEGIN
     (v_q4_id, 'I''m not sure. I don''t usually drink it black.', NULL);
 
   -- Q5 (weight 2 — disappointment, strong negative framing)
-  INSERT INTO question (quiz_id, q_number, q_text, weight)
+  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 5, 'Which of these would bother you most about a cup of coffee?', 2)
     RETURNING id INTO v_q5_id;
   INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
@@ -1495,7 +1502,7 @@ BEGIN
     (v_q5_id, 'Every sip tastes exactly the same.', v_fruit_id);
 
   -- Q6 (weight 3 — bitterness tolerance, strongest signal)
-  INSERT INTO question (quiz_id, q_number, q_text, weight)
+  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 6, 'Someone hands you a coffee that''s a little more bitter than expected. What''s your honest reaction?', 3)
     RETURNING id INTO v_q6_id;
   INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
@@ -1526,7 +1533,7 @@ BEGIN
     (6, 'I''d rather have something gentler and smoother.',                            'Balanced & Sweet',  3::numeric),
     (6, 'It feels burnt to me. I''d rather have something fresher or more alive.',     'Fruity',            3::numeric)
   ) AS data(q_number, answer_text, archetype_name, score)
-  JOIN question    q  ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
+  JOIN quiz_question q ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
   JOIN quiz_answer a  ON a.question_id = q.id  AND a.answer_text = data.answer_text
   JOIN archetype   ar ON ar.name = data.archetype_name
   ON CONFLICT (answer_id, archetype_id) DO NOTHING;
@@ -1580,7 +1587,7 @@ BEGIN
     RETURNING id INTO v_quiz_id;
 
   -- Q1 (weight 1 — identity)
-  INSERT INTO question (quiz_id, q_number, q_text, weight)
+  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 1, 'How would you describe your relationship with coffee?', 1)
     RETURNING id INTO v_q1_id;
   INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
@@ -1589,7 +1596,7 @@ BEGIN
     (v_q1_id, 'It''s something I''m still discovering. I''m curious about it.', v_fruit_id);
 
   -- Q2 (weight 2 — perfect cup)
-  INSERT INTO question (quiz_id, q_number, q_text, weight)
+  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 2, 'When you finish a really good cup of coffee, what made it good?', 2)
     RETURNING id INTO v_q2_id;
   INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
@@ -1598,7 +1605,7 @@ BEGIN
     (v_q2_id, 'It felt alive — bright and changing. Every sip was a little different.', v_fruit_id);
 
   -- Q3 (weight 1 — black coffee; C is experimental gate)
-  INSERT INTO question (quiz_id, q_number, q_text, weight)
+  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 3, 'You try a new coffee black. What''s your first reaction?', 1)
     RETURNING id INTO v_q3_id;
   INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
@@ -1608,7 +1615,7 @@ BEGIN
     (v_q3_id, 'Interesting… what flavors am I getting here?', v_fruit_id, TRUE);
 
   -- Q4 (weight 2 — disappointment)
-  INSERT INTO question (quiz_id, q_number, q_text, weight)
+  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 4, 'Which of these would bother you most about a cup of coffee?', 2)
     RETURNING id INTO v_q4_id;
   INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
@@ -1617,7 +1624,7 @@ BEGIN
     (v_q4_id, 'Every sip tastes exactly the same.', v_fruit_id);
 
   -- Q5 (weight 3 — bitterness; highest weight; veto cascade anchor)
-  INSERT INTO question (quiz_id, q_number, q_text, weight)
+  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 5, 'Someone hands you a coffee that''s a little more bitter than expected. What''s your honest reaction?', 3)
     RETURNING id INTO v_q5_id;
   INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
@@ -1626,7 +1633,7 @@ BEGIN
     (v_q5_id, 'It feels burnt to me. I''d rather have something fresher or more alive.', v_fruit_id);
 
   -- Q6 (weight 0 — food signal; secondary signal only; no scoring rows)
-  INSERT INTO question (quiz_id, q_number, q_text, weight)
+  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 6, 'Someone places a small treat next to your coffee. Without thinking, which do you grab?', 0)
     RETURNING id INTO v_q6_id;
   INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
@@ -1654,7 +1661,7 @@ BEGIN
     (5, 'I''d rather have something gentler and smoother.',                              'Balanced & Sweet',  3::numeric),
     (5, 'It feels burnt to me. I''d rather have something fresher or more alive.',      'Fruity',            3::numeric)
   ) AS data(q_number, answer_text, archetype_name, score)
-  JOIN question    q  ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
+  JOIN quiz_question q ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
   JOIN quiz_answer a  ON a.question_id = q.id  AND a.answer_text = data.answer_text
   JOIN archetype   ar ON ar.name = data.archetype_name
   ON CONFLICT (answer_id, archetype_id) DO NOTHING;
@@ -1664,7 +1671,7 @@ BEGIN
     VALUES ('v7-branch-floral', 'V7 branch — Fruity → Floral', false, v_branch_type_id, v_fruit_id, v_quiz_id)
     RETURNING id INTO v_floral_bq_id;
 
-  INSERT INTO question (quiz_id, q_number, q_text, weight)
+  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
     VALUES (v_floral_bq_id, 1,
       'One last thing. When coffee is really at its best for you, which is closer?', 1)
     RETURNING id INTO v_fbq1_id;
@@ -1682,7 +1689,7 @@ BEGIN
     VALUES ('v7-branch-earthy', 'V7 branch — Chocolate & Nutty → Earthy', false, v_branch_type_id, v_choc_id, v_quiz_id)
     RETURNING id INTO v_earthy_bq_id;
 
-  INSERT INTO question (quiz_id, q_number, q_text, weight)
+  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
     VALUES (v_earthy_bq_id, 1,
       'Your profile is rich and bold. How do you like to take it?', 1)
     RETURNING id INTO v_ebq1_id;
