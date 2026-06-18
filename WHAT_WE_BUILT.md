@@ -309,7 +309,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 - `user_email` — multiple email addresses per user
 - `user_phone`
 - `address` — shipping and billing addresses (street, city, state, postal_code, country, is_default, address_type: `address_type_enum`); collected from the profile page Settings tab; first address of each type auto-set as default
-- `payment_detail` — Stripe customer links and payment info
+- `user_payment_detail` — Stripe customer links and payment info
 
 **Flavor / archetype engine**
 - `archetype_vector` — where each archetype sits in flavor-dimension space
@@ -321,7 +321,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 
 **Blends / roastery**
 - `roaster_blend` — coffee blends available for purchase; links to Shopify variant IDs
-- `blend_vector` — where each blend sits in flavor-dimension space
+- `roastery_blend_vector` — where each blend sits in flavor-dimension space
 - `user_roaster_link` — roastery staff accounts
 - `roaster` — drop-ship roastery partners; fields: name, contact_person, email, phone, address, website, api_endpoint, avg_fulfillment_hours, roaster_notes, is_active; new contact fields added May 2026
 
@@ -337,13 +337,13 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 **Orders & fulfillment**
 - `subscription` — recurring delivery schedules
 - `order` — purchase records; links to Shopify order IDs
-- `shipment` — tracking info per order
+- `roastery_shipment_details` — tracking info per order
 - `order_line_item` — individual blend quantities per order
 
 **Intelligence**
 - `notification_log` — email/SMS notifications sent
-- `feedback_event` — ratings, repurchases, skips used to tune recommendations
-- `recommendation_log` — AI recommendation audit trail
+- `user_feedback_event` — ratings, repurchases, skips used to tune recommendations
+- `user_recommendation_log` — AI recommendation audit trail
 
 **Chat & newsletter**
 - `chat_message` — Claude AI chat history per user
@@ -353,13 +353,13 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 **Cupping tool** *(added May 2026 — SERIAL PKs, standalone from the main schema)*
 - `coffees` — coffee catalogue (name, roaster, origin, process, roast level/shade, roaster flavor descriptors)
 - `cupping_sessions` — session header (date, brew_method TEXT, location, notes); brew_method was originally `brew_method_enum` but migrated to `TEXT` so it accepts all lookup values (cupping, pour-over, etc.) without enum constraint failures
-- `session_coffees` — junction: which coffees appeared in a session and in what order
+- `cupping_session_coffees` — junction: which coffees appeared in a session and in what order
 - `coffee_dimensions` — cupping dimension catalogue, 12 seeded rows; `is_numeric = true` → scored 0–15 with scale labels; `is_numeric = false` → free-text notes only
 - `cupping_scores` — per-taster score header (session_coffee_id, taster_name, is_merged, overall_notes); unique on `(session_coffee_id, taster_name)`; `is_merged = true` for the combined row
 - `cupping_score_values` — one row per (cupping_score, dimension); `value_min` / `value_max` for numeric dims, `notes` for free-text dims; unique on `(cupping_score_id, dimension_id)`
 - `cupping_score_descriptors` — structured flavor notes: links a score row to one or more SCA wheel descriptors (`cupping_note`) instead of free text; `intensity` (0–15) captures how prominent the descriptor was; `custom_notes` is an escape hatch for off-wheel descriptors; unique on `(cupping_score_id, cupping_note_id)`
 - `roastery_coffee_descriptors` — structured version of `coffees.flavor_descriptors_roaster TEXT[]`; **one row per descriptor per coffee** (e.g. Crosshatch with 3 bag notes = 3 rows); links to SCA wheel via FK; unique on `(coffee_id, cupping_note_id)`
-- `client_flavor_feedback` — post-delivery feedback from customers; **one row per descriptor per user per coffee** (e.g. a client who tasted Blueberry and Dark Chocolate = 2 rows); links user + coffee + order to SCA wheel descriptors; `intensity` optional; no session or brew params — lightweight by design
+- `user_flavor_feedback` — post-delivery feedback from customers; **one row per descriptor per user per coffee** (e.g. a client who tasted Blueberry and Dark Chocolate = 2 rows); links user + coffee + order to SCA wheel descriptors; `intensity` optional; no session or brew params — lightweight by design
 - `cupping_brew_params` — brew parameters per session-coffee (dose, water, yield, ratio, temp, grind, extraction time, pressure, steep time, device); all nullable
 - `archetype_assignments` — archetype tag per coffee with confidence level; `superseded_at = NULL` for the current assignment, populated when a newer one replaces it
 - `coffees.ai_summary TEXT` — AI-generated tasting note cached in the DB (added via idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`); generated once on first public page load, updated only via admin refresh; never regenerates on visitor traffic
@@ -640,7 +640,7 @@ Added Q5 ("You're handed an espresso — straight, no milk, no sugar. How does i
 ### 19. Dropped unused legacy tables
 **Removed from schema and live DB:**
 - `dimension` (UUID-based) — replaced by `coffee_dimensions` (SERIAL, cupping tool). FK references stripped from `archetype_vector`, `archetype_relationship`, `archetype_tunable_variable`, `user_vector_state`, `user_archetype_tuning`, `blend_vector`, `cupping_session_vector`, `quiz_vector` — columns kept, FKs removed.
-- `cupping_session`, `cupping_session_note`, `cupping_session_vector` — legacy QC tables replaced by the new cupping tool (`cupping_sessions`, `session_coffees`, `cupping_scores`, `cupping_score_values`).
+- `cupping_session`, `cupping_session_note`, `cupping_session_vector` — legacy QC tables replaced by the new cupping tool (`cupping_sessions`, `cupping_session_coffees`, `cupping_scores`, `cupping_score_values`).
 - `dimension_scoring_rule` — no longer needed without the `dimension` table.
 
 All dropped via `DROP TABLE ... CASCADE` in Cloud SQL Studio. Removed from `schema.sql` so they won't be recreated on future deploys.
@@ -1340,7 +1340,7 @@ The cupping tool is built around a 9-table normalised schema. Here's how everyth
 
 ```
 cupping_sessions
-    └── session_coffees  (which coffees, in what order)
+    └── cupping_session_coffees  (which coffees, in what order)
             ├── cupping_brew_params      (dose, ratio, grind, temp…)
             └── cupping_scores           (one row per taster; is_merged=true for combined)
                     ├── cupping_score_values      → coffee_dimensions   (numeric: sweetness 9–11, acidity 6–8…)
@@ -1349,7 +1349,7 @@ cupping_sessions
 coffees
     ├── archetype_assignments       (current + historical archetype tags per coffee)
     ├── roastery_coffee_descriptors → cupping_note  (roaster bag notes, structured)
-    └── client_flavor_feedback      → cupping_note  (post-delivery customer feedback)
+    └── user_flavor_feedback        → cupping_note  (post-delivery customer feedback)
 
 cupping_note  (SCA wheel reference — 84 descriptors, static)
 coffee_dimensions    (12 cupping dimensions — numeric or free-text, static)
@@ -1361,7 +1361,7 @@ v_collaborative_flavor_wheel  (view — unions all three descriptor sources with
 - `cupping_score_values` handles **numeric dimensions** (sweetness, acidity, bitterness, body…) with `value_min` / `value_max` on a 0–15 scale
 - `cupping_score_descriptors` handles **flavor descriptors** as FK references to the SCA wheel instead of free text — structured and queryable; `intensity` (0–15) captures how prominent a descriptor was; `custom_notes` is the escape hatch for off-wheel descriptors
 - **Three separate tables** for internal / roastery / client sources — each has a different shape (session context, static bag notes, user+order context). A single `source` column on `cupping_sessions` would force client feedback into a cupping session structure it doesn't fit
-- **One row per descriptor** in both `roastery_coffee_descriptors` and `client_flavor_feedback` — not a TEXT[] array or comma-separated string. This makes it possible to COUNT mentions, AVG intensity, and filter by `wheel_category` across all three sources in the collaborative wheel view
+- **One row per descriptor** in both `roastery_coffee_descriptors` and `user_flavor_feedback` — not a TEXT[] array or comma-separated string. This makes it possible to COUNT mentions, AVG intensity, and filter by `wheel_category` across all three sources in the collaborative wheel view
 - `cupping_note` is intentionally **not** further normalized (wheel_category / wheel_subcategory repeat as TEXT) — 84 rows of fixed reference data doesn't justify the JOIN complexity of a 3-table split
 
 ---
@@ -1499,7 +1499,7 @@ FROM coffee_dimensions ORDER BY display_order;
 ```sql
 SELECT cs.id, cs.session_date, cs.location, sc.display_order, c.name AS coffee
 FROM cupping_sessions cs
-JOIN session_coffees sc ON sc.session_id = cs.id
+JOIN cupping_session_coffees sc ON sc.session_id = cs.id
 JOIN coffees c ON c.id = sc.coffee_id
 ORDER BY cs.session_date, sc.display_order;
 ```
@@ -1662,7 +1662,7 @@ The archetype and confidence dropdowns on the Coffees page are **not** in `looku
 
 **Entering scores:**
 1. Go to **Score Entry** in the admin sidebar (or click "Score Entry →" from Sessions)
-2. Select a session — the coffee dropdown populates from `session_coffees`
+2. Select a session — the coffee dropdown populates from `cupping_session_coffees`
 3. Select a coffee:
    - If scores already exist → shows a **read-only card** (taster name, all dimension values, descriptor tags)
    - Click **"✏️ Edit"** to switch to edit mode, or **"Cancel"** to return to read-only
@@ -1879,7 +1879,7 @@ Continued the table naming convention cleanup — all tables now have domain-pre
 | `brew_params` | `cupping_brew_params` |
 | `coffee_roastery_descriptors` | `roastery_coffee_descriptors` |
 
-**Schema changes (`schema.sql`):** `CREATE TABLE IF NOT EXISTS` declarations updated; idempotent DO blocks added for each rename; all `REFERENCES`, `JOIN`, `FROM`, index names, and sequence name (`coffee_dimensions_id_seq`) updated. `blend_vector`, `blend_id`, `blend_or_single`, and `blend_name` are unchanged — only the `blend` table itself was renamed.
+**Schema changes (`schema.sql`):** `CREATE TABLE IF NOT EXISTS` declarations updated; idempotent DO blocks added for each rename; all `REFERENCES`, `JOIN`, `FROM`, index names, and sequence name (`coffee_dimensions_id_seq`) updated. `blend_id`, `blend_or_single`, and `blend_name` are unchanged — only the `blend` table itself was renamed. (`blend_vector` was renamed to `roastery_blend_vector` in issue #58.)
 
 **Backend changes:** `admin.ts` and `coffees.ts` updated for `coffee_dimensions` and `roastery_coffee_descriptors`.
 
@@ -1895,6 +1895,39 @@ ALTER TABLE coffee_roastery_descriptors RENAME TO roastery_coffee_descriptors;
 
 ---
 
+### 58. Rename seven tables — user_ and domain prefixes
+
+Second batch of naming convention cleanup. All tables now follow a consistent `<domain>_<entity>` pattern.
+
+| Old | New |
+|---|---|
+| `session_coffees` | `cupping_session_coffees` |
+| `blend_vector` | `roastery_blend_vector` |
+| `client_flavor_feedback` | `user_flavor_feedback` |
+| `feedback_event` | `user_feedback_event` |
+| `payment_detail` | `user_payment_detail` |
+| `recommendation_log` | `user_recommendation_log` |
+| `shipment` | `roastery_shipment_details` |
+
+**Schema changes (`schema.sql`):** Idempotent DO blocks added for each rename; all `REFERENCES`, `JOIN`, `FROM`, and index references updated throughout. PostgreSQL auto-updates FK constraints on rename — column names like `session_coffee_id` and `shipment_id` remain unchanged.
+
+**Backend changes:** `admin.ts` updated for `roastery_coffee_descriptors`, `cupping_session_coffees`, `user_flavor_feedback`. `coffees.ts` updated for `cupping_session_coffees`.
+
+**Seed files updated:** `roastery_descriptors_session_001.sql`, `internal_descriptors_session_001.sql`, `session_001_path_2026_05_27.sql`.
+
+**Cloud SQL Studio (run all seven):**
+```sql
+ALTER TABLE session_coffees        RENAME TO cupping_session_coffees;
+ALTER TABLE blend_vector           RENAME TO roastery_blend_vector;
+ALTER TABLE client_flavor_feedback RENAME TO user_flavor_feedback;
+ALTER TABLE feedback_event         RENAME TO user_feedback_event;
+ALTER TABLE payment_detail         RENAME TO user_payment_detail;
+ALTER TABLE recommendation_log     RENAME TO user_recommendation_log;
+ALTER TABLE shipment               RENAME TO roastery_shipment_details;
+```
+
+---
+
 ## What's Still To Do
 
 ### Quiz / scoring
@@ -1904,7 +1937,7 @@ ALTER TABLE coffee_roastery_descriptors RENAME TO roastery_coffee_descriptors;
 3. **Brew parameters UI** — the `cupping_brew_params` table exists (dose, water, yield, ratio, temp, grind, extraction time, pressure, steep time, device) but has no entry form. Could be added to the Score Entry page as a collapsible "Brew Params" section.
 
 ### Collaborative flavor wheel
-5. **Client feedback flow** — post-delivery email/prompt asking customers to pick descriptors from the SCA wheel. Stores results in `client_flavor_feedback`. Schema is ready; needs backend route + frontend feedback UI.
+5. **Client feedback flow** — post-delivery email/prompt asking customers to pick descriptors from the SCA wheel. Stores results in `user_flavor_feedback`. Schema is ready; needs backend route + frontend feedback UI.
 6. **Wire AI recommendations to flavor wheel** — use `v_collaborative_flavor_wheel` to inform Claude recommendations. If a user's archetype is Fruity, surface coffees with high Blueberry / Citrus / Pineapple mentions across all three sources.
 
 ### Commerce
