@@ -57,18 +57,22 @@ DO $$ BEGIN
 END $$;
 
 CREATE TABLE IF NOT EXISTS quiz (
-  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  version      TEXT NOT NULL,
-  description  TEXT,
-  is_active    BOOLEAN DEFAULT true,
-  created_at   TIMESTAMPTZ DEFAULT timezone('utc', now()),
-  quiz_type_id UUID REFERENCES quiz_type(id)
+  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  version              TEXT NOT NULL,
+  description          TEXT,
+  is_active            BOOLEAN DEFAULT true,
+  created_at           TIMESTAMPTZ DEFAULT timezone('utc', now()),
+  quiz_type_id         UUID REFERENCES quiz_type(id),
+  trigger_archetype_id UUID REFERENCES archetype(id),  -- branch quizzes only: which primary archetype triggers this
+  parent_quiz_id       UUID REFERENCES quiz(id)        -- branch quizzes only: the main quiz this belongs to
 );
 
--- Add quiz_type_id to existing quiz rows (no-op on fresh DBs where CREATE TABLE already includes it)
-ALTER TABLE quiz ADD COLUMN IF NOT EXISTS quiz_type_id UUID REFERENCES quiz_type(id);
+-- Idempotent column additions for existing DBs
+ALTER TABLE quiz ADD COLUMN IF NOT EXISTS quiz_type_id         UUID REFERENCES quiz_type(id);
+ALTER TABLE quiz ADD COLUMN IF NOT EXISTS trigger_archetype_id UUID REFERENCES archetype(id);
+ALTER TABLE quiz ADD COLUMN IF NOT EXISTS parent_quiz_id       UUID REFERENCES quiz(id);
 
--- Backfill existing quizzes as type 'main' (idempotent — WHERE quiz_type_id IS NULL)
+-- Backfill existing main quizzes (idempotent — WHERE quiz_type_id IS NULL)
 UPDATE quiz SET quiz_type_id = (SELECT id FROM quiz_type WHERE name = 'main') WHERE quiz_type_id IS NULL;
 
 CREATE TABLE IF NOT EXISTS cupping_note (
@@ -381,29 +385,12 @@ CREATE TABLE IF NOT EXISTS answer_archetype_score (
   UNIQUE (answer_id, archetype_id)
 );
 
--- Drop old text-based quiz_branch if it exists (migration to normalised structure)
+-- Drop quiz_branch entirely — branch quizzes are now quiz rows with trigger_archetype_id + parent_quiz_id
 DO $$ BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'quiz_branch' AND column_name = 'question_text'
-  ) THEN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'quiz_branch' AND schemaname = 'public') THEN
     DROP TABLE quiz_branch;
   END IF;
 END $$;
-
--- Normalised branch quiz link.
--- main_quiz_id   → the active main quiz that triggered the branch
--- trigger_archetype_id → fires when this archetype is the primary scoring result
--- branch_quiz_id → a quiz of type 'branch' whose question/answers live in question/quiz_answer
--- reclassify_archetype_id → the archetype the primary reclassifies to if user picks that answer
-CREATE TABLE IF NOT EXISTS quiz_branch (
-  id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  main_quiz_id            UUID NOT NULL REFERENCES quiz(id) ON DELETE CASCADE,
-  trigger_archetype_id    UUID NOT NULL REFERENCES archetype(id),
-  branch_quiz_id          UUID NOT NULL REFERENCES quiz(id),
-  reclassify_archetype_id UUID NOT NULL REFERENCES archetype(id),
-  UNIQUE (main_quiz_id, trigger_archetype_id)
-);
 
 -- ─────────────────────────────────────────────
 -- ORDERS, FULFILLMENT & SUBSCRIPTIONS
@@ -1568,8 +1555,8 @@ DECLARE
   v_fbq1_id        UUID;   -- Floral branch question id
   v_ebq1_id        UUID;   -- Earthy branch question id
 BEGIN
-  -- Skip if V7 already seeded with normalised structure (quiz_type_id set)
-  IF EXISTS (SELECT 1 FROM quiz WHERE version = 'v7' AND quiz_type_id IS NOT NULL) THEN RETURN; END IF;
+  -- Skip if V7 branch quizzes already carry trigger_archetype_id (final normalised design)
+  IF EXISTS (SELECT 1 FROM quiz WHERE version = 'v7-branch-floral' AND trigger_archetype_id IS NOT NULL) THEN RETURN; END IF;
 
   -- Delete old V7 if it exists (re-seed with normalised branch quiz structure)
   DELETE FROM quiz WHERE version IN ('v7', 'v7-branch-floral', 'v7-branch-earthy');
@@ -1672,8 +1659,8 @@ BEGIN
   ON CONFLICT (answer_id, archetype_id) DO NOTHING;
 
   -- ── Branch quiz: Fruity → Floral ──────────────────────────────────────────────
-  INSERT INTO quiz (version, description, is_active, quiz_type_id)
-    VALUES ('v7-branch-floral', 'V7 branch — Fruity → Floral reclassification', false, v_branch_type_id)
+  INSERT INTO quiz (version, description, is_active, quiz_type_id, trigger_archetype_id, parent_quiz_id)
+    VALUES ('v7-branch-floral', 'V7 branch — Fruity → Floral', false, v_branch_type_id, v_fruit_id, v_quiz_id)
     RETURNING id INTO v_floral_bq_id;
 
   INSERT INTO question (quiz_id, q_number, q_text, weight)
@@ -1690,8 +1677,8 @@ BEGIN
      v_floral_id);
 
   -- ── Branch quiz: Chocolate & Nutty → Earthy ───────────────────────────────────
-  INSERT INTO quiz (version, description, is_active, quiz_type_id)
-    VALUES ('v7-branch-earthy', 'V7 branch — Chocolate & Nutty → Earthy reclassification', false, v_branch_type_id)
+  INSERT INTO quiz (version, description, is_active, quiz_type_id, trigger_archetype_id, parent_quiz_id)
+    VALUES ('v7-branch-earthy', 'V7 branch — Chocolate & Nutty → Earthy', false, v_branch_type_id, v_choc_id, v_quiz_id)
     RETURNING id INTO v_earthy_bq_id;
 
   INSERT INTO question (quiz_id, q_number, q_text, weight)
@@ -1707,11 +1694,6 @@ BEGIN
      'Deep and intense. Complex, almost challenging. The more serious the better.',
      v_earthy_id);
 
-  -- ── quiz_branch links ─────────────────────────────────────────────────────────
-  INSERT INTO quiz_branch (main_quiz_id, trigger_archetype_id, branch_quiz_id, reclassify_archetype_id)
-  VALUES
-    (v_quiz_id, v_fruit_id, v_floral_bq_id, v_floral_id),
-    (v_quiz_id, v_choc_id,  v_earthy_bq_id, v_earthy_id);
 
 END $v7$;
 

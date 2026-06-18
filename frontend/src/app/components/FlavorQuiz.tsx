@@ -42,7 +42,6 @@ interface BranchAnswer {
 interface BranchQuestion {
   questionId: string;
   questionText: string;
-  reclassifyArchetypeId: string;
   answers: BranchAnswer[];
 }
 

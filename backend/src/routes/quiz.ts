@@ -243,8 +243,8 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
 
 // ─── GET /api/quiz/branch ────────────────────────────────────────────────────
 // Returns the branch question + answers for the given archetypeId in the active quiz.
-// Answers carry resulting_archetype_id so the frontend can determine the final archetype
-// purely from which answer the user selects — no "confirm vs reclassify" hardcoding.
+// Branch quizzes are quiz rows of type 'branch' with trigger_archetype_id + parent_quiz_id.
+// Answers carry resulting_archetype_id — frontend derives final archetype from selection.
 // Returns { branchQuestion: null } when no branch exists for that archetype.
 // No auth required — called immediately after /score.
 router.get('/branch', async (req, res) => {
@@ -265,7 +265,6 @@ router.get('/branch', async (req, res) => {
 
     const result = await db.query(
       `SELECT
-         qb.reclassify_archetype_id,
          q.id       AS question_id,
          q.q_text   AS question_text,
          json_agg(
@@ -277,13 +276,13 @@ router.get('/branch', async (req, res) => {
            )
            ORDER BY a.id
          ) AS answers
-       FROM quiz_branch qb
-       JOIN quiz         bq ON bq.id = qb.branch_quiz_id
+       FROM quiz         bq
        JOIN question      q  ON q.quiz_id = bq.id
        JOIN quiz_answer   a  ON a.question_id = q.id
        LEFT JOIN archetype ar ON ar.id = a.resulting_archetype_id
-       WHERE qb.main_quiz_id = $1 AND qb.trigger_archetype_id = $2
-       GROUP BY qb.reclassify_archetype_id, q.id, q.q_text`,
+       WHERE bq.parent_quiz_id = $1
+         AND bq.trigger_archetype_id = $2
+       GROUP BY q.id, q.q_text`,
       [mainQuizResult.rows[0].id, archetypeId]
     );
 
@@ -295,10 +294,9 @@ router.get('/branch', async (req, res) => {
     const row = result.rows[0];
     res.json({
       branchQuestion: {
-        questionId:             row.question_id,
-        questionText:           row.question_text,
-        reclassifyArchetypeId:  row.reclassify_archetype_id,
-        answers:                row.answers,
+        questionId:   row.question_id,
+        questionText: row.question_text,
+        answers:      row.answers,
       },
     });
   } catch (err) {
