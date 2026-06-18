@@ -326,10 +326,11 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 - `roaster` — drop-ship roastery partners; fields: name, contact_person, email, phone, address, website, api_endpoint, avg_fulfillment_hours, roaster_notes, is_active; new contact fields added May 2026
 
 **Quiz**
+- `quiz_type` — lookup: `'main'` (user-facing quiz) | `'branch'` (reclassification sub-quiz); FK on `quiz.quiz_type_id`
 - `question` — includes `weight NUMERIC DEFAULT 1`; question-level multiplier applied uniformly to all answers in that question
-- `answer` — branching logic via `next_question_id`, vector impact stored as JSONB; includes `weight NUMERIC DEFAULT 1`; answer-level multiplier applied uniformly across all archetype rows for that answer
-- `answer_archetype_score` — the scoring matrix: one row per (answer, archetype); `score` is the archetype-specific impact (positive or negative); `archetype_id = NULL` = neutral answer (no points); UNIQUE on `(answer_id, archetype_id)`
-- `quiz_branch` — branch reclassification questions per quiz version: `(quiz_id, trigger_archetype_id, question_text, confirm_answer_text, reclassify_answer_text, reclassify_archetype_id)`; UNIQUE on `(quiz_id, trigger_archetype_id)`; added V7
+- `quiz_answer` — (renamed from `answer`) branching logic via `next_question_id`, vector impact stored as JSONB; includes `weight NUMERIC DEFAULT 1` and `is_experimental_gate`; shared by both main and branch quizzes
+- `answer_archetype_score` — the scoring matrix: one row per (quiz_answer, archetype); `score` is the archetype-specific impact (positive or negative); `archetype_id = NULL` = neutral answer (no points); UNIQUE on `(answer_id, archetype_id)`
+- `quiz_branch` — normalised branch link: `(main_quiz_id, trigger_archetype_id, branch_quiz_id, reclassify_archetype_id)`; `branch_quiz_id` FK points to a `quiz` row of type `'branch'` whose questions and answers live in `question`/`quiz_answer`; UNIQUE on `(main_quiz_id, trigger_archetype_id)`
 - `quiz_session` — a user's completed quiz
 - `quiz_vector` — dimension scores from a quiz session
 
@@ -411,7 +412,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | POST | `/api/auth/reset-password` | No | Sends branded password-reset email via Resend from axisandbloomcoffee.com |
 | GET | `/api/quiz/questions` | No | Returns active quiz questions + answers from DB (with archetype names and answer UUIDs) |
 | POST | `/api/quiz/score` | No | Takes `{ answerIds[] }`, SUMs weighted scores from `answer_archetype_score`, returns winning archetype, secondary archetype, food signal, confidence level, and recommendation mode. Veto cascade: Q5 → Q4 → Q2 → Q1. All scoring logic lives here — zero logic in the frontend. |
-| GET | `/api/quiz/branch` | No | Takes `?archetypeId=<uuid>`, returns the branch question for the active quiz if one exists for that archetype, else `{ branchQuestion: null }`. Called immediately after `/score`. |
+| GET | `/api/quiz/branch` | No | Takes `?archetypeId=<uuid>`, returns `{ branchQuestion: { questionId, questionText, reclassifyArchetypeId, answers:[{id,text,archetypeId,archetypeName}] } }` or `{ branchQuestion: null }`. Joins `quiz_branch` → branch `quiz` → `question` → `quiz_answer`. |
 | POST | `/api/quiz/results` | Yes | Saves completed quiz session with full scoring context (including secondaryArchetype, foodSignal, confidence, recommendationMode in context_data JSONB); calls Claude with mode-specific prompt; returns session ID + recommendation. Called after branch answer (if any) so final archetype is saved. |
 | GET | `/api/quiz/results/latest` | Yes | Returns user's most recent quiz session with archetype name |
 | GET | `/api/shop/products` | No | Returns Shopify products (empty list until Shopify wired) |
@@ -973,7 +974,7 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 |---|---|
 | Frontend deployed | ✅ https://axisandbloom.com (custom domain) / https://axis-and-bloom-prod.web.app |
 | Backend deployed | ✅ https://axis-bloom-backend-oiub7eumya-uc.a.run.app |
-| Database connected | ✅ 48 tables verified via /health/db |
+| Database connected | ✅ 49 tables verified via /health/db |
 | Email/password auth | ✅ Working |
 | Google sign-in | ✅ Working (was already enabled) |
 | Apple sign-in | ⚠️ Not configured |
@@ -1164,12 +1165,12 @@ Scoring is split across three fields, each with a distinct role. All three are k
 | Field | Table | Role | Scope |
 |---|---|---|---|
 | `question.weight` | `question` | How important this question is relative to others | Applies to all answers in the question |
-| `answer.weight` | `answer` | How decisive/strong this answer is as a signal | Applies uniformly across all archetype rows for this answer |
-| `answer_archetype_score.score` | `answer_archetype_score` | The archetype-specific impact — positive or negative | One row per (answer, archetype) |
+| `quiz_answer.weight` | `quiz_answer` | How decisive/strong this answer is as a signal | Applies uniformly across all archetype rows for this answer |
+| `answer_archetype_score.score` | `answer_archetype_score` | The archetype-specific impact — positive or negative | One row per (quiz_answer, archetype) |
 
 **Lambda formula:**
 ```
-archetype total = SUM( question.weight × answer.weight × answer_archetype_score.score )
+archetype total = SUM( question.weight × quiz_answer.weight × answer_archetype_score.score )
 ```
 
 **V7 seeded values** (point difference baked into `score`; Q6 excluded from `answer_archetype_score`):
@@ -1209,7 +1210,7 @@ archetype total = SUM( question.weight × answer.weight × answer_archetype_scor
 
 **Tuning examples — no code changes needed, just DB updates:**
 - Q5 should matter even more → `UPDATE question SET weight = 4 WHERE q_number = 5`
-- A specific answer is an unusually strong signal → `UPDATE answer SET weight = 1.5 WHERE answer_text = '...'`
+- A specific answer is an unusually strong signal → `UPDATE quiz_answer SET weight = 1.5 WHERE answer_text = '...'`
 - An answer should also hurt a competing archetype → `INSERT INTO answer_archetype_score (..., archetype_id, score) VALUES (..., <fruity_id>, -2)`
 
 **Experimental gate (Q3-C)**
@@ -1293,7 +1294,9 @@ After the primary archetype is determined, the frontend calls `GET /api/quiz/bra
 | Fruity | "One last thing. When coffee is really at its best for you, which is closer?" | "It's complex and alive..." (confirm Fruity) | "It's so light and delicate it barely feels like coffee. Almost like drinking tea." → **Floral** |
 | Chocolate & Nutty | "Your profile is rich and bold. How do you like to take it?" | "Rich and comforting. Coffee that feels like a reward at the end of the day." (confirm CN) | "Deep and intense. Complex, almost challenging. The more serious the better." → **Earthy** |
 
-Branch questions are stored in the `quiz_branch` table, scoped to a `quiz_id`. They are UNIQUE per `(quiz_id, trigger_archetype_id)`.
+Branch questions live in the `question` table and their answers in `quiz_answer`, under a dedicated quiz row of `quiz_type = 'branch'` (`v7-branch-floral`, `v7-branch-earthy`). `quiz_branch` links the main quiz to the branch quiz via `branch_quiz_id` FK — no question or answer text is stored directly in `quiz_branch`.
+
+Each branch quiz_answer carries `resulting_archetype_id`. The frontend selects an answer and uses its `archetypeName` as the final archetype — no hardcoded A/B logic anywhere.
 
 `POST /api/quiz/results` is **deferred** until after the branch answer so the correct final archetype (possibly reclassified) is what gets saved.
 
@@ -1752,8 +1755,8 @@ Note: Earthy has no cupping sessions yet so its values are expert judgement only
 ### 52. Quiz V7 — reordered questions, branch reclassification, scoring bug fixes
 
 **Backend changes:**
-- `backend/src/db/schema.sql` — new `quiz_branch` table; V7 seed block deactivates V4 and seeds 6 questions (Q1–Q5 scored, Q6 food signal at weight 0), 15 `answer_archetype_score` rows, 2 `quiz_branch` rows (Fruity→Floral, CN→Earthy)
-- `backend/src/routes/quiz.ts` — new `GET /api/quiz/branch` endpoint; food signal corrected from `qNum === 2` to `qNum === 6`
+- `backend/src/db/schema.sql` — new `quiz_branch` table (text-based, since replaced in #53); V7 seed block deactivates V4 and seeds 6 questions, 15 `answer_archetype_score` rows, 2 `quiz_branch` rows
+- `backend/src/routes/quiz.ts` — `GET /api/quiz/branch` endpoint (text-based response, since replaced in #53); food signal corrected from `qNum === 2` to `qNum === 6`
 - `backend/src/services/quizScoring.ts` — veto cascade corrected from `[6,5,3,1]` to `[5,4,2,1]`; `isSecondaryClose` corrected from `byQ[6]/byQ[5]` to `byQ[5]/byQ[4]`
 
 **Frontend changes (`FlavorQuiz.tsx`):**
@@ -1762,10 +1765,34 @@ Note: Earthy has no cupping sessions yet so its values are expert judgement only
 - `ARCHETYPES` extended with Floral (`#7b6ca8`) and Earthy (`#5c6b45`) display data
 - After `/score`, calls `GET /api/quiz/branch?archetypeId=...`; shows branch screen if question exists
 - Branch screen: split-screen "one last thing" layout, two styled answer buttons
-- Answer A = keep original archetype; Answer B = reclassify to Floral or Earthy
+- Answer A = keep original archetype; Answer B = reclassify to Floral or Earthy (text-based, replaced in #53)
 - `saveQuizResult` deferred until after branch answer (if any) so correct final archetype is saved
 
 **Source file**: `backend/src/quiz/Coffee_Quiz_ScoringV7.xlsx`
+
+---
+
+### 53. Quiz schema normalisation — quiz_type, quiz_answer rename, quiz_branch restructure
+
+**Motivation**: quiz_branch was storing question and answer text as flat TEXT columns, bypassing the question/quiz_answer tables. quiz had no type differentiation between main and branch quizzes. answer was a generic name.
+
+**Schema changes (`schema.sql`):**
+- New `quiz_type` lookup table: `'main'` | `'branch'` — now 49 tables total
+- `quiz.quiz_type_id` FK added; existing rows backfilled as `'main'` via `WHERE quiz_type_id IS NULL` (idempotent)
+- `answer` renamed to `quiz_answer` — idempotent DO block: `ALTER TABLE answer RENAME TO quiz_answer` only if old name exists; `CREATE TABLE IF NOT EXISTS quiz_answer` covers fresh deploys
+- `quiz_branch` restructured: migration DO block drops old text-column version; new structure: `(main_quiz_id, trigger_archetype_id, branch_quiz_id, reclassify_archetype_id)` — `branch_quiz_id` is a FK to a quiz row of type `'branch'`
+- V7 seed block guard updated: `quiz_type_id IS NOT NULL` check replaces `version = 'v7'` check; old V7 deleted and re-seeded if guard fails
+- Branch quizzes seeded as proper quiz rows (`v7-branch-floral`, `v7-branch-earthy`) with their questions in `question` and answers in `quiz_answer`; `quiz_answer.resulting_archetype_id` carries the target archetype for each branch answer
+
+**Backend changes (`quiz.ts`):**
+- All `FROM answer` / `JOIN answer` → `FROM quiz_answer` / `JOIN quiz_answer`
+- `GET /api/quiz/branch` rewritten: joins `quiz_branch → quiz (branch) → question → quiz_answer → archetype`; returns `{ questionId, questionText, reclassifyArchetypeId, answers:[{id,text,archetypeId,archetypeName}] }` — no hardcoded confirm/reclassify text
+
+**Frontend changes (`FlavorQuiz.tsx`):**
+- `BranchQuestion` interface: `answers: BranchAnswer[]` replaces `confirmAnswerText`/`reclassifyAnswerText`
+- `selectedBranchAnswerId: string | null` replaces `branchAnswer: 'A' | 'B' | null`
+- `handleBranchContinue` reads `selected.archetypeName` → final archetype; no A/B logic
+- Branch screen renders `branchQuestion.answers.map()` — fully data-driven from DB
 
 ---
 
