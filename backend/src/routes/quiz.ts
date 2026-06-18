@@ -13,7 +13,7 @@ const router = Router();
 router.get('/questions', async (_req, res) => {
   try {
     const quizResult = await db.query(
-      `SELECT id FROM quiz WHERE is_active = true ORDER BY created_at DESC LIMIT 1`
+      `SELECT id FROM quiz WHERE is_active = true AND parent_quiz_id IS NULL ORDER BY created_at DESC LIMIT 1`
     );
 
     if (!quizResult.rows.length) {
@@ -256,7 +256,7 @@ router.get('/branch', async (req, res) => {
 
   try {
     const mainQuizResult = await db.query(
-      `SELECT id FROM quiz WHERE is_active = true ORDER BY created_at DESC LIMIT 1`
+      `SELECT id FROM quiz WHERE is_active = true AND parent_quiz_id IS NULL ORDER BY created_at DESC LIMIT 1`
     );
     if (!mainQuizResult.rows.length) {
       res.json({ branchQuestion: null });
