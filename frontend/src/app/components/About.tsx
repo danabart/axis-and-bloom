@@ -32,20 +32,19 @@ export default function About() {
   const heroVideoRef      = useRef<HTMLVideoElement>(null);
   const emotionalVideoRef = useRef<HTMLVideoElement>(null);
 
-  // Seamless loop for both videos — seek back 0.15 s before the end to avoid black flash.
-  // Using timeupdate instead of the `loop` attribute prevents the browser's built-in
-  // end-of-stream black frame on certain codecs / containers.
   useEffect(() => {
     const attachLoop = (ref: React.RefObject<HTMLVideoElement | null>) => {
       const video = ref.current;
       if (!video) return () => {};
-      const onTimeUpdate = () => {
-        if (video.duration && video.currentTime >= video.duration - 0.15) {
-          video.currentTime = 0;
+      let rafId: number;
+      const tick = () => {
+        if (video.duration && video.currentTime >= video.duration - 0.5) {
+          video.currentTime = 0.05;
         }
+        rafId = requestAnimationFrame(tick);
       };
-      video.addEventListener('timeupdate', onTimeUpdate);
-      return () => video.removeEventListener('timeupdate', onTimeUpdate);
+      rafId = requestAnimationFrame(tick);
+      return () => cancelAnimationFrame(rafId);
     };
     const cleanHero      = attachLoop(heroVideoRef);
     const cleanEmotional = attachLoop(emotionalVideoRef);
@@ -69,6 +68,7 @@ export default function About() {
             position: 'absolute', inset: 0,
             width: '100%', height: '100%',
             objectFit: 'cover', objectPosition: 'center 40%',
+            display: 'block', transform: 'scale(1.06)',
           }}
         >
           <source src={heroVideo} type="video/mp4" />
@@ -415,6 +415,7 @@ export default function About() {
             position: 'absolute', inset: 0,
             width: '100%', height: '100%',
             objectFit: 'cover', objectPosition: 'center',
+            display: 'block', transform: 'scale(1.06)',
           }}
         >
           <source src={video08} type="video/mp4" />

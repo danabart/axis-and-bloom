@@ -124,7 +124,7 @@ export default function Home() {
           ref={heroVideoRef}
           autoPlay muted playsInline
           onCanPlay={() => setHeroReady(true)}
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%', opacity: heroReady ? 1 : 0, transition: 'opacity 0.5s ease' }}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%', display: 'block', transform: 'scale(1.06)', opacity: heroReady ? 1 : 0, transition: 'opacity 0.5s ease' }}
         >
           <source src={heroVideo} type="video/mp4" />
         </video>
@@ -271,7 +271,7 @@ export default function Home() {
           ref={cinematicVideoRef}
           autoPlay muted playsInline
           onCanPlay={() => setCinematicReady(true)}
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%', opacity: cinematicReady ? 1 : 0, transition: 'opacity 0.5s ease' }}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%', display: 'block', transform: 'scale(1.06)', opacity: cinematicReady ? 1 : 0, transition: 'opacity 0.5s ease' }}
         >
           <source src={placeholderVideo} type="video/mp4" />
         </video>
