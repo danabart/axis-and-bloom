@@ -14,7 +14,7 @@ const NAV_LINK: React.CSSProperties = {
 };
 
 export default function Navigation() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
 
   return (
     <nav style={{
@@ -44,6 +44,9 @@ export default function Navigation() {
         <Link to="/coffees" style={NAV_LINK} className="hover:opacity-50 transition-opacity">Our coffees</Link>
         <Link to="/about" style={NAV_LINK} className="hover:opacity-50 transition-opacity">About</Link>
         <Link to="/shop" style={NAV_LINK} className="hover:opacity-50 transition-opacity">Shop</Link>
+        {isAdmin && (
+          <Link to="/admin" style={NAV_LINK} className="hover:opacity-50 transition-opacity">Admin</Link>
+        )}
       </div>
 
       {/* Icons */}
