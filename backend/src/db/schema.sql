@@ -13,6 +13,11 @@ CREATE TABLE IF NOT EXISTS user_type (
   updated_at  TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
 
+CREATE TABLE IF NOT EXISTS quiz_type (
+  id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL UNIQUE   -- 'main' | 'branch'
+);
+
 
 CREATE TABLE IF NOT EXISTS archetype (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -46,13 +51,22 @@ ALTER TABLE roaster ADD COLUMN IF NOT EXISTS phone          TEXT;
 ALTER TABLE roaster ADD COLUMN IF NOT EXISTS contact_person TEXT;
 ALTER TABLE roaster ADD COLUMN IF NOT EXISTS website        TEXT;
 
+-- Seed quiz_type values (idempotent)
+DO $$ BEGIN
+  INSERT INTO quiz_type (name) VALUES ('main'), ('branch') ON CONFLICT (name) DO NOTHING;
+END $$;
+
 CREATE TABLE IF NOT EXISTS quiz (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  version     TEXT NOT NULL,
-  description TEXT,
-  is_active   BOOLEAN DEFAULT true,
-  created_at  TIMESTAMPTZ DEFAULT timezone('utc', now())
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  version      TEXT NOT NULL,
+  description  TEXT,
+  is_active    BOOLEAN DEFAULT true,
+  created_at   TIMESTAMPTZ DEFAULT timezone('utc', now()),
+  quiz_type_id UUID REFERENCES quiz_type(id)
 );
+
+-- Backfill existing quizzes as type 'main' (idempotent — WHERE quiz_type_id IS NULL)
+UPDATE quiz SET quiz_type_id = (SELECT id FROM quiz_type WHERE name = 'main') WHERE quiz_type_id IS NULL;
 
 CREATE TABLE IF NOT EXISTS cupping_note (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -291,19 +305,26 @@ CREATE TABLE IF NOT EXISTS user_roaster_link (
 -- ─────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS question (
-  id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  quiz_id UUID REFERENCES quiz(id) ON DELETE CASCADE,
+  id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  quiz_id  UUID REFERENCES quiz(id) ON DELETE CASCADE,
   q_number INTEGER NOT NULL,
-  q_text  TEXT NOT NULL
+  q_text   TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS answer (
-  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  question_id           UUID REFERENCES question(id) ON DELETE CASCADE,
-  answer_text           TEXT NOT NULL,
-  next_question_id      UUID REFERENCES question(id),
+-- Rename answer → quiz_answer (idempotent)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'answer' AND schemaname = 'public') THEN
+    ALTER TABLE answer RENAME TO quiz_answer;
+  END IF;
+END $$;
+
+CREATE TABLE IF NOT EXISTS quiz_answer (
+  id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  question_id            UUID REFERENCES question(id) ON DELETE CASCADE,
+  answer_text            TEXT NOT NULL,
+  next_question_id       UUID REFERENCES question(id),
   resulting_archetype_id UUID REFERENCES archetype(id),
-  vector_impact         JSONB
+  vector_impact          JSONB
 );
 
 CREATE TABLE IF NOT EXISTS quiz_session (
@@ -332,43 +353,53 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Add weight to answer (idempotent for existing DBs)
+-- Add weight to quiz_answer (idempotent for existing DBs)
 DO $$ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'answer' AND column_name = 'weight'
+    WHERE table_name = 'quiz_answer' AND column_name = 'weight'
   ) THEN
-    ALTER TABLE answer ADD COLUMN weight NUMERIC DEFAULT 1;
+    ALTER TABLE quiz_answer ADD COLUMN weight NUMERIC DEFAULT 1;
   END IF;
 END $$;
 
--- Add experimental gate flag to answer (idempotent)
-ALTER TABLE answer ADD COLUMN IF NOT EXISTS is_experimental_gate BOOLEAN DEFAULT FALSE;
+-- Add experimental gate flag to quiz_answer (idempotent)
+ALTER TABLE quiz_answer ADD COLUMN IF NOT EXISTS is_experimental_gate BOOLEAN DEFAULT FALSE;
 
 -- Per-answer archetype scoring (normalised, multi-archetype support)
 -- archetype_id = NULL means a neutral answer (no points awarded to any archetype)
 -- UNIQUE (answer_id, archetype_id) prevents duplicate rows per deploy
 CREATE TABLE IF NOT EXISTS answer_archetype_score (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  answer_id    UUID NOT NULL REFERENCES answer(id) ON DELETE CASCADE,
+  answer_id    UUID NOT NULL REFERENCES quiz_answer(id) ON DELETE CASCADE,
   question_id  UUID NOT NULL REFERENCES question(id) ON DELETE CASCADE,
   archetype_id UUID REFERENCES archetype(id) ON DELETE SET NULL,
   score        NUMERIC NOT NULL DEFAULT 0,
   UNIQUE (answer_id, archetype_id)
 );
 
--- Branch question shown after primary archetype is determined.
--- trigger_archetype_id → fires when that archetype is the primary result.
--- Answer A confirms; Answer B reclassifies primary to reclassify_archetype_id.
+-- Drop old text-based quiz_branch if it exists (migration to normalised structure)
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'quiz_branch' AND column_name = 'question_text'
+  ) THEN
+    DROP TABLE quiz_branch;
+  END IF;
+END $$;
+
+-- Normalised branch quiz link.
+-- main_quiz_id   → the active main quiz that triggered the branch
+-- trigger_archetype_id → fires when this archetype is the primary scoring result
+-- branch_quiz_id → a quiz of type 'branch' whose question/answers live in question/quiz_answer
+-- reclassify_archetype_id → the archetype the primary reclassifies to if user picks that answer
 CREATE TABLE IF NOT EXISTS quiz_branch (
   id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  quiz_id                 UUID NOT NULL REFERENCES quiz(id) ON DELETE CASCADE,
+  main_quiz_id            UUID NOT NULL REFERENCES quiz(id) ON DELETE CASCADE,
   trigger_archetype_id    UUID NOT NULL REFERENCES archetype(id),
-  question_text           TEXT NOT NULL,
-  confirm_answer_text     TEXT NOT NULL,
-  reclassify_answer_text  TEXT NOT NULL,
+  branch_quiz_id          UUID NOT NULL REFERENCES quiz(id),
   reclassify_archetype_id UUID NOT NULL REFERENCES archetype(id),
-  UNIQUE (quiz_id, trigger_archetype_id)
+  UNIQUE (main_quiz_id, trigger_archetype_id)
 );
 
 -- ─────────────────────────────────────────────
@@ -1519,18 +1550,29 @@ END $v4$;
 -- ─────────────────────────────────────────────
 DO $v7$
 DECLARE
-  v_quiz_id   UUID;
-  v_choc_id   UUID;
-  v_bal_id    UUID;
-  v_fruit_id  UUID;
-  v_floral_id UUID;
-  v_earthy_id UUID;
+  v_main_type_id   UUID;
+  v_branch_type_id UUID;
+  v_quiz_id        UUID;
+  v_choc_id        UUID;
+  v_bal_id         UUID;
+  v_fruit_id       UUID;
+  v_floral_id      UUID;
+  v_earthy_id      UUID;
   v_q1_id UUID; v_q2_id UUID; v_q3_id UUID;
   v_q4_id UUID; v_q5_id UUID; v_q6_id UUID;
+  v_floral_bq_id   UUID;   -- Floral branch quiz id
+  v_earthy_bq_id   UUID;   -- Earthy branch quiz id
+  v_fbq1_id        UUID;   -- Floral branch question id
+  v_ebq1_id        UUID;   -- Earthy branch question id
 BEGIN
-  IF EXISTS (SELECT 1 FROM quiz WHERE version = 'v7') THEN RETURN; END IF;
+  -- Skip if V7 already seeded with normalised structure (quiz_type_id set)
+  IF EXISTS (SELECT 1 FROM quiz WHERE version = 'v7' AND quiz_type_id IS NOT NULL) THEN RETURN; END IF;
 
-  UPDATE quiz SET is_active = FALSE;
+  -- Delete old V7 if it exists (re-seed with normalised branch quiz structure)
+  DELETE FROM quiz WHERE version IN ('v7', 'v7-branch-floral', 'v7-branch-earthy');
+
+  SELECT id INTO v_main_type_id   FROM quiz_type WHERE name = 'main';
+  SELECT id INTO v_branch_type_id FROM quiz_type WHERE name = 'branch';
 
   SELECT id INTO v_choc_id   FROM archetype WHERE name = 'Chocolate & Nutty';
   SELECT id INTO v_bal_id    FROM archetype WHERE name = 'Balanced & Sweet';
@@ -1538,52 +1580,56 @@ BEGIN
   SELECT id INTO v_floral_id FROM archetype WHERE name = 'Floral';
   SELECT id INTO v_earthy_id FROM archetype WHERE name = 'Earthy';
 
-  INSERT INTO quiz (version, description, is_active)
-    VALUES ('v7', 'Axis & Bloom Flavor Finder — V7 (food signal Q6, branch questions)', true)
+  -- Deactivate all main quizzes
+  UPDATE quiz SET is_active = FALSE WHERE quiz_type_id = v_main_type_id OR quiz_type_id IS NULL;
+
+  -- ── Main quiz ─────────────────────────────────────────────────────────────────
+  INSERT INTO quiz (version, description, is_active, quiz_type_id)
+    VALUES ('v7', 'Axis & Bloom Flavor Finder — V7', true, v_main_type_id)
     RETURNING id INTO v_quiz_id;
 
   -- Q1 (weight 1 — identity)
   INSERT INTO question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 1, 'How would you describe your relationship with coffee?', 1)
     RETURNING id INTO v_q1_id;
-  INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
-    (v_q1_id, 'It''s a daily ritual. I''m particular about it.',                     v_choc_id),
-    (v_q1_id, 'It''s a reliable habit. I just like having it.',                      v_bal_id),
-    (v_q1_id, 'It''s something I''m still discovering. I''m curious about it.',      v_fruit_id);
+  INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
+    (v_q1_id, 'It''s a daily ritual. I''m particular about it.',                v_choc_id),
+    (v_q1_id, 'It''s a reliable habit. I just like having it.',                 v_bal_id),
+    (v_q1_id, 'It''s something I''m still discovering. I''m curious about it.', v_fruit_id);
 
   -- Q2 (weight 2 — perfect cup)
   INSERT INTO question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 2, 'When you finish a really good cup of coffee, what made it good?', 2)
     RETURNING id INTO v_q2_id;
-  INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
-    (v_q2_id, 'It was strong and satisfying — I felt it.',                                       v_choc_id),
-    (v_q2_id, 'It was smooth and easy the whole way through — nothing got in the way.',          v_bal_id),
-    (v_q2_id, 'It felt alive — bright and changing. Every sip was a little different.',          v_fruit_id);
+  INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
+    (v_q2_id, 'It was strong and satisfying — I felt it.',                              v_choc_id),
+    (v_q2_id, 'It was smooth and easy the whole way through — nothing got in the way.', v_bal_id),
+    (v_q2_id, 'It felt alive — bright and changing. Every sip was a little different.', v_fruit_id);
 
   -- Q3 (weight 1 — black coffee; C is experimental gate)
   INSERT INTO question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 3, 'You try a new coffee black. What''s your first reaction?', 1)
     RETURNING id INTO v_q3_id;
-  INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
+  INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
     (v_q3_id, 'It feels complete. I''d drink it as is, or add milk to make it even richer.', v_choc_id),
     (v_q3_id, 'It''s fine, easy to drink. I might add something to smooth it out.',           v_bal_id);
-  INSERT INTO answer (question_id, answer_text, resulting_archetype_id, is_experimental_gate) VALUES
+  INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id, is_experimental_gate) VALUES
     (v_q3_id, 'Interesting… what flavors am I getting here?', v_fruit_id, TRUE);
 
   -- Q4 (weight 2 — disappointment)
   INSERT INTO question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 4, 'Which of these would bother you most about a cup of coffee?', 2)
     RETURNING id INTO v_q4_id;
-  INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
-    (v_q4_id, 'It has no bitterness or intensity.',  v_choc_id),
-    (v_q4_id, 'It''s too bitter or too intense.',    v_bal_id),
-    (v_q4_id, 'Every sip tastes exactly the same.',  v_fruit_id);
+  INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
+    (v_q4_id, 'It has no bitterness or intensity.', v_choc_id),
+    (v_q4_id, 'It''s too bitter or too intense.',   v_bal_id),
+    (v_q4_id, 'Every sip tastes exactly the same.', v_fruit_id);
 
   -- Q5 (weight 3 — bitterness; highest weight; veto cascade anchor)
   INSERT INTO question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 5, 'Someone hands you a coffee that''s a little more bitter than expected. What''s your honest reaction?', 3)
     RETURNING id INTO v_q5_id;
-  INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
+  INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
     (v_q5_id, 'I don''t mind. Actually I kind of like it. It tastes serious.',           v_choc_id),
     (v_q5_id, 'I''d rather have something gentler and smoother.',                        v_bal_id),
     (v_q5_id, 'It feels burnt to me. I''d rather have something fresher or more alive.', v_fruit_id);
@@ -1592,12 +1638,12 @@ BEGIN
   INSERT INTO question (quiz_id, q_number, q_text, weight)
     VALUES (v_quiz_id, 6, 'Someone places a small treat next to your coffee. Without thinking, which do you grab?', 0)
     RETURNING id INTO v_q6_id;
-  INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
+  INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
     (v_q6_id, 'Something rich and comforting. Dark chocolate, roasted nuts, a warm brownie.', v_choc_id),
     (v_q6_id, 'Something soft and sweet. A ripe peach, a vanilla biscuit, caramel.',          v_bal_id),
     (v_q6_id, 'Something fresh and lively. A green apple, fresh berries, citrus.',            v_fruit_id);
 
-  -- answer_archetype_score — Q1–Q5 only (Q6 has weight 0, excluded from scoring)
+  -- answer_archetype_score — Q1–Q5 only (Q6 weight 0, excluded from scoring)
   INSERT INTO answer_archetype_score (answer_id, question_id, archetype_id, score)
   SELECT a.id, q.id, ar.id, data.score
   FROM (VALUES
@@ -1609,7 +1655,7 @@ BEGIN
     (2, 'It felt alive — bright and changing. Every sip was a little different.',       'Fruity',            2::numeric),
     (3, 'It feels complete. I''d drink it as is, or add milk to make it even richer.',  'Chocolate & Nutty', 1::numeric),
     (3, 'It''s fine, easy to drink. I might add something to smooth it out.',           'Balanced & Sweet',  1::numeric),
-    (3, 'Interesting… what flavors am I getting here?',                                  'Fruity',            1::numeric),
+    (3, 'Interesting… what flavors am I getting here?',                                 'Fruity',            1::numeric),
     (4, 'It has no bitterness or intensity.',                                            'Chocolate & Nutty', 2::numeric),
     (4, 'It''s too bitter or too intense.',                                              'Balanced & Sweet',  2::numeric),
     (4, 'Every sip tastes exactly the same.',                                            'Fruity',            2::numeric),
@@ -1617,26 +1663,52 @@ BEGIN
     (5, 'I''d rather have something gentler and smoother.',                              'Balanced & Sweet',  3::numeric),
     (5, 'It feels burnt to me. I''d rather have something fresher or more alive.',      'Fruity',            3::numeric)
   ) AS data(q_number, answer_text, archetype_name, score)
-  JOIN question  q  ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
-  JOIN answer    a  ON a.question_id = q.id  AND a.answer_text = data.answer_text
-  JOIN archetype ar ON ar.name = data.archetype_name
+  JOIN question    q  ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
+  JOIN quiz_answer a  ON a.question_id = q.id  AND a.answer_text = data.answer_text
+  JOIN archetype   ar ON ar.name = data.archetype_name
   ON CONFLICT (answer_id, archetype_id) DO NOTHING;
 
-  -- Branch questions (Floral triggered by Fruity; Earthy triggered by Chocolate & Nutty)
-  INSERT INTO quiz_branch
-    (quiz_id, trigger_archetype_id, question_text, confirm_answer_text, reclassify_answer_text, reclassify_archetype_id)
-  VALUES
-    (v_quiz_id, v_fruit_id,
-     'One last thing. When coffee is really at its best for you, which is closer?',
+  -- ── Branch quiz: Fruity → Floral ──────────────────────────────────────────────
+  INSERT INTO quiz (version, description, is_active, quiz_type_id)
+    VALUES ('v7-branch-floral', 'V7 branch — Fruity → Floral reclassification', false, v_branch_type_id)
+    RETURNING id INTO v_floral_bq_id;
+
+  INSERT INTO question (quiz_id, q_number, q_text, weight)
+    VALUES (v_floral_bq_id, 1,
+      'One last thing. When coffee is really at its best for you, which is closer?', 1)
+    RETURNING id INTO v_fbq1_id;
+
+  INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
+    (v_fbq1_id,
      'It''s complex and alive. A lot happening — I want to explore every sip.',
+     v_fruit_id),
+    (v_fbq1_id,
      'It''s so light and delicate it barely feels like coffee. Almost like drinking tea.',
-     v_floral_id),
-    (v_quiz_id, v_choc_id,
-     'Your profile is rich and bold. How do you like to take it?',
+     v_floral_id);
+
+  -- ── Branch quiz: Chocolate & Nutty → Earthy ───────────────────────────────────
+  INSERT INTO quiz (version, description, is_active, quiz_type_id)
+    VALUES ('v7-branch-earthy', 'V7 branch — Chocolate & Nutty → Earthy reclassification', false, v_branch_type_id)
+    RETURNING id INTO v_earthy_bq_id;
+
+  INSERT INTO question (quiz_id, q_number, q_text, weight)
+    VALUES (v_earthy_bq_id, 1,
+      'Your profile is rich and bold. How do you like to take it?', 1)
+    RETURNING id INTO v_ebq1_id;
+
+  INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
+    (v_ebq1_id,
      'Rich and comforting. Coffee that feels like a reward at the end of the day.',
+     v_choc_id),
+    (v_ebq1_id,
      'Deep and intense. Complex, almost challenging. The more serious the better.',
-     v_earthy_id)
-  ON CONFLICT (quiz_id, trigger_archetype_id) DO NOTHING;
+     v_earthy_id);
+
+  -- ── quiz_branch links ─────────────────────────────────────────────────────────
+  INSERT INTO quiz_branch (main_quiz_id, trigger_archetype_id, branch_quiz_id, reclassify_archetype_id)
+  VALUES
+    (v_quiz_id, v_fruit_id, v_floral_bq_id, v_floral_id),
+    (v_quiz_id, v_choc_id,  v_earthy_bq_id, v_earthy_id);
 
 END $v7$;
 

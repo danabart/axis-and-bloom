@@ -32,13 +32,18 @@ interface ScoreResult {
   recommendationMode: string;
 }
 
-interface BranchQuestion {
+interface BranchAnswer {
   id: string;
+  text: string;
+  archetypeId: string;
+  archetypeName: string;
+}
+
+interface BranchQuestion {
+  questionId: string;
   questionText: string;
-  confirmAnswerText: string;
-  reclassifyAnswerText: string;
   reclassifyArchetypeId: string;
-  reclassifyArchetypeName: string;
+  answers: BranchAnswer[];
 }
 
 // ─── Static question images (keyed by q_number) ───────────────────────────────
@@ -157,10 +162,10 @@ export default function FlavorQuiz() {
   const [scoreError, setScoreError]     = useState(false);
 
   // Branch state
-  const [scoreData, setScoreData]           = useState<ScoreResult | null>(null);
-  const [showBranch, setShowBranch]         = useState(false);
-  const [branchQuestion, setBranchQuestion] = useState<BranchQuestion | null>(null);
-  const [branchAnswer, setBranchAnswer]     = useState<'A' | 'B' | null>(null);
+  const [scoreData, setScoreData]               = useState<ScoreResult | null>(null);
+  const [showBranch, setShowBranch]             = useState(false);
+  const [branchQuestion, setBranchQuestion]     = useState<BranchQuestion | null>(null);
+  const [selectedBranchAnswerId, setSelectedBranchAnswerId] = useState<string | null>(null);
 
   // API state
   const [questions, setQuestions] = useState<ApiQuestion[]>([]);
@@ -264,14 +269,12 @@ export default function FlavorQuiz() {
   };
 
   const handleBranchContinue = () => {
-    if (!branchAnswer || !scoreData || !branchQuestion) return;
+    if (!selectedBranchAnswerId || !scoreData || !branchQuestion) return;
 
-    let finalArchetypeName = scoreData.archetype;
-    if (branchAnswer === 'B') {
-      finalArchetypeName = branchQuestion.reclassifyArchetypeName;
-      const newKey = ARCHETYPE_NAME_TO_KEY[finalArchetypeName] ?? archetypeKey;
-      setArchetypeKey(newKey);
-    }
+    const selected = branchQuestion.answers.find(a => a.id === selectedBranchAnswerId);
+    const finalArchetypeName = selected?.archetypeName ?? scoreData.archetype;
+    const newKey = ARCHETYPE_NAME_TO_KEY[finalArchetypeName] ?? archetypeKey;
+    setArchetypeKey(newKey);
 
     if (user) {
       saveQuizResult({ archetype: finalArchetypeName, scores: scoreData.scores, answers, decaf: false })
@@ -286,7 +289,7 @@ export default function FlavorQuiz() {
     setIsComplete(false);
     setShowBranch(false);
     setBranchQuestion(null);
-    setBranchAnswer(null);
+    setSelectedBranchAnswerId(null);
     setScoreData(null);
     setCurrentStep(0);
     setAnswers({});
@@ -592,20 +595,17 @@ export default function FlavorQuiz() {
                 {branchQuestion.questionText}
               </h1>
               <div className="flex flex-col gap-4 w-full">
-                {([
-                  { key: 'A' as const, text: branchQuestion.confirmAnswerText },
-                  { key: 'B' as const, text: branchQuestion.reclassifyAnswerText },
-                ]).map(({ key, text }) => (
+                {branchQuestion.answers.map((answer) => (
                   <button
-                    key={key}
-                    onClick={() => setBranchAnswer(key)}
+                    key={answer.id}
+                    onClick={() => setSelectedBranchAnswerId(answer.id)}
                     className={`w-full text-left text-[1.05rem] lg:text-[1.15rem] tracking-wide transition-all duration-500 px-8 py-5 rounded-[2.5rem] border-[1px] ${
-                      branchAnswer === key
+                      selectedBranchAnswerId === answer.id
                         ? 'text-[#ee5974] border-[#ee5974]'
                         : 'text-[#a33726] border-[#a33726]/20 opacity-70 hover:opacity-100 hover:border-[#ee5974]/50 hover:text-[#ee5974]'
                     }`}
                   >
-                    {text}
+                    {answer.text}
                   </button>
                 ))}
               </div>
@@ -614,9 +614,9 @@ export default function FlavorQuiz() {
             <div className="mt-16 flex flex-col items-start w-full">
               <button
                 onClick={handleBranchContinue}
-                disabled={branchAnswer === null}
+                disabled={selectedBranchAnswerId === null}
                 className={`text-[10px] uppercase tracking-[0.3em] font-normal transition-all pb-1 border-b ${
-                  branchAnswer === null
+                  selectedBranchAnswerId === null
                     ? 'text-[#a33726] opacity-20 border-transparent cursor-not-allowed'
                     : 'text-[#a33726] border-[#a33726]/30 hover:border-[#ee5974] hover:text-[#ee5974]'
                 }`}
