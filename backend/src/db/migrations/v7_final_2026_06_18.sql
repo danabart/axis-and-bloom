@@ -139,7 +139,7 @@ BEGIN
     (v_q6_id, 'Something soft and sweet. A ripe peach, a vanilla biscuit, caramel.',          v_bal_id),
     (v_q6_id, 'Something fresh and lively. A green apple, fresh berries, citrus.',            v_fruit_id);
 
-  INSERT INTO answer_archetype_score (answer_id, question_id, archetype_id, score)
+  INSERT INTO quiz_answer_archetype_score (answer_id, question_id, archetype_id, score)
   SELECT a.id, q.id, ar.id, data.score
   FROM (VALUES
     (1, 'It''s a daily ritual. I''m particular about it.',                              'Chocolate & Nutty', 1::numeric),

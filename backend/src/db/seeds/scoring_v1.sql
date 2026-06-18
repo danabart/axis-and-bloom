@@ -1,5 +1,5 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- Seed: scoring_v1 — answer_archetype_score + Q5 + weight columns
+-- Seed: scoring_v1 — quiz_answer_archetype_score + Q5 + weight columns
 -- Run once in Cloud SQL Studio (or wait for next Cloud Run deploy).
 -- Safe to re-run: all inserts use ON CONFLICT DO NOTHING / IF NOT EXISTS.
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -24,9 +24,9 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- 2. answer_archetype_score table (idempotent)
+-- 2. quiz_answer_archetype_score table (idempotent)
 -- ─────────────────────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS answer_archetype_score (
+CREATE TABLE IF NOT EXISTS quiz_answer_archetype_score (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   answer_id    UUID NOT NULL REFERENCES answer(id) ON DELETE CASCADE,
   question_id  UUID NOT NULL REFERENCES question(id) ON DELETE CASCADE,
@@ -35,8 +35,8 @@ CREATE TABLE IF NOT EXISTS answer_archetype_score (
   UNIQUE (answer_id, archetype_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_answer_arch_score_answer    ON answer_archetype_score(answer_id);
-CREATE INDEX IF NOT EXISTS idx_answer_arch_score_archetype ON answer_archetype_score(archetype_id);
+CREATE INDEX IF NOT EXISTS idx_answer_arch_score_answer    ON quiz_answer_archetype_score(answer_id);
+CREATE INDEX IF NOT EXISTS idx_answer_arch_score_archetype ON quiz_answer_archetype_score(archetype_id);
 
 -- 3. Q5 — add bitterness question if not present (idempotent)
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -73,7 +73,7 @@ BEGIN
   END IF;
 END $q5$;
 
--- 4. answer_archetype_score rows for Q1–Q5 (idempotent — ON CONFLICT DO NOTHING)
+-- 4. quiz_answer_archetype_score rows for Q1–Q5 (idempotent — ON CONFLICT DO NOTHING)
 -- Matches by q_number + answer_text so insert order in the DB never causes drift.
 -- ─────────────────────────────────────────────────────────────────────────────
 DO $scoring$
@@ -86,7 +86,7 @@ BEGIN
     RAISE EXCEPTION 'Quiz v2 not found — cannot seed scoring';
   END IF;
 
-  INSERT INTO answer_archetype_score (answer_id, question_id, archetype_id, score)
+  INSERT INTO quiz_answer_archetype_score (answer_id, question_id, archetype_id, score)
   SELECT a.id, q.id, ar.id, data.score
   FROM (VALUES
     -- Q1: relationship with coffee (1 pt each)
@@ -116,7 +116,7 @@ BEGIN
   ON CONFLICT (answer_id, archetype_id) DO NOTHING;
 
   GET DIAGNOSTICS v_rows = ROW_COUNT;
-  RAISE NOTICE 'answer_archetype_score: % rows inserted', v_rows;
+  RAISE NOTICE 'quiz_answer_archetype_score: % rows inserted', v_rows;
 END $scoring$;
 
 -- 5. Verification queries — paste these separately to confirm
@@ -126,7 +126,7 @@ END $scoring$;
 --
 -- Check scoring rows (should be 14 rows — Q3 option D is neutral, no row):
 --   SELECT q.q_number, a.answer_text, ar.name AS archetype, aas.score
---   FROM answer_archetype_score aas
+--   FROM quiz_answer_archetype_score aas
 --   JOIN answer   a  ON a.id  = aas.answer_id
 --   JOIN question q  ON q.id  = aas.question_id
 --   JOIN archetype ar ON ar.id = aas.archetype_id

@@ -332,6 +332,13 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- Rename answer_archetype_score → quiz_answer_archetype_score (idempotent)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'answer_archetype_score' AND schemaname = 'public') THEN
+    ALTER TABLE answer_archetype_score RENAME TO quiz_answer_archetype_score;
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS quiz_answer (
   id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   question_id            UUID REFERENCES question(id) ON DELETE CASCADE,
@@ -383,7 +390,7 @@ ALTER TABLE quiz_answer ADD COLUMN IF NOT EXISTS is_experimental_gate BOOLEAN DE
 -- Per-answer archetype scoring (normalised, multi-archetype support)
 -- archetype_id = NULL means a neutral answer (no points awarded to any archetype)
 -- UNIQUE (answer_id, archetype_id) prevents duplicate rows per deploy
-CREATE TABLE IF NOT EXISTS answer_archetype_score (
+CREATE TABLE IF NOT EXISTS quiz_answer_archetype_score (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   answer_id    UUID NOT NULL REFERENCES quiz_answer(id) ON DELETE CASCADE,
   question_id  UUID NOT NULL REFERENCES question(id) ON DELETE CASCADE,
@@ -1016,7 +1023,7 @@ BEGIN
   END IF;
 END $q5$;
 
--- Seed answer_archetype_score for all 5 questions (idempotent — ON CONFLICT DO NOTHING)
+-- Seed quiz_answer_archetype_score for all 5 questions (idempotent — ON CONFLICT DO NOTHING)
 -- Matches answers by q_number + answer_text so insert order in the DB never matters.
 DO $scoring$
 DECLARE
@@ -1024,7 +1031,7 @@ DECLARE
 BEGIN
   SELECT id INTO v_quiz_id FROM quiz WHERE version = 'v2';
   IF v_quiz_id IS NOT NULL THEN
-    INSERT INTO answer_archetype_score (answer_id, question_id, archetype_id, score)
+    INSERT INTO quiz_answer_archetype_score (answer_id, question_id, archetype_id, score)
     SELECT a.id, q.id, ar.id, data.score
     FROM (VALUES
       -- Q1 (1 pt each)
@@ -1146,7 +1153,7 @@ BEGIN
 
 END $v3$;
 
--- Seed answer_archetype_score for V3 (idempotent — ON CONFLICT DO NOTHING)
+-- Seed quiz_answer_archetype_score for V3 (idempotent — ON CONFLICT DO NOTHING)
 -- Q3-D splits: 0.5 to Chocolate & Nutty + 0.5 to Balanced & Sweet
 DO $v3_scoring$
 DECLARE
@@ -1155,7 +1162,7 @@ BEGIN
   SELECT id INTO v_quiz_id FROM quiz WHERE version = 'v3';
   IF v_quiz_id IS NULL THEN RETURN; END IF;
 
-  INSERT INTO answer_archetype_score (answer_id, question_id, archetype_id, score)
+  INSERT INTO quiz_answer_archetype_score (answer_id, question_id, archetype_id, score)
   SELECT a.id, q.id, ar.id, data.score
   FROM (VALUES
     -- Q1 (weight 1)
@@ -1315,8 +1322,8 @@ CREATE INDEX IF NOT EXISTS idx_archetype_assign_coffee      ON archetype_assignm
 CREATE INDEX IF NOT EXISTS idx_archetype_assign_session     ON archetype_assignments(assigned_from_session_id);
 
 -- Quiz scoring indexes
-CREATE INDEX IF NOT EXISTS idx_answer_arch_score_answer     ON answer_archetype_score(answer_id);
-CREATE INDEX IF NOT EXISTS idx_answer_arch_score_archetype  ON answer_archetype_score(archetype_id);
+CREATE INDEX IF NOT EXISTS idx_answer_arch_score_answer     ON quiz_answer_archetype_score(answer_id);
+CREATE INDEX IF NOT EXISTS idx_answer_arch_score_archetype  ON quiz_answer_archetype_score(archetype_id);
 
 -- ─────────────────────────────────────────────
 -- VIEWS
@@ -1427,7 +1434,7 @@ JOIN quiz_question q    ON q.id  = a.question_id
 JOIN quiz      qz      ON qz.id = q.quiz_id
 LEFT JOIN quiz_type qt ON qt.id = qz.quiz_type_id
 LEFT JOIN archetype ar_ans   ON ar_ans.id = a.resulting_archetype_id
-LEFT JOIN answer_archetype_score aas ON aas.answer_id = a.id
+LEFT JOIN quiz_answer_archetype_score aas ON aas.answer_id = a.id
 LEFT JOIN archetype ar_score ON ar_score.id = aas.archetype_id
 ORDER BY quiz_version, q_number, a_number, ans_score DESC NULLS LAST;
 
@@ -1510,9 +1517,9 @@ BEGIN
     (v_q6_id, 'I''d rather have something gentler and smoother.',                        v_bal_id),
     (v_q6_id, 'It feels burnt to me. I''d rather have something fresher or more alive.', v_fruit_id);
 
-  -- answer_archetype_score — Q1, Q3, Q4, Q5, Q6 only (Q2 is secondary signal, excluded)
+  -- quiz_answer_archetype_score — Q1, Q3, Q4, Q5, Q6 only (Q2 is secondary signal, excluded)
   -- Q4-D is a split: 0.5 points to both Chocolate & Nutty and Balanced & Sweet
-  INSERT INTO answer_archetype_score (answer_id, question_id, archetype_id, score)
+  INSERT INTO quiz_answer_archetype_score (answer_id, question_id, archetype_id, score)
   SELECT a.id, q.id, ar.id, data.score
   FROM (VALUES
     (1, 'It''s a daily ritual. I''m particular about it.',                             'Chocolate & Nutty', 1::numeric),
@@ -1641,8 +1648,8 @@ BEGIN
     (v_q6_id, 'Something soft and sweet. A ripe peach, a vanilla biscuit, caramel.',          v_bal_id),
     (v_q6_id, 'Something fresh and lively. A green apple, fresh berries, citrus.',            v_fruit_id);
 
-  -- answer_archetype_score — Q1–Q5 only (Q6 weight 0, excluded from scoring)
-  INSERT INTO answer_archetype_score (answer_id, question_id, archetype_id, score)
+  -- quiz_answer_archetype_score — Q1–Q5 only (Q6 weight 0, excluded from scoring)
+  INSERT INTO quiz_answer_archetype_score (answer_id, question_id, archetype_id, score)
   SELECT a.id, q.id, ar.id, data.score
   FROM (VALUES
     (1, 'It''s a daily ritual. I''m particular about it.',                              'Chocolate & Nutty', 1::numeric),

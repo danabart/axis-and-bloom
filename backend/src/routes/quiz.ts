@@ -55,7 +55,7 @@ router.get('/questions', async (_req, res) => {
 
 // ─── POST /api/quiz/score ────────────────────────────────────────────────────
 // Takes an array of selected answer UUIDs, SUMs weighted scores from
-// answer_archetype_score, and returns the winning archetype + full score map.
+// quiz_answer_archetype_score, and returns the winning archetype + full score map.
 //
 // Tie resolution — veto cascade (Q5 → Q4 → Q2 → Q1, fallback: Balanced & Sweet).
 //
@@ -71,10 +71,10 @@ router.post('/score', async (req, res) => {
   }
 
   try {
-    // 1. Sum weighted scores per archetype (Q2 excluded — no rows in answer_archetype_score).
+    // 1. Sum weighted scores per archetype (Q2 excluded — no rows in quiz_answer_archetype_score).
     const scoreResult = await db.query(
       `SELECT ar.name AS archetype_name, SUM(aas.score)::numeric AS total
-       FROM answer_archetype_score aas
+       FROM quiz_answer_archetype_score aas
        JOIN archetype ar ON ar.id = aas.archetype_id
        WHERE aas.answer_id = ANY($1::uuid[])
        GROUP BY ar.name`,
@@ -96,7 +96,7 @@ router.post('/score', async (req, res) => {
     const tied = ranked.filter(([, s]) => s === maxScore).map(([n]) => n);
 
     // 2. Fetch per-answer metadata in one query:
-    //    score_archetype — from answer_archetype_score (cascade + secondary close check)
+    //    score_archetype — from quiz_answer_archetype_score (cascade + secondary close check)
     //    result_archetype — from answer.resulting_archetype_id (food signal for Q6)
     const metaResult = await db.query(
       `SELECT
@@ -105,7 +105,7 @@ router.post('/score', async (req, res) => {
          ar_result.name AS result_archetype
        FROM quiz_answer a
        JOIN quiz_question q ON q.id = a.question_id
-       LEFT JOIN answer_archetype_score aas
+       LEFT JOIN quiz_answer_archetype_score aas
              ON aas.answer_id = a.id AND aas.score > 0
        LEFT JOIN archetype ar_score  ON ar_score.id  = aas.archetype_id
        LEFT JOIN archetype ar_result ON ar_result.id = a.resulting_archetype_id

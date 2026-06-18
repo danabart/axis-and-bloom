@@ -12,5 +12,5 @@ UPDATE quiz_answer
 SET answer_text = 'It was smooth and easy the whole way through — nothing got in the way.'
 WHERE answer_text = 'It was smooth and easy the whole way through. Nothing got in the way.';
 
--- Sync answer_archetype_score text references if they denormalise answer text (none currently — kept as safety)
--- No action needed: answer_archetype_score links by UUID, not text.
+-- Sync quiz_answer_archetype_score text references if they denormalise answer text (none currently — kept as safety)
+-- No action needed: quiz_answer_archetype_score links by UUID, not text.
