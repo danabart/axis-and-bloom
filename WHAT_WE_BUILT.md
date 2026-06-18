@@ -329,6 +329,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 - `question` — includes `weight NUMERIC DEFAULT 1`; question-level multiplier applied uniformly to all answers in that question
 - `answer` — branching logic via `next_question_id`, vector impact stored as JSONB; includes `weight NUMERIC DEFAULT 1`; answer-level multiplier applied uniformly across all archetype rows for that answer
 - `answer_archetype_score` — the scoring matrix: one row per (answer, archetype); `score` is the archetype-specific impact (positive or negative); `archetype_id = NULL` = neutral answer (no points); UNIQUE on `(answer_id, archetype_id)`
+- `quiz_branch` — branch reclassification questions per quiz version: `(quiz_id, trigger_archetype_id, question_text, confirm_answer_text, reclassify_answer_text, reclassify_archetype_id)`; UNIQUE on `(quiz_id, trigger_archetype_id)`; added V7
 - `quiz_session` — a user's completed quiz
 - `quiz_vector` — dimension scores from a quiz session
 
@@ -409,8 +410,9 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | POST | `/api/auth/sync` | Yes | Creates/updates user_profile row after Firebase sign-in; accepts `{ firstName, lastName }` — saves on signup, uses `COALESCE` so re-login never overwrites existing names |
 | POST | `/api/auth/reset-password` | No | Sends branded password-reset email via Resend from axisandbloomcoffee.com |
 | GET | `/api/quiz/questions` | No | Returns active quiz questions + answers from DB (with archetype names and answer UUIDs) |
-| POST | `/api/quiz/score` | No | Takes `{ answerIds[] }`, SUMs weighted scores from `answer_archetype_score`, returns winning archetype, secondary archetype, food signal, confidence level, and recommendation mode. Veto cascade: Q6 → Q5 → Q3 → Q1. All scoring logic lives here — zero logic in the frontend. |
-| POST | `/api/quiz/results` | Yes | Saves completed quiz session with full scoring context (including secondaryArchetype, foodSignal, confidence, recommendationMode in context_data JSONB); calls Claude with mode-specific prompt; returns session ID + recommendation |
+| POST | `/api/quiz/score` | No | Takes `{ answerIds[] }`, SUMs weighted scores from `answer_archetype_score`, returns winning archetype, secondary archetype, food signal, confidence level, and recommendation mode. Veto cascade: Q5 → Q4 → Q2 → Q1. All scoring logic lives here — zero logic in the frontend. |
+| GET | `/api/quiz/branch` | No | Takes `?archetypeId=<uuid>`, returns the branch question for the active quiz if one exists for that archetype, else `{ branchQuestion: null }`. Called immediately after `/score`. |
+| POST | `/api/quiz/results` | Yes | Saves completed quiz session with full scoring context (including secondaryArchetype, foodSignal, confidence, recommendationMode in context_data JSONB); calls Claude with mode-specific prompt; returns session ID + recommendation. Called after branch answer (if any) so final archetype is saved. |
 | GET | `/api/quiz/results/latest` | Yes | Returns user's most recent quiz session with archetype name |
 | GET | `/api/shop/products` | No | Returns Shopify products (empty list until Shopify wired) |
 | POST | `/api/shop/order` | Yes | Creates Shopify order |
@@ -965,18 +967,18 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 
 ---
 
-## Current State (as of 2026-06-12)
+## Current State (as of 2026-06-17)
 
 | Component | Status |
 |---|---|
 | Frontend deployed | ✅ https://axisandbloom.com (custom domain) / https://axis-and-bloom-prod.web.app |
 | Backend deployed | ✅ https://axis-bloom-backend-oiub7eumya-uc.a.run.app |
-| Database connected | ✅ 47 tables verified via /health/db |
+| Database connected | ✅ 48 tables verified via /health/db |
 | Email/password auth | ✅ Working |
 | Google sign-in | ✅ Working (was already enabled) |
 | Apple sign-in | ⚠️ Not configured |
-| Flavor quiz (V4) | ✅ Active — V4 replaces V3; 6 questions, weighted scoring, food instinct question (Q2, secondary signal only), experimental gate on Q4-C, split answer on Q4-D; full food signal × secondary archetype matching logic with confidence levels and 6 recommendation modes |
-| Quiz matching logic | ✅ Food signal drives confidence (high/medium/low) and recommendation mode; Option B close threshold (secondary scored on Q5 or Q6); experimental gate modifier; `POST /api/quiz/score` returns full scoring context |
+| Flavor quiz (V7) | ✅ Active — V7 replaces V4; 5 scored questions + 1 food signal (Q6, weight 0), reordered from V4, experimental gate on Q3-C, 5 archetypes (Chocolate & Nutty, Balanced & Sweet, Fruity, Floral, Earthy); branch question after scoring reclassifies Fruity→Floral or CN→Earthy if user selects answer B |
+| Quiz matching logic | ✅ Food signal (Q6) drives confidence (high/medium/low) and recommendation mode; Option B close threshold (secondary scored on Q5 or Q4); veto cascade Q5→Q4→Q2→Q1; `POST /api/quiz/score` returns full scoring context; `GET /api/quiz/branch` returns optional reclassification question |
 | Transactional email | ✅ Resend — sends from noreply@axisandbloomcoffee.com |
 | Marketing email / Mailchimp | ✅ Active — new signups synced to Mailchimp audience with FNAME merge field; credentials in Secret Manager; API key trimmed in code to guard against whitespace |
 | Claude AI chat | ✅ Wired up, API key in Secret Manager |
@@ -1123,7 +1125,7 @@ Unchanged. "Sign in to save progress" link still shown during the quiz for guest
 
 ---
 
-## Flavor Quiz (V4)
+## Flavor Quiz (V7)
 
 The quiz lives in `frontend/src/app/components/FlavorQuiz.tsx`. The active quiz version is always served dynamically via `GET /api/quiz/questions` (queries `quiz WHERE is_active = TRUE`) — no frontend deploy needed to switch versions.
 
@@ -1131,18 +1133,19 @@ The quiz lives in `frontend/src/app/components/FlavorQuiz.tsx`. The active quiz 
 - **V1** — 15 questions, 6 archetypes, hardcoded in frontend (replaced)
 - **V2** — 5 questions, 3 archetypes, DB-driven scoring (deactivated)
 - **V3** — 5 questions, 3 archetypes, new "Perfect cup" Q2, experimental gate on Q3-C, updated answer texts; source file: `backend/src/quizes/Coffee_Quiz_Scoring_v3.xlsx` (deactivated)
-- **V4** — 6 questions, 3 archetypes, weighted scoring, food instinct Q2 (secondary signal only), experimental gate on Q4-C, split answer on Q4-D, full food signal matching logic; source files: `misc/v4/`
+- **V4** — 6 questions, 3 archetypes, weighted scoring, food instinct Q2 (secondary signal only), experimental gate on Q4-C, split answer on Q4-D, full food signal matching logic; source files: `misc/v4/` (deactivated)
+- **V7** — 6 questions (5 scored + Q6 food signal), 5 archetypes; food signal moved from Q2→Q6, scored questions reordered (Q2–Q5 are the V4 Q3/Q4/Q5/Q6), experimental gate on Q3-C, no split answer; branch question after scoring reclassifies Fruity→Floral or CN→Earthy; source file: `backend/src/quiz/Coffee_Quiz_ScoringV7.xlsx`
 
-### Questions (V4 — active)
+### Questions (V7 — active)
 
 | # | Weight | Category | Question | Notes |
 |---|---|---|---|---|
 | 1 | 1 | Identity | How would you describe your relationship with coffee? | Lowest weight — most rationalizable |
-| 2 | 0 | Food instinct | Someone places a small treat next to your coffee. Without thinking, which do you grab? | Secondary signal only — not in primary scoring |
-| 3 | 2 | Perfect cup | When you finish a really good cup of coffee, what made it good? | Second highest weight |
-| 4 | 1 | Black coffee reaction | You try a new coffee black. What's your first reaction? | Experimental gate + split answer live here |
-| 5 | 2 | Disappointment | Which of these would bother you most about a cup of coffee? | Strong negative framing |
-| 6 | 3 | Bitterness tolerance | Someone hands you a coffee that's a little more bitter than expected. What's your honest reaction? | Strongest signal, highest weight |
+| 2 | 2 | Perfect cup | When you finish a really good cup of coffee, what made it good? | Second-highest weight (was Q3 in V4) |
+| 3 | 1 | Black coffee reaction | You try a new coffee black. What's your first reaction? | Experimental gate on Q3-C; 3 options only (no split answer) |
+| 4 | 2 | Disappointment | Which of these would bother you most about a cup of coffee? | (was Q5 in V4) |
+| 5 | 3 | Bitterness tolerance | Someone hands you a coffee that's a little more bitter than expected. What's your honest reaction? | Strongest signal, highest weight (was Q6 in V4) |
+| 6 | 0 | Food instinct | Someone places a small treat next to your coffee. Without thinking, which do you grab? | Signal only — no scoring rows; moved from Q2 in V4 |
 
 ### Archetypes
 
@@ -1151,6 +1154,8 @@ The quiz lives in `frontend/src/app/components/FlavorQuiz.tsx`. The active quiz 
 | **Chocolate & Nutty** | `#a54c2d` | Daily ritual drinker — bold, rich, comforting, particular |
 | **Balanced & Sweet** | `#d1ac11` | Reliable habit — smooth, easy, approachable |
 | **Fruity** | `#ca445f` | Curious discoverer — bright, lively, complex |
+| **Floral** | `#7b6ca8` | Reclassified from Fruity — prefers delicate, tea-like, barely-coffee lightness |
+| **Earthy** | `#5c6b45` | Reclassified from Chocolate & Nutty — prefers deep, intense, serious complexity |
 
 ### Scoring model — three-level normalised matrix
 
@@ -1167,57 +1172,58 @@ Scoring is split across three fields, each with a distinct role. All three are k
 archetype total = SUM( question.weight × answer.weight × answer_archetype_score.score )
 ```
 
-**V4 seeded values** (point difference baked into `score`; Q2 excluded from `answer_archetype_score`):
+**V7 seeded values** (point difference baked into `score`; Q6 excluded from `answer_archetype_score`):
 
 | Question | Weight | Answer | Archetype | Score |
 |---|---|---|---|---|
 | Q1 — Identity | 1 | It's a daily ritual. I'm particular about it. | Chocolate & Nutty | +1 |
 | Q1 — Identity | 1 | It's a reliable habit. I just like having it. | Balanced & Sweet | +1 |
 | Q1 — Identity | 1 | It's something I'm still discovering. I'm curious about it. | Fruity | +1 |
-| Q2 — Food instinct | 0 | (secondary signal — not scored, captured as food_signal) | — | — |
-| Q3 — Perfect cup | 2 | It was strong and satisfying. I felt it. | Chocolate & Nutty | +2 |
-| Q3 — Perfect cup | 2 | It was smooth and easy the whole way through. Nothing got in the way. | Balanced & Sweet | +2 |
-| Q3 — Perfect cup | 2 | It felt alive — bright and changing. Every sip was a little different. | Fruity | +2 |
-| Q4 — Black coffee | 1 | It feels complete. I'd drink it as is, or add milk to make it even richer. | Chocolate & Nutty | +1 |
-| Q4 — Black coffee | 1 | It's fine, easy to drink. I might add something to smooth it out. | Balanced & Sweet | +1 |
-| Q4 — Black coffee | 1 | Interesting — what flavors am I getting here? ⚑ | Fruity | +1 |
-| Q4 — Black coffee | 1 | I'm not sure. I don't usually drink it black. | CN + BS split | +0.5 each |
-| Q5 — Disappointment | 2 | It has no bitterness or intensity. | Chocolate & Nutty | +2 |
-| Q5 — Disappointment | 2 | It's too bitter or too intense. | Balanced & Sweet | +2 |
-| Q5 — Disappointment | 2 | Every sip tastes exactly the same. | Fruity | +2 |
-| Q6 — Bitterness | 3 | I don't mind. Actually I kind of like it. It tastes serious. | Chocolate & Nutty | +3 |
-| Q6 — Bitterness | 3 | I'd rather have something gentler and smoother. | Balanced & Sweet | +3 |
-| Q6 — Bitterness | 3 | It feels burnt to me. I'd rather have something fresher or more alive. | Fruity | +3 |
+| Q2 — Perfect cup | 2 | It was strong and satisfying. I felt it. | Chocolate & Nutty | +2 |
+| Q2 — Perfect cup | 2 | It was smooth and easy the whole way through. Nothing got in the way. | Balanced & Sweet | +2 |
+| Q2 — Perfect cup | 2 | It felt alive — bright and changing. Every sip was a little different. | Fruity | +2 |
+| Q3 — Black coffee | 1 | It feels complete. I'd drink it as is, or add milk to make it even richer. | Chocolate & Nutty | +1 |
+| Q3 — Black coffee | 1 | It's fine, easy to drink. I might add something to smooth it out. | Balanced & Sweet | +1 |
+| Q3 — Black coffee | 1 | Interesting — what flavors am I getting here? ⚑ | Fruity | +1 |
+| Q4 — Disappointment | 2 | It has no bitterness or intensity. | Chocolate & Nutty | +2 |
+| Q4 — Disappointment | 2 | It's too bitter or too intense. | Balanced & Sweet | +2 |
+| Q4 — Disappointment | 2 | Every sip tastes exactly the same. | Fruity | +2 |
+| Q5 — Bitterness | 3 | I don't mind. Actually I kind of like it. It tastes serious. | Chocolate & Nutty | +3 |
+| Q5 — Bitterness | 3 | I'd rather have something gentler and smoother. | Balanced & Sweet | +3 |
+| Q5 — Bitterness | 3 | It feels burnt to me. I'd rather have something fresher or more alive. | Fruity | +3 |
+| Q6 — Food instinct | 0 | (secondary signal — not scored, captured as food_signal) | — | — |
 
 ⚑ = experimental gate — see below.
 
 | Question | Weight | Max score per archetype |
 |---|---|---|
 | Q1 | 1 | 1 pt |
-| Q2 | 0 | — (secondary signal only) |
-| Q3 | 2 | 2 pts |
-| Q4 | 1 | 1 pt |
-| Q5 | 2 | 2 pts |
-| Q6 | 3 | 3 pts |
+| Q2 | 2 | 2 pts |
+| Q3 | 1 | 1 pt |
+| Q4 | 2 | 2 pts |
+| Q5 | 3 | 3 pts |
+| Q6 | 0 | — (food signal only) |
 | **Total** | | **9 pts** |
 
 **Max possible score for one archetype**: 1 + 2 + 1 + 2 + 3 = **9 pts**
 
 **Tuning examples — no code changes needed, just DB updates:**
-- Q6 should matter even more → `UPDATE question SET weight = 4 WHERE q_number = 6`
+- Q5 should matter even more → `UPDATE question SET weight = 4 WHERE q_number = 5`
 - A specific answer is an unusually strong signal → `UPDATE answer SET weight = 1.5 WHERE answer_text = '...'`
 - An answer should also hurt a competing archetype → `INSERT INTO answer_archetype_score (..., archetype_id, score) VALUES (..., <fruity_id>, -2)`
 
-**Experimental gate (Q4-C)**
+**Experimental gate (Q3-C)**
 
-Q4 answer C ("Interesting — what flavors am I getting here?") is flagged `is_experimental_gate = TRUE` in the `answer` table. When selected, `POST /api/quiz/score` returns `experimental: true`. This is a modifier on top of the base confidence/recommendation logic — see food signal section below.
+Q3 answer C ("Interesting — what flavors am I getting here?") is flagged `is_experimental_gate = TRUE` in the `answer` table. When selected, `POST /api/quiz/score` returns `experimental: true`. This is a modifier on top of the base confidence/recommendation logic — see food signal section below.
 
-Q4-C still awards +1 to Fruity in the scoring table — the gate is a separate flag, not a scoring override.
+Q3-C still awards +1 to Fruity in the scoring table — the gate is a separate flag, not a scoring override.
+
+V7 has no split answer (V4's Q4-D "I'm not sure" is removed).
 
 **Tie-break — veto cascade** (only fires when two or more archetypes share the top score):
 
 ```
-Priority: Q6 → Q5 → Q3 → Q1   (Q2 and Q4 excluded from cascade)
+Priority: Q5 → Q4 → Q2 → Q1   (Q3 and Q6 excluded from cascade)
 
 For each question in that order:
   if the user's answer pointed to one of the tied archetypes → that archetype wins
@@ -1230,7 +1236,7 @@ The cascade uses the user's actual submitted answers looked up from `answer_arch
 
 ### Food signal matching logic
 
-After the primary winner and secondary archetype are determined, Q2's answer is used as a food signal to compute **confidence** and **recommendation mode**. Logic lives in `POST /api/quiz/score` and stored in `misc/v4/logic_notes.csv`.
+After the primary winner and secondary archetype are determined, Q6's answer (weight 0 — not scored) is used as a food signal to compute **confidence** and **recommendation mode**. Logic lives in `POST /api/quiz/score` and stored in `misc/v4/logic_notes.csv` (carried forward from V4 — logic unchanged).
 
 **Base scenarios (food_signal vs primary/secondary):**
 
@@ -1241,7 +1247,7 @@ After the primary winner and secondary archetype are determined, Q2's answer is 
 | 3 | food ≠ primary AND food ≠ secondary | low | `ai_agent` |
 | 4 | food == primary AND secondary scored on Q5 or Q6 | medium | `primary_plus_note_secondary` |
 
-**"Close secondary" threshold — Option B**: secondary is considered meaningful if its score appeared on Q5 (weight 2) or Q6 (weight 3) — i.e., the user's Q5 or Q6 answer pointed to the secondary archetype. Low-weight questions (Q1, Q4) contributing to a secondary don't qualify.
+**"Close secondary" threshold — Option B**: secondary is considered meaningful if its score appeared on Q5 (weight 3) or Q4 (weight 2) — i.e., the user's Q5 or Q4 answer pointed to the secondary archetype. Low-weight questions (Q1, Q3) contributing to a secondary don't qualify.
 
 **Experimental gate modifiers** (override recommendation mode):
 
@@ -1278,7 +1284,22 @@ After the primary winner and secondary archetype are determined, Q2's answer is 
 
 **All scoring runs on the backend (Cloud Run)** — the frontend has zero scoring logic.
 
-### Full flow
+### Branch questions (V7)
+
+After the primary archetype is determined, the frontend calls `GET /api/quiz/branch?archetypeId=<uuid>`. If a branch question exists for that archetype, it's shown as an intermediate "one last thing" screen before results.
+
+| Trigger archetype | Branch question | Answer A | Answer B → reclassify to |
+|---|---|---|---|
+| Fruity | "One last thing. When coffee is really at its best for you, which is closer?" | "It's complex and alive..." (confirm Fruity) | "It's so light and delicate it barely feels like coffee. Almost like drinking tea." → **Floral** |
+| Chocolate & Nutty | "Your profile is rich and bold. How do you like to take it?" | "Rich and comforting. Coffee that feels like a reward at the end of the day." (confirm CN) | "Deep and intense. Complex, almost challenging. The more serious the better." → **Earthy** |
+
+Branch questions are stored in the `quiz_branch` table, scoped to a `quiz_id`. They are UNIQUE per `(quiz_id, trigger_archetype_id)`.
+
+`POST /api/quiz/results` is **deferred** until after the branch answer so the correct final archetype (possibly reclassified) is what gets saved.
+
+The secondary archetype and food signal are not affected by the branch reclassification — they carry forward from the `/score` response.
+
+### Full flow (V7)
 
 ```
 1. mount        → GET  /api/quiz/questions
@@ -1291,7 +1312,16 @@ After the primary winner and secondary archetype are determined, Q2's answer is 
                     secondaryArchetype, foodSignal, confidence, recommendationMode,
                     tied? }
 
-4. if signed in → POST /api/quiz/results  { archetype, scores, answers, decaf,
+4. always       → GET  /api/quiz/branch?archetypeId=<uuid>
+                ← { branchQuestion: { id, questionText, confirmAnswerText,
+                                      reclassifyAnswerText, reclassifyArchetypeId,
+                                      reclassifyArchetypeName } }
+                   or { branchQuestion: null } if no branch for this archetype
+
+5. if branch    → show branch screen; user picks A (confirm) or B (reclassify)
+                  final archetype = A → original | B → reclassifyArchetypeName
+
+6. if signed in → POST /api/quiz/results  { archetype: <final>, scores, answers, decaf,
                                             experimental, secondaryArchetype,
                                             foodSignal, confidence, recommendationMode }
                 ← { id: sessionId, recommendation }
@@ -1716,6 +1746,26 @@ Note: Earthy has no cupping sessions yet so its values are expert judgement only
 - `backend/src/index.ts` — route registered as `app.use('/api/axis', axisRouter)`
 - `frontend/src/app/App.tsx` — `/the-axis` route inside `PublicLayout`
 - `frontend/src/app/components/Navigation.tsx` — "The Axis" as first nav link
+
+---
+
+### 52. Quiz V7 — reordered questions, branch reclassification, scoring bug fixes
+
+**Backend changes:**
+- `backend/src/db/schema.sql` — new `quiz_branch` table; V7 seed block deactivates V4 and seeds 6 questions (Q1–Q5 scored, Q6 food signal at weight 0), 15 `answer_archetype_score` rows, 2 `quiz_branch` rows (Fruity→Floral, CN→Earthy)
+- `backend/src/routes/quiz.ts` — new `GET /api/quiz/branch` endpoint; food signal corrected from `qNum === 2` to `qNum === 6`
+- `backend/src/services/quizScoring.ts` — veto cascade corrected from `[6,5,3,1]` to `[5,4,2,1]`; `isSecondaryClose` corrected from `byQ[6]/byQ[5]` to `byQ[5]/byQ[4]`
+
+**Frontend changes (`FlavorQuiz.tsx`):**
+- New interfaces: `ScoreResult`, `BranchQuestion`
+- `ArchetypeKey` extended: `'floral'`, `'earthy'`
+- `ARCHETYPES` extended with Floral (`#7b6ca8`) and Earthy (`#5c6b45`) display data
+- After `/score`, calls `GET /api/quiz/branch?archetypeId=...`; shows branch screen if question exists
+- Branch screen: split-screen "one last thing" layout, two styled answer buttons
+- Answer A = keep original archetype; Answer B = reclassify to Floral or Earthy
+- `saveQuizResult` deferred until after branch answer (if any) so correct final archetype is saved
+
+**Source file**: `backend/src/quiz/Coffee_Quiz_ScoringV7.xlsx`
 
 ---
 
