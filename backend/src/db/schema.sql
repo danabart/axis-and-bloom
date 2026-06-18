@@ -1538,9 +1538,9 @@ BEGIN
     (6, 'I''d rather have something gentler and smoother.',                            'Balanced & Sweet',  3::numeric),
     (6, 'It feels burnt to me. I''d rather have something fresher or more alive.',     'Fruity',            3::numeric)
   ) AS data(q_number, answer_text, archetype_name, score)
-  JOIN question  q  ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
-  JOIN answer    a  ON a.question_id = q.id  AND a.answer_text = data.answer_text
-  JOIN archetype ar ON ar.name = data.archetype_name
+  JOIN question    q  ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
+  JOIN quiz_answer a  ON a.question_id = q.id  AND a.answer_text = data.answer_text
+  JOIN archetype   ar ON ar.name = data.archetype_name
   ON CONFLICT (answer_id, archetype_id) DO NOTHING;
 
 END $v4$;
