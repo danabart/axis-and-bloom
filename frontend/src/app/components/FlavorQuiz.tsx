@@ -11,7 +11,7 @@ interface ApiAnswer {
   id: string;
   text: string;
   archetype_id: string | null;
-  archetype_name: string | null; // e.g. 'Chocolate & Nutty' | 'Balanced & Sweet' | 'Fruity & Complex' | null
+  archetype_name: string | null;
 }
 
 interface ApiQuestion {
@@ -21,8 +21,27 @@ interface ApiQuestion {
   answers: ApiAnswer[];
 }
 
+interface ScoreResult {
+  archetype: string;
+  archetypeId: string | null;
+  scores: Record<string, number>;
+  experimental: boolean;
+  secondaryArchetype: string | null;
+  foodSignal: string | null;
+  confidence: string;
+  recommendationMode: string;
+}
+
+interface BranchQuestion {
+  id: string;
+  questionText: string;
+  confirmAnswerText: string;
+  reclassifyAnswerText: string;
+  reclassifyArchetypeId: string;
+  reclassifyArchetypeName: string;
+}
+
 // ─── Static question images (keyed by q_number) ───────────────────────────────
-// Images are managed in the frontend; questions & answers come from the DB.
 
 const QUESTION_IMAGES: Record<number, string> = {
   1: 'https://i.imgur.com/NQRCzNU.jpeg',
@@ -33,17 +52,25 @@ const QUESTION_IMAGES: Record<number, string> = {
 
 // ─── Archetype short-key helpers ──────────────────────────────────────────────
 
-type Archetype = 'chocolate' | 'balanced' | 'fruity';
+type ArchetypeKey = 'chocolate' | 'balanced' | 'fruity' | 'floral' | 'earthy';
 
-const ARCHETYPE_NAME_TO_KEY: Record<string, Archetype> = {
+const ARCHETYPE_NAME_TO_KEY: Record<string, ArchetypeKey> = {
   'Chocolate & Nutty': 'chocolate',
   'Balanced & Sweet':  'balanced',
   'Fruity':            'fruity',
+  'Floral':            'floral',
+  'Earthy':            'earthy',
 };
 
 // ─── Archetypes display data ──────────────────────────────────────────────────
 
-const ARCHETYPES = {
+const ARCHETYPES: Record<ArchetypeKey, {
+  name: string;
+  color: string;
+  description: string;
+  features: string[];
+  coffees: { name: string; flavor: string; match: string }[];
+}> = {
   chocolate: {
     name: 'Chocolate & Nutty',
     color: '#a54c2d',
@@ -82,15 +109,39 @@ const ARCHETYPES = {
       'You appreciate a coffee that keeps you guessing',
     ],
     coffees: [
-      { name: 'Kenya Guji',              flavor: 'Blueberry, Peach, Rose',             match: '96%' },
-      { name: 'Costa Rica Pink Bourbon', flavor: 'Strawberry, Watermelon, Hibiscus',   match: '89%' },
+      { name: 'Kenya Guji',              flavor: 'Blueberry, Peach, Rose',           match: '96%' },
+      { name: 'Costa Rica Pink Bourbon', flavor: 'Strawberry, Watermelon, Hibiscus', match: '89%' },
+    ],
+  },
+  floral: {
+    name: 'Floral',
+    color: '#7b6ca8',
+    description: "A delicate, aromatic, and tea-like profile. You're drawn to brightness and floral complexity over body and bitterness.",
+    features: [
+      'You prefer delicate, tea-like cups with floral notes',
+      'You enjoy jasmine, bergamot, and light citrus aromatics',
+      'You appreciate coffees that feel light and almost ethereal',
+    ],
+    coffees: [
+      { name: 'Ethiopia Yirgacheffe', flavor: 'Jasmine, Bergamot, Lemon Zest', match: '98%' },
+      { name: 'Ethiopia Guji Washed', flavor: 'Rose, Peach, White Tea',         match: '92%' },
+    ],
+  },
+  earthy: {
+    name: 'Earthy',
+    color: '#5c6b45',
+    description: "A deep, complex, and grounded profile. You're drawn to coffees with weight, structure, and earthy depth.",
+    features: [
+      'You prefer intense, serious cups with deep roasted character',
+      'You enjoy dark, mineral, and earthy flavor profiles',
+      'You appreciate a coffee that feels complex and challenging',
+    ],
+    coffees: [
+      { name: 'Sumatra Wet-Hulled', flavor: 'Dark Earth, Cedar, Tobacco',           match: '96%' },
+      { name: 'Yemen Mocha',        flavor: 'Dark Chocolate, Dried Fig, Cardamom',  match: '91%' },
     ],
   },
 };
-
-// ─── Scoring ──────────────────────────────────────────────────────────────────
-// Scoring is done entirely on the backend via POST /api/quiz/score.
-// The frontend collects selected answer UUIDs and sends them to the server.
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -102,44 +153,44 @@ export default function FlavorQuiz() {
   const [selectedIds, setSelectedIds]   = useState<Record<number, string>>({});
   const [isComplete, setIsComplete]     = useState(false);
   const [isScoring, setIsScoring]       = useState(false);
-  const [archetypeKey, setArchetypeKey] = useState<Archetype>('balanced');
+  const [archetypeKey, setArchetypeKey] = useState<ArchetypeKey>('balanced');
   const [scoreError, setScoreError]     = useState(false);
 
+  // Branch state
+  const [scoreData, setScoreData]           = useState<ScoreResult | null>(null);
+  const [showBranch, setShowBranch]         = useState(false);
+  const [branchQuestion, setBranchQuestion] = useState<BranchQuestion | null>(null);
+  const [branchAnswer, setBranchAnswer]     = useState<'A' | 'B' | null>(null);
+
   // API state
-  const [questions, setQuestions]   = useState<ApiQuestion[]>([]);
-  const [loading, setLoading]       = useState(true);
-  const [loadError, setLoadError]   = useState(false);
+  const [questions, setQuestions] = useState<ApiQuestion[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   // Returning user state
-  const [userProfile, setUserProfile]     = useState<any>(null);
+  const [userProfile, setUserProfile]       = useState<any>(null);
   const [profileLoading, setProfileLoading] = useState(false);
 
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  // Fetch questions from backend on mount
   useEffect(() => {
     fetch('/api/quiz/questions')
       .then(r => r.json())
       .then(data => {
-        if (data.questions?.length) {
-          setQuestions(data.questions);
-        } else {
-          setLoadError(true);
-        }
+        if (data.questions?.length) setQuestions(data.questions);
+        else setLoadError(true);
       })
       .catch(() => setLoadError(true))
       .finally(() => setLoading(false));
   }, []);
 
-  // Fetch profile for signed-in users to check existing archetype
   useEffect(() => {
     if (!user) return;
     setProfileLoading(true);
     getUserProfile()
       .then(p => {
         setUserProfile(p);
-        // If signed in but no archetype yet, pre-fill name and skip name screen
         if (!p?.archetype && (p?.firstName || user.displayName)) {
           const name = p?.firstName ?? user.displayName ?? '';
           setUserName(name);
@@ -150,7 +201,6 @@ export default function FlavorQuiz() {
       .finally(() => setProfileLoading(false));
   }, [user]);
 
-  // Pick up name pre-filled from another page (e.g. homepage)
   useEffect(() => {
     const savedName = sessionStorage.getItem('axisBloomCustomerName');
     if (savedName) {
@@ -168,28 +218,43 @@ export default function FlavorQuiz() {
       return;
     }
 
-    // Last question — send answer IDs to backend for scoring
     setIsScoring(true);
+    setScoreError(false);
     try {
       const answerIds = Object.values(selectedIds);
-      const res = await fetch('/api/quiz/score', {
+
+      // 1. Score
+      const scoreRes = await fetch('/api/quiz/score', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ answerIds }),
       });
+      if (!scoreRes.ok) throw new Error('Score request failed');
+      const score: ScoreResult = await scoreRes.json();
+      setScoreData(score);
 
-      if (!res.ok) throw new Error('Score request failed');
-
-      const { archetype: archetypeName, scores } = await res.json();
-      const key = ARCHETYPE_NAME_TO_KEY[archetypeName] ?? 'balanced';
+      const key = ARCHETYPE_NAME_TO_KEY[score.archetype] ?? 'balanced';
       setArchetypeKey(key);
-      setIsComplete(true);
 
-      // Save to DB if signed in
+      // 2. Check for branch question
+      if (score.archetypeId) {
+        const branchRes = await fetch(`/api/quiz/branch?archetypeId=${score.archetypeId}`);
+        if (branchRes.ok) {
+          const { branchQuestion: bq } = await branchRes.json();
+          if (bq) {
+            setBranchQuestion(bq);
+            setShowBranch(true);
+            return; // branch screen handles save + complete
+          }
+        }
+      }
+
+      // No branch — save and show results
       if (user) {
-        saveQuizResult({ archetype: archetypeName, scores, answers, decaf: false })
+        saveQuizResult({ archetype: score.archetype, scores: score.scores, answers, decaf: false })
           .catch(console.error);
       }
+      setIsComplete(true);
     } catch (err) {
       console.error('[quiz/score]', err);
       setScoreError(true);
@@ -198,25 +263,51 @@ export default function FlavorQuiz() {
     }
   };
 
-  // ── Loading state ────────────────────────────────────────────────────────────
+  const handleBranchContinue = () => {
+    if (!branchAnswer || !scoreData || !branchQuestion) return;
+
+    let finalArchetypeName = scoreData.archetype;
+    if (branchAnswer === 'B') {
+      finalArchetypeName = branchQuestion.reclassifyArchetypeName;
+      const newKey = ARCHETYPE_NAME_TO_KEY[finalArchetypeName] ?? archetypeKey;
+      setArchetypeKey(newKey);
+    }
+
+    if (user) {
+      saveQuizResult({ archetype: finalArchetypeName, scores: scoreData.scores, answers, decaf: false })
+        .catch(console.error);
+    }
+
+    setShowBranch(false);
+    setIsComplete(true);
+  };
+
+  const handleRetake = () => {
+    setIsComplete(false);
+    setShowBranch(false);
+    setBranchQuestion(null);
+    setBranchAnswer(null);
+    setScoreData(null);
+    setCurrentStep(0);
+    setAnswers({});
+    setSelectedIds({});
+    setScoreError(false);
+    setArchetypeKey('balanced');
+  };
+
+  // ── Loading ──────────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div
-        className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center"
-       
-      >
+      <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center">
         <p className="text-[#a33726]/50 text-sm uppercase tracking-[0.2em]">Loading…</p>
       </div>
     );
   }
 
-  // ── Error state ──────────────────────────────────────────────────────────────
+  // ── Error ────────────────────────────────────────────────────────────────────
   if (loadError || !questions.length) {
     return (
-      <div
-        className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center"
-       
-      >
+      <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center">
         <p className="text-[#a33726]/70 text-sm uppercase tracking-[0.2em]">
           Quiz unavailable. Please try again later.
         </p>
@@ -224,7 +315,7 @@ export default function FlavorQuiz() {
     );
   }
 
-  // ── Returning user screen ────────────────────────────────────────────────────
+  // ── Returning user ───────────────────────────────────────────────────────────
   if (user && !hasStarted && (profileLoading || userProfile?.archetype)) {
     if (profileLoading) {
       return (
@@ -250,8 +341,6 @@ export default function FlavorQuiz() {
 
     return (
       <div className="relative w-full min-h-screen bg-[#f2f1ea] flex flex-col lg:flex-row overflow-hidden">
-
-        {/* Left — photo + welcome + options */}
         <div className="w-full lg:w-1/2 h-[50vh] lg:h-screen relative overflow-hidden flex flex-col">
           <div className="absolute inset-0">
             <img src="https://i.imgur.com/3NAnXgR.jpeg" alt="" className="w-full h-full object-cover" />
@@ -292,7 +381,6 @@ export default function FlavorQuiz() {
           </motion.div>
         </div>
 
-        {/* Right — profile card */}
         <div className="w-full lg:w-1/2 min-h-[50vh] lg:h-screen bg-[#f2f1ea] flex items-center">
           <motion.div
             initial={{ opacity: 0, x: 20 }}
@@ -303,7 +391,6 @@ export default function FlavorQuiz() {
             <p className="text-[10px] uppercase tracking-[0.3em] mb-10 text-[#a33726]/30">
               Your coffee profile
             </p>
-
             <p className="text-[0.85rem] font-light tracking-wide text-[#a33726]/50 mb-2">
               Your primary profile is
             </p>
@@ -318,7 +405,6 @@ export default function FlavorQuiz() {
                 {existingArchetype.description}
               </p>
             )}
-
             {lastQuizDate && (
               <div className="border-t border-[#a33726]/10 pt-8 flex flex-col gap-1">
                 <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/30">Last quiz taken</p>
@@ -327,7 +413,6 @@ export default function FlavorQuiz() {
             )}
           </motion.div>
         </div>
-
       </div>
     );
   }
@@ -335,10 +420,7 @@ export default function FlavorQuiz() {
   // ── Name screen ──────────────────────────────────────────────────────────────
   if (!hasStarted) {
     return (
-      <div
-        className="relative w-full min-h-screen bg-[#f2f1ea] flex overflow-hidden"
-       
-      >
+      <div className="relative w-full min-h-screen bg-[#f2f1ea] flex overflow-hidden">
         <div className="absolute inset-0">
           <img src="https://i.imgur.com/3NAnXgR.jpeg" alt="" className="w-full h-full object-cover" />
         </div>
@@ -386,16 +468,12 @@ export default function FlavorQuiz() {
   }
 
   // ── Question screen ──────────────────────────────────────────────────────────
-  if (!isComplete) {
+  if (!isComplete && !showBranch) {
     const question = questions[currentStep];
     const image    = QUESTION_IMAGES[question.q_number] ?? QUESTION_IMAGES[1];
 
     return (
-      <div
-        className="w-full min-h-screen flex flex-col lg:flex-row bg-[#f2f1ea]"
-       
-      >
-        {/* Left — photo */}
+      <div className="w-full min-h-screen flex flex-col lg:flex-row bg-[#f2f1ea]">
         <div className="w-full lg:w-1/2 h-[40vh] lg:h-screen relative overflow-hidden bg-[#1a1a1a]">
           <AnimatePresence mode="wait">
             <motion.div
@@ -411,7 +489,6 @@ export default function FlavorQuiz() {
           </AnimatePresence>
         </div>
 
-        {/* Right — question */}
         <div className="w-full lg:w-1/2 min-h-[60vh] lg:h-screen bg-[#f2f1ea] px-12 py-16 lg:p-24 flex flex-col justify-center relative overflow-y-auto">
           <div className="w-full max-w-[480px] flex flex-col justify-center mx-auto lg:ml-[15%]">
             <AnimatePresence mode="wait">
@@ -485,12 +562,77 @@ export default function FlavorQuiz() {
     );
   }
 
+  // ── Branch screen ────────────────────────────────────────────────────────────
+  if (showBranch && branchQuestion) {
+    return (
+      <div className="w-full min-h-screen flex flex-col lg:flex-row bg-[#f2f1ea]">
+        <div className="w-full lg:w-1/2 h-[40vh] lg:h-screen relative overflow-hidden bg-[#1a1a1a]">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 1.2 }}
+            className="absolute inset-0"
+          >
+            <img src="https://i.imgur.com/3WOJLhq.jpeg" alt="" className="w-full h-full object-cover" />
+          </motion.div>
+        </div>
+
+        <div className="w-full lg:w-1/2 min-h-[60vh] lg:h-screen bg-[#f2f1ea] px-12 py-16 lg:p-24 flex flex-col justify-center relative overflow-y-auto">
+          <div className="w-full max-w-[480px] flex flex-col justify-center mx-auto lg:ml-[15%]">
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7 }}
+              className="flex flex-col"
+            >
+              <div className="text-[10px] uppercase tracking-[0.3em] text-[#a33726]/40 mb-6">
+                One last thing
+              </div>
+              <h1 className="text-[2rem] lg:text-[2.8rem] text-[#ee5974] leading-[1.15] font-normal tracking-tight mb-12">
+                {branchQuestion.questionText}
+              </h1>
+              <div className="flex flex-col gap-4 w-full">
+                {([
+                  { key: 'A' as const, text: branchQuestion.confirmAnswerText },
+                  { key: 'B' as const, text: branchQuestion.reclassifyAnswerText },
+                ]).map(({ key, text }) => (
+                  <button
+                    key={key}
+                    onClick={() => setBranchAnswer(key)}
+                    className={`w-full text-left text-[1.05rem] lg:text-[1.15rem] tracking-wide transition-all duration-500 px-8 py-5 rounded-[2.5rem] border-[1px] ${
+                      branchAnswer === key
+                        ? 'text-[#ee5974] border-[#ee5974]'
+                        : 'text-[#a33726] border-[#a33726]/20 opacity-70 hover:opacity-100 hover:border-[#ee5974]/50 hover:text-[#ee5974]'
+                    }`}
+                  >
+                    {text}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+
+            <div className="mt-16 flex flex-col items-start w-full">
+              <button
+                onClick={handleBranchContinue}
+                disabled={branchAnswer === null}
+                className={`text-[10px] uppercase tracking-[0.3em] font-normal transition-all pb-1 border-b ${
+                  branchAnswer === null
+                    ? 'text-[#a33726] opacity-20 border-transparent cursor-not-allowed'
+                    : 'text-[#a33726] border-[#a33726]/30 hover:border-[#ee5974] hover:text-[#ee5974]'
+                }`}
+              >
+                See My Profile
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── Results screen ───────────────────────────────────────────────────────────
   return (
-    <div
-      className="w-full min-h-screen flex flex-col lg:flex-row bg-[#f2f1ea]"
-     
-    >
+    <div className="w-full min-h-screen flex flex-col lg:flex-row bg-[#f2f1ea]">
       <div className="w-full lg:w-1/2 h-[40vh] lg:h-screen fixed lg:sticky top-0 left-0 overflow-hidden bg-[#1a1a1a]">
         <img src="https://i.imgur.com/3WOJLhq.jpeg" alt="" className="w-full h-full object-cover" />
       </div>
@@ -577,7 +719,7 @@ export default function FlavorQuiz() {
                 </Link>
               )}
               <button
-                onClick={() => { setIsComplete(false); setCurrentStep(0); setAnswers({}); setSelectedIds({}); setScoreError(false); setArchetypeKey('balanced'); }}
+                onClick={handleRetake}
                 className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/50 hover:text-[#ee5974] transition-colors border-b border-transparent hover:border-[#ee5974] pb-0.5 mt-4"
               >
                 Retake Taste Finder
