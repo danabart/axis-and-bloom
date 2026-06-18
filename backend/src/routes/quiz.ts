@@ -57,9 +57,9 @@ router.get('/questions', async (_req, res) => {
 // Takes an array of selected answer UUIDs, SUMs weighted scores from
 // answer_archetype_score, and returns the winning archetype + full score map.
 //
-// Tie resolution — veto cascade (Q6 → Q5 → Q3 → Q1, fallback: Balanced & Sweet).
+// Tie resolution — veto cascade (Q5 → Q4 → Q2 → Q1, fallback: Balanced & Sweet).
 //
-// Food signal (Q2) is captured separately from resulting_archetype_id and used
+// Food signal (Q6) is captured separately from resulting_archetype_id and used
 // alongside the secondary archetype to determine confidence + recommendation mode.
 //
 // No auth required.
@@ -97,7 +97,7 @@ router.post('/score', async (req, res) => {
 
     // 2. Fetch per-answer metadata in one query:
     //    score_archetype — from answer_archetype_score (cascade + secondary close check)
-    //    result_archetype — from answer.resulting_archetype_id (food signal for Q2)
+    //    result_archetype — from answer.resulting_archetype_id (food signal for Q6)
     const metaResult = await db.query(
       `SELECT
          q.q_number,
@@ -113,20 +113,20 @@ router.post('/score', async (req, res) => {
       [answerIds]
     );
 
-    // q_number → score archetype (first non-null wins; split answers only affect Q4 which is not in cascade)
+    // q_number → score archetype (first non-null wins)
     const byQ: Record<number, string | null> = {};
     let foodSignal: string | null = null;
 
     for (const row of metaResult.rows) {
       const qNum = Number(row.q_number);
-      if (qNum === 2) {
+      if (qNum === 6) {
         foodSignal = row.result_archetype ?? null;
       } else if (!byQ[qNum] && row.score_archetype) {
         byQ[qNum] = row.score_archetype;
       }
     }
 
-    // 3. Winner — veto cascade on tie (Q6 → Q5 → Q3 → Q1, fallback: Balanced & Sweet).
+    // 3. Winner — veto cascade on tie (Q5 → Q4 → Q2 → Q1, fallback: Balanced & Sweet).
     const winnerName = findWinner(ranked, byQ);
 
     // 4. Secondary archetype — 2nd highest scoring archetype.
@@ -139,7 +139,7 @@ router.post('/score', async (req, res) => {
     );
     const experimental = expResult.rows.length > 0;
 
-    // 6. Option B close threshold: secondary is meaningful if it scored on Q5 or Q6.
+    // 6. Option B close threshold: secondary is meaningful if it scored on Q4 or Q5.
     const secondaryScoredHighWeight = isSecondaryClose(byQ, secondaryArchetype);
 
     // 7. Confidence + recommendation mode from food signal scenarios.
@@ -238,6 +238,57 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
   } catch (err) {
     console.error('[quiz/results]', err);
     res.status(500).json({ error: 'Failed to save quiz result' });
+  }
+});
+
+// ─── GET /api/quiz/branch ────────────────────────────────────────────────────
+// Returns the branch question for the given archetypeId in the active quiz,
+// or { branchQuestion: null } if none exists.
+// No auth required — frontend calls this immediately after /score.
+router.get('/branch', async (req, res) => {
+  const { archetypeId } = req.query;
+  if (!archetypeId || typeof archetypeId !== 'string') {
+    res.status(400).json({ error: 'archetypeId query param required' });
+    return;
+  }
+
+  try {
+    const quizResult = await db.query(
+      `SELECT id FROM quiz WHERE is_active = true ORDER BY created_at DESC LIMIT 1`
+    );
+    if (!quizResult.rows.length) {
+      res.json({ branchQuestion: null });
+      return;
+    }
+
+    const result = await db.query(
+      `SELECT qb.id, qb.question_text, qb.confirm_answer_text, qb.reclassify_answer_text,
+              qb.reclassify_archetype_id, ar.name AS reclassify_archetype_name
+       FROM quiz_branch qb
+       JOIN archetype ar ON ar.id = qb.reclassify_archetype_id
+       WHERE qb.quiz_id = $1 AND qb.trigger_archetype_id = $2`,
+      [quizResult.rows[0].id, archetypeId]
+    );
+
+    if (!result.rows.length) {
+      res.json({ branchQuestion: null });
+      return;
+    }
+
+    const row = result.rows[0];
+    res.json({
+      branchQuestion: {
+        id: row.id,
+        questionText: row.question_text,
+        confirmAnswerText: row.confirm_answer_text,
+        reclassifyAnswerText: row.reclassify_answer_text,
+        reclassifyArchetypeId: row.reclassify_archetype_id,
+        reclassifyArchetypeName: row.reclassify_archetype_name,
+      },
+    });
+  } catch (err) {
+    console.error('[quiz/branch]', err);
+    res.status(500).json({ error: 'Failed to fetch branch question' });
   }
 });
 

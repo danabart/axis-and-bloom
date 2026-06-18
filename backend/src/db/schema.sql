@@ -357,6 +357,20 @@ CREATE TABLE IF NOT EXISTS answer_archetype_score (
   UNIQUE (answer_id, archetype_id)
 );
 
+-- Branch question shown after primary archetype is determined.
+-- trigger_archetype_id → fires when that archetype is the primary result.
+-- Answer A confirms; Answer B reclassifies primary to reclassify_archetype_id.
+CREATE TABLE IF NOT EXISTS quiz_branch (
+  id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  quiz_id                 UUID NOT NULL REFERENCES quiz(id) ON DELETE CASCADE,
+  trigger_archetype_id    UUID NOT NULL REFERENCES archetype(id),
+  question_text           TEXT NOT NULL,
+  confirm_answer_text     TEXT NOT NULL,
+  reclassify_answer_text  TEXT NOT NULL,
+  reclassify_archetype_id UUID NOT NULL REFERENCES archetype(id),
+  UNIQUE (quiz_id, trigger_archetype_id)
+);
+
 -- ─────────────────────────────────────────────
 -- ORDERS, FULFILLMENT & SUBSCRIPTIONS
 -- ─────────────────────────────────────────────
@@ -1496,6 +1510,135 @@ BEGIN
   ON CONFLICT (answer_id, archetype_id) DO NOTHING;
 
 END $v4$;
+
+-- ─────────────────────────────────────────────
+-- QUIZ V7 — Q order: Identity · Perfect cup · Black coffee · Disappointment ·
+--           Bitterness · Food signal (moved to last, weight 0)
+-- Branch questions: Floral (trigger: Fruity) and Earthy (trigger: Chocolate & Nutty)
+-- Veto cascade: Q5 → Q4 → Q2 → Q1  |  Experimental gate: Q3-C
+-- ─────────────────────────────────────────────
+DO $v7$
+DECLARE
+  v_quiz_id   UUID;
+  v_choc_id   UUID;
+  v_bal_id    UUID;
+  v_fruit_id  UUID;
+  v_floral_id UUID;
+  v_earthy_id UUID;
+  v_q1_id UUID; v_q2_id UUID; v_q3_id UUID;
+  v_q4_id UUID; v_q5_id UUID; v_q6_id UUID;
+BEGIN
+  IF EXISTS (SELECT 1 FROM quiz WHERE version = 'v7') THEN RETURN; END IF;
+
+  UPDATE quiz SET is_active = FALSE;
+
+  SELECT id INTO v_choc_id   FROM archetype WHERE name = 'Chocolate & Nutty';
+  SELECT id INTO v_bal_id    FROM archetype WHERE name = 'Balanced & Sweet';
+  SELECT id INTO v_fruit_id  FROM archetype WHERE name = 'Fruity';
+  SELECT id INTO v_floral_id FROM archetype WHERE name = 'Floral';
+  SELECT id INTO v_earthy_id FROM archetype WHERE name = 'Earthy';
+
+  INSERT INTO quiz (version, description, is_active)
+    VALUES ('v7', 'Axis & Bloom Flavor Finder — V7 (food signal Q6, branch questions)', true)
+    RETURNING id INTO v_quiz_id;
+
+  -- Q1 (weight 1 — identity)
+  INSERT INTO question (quiz_id, q_number, q_text, weight)
+    VALUES (v_quiz_id, 1, 'How would you describe your relationship with coffee?', 1)
+    RETURNING id INTO v_q1_id;
+  INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
+    (v_q1_id, 'It''s a daily ritual. I''m particular about it.',                     v_choc_id),
+    (v_q1_id, 'It''s a reliable habit. I just like having it.',                      v_bal_id),
+    (v_q1_id, 'It''s something I''m still discovering. I''m curious about it.',      v_fruit_id);
+
+  -- Q2 (weight 2 — perfect cup)
+  INSERT INTO question (quiz_id, q_number, q_text, weight)
+    VALUES (v_quiz_id, 2, 'When you finish a really good cup of coffee, what made it good?', 2)
+    RETURNING id INTO v_q2_id;
+  INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
+    (v_q2_id, 'It was strong and satisfying — I felt it.',                                       v_choc_id),
+    (v_q2_id, 'It was smooth and easy the whole way through — nothing got in the way.',          v_bal_id),
+    (v_q2_id, 'It felt alive — bright and changing. Every sip was a little different.',          v_fruit_id);
+
+  -- Q3 (weight 1 — black coffee; C is experimental gate)
+  INSERT INTO question (quiz_id, q_number, q_text, weight)
+    VALUES (v_quiz_id, 3, 'You try a new coffee black. What''s your first reaction?', 1)
+    RETURNING id INTO v_q3_id;
+  INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
+    (v_q3_id, 'It feels complete. I''d drink it as is, or add milk to make it even richer.', v_choc_id),
+    (v_q3_id, 'It''s fine, easy to drink. I might add something to smooth it out.',           v_bal_id);
+  INSERT INTO answer (question_id, answer_text, resulting_archetype_id, is_experimental_gate) VALUES
+    (v_q3_id, 'Interesting… what flavors am I getting here?', v_fruit_id, TRUE);
+
+  -- Q4 (weight 2 — disappointment)
+  INSERT INTO question (quiz_id, q_number, q_text, weight)
+    VALUES (v_quiz_id, 4, 'Which of these would bother you most about a cup of coffee?', 2)
+    RETURNING id INTO v_q4_id;
+  INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
+    (v_q4_id, 'It has no bitterness or intensity.',  v_choc_id),
+    (v_q4_id, 'It''s too bitter or too intense.',    v_bal_id),
+    (v_q4_id, 'Every sip tastes exactly the same.',  v_fruit_id);
+
+  -- Q5 (weight 3 — bitterness; highest weight; veto cascade anchor)
+  INSERT INTO question (quiz_id, q_number, q_text, weight)
+    VALUES (v_quiz_id, 5, 'Someone hands you a coffee that''s a little more bitter than expected. What''s your honest reaction?', 3)
+    RETURNING id INTO v_q5_id;
+  INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
+    (v_q5_id, 'I don''t mind. Actually I kind of like it. It tastes serious.',           v_choc_id),
+    (v_q5_id, 'I''d rather have something gentler and smoother.',                        v_bal_id),
+    (v_q5_id, 'It feels burnt to me. I''d rather have something fresher or more alive.', v_fruit_id);
+
+  -- Q6 (weight 0 — food signal; secondary signal only; no scoring rows)
+  INSERT INTO question (quiz_id, q_number, q_text, weight)
+    VALUES (v_quiz_id, 6, 'Someone places a small treat next to your coffee. Without thinking, which do you grab?', 0)
+    RETURNING id INTO v_q6_id;
+  INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
+    (v_q6_id, 'Something rich and comforting. Dark chocolate, roasted nuts, a warm brownie.', v_choc_id),
+    (v_q6_id, 'Something soft and sweet. A ripe peach, a vanilla biscuit, caramel.',          v_bal_id),
+    (v_q6_id, 'Something fresh and lively. A green apple, fresh berries, citrus.',            v_fruit_id);
+
+  -- answer_archetype_score — Q1–Q5 only (Q6 has weight 0, excluded from scoring)
+  INSERT INTO answer_archetype_score (answer_id, question_id, archetype_id, score)
+  SELECT a.id, q.id, ar.id, data.score
+  FROM (VALUES
+    (1, 'It''s a daily ritual. I''m particular about it.',                              'Chocolate & Nutty', 1::numeric),
+    (1, 'It''s a reliable habit. I just like having it.',                               'Balanced & Sweet',  1::numeric),
+    (1, 'It''s something I''m still discovering. I''m curious about it.',               'Fruity',            1::numeric),
+    (2, 'It was strong and satisfying — I felt it.',                                    'Chocolate & Nutty', 2::numeric),
+    (2, 'It was smooth and easy the whole way through — nothing got in the way.',       'Balanced & Sweet',  2::numeric),
+    (2, 'It felt alive — bright and changing. Every sip was a little different.',       'Fruity',            2::numeric),
+    (3, 'It feels complete. I''d drink it as is, or add milk to make it even richer.',  'Chocolate & Nutty', 1::numeric),
+    (3, 'It''s fine, easy to drink. I might add something to smooth it out.',           'Balanced & Sweet',  1::numeric),
+    (3, 'Interesting… what flavors am I getting here?',                                  'Fruity',            1::numeric),
+    (4, 'It has no bitterness or intensity.',                                            'Chocolate & Nutty', 2::numeric),
+    (4, 'It''s too bitter or too intense.',                                              'Balanced & Sweet',  2::numeric),
+    (4, 'Every sip tastes exactly the same.',                                            'Fruity',            2::numeric),
+    (5, 'I don''t mind. Actually I kind of like it. It tastes serious.',                'Chocolate & Nutty', 3::numeric),
+    (5, 'I''d rather have something gentler and smoother.',                              'Balanced & Sweet',  3::numeric),
+    (5, 'It feels burnt to me. I''d rather have something fresher or more alive.',      'Fruity',            3::numeric)
+  ) AS data(q_number, answer_text, archetype_name, score)
+  JOIN question  q  ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
+  JOIN answer    a  ON a.question_id = q.id  AND a.answer_text = data.answer_text
+  JOIN archetype ar ON ar.name = data.archetype_name
+  ON CONFLICT (answer_id, archetype_id) DO NOTHING;
+
+  -- Branch questions (Floral triggered by Fruity; Earthy triggered by Chocolate & Nutty)
+  INSERT INTO quiz_branch
+    (quiz_id, trigger_archetype_id, question_text, confirm_answer_text, reclassify_answer_text, reclassify_archetype_id)
+  VALUES
+    (v_quiz_id, v_fruit_id,
+     'One last thing. When coffee is really at its best for you, which is closer?',
+     'It''s complex and alive. A lot happening — I want to explore every sip.',
+     'It''s so light and delicate it barely feels like coffee. Almost like drinking tea.',
+     v_floral_id),
+    (v_quiz_id, v_choc_id,
+     'Your profile is rich and bold. How do you like to take it?',
+     'Rich and comforting. Coffee that feels like a reward at the end of the day.',
+     'Deep and intense. Complex, almost challenging. The more serious the better.',
+     v_earthy_id)
+  ON CONFLICT (quiz_id, trigger_archetype_id) DO NOTHING;
+
+END $v7$;
 
 -- Archetype dimension vectors — one row per archetype × dimension.
 -- Joins archetype_vector to archetype (by FK) and dimensions (via md5(name)::uuid match).

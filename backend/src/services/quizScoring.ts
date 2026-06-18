@@ -21,7 +21,7 @@ export function findWinner(ranked: [string, number][], byQ: ByQ): string {
 
   if (tied.length === 1) return tied[0];
 
-  for (const qNum of [6, 5, 3, 1]) {
+  for (const qNum of [5, 4, 2, 1]) {
     const pointsTo = byQ[qNum];
     if (pointsTo && tied.includes(pointsTo)) return pointsTo;
   }
@@ -35,7 +35,7 @@ export function findSecondary(ranked: [string, number][], winner: string): strin
 
 export function isSecondaryClose(byQ: ByQ, secondary: string | null): boolean {
   if (!secondary) return false;
-  return byQ[6] === secondary || byQ[5] === secondary;
+  return byQ[5] === secondary || byQ[4] === secondary;
 }
 
 export function computeConfidenceAndMode(
