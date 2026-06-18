@@ -330,7 +330,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 - `quiz` — branch quizzes are rows with `quiz_type = 'branch'`, `trigger_archetype_id` (which primary archetype fires this branch), and `parent_quiz_id` (self-referential FK to the main quiz). No separate link table needed. `quiz_branch` was dropped in #54.
 - `quiz_question` — (renamed from `question` in #55) includes `weight NUMERIC DEFAULT 1`; question-level multiplier applied uniformly to all answers in that question
 - `quiz_answer` — (renamed from `answer` in #53) branching logic via `next_question_id`, vector impact stored as JSONB; includes `weight NUMERIC DEFAULT 1` and `is_experimental_gate`; shared by both main and branch quizzes
-- `answer_archetype_score` — the scoring matrix: one row per (quiz_answer, archetype); `score` is the archetype-specific impact (positive or negative); `archetype_id = NULL` = neutral answer (no points); UNIQUE on `(answer_id, archetype_id)`
+- `quiz_answer_archetype_score` — the scoring matrix: one row per (quiz_answer, archetype); `score` is the archetype-specific impact (positive or negative); `archetype_id = NULL` = neutral answer (no points); UNIQUE on `(answer_id, archetype_id)`
 - `quiz_session` — a user's completed quiz
 - `quiz_vector` — dimension scores from a quiz session
 
@@ -369,7 +369,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | View | Description |
 |---|---|
 | `v_collaborative_flavor_wheel` | All descriptor observations per coffee with source label (`internal`, `roastery`, `client`). Columns: `coffee_id`, `coffee_name`, `cupping_note_id`, `wheel_category`, `wheel_subcategory`, `descriptor`, `source`, `intensity`. No extra JOINs needed — names are already resolved. One row per observation; GROUP BY coffee + descriptor to aggregate. |
-| `v_quiz_scoring_matrix` | Full scoring matrix — one row per (quiz_question, quiz_answer, optional archetype). Includes all questions across all quiz versions: main, branch, and Q6 (food signal, weight 0, no score rows). Columns: `quiz_version`, `quiz_type`, `q_number`, `q_text`, `a_number` (ROW_NUMBER), `answer_text`, `q_weight`, `ans_weight`, `resulting_archetype` (the archetype the answer maps to), `scored_archetype` (the archetype scored — NULL for Q6 and branch answers), `ans_score`. Lambda formula: `q_weight × ans_weight × ans_score`. Built from `quiz_answer` with LEFT JOINs to `answer_archetype_score` so zero-score answers still appear. Uses `DROP VIEW IF EXISTS` + `CREATE VIEW`. |
+| `v_quiz_scoring_matrix` | Full scoring matrix — one row per (quiz_question, quiz_answer, optional archetype). Includes all questions across all quiz versions: main, branch, and Q6 (food signal, weight 0, no score rows). Columns: `quiz_version`, `quiz_type`, `q_number`, `q_text`, `a_number` (ROW_NUMBER), `answer_text`, `q_weight`, `ans_weight`, `resulting_archetype` (the archetype the answer maps to), `scored_archetype` (the archetype scored — NULL for Q6 and branch answers), `ans_score`. Lambda formula: `q_weight × ans_weight × ans_score`. Built from `quiz_answer` with LEFT JOINs to `quiz_answer_archetype_score` so zero-score answers still appear. Uses `DROP VIEW IF EXISTS` + `CREATE VIEW`. |
 | `v_newsletter_subscribers` | All newsletter signups with human-readable source label. Columns: `email`, `first_name`, `source` (e.g. `Pre-Launch Popup`), `subscribed`, `signed_up_at`. Ordered newest first. |
 | `v_archetype_vectors` | Archetype dimension targets — one row per archetype × dimension. Columns: `archetype`, `dimension`, `display_order`, `min_score`, `ideal_score`, `max_score`. Joins `archetype_vector` to `archetype` (FK) and `dimensions` (via `md5(name)::uuid`). |
 | `v_archetype_dimension_comparison` | Target vs actual — same as `v_archetype_vectors` plus `avg_actual` (average of actual cupping scores for coffees assigned to that archetype) and `coffee_count`. Bridges `archetype_enum` → `archetype.name` via CASE. `avg_actual` is NULL for archetypes with no cupping data yet. |
@@ -411,7 +411,7 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | POST | `/api/auth/sync` | Yes | Creates/updates user_profile row after Firebase sign-in; accepts `{ firstName, lastName }` — saves on signup, uses `COALESCE` so re-login never overwrites existing names |
 | POST | `/api/auth/reset-password` | No | Sends branded password-reset email via Resend from axisandbloomcoffee.com |
 | GET | `/api/quiz/questions` | No | Returns active quiz questions + answers from DB (with archetype names and answer UUIDs) |
-| POST | `/api/quiz/score` | No | Takes `{ answerIds[] }`, SUMs weighted scores from `answer_archetype_score`, returns winning archetype, secondary archetype, food signal, confidence level, and recommendation mode. Veto cascade: Q5 → Q4 → Q2 → Q1. All scoring logic lives here — zero logic in the frontend. |
+| POST | `/api/quiz/score` | No | Takes `{ answerIds[] }`, SUMs weighted scores from `quiz_answer_archetype_score`, returns winning archetype, secondary archetype, food signal, confidence level, and recommendation mode. Veto cascade: Q5 → Q4 → Q2 → Q1. All scoring logic lives here — zero logic in the frontend. |
 | GET | `/api/quiz/branch` | No | Takes `?archetypeId=<uuid>`, returns `{ branchQuestion: { questionId, questionText, answers:[{id,text,archetypeId,archetypeName}] } }` or `{ branchQuestion: null }`. Queries `quiz` table directly for a branch quiz row where `parent_quiz_id = activeQuizId AND trigger_archetype_id = archetypeId`. No link table needed. |
 | POST | `/api/quiz/results` | Yes | Saves completed quiz session with full scoring context (including secondaryArchetype, foodSignal, confidence, recommendationMode in context_data JSONB); calls Claude with mode-specific prompt; returns session ID + recommendation. Called after branch answer (if any) so final archetype is saved. |
 | GET | `/api/quiz/results/latest` | Yes | Returns user's most recent quiz session with archetype name |
@@ -626,11 +626,11 @@ ssl: process.env.NODE_ENV === 'production' && !isUnixSocket ? { rejectUnauthoriz
 **Cause**: PostgreSQL's `CREATE OR REPLACE VIEW` can add new columns at the end but cannot rename or reorder existing ones. The original `v_collaborative_flavor_wheel` had `cupping_note_id` as column 2; the updated version inserted `coffee_name` before it.  
 **Fix**: Switch to `DROP VIEW IF EXISTS` + `CREATE VIEW` in both `schema.sql` and the seed file. Safe because no other views or tables depend on this view.
 
-### 21. Upgraded quiz to 5 questions with weighted `answer_archetype_score` table
+### 21. Upgraded quiz to 5 questions with weighted `answer_archetype_score` table (later renamed to `quiz_answer_archetype_score` in #56)
 **Problem**: The original backend scoring counted one vote per answer using `resulting_archetype_id` — flat, unweighted, inflexible. Adding a new archetype or changing scoring weights required code changes.  
-**Fix**: Added a normalised `answer_archetype_score` table (one row per answer + archetype, with a `score` column). Also added `weight NUMERIC DEFAULT 1` to both `question` and `answer` tables for future question-level weighting. Scoring weights for Q1–Q5:
+**Fix**: Added a normalised `quiz_answer_archetype_score` table (one row per answer + archetype, with a `score` column). Also added `weight NUMERIC DEFAULT 1` to both `question` and `answer` tables for future question-level weighting. Scoring weights for Q1–Q5:
 - Q1 = 1 pt, Q2 = 2 pts, Q3 = 1 pt (Q3-D neutral → no row), Q4 = 2 pts, Q5 = 3 pts
-Added Q5 ("You're handed an espresso — straight, no milk, no sugar. How does it land?") to quiz v2 via idempotent DO block. `POST /api/quiz/score` now JOINs `answer_archetype_score`, GROUPs BY archetype, and returns SUM of scores instead of counting votes.  
+Added Q5 ("You're handed an espresso — straight, no milk, no sugar. How does it land?") to quiz v2 via idempotent DO block. `POST /api/quiz/score` now JOINs `quiz_answer_archetype_score`, GROUPs BY archetype, and returns SUM of scores instead of counting votes.  
 **Seed file**: `backend/src/db/seeds/scoring_v1.sql` — run once in Cloud SQL Studio; idempotent, ON CONFLICT DO NOTHING.
 
 ### 20. Moved quiz scoring to backend (POST /api/quiz/score)
@@ -727,9 +727,9 @@ Also fixed: no try-catch around the `Promise.all` loading three parallel API cal
 
 Key changes from V3:
 - 6 questions (V3 had 5) — added Q2 "Food instinct" (secondary signal) and Q6 "Bitterness tolerance" (new highest-weight question; Q5 in V3 became Q6 in V4)
-- Q2 has `weight = 0` — not in `answer_archetype_score` at all; answer archetype comes from `answer.resulting_archetype_id` and is captured as `food_signal`
+- Q2 has `weight = 0` — not in `quiz_answer_archetype_score` at all; answer archetype comes from `answer.resulting_archetype_id` and is captured as `food_signal`
 - Q4 gains experimental gate (was Q3-C in V3)
-- Q4-D split: +0.5 to Chocolate & Nutty AND +0.5 to Balanced & Sweet (two rows in `answer_archetype_score`, `resulting_archetype_id = NULL`)
+- Q4-D split: +0.5 to Chocolate & Nutty AND +0.5 to Balanced & Sweet (two rows in `quiz_answer_archetype_score`, `resulting_archetype_id = NULL`)
 - Veto cascade corrected to Q6 → Q5 → Q3 → Q1 (was Q5 → Q4 → Q2 → Q1 in V3)
 - `POST /api/quiz/score` now returns `secondaryArchetype`, `foodSignal`, `confidence`, `recommendationMode` in addition to the existing fields
 - `POST /api/quiz/results` saves all new fields to `quiz_session.context_data`
@@ -868,7 +868,7 @@ The quiz date comes from `lastQuizDate` — added to `GET /api/users/profile` re
 **Change**: Introduced quiz V3 as the active version. V2 is deactivated (`is_active = FALSE`). Key changes:
 - Q2 completely replaced: "Food instinct" (food choices) → "Perfect cup" (coffee experience descriptions)
 - Q3-C gains `is_experimental_gate = TRUE` flag — scoring backend returns `experimental: true` when selected; stored in `quiz_session.context_data`; recommendation engine should add a discovery coffee to the result
-- Q3-D scoring changed: was neutral (no row) in V2 → +0.5 Chocolate & Nutty in a mid-session fix → now correctly splits +0.5 CN + +0.5 BS (two rows in `answer_archetype_score` for the same answer)
+- Q3-D scoring changed: was neutral (no row) in V2 → +0.5 Chocolate & Nutty in a mid-session fix → now correctly splits +0.5 CN + +0.5 BS (two rows in `quiz_answer_archetype_score` for the same answer)
 - Q4 answer texts updated: "Feels too thin/watery" → "It has no bitterness or intensity"; "Feels too heavy or strong" → "It's too bitter or too intense"
 - Q5-B and Q5-C updated to softer, more evocative language
 - `answer` table gained `is_experimental_gate BOOLEAN DEFAULT FALSE` column (idempotent ALTER TABLE)
@@ -876,9 +876,9 @@ The quiz date comes from `lastQuizDate` — added to `GET /api/users/profile` re
 
 ### 27. Tie-break was a static priority list, not spec-compliant
 **Problem**: `POST /api/quiz/score` resolved ties with a hardcoded order (Balanced & Sweet > Chocolate & Nutty > Fruity) regardless of the user's actual answers. This meant two users with identical scores but different answers would always get the same archetype — wrong by design.  
-**Fix**: Replaced with a veto cascade: Q5 → Q4 → Q2 → Q1. For each question in that order, if the user's answer pointed to one of the tied archetypes, that archetype wins. Q3 is intentionally excluded (contributes to raw score only). Fallback: Balanced & Sweet. A second DB query fetches the `q_number → archetype` mapping from `answer_archetype_score` only when a tie is detected — no extra cost on the happy path.
+**Fix**: Replaced with a veto cascade: Q5 → Q4 → Q2 → Q1. For each question in that order, if the user's answer pointed to one of the tied archetypes, that archetype wins. Q3 is intentionally excluded (contributes to raw score only). Fallback: Balanced & Sweet. A second DB query fetches the `q_number → archetype` mapping from `quiz_answer_archetype_score` only when a tie is detected — no extra cost on the happy path.
 
-Also fixed: Q3-D ("I'm not sure. I don't usually drink it black.") was previously neutral (no row in `answer_archetype_score`). Now correctly awards +1 to Chocolate & Nutty per the scoring spec. Added to the schema.sql seed (idempotent — `ON CONFLICT DO NOTHING`).
+Also fixed: Q3-D ("I'm not sure. I don't usually drink it black.") was previously neutral (no row in `quiz_answer_archetype_score`). Now correctly awards +1 to Chocolate & Nutty per the scoring spec. Added to the schema.sql seed (idempotent — `ON CONFLICT DO NOTHING`).
 
 ### 47. Family Bundle — household invitations and shared delivery
 **Change**: Added a full-stack Family Bundle feature allowing users to group into households for a shared delivery where each member gets coffee matched to their own palate.
@@ -1166,14 +1166,14 @@ Scoring is split across three fields, each with a distinct role. All three are k
 |---|---|---|---|
 | `quiz_question.weight` | `quiz_question` | How important this question is relative to others | Applies to all answers in the question |
 | `quiz_answer.weight` | `quiz_answer` | How decisive/strong this answer is as a signal | Applies uniformly across all archetype rows for this answer |
-| `answer_archetype_score.score` | `answer_archetype_score` | The archetype-specific impact — positive or negative | One row per (quiz_answer, archetype) |
+| `quiz_answer_archetype_score.score` | `quiz_answer_archetype_score` | The archetype-specific impact — positive or negative | One row per (quiz_answer, archetype) |
 
 **Lambda formula:**
 ```
-archetype total = SUM( question.weight × quiz_answer.weight × answer_archetype_score.score )
+archetype total = SUM( question.weight × quiz_answer.weight × quiz_answer_archetype_score.score )
 ```
 
-**V7 seeded values** (point difference baked into `score`; Q6 excluded from `answer_archetype_score`):
+**V7 seeded values** (point difference baked into `score`; Q6 excluded from `quiz_answer_archetype_score`):
 
 | Question | Weight | Answer | Archetype | Score |
 |---|---|---|---|---|
@@ -1211,7 +1211,7 @@ archetype total = SUM( question.weight × quiz_answer.weight × answer_archetype
 **Tuning examples — no code changes needed, just DB updates:**
 - Q5 should matter even more → `UPDATE question SET weight = 4 WHERE q_number = 5`
 - A specific answer is an unusually strong signal → `UPDATE quiz_answer SET weight = 1.5 WHERE answer_text = '...'`
-- An answer should also hurt a competing archetype → `INSERT INTO answer_archetype_score (..., archetype_id, score) VALUES (..., <fruity_id>, -2)`
+- An answer should also hurt a competing archetype → `INSERT INTO quiz_answer_archetype_score (..., archetype_id, score) VALUES (..., <fruity_id>, -2)`
 
 **Experimental gate (Q3-C)**
 
@@ -1233,7 +1233,7 @@ For each question in that order:
 Fallback (cascade exhausted without resolution): Balanced & Sweet
 ```
 
-The cascade uses the user's actual submitted answers looked up from `answer_archetype_score` — not a static priority list. The same tie can resolve differently depending on which answers the user gave.
+The cascade uses the user's actual submitted answers looked up from `quiz_answer_archetype_score` — not a static priority list. The same tie can resolve differently depending on which answers the user gave.
 
 ### Food signal matching logic
 
@@ -1573,7 +1573,7 @@ SELECT * FROM list_admins();
 ### Check quiz scoring table directly
 ```sql
 SELECT q.q_number, a.answer_text, ar.name AS archetype, aas.score
-FROM answer_archetype_score aas
+FROM quiz_answer_archetype_score aas
 JOIN quiz_answer  a  ON a.id  = aas.answer_id
 JOIN quiz_question q  ON q.id  = aas.question_id
 JOIN archetype    ar ON ar.id = aas.archetype_id
@@ -1760,7 +1760,7 @@ Note: Earthy has no cupping sessions yet so its values are expert judgement only
 ### 52. Quiz V7 — reordered questions, branch reclassification, scoring bug fixes
 
 **Backend changes:**
-- `backend/src/db/schema.sql` — new `quiz_branch` table (text-based, since replaced in #53); V7 seed block deactivates V4 and seeds 6 questions, 15 `answer_archetype_score` rows, 2 `quiz_branch` rows
+- `backend/src/db/schema.sql` — new `quiz_branch` table (text-based, since replaced in #53); V7 seed block deactivates V4 and seeds 6 questions, 15 `quiz_answer_archetype_score` rows, 2 `quiz_branch` rows
 - `backend/src/routes/quiz.ts` — `GET /api/quiz/branch` endpoint (text-based response, since replaced in #53); food signal corrected from `qNum === 2` to `qNum === 6`
 - `backend/src/services/quizScoring.ts` — veto cascade corrected from `[6,5,3,1]` to `[5,4,2,1]`; `isSecondaryClose` corrected from `byQ[6]/byQ[5]` to `byQ[5]/byQ[4]`
 
@@ -1836,7 +1836,7 @@ Note: Earthy has no cupping sessions yet so its values are expert judgement only
 - All `FROM question` / `JOIN question` → `FROM quiz_question` / `JOIN quiz_question`
 
 **View update (`v_quiz_scoring_matrix`):**
-- Rebuilt to start from `quiz_answer` (not `answer_archetype_score`) — all questions now appear including Q6 (food signal, weight 0) and branch questions which have no `answer_archetype_score` rows
+- Rebuilt to start from `quiz_answer` (not `quiz_answer_archetype_score`) — all questions now appear including Q6 (food signal, weight 0) and branch questions which have no `quiz_answer_archetype_score` rows
 - New columns: `quiz_type` (main/branch), `resulting_archetype` (answer's target archetype), `scored_archetype` (NULL for Q6 and branch answers — expected and correct)
 - `JOIN quiz_question` replaces `JOIN question`
 
@@ -1844,14 +1844,34 @@ Note: Earthy has no cupping sessions yet so its values are expert judgement only
 ```sql
 ALTER TABLE question RENAME TO quiz_question;
 ```
-PostgreSQL automatically updates all FK constraints on `quiz_answer.question_id` and `answer_archetype_score.question_id`.
+PostgreSQL automatically updates all FK constraints on `quiz_answer.question_id` and `quiz_answer_archetype_score.question_id`.
+
+---
+
+### 56. Rename answer_archetype_score to quiz_answer_archetype_score
+
+All quiz-related tables now follow the `quiz_` prefix convention: `quiz_type`, `quiz_question`, `quiz_answer`, `quiz_answer_archetype_score`.
+
+**Schema changes (`schema.sql`):**
+- `CREATE TABLE IF NOT EXISTS answer_archetype_score` → `CREATE TABLE IF NOT EXISTS quiz_answer_archetype_score`
+- Idempotent DO block added: `ALTER TABLE answer_archetype_score RENAME TO quiz_answer_archetype_score` (runs only if old name exists)
+- All INSERTs, JOINs, and index definitions updated throughout `schema.sql`
+
+**Backend changes (`quiz.ts`):** All `FROM quiz_answer_archetype_score` / `JOIN quiz_answer_archetype_score` references updated.
+
+**Migration files updated:** `v7_final_2026_06_18.sql`, `v7_normalize_2026_06_18.sql`, `v7_answer_texts_2026_06_18.sql`, `seeds/scoring_v1.sql`
+
+**Cloud SQL Studio (one-liner):**
+```sql
+ALTER TABLE answer_archetype_score RENAME TO quiz_answer_archetype_score;
+```
 
 ---
 
 ## What's Still To Do
 
 ### Quiz / scoring
-1. **Populate cross-archetype negative scores** — current `answer_archetype_score` rows only award one positive score per answer. Add negative rows for competing archetypes (e.g. Q5 answer A → Chocolate +3, Balanced −1, Fruity −2) to make the matrix fully competitive. Run via Cloud SQL Studio — no code deploy needed.
+1. **Populate cross-archetype negative scores** — current `quiz_answer_archetype_score` rows only award one positive score per answer. Add negative rows for competing archetypes (e.g. Q5 answer A → Chocolate +3, Balanced −1, Fruity −2) to make the matrix fully competitive. Run via Cloud SQL Studio — no code deploy needed.
 
 ### Cupping tool
 3. **Brew parameters UI** — the `brew_params` table exists (dose, water, yield, ratio, temp, grind, extraction time, pressure, steep time, device) but has no entry form. Could be added to the Score Entry page as a collapsible "Brew Params" section.
