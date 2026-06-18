@@ -1946,6 +1946,22 @@ After the branch quizzes were activated manually (`UPDATE quiz SET is_active = t
 
 ---
 
+### 60. Fix: admin nav link missing; admin role tables
+
+The Navigation component was not reading `isAdmin` from `AuthContext`, so no "Admin" link ever appeared — even for users with the admin role set in the DB.
+
+**Fix (`Navigation.tsx`):** Pull `isAdmin` from `useAuth()` and conditionally render an `Admin` link at the end of the primary nav when `isAdmin` is true (hidden on mobile like the other nav links).
+
+**How admin role works:**
+- `user_type` — reference table; two rows: `admin` and `customer`
+- `user_profile.user_type_id` — FK to `user_type`; `NULL` by default for new users
+- `grant_admin(email)` / `revoke_admin(email)` — helper functions in `schema.sql`; run in Cloud SQL Studio to promote/demote a user
+- `list_admins()` — returns all users currently holding the admin role
+
+At sign-in, `AuthContext` calls `GET /api/users/profile`; the backend joins `user_profile → user_type` and returns `isAdmin: true` if `ut.name = 'admin'`. The nav link only appears once that resolves.
+
+---
+
 ## What's Still To Do
 
 ### Quiz / scoring
