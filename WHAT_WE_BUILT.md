@@ -1928,6 +1928,24 @@ ALTER TABLE shipment               RENAME TO roastery_shipment_details;
 
 ---
 
+### 59. Fix: quiz endpoint returning branch question instead of main quiz
+
+After the branch quizzes were activated manually (`UPDATE quiz SET is_active = true WHERE version IN ('v7-branch-floral', 'v7-branch-earthy')`), they became the most recently created active rows in the `quiz` table. The `/api/quiz/questions` endpoint selects `WHERE is_active = true ORDER BY created_at DESC LIMIT 1` — which was returning a branch quiz (one question) instead of the main v7 quiz (six questions). Users taking the quiz saw only the single branch question.
+
+**Root cause:** branch quizzes were inserted after the main quiz in the seed, so their `created_at` timestamp is later.
+
+**Fix (`quiz.ts`):** Added `AND parent_quiz_id IS NULL` to both the `/questions` and `/branch` active-quiz lookups. Branch quizzes always have a `parent_quiz_id`; main quizzes have `NULL`. This correctly limits "find the active main quiz" to top-level quizzes only.
+
+```typescript
+// Before
+`SELECT id FROM quiz WHERE is_active = true ORDER BY created_at DESC LIMIT 1`
+
+// After
+`SELECT id FROM quiz WHERE is_active = true AND parent_quiz_id IS NULL ORDER BY created_at DESC LIMIT 1`
+```
+
+---
+
 ## What's Still To Do
 
 ### Quiz / scoring
