@@ -65,6 +65,9 @@ CREATE TABLE IF NOT EXISTS quiz (
   quiz_type_id UUID REFERENCES quiz_type(id)
 );
 
+-- Add quiz_type_id to existing quiz rows (no-op on fresh DBs where CREATE TABLE already includes it)
+ALTER TABLE quiz ADD COLUMN IF NOT EXISTS quiz_type_id UUID REFERENCES quiz_type(id);
+
 -- Backfill existing quizzes as type 'main' (idempotent — WHERE quiz_type_id IS NULL)
 UPDATE quiz SET quiz_type_id = (SELECT id FROM quiz_type WHERE name = 'main') WHERE quiz_type_id IS NULL;
 
