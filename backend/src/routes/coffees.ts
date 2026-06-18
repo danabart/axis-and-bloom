@@ -26,7 +26,7 @@ async function fetchCoffeeDataForContent(coffeeId: string | number) {
        FROM cupping_score_values csv
        JOIN cupping_scores cs  ON cs.id = csv.cupping_score_id
        JOIN session_coffees sc ON sc.id = cs.session_coffee_id
-       JOIN dimensions d       ON d.id  = csv.dimension_id
+       JOIN coffee_dimensions d       ON d.id  = csv.dimension_id
        WHERE sc.coffee_id = $1 AND d.is_numeric = true AND csv.value_min IS NOT NULL
        GROUP BY d.id, d.name, d.scale_min_label, d.scale_max_label, d.display_order
        ORDER BY d.display_order`,
@@ -227,7 +227,7 @@ router.get('/:id/dimensions', async (req, res) => {
          FROM cupping_score_values csv
          JOIN cupping_scores cs    ON cs.id  = csv.cupping_score_id
          JOIN session_coffees sc   ON sc.id  = cs.session_coffee_id
-         JOIN dimensions d         ON d.id   = csv.dimension_id
+         JOIN coffee_dimensions d         ON d.id   = csv.dimension_id
          WHERE sc.coffee_id = $1
            AND d.is_numeric = true
            AND csv.value_min IS NOT NULL

@@ -38,7 +38,7 @@ router.get('/stats', async (_req, res) => {
         (SELECT COUNT(*) FROM coffees)                    AS coffees,
         (SELECT COUNT(*) FROM cupping_sessions)           AS sessions,
         (SELECT COUNT(*) FROM cupping_score_descriptors)  AS internal_descriptors,
-        (SELECT COUNT(*) FROM coffee_roastery_descriptors)AS roastery_descriptors,
+        (SELECT COUNT(*) FROM roastery_coffee_descriptors)AS roastery_descriptors,
         (SELECT COUNT(*) FROM client_flavor_feedback)     AS client_feedback,
         (SELECT COUNT(*) FROM cupping_note)               AS sca_descriptors
     `);
@@ -345,7 +345,7 @@ router.get('/dimensions', async (_req, res) => {
     const result = await db.query(
       `SELECT id, name, description, scale_min_label, scale_max_label,
               scale_min, scale_max, is_numeric, display_order
-       FROM dimensions ORDER BY display_order`
+       FROM coffee_dimensions ORDER BY display_order`
     );
     res.json(result.rows);
   } catch (err) {

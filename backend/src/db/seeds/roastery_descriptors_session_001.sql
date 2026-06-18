@@ -1,6 +1,6 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Seed: Roastery descriptors — Session 001 coffees (Path Coffee Roasters)
--- Populates coffee_roastery_descriptors from bag note language.
+-- Populates roastery_coffee_descriptors from bag note language.
 -- Roastery terms are subcategory-level (e.g. "Dried Fruit", "Citrus") not SCA
 -- leaf descriptors, so each is mapped to the closest SCA leaf; the roaster's
 -- exact language is stored in the `notes` column.
@@ -43,7 +43,7 @@ UNION ALL
          cn.descriptor,
          'roastery'        AS source,
          NULL              AS intensity
-  FROM coffee_roastery_descriptors crd
+  FROM roastery_coffee_descriptors crd
   JOIN coffees      c  ON c.id  = crd.coffee_id
   JOIN cupping_note cn ON cn.id = crd.cupping_note_id
 UNION ALL
@@ -64,7 +64,7 @@ UNION ALL
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- Crosshatch (Nicaragua & Ethiopia blend) — bag notes: Caramel, Dried Fruit, Citrus
-INSERT INTO coffee_roastery_descriptors (coffee_id, cupping_note_id, notes)
+INSERT INTO roastery_coffee_descriptors (coffee_id, cupping_note_id, notes)
 VALUES
   (
     (SELECT id FROM coffees WHERE name = 'Crosshatch' AND roaster = 'Path Coffee Roasters'),
@@ -84,7 +84,7 @@ VALUES
 ON CONFLICT (coffee_id, cupping_note_id) DO NOTHING;
 
 -- Ethiopia (Ethiopia single) — bag notes: Stone Fruit, Floral, Citrus
-INSERT INTO coffee_roastery_descriptors (coffee_id, cupping_note_id, notes)
+INSERT INTO roastery_coffee_descriptors (coffee_id, cupping_note_id, notes)
 VALUES
   (
     (SELECT id FROM coffees WHERE name = 'Ethiopia' AND roaster = 'Path Coffee Roasters'),
@@ -104,7 +104,7 @@ VALUES
 ON CONFLICT (coffee_id, cupping_note_id) DO NOTHING;
 
 -- Feather In Cap (Colombia & Ethiopia blend) — bag notes: Brown Sugar, Cocoa, Dried Fruit
-INSERT INTO coffee_roastery_descriptors (coffee_id, cupping_note_id, notes)
+INSERT INTO roastery_coffee_descriptors (coffee_id, cupping_note_id, notes)
 VALUES
   (
     (SELECT id FROM coffees WHERE name = 'Feather In Cap' AND roaster = 'Path Coffee Roasters'),

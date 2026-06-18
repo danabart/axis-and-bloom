@@ -272,7 +272,7 @@ CREATE TABLE IF NOT EXISTS user_coffee_profile (
 -- BLENDS & ROASTERY
 -- ─────────────────────────────────────────────
 
-CREATE TABLE IF NOT EXISTS blend (
+CREATE TABLE IF NOT EXISTS roaster_blend (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   roaster_id            UUID REFERENCES roaster(id),
   archetype_id          UUID REFERENCES archetype(id),
@@ -292,7 +292,7 @@ CREATE TABLE IF NOT EXISTS blend (
 );
 
 CREATE TABLE IF NOT EXISTS blend_vector (
-  blend_id     UUID NOT NULL REFERENCES blend(id) ON DELETE CASCADE,
+  blend_id     UUID NOT NULL REFERENCES roaster_blend(id) ON DELETE CASCADE,
   dimension_id UUID NOT NULL,
   score        NUMERIC NOT NULL,
   PRIMARY KEY (blend_id, dimension_id)
@@ -336,6 +336,34 @@ END $$;
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'answer_archetype_score' AND schemaname = 'public') THEN
     ALTER TABLE answer_archetype_score RENAME TO quiz_answer_archetype_score;
+  END IF;
+END $$;
+
+-- Rename blend → roaster_blend (idempotent)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'blend' AND schemaname = 'public') THEN
+    ALTER TABLE blend RENAME TO roaster_blend;
+  END IF;
+END $$;
+
+-- Rename dimensions → coffee_dimensions (idempotent)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'dimensions' AND schemaname = 'public') THEN
+    ALTER TABLE dimensions RENAME TO coffee_dimensions;
+  END IF;
+END $$;
+
+-- Rename brew_params → cupping_brew_params (idempotent)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'brew_params' AND schemaname = 'public') THEN
+    ALTER TABLE brew_params RENAME TO cupping_brew_params;
+  END IF;
+END $$;
+
+-- Rename coffee_roastery_descriptors → roastery_coffee_descriptors (idempotent)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'coffee_roastery_descriptors' AND schemaname = 'public') THEN
+    ALTER TABLE coffee_roastery_descriptors RENAME TO roastery_coffee_descriptors;
   END IF;
 END $$;
 
@@ -456,7 +484,7 @@ CREATE TABLE IF NOT EXISTS shipment (
 CREATE TABLE IF NOT EXISTS order_line_item (
   id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   order_id             UUID REFERENCES "order"(id) ON DELETE CASCADE,
-  blend_id             UUID REFERENCES blend(id),
+  blend_id             UUID REFERENCES roaster_blend(id),
   intended_for_user_id UUID REFERENCES user_profile(id),
   shipment_id          UUID REFERENCES shipment(id),
   quantity             INTEGER NOT NULL DEFAULT 1,
@@ -490,7 +518,7 @@ CREATE TABLE IF NOT EXISTS feedback_event (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id      UUID REFERENCES user_profile(id),
   order_id     UUID REFERENCES "order"(id),
-  blend_id     UUID REFERENCES blend(id),
+  blend_id     UUID REFERENCES roaster_blend(id),
   signal_type  TEXT NOT NULL,
   rating       INTEGER,
   s_value      NUMERIC,
@@ -502,7 +530,7 @@ CREATE TABLE IF NOT EXISTS recommendation_log (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id         UUID REFERENCES user_profile(id),
   candidates_shown JSONB NOT NULL,
-  chosen_blend_id  UUID REFERENCES blend(id),
+  chosen_blend_id  UUID REFERENCES roaster_blend(id),
   created_at       TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
 
@@ -659,7 +687,7 @@ CREATE TABLE IF NOT EXISTS session_coffees (
 
 -- Cupping dimensions catalogue (replaces wide per-attribute columns in cupping_scores)
 -- is_numeric = false → text notes only; is_numeric = true → value_min/value_max on scale
-CREATE TABLE IF NOT EXISTS dimensions (
+CREATE TABLE IF NOT EXISTS coffee_dimensions (
   id               SERIAL PRIMARY KEY,
   name             TEXT NOT NULL UNIQUE,
   description      TEXT,
@@ -699,7 +727,7 @@ CREATE TABLE IF NOT EXISTS cupping_scores (
 CREATE TABLE IF NOT EXISTS cupping_score_values (
   id               SERIAL PRIMARY KEY,
   cupping_score_id INTEGER NOT NULL REFERENCES cupping_scores(id) ON DELETE CASCADE,
-  dimension_id     INTEGER NOT NULL REFERENCES dimensions(id) ON DELETE CASCADE,
+  dimension_id     INTEGER NOT NULL REFERENCES coffee_dimensions(id) ON DELETE CASCADE,
   value_min        NUMERIC,
   value_max        NUMERIC,
   notes            TEXT,
@@ -720,7 +748,7 @@ CREATE TABLE IF NOT EXISTS cupping_score_descriptors (
 );
 
 -- Brew parameters for each coffee in a session (all method-specific fields nullable)
-CREATE TABLE IF NOT EXISTS brew_params (
+CREATE TABLE IF NOT EXISTS cupping_brew_params (
   id                        SERIAL PRIMARY KEY,
   session_coffee_id         INTEGER NOT NULL REFERENCES session_coffees(id) ON DELETE CASCADE,
   dose_grams                NUMERIC,
@@ -738,7 +766,7 @@ CREATE TABLE IF NOT EXISTS brew_params (
 
 -- Roastery descriptor notes — structured FK version of coffees.flavor_descriptors_roaster TEXT[].
 -- One row per (coffee, descriptor). notes = roaster's exact language if it differs from the descriptor name.
-CREATE TABLE IF NOT EXISTS coffee_roastery_descriptors (
+CREATE TABLE IF NOT EXISTS roastery_coffee_descriptors (
   id              SERIAL PRIMARY KEY,
   coffee_id       INTEGER NOT NULL REFERENCES coffees(id) ON DELETE CASCADE,
   cupping_note_id UUID    NOT NULL REFERENCES cupping_note(id) ON DELETE CASCADE,
@@ -911,7 +939,7 @@ ON CONFLICT (name) DO NOTHING;
 UPDATE archetype SET name = 'Fruity', updated_at = NOW() WHERE name = 'Fruity & Complex';
 
 -- 2. Cupping dimensions (OVERRIDING SYSTEM VALUE lets us set explicit SERIAL IDs)
-INSERT INTO dimensions (id, name, description, scale_min_label, scale_max_label, scale_min, scale_max, is_numeric, display_order)
+INSERT INTO coffee_dimensions (id, name, description, scale_min_label, scale_max_label, scale_min, scale_max, is_numeric, display_order)
 OVERRIDING SYSTEM VALUE VALUES
   ( 1, 'Fragrance',       'Dry grounds smell before water',          NULL,                       NULL,                        NULL, NULL,   false,  1),
   ( 2, 'Aroma',           'Wet aroma after water added',             NULL,                       NULL,                        NULL, NULL,   false,  2),
@@ -928,7 +956,7 @@ OVERRIDING SYSTEM VALUE VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- Reset the dimensions sequence so future inserts auto-increment from 13
-SELECT setval('dimensions_id_seq', (SELECT MAX(id) FROM dimensions));
+SELECT setval('coffee_dimensions_id_seq', (SELECT MAX(id) FROM coffee_dimensions));
 
 -- 2. Quiz v2 + questions + answers (only inserts if v2 doesn't exist yet)
 DO $seed$
@@ -1300,7 +1328,7 @@ CREATE INDEX IF NOT EXISTS idx_order_line_item_order   ON order_line_item(order_
 CREATE INDEX IF NOT EXISTS idx_shipment_order          ON shipment(order_id);
 CREATE INDEX IF NOT EXISTS idx_feedback_user           ON feedback_event(user_id);
 CREATE INDEX IF NOT EXISTS idx_chat_message_user       ON chat_message(user_id);
-CREATE INDEX IF NOT EXISTS idx_blend_archetype              ON blend(archetype_id);
+CREATE INDEX IF NOT EXISTS idx_roaster_blend_archetype      ON roaster_blend(archetype_id);
 CREATE INDEX IF NOT EXISTS idx_user_coffee_profile_user     ON user_coffee_profile(user_id);
 
 -- Cupping tool indexes
@@ -1310,11 +1338,11 @@ CREATE INDEX IF NOT EXISTS idx_session_coffees_coffee       ON session_coffees(c
 CREATE INDEX IF NOT EXISTS idx_cupping_scores_session_cof   ON cupping_scores(session_coffee_id);
 CREATE INDEX IF NOT EXISTS idx_cupping_score_values_score   ON cupping_score_values(cupping_score_id);
 CREATE INDEX IF NOT EXISTS idx_cupping_score_values_dim     ON cupping_score_values(dimension_id);
-CREATE INDEX IF NOT EXISTS idx_brew_params_session_cof      ON brew_params(session_coffee_id);
+CREATE INDEX IF NOT EXISTS idx_cupping_brew_params_sc        ON cupping_brew_params(session_coffee_id);
 CREATE INDEX IF NOT EXISTS idx_score_descriptors_score      ON cupping_score_descriptors(cupping_score_id);
 CREATE INDEX IF NOT EXISTS idx_score_descriptors_note       ON cupping_score_descriptors(cupping_note_id);
-CREATE INDEX IF NOT EXISTS idx_roastery_desc_coffee         ON coffee_roastery_descriptors(coffee_id);
-CREATE INDEX IF NOT EXISTS idx_roastery_desc_note           ON coffee_roastery_descriptors(cupping_note_id);
+CREATE INDEX IF NOT EXISTS idx_roastery_desc_coffee         ON roastery_coffee_descriptors(coffee_id);
+CREATE INDEX IF NOT EXISTS idx_roastery_desc_note           ON roastery_coffee_descriptors(cupping_note_id);
 CREATE INDEX IF NOT EXISTS idx_client_feedback_user         ON client_flavor_feedback(user_id);
 CREATE INDEX IF NOT EXISTS idx_client_feedback_coffee       ON client_flavor_feedback(coffee_id);
 CREATE INDEX IF NOT EXISTS idx_client_feedback_order        ON client_flavor_feedback(order_id);
@@ -1363,7 +1391,7 @@ CREATE VIEW v_cupping_scores_readable AS
   JOIN session_coffees        sc      ON sc.id      = cs.session_coffee_id
   JOIN cupping_sessions       cs_sess ON cs_sess.id = sc.session_id
   JOIN coffees                c       ON c.id       = sc.coffee_id
-  JOIN dimensions             d       ON d.id       = csv.dimension_id
+  JOIN coffee_dimensions            d       ON d.id       = csv.dimension_id
   LEFT JOIN archetype_assignments aa  ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
   ORDER BY cs_sess.session_date, sc.display_order, cs.taster_name, d.display_order;
 
@@ -1396,7 +1424,7 @@ UNION ALL
          cn.descriptor,
          'roastery'        AS source,
          NULL              AS intensity
-  FROM coffee_roastery_descriptors crd
+  FROM roastery_coffee_descriptors crd
   JOIN coffees      c  ON c.id  = crd.coffee_id
   JOIN cupping_note cn ON cn.id = crd.cupping_note_id
 UNION ALL
@@ -1727,7 +1755,7 @@ SELECT
   av.max_score
 FROM archetype_vector av
 JOIN archetype  a ON a.id = av.archetype_id
-JOIN dimensions d ON md5(d.name)::uuid = av.dimension_id
+JOIN coffee_dimensionsd ON md5(d.name)::uuid = av.dimension_id
 ORDER BY a.name, d.display_order;
 
 -- Archetype vector vs actual cupping scores — one row per archetype × dimension.
@@ -1748,7 +1776,7 @@ SELECT
   COUNT(DISTINCT aa.coffee_id)                                    AS coffee_count
 FROM archetype_vector av
 JOIN archetype  a ON a.id = av.archetype_id
-JOIN dimensions d ON md5(d.name)::uuid = av.dimension_id
+JOIN coffee_dimensionsd ON md5(d.name)::uuid = av.dimension_id
 LEFT JOIN archetype_assignments aa
   ON aa.superseded_at IS NULL
   AND CASE aa.archetype
