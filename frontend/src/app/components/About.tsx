@@ -59,11 +59,10 @@ export default function About() {
         Placeholder09.mp4 — swap <source src> for final brand video when ready.
         Poster uses first-frame fallback via CSS background on the section.
       */}
-      <section style={{ position: 'relative', height: '100vh', overflow: 'hidden', backgroundColor: '#111110' }}>
+      <section style={{ position: 'relative', height: '100vh', overflow: 'hidden', backgroundColor: '#1a1208', backgroundImage: `url(${coffeePic15})`, backgroundSize: 'cover', backgroundPosition: 'center 40%' }}>
         <video
           ref={heroVideoRef}
           autoPlay muted playsInline
-          poster={coffeePic15}
           style={{
             position: 'absolute', inset: 0,
             width: '100%', height: '100%',
@@ -406,11 +405,10 @@ export default function About() {
       </section>
 
       {/* ━━━ 5. EMOTIONAL VIDEO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ position: 'relative', height: '68vh', overflow: 'hidden', backgroundColor: '#111110' }}>
+      <section style={{ position: 'relative', height: '68vh', overflow: 'hidden', backgroundColor: '#1a1208', backgroundImage: `url(${coffeePic15})`, backgroundSize: 'cover', backgroundPosition: 'center' }}>
         <video
           ref={emotionalVideoRef}
           autoPlay muted playsInline
-          poster={coffeePic15}
           style={{
             position: 'absolute', inset: 0,
             width: '100%', height: '100%',

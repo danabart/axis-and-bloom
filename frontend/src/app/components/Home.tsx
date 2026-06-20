@@ -80,8 +80,6 @@ export default function Home() {
   const heroVideoRef      = useRef<HTMLVideoElement>(null);
   const cinematicVideoRef = useRef<HTMLVideoElement>(null);
   const [hoveredBag, setHoveredBag] = useState<number | null>(null);
-  const [heroReady, setHeroReady]           = useState(false);
-  const [cinematicReady, setCinematicReady] = useState(false);
 
   useEffect(() => {
     // rAF-based loop: fires every frame (~60fps) so we catch the end before any black frame
@@ -119,12 +117,11 @@ export default function Home() {
       {/*
         To swap in real brand video: replace <source src="..."> and update poster={}
       */}
-      <section style={{ position: 'relative', height: '100vh', overflow: 'hidden', backgroundColor: '#111110' }}>
+      <section style={{ position: 'relative', height: '100vh', overflow: 'hidden', backgroundColor: '#1a1208' }}>
         <video
           ref={heroVideoRef}
           autoPlay muted playsInline
-          onCanPlay={() => setHeroReady(true)}
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%', display: 'block', transform: 'scale(1.06)', opacity: heroReady ? 1 : 0, transition: 'opacity 0.5s ease' }}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%', display: 'block', transform: 'scale(1.06)' }}
         >
           <source src={heroVideo} type="video/mp4" />
         </video>
@@ -266,12 +263,11 @@ export default function Home() {
       {/*
         To swap in a different video: replace <source src={...}> and update poster={}
       */}
-      <section style={{ position: 'relative', height: '65vh', overflow: 'hidden', backgroundColor: '#111110' }}>
+      <section style={{ position: 'relative', height: '65vh', overflow: 'hidden', backgroundColor: '#1a1208' }}>
         <video
           ref={cinematicVideoRef}
           autoPlay muted playsInline
-          onCanPlay={() => setCinematicReady(true)}
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%', display: 'block', transform: 'scale(1.06)', opacity: cinematicReady ? 1 : 0, transition: 'opacity 0.5s ease' }}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%', display: 'block', transform: 'scale(1.06)' }}
         >
           <source src={placeholderVideo} type="video/mp4" />
         </video>
