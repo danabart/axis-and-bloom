@@ -1,4 +1,5 @@
-import { NavLink, Link, Outlet } from 'react-router';
+import { NavLink, Link, Outlet, useNavigate } from 'react-router';
+import { useAuth } from '../../context/AuthContext';
 
 const NAV = [
   { to: '/admin',              label: 'Dashboard',       end: true },
@@ -10,6 +11,11 @@ const NAV = [
 ];
 
 export default function AdminLayout() {
+  const { logout } = useAuth();
+  const navigate   = useNavigate();
+
+  const handleSignOut = async () => { await logout(); navigate('/'); };
+
   return (
     <div className="flex min-h-screen" style={{ fontFamily: 'inherit' }}>
       {/* Sidebar */}
@@ -36,8 +42,8 @@ export default function AdminLayout() {
           ))}
         </nav>
 
-        {/* Back to site */}
-        <div className="mt-auto pt-6 border-t border-stone-200">
+        {/* Back to site + Sign out */}
+        <div className="mt-auto pt-6 border-t border-stone-200 flex flex-col gap-1">
           <Link
             to="/"
             className="flex items-center gap-2 px-3 py-2 rounded text-sm text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors"
@@ -47,6 +53,15 @@ export default function AdminLayout() {
             </svg>
             Back to site
           </Link>
+          <button
+            onClick={handleSignOut}
+            className="flex items-center gap-2 px-3 py-2 rounded text-sm text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors text-left"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 2h3.5v10H9M6 10l3-3-3-3M9 7H2" />
+            </svg>
+            Sign out
+          </button>
         </div>
       </aside>
 

@@ -1,5 +1,5 @@
 import { ShoppingCart, User } from 'lucide-react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import logoMark from '../../design/LOGO/LogoQuarter1.svg'
 
@@ -14,7 +14,9 @@ const NAV_LINK: React.CSSProperties = {
 };
 
 export default function Navigation() {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, logout } = useAuth();
+  const navigate = useNavigate();
+  const handleSignOut = async () => { await logout(); navigate('/'); };
 
   return (
     <nav style={{
@@ -54,6 +56,16 @@ export default function Navigation() {
         <Link to={user ? '/profile' : '/sign-in'} aria-label="Profile" style={{ color: '#9a2918', display: 'flex', alignItems: 'center' }} className="hover:opacity-50 transition-opacity">
           <User size={18} strokeWidth={1.5} />
         </Link>
+        {user && (
+          <button
+            onClick={handleSignOut}
+            aria-label="Sign out"
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: "Arial, sans-serif", fontSize: '0.75rem', letterSpacing: '0.1em', color: '#9a2918', textTransform: 'uppercase', opacity: 0.55 }}
+            className="hidden md:block hover:opacity-100 transition-opacity"
+          >
+            Sign out
+          </button>
+        )}
         <button
           aria-label="Shopping cart"
           style={{ position: 'relative', background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#9a2918', display: 'flex', alignItems: 'center' }}
