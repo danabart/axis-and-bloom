@@ -426,23 +426,27 @@ export default function FlavorQuiz() {
         <div className="absolute inset-0">
           <img src="https://i.imgur.com/3NAnXgR.jpeg" alt="" className="w-full h-full object-cover" />
         </div>
-        {/* Content — vertically centered, left-aligned, generous padding */}
+        {/* Content — anchored to upper-left light area, generous left padding */}
         <div
-          className="relative z-10 w-full flex flex-col justify-center"
-          style={{ padding: 'clamp(100px, 14vh, 160px) clamp(48px, 8vw, 120px)' }}
+          className="relative z-10 w-full flex flex-col justify-start"
+          style={{
+            paddingTop: 'clamp(80px, 11vh, 120px)',
+            paddingLeft: 'clamp(48px, 7vw, 112px)',
+            paddingRight: 'clamp(48px, 7vw, 112px)',
+          }}
         >
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.7 }}
-            style={{ maxWidth: 520, display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}
+            style={{ maxWidth: 640, display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}
           >
             <h1 style={{
-              fontSize: 'clamp(2.6rem, 5vw, 4.5rem)',
+              fontSize: 'clamp(2.8rem, 4.2vw, 4.2rem)',
               color: '#ee5974',
-              lineHeight: 1.05,
+              lineHeight: 1.08,
               fontWeight: 400,
-              margin: '0 0 clamp(36px, 5vh, 56px)',
+              margin: '0 0 clamp(28px, 4vh, 40px)',
               letterSpacing: '-0.01em',
             }}>
               Whose palate are we<br />profiling today?
@@ -455,8 +459,9 @@ export default function FlavorQuiz() {
               placeholder="Enter your name"
               style={{
                 width: '100%',
-                fontSize: '1.15rem',
-                padding: '0 0 14px',
+                maxWidth: 400,
+                fontSize: '1.05rem',
+                padding: '0 0 12px',
                 background: 'transparent',
                 border: 'none',
                 borderBottom: '1px solid rgba(154,41,24,0.3)',
@@ -465,7 +470,7 @@ export default function FlavorQuiz() {
                 color: '#9a2918',
                 fontFamily: 'inherit',
                 letterSpacing: '0.02em',
-                marginBottom: 'clamp(28px, 4vh, 40px)',
+                marginBottom: 'clamp(20px, 3vh, 28px)',
               }}
               className="placeholder-[#a33726]/40 focus:border-[#ee5974]"
               onKeyDown={(e) => { if (e.key === 'Enter' && userName.trim()) setHasStarted(true); }}
@@ -487,7 +492,7 @@ export default function FlavorQuiz() {
                 color: '#9a2918',
                 opacity: userName.trim() ? 1 : 0.3,
                 transition: 'opacity 0.2s, color 0.2s',
-                marginBottom: 'clamp(40px, 6vh, 60px)',
+                marginBottom: 18,
               }}
             >
               Begin Profile
@@ -498,10 +503,10 @@ export default function FlavorQuiz() {
               style={{
                 fontFamily: 'inherit',
                 fontSize: '0.68rem',
-                letterSpacing: '0.2em',
+                letterSpacing: '0.18em',
                 textTransform: 'uppercase',
                 color: '#9a2918',
-                opacity: 0.4,
+                opacity: 0.45,
                 textDecoration: 'none',
                 transition: 'opacity 0.2s',
               }}
