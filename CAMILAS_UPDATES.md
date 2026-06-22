@@ -692,6 +692,207 @@ Full font audit run across all CSS and component files. Findings and fixes:
 
 ---
 
+### 32. TasteFinderSection — full-screen curtain, footer revealed, slow timing
+**Files:** `frontend/src/app/components/TasteFinderSection.tsx`, `frontend/src/app/components/Home.tsx`
+
+Completely redesigned the scroll-driven curtain section at the bottom of the homepage.
+
+**Curtain changes:**
+- Was: a 360px-tall stripe with a cream text panel (left 40%) + chaff photo (right 60%), sliding horizontally
+- Now: the chaff photo fills the full `100vh` viewport — no stripe, no text overlay on the curtain itself
+- Direction: `translateX` (slides left)
+- Timing: `WHEEL_OPEN` increased 480 → 900 (much more scroll required — slow, user-controlled); `WHEEL_CLOSE_HOLD` 240 → 500
+
+**Revealed layer:**
+- Left 50%: `TransparentBag03.png` coffee bag (larger, `maxHeight: 500px`)
+- Right 50%: "THE TASTE FINDER / Which / [archetype] / is yours? / TAKE THE QUIZ →" — moved here from the old curtain text panel
+- Text: left-aligned within the right panel, `clamp(3.2rem→5.6rem)` headline
+- Footer embedded inside the revealed layer (always in DOM, visible the moment curtain opens — no extra scroll needed)
+
+**Section 6 replacement (Home.tsx):**
+- Removed: "Guided by AI. Curated by taste. / Every match is shaped by real coffees, sensory language, and human judgment."
+- Added: "TAKE THE QUIZ →" CTA (first), then "Our flavor system is designed to remove the guesswork…" body copy below
+
+---
+
+### 33. Bag cards — crossfade archetype photo on hover
+**File:** `frontend/src/app/components/Home.tsx`
+
+Changed the hover behaviour on the three coffee bag cards in the Collection section.
+
+- Was: archetype lifestyle photo slides down below the bag tile (expanding `max-height` from 0 → 260px)
+- Now: both images are stacked inside the same tile (`position: absolute, inset: 0`); the bag fades out (`opacity 0`) and the archetype photo fades in (`opacity 1`) over 0.45s — the tile never changes size
+- Bag: `objectFit: contain`; archetype photo: `objectFit: cover`
+
+---
+
+### 34. Homepage sections — Coffee Collection and Flavor Map swapped
+**File:** `frontend/src/app/components/Home.tsx`
+
+Reordered two homepage sections by swapping their positions. No content changed.
+
+| Position | Before | After |
+|---|---|---|
+| 3 | Flavor Map (archetype color blocks) | **Coffee Collection** (bag cards) |
+| 4 | Cinematic video | Cinematic video (unchanged) |
+| 5 | Coffee Collection (bag cards) | **Flavor Map** (archetype color blocks) |
+
+---
+
+### 35. Videos — rAF loop, no poster, fade-in on play
+**File:** `frontend/src/app/components/Home.tsx`
+
+Three fixes applied to both the hero and cinematic video sections:
+
+1. **No poster** — removed `poster={coffeePic16}` from both video elements; the static image no longer flashes before the video
+2. **Fade in on `onCanPlay`** — videos start at `opacity: 0` and fade to `1` over 0.5s when the browser has the first frame ready, so users never see a black void while the video loads
+3. **rAF loop** — replaced `timeupdate` event listener (fires ~4×/sec) with a `requestAnimationFrame` loop (60fps); resets `currentTime` 300ms before the end so the browser never reaches a potentially black last frame
+
+---
+
+### 36. Video loop — seek to 0.05s, earlier cutoff
+**File:** `frontend/src/app/components/Home.tsx`
+
+Refined the rAF loop from entry 35:
+
+- Loop resets to `currentTime = 0.05` (not `0`) to skip any black first frame baked into the video encoding
+- Cutoff moved earlier: `duration - 0.5` (was `duration - 0.3`) for a more conservative end-of-clip trigger
+- `onCanPlay` used instead of `onPlaying` for faster fade-in trigger
+
+---
+
+### 37. Videos — scale(1.06) to remove black side bars
+**Files:** `frontend/src/app/components/Home.tsx`, `frontend/src/app/components/About.tsx`
+
+All four video elements (Home hero, Home cinematic, About hero, About emotional) were getting visible black lines on both sides. Cause: the video files have thin pillarboxing bars encoded into the pixel data; `objectFit: cover` fills the CSS container but treats the full encoded frame (including bars) as the video content.
+
+**Fix applied to all four videos:**
+- `transform: scale(1.06)` — zooms the video 6% beyond its container; since each section has `overflow: hidden`, the outer 3% on each side (including the bars) is clipped
+- `display: block` — removes the default inline baseline gap that can cause 1px edge artifacts
+
+**About.tsx loop also updated:**
+- Old `timeupdate` approach replaced with the same `requestAnimationFrame` loop used in Home.tsx
+- Reset offset: `currentTime = 0.05`, cutoff: `duration - 0.5`
+
+---
+
+### 38. Videos — no black flash before hero loads
+**Files:** `frontend/src/app/components/Home.tsx`, `frontend/src/app/components/About.tsx`
+
+The hero videos were still showing a black/dark screen before they started playing.
+
+**Root cause (Home.tsx):** The `opacity: 0 → 1` approach from entry 35 was hiding the video, but the section's `backgroundColor: '#111110'` was visible the entire time the video loaded — which itself looked like a black screen.
+
+**Root cause (About.tsx):** The `poster={coffeePic15}` JPEG needed a separate network round-trip to decode before it appeared, leaving a brief black gap on first visit.
+
+**Fixes:**
+- **Home.tsx** — Removed the `opacity/onCanPlay` approach entirely. Section `backgroundColor` changed from `'#111110'` to `'#1a1208'` (dark espresso brown) — warm and intentional-looking while the video loads, not a "black screen". The `heroReady`/`cinematicReady` state variables and their handlers were deleted.
+- **About.tsx** — Section gets a CSS `background-image` (same photo as the old poster) as an inline style on the section element. CSS backgrounds are fetched with the stylesheet, before the video element initialises — so the photo appears from the very first paint with zero gap. Poster attribute removed from the `<video>` element.
+
+---
+
+### 39. Sign-in CTAs added site-wide alongside quiz/flavor prompts
+**Files:** `frontend/src/app/components/Home.tsx`, `frontend/src/app/components/TasteFinderSection.tsx`
+
+Added a "Sign in" secondary option next to every quiz and flavor-discovery CTA across the site.
+
+| Location | Addition |
+|---|---|
+| Hero section | "Sign in →" third link alongside "Find my flavor →" and "Explore coffees →" — same subtle cream style |
+| Profile form | "Already a member? Sign in →" below the "BEGIN PROFILE →" button, 45% opacity |
+| Quiz CTA section (6) | "or sign in →" below "TAKE THE QUIZ →", smaller, lowercase |
+| TasteFinderSection revealed layer | "or sign in →" below "TAKE THE QUIZ →" (applies to homepage and About page which share the component) |
+
+All sign-in links route to `/sign-in`.
+
+---
+
+### 40. Sign-out buttons — navigation and admin sidebar
+**Files:** `frontend/src/app/components/Navigation.tsx`, `frontend/src/app/components/admin/AdminLayout.tsx`
+
+Sign-out functionality already existed in `AuthContext` (`logout()` → `signOut(auth)`) and in the Profile page settings tab, but was not accessible from the nav or admin area.
+
+**Navigation.tsx:**
+- When `user` is truthy, a small `"SIGN OUT"` text button appears to the right of the user icon on desktop (`hidden md:block`)
+- Calls `logout()` then navigates to `/`
+- 55% opacity at rest, lifts to 100% on hover — clearly secondary to nav links
+
+**AdminLayout.tsx:**
+- "Sign out" button added to the sidebar footer, directly below "Back to site"
+- Same visual style (text + arrow icon) as the existing "Back to site" link
+- Calls `logout()` then navigates to `/`
+
+---
+
+### 41. Find my flavor — name screen layout redesign
+**File:** `frontend/src/app/components/FlavorQuiz.tsx`
+
+The opening name-entry screen was cramped and hard to read (text jammed into the upper-left corner of the background photo, elements too close together, heading wrapping to 3 lines).
+
+**Final state after two iterations:**
+
+- **Position** — `justify-start` with `paddingTop: clamp(80px, 11vh, 120px)`, placing the content block in the upper-left light area of the background photo (away from the dark chaff pile in the lower-right)
+- **Heading** — `clamp(2.8rem, 4.2vw, 4.2rem)`, explicit `<br />` after "are we" so "Whose palate are we" is line 1 and "profiling today?" is line 2; container widened to `maxWidth: 640px` so the full first line fits without wrapping
+- **Left padding** — `clamp(48px, 7vw, 112px)` for comfortable margin from the edge on wide screens
+- **Spacing** — heading → input: `clamp(28px, 4vh, 40px)`; input → BEGIN PROFILE: `clamp(20px, 3vh, 28px)`; BEGIN PROFILE → Sign in: `18px` (immediately below, not a large gap)
+- **Sign in link** — moved to directly below the button (18px gap), lowercase `"Already have a profile? Sign in →"`, 45% opacity
+
+---
+
+### 42. Quiz — back button to revisit previous answers
+**File:** `frontend/src/app/components/FlavorQuiz.tsx`
+
+Added a `← Back` button on the question screen that appears from question 2 onward.
+
+- Sits to the left of "Next Question" in a horizontal flex row
+- Clicking decrements `currentStep` by 1; the previous answer remains highlighted (stored in `answers` and `selectedIds` by step index)
+- Changing an answer on a previous step overwrites that step's stored selection; the score is computed from whatever answers are current when the user hits "See My Profile" on the last question
+- Style: `text-[10px] uppercase tracking-[0.3em]`, terracotta, 35% opacity at rest, lifts to 70% on hover — clearly secondary to the forward button
+
+---
+
+### 43. Quiz result — gift-unwrap reveal redesign
+**File:** `frontend/src/app/components/FlavorQuiz.tsx`
+
+Complete redesign of the result page. Replaced the generic split-screen layout (stock photo left, archetype text right) with a four-section editorial page anchored by a gift-reveal mechanic.
+
+**New asset imports:**
+- 6 archetype wallpapers from `frontend/src/design/IMAGES/archetypes/` (Floral.jpg, Fruity.jpg, Balanced-&-Sweet.jpg, Chocolate-&-Nutty.jpg, Spicy-&-Earthy.jpg, Experimental.jpg)
+- 6 new mock-up bag PNGs from `frontend/src/design/IMAGES/bags/new bags mock up/` (transparent backgrounds)
+
+**Archetype data updated:**
+- All 6 archetypes now fully mapped: Floral, Fruity, Balanced & Sweet, Chocolate & Nutty, Spicy & Earthy, Experimental
+- Added: `wallpaper`, `bag`, `shortDescription`, `whyMatches` fields per archetype
+- Updated `ARCHETYPE_NAME_TO_KEY` to normalise all backend variants (`"Spicy & Earthy"`, `"earthy"`, `"Spicy and Earthy"`, etc.) to the correct key
+- Colors updated to match brand spec: Floral `#a34b78`, Spicy & Earthy `#912f2f`, Experimental `#056c7a`
+
+**Section 1 — Reveal hero:**
+- A `200vh` container with a sticky `100vh` inner drives the reveal via scroll position
+- Wallpaper (curtain) slides LEFT as the user scrolls through the extra 100vh (`translateX`, smooth 0.12s transition)
+- Under the curtain: coffee bag (left half, large transparent PNG on cream background) + archetype name, description, "See your coffees →" CTA (right half)
+- Bag and text fade + scale in once the curtain is >55% open
+- Mobile fallback: "Reveal my archetype →" button triggers a 0.95s elegant slide (`cubic-bezier(0.16, 1, 0.3, 1)`)
+- `prefers-reduced-motion`: skips animation, shows revealed state immediately
+- Scroll-to-top triggered automatically when `isComplete` becomes true so the reveal always starts clean
+
+**Section 2 — Why this matches you:**
+- `#e5e5da` background
+- 3 archetype-specific bullets, each with a thin 1px vertical accent line in the archetype color
+- `whileInView` stagger animation
+
+**Section 3 — Coffees selected for you (`id="coffees"`):**
+- `#f2f1ea` background, editorial card layout
+- Match percentage as eyebrow label, coffee name, tasting notes, "Get this coffee →" link to /shop
+- "See your coffees →" CTA in the hero smooth-scrolls to this section
+
+**Section 4 — Closing CTA:**
+- `#deded1` background, centred
+- Save profile prompt for non-logged-in users (links to `/sign-in`)
+- "Meet all archetypes →" links to `/coffees`
+- "Retake the quiz" button resets all state and scrolls back to top
+
+---
+
 ## File Reference
 
 | File | What changed |
@@ -699,7 +900,7 @@ Full font audit run across all CSS and component files. Findings and fixes:
 | `frontend/src/app/components/Home.tsx` | Full editorial redesign: 9-section structure, video-ready hero, profile form, flavor map, bag preview, Human+AI section |
 | `frontend/src/app/components/Navigation.tsx` | Solid bg, refined lockup, admin removed, separator removed, icons only on right |
 | `frontend/src/app/components/Footer.tsx` | Editorial 3-column layout, Genova throughout, logo + links + copyright |
-| `frontend/src/app/components/TasteFinderSection.tsx` | Curtain: vertical lift (translateY), editorial stripe preserved; revealed: TransparentBag03 + right-aligned text/CTA |
+| `frontend/src/app/components/TasteFinderSection.tsx` | Curtain: full-screen chaff photo slides LEFT; revealed: bag (left) + taste finder text (right) + footer; slow timing; "or sign in →" added |
 | `frontend/src/app/components/About.tsx` | Full editorial redesign: FamilyEdit.jpg hero, brand story, Axis/Bloom name blocks, founders' note, video, archetype bridge, final CTA |
 | `frontend/src/app/components/PreLaunch.tsx` | New — pre-launch curtain page; iterated visually; mobile layout fixed |
 | `frontend/src/app/App.tsx` | Conditional pre-launch routing + preview bypass |
@@ -714,3 +915,10 @@ Full font audit run across all CSS and component files. Findings and fixes:
 | `backend/src/db/schema.sql` | first_name column on newsletter_subscriber |
 | `.github/workflows/deploy.yml` | VITE_PRELAUNCH_MODE added; Mailchimp secrets removed until created in GCP |
 | All component files | Removed font-sans; replaced all bold weights with font-normal |
+| `frontend/src/app/components/Home.tsx` | Curtain CTA section replaced; bag card hover crossfade; section order swapped; rAF video loop; no poster; warm bg; scale(1.06) bar fix; sign-in CTAs added |
+| `frontend/src/app/components/About.tsx` | rAF video loop; scale(1.06) bar fix; CSS background-image fallback replaces poster |
+| `frontend/src/app/components/Navigation.tsx` | "Sign out" button added when user is logged in; useNavigate added |
+| `frontend/src/app/components/admin/AdminLayout.tsx` | "Sign out" button added to sidebar footer |
+| `frontend/src/app/components/FlavorQuiz.tsx` | Name screen layout redesigned; back button added to quiz; full result page redesign (gift-reveal mechanic, 6 archetype wallpapers + bags, 4-section layout) |
+| `frontend/src/design/IMAGES/archetypes/` | 6 archetype wallpaper JPGs used in quiz result reveal |
+| `frontend/src/design/IMAGES/bags/new bags mock up/` | 6 transparent bag PNGs used in quiz result revealed layer |
