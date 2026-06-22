@@ -584,27 +584,37 @@ export default function FlavorQuiz() {
               </motion.div>
             </AnimatePresence>
 
-            <div className="mt-16 flex flex-col items-start w-full">
-              <button
-                onClick={handleNext}
-                disabled={answers[currentStep] === undefined || isScoring}
-                className={`text-[10px] uppercase tracking-[0.3em] font-normal transition-all pb-1 border-b ${
-                  answers[currentStep] === undefined || isScoring
-                    ? 'text-[#a33726] opacity-20 border-transparent cursor-not-allowed'
-                    : 'text-[#a33726] border-[#a33726]/30 hover:border-[#ee5974] hover:text-[#ee5974]'
-                }`}
-              >
-                {isScoring ? 'Finding your profile…' : currentStep < questions.length - 1 ? 'Next Question' : 'See My Profile'}
-              </button>
+            <div className="mt-16 flex flex-col items-start w-full gap-6">
+              <div className="flex items-center gap-8">
+                {currentStep > 0 && (
+                  <button
+                    onClick={() => setCurrentStep(p => p - 1)}
+                    className="text-[10px] uppercase tracking-[0.3em] font-normal text-[#a33726] opacity-35 hover:opacity-70 transition-opacity"
+                  >
+                    ← Back
+                  </button>
+                )}
+                <button
+                  onClick={handleNext}
+                  disabled={answers[currentStep] === undefined || isScoring}
+                  className={`text-[10px] uppercase tracking-[0.3em] font-normal transition-all pb-1 border-b ${
+                    answers[currentStep] === undefined || isScoring
+                      ? 'text-[#a33726] opacity-20 border-transparent cursor-not-allowed'
+                      : 'text-[#a33726] border-[#a33726]/30 hover:border-[#ee5974] hover:text-[#ee5974]'
+                  }`}
+                >
+                  {isScoring ? 'Finding your profile…' : currentStep < questions.length - 1 ? 'Next Question' : 'See My Profile'}
+                </button>
+              </div>
               {scoreError && (
-                <p className="text-[11px] text-[#ee5974] mt-4">
+                <p className="text-[11px] text-[#ee5974]">
                   Something went wrong. Please try again.
                 </p>
               )}
               {!user && (
                 <Link
                   to="/sign-in"
-                  className="text-[11px] uppercase tracking-[0.1em] text-[#a33726] opacity-40 hover:opacity-100 transition-opacity mt-8 font-normal"
+                  className="text-[11px] uppercase tracking-[0.1em] text-[#a33726] opacity-40 hover:opacity-100 transition-opacity font-normal"
                 >
                   Sign in to save progress
                 </Link>
