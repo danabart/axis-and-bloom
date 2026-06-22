@@ -426,43 +426,90 @@ export default function FlavorQuiz() {
         <div className="absolute inset-0">
           <img src="https://i.imgur.com/3NAnXgR.jpeg" alt="" className="w-full h-full object-cover" />
         </div>
-        <div className="relative z-10 w-full p-8 pt-16 md:p-16 lg:p-24 flex flex-col justify-start items-start">
+        {/* Content — vertically centered, left-aligned, generous padding */}
+        <div
+          className="relative z-10 w-full flex flex-col justify-center"
+          style={{ padding: 'clamp(100px, 14vh, 160px) clamp(48px, 8vw, 120px)' }}
+        >
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.7 }}
-            className="w-full max-w-[480px] flex flex-col items-start"
+            style={{ maxWidth: 520, display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}
           >
-            <h1 className="text-[2.5rem] lg:text-[3.5rem] text-[#ee5974] leading-[1.05] font-normal tracking-tight mb-8">
-              Whose palate are we profiling today?
+            <h1 style={{
+              fontSize: 'clamp(2.6rem, 5vw, 4.5rem)',
+              color: '#ee5974',
+              lineHeight: 1.05,
+              fontWeight: 400,
+              margin: '0 0 clamp(36px, 5vh, 56px)',
+              letterSpacing: '-0.01em',
+            }}>
+              Whose palate are we<br />profiling today?
             </h1>
-            <div className="w-full flex flex-col gap-8 mt-2">
-              <input
-                type="text"
-                value={userName}
-                onChange={(e) => setUserName(e.target.value)}
-                placeholder="Enter your name"
-                className="w-full text-left text-[1.25rem] tracking-wide py-3 rounded-none border-b border-[#a33726]/30 bg-transparent focus:outline-none focus:border-[#ee5974] text-[#a33726] placeholder-[#a33726]/40"
-                onKeyDown={(e) => { if (e.key === 'Enter' && userName.trim()) setHasStarted(true); }}
-              />
-              <button
-                onClick={() => setHasStarted(true)}
-                disabled={!userName.trim()}
-                className={`text-[10px] uppercase tracking-[0.3em] font-normal transition-all pb-1 border-b ${
-                  !userName.trim()
-                    ? 'text-[#a33726] opacity-30 border-transparent cursor-not-allowed'
-                    : 'text-[#a33726] border-[#a33726]/40 hover:border-[#ee5974] hover:text-[#ee5974]'
-                }`}
-              >
-                Begin Profile
-              </button>
-              <Link
-                to="/sign-in"
-                className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 hover:text-[#a33726] transition-colors mt-6"
-              >
-                Already have a profile? Sign in →
-              </Link>
-            </div>
+
+            <input
+              type="text"
+              value={userName}
+              onChange={(e) => setUserName(e.target.value)}
+              placeholder="Enter your name"
+              style={{
+                width: '100%',
+                fontSize: '1.15rem',
+                padding: '0 0 14px',
+                background: 'transparent',
+                border: 'none',
+                borderBottom: '1px solid rgba(154,41,24,0.3)',
+                borderRadius: 0,
+                outline: 'none',
+                color: '#9a2918',
+                fontFamily: 'inherit',
+                letterSpacing: '0.02em',
+                marginBottom: 'clamp(28px, 4vh, 40px)',
+              }}
+              className="placeholder-[#a33726]/40 focus:border-[#ee5974]"
+              onKeyDown={(e) => { if (e.key === 'Enter' && userName.trim()) setHasStarted(true); }}
+            />
+
+            <button
+              onClick={() => setHasStarted(true)}
+              disabled={!userName.trim()}
+              style={{
+                background: 'none',
+                border: 'none',
+                borderBottom: userName.trim() ? '1px solid rgba(154,41,24,0.4)' : '1px solid transparent',
+                padding: '0 0 3px',
+                cursor: userName.trim() ? 'pointer' : 'not-allowed',
+                fontFamily: 'inherit',
+                fontSize: '0.72rem',
+                letterSpacing: '0.28em',
+                textTransform: 'uppercase',
+                color: '#9a2918',
+                opacity: userName.trim() ? 1 : 0.3,
+                transition: 'opacity 0.2s, color 0.2s',
+                marginBottom: 'clamp(40px, 6vh, 60px)',
+              }}
+            >
+              Begin Profile
+            </button>
+
+            <a
+              href="/sign-in"
+              style={{
+                fontFamily: 'inherit',
+                fontSize: '0.68rem',
+                letterSpacing: '0.2em',
+                textTransform: 'uppercase',
+                color: '#9a2918',
+                opacity: 0.4,
+                textDecoration: 'none',
+                transition: 'opacity 0.2s',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.opacity = '0.8')}
+              onMouseLeave={e => (e.currentTarget.style.opacity = '0.4')}
+            >
+              Already have a profile? Sign in →
+            </a>
           </motion.div>
         </div>
       </div>
