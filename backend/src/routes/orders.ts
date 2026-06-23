@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 import { createOrder } from '../services/shopify.js';
+import { firestoreDb } from '../services/firebase-admin.js';
+import { getSommelierConfig } from '../services/sommelierConfig.js';
 
 const router = Router();
 
@@ -26,7 +28,41 @@ router.post('/', requireAuth, async (req: AuthRequest, res) => {
       [req.uid, shopifyResult.shopifyOrderId, 'pending', JSON.stringify(items), JSON.stringify(shippingAddress), totalCents]
     );
 
-    res.json({ orderId: result.rows[0].id, shopifyOrderId: shopifyResult.shopifyOrderId, orderName: shopifyResult.orderName });
+    const orderId = result.rows[0].id;
+    res.json({ orderId, shopifyOrderId: shopifyResult.shopifyOrderId, orderName: shopifyResult.orderName });
+
+    // Fire-and-forget: award order bonus tokens.
+    ;(async () => {
+      try {
+        const orderBonus = getSommelierConfig()?.tokenEconomy?.orderBonus ?? 10;
+        await db.query('BEGIN');
+        await db.query(
+          `UPDATE user_tokens
+           SET balance = balance + $2, lifetime_earned = lifetime_earned + $2, updated_at = NOW()
+           WHERE uid = $1`,
+          [req.uid, orderBonus]
+        );
+        await db.query(
+          `INSERT INTO token_events (uid, delta, reason, reference_id, balance_after)
+           SELECT $1, $2, 'order_bonus', $3, balance
+           FROM user_tokens WHERE uid = $1`,
+          [req.uid, orderBonus, String(orderId)]
+        );
+        await db.query('COMMIT');
+
+        // Sync balance to Firestore (fire-and-forget within fire-and-forget)
+        const tokenRow = await db.query(`SELECT balance FROM user_tokens WHERE uid = $1`, [req.uid]);
+        if (tokenRow.rows.length) {
+          firestoreDb.doc(`users/${req.uid}`).set(
+            { tokenBalance: tokenRow.rows[0].balance },
+            { merge: true }
+          ).catch(() => {});
+        }
+      } catch (err) {
+        await db.query('ROLLBACK').catch(() => {});
+        console.error('[orders/token-bonus]', err);
+      }
+    })();
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Order failed' });

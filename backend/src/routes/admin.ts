@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAdmin, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 import { generateAndStoreSummary, generateAndStoreAllContent } from './coffees.js';
+import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -697,6 +698,44 @@ router.delete('/dial/relationships/:id', async (req, res) => {
   } catch (err) {
     console.error('[admin/dial/relationships DELETE]', err);
     res.status(500).json({ error: 'Failed to delete relationship' });
+  }
+});
+
+// ── POST /api/admin/sommelier/recompute-centroids ─────────────────────────────
+// Reads all sommelier_evaluations documents across all users, groups by intent,
+// averages feature vectors component-by-component, and writes to config/sommelierCentroids.
+router.post('/sommelier/recompute-centroids', async (_req, res) => {
+  try {
+    const snap = await firestoreDb.collectionGroup('sommelier_evaluations').get();
+
+    const byIntent: Record<string, number[][]> = {};
+    const FEATURE_DIM = 13;
+
+    for (const doc of snap.docs) {
+      const data = doc.data();
+      const intent: string = data.intent;
+      const vector: number[] = data.featureVector;
+      if (!intent || !Array.isArray(vector) || vector.length !== FEATURE_DIM) continue;
+      (byIntent[intent] ??= []).push(vector);
+    }
+
+    const centroids: Record<string, unknown> = {};
+    for (const [intent, vectors] of Object.entries(byIntent)) {
+      const centroid = new Array(FEATURE_DIM).fill(0);
+      for (const v of vectors) {
+        for (let i = 0; i < FEATURE_DIM; i++) centroid[i] += v[i];
+      }
+      for (let i = 0; i < FEATURE_DIM; i++) centroid[i] /= vectors.length;
+      centroids[intent] = { centroid, sampleCount: vectors.length, updatedAt: FieldValue.serverTimestamp() };
+    }
+
+    centroids['computedAt'] = FieldValue.serverTimestamp();
+    await firestoreDb.doc('config/sommelierCentroids').set(centroids, { merge: true });
+
+    res.json({ ok: true, intentCounts: Object.fromEntries(Object.entries(byIntent).map(([k, v]) => [k, v.length])) });
+  } catch (err) {
+    console.error('[admin/sommelier/recompute-centroids]', err);
+    res.status(500).json({ error: 'Failed to recompute centroids' });
   }
 });
 

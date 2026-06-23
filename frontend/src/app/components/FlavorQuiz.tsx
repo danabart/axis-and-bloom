@@ -48,8 +48,10 @@ interface ScoreResult {
   experimental: boolean;
   secondaryArchetype: string | null;
   foodSignal: string | null;
-  confidence: string;
+  foodSignalAlignment: string;
   recommendationMode: string;
+  tieDetected: boolean;
+  tiedArchetypes: string[];
 }
 
 interface BranchAnswer {

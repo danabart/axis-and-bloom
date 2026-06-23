@@ -1,0 +1,249 @@
+
+<style>
+  body { font-size: 13px; }
+  .tabs { display: flex; gap: 6px; margin: 0 0 16px; flex-wrap: wrap; }
+  .tab { padding: 6px 14px; border-radius: 20px; border: 0.5px solid var(--color-border-secondary); cursor: pointer; font-size: 12px; font-weight: 500; color: var(--color-text-secondary); background: transparent; transition: all .15s; }
+  .tab.active { background: var(--color-background-secondary); color: var(--color-text-primary); border-color: var(--color-border-primary); }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th { text-align: left; padding: 8px 10px; border-bottom: 1.5px solid var(--color-border-secondary); font-weight: 500; color: var(--color-text-secondary); font-size: 11px; white-space: nowrap; }
+  td { padding: 9px 10px; border-bottom: 0.5px solid var(--color-border-tertiary); vertical-align: top; line-height: 1.5; }
+  tr:last-child td { border-bottom: none; }
+  .dim { font-weight: 500; color: var(--color-text-primary); }
+  .rationale { font-size: 11.5px; color: var(--color-text-secondary); margin-top: 3px; }
+  .choc  { background: #FAEEDA; color: #854F0B; padding: 2px 7px; border-radius: 12px; font-weight: 500; white-space: nowrap; display:inline-block; }
+  .bal   { background: #EAF3DE; color: #3B6D11; padding: 2px 7px; border-radius: 12px; font-weight: 500; white-space: nowrap; display:inline-block; }
+  .fruit { background: #E6F1FB; color: #185FA5; padding: 2px 7px; border-radius: 12px; font-weight: 500; white-space: nowrap; display:inline-block; }
+  .floral { background: #EEEDFE; color: #534AB7; padding: 2px 7px; border-radius: 12px; font-weight: 500; white-space: nowrap; display:inline-block; }
+  .earthy { background: #FCEBEB; color: #A32D2D; padding: 2px 7px; border-radius: 12px; font-weight: 500; white-space: nowrap; display:inline-block; }
+  .old { color: var(--color-text-tertiary); text-decoration: line-through; font-size: 11px; margin-left:4px; }
+  .changed { background: var(--color-background-warning); border-radius: 4px; padding: 0 4px; }
+  .unchanged { color: var(--color-text-secondary); }
+  .flag-ok { font-size: 10px; background: var(--color-background-success); color: var(--color-text-success); padding: 1px 6px; border-radius: 10px; font-weight: 500; }
+  .flag-ch { font-size: 10px; background: var(--color-background-warning); color: var(--color-text-warning); padding: 1px 6px; border-radius: 10px; font-weight: 500; }
+  .section-note { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 10px 14px; margin: 0 0 14px; font-size: 12px; line-height: 1.6; color: var(--color-text-secondary); }
+  .legend { display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 14px; }
+  .legend span { font-size: 11px; display: flex; align-items: center; gap: 5px; }
+  .bar-wrap { display:flex; align-items:center; gap:6px; margin-top:4px; }
+  .bar-bg { flex:1; height:6px; background: var(--color-border-tertiary); border-radius:3px; position:relative; }
+  .bar-fill { height:6px; border-radius:3px; position:absolute; }
+</style>
+
+<div style="padding: 4px 0 20px;">
+
+<div class="tabs">
+  <button class="tab active" onclick="show('compare')">Old vs New</button>
+  <button class="tab" onclick="show('all5')">All 5 archetypes</button>
+  <button class="tab" onclick="show('logic')">Rationale</button>
+</div>
+
+<!-- PANEL 1: Old vs New (your 3 launch archetypes) -->
+<div id="compare" class="panel active">
+  <div class="section-note">Changes highlighted. Ranges that stayed the same are shown in gray. Your 3 launch archetypes only.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:140px">Dimension</th>
+        <th>Chocolate & Nutty</th>
+        <th>Balanced & Sweet</th>
+        <th>Fruity / Floral</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><div class="dim">Sweetness</div><div class="rationale">0–15, low→high</div></td>
+        <td><span class="choc changed">8–11</span><span class="old">7–9</span></td>
+        <td><span class="bal unchanged">9–11</span> <span class="flag-ok">same</span></td>
+        <td><span class="fruit changed">5–7</span><span class="old">7–9</span></td>
+      </tr>
+      <tr>
+        <td><div class="dim">Acidity</div><div class="rationale">0–15, low→high</div></td>
+        <td><span class="choc unchanged">3–5</span> <span class="flag-ok">same</span></td>
+        <td><span class="bal unchanged">6–8</span> <span class="flag-ok">same</span></td>
+        <td><span class="fruit unchanged">12–14</span> <span class="flag-ok">same</span></td>
+      </tr>
+      <tr>
+        <td><div class="dim">Bitterness</div><div class="rationale">0–15, low→high</div></td>
+        <td><span class="choc unchanged">9–11</span> <span class="flag-ok">same</span></td>
+        <td><span class="bal changed">4–6</span><span class="old">6–8</span></td>
+        <td><span class="fruit changed">2–4</span><span class="old">5–7</span></td>
+      </tr>
+      <tr>
+        <td><div class="dim">Body (Weight)</div><div class="rationale">0–15, light→heavy</div></td>
+        <td><span class="choc unchanged">10–13</span> <span class="flag-ok">same</span></td>
+        <td><span class="bal unchanged">7–9</span> <span class="flag-ok">same</span></td>
+        <td><span class="fruit unchanged">5–7</span> <span class="flag-ok">same</span></td>
+      </tr>
+      <tr>
+        <td><div class="dim">Texture</div><div class="rationale">0–15, smooth→dry</div></td>
+        <td><span class="choc changed">4–7</span><span class="old">3–5</span></td>
+        <td><span class="bal unchanged">2–4</span> <span class="flag-ok">same</span></td>
+        <td><span class="fruit changed">1–3</span><span class="old">3–5</span></td>
+      </tr>
+      <tr>
+        <td><div class="dim">Savory / Depth</div><div class="rationale">0–15, clean→deep</div></td>
+        <td><span class="choc changed">8–11</span><span class="old">7–9</span></td>
+        <td><span class="bal changed">5–7</span><span class="old">4–6</span></td>
+        <td><span class="fruit changed">2–4</span><span class="old">3–5</span></td>
+      </tr>
+      <tr>
+        <td><div class="dim">Finish Length</div><div class="rationale">0–15, short→long</div></td>
+        <td><span class="choc unchanged">9–11</span> <span class="flag-ok">same</span></td>
+        <td><span class="bal unchanged">6–8</span> <span class="flag-ok">same</span></td>
+        <td><span class="fruit changed">3–5</span><span class="old">7–9</span></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- PANEL 2: All 5 archetypes -->
+<div id="all5" class="panel">
+  <div class="section-note">Full 5-archetype table with revised ranges. Spicy & Earthy and Floral ranges kept close to original where they were well-calibrated, adjusted where needed for consistency.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:130px">Dimension</th>
+        <th>Choc & Nutty</th>
+        <th>Balanced & Sweet</th>
+        <th>Spicy & Earthy</th>
+        <th>Floral</th>
+        <th>Fruity</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><div class="dim">Sweetness</div></td>
+        <td><span class="choc">8–11</span></td>
+        <td><span class="bal">9–11</span></td>
+        <td><span class="earthy">4–6</span></td>
+        <td><span class="floral">6–8</span></td>
+        <td><span class="fruit">5–7</span></td>
+      </tr>
+      <tr>
+        <td><div class="dim">Acidity</div></td>
+        <td><span class="choc">3–5</span></td>
+        <td><span class="bal">6–8</span></td>
+        <td><span class="earthy">3–5</span></td>
+        <td><span class="floral">10–12</span></td>
+        <td><span class="fruit">12–14</span></td>
+      </tr>
+      <tr>
+        <td><div class="dim">Bitterness</div></td>
+        <td><span class="choc">9–11</span></td>
+        <td><span class="bal">4–6</span></td>
+        <td><span class="earthy">8–10</span></td>
+        <td><span class="floral">2–4</span></td>
+        <td><span class="fruit">2–4</span></td>
+      </tr>
+      <tr>
+        <td><div class="dim">Body (Weight)</div></td>
+        <td><span class="choc">10–13</span></td>
+        <td><span class="bal">7–9</span></td>
+        <td><span class="earthy">12–14</span></td>
+        <td><span class="floral">4–6</span></td>
+        <td><span class="fruit">5–7</span></td>
+      </tr>
+      <tr>
+        <td><div class="dim">Texture</div></td>
+        <td><span class="choc">4–7</span></td>
+        <td><span class="bal">2–4</span></td>
+        <td><span class="earthy">9–11</span></td>
+        <td><span class="floral">2–4</span></td>
+        <td><span class="fruit">1–3</span></td>
+      </tr>
+      <tr>
+        <td><div class="dim">Savory / Depth</div></td>
+        <td><span class="choc">8–11</span></td>
+        <td><span class="bal">5–7</span></td>
+        <td><span class="earthy">12–14</span></td>
+        <td><span class="floral">3–5</span></td>
+        <td><span class="fruit">2–4</span></td>
+      </tr>
+      <tr>
+        <td><div class="dim">Finish Length</div></td>
+        <td><span class="choc">9–11</span></td>
+        <td><span class="bal">6–8</span></td>
+        <td><span class="earthy">12–14</span></td>
+        <td><span class="floral">3–5</span></td>
+        <td><span class="fruit">3–5</span></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- PANEL 3: Rationale -->
+<div id="logic" class="panel">
+  <table>
+    <thead>
+      <tr>
+        <th style="width:130px">Dimension</th>
+        <th>What changed & why</th>
+        <th style="width:90px">Key separator?</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="dim">Sweetness</td>
+        <td>
+          <b>Chocolate bumped up (8→11).</b> Dark chocolate + nutty profiles have real perceived sweetness from development — caramel, toffee, cocoa. Giving it 8–11 lets it share the top sweetness band with Balanced but for a different reason (roast development vs. intrinsic caramel).
+          <div class="rationale">Fruity dropped (7→5–7) — acidity reads as brightness, not sweetness. Spicy & Earthy dropped to 4–6, it's the savory/dry end of the spectrum.</div>
+        </td>
+        <td><span class="flag-ok">Medium</span> — overlaps intentionally between Choc & Balanced</td>
+      </tr>
+      <tr>
+        <td class="dim">Acidity</td>
+        <td>
+          <b>No changes to the core three — already well calibrated.</b> Floral stays at 10–12 (just below Fruity), which correctly reflects that floral coffees are bright but slightly gentler than washed Ethiopian naturals.
+        </td>
+        <td><span class="flag-ok">★ Best separator</span> — clear gradient across all 5</td>
+      </tr>
+      <tr>
+        <td class="dim">Bitterness</td>
+        <td>
+          <b>Balanced dropped to 4–6</b> (from 6–8) — the "sweet & smooth" drinker actively avoids bitterness. <b>Fruity dropped to 2–4</b> (from 5–7) — fruity/floral drinkers are the most bitterness-averse of all. Floral also moved to 2–4 to match.
+        </td>
+        <td><span class="flag-ok">Strong separator</span> — Choc/Earthy vs. Floral/Fruity are now clearly opposite ends</td>
+      </tr>
+      <tr>
+        <td class="dim">Body</td>
+        <td>
+          <b>No changes.</b> Already the cleanest dimension. Spicy & Earthy stays heaviest (12–14), then Chocolate, then Balanced, then Floral/Fruity lightest. This correctly reflects French press vs. pour-over drinkers.
+        </td>
+        <td><span class="flag-ok">★ Best separator</span> — no overlap between any pair</td>
+      </tr>
+      <tr>
+        <td class="dim">Texture</td>
+        <td>
+          <b>Fruity moved to 1–3</b> (from 3–5) — cleanest mouthfeel of all archetypes, almost water-like. <b>Chocolate moved to 4–7</b> — silky but with some structure from oils and roast. Floral stays at 2–4 (clean/silky). Spicy & Earthy stays at 9–11 (dry/structured). <b>This dimension now has full separation.</b>
+        </td>
+        <td><span class="flag-ch">Improved</span> — was flat before, now clearly differentiated</td>
+      </tr>
+      <tr>
+        <td class="dim">Savory / Depth</td>
+        <td>
+          <b>Slight upward shift across the board for Chocolate (7→8–11) and Balanced (4→5–7)</b> to give more breathing room. Fruity drops to 2–4 — these coffees are transparent, not complex. Floral stays at 3–5, slightly above Fruity because floral aromatics add perceived complexity.
+        </td>
+        <td><span class="flag-ok">Strong separator</span> — Earthy at 12–14 is an extreme anchor</td>
+      </tr>
+      <tr>
+        <td class="dim">Finish Length</td>
+        <td>
+          <b>Biggest change: Fruity dropped from 7–9 to 3–5.</b> Washed/fruity coffees have a bright snap finish that disappears quickly — that's a defining characteristic. Floral also moves to 3–5 (delicate, fades fast). Spicy & Earthy keeps the longest finish at 12–14 — the aftertaste is part of what people love about that profile.
+        </td>
+        <td><span class="flag-ch">Improved</span> — Fruity was overlapping with Balanced before, now clearly separated</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+</div>
+
+<script>
+function show(id) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>

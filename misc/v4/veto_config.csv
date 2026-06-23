@@ -1,0 +1,5 @@
+quiz_id,priority,q_number,notes
+18e1bb9b-66b6-40a3-92b2-8f8e216c0655,1,6,First tiebreaker — highest weight most reliable
+18e1bb9b-66b6-40a3-92b2-8f8e216c0655,2,5,Second tiebreaker — strong negative signal
+18e1bb9b-66b6-40a3-92b2-8f8e216c0655,3,3,Third tiebreaker — reflective but weighted
+18e1bb9b-66b6-40a3-92b2-8f8e216c0655,4,1,Last resort — most rationalizable

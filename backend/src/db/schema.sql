@@ -205,6 +205,28 @@ CREATE TABLE IF NOT EXISTS user_payment_detail (
 );
 
 -- ─────────────────────────────────────────────
+-- TOKEN ECONOMY
+-- ─────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS user_tokens (
+  uid             TEXT PRIMARY KEY REFERENCES user_profile(firebase_uid) ON DELETE CASCADE,
+  balance         INT NOT NULL DEFAULT 0,
+  lifetime_earned INT NOT NULL DEFAULT 0,
+  lifetime_spent  INT NOT NULL DEFAULT 0,
+  updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS token_events (
+  id           SERIAL PRIMARY KEY,
+  uid          TEXT NOT NULL,
+  delta        INT NOT NULL,
+  reason       TEXT NOT NULL,   -- 'signup_bonus' | 'order_bonus' | 'sommelier_turn' | 'purchase' | 'admin_grant'
+  reference_id TEXT,            -- order ID, session ID, etc. — audit trail
+  balance_after INT NOT NULL,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ─────────────────────────────────────────────
 -- FLAVOR / ARCHETYPE SYSTEM
 -- ─────────────────────────────────────────────
 
@@ -594,6 +616,31 @@ CREATE TABLE IF NOT EXISTS chat_message (
   content    TEXT NOT NULL,
   context    JSONB,
   created_at TIMESTAMPTZ DEFAULT timezone('utc', now())
+);
+
+-- ─────────────────────────────────────────────
+-- SOMMELIER
+-- ─────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS sommelier_sessions (
+  id             SERIAL PRIMARY KEY,
+  uid            TEXT NOT NULL,
+  intent         TEXT NOT NULL,
+  started_at     TIMESTAMPTZ DEFAULT NOW(),
+  last_active_at TIMESTAMPTZ DEFAULT NOW(),
+  turn_count     INT DEFAULT 0,
+  is_closed      BOOLEAN DEFAULT FALSE,
+  close_reason   TEXT,
+  context_data   JSONB   -- { intent, archetype, tiedArchetypes, openingContext, ragFocus, coffeeIds, catalogText, evaluationId }
+);
+
+CREATE TABLE IF NOT EXISTS sommelier_messages (
+  id         SERIAL PRIMARY KEY,
+  session_id INT NOT NULL REFERENCES sommelier_sessions(id) ON DELETE CASCADE,
+  role       TEXT NOT NULL,
+  content    TEXT NOT NULL,
+  model_used TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Where did this subscriber come from?

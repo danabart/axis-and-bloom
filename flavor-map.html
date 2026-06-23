@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Axis &amp; Bloom — Flavor Archetype Map</title>
+<style>
+  body {
+    margin: 0;
+    background: #1A0F08;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    min-height: 100vh;
+    padding: 32px 16px;
+  }
+  svg {
+    width: 100%;
+    max-width: 1240px;
+    height: auto;
+    display: block;
+    filter: drop-shadow(0 16px 48px rgba(0,0,0,0.6));
+  }
+</style>
+</head>
+<body>
+<svg viewBox="0 0 1200 840" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,400&amp;family=EB+Garamond:ital,wght@0,400;0,500;1,400&amp;display=swap');
+  </style>
+
+  <!-- Parchment noise -->
+  <filter id="parchment">
+    <feTurbulence type="fractalNoise" baseFrequency="0.75" numOctaves="4" seed="3" result="noise"/>
+    <feColorMatrix type="matrix" values="0 0 0 0 0.75  0 0 0 0 0.62  0 0 0 0 0.42  0 0 0 0.18 0" in="noise" result="tint"/>
+    <feBlend in="SourceGraphic" in2="tint" mode="multiply"/>
+  </filter>
+
+  <!-- Region texture -->
+  <filter id="tex">
+    <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" seed="8" result="n"/>
+    <feColorMatrix type="saturate" values="0" in="n" result="g"/>
+    <feBlend in="SourceGraphic" in2="g" mode="multiply"/>
+  </filter>
+
+  <!-- Hatch for SE region -->
+  <pattern id="hatch-se" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(42)">
+    <line x1="0" y1="0" x2="0" y2="7" stroke="#4A2C10" stroke-width="0.7" opacity="0.18"/>
+  </pattern>
+
+  <!-- Dot pattern for Experimental -->
+  <pattern id="exp-dot" width="9" height="9" patternUnits="userSpaceOnUse">
+    <circle cx="3" cy="3" r="1.1" fill="#3A1A5A" opacity="0.22"/>
+  </pattern>
+
+  <!-- Cross-hatch for CN -->
+  <pattern id="hatch-cn" width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(30)">
+    <line x1="0" y1="0" x2="0" y2="9" stroke="#5C3A18" stroke-width="0.5" opacity="0.14"/>
+  </pattern>
+
+  <!-- Stipple for Floral -->
+  <pattern id="floral-dot" width="8" height="8" patternUnits="userSpaceOnUse">
+    <circle cx="4" cy="4" r="0.8" fill="#5A3A8A" opacity="0.15"/>
+  </pattern>
+
+  <!-- Axis gradient -->
+  <linearGradient id="axis-grad" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0%" stop-color="#5C2E0C"/>
+    <stop offset="40%" stop-color="#B87C38"/>
+    <stop offset="65%" stop-color="#C45A40"/>
+    <stop offset="85%" stop-color="#8A62B8"/>
+    <stop offset="100%" stop-color="#5A38A0"/>
+  </linearGradient>
+
+  <!-- Drop shadow for text -->
+  <filter id="text-shadow" x="-5%" y="-5%" width="110%" height="110%">
+    <feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-color="#3A1A08" flood-opacity="0.25"/>
+  </filter>
+
+  <!-- Clip for map area -->
+  <clipPath id="map-clip">
+    <rect x="58" y="78" width="1084" height="616"/>
+  </clipPath>
+</defs>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- BACKGROUND                                       -->
+<!-- ═══════════════════════════════════════════════ -->
+<rect width="1200" height="840" fill="#EDE1C2"/>
+<rect width="1200" height="840" filter="url(#parchment)" fill="#EDE1C2" opacity="0.6"/>
+
+<!-- Outer double border -->
+<rect x="14" y="14" width="1172" height="812" fill="none" stroke="#8B6438" stroke-width="2.5"/>
+<rect x="20" y="20" width="1160" height="800" fill="none" stroke="#8B6438" stroke-width="0.8"/>
+
+<!-- Corner ornaments -->
+<g fill="#8B6438">
+  <text x="24" y="42" font-size="18" font-family="Georgia">✦</text>
+  <text x="1162" y="42" font-size="18" font-family="Georgia" text-anchor="end">✦</text>
+  <text x="24" y="808" font-size="18" font-family="Georgia">✦</text>
+  <text x="1162" y="808" font-size="18" font-family="Georgia" text-anchor="end">✦</text>
+</g>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- TITLE                                            -->
+<!-- ═══════════════════════════════════════════════ -->
+<text x="600" y="46" text-anchor="middle" font-family="'Playfair Display', Georgia, serif" font-size="11" font-weight="500" fill="#7A5230" letter-spacing="5">AXIS &amp; BLOOM</text>
+<text x="600" y="64" text-anchor="middle" font-family="'Playfair Display', Georgia, serif" font-size="19" font-weight="700" fill="#2C1608" letter-spacing="2">The Flavor Archetype Map</text>
+<line x1="350" y1="72" x2="850" y2="72" stroke="#8B6438" stroke-width="0.8"/>
+<line x1="400" y1="75" x2="800" y2="75" stroke="#8B6438" stroke-width="0.4"/>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- REGION PATHS                                     -->
+<!-- ═══════════════════════════════════════════════ -->
+
+<!-- Spicy & Earthy  (#B8906A — warm deep earth) -->
+<path d="M 58,78 L 255,78 C 268,230 244,430 252,694 L 58,694 Z"
+      fill="#BA9068" stroke="#6A3E1C" stroke-width="1.8" filter="url(#tex)"/>
+<path d="M 58,78 L 255,78 C 268,230 244,430 252,694 L 58,694 Z"
+      fill="url(#hatch-se)"/>
+
+<!-- Chocolate &amp; Nutty  (#CFA876) -->
+<path d="M 255,78 L 452,78 C 466,230 440,430 448,694 L 252,694 C 244,430 268,230 255,78 Z"
+      fill="#CEAA76" stroke="#6A3E1C" stroke-width="1.8" filter="url(#tex)"/>
+<path d="M 255,78 L 452,78 C 466,230 440,430 448,694 L 252,694 C 244,430 268,230 255,78 Z"
+      fill="url(#hatch-cn)"/>
+
+<!-- Balanced &amp; Sweet  (#E8CB82) -->
+<path d="M 452,78 L 638,78 C 650,195 628,335 634,462 L 634,694 L 448,694 C 440,430 466,230 452,78 Z"
+      fill="#E8CB82" stroke="#6A3E1C" stroke-width="1.8" filter="url(#tex)"/>
+
+<!-- Fruity  (#D07862) — terracotta -->
+<path d="M 638,78 L 840,78 C 852,190 830,355 840,460 C 782,469 714,452 634,462 C 628,335 650,195 638,78 Z"
+      fill="#CE7860" stroke="#6A3E1C" stroke-width="1.8" filter="url(#tex)"/>
+
+<!-- Floral  (#C4AADC) — lavender -->
+<path d="M 840,78 L 1142,78 L 1142,460 C 1052,470 952,453 840,460 C 830,355 852,190 840,78 Z"
+      fill="#C4AADC" stroke="#6A3E1C" stroke-width="1.8" filter="url(#tex)"/>
+<path d="M 840,78 L 1142,78 L 1142,460 C 1052,470 952,453 840,460 C 830,355 852,190 840,78 Z"
+      fill="url(#floral-dot)"/>
+
+<!-- Experimental  (#9870C2) — deep violet -->
+<path d="M 634,462 C 714,452 782,469 840,460 C 952,453 1052,470 1142,460 L 1142,694 L 634,694 Z"
+      fill="#9468BE" stroke="#6A3E1C" stroke-width="1.8" filter="url(#tex)"/>
+<path d="M 634,462 C 714,452 782,469 840,460 C 952,453 1052,470 1142,460 L 1142,694 L 634,694 Z"
+      fill="url(#exp-dot)"/>
+
+<!-- Map outer frame on top of regions -->
+<rect x="58" y="78" width="1084" height="616" fill="none" stroke="#5A3010" stroke-width="2.2"/>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- ADJACENCY MARKERS (dots at shared borders)       -->
+<!-- ═══════════════════════════════════════════════ -->
+<!-- SE ↔ CN border marker -->
+<circle cx="253" cy="386" r="4" fill="#3C1C08" opacity="0.5"/>
+<circle cx="253" cy="386" r="2" fill="#F0E4C4"/>
+<!-- CN ↔ BS border marker -->
+<circle cx="449" cy="386" r="4" fill="#3C1C08" opacity="0.5"/>
+<circle cx="449" cy="386" r="2" fill="#F0E4C4"/>
+<!-- BS ↔ Fruity border marker -->
+<circle cx="634" cy="270" r="4" fill="#3C1C08" opacity="0.5"/>
+<circle cx="634" cy="270" r="2" fill="#F0E4C4"/>
+<!-- Fruity ↔ Floral border marker -->
+<circle cx="840" cy="270" r="4" fill="#3C1C08" opacity="0.5"/>
+<circle cx="840" cy="270" r="2" fill="#F0E4C4"/>
+<!-- Fruity ↔ Experimental border marker -->
+<circle cx="720" cy="460" r="4" fill="#3C1C08" opacity="0.5"/>
+<circle cx="720" cy="460" r="2" fill="#F0E4C4"/>
+<!-- Floral ↔ Experimental border marker -->
+<circle cx="980" cy="458" r="4" fill="#3C1C08" opacity="0.5"/>
+<circle cx="980" cy="458" r="2" fill="#F0E4C4"/>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- SPICY & EARTHY  labels + descriptors            -->
+<!-- ═══════════════════════════════════════════════ -->
+<!-- "pole" indicator -->
+<text x="157" y="100" text-anchor="middle" font-family="'EB Garamond', Georgia, serif" font-style="italic" font-size="9.5" fill="#4A2810" letter-spacing="1" opacity="0.7">— POLE —</text>
+
+<!-- Archetype name (split for narrow column) -->
+<text x="157" y="292" text-anchor="middle" font-family="'Playfair Display', Georgia, serif" font-weight="700" font-size="18" fill="#2C1208" filter="url(#text-shadow)">Spicy</text>
+<text x="157" y="313" text-anchor="middle" font-family="'Playfair Display', Georgia, serif" font-weight="700" font-size="18" fill="#2C1208">&amp; Earthy</text>
+<text x="157" y="332" text-anchor="middle" font-family="'EB Garamond', Georgia, serif" font-style="italic" font-size="12" fill="#4A2810">Deep, grounding &amp; complex.</text>
+
+<!-- Descriptors -->
+<text transform="translate(90,148) rotate(-7)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#3C2010" opacity="0.75">cinnamon</text>
+<text transform="translate(158,188) rotate(5)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#3C2010" opacity="0.7">tobacco</text>
+<text transform="translate(80,230) rotate(-4)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#3C2010" opacity="0.75">cedar</text>
+<text transform="translate(140,258) rotate(6)" font-family="'EB Garamond', Georgia, serif" font-size="9.5" fill="#3C2010" opacity="0.65">dark wood</text>
+<!-- below name area -->
+<text transform="translate(82,380) rotate(-5)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#3C2010" opacity="0.75">leather</text>
+<text transform="translate(148,430) rotate(7)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#3C2010" opacity="0.7">black pepper</text>
+<text transform="translate(80,490) rotate(-3)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#3C2010" opacity="0.75">molasses</text>
+<text transform="translate(152,548) rotate(5)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#3C2010" opacity="0.65">old tobacco</text>
+<text transform="translate(82,600) rotate(-6)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#3C2010" opacity="0.6">spiced oak</text>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- CHOCOLATE & NUTTY  labels                       -->
+<!-- ═══════════════════════════════════════════════ -->
+<!-- Quiz-active star -->
+<text x="354" y="100" text-anchor="middle" font-family="Georgia, serif" font-size="10" fill="#2C1208" opacity="0.6">★</text>
+
+<text x="354" y="298" text-anchor="middle" font-family="'Playfair Display', Georgia, serif" font-weight="700" font-size="17.5" fill="#2C1208" filter="url(#text-shadow)">Chocolate</text>
+<text x="354" y="318" text-anchor="middle" font-family="'Playfair Display', Georgia, serif" font-weight="700" font-size="17.5" fill="#2C1208">&amp; Nutty</text>
+<text x="354" y="337" text-anchor="middle" font-family="'EB Garamond', Georgia, serif" font-style="italic" font-size="12" fill="#4A2C12">Rich, bold, and comforting.</text>
+
+<!-- Descriptors -->
+<text transform="translate(272,138) rotate(-6)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#3C2210" opacity="0.75">dark chocolate</text>
+<text transform="translate(380,168) rotate(5)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#3C2210" opacity="0.7">cocoa nibs</text>
+<text transform="translate(265,210) rotate(-4)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#3C2210" opacity="0.75">hazelnut</text>
+<text transform="translate(368,248) rotate(6)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#3C2210" opacity="0.65">brown sugar</text>
+<text transform="translate(268,365) rotate(-5)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#3C2210" opacity="0.7">roasted almond</text>
+<text transform="translate(372,418) rotate(7)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#3C2210" opacity="0.75">walnut</text>
+<text transform="translate(268,478) rotate(-3)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#3C2210" opacity="0.7">cedar</text>
+<text transform="translate(362,538) rotate(5)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#3C2210" opacity="0.65">bittersweet</text>
+<text transform="translate(270,598) rotate(-5)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#3C2210" opacity="0.6">praline</text>
+<text transform="translate(372,650) rotate(4)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#3C2210" opacity="0.6">roasted</text>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- BALANCED & SWEET  labels                        -->
+<!-- ═══════════════════════════════════════════════ -->
+<text x="543" y="100" text-anchor="middle" font-family="Georgia, serif" font-size="10" fill="#2C1208" opacity="0.6">★</text>
+
+<text x="543" y="288" text-anchor="middle" font-family="'Playfair Display', Georgia, serif" font-weight="700" font-size="17.5" fill="#2C1208" filter="url(#text-shadow)">Balanced</text>
+<text x="543" y="308" text-anchor="middle" font-family="'Playfair Display', Georgia, serif" font-weight="700" font-size="17.5" fill="#2C1208">&amp; Sweet</text>
+<text x="543" y="327" text-anchor="middle" font-family="'EB Garamond', Georgia, serif" font-style="italic" font-size="12" fill="#5A3C18">Smooth, round, approachable.</text>
+<text x="543" y="343" text-anchor="middle" font-family="'EB Garamond', Georgia, serif" font-style="italic" font-size="10" fill="#7A5C30" opacity="0.8">Default fallback.</text>
+
+<!-- Descriptors -->
+<text transform="translate(467,138) rotate(-5)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#4A3018" opacity="0.75">caramel</text>
+<text transform="translate(568,162) rotate(6)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#4A3018" opacity="0.75">honey</text>
+<text transform="translate(462,205) rotate(-4)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#4A3018" opacity="0.7">milk chocolate</text>
+<text transform="translate(565,232) rotate(5)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#4A3018" opacity="0.65">red apple</text>
+<text transform="translate(464,372) rotate(-5)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#4A3018" opacity="0.7">brown sugar</text>
+<text transform="translate(568,418) rotate(6)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#4A3018" opacity="0.75">peanut</text>
+<text transform="translate(464,478) rotate(-3)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#4A3018" opacity="0.7">pecan</text>
+<text transform="translate(560,528) rotate(5)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#4A3018" opacity="0.65">toffee</text>
+<text transform="translate(466,590) rotate(-5)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#4A3018" opacity="0.6">butterscotch</text>
+<text transform="translate(558,638) rotate(4)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#4A3018" opacity="0.6">nougat</text>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- FRUITY  labels                                  -->
+<!-- ═══════════════════════════════════════════════ -->
+<text x="738" y="100" text-anchor="middle" font-family="Georgia, serif" font-size="10" fill="#2C1208" opacity="0.6">★</text>
+
+<text x="738" y="210" text-anchor="middle" font-family="'Playfair Display', Georgia, serif" font-weight="700" font-size="22" fill="#2C1208" filter="url(#text-shadow)">Fruity</text>
+<text x="738" y="232" text-anchor="middle" font-family="'EB Garamond', Georgia, serif" font-style="italic" font-size="12" fill="#4A2018">Vibrant, juicy, and layered.</text>
+
+<!-- Descriptors -->
+<text transform="translate(652,138) rotate(-6)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#3C1C10" opacity="0.75">blueberry</text>
+<text transform="translate(768,155) rotate(5)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#3C1C10" opacity="0.75">peach</text>
+<text transform="translate(648,165) rotate(-3)" font-family="'EB Garamond', Georgia, serif" font-size="9.5" fill="#3C1C10" opacity="0.65">hibiscus</text>
+<text transform="translate(762,188) rotate(6)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#3C1C10" opacity="0.65">tropical fruit</text>
+<text transform="translate(648,272) rotate(-5)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#3C1C10" opacity="0.75">strawberry</text>
+<text transform="translate(766,295) rotate(5)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#3C1C10" opacity="0.65">stone fruit</text>
+<text transform="translate(650,338) rotate(-4)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#3C1C10" opacity="0.7">watermelon</text>
+<text transform="translate(763,370) rotate(6)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#3C1C10" opacity="0.65">cherry</text>
+<text transform="translate(652,408) rotate(-5)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#3C1C10" opacity="0.6">lychee</text>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- FLORAL  labels                                  -->
+<!-- ═══════════════════════════════════════════════ -->
+<!-- pole indicator -->
+<text x="991" y="100" text-anchor="middle" font-family="'EB Garamond', Georgia, serif" font-style="italic" font-size="9.5" fill="#4A2850" letter-spacing="1" opacity="0.7">— POLE —</text>
+
+<text x="991" y="212" text-anchor="middle" font-family="'Playfair Display', Georgia, serif" font-weight="700" font-size="22" fill="#2C1040" filter="url(#text-shadow)">Floral</text>
+<text x="991" y="234" text-anchor="middle" font-family="'EB Garamond', Georgia, serif" font-style="italic" font-size="12" fill="#4A2C60">Delicate, aromatic, tea-like.</text>
+
+<!-- Descriptors -->
+<text transform="translate(858,138) rotate(-5)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#3A2050" opacity="0.75">jasmine</text>
+<text transform="translate(1062,148) rotate(5)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#3A2050" opacity="0.75">bergamot</text>
+<text transform="translate(920,162) rotate(-3)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#3A2050" opacity="0.65">orange blossom</text>
+<text transform="translate(856,178) rotate(4)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#3A2050" opacity="0.7">tea-like</text>
+<text transform="translate(1068,188) rotate(-4)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#3A2050" opacity="0.65">chamomile</text>
+<text transform="translate(858,278) rotate(-5)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#3A2050" opacity="0.75">rose</text>
+<text transform="translate(1062,295) rotate(5)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#3A2050" opacity="0.7">lavender</text>
+<text transform="translate(920,315) rotate(-4)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#3A2050" opacity="0.65">elderflower</text>
+<text transform="translate(858,352) rotate(5)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#3A2050" opacity="0.7">violet</text>
+<text transform="translate(1062,368) rotate(-5)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#3A2050" opacity="0.65">lemon verbena</text>
+<text transform="translate(920,400) rotate(4)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#3A2050" opacity="0.6">neroli</text>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- EXPERIMENTAL  labels                            -->
+<!-- ═══════════════════════════════════════════════ -->
+<text x="888" y="505" text-anchor="middle" font-family="'Playfair Display', Georgia, serif" font-weight="700" font-size="22" fill="#F0E4C4" filter="url(#text-shadow)">Experimental</text>
+<text x="888" y="526" text-anchor="middle" font-family="'EB Garamond', Georgia, serif" font-style="italic" font-size="12" fill="#DDD0F0">Wild, unexpected, boundary-pushing.</text>
+<text x="888" y="543" text-anchor="middle" font-family="'EB Garamond', Georgia, serif" font-style="italic" font-size="10" fill="#C8B8E8" opacity="0.85">Defined by processing.</text>
+
+<!-- Descriptors (lighter text on dark bg) -->
+<text transform="translate(656,490) rotate(-5)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#EEE0FF" opacity="0.8">tropical fruit</text>
+<text transform="translate(990,488) rotate(5)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#EEE0FF" opacity="0.8">wine-like</text>
+<text transform="translate(660,570) rotate(-4)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#EEE0FF" opacity="0.8">fermented</text>
+<text transform="translate(780,580) rotate(5)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#EEE0FF" opacity="0.75">mango</text>
+<text transform="translate(998,572) rotate(-4)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#EEE0FF" opacity="0.75">kombucha</text>
+<text transform="translate(860,598) rotate(5)" font-family="'EB Garamond', Georgia, serif" font-size="10.5" fill="#EEE0FF" opacity="0.75">passion fruit</text>
+<text transform="translate(660,630) rotate(-3)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#EEE0FF" opacity="0.7">anaerobic</text>
+<text transform="translate(1000,628) rotate(4)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#EEE0FF" opacity="0.7">funky complexity</text>
+<text transform="translate(780,648) rotate(-4)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#EEE0FF" opacity="0.65">carbonic maceration</text>
+<text transform="translate(990,662) rotate(3)" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#EEE0FF" opacity="0.6">extended ferment</text>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- SPECTRUM AXIS (bottom)                          -->
+<!-- ═══════════════════════════════════════════════ -->
+<!-- gradient bar -->
+<rect x="58" y="710" width="1084" height="5" fill="url(#axis-grad)" rx="2.5"/>
+
+<!-- Arrow caps -->
+<polygon points="54,712.5 63,709 63,716" fill="#5C2E0C"/>
+<polygon points="1146,712.5 1137,709 1137,716" fill="#5A38A0"/>
+
+<!-- Axis labels -->
+<text x="58" y="727" font-family="'EB Garamond', Georgia, serif" font-style="italic" font-size="10.5" fill="#5C2E0C">Heavy body · Low acidity · High bitterness</text>
+<text x="1142" y="727" text-anchor="end" font-family="'EB Garamond', Georgia, serif" font-style="italic" font-size="10.5" fill="#5A38A0">Light body · High acidity · Low bitterness</text>
+
+<!-- Center axis label -->
+<text x="600" y="727" text-anchor="middle" font-family="'EB Garamond', Georgia, serif" font-style="italic" font-size="10.5" fill="#6A4828">The Flavor Spectrum</text>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- LEGEND                                          -->
+<!-- ═══════════════════════════════════════════════ -->
+<text x="60" y="748" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#4A2C10" opacity="0.8">★  Quiz-active archetype (Chocolate &amp; Nutty · Balanced &amp; Sweet · Fruity)</text>
+<text x="60" y="762" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#4A2C10" opacity="0.8">◦  Catalogue only — reachable as "Worth Exploring" (Spicy &amp; Earthy · Floral · Experimental)</text>
+<text x="60" y="776" font-family="'EB Garamond', Georgia, serif" font-size="10" fill="#4A2C10" opacity="0.6">●  Shared border = adjacent archetype in personalization engine</text>
+
+<!-- Right-aligned note -->
+<text x="1142" y="748" text-anchor="end" font-family="'EB Garamond', Georgia, serif" font-style="italic" font-size="10" fill="#4A2C10" opacity="0.7">Spicy &amp; Earthy and Floral are the poles.</text>
+<text x="1142" y="762" text-anchor="end" font-family="'EB Garamond', Georgia, serif" font-style="italic" font-size="10" fill="#4A2C10" opacity="0.6">No shared neighbors, opposite ends of the map.</text>
+<text x="1142" y="776" text-anchor="end" font-family="'EB Garamond', Georgia, serif" font-style="italic" font-size="10" fill="#4A2C10" opacity="0.5">Axis &amp; Bloom · Archetypes v3</text>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- COMPASS ROSE (decorative, upper-right corner)   -->
+<!-- ═══════════════════════════════════════════════ -->
+<!-- This sits in Floral territory -->
+<g transform="translate(1098,118)" opacity="0.35">
+  <!-- Outer ring -->
+  <circle cx="0" cy="0" r="22" fill="none" stroke="#3A2050" stroke-width="0.8"/>
+  <circle cx="0" cy="0" r="18" fill="none" stroke="#3A2050" stroke-width="0.4"/>
+  <!-- Cardinal points -->
+  <polygon points="0,-22 3,-8 0,-12 -3,-8" fill="#3A2050"/>
+  <polygon points="0,22 3,8 0,12 -3,8" fill="#3A2050" opacity="0.6"/>
+  <polygon points="22,0 8,3 12,0 8,-3" fill="#3A2050" opacity="0.6"/>
+  <polygon points="-22,0 -8,3 -12,0 -8,-3" fill="#3A2050" opacity="0.6"/>
+  <!-- Intercardinals -->
+  <line x1="-15" y1="-15" x2="15" y2="15" stroke="#3A2050" stroke-width="0.5" opacity="0.4"/>
+  <line x1="15" y1="-15" x2="-15" y2="15" stroke="#3A2050" stroke-width="0.5" opacity="0.4"/>
+  <circle cx="0" cy="0" r="3" fill="#3A2050"/>
+</g>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- REGION NAME SEPARATORS (subtle divider ticks)   -->
+<!-- ═══════════════════════════════════════════════ -->
+<!-- tick marks at region boundaries along bottom -->
+<line x1="252" y1="694" x2="252" y2="704" stroke="#6A3E1C" stroke-width="1.2"/>
+<line x1="448" y1="694" x2="448" y2="704" stroke="#6A3E1C" stroke-width="1.2"/>
+<line x1="634" y1="694" x2="634" y2="704" stroke="#6A3E1C" stroke-width="1.2"/>
+<!-- note: Fruity/Floral don't extend to bottom, so no tick there -->
+
+<!-- Region name labels along the axis bar area -->
+<text x="155" y="706" text-anchor="middle" font-family="'EB Garamond', Georgia, serif" font-size="9" fill="#5C2E0C" letter-spacing="0.5">S&amp;E</text>
+<text x="350" y="706" text-anchor="middle" font-family="'EB Garamond', Georgia, serif" font-size="9" fill="#6A3A10" letter-spacing="0.5">C&amp;N</text>
+<text x="541" y="706" text-anchor="middle" font-family="'EB Garamond', Georgia, serif" font-size="9" fill="#7A5020" letter-spacing="0.5">B&amp;S</text>
+
+</svg>
+</body>
+</html>

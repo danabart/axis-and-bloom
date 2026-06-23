@@ -1,0 +1,7 @@
+quiz_id,q_number,weight,included_in_primary_scoring,veto_cascade_priority,notes
+18e1bb9b-66b6-40a3-92b2-8f8e216c0655,1,1,true,4,Identity — lowest weight most rationalizable
+18e1bb9b-66b6-40a3-92b2-8f8e216c0655,2,0,false,0,Food instinct — secondary signal only not in primary scoring or veto
+18e1bb9b-66b6-40a3-92b2-8f8e216c0655,3,2,true,3,Perfect cup — second highest weight
+18e1bb9b-66b6-40a3-92b2-8f8e216c0655,4,1,true,0,Black coffee — experimental gate lives here
+18e1bb9b-66b6-40a3-92b2-8f8e216c0655,5,2,true,2,Disappointment — strong negative framing
+18e1bb9b-66b6-40a3-92b2-8f8e216c0655,6,3,true,1,Bitterness — strongest question highest weight

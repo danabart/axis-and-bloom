@@ -4,6 +4,8 @@ import { db } from '../db/client.js';
 import { getRecommendation } from '../services/claude.js';
 import { rankScores, findWinner, findSecondary, isSecondaryClose, computeConfidenceAndMode } from '../services/quizScoring.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
+import { Timestamp } from 'firebase-admin/firestore';
+import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
 
 const router = Router();
 
@@ -147,7 +149,12 @@ router.post('/score', async (req, res) => {
       foodSignal, winnerName, secondaryArchetype, experimental, secondaryScoredHighWeight
     );
 
-    // 8. Archetype UUID for winner.
+    // 8. Tie detection — cascade exhausted when there was a score tie and no cascade
+    //    question (Q5→Q4→Q2→Q1) resolved it. Provides the ML feature for PROFILE_AMBIGUOUS.
+    const tieDetected = tied.length > 1 && ![5, 4, 2, 1].some(q => byQ[q] != null && tied.includes(byQ[q]!));
+    const tiedArchetypes = tieDetected ? tied : [];
+
+    // 9. Archetype UUID for winner.
     const archetypeResult = await db.query(
       `SELECT id FROM archetype WHERE name = $1`,
       [winnerName]
@@ -160,9 +167,10 @@ router.post('/score', async (req, res) => {
       experimental,
       secondaryArchetype,
       foodSignal,
-      confidence,
+      foodSignalAlignment: confidence,
       recommendationMode,
-      tied: tied.length > 1 ? tied : undefined,
+      tieDetected,
+      tiedArchetypes,
     });
   } catch (err) {
     console.error('[quiz/score]', err);
@@ -173,7 +181,7 @@ router.post('/score', async (req, res) => {
 // ─── POST /api/quiz/results ──────────────────────────────────────────────────
 // Saves a completed quiz session, linking the real archetype FK from the DB.
 router.post('/results', requireAuth, async (req: AuthRequest, res) => {
-  const { archetype, scores, answers, decaf, experimental, secondaryArchetype, foodSignal, confidence, recommendationMode } = req.body;
+  const { archetype, scores, answers, decaf, experimental, secondaryArchetype, foodSignal, foodSignalAlignment, recommendationMode } = req.body;
   if (!archetype || !scores || !answers) {
     res.status(400).json({ error: 'archetype, scores, and answers required' });
     return;
@@ -202,7 +210,7 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
       `INSERT INTO quiz_session (user_id, resulting_archetype_id, context_data)
        VALUES ($1, $2, $3)
        RETURNING id`,
-      [profileId, archetypeId, JSON.stringify({ archetype, scores, answers, decaf: decaf ?? false, experimental: experimental ?? false, secondaryArchetype: secondaryArchetype ?? null, foodSignal: foodSignal ?? null, confidence: confidence ?? 'high', recommendationMode: recommendationMode ?? 'primary_only' })]
+      [profileId, archetypeId, JSON.stringify({ archetype, scores, answers, decaf: decaf ?? false, experimental: experimental ?? false, secondaryArchetype: secondaryArchetype ?? null, foodSignal: foodSignal ?? null, foodSignalAlignment: foodSignalAlignment ?? 'high', recommendationMode: recommendationMode ?? 'primary_only' })]
     );
 
     const sessionId = sessionResult.rows[0].id;
@@ -219,7 +227,7 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
       archetype,
       secondaryArchetype:  secondaryArchetype ?? null,
       foodSignal:          foodSignal ?? null,
-      confidence:          confidence ?? 'high',
+      foodSignalAlignment: foodSignalAlignment ?? 'high',
       recommendationMode:  recommendationMode ?? 'primary_only',
       experimental:        experimental ?? false,
       scores,
@@ -229,12 +237,45 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
     // Get AI recommendation
     const recommendation = await getRecommendation(archetype, decaf ?? false, {
       secondaryArchetype: secondaryArchetype ?? null,
-      confidence,
+      confidence: foodSignalAlignment ?? 'high',
       recommendationMode,
       experimental: experimental ?? false,
     });
 
     res.json({ id: sessionId, recommendation });
+
+    // Fire-and-forget: compute behavioral confidence, then write taste_journey.
+    // Always after the quiz session is saved so the new quiz counts in the computation.
+    ;(async () => {
+      try {
+        const bcResult = await computeBehavioralConfidence(req.uid!);
+
+        const journeyRef = firestoreDb.doc(`users/${req.uid}/taste_journey`);
+        const journeySnap = await journeyRef.get();
+        const journey = journeySnap.exists ? journeySnap.data()! : null;
+
+        const isSame = journey?.currentArchetype === archetype;
+        const isFirst = !journey?.currentArchetype;
+
+        const newEntry = {
+          archetype,
+          date: Timestamp.now(),
+          quizSessionId: String(sessionId),
+          confidenceLevel: bcResult.level,
+          trigger: isFirst ? 'first_quiz' : 'retake',
+        };
+
+        await journeyRef.set({
+          currentArchetype:   archetype,
+          currentStreakCount: isSame ? (journey?.currentStreakCount ?? 0) + 1 : 1,
+          evolutionCount:     isSame ? (journey?.evolutionCount ?? 0) : (journey?.evolutionCount ?? 0) + 1,
+          archetypeHistory:   [...(journey?.archetypeHistory ?? []), newEntry],
+          lastUpdated:        FieldValue.serverTimestamp(),
+        }, { merge: true });
+      } catch (err) {
+        console.error('[quiz/taste-journey]', err);
+      }
+    })();
   } catch (err) {
     console.error('[quiz/results]', err);
     res.status(500).json({ error: 'Failed to save quiz result' });

@@ -1,0 +1,20 @@
+question_number,answer_option,answer_text,primary_archetype,score,is_secondary_signal,experimental_gate,notes
+1,A,It's a daily ritual. I'm particular about it.,chocolate_nutty,1,FALSE,FALSE,
+1,B,It's a reliable habit. I just like having it.,balanced_sweet,1,FALSE,FALSE,
+1,C,It's something I'm still discovering. I'm curious about it.,fruity,1,FALSE,FALSE,
+2,A,"Something rich and comforting. Dark chocolate, roasted nuts, a warm brownie.",chocolate_nutty,0,TRUE,FALSE,Secondary signal only — food_signal output
+2,B,"Something soft and sweet. A ripe peach, a vanilla biscuit, caramel.",balanced_sweet,0,TRUE,FALSE,Secondary signal only — food_signal output
+2,C,"Something fresh and lively. A green apple, fresh berries, citrus.",fruity,0,TRUE,FALSE,Secondary signal only — food_signal output
+3,A,It was strong and satisfyin.  I felt it,chocolate_nutty,2,FALSE,FALSE,
+3,B,It was smooth and easy the whole way throug. Nothing got in the way,balanced_sweet,2,FALSE,FALSE,
+3,C,It felt alive — bright and changing. Every sip was a little different.,fruity,2,FALSE,FALSE,
+4,A,"It feels complete. I'd drink it as is, or add milk to make it even richer.",chocolate_nutty,1,FALSE,FALSE,
+4,B,"It's fine, easy to drink. I might add something to smooth it out.",balanced_sweet,1,FALSE,FALSE,
+4,C,Interestin� What flavors am I getting here?,fruity,1,FALSE,TRUE,Experimental gate — set experimental:true in output
+4,D,I'm not sure. I don't usually drink it black.,split,0.5,FALSE,FALSE,Split 0.5 to chocolate_nutty and 0.5 to balanced_sweet
+5,A,It has no bitterness or intensity,chocolate_nutty,2,FALSE,FALSE,
+5,B,It's too bitter or too intense,balanced_sweet,2,FALSE,FALSE,
+5,C,Every sip tastes exactly the same,fruity,2,FALSE,FALSE,
+6,A,I don't mind. Actually I kind of like it. It tastes serious.,chocolate_nutty,3,FALSE,FALSE,
+6,B,I'd rather have something gentler and smoother.,balanced_sweet,3,FALSE,FALSE,
+6,C,It feels burnt to me. I'd rather have something fresher or more alive.,fruity,3,FALSE,FALSE,

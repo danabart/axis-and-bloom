@@ -3,6 +3,7 @@ import { Resend } from 'resend';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import admin from '../services/firebase-admin.js';
 import { db } from '../db/client.js';
+import { getSommelierConfig } from '../services/sommelierConfig.js';
 
 const router = Router();
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -30,6 +31,22 @@ router.post('/sync', requireAuth, async (req: AuthRequest, res) => {
          VALUES ($1, $2, true, true)
          ON CONFLICT (email_address) DO NOTHING`,
         [profileId, req.email]
+      );
+    }
+
+    // Token initialization — award signup bonus to new users only (idempotent).
+    const signupBonus = getSommelierConfig()?.tokenEconomy?.signupBonus ?? 20;
+    const tokenInsert = await db.query(
+      `INSERT INTO user_tokens (uid, balance, lifetime_earned)
+       VALUES ($1, $2, $2)
+       ON CONFLICT (uid) DO NOTHING`,
+      [req.uid, signupBonus]
+    );
+    if (tokenInsert.rowCount === 1) {
+      await db.query(
+        `INSERT INTO token_events (uid, delta, reason, balance_after)
+         VALUES ($1, $2, 'signup_bonus', $2)`,
+        [req.uid, signupBonus]
       );
     }
 

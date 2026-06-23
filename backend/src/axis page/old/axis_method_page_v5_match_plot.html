@@ -1,0 +1,194 @@
+
+<h2 class="sr-only">The Axis — flavor matching method page v5 with distance plot</h2>
+<style>
+  .ax-label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--color-text-secondary);margin:0 0 .4rem}
+  .ax-section{padding:2.5rem 0;border-top:.5px solid var(--color-border-tertiary)}
+  .ax-h2{font-size:20px;font-weight:500;margin:.4rem 0 1.25rem;color:var(--color-text-primary)}
+  .ax-body{font-size:15px;color:var(--color-text-secondary);line-height:1.7;margin:0}
+  .dim-row{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+  .dim-label{font-size:11.5px;color:var(--color-text-secondary);width:110px;flex-shrink:0}
+  .dim-track{flex:1;height:6px;background:var(--color-background-secondary);border-radius:3px;position:relative;overflow:hidden}
+  .arch-btn{font-size:11.5px;padding:4px 12px;border-radius:20px;border:1px solid;cursor:pointer;background:transparent;transition:all .15s}
+  .arch-btn.active{color:#fff!important}
+  .s-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:4px}
+  .source-row{display:flex;align-items:baseline;gap:10px;margin-bottom:7px}
+</style>
+
+<div style="padding:2rem 0 0">
+  <p class="ax-label">The Axis</p>
+  <div style="font-size:40px;font-weight:500;line-height:1.1;margin:.4rem 0 1rem;color:var(--color-text-primary)">Every taste has<br>a location.</div>
+  <p class="ax-body" style="max-width:500px">Flavor isn't subjective noise — it's signal. The Axis maps every coffee and every palate to the same seven-dimensional sensory space. Matching means finding how close those two points are.</p>
+</div>
+
+<div class="ax-section">
+  <p class="ax-label">Step 1 — the flavor space</p>
+  <h2 class="ax-h2">Five regions. One continuous map.</h2>
+  <p class="ax-body" style="max-width:520px;margin-bottom:1.5rem">A 2D chart hides the differences that matter most. Parallel coordinates show how all seven dimensions separate the archetypes at once.</p>
+  <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-lg);padding:1.25rem 1rem .75rem">
+    <div id="parallelContainer" style="width:100%"></div>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:14px;margin-top:1rem" id="legend"></div>
+  <div style="margin-top:1.5rem;background:var(--color-background-primary);border:.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1.25rem;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:1.25rem">
+    <div><p style="font-size:12px;font-weight:500;margin:0 0 .5rem">What about decaf?</p><p style="font-size:13px;color:var(--color-text-secondary);margin:0;line-height:1.6">Decaf is a preference layer, not an archetype. A Chocolate &amp; Nutty drinker who prefers decaf gets the same vector — the decaf flag is passed separately to the AI sommelier.</p></div>
+    <div><p style="font-size:12px;font-weight:500;margin:0 0 .5rem">What about experimental coffees?</p><p style="font-size:13px;color:var(--color-text-secondary);margin:0;line-height:1.6">Experimental processing amplifies flavor but doesn't create a new archetype. Dimension scores still place the coffee within one of the five regions — tagged experimental, matched as usual.</p></div>
+  </div>
+</div>
+
+<div class="ax-section">
+  <p class="ax-label">Step 2 — the seven dimensions</p>
+  <h2 class="ax-h2">A coffee is a vector, not a word.</h2>
+  <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:2rem;align-items:start">
+    <div>
+      <p class="ax-body" style="margin-bottom:1.25rem;font-size:14px">Each coffee's position is built from three overlapping sources, aggregated via the Collaborative Flavor Wheel:</p>
+      <div style="margin-bottom:1rem">
+        <div class="source-row"><span class="s-dot" style="background:#a33726"></span><span style="font-size:13px;color:var(--color-text-secondary)"><strong style="color:var(--color-text-primary);font-weight:500">Trained cuppers</strong> — SCA-scored sessions, 0–15 per dimension.</span></div>
+        <div class="source-row"><span class="s-dot" style="background:#7a8c6e"></span><span style="font-size:13px;color:var(--color-text-secondary)"><strong style="color:var(--color-text-primary);font-weight:500">Roastery notes</strong> — bag descriptors mapped to the SCA wheel.</span></div>
+        <div class="source-row"><span class="s-dot" style="background:#7a6fa0"></span><span style="font-size:13px;color:var(--color-text-secondary)"><strong style="color:var(--color-text-primary);font-weight:500">Customer feedback</strong> — post-delivery tasting notes, weighted by volume and recency.</span></div>
+      </div>
+      <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:.75rem 1rem;margin-bottom:1.25rem;border-left:2px solid #a33726">
+        <p style="font-size:12px;font-weight:500;margin:0 0 .3rem">Vectors evolve continuously</p>
+        <p style="font-size:12px;color:var(--color-text-secondary);margin:0;line-height:1.5">As community feedback accumulates, every coffee's position in flavor space is recalibrated. A vector from six months ago reflects what a hundred drinkers have said since.</p>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <span style="font-size:12px;font-weight:500;color:var(--color-text-primary)">View:</span>
+        <div style="display:flex;flex-wrap:wrap;gap:5px" id="archSelector"></div>
+      </div>
+      <div id="dimBars"></div>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+        <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--color-text-secondary)"><span style="width:22px;height:5px;border-radius:2px;background:rgba(163,55,38,0.3);display:inline-block"></span>Range</div>
+        <div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--color-text-secondary)"><span style="width:6px;height:6px;border-radius:50%;background:#a33726;display:inline-block"></span>Midpoint</div>
+      </div>
+    </div>
+    <div>
+      <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-lg);padding:1.25rem;margin-bottom:1rem">
+        <p style="font-size:12px;font-weight:500;margin:0 0 .25rem">All archetypes, all seven dimensions</p>
+        <p style="font-size:11px;color:var(--color-text-secondary);margin:0 0 .75rem">Scale 0–15 · Finish Length shown as dashed spoke</p>
+        <div style="position:relative;height:255px"><canvas id="radarChart" role="img" aria-label="Radar chart comparing seven dimensions across five archetypes.">Archetype radar profiles.</canvas></div>
+      </div>
+      <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-lg);padding:1.25rem;text-align:center">
+        <p style="font-size:12px;font-weight:500;margin:0 0 .75rem;text-align:left">Distance between two vectors</p>
+        <div style="font-size:17px;font-family:var(--font-mono);color:var(--color-text-primary);letter-spacing:.02em">d(u,&thinsp;c)&nbsp;=&nbsp;&radic;<span style="border-top:1.5px solid currentColor;padding:1px 5px 0">&thinsp;<span style="font-size:12px">&#8721;</span><sub style="font-size:9px">i=1..7</sub>&thinsp;(u<sub>i</sub>&minus;c<sub>i</sub>)<sup>2</sup>&thinsp;</span></div>
+        <div style="display:flex;justify-content:center;gap:14px;font-size:11px;color:var(--color-text-secondary);margin-top:10px;flex-wrap:wrap"><span>u = your vector</span><span>c = coffee's vector</span><span>7 dimensions</span></div>
+        <p style="font-size:12px;color:var(--color-text-secondary);margin:.75rem 0 0;line-height:1.5">d = 0 means perfect alignment. As community feedback refines both vectors, d becomes more precise.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="ax-section">
+  <p class="ax-label">Step 3 — matching</p>
+  <h2 class="ax-h2">Nearest neighbor in flavor space.</h2>
+
+  <div style="background:var(--color-background-secondary);border-radius:var(--border-radius-lg);padding:1.25rem;margin-bottom:1.5rem">
+    <p style="font-size:12px;font-weight:500;margin:0 0 .75rem">Your position relative to all archetypes</p>
+    <svg id="matchPlot" viewBox="0 0 460 270" width="100%" xmlns="http://www.w3.org/2000/svg" style="display:block">
+      <defs>
+        <marker id="mWh" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="6" markerHeight="5" orient="auto"><path d="M0 0 L8 3 L0 6 z" fill="#a33726"/></marker>
+        <marker id="mEx" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="6" markerHeight="5" orient="auto"><path d="M0 0 L8 3 L0 6 z" fill="#c4821a"/></marker>
+        <marker id="mOut" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="6" markerHeight="5" orient="auto"><path d="M0 0 L8 3 L0 6 z" fill="#9a9595"/></marker>
+      </defs>
+
+      <rect x="8" y="8" width="444" height="254" rx="8" style="fill:var(--color-background-primary)" stroke="currentColor" stroke-opacity="0.07" stroke-width="0.5"/>
+
+      <circle cx="230" cy="170" r="95" fill="#c4821a" fill-opacity="0.05" stroke="#c4821a" stroke-width="0.75" stroke-dasharray="4,3" opacity="0.7"/>
+      <circle cx="230" cy="170" r="62" fill="#a33726" fill-opacity="0.05" stroke="#a33726" stroke-width="0.75" stroke-dasharray="4,3" opacity="0.8"/>
+
+      <text x="289" y="107" font-size="9.5" font-family="system-ui,sans-serif" fill="#a33726" fill-opacity="0.7" letter-spacing=".06em">WHEELHOUSE</text>
+      <text x="314" y="78" font-size="9.5" font-family="system-ui,sans-serif" fill="#c4821a" fill-opacity="0.7" letter-spacing=".06em">EXPLORING</text>
+
+      <line x1="218.8" y1="174.4" x2="99.3" y2="221.3" stroke="#9a9595" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#mOut)" opacity="0.55"/>
+      <line x1="220.0" y1="163.3" x2="88.3" y2="75.6" stroke="#9a9595" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#mOut)" opacity="0.55"/>
+
+      <line x1="241.9" y1="171.1" x2="305.1" y2="177.1" stroke="#c4821a" stroke-width="1.5" marker-end="url(#mEx)"/>
+      <line x1="219.7" y1="163.8" x2="168.6" y2="133.2" stroke="#c4821a" stroke-width="1.5" marker-end="url(#mEx)"/>
+
+      <line x1="238.5" y1="161.5" x2="264.9" y2="135.1" stroke="#a33726" stroke-width="2.5" marker-end="url(#mWh)"/>
+
+      <circle cx="80" cy="70" r="8" fill="#4a3728"/>
+      <text x="92" y="67" font-size="11" fill="#4a3728" font-family="system-ui,sans-serif" font-weight="500">Earthy</text>
+
+      <circle cx="90" cy="225" r="8" fill="#8b5e3c"/>
+      <text x="90" y="247" font-size="10.5" fill="#8b5e3c" font-family="system-ui,sans-serif" text-anchor="middle">Choc. &amp; Nutty</text>
+
+      <circle cx="160" cy="128" r="8" fill="#c4821a"/>
+      <text x="149" y="121" font-size="10.5" fill="#c4821a" font-family="system-ui,sans-serif" text-anchor="end">Balanced</text>
+      <text x="149" y="133" font-size="10.5" fill="#c4821a" font-family="system-ui,sans-serif" text-anchor="end">&amp; Sweet</text>
+
+      <circle cx="315" cy="178" r="8" fill="#7a6fa0"/>
+      <text x="327" y="175" font-size="11" fill="#7a6fa0" font-family="system-ui,sans-serif">Floral</text>
+
+      <circle cx="272" cy="128" r="8" fill="#a33726"/>
+      <text x="283" y="125" font-size="11" fill="#a33726" font-family="system-ui,sans-serif">Fruity</text>
+
+      <circle cx="230" cy="170" r="15" fill="#a33726" fill-opacity="0.12"/>
+      <circle cx="230" cy="170" r="10" fill="#a33726"/>
+      <text x="248" y="167" font-size="11.5" fill="#a33726" font-family="system-ui,sans-serif" font-weight="500">You</text>
+    </svg>
+    <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:.75rem">
+      <span style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--color-text-secondary)"><span style="width:22px;height:2.5px;background:#a33726;display:inline-block;border-radius:1px"></span>In your wheelhouse</span>
+      <span style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--color-text-secondary)"><span style="width:22px;height:1.5px;background:#c4821a;display:inline-block;border-radius:1px"></span>Worth exploring</span>
+      <span style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--color-text-secondary)"><span style="width:22px;height:0;border-top:1.5px dashed #9a9595;display:inline-block;margin-bottom:1px"></span>Outside comfort zone</span>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:8px;max-width:520px">
+    <div style="background:var(--color-background-primary);border:.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px"><span style="font-size:12px;font-weight:500">In your wheelhouse</span><span style="font-size:10px;background:#a3372612;color:#a33726;padding:1px 8px;border-radius:3px">d &lt; threshold</span></div>
+      <p style="font-size:12px;color:var(--color-text-secondary);margin:0;line-height:1.5">Same archetype region. Shortest distance. Direct match.</p>
+    </div>
+    <div style="background:var(--color-background-primary);border:.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px"><span style="font-size:12px;font-weight:500">Worth exploring</span><span style="font-size:10px;background:#c4821a12;color:#c4821a;padding:1px 8px;border-radius:3px">adjacent archetype</span></div>
+      <p style="font-size:12px;color:var(--color-text-secondary);margin:0;line-height:1.5">Neighboring region — similar profile, new direction.</p>
+    </div>
+    <div style="background:var(--color-background-primary);border:.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:10px 14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px"><span style="font-size:12px;font-weight:500">Outside your comfort zone</span><span style="font-size:10px;background:var(--color-background-secondary);color:var(--color-text-secondary);padding:1px 8px;border-radius:3px">d &gt; threshold</span></div>
+      <p style="font-size:12px;color:var(--color-text-secondary);margin:0;line-height:1.5">Furthest from your profile — there for discovery.</p>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const isDark=matchMedia('(prefers-color-scheme: dark)').matches;
+const textCol=isDark?'rgba(255,255,255,0.55)':'rgba(0,0,0,0.5)';
+const gridCol=isDark?'rgba(255,255,255,0.1)':'rgba(0,0,0,0.08)';
+const DIMS=['Sweetness','Acidity','Bitterness','Body','Texture','Savory / Depth','Finish Length'];
+const DIMS_SHORT=['Sweet','Acidity','Bitter','Body','Texture','Depth','Finish'];
+const IS_FINISH=[false,false,false,false,false,false,true];
+const ARCHETYPES=[
+  {label:'Chocolate & Nutty',color:'#8b5e3c',ranges:[[7,9],[3,5],[9,11],[10,13],[3,5],[7,9],[9,11]]},
+  {label:'Balanced & Sweet', color:'#c4821a',ranges:[[9,11],[6,8],[6,8],[7,9],[2,4],[4,6],[6,8]]},
+  {label:'Earthy',           color:'#4a3728',ranges:[[5,7],[3,5],[8,10],[12,14],[9,11],[12,14],[12,14]]},
+  {label:'Floral',           color:'#7a6fa0',ranges:[[7,9],[10,12],[3,5],[5,7],[2,4],[3,5],[3,5]]},
+  {label:'Fruity',           color:'#a33726',ranges:[[7,9],[12,14],[5,7],[5,7],[3,5],[3,5],[7,9]]},
+];
+function mid(r){return(r[0]+r[1])/2;}
+
+document.getElementById('legend').innerHTML=ARCHETYPES.map(a=>`<span style="display:flex;align-items:center;gap:6px;font-size:13px"><span style="width:16px;height:2px;background:${a.color};display:inline-block;border-radius:1px"></span>${a.label}</span>`).join('');
+
+function buildParallel(){
+  const container=document.getElementById('parallelContainer');
+  const W=container.offsetWidth||620;
+  const H=175;const pt=12,pb=34,pl=26,pr=8;
+  const n=DIMS.length;const step=(W-pl-pr)/(n-1);const plotH=H-pt-pb;
+  const xPos=i=>pl+i*step;const yPos=v=>pt+(1-v/15)*plotH;
+  const axCol=isDark?'rgba(255,255,255,0.14)':'rgba(0,0,0,0.12)';
+  const lblCol=isDark?'rgba(255,255,255,0.5)':'rgba(0,0,0,0.5)';
+  const tickCol=isDark?'rgba(255,255,255,0.28)':'rgba(0,0,0,0.28)';
+  const finCol=isDark?'rgba(255,255,255,0.25)':'rgba(0,0,0,0.2)';
+  let svg=`<svg viewBox="0 0 ${W} ${H}" width="100%" xmlns="http://www.w3.org/2000/svg" style="display:block">`;
+  for(let i=0;i<n;i++){const x=xPos(i).toFixed(1);const fin=IS_FINISH[i];svg+=`<line x1="${x}" y1="${pt}" x2="${x}" y2="${H-pb}" stroke="${fin?finCol:axCol}" stroke-width="1" stroke-dasharray="${fin?'3,2':''}"/>`;const sl=DIMS[i]==='Savory / Depth'?'Depth':DIMS[i]==='Finish Length'?'Finish':DIMS[i];svg+=`<text x="${x}" y="${H-3}" text-anchor="middle" font-size="10" fill="${fin?finCol:lblCol}" font-family="system-ui,sans-serif">${sl}</text>`;if(fin)svg+=`<text x="${x}" y="${pt-2}" text-anchor="middle" font-size="8" fill="${finCol}" font-family="system-ui,sans-serif" letter-spacing=".06em">FINISH</text>`;}
+  for(const v of[0,5,10,15])svg+=`<text x="${pl-3}" y="${(yPos(v)+3).toFixed(1)}" text-anchor="end" font-size="9" fill="${tickCol}" font-family="system-ui,sans-serif">${v}</text>`;
+  for(const arch of ARCHETYPES){const mids=arch.ranges.map(r=>mid(r));const pts=mids.map((v,i)=>`${xPos(i).toFixed(1)},${yPos(v).toFixed(1)}`).join(' ');svg+=`<polyline points="${pts}" fill="none" stroke="${arch.color}" stroke-width="1.8" stroke-linejoin="round" opacity="0.85"/>`;mids.forEach((v,i)=>{svg+=`<circle cx="${xPos(i).toFixed(1)}" cy="${yPos(v).toFixed(1)}" r="3.5" fill="${arch.color}" opacity="0.9"/>`;})}
+  svg+='</svg>';container.innerHTML=svg;
+}
+buildParallel();
+
+const selectorEl=document.getElementById('archSelector');
+const barsEl=document.getElementById('dimBars');
+function renderBars(idx){const arch=ARCHETYPES[idx];barsEl.innerHTML=DIMS.map((name,i)=>{const[lo,hi]=arch.ranges[i];const mv=mid(arch.ranges[i]);const s=Math.round(lo/15*100);const w=Math.round((hi-lo)/15*100);const mp=Math.round(mv/15*100);const fin=IS_FINISH[i];return`<div class="dim-row"><span class="dim-label" style="${fin?'opacity:.65':''}">${name}</span><div class="dim-track"><div style="position:absolute;top:0;left:${s}%;width:${w}%;height:100%;background:${arch.color};opacity:.3;border-radius:2px"></div><div style="position:absolute;top:50%;left:${mp}%;transform:translate(-50%,-50%);width:7px;height:7px;border-radius:50%;background:${arch.color}"></div></div><span style="font-size:11px;color:var(--color-text-secondary);width:34px;text-align:right;flex-shrink:0;${fin?'opacity:.65':''}">${lo}–${hi}</span></div>`}).join('');}
+ARCHETYPES.forEach((a,i)=>{const btn=document.createElement('button');btn.className='arch-btn'+(i===0?' active':'');btn.textContent=a.label;btn.style.cssText=`color:${a.color};border-color:${a.color};${i===0?'background:'+a.color+';color:#fff':''}`;btn.onclick=()=>{selectorEl.querySelectorAll('.arch-btn').forEach((b,j)=>{b.classList.toggle('active',j===i);b.style.background=j===i?ARCHETYPES[j].color:'transparent';b.style.color=j===i?'#fff':ARCHETYPES[j].color;});renderBars(i);};selectorEl.appendChild(btn);});
+renderBars(0);
+
+new Chart(document.getElementById('radarChart'),{type:'radar',data:{labels:DIMS_SHORT,datasets:ARCHETYPES.map(a=>({label:a.label,data:a.ranges.map(r=>mid(r)),borderColor:a.color,backgroundColor:a.color+'14',borderWidth:1.8,pointRadius:3,pointBackgroundColor:a.color}))},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{r:{min:0,max:15,ticks:{stepSize:5,color:textCol,font:{size:10},backdropColor:'transparent'},grid:{color:gridCol},angleLines:{color:gridCol},pointLabels:{color:textCol,font:{size:11}}}}}});
+</script>

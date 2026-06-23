@@ -19,6 +19,8 @@ import adminRouter from './routes/admin.js';
 import coffeesRouter from './routes/coffees.js';
 import householdRouter from './routes/household.js';
 import axisRouter from './routes/axis.js';
+import sommelierRouter from './routes/sommelier.js';
+import { initSommelierConfig } from './services/sommelierConfig.js';
 
 const app = express();
 const PORT = process.env.PORT ?? 4000;
@@ -74,6 +76,7 @@ app.use('/api/admin', adminRouter);
 app.use('/api/coffees', coffeesRouter);
 app.use('/api/household', householdRouter);
 app.use('/api/axis', axisRouter);
+app.use('/api/sommelier', sommelierRouter);
 
 async function start() {
   try {
@@ -83,6 +86,12 @@ async function start() {
     console.log('DB schema verified');
   } catch (err) {
     console.error('DB migration error (non-fatal):', err);
+  }
+
+  try {
+    await initSommelierConfig();
+  } catch (err) {
+    console.error('Sommelier config init error (non-fatal):', err);
   }
 
   app.listen(PORT, () => console.log(`Axis & Bloom API running on port ${PORT}`));
