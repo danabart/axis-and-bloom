@@ -939,8 +939,10 @@ export default function FlavorQuiz() {
             CURTAIN VIEWPORT — only the wrapper width animates (100% → 12.5%).
             The wallpaper art layer is fixed at 100vw × 100vh and is NEVER resized.
             The wrapper clips it via overflow:hidden — like gift wrap being peeled back.
-            background-size:cover is safe here because it resolves against the fixed
-            100vw × 100vh art layer, not against the changing wrapper.
+
+            background-size uses a fixed pixel value (620px auto) so the tile scale
+            is completely independent of the curtain wrapper width. The image is never
+            stretched, squished, or recalculated during the scroll animation.
           */}
           <div style={{
             position: 'absolute',
@@ -950,16 +952,21 @@ export default function FlavorQuiz() {
             overflow: 'hidden',
             transition: curtainTransition,
           }}>
-            {/* Wallpaper art — fixed 100vw × 100vh, anchored top-left, never resizes */}
+            {/*
+              Wallpaper art — fixed 100vw × 100vh, top-left anchor, never resizes.
+              background-size: 620px auto  →  fixed tile width, proportional height.
+              background-repeat: repeat    →  tiles fill the full element.
+              This is the only correct way to ensure zero scale change during animation.
+            */}
             <div style={{
               position: 'absolute',
               top: 0, left: 0,
               width: '100vw',
               height: '100vh',
               backgroundImage: `url(${archetype.wallpaper})`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-              backgroundRepeat: 'no-repeat',
+              backgroundRepeat: 'repeat',
+              backgroundPosition: 'top left',
+              backgroundSize: '620px auto',
             }} />
 
             {/* Dark gradient — also fixed so it doesn't change as wrapper narrows */}
