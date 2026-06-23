@@ -786,127 +786,161 @@ export default function FlavorQuiz() {
   }
 
   // ── Results screen ───────────────────────────────────────────────────────────
+  //
+  // Scroll phases (container = 500vh, sticky = 100vh, scrollable = 400vh):
+  //   0 → OPEN_END  (14%  = 56vh)  curtain slides from 0% to -50%
+  //   OPEN_END → 1  (86% = 344vh)  curtain holds at -50% — long editorial pause
+  //
+  const OPEN_END = 0.14;
+
+  // Single progress value whether driven by scroll or mobile button
+  const eff = revealForced ? 1 : revealProgress;
+
+  // Curtain X: 0 → -50 during open phase, then pinned at -50
+  const curtainX = eff < OPEN_END ? -(eff / OPEN_END) * 50 : -50;
+
+  // Revealed content appears as curtain opens
+  const contentVisible = eff > OPEN_END * 0.55;
+
+  // Intro text fades out quickly once curtain starts moving
+  const curtainTextAlpha = Math.max(0, 1 - eff / 0.07);
 
   const curtainTransition = revealForced
-    ? 'transform 0.95s cubic-bezier(0.16, 1, 0.3, 1)'
+    ? 'transform 1.1s cubic-bezier(0.16, 1, 0.3, 1)'
     : 'transform 0.12s ease-out';
-
-  const contentVisible = displayProgress > 0.55;
 
   return (
     <div style={{ backgroundColor: '#f2f1ea', minHeight: '100vh' }}>
 
       {/* ── SECTION 1: REVEAL HERO ──────────────────────────────────────────── */}
-      {/* 200vh container — sticky inner reveals as user scrolls through extra 100vh */}
-      <div ref={revealContainerRef} style={{ position: 'relative', height: '200vh' }}>
+      {/*
+        500vh container — sticky 100vh inner, 400vh of scroll to work with.
+        Opening phase: 56vh. Hold (split-screen digest): 344vh. Very generous pause.
+      */}
+      <div ref={revealContainerRef} style={{ position: 'relative', height: '500vh' }}>
         <div style={{ position: 'sticky', top: 0, height: '100vh', overflow: 'hidden' }}>
 
-          {/* REVEALED LAYER — bag + archetype copy */}
+          {/* REVEALED LAYER — all content lives in the RIGHT half */}
           <div style={{
             position: 'absolute', inset: 0,
-            display: 'flex', flexDirection: 'row',
+            display: 'flex',
             backgroundColor: '#f2f1ea',
           }}>
-            {/* Left: coffee bag */}
-            <div style={{
-              width: '50%',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              padding: '0 clamp(20px, 3vw, 48px)',
-            }}>
-              <img
-                src={archetype.bag}
-                alt={archetype.name}
-                style={{
-                  maxHeight: '74vh',
-                  maxWidth: '100%',
-                  width: 'auto',
-                  objectFit: 'contain',
-                  display: 'block',
-                  opacity: contentVisible ? 1 : 0,
-                  transform: contentVisible ? 'scale(1) translateY(0)' : 'scale(0.96) translateY(12px)',
-                  transition: 'opacity 0.8s ease, transform 0.8s ease',
-                }}
-              />
-            </div>
+            {/* Left half — empty, will be covered by the curtain */}
+            <div style={{ width: '50%' }} />
 
-            {/* Right: profile text */}
+            {/* Right half — bag + text, split 52/48 */}
             <div style={{
               width: '50%',
-              display: 'flex', flexDirection: 'column', justifyContent: 'center',
-              padding: '0 clamp(32px, 5vw, 72px) 0 0',
-              opacity: contentVisible ? 1 : 0,
-              transform: contentVisible ? 'translateY(0)' : 'translateY(16px)',
-              transition: 'opacity 0.8s ease 0.1s, transform 0.8s ease 0.1s',
+              display: 'flex',
+              alignItems: 'stretch',
+              borderLeft: '1px solid rgba(154,41,24,0.07)',
             }}>
-              <p style={{
-                fontSize: '0.62rem', letterSpacing: '0.3em', textTransform: 'uppercase',
-                color: archetype.color, margin: '0 0 14px', opacity: 0.75,
+
+              {/* Bag — left portion of right half */}
+              <div style={{
+                flex: '0 0 52%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 'clamp(32px, 5vh, 56px) 0 clamp(32px, 5vh, 56px) clamp(16px, 2.5vw, 32px)',
               }}>
-                YOUR PROFILE{userName.trim() ? ` · ${userName}` : ''}
-              </p>
-              <p style={{
-                fontSize: 'clamp(0.8rem, 1vw, 0.92rem)',
-                color: '#9a2918', opacity: 0.55, margin: '0 0 6px', letterSpacing: '0.02em',
+                <img
+                  src={archetype.bag}
+                  alt={archetype.name}
+                  style={{
+                    maxHeight: '78vh',
+                    maxWidth: '100%',
+                    width: 'auto',
+                    objectFit: 'contain',
+                    display: 'block',
+                    opacity: contentVisible ? 1 : 0,
+                    transform: contentVisible ? 'translateY(0) scale(1)' : 'translateY(24px) scale(0.96)',
+                    transition: 'opacity 1.1s ease, transform 1.1s ease',
+                  }}
+                />
+              </div>
+
+              {/* Text — right portion of right half */}
+              <div style={{
+                flex: '0 0 48%',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                padding: '0 clamp(20px, 3vw, 48px) 0 clamp(10px, 1.5vw, 20px)',
+                opacity: contentVisible ? 1 : 0,
+                transform: contentVisible ? 'translateY(0)' : 'translateY(16px)',
+                transition: 'opacity 1.1s ease 0.22s, transform 1.1s ease 0.22s',
               }}>
-                Your palate points to
-              </p>
-              <h1 style={{
-                fontSize: 'clamp(2.2rem, 3.6vw, 3.8rem)',
-                color: archetype.color, lineHeight: 1.0, fontWeight: 400,
-                margin: '0 0 22px', letterSpacing: '-0.01em',
-              }}>
-                {archetype.name}
-              </h1>
-              <p style={{
-                fontSize: 'clamp(0.85rem, 1vw, 0.95rem)',
-                color: '#9a2918', opacity: 0.6, lineHeight: 1.82,
-                margin: '0 0 36px', maxWidth: 380,
-              }}>
-                {archetype.shortDescription}
-              </p>
-              <a
-                href="#coffees"
-                onClick={(e) => { e.preventDefault(); document.getElementById('coffees')?.scrollIntoView({ behavior: 'smooth' }); }}
-                style={{
-                  fontSize: '0.7rem', letterSpacing: '0.22em', textTransform: 'uppercase',
-                  color: archetype.color, textDecoration: 'none',
-                  borderBottom: `1px solid ${archetype.color}55`, paddingBottom: 3,
-                  width: 'fit-content', cursor: 'pointer',
-                  transition: 'border-color 0.2s',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.borderColor = archetype.color)}
-                onMouseLeave={e => (e.currentTarget.style.borderColor = `${archetype.color}55`)}
-              >
-                See your coffees →
-              </a>
+                <p style={{
+                  fontSize: '0.58rem', letterSpacing: '0.3em', textTransform: 'uppercase',
+                  color: archetype.color, margin: '0 0 16px', opacity: 0.7,
+                }}>
+                  YOUR PROFILE{userName.trim() ? ` · ${userName}` : ''}
+                </p>
+                <p style={{
+                  fontSize: 'clamp(0.72rem, 0.9vw, 0.85rem)',
+                  color: '#9a2918', opacity: 0.48, margin: '0 0 6px',
+                }}>
+                  Your palate points to
+                </p>
+                <h1 style={{
+                  fontSize: 'clamp(1.6rem, 2.4vw, 2.9rem)',
+                  color: archetype.color, lineHeight: 1.0, fontWeight: 400,
+                  margin: '0 0 18px', letterSpacing: '-0.01em',
+                }}>
+                  {archetype.name}
+                </h1>
+                <p style={{
+                  fontSize: 'clamp(0.75rem, 0.85vw, 0.85rem)',
+                  color: '#9a2918', opacity: 0.55, lineHeight: 1.85,
+                  margin: '0 0 28px', maxWidth: 260,
+                }}>
+                  {archetype.shortDescription}
+                </p>
+                <a
+                  href="#coffees"
+                  onClick={(e) => { e.preventDefault(); document.getElementById('coffees')?.scrollIntoView({ behavior: 'smooth' }); }}
+                  style={{
+                    fontSize: '0.62rem', letterSpacing: '0.22em', textTransform: 'uppercase',
+                    color: archetype.color, textDecoration: 'none',
+                    borderBottom: `1px solid ${archetype.color}50`, paddingBottom: 3,
+                    width: 'fit-content', cursor: 'pointer',
+                    transition: 'border-color 0.2s',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.borderColor = archetype.color)}
+                  onMouseLeave={e => (e.currentTarget.style.borderColor = `${archetype.color}50`)}
+                >
+                  See your coffees →
+                </a>
+              </div>
             </div>
           </div>
 
-          {/* CURTAIN — wallpaper slides left as revealProgress increases */}
+          {/* CURTAIN — wallpaper slides left, stops at -50% (split-screen midpoint) */}
           <div style={{
             position: 'absolute', inset: 0, zIndex: 10,
-            transform: `translateX(${-(displayProgress * 100)}%)`,
+            transform: `translateX(${curtainX}%)`,
             transition: curtainTransition,
             willChange: 'transform',
             overflow: 'hidden',
           }}>
-            <img
-              src={archetype.wallpaper}
-              alt=""
-              style={{
-                position: 'absolute', inset: 0,
-                width: '100%', height: '100%',
-                objectFit: 'cover', objectPosition: 'center',
-                display: 'block',
-              }}
-            />
-            {/* Gradient overlay for text readability */}
+            {/* Wallpaper as CSS background — preserves proportions, no stretching */}
             <div style={{
               position: 'absolute', inset: 0,
-              background: 'linear-gradient(to top, rgba(12,8,6,0.55) 0%, rgba(12,8,6,0.12) 55%, rgba(12,8,6,0.2) 100%)',
+              backgroundImage: `url(${archetype.wallpaper})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              backgroundRepeat: 'no-repeat',
             }} />
 
-            {/* Curtain text content */}
+            {/* Dark gradient overlay */}
+            <div style={{
+              position: 'absolute', inset: 0,
+              background: 'linear-gradient(to top, rgba(10,6,4,0.6) 0%, rgba(10,6,4,0.1) 50%, rgba(10,6,4,0.15) 100%)',
+            }} />
+
+            {/* Intro text — fades out as curtain begins to move */}
             <motion.div
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
@@ -914,32 +948,34 @@ export default function FlavorQuiz() {
               style={{
                 position: 'absolute',
                 bottom: 'clamp(48px, 8vh, 88px)',
-                left: 'clamp(48px, 7vw, 96px)',
+                left: 'clamp(48px, 6vw, 88px)',
+                opacity: curtainTextAlpha,
+                transition: 'opacity 0.25s ease',
               }}
             >
               <p style={{
-                fontSize: '0.62rem', letterSpacing: '0.28em', textTransform: 'uppercase',
+                fontSize: '0.6rem', letterSpacing: '0.28em', textTransform: 'uppercase',
                 color: 'rgba(242,241,234,0.5)', margin: '0 0 18px',
               }}>
                 {userName.trim() ? `${userName} · ` : ''}Your result
               </p>
               <p style={{
-                fontSize: 'clamp(1.5rem, 2.8vw, 2.6rem)',
-                color: '#f2f1ea', fontWeight: 400, lineHeight: 1.18,
-                margin: '0 0 40px', maxWidth: 520,
+                fontSize: 'clamp(1.4rem, 2.4vw, 2.2rem)',
+                color: '#f2f1ea', fontWeight: 400, lineHeight: 1.2,
+                margin: '0 0 40px', maxWidth: 420,
               }}>
                 Your palate has a direction.
               </p>
 
-              {/* Scroll hint — desktop */}
+              {/* Desktop hint */}
               <p className="hidden md:block" style={{
-                fontSize: '0.6rem', letterSpacing: '0.22em', textTransform: 'uppercase',
-                color: 'rgba(242,241,234,0.38)', margin: 0,
+                fontSize: '0.58rem', letterSpacing: '0.22em', textTransform: 'uppercase',
+                color: 'rgba(242,241,234,0.35)', margin: 0,
               }}>
                 Scroll to reveal
               </p>
 
-              {/* Reveal button — mobile fallback */}
+              {/* Mobile button */}
               <button
                 className="block md:hidden"
                 onClick={() => setRevealForced(true)}
@@ -947,13 +983,9 @@ export default function FlavorQuiz() {
                   background: 'none',
                   border: '1px solid rgba(242,241,234,0.35)',
                   padding: '11px 22px',
-                  color: '#f2f1ea',
-                  fontFamily: 'inherit',
-                  fontSize: '0.65rem',
-                  letterSpacing: '0.22em',
-                  textTransform: 'uppercase',
-                  cursor: 'pointer',
-                  transition: 'border-color 0.2s',
+                  color: '#f2f1ea', fontFamily: 'inherit',
+                  fontSize: '0.65rem', letterSpacing: '0.22em',
+                  textTransform: 'uppercase', cursor: 'pointer',
                 }}
               >
                 Reveal my archetype →
