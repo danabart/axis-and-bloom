@@ -1936,6 +1936,48 @@ GROUP BY a.name, d.name, d.display_order,
          av.min_score, av.ideal_score, av.max_score
 ORDER BY a.name, d.display_order;
 
+-- Bloom Dial: coffee positions on each archetype's dial.
+DROP VIEW IF EXISTS v_dial_positions;
+CREATE VIEW v_dial_positions AS
+SELECT
+  dap.archetype,
+  c.name               AS coffee,
+  c.roaster,
+  c.origin,
+  cd.name              AS dimension,
+  dpv.sort_order       AS position_sort,
+  dpv.label            AS dial_label,
+  dac.has_bloom_dial,
+  dap.is_default,
+  dap.delta_from_default,
+  dap.is_computed,
+  dap.last_computed_at
+FROM dial_archetype_positions dap
+JOIN coffees                  c   ON c.id   = dap.coffee_id
+JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
+JOIN coffee_dimensions        cd  ON cd.id  = dpv.dimension_id
+JOIN dial_archetype_config    dac ON dac.archetype = dap.archetype
+ORDER BY dap.archetype, dpv.sort_order, c.name;
+
+-- Bloom Dial: directional hop graph between coffees.
+DROP VIEW IF EXISTS v_dial_navigation;
+CREATE VIEW v_dial_navigation AS
+SELECT
+  fc.name              AS from_coffee,
+  tc.name              AS to_coffee,
+  cd.name              AS dimension,
+  dcr.direction,
+  dcr.hop_type,
+  dcr.delta,
+  dcr.is_recommended,
+  dcr.confidence,
+  dcr.notes
+FROM dial_coffee_relationships dcr
+JOIN coffees           fc ON fc.id  = dcr.from_coffee_id
+JOIN coffees           tc ON tc.id  = dcr.to_coffee_id
+JOIN coffee_dimensions cd ON cd.id  = dcr.dimension_id
+ORDER BY fc.name, cd.name, dcr.direction;
+
 -- Newsletter subscriber list — all signups with source label, ordered newest first.
 -- Columns: email, first_name, source (human-readable label), subscribed, signed_up_at
 DROP VIEW IF EXISTS v_newsletter_subscribers;
