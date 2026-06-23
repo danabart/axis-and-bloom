@@ -539,4 +539,165 @@ router.post('/coffees/:id/refresh-content', async (req, res) => {
   }
 });
 
+// ── BLOOM DIAL ────────────────────────────────────────────────────────────────
+
+// GET /api/admin/dial/positions — all dial positions with coffee + vocabulary detail
+router.get('/dial/positions', async (_req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT dap.id, dap.archetype, dap.coffee_id, c.name AS coffee,
+             cd.name AS dimension, dpv.id AS vocabulary_id,
+             dpv.sort_order AS position_sort, dpv.label AS dial_label,
+             dap.is_default, dap.is_computed
+      FROM dial_archetype_positions dap
+      JOIN coffees                  c   ON c.id   = dap.coffee_id
+      JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
+      JOIN coffee_dimensions        cd  ON cd.id  = dpv.dimension_id
+      ORDER BY dap.archetype, dpv.sort_order, c.name
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[admin/dial/positions GET]', err);
+    res.status(500).json({ error: 'Failed to fetch dial positions' });
+  }
+});
+
+// GET /api/admin/dial/navigation — full hop graph with coffee names
+router.get('/dial/navigation', async (_req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT dcr.id, dcr.from_coffee_id, fc.name AS from_coffee,
+             dcr.to_coffee_id, tc.name AS to_coffee,
+             dcr.dimension_id, cd.name AS dimension,
+             dcr.direction, dcr.hop_type, dcr.delta,
+             dcr.is_recommended, dcr.confidence, dcr.notes
+      FROM dial_coffee_relationships dcr
+      JOIN coffees           fc ON fc.id  = dcr.from_coffee_id
+      JOIN coffees           tc ON tc.id  = dcr.to_coffee_id
+      JOIN coffee_dimensions cd ON cd.id  = dcr.dimension_id
+      ORDER BY fc.name, cd.name, dcr.direction
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[admin/dial/navigation GET]', err);
+    res.status(500).json({ error: 'Failed to fetch dial navigation' });
+  }
+});
+
+// GET /api/admin/dial/vocabulary — all vocabulary options with dimension name
+router.get('/dial/vocabulary', async (_req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT dpv.id, dpv.archetype, dpv.sort_order, dpv.label, dpv.dimension_id,
+             cd.name AS dimension
+      FROM dial_position_vocabulary dpv
+      JOIN coffee_dimensions cd ON cd.id = dpv.dimension_id
+      ORDER BY dpv.archetype, dpv.sort_order
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[admin/dial/vocabulary GET]', err);
+    res.status(500).json({ error: 'Failed to fetch dial vocabulary' });
+  }
+});
+
+// POST /api/admin/dial/positions — add or update a coffee's position on the dial
+router.post('/dial/positions', async (req, res) => {
+  const { archetype, coffee_id, vocabulary_id, is_default } = req.body;
+  if (!archetype || !coffee_id || !vocabulary_id) {
+    res.status(400).json({ error: 'archetype, coffee_id, and vocabulary_id are required' }); return;
+  }
+  try {
+    const result = await db.query(
+      `INSERT INTO dial_archetype_positions (archetype, coffee_id, vocabulary_id, is_default)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (archetype, coffee_id) DO UPDATE
+         SET vocabulary_id = EXCLUDED.vocabulary_id, is_default = EXCLUDED.is_default
+       RETURNING id`,
+      [archetype, coffee_id, vocabulary_id, is_default ?? false]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('[admin/dial/positions POST]', err);
+    res.status(500).json({ error: 'Failed to save dial position' });
+  }
+});
+
+// PATCH /api/admin/dial/positions/:id — update is_default flag
+router.patch('/dial/positions/:id', async (req, res) => {
+  const { id } = req.params;
+  const { is_default } = req.body;
+  if (typeof is_default !== 'boolean') {
+    res.status(400).json({ error: 'is_default (boolean) is required' }); return;
+  }
+  try {
+    const result = await db.query(
+      `UPDATE dial_archetype_positions SET is_default = $1 WHERE id = $2 RETURNING id`,
+      [is_default, id]
+    );
+    if (result.rowCount === 0) { res.status(404).json({ error: 'Position not found' }); return; }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[admin/dial/positions PATCH]', err);
+    res.status(500).json({ error: 'Failed to update position' });
+  }
+});
+
+// DELETE /api/admin/dial/positions/:id — remove a coffee from the dial
+router.delete('/dial/positions/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await db.query(
+      `DELETE FROM dial_archetype_positions WHERE id = $1 RETURNING id`, [id]
+    );
+    if (result.rowCount === 0) { res.status(404).json({ error: 'Position not found' }); return; }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[admin/dial/positions DELETE]', err);
+    res.status(500).json({ error: 'Failed to delete position' });
+  }
+});
+
+// POST /api/admin/dial/relationships — add a hop between two coffees
+router.post('/dial/relationships', async (req, res) => {
+  const { from_coffee_id, to_coffee_id, dimension_id, direction, hop_type, delta, is_recommended, confidence, notes } = req.body;
+  if (!from_coffee_id || !to_coffee_id || !dimension_id || !direction || !hop_type) {
+    res.status(400).json({ error: 'from_coffee_id, to_coffee_id, dimension_id, direction, and hop_type are required' }); return;
+  }
+  try {
+    const result = await db.query(
+      `INSERT INTO dial_coffee_relationships
+         (from_coffee_id, to_coffee_id, dimension_id, direction, delta, hop_type, is_recommended, confidence, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (from_coffee_id, to_coffee_id, dimension_id, direction) DO NOTHING
+       RETURNING id`,
+      [from_coffee_id, to_coffee_id, dimension_id,
+       direction, delta ?? null, hop_type,
+       is_recommended ?? false, confidence ?? 'medium', notes ?? null]
+    );
+    if (result.rowCount === 0) {
+      res.status(409).json({ error: 'A relationship with this from/to/dimension/direction already exists' }); return;
+    }
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('[admin/dial/relationships POST]', err);
+    res.status(500).json({ error: 'Failed to save relationship' });
+  }
+});
+
+// DELETE /api/admin/dial/relationships/:id — remove a hop
+router.delete('/dial/relationships/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await db.query(
+      `DELETE FROM dial_coffee_relationships WHERE id = $1 RETURNING id`, [id]
+    );
+    if (result.rowCount === 0) { res.status(404).json({ error: 'Relationship not found' }); return; }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[admin/dial/relationships DELETE]', err);
+    res.status(500).json({ error: 'Failed to delete relationship' });
+  }
+});
+
 export default router;

@@ -8,6 +8,7 @@ const NAV = [
   { to: '/admin/cupping',      label: 'Score Entry'               },
   { to: '/admin/flavor-wheel', label: 'Flavor Wheel'              },
   { to: '/admin/roasters',     label: 'Roasteries'                },
+  { to: '/admin/dial',         label: 'Bloom Dial'                },
 ];
 
 export default function AdminLayout() {

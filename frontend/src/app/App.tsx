@@ -17,6 +17,7 @@ import AdminSessions from './components/admin/AdminSessions';
 import AdminFlavorWheel from './components/admin/AdminFlavorWheel';
 import AdminRoasters from './components/admin/AdminRoasters';
 import AdminCupping from './components/admin/AdminCupping';
+import AdminDial from './components/admin/AdminDial';
 import CoffeesPage from './components/CoffeesPage';
 import JoinHousehold from './components/JoinHousehold';
 import TheAxis from './components/TheAxis';
@@ -52,6 +53,7 @@ export default function App() {
             <Route path="flavor-wheel" element={<AdminFlavorWheel />} />
             <Route path="roasters" element={<AdminRoasters />} />
             <Route path="cupping" element={<AdminCupping />} />
+            <Route path="dial" element={<AdminDial />} />
           </Route>
 
           {/* ── Public site — shared nav + footer ── */}
