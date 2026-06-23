@@ -61,6 +61,23 @@ interface BranchQuestion {
   answers: BranchAnswer[];
 }
 
+interface BloomDialOption {
+  id: string;
+  label: string;
+  description: string;
+  coffeeMapping: string;
+  role: string;
+  bestBrew: string;
+  alsoBeautifulAs: string;
+  additionalSupportedMethods: string[];
+}
+
+interface BloomDialConfig {
+  archetype: string;
+  color: string;
+  options: BloomDialOption[];
+}
+
 // ─── Static question images (keyed by q_number) ───────────────────────────────
 
 const QUESTION_IMAGES: Record<number, string> = {
@@ -204,6 +221,55 @@ const ARCHETYPES: Record<ArchetypeKey, {
   },
 };
 
+// ─── Bloom Dial config ────────────────────────────────────────────────────────
+
+const BLOOM_DIAL_CHOCOLATE: BloomDialConfig = {
+  archetype: 'Chocolate & Nutty',
+  color: '#a54c2d',
+  options: [
+    {
+      id: 'good-morning',
+      label: 'Good Morning',
+      description: 'Easygoing, polished, and made for a gentle start.',
+      coffeeMapping: 'Guatemala',
+      role: 'Soft / Classic Bridge',
+      bestBrew: 'Pour Over',
+      alsoBeautifulAs: 'Drip Coffee',
+      additionalSupportedMethods: ['Espresso', 'French Press'],
+    },
+    {
+      id: 'theres-no-place-like-home',
+      label: "There's No Place Like Home",
+      description: 'Familiar, grounding, and deeply reassuring.',
+      coffeeMapping: 'Brazil',
+      role: 'Classic Chocolate & Nutty',
+      bestBrew: 'Drip Coffee',
+      alsoBeautifulAs: 'Cold Brew',
+      additionalSupportedMethods: ['French Press', 'Milk Drinks', 'Espresso'],
+    },
+    {
+      id: 'working-late',
+      label: 'Working Late',
+      description: 'Focused, full, and made to carry you through.',
+      coffeeMapping: '6Bean Blend / Espresso',
+      role: 'Dark & Toasted / Espresso-oriented',
+      bestBrew: 'Espresso',
+      alsoBeautifulAs: 'Milk Drinks',
+      additionalSupportedMethods: ['French Press'],
+    },
+    {
+      id: 'deep-roots',
+      label: 'Deep Roots',
+      description: 'Grounded, layered, and a little more adventurous.',
+      coffeeMapping: 'Bali',
+      role: 'Deep / Earthy crossover',
+      bestBrew: 'French Press',
+      alsoBeautifulAs: 'Drip Coffee',
+      additionalSupportedMethods: ['Cold Brew', 'Milk Drinks'],
+    },
+  ],
+};
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function FlavorQuiz() {
@@ -242,6 +308,11 @@ export default function FlavorQuiz() {
   const [revealProgress, setRevealProgress] = useState(0);
   const [revealForced, setRevealForced]     = useState(false);
   const revealContainerRef = useRef<HTMLDivElement>(null);
+
+  // Bloom Dial state
+  const [selectedDialOption, setSelectedDialOption] = useState<string | null>(null);
+  const dialRef = useRef<HTMLDivElement>(null);
+  const [dialVisible, setDialVisible] = useState(false);
 
   const displayProgress = revealForced ? 1 : revealProgress;
 
@@ -314,6 +385,24 @@ export default function FlavorQuiz() {
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, [isComplete]);
+
+  // Bloom Dial visibility — IntersectionObserver fires when section enters viewport
+  useEffect(() => {
+    if (!isComplete || archetypeKey !== 'chocolate') return;
+    const el = dialRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setDialVisible(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.15 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isComplete, archetypeKey]);
 
   const archetype = ARCHETYPES[archetypeKey];
 
@@ -396,6 +485,8 @@ export default function FlavorQuiz() {
     setArchetypeKey('balanced');
     setRevealProgress(0);
     setRevealForced(false);
+    setSelectedDialOption(null);
+    setDialVisible(false);
   };
 
   // ── Loading ──────────────────────────────────────────────────────────────────
@@ -1038,6 +1129,180 @@ export default function FlavorQuiz() {
 
         </div>
       </div>
+
+      {/* ── BLOOM DIAL (Chocolate & Nutty only) ──────────────────────────────── */}
+      {archetypeKey === 'chocolate' && (
+        <section
+          ref={dialRef}
+          style={{ backgroundColor: '#f2f1ea' }}
+          className="px-8 pt-20 pb-24 sm:px-10 lg:pt-24 lg:pb-28 lg:pl-[44%] lg:pr-24"
+        >
+          <div
+            style={{
+              maxWidth: 520,
+              opacity: dialVisible ? 1 : 0,
+              transform: dialVisible ? 'translateY(0)' : 'translateY(12px)',
+              transition: 'opacity 0.45s ease, transform 0.45s ease',
+            }}
+          >
+            {/* Eyebrow */}
+            <p style={{
+              fontSize: '0.55rem', letterSpacing: '0.32em', textTransform: 'uppercase',
+              color: '#a54c2d', margin: '0 0 20px', opacity: 0.6,
+            }}>
+              YOUR BLOOM DIAL
+            </p>
+
+            {/* Main prompt */}
+            <h2 style={{
+              fontSize: 'clamp(1.5rem, 2.2vw, 2.2rem)',
+              color: '#a54c2d', lineHeight: 1.15, fontWeight: 400,
+              margin: '0 0 12px', letterSpacing: '-0.01em',
+            }}>
+              How do you want Chocolate & Nutty to bloom today?
+            </h2>
+
+            {/* Supporting copy */}
+            <p style={{
+              fontSize: 'clamp(0.78rem, 0.88vw, 0.86rem)',
+              color: '#9a2918', opacity: 0.52, lineHeight: 1.82,
+              margin: '0 0 36px',
+            }}>
+              Choose the expression of this archetype that feels most like you right now.
+            </p>
+
+            {/* Four option bars */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {BLOOM_DIAL_CHOCOLATE.options.map(option => {
+                const isSelected = selectedDialOption === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    onClick={() => setSelectedDialOption(option.id)}
+                    onMouseEnter={e => {
+                      if (!isSelected) {
+                        e.currentTarget.style.backgroundColor = 'rgba(165,76,45,0.09)';
+                        e.currentTarget.style.borderColor = 'rgba(165,76,45,0.4)';
+                      }
+                    }}
+                    onMouseLeave={e => {
+                      if (!isSelected) {
+                        e.currentTarget.style.backgroundColor = '#ebebe3';
+                        e.currentTarget.style.borderColor = 'rgba(165,76,45,0.22)';
+                      }
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 14,
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '15px 20px',
+                      backgroundColor: isSelected ? '#a54c2d' : '#ebebe3',
+                      border: `1px solid ${isSelected ? '#a54c2d' : 'rgba(165,76,45,0.22)'}`,
+                      cursor: 'pointer',
+                      transition: 'background-color 0.28s ease, border-color 0.28s ease',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    {/* Selection indicator */}
+                    <div style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      marginTop: 5,
+                      flexShrink: 0,
+                      backgroundColor: isSelected ? '#ebebe3' : 'transparent',
+                      border: `1px solid ${isSelected ? '#ebebe3' : 'rgba(165,76,45,0.35)'}`,
+                      transition: 'background-color 0.28s ease, border-color 0.28s ease',
+                    }} />
+
+                    <div style={{ flex: 1 }}>
+                      <p style={{
+                        fontSize: '0.63rem', letterSpacing: '0.22em', textTransform: 'uppercase',
+                        color: isSelected ? '#ebebe3' : '#9a2918',
+                        margin: '0 0 5px',
+                        transition: 'color 0.28s ease',
+                      }}>
+                        {option.label}
+                      </p>
+                      <p style={{
+                        fontSize: 'clamp(0.77rem, 0.84vw, 0.82rem)',
+                        color: isSelected ? 'rgba(235,235,227,0.78)' : 'rgba(154,41,24,0.62)',
+                        lineHeight: 1.55,
+                        margin: 0,
+                        transition: 'color 0.28s ease',
+                      }}>
+                        {option.description}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Brewing guidance — reveals on selection */}
+            <div style={{
+              overflow: 'hidden',
+              maxHeight: selectedDialOption ? 120 : 0,
+              opacity: selectedDialOption ? 1 : 0,
+              marginTop: selectedDialOption ? 18 : 0,
+              transition: 'max-height 0.35s ease, opacity 0.35s ease, margin-top 0.35s ease',
+            }}>
+              {selectedDialOption && (() => {
+                const opt = BLOOM_DIAL_CHOCOLATE.options.find(o => o.id === selectedDialOption)!;
+                return (
+                  <div style={{
+                    padding: '13px 18px',
+                    border: '1px solid rgba(165,76,45,0.15)',
+                    backgroundColor: 'rgba(165,76,45,0.04)',
+                  }}>
+                    <p style={{
+                      fontSize: '0.71rem', letterSpacing: '0.04em',
+                      color: '#9a2918', opacity: 0.68,
+                      margin: 0, lineHeight: 1.9,
+                    }}>
+                      Best enjoyed as: {opt.bestBrew}<br />
+                      Also beautiful as: {opt.alsoBeautifulAs}
+                    </p>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* CTA — reveals after dial selection */}
+            <div style={{
+              marginTop: 28,
+              opacity: selectedDialOption ? 1 : 0,
+              transform: selectedDialOption ? 'translateY(0)' : 'translateY(6px)',
+              pointerEvents: selectedDialOption ? 'auto' : 'none',
+              transition: 'opacity 0.35s ease, transform 0.35s ease',
+            }}>
+              <button
+                onClick={() => {
+                  if (selectedDialOption) {
+                    navigate(`/coffees?archetype=chocolate&dial=${selectedDialOption}`);
+                  }
+                }}
+                onMouseEnter={e => (e.currentTarget.style.opacity = '0.82')}
+                onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+                style={{
+                  display: 'inline-block',
+                  fontSize: '0.62rem', letterSpacing: '0.26em', textTransform: 'uppercase',
+                  color: '#f2f1ea', backgroundColor: '#a54c2d',
+                  border: 'none',
+                  padding: '13px 24px',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  transition: 'opacity 0.2s',
+                }}
+              >
+                SEE YOUR COFFEES →
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
 
     </div>
   );
