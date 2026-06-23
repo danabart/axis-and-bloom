@@ -103,6 +103,8 @@ It was merged from the original Supabase design plus adaptations for Firebase Au
 | `v_newsletter_subscribers` | All newsletter signups with human-readable source label. Columns: `email`, `first_name`, `source` (e.g. `Pre-Launch Popup`), `subscribed`, `signed_up_at`. Ordered newest first. |
 | `v_archetype_vectors` | Archetype dimension targets — one row per archetype × dimension. Columns: `archetype`, `dimension`, `display_order`, `min_score`, `ideal_score`, `max_score`. Joins `archetype_vector` to `archetype` (FK) and `coffee_dimensions` (via `md5(name)::uuid`). |
 | `v_archetype_dimension_comparison` | Target vs actual — same as `v_archetype_vectors` plus `avg_actual` (average of actual cupping scores for coffees assigned to that archetype) and `coffee_count`. Bridges `archetype_enum` → `archetype.name` via CASE. `avg_actual` is NULL for archetypes with no cupping data yet. |
+| `v_dial_positions` | Current coffee positions on each archetype's Bloom Dial. Columns: `archetype`, `coffee`, `roaster`, `origin`, `dimension`, `position_sort`, `dial_label`, `has_bloom_dial`, `is_default`, `delta_from_default`, `is_computed`, `last_computed_at`. Joins `dial_archetype_positions` → `coffees`, `dial_position_vocabulary`, `coffee_dimensions`, `dial_archetype_config`. |
+| `v_dial_navigation` | Directional hop graph between coffees. Columns: `from_coffee`, `to_coffee`, `dimension`, `direction` (`more`/`less`), `hop_type` (`within_archetype`/`bridge_archetype`), `delta`, `is_recommended`, `confidence`, `notes`. Joins `dial_coffee_relationships` → `coffees` (×2), `coffee_dimensions`. |
 
 ---
 
@@ -393,4 +395,31 @@ ORDER BY q.q_number;
 ```sql
 SELECT * FROM dial_archetype_config;
 SELECT archetype, dimension_id, sort_order, label FROM dial_position_vocabulary ORDER BY archetype, sort_order;
+```
+
+### Bloom Dial — coffee positions on the dial
+```sql
+-- All positions across all archetypes
+SELECT * FROM v_dial_positions;
+
+-- One archetype only
+SELECT * FROM v_dial_positions WHERE archetype = 'balanced_sweet';
+
+-- Default coffee per archetype
+SELECT archetype, coffee, dimension, dial_label FROM v_dial_positions WHERE is_default = true;
+```
+
+### Bloom Dial — navigation graph
+```sql
+-- Full hop graph
+SELECT * FROM v_dial_navigation;
+
+-- From a specific coffee
+SELECT * FROM v_dial_navigation WHERE from_coffee = 'Crosshatch';
+
+-- Bridge hops only (cross-archetype navigation)
+SELECT * FROM v_dial_navigation WHERE hop_type = 'bridge_archetype';
+
+-- Recommended hops only
+SELECT * FROM v_dial_navigation WHERE is_recommended = true ORDER BY from_coffee, direction;
 ```
