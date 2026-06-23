@@ -787,23 +787,30 @@ export default function FlavorQuiz() {
 
   // ── Results screen ───────────────────────────────────────────────────────────
   //
-  // Scroll phases (container = 500vh, sticky = 100vh, scrollable = 400vh):
-  //   0 → OPEN_END  (14%  = 56vh)  curtain slides from 0% to -50%
-  //   OPEN_END → 1  (86% = 344vh)  curtain holds at -50% — long editorial pause
+  // 280vh container · 100vh sticky · 180vh scrollable
+  //   0.00–0.15  intro: full wallpaper + hint copy
+  //   0.15–0.65  curtain slides from translateX(0) to translateX(−75%)
+  //   0.65–0.80  brief hold at 25vw strip
+  //   0.80–1.00  pin releases, scroll continues
   //
-  const OPEN_END = 0.14;
+  const INTRO_END = 0.15;
+  const OPEN_END  = 0.65;
 
-  // Single progress value whether driven by scroll or mobile button
   const eff = revealForced ? 1 : revealProgress;
 
-  // Curtain X: 0 → -50 during open phase, then pinned at -50
-  const curtainX = eff < OPEN_END ? -(eff / OPEN_END) * 50 : -50;
+  // How far through the opening animation (0 → 1)
+  const openProgress = eff <= INTRO_END
+    ? 0
+    : Math.min(1, (eff - INTRO_END) / (OPEN_END - INTRO_END));
 
-  // Revealed content appears as curtain opens
-  const contentVisible = eff > OPEN_END * 0.55;
+  // Curtain translateX: 0 → −75%
+  const curtainX = -75 * openProgress;
 
-  // Intro text fades out quickly once curtain starts moving
-  const curtainTextAlpha = Math.max(0, 1 - eff / 0.07);
+  // Bag + text appear once curtain has opened noticeably
+  const contentVisible = openProgress > 0.35;
+
+  // Intro copy fades as soon as scrolling begins
+  const curtainTextAlpha = Math.max(0, 1 - eff / INTRO_END);
 
   const curtainTransition = revealForced
     ? 'transform 1.1s cubic-bezier(0.16, 1, 0.3, 1)'
@@ -814,87 +821,87 @@ export default function FlavorQuiz() {
 
       {/* ── SECTION 1: REVEAL HERO ──────────────────────────────────────────── */}
       {/*
-        500vh container — sticky 100vh inner, 400vh of scroll to work with.
-        Opening phase: 56vh. Hold (split-screen digest): 344vh. Very generous pause.
+        280vh container · 100vh sticky · 180vh scrollable
+        Opening: ~90vh. Hold: ~27vh. Release: ~36vh.
       */}
-      <div ref={revealContainerRef} style={{ position: 'relative', height: '500vh' }}>
+      <div ref={revealContainerRef} style={{ position: 'relative', height: '280vh' }}>
         <div style={{ position: 'sticky', top: 0, height: '100vh', overflow: 'hidden' }}>
 
-          {/* REVEALED LAYER — all content lives in the RIGHT half */}
+          {/* BASE LAYER — cream bg + content aligned to right 75% */}
           <div style={{
             position: 'absolute', inset: 0,
-            display: 'flex',
             backgroundColor: '#f2f1ea',
+            display: 'flex',
           }}>
-            {/* Left half — empty, will be covered by the curtain */}
-            <div style={{ width: '50%' }} />
+            {/* Left 25% spacer — sits behind the wallpaper strip when curtain is open */}
+            <div style={{ width: '25%', flexShrink: 0 }} />
 
-            {/* Right half — bag + text, split 52/48 */}
+            {/* Right 75% — bag + result copy */}
             <div style={{
-              width: '50%',
+              flex: 1,
               display: 'flex',
-              alignItems: 'stretch',
+              alignItems: 'center',
               borderLeft: '1px solid rgba(154,41,24,0.07)',
             }}>
 
-              {/* Bag — left portion of right half */}
+              {/* Bag */}
               <div style={{
                 flex: '0 0 52%',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                padding: 'clamp(32px, 5vh, 56px) 0 clamp(32px, 5vh, 56px) clamp(16px, 2.5vw, 32px)',
+                padding: 'clamp(24px, 4vh, 48px) clamp(8px, 1.5vw, 20px) clamp(24px, 4vh, 48px) clamp(16px, 2.5vw, 32px)',
               }}>
                 <img
                   src={archetype.bag}
                   alt={archetype.name}
                   style={{
-                    maxHeight: '78vh',
+                    maxHeight: '82vh',
                     maxWidth: '100%',
                     width: 'auto',
                     objectFit: 'contain',
                     display: 'block',
                     opacity: contentVisible ? 1 : 0,
-                    transform: contentVisible ? 'translateY(0) scale(1)' : 'translateY(24px) scale(0.96)',
-                    transition: 'opacity 1.1s ease, transform 1.1s ease',
+                    transform: contentVisible ? 'translateY(0) scale(1)' : 'translateY(20px) scale(0.97)',
+                    transition: 'opacity 0.9s ease, transform 0.9s ease',
                   }}
                 />
               </div>
 
-              {/* Text — right portion of right half */}
+              {/* Result copy */}
               <div style={{
                 flex: '0 0 48%',
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'center',
-                padding: '0 clamp(20px, 3vw, 48px) 0 clamp(10px, 1.5vw, 20px)',
+                padding: '0 clamp(20px, 3vw, 48px) 0 clamp(8px, 1.5vw, 16px)',
                 opacity: contentVisible ? 1 : 0,
-                transform: contentVisible ? 'translateY(0)' : 'translateY(16px)',
-                transition: 'opacity 1.1s ease 0.22s, transform 1.1s ease 0.22s',
+                transform: contentVisible ? 'translateY(0)' : 'translateY(14px)',
+                transition: 'opacity 0.9s ease 0.18s, transform 0.9s ease 0.18s',
               }}>
                 <p style={{
                   fontSize: '0.58rem', letterSpacing: '0.3em', textTransform: 'uppercase',
-                  color: archetype.color, margin: '0 0 16px', opacity: 0.7,
+                  color: archetype.color, margin: '0 0 14px', opacity: 0.7,
                 }}>
                   YOUR PROFILE{userName.trim() ? ` · ${userName}` : ''}
                 </p>
                 <p style={{
                   fontSize: 'clamp(0.72rem, 0.9vw, 0.85rem)',
-                  color: '#9a2918', opacity: 0.48, margin: '0 0 6px',
+                  color: '#9a2918', opacity: 0.48, margin: '0 0 5px',
                 }}>
                   Your palate points to
                 </p>
                 <h1 style={{
-                  fontSize: 'clamp(1.6rem, 2.4vw, 2.9rem)',
+                  fontSize: 'clamp(1.6rem, 2.2vw, 2.6rem)',
                   color: archetype.color, lineHeight: 1.0, fontWeight: 400,
-                  margin: '0 0 18px', letterSpacing: '-0.01em',
+                  margin: '0 0 16px', letterSpacing: '-0.01em',
                 }}>
                   {archetype.name}
                 </h1>
                 <p style={{
-                  fontSize: 'clamp(0.75rem, 0.85vw, 0.85rem)',
+                  fontSize: 'clamp(0.75rem, 0.82vw, 0.82rem)',
                   color: '#9a2918', opacity: 0.55, lineHeight: 1.85,
-                  margin: '0 0 28px', maxWidth: 260,
+                  margin: '0 0 26px', maxWidth: 250,
                 }}>
                   {archetype.shortDescription}
                 </p>
@@ -917,7 +924,7 @@ export default function FlavorQuiz() {
             </div>
           </div>
 
-          {/* CURTAIN — wallpaper slides left, stops at -50% (split-screen midpoint) */}
+          {/* CURTAIN — wallpaper slides left, holds as a ~25vw strip */}
           <div style={{
             position: 'absolute', inset: 0, zIndex: 10,
             transform: `translateX(${curtainX}%)`,
@@ -925,22 +932,22 @@ export default function FlavorQuiz() {
             willChange: 'transform',
             overflow: 'hidden',
           }}>
-            {/* Wallpaper as CSS background — preserves proportions, no stretching */}
+            {/* Wallpaper: tiling pattern, never stretched */}
             <div style={{
               position: 'absolute', inset: 0,
               backgroundImage: `url(${archetype.wallpaper})`,
-              backgroundSize: 'cover',
+              backgroundRepeat: 'repeat',
+              backgroundSize: 'auto',
               backgroundPosition: 'center',
-              backgroundRepeat: 'no-repeat',
             }} />
 
-            {/* Dark gradient overlay */}
+            {/* Dark gradient */}
             <div style={{
               position: 'absolute', inset: 0,
-              background: 'linear-gradient(to top, rgba(10,6,4,0.6) 0%, rgba(10,6,4,0.1) 50%, rgba(10,6,4,0.15) 100%)',
+              background: 'linear-gradient(to top, rgba(10,6,4,0.6) 0%, rgba(10,6,4,0.08) 50%, rgba(10,6,4,0.12) 100%)',
             }} />
 
-            {/* Intro text — fades out as curtain begins to move */}
+            {/* Intro text — fades out as curtain begins to open */}
             <motion.div
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
