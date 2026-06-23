@@ -1346,6 +1346,7 @@ The same operations are also available as API endpoints (requires an existing ad
 | `/admin/cupping` | Score Entry | Pick session + coffee → **taster tabs** at top (one tab per taster who scored that coffee, "+ Add Taster" for new entry); each tab shows a read-only score card with "✏️ Edit"; edit mode shows 12 dimensions + SCA descriptor picker + save; new coffee goes straight to edit mode; "New Session" link in header |
 | `/admin/flavor-wheel` | Flavor Wheel | Summary stats cards (total mentions, unique descriptors, top 3, per-source counts) + per-coffee descriptor table grouped by source (Internal · Roastery · Client) |
 | `/admin/roasters` | Roasteries | Roastery card list + "Add Roastery" form + active/inactive toggle + "✏️ Edit" inline form per card; fields: name, contact person, email, phone, website, address, fulfillment hours, API endpoint, notes |
+| `/admin/dial` | Bloom Dial | Two-tab page. **Dial Positions** tab: coffees on each archetype's dial grouped by archetype — shows dimension, vocabulary label, default badge (clickable to toggle), manual/computed source, remove button; inline "Add Position" form (coffee → archetype → vocabulary filtered by archetype → is_default checkbox). **Navigation Hops** tab: directional hop graph between coffees; inline "Add Hop" form (from/to coffee, dimension, direction, hop type, confidence, delta, recommended, notes); remove button per row. |
 
 ### Dropdown values (lookup_value table)
 All select inputs in admin forms are driven by the `lookup_value` table — not hardcoded in the frontend. The `useAdminLookups` hook fetches all categories in one call (`GET /api/admin/lookups`) and memoises them for the session.
@@ -1669,6 +1670,38 @@ The Navigation component was not reading `isAdmin` from `AuthContext`, so no "Ad
 - `list_admins()` — returns all users currently holding the admin role
 
 At sign-in, `AuthContext` calls `GET /api/users/profile`; the backend joins `user_profile → user_type` and returns `isAdmin: true` if `ut.name = 'admin'`. The nav link only appears once that resolves.
+
+---
+
+### 61. Bloom Dial admin UI + backend API
+
+Full management UI for the Bloom Dial feature — positions and navigation graph.
+
+**Backend — 7 new endpoints in `admin.ts`** (all protected by `requireAdmin`):
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/api/admin/dial/positions` | All positions from `dial_archetype_positions` with coffee name, dimension, vocabulary label |
+| GET | `/api/admin/dial/navigation` | Full hop graph from `dial_coffee_relationships` with coffee names |
+| GET | `/api/admin/dial/vocabulary` | All vocabulary options with dimension name — used to populate the add-position form |
+| POST | `/api/admin/dial/positions` | Add or update a coffee's position (upserts on `archetype + coffee_id` conflict) |
+| PATCH | `/api/admin/dial/positions/:id` | Toggle `is_default` |
+| DELETE | `/api/admin/dial/positions/:id` | Remove a coffee from the dial |
+| POST | `/api/admin/dial/relationships` | Add a directional hop (returns 409 if from/to/dimension/direction already exists) |
+| DELETE | `/api/admin/dial/relationships/:id` | Remove a hop |
+
+**Frontend — `AdminDial.tsx` at `/admin/dial`:**
+- Two tabs: Dial Positions / Navigation Hops
+- Positions grouped by archetype (one section per archetype, shows count)
+- Vocabulary dropdown filters by selected archetype — only shows positions valid for that archetype
+- Dimension dropdown for hops filtered to the 4 dial-relevant dimensions: Acidity (5), Bitterness (6), Body (7), Savory/Depth (9)
+- Default toggle updates immediately via PATCH without a full page reload
+
+**Files changed:**
+- `backend/src/routes/admin.ts` — 7 new routes
+- `frontend/src/app/components/admin/AdminDial.tsx` — new page component
+- `frontend/src/app/App.tsx` — `/admin/dial` route
+- `frontend/src/app/components/admin/AdminLayout.tsx` — "Bloom Dial" nav link
 
 ---
 
