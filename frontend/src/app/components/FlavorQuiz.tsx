@@ -803,18 +803,18 @@ export default function FlavorQuiz() {
     ? 0
     : Math.min(1, (eff - INTRO_END) / (OPEN_END - INTRO_END));
 
-  // Curtain translateX: 0 → −75%
-  const curtainX = -75 * openProgress;
+  // Curtain viewport narrows: 100% → 25% (pattern stays anchored; only the viewport shrinks)
+  const curtainWidth = 100 - 75 * openProgress;
 
-  // Bag + text appear once curtain has opened noticeably
-  const contentVisible = openProgress > 0.35;
+  // Bag + text fade in as curtain approaches its final position
+  const contentVisible = openProgress > 0.6;
 
-  // Intro copy fades as soon as scrolling begins
+  // Intro copy fades out before curtain begins narrowing
   const curtainTextAlpha = Math.max(0, 1 - eff / INTRO_END);
 
   const curtainTransition = revealForced
-    ? 'transform 1.1s cubic-bezier(0.16, 1, 0.3, 1)'
-    : 'transform 0.12s ease-out';
+    ? 'width 1.1s cubic-bezier(0.16, 1, 0.3, 1)'
+    : 'width 0.12s ease-out';
 
   return (
     <div style={{ backgroundColor: '#f2f1ea', minHeight: '100vh' }}>
@@ -822,132 +822,138 @@ export default function FlavorQuiz() {
       {/* ── SECTION 1: REVEAL HERO ──────────────────────────────────────────── */}
       {/*
         280vh container · 100vh sticky · 180vh scrollable
-        Opening: ~90vh. Hold: ~27vh. Release: ~36vh.
+        Opening: ~90vh. Brief hold: ~27vh. Release: ~36vh.
       */}
       <div ref={revealContainerRef} style={{ position: 'relative', height: '280vh' }}>
         <div style={{ position: 'sticky', top: 0, height: '100vh', overflow: 'hidden' }}>
 
-          {/* BASE LAYER — cream bg + content aligned to right 75% */}
+          {/*
+            BASE LAYER — off-white ground + 3-column composition
+            | 25% spacer | 33% bag | remaining text |
+            The 25% spacer aligns with the wallpaper strip that remains after the curtain opens.
+          */}
           <div style={{
             position: 'absolute', inset: 0,
             backgroundColor: '#f2f1ea',
             display: 'flex',
+            alignItems: 'center',
           }}>
-            {/* Left 25% spacer — sits behind the wallpaper strip when curtain is open */}
-            <div style={{ width: '25%', flexShrink: 0 }} />
 
-            {/* Right 75% — bag + result copy */}
+            {/* 25% spacer — sits underneath the wallpaper strip */}
+            <div style={{ width: '25%', flexShrink: 0, alignSelf: 'stretch' }} />
+
+            {/* Thin edge line at the 25% boundary */}
+            <div style={{ width: 1, alignSelf: 'stretch', flexShrink: 0, backgroundColor: 'rgba(154,41,24,0.07)' }} />
+
+            {/* Bag — 33% of viewport */}
+            <div style={{
+              width: '33%',
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 'clamp(24px, 4vh, 48px) clamp(12px, 2vw, 28px)',
+            }}>
+              <img
+                src={archetype.bag}
+                alt={archetype.name}
+                style={{
+                  maxHeight: '55vh',
+                  maxWidth: '100%',
+                  width: 'auto',
+                  objectFit: 'contain',
+                  display: 'block',
+                  opacity: contentVisible ? 1 : 0,
+                  transform: contentVisible ? 'translateY(0) scale(1)' : 'translateY(20px) scale(0.97)',
+                  transition: 'opacity 0.85s ease, transform 0.85s ease',
+                }}
+              />
+            </div>
+
+            {/* Result copy — remaining width */}
             <div style={{
               flex: 1,
               display: 'flex',
-              alignItems: 'center',
-              borderLeft: '1px solid rgba(154,41,24,0.07)',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              padding: '0 clamp(24px, 4vw, 64px) 0 clamp(16px, 2.5vw, 32px)',
+              opacity: contentVisible ? 1 : 0,
+              transform: contentVisible ? 'translateY(0)' : 'translateY(14px)',
+              transition: 'opacity 0.85s ease 0.2s, transform 0.85s ease 0.2s',
             }}>
-
-              {/* Bag */}
-              <div style={{
-                flex: '0 0 52%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: 'clamp(24px, 4vh, 48px) clamp(8px, 1.5vw, 20px) clamp(24px, 4vh, 48px) clamp(16px, 2.5vw, 32px)',
+              <p style={{
+                fontSize: '0.58rem', letterSpacing: '0.3em', textTransform: 'uppercase',
+                color: archetype.color, margin: '0 0 14px', opacity: 0.7,
               }}>
-                <img
-                  src={archetype.bag}
-                  alt={archetype.name}
-                  style={{
-                    maxHeight: '82vh',
-                    maxWidth: '100%',
-                    width: 'auto',
-                    objectFit: 'contain',
-                    display: 'block',
-                    opacity: contentVisible ? 1 : 0,
-                    transform: contentVisible ? 'translateY(0) scale(1)' : 'translateY(20px) scale(0.97)',
-                    transition: 'opacity 0.9s ease, transform 0.9s ease',
-                  }}
-                />
-              </div>
-
-              {/* Result copy */}
-              <div style={{
-                flex: '0 0 48%',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'center',
-                padding: '0 clamp(20px, 3vw, 48px) 0 clamp(8px, 1.5vw, 16px)',
-                opacity: contentVisible ? 1 : 0,
-                transform: contentVisible ? 'translateY(0)' : 'translateY(14px)',
-                transition: 'opacity 0.9s ease 0.18s, transform 0.9s ease 0.18s',
+                YOUR PROFILE{userName.trim() ? ` · ${userName}` : ''}
+              </p>
+              <p style={{
+                fontSize: 'clamp(0.72rem, 0.9vw, 0.85rem)',
+                color: '#9a2918', opacity: 0.48, margin: '0 0 5px',
               }}>
-                <p style={{
-                  fontSize: '0.58rem', letterSpacing: '0.3em', textTransform: 'uppercase',
-                  color: archetype.color, margin: '0 0 14px', opacity: 0.7,
-                }}>
-                  YOUR PROFILE{userName.trim() ? ` · ${userName}` : ''}
-                </p>
-                <p style={{
-                  fontSize: 'clamp(0.72rem, 0.9vw, 0.85rem)',
-                  color: '#9a2918', opacity: 0.48, margin: '0 0 5px',
-                }}>
-                  Your palate points to
-                </p>
-                <h1 style={{
-                  fontSize: 'clamp(1.6rem, 2.2vw, 2.6rem)',
-                  color: archetype.color, lineHeight: 1.0, fontWeight: 400,
-                  margin: '0 0 16px', letterSpacing: '-0.01em',
-                }}>
-                  {archetype.name}
-                </h1>
-                <p style={{
-                  fontSize: 'clamp(0.75rem, 0.82vw, 0.82rem)',
-                  color: '#9a2918', opacity: 0.55, lineHeight: 1.85,
-                  margin: '0 0 26px', maxWidth: 250,
-                }}>
-                  {archetype.shortDescription}
-                </p>
-                <a
-                  href="#coffees"
-                  onClick={(e) => { e.preventDefault(); document.getElementById('coffees')?.scrollIntoView({ behavior: 'smooth' }); }}
-                  style={{
-                    fontSize: '0.62rem', letterSpacing: '0.22em', textTransform: 'uppercase',
-                    color: archetype.color, textDecoration: 'none',
-                    borderBottom: `1px solid ${archetype.color}50`, paddingBottom: 3,
-                    width: 'fit-content', cursor: 'pointer',
-                    transition: 'border-color 0.2s',
-                  }}
-                  onMouseEnter={e => (e.currentTarget.style.borderColor = archetype.color)}
-                  onMouseLeave={e => (e.currentTarget.style.borderColor = `${archetype.color}50`)}
-                >
-                  See your coffees →
-                </a>
-              </div>
+                Your palate points to
+              </p>
+              <h1 style={{
+                fontSize: 'clamp(1.6rem, 2.2vw, 2.6rem)',
+                color: archetype.color, lineHeight: 1.0, fontWeight: 400,
+                margin: '0 0 16px', letterSpacing: '-0.01em',
+              }}>
+                {archetype.name}
+              </h1>
+              <p style={{
+                fontSize: 'clamp(0.75rem, 0.82vw, 0.82rem)',
+                color: '#9a2918', opacity: 0.55, lineHeight: 1.85,
+                margin: '0 0 26px', maxWidth: 260,
+              }}>
+                {archetype.shortDescription}
+              </p>
+              <a
+                href="#coffees"
+                onClick={(e) => { e.preventDefault(); document.getElementById('coffees')?.scrollIntoView({ behavior: 'smooth' }); }}
+                style={{
+                  fontSize: '0.62rem', letterSpacing: '0.22em', textTransform: 'uppercase',
+                  color: archetype.color, textDecoration: 'none',
+                  borderBottom: `1px solid ${archetype.color}50`, paddingBottom: 3,
+                  width: 'fit-content', cursor: 'pointer',
+                  transition: 'border-color 0.2s',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.borderColor = archetype.color)}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = `${archetype.color}50`)}
+              >
+                See your coffees →
+              </a>
             </div>
           </div>
 
-          {/* CURTAIN — wallpaper slides left, holds as a ~25vw strip */}
+          {/*
+            CURTAIN VIEWPORT — width narrows from 100% to 25%.
+            The wallpaper pattern inside is anchored to the element and never moves or stretches.
+            Only the visible viewport shrinks, revealing the content underneath from the right.
+          */}
           <div style={{
-            position: 'absolute', inset: 0, zIndex: 10,
-            transform: `translateX(${curtainX}%)`,
-            transition: curtainTransition,
-            willChange: 'transform',
+            position: 'absolute',
+            top: 0, left: 0, bottom: 0,
+            width: `${curtainWidth}%`,
+            zIndex: 10,
             overflow: 'hidden',
+            transition: curtainTransition,
           }}>
-            {/* Wallpaper: tiling pattern, never stretched */}
+            {/* Wallpaper: tiling repeat — background-size preserves the original image ratio */}
             <div style={{
               position: 'absolute', inset: 0,
               backgroundImage: `url(${archetype.wallpaper})`,
               backgroundRepeat: 'repeat',
-              backgroundSize: 'auto',
-              backgroundPosition: 'center',
+              backgroundSize: '620px auto',
+              backgroundPosition: 'top left',
             }} />
 
-            {/* Dark gradient */}
+            {/* Dark gradient overlay */}
             <div style={{
               position: 'absolute', inset: 0,
-              background: 'linear-gradient(to top, rgba(10,6,4,0.6) 0%, rgba(10,6,4,0.08) 50%, rgba(10,6,4,0.12) 100%)',
+              background: 'linear-gradient(to top, rgba(10,6,4,0.55) 0%, rgba(10,6,4,0.08) 50%, rgba(10,6,4,0.12) 100%)',
             }} />
 
-            {/* Intro text — fades out as curtain begins to open */}
+            {/* Intro text — fades out before curtain begins narrowing */}
             <motion.div
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
