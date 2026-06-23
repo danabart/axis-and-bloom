@@ -21,7 +21,10 @@ export default function PublicLayout() {
   // These pages render Footer inside TasteFinderSection (behind the curtain reveal)
   const footerInPage = pathname === '/' || pathname === '/about';
 
-  if (isPreLaunchPage) {
+  // Quiz result page is a dedicated full-screen experience — suppress nav and footer
+  const isQuizPage = pathname === '/find-my-flavor';
+
+  if (isPreLaunchPage || isQuizPage) {
     return (
       <>
         <Outlet />
