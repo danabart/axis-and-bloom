@@ -5,6 +5,10 @@ import { ArrowRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { saveQuizResult, getUserProfile } from '../lib/api';
 
+// ─── Logo / dial asset ───────────────────────────────────────────────────────
+
+import logoLinesSvg from '../../design/LOGO/LogoLines.svg';
+
 // ─── Archetype asset imports ──────────────────────────────────────────────────
 
 import wallpaperFloral       from '../../design/IMAGES/archetypes/Floral.jpg';
@@ -270,6 +274,198 @@ const BLOOM_DIAL_CHOCOLATE: BloomDialConfig = {
   ],
 };
 
+// ─── BloomDial ────────────────────────────────────────────────────────────────
+
+function BloomDial({ visible }: { visible: boolean }) {
+  const [dialAngle, setDialAngle]     = useState(0);
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+  const [isDragging, setIsDragging]   = useState(false);
+  const [isSnapping, setIsSnapping]   = useState(false);
+
+  const wheelRef      = useRef<HTMLDivElement>(null);
+  const dialAngleRef  = useRef(0);
+  const dragRef       = useRef({ startPA: 0, startDA: 0, active: false });
+  const snapTimeout   = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const reducedMotion =
+    typeof window !== 'undefined' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  useEffect(() => () => { if (snapTimeout.current) clearTimeout(snapTimeout.current); }, []);
+
+  const pointerAngle = (clientX: number, clientY: number): number => {
+    const el = wheelRef.current;
+    if (!el) return 0;
+    const { left, top, width, height } = el.getBoundingClientRect();
+    return Math.atan2(clientY - (top + height / 2), clientX - (left + width / 2)) * (180 / Math.PI) + 90;
+  };
+
+  const snapAndSelect = (rawAngle: number) => {
+    const n       = ((rawAngle % 360) + 360) % 360;
+    const snapped = Math.round(n / 90) * 90 % 360;
+    dialAngleRef.current = snapped;
+    setDialAngle(snapped);
+    setSelectedIdx(Math.round(n / 90) % 4);
+    if (!reducedMotion) {
+      setIsSnapping(true);
+      if (snapTimeout.current) clearTimeout(snapTimeout.current);
+      snapTimeout.current = setTimeout(() => setIsSnapping(false), 400);
+    }
+  };
+
+  const onMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    dragRef.current = { startPA: pointerAngle(e.clientX, e.clientY), startDA: dialAngleRef.current, active: true };
+    setIsDragging(true);
+  };
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    dragRef.current = { startPA: pointerAngle(t.clientX, t.clientY), startDA: dialAngleRef.current, active: true };
+    setIsDragging(true);
+  };
+
+  useEffect(() => {
+    if (!isDragging) return;
+    const move = (cx: number, cy: number) => {
+      if (!dragRef.current.active) return;
+      let delta = pointerAngle(cx, cy) - dragRef.current.startPA;
+      if (delta > 180) delta -= 360;
+      if (delta < -180) delta += 360;
+      const a = dragRef.current.startDA + delta;
+      dialAngleRef.current = a;
+      setDialAngle(a);
+    };
+    const end = () => {
+      dragRef.current.active = false;
+      setIsDragging(false);
+      snapAndSelect(dialAngleRef.current);
+    };
+    const onMM = (e: MouseEvent) => move(e.clientX, e.clientY);
+    const onTM = (e: TouchEvent) => { const t = e.touches[0]; move(t.clientX, t.clientY); };
+    window.addEventListener('mousemove', onMM);
+    window.addEventListener('mouseup', end);
+    window.addEventListener('touchmove', onTM, { passive: false });
+    window.addEventListener('touchend', end);
+    return () => {
+      window.removeEventListener('mousemove', onMM);
+      window.removeEventListener('mouseup', end);
+      window.removeEventListener('touchmove', onTM);
+      window.removeEventListener('touchend', end);
+    };
+  }, [isDragging]);
+
+  const opt = selectedIdx !== null ? BLOOM_DIAL_CHOCOLATE.options[selectedIdx] : null;
+
+  const wheelT = reducedMotion ? 'none'
+    : isDragging  ? 'none'
+    : isSnapping  ? 'transform 0.35s cubic-bezier(0.34, 1.4, 0.64, 1)'
+    : 'transform 0.08s ease-out';
+
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      width: '100%',
+      opacity: visible ? 1 : 0,
+      transition: visible ? 'opacity 0.6s ease 0.5s' : 'none',
+    }}>
+      {/* Eyebrow */}
+      <p style={{
+        fontSize: '0.52rem', letterSpacing: '0.32em', textTransform: 'uppercase',
+        color: '#9a2918', opacity: 0.5, margin: '0 0 10px', textAlign: 'center',
+      }}>
+        YOUR BLOOM DIAL
+      </p>
+
+      {/* Main line — "Personalize" highlighted in strong pink */}
+      <p style={{
+        fontSize: 'clamp(0.72rem, 0.88vw, 0.88rem)',
+        color: '#9a2918', margin: '0 0 8px', lineHeight: 1.35, textAlign: 'center',
+      }}>
+        <span style={{ backgroundColor: '#ee5974', color: '#deded1', padding: '1px 6px' }}>
+          Personalize
+        </span>
+        {' '}your coffee archetype.
+      </p>
+
+      {/* Supporting copy */}
+      <p style={{
+        fontSize: 'clamp(0.6rem, 0.7vw, 0.66rem)',
+        color: '#9a2918', opacity: 0.38, margin: '0 0 20px',
+        lineHeight: 1.6, textAlign: 'center',
+      }}>
+        Choose the expression of Chocolate&nbsp;&amp;&nbsp;Nutty<br />
+        that feels most like you right now.
+      </p>
+
+      {/* Dial + fixed indicator */}
+      <div style={{ position: 'relative', marginBottom: 16 }}>
+        {/* Fixed pointer — sits above the rotating logo */}
+        <div style={{
+          position: 'absolute', top: -12, left: '50%',
+          transform: 'translateX(-50%)',
+          width: 0, height: 0,
+          borderLeft: '4px solid transparent',
+          borderRight: '4px solid transparent',
+          borderTop: '7px solid #ee5974',
+          zIndex: 2,
+        }} />
+
+        {/* Rotating logo */}
+        <div
+          ref={wheelRef}
+          style={{
+            width: 'clamp(130px, 14vw, 188px)',
+            height: 'clamp(130px, 14vw, 188px)',
+            cursor: isDragging ? 'grabbing' : 'grab',
+            transform: `rotate(${dialAngle}deg)`,
+            transition: wheelT,
+            userSelect: 'none',
+            touchAction: 'none',
+          }}
+          onMouseDown={onMouseDown}
+          onTouchStart={onTouchStart}
+        >
+          <img
+            src={logoLinesSvg}
+            alt=""
+            draggable={false}
+            style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', pointerEvents: 'none' }}
+          />
+        </div>
+      </div>
+
+      {/* Selected option label */}
+      <div style={{ textAlign: 'center', minHeight: 52 }}>
+        {opt ? (
+          <>
+            <p style={{
+              fontSize: '0.56rem', letterSpacing: '0.22em', textTransform: 'uppercase',
+              color: '#ee5974', margin: '0 0 4px',
+            }}>
+              {opt.label}
+            </p>
+            <p style={{
+              fontSize: 'clamp(0.64rem, 0.74vw, 0.70rem)',
+              color: '#9a2918', opacity: 0.5, lineHeight: 1.55, margin: 0,
+              maxWidth: 'clamp(160px, 18vw, 240px)',
+            }}>
+              {opt.description}
+            </p>
+          </>
+        ) : (
+          <p style={{
+            fontSize: '0.54rem', letterSpacing: '0.2em', textTransform: 'uppercase',
+            color: '#9a2918', opacity: 0.22, margin: 0,
+          }}>
+            Drag to explore
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function FlavorQuiz() {
@@ -308,11 +504,6 @@ export default function FlavorQuiz() {
   const [revealProgress, setRevealProgress] = useState(0);
   const [revealForced, setRevealForced]     = useState(false);
   const revealContainerRef = useRef<HTMLDivElement>(null);
-
-  // Bloom Dial state
-  const [selectedDialOption, setSelectedDialOption] = useState<string | null>(null);
-  const dialRef = useRef<HTMLDivElement>(null);
-  const [dialVisible, setDialVisible] = useState(false);
 
   const displayProgress = revealForced ? 1 : revealProgress;
 
@@ -385,24 +576,6 @@ export default function FlavorQuiz() {
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, [isComplete]);
-
-  // Bloom Dial visibility — IntersectionObserver fires when section enters viewport
-  useEffect(() => {
-    if (!isComplete || archetypeKey !== 'chocolate') return;
-    const el = dialRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setDialVisible(true);
-          observer.disconnect();
-        }
-      },
-      { threshold: 0.15 },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [isComplete, archetypeKey]);
 
   const archetype = ARCHETYPES[archetypeKey];
 
@@ -485,8 +658,6 @@ export default function FlavorQuiz() {
     setArchetypeKey('balanced');
     setRevealProgress(0);
     setRevealForced(false);
-    setSelectedDialOption(null);
-    setDialVisible(false);
   };
 
   // ── Loading ──────────────────────────────────────────────────────────────────
@@ -1028,8 +1199,23 @@ export default function FlavorQuiz() {
               </Link>
             </div>
 
-            {/* Right breathing space */}
-            <div style={{ flex: 1 }} />
+            {/* Right breathing space / Bloom Dial (desktop lg+) */}
+            {archetypeKey === 'chocolate' ? (
+              <div
+                className="hidden lg:flex"
+                style={{
+                  flex: 1,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingTop: 'clamp(24px, 5vh, 60px)',
+                  padding: '0 clamp(8px, 1.5vw, 28px)',
+                }}
+              >
+                <BloomDial visible={contentVisible} />
+              </div>
+            ) : (
+              <div style={{ flex: 1 }} />
+            )}
           </div>
 
           {/*
@@ -1130,178 +1316,19 @@ export default function FlavorQuiz() {
         </div>
       </div>
 
-      {/* ── BLOOM DIAL (Chocolate & Nutty only) ──────────────────────────────── */}
+      {/* ── BLOOM DIAL mobile (below reveal on small screens) ───────────────── */}
       {archetypeKey === 'chocolate' && (
-        <section
-          ref={dialRef}
-          style={{ backgroundColor: '#f2f1ea' }}
-          className="px-8 pt-20 pb-24 sm:px-10 lg:pt-24 lg:pb-28 lg:pl-[44%] lg:pr-24"
+        <div
+          className="flex lg:hidden"
+          style={{
+            backgroundColor: '#f2f1ea',
+            flexDirection: 'column',
+            alignItems: 'center',
+            padding: 'clamp(48px, 8vh, 80px) clamp(24px, 6vw, 48px)',
+          }}
         >
-          <div
-            style={{
-              maxWidth: 520,
-              opacity: dialVisible ? 1 : 0,
-              transform: dialVisible ? 'translateY(0)' : 'translateY(12px)',
-              transition: 'opacity 0.45s ease, transform 0.45s ease',
-            }}
-          >
-            {/* Eyebrow */}
-            <p style={{
-              fontSize: '0.55rem', letterSpacing: '0.32em', textTransform: 'uppercase',
-              color: '#a54c2d', margin: '0 0 20px', opacity: 0.6,
-            }}>
-              YOUR BLOOM DIAL
-            </p>
-
-            {/* Main prompt */}
-            <h2 style={{
-              fontSize: 'clamp(1.5rem, 2.2vw, 2.2rem)',
-              color: '#a54c2d', lineHeight: 1.15, fontWeight: 400,
-              margin: '0 0 12px', letterSpacing: '-0.01em',
-            }}>
-              How do you want Chocolate & Nutty to bloom today?
-            </h2>
-
-            {/* Supporting copy */}
-            <p style={{
-              fontSize: 'clamp(0.78rem, 0.88vw, 0.86rem)',
-              color: '#9a2918', opacity: 0.52, lineHeight: 1.82,
-              margin: '0 0 36px',
-            }}>
-              Choose the expression of this archetype that feels most like you right now.
-            </p>
-
-            {/* Four option bars */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {BLOOM_DIAL_CHOCOLATE.options.map(option => {
-                const isSelected = selectedDialOption === option.id;
-                return (
-                  <button
-                    key={option.id}
-                    onClick={() => setSelectedDialOption(option.id)}
-                    onMouseEnter={e => {
-                      if (!isSelected) {
-                        e.currentTarget.style.backgroundColor = 'rgba(165,76,45,0.09)';
-                        e.currentTarget.style.borderColor = 'rgba(165,76,45,0.4)';
-                      }
-                    }}
-                    onMouseLeave={e => {
-                      if (!isSelected) {
-                        e.currentTarget.style.backgroundColor = '#ebebe3';
-                        e.currentTarget.style.borderColor = 'rgba(165,76,45,0.22)';
-                      }
-                    }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 14,
-                      width: '100%',
-                      textAlign: 'left',
-                      padding: '15px 20px',
-                      backgroundColor: isSelected ? '#a54c2d' : '#ebebe3',
-                      border: `1px solid ${isSelected ? '#a54c2d' : 'rgba(165,76,45,0.22)'}`,
-                      cursor: 'pointer',
-                      transition: 'background-color 0.28s ease, border-color 0.28s ease',
-                      fontFamily: 'inherit',
-                    }}
-                  >
-                    {/* Selection indicator */}
-                    <div style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: '50%',
-                      marginTop: 5,
-                      flexShrink: 0,
-                      backgroundColor: isSelected ? '#ebebe3' : 'transparent',
-                      border: `1px solid ${isSelected ? '#ebebe3' : 'rgba(165,76,45,0.35)'}`,
-                      transition: 'background-color 0.28s ease, border-color 0.28s ease',
-                    }} />
-
-                    <div style={{ flex: 1 }}>
-                      <p style={{
-                        fontSize: '0.63rem', letterSpacing: '0.22em', textTransform: 'uppercase',
-                        color: isSelected ? '#ebebe3' : '#9a2918',
-                        margin: '0 0 5px',
-                        transition: 'color 0.28s ease',
-                      }}>
-                        {option.label}
-                      </p>
-                      <p style={{
-                        fontSize: 'clamp(0.77rem, 0.84vw, 0.82rem)',
-                        color: isSelected ? 'rgba(235,235,227,0.78)' : 'rgba(154,41,24,0.62)',
-                        lineHeight: 1.55,
-                        margin: 0,
-                        transition: 'color 0.28s ease',
-                      }}>
-                        {option.description}
-                      </p>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Brewing guidance — reveals on selection */}
-            <div style={{
-              overflow: 'hidden',
-              maxHeight: selectedDialOption ? 120 : 0,
-              opacity: selectedDialOption ? 1 : 0,
-              marginTop: selectedDialOption ? 18 : 0,
-              transition: 'max-height 0.35s ease, opacity 0.35s ease, margin-top 0.35s ease',
-            }}>
-              {selectedDialOption && (() => {
-                const opt = BLOOM_DIAL_CHOCOLATE.options.find(o => o.id === selectedDialOption)!;
-                return (
-                  <div style={{
-                    padding: '13px 18px',
-                    border: '1px solid rgba(165,76,45,0.15)',
-                    backgroundColor: 'rgba(165,76,45,0.04)',
-                  }}>
-                    <p style={{
-                      fontSize: '0.71rem', letterSpacing: '0.04em',
-                      color: '#9a2918', opacity: 0.68,
-                      margin: 0, lineHeight: 1.9,
-                    }}>
-                      Best enjoyed as: {opt.bestBrew}<br />
-                      Also beautiful as: {opt.alsoBeautifulAs}
-                    </p>
-                  </div>
-                );
-              })()}
-            </div>
-
-            {/* CTA — reveals after dial selection */}
-            <div style={{
-              marginTop: 28,
-              opacity: selectedDialOption ? 1 : 0,
-              transform: selectedDialOption ? 'translateY(0)' : 'translateY(6px)',
-              pointerEvents: selectedDialOption ? 'auto' : 'none',
-              transition: 'opacity 0.35s ease, transform 0.35s ease',
-            }}>
-              <button
-                onClick={() => {
-                  if (selectedDialOption) {
-                    navigate(`/coffees?archetype=chocolate&dial=${selectedDialOption}`);
-                  }
-                }}
-                onMouseEnter={e => (e.currentTarget.style.opacity = '0.82')}
-                onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-                style={{
-                  display: 'inline-block',
-                  fontSize: '0.62rem', letterSpacing: '0.26em', textTransform: 'uppercase',
-                  color: '#f2f1ea', backgroundColor: '#a54c2d',
-                  border: 'none',
-                  padding: '13px 24px',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                  transition: 'opacity 0.2s',
-                }}
-              >
-                SEE YOUR COFFEES →
-              </button>
-            </div>
-          </div>
-        </section>
+          <BloomDial visible={true} />
+        </div>
       )}
 
     </div>
