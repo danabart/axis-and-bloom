@@ -362,6 +362,10 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 - `user_flavor_feedback` — post-delivery feedback from customers; **one row per descriptor per user per coffee** (e.g. a client who tasted Blueberry and Dark Chocolate = 2 rows); links user + coffee + order to SCA wheel descriptors; `intensity` optional; no session or brew params — lightweight by design
 - `cupping_brew_params` — brew parameters per session-coffee (dose, water, yield, ratio, temp, grind, extraction time, pressure, steep time, device); all nullable
 - `archetype_assignments` — archetype tag per coffee with confidence level; `superseded_at = NULL` for the current assignment, populated when a newer one replaces it
+- `archetype_config` — dominant dimension and Bloom Dial flag per archetype
+- `dial_position_vocabulary` — archetype+dimension-specific label vocabulary for the Bloom Dial (seeded)
+- `archetype_dial_positions` — maps coffees to their position on the Bloom Dial per archetype
+- `coffee_relationships` — directional dimensional hop graph between coffees; used by the sommelier RAG and future computed dial positions
 - `coffees.ai_summary TEXT` — AI-generated tasting note cached in the DB (added via idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`); generated once on first public page load, updated only via admin refresh; never regenerates on visitor traffic
 
 ### Views
@@ -399,6 +403,8 @@ It was merged from your original Supabase design plus adaptations for Firebase A
 | `archetype_enum` | `chocolate_nutty`, `balanced_sweet`, `fruity`, `earthy`, `floral`, `experimental` | `archetype_assignments.archetype` |
 | `confidence_enum` | `low`, `medium`, `high` | `archetype_assignments.confidence` |
 | `address_type_enum` | `shipping`, `billing` | `address.address_type`; migrated from `TEXT` via idempotent `DO` block on deploy |
+| `hop_direction_enum` | `more`, `less` | `coffee_relationships.direction` |
+| `hop_type_enum` | `within_archetype`, `bridge_archetype` | `coffee_relationships.hop_type` |
 
 ---
 
