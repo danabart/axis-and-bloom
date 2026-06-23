@@ -125,7 +125,7 @@ Used by `discovery` and `alternatives` RAG focus types for dimensional hop trave
 
 ## Bloom Dial and Coffee Relationships
 
-### `coffee_relationships` table
+### `dial_coffee_relationships` table
 
 Directional navigation graph between coffees. Each row represents a hop: "from this coffee, go here if you want more/less of a specific dimension."
 
@@ -144,7 +144,7 @@ created_at       TIMESTAMPTZ DEFAULT NOW()
 UNIQUE(from_coffee_id, to_coffee_id, dimension_id, direction)
 ```
 
-### `archetype_dial_positions` table
+### `dial_archetype_positions` table
 
 Maps coffees to their named position on the Bloom Dial per archetype. Position label and description come from `dial_position_vocabulary`.
 
@@ -195,10 +195,10 @@ UNIQUE(archetype, coffee_id)
 | `sommelier_messages` | One row per turn — role, content, model_used, session FK |
 | `user_tokens` | Token balance per user — balance, lifetime earned/spent |
 | `token_events` | Audit trail — every earn and spend with reason and reference ID |
-| `archetype_config` | Dominant dimension and Bloom Dial flag per archetype (seeded, 5 rows) |
+| `dial_archetype_config` | Dominant dimension and Bloom Dial flag per archetype (seeded, 5 rows) |
 | `dial_position_vocabulary` | Archetype+dimension-specific label vocabulary for the Bloom Dial (seeded, 20 rows) |
-| `coffee_relationships` | Navigation graph — directional hops between coffees along dimensions |
-| `archetype_dial_positions` | Bloom Dial positions — maps coffees to a vocabulary position per archetype |
+| `dial_archetype_positions` | Bloom Dial positions — maps coffees to a vocabulary position per archetype |
+| `dial_coffee_relationships` | Navigation graph — directional hops between coffees along dimensions |
 
 ---
 
