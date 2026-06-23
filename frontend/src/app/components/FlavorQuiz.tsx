@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -207,14 +207,20 @@ const ARCHETYPES: Record<ArchetypeKey, {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function FlavorQuiz() {
-  const [hasStarted, setHasStarted]     = useState(false);
+  // ── Preview shortcut: /find-my-flavor?result=floral (or any archetype key) ──
+  const [searchParams] = useSearchParams();
+  const _previewParam  = searchParams.get('result') ?? '';
+  const isPreview      = _previewParam in ARCHETYPES;
+  const previewKey     = isPreview ? (_previewParam as ArchetypeKey) : null;
+
+  const [hasStarted, setHasStarted]     = useState(() => isPreview);
   const [userName, setUserName]         = useState('');
   const [currentStep, setCurrentStep]   = useState(0);
   const [answers, setAnswers]           = useState<Record<number, number>>({});
   const [selectedIds, setSelectedIds]   = useState<Record<number, string>>({});
-  const [isComplete, setIsComplete]     = useState(false);
+  const [isComplete, setIsComplete]     = useState(() => isPreview);
   const [isScoring, setIsScoring]       = useState(false);
-  const [archetypeKey, setArchetypeKey] = useState<ArchetypeKey>('balanced');
+  const [archetypeKey, setArchetypeKey] = useState<ArchetypeKey>(() => previewKey ?? 'balanced');
   const [scoreError, setScoreError]     = useState(false);
 
   // Branch state
@@ -393,7 +399,7 @@ export default function FlavorQuiz() {
   };
 
   // ── Loading ──────────────────────────────────────────────────────────────────
-  if (loading) {
+  if (loading && !isPreview) {
     return (
       <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center">
         <p className="text-[#a33726]/50 text-sm uppercase tracking-[0.2em]">Loading…</p>
@@ -402,7 +408,7 @@ export default function FlavorQuiz() {
   }
 
   // ── Error ────────────────────────────────────────────────────────────────────
-  if (loadError || !questions.length) {
+  if ((loadError || !questions.length) && !isPreview) {
     return (
       <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center">
         <p className="text-[#a33726]/70 text-sm uppercase tracking-[0.2em]">
@@ -413,7 +419,7 @@ export default function FlavorQuiz() {
   }
 
   // ── Returning user ───────────────────────────────────────────────────────────
-  if (user && !hasStarted && (profileLoading || userProfile?.archetype)) {
+  if (!isPreview && user && !hasStarted && (profileLoading || userProfile?.archetype)) {
     if (profileLoading) {
       return (
         <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center">
