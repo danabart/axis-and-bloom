@@ -795,7 +795,7 @@ export default function FlavorQuiz() {
   //
   const INTRO_END = 0.15;
   const OPEN_END  = 0.65;
-  const FINAL_W   = 16.6667; // 1/6 of viewport width
+  const FINAL_W   = 12.5; // 1/8 of viewport width
 
   const eff = revealForced ? 1 : revealProgress;
 
@@ -804,14 +804,15 @@ export default function FlavorQuiz() {
     ? 0
     : Math.min(1, (eff - INTRO_END) / (OPEN_END - INTRO_END));
 
-  // Curtain viewport narrows: 100% → 16.67%
+  // Curtain viewport narrows: 100% → 12.5%
   const curtainWidth = FINAL_W + (100 - FINAL_W) * (1 - openProgress);
 
   // Bag + text fade in as curtain approaches its final position
   const contentVisible = openProgress > 0.6;
 
-  // Intro copy fades out completely before curtain begins narrowing
-  const curtainTextAlpha = Math.max(0, 1 - eff / INTRO_END);
+  // Intro text fades from the first moment of scroll, gone by eff=0.25
+  // (curtain is still ~82vw wide at that point — text is gone well before 70vw)
+  const curtainTextAlpha = Math.max(0, 1 - eff / 0.25);
 
   const curtainTransition = revealForced
     ? 'width 1.1s cubic-bezier(0.16, 1, 0.3, 1)'
@@ -843,8 +844,8 @@ export default function FlavorQuiz() {
             alignItems: 'center',
           }}>
 
-            {/* 1/6 spacer — sits beneath the wallpaper strip */}
-            <div style={{ width: '16.6667%', flexShrink: 0, alignSelf: 'stretch' }} />
+            {/* 1/8 spacer — sits beneath the wallpaper strip */}
+            <div style={{ width: '12.5%', flexShrink: 0, alignSelf: 'stretch' }} />
 
             {/* Thin seam at the stripe boundary */}
             <div style={{ width: 1, alignSelf: 'stretch', flexShrink: 0, backgroundColor: 'rgba(154,41,24,0.06)' }} />
@@ -935,9 +936,11 @@ export default function FlavorQuiz() {
           </div>
 
           {/*
-            CURTAIN VIEWPORT — width narrows from 100% to 16.6667% (1/6 vw).
-            Wallpaper uses background-size:cover + background-position:center.
-            The image is never moved or distorted — only the visible window shrinks.
+            CURTAIN VIEWPORT — only the wrapper width animates (100% → 12.5%).
+            The wallpaper art layer is fixed at 100vw × 100vh and is NEVER resized.
+            The wrapper clips it via overflow:hidden — like gift wrap being peeled back.
+            background-size:cover is safe here because it resolves against the fixed
+            100vw × 100vh art layer, not against the changing wrapper.
           */}
           <div style={{
             position: 'absolute',
@@ -947,22 +950,28 @@ export default function FlavorQuiz() {
             overflow: 'hidden',
             transition: curtainTransition,
           }}>
-            {/* Wallpaper — cover preserves ratio, center keeps focal point */}
+            {/* Wallpaper art — fixed 100vw × 100vh, anchored top-left, never resizes */}
             <div style={{
-              position: 'absolute', inset: 0,
+              position: 'absolute',
+              top: 0, left: 0,
+              width: '100vw',
+              height: '100vh',
               backgroundImage: `url(${archetype.wallpaper})`,
               backgroundSize: 'cover',
               backgroundPosition: 'center',
               backgroundRepeat: 'no-repeat',
             }} />
 
-            {/* Dark gradient */}
+            {/* Dark gradient — also fixed so it doesn't change as wrapper narrows */}
             <div style={{
-              position: 'absolute', inset: 0,
+              position: 'absolute',
+              top: 0, left: 0,
+              width: '100vw',
+              height: '100vh',
               background: 'linear-gradient(to top, rgba(10,6,4,0.55) 0%, rgba(10,6,4,0.06) 55%, rgba(10,6,4,0.1) 100%)',
             }} />
 
-            {/* Intro text — fades out completely before curtain begins narrowing */}
+            {/* Intro text — fades from first scroll; gone by eff=0.25 (~82vw curtain) */}
             <motion.div
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
@@ -972,7 +981,8 @@ export default function FlavorQuiz() {
                 bottom: 'clamp(48px, 8vh, 88px)',
                 left: 'clamp(48px, 6vw, 88px)',
                 opacity: curtainTextAlpha,
-                transition: 'opacity 0.25s ease',
+                pointerEvents: curtainTextAlpha < 0.05 ? 'none' : 'auto',
+                transition: 'opacity 0.2s ease',
               }}
             >
               <p style={{
