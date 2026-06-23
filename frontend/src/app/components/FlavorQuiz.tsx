@@ -507,6 +507,40 @@ export default function FlavorQuiz() {
 
   const displayProgress = revealForced ? 1 : revealProgress;
 
+  // Scroll-to-fine-tune hint — fades in after the reveal settles
+  const [showScrollHint, setShowScrollHint] = useState(false);
+  const scrollHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const settled = isComplete && displayProgress > 0.8;
+    if (!settled) {
+      setShowScrollHint(false);
+      if (scrollHintTimer.current) { clearTimeout(scrollHintTimer.current); scrollHintTimer.current = null; }
+      return;
+    }
+    if (!scrollHintTimer.current) {
+      scrollHintTimer.current = setTimeout(() => { setShowScrollHint(true); scrollHintTimer.current = null; }, 1800);
+    }
+  }, [isComplete, displayProgress]);
+
+  useEffect(() => () => { if (scrollHintTimer.current) clearTimeout(scrollHintTimer.current); }, []);
+
+  // Screen 2 — Bloom Dial section visibility
+  const screen2Ref = useRef<HTMLDivElement>(null);
+  const [screen2Visible, setScreen2Visible] = useState(false);
+
+  useEffect(() => {
+    if (!isComplete) return;
+    const el = screen2Ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) { setScreen2Visible(true); observer.disconnect(); } },
+      { threshold: 0.08 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isComplete]);
+
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -658,6 +692,9 @@ export default function FlavorQuiz() {
     setArchetypeKey('balanced');
     setRevealProgress(0);
     setRevealForced(false);
+    setShowScrollHint(false);
+    setScreen2Visible(false);
+    if (scrollHintTimer.current) { clearTimeout(scrollHintTimer.current); scrollHintTimer.current = null; }
   };
 
   // ── Loading ──────────────────────────────────────────────────────────────────
@@ -1089,95 +1126,70 @@ export default function FlavorQuiz() {
   return (
     <div style={{ backgroundColor: '#f2f1ea', minHeight: '100vh' }}>
 
-      {/* ── REVEAL HERO ─────────────────────────────────────────────────────── */}
+      {/* ── SCREEN 1: ARCHETYPE REVEAL ──────────────────────────────────────── */}
       {/*
         220vh container · 100vh sticky · 120vh scrollable
-        | 25% spacer | 33% bag | remaining text |
-        0.00–0.15  intro: full wallpaper + hint copy
-        0.15–0.65  curtain narrows 100% → 16.67% (1/6 vw)
-        0.65–0.80  brief hold
-        0.80–1.00  settled
+        0.00–0.15  intro: full wallpaper curtain + hint copy
+        0.15–0.65  curtain narrows 100% → 12.5% (1/8 vw)
+        0.65–0.80  brief hold at stripe
+        0.80–1.00  settled → scroll hint fades in after 1.8s
+        Layout: 12.5% wallpaper stripe | 24% text | flex:1 bag hero
       */}
       <div ref={revealContainerRef} style={{ position: 'relative', height: '220vh' }}>
         <div style={{ position: 'sticky', top: 0, height: '100vh', overflow: 'hidden' }}>
 
           {/*
-            BASE LAYER — 4-column composition
-            | 1/6 spacer | ~31% bag | ~30% copy | breathing space |
+            BASE LAYER — Screen 1: text left · bag hero right
+            | 12.5% stripe spacer | 1px seam | ~24% text | flex:1 bag |
           */}
           <div style={{
             position: 'absolute', inset: 0,
             backgroundColor: '#f2f1ea',
             display: 'flex',
-            alignItems: 'center',
+            alignItems: 'stretch',
           }}>
 
             {/* 1/8 spacer — sits beneath the wallpaper strip */}
-            <div style={{ width: '12.5%', flexShrink: 0, alignSelf: 'stretch' }} />
+            <div style={{ width: '12.5%', flexShrink: 0 }} />
 
             {/* Thin seam at the stripe boundary */}
-            <div style={{ width: 1, alignSelf: 'stretch', flexShrink: 0, backgroundColor: 'rgba(154,41,24,0.06)' }} />
+            <div style={{ width: 1, flexShrink: 0, alignSelf: 'stretch', backgroundColor: 'rgba(154,41,24,0.06)' }} />
 
-            {/* Bag column — ~31% of viewport */}
+            {/* Text column — left of bag, between stripe and bag */}
             <div style={{
-              width: '31%',
-              flexShrink: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: 'clamp(24px, 4vh, 48px) clamp(16px, 2.5vw, 36px)',
-            }}>
-              <img
-                src={archetype.bag}
-                alt={archetype.name}
-                style={{
-                  maxHeight: '62vh',
-                  maxWidth: '100%',
-                  width: 'auto',
-                  objectFit: 'contain',
-                  display: 'block',
-                  opacity: contentVisible ? 1 : 0,
-                  transform: contentVisible ? 'translateY(0) scale(1)' : 'translateY(24px) scale(0.96)',
-                  transition: 'opacity 0.9s ease, transform 0.9s ease',
-                }}
-              />
-            </div>
-
-            {/* Copy column — ~30% of viewport */}
-            <div style={{
-              width: '30%',
+              width: '24%',
               flexShrink: 0,
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'center',
-              padding: '0 clamp(16px, 2.5vw, 32px)',
+              padding: '0 clamp(16px, 2.5vw, 40px)',
               opacity: contentVisible ? 1 : 0,
               transform: contentVisible ? 'translateY(0)' : 'translateY(16px)',
               transition: 'opacity 0.9s ease 0.22s, transform 0.9s ease 0.22s',
             }}>
               <p style={{
-                fontSize: '0.55rem', letterSpacing: '0.32em', textTransform: 'uppercase',
-                color: archetype.color, margin: '0 0 20px', opacity: 0.6,
+                fontSize: '0.52rem', letterSpacing: '0.32em', textTransform: 'uppercase',
+                color: archetype.color, margin: '0 0 18px', opacity: 0.6,
               }}>
                 YOUR PROFILE{userName.trim() ? ` · ${userName}` : ''}
               </p>
               <p style={{
-                fontSize: 'clamp(0.7rem, 0.82vw, 0.8rem)',
-                color: '#9a2918', opacity: 0.4, margin: '0 0 8px', letterSpacing: '0.01em',
+                fontSize: 'clamp(0.68rem, 0.78vw, 0.76rem)',
+                color: '#9a2918', opacity: 0.4, margin: '0 0 6px', letterSpacing: '0.01em',
               }}>
                 Your palate points to
               </p>
               <h1 style={{
-                fontSize: 'clamp(2.8rem, 4.5vw, 5.6rem)',
+                fontSize: 'clamp(2.2rem, 3.2vw, 4.2rem)',
                 color: archetype.color, lineHeight: 0.92, fontWeight: 400,
-                margin: '0 0 28px', letterSpacing: '-0.02em',
+                margin: '0 0 22px', letterSpacing: '-0.02em',
               }}>
                 {archetype.name}
               </h1>
               <p style={{
-                fontSize: 'clamp(0.78rem, 0.88vw, 0.86rem)',
-                color: '#9a2918', opacity: 0.52, lineHeight: 1.82,
-                margin: '0 0 36px',
+                fontSize: 'clamp(0.72rem, 0.82vw, 0.80rem)',
+                color: '#9a2918', opacity: 0.50, lineHeight: 1.78,
+                margin: '0 0 30px',
               }}>
                 {archetype.shortDescription}
               </p>
@@ -1185,10 +1197,10 @@ export default function FlavorQuiz() {
                 to="/coffees"
                 style={{
                   display: 'inline-block',
-                  fontSize: '0.62rem', letterSpacing: '0.26em', textTransform: 'uppercase',
+                  fontSize: '0.60rem', letterSpacing: '0.24em', textTransform: 'uppercase',
                   color: '#f2f1ea', backgroundColor: archetype.color,
                   textDecoration: 'none',
-                  padding: '13px 24px',
+                  padding: '12px 22px',
                   width: 'fit-content',
                   transition: 'opacity 0.2s',
                 }}
@@ -1199,33 +1211,37 @@ export default function FlavorQuiz() {
               </Link>
             </div>
 
-            {/* Right breathing space / Bloom Dial (desktop lg+) */}
-            {archetypeKey === 'chocolate' ? (
-              <div
-                className="hidden lg:flex"
+            {/* Bag — fills remaining right space, hero treatment */}
+            <div style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 'clamp(24px, 4vh, 60px) clamp(32px, 4vw, 80px)',
+            }}>
+              <img
+                src={archetype.bag}
+                alt={archetype.name}
                 style={{
-                  flex: 1,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  paddingTop: 'clamp(24px, 5vh, 60px)',
-                  padding: '0 clamp(8px, 1.5vw, 28px)',
+                  maxHeight: 'clamp(380px, 84vh, 88vh)',
+                  maxWidth: '100%',
+                  width: 'auto',
+                  objectFit: 'contain',
+                  display: 'block',
+                  opacity: contentVisible ? 1 : 0,
+                  transform: contentVisible ? 'translateY(0) scale(1)' : 'translateY(20px) scale(0.97)',
+                  transition: 'opacity 1.1s ease 0.1s, transform 1.1s ease 0.1s',
                 }}
-              >
-                <BloomDial visible={contentVisible} />
-              </div>
-            ) : (
-              <div style={{ flex: 1 }} />
-            )}
+              />
+            </div>
           </div>
 
           {/*
             CURTAIN VIEWPORT — only the wrapper width animates (100% → 12.5%).
             The wallpaper art layer is fixed at 100vw × 100vh and is NEVER resized.
             The wrapper clips it via overflow:hidden — like gift wrap being peeled back.
-
-            background-size uses a fixed pixel value (620px auto) so the tile scale
-            is completely independent of the curtain wrapper width. The image is never
-            stretched, squished, or recalculated during the scroll animation.
+            background-size: cover on the fixed 100vw×100vh layer; the curtain clipping
+            reveals the left 1/8 of that image as the stripe.
           */}
           <div style={{
             position: 'absolute',
@@ -1235,21 +1251,16 @@ export default function FlavorQuiz() {
             overflow: 'hidden',
             transition: curtainTransition,
           }}>
-            {/*
-              Wallpaper art — fixed 100vw × 100vh, top-left anchor, never resizes.
-              background-size: 620px auto  →  fixed tile width, proportional height.
-              background-repeat: repeat    →  tiles fill the full element.
-              This is the only correct way to ensure zero scale change during animation.
-            */}
+            {/* Wallpaper art — fixed 100vw × 100vh; cover-scales the full image. Curtain clips it. */}
             <div style={{
               position: 'absolute',
               top: 0, left: 0,
               width: '100vw',
               height: '100vh',
               backgroundImage: `url(${archetype.wallpaper})`,
-              backgroundRepeat: 'repeat',
-              backgroundPosition: 'top left',
-              backgroundSize: '620px auto',
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'center',
+              backgroundSize: 'cover',
             }} />
 
             {/* Dark gradient — also fixed so it doesn't change as wrapper narrows */}
@@ -1313,18 +1324,44 @@ export default function FlavorQuiz() {
             </motion.div>
           </div>
 
+          {/* Scroll-to-fine-tune hint */}
+          {archetypeKey === 'chocolate' && (
+            <div style={{
+              position: 'absolute',
+              bottom: 'clamp(18px, 3.5vh, 36px)', left: 0, right: 0,
+              display: 'flex', justifyContent: 'center',
+              zIndex: 15,
+              opacity: showScrollHint ? 1 : 0,
+              transition: 'opacity 1.4s ease',
+              pointerEvents: 'none',
+            }}>
+              <p style={{
+                fontSize: '0.48rem', letterSpacing: '0.3em', textTransform: 'uppercase',
+                color: '#9a2918', opacity: 0.38, margin: 0,
+              }}>
+                SCROLL TO FINE-TUNE ↓
+              </p>
+            </div>
+          )}
+
         </div>
       </div>
 
-      {/* ── BLOOM DIAL mobile (below reveal on small screens) ───────────────── */}
+      {/* ── SCREEN 2: BLOOM DIAL ─────────────────────────────────────────────── */}
       {archetypeKey === 'chocolate' && (
         <div
-          className="flex lg:hidden"
+          ref={screen2Ref}
           style={{
+            minHeight: '100vh',
             backgroundColor: '#f2f1ea',
+            display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            padding: 'clamp(48px, 8vh, 80px) clamp(24px, 6vw, 48px)',
+            justifyContent: 'center',
+            padding: 'clamp(48px, 8vh, 80px) clamp(24px, 6vw, 60px)',
+            opacity: screen2Visible ? 1 : 0,
+            transform: screen2Visible ? 'translateY(0)' : 'translateY(24px)',
+            transition: 'opacity 0.7s ease, transform 0.7s ease',
           }}
         >
           <BloomDial visible={true} />
