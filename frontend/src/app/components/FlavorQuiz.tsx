@@ -620,7 +620,7 @@ export default function FlavorQuiz() {
       setArchetypeKey(key);
 
       // Tie detected — show interstitial before branch or result
-      if (score.tieDetected && score.tiedArchetypes.length >= 2) {
+      if (score.tieDetected && (score.tiedArchetypes ?? []).length >= 2) {
         setShowTieInterstitial(true);
         return;
       }
