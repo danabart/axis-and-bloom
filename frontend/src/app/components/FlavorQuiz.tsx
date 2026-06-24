@@ -69,23 +69,6 @@ interface BranchQuestion {
   answers: BranchAnswer[];
 }
 
-interface BloomDialOption {
-  id: string;
-  label: string;
-  description: string;
-  coffeeMapping: string;
-  role: string;
-  bestBrew: string;
-  alsoBeautifulAs: string;
-  additionalSupportedMethods: string[];
-}
-
-interface BloomDialConfig {
-  archetype: string;
-  color: string;
-  options: BloomDialOption[];
-}
-
 // ─── Static question images (keyed by q_number) ───────────────────────────────
 
 const QUESTION_IMAGES: Record<number, string> = {
@@ -99,7 +82,6 @@ const QUESTION_IMAGES: Record<number, string> = {
 
 type ArchetypeKey = 'floral' | 'fruity' | 'balanced' | 'chocolate' | 'earthy' | 'experimental';
 
-// Handles all variants the backend might return — full name, key, or casing differences
 const ARCHETYPE_NAME_TO_KEY: Record<string, ArchetypeKey> = {
   'Floral':            'floral',
   'floral':            'floral',
@@ -223,73 +205,74 @@ const ARCHETYPES: Record<ArchetypeKey, {
       'You appreciate discovery, experimentation, and sensory play.',
     ],
     coffees: [
-      { name: 'Colombia Anaerobic Natural', flavor: 'Fermented Mango, Passionfruit, Wine', match: '95%' },
-      { name: 'Ethiopia Carbonic Maceration', flavor: 'Kombucha, Hibiscus, Blueberry',     match: '88%' },
+      { name: 'Colombia Anaerobic Natural',   flavor: 'Fermented Mango, Passionfruit, Wine', match: '95%' },
+      { name: 'Ethiopia Carbonic Maceration', flavor: 'Kombucha, Hibiscus, Blueberry',       match: '88%' },
     ],
   },
 };
 
-// ─── Bloom Dial config ────────────────────────────────────────────────────────
+// ─── Body levels — Chocolate & Nutty, Body dimension ─────────────────────────
 
-const BLOOM_DIAL_CHOCOLATE: BloomDialConfig = {
-  archetype: 'Chocolate & Nutty',
-  color: '#a54c2d',
-  options: [
-    {
-      id: 'good-morning',
-      label: 'Good Morning',
-      description: 'Easygoing, polished, and made for a gentle start.',
-      coffeeMapping: 'Guatemala',
-      role: 'Soft / Classic Bridge',
-      bestBrew: 'Pour Over',
-      alsoBeautifulAs: 'Drip Coffee',
-      additionalSupportedMethods: ['Espresso', 'French Press'],
-    },
-    {
-      id: 'theres-no-place-like-home',
-      label: "There's No Place Like Home",
-      description: 'Familiar, grounding, and deeply reassuring.',
-      coffeeMapping: 'Brazil',
-      role: 'Classic Chocolate & Nutty',
-      bestBrew: 'Drip Coffee',
-      alsoBeautifulAs: 'Cold Brew',
-      additionalSupportedMethods: ['French Press', 'Milk Drinks', 'Espresso'],
-    },
-    {
-      id: 'working-late',
-      label: 'Working Late',
-      description: 'Focused, full, and made to carry you through.',
-      coffeeMapping: '6Bean Blend / Espresso',
-      role: 'Dark & Toasted / Espresso-oriented',
-      bestBrew: 'Espresso',
-      alsoBeautifulAs: 'Milk Drinks',
-      additionalSupportedMethods: ['French Press'],
-    },
-    {
-      id: 'deep-roots',
-      label: 'Deep Roots',
-      description: 'Grounded, layered, and a little more adventurous.',
-      coffeeMapping: 'Bali',
-      role: 'Deep / Earthy crossover',
-      bestBrew: 'French Press',
-      alsoBeautifulAs: 'Drip Coffee',
-      additionalSupportedMethods: ['Cold Brew', 'Milk Drinks'],
-    },
-  ],
-};
+const BODY_LEVELS = [
+  {
+    id: 'gentle',
+    label: 'Gentle',
+    description: 'Lighter and more delicate in body.',
+    coffee: 'Guatemala Huehuetenango',
+    bestBrew: 'Pour Over',
+    alsoBrew: 'Drip Coffee',
+  },
+  {
+    id: 'rounded',
+    label: 'Rounded',
+    description: 'Smooth and balanced.',
+    coffee: 'Brazil Los Santos',
+    bestBrew: 'Drip Coffee',
+    alsoBrew: 'Cold Brew',
+  },
+  {
+    id: 'structured',
+    label: 'Structured',
+    description: 'More defined and grounded.',
+    coffee: '6-Bean Espresso Blend',
+    bestBrew: 'Espresso',
+    alsoBrew: 'French Press',
+  },
+  {
+    id: 'full',
+    label: 'Full',
+    description: 'Richer and more substantial.',
+    coffee: 'Sumatra Mandheling',
+    bestBrew: 'French Press',
+    alsoBrew: 'Drip Coffee',
+  },
+  {
+    id: 'deep',
+    label: 'Deep',
+    description: 'Dense, weighty, and lingering.',
+    coffee: 'Bali Kintamani',
+    bestBrew: 'French Press',
+    alsoBrew: 'Cold Brew',
+  },
+] as const;
+
+type BodyLevel = typeof BODY_LEVELS[number];
+
+const N_BODY = BODY_LEVELS.length;   // 5
+const SNAP_DEG = 360 / N_BODY;       // 72°
 
 // ─── BloomDial ────────────────────────────────────────────────────────────────
 
-function BloomDial({ visible }: { visible: boolean }) {
+function BloomDial({ onReveal }: { onReveal: (level: BodyLevel) => void }) {
   const [dialAngle, setDialAngle]     = useState(0);
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [isDragging, setIsDragging]   = useState(false);
   const [isSnapping, setIsSnapping]   = useState(false);
 
-  const wheelRef      = useRef<HTMLDivElement>(null);
-  const dialAngleRef  = useRef(0);
-  const dragRef       = useRef({ startPA: 0, startDA: 0, active: false });
-  const snapTimeout   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wheelRef     = useRef<HTMLDivElement>(null);
+  const dialAngleRef = useRef(0);
+  const dragRef      = useRef({ startPA: 0, startDA: 0, active: false });
+  const snapTimeout  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const reducedMotion =
     typeof window !== 'undefined' &&
@@ -306,10 +289,11 @@ function BloomDial({ visible }: { visible: boolean }) {
 
   const snapAndSelect = (rawAngle: number) => {
     const n       = ((rawAngle % 360) + 360) % 360;
-    const snapped = Math.round(n / 90) * 90 % 360;
+    const snapped = Math.round(n / SNAP_DEG) * SNAP_DEG % 360;
+    const idx     = Math.round(n / SNAP_DEG) % N_BODY;
     dialAngleRef.current = snapped;
     setDialAngle(snapped);
-    setSelectedIdx(Math.round(n / 90) % 4);
+    setSelectedIdx(idx);
     if (!reducedMotion) {
       setIsSnapping(true);
       if (snapTimeout.current) clearTimeout(snapTimeout.current);
@@ -359,68 +343,73 @@ function BloomDial({ visible }: { visible: boolean }) {
     };
   }, [isDragging]);
 
-  const opt = selectedIdx !== null ? BLOOM_DIAL_CHOCOLATE.options[selectedIdx] : null;
+  const level = selectedIdx !== null ? BODY_LEVELS[selectedIdx] : null;
 
   const wheelT = reducedMotion ? 'none'
-    : isDragging  ? 'none'
-    : isSnapping  ? 'transform 0.35s cubic-bezier(0.34, 1.4, 0.64, 1)'
+    : isDragging ? 'none'
+    : isSnapping ? 'transform 0.35s cubic-bezier(0.34, 1.4, 0.64, 1)'
     : 'transform 0.08s ease-out';
 
   return (
     <div style={{
-      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      width: '100%',
-      opacity: visible ? 1 : 0,
-      transition: visible ? 'opacity 0.6s ease 0.5s' : 'none',
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      justifyContent: 'center', width: '100%', height: '100%',
+      padding: 'clamp(24px, 4vh, 52px) clamp(20px, 3vw, 48px)',
     }}>
+
       {/* Eyebrow */}
       <p style={{
-        fontSize: '0.58rem', letterSpacing: '0.32em', textTransform: 'uppercase',
-        color: '#9a2918', opacity: 0.5, margin: '0 0 12px', textAlign: 'center',
+        fontSize: '0.50rem', letterSpacing: '0.34em', textTransform: 'uppercase',
+        color: '#a54c2d', opacity: 0.45, margin: '0 0 10px', textAlign: 'center',
       }}>
         YOUR BLOOM DIAL
       </p>
 
-      {/* Main line — "Personalize" on solid pink */}
+      {/* Heading */}
       <p style={{
-        fontSize: 'clamp(0.88rem, 1.1vw, 1.1rem)',
-        color: '#9a2918', margin: '0 0 10px', lineHeight: 1.35, textAlign: 'center',
+        fontSize: 'clamp(0.80rem, 0.96vw, 0.96rem)',
+        color: '#a54c2d', margin: '0 0 8px', lineHeight: 1.3,
+        textAlign: 'center', fontWeight: 400,
       }}>
-        <span style={{ backgroundColor: '#ee5974', color: '#f2f1ea', padding: '2px 8px' }}>
-          Personalize
-        </span>
-        {' '}your coffee archetype.
+        Personalize your Chocolate &amp; Nutty match
       </p>
 
-      {/* Supporting copy */}
+      {/* Supporting line */}
       <p style={{
-        fontSize: 'clamp(0.7rem, 0.82vw, 0.8rem)',
-        color: '#9a2918', opacity: 0.4, margin: '0 0 36px',
-        lineHeight: 1.65, textAlign: 'center',
+        fontSize: 'clamp(0.63rem, 0.74vw, 0.73rem)',
+        color: '#9a2918', opacity: 0.36, margin: '0 0 16px', lineHeight: 1.65,
+        textAlign: 'center', maxWidth: 'clamp(220px, 26vw, 360px)',
       }}>
-        Choose the expression of Chocolate&nbsp;&amp;&nbsp;Nutty<br />
-        that feels most like you right now.
+        Adjust the body of your match to find the expression that feels most like you.
+      </p>
+
+      {/* Dimension label */}
+      <p style={{
+        fontSize: '0.48rem', letterSpacing: '0.30em', textTransform: 'uppercase',
+        color: '#a54c2d', opacity: 0.38, margin: '0 0 20px', textAlign: 'center',
+      }}>
+        DIMENSION: BODY
       </p>
 
       {/* Dial + fixed indicator */}
-      <div style={{ position: 'relative', marginBottom: 24 }}>
-        {/* Fixed pointer chevron — sits above the rotating logo */}
+      <div style={{ position: 'relative', marginBottom: 20 }}>
+        {/* Fixed pointer chevron */}
         <div style={{
-          position: 'absolute', top: -18, left: '50%',
+          position: 'absolute', top: -15, left: '50%',
           transform: 'translateX(-50%)',
           width: 0, height: 0,
-          borderLeft: '6px solid transparent',
-          borderRight: '6px solid transparent',
-          borderTop: '10px solid #ee5974',
+          borderLeft: '5px solid transparent',
+          borderRight: '5px solid transparent',
+          borderTop: '8px solid #a54c2d',
           zIndex: 2,
         }} />
 
-        {/* Rotating logo — dramatically larger */}
+        {/* Rotating logo */}
         <div
           ref={wheelRef}
           style={{
-            width: 'clamp(280px, 30vw, 420px)',
-            height: 'clamp(280px, 30vw, 420px)',
+            width: 'clamp(220px, 24vw, 360px)',
+            height: 'clamp(220px, 24vw, 360px)',
             cursor: isDragging ? 'grabbing' : 'grab',
             transform: `rotate(${dialAngle}deg)`,
             transition: wheelT,
@@ -439,33 +428,55 @@ function BloomDial({ visible }: { visible: boolean }) {
         </div>
       </div>
 
-      {/* Selected option label */}
-      <div style={{ textAlign: 'center', minHeight: 72 }}>
-        {opt ? (
+      {/* Level label + description */}
+      <div style={{ textAlign: 'center', minHeight: 54, marginBottom: 22 }}>
+        {level ? (
           <>
             <p style={{
-              fontSize: '0.66rem', letterSpacing: '0.24em', textTransform: 'uppercase',
-              color: '#ee5974', margin: '0 0 6px',
+              fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase',
+              color: '#a54c2d', margin: '0 0 5px',
             }}>
-              {opt.label}
+              {level.label}
             </p>
             <p style={{
-              fontSize: 'clamp(0.76rem, 0.9vw, 0.88rem)',
-              color: '#9a2918', opacity: 0.52, lineHeight: 1.6, margin: 0,
-              maxWidth: 'clamp(240px, 28vw, 400px)',
+              fontSize: 'clamp(0.68rem, 0.80vw, 0.78rem)',
+              color: '#9a2918', opacity: 0.46, lineHeight: 1.6, margin: 0,
+              maxWidth: 'clamp(190px, 22vw, 320px)',
             }}>
-              {opt.description}
+              {level.description}
             </p>
           </>
         ) : (
           <p style={{
-            fontSize: '0.62rem', letterSpacing: '0.2em', textTransform: 'uppercase',
-            color: '#9a2918', opacity: 0.28, margin: 0,
+            fontSize: '0.55rem', letterSpacing: '0.20em', textTransform: 'uppercase',
+            color: '#9a2918', opacity: 0.24, margin: 0,
           }}>
             Drag to explore
           </p>
         )}
       </div>
+
+      {/* Reveal button */}
+      <button
+        onClick={() => level && onReveal(level)}
+        disabled={!level}
+        style={{
+          background: level ? '#a54c2d' : 'transparent',
+          border: `1px solid ${level ? '#a54c2d' : 'rgba(165,76,45,0.18)'}`,
+          color: level ? '#f2f1ea' : 'rgba(165,76,45,0.22)',
+          padding: '13px 26px',
+          fontFamily: 'inherit',
+          fontSize: '0.54rem',
+          letterSpacing: '0.28em',
+          textTransform: 'uppercase',
+          cursor: level ? 'pointer' : 'not-allowed',
+          transition: 'opacity 0.2s',
+        }}
+        onMouseEnter={e => { if (level) e.currentTarget.style.opacity = '0.80'; }}
+        onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
+      >
+        SEE YOUR PERSONALIZED COFFEE
+      </button>
     </div>
   );
 }
@@ -505,46 +516,13 @@ export default function FlavorQuiz() {
   const [userProfile, setUserProfile]       = useState<any>(null);
   const [profileLoading, setProfileLoading] = useState(false);
 
-  // Reveal state (result page curtain)
+  // Reveal state (curtain)
   const [revealProgress, setRevealProgress] = useState(0);
   const [revealForced, setRevealForced]     = useState(false);
   const revealContainerRef = useRef<HTMLDivElement>(null);
 
-  const displayProgress = revealForced ? 1 : revealProgress;
-
-  // Scroll-to-fine-tune hint — fades in after the reveal settles
-  const [showScrollHint, setShowScrollHint] = useState(false);
-  const scrollHintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    const settled = isComplete && displayProgress > 0.8;
-    if (!settled) {
-      setShowScrollHint(false);
-      if (scrollHintTimer.current) { clearTimeout(scrollHintTimer.current); scrollHintTimer.current = null; }
-      return;
-    }
-    if (!scrollHintTimer.current) {
-      scrollHintTimer.current = setTimeout(() => { setShowScrollHint(true); scrollHintTimer.current = null; }, 1800);
-    }
-  }, [isComplete, displayProgress]);
-
-  useEffect(() => () => { if (scrollHintTimer.current) clearTimeout(scrollHintTimer.current); }, []);
-
-  // Screen 2 — Bloom Dial section visibility
-  const screen2Ref = useRef<HTMLDivElement>(null);
-  const [screen2Visible, setScreen2Visible] = useState(false);
-
-  useEffect(() => {
-    if (!isComplete) return;
-    const el = screen2Ref.current;
-    if (!el) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) { setScreen2Visible(true); observer.disconnect(); } },
-      { threshold: 0.08 },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [isComplete]);
+  // Coffee reveal (from Bloom Dial)
+  const [revealedLevel, setRevealedLevel] = useState<BodyLevel | null>(null);
 
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -591,6 +569,7 @@ export default function FlavorQuiz() {
       window.scrollTo({ top: 0 });
       setRevealProgress(0);
       setRevealForced(false);
+      setRevealedLevel(null);
     }
   }, [isComplete]);
 
@@ -598,7 +577,6 @@ export default function FlavorQuiz() {
   useEffect(() => {
     if (!isComplete) return;
 
-    // Respect prefers-reduced-motion
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       setRevealForced(true);
       return;
@@ -704,9 +682,7 @@ export default function FlavorQuiz() {
     setArchetypeKey('balanced');
     setRevealProgress(0);
     setRevealForced(false);
-    setShowScrollHint(false);
-    setScreen2Visible(false);
-    if (scrollHintTimer.current) { clearTimeout(scrollHintTimer.current); scrollHintTimer.current = null; }
+    setRevealedLevel(null);
   };
 
   // ── Loading ──────────────────────────────────────────────────────────────────
@@ -1164,286 +1140,252 @@ export default function FlavorQuiz() {
 
   // ── Results screen ───────────────────────────────────────────────────────────
   //
-  // 220vh container · 100vh sticky · 120vh scrollable
-  //   0.00–0.15  intro: full wallpaper + hint copy
-  //   0.15–0.65  curtain narrows 100% → 16.67% (1/6 of viewport)
-  //   0.65–0.80  brief hold at 1/6 stripe
-  //   0.80–1.00  settled
+  // 200vh scroll container · 100vh sticky
+  // Curtain = full-screen wallpaper that slides up as user scrolls (translateY 0→-100%)
+  // After curtain clears: Bloom Dial (left) + Bag + archetype text (right) — stable, no further scroll
   //
-  const INTRO_END = 0.15;
-  const OPEN_END  = 0.65;
-  const FINAL_W   = 12.5; // 1/8 of viewport width
 
-  const eff = revealForced ? 1 : revealProgress;
-
-  // How far through the opening animation (0 → 1)
-  const openProgress = eff <= INTRO_END
-    ? 0
-    : Math.min(1, (eff - INTRO_END) / (OPEN_END - INTRO_END));
-
-  // Curtain viewport narrows: 100% → 12.5%
-  const curtainWidth = FINAL_W + (100 - FINAL_W) * (1 - openProgress);
-
-  // Bag + text fade in as curtain approaches its final position
-  const contentVisible = openProgress > 0.6;
-
-  // Intro text fades from the first moment of scroll, gone by eff=0.25
-  // (curtain is still ~82vw wide at that point — text is gone well before 70vw)
-  const curtainTextAlpha = Math.max(0, 1 - eff / 0.25);
-
+  const curtainProgress = revealForced ? 1 : revealProgress;
+  const curtainY        = curtainProgress * 100;
+  const curtainTextAlpha = Math.max(0, 1 - curtainProgress * 5);
   const curtainTransition = revealForced
-    ? 'width 1.1s cubic-bezier(0.16, 1, 0.3, 1)'
-    : 'width 0.12s ease-out';
+    ? 'transform 1.1s cubic-bezier(0.16, 1, 0.3, 1)'
+    : 'none';
 
   return (
     <div style={{ backgroundColor: '#f2f1ea', minHeight: '100vh' }}>
 
-      {/* ── SCREEN 1: ARCHETYPE REVEAL ──────────────────────────────────────── */}
-      {/*
-        220vh container · 100vh sticky · 120vh scrollable
-        0.00–0.15  intro: full wallpaper curtain + hint copy
-        0.15–0.65  curtain narrows 100% → 12.5% (1/8 vw)
-        0.65–0.80  brief hold at stripe
-        0.80–1.00  settled → scroll hint fades in after 1.8s
-        Layout: 12.5% wallpaper stripe | 24% text | flex:1 bag hero
-      */}
-      <div ref={revealContainerRef} style={{ position: 'relative', height: '220vh' }}>
+      {/* ── Scroll container (200vh) ─────────────────────────────────────────── */}
+      <div ref={revealContainerRef} style={{ position: 'relative', height: '200vh' }}>
         <div style={{ position: 'sticky', top: 0, height: '100vh', overflow: 'hidden' }}>
 
-          {/*
-            BASE LAYER — Screen 1: text left · bag hero right
-            | 12.5% stripe spacer | 1px seam | ~24% text | flex:1 bag |
-          */}
+          {/* ── BASE LAYER — reveal layout ──────────────────────────────────── */}
           <div style={{
             position: 'absolute', inset: 0,
             backgroundColor: '#f2f1ea',
             display: 'flex',
-            alignItems: 'stretch',
           }}>
 
-            {/* 1/8 spacer — sits beneath the wallpaper strip */}
-            <div style={{ width: '12.5%', flexShrink: 0 }} />
-
-            {/* Thin seam at the stripe boundary */}
-            <div style={{ width: 1, flexShrink: 0, alignSelf: 'stretch', backgroundColor: 'rgba(154,41,24,0.06)' }} />
-
-            {/* Text column — left of bag, between stripe and bag */}
+            {/* Left column — Bloom Dial */}
             <div style={{
-              width: '24%',
-              flexShrink: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
-              padding: '0 clamp(16px, 2.5vw, 40px)',
-              opacity: contentVisible ? 1 : 0,
-              transform: contentVisible ? 'translateY(0)' : 'translateY(16px)',
-              transition: 'opacity 0.9s ease 0.22s, transform 0.9s ease 0.22s',
-            }}>
-              <p style={{
-                fontSize: '0.52rem', letterSpacing: '0.32em', textTransform: 'uppercase',
-                color: archetype.color, margin: '0 0 18px', opacity: 0.6,
-              }}>
-                YOUR PROFILE{userName.trim() ? ` · ${userName}` : ''}
-              </p>
-              <p style={{
-                fontSize: 'clamp(0.68rem, 0.78vw, 0.76rem)',
-                color: '#9a2918', opacity: 0.4, margin: '0 0 6px', letterSpacing: '0.01em',
-              }}>
-                Your palate points to
-              </p>
-              <h1 style={{
-                fontSize: 'clamp(2.2rem, 3.2vw, 4.2rem)',
-                color: archetype.color, lineHeight: 0.92, fontWeight: 400,
-                margin: '0 0 22px', letterSpacing: '-0.02em',
-              }}>
-                {archetype.name}
-              </h1>
-              <p style={{
-                fontSize: 'clamp(0.72rem, 0.82vw, 0.80rem)',
-                color: '#9a2918', opacity: 0.50, lineHeight: 1.78,
-                margin: '0 0 30px',
-              }}>
-                {archetype.shortDescription}
-              </p>
-              <Link
-                to="/coffees"
-                style={{
-                  display: 'inline-block',
-                  fontSize: '0.60rem', letterSpacing: '0.24em', textTransform: 'uppercase',
-                  color: '#f2f1ea', backgroundColor: archetype.color,
-                  textDecoration: 'none',
-                  padding: '12px 22px',
-                  width: 'fit-content',
-                  transition: 'opacity 0.2s',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.opacity = '0.82')}
-                onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-              >
-                See your coffees →
-              </Link>
-            </div>
-
-            {/* Bag — fills remaining right space, hero treatment */}
-            <div style={{
-              flex: 1,
+              width: '50%',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              padding: 'clamp(24px, 4vh, 60px) clamp(32px, 4vw, 80px)',
+              borderRight: '1px solid rgba(165,76,45,0.07)',
             }}>
+              {archetypeKey === 'chocolate' ? (
+                <BloomDial onReveal={setRevealedLevel} />
+              ) : (
+                // Placeholder for other archetypes — shows archetype description
+                <div style={{
+                  padding: 'clamp(32px, 5vw, 72px)',
+                  maxWidth: 420,
+                }}>
+                  <p style={{
+                    fontSize: '0.50rem', letterSpacing: '0.32em', textTransform: 'uppercase',
+                    color: archetype.color, opacity: 0.5, margin: '0 0 16px',
+                  }}>
+                    YOUR PROFILE
+                  </p>
+                  <p style={{
+                    fontSize: 'clamp(0.72rem, 0.84vw, 0.82rem)',
+                    color: '#9a2918', opacity: 0.48, lineHeight: 1.75, margin: 0,
+                  }}>
+                    {archetype.shortDescription}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Right column — Bag + archetype text + coffee reveal */}
+            <div style={{
+              width: '50%',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingTop: 'clamp(32px, 5vh, 60px)',
+              paddingBottom: 'clamp(32px, 5vh, 60px)',
+              paddingLeft: 'clamp(16px, 2vw, 32px)',
+              paddingRight: 'clamp(40px, 6vw, 88px)',
+            }}>
+
+              {/* Archetype label */}
+              <div style={{ textAlign: 'center', marginBottom: 'clamp(14px, 2vh, 22px)' }}>
+                <p style={{
+                  fontSize: '0.48rem', letterSpacing: '0.32em', textTransform: 'uppercase',
+                  color: archetype.color, opacity: 0.50, margin: '0 0 7px',
+                }}>
+                  YOUR COFFEE ARCHETYPE
+                </p>
+                <h1 style={{
+                  fontSize: 'clamp(1.5rem, 2.2vw, 2.6rem)',
+                  color: archetype.color, fontWeight: 400,
+                  lineHeight: 1.0, margin: 0, letterSpacing: '-0.01em',
+                }}>
+                  {archetype.name}
+                </h1>
+              </div>
+
+              {/* Bag */}
               <img
                 src={archetype.bag}
                 alt={archetype.name}
                 style={{
-                  maxHeight: 'clamp(380px, 84vh, 88vh)',
+                  maxHeight: revealedLevel
+                    ? 'clamp(180px, 36vh, 42vh)'
+                    : 'clamp(260px, 58vh, 64vh)',
                   maxWidth: '100%',
                   width: 'auto',
                   objectFit: 'contain',
                   display: 'block',
-                  opacity: contentVisible ? 1 : 0,
-                  transform: contentVisible ? 'translateY(0) scale(1)' : 'translateY(20px) scale(0.97)',
-                  transition: 'opacity 1.1s ease 0.1s, transform 1.1s ease 0.1s',
+                  transition: 'max-height 0.7s cubic-bezier(0.16, 1, 0.3, 1)',
                 }}
               />
+
+              {/* Coffee reveal panel — fades in after dial CTA */}
+              <div style={{
+                width: '100%',
+                maxWidth: 360,
+                overflow: 'hidden',
+                maxHeight: revealedLevel ? 240 : 0,
+                opacity: revealedLevel ? 1 : 0,
+                transition: 'max-height 0.7s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s ease 0.25s',
+                textAlign: 'center',
+                marginTop: revealedLevel ? 'clamp(14px, 2.2vh, 22px)' : 0,
+              }}>
+                {revealedLevel && (
+                  <>
+                    <p style={{
+                      fontSize: '0.46rem', letterSpacing: '0.30em', textTransform: 'uppercase',
+                      color: archetype.color, opacity: 0.45, margin: '0 0 6px',
+                    }}>
+                      YOUR MATCH
+                    </p>
+                    <p style={{
+                      fontSize: 'clamp(1.0rem, 1.4vw, 1.5rem)',
+                      color: archetype.color, fontWeight: 400,
+                      margin: '0 0 12px', letterSpacing: '-0.01em',
+                    }}>
+                      {revealedLevel.coffee}
+                    </p>
+                    <p style={{
+                      fontSize: '0.58rem', color: '#9a2918', opacity: 0.42,
+                      margin: '0 0 3px', letterSpacing: '0.04em',
+                    }}>
+                      Best for: {revealedLevel.bestBrew}
+                    </p>
+                    <p style={{
+                      fontSize: '0.56rem', color: '#9a2918', opacity: 0.32,
+                      margin: '0 0 20px', letterSpacing: '0.04em',
+                    }}>
+                      Also great for: {revealedLevel.alsoBrew}
+                    </p>
+                    <button
+                      onClick={() => { window.location.href = '/shop'; }}
+                      style={{
+                        background: archetype.color,
+                        border: 'none',
+                        color: '#f2f1ea',
+                        padding: '13px 28px',
+                        fontFamily: 'inherit',
+                        fontSize: '0.54rem',
+                        letterSpacing: '0.28em',
+                        textTransform: 'uppercase',
+                        cursor: 'pointer',
+                        transition: 'opacity 0.2s',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.opacity = '0.80'; }}
+                      onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
+                    >
+                      BUY THIS COFFEE
+                    </button>
+                  </>
+                )}
+              </div>
+
             </div>
           </div>
 
-          {/*
-            CURTAIN VIEWPORT — only the wrapper width animates (100% → 12.5%).
-            The wallpaper stripe inside is a FIXED-SIZE div (clamp 12.5vw).
-            background-size:cover on a fixed element never recalculates — no stretch.
-            The rest of the curtain is a dark fill that slides away to reveal the layout.
-          */}
+          {/* ── CURTAIN LAYER — full-screen wallpaper, slides up on scroll ──── */}
           <div style={{
-            position: 'absolute',
-            top: 0, left: 0, bottom: 0,
-            width: `${curtainWidth}%`,
-            zIndex: 10,
-            overflow: 'hidden',
+            position: 'absolute', inset: 0,
+            transform: `translateY(-${curtainY}%)`,
             transition: curtainTransition,
+            zIndex: 10,
+            willChange: 'transform',
           }}>
-            {/* Dark fill — covers the curtain area beyond the stripe */}
-            <div style={{ position: 'absolute', inset: 0, backgroundColor: '#140c08' }} />
 
-            {/*
-              Wallpaper stripe — FIXED size, NEVER animates.
-              background-size:cover crops naturally inside the narrow element.
-              The curtain wrapper clips from the right; this element is untouched.
-            */}
-            <div style={{
-              position: 'absolute',
-              left: 0, top: 0, bottom: 0,
-              width: 'clamp(120px, 12.5vw, 200px)',
-              backgroundImage: `url(${archetype.wallpaper})`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center center',
-              backgroundRepeat: 'no-repeat',
-              zIndex: 2,
-            }} />
-
-            {/* Depth gradient — fills curtain area for text legibility */}
+            {/* Wallpaper — cover fill, never stretches */}
             <div style={{
               position: 'absolute', inset: 0,
-              background: 'linear-gradient(to top, rgba(10,6,4,0.65) 0%, rgba(10,6,4,0.04) 55%, rgba(10,6,4,0.08) 100%)',
-              zIndex: 3,
+              backgroundImage: `url(${archetype.wallpaper})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              backgroundRepeat: 'no-repeat',
             }} />
 
-            {/* Intro text — fades from first scroll; gone well before content is visible */}
+            {/* Gradient — darkens bottom for text legibility */}
+            <div style={{
+              position: 'absolute', inset: 0,
+              background: 'linear-gradient(to top, rgba(10,6,4,0.62) 0%, rgba(10,6,4,0.08) 52%, rgba(10,6,4,0) 100%)',
+            }} />
+
+            {/* Curtain text — lower-left, fades as curtain lifts */}
             <motion.div
-              initial={{ opacity: 0, y: 14 }}
+              initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 1.0, delay: 0.4 }}
+              transition={{ duration: 0.9, delay: 0.3 }}
               style={{
                 position: 'absolute',
-                bottom: 'clamp(48px, 8vh, 88px)',
-                left: 'clamp(48px, 6vw, 88px)',
+                bottom: 'clamp(44px, 7.5vh, 80px)',
+                left: 'clamp(44px, 5.5vw, 76px)',
                 opacity: curtainTextAlpha,
+                transition: 'opacity 0.15s ease',
                 pointerEvents: curtainTextAlpha < 0.05 ? 'none' : 'auto',
-                transition: 'opacity 0.2s ease',
-                zIndex: 4,
+                zIndex: 2,
               }}
             >
               <p style={{
-                fontSize: '0.6rem', letterSpacing: '0.28em', textTransform: 'uppercase',
-                color: 'rgba(242,241,234,0.5)', margin: '0 0 18px',
+                fontSize: '0.50rem', letterSpacing: '0.32em', textTransform: 'uppercase',
+                color: 'rgba(242,241,234,0.58)', margin: '0 0 9px',
               }}>
-                {userName.trim() ? `${userName}, your result` : 'Your result'}
-              </p>
-              <p style={{
-                fontSize: 'clamp(1.4rem, 2.4vw, 2.2rem)',
-                color: '#f2f1ea', fontWeight: 400, lineHeight: 1.2,
-                margin: '0 0 40px', maxWidth: 420,
-              }}>
-                Your palate has a direction.
+                YOUR RESULT
               </p>
 
+              {/* Desktop: scroll prompt */}
               <p className="hidden md:block" style={{
-                fontSize: '0.58rem', letterSpacing: '0.22em', textTransform: 'uppercase',
-                color: 'rgba(242,241,234,0.35)', margin: 0,
+                fontSize: '0.46rem', letterSpacing: '0.26em', textTransform: 'uppercase',
+                color: 'rgba(242,241,234,0.30)', margin: 0,
               }}>
-                Scroll to reveal
+                SCROLL TO REVEAL
               </p>
 
+              {/* Mobile: tap button */}
               <button
                 className="block md:hidden"
                 onClick={() => setRevealForced(true)}
                 style={{
                   background: 'none',
-                  border: '1px solid rgba(242,241,234,0.35)',
-                  padding: '11px 22px',
-                  color: '#f2f1ea', fontFamily: 'inherit',
-                  fontSize: '0.65rem', letterSpacing: '0.22em',
-                  textTransform: 'uppercase', cursor: 'pointer',
+                  border: '1px solid rgba(242,241,234,0.32)',
+                  padding: '10px 20px',
+                  color: 'rgba(242,241,234,0.75)',
+                  fontFamily: 'inherit',
+                  fontSize: '0.58rem',
+                  letterSpacing: '0.22em',
+                  textTransform: 'uppercase',
+                  cursor: 'pointer',
+                  marginTop: 2,
                 }}
               >
-                Reveal my archetype →
+                TAP TO REVEAL
               </button>
             </motion.div>
           </div>
 
-          {/* Scroll-to-fine-tune hint */}
-          {archetypeKey === 'chocolate' && (
-            <div style={{
-              position: 'absolute',
-              bottom: 'clamp(18px, 3.5vh, 36px)', left: 0, right: 0,
-              display: 'flex', justifyContent: 'center',
-              zIndex: 15,
-              opacity: showScrollHint ? 1 : 0,
-              transition: 'opacity 1.4s ease',
-              pointerEvents: 'none',
-            }}>
-              <p style={{
-                fontSize: '0.48rem', letterSpacing: '0.3em', textTransform: 'uppercase',
-                color: '#9a2918', opacity: 0.38, margin: 0,
-              }}>
-                SCROLL TO FINE-TUNE ↓
-              </p>
-            </div>
-          )}
-
         </div>
       </div>
-
-      {/* ── SCREEN 2: BLOOM DIAL ─────────────────────────────────────────────── */}
-      {archetypeKey === 'chocolate' && (
-        <div
-          ref={screen2Ref}
-          style={{
-            minHeight: '100vh',
-            backgroundColor: '#f2f1ea',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 'clamp(48px, 8vh, 80px) clamp(24px, 6vw, 60px)',
-            opacity: screen2Visible ? 1 : 0,
-            transform: screen2Visible ? 'translateY(0)' : 'translateY(24px)',
-            transition: 'opacity 0.7s ease, transform 0.7s ease',
-          }}
-        >
-          <BloomDial visible={true} />
-        </div>
-      )}
 
     </div>
   );
