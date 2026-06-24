@@ -1319,74 +1319,166 @@ export default function FlavorQuiz() {
             willChange: 'transform',
           }}>
 
-            {/* Wallpaper */}
-            <div style={{
-              position: 'absolute',
-              top: 0, left: 0,
-              width: '100%', height: '100%',
-              backgroundImage: `url(${archetype.wallpaper})`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-              backgroundRepeat: 'no-repeat',
-              pointerEvents: 'none',
-            }} />
-
-            {/* Gradient — darkens bottom for text legibility */}
-            <div style={{
-              position: 'absolute', inset: 0,
-              background: 'linear-gradient(to top, rgba(10,6,4,0.62) 0%, rgba(10,6,4,0.08) 52%, rgba(10,6,4,0) 100%)',
-            }} />
-
-            {/* Curtain text — lower-left, fades as curtain lifts */}
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.9, delay: 0.3 }}
-              style={{
-                position: 'absolute',
-                bottom: 'clamp(44px, 7.5vh, 80px)',
-                left: 'clamp(44px, 5.5vw, 76px)',
-                opacity: curtainTextAlpha,
-                transition: 'opacity 0.15s ease',
-                pointerEvents: curtainTextAlpha < 0.05 ? 'none' : 'auto',
-                zIndex: 2,
-              }}
-            >
-              <p style={{
-                fontSize: '0.50rem', letterSpacing: '0.32em', textTransform: 'uppercase',
-                color: 'rgba(242,241,234,0.58)', margin: '0 0 9px',
+            {archetypeKey === 'chocolate' ? (
+              /* ── Chocolate curtain — cream background with brand text layout ── */
+              <div style={{
+                position: 'absolute', top: 0, left: 0,
+                width: '100%', height: '100%',
+                backgroundColor: '#f2f1ea',
               }}>
-                YOUR RESULT
-              </p>
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.9, delay: 0.3 }}
+                  style={{
+                    position: 'absolute',
+                    left: 'clamp(72px, 7.5vw, 120px)',
+                    top: 'clamp(160px, 27vh, 240px)',
+                    opacity: curtainTextAlpha,
+                    transition: 'opacity 0.15s ease',
+                    pointerEvents: curtainTextAlpha < 0.05 ? 'none' : 'auto',
+                  }}
+                >
+                  {/* from: */}
+                  <p style={{
+                    fontSize: 'clamp(0.95rem, 1.2vw, 1.25rem)',
+                    color: '#7a2018',
+                    margin: '0 0 2px',
+                    fontWeight: 400,
+                    fontFamily: 'inherit',
+                  }}>
+                    from:
+                  </p>
 
-              {/* Desktop: scroll prompt */}
-              <p className="hidden md:block" style={{
-                fontSize: '0.46rem', letterSpacing: '0.26em', textTransform: 'uppercase',
-                color: 'rgba(242,241,234,0.30)', margin: 0,
-              }}>
-                SCROLL TO REVEAL
-              </p>
+                  {/* AXIS */}
+                  <p style={{
+                    fontSize: 'clamp(4rem, 7vw, 8.5rem)',
+                    color: '#7a2018',
+                    margin: 0,
+                    lineHeight: 1.0,
+                    fontWeight: 400,
+                    letterSpacing: '-0.01em',
+                    fontFamily: 'inherit',
+                  }}>
+                    AXIS
+                  </p>
 
-              {/* Mobile: tap button */}
-              <button
-                className="block md:hidden"
-                onClick={() => setRevealForced(true)}
-                style={{
-                  background: 'none',
-                  border: '1px solid rgba(242,241,234,0.32)',
-                  padding: '10px 20px',
-                  color: 'rgba(242,241,234,0.75)',
-                  fontFamily: 'inherit',
-                  fontSize: '0.58rem',
-                  letterSpacing: '0.22em',
-                  textTransform: 'uppercase',
-                  cursor: 'pointer',
-                  marginTop: 2,
-                }}
-              >
-                TAP TO REVEAL
-              </button>
-            </motion.div>
+                  {/* & BLOOM */}
+                  <p style={{
+                    fontSize: 'clamp(4rem, 7vw, 8.5rem)',
+                    color: '#7a2018',
+                    margin: '0 0 clamp(28px, 3.5vh, 44px)',
+                    lineHeight: 1.0,
+                    fontWeight: 400,
+                    letterSpacing: '-0.01em',
+                    fontFamily: 'inherit',
+                  }}>
+                    &amp;{' '}
+                    <span style={{ color: '#d4607a' }}>BLOOM</span>
+                  </p>
+
+                  {/* to: YOU */}
+                  <p style={{
+                    fontSize: 'clamp(0.95rem, 1.2vw, 1.25rem)',
+                    color: '#7a2018',
+                    margin: 0,
+                    fontWeight: 400,
+                    fontFamily: 'inherit',
+                  }}>
+                    to:{' '}
+                    <span style={{
+                      backgroundColor: '#d4607a',
+                      color: '#ffffff',
+                      padding: '2px 9px 3px',
+                    }}>
+                      YOU
+                    </span>
+                  </p>
+
+                  {/* Mobile tap button */}
+                  <button
+                    className="block md:hidden"
+                    onClick={() => setRevealForced(true)}
+                    style={{
+                      marginTop: 'clamp(32px, 5vh, 52px)',
+                      background: 'none',
+                      border: '1px solid rgba(122,32,24,0.35)',
+                      padding: '10px 20px',
+                      color: '#7a2018',
+                      fontFamily: 'inherit',
+                      fontSize: '0.58rem',
+                      letterSpacing: '0.22em',
+                      textTransform: 'uppercase',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    TAP TO REVEAL
+                  </button>
+                </motion.div>
+              </div>
+            ) : (
+              /* ── Other archetypes — wallpaper image ── */
+              <>
+                <div style={{
+                  position: 'absolute', top: 0, left: 0,
+                  width: '100%', height: '100%',
+                  backgroundImage: `url(${archetype.wallpaper})`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center',
+                  backgroundRepeat: 'no-repeat',
+                  pointerEvents: 'none',
+                }} />
+                <div style={{
+                  position: 'absolute', inset: 0,
+                  background: 'linear-gradient(to top, rgba(10,6,4,0.62) 0%, rgba(10,6,4,0.08) 52%, rgba(10,6,4,0) 100%)',
+                }} />
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.9, delay: 0.3 }}
+                  style={{
+                    position: 'absolute',
+                    bottom: 'clamp(44px, 7.5vh, 80px)',
+                    left: 'clamp(44px, 5.5vw, 76px)',
+                    opacity: curtainTextAlpha,
+                    transition: 'opacity 0.15s ease',
+                    pointerEvents: curtainTextAlpha < 0.05 ? 'none' : 'auto',
+                    zIndex: 2,
+                  }}
+                >
+                  <p style={{
+                    fontSize: '0.50rem', letterSpacing: '0.32em', textTransform: 'uppercase',
+                    color: 'rgba(242,241,234,0.58)', margin: '0 0 9px',
+                  }}>
+                    YOUR RESULT
+                  </p>
+                  <p className="hidden md:block" style={{
+                    fontSize: '0.46rem', letterSpacing: '0.26em', textTransform: 'uppercase',
+                    color: 'rgba(242,241,234,0.30)', margin: 0,
+                  }}>
+                    SCROLL TO REVEAL
+                  </p>
+                  <button
+                    className="block md:hidden"
+                    onClick={() => setRevealForced(true)}
+                    style={{
+                      background: 'none',
+                      border: '1px solid rgba(242,241,234,0.32)',
+                      padding: '10px 20px',
+                      color: 'rgba(242,241,234,0.75)',
+                      fontFamily: 'inherit',
+                      fontSize: '0.58rem',
+                      letterSpacing: '0.22em',
+                      textTransform: 'uppercase',
+                      cursor: 'pointer',
+                      marginTop: 2,
+                    }}
+                  >
+                    TAP TO REVEAL
+                  </button>
+                </motion.div>
+              </>
+            )}
           </div>
 
         </div>
