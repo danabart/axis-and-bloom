@@ -1154,7 +1154,7 @@ DECLARE
   v_bal_id   UUID;
   v_fruit_id UUID;
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM quiz WHERE version = 'v2') THEN
+  IF NOT EXISTS (SELECT 1 FROM quiz LIMIT 1) THEN
 
     SELECT id INTO v_choc_id  FROM archetype WHERE name = 'Chocolate & Nutty';
     SELECT id INTO v_bal_id   FROM archetype WHERE name = 'Balanced & Sweet';
@@ -1297,7 +1297,7 @@ DECLARE
   v_bal_id   UUID;
   v_fruit_id UUID;
 BEGIN
-  IF EXISTS (SELECT 1 FROM quiz WHERE version = 'v3') THEN RETURN; END IF;
+  IF EXISTS (SELECT 1 FROM quiz LIMIT 1) THEN RETURN; END IF;
 
   SELECT id INTO v_choc_id  FROM archetype WHERE name = 'Chocolate & Nutty';
   SELECT id INTO v_bal_id   FROM archetype WHERE name = 'Balanced & Sweet';
@@ -1660,7 +1660,7 @@ DECLARE
   v_q1_id UUID; v_q2_id UUID; v_q3_id UUID;
   v_q4_id UUID; v_q5_id UUID; v_q6_id UUID;
 BEGIN
-  IF EXISTS (SELECT 1 FROM quiz WHERE version = 'v4') THEN RETURN; END IF;
+  IF EXISTS (SELECT 1 FROM quiz LIMIT 1) THEN RETURN; END IF;
 
   UPDATE quiz SET is_active = FALSE;
 
@@ -1782,8 +1782,8 @@ DECLARE
   v_fbq1_id        UUID;   -- Floral branch question id
   v_ebq1_id        UUID;   -- Earthy branch question id
 BEGIN
-  -- Skip if V7 branch quizzes already carry trigger_archetype_id (final normalised design)
-  IF EXISTS (SELECT 1 FROM quiz WHERE version = 'v7-branch-floral' AND trigger_archetype_id IS NOT NULL) THEN RETURN; END IF;
+  -- Skip if v7 main quiz already exists (seeded by migration or prior schema run)
+  IF EXISTS (SELECT 1 FROM quiz WHERE version = 'v7') THEN RETURN; END IF;
 
   -- Delete old V7 if it exists (re-seed with normalised branch quiz structure)
   DELETE FROM quiz WHERE version IN ('v7', 'v7-branch-floral', 'v7-branch-earthy');
