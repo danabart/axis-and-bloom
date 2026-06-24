@@ -1939,7 +1939,7 @@ SELECT
   av.max_score
 FROM archetype_vector av
 JOIN archetype  a ON a.id = av.archetype_id
-JOIN coffee_dimensionsd ON md5(d.name)::uuid = av.dimension_id
+JOIN coffee_dimensions d ON md5(d.name)::uuid = av.dimension_id
 ORDER BY a.name, d.display_order;
 
 -- Archetype vector vs actual cupping scores — one row per archetype × dimension.
@@ -1960,7 +1960,7 @@ SELECT
   COUNT(DISTINCT aa.coffee_id)                                    AS coffee_count
 FROM archetype_vector av
 JOIN archetype  a ON a.id = av.archetype_id
-JOIN coffee_dimensionsd ON md5(d.name)::uuid = av.dimension_id
+JOIN coffee_dimensions d ON md5(d.name)::uuid = av.dimension_id
 LEFT JOIN archetype_assignments aa
   ON aa.superseded_at IS NULL
   AND CASE aa.archetype
