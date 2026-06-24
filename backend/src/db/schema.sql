@@ -1228,7 +1228,7 @@ BEGIN
 
     UPDATE quiz SET description = 'Axis & Bloom Flavor Finder — 5 questions' WHERE id = v_quiz_id;
 
-    INSERT INTO answer (question_id, answer_text, resulting_archetype_id) VALUES
+    INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
       (v_q5_id, 'I don''t mind. Actually I kind of like it. It tastes serious.',             v_choc_id),
       (v_q5_id, 'I''ll reach for milk or sugar. I don''t want that.',                        v_bal_id),
       (v_q5_id, 'It feels flat or burnt to me. I''d rather have something bright or light.', v_fruit_id);
@@ -1269,7 +1269,7 @@ BEGIN
       (5, 'It feels flat or burnt to me. I''d rather have something bright or light.',               'Fruity',            3)
     ) AS data(q_number, answer_text, archetype_name, score)
     JOIN quiz_question q ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
-    JOIN answer  a ON a.question_id = q.id AND a.answer_text = data.answer_text
+    JOIN quiz_answer  a ON a.question_id = q.id AND a.answer_text = data.answer_text
     JOIN archetype ar ON ar.name = data.archetype_name
     ON CONFLICT (answer_id, archetype_id) DO NOTHING;
   END IF;
@@ -1401,7 +1401,7 @@ BEGIN
     (5, 'It feels burnt to me. I''d rather have something fresher or more alive.',      'Fruity',            3.0)
   ) AS data(q_number, answer_text, archetype_name, score)
   JOIN quiz_question q ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
-  JOIN answer    a  ON a.question_id = q.id  AND a.answer_text = data.answer_text
+  JOIN quiz_answer    a  ON a.question_id = q.id  AND a.answer_text = data.answer_text
   JOIN archetype ar ON ar.name = data.archetype_name
   ON CONFLICT (answer_id, archetype_id) DO NOTHING;
 END $v3_scoring$;
