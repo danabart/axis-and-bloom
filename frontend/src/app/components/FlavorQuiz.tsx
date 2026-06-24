@@ -16,7 +16,7 @@ import logoLinesSvg from '../../design/LOGO/LogoLines.svg';
 import wallpaperFloral       from '../../design/IMAGES/archetypes/Floral.jpg';
 import wallpaperFruity       from '../../design/IMAGES/archetypes/Fruity.jpg';
 import wallpaperBalanced     from '../../design/IMAGES/archetypes/Balanced-&-Sweet.jpg';
-import wallpaperChocolate    from '../../design/IMAGES/archetypes/Chocolate-&-Nutty.jpg';
+import wallpaperChocolate    from '../../design/IMAGES/archetypes/Chocolate&NUTTY.svg';
 import wallpaperEarthy       from '../../design/IMAGES/archetypes/Spicy-&-Earthy.jpg';
 import wallpaperExperimental from '../../design/IMAGES/archetypes/Experimental.jpg';
 
@@ -1310,27 +1310,45 @@ export default function FlavorQuiz() {
 
           {/* ── CURTAIN LAYER — full-screen wallpaper, slides up on scroll ──── */}
           <div style={{
-            position: 'absolute', inset: 0,
+            position: 'absolute',
+            top: 0, left: 0,
+            width: '100%', height: '100%',
             transform: `translateY(-${curtainY}%)`,
             transition: curtainTransition,
             zIndex: 10,
             willChange: 'transform',
           }}>
 
-            {/* Wallpaper — background-size: cover preserves aspect ratio via cropping */}
-            <div
-              aria-hidden="true"
-              style={{
-                position: 'absolute',
-                top: 0, left: 0,
-                width: '100%', height: '100%',
-                backgroundImage: `url(${archetype.wallpaper})`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center center',
-                backgroundRepeat: 'no-repeat',
-                pointerEvents: 'none',
-              }}
-            />
+            {/*
+              Wallpaper — flex overflow:hidden forces the SVG to fill without
+              distorting. minWidth/minHeight 100% makes the image at least as
+              large as the container on every axis; auto width/height preserves
+              the viewBox aspect ratio; overflow:hidden crops the excess.
+              This is aspect-ratio-safe regardless of container dimensions.
+            */}
+            <div style={{
+              position: 'absolute',
+              top: 0, left: 0,
+              width: '100%', height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              overflow: 'hidden',
+              pointerEvents: 'none',
+            }}>
+              <img
+                src={archetype.wallpaper}
+                alt=""
+                draggable={false}
+                style={{
+                  minWidth: '100%',
+                  minHeight: '100%',
+                  width: 'auto',
+                  height: 'auto',
+                  flexShrink: 0,
+                }}
+              />
+            </div>
 
             {/* Gradient — darkens bottom for text legibility */}
             <div style={{
