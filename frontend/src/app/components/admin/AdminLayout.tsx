@@ -1,7 +1,7 @@
 import { NavLink, Link, Outlet, useNavigate } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
 
-const NAV = [
+const NAV_MAIN = [
   { to: '/admin',              label: 'Dashboard',       end: true },
   { to: '/admin/coffees',      label: 'Coffees'                   },
   { to: '/admin/sessions',     label: 'Cupping Sessions'          },
@@ -9,6 +9,13 @@ const NAV = [
   { to: '/admin/flavor-wheel', label: 'Flavor Wheel'              },
   { to: '/admin/roasters',     label: 'Roasteries'                },
   { to: '/admin/dial',         label: 'Bloom Dial'                },
+];
+
+const NAV_SOMMELIER = [
+  { to: '/admin/sommelier/config',  label: 'Configuration' },
+  { to: '/admin/sommelier/intents', label: 'Intent Editor' },
+  { to: '/admin/sommelier/flow',    label: 'Flow & Stats'  },
+  { to: '/admin/dial',              label: 'Bloom Dial'    },
 ];
 
 export default function AdminLayout() {
@@ -25,11 +32,32 @@ export default function AdminLayout() {
           Admin
         </p>
         <nav className="flex flex-col gap-1">
-          {NAV.map(({ to, label, end }) => (
+          {NAV_MAIN.map(({ to, label, end }) => (
             <NavLink
               key={to}
               to={to}
               end={end}
+              className={({ isActive }) =>
+                `px-3 py-2 rounded text-sm transition-colors ${
+                  isActive
+                    ? 'bg-stone-200 font-normal text-stone-800'
+                    : 'text-stone-500 hover:text-stone-800 hover:bg-stone-100'
+                }`
+              }
+            >
+              {label}
+            </NavLink>
+          ))}
+        </nav>
+
+        <p className="text-xs font-normal tracking-widest uppercase mt-6 mb-2 px-3" style={{ color: '#b05642' }}>
+          Sommelier
+        </p>
+        <nav className="flex flex-col gap-1">
+          {NAV_SOMMELIER.map(({ to, label }) => (
+            <NavLink
+              key={to + label}
+              to={to}
               className={({ isActive }) =>
                 `px-3 py-2 rounded text-sm transition-colors ${
                   isActive

@@ -18,6 +18,9 @@ import AdminFlavorWheel from './components/admin/AdminFlavorWheel';
 import AdminRoasters from './components/admin/AdminRoasters';
 import AdminCupping from './components/admin/AdminCupping';
 import AdminDial from './components/admin/AdminDial';
+import AdminSommelierConfig from './components/admin/AdminSommelierConfig';
+import AdminIntentEditor from './components/admin/AdminIntentEditor';
+import AdminSommelierFlow from './components/admin/AdminSommelierFlow';
 import CoffeesPage from './components/CoffeesPage';
 import JoinHousehold from './components/JoinHousehold';
 import TheAxis from './components/TheAxis';
@@ -54,6 +57,9 @@ export default function App() {
             <Route path="roasters" element={<AdminRoasters />} />
             <Route path="cupping" element={<AdminCupping />} />
             <Route path="dial" element={<AdminDial />} />
+            <Route path="sommelier/config"  element={<AdminSommelierConfig />} />
+            <Route path="sommelier/intents" element={<AdminIntentEditor />} />
+            <Route path="sommelier/flow"    element={<AdminSommelierFlow />} />
           </Route>
 
           {/* ── Public site — shared nav + footer ── */}

@@ -701,6 +701,175 @@ router.delete('/dial/relationships/:id', async (req, res) => {
   }
 });
 
+// ── GET /api/admin/sommelier/config ──────────────────────────────────────────
+router.get('/sommelier/config', async (_req, res) => {
+  try {
+    const snap = await firestoreDb.doc('config/sommelier').get();
+    if (!snap.exists) { res.status(404).json({ error: 'Config not found' }); return; }
+    res.json(snap.data());
+  } catch (err) {
+    console.error('[admin/sommelier/config GET]', err);
+    res.status(500).json({ error: 'Failed to fetch config' });
+  }
+});
+
+// ── PATCH /api/admin/sommelier/config ─────────────────────────────────────────
+router.patch('/sommelier/config', async (req, res) => {
+  const body = req.body;
+  if (!body || typeof body !== 'object') {
+    res.status(400).json({ error: 'Request body must be a JSON object' });
+    return;
+  }
+
+  // Validate weights if present
+  const weights = body.confidenceWeights;
+  if (weights) {
+    const vals = Object.values(weights) as number[];
+    if (vals.some((v) => typeof v !== 'number' || v < 0 || v > 1)) {
+      res.status(400).json({ error: 'confidenceWeights values must be numbers between 0 and 1' });
+      return;
+    }
+  }
+
+  // Validate thresholds if present
+  const thresholds = body.confidenceThresholds;
+  if (thresholds) {
+    const { medium, high } = thresholds;
+    if (medium !== undefined && (typeof medium !== 'number' || medium < 0 || medium > 1)) {
+      res.status(400).json({ error: 'confidenceThresholds.medium must be 0–1' });
+      return;
+    }
+    if (high !== undefined && (typeof high !== 'number' || high < 0 || high > 1)) {
+      res.status(400).json({ error: 'confidenceThresholds.high must be 0–1' });
+      return;
+    }
+    if (medium !== undefined && high !== undefined && high <= medium) {
+      res.status(400).json({ error: 'confidenceThresholds.high must be greater than .medium' });
+      return;
+    }
+  }
+
+  // Validate intent keys if present
+  const VALID_INTENTS = ['DISCOVERY_SEEKER', 'PROFILE_AMBIGUOUS', 'TASTE_EVOLUTION', 'RECOMMENDATION_MISS', 'CONVERSION', 'EXPLORATION'];
+  if (body.intents) {
+    for (const key of Object.keys(body.intents)) {
+      if (!VALID_INTENTS.includes(key)) {
+        res.status(400).json({ error: `Unknown intent key: ${key}` });
+        return;
+      }
+    }
+  }
+
+  try {
+    await firestoreDb.doc('config/sommelier').set(
+      { ...body, updatedAt: FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[admin/sommelier/config PATCH]', err);
+    res.status(500).json({ error: 'Failed to update config' });
+  }
+});
+
+// ── GET /api/admin/sommelier/stats ────────────────────────────────────────────
+router.get('/sommelier/stats', async (_req, res) => {
+  const PERIOD_DAYS = 30;
+  const cutoff = new Date(Date.now() - PERIOD_DAYS * 24 * 60 * 60 * 1000);
+
+  try {
+    // Firestore: all evaluations (filter in JS — collectionGroup date index not guaranteed)
+    const snap = await firestoreDb.collectionGroup('sommelier_evaluations').get();
+    const evals = snap.docs
+      .map((d) => d.data())
+      .filter((d) => {
+        const ts = d.createdAt?.toDate?.();
+        return ts ? ts >= cutoff : false;
+      });
+
+    const totalEvaluations = evals.length;
+    const needsSommelierCount = evals.filter((d) => d.needsSommelier).length;
+    const needsSommelierRate = totalEvaluations ? needsSommelierCount / totalEvaluations : 0;
+
+    // Intent distribution
+    const INTENT_KEYS = ['DISCOVERY_SEEKER', 'PROFILE_AMBIGUOUS', 'TASTE_EVOLUTION', 'RECOMMENDATION_MISS', 'CONVERSION', 'EXPLORATION'];
+    const intentDistribution: Record<string, { count: number; sessionStartedRate: number; avgTurnsUsed: number; orderConversionRate: number }> = {};
+    for (const intent of INTENT_KEYS) {
+      const intentEvals = evals.filter((d) => d.intent === intent);
+      const count = intentEvals.length;
+      const sessionStarted = intentEvals.filter((d) => d.sessionStarted).length;
+      const completed = intentEvals.filter((d) => d.outcome?.sessionCompleted);
+      const avgTurns = completed.length
+        ? completed.reduce((s, d) => s + (d.outcome?.turnsUsed ?? 0), 0) / completed.length
+        : 0;
+      const ordered = intentEvals.filter((d) => d.outcome?.orderedWithin30Days).length;
+      intentDistribution[intent] = {
+        count,
+        sessionStartedRate: count ? sessionStarted / count : 0,
+        avgTurnsUsed: Math.round(avgTurns * 10) / 10,
+        orderConversionRate: count ? ordered / count : 0,
+      };
+    }
+
+    // Confidence distribution
+    const confidenceDistribution = { low: 0, medium: 0, high: 0 };
+    for (const d of evals) {
+      const level = d.userStateSnapshot?.behavioralLevel as string | undefined;
+      if (level === 'low') confidenceDistribution.low++;
+      else if (level === 'medium') confidenceDistribution.medium++;
+      else if (level === 'high') confidenceDistribution.high++;
+    }
+
+    // Outcome stats (sessions only)
+    const sessioned = evals.filter((d) => d.sessionStarted);
+    const completionCount = sessioned.filter((d) => d.outcome?.sessionCompleted).length;
+    const ordered7 = sessioned.filter((d) => d.outcome?.orderedWithin7Days).length;
+    const returned = sessioned.filter((d) => d.outcome?.returnedToSommelier).length;
+    const tokenTotals = sessioned.reduce((s, d) => s + (d.outcome?.tokensSpent ?? 0), 0);
+    const outcomeStats = {
+      sessionCompletionRate: sessioned.length ? completionCount / sessioned.length : 0,
+      orderedWithin7DaysRate: sessioned.length ? ordered7 / sessioned.length : 0,
+      returnedRate: sessioned.length ? returned / sessioned.length : 0,
+      avgTokensPerSession: sessioned.length ? Math.round((tokenTotals / sessioned.length) * 10) / 10 : 0,
+    };
+
+    // SQL: token stats
+    const tokenResult = await db.query(`
+      SELECT
+        COALESCE(SUM(lifetime_earned), 0)::int AS total_issued,
+        COALESCE(SUM(lifetime_spent), 0)::int  AS total_spent,
+        ROUND(AVG(balance)::numeric, 2)        AS avg_balance,
+        COUNT(*) FILTER (WHERE balance = 0)::int AS zero_balance_users
+      FROM user_tokens
+    `);
+    const tr = tokenResult.rows[0];
+    const tokenStats = {
+      totalTokensIssued: Number(tr.total_issued),
+      totalTokensSpent: Number(tr.total_spent),
+      avgBalancePerUser: Number(tr.avg_balance ?? 0),
+      usersWithZeroBalance: Number(tr.zero_balance_users),
+    };
+
+    res.json({
+      totalEvaluations,
+      needsSommelierRate: Math.round(needsSommelierRate * 1000) / 1000,
+      intentDistribution,
+      confidenceDistribution,
+      outcomeStats: {
+        sessionCompletionRate: Math.round(outcomeStats.sessionCompletionRate * 1000) / 1000,
+        orderedWithin7DaysRate: Math.round(outcomeStats.orderedWithin7DaysRate * 1000) / 1000,
+        returnedRate: Math.round(outcomeStats.returnedRate * 1000) / 1000,
+        avgTokensPerSession: outcomeStats.avgTokensPerSession,
+      },
+      tokenStats,
+      periodDays: PERIOD_DAYS,
+    });
+  } catch (err) {
+    console.error('[admin/sommelier/stats]', err);
+    res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
 // ── POST /api/admin/sommelier/recompute-centroids ─────────────────────────────
 // Reads all sommelier_evaluations documents across all users, groups by intent,
 // averages feature vectors component-by-component, and writes to config/sommelierCentroids.
