@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowRight } from 'lucide-react';
+
+const RUST = '#a33726';
 import { useAuth } from '../context/AuthContext';
 import { saveQuizResult, getUserProfile } from '../lib/api';
 
@@ -492,6 +494,7 @@ export default function FlavorQuiz() {
   const [showBranch, setShowBranch]             = useState(false);
   const [branchQuestion, setBranchQuestion]     = useState<BranchQuestion | null>(null);
   const [selectedBranchAnswerId, setSelectedBranchAnswerId] = useState<string | null>(null);
+  const [showTieInterstitial, setShowTieInterstitial] = useState(false);
 
   // API state
   const [questions, setQuestions] = useState<ApiQuestion[]>([]);
@@ -638,6 +641,12 @@ export default function FlavorQuiz() {
       const key = ARCHETYPE_NAME_TO_KEY[score.archetype] ?? 'balanced';
       setArchetypeKey(key);
 
+      // Tie detected — show interstitial before branch or result
+      if (score.tieDetected && score.tiedArchetypes.length >= 2) {
+        setShowTieInterstitial(true);
+        return;
+      }
+
       if (score.archetypeId) {
         const branchRes = await fetch(`/api/quiz/branch?archetypeId=${score.archetypeId}`);
         if (branchRes.ok) {
@@ -691,6 +700,7 @@ export default function FlavorQuiz() {
     setAnswers({});
     setSelectedIds({});
     setScoreError(false);
+    setShowTieInterstitial(false);
     setArchetypeKey('balanced');
     setRevealProgress(0);
     setRevealForced(false);
@@ -1088,6 +1098,66 @@ export default function FlavorQuiz() {
             </div>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  // ── Tie interstitial ─────────────────────────────────────────────────────────
+  if (showTieInterstitial && scoreData) {
+    const archetypeNameMap: Record<string, string> = {
+      floral: 'Floral', fruity: 'Fruity', balanced: 'Balanced & Sweet',
+      chocolate: 'Chocolate & Nutty', spicy: 'Spicy & Earthy', experimental: 'Experimental',
+    };
+    const tiedNames = (scoreData.tiedArchetypes ?? [])
+      .map((k) => archetypeNameMap[k.toLowerCase()] ?? k);
+
+    const tiedParam = (scoreData.tiedArchetypes ?? []).join(',');
+
+    return (
+      <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center px-6">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="max-w-md w-full text-center space-y-8"
+        >
+          <div>
+            <p className="text-xs uppercase tracking-[0.25em] text-[#a33726] mb-3">A perfect tie</p>
+            <h2 className="text-3xl font-thin text-stone-800 leading-snug">
+              {tiedNames.length === 2
+                ? <>{tiedNames[0]} <span className="text-stone-400">&</span> {tiedNames[1]}</>
+                : tiedNames.join(' · ')}
+            </h2>
+            <p className="text-stone-500 mt-4 text-sm leading-relaxed">
+              Your palate sits at the edge of two worlds. Liam, our coffee sommelier, can help you find exactly where you land.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <button
+              onClick={() => {
+                window.location.href = `/sommelier?entry=quiz_tie&tied=${encodeURIComponent(tiedParam)}`;
+              }}
+              className="w-full py-3 rounded-lg text-white text-sm tracking-wide"
+              style={{ backgroundColor: RUST }}
+            >
+              Talk to Liam →
+            </button>
+            <button
+              onClick={() => {
+                setShowTieInterstitial(false);
+                if (user) {
+                  saveQuizResult({ archetype: scoreData.archetype, scores: scoreData.scores, answers, decaf: false })
+                    .catch(console.error);
+                }
+                setIsComplete(true);
+              }}
+              className="w-full py-3 rounded-lg text-sm text-stone-600 border border-stone-200 hover:bg-stone-100"
+            >
+              See my primary result
+            </button>
+          </div>
+        </motion.div>
       </div>
     );
   }

@@ -24,6 +24,8 @@ import AdminSommelierFlow from './components/admin/AdminSommelierFlow';
 import CoffeesPage from './components/CoffeesPage';
 import JoinHousehold from './components/JoinHousehold';
 import TheAxis from './components/TheAxis';
+import Sommelier from './components/Sommelier';
+import RequireAuth from './components/RequireAuth';
 
 const PRELAUNCH = import.meta.env.VITE_PRELAUNCH_MODE === 'true';
 
@@ -72,6 +74,14 @@ export default function App() {
             <Route path="/sign-in" element={<SignIn />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/coffees" element={<CoffeesPage />} />
+            <Route
+              path="/sommelier"
+              element={
+                <RequireAuth redirectTo="/sign-in?redirect=/sommelier">
+                  <Sommelier />
+                </RequireAuth>
+              }
+            />
             <Route path="/join-household" element={<JoinHousehold />} />
             <Route path="/the-axis" element={<TheAxis />} />
           </Route>

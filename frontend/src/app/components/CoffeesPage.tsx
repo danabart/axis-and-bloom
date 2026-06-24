@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { getUserProfile } from '../lib/api';
@@ -300,6 +301,7 @@ function ContentSkeleton() {
 
 export default function CoffeesPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   // Coffee list + selection
   const [coffees, setCoffees]         = useState<Coffee[]>([]);
@@ -518,6 +520,16 @@ export default function CoffeesPage() {
                       >
                         {compareMode ? '✕ Exit compare' : '⇄ Compare'}
                       </button>
+                      {/* Ask Liam */}
+                      {user && (
+                        <button
+                          onClick={() => navigate('/sommelier?entry=user_initiated')}
+                          className="text-xs px-3 py-1.5 rounded-full border transition-all duration-200"
+                          style={{ borderColor: '#b05642', color: '#b05642', backgroundColor: '#fff8f5' }}
+                        >
+                          Ask Liam
+                        </button>
+                      )}
                     </div>
                   </div>
 

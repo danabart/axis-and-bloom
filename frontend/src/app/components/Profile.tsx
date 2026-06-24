@@ -192,6 +192,17 @@ export default function Profile() {
                         </li>
                       ))}
                     </ul>
+
+                    {/* Liam entry point */}
+                    <div className="mt-10 border-t border-[#a33726]/10 pt-8">
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/40 mb-3">Coffee Sommelier</p>
+                      <Link
+                        to="/sommelier?entry=user_initiated"
+                        className="flex items-center gap-3 text-[11px] uppercase tracking-[0.2em] text-[#a33726] border-b border-[#a33726]/30 pb-1 hover:border-[#a33726] transition-colors w-fit"
+                      >
+                        Talk to Liam <ArrowRight size={14} />
+                      </Link>
+                    </div>
                   </div>
                 )}
               </motion.div>
