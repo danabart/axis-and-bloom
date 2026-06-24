@@ -1317,14 +1317,18 @@ export default function FlavorQuiz() {
             willChange: 'transform',
           }}>
 
-            {/* Wallpaper — cover fill, never stretches */}
-            <div style={{
-              position: 'absolute', inset: 0,
-              backgroundImage: `url(${archetype.wallpaper})`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
-              backgroundRepeat: 'no-repeat',
-            }} />
+            {/* Wallpaper — object-fit: cover, same pattern as quiz question images */}
+            <img
+              src={archetype.wallpaper}
+              alt=""
+              draggable={false}
+              style={{
+                position: 'absolute', inset: 0,
+                width: '100%', height: '100%',
+                objectFit: 'cover', objectPosition: 'center',
+                display: 'block', pointerEvents: 'none',
+              }}
+            />
 
             {/* Gradient — darkens bottom for text legibility */}
             <div style={{
