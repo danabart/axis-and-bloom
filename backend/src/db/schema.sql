@@ -464,14 +464,7 @@ CREATE TABLE IF NOT EXISTS quiz_vector (
 );
 
 -- Add weight to quiz_question (idempotent for existing DBs)
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'question' AND column_name = 'weight'
-  ) THEN
-    ALTER TABLE quiz_question ADD COLUMN weight NUMERIC DEFAULT 1;
-  END IF;
-END $$;
+ALTER TABLE quiz_question ADD COLUMN IF NOT EXISTS weight NUMERIC DEFAULT 1;
 
 -- Add weight to quiz_answer (idempotent for existing DBs)
 DO $$ BEGIN
