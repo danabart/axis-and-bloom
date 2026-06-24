@@ -1317,16 +1317,18 @@ export default function FlavorQuiz() {
             willChange: 'transform',
           }}>
 
-            {/* Wallpaper — object-fit: cover, same pattern as quiz question images */}
-            <img
-              src={archetype.wallpaper}
-              alt=""
-              draggable={false}
+            {/* Wallpaper — background-size: cover preserves aspect ratio via cropping */}
+            <div
+              aria-hidden="true"
               style={{
-                position: 'absolute', inset: 0,
+                position: 'absolute',
+                top: 0, left: 0,
                 width: '100%', height: '100%',
-                objectFit: 'cover', objectPosition: 'center',
-                display: 'block', pointerEvents: 'none',
+                backgroundImage: `url(${archetype.wallpaper})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center center',
+                backgroundRepeat: 'no-repeat',
+                pointerEvents: 'none',
               }}
             />
 
