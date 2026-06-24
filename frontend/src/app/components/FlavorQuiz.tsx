@@ -2,10 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowRight } from 'lucide-react';
-
-const RUST = '#a33726';
 import { useAuth } from '../context/AuthContext';
 import { saveQuizResult, getUserProfile } from '../lib/api';
+
+const RUST = '#a33726';
 
 // ─── Logo / dial asset ───────────────────────────────────────────────────────
 
