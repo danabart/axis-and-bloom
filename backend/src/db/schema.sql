@@ -1103,8 +1103,11 @@ OVERRIDING SYSTEM VALUE VALUES
   (12, 'Mouthfeel',       'Overall mouthfeel description',           NULL,                       NULL,                        NULL, NULL,   false, 12)
 ON CONFLICT (id) DO NOTHING;
 
--- Reset the dimensions sequence so future inserts auto-increment from 13
-SELECT setval('coffee_dimensions_id_seq', (SELECT MAX(id) FROM coffee_dimensions));
+-- Reset the dimensions sequence if it exists (table may have been created without SERIAL)
+DO $$ BEGIN
+  PERFORM setval('coffee_dimensions_id_seq', (SELECT COALESCE(MAX(id), 12) FROM coffee_dimensions));
+EXCEPTION WHEN undefined_table THEN NULL;
+END $$;
 
 -- Seed dial_archetype_config (idempotent)
 INSERT INTO dial_archetype_config (archetype, dominant_dimension_id, has_bloom_dial) VALUES
