@@ -36,7 +36,7 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
       );
     }
 
-    const [emailResult, quizResult, ordersResult, roleResult, addressResult, tokenResult] = await Promise.all([
+    const [emailResult, quizResult, ordersResult, roleResult, addressResult] = await Promise.all([
       db.query(
         `SELECT email_address FROM user_email WHERE user_id = $1 AND is_primary = true LIMIT 1`,
         [profileId]
@@ -69,11 +69,19 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
          FROM address WHERE user_id = $1 ORDER BY is_default DESC, created_at ASC`,
         [profileId]
       ),
-      db.query(
+    ]);
+
+    // Token balance is queried separately so a missing table never breaks the profile endpoint
+    let tokenBalance = 0;
+    try {
+      const tokenResult = await db.query(
         `SELECT balance FROM user_tokens WHERE uid = $1`,
         [req.uid]
-      ),
-    ]);
+      );
+      tokenBalance = tokenResult.rows.length ? Number(tokenResult.rows[0].balance) : 0;
+    } catch {
+      // user_tokens table may not exist yet — migrations pending
+    }
 
     const quiz = quizResult.rows[0];
     const archetypeKey = quiz?.archetype_name?.toLowerCase() ?? null;
@@ -100,7 +108,7 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
       archetype:   archetypeData ? { ...archetypeData, id: archetypeKey } : null,
       lastQuizDate: quiz?.completed_at ?? null,
       addresses:   addressResult.rows,
-      tokenBalance: tokenResult.rows.length ? Number(tokenResult.rows[0].balance) : 0,
+      tokenBalance,
       orders:      ordersResult.rows.map(o => ({
         id:            o.id,
         shopifyOrderId: o.external_shopify_order_id,
