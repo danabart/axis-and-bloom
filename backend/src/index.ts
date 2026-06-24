@@ -11,7 +11,6 @@ import { db } from './db/client.js';
 import authRouter from './routes/auth.js';
 import quizRouter from './routes/quiz.js';
 import shopRouter from './routes/shop.js';
-import agentRouter from './routes/agent.js';
 import ordersRouter from './routes/orders.js';
 import usersRouter from './routes/users.js';
 import newsletterRouter from './routes/newsletter.js';
@@ -20,6 +19,7 @@ import coffeesRouter from './routes/coffees.js';
 import householdRouter from './routes/household.js';
 import axisRouter from './routes/axis.js';
 import sommelierRouter from './routes/sommelier.js';
+import tokensRouter from './routes/tokens.js';
 import { initSommelierConfig } from './services/sommelierConfig.js';
 
 const app = express();
@@ -68,7 +68,6 @@ app.get('/health/session-cols', async (_req, res) => {
 app.use('/api/auth', authRouter);
 app.use('/api/quiz', quizRouter);
 app.use('/api/shop', shopRouter);
-app.use('/api/agent', agentRouter);
 app.use('/api/orders', ordersRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/newsletter', newsletterRouter);
@@ -77,6 +76,7 @@ app.use('/api/coffees', coffeesRouter);
 app.use('/api/household', householdRouter);
 app.use('/api/axis', axisRouter);
 app.use('/api/sommelier', sommelierRouter);
+app.use('/api/tokens', tokensRouter);
 
 async function start() {
   try {

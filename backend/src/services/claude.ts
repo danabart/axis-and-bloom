@@ -1,8 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { getSommelierConfig } from './sommelierConfig.js';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const SYSTEM_PROMPT = `You are the Axis & Bloom coffee assistant — a knowledgeable, warm, and precise guide for specialty coffee lovers.
+const RECOMMENDATION_SYSTEM_PROMPT = `You are the Axis & Bloom coffee assistant — a knowledgeable, warm, and precise guide for specialty coffee lovers.
 
 Axis & Bloom is a personalized coffee brand that matches customers to their ideal coffee archetype through a flavor quiz. The six archetypes are:
 - Floral: jasmine, bergamot, tea-like, light body
@@ -18,32 +19,79 @@ Your role:
 
 Always be concise, warm, and specific. If you recommend a coffee, explain WHY it matches their taste. Keep responses under 200 words unless the question warrants more detail.`;
 
-export async function chatWithAgent(
-  message: string,
-  context: {
-    archetype?: string;
-    previousMessages?: Array<{ role: 'user' | 'assistant'; content: string }>;
-    decaf?: boolean;
-  }
-): Promise<string> {
-  const contextNote = context.archetype
-    ? `\n\nUser's archetype: ${context.archetype}${context.decaf ? ' (prefers decaf)' : ''}`
-    : '';
+const LIAM_BASE_PROMPT = `You are Liam, the Axis & Bloom Coffee Sommelier. You are warm, precise, and genuinely curious. Your job is not to sell coffee — it is to understand the person in front of you and guide them toward something they will love.
 
-  const messages: Anthropic.MessageParam[] = [
-    ...(context.previousMessages ?? []).slice(-10),
-    { role: 'user', content: message + contextNote },
+Rules:
+- Your name is Liam. Use it naturally if asked.
+- Only recommend coffees from the catalog provided. Never invent a coffee or make up a tasting note.
+- Ask at most one follow-up question per turn.
+- Keep responses under 180 words.
+- Be specific. Name actual flavors and sensations. Avoid vague terms like "smooth" or "rich" without qualification.`;
+
+export async function chatWithSommelier(params: {
+  message: string | null;
+  session: {
+    intent: string;
+    turnCount: number;
+    openingContext: string;
+  };
+  catalogContext: string;
+  history: Array<{ role: 'user' | 'assistant'; content: string }>;
+}): Promise<{ reply: string; modelUsed: string }> {
+  const { message, session, catalogContext, history } = params;
+  const config = getSommelierConfig();
+  const intentCfg = config?.intents?.[session.intent];
+  const maxTurns = intentCfg?.maxTurns ?? config?.sessionLimits?.maxTurns ?? 8;
+
+  const systemParts = [LIAM_BASE_PROMPT, `\n\n${catalogContext}`];
+  if (intentCfg?.systemPromptAddendum) {
+    systemParts.push(`\n\n${intentCfg.systemPromptAddendum}`);
+  }
+  if (intentCfg?.conversationGoal) {
+    systemParts.push(`\n\nYour goal: ${intentCfg.conversationGoal}`);
+  }
+  if (session.turnCount === 0 && session.openingContext) {
+    systemParts.push(`\n\nContext for this user: ${session.openingContext}`);
+  }
+  if (session.turnCount === maxTurns - 1) {
+    systemParts.push(
+      '\n\nThis is one of the final turns. Work toward a concrete recommendation or clear next step.'
+    );
+  }
+  const systemPrompt = systemParts.join('');
+
+  const sonnetKeywords: string[] = config?.modelRouting?.sonnetKeywords ?? [
+    'recommend', 'suggest', 'compare', 'difference', 'explain', 'why',
   ];
+  const sonnetMinWords: number = config?.modelRouting?.sonnetMinMessageWords ?? 20;
+
+  let useSonnet = false;
+  if (message) {
+    const wordCount = message.trim().split(/\s+/).length;
+    if (wordCount >= sonnetMinWords) useSonnet = true;
+    if (!useSonnet) {
+      const lower = message.toLowerCase();
+      useSonnet = sonnetKeywords.some((kw) => lower.includes(kw.toLowerCase()));
+    }
+  }
+
+  const modelId = useSonnet ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
+
+  const messages: Anthropic.MessageParam[] = [...history];
+  if (message !== null) {
+    messages.push({ role: 'user', content: message });
+  }
 
   const response = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 512,
-    system: SYSTEM_PROMPT,
+    model: modelId,
+    max_tokens: 400,
+    system: systemPrompt,
     messages,
   });
 
   const block = response.content[0];
-  return block.type === 'text' ? block.text : '';
+  const reply = block.type === 'text' ? block.text : '';
+  return { reply, modelUsed: modelId };
 }
 
 export async function getRecommendation(
@@ -85,7 +133,7 @@ export async function getRecommendation(
   const response = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 300,
-    system: SYSTEM_PROMPT,
+    system: RECOMMENDATION_SYSTEM_PROMPT,
     messages: [{ role: 'user', content }],
   });
 
@@ -119,7 +167,7 @@ Be warm and specific. Name actual flavors and textures. No marketing language. U
   const response = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 200,
-    system: SYSTEM_PROMPT,
+    system: RECOMMENDATION_SYSTEM_PROMPT,
     messages: [{ role: 'user', content }],
   });
 
@@ -152,7 +200,7 @@ Be direct and editorial. Do not start with the coffee name. Do not use marketing
   const surpriseResponse = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 150,
-    system: SYSTEM_PROMPT,
+    system: RECOMMENDATION_SYSTEM_PROMPT,
     messages: [{ role: 'user', content }],
   });
   const surpriseBlock = surpriseResponse.content[0];
@@ -184,7 +232,7 @@ Write this as editorial storytelling — not a list. Name the agreement and dive
   const storyResponse = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 200,
-    system: SYSTEM_PROMPT,
+    system: RECOMMENDATION_SYSTEM_PROMPT,
     messages: [{ role: 'user', content }],
   });
   const storyBlock = storyResponse.content[0];
