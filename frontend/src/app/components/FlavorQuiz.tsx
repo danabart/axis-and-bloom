@@ -373,18 +373,18 @@ function BloomDial({ visible }: { visible: boolean }) {
     }}>
       {/* Eyebrow */}
       <p style={{
-        fontSize: '0.52rem', letterSpacing: '0.32em', textTransform: 'uppercase',
-        color: '#9a2918', opacity: 0.5, margin: '0 0 10px', textAlign: 'center',
+        fontSize: '0.58rem', letterSpacing: '0.32em', textTransform: 'uppercase',
+        color: '#9a2918', opacity: 0.5, margin: '0 0 12px', textAlign: 'center',
       }}>
         YOUR BLOOM DIAL
       </p>
 
-      {/* Main line — "Personalize" highlighted in strong pink */}
+      {/* Main line — "Personalize" on solid pink */}
       <p style={{
-        fontSize: 'clamp(0.72rem, 0.88vw, 0.88rem)',
-        color: '#9a2918', margin: '0 0 8px', lineHeight: 1.35, textAlign: 'center',
+        fontSize: 'clamp(0.88rem, 1.1vw, 1.1rem)',
+        color: '#9a2918', margin: '0 0 10px', lineHeight: 1.35, textAlign: 'center',
       }}>
-        <span style={{ backgroundColor: '#ee5974', color: '#deded1', padding: '1px 6px' }}>
+        <span style={{ backgroundColor: '#ee5974', color: '#f2f1ea', padding: '2px 8px' }}>
           Personalize
         </span>
         {' '}your coffee archetype.
@@ -392,33 +392,33 @@ function BloomDial({ visible }: { visible: boolean }) {
 
       {/* Supporting copy */}
       <p style={{
-        fontSize: 'clamp(0.6rem, 0.7vw, 0.66rem)',
-        color: '#9a2918', opacity: 0.38, margin: '0 0 20px',
-        lineHeight: 1.6, textAlign: 'center',
+        fontSize: 'clamp(0.7rem, 0.82vw, 0.8rem)',
+        color: '#9a2918', opacity: 0.4, margin: '0 0 36px',
+        lineHeight: 1.65, textAlign: 'center',
       }}>
         Choose the expression of Chocolate&nbsp;&amp;&nbsp;Nutty<br />
         that feels most like you right now.
       </p>
 
       {/* Dial + fixed indicator */}
-      <div style={{ position: 'relative', marginBottom: 16 }}>
-        {/* Fixed pointer — sits above the rotating logo */}
+      <div style={{ position: 'relative', marginBottom: 24 }}>
+        {/* Fixed pointer chevron — sits above the rotating logo */}
         <div style={{
-          position: 'absolute', top: -12, left: '50%',
+          position: 'absolute', top: -18, left: '50%',
           transform: 'translateX(-50%)',
           width: 0, height: 0,
-          borderLeft: '4px solid transparent',
-          borderRight: '4px solid transparent',
-          borderTop: '7px solid #ee5974',
+          borderLeft: '6px solid transparent',
+          borderRight: '6px solid transparent',
+          borderTop: '10px solid #ee5974',
           zIndex: 2,
         }} />
 
-        {/* Rotating logo */}
+        {/* Rotating logo — dramatically larger */}
         <div
           ref={wheelRef}
           style={{
-            width: 'clamp(130px, 14vw, 188px)',
-            height: 'clamp(130px, 14vw, 188px)',
+            width: 'clamp(280px, 30vw, 420px)',
+            height: 'clamp(280px, 30vw, 420px)',
             cursor: isDragging ? 'grabbing' : 'grab',
             transform: `rotate(${dialAngle}deg)`,
             transition: wheelT,
@@ -438,27 +438,27 @@ function BloomDial({ visible }: { visible: boolean }) {
       </div>
 
       {/* Selected option label */}
-      <div style={{ textAlign: 'center', minHeight: 52 }}>
+      <div style={{ textAlign: 'center', minHeight: 72 }}>
         {opt ? (
           <>
             <p style={{
-              fontSize: '0.56rem', letterSpacing: '0.22em', textTransform: 'uppercase',
-              color: '#ee5974', margin: '0 0 4px',
+              fontSize: '0.66rem', letterSpacing: '0.24em', textTransform: 'uppercase',
+              color: '#ee5974', margin: '0 0 6px',
             }}>
               {opt.label}
             </p>
             <p style={{
-              fontSize: 'clamp(0.64rem, 0.74vw, 0.70rem)',
-              color: '#9a2918', opacity: 0.5, lineHeight: 1.55, margin: 0,
-              maxWidth: 'clamp(160px, 18vw, 240px)',
+              fontSize: 'clamp(0.76rem, 0.9vw, 0.88rem)',
+              color: '#9a2918', opacity: 0.52, lineHeight: 1.6, margin: 0,
+              maxWidth: 'clamp(240px, 28vw, 400px)',
             }}>
               {opt.description}
             </p>
           </>
         ) : (
           <p style={{
-            fontSize: '0.54rem', letterSpacing: '0.2em', textTransform: 'uppercase',
-            color: '#9a2918', opacity: 0.22, margin: 0,
+            fontSize: '0.62rem', letterSpacing: '0.2em', textTransform: 'uppercase',
+            color: '#9a2918', opacity: 0.28, margin: 0,
           }}>
             Drag to explore
           </p>
@@ -1240,10 +1240,9 @@ export default function FlavorQuiz() {
 
           {/*
             CURTAIN VIEWPORT — only the wrapper width animates (100% → 12.5%).
-            The wallpaper art layer is fixed at 100vw × 100vh and is NEVER resized.
-            The wrapper clips it via overflow:hidden — like gift wrap being peeled back.
-            background-size: cover on the fixed 100vw×100vh layer; the curtain clipping
-            reveals the left 1/8 of that image as the stripe.
+            The wallpaper stripe inside is a FIXED-SIZE div (clamp 12.5vw).
+            background-size:cover on a fixed element never recalculates — no stretch.
+            The rest of the curtain is a dark fill that slides away to reveal the layout.
           */}
           <div style={{
             position: 'absolute',
@@ -1253,28 +1252,33 @@ export default function FlavorQuiz() {
             overflow: 'hidden',
             transition: curtainTransition,
           }}>
-            {/* Wallpaper art — fixed 100vw × 100vh; cover-scales the full image. Curtain clips it. */}
+            {/* Dark fill — covers the curtain area beyond the stripe */}
+            <div style={{ position: 'absolute', inset: 0, backgroundColor: '#140c08' }} />
+
+            {/*
+              Wallpaper stripe — FIXED size, NEVER animates.
+              background-size:cover crops naturally inside the narrow element.
+              The curtain wrapper clips from the right; this element is untouched.
+            */}
             <div style={{
               position: 'absolute',
-              top: 0, left: 0,
-              width: '100vw',
-              height: '100vh',
+              left: 0, top: 0, bottom: 0,
+              width: 'clamp(120px, 12.5vw, 200px)',
               backgroundImage: `url(${archetype.wallpaper})`,
-              backgroundRepeat: 'no-repeat',
-              backgroundPosition: 'center',
               backgroundSize: 'cover',
+              backgroundPosition: 'center center',
+              backgroundRepeat: 'no-repeat',
+              zIndex: 2,
             }} />
 
-            {/* Dark gradient — also fixed so it doesn't change as wrapper narrows */}
+            {/* Depth gradient — fills curtain area for text legibility */}
             <div style={{
-              position: 'absolute',
-              top: 0, left: 0,
-              width: '100vw',
-              height: '100vh',
-              background: 'linear-gradient(to top, rgba(10,6,4,0.55) 0%, rgba(10,6,4,0.06) 55%, rgba(10,6,4,0.1) 100%)',
+              position: 'absolute', inset: 0,
+              background: 'linear-gradient(to top, rgba(10,6,4,0.65) 0%, rgba(10,6,4,0.04) 55%, rgba(10,6,4,0.08) 100%)',
+              zIndex: 3,
             }} />
 
-            {/* Intro text — fades from first scroll; gone by eff=0.25 (~82vw curtain) */}
+            {/* Intro text — fades from first scroll; gone well before content is visible */}
             <motion.div
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1286,6 +1290,7 @@ export default function FlavorQuiz() {
                 opacity: curtainTextAlpha,
                 pointerEvents: curtainTextAlpha < 0.05 ? 'none' : 'auto',
                 transition: 'opacity 0.2s ease',
+                zIndex: 4,
               }}
             >
               <p style={{
