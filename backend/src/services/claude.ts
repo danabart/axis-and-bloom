@@ -80,6 +80,9 @@ export async function chatWithSommelier(params: {
   const messages: Anthropic.MessageParam[] = [...history];
   if (message !== null) {
     messages.push({ role: 'user', content: message });
+  } else {
+    // Opening turn: give Liam a trigger to start the conversation
+    messages.push({ role: 'user', content: 'Begin the conversation.' });
   }
 
   const response = await client.messages.create({
