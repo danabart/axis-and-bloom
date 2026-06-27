@@ -160,7 +160,11 @@ export default function Sommelier() {
           }),
         });
 
-        if (!evalRes.ok) throw new Error('Evaluation failed');
+        if (!evalRes.ok) {
+          const errBody = await evalRes.json().catch(() => ({}));
+          console.error('[Sommelier] evaluate failed', evalRes.status, errBody);
+          throw new Error(`evaluate:${evalRes.status}`);
+        }
         const ev: EvalResult = await evalRes.json();
         setEvalResult(ev);
 
@@ -178,8 +182,9 @@ export default function Sommelier() {
         setEvalResult(resolvedEval);
 
         await openSession(resolvedEval);
-      } catch {
-        setErrorMsg('Something went wrong starting your session with Liam.');
+      } catch (err) {
+        console.error('[Sommelier] session init failed:', err);
+        setErrorMsg(`Something went wrong starting your session with Liam. (${err instanceof Error ? err.message : 'unknown'})`);
         setPhase('error');
       }
     })();

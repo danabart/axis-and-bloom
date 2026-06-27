@@ -164,12 +164,20 @@ router.post('/start', requireAuth, async (req: AuthRequest, res) => {
     }
 
     // Generate opening message (turn 0)
-    const { reply: openingMessage, modelUsed } = await chatWithSommelier({
-      message: null,
-      session: { intent, turnCount: 0, openingContext: openingContext ?? '' },
-      catalogContext: ragResult.catalogText,
-      history: [],
-    });
+    let openingMessage = "Hi, I'm Liam — Axis & Bloom's coffee sommelier. What brings you here today?";
+    let modelUsed = 'fallback';
+    try {
+      const chatResult = await chatWithSommelier({
+        message: null,
+        session: { intent, turnCount: 0, openingContext: openingContext ?? '' },
+        catalogContext: ragResult.catalogText,
+        history: [],
+      });
+      openingMessage = chatResult.reply;
+      modelUsed = chatResult.modelUsed;
+    } catch (claudeErr) {
+      console.error('[sommelier/start] chatWithSommelier failed, using fallback:', claudeErr);
+    }
 
     // Save opening message
     await db.query(
