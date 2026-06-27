@@ -20,6 +20,7 @@ import householdRouter from './routes/household.js';
 import axisRouter from './routes/axis.js';
 import sommelierRouter from './routes/sommelier.js';
 import tokensRouter from './routes/tokens.js';
+import cronRouter from './routes/cron.js';
 import { initSommelierConfig } from './services/sommelierConfig.js';
 
 const app = express();
@@ -77,6 +78,8 @@ app.use('/api/household', householdRouter);
 app.use('/api/axis', axisRouter);
 app.use('/api/sommelier', sommelierRouter);
 app.use('/api/tokens', tokensRouter);
+app.use('/api/cron', cronRouter);
+app.use('/api/webhooks', cronRouter);
 
 async function start() {
   try {

@@ -5,6 +5,7 @@ import { createOrder } from '../services/shopify.js';
 import { firestoreDb } from '../services/firebase-admin.js';
 import { getSommelierConfig } from '../services/sommelierConfig.js';
 import { updateOrderOutcomes } from '../services/outcomeTracker.js';
+import { schedulePostDeliveryMessage } from '../services/liamSmsFeedback.js';
 
 const router = Router();
 
@@ -68,6 +69,18 @@ router.post('/', requireAuth, async (req: AuthRequest, res) => {
 
         // Update sommelier outcome: orderedWithin7Days / orderedWithin30Days
         await updateOrderOutcomes(req.uid!, new Date());
+
+        // Schedule Liam SMS feedback for orders 1 and 2 only
+        const orderCount = await db.query(
+          `SELECT COUNT(*) FROM orders WHERE uid = $1`,
+          [req.uid]
+        );
+        if (parseInt(orderCount.rows[0].count) <= 2) {
+          const blendId = items?.[0]?.blendId ?? items?.[0]?.id ?? null;
+          schedulePostDeliveryMessage(req.uid!, blendId).catch(err => {
+            console.error('[liamSms] schedule failed:', err);
+          });
+        }
       } catch (err) {
         console.error('[orders/token-bonus]', err);
       }

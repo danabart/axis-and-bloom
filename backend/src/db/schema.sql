@@ -578,6 +578,34 @@ CREATE TABLE IF NOT EXISTS notification_log (
   sent_at             TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
 
+-- SMS opt-in on user_phone
+ALTER TABLE user_phone ADD COLUMN IF NOT EXISTS sms_opt_in    BOOLEAN DEFAULT FALSE;
+ALTER TABLE user_phone ADD COLUMN IF NOT EXISTS sms_opt_in_at TIMESTAMPTZ;
+
+-- Liam post-delivery SMS feedback loop
+CREATE TABLE IF NOT EXISTS liam_sms_feedback (
+  id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id                   UUID REFERENCES user_profile(id) ON DELETE CASCADE,
+  order_id                  UUID REFERENCES "order"(id),
+  blend_id                  UUID REFERENCES roaster_blend(id),
+  phone_number              TEXT NOT NULL,
+  direction                 TEXT NOT NULL CHECK (direction IN ('outbound', 'inbound')),
+  body                      TEXT NOT NULL,
+  status                    TEXT NOT NULL DEFAULT 'scheduled'
+                              CHECK (status IN ('scheduled','sent','delivered','failed','replied','opted_out')),
+  scheduled_for             TIMESTAMPTZ,
+  sent_at                   TIMESTAMPTZ,
+  provider_message_id       TEXT,
+  reply_to_id               UUID REFERENCES liam_sms_feedback(id),
+  haiku_parsed              BOOLEAN DEFAULT FALSE,
+  parsed_signal_type        TEXT,
+  parsed_rating             INTEGER,
+  parsed_sentiment          TEXT CHECK (parsed_sentiment IN ('positive','negative','neutral')),
+  parsed_descriptors        JSONB,
+  firestore_feedback_doc_id TEXT,
+  created_at                TIMESTAMPTZ DEFAULT timezone('utc', now())
+);
+
 CREATE TABLE IF NOT EXISTS user_feedback_event (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id      UUID REFERENCES user_profile(id),
@@ -1532,6 +1560,12 @@ CREATE INDEX IF NOT EXISTS idx_client_feedback_coffee       ON user_flavor_feedb
 CREATE INDEX IF NOT EXISTS idx_client_feedback_order        ON user_flavor_feedback(order_id);
 CREATE INDEX IF NOT EXISTS idx_archetype_assign_coffee      ON archetype_assignments(coffee_id);
 CREATE INDEX IF NOT EXISTS idx_archetype_assign_session     ON archetype_assignments(assigned_from_session_id);
+
+-- Liam SMS feedback indexes
+CREATE INDEX IF NOT EXISTS idx_liam_sms_user      ON liam_sms_feedback(user_id);
+CREATE INDEX IF NOT EXISTS idx_liam_sms_order     ON liam_sms_feedback(order_id);
+CREATE INDEX IF NOT EXISTS idx_liam_sms_status    ON liam_sms_feedback(status);
+CREATE INDEX IF NOT EXISTS idx_liam_sms_scheduled ON liam_sms_feedback(scheduled_for) WHERE status = 'scheduled';
 
 -- Quiz scoring indexes
 CREATE INDEX IF NOT EXISTS idx_answer_arch_score_answer     ON quiz_answer_archetype_score(answer_id);

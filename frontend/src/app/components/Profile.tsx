@@ -27,6 +27,8 @@ interface ProfileData {
   archetype: any;
   addresses: Address[];
   orders: any[];
+  hasPhone: boolean;
+  smsOptIn: boolean;
 }
 
 const EMPTY_ADDRESS = { street: '', city: '', state: '', postalCode: '', country: 'US', addressType: 'shipping' as 'shipping' | 'billing' };
@@ -45,6 +47,10 @@ export default function Profile() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileSaved, setProfileSaved]   = useState(false);
 
+  // SMS opt-in state
+  const [smsOptIn, setSmsOptIn]               = useState(false);
+  const [savingSms, setSavingSms]             = useState(false);
+
   // Address form state
   const [showAddressForm, setShowAddressForm] = useState(false);
   const [addressForm, setAddressForm]         = useState(EMPTY_ADDRESS);
@@ -60,6 +66,7 @@ export default function Profile() {
         setFirstName(data.firstName ?? '');
         setLastName(data.lastName ?? '');
         setDateOfBirth(data.dateOfBirth ? data.dateOfBirth.slice(0, 10) : '');
+        setSmsOptIn(data.smsOptIn ?? false);
       })
       .catch(() => setProfile(null))
       .finally(() => setLoading(false));
@@ -82,6 +89,21 @@ export default function Profile() {
       setProfileSaved(true);
       setTimeout(() => setProfileSaved(false), 3000);
     } catch { /* silent */ } finally { setSavingProfile(false); }
+  }
+
+  async function handleSmsToggle(value: boolean) {
+    if (!profile?.hasPhone) return;
+    setSavingSms(true);
+    try {
+      const token = await user!.getIdToken();
+      await fetch('/api/users/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ smsOptIn: value }),
+      });
+      setSmsOptIn(value);
+      setProfile(p => p ? { ...p, smsOptIn: value } : p);
+    } catch { /* silent */ } finally { setSavingSms(false); }
   }
 
   async function handleAddAddress(e: React.FormEvent) {
@@ -397,6 +419,30 @@ export default function Profile() {
                     </div>
                   );
                 })}
+
+                {/* SMS opt-in */}
+                <div className="border-t border-[#a33726]/10 pt-8 flex flex-col gap-3">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 font-normal">Notifications</p>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.15em] text-[#a33726]">Text updates from Liam</p>
+                      <p className="text-[10px] text-[#a33726]/50 mt-1">
+                        {profile?.hasPhone
+                          ? 'Receive a personal check-in from Liam after your deliveries.'
+                          : 'Add a phone number to enable this.'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!profile?.hasPhone || savingSms}
+                      onClick={() => handleSmsToggle(!smsOptIn)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-30 ${smsOptIn ? 'bg-[#a33726]' : 'bg-[#a33726]/20'}`}
+                      style={{ cursor: profile?.hasPhone ? 'pointer' : 'not-allowed' }}
+                    >
+                      <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${smsOptIn ? 'translate-x-4' : 'translate-x-0'}`} />
+                    </button>
+                  </div>
+                </div>
 
                 {/* Sign out */}
                 <div className="border-t border-[#a33726]/10 pt-8">

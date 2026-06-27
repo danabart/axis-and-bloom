@@ -36,7 +36,7 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
       );
     }
 
-    const [emailResult, quizResult, ordersResult, roleResult, addressResult] = await Promise.all([
+    const [emailResult, quizResult, ordersResult, roleResult, addressResult, phoneResult] = await Promise.all([
       db.query(
         `SELECT email_address FROM user_email WHERE user_id = $1 AND is_primary = true LIMIT 1`,
         [profileId]
@@ -67,6 +67,10 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
       db.query(
         `SELECT id, address_type, street, city, state, postal_code, country, is_default
          FROM address WHERE user_id = $1 ORDER BY is_default DESC, created_at ASC`,
+        [profileId]
+      ),
+      db.query(
+        `SELECT phone_number, sms_opt_in FROM user_phone WHERE user_id = $1 AND is_primary = true LIMIT 1`,
         [profileId]
       ),
     ]);
@@ -109,6 +113,8 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
       lastQuizDate: quiz?.completed_at ?? null,
       addresses:   addressResult.rows,
       tokenBalance,
+      hasPhone:    phoneResult.rows.length > 0,
+      smsOptIn:    phoneResult.rows[0]?.sms_opt_in ?? false,
       orders:      ordersResult.rows.map(o => ({
         id:            o.id,
         shopifyOrderId: o.external_shopify_order_id,
@@ -125,7 +131,7 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
 
 // ── PATCH /api/users/profile ──────────────────────────────────────────────────
 router.patch('/profile', requireAuth, async (req: AuthRequest, res) => {
-  const { firstName, lastName, dateOfBirth } = req.body ?? {};
+  const { firstName, lastName, dateOfBirth, smsOptIn } = req.body ?? {};
   try {
     await db.query(
       `UPDATE user_profile SET
@@ -136,6 +142,23 @@ router.patch('/profile', requireAuth, async (req: AuthRequest, res) => {
        WHERE firebase_uid = $1`,
       [req.uid, firstName || null, lastName || null, dateOfBirth || null]
     );
+
+    if (typeof smsOptIn === 'boolean') {
+      const profileResult = await db.query(
+        `SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]
+      );
+      const profileId = profileResult.rows[0]?.id;
+      if (profileId) {
+        await db.query(
+          `UPDATE user_phone
+           SET sms_opt_in = $2,
+               sms_opt_in_at = CASE WHEN $2 = true THEN NOW() ELSE sms_opt_in_at END,
+               updated_at = NOW()
+           WHERE user_id = $1 AND is_primary = true`,
+          [profileId, smsOptIn]
+        );
+      }
+    }
 
     const fsUpdate: Record<string, unknown> = { syncedAt: FieldValue.serverTimestamp() };
     if (firstName) fsUpdate.firstName = firstName;
