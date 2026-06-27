@@ -724,7 +724,7 @@ export default function FlavorQuiz() {
 
     const navItems = [
       { label: 'Retake the quiz',              action: () => { setUserName(firstName); setHasStarted(true); } },
-      { label: 'Talk to our coffee sommelier', href: '/' },
+      { label: 'Talk to our coffee sommelier', href: '/sommelier?entry=user_initiated' },
       { label: 'View my profile',              href: '/profile' },
       { label: 'Explore our coffees',          href: '/coffees' },
     ];

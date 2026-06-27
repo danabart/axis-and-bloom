@@ -77,7 +77,7 @@ export default function App() {
             <Route
               path="/sommelier"
               element={
-                <RequireAuth redirectTo="/sign-in?redirect=/sommelier">
+                <RequireAuth>
                   <Sommelier />
                 </RequireAuth>
               }
