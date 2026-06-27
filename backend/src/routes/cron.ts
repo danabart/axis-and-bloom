@@ -50,7 +50,7 @@ router.post('/webhooks/sms/inbound', async (req, res) => {
       blend_id: string | null;
     }>(
       `SELECT id, user_id, order_id, blend_id
-       FROM liam_sms_feedback
+       FROM sommelier_sms_feedback
        WHERE phone_number = $1
          AND direction = 'outbound'
          AND status IN ('sent', 'delivered')
@@ -69,7 +69,7 @@ router.post('/webhooks/sms/inbound', async (req, res) => {
 
     // Insert inbound row
     const inboundResult = await db.query<{ id: string }>(
-      `INSERT INTO liam_sms_feedback
+      `INSERT INTO sommelier_sms_feedback
          (user_id, order_id, blend_id, phone_number, direction, body, status, reply_to_id, sent_at)
        VALUES ($1, $2, $3, $4, 'inbound', $5, 'replied', $6, NOW())
        RETURNING id`,
@@ -78,7 +78,7 @@ router.post('/webhooks/sms/inbound', async (req, res) => {
 
     // Mark outbound as replied
     await db.query(
-      `UPDATE liam_sms_feedback SET status = 'replied' WHERE id = $1`,
+      `UPDATE sommelier_sms_feedback SET status = 'replied' WHERE id = $1`,
       [outboundRow.id]
     );
 

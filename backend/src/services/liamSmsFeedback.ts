@@ -36,7 +36,7 @@ export async function schedulePostDeliveryMessage(
     // Idempotency: only one outbound per blend per user
     if (blendId) {
       const existing = await db.query(
-        `SELECT id FROM liam_sms_feedback
+        `SELECT id FROM sommelier_sms_feedback
          WHERE user_id = $1 AND blend_id = $2 AND direction = 'outbound'`,
         [userId, blendId]
       );
@@ -59,7 +59,7 @@ export async function schedulePostDeliveryMessage(
     const body = primary.length <= 160 ? primary : fallback;
 
     await db.query(
-      `INSERT INTO liam_sms_feedback
+      `INSERT INTO sommelier_sms_feedback
          (user_id, blend_id, phone_number, direction, body, status, scheduled_for)
        VALUES ($1, $2, $3, 'outbound', $4, 'scheduled', NOW() + INTERVAL '10 days')`,
       [userId, blendId ?? null, phoneNumber, body]
@@ -86,7 +86,7 @@ export async function processPendingMessages(): Promise<{
     blend_id: string | null;
   }>(
     `SELECT lsf.id, lsf.user_id, lsf.phone_number, lsf.body, lsf.blend_id
-     FROM liam_sms_feedback lsf
+     FROM sommelier_sms_feedback lsf
      WHERE lsf.direction = 'outbound'
        AND lsf.status = 'scheduled'
        AND lsf.scheduled_for <= NOW()
@@ -102,7 +102,7 @@ export async function processPendingMessages(): Promise<{
 
     if (result.success) {
       await db.query(
-        `UPDATE liam_sms_feedback
+        `UPDATE sommelier_sms_feedback
          SET status = 'sent', sent_at = NOW(), provider_message_id = $2
          WHERE id = $1`,
         [row.id, result.providerMessageId ?? null]
@@ -110,7 +110,7 @@ export async function processPendingMessages(): Promise<{
       sent++;
     } else {
       await db.query(
-        `UPDATE liam_sms_feedback SET status = 'failed' WHERE id = $1`,
+        `UPDATE sommelier_sms_feedback SET status = 'failed' WHERE id = $1`,
         [row.id]
       );
       failed++;
@@ -225,7 +225,7 @@ Respond with JSON only, no explanation: { "sentiment": "...", "rating": N, "desc
 
   // Update SQL row
   await db.query(
-    `UPDATE liam_sms_feedback
+    `UPDATE sommelier_sms_feedback
      SET haiku_parsed = true,
          parsed_signal_type = 'liam_sms',
          parsed_rating = $2,

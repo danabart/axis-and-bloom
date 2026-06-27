@@ -94,7 +94,7 @@ The order route (`POST /api/orders`) calls `createOrder()` from `backend/src/ser
 `backend/src/routes/orders.ts` still writes to the old `orders` table (`uid TEXT`, `items JSONB`). The normalized `"order"` table in schema.sql has proper FKs (`user_id UUID`, `order_line_item` child rows). 
 
 Until this migration happens:
-- `liam_sms_feedback.order_id` is always null (FK points to `"order"`, not `orders`)
+- `sommelier_sms_feedback.order_id` is always null (FK points to `"order"`, not `orders`)
 - `notification_log.order_id` is also always null
 
 This is not blocking anything right now because Shopify is stubbed, but should be done before Shopify goes live.
