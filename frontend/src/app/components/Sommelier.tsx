@@ -400,59 +400,50 @@ export default function Sommelier() {
         </div>
       </div>
 
-      {/* ── Messages ── */}
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+      {/* ── Messages — prose thread layout ── */}
+      <div className="flex-1 overflow-y-auto px-6 md:px-10 py-10 space-y-10">
         <AnimatePresence initial={false}>
           {messages.map((msg, i) => (
             <motion.div
               key={i}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3 }}
-              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} gap-3`}
+              transition={{ duration: 0.35 }}
             >
-              {msg.role === 'assistant' && (
-                <div className="flex flex-col items-center gap-1 shrink-0">
-                  <div
-                    className="w-7 h-7 rounded-full border flex items-center justify-center text-xs font-black"
-                    style={{ borderColor: RUST, color: RUST }}
+              {msg.synthetic ? (
+                <p className="text-xs text-stone-400 italic text-center tracking-wide">
+                  {msg.content}
+                </p>
+              ) : (
+                <>
+                  <p
+                    className="text-[10px] uppercase tracking-[0.25em] mb-2.5"
+                    style={{ color: msg.role === 'assistant' ? RUST : '#a8a29e', fontWeight: 100 }}
                   >
-                    L
-                  </div>
-                  {i === 0 && <span className="text-xs text-stone-400">Liam</span>}
-                </div>
+                    {msg.role === 'assistant' ? 'Liam' : 'You'}
+                  </p>
+                  <p
+                    className="text-[15px] leading-[1.75] whitespace-pre-wrap"
+                    style={{ color: msg.role === 'assistant' ? '#3a2e28' : '#6b5c54' }}
+                  >
+                    {msg.content}
+                  </p>
+                </>
               )}
-              <div
-                className={`max-w-[75%] rounded-xl px-4 py-3 text-sm leading-relaxed ${
-                  msg.role === 'user'
-                    ? 'text-white'
-                    : msg.synthetic
-                    ? 'border border-stone-100 text-stone-400 italic bg-stone-50'
-                    : 'border text-stone-700 bg-white'
-                }`}
-                style={{
-                  backgroundColor: msg.role === 'user' ? RUST : undefined,
-                  borderColor: msg.role === 'assistant' && !msg.synthetic ? RUST + '33' : undefined,
-                }}
-              >
-                {msg.content}
-              </div>
             </motion.div>
           ))}
         </AnimatePresence>
 
-        {/* Loading pulse */}
+        {/* Loading — Liam label + dots, no bubble */}
         {sending && (
-          <div className="flex justify-start gap-3">
-            <motion.div
-              className="w-7 h-7 rounded-full border flex items-center justify-center text-xs font-black shrink-0"
-              style={{ borderColor: RUST, color: RUST }}
-              animate={{ opacity: [0.5, 1, 0.5] }}
-              transition={{ duration: 1, repeat: Infinity }}
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+            <p
+              className="text-[10px] uppercase tracking-[0.25em] mb-3"
+              style={{ color: RUST, fontWeight: 100 }}
             >
-              L
-            </motion.div>
-            <div className="border rounded-xl px-4 py-3 flex gap-1 items-center" style={{ borderColor: RUST + '33' }}>
+              Liam
+            </p>
+            <div className="flex gap-1.5 items-center">
               {[0, 1, 2].map((i) => (
                 <motion.span
                   key={i}
@@ -462,7 +453,7 @@ export default function Sommelier() {
                 />
               ))}
             </div>
-          </div>
+          </motion.div>
         )}
 
         {/* Session closed */}
@@ -470,12 +461,15 @@ export default function Sommelier() {
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="text-center py-6 space-y-4"
+            className="space-y-4 pt-2"
           >
-            <p className="text-sm text-stone-400">This conversation with Liam has ended.</p>
+            <div className="border-t border-stone-100" />
+            <p className="text-[10px] uppercase tracking-[0.25em] text-stone-400">
+              Conversation ended
+            </p>
             <button
               onClick={handleRestart}
-              className="text-xs uppercase tracking-widest border-b pb-0.5 transition-colors"
+              className="text-[10px] uppercase tracking-[0.2em] border-b pb-0.5 transition-colors"
               style={{ color: RUST, borderColor: RUST }}
             >
               Start a new conversation →
@@ -488,10 +482,12 @@ export default function Sommelier() {
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="border border-amber-200 bg-amber-50 rounded-xl px-4 py-4 text-center space-y-3"
+            className="space-y-3 pt-2"
           >
-            <p className="text-sm text-amber-800">You've run out of tokens.</p>
-            <p className="text-xs text-amber-700">Orders earn you more — or purchase tokens to continue.</p>
+            <div className="border-t border-stone-100" />
+            <p className="text-[13px] text-stone-500 leading-relaxed">
+              You've run out of tokens. Orders earn you more.
+            </p>
             <button
               onClick={() => {
                 if (purchaseEnabled) {
@@ -500,8 +496,8 @@ export default function Sommelier() {
                   alert('Token purchases coming soon.');
                 }
               }}
-              className="text-xs uppercase tracking-widest border-b pb-0.5 transition-colors"
-              style={{ color: '#92400e', borderColor: '#92400e' }}
+              className="text-[10px] uppercase tracking-[0.2em] border-b pb-0.5 transition-colors"
+              style={{ color: RUST, borderColor: RUST }}
             >
               Get more tokens
             </button>
