@@ -6,15 +6,8 @@ Last updated: 2026-06-26. All 5 Liam Sommelier tasks are code-complete and deplo
 
 ## 🔴 Blocking (required before SMS feedback loop can function)
 
-### OT-1: Create CRON_SECRET in GCP Secret Manager
-The cron endpoint (`GET /api/cron/liam-sms-send`) validates an `x-cron-secret` header. The secret must exist in GCP Secret Manager before Cloud Run can load it.
-
-```
-# Run in your terminal — choose any strong random string as the value
-echo -n "replace-with-your-random-secret" | gcloud secrets create CRON_SECRET --data-file=- --project=axis-and-bloom-prod
-```
-
-After creating it, push any change to main. The `deploy.yml` already has `CRON_SECRET=CRON_SECRET:latest` in `--set-secrets` — next deploy wires it into Cloud Run automatically.
+### ✅ OT-1: Create CRON_SECRET in GCP Secret Manager
+Done 2026-06-26. Secret created in GCP Secret Manager, wired into Cloud Run via `deploy.yml --set-secrets`. Value stored securely — use it as the `x-cron-secret` header value when creating the Cloud Scheduler job (OT-2).
 
 ---
 
@@ -140,7 +133,7 @@ The hero and cinematic sections use placeholder `<source src>` values. Swap when
 | 2026-06-23 | Sommelier Task 4 — Frontend chat UI + entry points | ✅ Done |
 | 2026-06-23–24 | Schema bug fixes (5 sequential bugs blocking migration from line ~467 onward) | ✅ Done |
 | 2026-06-26 | Sommelier Task 5 — SMS feedback loop (liamSmsFeedback, cron, webhook, profile toggle) | ✅ Done |
-| — | OT-1: CRON_SECRET in Secret Manager | ⏳ Pending |
+| 2026-06-26 | OT-1: CRON_SECRET in Secret Manager | ✅ Done |
 | — | OT-2: Cloud Scheduler job | ⏳ Pending (needs OT-1) |
 | — | OT-3: Phone number UI in Profile | ⏳ Pending |
 | — | OT-4: Twilio wiring | ⏳ Pending (needs roastery account) |
