@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
-import { firestoreDb } from '../services/firebase-admin.js';
+import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
 import { evaluateSommelier } from '../services/sommelierEvaluator.js';
 import { fetchSommelierCoffees } from '../services/sommelierRag.js';
@@ -179,12 +179,16 @@ router.post('/start', requireAuth, async (req: AuthRequest, res) => {
       console.error('[sommelier/start] chatWithSommelier failed, using fallback:', claudeErr);
     }
 
-    // Save opening message
-    await db.query(
-      `INSERT INTO sommelier_messages (session_id, role, content, model_used)
-       VALUES ($1, 'assistant', $2, $3)`,
-      [newSessionId, openingMessage, modelUsed]
-    );
+    // Save opening message to Firestore
+    await firestoreDb
+      .collection(`users/${req.uid}/sommelier_sessions/${newSessionId}/messages`)
+      .add({
+        role: 'assistant',
+        content: openingMessage,
+        modelUsed,
+        seq: 0,
+        createdAt: FieldValue.serverTimestamp(),
+      });
 
     // Update session turn_count + last_active_at
     await db.query(
@@ -260,37 +264,29 @@ router.post('/:sessionId/message', requireAuth, async (req: AuthRequest, res) =>
       return;
     }
 
-    // Save user message
-    await db.query(
-      `INSERT INTO sommelier_messages (session_id, role, content)
-       VALUES ($1, 'user', $2)`,
-      [sessionId, message]
-    );
+    // Save user message to Firestore (keep ref for rollback on token fail)
+    const messagesCol = firestoreDb.collection(`users/${req.uid}/sommelier_sessions/${sessionId}/messages`);
+    const userMsgRef = messagesCol.doc();
+    await userMsgRef.set({
+      role: 'user',
+      content: message,
+      seq: session.turn_count * 2 - 1,
+      createdAt: FieldValue.serverTimestamp(),
+    });
 
-    // Fetch history for context
-    const historyResult = await db.query(
-      `SELECT role, content FROM sommelier_messages
-       WHERE session_id = $1
-       ORDER BY created_at ASC`,
-      [sessionId]
-    );
-    const history = historyResult.rows
-      .slice(0, -1) // exclude the user message we just inserted
-      .map((r: { role: 'user' | 'assistant'; content: string }) => ({
-        role: r.role,
-        content: r.content,
+    // Fetch conversation history from Firestore for Claude context
+    const historySnap = await messagesCol.orderBy('seq').get();
+    const history = historySnap.docs
+      .slice(0, -1) // exclude the user message just inserted
+      .map(d => ({
+        role: d.data().role as 'user' | 'assistant',
+        content: d.data().content as string,
       }));
 
     // Spend token
     const spendResult = await spendToken(req.uid!, 'sommelier_turn', String(sessionId));
     if (!spendResult.success) {
-      // Remove the user message we just inserted since we can't process it
-      await db.query(
-        `DELETE FROM sommelier_messages
-         WHERE session_id = $1 AND role = 'user'
-         ORDER BY created_at DESC LIMIT 1`,
-        [sessionId]
-      );
+      await userMsgRef.delete();
       res.status(402).json({ error: 'insufficient_tokens', balance: spendResult.newBalance });
       return;
     }
@@ -320,12 +316,14 @@ router.post('/:sessionId/message', requireAuth, async (req: AuthRequest, res) =>
       [sessionId, newTurnCount, shouldClose, shouldClose ? 'turn_limit' : null]
     );
 
-    // Save assistant message
-    await db.query(
-      `INSERT INTO sommelier_messages (session_id, role, content, model_used)
-       VALUES ($1, 'assistant', $2, $3)`,
-      [sessionId, reply, modelUsed]
-    );
+    // Save assistant reply to Firestore
+    await messagesCol.add({
+      role: 'assistant',
+      content: reply,
+      modelUsed,
+      seq: session.turn_count * 2,
+      createdAt: FieldValue.serverTimestamp(),
+    });
 
     // Outcome on close
     if (shouldClose && ctx.evaluationId) {
@@ -389,19 +387,33 @@ router.get('/:sessionId/messages', requireAuth, async (req: AuthRequest, res) =>
     }
     const ctx = sessionResult.rows[0].context_data ?? {};
 
-    const [messagesResult, coffeeNamesResult] = await Promise.all([
-      db.query(
-        `SELECT role, content FROM sommelier_messages
-         WHERE session_id = $1 ORDER BY created_at ASC`,
-        [sessionId]
-      ),
+    // Read messages from Firestore; fall back to SQL for sessions predating this migration
+    const [firestoreSnap, coffeeNamesResult] = await Promise.all([
+      firestoreDb
+        .collection(`users/${req.uid}/sommelier_sessions/${sessionId}/messages`)
+        .orderBy('seq')
+        .get(),
       ctx.coffeeIds?.length
         ? db.query('SELECT name FROM coffees WHERE id = ANY($1::int[]) ORDER BY name', [ctx.coffeeIds])
         : Promise.resolve({ rows: [] as { name: string }[] }),
     ]);
 
+    let messages: { role: string; content: string }[];
+    if (!firestoreSnap.empty) {
+      messages = firestoreSnap.docs.map(d => ({
+        role: d.data().role as string,
+        content: d.data().content as string,
+      }));
+    } else {
+      const sql = await db.query(
+        `SELECT role, content FROM sommelier_messages WHERE session_id = $1 ORDER BY created_at ASC`,
+        [sessionId]
+      );
+      messages = sql.rows;
+    }
+
     res.json({
-      messages: messagesResult.rows,
+      messages,
       coffeeNames: coffeeNamesResult.rows.map((r: { name: string }) => r.name),
     });
   } catch (err) {
