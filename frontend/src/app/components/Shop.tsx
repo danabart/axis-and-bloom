@@ -1,170 +1,425 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { motion } from 'motion/react';
-import { ArrowRight, Filter } from 'lucide-react';
 import { Link } from 'react-router';
 import { TasteFinderSection } from './TasteFinderSection';
 
-const getArchetypeColor = (name: string) => {
-  const map: Record<string, string> = {
-    'Floral': '#a34b78', 'Fruity': '#ca445f', 'Balanced & Sweet': '#d1ac11',
-    'Chocolate & Nutty': '#a54c2d', 'Spicy & Earthy': '#912f2f', 'Experimental': '#056c7a',
+// ─── Bags ─────────────────────────────────────────────────────────────────────
+import bagFloral       from '../../design/IMAGES/bags/new bags mock up/FLORAL transp.png';
+import bagFruity       from '../../design/IMAGES/bags/new bags mock up/FRUITY transp.png';
+import bagBalanced     from '../../design/IMAGES/bags/new bags mock up/BALANCED & SWEET transp.png';
+import bagChocolate    from '../../design/IMAGES/bags/new bags mock up/CHOCOLATE & NUTTY transp.png';
+import bagEarthy       from '../../design/IMAGES/bags/new bags mock up/SPICY & EARTHY transp.png';
+import bagExperimental from '../../design/IMAGES/bags/new bags mock up/EXPERIMENTAL transp.png';
+
+// ─── Photos — none repeated from Home collection section ──────────────────────
+import floralHero from '../../design/IMAGES/photos/june2026/WEBCUTFloralJun01.png';
+import floralSm1  from '../../design/IMAGES/photos/june2026/WEBCUTFloralJun08.png';
+import floralSm2  from '../../design/IMAGES/photos/june2026/WEBCUTFloralJun14.png';
+
+import fruityHero from '../../design/IMAGES/photos/june2026/WEBCUTFruityJun01.png';
+import fruitySm1  from '../../design/IMAGES/photos/june2026/WEBCUTFruityJun05.png';
+import fruitySm2  from '../../design/IMAGES/photos/june2026/WEBCUTFruityJun06.png';
+
+import balancedHero from '../../design/IMAGES/photos/june2026/WEBCUTBalanced&SweetJun02.png';
+import balancedSm1  from '../../design/IMAGES/photos/june2026/WEBCUTBalanced&SweetJun04.png';
+import balancedSm2  from '../../design/IMAGES/photos/june2026/WEBCUTBalanced&SweetJun09.png';
+
+import chocolateHero from '../../design/IMAGES/photos/june2026/WEBCUTChocolate&NuttyJun02.png';
+import chocolateSm1  from '../../design/IMAGES/photos/june2026/WEBCUTChocolate&NuttyJun08.png';
+import chocolateSm2  from '../../design/IMAGES/photos/june2026/WEBCUTChocolate&NuttyJun10.png';
+
+import earthyHero from '../../design/IMAGES/photos/june2026/WEBCUTSpicy&EarthyJun04.png';
+import earthySm1  from '../../design/IMAGES/photos/june2026/WEBCUTSpicy&EarthyJun07.png';
+import earthySm2  from '../../design/IMAGES/photos/june2026/WEBCUTSpicy&EarthyJun11.png';
+
+import expHero from '../../design/IMAGES/photos/june2026/WEBCUTExperimentalJun2.png';
+import expSm1  from '../../design/IMAGES/photos/june2026/WEBCUTExperimentalJun7.png';
+import expSm2  from '../../design/IMAGES/photos/june2026/WEBCUTExperimentalJun10.png';
+
+// ─── Data ─────────────────────────────────────────────────────────────────────
+
+const ARCHETYPES = [
+  {
+    id: 'floral', num: '01', name: 'Floral', color: '#a34b78',
+    descriptor: 'Light · Delicate · Aromatic',
+    coffee: 'Ethiopia Yirgacheffe',
+    notes: 'Jasmine, Bergamot, Lemon Zest',
+    roast: 'Light', brew: 'Pour Over', price: '$22',
+    bag: bagFloral, hero: floralHero, sm1: floralSm1, sm2: floralSm2,
+  },
+  {
+    id: 'fruity', num: '02', name: 'Fruity', color: '#ca445f',
+    descriptor: 'Vibrant · Juicy · Expressive',
+    coffee: 'Colombia El Paraiso',
+    notes: 'Strawberry, Peach, Hibiscus',
+    roast: 'Light-Medium', brew: 'Aeropress', price: '$24',
+    bag: bagFruity, hero: fruityHero, sm1: fruitySm1, sm2: fruitySm2,
+  },
+  {
+    id: 'balanced', num: '03', name: 'Balanced & Sweet', color: '#d1ac11',
+    descriptor: 'Smooth · Round · Comforting',
+    coffee: 'Guatemala Antigua',
+    notes: 'Caramel, Milk Chocolate, Red Apple',
+    roast: 'Medium', brew: 'Drip / Espresso', price: '$20',
+    bag: bagBalanced, hero: balancedHero, sm1: balancedSm1, sm2: balancedSm2,
+  },
+  {
+    id: 'chocolate', num: '04', name: 'Chocolate & Nutty', color: '#a54c2d',
+    descriptor: 'Rich · Grounded · Satisfying',
+    coffee: 'Brazil Cerrado',
+    notes: 'Dark Chocolate, Almond, Molasses',
+    roast: 'Medium-Dark', brew: 'Espresso', price: '$19',
+    bag: bagChocolate, hero: chocolateHero, sm1: chocolateSm1, sm2: chocolateSm2,
+  },
+  {
+    id: 'earthy', num: '05', name: 'Spicy & Earthy', color: '#912f2f',
+    descriptor: 'Warm · Deep · Lasting',
+    coffee: 'Sumatra Mandheling',
+    notes: 'Cedar, Clove, Dark Cocoa',
+    roast: 'Dark', brew: 'French Press', price: '$21',
+    bag: bagEarthy, hero: earthyHero, sm1: earthySm1, sm2: earthySm2,
+  },
+  {
+    id: 'experimental', num: '06', name: 'Experimental', color: '#056c7a',
+    descriptor: 'Wild · Unexpected · Always Changing',
+    coffee: 'Costa Rica Anaerobic',
+    notes: 'Cinnamon, Tropical Fruit, Rum',
+    roast: 'Light', brew: 'V60', price: '$28',
+    bag: bagExperimental, hero: expHero, sm1: expSm1, sm2: expSm2,
+  },
+] as const;
+
+// ─── ArchetypeSection ──────────────────────────────────────────────────────────
+
+function ArchetypeSection({ arch, index }: { arch: typeof ARCHETYPES[number]; index: number }) {
+  const flip = index % 2 !== 0;
+
+  const imgHover = (e: React.MouseEvent<HTMLImageElement>, scale: string) => {
+    e.currentTarget.style.transform = `scale(${scale})`;
   };
-  return map[name] ?? '#a33726';
-};
 
-const coffees = [
-  { id: 1, name: 'Ethiopia Yirgacheffe', archetype: 'Floral', price: '$22', notes: 'Jasmine, Lemon, Bergamot', description: 'A delicate, tea-like profile with overwhelming aromatic clarity.', roast: 'Light', brew: 'Pour Over' },
-  { id: 2, name: 'Colombia El Paraiso', archetype: 'Fruity', price: '$24', notes: 'Strawberry, Peach, Rose', description: 'Vibrant and juicy, defined by an intense berry sweetness.', roast: 'Light-Medium', brew: 'Aeropress' },
-  { id: 3, name: 'Guatemala Antigua', archetype: 'Balanced & Sweet', price: '$20', notes: 'Caramel, Milk Chocolate, Red Apple', description: 'A comforting daily drinker with perfect harmony and a lingering finish.', roast: 'Medium', brew: 'Drip / Espresso' },
-  { id: 4, name: 'Brazil Cerrado', archetype: 'Chocolate & Nutty', price: '$19', notes: 'Dark Chocolate, Almond, Molasses', description: 'Rich, grounded, and deeply satisfying. A classic profile elevated.', roast: 'Medium-Dark', brew: 'Espresso' },
-  { id: 5, name: 'Sumatra Mandheling', archetype: 'Spicy & Earthy', price: '$21', notes: 'Cedar, Clove, Dark Cocoa', description: 'Bold and syrupy, characterized by its warm spice and full body.', roast: 'Dark', brew: 'French Press' },
-  { id: 6, name: 'Costa Rica Anaerobic', archetype: 'Experimental', price: '$28', notes: 'Cinnamon, Tropical Fruit, Rum', description: 'A wild, unconventional cup pushing the boundaries of flavor.', roast: 'Light', brew: 'V60' },
-];
-
-const categories = [
-  { id: 'archetypes', label: 'Archetype Coffees' },
-  { id: 'subscriptions', label: 'Subscriptions' },
-  { id: 'gifts', label: 'Gifts' },
-  { id: 'discovery', label: 'Discovery Sets' },
-];
-
-const scrollToSection = (id: string) => {
-  const el = document.getElementById(id);
-  if (el) window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 100, behavior: 'smooth' });
-};
-
-const FlavorBars = ({ archetype }: { archetype: string }) => {
-  const color = getArchetypeColor(archetype);
   return (
-    <div className="flex gap-1 items-end h-3 mt-1 opacity-80">
-      {[2, 10, 6, 12].map((h, i) => <div key={i} className="w-[3px] rounded-sm" style={{ height: `${h}px`, backgroundColor: color }} />)}
-    </div>
+    <motion.section
+      id={arch.id}
+      initial={{ opacity: 0, y: 28 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.06 }}
+      transition={{ duration: 0.95, ease: [0.16, 1, 0.3, 1] }}
+      style={{
+        borderTop: '1px solid rgba(154,41,24,0.08)',
+        padding: 'clamp(52px, 7vh, 92px) clamp(32px, 6vw, 96px)',
+      }}
+    >
+      {/* Header strip */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+        marginBottom: 'clamp(28px, 4vh, 52px)',
+      }}>
+        <span style={{
+          fontSize: '0.49rem', letterSpacing: '0.38em', textTransform: 'uppercase',
+          color: arch.color, opacity: 0.52,
+        }}>
+          No. {arch.num}
+        </span>
+        <span style={{
+          fontSize: '0.49rem', letterSpacing: '0.26em', textTransform: 'uppercase',
+          color: arch.color, opacity: 0.40,
+        }}>
+          {arch.descriptor}
+        </span>
+      </div>
+
+      {/* Main body */}
+      <div style={{
+        display: 'flex',
+        flexDirection: flip ? 'row-reverse' : 'row',
+        gap: 'clamp(24px, 3.5vw, 56px)',
+        height: 'clamp(460px, 68vh, 740px)',
+      }}>
+
+        {/* ── Photo column (58%) ── */}
+        <div style={{ flex: '0 0 58%', display: 'flex', flexDirection: 'column', gap: 5, overflow: 'hidden' }}>
+          {/* Hero photo — 64% of column height */}
+          <div style={{ flex: '0 0 64%', overflow: 'hidden' }}>
+            <img
+              src={arch.hero}
+              alt={arch.name}
+              style={{
+                width: '100%', height: '100%',
+                objectFit: 'cover', objectPosition: 'center',
+                display: 'block',
+                transition: 'transform 0.9s cubic-bezier(0.16,1,0.3,1)',
+              }}
+              onMouseEnter={e => imgHover(e, '1.03')}
+              onMouseLeave={e => imgHover(e, '1')}
+            />
+          </div>
+          {/* Two small photos — remaining 36% */}
+          <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5, overflow: 'hidden' }}>
+            <div style={{ overflow: 'hidden' }}>
+              <img
+                src={arch.sm1} alt=""
+                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', transition: 'transform 0.9s cubic-bezier(0.16,1,0.3,1)' }}
+                onMouseEnter={e => imgHover(e, '1.05')}
+                onMouseLeave={e => imgHover(e, '1')}
+              />
+            </div>
+            <div style={{ overflow: 'hidden' }}>
+              <img
+                src={arch.sm2} alt=""
+                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', transition: 'transform 0.9s cubic-bezier(0.16,1,0.3,1)' }}
+                onMouseEnter={e => imgHover(e, '1.05')}
+                onMouseLeave={e => imgHover(e, '1')}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* ── Info + bag column ── */}
+        <div style={{
+          flex: 1,
+          display: 'flex', flexDirection: 'column',
+          justifyContent: 'space-between',
+          overflow: 'hidden',
+        }}>
+
+          {/* Archetype name */}
+          <h2 style={{
+            fontSize: 'clamp(2.6rem, 4.2vw, 5.8rem)',
+            color: arch.color,
+            fontWeight: 400,
+            lineHeight: 0.93,
+            margin: 0,
+            letterSpacing: '-0.025em',
+          }}>
+            {arch.name}
+          </h2>
+
+          {/* Bag — centered, vertically fills remaining space */}
+          <div style={{
+            flex: 1,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 'clamp(10px, 1.5vh, 20px) 0',
+          }}>
+            <img
+              src={arch.bag}
+              alt={`${arch.name} bag`}
+              style={{
+                maxHeight: 'clamp(170px, 30vh, 360px)',
+                maxWidth: '88%',
+                objectFit: 'contain',
+                display: 'block',
+                filter: 'drop-shadow(0 18px 44px rgba(0,0,0,0.09))',
+                transition: 'transform 0.5s ease',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.03)'; }}
+              onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; }}
+            />
+          </div>
+
+          {/* Coffee details */}
+          <div style={{ borderTop: '1px solid rgba(154,41,24,0.08)', paddingTop: 'clamp(14px, 2vh, 24px)' }}>
+            <h3 style={{
+              fontSize: 'clamp(0.96rem, 1.3vw, 1.35rem)',
+              color: '#9a2918', fontWeight: 400,
+              margin: '0 0 5px', letterSpacing: '0.01em',
+            }}>
+              {arch.coffee}
+            </h3>
+            <p style={{
+              fontSize: 'clamp(0.70rem, 0.80vw, 0.78rem)',
+              color: 'rgba(154,41,24,0.44)',
+              margin: '0 0 clamp(12px, 1.8vh, 20px)',
+              letterSpacing: '0.04em',
+            }}>
+              {arch.notes}
+            </p>
+            <div style={{ display: 'flex', gap: 28, marginBottom: 'clamp(14px, 2vh, 24px)' }}>
+              <div>
+                <p style={{ fontSize: '0.43rem', letterSpacing: '0.30em', textTransform: 'uppercase', color: 'rgba(154,41,24,0.36)', margin: '0 0 3px' }}>Roast</p>
+                <p style={{ fontSize: '0.70rem', color: '#9a2918', margin: 0 }}>{arch.roast}</p>
+              </div>
+              <div>
+                <p style={{ fontSize: '0.43rem', letterSpacing: '0.30em', textTransform: 'uppercase', color: 'rgba(154,41,24,0.36)', margin: '0 0 3px' }}>Best for</p>
+                <p style={{ fontSize: '0.70rem', color: '#9a2918', margin: 0 }}>{arch.brew}</p>
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+              <span style={{ fontSize: 'clamp(1.15rem, 1.5vw, 1.5rem)', color: '#9a2918', fontWeight: 400 }}>
+                {arch.price}
+              </span>
+              <button
+                style={{
+                  background: arch.color, border: 'none',
+                  color: '#f2f1ea',
+                  padding: '10px 20px',
+                  fontSize: '0.50rem', letterSpacing: '0.28em', textTransform: 'uppercase',
+                  fontFamily: 'inherit', cursor: 'pointer',
+                  transition: 'opacity 0.2s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.opacity = '0.78'; }}
+                onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
+              >
+                Shop This Bag
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </motion.section>
   );
-};
+}
+
+// ─── Page ──────────────────────────────────────────────────────────────────────
 
 export default function Shop() {
-  const [scrolled, setScrolled] = useState(false);
-
-  React.useEffect(() => {
-    const fn = () => setScrolled(window.scrollY > 50);
-    window.addEventListener('scroll', fn);
-    return () => window.removeEventListener('scroll', fn);
-  }, []);
+  const scrollTo = (id: string) => {
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   return (
-    <div className="w-full min-h-screen bg-[#f2f1ea] text-[#a33726]">
-      <section className="pt-40 pb-20 px-6 md:px-12 lg:px-24 max-w-[1400px] mx-auto text-center flex flex-col items-center">
-        <motion.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }} className="text-5xl md:text-7xl text-[#ee5974] font-normal tracking-tight mb-6">SHOP COFFEE</motion.h1>
-        <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.1 }} className="text-lg md:text-xl text-[#838686] font-light max-w-2xl leading-relaxed mb-10">
-          Browse archetype coffees, personalized subscriptions, gifts, and discovery sets.
-        </motion.p>
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.2 }} className="flex flex-col sm:flex-row gap-4">
-          <Link to="/find-my-flavor" className="bg-[#ee5974] text-[#f2f1ea] px-8 py-4 text-xs uppercase tracking-[0.2em] hover:opacity-80 transition-opacity text-center">Find My Flavor</Link>
-          <button onClick={() => scrollToSection('archetypes')} className="border border-[#838686] text-[#838686] px-8 py-4 text-xs uppercase tracking-[0.2em] hover:bg-[#838686] hover:text-[#f2f1ea] transition-colors text-center">Shop All</button>
+    <div style={{ backgroundColor: '#f2f1ea', minHeight: '100vh' }}>
+
+      {/* ── Hero ──────────────────────────────────────────────────────────────── */}
+      <section style={{
+        padding: 'clamp(100px, 14vh, 160px) clamp(32px, 6vw, 96px) clamp(52px, 7vh, 80px)',
+      }}>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.95 }}
+        >
+          <p style={{
+            fontSize: '0.50rem', letterSpacing: '0.38em', textTransform: 'uppercase',
+            color: 'rgba(154,41,24,0.40)', margin: '0 0 16px',
+          }}>
+            The Collection
+          </p>
+          <h1 style={{
+            fontSize: 'clamp(3.2rem, 6.5vw, 8.5rem)',
+            color: '#9a2918', fontWeight: 400,
+            lineHeight: 0.92, margin: '0 0 clamp(28px, 4vh, 48px)',
+            letterSpacing: '-0.03em',
+          }}>
+            Six worlds.<br />One is yours.
+          </h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
+            <Link
+              to="/find-my-flavor"
+              style={{
+                fontSize: '0.54rem', letterSpacing: '0.28em', textTransform: 'uppercase',
+                color: '#f2f1ea', backgroundColor: '#9a2918',
+                textDecoration: 'none', padding: '13px 26px',
+                transition: 'opacity 0.2s',
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.78'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
+            >
+              Find My Archetype
+            </Link>
+            <span style={{
+              fontSize: '0.50rem', letterSpacing: '0.26em', textTransform: 'uppercase',
+              color: 'rgba(154,41,24,0.36)',
+            }}>
+              or scroll to explore
+            </span>
+          </div>
         </motion.div>
       </section>
 
-      <div className={`sticky top-[80px] z-40 bg-[#f2f1ea] transition-all duration-300 border-y ${scrolled ? 'border-[#a8462c]/10 py-4 shadow-sm' : 'border-transparent py-6'}`}>
-        <div className="max-w-[1400px] mx-auto px-6 md:px-12 lg:px-24 flex gap-8 overflow-x-auto items-center">
-          {categories.map((cat) => (
-            <button key={cat.id} onClick={() => scrollToSection(cat.id)} className="whitespace-nowrap text-xs md:text-sm uppercase tracking-[0.15em] text-[#838686] hover:text-[#a33726] transition-colors">{cat.label}</button>
-          ))}
+      {/* ── Sticky archetype nav ──────────────────────────────────────────────── */}
+      <div style={{
+        position: 'sticky', top: 80, zIndex: 40,
+        backgroundColor: '#f2f1ea',
+        borderTop: '1px solid rgba(154,41,24,0.07)',
+        borderBottom: '1px solid rgba(154,41,24,0.07)',
+        padding: 'clamp(10px, 1.4vh, 16px) clamp(32px, 6vw, 96px)',
+        display: 'flex', gap: 'clamp(14px, 2.5vw, 40px)',
+        overflowX: 'auto',
+      }}>
+        {ARCHETYPES.map(arch => (
+          <button
+            key={arch.id}
+            onClick={() => scrollTo(arch.id)}
+            style={{
+              background: 'none', border: 'none',
+              fontFamily: 'inherit',
+              fontSize: '0.48rem', letterSpacing: '0.28em', textTransform: 'uppercase',
+              color: arch.color, opacity: 0.50,
+              cursor: 'pointer', whiteSpace: 'nowrap',
+              padding: '2px 0',
+              transition: 'opacity 0.2s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.opacity = '1'; }}
+            onMouseLeave={e => { e.currentTarget.style.opacity = '0.50'; }}
+          >
+            {arch.num} · {arch.name}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Six archetype sections ─────────────────────────────────────────────── */}
+      {ARCHETYPES.map((arch, i) => (
+        <ArchetypeSection key={arch.id} arch={arch} index={i} />
+      ))}
+
+      {/* ── Subscription strip ───────────────────────────────────────────────── */}
+      <motion.section
+        initial={{ opacity: 0, y: 24 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, amount: 0.25 }}
+        transition={{ duration: 0.9 }}
+        style={{
+          borderTop: '1px solid rgba(154,41,24,0.08)',
+          padding: 'clamp(72px, 10vh, 120px) clamp(32px, 6vw, 96px)',
+          display: 'flex', flexDirection: 'column',
+          alignItems: 'flex-start',
+        }}
+      >
+        <p style={{
+          fontSize: '0.50rem', letterSpacing: '0.38em', textTransform: 'uppercase',
+          color: 'rgba(154,41,24,0.40)', margin: '0 0 16px',
+        }}>
+          The Ritual
+        </p>
+        <h2 style={{
+          fontSize: 'clamp(2.2rem, 4vw, 5.2rem)',
+          color: '#9a2918', fontWeight: 400,
+          lineHeight: 1.0, margin: '0 0 clamp(14px, 2vh, 22px)',
+          letterSpacing: '-0.02em',
+        }}>
+          Your archetype,<br />every month.
+        </h2>
+        <p style={{
+          fontSize: 'clamp(0.78rem, 0.92vw, 0.92rem)',
+          color: 'rgba(154,41,24,0.44)',
+          margin: '0 0 clamp(32px, 4.5vh, 52px)',
+          lineHeight: 1.75, maxWidth: 460,
+        }}>
+          A recurring delivery matched to your taste. Stick with your archetype or let it evolve over time.
+        </p>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 20 }}>
+          <button
+            style={{
+              background: '#9a2918', border: 'none', color: '#f2f1ea',
+              padding: '14px 30px',
+              fontSize: '0.52rem', letterSpacing: '0.28em', textTransform: 'uppercase',
+              fontFamily: 'inherit', cursor: 'pointer', transition: 'opacity 0.2s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.opacity = '0.78'; }}
+            onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
+          >
+            Build My Ritual
+          </button>
+          <span style={{
+            fontSize: '0.48rem', letterSpacing: '0.20em', textTransform: 'uppercase',
+            color: 'rgba(154,41,24,0.28)',
+          }}>
+            From $18 per bag
+          </span>
         </div>
-      </div>
-
-      <div className="max-w-[1400px] mx-auto px-6 md:px-12 lg:px-24 pb-32">
-        <section id="archetypes" className="pt-24 lg:pt-32">
-          <div className="mb-12 border-b border-[#a8462c]/10 pb-4 flex justify-between items-end">
-            <div>
-              <h2 className="text-2xl md:text-3xl text-[#a33726] font-normal tracking-tight">Archetype Coffees</h2>
-              <p className="text-[#838686] text-sm mt-2 font-light">Each coffee belongs to a clear sensory identity.</p>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-16">
-            {coffees.map((coffee) => (
-              <div key={coffee.id} className="group flex flex-col h-full">
-                <div className="aspect-[4/5] mb-6 overflow-hidden flex items-center justify-center p-8" style={{ backgroundColor: getArchetypeColor(coffee.archetype) + '22' }}>
-                  <div className="text-center">
-                    <div className="w-16 h-16 rounded-full mx-auto mb-4 flex items-center justify-center" style={{ backgroundColor: getArchetypeColor(coffee.archetype) }}>
-                      <span className="text-white text-xs uppercase tracking-widest">{coffee.archetype[0]}</span>
-                    </div>
-                    <p className="text-sm" style={{ color: getArchetypeColor(coffee.archetype) }}>{coffee.archetype}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 mb-3">
-                  <span className="text-xs uppercase tracking-[0.2em] font-normal" style={{ color: getArchetypeColor(coffee.archetype) }}>{coffee.archetype}</span>
-                  <FlavorBars archetype={coffee.archetype} />
-                </div>
-                <h3 className="text-2xl text-[#a33726] mb-2">{coffee.name}</h3>
-                <p className="text-sm text-[#838686] font-light mb-4">{coffee.description}</p>
-                <div className="grid grid-cols-2 gap-4 border-t border-b border-[#a8462c]/10 py-4 mb-6">
-                  <div><div className="text-[9px] uppercase tracking-widest text-[#838686] mb-1">Roast</div><div className="text-xs text-[#a33726]">{coffee.roast}</div></div>
-                  <div><div className="text-[9px] uppercase tracking-widest text-[#838686] mb-1">Best For</div><div className="text-xs text-[#a33726]">{coffee.brew}</div></div>
-                  <div className="col-span-2"><div className="text-[9px] uppercase tracking-widest text-[#838686] mb-1">Tasting Notes</div><div className="text-xs text-[#a33726]">{coffee.notes}</div></div>
-                </div>
-                <div className="flex items-center justify-between mt-auto pt-2">
-                  <span className="text-lg">{coffee.price}</span>
-                  <button className="text-xs uppercase tracking-widest text-[#a33726] hover:text-[#a8462c] transition-colors flex items-center gap-2">Choose <ArrowRight size={14} /></button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section id="subscriptions" className="pt-24 lg:pt-32">
-          <div className="mb-12 border-b border-[#a8462c]/10 pb-4">
-            <h2 className="text-2xl md:text-3xl text-[#a33726] font-normal tracking-tight">Personalized Subscriptions</h2>
-            <p className="text-[#838686] text-sm mt-2 font-light">Coffee matched to your profile, delivered on your schedule.</p>
-          </div>
-          <div className="flex flex-col lg:flex-row bg-[#e5e5da] min-h-[400px]">
-            <div className="w-full lg:w-1/2 p-10 md:p-16 flex flex-col justify-center">
-              <div className="text-[10px] uppercase tracking-widest text-[#a33726] mb-4">The Axis & Bloom Ritual</div>
-              <h3 className="text-3xl md:text-4xl text-[#a33726] mb-6">Signature Subscription</h3>
-              <p className="text-[#a33726] font-light leading-relaxed mb-10 max-w-md">A recurring delivery tailored to your taste. Stick with your matched archetype or explore nearby flavor families over time.</p>
-              <div className="flex items-center gap-6">
-                <div className="text-2xl text-[#a33726]">From $18 <span className="text-sm text-[#838686] font-light">/ bag</span></div>
-                <button className="bg-[#a33726] text-white px-8 py-3 text-xs uppercase tracking-[0.15em] hover:bg-[#8e2e1f] transition-colors">Build Your Ritual</button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section id="gifts" className="pt-24 lg:pt-32">
-          <div className="mb-12 border-b border-[#a8462c]/10 pb-4">
-            <h2 className="text-2xl md:text-3xl text-[#a33726] font-normal tracking-tight">Gifts</h2>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="group cursor-pointer">
-              <div className="aspect-[4/3] overflow-hidden mb-6 bg-[#e5e5da] flex items-center justify-center">
-                <span className="text-[#a33726] text-4xl font-light">Gift Box</span>
-              </div>
-              <h3 className="text-2xl text-[#a33726] mb-2">Chosen for You Gift Box</h3>
-              <p className="text-[#838686] font-light text-sm mb-4 max-w-sm">Two coffees selected through our flavor system, an archetype card, and a personalized message.</p>
-              <div className="flex justify-between items-center border-t border-[#a8462c]/10 pt-4">
-                <span className="text-lg">$55</span>
-                <span className="text-xs uppercase tracking-widest text-[#a33726]">View Gift</span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section id="discovery" className="pt-24 lg:pt-32">
-          <div className="mb-12 border-b border-[#a8462c]/10 pb-4">
-            <h2 className="text-2xl md:text-3xl text-[#a33726] font-normal tracking-tight">Discovery Sets</h2>
-          </div>
-          <div className="relative h-[400px] flex items-center justify-center group cursor-pointer overflow-hidden bg-[#e5e5da]">
-            <div className="text-center bg-white p-10 md:p-16 max-w-lg shadow-xl">
-              <div className="text-[10px] uppercase tracking-widest text-[#a33726] mb-3">Tasting Flight</div>
-              <h3 className="text-3xl text-[#a33726] mb-4">The Spectrum Set</h3>
-              <p className="text-[#838686] font-light text-sm mb-6 leading-relaxed">Four 100g sample bags representing a journey across our archetype wheel.</p>
-              <div className="flex items-center justify-center gap-6">
-                <span className="text-xl">$38</span>
-                <button className="border border-[#a33726] text-[#a33726] px-6 py-3 text-xs uppercase tracking-[0.1em] hover:bg-[#a33726] hover:text-white transition-colors">Add to Cart</button>
-              </div>
-            </div>
-          </div>
-        </section>
-      </div>
+      </motion.section>
 
       <TasteFinderSection />
     </div>
