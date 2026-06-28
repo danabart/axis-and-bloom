@@ -10,7 +10,7 @@ import photoFloral      from '../../design/IMAGES/photos/june2026/WEBCUTFloralJu
 import photoFruity      from '../../design/IMAGES/photos/june2026/WEBCUTFruityJun03.png'
 import photoBalanced    from '../../design/IMAGES/photos/june2026/WEBCUTBalanced&SweetJun07.png'
 import photoChocolate   from '../../design/IMAGES/photos/june2026/WEBCUTChocolate&NuttyJun05.png'
-import photoEarthy      from '../../design/IMAGES/photos/june2026/WEBCUTSpicy&EarthyJun02.png'
+import photoEarthy      from '../../design/IMAGES/photos/june2026/WEBCUTSpicy&EarthyJun05.png'
 import photoExperimental from '../../design/IMAGES/photos/june2026/WEBCUTExperimentalJun5.png'
 
 // ─── Collection: archetype bags (hover) ──────────────────────────────────────
@@ -234,7 +234,7 @@ export default function Home() {
               Shop all coffees →
             </Link>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'clamp(16px, 2.5vw, 28px)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 'clamp(10px, 1.5vw, 20px)' }}>
             {bags.map((item, i) => (
               <motion.div
                 key={i}
