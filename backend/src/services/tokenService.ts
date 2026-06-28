@@ -33,8 +33,8 @@ export async function spendToken(
     );
     await client.query(
       `INSERT INTO token_events (uid, delta, reason, reference_id, balance_after)
-       SELECT $1, -$2, $3, $4, balance FROM user_tokens WHERE uid = $1`,
-      [uid, costPerTurn, reason, referenceId]
+       SELECT $1, $2, $3, $4, balance FROM user_tokens WHERE uid = $1`,
+      [uid, -costPerTurn, reason, referenceId]
     );
     await client.query('COMMIT');
     const newBalance = balance - costPerTurn;
