@@ -2,14 +2,24 @@ import { useRef, useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { Link, useNavigate } from 'react-router';
 import { TasteFinderSection } from './TasteFinderSection';
-import bag1 from '../../design/IMAGES/bags/TransparentBag01.png'
-import bag2 from '../../design/IMAGES/bags/TransparentBag02.png'
-import bag3 from '../../design/IMAGES/bags/TransparentBag03.png'
 import placeholderVideo from '../../design/IMAGES/videos/PlaceHolder01.mp4'
 import heroVideo from '../../design/IMAGES/videos/PlaceHolder10.mp4'
-import archetypeFloral   from '../../design/IMAGES/lifestyle/ARCHETYPE_Floral01.png'
-import archetypeBalanced from '../../design/IMAGES/lifestyle/ARCHETYPE_Balanced_Sweet01.png'
-import archetypeSpicy    from '../../design/IMAGES/lifestyle/ARCHETYPE_Spicy_Earthy01.png'
+
+// ─── Collection: archetype photos (default) ───────────────────────────────────
+import photoFloral      from '../../design/IMAGES/photos/june2026/WEBCUTFloralJun20.png'
+import photoFruity      from '../../design/IMAGES/photos/june2026/WEBCUTFruityJun03.png'
+import photoBalanced    from '../../design/IMAGES/photos/june2026/WEBCUTBalanced&SweetJun07.png'
+import photoChocolate   from '../../design/IMAGES/photos/june2026/WEBCUTChocolate&NuttyJun05.png'
+import photoEarthy      from '../../design/IMAGES/photos/june2026/WEBCUTSpicy&EarthyJun02.png'
+import photoExperimental from '../../design/IMAGES/photos/june2026/WEBCUTExperimentalJun5.png'
+
+// ─── Collection: archetype bags (hover) ──────────────────────────────────────
+import bagFloral        from '../../design/IMAGES/bags/new bags mock up/FLORAL transp.png'
+import bagFruity        from '../../design/IMAGES/bags/new bags mock up/FRUITY transp.png'
+import bagBalanced      from '../../design/IMAGES/bags/new bags mock up/BALANCED & SWEET transp.png'
+import bagChocolate     from '../../design/IMAGES/bags/new bags mock up/CHOCOLATE & NUTTY transp.png'
+import bagEarthy        from '../../design/IMAGES/bags/new bags mock up/SPICY & EARTHY transp.png'
+import bagExperimental  from '../../design/IMAGES/bags/new bags mock up/EXPERIMENTAL transp.png'
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
@@ -59,9 +69,12 @@ const archetypes = [
 ];
 
 const bags = [
-  { img: bag1, label: 'No. 01 — Floral',   hoverImg: archetypeFloral   },
-  { img: bag2, label: 'No. 02 — Balanced', hoverImg: archetypeBalanced },
-  { img: bag3, label: 'No. 03 — Bold',     hoverImg: archetypeSpicy    },
+  { photo: photoFloral,       bag: bagFloral,       label: 'No. 01 — Floral'           },
+  { photo: photoFruity,       bag: bagFruity,       label: 'No. 02 — Fruity'           },
+  { photo: photoBalanced,     bag: bagBalanced,     label: 'No. 03 — Balanced & Sweet' },
+  { photo: photoChocolate,    bag: bagChocolate,    label: 'No. 04 — Chocolate & Nutty'},
+  { photo: photoEarthy,       bag: bagEarthy,       label: 'No. 05 — Spicy & Earthy'  },
+  { photo: photoExperimental, bag: bagExperimental, label: 'No. 06 — Experimental'    },
 ];
 
 // ─── Shared animation preset ─────────────────────────────────────────────────
@@ -221,38 +234,35 @@ export default function Home() {
               Shop all coffees →
             </Link>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'clamp(20px, 3vw, 36px)' }}>
-            {bags.map((bag, i) => (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'clamp(16px, 2.5vw, 28px)' }}>
+            {bags.map((item, i) => (
               <motion.div
                 key={i}
-                {...fadeUp(i * 0.1)}
+                {...fadeUp(i * 0.08)}
                 style={{ display: 'flex', flexDirection: 'column', cursor: 'default' }}
                 onMouseEnter={() => setHoveredBag(i)}
                 onMouseLeave={() => setHoveredBag(null)}
               >
-                {/* Tile — bag and archetype image crossfade within the same container */}
                 <div style={{ backgroundColor: '#e5e5da', aspectRatio: '3/4', position: 'relative', overflow: 'hidden' }}>
-                  {/* Bag — fades out on hover */}
+                  {/* Archetype photo — visible by default, fades out on hover */}
                   <div style={{
                     position: 'absolute', inset: 0,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
                     opacity: hoveredBag === i ? 0 : 1,
                     transition: 'opacity 0.45s ease',
                   }}>
-                    <img src={bag.img} alt={bag.label} style={{ width: '70%', height: '80%', objectFit: 'contain', display: 'block' }} />
+                    <img src={item.photo} alt={item.label} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
                   </div>
-                  {/* Archetype photo — fades in on hover */}
+                  {/* Bag — fades in on hover */}
                   <div style={{
                     position: 'absolute', inset: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
                     opacity: hoveredBag === i ? 1 : 0,
                     transition: 'opacity 0.45s ease',
                   }}>
-                    <img src={bag.hoverImg} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
+                    <img src={item.bag} alt="" style={{ width: '72%', height: '84%', objectFit: 'contain', display: 'block' }} />
                   </div>
                 </div>
-
-                {/* Label */}
-                <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.8rem', letterSpacing: '0.1em', color: '#9a2918', margin: '14px 0 0', textAlign: 'center' }}>{bag.label}</p>
+                <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.8rem', letterSpacing: '0.1em', color: '#9a2918', margin: '14px 0 0', textAlign: 'center' }}>{item.label}</p>
               </motion.div>
             ))}
           </div>
