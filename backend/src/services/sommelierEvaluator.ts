@@ -142,7 +142,7 @@ export async function evaluateSommelier(
   let behavioralLevel = 'medium';
   let bcComponents = { quizStability: 0.5, behavioralValidation: 0.5, dataDepth: 0.5, feedbackAlignment: 0.5 };
   try {
-    const confSnap = await firestoreDb.doc(`users/${uid}/confidence_profile`).get();
+    const confSnap = await firestoreDb.doc(`users/${uid}/metadata/confidence_profile`).get();
     if (confSnap.exists) {
       const data = confSnap.data()!;
       behavioralScore = data.score ?? 0.5;

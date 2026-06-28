@@ -239,7 +239,7 @@ Respond with JSON only, no explanation: { "sentiment": "...", "rating": N, "desc
   // If negative: flag confidence_profile so RECOMMENDATION_MISS fires on next session
   if (parsedSentiment === 'negative') {
     try {
-      await firestoreDb.doc(`users/${uid}/confidence_profile`).set({
+      await firestoreDb.doc(`users/${uid}/metadata/confidence_profile`).set({
         hasPendingNegativeFeedback:   true,
         negativeFeedbackBlendId:      outboundRow.blend_id ?? null,
         negativeFeedbackDetectedAt:   FieldValue.serverTimestamp(),

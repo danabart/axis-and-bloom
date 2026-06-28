@@ -154,14 +154,18 @@ export async function computeBehavioralConfidence(uid: string): Promise<Behavior
   };
 
   // ── 6. Write to Firestore (non-blocking from caller's perspective) ────────────
-  firestoreDb.doc(`users/${uid}/confidence_profile`).set({
-    score:                result.score,
-    level,
-    components,
-    rawInputs:            result.rawInputs,
-    hasPendingNegativeFeedback: negativeFeedbackFlag,
-    computedAt:           new Date(),
-  }, { merge: true }).catch(err => console.error('[behavioralConfidence/firestore]', err));
+  try {
+    firestoreDb.doc(`users/${uid}/metadata/confidence_profile`).set({
+      score:                result.score,
+      level,
+      components,
+      rawInputs:            result.rawInputs,
+      hasPendingNegativeFeedback: negativeFeedbackFlag,
+      computedAt:           new Date(),
+    }, { merge: true }).catch(err => console.error('[behavioralConfidence/firestore]', err));
+  } catch (err) {
+    console.error('[behavioralConfidence] firestore doc path error:', err);
+  }
 
   return result;
 }
