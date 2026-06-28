@@ -887,6 +887,32 @@ WHERE up.firebase_uid = $1
 
 Also wrapped all SQL queries in `computeBehavioralConfidence()` and `evaluateSommelier()` in individual try/catch blocks (defaulting to 0 counts on failure) to prevent any single SQL error from crashing the entire evaluate call.
 
+### 51. Sommelier `start:500` — ambiguous SQL operator in `spendToken` (2026-06-28)
+**Error (from Cloud Run logs):** `operator is not unique: - unknown` / `hint: Could not choose a best candidate operator. You might need to add explicit type casts.` / PostgreSQL error code `42725`.
+
+**Cause:** `tokenService.ts` `spendToken()` had `SELECT $1, -$2, $3, $4, balance FROM user_tokens WHERE uid = $1`. PostgreSQL cannot determine the type of `$2` from context in a bare SELECT list — the unary `-` operator is then ambiguous between `-integer`, `-numeric`, `-float`, etc.
+
+**Fix:** Pass the negative value from JavaScript instead of negating in SQL:
+```javascript
+// Before (ambiguous):
+[uid, costPerTurn, reason, referenceId]   // SQL: -$2
+// After (unambiguous):
+[uid, -costPerTurn, reason, referenceId]  // SQL: $2
+```
+
+### 52. Firestore composite index needed for `checkReturnedToSommelier` (2026-06-28, outstanding)
+**Not causing a 500** — the error is caught inside `checkReturnedToSommelier` and logged. But the query silently fails on every session start.
+
+**Query:** `users/{uid}/sommelier_evaluations` collection, `.where('sessionStarted', '==', true).orderBy('startedAt', 'desc')` — Firestore requires a composite index for `where` + `orderBy` on different fields.
+
+**Fix:** Create the index in Firebase Console using the link from the Cloud Run logs:
+```
+Firebase Console → Firestore → Indexes → Create composite index
+Collection: sommelier_evaluations
+Fields: sessionStarted ASC, startedAt DESC
+```
+Or click the auto-generated link from the Cloud Run error log directly.
+
 ### 47. Family Bundle — household invitations and shared delivery
 **Change**: Added a full-stack Family Bundle feature allowing users to group into households for a shared delivery where each member gets coffee matched to their own palate.
 

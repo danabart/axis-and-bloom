@@ -387,5 +387,20 @@ WHERE up.firebase_uid = $1
 #### S24. All SQL queries in evaluate pipeline wrapped in try/catch
 Both `computeBehavioralConfidence()` and `evaluateSommelier()` had bare `await db.query()` calls that could throw and crash the evaluate endpoint. All SQL queries now have individual try/catch wrappers that log the error and default to 0 counts, so a table or column issue never produces a 500.
 
-#### S25. start:500 — "Failed to start session" (ongoing as of 2026-06-28)
-After fixing the evaluate endpoint, the error moved to `/api/sommelier/start`. Root cause not yet identified — needs Cloud Run log inspection. Suspected causes: `sommelier_sessions` INSERT, token service, or RAG fetch (`fetchSommelierCoffees`) hitting a missing table or column.
+#### S25. start:500 — ambiguous SQL operator in `spendToken` (fixed 2026-06-28)
+**Error:** `operator is not unique: - unknown` (PostgreSQL error `42725`) inside `spendToken` at `tokenService.ts:36`.
+
+**Cause:** The INSERT into `token_events` used `SELECT $1, -$2, $3, $4, balance FROM user_tokens WHERE uid = $1`. PostgreSQL has no type context for `$2` in a bare SELECT list — the unary `-` operator is ambiguous between `-integer`, `-numeric`, `-float8`, etc.
+
+**Fix:** Pass the negative value directly from JavaScript — `[uid, -costPerTurn, reason, referenceId]` — so the SQL becomes `SELECT $1, $2, ...`. PostgreSQL can now infer the type from the value itself.
+
+#### S26. Firestore composite index missing for `checkReturnedToSommelier` (outstanding)
+**Not a 500 blocker** — the error is caught inside `checkReturnedToSommelier`'s own try/catch and logged. But the `returnedToSommelier` outcome field is never written.
+
+**Query:** `.where('sessionStarted', '==', true).orderBy('startedAt', 'desc')` on `users/{uid}/sommelier_evaluations`. Firestore requires a composite index when `where` and `orderBy` target different fields.
+
+**Fix needed:** Create composite index in Firebase Console:
+- Collection: `sommelier_evaluations`
+- Fields: `sessionStarted ASC`, `startedAt DESC`
+
+The auto-create link is embedded in the Cloud Run error log under `[outcomeTracker] checkReturnedToSommelier error`.
