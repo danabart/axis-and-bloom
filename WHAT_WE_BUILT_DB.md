@@ -8,7 +8,7 @@ Seed files (run manually): `backend/src/db/seeds/`
 
 ---
 
-## Database Schema (52 Tables)
+## Database Schema (59 Tables)
 
 The schema runs automatically on every backend startup (`CREATE TABLE IF NOT EXISTS` — fully idempotent, safe to run repeatedly).
 
@@ -91,6 +91,14 @@ It was merged from the original Supabase design plus adaptations for Firebase Au
 - `dial_position_vocabulary` — archetype+dimension-specific label vocabulary for the Bloom Dial (seeded, 20 rows)
 - `dial_archetype_positions` — maps coffees to their position on the Bloom Dial per archetype
 - `dial_coffee_relationships` — directional dimensional hop graph between coffees; used by the sommelier RAG and future computed dial positions
+
+**Sommelier (Liam)** *(added June 2026 — SERIAL PKs)*
+- `sommelier_sessions` — one row per Liam session; columns: `uid TEXT` (firebase UID), `intent TEXT`, `turn_count INT`, `is_closed BOOL`, `close_reason TEXT`, `context_data JSONB` (stores catalogText, evaluationId, archetype, coffeeIds, ragFocus), `last_active_at TIMESTAMPTZ`
+- `sommelier_messages` — one row per conversation turn; columns: `session_id INT FK → sommelier_sessions`, `role TEXT` (`user`/`assistant`), `content TEXT`, `model_used TEXT`, `created_at TIMESTAMPTZ`
+- `user_tokens` — token balance per user; PK is `uid TEXT` (firebase UID); columns: `balance INT DEFAULT 0`, `lifetime_earned INT DEFAULT 0`, `lifetime_spent INT DEFAULT 0`
+- `token_events` — full audit trail of every earn and spend; columns: `uid TEXT`, `delta INT` (positive=earn, negative=spend), `reason TEXT`, `reference_id TEXT`, `created_at TIMESTAMPTZ`
+- `liam_sms_feedback` — legacy alias for `sommelier_sms_feedback`; one row per SMS message (outbound + inbound); tracks scheduling, delivery, reply parsing, and Firestore doc link
+- `sommelier_sms_feedback` — one row per SMS message; outbound rows track scheduling (`scheduled_for`, `sent_at`, `delivery_status`); inbound rows store reply, parsed sentiment, rating, descriptors, and `firestore_feedback_doc_id`; idempotency key: `(user_id, blend_id)`; `reply_to_id` links inbound → outbound
 
 ---
 
@@ -423,3 +431,49 @@ SELECT * FROM v_dial_navigation WHERE hop_type = 'bridge_archetype';
 -- Recommended hops only
 SELECT * FROM v_dial_navigation WHERE is_recommended = true ORDER BY from_coffee, direction;
 ```
+
+### Sommelier sessions
+
+```sql
+-- All sessions with intent and message count
+SELECT ss.id, ss.uid, ss.intent, ss.turn_count, ss.is_closed, ss.close_reason, ss.last_active_at,
+       COUNT(sm.id) AS message_count
+FROM sommelier_sessions ss
+LEFT JOIN sommelier_messages sm ON sm.session_id = ss.id
+GROUP BY ss.id
+ORDER BY ss.last_active_at DESC;
+
+-- Messages for a specific session
+SELECT role, content, model_used, created_at
+FROM sommelier_messages
+WHERE session_id = 1   -- replace with target session id
+ORDER BY created_at ASC;
+
+-- Token balance for a user
+SELECT balance, lifetime_earned, lifetime_spent
+FROM user_tokens
+WHERE uid = 'firebase-uid-here';
+
+-- Full token audit trail for a user
+SELECT delta, reason, reference_id, created_at
+FROM token_events
+WHERE uid = 'firebase-uid-here'
+ORDER BY created_at DESC;
+
+-- Intent distribution across all sessions
+SELECT intent, COUNT(*) AS sessions, AVG(turn_count) AS avg_turns
+FROM sommelier_sessions
+GROUP BY intent
+ORDER BY sessions DESC;
+```
+
+### Firestore path reference (Sommelier)
+
+| Path | Type | Notes |
+|---|---|---|
+| `config/sommelier` | Document | Admin-configurable weights, thresholds, intents, token economy, model routing |
+| `config/sommelierCentroids` | Document | Intent centroid vectors — recomputed via admin button |
+| `users/{uid}/metadata/confidence_profile` | Document | Behavioral confidence score + `hasPendingNegativeFeedback` flag. **4-segment path** — `metadata` is a sub-collection, `confidence_profile` is the document. |
+| `users/{uid}/sommelier_evaluations/{id}` | Document | One doc per evaluation — intent label, 13-dim feature vector, outcome |
+| `users/{uid}/taste_journey` | Document | Archetype history over time |
+| `users/{uid}/feedback_events/{id}` | Document | One doc per feedback signal (SMS replies, future in-app ratings) |
