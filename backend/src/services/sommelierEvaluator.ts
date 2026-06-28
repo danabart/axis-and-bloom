@@ -126,7 +126,10 @@ export async function evaluateSommelier(
   let totalOrders = 0;
   try {
     const orderResult = await db.query(
-      'SELECT COUNT(*) AS order_count FROM orders WHERE uid = $1',
+      `SELECT COUNT(DISTINCT o.id) AS order_count
+       FROM "order" o
+       JOIN user_profile up ON up.id = o.user_id
+       WHERE up.firebase_uid = $1`,
       [uid]
     );
     totalOrders = Number(orderResult.rows[0]?.order_count ?? 0);
