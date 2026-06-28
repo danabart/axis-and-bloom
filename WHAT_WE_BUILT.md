@@ -913,6 +913,26 @@ Fields: sessionStarted ASC, startedAt DESC
 ```
 Or click the auto-generated link from the Cloud Run error log directly.
 
+### 54. Conversation messages moved from Cloud SQL to Firestore (2026-06-27)
+`sommelier_messages` SQL table is now legacy — no longer written to. All new conversation turns write to Firestore `users/{uid}/sommelier_sessions/{sessionId}/messages/{auto-id}`.
+
+**Why**: Conversation turns are documents, not relational data. No cross-table joins; always fetched as an ordered list for one session.
+
+**Ordering**: A `seq` integer field is written with each message (opening = 0, user messages = `turn_count * 2 - 1`, assistant replies = `turn_count * 2`). History queries use `.orderBy('seq')`.
+
+**Backwards compat**: `GET /api/sommelier/:id/messages` falls back to the SQL table for sessions created before this change. `sommelier_messages` table kept but not written to.
+
+**What stayed in PostgreSQL**: `sommelier_sessions` — has relational ties to `token_events`, turn count state machine, `is_closed` flag, and `context_data` JSONB for RAG catalog.
+
+### 53. Sommelier session resume loaded blank chat (fixed 2026-06-27)
+Clicking "Resume conversation" after leaving and returning to `/sommelier` showed an empty chat — no previous messages were loaded.
+
+**Cause**: `handleResumeResume()` in `Sommelier.tsx` set the session ID and turn count but never fetched the prior message history. It showed only a synthetic "Welcome back" placeholder.
+
+**Fix (two parts)**:
+1. New `GET /api/sommelier/:sessionId/messages` backend endpoint — returns `{ messages: [{role, content}], coffeeNames: [] }`. Reads from Firestore (with SQL fallback for pre-migration sessions).
+2. `handleResumeResume()` now calls this endpoint, restores the full message thread and coffee strip, then enters chat phase. Falls back to the "Welcome back" synthetic message only if history is empty.
+
 ### 47. Family Bundle — household invitations and shared delivery
 **Change**: Added a full-stack Family Bundle feature allowing users to group into households for a shared delivery where each member gets coffee matched to their own palate.
 
