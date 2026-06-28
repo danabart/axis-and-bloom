@@ -185,6 +185,7 @@ Label vocabulary comes from `dial_position_vocabulary` (archetype+dimension-spec
 | `config/sommelierCentroids` | Intent centroid vectors (13-dim average of feature vectors per intent). Recomputed on demand via admin button. |
 | `users/{uid}/metadata/confidence_profile` | Behavioral confidence score, components, raw inputs. Also stores `hasPendingNegativeFeedback` flag (set by SMS feedback parser, read by evaluator for RECOMMENDATION_MISS). **Path note**: 4 segments required — `metadata` is a subcollection, `confidence_profile` is the document. |
 | `users/{uid}/sommelier_evaluations/{id}` | One document per evaluation — intent label (ML label), feature vector (13-dim), user state snapshot, triggers fired, outcome (written back when known) |
+| `users/{uid}/sommelier_sessions/{sessionId}/messages/{auto-id}` | Conversation messages — `role` (`user`\|`assistant`), `content`, `modelUsed`, `seq` (0-based integer for ordering), `createdAt` (server timestamp). `sessionId` matches the `sommelier_sessions.id` integer from PostgreSQL. Written here instead of the `sommelier_messages` SQL table as of 2026-06-27. `seq` formula: 0 = opening, `turn_count * 2 - 1` = user messages, `turn_count * 2` = assistant replies. |
 | `users/{uid}/taste_journey` | Archetype history over time — evolution count, current streak, history array |
 | `users/{uid}/feedback_events/{id}` | One document per feedback signal from Liam (SMS replies, future in-app ratings). Fields: `signalType`, `rating`, `sValue`, `confidence`, `source`, `sentiment`, `rawText`, `descriptors`, `orderId`, `blendId`, `liamSmsFeedbackId`, `createdAt`. Read by `behavioralConfidence.ts` for `feedbackAlignment` component. |
 
@@ -195,7 +196,7 @@ Label vocabulary comes from `dial_position_vocabulary` (archetype+dimension-spec
 | Table | Purpose |
 |---|---|
 | `sommelier_sessions` | One row per sommelier session — intent, turn count, close reason, context_data JSONB |
-| `sommelier_messages` | One row per turn — role, content, model_used, session FK |
+| `sommelier_messages` | **Legacy** — one row per turn (role, content, model_used, session FK). Messages now written to Firestore `users/{uid}/sommelier_sessions/{sessionId}/messages` as of 2026-06-27. Table kept for backwards compatibility; `GET /:sessionId/messages` falls back to it for sessions created before the migration. |
 | `user_tokens` | Token balance per user — balance, lifetime earned/spent |
 | `token_events` | Audit trail — every earn and spend with reason and reference ID |
 | `dial_archetype_config` | Dominant dimension and Bloom Dial flag per archetype (seeded, 5 rows) |
@@ -213,6 +214,7 @@ Label vocabulary comes from `dial_position_vocabulary` (archetype+dimension-spec
 | POST | `/api/sommelier/start` | Required | Start session — token check, RAG fetch, opening message |
 | POST | `/api/sommelier/:id/message` | Required | Send a turn — token deducted per turn |
 | GET | `/api/sommelier/sessions` | Required | Last 5 sessions for this user |
+| GET | `/api/sommelier/:id/messages` | Required | Full message history for a session. Reads from Firestore; falls back to SQL for pre-migration sessions. Returns `{ messages: [{role, content}], coffeeNames: [] }`. |
 | POST | `/api/sommelier/:id/close` | Required | User-initiated session close |
 | GET | `/api/tokens/balance` | Required | Current token balance |
 | POST | `/api/tokens/purchase` | Required | Stripe placeholder — returns 503 |
@@ -404,3 +406,21 @@ Both `computeBehavioralConfidence()` and `evaluateSommelier()` had bare `await d
 - Fields: `sessionStarted ASC`, `startedAt DESC`
 
 The auto-create link is embedded in the Cloud Run error log under `[outcomeTracker] checkReturnedToSommelier error`.
+
+#### S27. Session resume showed empty chat (fixed 2026-06-27)
+When a user returned to `/sommelier` and clicked "Resume conversation", the frontend set the session ID but never fetched prior messages — the chat opened blank.
+
+**Fix (two parts):**
+1. New `GET /api/sommelier/:sessionId/messages` endpoint returns full message history + coffee names. Reads from Firestore; falls back to SQL for sessions predating the migration.
+2. `Sommelier.tsx` `handleResumeResume()` now fetches from this endpoint, sets `messages` to the returned history (falling back to a synthetic "Welcome back" only if empty), and restores the coffee strip — before entering chat phase.
+
+#### S28. Conversation messages moved from Cloud SQL to Firestore (2026-06-27)
+`sommelier_messages` SQL table is now legacy. All new message writes go to `users/{uid}/sommelier_sessions/{sessionId}/messages/{auto-id}` in Firestore.
+
+**Why**: Conversation turns are documents, not relational data. No cross-table joins are needed — messages are always fetched as an ordered list for one session.
+
+**What stayed in PostgreSQL**: `sommelier_sessions` — it has relational ties (token_events FK, turn_count state machine, is_closed flag, context_data JSONB for the RAG catalog) that are genuinely relational.
+
+**Ordering**: A `seq` field (integer, 0-based) is written with each message. Opening = 0, first user message = 1, first reply = 2, etc. History queries use `.orderBy('seq')`. This avoids any ambiguity from server timestamp collisions on back-to-back writes.
+
+**Rollback**: If token spend fails after saving the user message, the user message Firestore doc is deleted by doc reference (no SQL delete needed).

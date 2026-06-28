@@ -94,7 +94,7 @@ It was merged from the original Supabase design plus adaptations for Firebase Au
 
 **Sommelier (Liam)** *(added June 2026 — SERIAL PKs)*
 - `sommelier_sessions` — one row per Liam session; columns: `uid TEXT` (firebase UID), `intent TEXT`, `turn_count INT`, `is_closed BOOL`, `close_reason TEXT`, `context_data JSONB` (stores catalogText, evaluationId, archetype, coffeeIds, ragFocus), `last_active_at TIMESTAMPTZ`
-- `sommelier_messages` — one row per conversation turn; columns: `session_id INT FK → sommelier_sessions`, `role TEXT` (`user`/`assistant`), `content TEXT`, `model_used TEXT`, `created_at TIMESTAMPTZ`
+- `sommelier_messages` — **legacy** (table kept, no longer written). Conversation messages moved to Firestore `users/{uid}/sommelier_sessions/{sessionId}/messages` as of 2026-06-27. `GET /api/sommelier/:id/messages` falls back to this table for sessions created before the migration.
 - `user_tokens` — token balance per user; PK is `uid TEXT` (firebase UID); columns: `balance INT DEFAULT 0`, `lifetime_earned INT DEFAULT 0`, `lifetime_spent INT DEFAULT 0`
 - `token_events` — full audit trail of every earn and spend; columns: `uid TEXT`, `delta INT` (positive=earn, negative=spend), `reason TEXT`, `reference_id TEXT`, `created_at TIMESTAMPTZ`
 - `liam_sms_feedback` — legacy alias for `sommelier_sms_feedback`; one row per SMS message (outbound + inbound); tracks scheduling, delivery, reply parsing, and Firestore doc link
