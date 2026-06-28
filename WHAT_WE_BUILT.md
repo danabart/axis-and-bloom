@@ -851,6 +851,42 @@ The quiz date comes from `lastQuizDate` — added to `GET /api/users/profile` re
 
 Also fixed: Q3-D ("I'm not sure. I don't usually drink it black.") was previously neutral (no row in `quiz_answer_archetype_score`). Now correctly awards +1 to Chocolate & Nutty per the scoring spec. Added to the schema.sql seed (idempotent — `ON CONFLICT DO NOTHING`).
 
+### 48. Sommelier "Talk to Liam" entry points broken (2026-06-28)
+**Problems (three separate bugs):**
+1. `FlavorQuiz.tsx` quiz result screen "Talk to our coffee sommelier" had `href: '/'` — went to the home page instead of the sommelier.
+2. `App.tsx` wrapped the `/sommelier` route with `<RequireAuth redirectTo="/sign-in?redirect=/sommelier">` — this hard-coded redirect dropped the `?entry=` and `?tied=` query params, so the sommelier loaded without its trigger context.
+3. `Sommelier.tsx` showed chat bubbles instead of the designed prose thread layout (LIAM/YOU label-above-text, full-width, no backgrounds).
+
+**Fixes:**
+- `FlavorQuiz.tsx` line 727: `href: '/'` → `href: '/sommelier?entry=user_initiated'`
+- `App.tsx`: removed `redirectTo` prop entirely — `RequireAuth` auto-builds the full redirect URL from `location.pathname + location.search`, so all query params are preserved through the sign-in flow
+- `Sommelier.tsx` messages section: replaced flex bubble layout with name-label + full-width text layout (`space-y-10`, `LIAM` rust / `YOU` muted stone labels, no backgrounds or borders, loading dots under LIAM label)
+
+### 49. Sommelier `evaluate:500` — invalid Firestore document path (2026-06-28)
+**Error (from Cloud Run logs):** `Error: Value for argument "documentPath" must point to a document, but was "users/{uid}/confidence_profile". Your path does not contain an even number of components.`
+
+**Cause:** `firestoreDb.doc("users/{uid}/confidence_profile")` has 3 path segments. Firestore's `.doc()` requires an even number of segments (collection/document pairs). The exception is thrown synchronously — before the `.catch()` ever runs — so it escapes `computeBehavioralConfidence()` and propagates to the `/evaluate` endpoint's outer try/catch → 500.
+
+**Fix:** Changed the path to `users/${uid}/metadata/confidence_profile` (4 segments, valid) in all three files that reference it:
+- `backend/src/services/behavioralConfidence.ts` — write, wrapped `.doc()` call in try/catch as additional guard
+- `backend/src/services/sommelierEvaluator.ts` — read
+- `backend/src/services/liamSmsFeedback.ts` — write (already had try/catch around the `.set()`)
+
+**Note:** `SOMMELIER_BUILT.md` Firestore collections table also updated to reflect the correct path.
+
+### 50. Sommelier `evaluate:500` — wrong SQL table name in `sommelierEvaluator.ts` (2026-06-28)
+**Cause:** `evaluateSommelier()` had `SELECT COUNT(*) AS order_count FROM orders WHERE uid = $1`. The table is `"order"` (double-quoted PostgreSQL reserved keyword), not `orders`. Also the `"order"` table has no `uid` column — it joins through `user_profile`. This threw "relation 'orders' does not exist" on every evaluate call.
+
+**Fix:** Replaced with the correct join query:
+```sql
+SELECT COUNT(DISTINCT o.id) AS order_count
+FROM "order" o
+JOIN user_profile up ON up.id = o.user_id
+WHERE up.firebase_uid = $1
+```
+
+Also wrapped all SQL queries in `computeBehavioralConfidence()` and `evaluateSommelier()` in individual try/catch blocks (defaulting to 0 counts on failure) to prevent any single SQL error from crashing the entire evaluate call.
+
 ### 47. Family Bundle — household invitations and shared delivery
 **Change**: Added a full-stack Family Bundle feature allowing users to group into households for a shared delivery where each member gets coffee matched to their own palate.
 
@@ -939,7 +975,7 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 
 ---
 
-## Current State (as of 2026-06-18)
+## Current State (as of 2026-06-28)
 
 | Component | Status |
 |---|---|
@@ -1072,7 +1108,7 @@ Two-column split-screen layout:
 
 **Left panel** — background photo with dark overlay. "Welcome back, {firstName}" label at the bottom, then four row-link options in white text:
 1. **Retake the quiz** — starts the quiz immediately with name pre-filled, no name screen
-2. **Talk to our coffee sommelier** → `/`
+2. **Talk to our coffee sommelier** → `/sommelier?entry=user_initiated`
 3. **View my profile** → `/profile`
 4. **Explore our coffees** → `/coffees`
 

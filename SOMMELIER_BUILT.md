@@ -68,7 +68,7 @@ All intent configuration (system prompt addendum, label, RAG focus, active toggl
 - `dataDepth` (weight 0.20): volume of total interactions (log scale)
 - `feedbackAlignment` (weight 0.10): feedback consistent with archetype
 
-Stored in Firestore `users/{uid}/confidence_profile`. Recomputed after quiz, orders, and feedback. Weights and thresholds admin-configurable in `config/sommelier`.
+Stored in Firestore `users/{uid}/metadata/confidence_profile`. Recomputed after quiz, orders, and feedback. Weights and thresholds admin-configurable in `config/sommelier`.
 
 ---
 
@@ -183,7 +183,7 @@ Label vocabulary comes from `dial_position_vocabulary` (archetype+dimension-spec
 |---|---|
 | `config/sommelier` | All admin-configurable values: weights, thresholds, intents, token economy, model routing, RAG limits, time windows, rule priority |
 | `config/sommelierCentroids` | Intent centroid vectors (13-dim average of feature vectors per intent). Recomputed on demand via admin button. |
-| `users/{uid}/confidence_profile` | Behavioral confidence score, components, raw inputs. Also stores `hasPendingNegativeFeedback` flag (set by SMS feedback parser, read by evaluator for RECOMMENDATION_MISS) |
+| `users/{uid}/metadata/confidence_profile` | Behavioral confidence score, components, raw inputs. Also stores `hasPendingNegativeFeedback` flag (set by SMS feedback parser, read by evaluator for RECOMMENDATION_MISS). **Path note**: 4 segments required — `metadata` is a subcollection, `confidence_profile` is the document. |
 | `users/{uid}/sommelier_evaluations/{id}` | One document per evaluation — intent label (ML label), feature vector (13-dim), user state snapshot, triggers fired, outcome (written back when known) |
 | `users/{uid}/taste_journey` | Archetype history over time — evolution count, current streak, history array |
 | `users/{uid}/feedback_events/{id}` | One document per feedback signal from Liam (SMS replies, future in-app ratings). Fields: `signalType`, `rating`, `sValue`, `confidence`, `source`, `sentiment`, `rawText`, `descriptors`, `orderId`, `blendId`, `liamSmsFeedbackId`, `createdAt`. Read by `behavioralConfidence.ts` for `feedbackAlignment` component. |
@@ -305,7 +305,7 @@ Token tables placed after `user_payment_detail`. Sommelier tables placed after `
 **Decision**: `initSommelierConfig()` seeds → loads once synchronously (so config is available before first request) → subscribes to `onSnapshot` for live updates. `getSommelierConfig()` returns the in-memory copy (null before init, which all callers handle with `?? fallback`). Log line on every update lists changed top-level keys.
 
 #### S8. `behavioralConfidence.ts` — composite confidence score
-**Decision**: SQL queries use the proper `"order"` table (quoted, reserved word). Firestore feedback_events subcollection may not exist yet — query wrapped in try/catch, treats zero docs as zero events (→ feedbackAlignment 0.50 neutral). Writes to `users/{uid}/confidence_profile` with `set(..., { merge: true })` and `hasPendingNegativeFeedback` flag. Called as fire-and-forget from quiz results route after quiz session is saved (so the new quiz counts in the computation).
+**Decision**: SQL queries use the proper `"order"` table (quoted, reserved word). Firestore feedback_events subcollection may not exist yet — query wrapped in try/catch, treats zero docs as zero events (→ feedbackAlignment 0.50 neutral). Writes to `users/{uid}/metadata/confidence_profile` with `set(..., { merge: true })` and `hasPendingNegativeFeedback` flag. Called as fire-and-forget from quiz results route after quiz session is saved (so the new quiz counts in the computation).
 
 #### S9. `taste_journey` Firestore writes after quiz completion
 **Decision**: Reads the current journey doc, checks if archetype changed, builds the full updated array client-side (FieldValue.arrayUnion() can't be used because serverTimestamp() isn't valid inside array items). Uses `Timestamp.now()` from `firebase-admin/firestore` for array item dates. Always fires after `computeBehavioralConfidence()` so `confidenceLevel` is fresh. Fire-and-forget within a try/catch that logs errors.
@@ -353,3 +353,39 @@ One row per SMS message (both outbound and inbound). Outbound rows track schedul
 
 #### S20. New Firestore subcollection: `users/{uid}/feedback_events`
 Follows the same pattern as `users/{uid}/quiz_sessions` — a subcollection under the user doc. One document per feedback signal. `liamSmsFeedbackId` links back to SQL. `sValue` is the normalized 0.0–1.0 signal value used by `behavioralConfidence.ts` `feedbackAlignment` component. Read by `sommelierEvaluator.ts` when classifying intent.
+
+---
+
+### Session Debugging — evaluate:500 and start:500 (2026-06-28)
+
+#### S21. "Talk to Liam" entry points broken — three bugs
+Three separate issues prevented any entry point from reaching the sommelier:
+
+1. **FlavorQuiz wrong href**: quiz result screen "Talk to our coffee sommelier" had `href: '/'` (home page). Fixed to `href: '/sommelier?entry=user_initiated'`.
+2. **RequireAuth dropped query params**: `/sommelier` route had `<RequireAuth redirectTo="/sign-in?redirect=/sommelier">`. This lost `?entry=` and `?tied=` query params on sign-in redirect. Fixed by removing `redirectTo` so `RequireAuth` auto-builds the full URL from `location.pathname + location.search`.
+3. **Sommelier.tsx wrong layout**: Component rendered chat bubbles. Rebuilt as prose thread: `LIAM` / `YOU` labels above paragraphs, full-width, no backgrounds/borders, `space-y-10` spacing.
+
+#### S22. evaluate:500 — invalid Firestore document path (root cause)
+**Confirmed via Cloud Run logs:** `Error: Value for argument "documentPath" must point to a document, but was "users/{uid}/confidence_profile". Your path does not contain an even number of components.`
+
+`firestoreDb.doc("users/{uid}/confidence_profile")` has 3 path segments. Firestore `.doc()` requires even segments (collection/document alternating). The exception is **synchronous** — thrown before any `.catch()` runs — so it escapes `computeBehavioralConfidence()` into the evaluate route's outer try/catch → 500 on every call.
+
+**Fix:** Changed to `users/${uid}/metadata/confidence_profile` (4 segments) in all three files:
+- `behavioralConfidence.ts` — write (also wrapped `.doc()` in try/catch as guard)
+- `sommelierEvaluator.ts` — read
+- `liamSmsFeedback.ts` — write
+
+#### S23. evaluate:500 — wrong SQL table name in `sommelierEvaluator.ts`
+`evaluateSommelier()` queried `SELECT COUNT(*) FROM orders WHERE uid = $1`. The table is `"order"` (double-quoted reserved keyword), not `orders`. Also no `uid` column — join goes through `user_profile`. Fixed to:
+```sql
+SELECT COUNT(DISTINCT o.id) AS order_count
+FROM "order" o
+JOIN user_profile up ON up.id = o.user_id
+WHERE up.firebase_uid = $1
+```
+
+#### S24. All SQL queries in evaluate pipeline wrapped in try/catch
+Both `computeBehavioralConfidence()` and `evaluateSommelier()` had bare `await db.query()` calls that could throw and crash the evaluate endpoint. All SQL queries now have individual try/catch wrappers that log the error and default to 0 counts, so a table or column issue never produces a 500.
+
+#### S25. start:500 — "Failed to start session" (ongoing as of 2026-06-28)
+After fixing the evaluate endpoint, the error moved to `/api/sommelier/start`. Root cause not yet identified — needs Cloud Run log inspection. Suspected causes: `sommelier_sessions` INSERT, token service, or RAG fetch (`fetchSommelierCoffees`) hitting a missing table or column.
