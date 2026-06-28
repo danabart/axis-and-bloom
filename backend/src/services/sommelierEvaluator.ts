@@ -72,53 +72,67 @@ export async function evaluateSommelier(
   // ── Stage 1: Collect data ────────────────────────────────────────────────
 
   // Last 2 quiz sessions
-  const quizResult = await db.query(
-    `SELECT qs.id, qs.context_data, qs.completed_at, ar.name AS archetype_name
-     FROM quiz_session qs
-     JOIN user_profile up ON up.id = qs.user_id
-     LEFT JOIN archetype ar ON ar.id = qs.resulting_archetype_id
-     WHERE up.firebase_uid = $1
-     ORDER BY qs.completed_at DESC
-     LIMIT 2`,
-    [uid]
-  );
-  const quizSessions = quizResult.rows;
+  let quizSessions: any[] = [];
+  try {
+    const quizResult = await db.query(
+      `SELECT qs.id, qs.context_data, qs.completed_at, ar.name AS archetype_name
+       FROM quiz_session qs
+       JOIN user_profile up ON up.id = qs.user_id
+       LEFT JOIN archetype ar ON ar.id = qs.resulting_archetype_id
+       WHERE up.firebase_uid = $1
+       ORDER BY qs.completed_at DESC
+       LIMIT 2`,
+      [uid]
+    );
+    quizSessions = quizResult.rows;
+  } catch (err) {
+    console.error('[sommelierEvaluator] quiz sessions query failed:', err);
+  }
   const latestQuiz = quizSessions[0] ?? null;
   const prevQuiz = quizSessions[1] ?? null;
 
   // All quiz sessions count + archetype change count
-  const quizCountResult = await db.query(
-    `SELECT COUNT(*) AS quiz_count
-     FROM quiz_session qs
-     JOIN user_profile up ON up.id = qs.user_id
-     WHERE up.firebase_uid = $1`,
-    [uid]
-  );
-  const quizCount = Number(quizCountResult.rows[0]?.quiz_count ?? 0);
-
-  // Count archetype changes across all sessions
-  const allQuizzesResult = await db.query(
-    `SELECT ar.name AS archetype_name
-     FROM quiz_session qs
-     JOIN user_profile up ON up.id = qs.user_id
-     LEFT JOIN archetype ar ON ar.id = qs.resulting_archetype_id
-     WHERE up.firebase_uid = $1
-     ORDER BY qs.completed_at ASC`,
-    [uid]
-  );
+  let quizCount = quizSessions.length;
   let archetypeChangeCount = 0;
-  for (let i = 1; i < allQuizzesResult.rows.length; i++) {
-    if (allQuizzesResult.rows[i].archetype_name !== allQuizzesResult.rows[i - 1].archetype_name) {
-      archetypeChangeCount++;
+  try {
+    const quizCountResult = await db.query(
+      `SELECT COUNT(*) AS quiz_count
+       FROM quiz_session qs
+       JOIN user_profile up ON up.id = qs.user_id
+       WHERE up.firebase_uid = $1`,
+      [uid]
+    );
+    quizCount = Number(quizCountResult.rows[0]?.quiz_count ?? 0);
+
+    const allQuizzesResult = await db.query(
+      `SELECT ar.name AS archetype_name
+       FROM quiz_session qs
+       JOIN user_profile up ON up.id = qs.user_id
+       LEFT JOIN archetype ar ON ar.id = qs.resulting_archetype_id
+       WHERE up.firebase_uid = $1
+       ORDER BY qs.completed_at ASC`,
+      [uid]
+    );
+    for (let i = 1; i < allQuizzesResult.rows.length; i++) {
+      if (allQuizzesResult.rows[i].archetype_name !== allQuizzesResult.rows[i - 1].archetype_name) {
+        archetypeChangeCount++;
+      }
     }
+  } catch (err) {
+    console.error('[sommelierEvaluator] quiz count/changes query failed:', err);
   }
 
   // Order count
-  const orderResult = await db.query(
-    'SELECT COUNT(*) AS order_count FROM orders WHERE uid = $1',
-    [uid]
-  );
-  const totalOrders = Number(orderResult.rows[0]?.order_count ?? 0);
+  let totalOrders = 0;
+  try {
+    const orderResult = await db.query(
+      'SELECT COUNT(*) AS order_count FROM orders WHERE uid = $1',
+      [uid]
+    );
+    totalOrders = Number(orderResult.rows[0]?.order_count ?? 0);
+  } catch (err) {
+    console.error('[sommelierEvaluator] order count query failed:', err);
+  }
 
   // Behavioral confidence from Firestore (written by computeBehavioralConfidence)
   let behavioralScore = 0.5;

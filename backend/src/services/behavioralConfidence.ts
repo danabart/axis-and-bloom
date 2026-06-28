@@ -30,15 +30,20 @@ export async function computeBehavioralConfidence(uid: string): Promise<Behavior
   const negativeFeedbackWindow = config?.timeWindows?.negativeFeedbackLookback ?? 60;
 
   // ── 1. SQL: quiz sessions ────────────────────────────────────────────────────
-  const quizRows = await db.query(
-    `SELECT qs.id, ar.name AS archetype_name, qs.completed_at
-     FROM quiz_session qs
-     JOIN user_profile up ON up.id = qs.user_id
-     LEFT JOIN archetype ar ON ar.id = qs.resulting_archetype_id
-     WHERE up.firebase_uid = $1
-     ORDER BY qs.completed_at DESC`,
-    [uid]
-  );
+  let quizRows: { rows: Array<{ archetype_name: string | null; completed_at: string }> } = { rows: [] };
+  try {
+    quizRows = await db.query(
+      `SELECT qs.id, ar.name AS archetype_name, qs.completed_at
+       FROM quiz_session qs
+       JOIN user_profile up ON up.id = qs.user_id
+       LEFT JOIN archetype ar ON ar.id = qs.resulting_archetype_id
+       WHERE up.firebase_uid = $1
+       ORDER BY qs.completed_at DESC`,
+      [uid]
+    );
+  } catch (err) {
+    console.error('[behavioralConfidence] quiz query failed:', err);
+  }
   const quizCount = quizRows.rows.length;
 
   let archetypeChangeCount = 0;
@@ -52,19 +57,25 @@ export async function computeBehavioralConfidence(uid: string): Promise<Behavior
   const currentArchetype: string | null = quizRows.rows[0]?.archetype_name ?? null;
 
   // ── 2. SQL: orders (check archetype match via blend assignment) ──────────────
-  const orderRows = await db.query(
-    `SELECT COUNT(DISTINCT o.id) AS total,
-            COUNT(DISTINCT CASE WHEN a.name = $2 THEN o.id END) AS matched
-     FROM "order" o
-     JOIN user_profile up ON up.id = o.user_id
-     LEFT JOIN order_line_item oli ON oli.order_id = o.id
-     LEFT JOIN roaster_blend rb ON rb.id = oli.blend_id
-     LEFT JOIN archetype a ON a.id = rb.archetype_id
-     WHERE up.firebase_uid = $1`,
-    [uid, currentArchetype]
-  );
-  const totalOrders   = parseInt(orderRows.rows[0]?.total ?? '0', 10);
-  const matchedOrders = parseInt(orderRows.rows[0]?.matched ?? '0', 10);
+  let totalOrders = 0;
+  let matchedOrders = 0;
+  try {
+    const orderRows = await db.query(
+      `SELECT COUNT(DISTINCT o.id) AS total,
+              COUNT(DISTINCT CASE WHEN a.name = $2 THEN o.id END) AS matched
+       FROM "order" o
+       JOIN user_profile up ON up.id = o.user_id
+       LEFT JOIN order_line_item oli ON oli.order_id = o.id
+       LEFT JOIN roaster_blend rb ON rb.id = oli.blend_id
+       LEFT JOIN archetype a ON a.id = rb.archetype_id
+       WHERE up.firebase_uid = $1`,
+      [uid, currentArchetype]
+    );
+    totalOrders   = parseInt(orderRows.rows[0]?.total ?? '0', 10);
+    matchedOrders = parseInt(orderRows.rows[0]?.matched ?? '0', 10);
+  } catch (err) {
+    console.error('[behavioralConfidence] order query failed:', err);
+  }
 
   // ── 3. Firestore: feedback_events (last 180 days) ────────────────────────────
   // Liam feedback is written to Firestore only — NOT read from SQL user_feedback_event.
