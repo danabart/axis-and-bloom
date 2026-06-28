@@ -238,7 +238,7 @@ Label vocabulary comes from `dial_position_vocabulary` (archetype+dimension-spec
 
 | Component | Route | Description |
 |---|---|---|
-| `Sommelier.tsx` | `/sommelier` | Liam chat UI — intent label, coffee strip, turn counter, token balance, all states |
+| `Sommelier.tsx` | `/sommelier` | Liam chat UI — prose thread layout (not chat bubbles). Each message: name label (`LIAM` in rust / `YOU` in muted stone) above a full-width left-aligned paragraph, `space-y-10` between messages, no backgrounds or borders. Loading state: `LIAM` label + three animated dots. Session closed / out-of-tokens: `border-t border-stone-100` rule + plain text. Shows intent label, coffee strip, turn counter, token balance. All phases: `initializing` → `active` → `closed` / `out_of_tokens` / `error`. |
 
 Entry points added to existing components:
 - `FlavorQuiz.tsx` — tie interstitial with "Talk to Liam" CTA
