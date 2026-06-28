@@ -238,10 +238,22 @@ export default function Sommelier() {
 
   async function handleResumeResume() {
     if (!resumable || !evalResult) return;
-    setSessionId(resumable.sessionId);
-    setTurnCount(resumable.turnCount);
-    setMaxTurns(resumable.turnCount + resumable.turnsRemaining);
-    setMessages([{ role: 'assistant', content: 'Welcome back — continuing your conversation with Liam.', synthetic: true }]);
+    setPhase('loading');
+    try {
+      const res = await doFetch(`/api/sommelier/${resumable.sessionId}/messages`);
+      const data = res.ok ? await res.json() : { messages: [], coffeeNames: [] };
+      setSessionId(resumable.sessionId);
+      setTurnCount(resumable.turnCount);
+      setMaxTurns(resumable.turnCount + resumable.turnsRemaining);
+      setCoffeeNames(data.coffeeNames ?? []);
+      setMessages(
+        data.messages?.length
+          ? data.messages
+          : [{ role: 'assistant', content: 'Welcome back — continuing your conversation with Liam.', synthetic: true }]
+      );
+    } catch {
+      setMessages([{ role: 'assistant', content: 'Welcome back — continuing your conversation with Liam.', synthetic: true }]);
+    }
     setPhase('chat');
     setTimeout(() => inputRef.current?.focus(), 100);
   }

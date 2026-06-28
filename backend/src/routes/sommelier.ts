@@ -375,6 +375,41 @@ router.get('/sessions', requireAuth, async (req: AuthRequest, res) => {
   }
 });
 
+// ─── GET /api/sommelier/:sessionId/messages ──────────────────────────────────
+router.get('/:sessionId/messages', requireAuth, async (req: AuthRequest, res) => {
+  const sessionId = Number(req.params.sessionId);
+  try {
+    const sessionResult = await db.query(
+      'SELECT context_data FROM sommelier_sessions WHERE id = $1 AND uid = $2',
+      [sessionId, req.uid]
+    );
+    if (!sessionResult.rows.length) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    const ctx = sessionResult.rows[0].context_data ?? {};
+
+    const [messagesResult, coffeeNamesResult] = await Promise.all([
+      db.query(
+        `SELECT role, content FROM sommelier_messages
+         WHERE session_id = $1 ORDER BY created_at ASC`,
+        [sessionId]
+      ),
+      ctx.coffeeIds?.length
+        ? db.query('SELECT name FROM coffees WHERE id = ANY($1::int[]) ORDER BY name', [ctx.coffeeIds])
+        : Promise.resolve({ rows: [] as { name: string }[] }),
+    ]);
+
+    res.json({
+      messages: messagesResult.rows,
+      coffeeNames: coffeeNamesResult.rows.map((r: { name: string }) => r.name),
+    });
+  } catch (err) {
+    console.error('[sommelier/messages]', err);
+    res.status(500).json({ error: 'Failed to fetch messages' });
+  }
+});
+
 // ─── POST /api/sommelier/:sessionId/close ────────────────────────────────────
 router.post('/:sessionId/close', requireAuth, async (req: AuthRequest, res) => {
   const sessionId = Number(req.params.sessionId);
