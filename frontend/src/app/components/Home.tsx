@@ -220,52 +220,52 @@ export default function Home() {
       </section>
 
       {/* ━━━ 3. COFFEE COLLECTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(80px, 10vw, 120px) clamp(32px, 6vw, 96px)' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 'clamp(40px, 5vw, 64px)', flexWrap: 'wrap', gap: 16 }}>
-            <motion.div {...fadeUp(0)}>
-              <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 10px' }}>The Collection</p>
-              <h2 style={{ fontFamily: "Arial, sans-serif", fontSize: 'clamp(1.8rem, 3vw, 2.8rem)', fontWeight: 400, color: '#9a2918', margin: 0, lineHeight: 1.1 }}>Find your bag.</h2>
-            </motion.div>
-            <Link
-              to="/shop"
-              style={{ fontFamily: "Arial, sans-serif", fontSize: '0.78rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,0.35)', paddingBottom: 4, alignSelf: 'flex-end' }}
+      <section style={{ backgroundColor: '#f2f1ea', paddingTop: 'clamp(80px, 10vw, 120px)' }}>
+        {/* Header — keep horizontal padding */}
+        <div style={{ padding: '0 clamp(32px, 6vw, 96px)', marginBottom: 'clamp(40px, 5vw, 64px)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 16 }}>
+          <motion.div {...fadeUp(0)}>
+            <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 10px' }}>The Collection</p>
+            <h2 style={{ fontFamily: "Arial, sans-serif", fontSize: 'clamp(1.8rem, 3vw, 2.8rem)', fontWeight: 400, color: '#9a2918', margin: 0, lineHeight: 1.1 }}>Find your bag.</h2>
+          </motion.div>
+          <Link
+            to="/shop"
+            style={{ fontFamily: "Arial, sans-serif", fontSize: '0.78rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,0.35)', paddingBottom: 4, alignSelf: 'flex-end' }}
+          >
+            Shop all coffees →
+          </Link>
+        </div>
+        {/* Full-width grid — no padding, no gap, edge to edge */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 0 }}>
+          {bags.map((item, i) => (
+            <motion.div
+              key={i}
+              {...fadeUp(i * 0.08)}
+              style={{ display: 'flex', flexDirection: 'column', cursor: 'default' }}
+              onMouseEnter={() => setHoveredBag(i)}
+              onMouseLeave={() => setHoveredBag(null)}
             >
-              Shop all coffees →
-            </Link>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 'clamp(10px, 1.5vw, 20px)' }}>
-            {bags.map((item, i) => (
-              <motion.div
-                key={i}
-                {...fadeUp(i * 0.08)}
-                style={{ display: 'flex', flexDirection: 'column', cursor: 'default' }}
-                onMouseEnter={() => setHoveredBag(i)}
-                onMouseLeave={() => setHoveredBag(null)}
-              >
-                <div style={{ backgroundColor: '#e5e5da', aspectRatio: '3/4', position: 'relative', overflow: 'hidden' }}>
-                  {/* Archetype photo — visible by default, fades out on hover */}
-                  <div style={{
-                    position: 'absolute', inset: 0,
-                    opacity: hoveredBag === i ? 0 : 1,
-                    transition: 'opacity 0.45s ease',
-                  }}>
-                    <img src={item.photo} alt={item.label} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
-                  </div>
-                  {/* Bag — fades in on hover */}
-                  <div style={{
-                    position: 'absolute', inset: 0,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    opacity: hoveredBag === i ? 1 : 0,
-                    transition: 'opacity 0.45s ease',
-                  }}>
-                    <img src={item.bag} alt="" style={{ width: '72%', height: '84%', objectFit: 'contain', display: 'block' }} />
-                  </div>
+              <div style={{ backgroundColor: '#e5e5da', aspectRatio: '3/4', position: 'relative', overflow: 'hidden' }}>
+                {/* Archetype photo — visible by default, fades out on hover */}
+                <div style={{
+                  position: 'absolute', inset: 0,
+                  opacity: hoveredBag === i ? 0 : 1,
+                  transition: 'opacity 0.45s ease',
+                }}>
+                  <img src={item.photo} alt={item.label} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
                 </div>
-                <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.8rem', letterSpacing: '0.1em', color: '#9a2918', margin: '14px 0 0', textAlign: 'center' }}>{item.label}</p>
-              </motion.div>
-            ))}
-          </div>
+                {/* Bag — fades in on hover */}
+                <div style={{
+                  position: 'absolute', inset: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  opacity: hoveredBag === i ? 1 : 0,
+                  transition: 'opacity 0.45s ease',
+                }}>
+                  <img src={item.bag} alt="" style={{ width: '72%', height: '84%', objectFit: 'contain', display: 'block' }} />
+                </div>
+              </div>
+              <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.8rem', letterSpacing: '0.1em', color: '#9a2918', margin: '14px 0', textAlign: 'center', padding: '0 clamp(32px, 6vw, 96px)' }}>{item.label}</p>
+            </motion.div>
+          ))}
         </div>
       </section>
 
