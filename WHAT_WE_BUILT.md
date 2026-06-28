@@ -913,6 +913,20 @@ Fields: sessionStarted ASC, startedAt DESC
 ```
 Or click the auto-generated link from the Cloud Run error log directly.
 
+### 55. Liam prompt rewrite — brand-aligned voice (2026-06-27)
+Rewrote `LIAM_BASE_PROMPT` in `backend/src/services/claude.ts` based on the Axis & Bloom Brand Strategy & Visual Foundations Brief.
+
+**Problems with the old prompt**: "warm, precise, and genuinely curious" produced a formal sommelier tone disconnected from the brand. 180-word limit produced wall-of-text responses. No instruction to use what the system already knows about the customer. Language like "palate", "flavor notes", "what flavor stuck with you" violated *Guide, Don't Educate*.
+
+**What changed**:
+- Liam is now "part of the Axis & Bloom team" — not "Coffee Sommelier". Removes the formal register.
+- Explicit instruction: "Every customer has a taste profile. Use it. Never treat someone like a blank slate." — implements *Remember, Never Reset*.
+- Voice rules: calm, direct, unhurried; 80 words max; plain language; one question per turn.
+- Banned vocabulary in questions directed at the customer: palate, mouthfeel, terroir, flavor notes. Customer-facing questions must use plain English ("heavier or lighter", "does that sound right").
+- "The customer sets the pace. Follow their lead." — implements *Customer Directed, System Guided*.
+- "Quiet confidence — don't push, don't oversell." — implements *Calm is a Feature*.
+- `max_tokens` also reduced from 400 → 200 at the API level to enforce brevity.
+
 ### 54. Conversation messages moved from Cloud SQL to Firestore (2026-06-27)
 `sommelier_messages` SQL table is now legacy — no longer written to. All new conversation turns write to Firestore `users/{uid}/sommelier_sessions/{sessionId}/messages/{auto-id}`.
 
@@ -1021,7 +1035,7 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 
 ---
 
-## Current State (as of 2026-06-28)
+## Current State (as of 2026-06-27)
 
 | Component | Status |
 |---|---|
@@ -1037,6 +1051,7 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 | Marketing email / Mailchimp | ✅ Active — new signups synced to Mailchimp audience with FNAME merge field; credentials in Secret Manager; API key trimmed in code to guard against whitespace |
 | Claude AI chat | ✅ Wired up, API key in Secret Manager |
 | Claude recommendations | ✅ 6 mode-specific prompts in `getRecommendation()` — primary_only, primary_plus_introduce_secondary, primary_plus_active_secondary, primary_plus_note_secondary, primary_as_starting_point, ai_agent |
+| Liam voice | ✅ Brand-aligned prompt rewrite (2026-06-27) — calm, plain language, 80-word max, no sommelier vocabulary. Based on Brand Strategy & Visual Foundations Brief. |
 | The Axis page (`/the-axis`) | ✅ Full rebuild from `axis v2.docx` — "Black Box Transparency" strategy. Fully static, no API calls. Hero + 5 sections: The Problem (origin-vs-profile split visual + pull quote), The Inputs (quiz/coffee input cards + 5 archetype cards with mini radar shapes + unlabeled concept parallel coordinates), The Engine (distance plot + 3-point explainer + subscription callout), The Feedback Loop (3 feedback bullets + circular loop diagram + editorial callout), CTA → `/find-my-flavor`. No calibration data exposed. |
 | Our Coffees page (`/coffees`) | ✅ Redesigned — three content layers: (1) AI editorial content (surprise angle, three-voice story, collapsible AI note — all cached in SQL + Firestore); (2) personalization layer for logged-in users (compatibility badge + dimension comparison text); (3) data layer (dimension bars + bubble cloud). Compare mode: ⇄ toggle shows two coffees side-by-side with dimension diff bars. |
 | Shopify | ⚠️ Stubbed — waiting for roastery account |

@@ -99,6 +99,8 @@ Switches to `claude-sonnet-4-6` when:
 
 No turn-count-based switching. All routing values live in `config/sommelier.modelRouting`.
 
+`max_tokens`: 200 (reduced from 400 on 2026-06-27 to enforce the 80-word response limit at the API level).
+
 ---
 
 ## RAG Design
@@ -413,6 +415,18 @@ When a user returned to `/sommelier` and clicked "Resume conversation", the fron
 **Fix (two parts):**
 1. New `GET /api/sommelier/:sessionId/messages` endpoint returns full message history + coffee names. Reads from Firestore; falls back to SQL for sessions predating the migration.
 2. `Sommelier.tsx` `handleResumeResume()` now fetches from this endpoint, sets `messages` to the returned history (falling back to a synthetic "Welcome back" only if empty), and restores the coffee strip — before entering chat phase.
+
+#### S29. Liam prompt rewrite — brand-aligned voice (2026-06-27)
+**Problem**: The original `LIAM_BASE_PROMPT` produced formal sommelier language ("palate", "what flavor stuck with you today"), long responses (180-word limit, 400 max_tokens), and no grounding in Axis & Bloom's brand values or the customer's existing profile.
+
+**Source**: Brand Strategy & Visual Foundations Brief (`misc/Brand Strategy & Visual Foundations Brief/`). Key principles applied:
+- *Guide, Don't Educate* → banned coffee vocabulary in customer-directed questions
+- *Remember, Never Reset* → explicit instruction to use the customer's taste profile, never treat them as a blank slate
+- *Clarity Over Complexity* → 80-word response limit + max_tokens reduced 400 → 200
+- *Calm is a Feature* → voice rules: "calm, direct, unhurried. Never enthusiastic, never salesy."
+- *Customer Directed, System Guided* → "The customer sets the pace. Follow their lead."
+
+**File changed**: `backend/src/services/claude.ts` — `LIAM_BASE_PROMPT` constant and `max_tokens` in `chatWithSommelier()`.
 
 #### S28. Conversation messages moved from Cloud SQL to Firestore (2026-06-27)
 `sommelier_messages` SQL table is now legacy. All new message writes go to `users/{uid}/sommelier_sessions/{sessionId}/messages/{auto-id}` in Firestore.
