@@ -21,10 +21,10 @@ export default function PublicLayout() {
   // These pages render Footer inside TasteFinderSection (behind the curtain reveal)
   const footerInPage = pathname === '/' || pathname === '/about';
 
-  // These pages are dedicated full-screen experiences — no nav, footer, or modal
-  const isFullScreen = pathname === '/find-my-flavor' || pathname === '/sommelier';
+  // Quiz page is a dedicated full-screen experience — no nav, footer, or modal
+  const isQuizPage = pathname === '/find-my-flavor';
 
-  if (isPreLaunchPage || isFullScreen) {
+  if (isPreLaunchPage || isQuizPage) {
     return <Outlet />;
   }
 

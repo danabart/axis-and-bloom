@@ -351,17 +351,24 @@ export default function Sommelier() {
         )}
       </div>
 
-      <div className="px-5 py-5 border-t border-stone-100">
+      <div className="px-5 py-5 border-t border-stone-100 space-y-2">
         <p className="text-[10px] uppercase tracking-widest" style={{ color: balColor }}>
           {tokenBalance} token{tokenBalance !== 1 ? 's' : ''}
         </p>
+        <button
+          onClick={() => purchaseEnabled ? navigate('/shop') : alert('Token purchases coming soon.')}
+          className="text-[10px] uppercase tracking-widest border-b pb-0.5 transition-colors"
+          style={{ color: RUST, borderColor: RUST }}
+        >
+          Buy tokens
+        </button>
       </div>
     </div>
   );
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="fixed inset-0 bg-white flex overflow-hidden" style={{ zIndex: 50 }}>
+    <div className="flex bg-white overflow-hidden" style={{ height: 'calc(100vh - 64px)' }}>
 
       {/* Desktop sidebar */}
       <div className="hidden md:flex h-full shrink-0">{sidebarJsx}</div>
