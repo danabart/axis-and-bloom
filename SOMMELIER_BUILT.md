@@ -416,6 +416,14 @@ When a user returned to `/sommelier` and clicked "Resume conversation", the fron
 1. New `GET /api/sommelier/:sessionId/messages` endpoint returns full message history + coffee names. Reads from Firestore; falls back to SQL for sessions predating the migration.
 2. `Sommelier.tsx` `handleResumeResume()` now fetches from this endpoint, sets `messages` to the returned history (falling back to a synthetic "Welcome back" only if empty), and restores the coffee strip — before entering chat phase.
 
+#### S32. Liam prompt — ban motivation questions, explicit opening rule (2026-06-28)
+Off-brand opener example: "What's drawing you toward earthy now — did something click?" — asks WHY, uses poetic phrasing, sounds presumptuous.
+
+Changes to `LIAM_BASE_PROMPT` in `backend/src/services/claude.ts`:
+- **Never-say list**: bans "What's drawing you toward X", "Did something click", "What stuck with you", and any WHY question.
+- **Direction questions**: Liam asks where to go next, not why the customer feels the way they do. "Do you want to stay with X or try something different?" — one-word answerable.
+- **Opening-turn rule**: max 2 sentences. Acknowledge what's known. Ask one direction question. Pinned example: *"You've been in the earthy range. Want to stay there or try something different?"*
+
 #### S31. Sommelier UI fixes post-redesign (2026-06-28)
 1. **Nav overlap**: Navigation is `position: fixed, top: 0, height: 64px`. Sommelier container changed to `position: fixed, top: 64px, left: 0, right: 0, bottom: 0` so it sits flush below the nav without overlap.
 2. **Title**: "Sommelier Concierge" → "Coffee Sommelier" in the sidebar header.

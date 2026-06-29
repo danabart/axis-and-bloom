@@ -913,6 +913,14 @@ Fields: sessionStarted ASC, startedAt DESC
 ```
 Or click the auto-generated link from the Cloud Run error log directly.
 
+### 59. Liam prompt — ban motivation questions, explicit opening rule (2026-06-28)
+Opening messages like "What's drawing you toward earthy now — did something click?" were off-brand: they ask WHY instead of WHAT and use poetic language that feels presumptuous.
+
+Added to `LIAM_BASE_PROMPT` in `backend/src/services/claude.ts`:
+- **Never-say list**: explicitly bans "What's drawing you toward X", "Did something click", "What stuck with you", and any question asking WHY the customer wants something.
+- **Direction questions instead**: Liam now asks about concrete next step — "Do you want to stay with X or try something different?" — answerable in one word.
+- **Opening-turn rule**: max 2 sentences, acknowledge what's known, ask one direction question. Pinned example: *"You've been in the earthy range. Want to stay there or try something different?"*
+
 ### 58. Sommelier UI fixes (2026-06-28)
 Three fixes applied after the redesign deployed:
 
