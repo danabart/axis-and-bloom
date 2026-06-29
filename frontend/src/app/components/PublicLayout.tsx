@@ -21,10 +21,10 @@ export default function PublicLayout() {
   // These pages render Footer inside TasteFinderSection (behind the curtain reveal)
   const footerInPage = pathname === '/' || pathname === '/about';
 
-  // Quiz page is a dedicated full-screen experience — no nav, footer, or modal
-  const isQuizPage = pathname === '/find-my-flavor';
+  // Quiz page has its own footer handling; suppress the global one
+  const noFooter = footerInPage || pathname === '/find-my-flavor';
 
-  if (isPreLaunchPage || isQuizPage) {
+  if (isPreLaunchPage) {
     return <Outlet />;
   }
 
@@ -34,7 +34,7 @@ export default function PublicLayout() {
       <main className="flex-grow">
         <Outlet />
       </main>
-      {!footerInPage && <Footer />}
+      {!noFooter && <Footer />}
       <NewsletterModal />
     </div>
   );
