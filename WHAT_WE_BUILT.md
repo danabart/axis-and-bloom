@@ -1824,6 +1824,14 @@ Full management UI for the Bloom Dial feature — positions and navigation graph
 
 ---
 
+### 62. Admin sidebar — Bloom Dial removed from Sommelier section
+
+Bloom Dial appeared in both the general section (`NAV_MAIN`) and the Sommelier section (`NAV_SOMMELIER`) of the admin sidebar. Removed the duplicate entry from `NAV_SOMMELIER` — it lives only in the general section now.
+
+**File changed:** `frontend/src/app/components/admin/AdminLayout.tsx` — removed `{ to: '/admin/dial', label: 'Bloom Dial' }` from `NAV_SOMMELIER`.
+
+---
+
 ## What's Still To Do
 
 ### Quiz / scoring
