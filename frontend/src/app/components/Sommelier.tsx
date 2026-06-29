@@ -20,6 +20,14 @@ interface Message {
   synthetic?: boolean;
 }
 
+interface PastSession {
+  id: number;
+  intent: string;
+  started_at: string;
+  turn_count: number;
+  is_closed: boolean;
+}
+
 interface ResumableSession {
   sessionId: number;
   intent: string;
@@ -43,6 +51,15 @@ interface StartResult {
   resumableSession?: ResumableSession;
 }
 
+function formatSessionDate(iso: string): string {
+  const d = new Date(iso);
+  const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return `${days} days ago`;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 export default function Sommelier() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -62,17 +79,16 @@ export default function Sommelier() {
   const [sessionClosed, setSessionClosed] = useState(false);
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
-  const [coffeesExpanded, setCoffeesExpanded] = useState(false);
   const [purchaseEnabled, setPurchaseEnabled] = useState(false);
   const [resumable, setResumable] = useState<ResumableSession | null>(null);
   const [evalResult, setEvalResult] = useState<EvalResult | null>(null);
+  const [pastSessions, setPastSessions] = useState<PastSession[]>([]);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  async function getToken() {
-    return user!.getIdToken();
-  }
+  async function getToken() { return user!.getIdToken(); }
 
   async function doFetch(url: string, opts?: RequestInit) {
     const token = await getToken();
@@ -85,6 +101,31 @@ export default function Sommelier() {
       },
     });
   }
+
+  const loadPastSessions = useCallback(async () => {
+    try {
+      const res = await doFetch('/api/sommelier/sessions');
+      if (res.ok) setPastSessions(await res.json());
+    } catch { /* non-blocking */ }
+  }, []);
+
+  const loadSessionById = useCallback(async (sid: number, past: PastSession) => {
+    setSidebarOpen(false);
+    setPhase('loading');
+    try {
+      const res = await doFetch(`/api/sommelier/${sid}/messages`);
+      const data = res.ok ? await res.json() : { messages: [], coffeeNames: [] };
+      setSessionId(sid);
+      setIntent(past.intent);
+      setTurnCount(past.turn_count);
+      setCoffeeNames(data.coffeeNames ?? []);
+      setMessages(data.messages ?? []);
+      setSessionClosed(past.is_closed);
+    } catch {
+      setMessages([]);
+    }
+    setPhase('chat');
+  }, []);
 
   const openSession = useCallback(async (ev: EvalResult, forceNew = false, closeSessionId?: number) => {
     if (forceNew && closeSessionId) {
@@ -110,7 +151,6 @@ export default function Sommelier() {
     }
 
     if (!startRes.ok) throw new Error('Failed to start session');
-
     const data: StartResult = await startRes.json();
 
     if (data.resumableSession && !forceNew) {
@@ -127,10 +167,7 @@ export default function Sommelier() {
     const tr = data.turnsRemaining ?? 7;
     setMaxTurns(tr + 1);
     setTurnCount(1);
-    setMessages(data.openingMessage
-      ? [{ role: 'assistant', content: data.openingMessage }]
-      : []
-    );
+    setMessages(data.openingMessage ? [{ role: 'assistant', content: data.openingMessage }] : []);
     setPhase('chat');
     setTimeout(() => inputRef.current?.focus(), 100);
   }, [tiedParam, tokenBalance]);
@@ -142,14 +179,14 @@ export default function Sommelier() {
           doFetch('/api/tokens/balance'),
           fetch('/api/admin/sommelier/config').catch(() => null),
         ]);
-
         const balData = await balRes.json();
         setTokenBalance(balData.balance ?? 0);
-
         if (cfgRes?.ok) {
           const cfgData = await cfgRes.json();
           setPurchaseEnabled(cfgData?.tokenEconomy?.purchaseEnabled ?? false);
         }
+
+        await loadPastSessions();
 
         const evalRes = await doFetch('/api/sommelier/evaluate', {
           method: 'POST',
@@ -160,11 +197,7 @@ export default function Sommelier() {
           }),
         });
 
-        if (!evalRes.ok) {
-          const errBody = await evalRes.json().catch(() => ({}));
-          console.error('[Sommelier] evaluate failed', evalRes.status, errBody);
-          throw new Error(`evaluate:${evalRes.status}`);
-        }
+        if (!evalRes.ok) throw new Error(`evaluate:${evalRes.status}`);
         const ev: EvalResult = await evalRes.json();
         setEvalResult(ev);
 
@@ -173,18 +206,11 @@ export default function Sommelier() {
           return;
         }
 
-        const resolvedIntent = ev.intent ?? 'EXPLORATION';
-        const resolvedEval: EvalResult = {
-          ...ev,
-          intent: resolvedIntent,
-          needsSommelier: true,
-        };
+        const resolvedEval: EvalResult = { ...ev, intent: ev.intent ?? 'EXPLORATION', needsSommelier: true };
         setEvalResult(resolvedEval);
-
         await openSession(resolvedEval);
       } catch (err) {
-        console.error('[Sommelier] session init failed:', err);
-        setErrorMsg(`Something went wrong starting your session with Liam. (${err instanceof Error ? err.message : 'unknown'})`);
+        setErrorMsg(`Something went wrong. (${err instanceof Error ? err.message : 'unknown'})`);
         setPhase('error');
       }
     })();
@@ -199,37 +225,22 @@ export default function Sommelier() {
     const text = inputText.trim();
     setInputText('');
     setSending(true);
-    setMessages((prev) => [...prev, { role: 'user', content: text }]);
-
+    setMessages(prev => [...prev, { role: 'user', content: text }]);
     try {
       const res = await doFetch(`/api/sommelier/${sessionId}/message`, {
         method: 'POST',
         body: JSON.stringify({ message: text }),
       });
-
-      if (res.status === 402) {
-        const j = await res.json();
-        setTokenBalance(j.balance ?? 0);
-        return;
-      }
-
-      if (res.status === 409) {
-        setSessionClosed(true);
-        return;
-      }
-
+      if (res.status === 402) { const j = await res.json(); setTokenBalance(j.balance ?? 0); return; }
+      if (res.status === 409) { setSessionClosed(true); return; }
       if (!res.ok) throw new Error('Message failed');
-
       const data = await res.json();
-      setMessages((prev) => [...prev, { role: 'assistant', content: data.reply }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
       setTurnCount(data.turnCount);
       setTokenBalance(data.tokenBalance ?? tokenBalance);
       if (data.sessionClosed) setSessionClosed(true);
     } catch {
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: 'Something went wrong. Please try again.' },
-      ]);
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Something went wrong. Please try again.' }]);
     } finally {
       setSending(false);
       setTimeout(() => inputRef.current?.focus(), 50);
@@ -237,7 +248,7 @@ export default function Sommelier() {
   }
 
   async function handleResumeResume() {
-    if (!resumable || !evalResult) return;
+    if (!resumable) return;
     setPhase('loading');
     try {
       const res = await doFetch(`/api/sommelier/${resumable.sessionId}/messages`);
@@ -249,10 +260,10 @@ export default function Sommelier() {
       setMessages(
         data.messages?.length
           ? data.messages
-          : [{ role: 'assistant', content: 'Welcome back — continuing your conversation with Liam.', synthetic: true }]
+          : [{ role: 'assistant', content: 'Welcome back — continuing where you left off.', synthetic: true }]
       );
     } catch {
-      setMessages([{ role: 'assistant', content: 'Welcome back — continuing your conversation with Liam.', synthetic: true }]);
+      setMessages([{ role: 'assistant', content: 'Welcome back — continuing where you left off.', synthetic: true }]);
     }
     setPhase('chat');
     setTimeout(() => inputRef.current?.focus(), 100);
@@ -264,6 +275,7 @@ export default function Sommelier() {
     setPhase('loading');
     try {
       await openSession(evalResult, true, resumable.sessionId);
+      await loadPastSessions();
     } catch {
       setErrorMsg('Failed to start a new session.');
       setPhase('error');
@@ -278,6 +290,7 @@ export default function Sommelier() {
     setSessionId(null);
     try {
       await openSession(evalResult, true, sessionId ?? undefined);
+      await loadPastSessions();
     } catch {
       setErrorMsg('Failed to start a new session.');
       setPhase('error');
@@ -289,122 +302,118 @@ export default function Sommelier() {
   const balColor = tokenBalance === 0 ? RUST : tokenBalance <= 3 ? '#d97706' : '#a8a29e';
   const inputDisabled = sessionClosed || tokenBalance <= 0 || sending;
 
-  if (phase === 'loading') {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <motion.div
-          className="w-10 h-10 rounded-full border-2 flex items-center justify-center text-sm font-black"
-          style={{ borderColor: RUST, color: RUST }}
-          animate={{ scale: [1, 1.1, 1], opacity: [0.7, 1, 0.7] }}
-          transition={{ duration: 1.5, repeat: Infinity }}
-        >
-          L
-        </motion.div>
+  // ── Sidebar JSX (reused for desktop + mobile drawer) ──────────────────────
+  const sidebarJsx = (
+    <div className="w-56 h-full flex flex-col bg-stone-50 border-r border-stone-100">
+      <div className="px-5 pt-8 pb-5">
+        <p className="text-[9px] uppercase tracking-[0.3em]" style={{ color: RUST, fontWeight: 100 }}>
+          Axis & Bloom
+        </p>
+        <p className="text-xl font-black tracking-tight mt-0.5" style={{ color: '#3a2e28' }}>
+          Liam
+        </p>
       </div>
-    );
-  }
 
-  if (phase === 'error') {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6 text-center px-4">
-        <p className="text-stone-500">{errorMsg}</p>
+      <div className="px-3 mb-3">
         <button
-          onClick={() => { setPhase('loading'); setErrorMsg(''); window.location.reload(); }}
-          className="text-xs uppercase tracking-widest border-b pb-0.5 transition-colors"
-          style={{ color: RUST, borderColor: RUST }}
+          onClick={() => { setSidebarOpen(false); handleRestart(); }}
+          className="w-full text-left px-3 py-2 rounded-lg text-[10px] uppercase tracking-widest hover:bg-stone-100 transition-colors"
+          style={{ color: '#a8a29e' }}
         >
-          Try again
+          + New conversation
         </button>
       </div>
-    );
-  }
 
-  if (phase === 'resume_prompt' && resumable) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh] px-4">
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="max-w-sm w-full border border-stone-200 rounded-xl p-8 text-center space-y-6 bg-white"
-        >
-          <div
-            className="w-12 h-12 rounded-full border-2 flex items-center justify-center text-lg font-black mx-auto"
-            style={{ borderColor: RUST, color: RUST }}
-          >
-            L
-          </div>
-          <div>
-            <p className="text-stone-700 font-normal mb-1">You have an open conversation with Liam.</p>
-            <p className="text-sm text-stone-400">
-              {INTENT_LABELS[resumable.intent] ?? resumable.intent} · {resumable.turnsRemaining} turns remaining
+      <div className="flex-1 overflow-y-auto px-3 space-y-0.5">
+        {pastSessions.length > 0 && (
+          <>
+            <p className="px-3 pt-1 pb-2 text-[9px] uppercase tracking-[0.2em] text-stone-300">
+              Recent
             </p>
-          </div>
-          <div className="flex flex-col gap-3">
-            <button
-              onClick={handleResumeResume}
-              className="w-full py-2.5 rounded-lg text-sm text-white"
-              style={{ backgroundColor: RUST }}
-            >
-              Resume conversation
-            </button>
-            <button
-              onClick={handleResumeFresh}
-              className="w-full py-2.5 rounded-lg text-sm border border-stone-200 text-stone-600 hover:bg-stone-50"
-            >
-              Start fresh
-            </button>
-          </div>
-        </motion.div>
+            {pastSessions.map(s => (
+              <button
+                key={s.id}
+                onClick={() => loadSessionById(s.id, s)}
+                className={`w-full text-left px-3 py-2.5 rounded-lg hover:bg-stone-100 transition-colors ${s.id === sessionId ? 'bg-stone-100' : ''}`}
+              >
+                <p className="text-[12px] leading-snug truncate" style={{ color: '#3a2e28' }}>
+                  {INTENT_LABELS[s.intent] ?? s.intent}
+                </p>
+                <p className="text-[10px] mt-0.5" style={{ color: '#a8a29e' }}>
+                  {formatSessionDate(s.started_at)}{s.is_closed ? ' · ended' : ''}
+                </p>
+              </button>
+            ))}
+          </>
+        )}
       </div>
-    );
-  }
 
+      <div className="px-5 py-5 border-t border-stone-100">
+        <p className="text-[10px] uppercase tracking-widest" style={{ color: balColor }}>
+          {tokenBalance} token{tokenBalance !== 1 ? 's' : ''}
+        </p>
+      </div>
+    </div>
+  );
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] max-h-[800px] md:max-h-none md:h-auto md:min-h-[600px]">
-      {/* ── Header ── */}
-      <div className="border-b border-stone-100 px-4 py-3 shrink-0">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <p className="text-xs tracking-widest uppercase font-thin" style={{ color: '#a8a29e', fontWeight: 100 }}>
-              {INTENT_LABELS[intent ?? ''] ?? 'Exploring together'}
-            </p>
-            {/* Coffee strip */}
-            {coffeeNames.length > 0 && (
-              <div className="mt-1.5">
-                <span className="text-xs text-stone-400 mr-2">Exploring today:</span>
-                {/* Desktop: show all */}
-                <span className="hidden sm:inline-flex flex-wrap gap-1.5">
-                  {coffeeNames.map((name) => (
-                    <span key={name} className="text-xs px-2 py-0.5 rounded-full border border-stone-200 text-stone-600">
-                      {name}
-                    </span>
-                  ))}
-                </span>
-                {/* Mobile: collapsible */}
-                <span className="sm:hidden">
-                  {coffeesExpanded ? (
-                    <span className="inline-flex flex-wrap gap-1.5">
-                      {coffeeNames.map((name) => (
-                        <span key={name} className="text-xs px-2 py-0.5 rounded-full border border-stone-200 text-stone-600">
-                          {name}
-                        </span>
-                      ))}
-                      <button onClick={() => setCoffeesExpanded(false)} className="text-xs text-stone-400">
-                        less ↑
-                      </button>
-                    </span>
-                  ) : (
-                    <button
-                      onClick={() => setCoffeesExpanded(true)}
-                      className="text-xs px-2 py-0.5 rounded-full border border-stone-200 text-stone-600"
-                    >
-                      {coffeeNames.length} coffees ↓
-                    </button>
-                  )}
-                </span>
-              </div>
+    <div className="fixed inset-0 bg-white flex overflow-hidden" style={{ zIndex: 50 }}>
+
+      {/* Desktop sidebar */}
+      <div className="hidden md:flex h-full shrink-0">{sidebarJsx}</div>
+
+      {/* Mobile sidebar overlay */}
+      <AnimatePresence>
+        {sidebarOpen && (
+          <>
+            <motion.div
+              key="backdrop"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/20 z-40 md:hidden"
+              onClick={() => setSidebarOpen(false)}
+            />
+            <motion.div
+              key="drawer"
+              initial={{ x: -224 }} animate={{ x: 0 }} exit={{ x: -224 }}
+              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+              className="fixed left-0 top-0 h-full z-50 md:hidden"
+            >
+              {sidebarJsx}
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Main column */}
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+
+        {/* Top bar */}
+        <div className="shrink-0 border-b border-stone-100 px-5 py-4 flex items-center gap-4">
+          <button
+            className="md:hidden shrink-0 text-stone-300 hover:text-stone-500 transition-colors"
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open sessions"
+          >
+            <svg width="18" height="14" viewBox="0 0 18 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <path d="M1 1h16M1 7h16M1 13h16" />
+            </svg>
+          </button>
+
+          <div className="flex-1 min-w-0">
+            {phase === 'chat' && intent && (
+              <p className="text-[10px] uppercase tracking-[0.25em] truncate" style={{ color: '#a8a29e', fontWeight: 100 }}>
+                {INTENT_LABELS[intent] ?? 'Exploring together'}
+              </p>
             )}
           </div>
+
+          {phase === 'chat' && turnCount > 0 && (
+            <span className="shrink-0 text-[10px]" style={{ color: turnColor }}>
+              {turnCount} / {maxTurns}
+            </span>
+          )}
+
           <button
             onClick={() => navigate(-1)}
             className="shrink-0 text-stone-300 hover:text-stone-500 transition-colors"
@@ -415,157 +424,220 @@ export default function Sommelier() {
             </svg>
           </button>
         </div>
-      </div>
 
-      {/* ── Messages — prose thread layout ── */}
-      <div className="flex-1 overflow-y-auto px-6 md:px-10 py-10 space-y-10">
-        <AnimatePresence initial={false}>
-          {messages.map((msg, i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.35 }}
-            >
-              {msg.synthetic ? (
-                <p className="text-xs text-stone-400 italic text-center tracking-wide">
-                  {msg.content}
-                </p>
-              ) : (
-                <>
-                  <p
-                    className="text-[10px] uppercase tracking-[0.25em] mb-2.5"
-                    style={{ color: msg.role === 'assistant' ? RUST : '#a8a29e', fontWeight: 100 }}
-                  >
-                    {msg.role === 'assistant' ? 'Liam' : 'You'}
-                  </p>
-                  <p
-                    className="text-[15px] leading-[1.75] whitespace-pre-wrap"
-                    style={{ color: msg.role === 'assistant' ? '#3a2e28' : '#6b5c54' }}
-                  >
-                    {msg.content}
-                  </p>
-                </>
-              )}
-            </motion.div>
-          ))}
-        </AnimatePresence>
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-2xl mx-auto px-6 md:px-12 py-12">
 
-        {/* Loading — Liam label + dots, no bubble */}
-        {sending && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            <p
-              className="text-[10px] uppercase tracking-[0.25em] mb-3"
-              style={{ color: RUST, fontWeight: 100 }}
-            >
-              Liam
-            </p>
-            <div className="flex gap-1.5 items-center">
-              {[0, 1, 2].map((i) => (
-                <motion.span
-                  key={i}
-                  className="w-1.5 h-1.5 rounded-full bg-stone-300"
-                  animate={{ opacity: [0.3, 1, 0.3] }}
-                  transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
+            {/* Loading */}
+            {phase === 'loading' && (
+              <div className="flex items-center justify-center min-h-[40vh]">
+                <motion.div
+                  className="w-10 h-10 rounded-full border-2 flex items-center justify-center text-sm font-black"
+                  style={{ borderColor: RUST, color: RUST }}
+                  animate={{ scale: [1, 1.1, 1], opacity: [0.7, 1, 0.7] }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                >
+                  L
+                </motion.div>
+              </div>
+            )}
+
+            {/* Error */}
+            {phase === 'error' && (
+              <div className="flex flex-col items-center justify-center min-h-[40vh] gap-6 text-center">
+                <p className="text-sm text-stone-500">{errorMsg}</p>
+                <button
+                  onClick={() => { setPhase('loading'); setErrorMsg(''); window.location.reload(); }}
+                  className="text-xs uppercase tracking-widest border-b pb-0.5 transition-colors"
+                  style={{ color: RUST, borderColor: RUST }}
+                >
+                  Try again
+                </button>
+              </div>
+            )}
+
+            {/* Resume prompt */}
+            {phase === 'resume_prompt' && resumable && (
+              <div className="flex items-center justify-center min-h-[40vh]">
+                <motion.div
+                  initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+                  className="max-w-sm w-full space-y-6 text-center"
+                >
+                  <div>
+                    <p className="text-stone-700 mb-1">You have an open conversation with Liam.</p>
+                    <p className="text-sm text-stone-400">
+                      {INTENT_LABELS[resumable.intent] ?? resumable.intent} · {resumable.turnsRemaining} turns remaining
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    <button
+                      onClick={handleResumeResume}
+                      className="w-full py-3 rounded-xl text-sm text-white"
+                      style={{ backgroundColor: RUST }}
+                    >
+                      Resume conversation
+                    </button>
+                    <button
+                      onClick={handleResumeFresh}
+                      className="w-full py-3 rounded-xl text-sm border border-stone-200 text-stone-600 hover:bg-stone-50 transition-colors"
+                    >
+                      Start fresh
+                    </button>
+                  </div>
+                </motion.div>
+              </div>
+            )}
+
+            {/* Chat thread */}
+            {phase === 'chat' && (
+              <div className="space-y-10">
+
+                {coffeeNames.length > 0 && (
+                  <motion.p
+                    initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                    className="text-[9px] uppercase tracking-[0.3em] text-center text-stone-300"
+                  >
+                    {coffeeNames.join(' · ')}
+                  </motion.p>
+                )}
+
+                <AnimatePresence initial={false}>
+                  {messages.map((msg, i) => (
+                    <motion.div
+                      key={i}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.35 }}
+                    >
+                      {msg.synthetic ? (
+                        <p className="text-xs text-stone-400 italic text-center tracking-wide">
+                          {msg.content}
+                        </p>
+                      ) : (
+                        <>
+                          <p
+                            className="text-[10px] uppercase tracking-[0.25em] mb-2.5"
+                            style={{ color: msg.role === 'assistant' ? RUST : '#a8a29e', fontWeight: 100 }}
+                          >
+                            {msg.role === 'assistant' ? 'Liam' : 'You'}
+                          </p>
+                          <p
+                            className="text-[15px] leading-[1.75] whitespace-pre-wrap"
+                            style={{ color: msg.role === 'assistant' ? '#3a2e28' : '#6b5c54' }}
+                          >
+                            {msg.content}
+                          </p>
+                        </>
+                      )}
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+
+                {sending && (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                    <p className="text-[10px] uppercase tracking-[0.25em] mb-3" style={{ color: RUST, fontWeight: 100 }}>
+                      Liam
+                    </p>
+                    <div className="flex gap-1.5 items-center">
+                      {[0, 1, 2].map(i => (
+                        <motion.span
+                          key={i}
+                          className="w-1.5 h-1.5 rounded-full bg-stone-300"
+                          animate={{ opacity: [0.3, 1, 0.3] }}
+                          transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
+                        />
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+
+                {sessionClosed && (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4 pt-2">
+                    <div className="border-t border-stone-100" />
+                    <p className="text-[10px] uppercase tracking-[0.25em] text-stone-400">Conversation ended</p>
+                    <button
+                      onClick={handleRestart}
+                      className="text-[10px] uppercase tracking-[0.2em] border-b pb-0.5 transition-colors"
+                      style={{ color: RUST, borderColor: RUST }}
+                    >
+                      Start a new conversation →
+                    </button>
+                  </motion.div>
+                )}
+
+                {!sessionClosed && tokenBalance === 0 && (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-3 pt-2">
+                    <div className="border-t border-stone-100" />
+                    <p className="text-[13px] text-stone-500 leading-relaxed">
+                      You've run out of tokens. Orders earn you more.
+                    </p>
+                    <button
+                      onClick={() => purchaseEnabled ? navigate('/shop') : alert('Token purchases coming soon.')}
+                      className="text-[10px] uppercase tracking-[0.2em] border-b pb-0.5 transition-colors"
+                      style={{ color: RUST, borderColor: RUST }}
+                    >
+                      Get more tokens
+                    </button>
+                  </motion.div>
+                )}
+
+                <div ref={messagesEndRef} />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Input bar */}
+        {phase === 'chat' && (
+          <div className="shrink-0 border-t border-stone-100 px-5 md:px-12 py-5">
+            <div className="max-w-2xl mx-auto">
+              <div className="flex gap-3 items-end border border-stone-200 rounded-2xl px-4 py-3 focus-within:border-stone-400 transition-colors shadow-sm">
+                <textarea
+                  ref={inputRef}
+                  rows={1}
+                  className="flex-1 resize-none text-[15px] focus:outline-none disabled:text-stone-300 bg-transparent leading-relaxed"
+                  style={{ color: '#3a2e28' }}
+                  placeholder={
+                    inputDisabled
+                      ? sessionClosed ? 'Conversation ended' : 'No tokens remaining'
+                      : 'Ask Liam anything…'
+                  }
+                  value={inputText}
+                  disabled={inputDisabled}
+                  onChange={e => {
+                    setInputText(e.target.value);
+                    e.target.style.height = 'auto';
+                    e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+                  }}
                 />
-              ))}
+                <button
+                  onClick={sendMessage}
+                  disabled={inputDisabled || !inputText.trim()}
+                  className="shrink-0 w-8 h-8 rounded-xl flex items-center justify-center text-white transition-all disabled:opacity-25"
+                  style={{ backgroundColor: RUST }}
+                  aria-label="Send"
+                >
+                  <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M6.5 11V2M2 6.5l4.5-4.5 4.5 4.5" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between mt-2 px-1">
+                <span className="text-[10px]" style={{ color: '#a8a29e' }}>
+                  {turnCount > 0 ? `${turnsRemaining} turn${turnsRemaining !== 1 ? 's' : ''} remaining` : ''}
+                </span>
+                <span className="text-[10px]" style={{ color: balColor }}>
+                  {tokenBalance} token{tokenBalance !== 1 ? 's' : ''}
+                </span>
+              </div>
             </div>
-          </motion.div>
+          </div>
         )}
-
-        {/* Session closed */}
-        {sessionClosed && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="space-y-4 pt-2"
-          >
-            <div className="border-t border-stone-100" />
-            <p className="text-[10px] uppercase tracking-[0.25em] text-stone-400">
-              Conversation ended
-            </p>
-            <button
-              onClick={handleRestart}
-              className="text-[10px] uppercase tracking-[0.2em] border-b pb-0.5 transition-colors"
-              style={{ color: RUST, borderColor: RUST }}
-            >
-              Start a new conversation →
-            </button>
-          </motion.div>
-        )}
-
-        {/* Out of tokens */}
-        {!sessionClosed && tokenBalance === 0 && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="space-y-3 pt-2"
-          >
-            <div className="border-t border-stone-100" />
-            <p className="text-[13px] text-stone-500 leading-relaxed">
-              You've run out of tokens. Orders earn you more.
-            </p>
-            <button
-              onClick={() => {
-                if (purchaseEnabled) {
-                  navigate('/shop');
-                } else {
-                  alert('Token purchases coming soon.');
-                }
-              }}
-              className="text-[10px] uppercase tracking-[0.2em] border-b pb-0.5 transition-colors"
-              style={{ color: RUST, borderColor: RUST }}
-            >
-              Get more tokens
-            </button>
-          </motion.div>
-        )}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* ── Status + Input ── */}
-      <div className="border-t border-stone-100 px-4 py-3 shrink-0">
-        {/* Status bar */}
-        <div className="flex items-center justify-between mb-2 text-xs">
-          <span style={{ color: turnColor }}>
-            {turnCount} of {maxTurns} turns
-          </span>
-          <span style={{ color: balColor }}>
-            {tokenBalance} token{tokenBalance !== 1 ? 's' : ''} remaining
-          </span>
-        </div>
-
-        {/* Input */}
-        <div className="flex gap-2 items-end">
-          <textarea
-            ref={inputRef}
-            rows={1}
-            className="flex-1 resize-none border border-stone-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-stone-400 transition-colors disabled:bg-stone-50 disabled:text-stone-300"
-            placeholder={inputDisabled ? (sessionClosed ? 'Session ended' : 'No tokens remaining') : 'Ask Liam anything…'}
-            value={inputText}
-            disabled={inputDisabled}
-            onChange={(e) => {
-              setInputText(e.target.value);
-              e.target.style.height = 'auto';
-              e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-              }
-            }}
-          />
-          <button
-            onClick={sendMessage}
-            disabled={inputDisabled || !inputText.trim()}
-            className="px-4 py-2.5 rounded-lg text-sm font-normal text-white transition-all shrink-0 disabled:opacity-40"
-            style={{ backgroundColor: RUST }}
-          >
-            →
-          </button>
-        </div>
       </div>
     </div>
   );
