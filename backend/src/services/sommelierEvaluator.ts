@@ -169,6 +169,34 @@ export async function evaluateSommelier(
     hasRecentNegativeFeedback = !feedbackSnap.empty;
   } catch { /* no feedback_events yet */ }
 
+  // Demographic profile — age, generation, household type
+  let age: number | null = null;
+  let generation: string | null = null;
+  let householdType: 'solo' | 'family' = 'solo';
+  try {
+    const profileResult = await db.query(
+      `SELECT up.date_of_birth, up.household_id,
+              (SELECT COUNT(*) FROM user_profile up2 WHERE up2.household_id = up.household_id) AS household_size
+       FROM user_profile up WHERE up.firebase_uid = $1`,
+      [uid]
+    );
+    const profile = profileResult.rows[0];
+    if (profile?.date_of_birth) {
+      const dob = new Date(profile.date_of_birth);
+      const now = new Date();
+      age = now.getFullYear() - dob.getFullYear() -
+        (now < new Date(now.getFullYear(), dob.getMonth(), dob.getDate()) ? 1 : 0);
+      if (age >= 62) generation = 'Boomer';
+      else if (age >= 46) generation = 'Gen X';
+      else if (age >= 30) generation = 'Millennial';
+      else generation = 'Gen Z';
+    }
+    const householdSize = Number(profile?.household_size ?? 1);
+    if (profile?.household_id && householdSize > 1) householdType = 'family';
+  } catch (err) {
+    console.error('[sommelierEvaluator] demographic query failed:', err);
+  }
+
   // Extract context from latest quiz
   const latestCtx = latestQuiz?.context_data ?? {};
   const archetype = latestQuiz?.archetype_name ?? null;
@@ -272,7 +300,13 @@ export async function evaluateSommelier(
 
   // ── Stage 2: Haiku enrichment ────────────────────────────────────────────
   const intentCfg = config?.intents?.[matchedIntent];
-  const userPrompt = `Initialize a coffee sommelier session. Write 1-2 sentences briefing Liam (the sommelier) about this specific user before their first exchange. Be factual and specific.
+  const demographicLine = [
+    age !== null ? `Age ${age}` : null,
+    generation ?? null,
+    householdType === 'family' ? 'family household' : 'solo',
+  ].filter(Boolean).join(', ');
+
+  const userPrompt = `Initialize a coffee sommelier session. Write 2-3 sentences briefing Liam (the sommelier) about this specific user before their first exchange. Be factual and specific. Include their demographic and tone calibration so Liam knows how to speak to them.
 
 Intent: ${matchedIntent}
 Goal: ${intentCfg?.conversationGoal ?? 'Guide the user to a coffee they will love'}
@@ -283,8 +317,17 @@ Quiz count: ${quizCount}, Archetype changes: ${archetypeChangeCount}
 Order count: ${totalOrders}
 Recent negative feedback: ${hasRecentNegativeFeedback ? 'yes' : 'no'}
 Days since last quiz: ${daysSinceLastQuiz !== null ? daysSinceLastQuiz : 'first quiz'}
+Demographic: ${demographicLine || 'unknown'}
 
-Write only the briefing.`;
+Tone calibration guidance:
+- Gen Z: casual and brief is fine, informal register
+- Millennial: conversational but substantive, no hype
+- Gen X: direct and no-nonsense, earned trust — don't try to charm them
+- Boomer: formal and respectful, expertise matters, no slang
+- Family household: may be buying for others, practical decisions
+- Solo: individual taste focus
+
+Write only the briefing, including a tone note for Liam at the end (e.g. "Tone: direct, no-nonsense — Gen X.")`;
 
   let openingContext = `${archetype ?? 'Unknown archetype'} user — ${matchedIntent} intent.`;
   try {
