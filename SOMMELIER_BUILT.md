@@ -242,7 +242,7 @@ Label vocabulary comes from `dial_position_vocabulary` (archetype+dimension-spec
 
 | Component | Route | Description |
 |---|---|---|
-| `Sommelier.tsx` | `/sommelier` | Liam chat UI — prose thread layout (not chat bubbles). Each message: name label (`LIAM` in rust / `YOU` in muted stone) above a full-width left-aligned paragraph, `space-y-10` between messages, no backgrounds or borders. Loading state: `LIAM` label + three animated dots. Session closed / out-of-tokens: `border-t border-stone-100` rule + plain text. Shows intent label, coffee strip, turn counter, token balance. All phases: `initializing` → `active` → `closed` / `out_of_tokens` / `error`. |
+| `Sommelier.tsx` | `/sommelier` | Full-screen Claude/ChatGPT-style layout (2026-06-28). `fixed inset-0`, no nav/footer (suppressed in `PublicLayout`). **Sidebar** (224px, `bg-stone-50`): "Axis & Bloom" label, "Liam" in bold, "Sommelier Concierge" role label, "+ New conversation" button, past sessions list (intent label + date + ended flag), token balance pinned at bottom. Mobile: sidebar hidden, hamburger opens animated drawer with backdrop. **Main column**: top bar (intent label, turn counter `X/N`, × close), scrollable body (`max-w-2xl mx-auto`), input bar pinned at bottom. **Message thread**: same prose style — `LIAM` / `YOU` name labels above paragraphs, `space-y-10`, no backgrounds/borders. Coffee names shown as a subtle dotted `·` line above the first message (not a pill header). **Input bar**: `rounded-2xl`, integrated send button (up-arrow), status row (turns remaining · token count) below the textarea. All phases: `loading` → `resume_prompt` → `chat` → `error`. |
 
 Entry points added to existing components:
 - `FlavorQuiz.tsx` — tie interstitial with "Talk to Liam" CTA
@@ -415,6 +415,20 @@ When a user returned to `/sommelier` and clicked "Resume conversation", the fron
 **Fix (two parts):**
 1. New `GET /api/sommelier/:sessionId/messages` endpoint returns full message history + coffee names. Reads from Firestore; falls back to SQL for sessions predating the migration.
 2. `Sommelier.tsx` `handleResumeResume()` now fetches from this endpoint, sets `messages` to the returned history (falling back to a synthetic "Welcome back" only if empty), and restores the coffee strip — before entering chat phase.
+
+#### S30. Sommelier page redesign — full-screen Claude/ChatGPT-style layout (2026-06-28)
+Rebuilt `Sommelier.tsx` from a constrained page embedded in the site layout to a dedicated full-screen app experience.
+
+**Layout changes:**
+- `PublicLayout.tsx`: `/sommelier` added to full-screen routes (no nav, no footer, no newsletter modal) — same treatment as `/find-my-flavor`
+- Page is now `fixed inset-0` with a left sidebar + main column split
+- Sidebar: "Axis & Bloom" / "Liam" / "Sommelier Concierge" header, past sessions list (fetched from `GET /api/sommelier/sessions` on mount), token balance pinned at bottom, "+ New conversation" resets to a fresh session
+- Mobile: sidebar hidden, revealed via hamburger → animated spring drawer with backdrop overlay
+- Coffee names moved from a pill-strip header into the conversation itself — subtle `·`-separated line above the first message
+- Input bar: `rounded-2xl` integrated design with up-arrow send button; token + turn status moved below the input
+- Max-width column: `max-w-2xl mx-auto` keeps the prose thread readable at wide screen widths
+
+**What stayed the same:** prose thread message style (`LIAM`/`YOU` labels + paragraphs, `space-y-10`, no bubbles).
 
 #### S29. Liam prompt rewrite — brand-aligned voice (2026-06-27)
 **Problem**: The original `LIAM_BASE_PROMPT` produced formal sommelier language ("palate", "what flavor stuck with you today"), long responses (180-word limit, 400 max_tokens), and no grounding in Axis & Bloom's brand values or the customer's existing profile.

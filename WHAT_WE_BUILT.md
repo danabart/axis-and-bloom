@@ -913,6 +913,17 @@ Fields: sessionStarted ASC, startedAt DESC
 ```
 Or click the auto-generated link from the Cloud Run error log directly.
 
+### 56. Sommelier page redesign — full-screen Claude/ChatGPT-style layout (2026-06-28)
+Rebuilt the `/sommelier` route as a dedicated full-screen app experience. `PublicLayout` now suppresses nav/footer/newsletter modal for `/sommelier` (same as `/find-my-flavor`).
+
+**What changed:**
+- Full-screen `fixed inset-0` layout — no height caps, no nav bar
+- Left sidebar (224px): "Axis & Bloom / Liam / Sommelier Concierge" header, past sessions list, "+ New conversation", token balance at bottom
+- Mobile: hamburger → animated spring drawer sidebar
+- Coffee names moved from header pill strip → subtle dotted line above the first message in the thread
+- Integrated input bar: `rounded-2xl`, up-arrow send button, turns + tokens shown below the textarea
+- Message thread unchanged: prose style, `LIAM`/`YOU` labels, `space-y-10`, no bubbles
+
 ### 55. Liam prompt rewrite — brand-aligned voice (2026-06-27)
 Rewrote `LIAM_BASE_PROMPT` in `backend/src/services/claude.ts` based on the Axis & Bloom Brand Strategy & Visual Foundations Brief.
 
