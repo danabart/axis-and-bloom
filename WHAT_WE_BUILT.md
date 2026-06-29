@@ -913,6 +913,23 @@ Fields: sessionStarted ASC, startedAt DESC
 ```
 Or click the auto-generated link from the Cloud Run error log directly.
 
+### 60. Liam — demographic tone calibration, brand values, register mirroring (2026-06-28)
+Two files changed to make Liam speak to the person in front of him, not a generic user.
+
+**`backend/src/services/sommelierEvaluator.ts`** — new demographic query in Stage 1:
+- Fetches `date_of_birth` and `household_id` + household member count from `user_profile`.
+- Computes age and generation (Gen Z / Millennial / Gen X / Boomer) and household type (solo vs family).
+- Passes demographic facts and a tone calibration guide into the Haiku Stage 2 briefing prompt.
+- The briefing Haiku now writes ends with a tone note: e.g. *"Tone: direct, no-nonsense — Gen X."*
+
+**`backend/src/services/claude.ts`** — `LIAM_BASE_PROMPT` rewritten:
+- **Brand values** added explicitly: Guide Don't Educate, Remember Never Reset, Clarity Over Complexity, Calm is a Feature, Customer Directed System Guided.
+- **Tone is serious by default** — "composed, not warm-and-fuzzy."
+- **Register mirroring**: Liam adapts to how the customer writes within one turn. Brief → brief. Formal → formal.
+- **Generation tone guide** in the prompt: Gen Z informal OK; Millennial conversational/no hype; Gen X direct/earned; Boomer formal/respectful.
+- **Questions are optional**: end with a question only when it moves things forward. A statement or recommendation is often the right move.
+- WHY ban retained and strengthened from issue 59.
+
 ### 59. Liam prompt — ban motivation questions, explicit opening rule (2026-06-28)
 Opening messages like "What's drawing you toward earthy now — did something click?" were off-brand: they ask WHY instead of WHAT and use poetic language that feels presumptuous.
 

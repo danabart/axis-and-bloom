@@ -416,6 +416,33 @@ When a user returned to `/sommelier` and clicked "Resume conversation", the fron
 1. New `GET /api/sommelier/:sessionId/messages` endpoint returns full message history + coffee names. Reads from Firestore; falls back to SQL for sessions predating the migration.
 2. `Sommelier.tsx` `handleResumeResume()` now fetches from this endpoint, sets `messages` to the returned history (falling back to a synthetic "Welcome back" only if empty), and restores the coffee strip — before entering chat phase.
 
+#### S33. Liam — demographic tone calibration, brand values, register mirroring (2026-06-28)
+
+**`sommelierEvaluator.ts`** — Stage 1 demographic query:
+```sql
+SELECT up.date_of_birth, up.household_id,
+       (SELECT COUNT(*) FROM user_profile up2 WHERE up2.household_id = up.household_id) AS household_size
+FROM user_profile up WHERE up.firebase_uid = $1
+```
+- Computes `age`, `generation` (Gen Z/Millennial/Gen X/Boomer), `householdType` (solo/family).
+- Added `demographicLine` to the Haiku Stage 2 prompt along with a tone calibration guide.
+- Stage 2 Haiku briefing now ends with a tone note: *"Tone: direct, no-nonsense — Gen X."* which Liam receives as part of `openingContext`.
+
+**`claude.ts`** — `LIAM_BASE_PROMPT` updated:
+- Five brand values listed explicitly at the top.
+- "Serious" replaces "calm, direct" as the default tone descriptor.
+- Mirror rule: match the customer's register within 1 turn.
+- Generation tone guide embedded in the prompt.
+- Questions changed from mandatory to contextual — a statement is often the right move.
+- WHY-question ban retained from S32.
+
+**Prompt refinement guidance** (for ongoing tuning):
+- Bad output → add to "Never say" list with exact phrase.
+- Good output → add as a "Good:" example in the relevant section.
+- Read 5–10 Firestore transcripts monthly; three instances of the same problem = a prompt fix.
+- Firestore `config/sommelier` → `systemPromptAddendum` / `conversationGoal` per intent = no-deploy tuning lever.
+- Hard rules (sold-out filtering, token limits) belong in code, not the prompt.
+
 #### S32. Liam prompt — ban motivation questions, explicit opening rule (2026-06-28)
 Off-brand opener example: "What's drawing you toward earthy now — did something click?" — asks WHY, uses poetic phrasing, sounds presumptuous.
 
