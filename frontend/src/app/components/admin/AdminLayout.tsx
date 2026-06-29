@@ -15,7 +15,6 @@ const NAV_SOMMELIER = [
   { to: '/admin/sommelier/config',  label: 'Configuration' },
   { to: '/admin/sommelier/intents', label: 'Intent Editor' },
   { to: '/admin/sommelier/flow',    label: 'Flow & Stats'  },
-  { to: '/admin/dial',              label: 'Bloom Dial'    },
 ];
 
 export default function AdminLayout() {
