@@ -86,6 +86,7 @@ export default function Sommelier() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   async function getToken() { return user!.getIdToken(); }
@@ -217,7 +218,8 @@ export default function Sommelier() {
   }, []);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = scrollContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
   async function sendMessage() {
@@ -313,7 +315,7 @@ export default function Sommelier() {
           Liam
         </p>
         <p className="text-[9px] uppercase tracking-[0.2em] mt-1" style={{ color: '#a8a29e', fontWeight: 100 }}>
-          Sommelier Concierge
+          Coffee Sommelier
         </p>
       </div>
 
@@ -368,7 +370,7 @@ export default function Sommelier() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex bg-white overflow-hidden" style={{ height: 'calc(100vh - 64px)' }}>
+    <div className="flex bg-white overflow-hidden" style={{ position: 'fixed', top: 64, left: 0, right: 0, bottom: 0 }}>
 
       {/* Desktop sidebar */}
       <div className="hidden md:flex h-full shrink-0">{sidebarJsx}</div>
@@ -436,7 +438,7 @@ export default function Sommelier() {
         </div>
 
         {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto" ref={scrollContainerRef}>
           <div className="max-w-2xl mx-auto px-6 md:px-12 py-12">
 
             {/* Loading */}
