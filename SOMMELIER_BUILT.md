@@ -416,6 +416,12 @@ When a user returned to `/sommelier` and clicked "Resume conversation", the fron
 1. New `GET /api/sommelier/:sessionId/messages` endpoint returns full message history + coffee names. Reads from Firestore; falls back to SQL for sessions predating the migration.
 2. `Sommelier.tsx` `handleResumeResume()` now fetches from this endpoint, sets `messages` to the returned history (falling back to a synthetic "Welcome back" only if empty), and restores the coffee strip — before entering chat phase.
 
+#### S31. Sommelier UI fixes post-redesign (2026-06-28)
+1. **Nav overlap**: Navigation is `position: fixed, top: 0, height: 64px`. Sommelier container changed to `position: fixed, top: 64px, left: 0, right: 0, bottom: 0` so it sits flush below the nav without overlap.
+2. **Title**: "Sommelier Concierge" → "Coffee Sommelier" in the sidebar header.
+3. **Scroll jump**: `messagesEndRef.scrollIntoView()` was causing the browser window to jump on every message. Replaced with `scrollContainerRef.scrollTop = scrollContainerRef.scrollHeight` targeting the inner `overflow-y-auto` div directly. Added `scrollContainerRef` to the scrollable body div.
+4. **Buy tokens**: Added below the token balance in the sidebar footer. Navigates to `/shop` when `purchaseEnabled` is `true` in `config/sommelier`; shows "coming soon" alert otherwise. Placeholder until Stripe is connected.
+
 #### S30. Sommelier page redesign — full-screen Claude/ChatGPT-style layout (2026-06-28)
 Rebuilt `Sommelier.tsx` from a constrained page embedded in the site layout to a dedicated full-screen app experience.
 

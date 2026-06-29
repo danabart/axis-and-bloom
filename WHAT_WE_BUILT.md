@@ -913,6 +913,17 @@ Fields: sessionStarted ASC, startedAt DESC
 ```
 Or click the auto-generated link from the Cloud Run error log directly.
 
+### 58. Sommelier UI fixes (2026-06-28)
+Three fixes applied after the redesign deployed:
+
+1. **Nav bar overlap** — the fixed nav (`position: fixed, top: 0, height: 64px`) was sitting on top of the Liam sidebar. Changed the Sommelier container from `height: calc(100vh-64px)` to `position: fixed, top: 64px, left: 0, right: 0, bottom: 0` — now anchors exactly below the nav.
+2. **Title** — "Sommelier Concierge" corrected to "Coffee Sommelier" in the sidebar.
+3. **Scroll jump on send** — `scrollIntoView()` was scrolling the whole page on every message. Replaced with a ref on the inner `overflow-y-auto` container and `scrollTop = scrollHeight` — scroll now stays within the messages pane.
+4. **Buy tokens link** — added to the sidebar bottom section (below token count), in rust with underline. Routes to `/shop` when `purchaseEnabled` is true in Firestore config; shows "coming soon" alert until Stripe is wired.
+
+### 57. Find My Flavor — nav bar restored (2026-06-28)
+`/find-my-flavor` was suppressing the nav and footer via `PublicLayout`'s `isQuizPage` check. Removed that suppression — the quiz now shows the navigation bar. Footer remains suppressed (the quiz handles its own bottom content). `PublicLayout` now only bypasses nav/footer for the pre-launch page.
+
 ### 56. Sommelier page redesign — full-screen Claude/ChatGPT-style layout (2026-06-28)
 Rebuilt the `/sommelier` route as a dedicated full-screen app experience. `PublicLayout` now suppresses nav/footer/newsletter modal for `/sommelier` (same as `/find-my-flavor`).
 
