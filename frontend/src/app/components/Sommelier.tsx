@@ -312,6 +312,9 @@ export default function Sommelier() {
         <p className="text-xl font-black tracking-tight mt-0.5" style={{ color: '#3a2e28' }}>
           Liam
         </p>
+        <p className="text-[9px] uppercase tracking-[0.2em] mt-1" style={{ color: '#a8a29e', fontWeight: 100 }}>
+          Sommelier Concierge
+        </p>
       </div>
 
       <div className="px-3 mb-3">
