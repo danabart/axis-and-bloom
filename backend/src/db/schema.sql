@@ -1182,8 +1182,27 @@ INSERT INTO dial_position_vocabulary (archetype, dimension_id, sort_order, label
   ('earthy',          6, 1, 'Gentle'),
   ('earthy',          6, 2, 'Earthy'),
   ('earthy',          6, 3, 'Bold'),
-  ('earthy',          6, 4, 'Intense')
+  ('earthy',          6, 4, 'Intense'),
+  ('experimental',    9, 1, 'Curious'),
+  ('experimental',    9, 2, 'Adventurous'),
+  ('experimental',    9, 3, 'Daring'),
+  ('experimental',    9, 4, 'Untamed')
 ON CONFLICT (archetype, dimension_id, sort_order) DO NOTHING;
+
+-- Seed Kopi Safari dial position (experimental default — idempotent)
+INSERT INTO dial_archetype_positions (archetype, coffee_id, vocabulary_id, is_default)
+SELECT
+  'experimental',
+  (SELECT MIN(id) FROM coffees WHERE name = 'Kopi Safari' AND roaster = 'Temecula Coffee Roasters'),
+  (SELECT id FROM dial_position_vocabulary WHERE archetype = 'experimental' AND sort_order = 2),
+  true
+WHERE
+  (SELECT MIN(id) FROM coffees WHERE name = 'Kopi Safari' AND roaster = 'Temecula Coffee Roasters') IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM dial_archetype_positions
+    WHERE archetype = 'experimental'
+      AND coffee_id = (SELECT MIN(id) FROM coffees WHERE name = 'Kopi Safari' AND roaster = 'Temecula Coffee Roasters')
+  );
 
 -- 2. Quiz v2 + questions + answers (only inserts if v2 doesn't exist yet)
 DO $seed$
