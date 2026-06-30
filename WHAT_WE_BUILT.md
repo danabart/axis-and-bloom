@@ -1915,6 +1915,22 @@ Breakfast Blend, Blonde Blend, Guatemala, Colombia, Brazil Santos, African Espre
 
 ---
 
+### 65. Bloom Dial admin — Default badge, Set Default button, move left/right (2026-06-29)
+
+**Files:** `frontend/src/app/components/admin/AdminDial.tsx`, `backend/src/routes/admin.ts`
+
+**UI changes (AdminDial.tsx):**
+- `★ Default` — static dark pill badge (non-clickable). Previously was a button that could accidentally unset the default.
+- `Set Default` — terracotta action button, only shown when the coffee is not yet the default for that archetype.
+- `← →` arrows flanking the position badge — move the coffee one step left (gentler) or right (bolder) along the dial vocabulary. Disabled and faded when already at the first or last position. Tooltip shows the target label on hover.
+
+**Backend changes (`PATCH /api/admin/dial/positions/:id`):**
+- Now accepts both `is_default` (boolean) and `vocabulary_id` (number) in the same endpoint.
+- When `is_default: true` is sent, automatically clears the previous default for the same archetype + same roaster before promoting the new one — prevents duplicate defaults per roaster per archetype.
+- `vocabulary_id` update powers the ← → move arrows.
+
+---
+
 ## What's Still To Do
 
 ### Quiz / scoring
