@@ -624,19 +624,45 @@ router.post('/dial/positions', async (req, res) => {
   }
 });
 
-// PATCH /api/admin/dial/positions/:id — update is_default flag
+// PATCH /api/admin/dial/positions/:id — update is_default or vocabulary_id (move left/right)
 router.patch('/dial/positions/:id', async (req, res) => {
   const { id } = req.params;
-  const { is_default } = req.body;
-  if (typeof is_default !== 'boolean') {
-    res.status(400).json({ error: 'is_default (boolean) is required' }); return;
+  const { is_default, vocabulary_id } = req.body;
+  if (is_default === undefined && vocabulary_id === undefined) {
+    res.status(400).json({ error: 'is_default or vocabulary_id required' }); return;
   }
   try {
-    const result = await db.query(
-      `UPDATE dial_archetype_positions SET is_default = $1 WHERE id = $2 RETURNING id`,
-      [is_default, id]
-    );
-    if (result.rowCount === 0) { res.status(404).json({ error: 'Position not found' }); return; }
+    if (typeof is_default === 'boolean') {
+      if (is_default) {
+        // Clear existing default for same archetype + same roaster before promoting new one
+        await db.query(`
+          UPDATE dial_archetype_positions
+          SET is_default = false
+          WHERE archetype = (SELECT archetype FROM dial_archetype_positions WHERE id = $1)
+            AND is_default = true
+            AND coffee_id IN (
+              SELECT c.id FROM coffees c
+              WHERE c.roaster = (
+                SELECT c2.roaster FROM coffees c2
+                JOIN dial_archetype_positions dap ON dap.coffee_id = c2.id
+                WHERE dap.id = $1
+              )
+            )
+        `, [id]);
+      }
+      const result = await db.query(
+        `UPDATE dial_archetype_positions SET is_default = $1 WHERE id = $2 RETURNING id`,
+        [is_default, id]
+      );
+      if (result.rowCount === 0) { res.status(404).json({ error: 'Position not found' }); return; }
+    }
+    if (typeof vocabulary_id === 'number') {
+      const result = await db.query(
+        `UPDATE dial_archetype_positions SET vocabulary_id = $1 WHERE id = $2 RETURNING id`,
+        [vocabulary_id, id]
+      );
+      if (result.rowCount === 0) { res.status(404).json({ error: 'Position not found' }); return; }
+    }
     res.json({ ok: true });
   } catch (err) {
     console.error('[admin/dial/positions PATCH]', err);

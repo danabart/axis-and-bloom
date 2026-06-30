@@ -139,12 +139,23 @@ export default function AdminDial() {
     } finally { setPosSaving(false); }
   }
 
-  async function handleToggleDefault(pos: DialPosition) {
+  async function handleSetDefault(pos: DialPosition) {
     try {
       await apiFetch(`/api/admin/dial/positions/${pos.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_default: !pos.is_default }),
+        body: JSON.stringify({ is_default: true }),
+      });
+      await loadAll();
+    } catch { /* non-critical */ }
+  }
+
+  async function handleMovePosition(id: number, vocabulary_id: number) {
+    try {
+      await apiFetch(`/api/admin/dial/positions/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vocabulary_id }),
       });
       await loadAll();
     } catch { /* non-critical */ }
@@ -324,25 +335,51 @@ export default function AdminDial() {
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.map(pos => (
+                      {rows.map(pos => {
+                        const archetypeVocab = vocab
+                          .filter(v => v.archetype === pos.archetype)
+                          .sort((a, b) => a.sort_order - b.sort_order);
+                        const currentIdx = archetypeVocab.findIndex(v => v.id === pos.vocabulary_id);
+                        const prevVocab = archetypeVocab[currentIdx - 1];
+                        const nextVocab = archetypeVocab[currentIdx + 1];
+                        return (
                         <tr key={pos.id} className="border-b border-stone-50 hover:bg-stone-50">
                           <td className="py-2 pr-6 text-stone-800">{pos.coffee}</td>
                           <td className="py-2 pr-6 text-stone-500">{pos.dimension}</td>
                           <td className="py-2 pr-6">
-                            <span className="px-2 py-0.5 rounded-full text-xs text-white"
-                              style={{ backgroundColor: '#b05642' }}>
-                              {pos.position_sort}. {pos.dial_label}
-                            </span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => prevVocab && handleMovePosition(pos.id, prevVocab.id)}
+                                disabled={!prevVocab}
+                                className="text-stone-300 hover:text-stone-600 disabled:opacity-20 disabled:cursor-not-allowed transition-colors text-base leading-none px-0.5"
+                                title={prevVocab ? `Move to ${prevVocab.label}` : 'Already at leftmost position'}
+                              >←</button>
+                              <span className="px-2 py-0.5 rounded-full text-xs text-white"
+                                style={{ backgroundColor: '#b05642' }}>
+                                {pos.position_sort}. {pos.dial_label}
+                              </span>
+                              <button
+                                onClick={() => nextVocab && handleMovePosition(pos.id, nextVocab.id)}
+                                disabled={!nextVocab}
+                                className="text-stone-300 hover:text-stone-600 disabled:opacity-20 disabled:cursor-not-allowed transition-colors text-base leading-none px-0.5"
+                                title={nextVocab ? `Move to ${nextVocab.label}` : 'Already at rightmost position'}
+                              >→</button>
+                            </div>
                           </td>
                           <td className="py-2 pr-6">
-                            <button onClick={() => handleToggleDefault(pos)}
-                              className={`text-xs px-2 py-0.5 rounded border transition-colors ${
-                                pos.is_default
-                                  ? 'border-stone-400 text-stone-700 bg-stone-100'
-                                  : 'border-stone-200 text-stone-300 hover:border-stone-400 hover:text-stone-500'
-                              }`}>
-                              {pos.is_default ? 'Default' : 'Set default'}
-                            </button>
+                            {pos.is_default ? (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-stone-700 text-white">
+                                ★ Default
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => handleSetDefault(pos)}
+                                className="text-xs px-2 py-0.5 rounded text-white transition-opacity hover:opacity-80"
+                                style={{ backgroundColor: '#b05642' }}
+                              >
+                                Set Default
+                              </button>
+                            )}
                           </td>
                           <td className="py-2 pr-6 text-stone-400 text-xs capitalize">
                             {pos.is_computed ? 'computed' : 'manual'}
@@ -354,7 +391,8 @@ export default function AdminDial() {
                             </button>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 )}
