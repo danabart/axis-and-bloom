@@ -1931,6 +1931,25 @@ Breakfast Blend, Blonde Blend, Guatemala, Colombia, Brazil Santos, African Espre
 
 ---
 
+### 66. Admin — dial positions consolidated into Coffees page (2026-06-29)
+
+**Files:** `frontend/src/app/components/admin/AdminCoffees.tsx`, `frontend/src/app/components/admin/AdminDial.tsx`, `backend/src/routes/admin.ts`
+
+**Problem:** AdminCoffees and AdminDial were duplicating concerns — both touched archetype/dial data for the same coffees, requiring admins to jump between two pages to fully configure a coffee.
+
+**AdminCoffees** now owns everything per coffee:
+- New **Dial Position column** on every row: shows `2. Classic ★` with ← → quick-move arrows for one-click position changes without opening the form.
+- Inline assignment form (click the archetype badge) now includes: Archetype + Confidence + **Dial Position dropdown** (filtered to selected archetype) + **Set as Default checkbox** + Notes — all saved in one action.
+- Changing the archetype in the form resets the dial position dropdown automatically.
+
+**AdminDial** is now **Navigation Hops only** — tab UI removed, Dial Positions section removed, renamed to "Navigation Hops". Empty state note reminds admin to wait for cupping data before adding hops.
+
+**Backend changes (`admin.ts`):**
+- `GET /api/admin/coffees` — extended with `dial_vocab_id`, `dial_label`, `dial_position_sort`, `dial_is_default` via LEFT JOINs to `dial_archetype_positions` + `dial_position_vocabulary`.
+- `POST /api/admin/coffees/:id/archetype` — now accepts optional `vocabulary_id` + `dial_is_default`. Wrapped in a transaction: supersedes old archetype assignment, deletes all existing dial positions for the coffee (handles archetype change), inserts new dial position, promotes default (clearing previous same-archetype + same-roaster default). All atomic.
+
+---
+
 ## What's Still To Do
 
 ### Quiz / scoring
