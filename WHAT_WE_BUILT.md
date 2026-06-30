@@ -1887,6 +1887,11 @@ Breakfast Blend, Blonde Blend, Guatemala, Colombia, Brazil Santos, African Espre
 - "Whiskey Barrel (Rotating)" in coffee_alias experimental Right slot — coffee does not yet exist in DB; add manually when the coffee is added to the catalogue
 - `dial_coffee_relationships` (navigation hops between coffees) — do via admin UI after positions are confirmed
 
+**Execution fixes (2026-06-29):**
+
+- `coffees` table had no UNIQUE constraint on `(name, roaster)` so earlier xlsx import attempts had created duplicate rows for some TCR coffees. All seed files updated to use `SELECT MIN(id) FROM coffees WHERE ...` for FK resolution to be safe against duplicates. Roaster/archetype lookups kept as `SELECT id` — those tables use UUID PKs where MIN() doesn't apply and have no duplicates.
+- `dial_archetype_positions` had a pre-existing row for Feather In Cap mapped to `chocolate_nutty / sort_order=3 (Richer)` — a leftover from when Session 001 tagged it as Chocolate & Nutty. Deleted manually: `DELETE FROM dial_archetype_positions WHERE archetype = 'chocolate_nutty' AND coffee_id IN (SELECT id FROM coffees WHERE name = 'Feather In Cap')`. Feather In Cap correctly sits in `balanced_sweet / sort_order=2` per the new catalogue.
+
 ---
 
 ## What's Still To Do

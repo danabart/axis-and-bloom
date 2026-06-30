@@ -207,6 +207,10 @@ Seed files in `backend/src/db/seeds/` — run in order via Cloud SQL Studio. Not
 
 ★ = is_default on the Bloom Dial for that archetype + roaster
 
+**Schema gap:** `coffees` has no UNIQUE constraint on `(name, roaster)`. Earlier xlsx import attempts created duplicate rows for some TCR coffees. All seed files above use `SELECT MIN(id) FROM coffees WHERE name = '...' AND roaster = '...'` to resolve FKs safely — always picks the first-inserted row even if duplicates exist. Roaster/archetype tables use UUID PKs so they are exempt (MIN not applicable, no duplicates).
+
+**Data fix (2026-06-29):** `dial_archetype_positions` had a pre-existing row for Feather In Cap under `chocolate_nutty / sort_order=3 (Richer)` — a leftover from Session 001's old archetype tag. Deleted manually. Feather In Cap correctly sits in `balanced_sweet / sort_order=2 (Default)`.
+
 ---
 
 ## Cupping Tool Data Model
