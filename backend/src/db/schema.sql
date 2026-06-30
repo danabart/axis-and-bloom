@@ -978,6 +978,21 @@ CREATE TABLE IF NOT EXISTS dial_coffee_relationships (
   UNIQUE(from_coffee_id, to_coffee_id, dimension_id, direction)
 );
 
+-- Maps Axis & Bloom platform slot names to the coffees that fill them.
+-- Multiple coffees (from different roasters) can share a platform_name slot.
+-- priority=1 is preferred; priority=2 is fallback if priority=1 is out of stock.
+CREATE TABLE IF NOT EXISTS coffee_alias (
+  id              SERIAL PRIMARY KEY,
+  platform_name   TEXT NOT NULL,
+  archetype       archetype_enum,   -- NULL for Half-Caf / Decaf (no enum value)
+  dial_sort_order INT,              -- matches dial_position_vocabulary.sort_order
+  coffee_id       INT REFERENCES coffees(id) ON DELETE CASCADE,
+  is_active       BOOLEAN DEFAULT TRUE,
+  priority        INT DEFAULT 1,
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (archetype, dial_sort_order, coffee_id)
+);
+
 -- ─────────────────────────────────────────────
 -- LOOKUP VALUES  (controlled vocabulary)
 -- ─────────────────────────────────────────────

@@ -1857,6 +1857,38 @@ Bloom Dial appeared in both the general section (`NAV_MAIN`) and the Sommelier s
 
 ---
 
+### 63. Roastery catalogue — Path Coffee Roasters + Temecula Coffee Roasters (2026-06-29)
+
+Full coffee catalogue seeded for both roastery partners. Source: `backend/src/db/roasteries notes and conceptual mapping/roasteries notes and conceptual matrix.xlsx`.
+
+**New seed files** (run in order via Cloud SQL Studio):
+
+| # | File | Table | Rows |
+|---|---|---|---|
+| 1 | `seeds/coffees_path_tcr.sql` | `coffees` | 10 Path (new) + 16 TCR = 26 rows |
+| 2 | `seeds/roastery_descriptors_path_tcr.sql` | `roastery_coffee_descriptors` | ~45 new rows (ON CONFLICT skips session 001 dupes) |
+| 3 | `seeds/archetype_assignments_path_tcr.sql` | `archetype_assignments` | 5 Path (new) + 16 TCR = 21 rows |
+| 4 | `seeds/roaster_blend_both.sql` | `roaster_blend` | 10 Path × 2 sizes + 16 TCR × 2 = 52 rows |
+| 5 | `seeds/dial_positions_path_tcr.sql` | `dial_archetype_positions` | 8 Path + 15 TCR = 23 rows |
+| 6 | `seeds/coffee_alias_path_tcr.sql` | `coffee_alias` | 25 rows |
+
+**Schema change** (`schema.sql`): New `coffee_alias` table added (idempotent `CREATE TABLE IF NOT EXISTS`).  
+`coffee_alias` maps Axis & Bloom platform slot names to the coffees that fill them. Supports priority=1 (Path, preferred) and priority=2 (TCR, fallback). NULL archetype for Half-Caf and Decaf.
+
+**Coffees added — Path Coffee Roasters** (10 new; Crosshatch, Ethiopia, Feather In Cap already existed):  
+Colombia, Noam Blend, Nocturnal Dark Roast, Vantablack Ultra-Dark, Honduras, Sleepwalker Half-Caf, Decaf, Vanilla, Hazelnut, Chocolate
+
+**Coffees added — Temecula Coffee Roasters** (all 16 new):  
+Breakfast Blend, Blonde Blend, Guatemala, Colombia, Brazil Santos, African Espresso Blend, 6-Bean Espresso Blend, Sumatra, Bali Blue, Uganda, Papua New Guinea, Ethiopia Natural, Costa Rica, Tanzania, Kenya, Kopi Safari
+
+**Skipped / pending:**
+- Flavored coffees (Vanilla, Hazelnut, Chocolate) — in `coffees` and `roaster_blend` tables, but skipped from archetype/dial/alias tables (ground-only, need separate handling)
+- Kopi Safari — in `coffees`, `archetype_assignments` (experimental), and `roaster_blend`, but skipped from `dial_archetype_positions` (no vocabulary for experimental archetype) and added to `coffee_alias` for "The Unexpected" slot
+- "Whiskey Barrel (Rotating)" in coffee_alias experimental Right slot — coffee does not yet exist in DB; add manually when the coffee is added to the catalogue
+- `dial_coffee_relationships` (navigation hops between coffees) — do via admin UI after positions are confirmed
+
+---
+
 ## What's Still To Do
 
 ### Quiz / scoring

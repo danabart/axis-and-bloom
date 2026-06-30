@@ -8,9 +8,11 @@ Seed files (run manually): `backend/src/db/seeds/`
 
 ---
 
-## Database Schema (59 Tables)
+## Database Schema (60 Tables)
 
 The schema runs automatically on every backend startup (`CREATE TABLE IF NOT EXISTS` — fully idempotent, safe to run repeatedly).
+
+> **As of 2026-06-29**: 60 tables. Path Coffee Roasters (13 coffees) + Temecula Coffee Roasters (16 coffees) fully seeded via Tasks 1–6. Run seed files from `backend/src/db/seeds/` in order via Cloud SQL Studio.
 
 It was merged from the original Supabase design plus adaptations for Firebase Auth (Firebase UID used as the user identifier instead of Supabase's auth.users). The cupping tool tables (added May 2026) are a separate group with SERIAL PKs rather than UUIDs.
 
@@ -92,6 +94,9 @@ It was merged from the original Supabase design plus adaptations for Firebase Au
 - `dial_archetype_positions` — maps coffees to their position on the Bloom Dial per archetype
 - `dial_coffee_relationships` — directional dimensional hop graph between coffees; used by the sommelier RAG and future computed dial positions
 
+**Roastery catalogue** *(seeded June 2026)*
+- `coffee_alias` — maps Axis & Bloom platform slot names (e.g. "Classic Balanced", "Jammy & Aromatic") to the coffees that fill them; `priority=1` = Path (preferred), `priority=2` = TCR (fallback); `archetype` is NULL for Half-Caf / Decaf rows; UNIQUE on `(archetype, dial_sort_order, coffee_id)` — NULL archetypes bypass the constraint so multiple NULL rows are allowed; see `seeds/coffee_alias_path_tcr.sql`
+
 **Sommelier (Liam)** *(added June 2026 — SERIAL PKs)*
 - `sommelier_sessions` — one row per Liam session; columns: `uid TEXT` (firebase UID), `intent TEXT`, `turn_count INT`, `is_closed BOOL`, `close_reason TEXT`, `context_data JSONB` (stores catalogText, evaluationId, archetype, coffeeIds, ragFocus), `last_active_at TIMESTAMPTZ`
 - `sommelier_messages` — **legacy** (table kept, no longer written). Conversation messages moved to Firestore `users/{uid}/sommelier_sessions/{sessionId}/messages` as of 2026-06-27. `GET /api/sommelier/:id/messages` falls back to this table for sessions created before the migration.
@@ -145,6 +150,62 @@ It was merged from the original Supabase design plus adaptations for Firebase Au
 | `address_type_enum` | `shipping`, `billing` | `address.address_type`; migrated from `TEXT` via idempotent `DO` block on deploy |
 | `hop_direction_enum` | `more`, `less` | `dial_coffee_relationships.direction` |
 | `hop_type_enum` | `within_archetype`, `bridge_archetype` | `dial_coffee_relationships.hop_type` |
+
+---
+
+## Coffee Catalogue (seeded 2026-06-29)
+
+Seed files in `backend/src/db/seeds/` — run in order via Cloud SQL Studio. Not added to schema.sql (not idempotent).
+
+| File | Table | Description |
+|---|---|---|
+| `coffees_path_tcr.sql` | `coffees` | 10 new Path coffees + 16 TCR coffees |
+| `roastery_descriptors_path_tcr.sql` | `roastery_coffee_descriptors` | Bag note → SCA wheel mapping for all coffees |
+| `archetype_assignments_path_tcr.sql` | `archetype_assignments` | Pre-cupping archetype estimates, confidence = medium |
+| `roaster_blend_both.sql` | `roaster_blend` | 2 rows per coffee (12oz + 5lb), inventory_status = 'pending' |
+| `dial_positions_path_tcr.sql` | `dial_archetype_positions` | Bloom Dial positions for 23 coffees (5 archetypes) |
+| `coffee_alias_path_tcr.sql` | `coffee_alias` | Platform slot names → coffee mappings (25 rows) |
+
+**Path Coffee Roasters** (13 total; 3 from session 001 + 10 new):
+
+| Coffee | Archetype | Dial Position | 12oz SKU | 5lb SKU |
+|---|---|---|---|---|
+| Colombia | balanced_sweet | Approachable | COL-12 | COL-5 |
+| Feather In Cap | balanced_sweet | Default ★ | FIC-12 | FIC-5 |
+| Crosshatch | balanced_sweet | Bold | CB-12 | CB-5 |
+| Noam Blend | chocolate_nutty | Default ★ | NB-12 | NB-5 |
+| Nocturnal Dark Roast | earthy | Default ★ | DR-12 | DR-5 |
+| Vantablack Ultra-Dark | earthy | Bold | VB-12 | VB-5 |
+| Honduras | floral | Default ★ | HON-12 | HON-5 |
+| Ethiopia | fruity | Complex ★ | ETH-12 | ETH-5 |
+| Sleepwalker Half-Caf | — | — | SW-12 | SW-5 |
+| Decaf | — | — | DECAF-12 | DECAF-5 |
+| Vanilla | — (Flavored) | — | VAN-12-G | VAN-5-G |
+| Hazelnut | — (Flavored) | — | HAZ-12-G | HAZ-5-G |
+| Chocolate | — (Flavored) | — | CHO-12-G | CHO-5-G |
+
+**Temecula Coffee Roasters** (16 coffees, all new):
+
+| Coffee | Archetype | Dial Position | 12oz SKU | 5lb SKU |
+|---|---|---|---|---|
+| Breakfast Blend | balanced_sweet | Approachable | BBLEND-12 | BBLEND-5 |
+| Blonde Blend | balanced_sweet | Approachable | BLOND-12 | BLOND-5 |
+| Guatemala | balanced_sweet | Default ★ | GUAT-12 | GUAT-5 |
+| Colombia | balanced_sweet | Bold | COLO-12 | COLO-5 |
+| Brazil Santos | chocolate_nutty | Default ★ | BRAZ-12 | BRAZ-5 |
+| African Espresso Blend | chocolate_nutty | Bold | AFRICA-12 | AFRICA-5 |
+| 6-Bean Espresso Blend | chocolate_nutty | Bold | 6BEAN-12 | 6BEAN-5 |
+| Sumatra | earthy | Default ★ | SUM-12 | SUM-5 |
+| Bali Blue | earthy | Bold | BALI-12 | BALI-5 |
+| Uganda | earthy | Bold | UGAN-12 | UGAN-5 |
+| Papua New Guinea | floral | Gentle | PNG-12 | PNG-5 |
+| Ethiopia Natural | floral | Default ★ | ETHN-12 | ETHN-5 |
+| Costa Rica | fruity | Gentle | COSTA-12 | COSTA-5 |
+| Tanzania | fruity | Default ★ | TANZ-12 | TANZ-5 |
+| Kenya | fruity | Complex | KENYA-12 | KENYA-5 |
+| Kopi Safari | experimental | — | KOPI-12 | KOPI-5 |
+
+★ = is_default on the Bloom Dial for that archetype + roaster
 
 ---
 
