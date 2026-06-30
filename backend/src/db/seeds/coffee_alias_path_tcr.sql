@@ -19,14 +19,14 @@
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'Soft & Smooth', 'balanced_sweet', 1,
-  (SELECT id FROM coffees WHERE name = 'Breakfast Blend' AND roaster = 'Temecula Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Breakfast Blend' AND roaster = 'Temecula Coffee Roasters'),
   2, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'Soft & Smooth', 'balanced_sweet', 1,
-  (SELECT id FROM coffees WHERE name = 'Blonde Blend' AND roaster = 'Temecula Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Blonde Blend' AND roaster = 'Temecula Coffee Roasters'),
   2, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
@@ -34,14 +34,14 @@ VALUES (
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'Classic Balanced', 'balanced_sweet', 2,
-  (SELECT id FROM coffees WHERE name = 'Feather In Cap' AND roaster = 'Path Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Feather In Cap' AND roaster = 'Path Coffee Roasters'),
   1, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'Classic Balanced', 'balanced_sweet', 2,
-  (SELECT id FROM coffees WHERE name = 'Guatemala' AND roaster = 'Temecula Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Guatemala' AND roaster = 'Temecula Coffee Roasters'),
   2, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
@@ -49,14 +49,14 @@ VALUES (
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'Bright & Balanced', 'balanced_sweet', 3,
-  (SELECT id FROM coffees WHERE name = 'Crosshatch' AND roaster = 'Path Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Crosshatch' AND roaster = 'Path Coffee Roasters'),
   1, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'Bright & Balanced', 'balanced_sweet', 3,
-  (SELECT id FROM coffees WHERE name = 'Colombia' AND roaster = 'Temecula Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Colombia' AND roaster = 'Temecula Coffee Roasters'),
   2, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
@@ -66,14 +66,14 @@ VALUES (
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'Classic Chocolate', 'chocolate_nutty', 2,
-  (SELECT id FROM coffees WHERE name = 'Noam Blend' AND roaster = 'Path Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Noam Blend' AND roaster = 'Path Coffee Roasters'),
   1, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'Classic Chocolate', 'chocolate_nutty', 2,
-  (SELECT id FROM coffees WHERE name = 'Brazil Santos' AND roaster = 'Temecula Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Brazil Santos' AND roaster = 'Temecula Coffee Roasters'),
   2, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
@@ -81,14 +81,14 @@ VALUES (
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'Deep Cocoa', 'chocolate_nutty', 3,
-  (SELECT id FROM coffees WHERE name = '6-Bean Espresso Blend' AND roaster = 'Temecula Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = '6-Bean Espresso Blend' AND roaster = 'Temecula Coffee Roasters'),
   2, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'Deep Cocoa', 'chocolate_nutty', 3,
-  (SELECT id FROM coffees WHERE name = 'African Espresso Blend' AND roaster = 'Temecula Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'African Espresso Blend' AND roaster = 'Temecula Coffee Roasters'),
   2, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
@@ -98,14 +98,14 @@ VALUES (
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'Grounded & Earthy', 'earthy', 2,
-  (SELECT id FROM coffees WHERE name = 'Nocturnal Dark Roast' AND roaster = 'Path Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Nocturnal Dark Roast' AND roaster = 'Path Coffee Roasters'),
   1, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'Grounded & Earthy', 'earthy', 2,
-  (SELECT id FROM coffees WHERE name = 'Sumatra' AND roaster = 'Temecula Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Sumatra' AND roaster = 'Temecula Coffee Roasters'),
   2, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
@@ -113,21 +113,21 @@ VALUES (
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'Dark Grounded', 'earthy', 3,
-  (SELECT id FROM coffees WHERE name = 'Vantablack Ultra-Dark' AND roaster = 'Path Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Vantablack Ultra-Dark' AND roaster = 'Path Coffee Roasters'),
   1, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'Dark Grounded', 'earthy', 3,
-  (SELECT id FROM coffees WHERE name = 'Bali Blue' AND roaster = 'Temecula Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Bali Blue' AND roaster = 'Temecula Coffee Roasters'),
   2, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'Dark Grounded', 'earthy', 3,
-  (SELECT id FROM coffees WHERE name = 'Uganda' AND roaster = 'Temecula Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Uganda' AND roaster = 'Temecula Coffee Roasters'),
   2, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
@@ -137,7 +137,7 @@ VALUES (
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'The Unexpected', 'experimental', 2,
-  (SELECT id FROM coffees WHERE name = 'Kopi Safari' AND roaster = 'Temecula Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Kopi Safari' AND roaster = 'Temecula Coffee Roasters'),
   2, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
@@ -150,7 +150,7 @@ VALUES (
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'Light Floral Edge', 'floral', 1,
-  (SELECT id FROM coffees WHERE name = 'Papua New Guinea' AND roaster = 'Temecula Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Papua New Guinea' AND roaster = 'Temecula Coffee Roasters'),
   2, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
@@ -158,14 +158,14 @@ VALUES (
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'Perfumed & Expressive', 'floral', 2,
-  (SELECT id FROM coffees WHERE name = 'Honduras' AND roaster = 'Path Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Honduras' AND roaster = 'Path Coffee Roasters'),
   1, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'Perfumed & Expressive', 'floral', 2,
-  (SELECT id FROM coffees WHERE name = 'Ethiopia Natural' AND roaster = 'Temecula Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Ethiopia Natural' AND roaster = 'Temecula Coffee Roasters'),
   2, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
@@ -175,7 +175,7 @@ VALUES (
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'Clean Fruit', 'fruity', 1,
-  (SELECT id FROM coffees WHERE name = 'Costa Rica' AND roaster = 'Temecula Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Costa Rica' AND roaster = 'Temecula Coffee Roasters'),
   2, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
@@ -183,7 +183,7 @@ VALUES (
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'Bright & Tart', 'fruity', 2,
-  (SELECT id FROM coffees WHERE name = 'Tanzania' AND roaster = 'Temecula Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Tanzania' AND roaster = 'Temecula Coffee Roasters'),
   2, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
@@ -191,14 +191,14 @@ VALUES (
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'Jammy & Aromatic', 'fruity', 3,
-  (SELECT id FROM coffees WHERE name = 'Ethiopia' AND roaster = 'Path Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Ethiopia' AND roaster = 'Path Coffee Roasters'),
   1, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 VALUES (
   'Jammy & Aromatic', 'fruity', 3,
-  (SELECT id FROM coffees WHERE name = 'Kenya' AND roaster = 'Temecula Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Kenya' AND roaster = 'Temecula Coffee Roasters'),
   2, true
 ) ON CONFLICT (archetype, dial_sort_order, coffee_id) DO NOTHING;
 
@@ -207,14 +207,14 @@ VALUES (
 -- Left (sort_order=1) → "Smooth Half-Caf" — Path: Sleepwalker Half-Caf
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 SELECT 'Smooth Half-Caf', NULL, 1,
-  (SELECT id FROM coffees WHERE name = 'Sleepwalker Half-Caf' AND roaster = 'Path Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Sleepwalker Half-Caf' AND roaster = 'Path Coffee Roasters'),
   1, true
 WHERE NOT EXISTS (
   SELECT 1 FROM coffee_alias
   WHERE platform_name = 'Smooth Half-Caf'
     AND archetype IS NULL
     AND dial_sort_order = 1
-    AND coffee_id = (SELECT id FROM coffees WHERE name = 'Sleepwalker Half-Caf' AND roaster = 'Path Coffee Roasters')
+    AND coffee_id = (SELECT MIN(id) FROM coffees WHERE name = 'Sleepwalker Half-Caf' AND roaster = 'Path Coffee Roasters')
 );
 
 -- ── DECAF (NULL archetype) — no unique constraint match, insert directly ──────
@@ -222,14 +222,14 @@ WHERE NOT EXISTS (
 -- Default (sort_order=2) → "Classic Decaf" — Path: Decaf
 INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
 SELECT 'Classic Decaf', NULL, 2,
-  (SELECT id FROM coffees WHERE name = 'Decaf' AND roaster = 'Path Coffee Roasters'),
+  (SELECT MIN(id) FROM coffees WHERE name = 'Decaf' AND roaster = 'Path Coffee Roasters'),
   1, true
 WHERE NOT EXISTS (
   SELECT 1 FROM coffee_alias
   WHERE platform_name = 'Classic Decaf'
     AND archetype IS NULL
     AND dial_sort_order = 2
-    AND coffee_id = (SELECT id FROM coffees WHERE name = 'Decaf' AND roaster = 'Path Coffee Roasters')
+    AND coffee_id = (SELECT MIN(id) FROM coffees WHERE name = 'Decaf' AND roaster = 'Path Coffee Roasters')
 );
 
 -- ── Verify ────────────────────────────────────────────────────────────────────
