@@ -1920,6 +1920,11 @@ Breakfast Blend, Blonde Blend, Guatemala, Colombia, Brazil Santos, African Espre
 ### Quiz / scoring
 1. **Populate cross-archetype negative scores** — current `quiz_answer_archetype_score` rows only award one positive score per answer. Add negative rows for competing archetypes (e.g. Q5 answer A → Chocolate +3, Balanced −1, Fruity −2) to make the matrix fully competitive. Run via Cloud SQL Studio — no code deploy needed.
 
+### Bloom Dial — navigation hops
+- **`dial_coffee_relationships`** (the "want something bolder? try X" hops) has not been populated for the new Path and TCR coffees. All new coffees have `confidence = medium` pre-cupping estimates — actual sensory distances (sweetness, acidity, body values in `cupping_score_values`) are unknown, so any hops added now would be guesses.
+- **Correct order:** (1) run cupping sessions for new coffees → `cupping_scores` + `cupping_score_values` populated; (2) promote archetype confidence from `medium` → `high`; (3) add hops via admin UI — `v_dial_positions.delta_from_default` will then reflect real scores to guide which coffees are genuinely one step bolder/lighter from each other.
+- **Session 001 coffees** (Crosshatch, Ethiopia, Feather In Cap) already have cupping data and could have hops added now if needed.
+
 ### Cupping tool
 3. **Brew parameters UI** — the `cupping_brew_params` table exists (dose, water, yield, ratio, temp, grind, extraction time, pressure, steep time, device) but has no entry form. Could be added to the Score Entry page as a collapsible "Brew Params" section.
 
