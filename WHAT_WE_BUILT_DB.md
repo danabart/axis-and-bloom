@@ -90,7 +90,7 @@ It was merged from the original Supabase design plus adaptations for Firebase Au
 
 **Bloom Dial** *(added June 2026)*
 - `dial_archetype_config` — dominant dimension and Bloom Dial flag per archetype (seeded, 5 rows)
-- `dial_position_vocabulary` — archetype+dimension-specific label vocabulary for the Bloom Dial (seeded, 20 rows)
+- `dial_position_vocabulary` — archetype+dimension-specific label vocabulary for the Bloom Dial (seeded, 24 rows — 4 per archetype × 6 archetypes); experimental uses dimension 9 (Savory/Depth), labels: Curious / Adventurous / Daring / Untamed
 - `dial_archetype_positions` — maps coffees to their position on the Bloom Dial per archetype
 - `dial_coffee_relationships` — directional dimensional hop graph between coffees; used by the sommelier RAG and future computed dial positions
 
@@ -203,7 +203,7 @@ Seed files in `backend/src/db/seeds/` — run in order via Cloud SQL Studio. Not
 | Costa Rica | fruity | Gentle | COSTA-12 | COSTA-5 |
 | Tanzania | fruity | Default ★ | TANZ-12 | TANZ-5 |
 | Kenya | fruity | Complex | KENYA-12 | KENYA-5 |
-| Kopi Safari | experimental | — | KOPI-12 | KOPI-5 |
+| Kopi Safari | experimental | Default ★ | KOPI-12 | KOPI-5 |
 
 ★ = is_default on the Bloom Dial for that archetype + roaster
 

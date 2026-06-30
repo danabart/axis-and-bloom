@@ -1886,11 +1886,32 @@ Breakfast Blend, Blonde Blend, Guatemala, Colombia, Brazil Santos, African Espre
 - Kopi Safari — in `coffees`, `archetype_assignments` (experimental), and `roaster_blend`, but skipped from `dial_archetype_positions` (no vocabulary for experimental archetype) and added to `coffee_alias` for "The Unexpected" slot
 - "Whiskey Barrel (Rotating)" in coffee_alias experimental Right slot — coffee does not yet exist in DB; add manually when the coffee is added to the catalogue
 - `dial_coffee_relationships` (navigation hops between coffees) — do via admin UI after positions are confirmed
+- "Whiskey Barrel (Rotating)" experimental slot (`sort_order=3 / Daring`) — add when coffee is in the DB; vocabulary row already exists
 
 **Execution fixes (2026-06-29):**
 
 - `coffees` table had no UNIQUE constraint on `(name, roaster)` so earlier xlsx import attempts had created duplicate rows for some TCR coffees. All seed files updated to use `SELECT MIN(id) FROM coffees WHERE ...` for FK resolution to be safe against duplicates. Roaster/archetype lookups kept as `SELECT id` — those tables use UUID PKs where MIN() doesn't apply and have no duplicates.
 - `dial_archetype_positions` had a pre-existing row for Feather In Cap mapped to `chocolate_nutty / sort_order=3 (Richer)` — a leftover from when Session 001 tagged it as Chocolate & Nutty. Deleted manually: `DELETE FROM dial_archetype_positions WHERE archetype = 'chocolate_nutty' AND coffee_id IN (SELECT id FROM coffees WHERE name = 'Feather In Cap')`. Feather In Cap correctly sits in `balanced_sweet / sort_order=2` per the new catalogue.
+
+---
+
+### 64. Experimental archetype added to Bloom Dial (2026-06-29)
+
+`dial_position_vocabulary` previously had no rows for `experimental`, so the Bloom Dial page showed an empty experimental section even though Kopi Safari was assigned that archetype.
+
+**Changes in `schema.sql`** (auto-deploys on Cloud Run startup):
+- Added 4 vocabulary rows for `experimental` using **dimension 9 (Savory/Depth)**:
+
+| sort_order | Label |
+|---|---|
+| 1 | Curious |
+| 2 | Adventurous ★ |
+| 3 | Daring |
+| 4 | Untamed |
+
+- Added idempotent `INSERT INTO dial_archetype_positions` for **Kopi Safari** at `sort_order=2 (Adventurous)`, `is_default=true`.
+
+**Whiskey Barrel (Rotating)** will go at `sort_order=3 (Daring)` when that coffee is added to the catalogue — vocabulary row already exists.
 
 ---
 
