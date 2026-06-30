@@ -56,10 +56,19 @@ router.get('/coffees', async (_req, res) => {
     const result = await db.query(`
       SELECT c.id, c.name, c.roaster, c.origin, c.blend_or_single,
              c.process, c.roast_level, c.flavor_descriptors_roaster,
-             aa.archetype, aa.confidence
+             aa.archetype, aa.confidence,
+             dap.id       AS dial_position_id,
+             dap.vocabulary_id AS dial_vocab_id,
+             dap.is_default    AS dial_is_default,
+             dpv.sort_order    AS dial_position_sort,
+             dpv.label         AS dial_label
       FROM coffees c
       LEFT JOIN archetype_assignments aa
         ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
+      LEFT JOIN dial_archetype_positions dap
+        ON dap.coffee_id = c.id AND dap.archetype = aa.archetype
+      LEFT JOIN dial_position_vocabulary dpv
+        ON dpv.id = dap.vocabulary_id
       ORDER BY c.id DESC
     `);
     res.json(result.rows);
@@ -264,11 +273,13 @@ router.get('/cupping-notes', async (_req, res) => {
 // ── POST /api/admin/coffees/:id/archetype ────────────────────────────────────
 router.post('/coffees/:id/archetype', async (req, res) => {
   const { id } = req.params;
-  const { archetype, confidence, notes, assigned_from_session_id } = req.body;
+  const { archetype, confidence, notes, assigned_from_session_id, vocabulary_id, dial_is_default } = req.body;
   if (!archetype || !confidence) {
     res.status(400).json({ error: 'archetype and confidence are required' }); return;
   }
   try {
+    await db.query('BEGIN');
+
     await db.query(
       `UPDATE archetype_assignments SET superseded_at = now()
        WHERE coffee_id = $1 AND superseded_at IS NULL`,
@@ -279,8 +290,36 @@ router.post('/coffees/:id/archetype', async (req, res) => {
        VALUES ($1, $2, $3, $4, $5) RETURNING *`,
       [id, archetype, confidence, notes ?? null, assigned_from_session_id ?? null]
     );
+
+    if (vocabulary_id) {
+      // Remove all existing dial positions for this coffee (handles archetype change)
+      await db.query(`DELETE FROM dial_archetype_positions WHERE coffee_id = $1`, [id]);
+
+      if (dial_is_default) {
+        // Clear previous default for same archetype + same roaster
+        await db.query(`
+          UPDATE dial_archetype_positions
+          SET is_default = false
+          WHERE archetype = $1
+            AND is_default = true
+            AND coffee_id IN (
+              SELECT c.id FROM coffees c
+              WHERE c.roaster = (SELECT roaster FROM coffees WHERE id = $2)
+            )
+        `, [archetype, id]);
+      }
+
+      await db.query(
+        `INSERT INTO dial_archetype_positions (coffee_id, archetype, vocabulary_id, is_default)
+         VALUES ($1, $2, $3, $4)`,
+        [id, archetype, vocabulary_id, dial_is_default ?? false]
+      );
+    }
+
+    await db.query('COMMIT');
     res.status(201).json(result.rows[0]);
   } catch (err) {
+    await db.query('ROLLBACK');
     console.error('[admin/coffees archetype]', err);
     res.status(500).json({ error: 'Failed to assign archetype' });
   }
