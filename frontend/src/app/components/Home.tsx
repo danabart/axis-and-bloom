@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from 'react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { Link, useNavigate } from 'react-router';
 import { TasteFinderSection } from './TasteFinderSection';
 import placeholderVideo from '../../design/IMAGES/videos/PlaceHolder01.mp4'
@@ -77,6 +77,15 @@ const bags = [
   { photo: photoExperimental, bag: bagExperimental, label: 'No. 06 — Experimental'    },
 ];
 
+const SENTENCES = [
+  "Coffee is how I come back to myself before the day begins.",
+  "I do not need more choices. I need the right one.",
+  "A good cup makes the morning feel possible.",
+  "The right coffee feels like a quiet yes.",
+  "Coffee should feel like home, even when everything else is moving.",
+  "A cup I love makes ordinary mornings feel more generous.",
+];
+
 // ─── Shared animation preset ─────────────────────────────────────────────────
 
 const fadeUp = (delay = 0) => ({
@@ -93,6 +102,15 @@ export default function Home() {
   const heroVideoRef      = useRef<HTMLVideoElement>(null);
   const cinematicVideoRef = useRef<HTMLVideoElement>(null);
   const [hoveredBag, setHoveredBag] = useState<number | null>(null);
+  const [activeIdx, setActiveIdx]   = useState(0);
+  const [paused, setPaused]         = useState(false);
+  const prefersReducedMotion        = useReducedMotion();
+
+  useEffect(() => {
+    if (prefersReducedMotion || paused) return;
+    const id = setInterval(() => setActiveIdx(i => (i + 1) % SENTENCES.length), 5500);
+    return () => clearInterval(id);
+  }, [paused, prefersReducedMotion]);
 
   useEffect(() => {
     // rAF-based loop: fires every frame (~60fps) so we catch the end before any black frame
@@ -184,39 +202,72 @@ export default function Home() {
 
       {/* ━━━ 2. PROFILE CTA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <section style={{ backgroundColor: '#e5e5da', padding: 'clamp(72px, 10vw, 120px) clamp(32px, 6vw, 96px)' }}>
-        <motion.div
-          {...fadeUp(0)}
-          style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', textAlign: 'right', maxWidth: 600, marginLeft: 'auto' }}
-        >
-          <p style={{ fontFamily: "Arial, sans-serif", fontSize: 'clamp(2rem, 3.6vw, 3.6rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.15, margin: 0 }}>
-            Whose palate are we<br />profiling today?
-          </p>
-          <form onSubmit={handleProfileStart} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '100%', marginTop: 36 }}>
-            <style>{`#profile-name::placeholder { color: rgba(154,41,24,0.36); }`}</style>
-            <input
-              id="profile-name"
-              type="text"
-              name="name"
-              required
-              placeholder="Enter your name"
-              style={{ width: '100%', maxWidth: 400, background: 'none', border: 'none', borderBottom: '1px solid rgba(154,41,24,0.42)', borderRadius: 0, outline: 'none', fontFamily: "Arial, sans-serif", fontSize: '1.25rem', fontWeight: 400, color: '#9a2918', padding: '10px 0', textAlign: 'right' }}
-            />
-            <button
-              type="submit"
-              style={{ marginTop: 22, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: "Arial, sans-serif", fontSize: '0.88rem', fontWeight: 400, color: '#9a2918', letterSpacing: '0.22em', textTransform: 'uppercase', textDecoration: 'underline', textUnderlineOffset: '4px', textDecorationColor: 'rgba(154,41,24,0.32)', transition: 'text-decoration-color 0.2s' }}
-              onMouseEnter={e => e.currentTarget.style.textDecorationColor = '#9a2918'}
-              onMouseLeave={e => e.currentTarget.style.textDecorationColor = 'rgba(154,41,24,0.32)'}
-            >
-              BEGIN PROFILE →
-            </button>
-            <Link
-              to="/sign-in"
-              style={{ marginTop: 14, fontFamily: "Arial, sans-serif", fontSize: '0.72rem', fontWeight: 400, color: '#9a2918', letterSpacing: '0.14em', textTransform: 'uppercase', textDecoration: 'none', opacity: 0.45, borderBottom: '1px solid rgba(154,41,24,0.25)', paddingBottom: 2 }}
-            >
-              Already a member? Sign in →
-            </Link>
-          </form>
-        </motion.div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'clamp(48px, 8vw, 96px)', flexWrap: 'wrap' }}>
+
+          {/* ── LEFT: rotating sentence composition ── */}
+          <div
+            style={{ flex: '1 1 280px', maxWidth: 460 }}
+            onMouseEnter={() => setPaused(true)}
+            onMouseLeave={() => setPaused(false)}
+          >
+            <p style={{ fontSize: '0.6rem', letterSpacing: '0.28em', textTransform: 'uppercase', color: '#9a2918', opacity: 0.5, margin: '0 0 28px' }}>
+              In Their Words
+            </p>
+            <div style={{ minHeight: '9rem', position: 'relative' }}>
+              <AnimatePresence mode="wait">
+                <motion.p
+                  key={activeIdx}
+                  initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={prefersReducedMotion ? false : { opacity: 0, y: -8 }}
+                  transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
+                  style={{ fontSize: 'clamp(1.25rem, 2vw, 1.75rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.55, margin: 0, maxWidth: 420, position: 'absolute', top: 0, left: 0 }}
+                >
+                  {SENTENCES[activeIdx]}
+                </motion.p>
+              </AnimatePresence>
+            </div>
+            <p style={{ fontSize: '0.6rem', letterSpacing: '0.22em', color: '#9a2918', opacity: 0.38, margin: '20px 0 0' }}>
+              {String(activeIdx + 1).padStart(2, '0')} / {String(SENTENCES.length).padStart(2, '0')}
+            </p>
+          </div>
+
+          {/* ── RIGHT: existing profile form (unchanged) ── */}
+          <motion.div
+            {...fadeUp(0)}
+            style={{ flex: '1 1 280px', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', textAlign: 'right', maxWidth: 600, marginLeft: 'auto' }}
+          >
+            <p style={{ fontSize: 'clamp(2rem, 3.6vw, 3.6rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.15, margin: 0 }}>
+              Whose palate are we<br />profiling today?
+            </p>
+            <form onSubmit={handleProfileStart} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '100%', marginTop: 36 }}>
+              <style>{`#profile-name::placeholder { color: rgba(154,41,24,0.36); }`}</style>
+              <input
+                id="profile-name"
+                type="text"
+                name="name"
+                required
+                placeholder="Enter your name"
+                style={{ width: '100%', maxWidth: 400, background: 'none', border: 'none', borderBottom: '1px solid rgba(154,41,24,0.42)', borderRadius: 0, outline: 'none', fontSize: '1.25rem', fontWeight: 400, color: '#9a2918', padding: '10px 0', textAlign: 'right' }}
+              />
+              <button
+                type="submit"
+                style={{ marginTop: 22, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: '0.88rem', fontWeight: 400, color: '#9a2918', letterSpacing: '0.22em', textTransform: 'uppercase', textDecoration: 'underline', textUnderlineOffset: '4px', textDecorationColor: 'rgba(154,41,24,0.32)', transition: 'text-decoration-color 0.2s' }}
+                onMouseEnter={e => e.currentTarget.style.textDecorationColor = '#9a2918'}
+                onMouseLeave={e => e.currentTarget.style.textDecorationColor = 'rgba(154,41,24,0.32)'}
+              >
+                BEGIN PROFILE →
+              </button>
+              <Link
+                to="/sign-in"
+                style={{ marginTop: 14, fontSize: '0.72rem', fontWeight: 400, color: '#9a2918', letterSpacing: '0.14em', textTransform: 'uppercase', textDecoration: 'none', opacity: 0.45, borderBottom: '1px solid rgba(154,41,24,0.25)', paddingBottom: 2 }}
+              >
+                Already a member? Sign in →
+              </Link>
+            </form>
+          </motion.div>
+
+        </div>
       </section>
 
       {/* ━━━ 3. COFFEE COLLECTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
