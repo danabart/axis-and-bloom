@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X } from 'lucide-react';
+import CoffeePic15 from '../../design/IMAGES/lifestyle/CoffeePic15Vertical.jpg';
 
 export default function NewsletterModal() {
   const [isOpen, setIsOpen] = useState(false);
@@ -56,8 +57,8 @@ export default function NewsletterModal() {
             </button>
             <div className="w-full md:w-1/2 h-64 md:h-auto relative bg-[#deded1]">
               <img
-                src="https://images.unsplash.com/photo-1541870730196-cd1efcbf5649?w=800&q=80"
-                alt="Elegant coffee"
+                src={CoffeePic15}
+                alt="Coffee in a glass cup"
                 className="w-full h-full object-cover"
               />
             </div>

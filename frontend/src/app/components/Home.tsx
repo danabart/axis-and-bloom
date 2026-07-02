@@ -235,7 +235,7 @@ export default function Home() {
           </Link>
         </div>
         {/* Full-width grid — no padding, no gap, edge to edge */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 0 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '8px' }}>
           {bags.map((item, i) => (
             <motion.div
               key={i}
@@ -244,7 +244,7 @@ export default function Home() {
               onMouseEnter={() => setHoveredBag(i)}
               onMouseLeave={() => setHoveredBag(null)}
             >
-              <div style={{ backgroundColor: '#e5e5da', aspectRatio: '3/4', position: 'relative', overflow: 'hidden' }}>
+              <div style={{ backgroundColor: '#e5e5da', height: '360px', position: 'relative', overflow: 'hidden' }}>
                 {/* Archetype photo — visible by default, fades out on hover */}
                 <div style={{
                   position: 'absolute', inset: 0,
