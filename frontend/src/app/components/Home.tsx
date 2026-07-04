@@ -148,35 +148,34 @@ export default function Home() {
       {/*
         To swap in real brand video: replace <source src="..."> and update poster={}
       */}
-      <section style={{ position: 'relative', height: '100vh', overflow: 'hidden', backgroundColor: '#1a1208' }}>
+      <section style={{ position: 'relative', height: 'clamp(240px, 33vh, 380px)', overflow: 'hidden', backgroundColor: '#1a1208' }}>
         <video
           ref={heroVideoRef}
           autoPlay muted playsInline
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%', display: 'block', transform: 'scale(1.06)' }}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 50%', display: 'block', transform: 'scale(1.06)' }}
         >
           <source src={heroVideo} type="video/mp4" />
         </video>
-        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(17,17,16,0.68) 0%, rgba(17,17,16,0.22) 50%, rgba(17,17,16,0.04) 100%)' }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(17,17,16,0.72) 0%, rgba(17,17,16,0.28) 55%, rgba(17,17,16,0.06) 100%)' }} />
 
-        <div style={{ position: 'absolute', bottom: 'clamp(48px, 8vh, 96px)', left: 'clamp(32px, 6vw, 96px)' }}>
+        <div style={{ position: 'absolute', bottom: 'clamp(18px, 3vh, 32px)', left: 'clamp(24px, 5vw, 72px)' }}>
           <motion.h1
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 1, delay: 0.3, ease: [0.16, 1, 0.3, 1] }}
-            style={{ fontFamily: "Arial, sans-serif", fontSize: 'clamp(3rem, 6.5vw, 6.5rem)', fontWeight: 400, lineHeight: 1.0, margin: '0 0 28px', letterSpacing: '-0.02em' }}
+            style={{ fontSize: 'clamp(1.5rem, 3vw, 3rem)', fontWeight: 400, lineHeight: 1.05, margin: '0 0 14px', letterSpacing: '-0.02em' }}
           >
             <span style={{ display: 'block', color: '#9a2918' }}>Coffee,</span>
-            <span style={{ display: 'block', margin: '6px 0' }}>
-              <span style={{ backgroundColor: '#ee5974', color: '#f2f1ea', padding: '2px 16px 6px', display: 'inline-block' }}>matched</span>
+            <span style={{ display: 'block', margin: '4px 0' }}>
+              <span style={{ backgroundColor: '#ee5974', color: '#f2f1ea', padding: '1px 12px 4px', display: 'inline-block' }}>matched</span>
             </span>
-            <span style={{ display: 'block', color: '#9a2918' }}>to your</span>
-            <span style={{ display: 'block', color: '#9a2918' }}>personal flavor.</span>
+            <span style={{ display: 'block', color: '#9a2918' }}>to your personal flavor.</span>
           </motion.h1>
           <motion.div
-            initial={{ opacity: 0, y: 10 }}
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 1, delay: 0.7, ease: [0.16, 1, 0.3, 1] }}
-            style={{ display: 'flex', gap: 32, flexWrap: 'wrap' }}
+            style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}
           >
             <Link
               to="/find-my-flavor"
