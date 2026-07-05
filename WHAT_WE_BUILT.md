@@ -913,6 +913,14 @@ Fields: sessionStarted ASC, startedAt DESC
 ```
 Or click the auto-generated link from the Cloud Run error log directly.
 
+### 61. Liam prompt — ban history-narration, tighten opening template (2026-07-04)
+Triggered by: Liam opened with *"You've been moving around quite a bit — what's shifted for you since the last time?"* — narrating the customer's history back at them and asking a WHY question.
+
+Changes to `LIAM_BASE_PROMPT` in `backend/src/services/claude.ts`:
+- **Extended never-say list**: added "What's shifted for you", "What changed since last time", "Why the change", and all patterns that ask the customer to account for their own history.
+- **New "history is internal context only" rule**: Liam uses past data to inform recommendations silently. He never recites the customer's journey back at them ("you've been moving around", "you've tried a lot of directions") — that reads as analytical and judgmental, not helpful.
+- **Opening turn now has Good/Bad examples**: concrete examples are more reliable than abstract rules. The exact bad line from the live session was added as a "Bad:" example so the model pattern-matches against it.
+
 ### 60. Liam — demographic tone calibration, brand values, register mirroring (2026-06-28)
 Two files changed to make Liam speak to the person in front of him, not a generic user.
 
@@ -1969,6 +1977,20 @@ Breakfast Blend, Blonde Blend, Guatemala, Colombia, Brazil Santos, African Espre
 - `★` marks the default coffee for that roaster + archetype
 
 **Backend:** Added `GET /api/admin/coffee-alias` — returns all `coffee_alias` rows joined to `coffees` (name, roaster, platform_name, archetype, dial_sort_order, priority). Used by the matrix to populate the Slot Name column.
+
+---
+
+### 68. Admin Coffees — delete coffee + unplaced bug fix (2026-07-04)
+
+**Files:** `frontend/src/app/components/admin/AdminCoffees.tsx`, `backend/src/routes/admin.ts`
+
+**Bug fixed:** Coffees with an archetype but no dial position were appearing in both the archetype section's "no position" amber row AND the bottom Unplaced section. Fixed by simplifying `unplaced` to `coffees.filter(c => !c.archetype)` — the Unplaced section is now strictly for coffees with no archetype at all.
+
+**Delete coffee:**
+- Added `DELETE /api/admin/coffees/:id` backend endpoint — hard deletes the row; cascades remove archetype assignments, dial positions, and aliases automatically via FK constraints.
+- Added "Remove coffee" button to the inline edit form (right-aligned, red text, requires confirmation). Visible when any coffee chip is clicked to edit.
+
+**Architecture note:** Out-of-stock / inventory status (`roaster_blend.inventory_status`) is a separate concern from the coffee catalogue and will live in a future **Admin Blends** page covering SKUs, prices, stock status, and Shopify variant IDs.
 
 ---
 
