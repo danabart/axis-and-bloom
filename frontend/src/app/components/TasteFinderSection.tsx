@@ -145,7 +145,7 @@ export function TasteFinderSection() {
 
             <div className="tsf-text-col">
               <p style={{
-                fontFamily: "Arial, sans-serif",
+                fontFamily: "'Fashion Fetish', Arial, sans-serif",
                 fontSize: '0.68rem',
                 letterSpacing: '0.22em',
                 textTransform: 'uppercase',
@@ -155,7 +155,7 @@ export function TasteFinderSection() {
               }}>
                 The Taste Finder
               </p>
-              <div style={{ fontFamily: "Arial, sans-serif", fontWeight: 400, lineHeight: 0.95, margin: '0 0 24px' }}>
+              <div style={{ fontFamily: "'Fashion Fetish', Arial, sans-serif", fontWeight: 400, lineHeight: 0.95, margin: '0 0 24px' }}>
                 <span style={{ display: 'block', fontSize: 'clamp(3.2rem, 4.8vw, 5.6rem)', color: '#9a2918' }}>
                   Which
                 </span>
@@ -176,7 +176,7 @@ export function TasteFinderSection() {
               <a
                 href="/find-my-flavor"
                 style={{
-                  fontFamily: "Arial, sans-serif",
+                  fontFamily: "'Fashion Fetish', Arial, sans-serif",
                   fontSize: '0.72rem',
                   letterSpacing: '0.18em',
                   textTransform: 'uppercase',
@@ -192,7 +192,7 @@ export function TasteFinderSection() {
               <a
                 href="/sign-in"
                 style={{
-                  fontFamily: "Arial, sans-serif",
+                  fontFamily: "'Fashion Fetish', Arial, sans-serif",
                   fontSize: '0.68rem',
                   letterSpacing: '0.14em',
                   textTransform: 'uppercase',
