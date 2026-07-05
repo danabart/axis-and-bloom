@@ -10,6 +10,15 @@ import { writeOutcome, checkReturnedToSommelier } from '../services/outcomeTrack
 import { chatWithSommelier } from '../services/claude.js';
 import { getSommelierConfig } from '../services/sommelierConfig.js';
 
+function getGeneration(dateOfBirth: string | Date | null | undefined): string {
+  if (!dateOfBirth) return 'Millennial';
+  const year = new Date(dateOfBirth).getFullYear();
+  if (year >= 1997) return 'Gen Z';
+  if (year >= 1981) return 'Millennial';
+  if (year >= 1965) return 'Gen X';
+  return 'Boomer';
+}
+
 const router = Router();
 
 // ─── POST /api/sommelier/evaluate ────────────────────────────────────────────
@@ -81,7 +90,7 @@ router.post('/start', requireAuth, async (req: AuthRequest, res) => {
 
     // Fetch user state from latest quiz for RAG context
     const quizResult = await db.query(
-      `SELECT qs.context_data, ar.name AS archetype_name
+      `SELECT qs.context_data, ar.name AS archetype_name, up.date_of_birth
        FROM quiz_session qs
        JOIN user_profile up ON up.id = qs.user_id
        LEFT JOIN archetype ar ON ar.id = qs.resulting_archetype_id
@@ -93,6 +102,10 @@ router.post('/start', requireAuth, async (req: AuthRequest, res) => {
     const prevQuiz = quizResult.rows[1];
     const userArchetype = latestQuiz?.archetype_name ?? null;
     const previousArchetype = prevQuiz?.archetype_name ?? null;
+
+    const generation = getGeneration(latestQuiz?.date_of_birth ?? null);
+    const enrichedOpeningContext = (openingContext ?? '') +
+      `\nCustomer generation: ${generation}. Adjust register accordingly (see tone guidelines in your instructions).`;
 
     // Determine excludeCoffeeIds for RECOMMENDATION_MISS
     let excludeCoffeeIds: number[] = [];
@@ -130,7 +143,7 @@ router.post('/start', requireAuth, async (req: AuthRequest, res) => {
           intent,
           archetype: userArchetype,
           tiedArchetypes: tiedArchetypes ?? [],
-          openingContext: openingContext ?? '',
+          openingContext: enrichedOpeningContext,
           ragFocus,
           coffeeIds: ragResult.coffeeIds,
           catalogText: ragResult.catalogText,
@@ -169,7 +182,7 @@ router.post('/start', requireAuth, async (req: AuthRequest, res) => {
     try {
       const chatResult = await chatWithSommelier({
         message: null,
-        session: { intent, turnCount: 0, openingContext: openingContext ?? '' },
+        session: { intent, turnCount: 0, openingContext: enrichedOpeningContext },
         catalogContext: ragResult.catalogText,
         history: [],
       });
