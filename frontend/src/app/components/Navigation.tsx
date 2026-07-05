@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import logoMark from '../../design/LOGO/LogoQuarter1.svg'
 
 const NAV_LINK: React.CSSProperties = {
-  fontFamily: "Arial, sans-serif",
+  fontFamily: "'Fashion Fetish', Arial, sans-serif",
   fontSize: '0.875rem',
   letterSpacing: '0.04em',
   color: '#9a2918',
@@ -33,7 +33,7 @@ export default function Navigation() {
       {/* Logo lockup */}
       <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 9, textDecoration: 'none', flexShrink: 0 }}>
         <img src={logoMark} alt="Axis & Bloom" style={{ height: 20, width: 'auto' }} />
-        <span style={{ fontFamily: "Arial, sans-serif", color: '#9a2918', fontSize: 20, letterSpacing: '0.1em', fontWeight: 400, lineHeight: 1 }}>
+        <span style={{ fontFamily: "'Fashion Fetish', Arial, sans-serif", color: '#9a2918', fontSize: 20, letterSpacing: '0.1em', fontWeight: 400, lineHeight: 1 }}>
           AXIS & BLOOM
         </span>
       </Link>
@@ -60,7 +60,7 @@ export default function Navigation() {
           <button
             onClick={handleSignOut}
             aria-label="Sign out"
-            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: "Arial, sans-serif", fontSize: '0.75rem', letterSpacing: '0.1em', color: '#9a2918', textTransform: 'uppercase', opacity: 0.55 }}
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: "'Fashion Fetish', Arial, sans-serif", fontSize: '0.75rem', letterSpacing: '0.1em', color: '#9a2918', textTransform: 'uppercase', opacity: 0.55 }}
             className="hidden md:block hover:opacity-100 transition-opacity"
           >
             Sign out
@@ -77,7 +77,7 @@ export default function Navigation() {
             width: 15, height: 15, borderRadius: '50%',
             backgroundColor: '#ee5974', color: '#f2f1ea',
             fontSize: 9, lineHeight: '15px', textAlign: 'center',
-            fontFamily: "Arial, sans-serif", fontWeight: 400,
+            fontFamily: "'Fashion Fetish', Arial, sans-serif", fontWeight: 400,
           }}>0</span>
         </button>
       </div>

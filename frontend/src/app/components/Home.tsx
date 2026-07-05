@@ -180,19 +180,19 @@ export default function Home() {
           >
             <Link
               to="/find-my-flavor"
-              style={{ fontFamily: "Arial, sans-serif", fontSize: '0.78rem', fontWeight: 400, color: '#f2f1ea', letterSpacing: '0.18em', textTransform: 'uppercase', textDecoration: 'none', borderBottom: '1px solid rgba(242,241,234,0.65)', paddingBottom: 4 }}
+              style={{ fontFamily: "'Fashion Fetish', Arial, sans-serif", fontSize: '0.78rem', fontWeight: 400, color: '#f2f1ea', letterSpacing: '0.18em', textTransform: 'uppercase', textDecoration: 'none', borderBottom: '1px solid rgba(242,241,234,0.65)', paddingBottom: 4 }}
             >
               Find my flavor →
             </Link>
             <Link
               to="/shop"
-              style={{ fontFamily: "Arial, sans-serif", fontSize: '0.78rem', fontWeight: 400, color: 'rgba(242,241,234,0.52)', letterSpacing: '0.18em', textTransform: 'uppercase', textDecoration: 'none', borderBottom: '1px solid rgba(242,241,234,0.22)', paddingBottom: 4 }}
+              style={{ fontFamily: "'Fashion Fetish', Arial, sans-serif", fontSize: '0.78rem', fontWeight: 400, color: 'rgba(242,241,234,0.52)', letterSpacing: '0.18em', textTransform: 'uppercase', textDecoration: 'none', borderBottom: '1px solid rgba(242,241,234,0.22)', paddingBottom: 4 }}
             >
               Explore coffees →
             </Link>
             <Link
               to="/sign-in"
-              style={{ fontFamily: "Arial, sans-serif", fontSize: '0.78rem', fontWeight: 400, color: 'rgba(242,241,234,0.52)', letterSpacing: '0.18em', textTransform: 'uppercase', textDecoration: 'none', borderBottom: '1px solid rgba(242,241,234,0.22)', paddingBottom: 4 }}
+              style={{ fontFamily: "'Fashion Fetish', Arial, sans-serif", fontSize: '0.78rem', fontWeight: 400, color: 'rgba(242,241,234,0.52)', letterSpacing: '0.18em', textTransform: 'uppercase', textDecoration: 'none', borderBottom: '1px solid rgba(242,241,234,0.22)', paddingBottom: 4 }}
             >
               Sign in →
             </Link>
@@ -275,12 +275,12 @@ export default function Home() {
         {/* Header — keep horizontal padding */}
         <div style={{ padding: '0 clamp(32px, 6vw, 96px)', marginBottom: 'clamp(40px, 5vw, 64px)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 16 }}>
           <motion.div {...fadeUp(0)}>
-            <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 10px' }}>The Collection</p>
-            <h2 style={{ fontFamily: "Arial, sans-serif", fontSize: 'clamp(1.8rem, 3vw, 2.8rem)', fontWeight: 400, color: '#9a2918', margin: 0, lineHeight: 1.1 }}>Find your bag.</h2>
+            <p style={{ fontFamily: "'Fashion Fetish', Arial, sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 10px' }}>The Collection</p>
+            <h2 style={{ fontFamily: "'Fashion Fetish', Arial, sans-serif", fontSize: 'clamp(1.8rem, 3vw, 2.8rem)', fontWeight: 400, color: '#9a2918', margin: 0, lineHeight: 1.1 }}>Find your bag.</h2>
           </motion.div>
           <Link
             to="/shop"
-            style={{ fontFamily: "Arial, sans-serif", fontSize: '0.78rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,0.35)', paddingBottom: 4, alignSelf: 'flex-end' }}
+            style={{ fontFamily: "'Fashion Fetish', Arial, sans-serif", fontSize: '0.78rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,0.35)', paddingBottom: 4, alignSelf: 'flex-end' }}
           >
             Shop all coffees →
           </Link>
@@ -314,7 +314,7 @@ export default function Home() {
                   <img src={item.bag} alt="" style={{ width: '72%', height: '84%', objectFit: 'contain', display: 'block' }} />
                 </div>
               </div>
-              <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.8rem', letterSpacing: '0.1em', color: '#9a2918', margin: '14px 0', textAlign: 'center', padding: '0 clamp(32px, 6vw, 96px)' }}>{item.label}</p>
+              <p style={{ fontFamily: "'Fashion Fetish', Arial, sans-serif", fontSize: '0.8rem', letterSpacing: '0.1em', color: '#9a2918', margin: '14px 0', textAlign: 'center', padding: '0 clamp(32px, 6vw, 96px)' }}>{item.label}</p>
             </motion.div>
           ))}
         </div>
@@ -337,7 +337,7 @@ export default function Home() {
           position: 'absolute',
           bottom: 'clamp(32px, 5vh, 56px)',
           left: 'clamp(32px, 6vw, 64px)',
-          fontFamily: "Arial, sans-serif",
+          fontFamily: "'Fashion Fetish', Arial, sans-serif",
           fontSize: 'clamp(1.05rem, 1.9vw, 1.45rem)',
           fontWeight: 400,
           color: '#f2f1ea',
@@ -356,10 +356,10 @@ export default function Home() {
       <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(56px, 8vw, 88px) clamp(24px, 4vw, 64px)' }}>
         {/* Header — left-aligned with the blocks (no centering wrapper) */}
         <motion.div {...fadeUp(0)} style={{ marginBottom: 'clamp(28px, 4vw, 44px)' }}>
-          <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 12px' }}>
+          <p style={{ fontFamily: "'Fashion Fetish', Arial, sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 12px' }}>
             The Flavor Map
           </p>
-          <h2 style={{ fontFamily: "Arial, sans-serif", fontSize: 'clamp(1.5rem, 2.2vw, 2.2rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.15, margin: 0 }}>
+          <h2 style={{ fontFamily: "'Fashion Fetish', Arial, sans-serif", fontSize: 'clamp(1.5rem, 2.2vw, 2.2rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.15, margin: 0 }}>
             Every palate has a direction.
           </h2>
         </motion.div>
@@ -382,19 +382,19 @@ export default function Home() {
             >
                 {/* Top: number + headline + body */}
                 <div>
-                  <p style={{ fontFamily: "Arial, sans-serif", fontSize: '0.6rem', letterSpacing: '0.2em', color: '#ebebe3', margin: '0 0 10px', opacity: 0.65 }}>
+                  <p style={{ fontFamily: "'Fashion Fetish', Arial, sans-serif", fontSize: '0.6rem', letterSpacing: '0.2em', color: '#ebebe3', margin: '0 0 10px', opacity: 0.65 }}>
                     {arch.num}
                   </p>
-                  <h3 style={{ fontFamily: "Arial, sans-serif", fontSize: 'clamp(1rem, 1.5vw, 1.3rem)', fontWeight: 400, color: '#ebebe3', margin: '0 0 14px', lineHeight: 1.2 }}>
+                  <h3 style={{ fontFamily: "'Fashion Fetish', Arial, sans-serif", fontSize: 'clamp(1rem, 1.5vw, 1.3rem)', fontWeight: 400, color: '#ebebe3', margin: '0 0 14px', lineHeight: 1.2 }}>
                     {arch.name}
                   </h3>
-                  <p style={{ fontFamily: "Arial, sans-serif", fontSize: 'clamp(0.72rem, 0.9vw, 0.8rem)', color: '#ebebe3', lineHeight: 1.65, margin: 0, opacity: 0.88 }}>
+                  <p style={{ fontFamily: "'Fashion Fetish', Arial, sans-serif", fontSize: 'clamp(0.72rem, 0.9vw, 0.8rem)', color: '#ebebe3', lineHeight: 1.65, margin: 0, opacity: 0.88 }}>
                     {arch.body}
                   </p>
                 </div>
                 {/* Bottom: keywords */}
                 <p style={{
-                  fontFamily: "Arial, sans-serif",
+                  fontFamily: "'Fashion Fetish', Arial, sans-serif",
                   fontSize: '0.58rem',
                   letterSpacing: '0.13em',
                   textTransform: 'uppercase',
@@ -418,18 +418,18 @@ export default function Home() {
           <motion.div {...fadeUp(0)} style={{ marginBottom: 22, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
             <a
               href="/find-my-flavor"
-              style={{ fontFamily: "Arial, sans-serif", fontSize: '0.85rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,0.4)', paddingBottom: 3 }}
+              style={{ fontFamily: "'Fashion Fetish', Arial, sans-serif", fontSize: '0.85rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,0.4)', paddingBottom: 3 }}
             >
               TAKE THE QUIZ →
             </a>
             <Link
               to="/sign-in"
-              style={{ fontFamily: "Arial, sans-serif", fontSize: '0.72rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', opacity: 0.45, borderBottom: '1px solid rgba(154,41,24,0.25)', paddingBottom: 2 }}
+              style={{ fontFamily: "'Fashion Fetish', Arial, sans-serif", fontSize: '0.72rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', opacity: 0.45, borderBottom: '1px solid rgba(154,41,24,0.25)', paddingBottom: 2 }}
             >
               or sign in →
             </Link>
           </motion.div>
-          <motion.p {...fadeUp(0.12)} style={{ fontFamily: "Arial, sans-serif", fontSize: 'clamp(0.88rem, 1.4vw, 1rem)', fontWeight: 400, color: '#9a2918', opacity: 0.62, lineHeight: 1.85, margin: 0 }}>
+          <motion.p {...fadeUp(0.12)} style={{ fontFamily: "'Fashion Fetish', Arial, sans-serif", fontSize: 'clamp(0.88rem, 1.4vw, 1rem)', fontWeight: 400, color: '#9a2918', opacity: 0.62, lineHeight: 1.85, margin: 0 }}>
             Our flavor system is designed to remove the guesswork. Answer a few questions and find your perfect coffee match.
           </motion.p>
         </div>
