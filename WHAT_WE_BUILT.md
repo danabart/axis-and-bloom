@@ -2040,6 +2040,37 @@ Replaced flat `NAV_MAIN` + `NAV_SOMMELIER` arrays with grouped sections:
 
 ---
 
+### 70. Home page auth-aware CTAs + Blends & SKUs admin page (2026-07-04)
+
+**Files:** `frontend/src/app/components/Home.tsx`, `frontend/src/app/components/admin/AdminInventory.tsx`, `frontend/src/app/components/admin/AdminLayout.tsx`, `backend/src/routes/admin.ts`
+
+#### Home page — sign-in CTAs hidden when already logged in
+
+`Home.tsx` had no awareness of auth state. Three hardcoded "Sign in" links were always visible even after the user logged in — visible in the nav header ("Sign out" present) but still shown in the hero and profile sections.
+
+- Added `useAuth` import and `const { user } = useAuth()`
+- **Hero section**: "Sign in →" replaced with "My profile →" (`/profile`) when signed in
+- **Profile CTA section**: "Already a member? Sign in →" hidden when signed in
+- **Quiz CTA section**: "or sign in →" hidden when signed in
+
+#### Blends & SKUs admin page — rethought for drop-ship model
+
+The original "Supply & Inventory" page (entry #69) was built with stock quantity tracking (On Hand, Reorder Buffer, Restock button) that doesn't apply to the drop-ship model — Axis & Bloom holds no physical inventory. Page redesigned as a **Blends & SKUs** manager:
+
+**Removed:** On Hand column, Reorder Buffer column, Restock action, restock inline form.
+
+**New purpose:** manage the sellable package variants that exist in the DB — link them to the right coffee, keep Shopify variant IDs and roaster SKUs up to date, toggle active/inactive.
+
+- Grouped by coffee (unlinked blends surface first with amber border)
+- **Active/Inactive toggle** — clickable status badge; hover colour changes to hint the upcoming action (green→red / gray→green). Calls `PATCH /inventory/:id` with `{ is_active }`.
+- **Edit form** per row: Roaster SKU + Shopify Variant ID inputs; coffee-link dropdown shown only for unlinked rows.
+- Page description text explicitly states "drop-ship model — inventory quantities not tracked" so the intent is clear.
+- Sidebar label updated: "Supply & Inventory" → "Blends & SKUs".
+- Backend `PATCH /api/admin/inventory/:id` extended to accept `is_active`, `shopify_variant_id`, `roaster_sku` (all COALESCE-guarded so omitting a field leaves it unchanged).
+- Backend `GET /api/admin/inventory` extended to include `shopify_variant_id` in the SELECT.
+
+---
+
 ## What's Still To Do
 
 ### Quiz / scoring
