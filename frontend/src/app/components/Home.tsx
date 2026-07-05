@@ -201,7 +201,7 @@ export default function Home() {
       </section>
 
       {/* ━━━ 2. PROFILE CTA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ backgroundColor: '#e5e5da', padding: 'clamp(72px, 10vw, 120px) clamp(32px, 6vw, 96px)' }}>
+      <section style={{ backgroundColor: '#ebebe3', padding: 'clamp(72px, 10vw, 120px) clamp(32px, 6vw, 96px)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'clamp(48px, 8vw, 96px)', flexWrap: 'wrap' }}>
 
           {/* ── LEFT: rotating sentence composition ── */}
@@ -295,7 +295,7 @@ export default function Home() {
               onMouseEnter={() => setHoveredBag(i)}
               onMouseLeave={() => setHoveredBag(null)}
             >
-              <div style={{ backgroundColor: '#e5e5da', height: '360px', position: 'relative', overflow: 'hidden' }}>
+              <div style={{ backgroundColor: '#ebebe3', height: '360px', position: 'relative', overflow: 'hidden' }}>
                 {/* Archetype photo — visible by default, fades out on hover */}
                 <div style={{
                   position: 'absolute', inset: 0,

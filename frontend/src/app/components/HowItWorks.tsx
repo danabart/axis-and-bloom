@@ -25,7 +25,7 @@ export default function HowItWorks() {
           </div>
         </div>
 
-        <div className="w-full md:w-1/2 h-[50vh] md:h-screen relative overflow-hidden flex items-center justify-center" style={{ backgroundColor: '#e5e5da' }}>
+        <div className="w-full md:w-1/2 h-[50vh] md:h-screen relative overflow-hidden flex items-center justify-center" style={{ backgroundColor: '#ebebe3' }}>
           <div className="absolute top-[45%] md:top-[50%] left-6 md:left-12 lg:left-20 flex flex-col items-start z-10">
             <motion.h1 initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.9, delay: 0.1, ease: [0.16, 1, 0.3, 1] }} className="text-[4rem] sm:text-[5rem] md:text-[7rem] lg:text-[10rem] text-[#ee5974] font-normal uppercase leading-[0.8] tracking-tighter">
               &amp; Bloom

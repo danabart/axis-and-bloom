@@ -263,7 +263,7 @@ export default function TheAxis() {
       </section>
 
       {/* ── Section 1: The Problem ── */}
-      <section id="how-it-works" style={{ borderTop: '0.5px solid rgba(154,41,24,0.15)', background: '#e5e5da', padding: 'clamp(40px,6vw,64px) clamp(24px,6vw,80px)' }}>
+      <section id="how-it-works" style={{ borderTop: '0.5px solid rgba(154,41,24,0.15)', background: '#ebebe3', padding: 'clamp(40px,6vw,64px) clamp(24px,6vw,80px)' }}>
         <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.8 }}>
           <p style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'rgba(0,0,0,0.4)', margin: '0 0 6px' }}>
             Why origin isn't enough
@@ -356,7 +356,7 @@ export default function TheAxis() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4" style={{ marginBottom: '2rem' }}>
             {ARCHETYPES.map(arch => (
               <div key={arch.name} style={{
-                background: '#e5e5da', borderRadius: 12,
+                background: '#ebebe3', borderRadius: 12,
                 padding: '1rem', display: 'flex', flexDirection: 'column', gap: 10,
                 border: `0.5px solid ${arch.color}25`,
               }}>
@@ -373,7 +373,7 @@ export default function TheAxis() {
           </div>
 
           {/* Concept parallel coordinates */}
-          <div style={{ background: '#e5e5da', borderRadius: 12, padding: '1.25rem 1.25rem 1rem' }}>
+          <div style={{ background: '#ebebe3', borderRadius: 12, padding: '1.25rem 1.25rem 1rem' }}>
             <p style={{ fontSize: 12, color: 'rgba(0,0,0,0.4)', margin: '0 0 10px', fontStyle: 'italic' }}>
               Each archetype has a distinct flavor signature.
             </p>
@@ -383,7 +383,7 @@ export default function TheAxis() {
       </section>
 
       {/* ── Section 3: The Engine ── */}
-      <section style={{ borderTop: '0.5px solid rgba(154,41,24,0.15)', background: '#e5e5da', padding: 'clamp(40px,6vw,64px) clamp(24px,6vw,80px)' }}>
+      <section style={{ borderTop: '0.5px solid rgba(154,41,24,0.15)', background: '#ebebe3', padding: 'clamp(40px,6vw,64px) clamp(24px,6vw,80px)' }}>
         <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.8 }}>
           <p style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'rgba(0,0,0,0.4)', margin: '0 0 6px' }}>
             The matching system
@@ -557,7 +557,7 @@ export default function TheAxis() {
             </div>
 
             {/* Feedback loop diagram */}
-            <div style={{ background: '#e5e5da', borderRadius: 12, padding: '1.25rem' }}>
+            <div style={{ background: '#ebebe3', borderRadius: 12, padding: '1.25rem' }}>
               <FeedbackLoop />
             </div>
           </div>
@@ -565,7 +565,7 @@ export default function TheAxis() {
       </section>
 
       {/* ── Section 5: CTA ── */}
-      <section style={{ borderTop: '0.5px solid rgba(154,41,24,0.15)', background: '#e5e5da', padding: 'clamp(48px,7vw,80px) clamp(24px,6vw,80px)' }}>
+      <section style={{ borderTop: '0.5px solid rgba(154,41,24,0.15)', background: '#ebebe3', padding: 'clamp(48px,7vw,80px) clamp(24px,6vw,80px)' }}>
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}

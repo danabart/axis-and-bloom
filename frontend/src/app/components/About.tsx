@@ -327,7 +327,7 @@ export default function About() {
         Left column: meta label + names + family photo (intimate, editorial).
         Right column: founders' letter.
       */}
-      <section style={{ backgroundColor: '#e5e5da', padding: 'clamp(80px, 10vw, 128px) clamp(32px, 6vw, 96px)' }}>
+      <section style={{ backgroundColor: '#ebebe3', padding: 'clamp(80px, 10vw, 128px) clamp(32px, 6vw, 96px)' }}>
         <div style={{ maxWidth: 1160, margin: '0 auto' }}>
           <div style={{ display: 'flex', gap: 'clamp(40px, 7vw, 112px)', flexWrap: 'wrap', alignItems: 'flex-start' }}>
 
