@@ -31,6 +31,29 @@ router.post('/', requireAuth, async (req: AuthRequest, res) => {
     );
 
     const orderId = result.rows[0].id;
+
+    // Decrement inventory for each purchased blend. Best-effort per item —
+    // a failure here should not block the customer's order confirmation.
+    for (const item of items) {
+      const blendId = item.blendId ?? item.id;
+      if (!blendId) continue;
+      try {
+        await db.query(
+          `UPDATE roaster_blend
+           SET quantity_available = GREATEST(quantity_available - $1, 0),
+               inventory_status = CASE
+                 WHEN GREATEST(quantity_available - $1, 0) <= 0 THEN 'out_of_stock'
+                 WHEN GREATEST(quantity_available - $1, 0) <= safety_stock_buffer THEN 'low_stock'
+                 ELSE 'in_stock'
+               END
+           WHERE id = $2`,
+          [item.quantity ?? 1, blendId]
+        );
+      } catch (err) {
+        console.error('[orders] inventory decrement failed for blend', blendId, err);
+      }
+    }
+
     res.json({ orderId, shopifyOrderId: shopifyResult.shopifyOrderId, orderName: shopifyResult.orderName });
 
     // Fire-and-forget: award order bonus tokens + update sommelier outcomes.

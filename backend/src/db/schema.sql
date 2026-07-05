@@ -313,6 +313,17 @@ CREATE TABLE IF NOT EXISTS roaster_blend (
   updated_at            TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
 
+-- Link roaster_blend → coffees (idempotent)
+ALTER TABLE roaster_blend ADD COLUMN IF NOT EXISTS coffee_id INTEGER REFERENCES coffees(id);
+ALTER TABLE roaster_blend ADD COLUMN IF NOT EXISTS last_restocked_at TIMESTAMPTZ;
+
+-- Backfill coffee_id by name match (only touches rows still NULL — safe to re-run)
+UPDATE roaster_blend rb
+SET coffee_id = c.id
+FROM coffees c
+WHERE rb.coffee_id IS NULL
+  AND lower(trim(rb.blend_name)) = lower(trim(c.name));
+
 CREATE TABLE IF NOT EXISTS roastery_blend_vector (
   blend_id     UUID NOT NULL REFERENCES roaster_blend(id) ON DELETE CASCADE,
   dimension_id UUID NOT NULL,

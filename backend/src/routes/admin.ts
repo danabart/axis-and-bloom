@@ -7,6 +7,12 @@ import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 const router = Router();
 router.use(requireAdmin);
 
+function computeInventoryStatus(quantity: number, buffer: number): string {
+  if (quantity <= 0) return 'out_of_stock';
+  if (quantity <= buffer) return 'low_stock';
+  return 'in_stock';
+}
+
 // ── GET /api/admin/lookups ────────────────────────────────────────────────────
 // Returns all lookup categories as { category, values: [{value, label}][] }
 router.get('/lookups', async (_req, res) => {
@@ -1004,6 +1010,101 @@ router.post('/sommelier/recompute-centroids', async (_req, res) => {
   } catch (err) {
     console.error('[admin/sommelier/recompute-centroids]', err);
     res.status(500).json({ error: 'Failed to recompute centroids' });
+  }
+});
+
+// ── INVENTORY ─────────────────────────────────────────────────────────────────
+
+// Must be declared before /:id routes so Express doesn't swallow 'coffees-lookup' as an ID.
+router.get('/inventory/coffees-lookup', async (_req, res) => {
+  try {
+    const result = await db.query(`SELECT id, name, roaster FROM coffees ORDER BY name`);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[admin/inventory coffees-lookup]', err);
+    res.status(500).json({ error: 'Failed to fetch coffees' });
+  }
+});
+
+router.get('/inventory', async (_req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT
+        rb.id, rb.blend_name, rb.coffee_id, c.name AS coffee_name, c.roaster,
+        rb.weight_oz, rb.roaster_sku, rb.is_active,
+        rb.quantity_available, rb.safety_stock_buffer,
+        rb.inventory_status, rb.inventory_last_synced_at, rb.last_restocked_at
+      FROM roaster_blend rb
+      LEFT JOIN coffees c ON c.id = rb.coffee_id
+      ORDER BY
+        (rb.coffee_id IS NULL) DESC,
+        CASE
+          WHEN rb.quantity_available <= 0 THEN 0
+          WHEN rb.quantity_available <= rb.safety_stock_buffer THEN 1
+          ELSE 2
+        END,
+        COALESCE(c.name, rb.blend_name), rb.weight_oz
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[admin/inventory]', err);
+    res.status(500).json({ error: 'Failed to fetch inventory' });
+  }
+});
+
+router.patch('/inventory/:id', async (req, res) => {
+  const { id } = req.params;
+  const { quantity_available, safety_stock_buffer, coffee_id } = req.body;
+  try {
+    const current = await db.query(
+      `SELECT quantity_available, safety_stock_buffer FROM roaster_blend WHERE id = $1`, [id]
+    );
+    if (current.rows.length === 0) { res.status(404).json({ error: 'Blend not found' }); return; }
+
+    const nextQty    = quantity_available  ?? current.rows[0].quantity_available;
+    const nextBuffer = safety_stock_buffer ?? current.rows[0].safety_stock_buffer;
+    const status     = computeInventoryStatus(nextQty, nextBuffer);
+
+    const result = await db.query(
+      `UPDATE roaster_blend
+       SET quantity_available  = $1,
+           safety_stock_buffer = $2,
+           coffee_id           = COALESCE($3, coffee_id),
+           inventory_status    = $4
+       WHERE id = $5
+       RETURNING id, blend_name, coffee_id, quantity_available, safety_stock_buffer, inventory_status, last_restocked_at`,
+      [nextQty, nextBuffer, coffee_id ?? null, status, id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[admin/inventory PATCH]', err);
+    res.status(500).json({ error: 'Failed to update inventory' });
+  }
+});
+
+router.post('/inventory/:id/restock', async (req, res) => {
+  const { id } = req.params;
+  const amt = Number(req.body.amount);
+  if (!Number.isFinite(amt) || amt <= 0) { res.status(400).json({ error: 'amount must be a positive number' }); return; }
+  try {
+    const current = await db.query(`SELECT quantity_available, safety_stock_buffer FROM roaster_blend WHERE id = $1`, [id]);
+    if (current.rows.length === 0) { res.status(404).json({ error: 'Blend not found' }); return; }
+    const nextQty = current.rows[0].quantity_available + amt;
+    const status  = computeInventoryStatus(nextQty, current.rows[0].safety_stock_buffer);
+
+    const result = await db.query(
+      `UPDATE roaster_blend
+       SET quantity_available = $1,
+           inventory_status   = $2,
+           last_restocked_at  = timezone('utc', now())
+       WHERE id = $3
+       RETURNING id, blend_name, coffee_id, quantity_available, safety_stock_buffer, inventory_status, last_restocked_at`,
+      [nextQty, status, id]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[admin/inventory restock]', err);
+    res.status(500).json({ error: 'Failed to restock' });
   }
 });
 
