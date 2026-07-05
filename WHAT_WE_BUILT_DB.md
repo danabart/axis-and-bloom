@@ -44,7 +44,7 @@ It was merged from the original Supabase design plus adaptations for Firebase Au
 - `user_coffee_profile` — their ranked archetype matches
 
 **Blends / roastery**
-- `roaster_blend` — coffee blends available for purchase; links to Shopify variant IDs
+- `roaster_blend` — sellable package variant of a coffee (12oz / 5lb); links to Shopify variant IDs, roaster SKU, cost, inventory columns. Now has `coffee_id INTEGER REFERENCES coffees(id)` linking it to the tasting catalogue, and `last_restocked_at TIMESTAMPTZ` for manual restock tracking. A name-match backfill in `schema.sql` auto-populates `coffee_id` on startup; unmatched rows (flavored coffees etc.) are surfaced in Admin → Supply & Inventory for manual assignment.
 - `roastery_blend_vector` — where each blend sits in flavor-dimension space
 - `user_roaster_link` — roastery staff accounts
 - `roaster` — drop-ship roastery partners; fields: name, contact_person, email, phone, address, website, api_endpoint, avg_fulfillment_hours, roaster_notes, is_active; new contact fields added May 2026
@@ -162,7 +162,7 @@ Seed files in `backend/src/db/seeds/` — run in order via Cloud SQL Studio. Not
 | `coffees_path_tcr.sql` | `coffees` | 10 new Path coffees + 16 TCR coffees |
 | `roastery_descriptors_path_tcr.sql` | `roastery_coffee_descriptors` | Bag note → SCA wheel mapping for all coffees |
 | `archetype_assignments_path_tcr.sql` | `archetype_assignments` | Pre-cupping archetype estimates, confidence = medium |
-| `roaster_blend_both.sql` | `roaster_blend` | 2 rows per coffee (12oz + 5lb), inventory_status = 'pending' |
+| `roaster_blend_both.sql` | `roaster_blend` | 2 rows per coffee (12oz + 5lb), inventory_status = 'pending'; `coffee_id` backfilled automatically by schema.sql name-match |
 | `dial_positions_path_tcr.sql` | `dial_archetype_positions` | Bloom Dial positions for 23 coffees (5 archetypes) |
 | `coffee_alias_path_tcr.sql` | `coffee_alias` | Platform slot names → coffee mappings (25 rows) |
 

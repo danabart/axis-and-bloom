@@ -2002,6 +2002,44 @@ Breakfast Blend, Blonde Blend, Guatemala, Colombia, Brazil Santos, African Espre
 
 ---
 
+### 69. Link coffees ↔ roaster_blend, inventory admin page, decrement on order, admin nav reorganization (2026-07-04)
+
+**Files:** `backend/src/db/schema.sql`, `backend/src/routes/admin.ts`, `backend/src/routes/orders.ts`, `frontend/src/app/components/admin/AdminInventory.tsx`, `frontend/src/app/App.tsx`, `frontend/src/app/components/admin/AdminLayout.tsx`
+
+#### The problem
+`roaster_blend` (UUID PK — the sellable package variant: weight, SKU, Shopify variant ID, inventory) had no foreign key back to `coffees` (INTEGER PK — the QC/tasting catalogue). They were the same real-world coffee, matched only by informal text name. ~10 tables FK into `coffees`; `order_line_item` and `roastery_blend_vector` FK into `roaster_blend`. Merging them would require rewriting 12 downstream tables for no real benefit — the fix was to link them, not merge.
+
+#### Schema changes (`schema.sql`)
+- `ALTER TABLE roaster_blend ADD COLUMN IF NOT EXISTS coffee_id INTEGER REFERENCES coffees(id)` — proper FK link
+- `ALTER TABLE roaster_blend ADD COLUMN IF NOT EXISTS last_restocked_at TIMESTAMPTZ` — tracks manual admin restocks separately from `inventory_last_synced_at` (reserved for future automated feed)
+- Idempotent name-match backfill: `UPDATE roaster_blend SET coffee_id = c.id FROM coffees c WHERE rb.coffee_id IS NULL AND lower(trim(blend_name)) = lower(trim(c.name))` — safe to re-run on every startup, no-ops once matched. Unmatched rows (flavored coffees etc.) surface in the admin UI for manual linking.
+
+#### Backend routes (`admin.ts`)
+- `computeInventoryStatus(qty, buffer)` shared helper: `<= 0` → `out_of_stock`, `<= buffer` → `low_stock`, else `in_stock`
+- `GET /api/admin/inventory` — all blends joined to coffee name; unlinked rows sorted first, then by stock level
+- `PATCH /api/admin/inventory/:id` — update on-hand qty, reorder buffer, and/or assign `coffee_id` to an unlinked row
+- `POST /api/admin/inventory/:id/restock` — adds a positive qty delta, sets `last_restocked_at`, recomputes status
+- `GET /api/admin/inventory/coffees-lookup` — coffee name list for the link-assignment dropdown (declared before `/:id` routes to avoid Express swallowing it as an ID param)
+
+#### Inventory decrement on order (`orders.ts`)
+The live order path (`POST /api/orders` → `INSERT INTO orders`) now decrements `roaster_blend.quantity_available` for each item in the order, keyed on `item.blendId ?? item.id`. Runs synchronously after the DB insert but is per-item best-effort (a bad blend ID logs and skips, does not fail the order). No hard oversell gate yet — all current seed data has `quantity_available = 0` / `status = 'pending'`, so a gate would block every order today. Blocking oversell is deferred until real quantities are populated via the admin restock tool.
+
+#### AdminInventory page (`AdminInventory.tsx`)
+New page at `/admin/inventory`. Blends grouped by coffee name (one group can have a 12oz row and a 5lb row). Unlinked blends (no `coffee_id`) surface at the top with an amber border and "Unlinked — needs coffee assignment" badge.
+- Status badges: `in_stock` green / `low_stock` amber / `out_of_stock` red / `pending` neutral gray
+- Per-row **Restock** action: inline qty input → `POST /restock`
+- Per-row **Edit** action: inline form for on-hand qty + reorder buffer; link-to-coffee dropdown shown only for unlinked rows → `PATCH`
+- Re-fetches full list after every mutation (no optimistic updates — matches rest of admin)
+
+#### Admin nav reorganization (`AdminLayout.tsx`)
+Replaced flat `NAV_MAIN` + `NAV_SOMMELIER` arrays with grouped sections:
+- Dashboard (ungrouped, top)
+- **Catalogue & Supply**: Coffees · Roasteries · Supply & Inventory
+- **Cupping & QC**: Cupping Sessions · Score Entry · Flavor Wheel
+- **Sommelier AI**: Configuration · Intent Editor · Flow & Stats · Bloom Dial
+
+---
+
 ## What's Still To Do
 
 ### Quiz / scoring
