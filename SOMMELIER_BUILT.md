@@ -416,6 +416,50 @@ When a user returned to `/sommelier` and clicked "Resume conversation", the fron
 1. New `GET /api/sommelier/:sessionId/messages` endpoint returns full message history + coffee names. Reads from Firestore; falls back to SQL for sessions predating the migration.
 2. `Sommelier.tsx` `handleResumeResume()` now fetches from this endpoint, sets `messages` to the returned history (falling back to a synthetic "Welcome back" only if empty), and restores the coffee strip — before entering chat phase.
 
+#### S35. Task 6 — Liam voice reset (2026-07-04)
+Full execution of `SOMMELIER_TASK_6_VOICE.md`. Three files changed + live Firestore config patched.
+
+**`backend/src/services/claude.ts` — `LIAM_BASE_PROMPT` replaced:**
+- Added character definition: "the brilliant friend who knows everything about coffee — not the expert giving a lecture"
+- Sensory language rules with Right/Wrong examples: "something tart that arrives quietly in the finish" vs "medium-high citric acidity profile"
+- Confidence rules with Right/Wrong examples: "Crosshatch. That's where I'd land." vs "Based on your responses, Crosshatch might be worth considering."
+- Brand values expanded: Guide Don't Educate, Remember Never Reset, Quiet Respect, Calm is a Feature, Customer Directed System Guided
+- Generational register guide embedded with Gen Z / Millennial (default) / Gen X / Boomer calibration
+- Questions are optional: statement or recommendation often better than a question
+- History is internal context: never narrate back, never ask customer to explain their own pattern
+- Opening turn: 2-sentence max, Good/Bad examples pinned
+
+**`backend/src/routes/sommelier.ts` — generation injection:**
+- Added `getGeneration(dateOfBirth)` helper at top of file (returns Millennial as default when no DOB)
+- Added `date_of_birth` to the existing quiz session query (already JOINs `user_profile`)
+- Built `enrichedOpeningContext` = `openingContext` + `\nCustomer generation: ${generation}. Adjust register accordingly.`
+- Passed `enrichedOpeningContext` to both `chatWithSommelier()` and the session `context_data` INSERT
+
+**`backend/src/db/seeds/sommelier_config_seed.ts` — intent addendums rewritten:**
+All 6 intents updated. Key changes:
+- `PROFILE_AMBIGUOUS`: removed "build a picture" lecture framing → "Let the picture build from their answers"
+- `RECOMMENDATION_MISS`: removed "ask what felt off" (WHY question) → "open a new direction, don't reference what didn't work"
+- `TASTE_EVOLUTION`: removed "explore what may have changed: travel, time of day" (WHY) → "don't mention the change, start fresh, use previous only to anchor contrast"
+- `DISCOVERY_SEEKER`: tightened — removed archetype-match framing, kept contrast-lead instruction
+- `CONVERSION`: removed "reassuring" framing → one clear recommendation, no urgency
+- `EXPLORATION`: kept spirit, tightened to "let the direction emerge"
+
+**Firestore live config patched** via `backend/scripts/update-intent-addendums.mjs` (Node `--env-file` + firebase-admin direct write). Seed file alone doesn't update existing config documents.
+
+#### S34. Liam prompt — ban history-narration, tighten opening template (2026-07-04)
+Bad opener observed in production: *"You've been moving around quite a bit — what's shifted for you since the last time?"*
+
+Changes to `LIAM_BASE_PROMPT` in `backend/src/services/claude.ts`:
+- **Never-say list extended**: "What's shifted for you", "What changed since last time", "Why the change", and all variants of asking the customer to explain their history.
+- **History is internal context only**: Liam uses past data silently. He never narrates it back ("you've been moving around", "you've tried a lot of directions"). That information informs recommendations; it is not the topic of conversation.
+- **Opening turn template tightened with Good/Bad examples**:
+  - Good: *"You're in the earthy range. Want to stay there or try something different?"*
+  - Good: *"Last time you went fruity. Same direction or something new?"*
+  - Bad: *"You've been moving around quite a bit — what's shifted for you?"* (exact live example)
+  - Bad: *"You've tried a lot of different directions. What are you looking for now?"*
+
+**Refinement pattern**: bad output from live session → exact phrase added to never-say list + added as "Bad:" example. Concrete examples are more reliable than abstract rules for blocking specific model behaviors.
+
 #### S33. Liam — demographic tone calibration, brand values, register mirroring (2026-06-28)
 
 **`sommelierEvaluator.ts`** — Stage 1 demographic query:

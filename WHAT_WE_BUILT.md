@@ -913,6 +913,14 @@ Fields: sessionStarted ASC, startedAt DESC
 ```
 Or click the auto-generated link from the Cloud Run error log directly.
 
+### 62. Task 6 — Liam voice reset (2026-07-04)
+Full execution of `SOMMELIER_TASK_6_VOICE.md`. Three files changed, Firestore live config patched.
+
+- **`claude.ts`**: `LIAM_BASE_PROMPT` replaced with full brand-aligned voice spec — character definition, sensory vs technical language examples, confidence vs hedged examples, generational register guide (Gen Z/Millennial/Gen X/Boomer), questions as optional, history as internal context only.
+- **`sommelier.ts`**: `getGeneration()` helper added. `date_of_birth` added to quiz query. `enrichedOpeningContext` appended with customer generation before every session start. Default register is Millennial when no DOB.
+- **`sommelier_config_seed.ts`**: All 6 intent `systemPromptAddendum` values rewritten — removed WHY questions, lecture framing, and urgency language from every intent.
+- **Firestore patched live**: `backend/scripts/update-intent-addendums.mjs` ran directly against `config/sommelier` so the runtime config matches the seed immediately without waiting for a fresh install.
+
 ### 61. Liam prompt — ban history-narration, tighten opening template (2026-07-04)
 Triggered by: Liam opened with *"You've been moving around quite a bit — what's shifted for you since the last time?"* — narrating the customer's history back at them and asking a WHY question.
 
