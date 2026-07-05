@@ -1031,7 +1031,7 @@ router.get('/inventory', async (_req, res) => {
     const result = await db.query(`
       SELECT
         rb.id, rb.blend_name, rb.coffee_id, c.name AS coffee_name, c.roaster,
-        rb.weight_oz, rb.roaster_sku, rb.is_active,
+        rb.weight_oz, rb.roaster_sku, rb.shopify_variant_id, rb.is_active,
         rb.quantity_available, rb.safety_stock_buffer,
         rb.inventory_status, rb.inventory_last_synced_at, rb.last_restocked_at
       FROM roaster_blend rb
@@ -1054,7 +1054,7 @@ router.get('/inventory', async (_req, res) => {
 
 router.patch('/inventory/:id', async (req, res) => {
   const { id } = req.params;
-  const { quantity_available, safety_stock_buffer, coffee_id } = req.body;
+  const { quantity_available, safety_stock_buffer, coffee_id, is_active, shopify_variant_id, roaster_sku } = req.body;
   try {
     const current = await db.query(
       `SELECT quantity_available, safety_stock_buffer FROM roaster_blend WHERE id = $1`, [id]
@@ -1067,13 +1067,18 @@ router.patch('/inventory/:id', async (req, res) => {
 
     const result = await db.query(
       `UPDATE roaster_blend
-       SET quantity_available  = $1,
-           safety_stock_buffer = $2,
-           coffee_id           = COALESCE($3, coffee_id),
-           inventory_status    = $4
-       WHERE id = $5
-       RETURNING id, blend_name, coffee_id, quantity_available, safety_stock_buffer, inventory_status, last_restocked_at`,
-      [nextQty, nextBuffer, coffee_id ?? null, status, id]
+       SET quantity_available   = $1,
+           safety_stock_buffer  = $2,
+           coffee_id            = COALESCE($3, coffee_id),
+           inventory_status     = $4,
+           is_active            = COALESCE($5, is_active),
+           shopify_variant_id   = COALESCE($6, shopify_variant_id),
+           roaster_sku          = COALESCE($7, roaster_sku)
+       WHERE id = $8
+       RETURNING id, blend_name, coffee_id, quantity_available, safety_stock_buffer,
+                 inventory_status, is_active, shopify_variant_id, roaster_sku, last_restocked_at`,
+      [nextQty, nextBuffer, coffee_id ?? null, status,
+       is_active ?? null, shopify_variant_id ?? null, roaster_sku ?? null, id]
     );
     res.json(result.rows[0]);
   } catch (err) {

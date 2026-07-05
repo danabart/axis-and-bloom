@@ -11,7 +11,7 @@ const NAV_SECTIONS = [
     items: [
       { to: '/admin/coffees',   label: 'Coffees' },
       { to: '/admin/roasters',  label: 'Roasteries' },
-      { to: '/admin/inventory', label: 'Supply & Inventory' },
+      { to: '/admin/inventory', label: 'Blends & SKUs' },
     ],
   },
   {

@@ -2,6 +2,7 @@ import { useRef, useEffect, useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { Link, useNavigate } from 'react-router';
 import { TasteFinderSection } from './TasteFinderSection';
+import { useAuth } from '../context/AuthContext';
 import placeholderVideo from '../../design/IMAGES/videos/PlaceHolder01.mp4'
 import heroVideo from '../../design/IMAGES/videos/PlaceHolder10.mp4'
 
@@ -99,6 +100,7 @@ const fadeUp = (delay = 0) => ({
 
 export default function Home() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const heroVideoRef      = useRef<HTMLVideoElement>(null);
   const cinematicVideoRef = useRef<HTMLVideoElement>(null);
   const [hoveredBag, setHoveredBag] = useState<number | null>(null);
@@ -190,12 +192,21 @@ export default function Home() {
             >
               Explore coffees →
             </Link>
-            <Link
-              to="/sign-in"
-              style={{ fontFamily: "'Genova', Arial, sans-serif", fontSize: '0.78rem', fontWeight: 400, color: 'rgba(242,241,234,0.52)', letterSpacing: '0.18em', textTransform: 'uppercase', textDecoration: 'none', borderBottom: '1px solid rgba(242,241,234,0.22)', paddingBottom: 4 }}
-            >
-              Sign in →
-            </Link>
+            {user ? (
+              <Link
+                to="/profile"
+                style={{ fontFamily: "'Genova', Arial, sans-serif", fontSize: '0.78rem', fontWeight: 400, color: 'rgba(242,241,234,0.52)', letterSpacing: '0.18em', textTransform: 'uppercase', textDecoration: 'none', borderBottom: '1px solid rgba(242,241,234,0.22)', paddingBottom: 4 }}
+              >
+                My profile →
+              </Link>
+            ) : (
+              <Link
+                to="/sign-in"
+                style={{ fontFamily: "'Genova', Arial, sans-serif", fontSize: '0.78rem', fontWeight: 400, color: 'rgba(242,241,234,0.52)', letterSpacing: '0.18em', textTransform: 'uppercase', textDecoration: 'none', borderBottom: '1px solid rgba(242,241,234,0.22)', paddingBottom: 4 }}
+              >
+                Sign in →
+              </Link>
+            )}
           </motion.div>
         </div>
       </section>
@@ -258,12 +269,14 @@ export default function Home() {
               >
                 BEGIN PROFILE →
               </button>
-              <Link
-                to="/sign-in"
-                style={{ marginTop: 14, fontSize: '0.72rem', fontWeight: 400, color: '#9a2918', letterSpacing: '0.14em', textTransform: 'uppercase', textDecoration: 'none', opacity: 0.45, borderBottom: '1px solid rgba(154,41,24,0.25)', paddingBottom: 2 }}
-              >
-                Already a member? Sign in →
-              </Link>
+              {!user && (
+                <Link
+                  to="/sign-in"
+                  style={{ marginTop: 14, fontSize: '0.72rem', fontWeight: 400, color: '#9a2918', letterSpacing: '0.14em', textTransform: 'uppercase', textDecoration: 'none', opacity: 0.45, borderBottom: '1px solid rgba(154,41,24,0.25)', paddingBottom: 2 }}
+                >
+                  Already a member? Sign in →
+                </Link>
+              )}
             </form>
           </motion.div>
 
@@ -422,12 +435,14 @@ export default function Home() {
             >
               TAKE THE QUIZ →
             </a>
-            <Link
-              to="/sign-in"
-              style={{ fontFamily: "'Genova', Arial, sans-serif", fontSize: '0.72rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', opacity: 0.45, borderBottom: '1px solid rgba(154,41,24,0.25)', paddingBottom: 2 }}
-            >
-              or sign in →
-            </Link>
+            {!user && (
+              <Link
+                to="/sign-in"
+                style={{ fontFamily: "'Genova', Arial, sans-serif", fontSize: '0.72rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', opacity: 0.45, borderBottom: '1px solid rgba(154,41,24,0.25)', paddingBottom: 2 }}
+              >
+                or sign in →
+              </Link>
+            )}
           </motion.div>
           <motion.p {...fadeUp(0.12)} style={{ fontFamily: "'Genova', Arial, sans-serif", fontSize: 'clamp(0.88rem, 1.4vw, 1rem)', fontWeight: 400, color: '#9a2918', opacity: 0.62, lineHeight: 1.85, margin: 0 }}>
             Our flavor system is designed to remove the guesswork. Answer a few questions and find your perfect coffee match.
