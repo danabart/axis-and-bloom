@@ -118,6 +118,7 @@ export default function AdminCoffees() {
 
   const [refreshingId, setRefreshingId] = useState<number | null>(null);
   const [movingId, setMovingId]         = useState<number | null>(null);
+  const [deletingId, setDeletingId]     = useState<number | null>(null);
 
   async function apiFetch(url: string, options: RequestInit = {}) {
     const token = await user!.getIdToken();
@@ -206,6 +207,16 @@ export default function AdminCoffees() {
     } catch { /* non-critical */ } finally { setMovingId(null); }
   }
 
+  async function handleDelete(coffeeId: number, name: string) {
+    if (!confirm(`Remove "${name}" from the catalogue? This also removes its archetype assignment, dial position, and aliases.`)) return;
+    setDeletingId(coffeeId);
+    try {
+      await apiFetch(`/api/admin/coffees/${coffeeId}`, { method: 'DELETE' });
+      setAssigningId(null);
+      await load();
+    } catch { /* non-critical */ } finally { setDeletingId(null); }
+  }
+
   async function handleRefreshContent(coffeeId: number) {
     setRefreshingId(coffeeId);
     try { await apiFetch(`/api/admin/coffees/${coffeeId}/refresh-content`, { method: 'POST' }); }
@@ -272,6 +283,7 @@ export default function AdminCoffees() {
   // ── inline edit form ───────────────────────────────────────────────────────
 
   function EditForm({ coffeeId }: { coffeeId: number }) {
+    const coffee = coffees.find(c => c.id === coffeeId);
     const formVocabOptions = vocab
       .filter(v => v.archetype === archForm.archetype)
       .sort((a, b) => a.sort_order - b.sort_order);
@@ -333,6 +345,13 @@ export default function AdminCoffees() {
             className="px-4 py-1.5 rounded text-sm text-stone-500 hover:text-stone-800 border border-stone-200">
             Cancel
           </button>
+          <button
+            onClick={() => coffee && handleDelete(coffeeId, coffee.name)}
+            disabled={deletingId === coffeeId}
+            className="ml-auto px-4 py-1.5 rounded text-sm text-red-400 hover:text-red-600 hover:border-red-300 border border-stone-200 disabled:opacity-40 transition-colors"
+          >
+            {deletingId === coffeeId ? 'Removing…' : 'Remove coffee'}
+          </button>
         </div>
         {archError && <p className="w-full text-red-500 text-xs">{archError}</p>}
       </div>
@@ -341,8 +360,7 @@ export default function AdminCoffees() {
 
   // ── derived data ───────────────────────────────────────────────────────────
 
-  const placedIds = new Set(coffees.filter(c => c.archetype && c.dial_position_sort).map(c => c.id));
-  const unplaced  = coffees.filter(c => !placedIds.has(c.id));
+  const unplaced = coffees.filter(c => !c.archetype);
 
   // ── render ─────────────────────────────────────────────────────────────────
 

@@ -325,6 +325,22 @@ router.post('/coffees/:id/archetype', async (req, res) => {
   }
 });
 
+// ── DELETE /api/admin/coffees/:id ────────────────────────────────────────────
+router.delete('/coffees/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await db.query(
+      `DELETE FROM coffees WHERE id = $1 RETURNING id, name`,
+      [id]
+    );
+    if (result.rowCount === 0) { res.status(404).json({ error: 'Coffee not found' }); return; }
+    res.json({ ok: true, deleted: result.rows[0] });
+  } catch (err) {
+    console.error('[admin/coffees DELETE]', err);
+    res.status(500).json({ error: 'Failed to delete coffee' });
+  }
+});
+
 // ── GET /api/admin/sessions/:id/coffees ──────────────────────────────────────
 router.get('/sessions/:id/coffees', async (req, res) => {
   const { id } = req.params;
