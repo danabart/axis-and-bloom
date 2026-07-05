@@ -28,6 +28,17 @@ interface VocabOption {
   dimension: string;
 }
 
+interface AliasRow {
+  id: number;
+  platform_name: string;
+  archetype: string | null;
+  dial_sort_order: number | null;
+  coffee_id: number;
+  priority: number;
+  coffee_name: string;
+  roaster: string;
+}
+
 interface RoasterOption { id: string; name: string; }
 
 const ARCHETYPE_OPTIONS = [
@@ -49,6 +60,9 @@ const ARCHETYPE_LABEL: Record<string, string> = Object.fromEntries(
   ARCHETYPE_OPTIONS.map(o => [o.value, o.label])
 );
 
+const PATH   = 'Path Coffee Roasters';
+const TCR    = 'Temecula Coffee Roasters';
+
 const EMPTY_FORM = {
   name: '', roaster: '', origin: '',
   blend_or_single: '', process: '', roast_level: '',
@@ -60,9 +74,14 @@ const EMPTY_ARCH = {
   vocab_id: '', dial_is_default: false,
 };
 
-function LookupSelect({
-  category, value, onChange, lookups,
-}: {
+function posIcon(sort: number) {
+  if (sort === 1) return '←';
+  if (sort === 2) return '◉';
+  if (sort === 3) return '→';
+  return '⟶';
+}
+
+function LookupSelect({ category, value, onChange, lookups }: {
   category: string; value: string;
   onChange: (v: string) => void;
   lookups: Record<string, { value: string; label: string }[]>;
@@ -80,14 +99,17 @@ function LookupSelect({
 export default function AdminCoffees() {
   const { user } = useAuth();
   const { lookups } = useAdminLookups();
+
   const [coffees, setCoffees]               = useState<Coffee[]>([]);
   const [vocab, setVocab]                   = useState<VocabOption[]>([]);
-  const [error, setError]                   = useState('');
-  const [showForm, setShowForm]             = useState(false);
-  const [form, setForm]                     = useState(EMPTY_FORM);
-  const [saving, setSaving]                 = useState(false);
-  const [saveError, setSaveError]           = useState('');
+  const [aliases, setAliases]               = useState<AliasRow[]>([]);
   const [roasterOptions, setRoasterOptions] = useState<RoasterOption[]>([]);
+  const [error, setError]                   = useState('');
+
+  const [showForm, setShowForm]   = useState(false);
+  const [form, setForm]           = useState(EMPTY_FORM);
+  const [saving, setSaving]       = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const [assigningId, setAssigningId] = useState<number | null>(null);
   const [archForm, setArchForm]       = useState(EMPTY_ARCH);
@@ -100,27 +122,37 @@ export default function AdminCoffees() {
   async function apiFetch(url: string, options: RequestInit = {}) {
     const token = await user!.getIdToken();
     return fetch(url, {
-      cache: 'no-store',
-      ...options,
+      cache: 'no-store', ...options,
       headers: { Authorization: `Bearer ${token}`, ...(options.headers ?? {}) },
     });
   }
 
   async function load() {
     try {
-      const [coffeeRes, vocabRes, roasterRes] = await Promise.all([
+      const [coffeeRes, vocabRes, aliasRes, roasterRes] = await Promise.all([
         apiFetch('/api/admin/coffees'),
         apiFetch('/api/admin/dial/vocabulary'),
+        apiFetch('/api/admin/coffee-alias'),
         apiFetch('/api/admin/roasters'),
       ]);
       setCoffees(await coffeeRes.json());
       setVocab(await vocabRes.json());
+      setAliases(await aliasRes.json());
       const roasters = await roasterRes.json();
       if (Array.isArray(roasters)) setRoasterOptions(roasters.filter((r: { is_active: boolean }) => r.is_active));
     } catch { setError('Failed to load coffees'); }
   }
 
   useEffect(() => { if (user) load(); }, [user]);
+
+  // ── alias lookup: `archetype_sortorder` → platform_name ───────────────────
+  const aliasMap: Record<string, string> = {};
+  for (const a of aliases) {
+    const key = `${a.archetype ?? 'null'}_${a.dial_sort_order ?? 'null'}`;
+    if (!aliasMap[key]) aliasMap[key] = a.platform_name;
+  }
+
+  // ── handlers ───────────────────────────────────────────────────────────────
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setSaveError('');
@@ -147,24 +179,22 @@ export default function AdminCoffees() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          archetype: archForm.archetype,
-          confidence: archForm.confidence,
-          notes: archForm.notes || null,
-          vocabulary_id: archForm.vocab_id ? Number(archForm.vocab_id) : undefined,
+          archetype:    archForm.archetype,
+          confidence:   archForm.confidence,
+          notes:        archForm.notes || null,
+          vocabulary_id:  archForm.vocab_id ? Number(archForm.vocab_id) : undefined,
           dial_is_default: archForm.dial_is_default,
         }),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? 'Unknown error');
-      setAssigningId(null);
-      setArchForm(EMPTY_ARCH);
-      await load();
+      setAssigningId(null); setArchForm(EMPTY_ARCH); await load();
     } catch (err: unknown) {
       setArchError(err instanceof Error ? err.message : 'Failed to assign');
     } finally { setArchSaving(false); }
   }
 
   async function handleMovePosition(coffee: Coffee, vocabId: number) {
-    if (!coffee.archetype) return;
+    if (!coffee.dial_position_id) return;
     setMovingId(coffee.id);
     try {
       await apiFetch(`/api/admin/dial/positions/${coffee.dial_position_id}`, {
@@ -178,18 +208,17 @@ export default function AdminCoffees() {
 
   async function handleRefreshContent(coffeeId: number) {
     setRefreshingId(coffeeId);
-    try {
-      await apiFetch(`/api/admin/coffees/${coffeeId}/refresh-content`, { method: 'POST' });
-    } catch { /* non-critical */ } finally { setRefreshingId(null); }
+    try { await apiFetch(`/api/admin/coffees/${coffeeId}/refresh-content`, { method: 'POST' }); }
+    catch { /* non-critical */ } finally { setRefreshingId(null); }
   }
 
   function openAssign(coffee: Coffee) {
     setAssigningId(coffee.id);
     setArchForm({
-      archetype:      coffee.archetype ?? '',
-      confidence:     coffee.confidence ?? 'medium',
-      notes:          '',
-      vocab_id:       coffee.dial_vocab_id ? String(coffee.dial_vocab_id) : '',
+      archetype:       coffee.archetype ?? '',
+      confidence:      coffee.confidence ?? 'medium',
+      notes:           '',
+      vocab_id:        coffee.dial_vocab_id ? String(coffee.dial_vocab_id) : '',
       dial_is_default: coffee.dial_is_default ?? false,
     });
     setArchError('');
@@ -197,8 +226,129 @@ export default function AdminCoffees() {
 
   const field = (key: keyof typeof EMPTY_FORM) => (v: string) => setForm(f => ({ ...f, [key]: v }));
 
+  // ── coffee chip (used in matrix cells) ────────────────────────────────────
+
+  function CoffeeChip({ coffee }: { coffee: Coffee }) {
+    const archetypeVocab = vocab
+      .filter(v => v.archetype === coffee.archetype)
+      .sort((a, b) => a.sort_order - b.sort_order);
+    const currentIdx = archetypeVocab.findIndex(v => v.id === coffee.dial_vocab_id);
+    const prevVocab  = archetypeVocab[currentIdx - 1];
+    const nextVocab  = archetypeVocab[currentIdx + 1];
+    const isMoving   = movingId === coffee.id;
+    const isEditing  = assigningId === coffee.id;
+
+    return (
+      <div className={`flex items-center gap-1 group py-0.5 ${isEditing ? 'opacity-60' : ''}`}>
+        <button
+          onClick={() => prevVocab && !isMoving && handleMovePosition(coffee, prevVocab.id)}
+          disabled={!prevVocab || isMoving}
+          className="text-stone-200 hover:text-stone-500 disabled:opacity-0 group-hover:opacity-100 transition-all text-xs px-0.5"
+          title={prevVocab ? `Move to ${prevVocab.label}` : undefined}
+        >←</button>
+        <button
+          onClick={() => isEditing ? setAssigningId(null) : openAssign(coffee)}
+          className="text-sm text-stone-700 hover:text-stone-900 hover:underline text-left"
+        >
+          {coffee.name}
+        </button>
+        {coffee.dial_is_default && <span className="text-stone-400 text-xs">★</span>}
+        <button
+          onClick={() => nextVocab && !isMoving && handleMovePosition(coffee, nextVocab.id)}
+          disabled={!nextVocab || isMoving}
+          className="text-stone-200 hover:text-stone-500 disabled:opacity-0 group-hover:opacity-100 transition-all text-xs px-0.5"
+          title={nextVocab ? `Move to ${nextVocab.label}` : undefined}
+        >→</button>
+        <button
+          onClick={() => handleRefreshContent(coffee.id)}
+          disabled={refreshingId === coffee.id}
+          className="text-stone-200 hover:text-stone-400 disabled:opacity-40 transition-all text-xs opacity-0 group-hover:opacity-100"
+          title="Refresh AI content"
+        >{refreshingId === coffee.id ? '…' : '↺'}</button>
+      </div>
+    );
+  }
+
+  // ── inline edit form ───────────────────────────────────────────────────────
+
+  function EditForm({ coffeeId }: { coffeeId: number }) {
+    const formVocabOptions = vocab
+      .filter(v => v.archetype === archForm.archetype)
+      .sort((a, b) => a.sort_order - b.sort_order);
+
+    return (
+      <div className="bg-stone-50 border-t border-stone-100 px-4 py-3 flex flex-wrap items-end gap-3">
+        <div>
+          <label className="block text-xs text-stone-400 mb-1">Archetype *</label>
+          <select value={archForm.archetype}
+            onChange={e => setArchForm(f => ({ ...f, archetype: e.target.value, vocab_id: '', dial_is_default: false }))}
+            className="border border-stone-300 rounded px-3 py-1.5 text-sm">
+            <option value="">— select —</option>
+            {ARCHETYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-stone-400 mb-1">Confidence *</label>
+          <select value={archForm.confidence}
+            onChange={e => setArchForm(f => ({ ...f, confidence: e.target.value }))}
+            className="border border-stone-300 rounded px-3 py-1.5 text-sm">
+            {CONFIDENCE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs text-stone-400 mb-1">Dial Position</label>
+          <select value={archForm.vocab_id}
+            onChange={e => setArchForm(f => ({ ...f, vocab_id: e.target.value }))}
+            disabled={!archForm.archetype}
+            className="border border-stone-300 rounded px-3 py-1.5 text-sm min-w-[150px] disabled:opacity-40">
+            <option value="">— none —</option>
+            {formVocabOptions.map(v => (
+              <option key={v.id} value={v.id}>{v.sort_order}. {v.label}</option>
+            ))}
+          </select>
+        </div>
+        {archForm.vocab_id && (
+          <div className="flex items-center gap-2 pb-1.5">
+            <input type="checkbox" id={`default-${coffeeId}`}
+              checked={archForm.dial_is_default}
+              onChange={e => setArchForm(f => ({ ...f, dial_is_default: e.target.checked }))}
+              className="accent-stone-600" />
+            <label htmlFor={`default-${coffeeId}`} className="text-sm text-stone-600">Set as default</label>
+          </div>
+        )}
+        <div className="flex-1 min-w-[160px]">
+          <label className="block text-xs text-stone-400 mb-1">Notes</label>
+          <input value={archForm.notes}
+            onChange={e => setArchForm(f => ({ ...f, notes: e.target.value }))}
+            className="w-full border border-stone-300 rounded px-3 py-1.5 text-sm"
+            placeholder="e.g. confirmed after session 002" />
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => handleArchetypeAssign(coffeeId)} disabled={archSaving}
+            className="px-4 py-1.5 rounded text-sm text-white disabled:opacity-50"
+            style={{ backgroundColor: '#b05642' }}>
+            {archSaving ? 'Saving…' : 'Save'}
+          </button>
+          <button onClick={() => setAssigningId(null)}
+            className="px-4 py-1.5 rounded text-sm text-stone-500 hover:text-stone-800 border border-stone-200">
+            Cancel
+          </button>
+        </div>
+        {archError && <p className="w-full text-red-500 text-xs">{archError}</p>}
+      </div>
+    );
+  }
+
+  // ── derived data ───────────────────────────────────────────────────────────
+
+  const placedIds = new Set(coffees.filter(c => c.archetype && c.dial_position_sort).map(c => c.id));
+  const unplaced  = coffees.filter(c => !placedIds.has(c.id));
+
+  // ── render ─────────────────────────────────────────────────────────────────
+
   return (
     <div>
+      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-normal text-stone-800">Coffees</h1>
         <button onClick={() => setShowForm(v => !v)}
@@ -210,8 +360,9 @@ export default function AdminCoffees() {
 
       {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
 
+      {/* Add coffee form */}
       {showForm && (
-        <form onSubmit={handleSubmit} className="border border-stone-200 rounded-lg p-6 mb-6 bg-stone-50 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <form onSubmit={handleSubmit} className="border border-stone-200 rounded-lg p-6 mb-8 bg-stone-50 grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="md:col-span-2">
             <label className="block text-xs text-stone-500 mb-1">Name *</label>
             <input required value={form.name} onChange={e => field('name')(e.target.value)}
@@ -263,171 +414,166 @@ export default function AdminCoffees() {
         </form>
       )}
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm text-left">
-          <thead>
-            <tr className="border-b border-stone-200 text-xs text-stone-400 uppercase tracking-wide">
-              <th className="pb-3 pr-4">Name</th>
-              <th className="pb-3 pr-4">Roaster</th>
-              <th className="pb-3 pr-4">Origin</th>
-              <th className="pb-3 pr-4">Process</th>
-              <th className="pb-3 pr-4">Roast</th>
-              <th className="pb-3 pr-4">Archetype</th>
-              <th className="pb-3 pr-4">Dial Position</th>
-              <th className="pb-3 pr-4">Confidence</th>
-              <th className="pb-3">AI Summary</th>
-            </tr>
-          </thead>
-          <tbody>
-            {coffees.length === 0 && (
-              <tr><td colSpan={9} className="py-8 text-center text-stone-400">No coffees yet</td></tr>
-            )}
-            {coffees.map(c => {
-              const isAssigning = assigningId === c.id;
-              const roastLabel   = lookups.roast_level?.find(o => o.value === c.roast_level)?.label ?? c.roast_level ?? '—';
-              const processLabel = lookups.process?.find(o => o.value === c.process)?.label ?? c.process ?? '—';
+      {/* ── Archetype matrix ─────────────────────────────────────────────────── */}
+      <div className="space-y-10">
+        {ARCHETYPE_OPTIONS.map(({ value: archValue, label: archLabel }) => {
+          const archVocab = vocab
+            .filter(v => v.archetype === archValue)
+            .sort((a, b) => a.sort_order - b.sort_order);
+          const archCoffees = coffees.filter(c => c.archetype === archValue);
 
-              const archetypeVocab = vocab
-                .filter(v => v.archetype === c.archetype)
-                .sort((a, b) => a.sort_order - b.sort_order);
-              const currentVocabIdx = archetypeVocab.findIndex(v => v.id === c.dial_vocab_id);
-              const prevVocab = archetypeVocab[currentVocabIdx - 1];
-              const nextVocab = archetypeVocab[currentVocabIdx + 1];
-              const isMoving  = movingId === c.id;
+          if (archCoffees.length === 0 && archVocab.length === 0) return null;
 
-              const formVocabOptions = vocab
-                .filter(v => v.archetype === archForm.archetype)
-                .sort((a, b) => a.sort_order - b.sort_order);
-
-              return (
-                <>
-                  <tr key={c.id} className="border-b border-stone-100 hover:bg-stone-50">
-                    <td className="py-3 pr-4 font-normal text-stone-800">{c.name}</td>
-                    <td className="py-3 pr-4 text-stone-500">{c.roaster ?? '—'}</td>
-                    <td className="py-3 pr-4 text-stone-500">{c.origin ?? '—'}</td>
-                    <td className="py-3 pr-4 text-stone-500">{processLabel}</td>
-                    <td className="py-3 pr-4 text-stone-500">{roastLabel}</td>
-                    <td className="py-3 pr-4">
-                      <button onClick={() => isAssigning ? setAssigningId(null) : openAssign(c)}
-                        className="flex items-center gap-1.5 group">
-                        {c.archetype
-                          ? <>
-                              <span className="px-2 py-0.5 rounded-full text-xs text-white" style={{ backgroundColor: '#b05642' }}>
-                                {ARCHETYPE_LABEL[c.archetype] ?? c.archetype}
-                              </span>
-                              <span className="text-stone-300 text-xs opacity-0 group-hover:opacity-100 transition-opacity">✏️</span>
-                            </>
-                          : <span className="px-2 py-0.5 rounded border border-dashed border-stone-300 text-xs text-stone-400 hover:border-stone-400 hover:text-stone-600">
-                              + Assign
-                            </span>}
-                      </button>
-                    </td>
-                    <td className="py-3 pr-4">
-                      {c.dial_label ? (
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => prevVocab && !isMoving && handleMovePosition(c, prevVocab.id)}
-                            disabled={!prevVocab || isMoving}
-                            className="text-stone-300 hover:text-stone-600 disabled:opacity-20 disabled:cursor-not-allowed transition-colors leading-none px-0.5"
-                            title={prevVocab ? `Move to ${prevVocab.label}` : undefined}
-                          >←</button>
-                          <span className="text-xs text-stone-600">
-                            {c.dial_position_sort}. {c.dial_label}
-                            {c.dial_is_default && <span className="ml-1 text-stone-400">★</span>}
-                          </span>
-                          <button
-                            onClick={() => nextVocab && !isMoving && handleMovePosition(c, nextVocab.id)}
-                            disabled={!nextVocab || isMoving}
-                            className="text-stone-300 hover:text-stone-600 disabled:opacity-20 disabled:cursor-not-allowed transition-colors leading-none px-0.5"
-                            title={nextVocab ? `Move to ${nextVocab.label}` : undefined}
-                          >→</button>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-stone-300">—</span>
-                      )}
-                    </td>
-                    <td className="py-3 pr-4 text-stone-400 capitalize text-xs">{c.confidence ?? '—'}</td>
-                    <td className="py-3">
-                      <button onClick={() => handleRefreshContent(c.id)} disabled={refreshingId === c.id}
-                        className="text-xs px-2 py-1 rounded border border-stone-200 text-stone-400 hover:text-stone-600 hover:border-stone-400 disabled:opacity-40 transition-colors"
-                        title="Regenerate AI content">
-                        {refreshingId === c.id ? '…' : '↺ Refresh'}
-                      </button>
-                    </td>
-                  </tr>
-
-                  {isAssigning && (
-                    <tr key={`assign-${c.id}`} className="border-b border-stone-200 bg-stone-50">
-                      <td colSpan={9} className="px-4 py-4">
-                        <div className="flex flex-wrap items-end gap-3">
-                          <div>
-                            <label className="block text-xs text-stone-500 mb-1">Archetype *</label>
-                            <select value={archForm.archetype}
-                              onChange={e => setArchForm(f => ({ ...f, archetype: e.target.value, vocab_id: '', dial_is_default: false }))}
-                              className="border border-stone-300 rounded px-3 py-1.5 text-sm">
-                              <option value="">— select —</option>
-                              {ARCHETYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="block text-xs text-stone-500 mb-1">Confidence *</label>
-                            <select value={archForm.confidence}
-                              onChange={e => setArchForm(f => ({ ...f, confidence: e.target.value }))}
-                              className="border border-stone-300 rounded px-3 py-1.5 text-sm">
-                              {CONFIDENCE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="block text-xs text-stone-500 mb-1">Dial Position</label>
-                            <select value={archForm.vocab_id}
-                              onChange={e => setArchForm(f => ({ ...f, vocab_id: e.target.value }))}
-                              disabled={!archForm.archetype}
-                              className="border border-stone-300 rounded px-3 py-1.5 text-sm min-w-[160px] disabled:opacity-40">
-                              <option value="">— none —</option>
-                              {formVocabOptions.map(v => (
-                                <option key={v.id} value={v.id}>
-                                  {v.sort_order}. {v.label}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          {archForm.vocab_id && (
-                            <div className="flex items-center gap-2 pb-1.5">
-                              <input type="checkbox" id={`default-${c.id}`}
-                                checked={archForm.dial_is_default}
-                                onChange={e => setArchForm(f => ({ ...f, dial_is_default: e.target.checked }))}
-                                className="accent-stone-600" />
-                              <label htmlFor={`default-${c.id}`} className="text-sm text-stone-600">Set as default</label>
-                            </div>
-                          )}
-                          <div className="flex-1 min-w-[180px]">
-                            <label className="block text-xs text-stone-500 mb-1">Notes <span className="opacity-60">(optional)</span></label>
-                            <input value={archForm.notes}
-                              onChange={e => setArchForm(f => ({ ...f, notes: e.target.value }))}
-                              className="w-full border border-stone-300 rounded px-3 py-1.5 text-sm"
-                              placeholder="e.g. assigned after session 002" />
-                          </div>
-                          <div className="flex gap-2">
-                            <button onClick={() => handleArchetypeAssign(c.id)} disabled={archSaving}
-                              className="px-4 py-1.5 rounded text-sm font-normal text-white disabled:opacity-50"
-                              style={{ backgroundColor: '#b05642' }}>
-                              {archSaving ? 'Saving…' : 'Save'}
-                            </button>
-                            <button onClick={() => setAssigningId(null)}
-                              className="px-4 py-1.5 rounded text-sm text-stone-500 hover:text-stone-800 border border-stone-200">
-                              Cancel
-                            </button>
-                          </div>
-                          {archError && <p className="w-full text-red-500 text-xs">{archError}</p>}
-                        </div>
-                      </td>
+          return (
+            <div key={archValue}>
+              <h2 className="text-xs font-normal text-stone-400 uppercase tracking-widest mb-2">
+                {archLabel}
+              </h2>
+              <div className="border border-stone-100 rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-stone-100 bg-stone-50 text-xs text-stone-400 uppercase tracking-wide">
+                      <th className="py-2 px-4 text-left w-32">Position</th>
+                      <th className="py-2 px-4 text-left w-40">Slot Name</th>
+                      <th className="py-2 px-4 text-left">Path Coffee Roasters</th>
+                      <th className="py-2 px-4 text-left">Temecula Coffee Roasters</th>
                     </tr>
-                  )}
-                </>
-              );
-            })}
-          </tbody>
-        </table>
+                  </thead>
+                  <tbody>
+                    {archVocab.map(v => {
+                      const posCoffees  = archCoffees.filter(c => c.dial_position_sort === v.sort_order);
+                      const pathCoffees = posCoffees.filter(c => c.roaster === PATH);
+                      const tcrCoffees  = posCoffees.filter(c => c.roaster === TCR);
+                      const alias       = aliasMap[`${archValue}_${v.sort_order}`] ?? '—';
+                      const isDefault   = v.sort_order === 2;
+                      const editingHere = posCoffees.some(c => c.id === assigningId);
+
+                      return (
+                        <>
+                          <tr
+                            key={v.id}
+                            className={`border-b border-stone-50 ${isDefault ? 'bg-stone-50/60' : ''}`}
+                          >
+                            <td className="py-2.5 px-4 text-stone-400 text-xs whitespace-nowrap">
+                              <span className="mr-1.5">{posIcon(v.sort_order)}</span>
+                              {v.label}
+                            </td>
+                            <td className="py-2.5 px-4 text-stone-500 text-xs">{alias}</td>
+                            <td className="py-2.5 px-4">
+                              {pathCoffees.length > 0
+                                ? <div className="space-y-0.5">{pathCoffees.map(c => <CoffeeChip key={c.id} coffee={c} />)}</div>
+                                : <span className="text-stone-200 text-xs">—</span>}
+                            </td>
+                            <td className="py-2.5 px-4">
+                              {tcrCoffees.length > 0
+                                ? <div className="space-y-0.5">{tcrCoffees.map(c => <CoffeeChip key={c.id} coffee={c} />)}</div>
+                                : <span className="text-stone-200 text-xs">—</span>}
+                            </td>
+                          </tr>
+                          {editingHere && (
+                            <tr key={`edit-${v.id}`} className="border-b border-stone-200">
+                              <td colSpan={4} className="p-0">
+                                <EditForm coffeeId={assigningId!} />
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      );
+                    })}
+
+                    {/* Coffees with this archetype but no dial position */}
+                    {(() => {
+                      const noPos = archCoffees.filter(c => !c.dial_position_sort);
+                      if (noPos.length === 0) return null;
+                      const editingHere = noPos.some(c => c.id === assigningId);
+                      return (
+                        <>
+                          <tr key="no-pos" className="border-b border-stone-50 bg-amber-50/40">
+                            <td className="py-2.5 px-4 text-xs text-amber-400">— no position</td>
+                            <td className="py-2.5 px-4 text-stone-200 text-xs">—</td>
+                            <td className="py-2.5 px-4" colSpan={2}>
+                              <div className="flex flex-wrap gap-x-4 gap-y-0.5">
+                                {noPos.map(c => <CoffeeChip key={c.id} coffee={c} />)}
+                              </div>
+                            </td>
+                          </tr>
+                          {editingHere && (
+                            <tr key="edit-no-pos" className="border-b border-stone-200">
+                              <td colSpan={4} className="p-0">
+                                <EditForm coffeeId={assigningId!} />
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* ── Unplaced (no archetype) ─────────────────────────────────────── */}
+        {unplaced.length > 0 && (
+          <div>
+            <h2 className="text-xs font-normal text-stone-400 uppercase tracking-widest mb-2">
+              Unplaced
+            </h2>
+            <div className="border border-stone-100 rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-stone-100 bg-stone-50 text-xs text-stone-400 uppercase tracking-wide">
+                    <th className="py-2 px-4 text-left">Coffee</th>
+                    <th className="py-2 px-4 text-left">Roaster</th>
+                    <th className="py-2 px-4 text-left">Origin</th>
+                    <th className="py-2 px-4 text-left">Process / Roast</th>
+                    <th className="py-2 px-4 text-left">Archetype</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {unplaced.map(c => {
+                    const isAssigning = assigningId === c.id;
+                    const roastLabel   = lookups.roast_level?.find(o => o.value === c.roast_level)?.label ?? c.roast_level ?? '—';
+                    const processLabel = lookups.process?.find(o => o.value === c.process)?.label ?? c.process ?? '—';
+                    return (
+                      <>
+                        <tr key={c.id} className="border-b border-stone-50 hover:bg-stone-50">
+                          <td className="py-2.5 px-4 text-stone-800">{c.name}</td>
+                          <td className="py-2.5 px-4 text-stone-500 text-xs">{c.roaster ?? '—'}</td>
+                          <td className="py-2.5 px-4 text-stone-500 text-xs">{c.origin ?? '—'}</td>
+                          <td className="py-2.5 px-4 text-stone-500 text-xs">{processLabel} · {roastLabel}</td>
+                          <td className="py-2.5 px-4">
+                            <button onClick={() => isAssigning ? setAssigningId(null) : openAssign(c)}
+                              className="flex items-center gap-1.5 group">
+                              {c.archetype
+                                ? <>
+                                    <span className="px-2 py-0.5 rounded-full text-xs text-white" style={{ backgroundColor: '#b05642' }}>
+                                      {ARCHETYPE_LABEL[c.archetype] ?? c.archetype}
+                                    </span>
+                                    <span className="text-stone-300 text-xs opacity-0 group-hover:opacity-100 transition-opacity">✏️</span>
+                                  </>
+                                : <span className="px-2 py-0.5 rounded border border-dashed border-stone-300 text-xs text-stone-400 hover:border-stone-400 hover:text-stone-600">
+                                    + Assign
+                                  </span>}
+                            </button>
+                          </td>
+                        </tr>
+                        {isAssigning && (
+                          <tr key={`edit-${c.id}`} className="border-b border-stone-200">
+                            <td colSpan={5} className="p-0">
+                              <EditForm coffeeId={c.id} />
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

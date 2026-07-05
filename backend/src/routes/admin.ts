@@ -380,6 +380,24 @@ router.delete('/sessions/:sessionId/coffees/:scId', async (req, res) => {
 });
 
 // ── GET /api/admin/dimensions ─────────────────────────────────────────────────
+// ── GET /api/admin/coffee-alias ──────────────────────────────────────────────
+router.get('/coffee-alias', async (_req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT ca.id, ca.platform_name, ca.archetype, ca.dial_sort_order,
+             ca.coffee_id, ca.priority, ca.is_active,
+             c.name AS coffee_name, c.roaster
+      FROM coffee_alias ca
+      JOIN coffees c ON c.id = ca.coffee_id
+      ORDER BY ca.archetype NULLS LAST, ca.dial_sort_order, ca.priority
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[admin/coffee-alias]', err);
+    res.status(500).json({ error: 'Failed to fetch coffee aliases' });
+  }
+});
+
 router.get('/dimensions', async (_req, res) => {
   try {
     const result = await db.query(
