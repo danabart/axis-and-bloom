@@ -99,7 +99,7 @@ function SplitVisual() {
     <svg viewBox="0 0 520 180" width="100%" style={{ display: 'block' }}>
       {/* Left panel — origin / map */}
       <rect x="0" y="0" width="238" height="180" rx="10" fill="rgba(0,0,0,0.04)" />
-      <text x="119" y="22" textAnchor="middle" fontSize={9} fontFamily="'Genova',Arial,sans-serif" fill="rgba(0,0,0,0.35)" letterSpacing="0.1em">WHERE IT&apos;S FROM</text>
+      <text x="119" y="22" textAnchor="middle" fontSize={9} fontFamily="'Lato',Arial,sans-serif" fill="rgba(0,0,0,0.35)" letterSpacing="0.1em">WHERE IT&apos;S FROM</text>
       {/* Simplified map outline */}
       <ellipse cx="119" cy="95" rx="80" ry="55" fill="none" stroke="rgba(0,0,0,0.1)" strokeWidth={1} strokeDasharray="4,3" />
       {/* Location pins */}
@@ -110,14 +110,14 @@ function SplitVisual() {
           <line x1={px} y1={py + 5} x2={px} y2={py + 12} stroke="#9a2918" strokeWidth={1} opacity={0.5} />
         </g>
       ))}
-      <text x="119" y="165" textAnchor="middle" fontSize={9} fontFamily="'Genova',Arial,sans-serif" fill="rgba(0,0,0,0.35)" fontStyle="italic">Origin · Season · Terroir</text>
+      <text x="119" y="165" textAnchor="middle" fontSize={9} fontFamily="'Lato',Arial,sans-serif" fill="rgba(0,0,0,0.35)" fontStyle="italic">Origin · Season · Terroir</text>
 
       {/* Arrow */}
-      <text x="260" y="97" textAnchor="middle" fontSize={18} fill="rgba(154,41,24,0.5)" fontFamily="'Genova',Arial,sans-serif">→</text>
+      <text x="260" y="97" textAnchor="middle" fontSize={18} fill="rgba(154,41,24,0.5)" fontFamily="'Lato',Arial,sans-serif">→</text>
 
       {/* Right panel — flavor shape */}
       <rect x="282" y="0" width="238" height="180" rx="10" fill="rgba(154,41,24,0.05)" />
-      <text x="401" y="22" textAnchor="middle" fontSize={9} fontFamily="'Genova',Arial,sans-serif" fill="rgba(154,41,24,0.5)" letterSpacing="0.1em">WHAT IT ACTUALLY TASTES LIKE</text>
+      <text x="401" y="22" textAnchor="middle" fontSize={9} fontFamily="'Lato',Arial,sans-serif" fill="rgba(154,41,24,0.5)" letterSpacing="0.1em">WHAT IT ACTUALLY TASTES LIKE</text>
       {/* Radar polygon */}
       {(() => {
         const cx = 401, cy = 98, r = 52;
@@ -144,7 +144,7 @@ function SplitVisual() {
           </>
         );
       })()}
-      <text x="401" y="165" textAnchor="middle" fontSize={9} fontFamily="'Genova',Arial,sans-serif" fill="rgba(154,41,24,0.5)" fontStyle="italic">A precise, repeatable flavor signature</text>
+      <text x="401" y="165" textAnchor="middle" fontSize={9} fontFamily="'Lato',Arial,sans-serif" fill="rgba(154,41,24,0.5)" fontStyle="italic">A precise, repeatable flavor signature</text>
     </svg>
   );
 }
@@ -192,8 +192,8 @@ function FeedbackLoop() {
         ))}
       </defs>
       {/* Center label */}
-      <text x={cx} y={cy - 9} textAnchor="middle" fontSize={10} fontFamily="'Genova',Arial,sans-serif" fill="rgba(0,0,0,0.4)">Refine your</text>
-      <text x={cx} y={cy + 6} textAnchor="middle" fontSize={10} fontFamily="'Genova',Arial,sans-serif" fill="rgba(0,0,0,0.4)">vector</text>
+      <text x={cx} y={cy - 9} textAnchor="middle" fontSize={10} fontFamily="'Lato',Arial,sans-serif" fill="rgba(0,0,0,0.4)">Refine your</text>
+      <text x={cx} y={cy + 6} textAnchor="middle" fontSize={10} fontFamily="'Lato',Arial,sans-serif" fill="rgba(0,0,0,0.4)">vector</text>
       <circle cx={cx} cy={cy} r={28} fill="none" stroke="rgba(0,0,0,0.08)" strokeWidth={1} strokeDasharray="3,2" />
       {/* Node circles + labels */}
       {nodes.map((node, i) => {
@@ -206,7 +206,7 @@ function FeedbackLoop() {
               <text key={li}
                 x={x} y={y + (li - (lines.length - 1) / 2) * 13}
                 textAnchor="middle" dominantBaseline="middle"
-                fontSize={9.5} fontFamily="'Genova',Arial,sans-serif" fill={node.color}
+                fontSize={9.5} fontFamily="'Lato',Arial,sans-serif" fill={node.color}
               >
                 {line}
               </text>
@@ -230,7 +230,7 @@ const calloutCard: React.CSSProperties = {
 
 export default function TheAxis() {
   return (
-    <div style={{ fontFamily: "'Genova', Arial, sans-serif", backgroundColor: '#f2f1ea', minHeight: '100vh' }}>
+    <div style={{ fontFamily: "'Lato', Arial, sans-serif", backgroundColor: '#f2f1ea', minHeight: '100vh' }}>
 
       {/* ── Hero ── */}
       <section style={{ padding: 'clamp(88px,10vw,124px) clamp(24px,6vw,80px) clamp(56px,7vw,88px)' }}>
@@ -457,27 +457,27 @@ export default function TheAxis() {
                 <rect x="8" y="8" width="424" height="264" rx="8" fill="#f2f1ea" stroke="currentColor" strokeOpacity="0.07" strokeWidth="0.5" />
                 <circle cx="222" cy="172" r="92" fill="#c4821a" fillOpacity="0.05" stroke="#c4821a" strokeWidth="0.75" strokeDasharray="4,3" opacity="0.7" />
                 <circle cx="222" cy="172" r="60" fill="#a33726" fillOpacity="0.05" stroke="#a33726" strokeWidth="0.75" strokeDasharray="4,3" opacity="0.8" />
-                <text x="278" y="111" fontSize="9" fontFamily="'Genova',Arial,sans-serif" fill="#a33726" fillOpacity="0.7" letterSpacing=".07em">WHEELHOUSE</text>
-                <text x="301" y="84" fontSize="9" fontFamily="'Genova',Arial,sans-serif" fill="#c4821a" fillOpacity="0.65" letterSpacing=".07em">EXPLORING</text>
+                <text x="278" y="111" fontSize="9" fontFamily="'Lato',Arial,sans-serif" fill="#a33726" fillOpacity="0.7" letterSpacing=".07em">WHEELHOUSE</text>
+                <text x="301" y="84" fontSize="9" fontFamily="'Lato',Arial,sans-serif" fill="#c4821a" fillOpacity="0.65" letterSpacing=".07em">EXPLORING</text>
                 <line x1="211" y1="176" x2="96" y2="224" stroke="#9a9595" strokeWidth="1" strokeDasharray="4,3" markerEnd="url(#mOut)" opacity="0.5" />
                 <line x1="213" y1="163" x2="87" y2="80" stroke="#9a9595" strokeWidth="1" strokeDasharray="4,3" markerEnd="url(#mOut)" opacity="0.5" />
                 <line x1="233" y1="172" x2="298" y2="178" stroke="#c4821a" strokeWidth="1.5" markerEnd="url(#mEx)" />
                 <line x1="212" y1="163" x2="163" y2="133" stroke="#c4821a" strokeWidth="1.5" markerEnd="url(#mEx)" />
                 <line x1="229" y1="162" x2="258" y2="133" stroke="#a33726" strokeWidth="2.5" markerEnd="url(#mWh)" />
                 <circle cx="80" cy="76" r="9" fill="#7a6a4f" />
-                <text x="92" y="73" fontSize="11" fill="#7a6a4f" fontFamily="'Genova',Arial,sans-serif" fontWeight="500">Earthy</text>
+                <text x="92" y="73" fontSize="11" fill="#7a6a4f" fontFamily="'Lato',Arial,sans-serif" fontWeight="500">Earthy</text>
                 <circle cx="85" cy="228" r="9" fill="#a54c2d" />
-                <text x="85" y="251" fontSize="10.5" fill="#a54c2d" fontFamily="'Genova',Arial,sans-serif" textAnchor="middle">Choc. &amp; Nutty</text>
+                <text x="85" y="251" fontSize="10.5" fill="#a54c2d" fontFamily="'Lato',Arial,sans-serif" textAnchor="middle">Choc. &amp; Nutty</text>
                 <circle cx="153" cy="128" r="9" fill="#c9a830" />
-                <text x="141" y="120" fontSize="10.5" fill="#c9a830" fontFamily="'Genova',Arial,sans-serif" textAnchor="end">Balanced</text>
-                <text x="141" y="133" fontSize="10.5" fill="#c9a830" fontFamily="'Genova',Arial,sans-serif" textAnchor="end">&amp; Sweet</text>
+                <text x="141" y="120" fontSize="10.5" fill="#c9a830" fontFamily="'Lato',Arial,sans-serif" textAnchor="end">Balanced</text>
+                <text x="141" y="133" fontSize="10.5" fill="#c9a830" fontFamily="'Lato',Arial,sans-serif" textAnchor="end">&amp; Sweet</text>
                 <circle cx="308" cy="178" r="9" fill="#8a7cbe" />
-                <text x="320" y="175" fontSize="11" fill="#8a7cbe" fontFamily="'Genova',Arial,sans-serif">Floral</text>
+                <text x="320" y="175" fontSize="11" fill="#8a7cbe" fontFamily="'Lato',Arial,sans-serif">Floral</text>
                 <circle cx="266" cy="128" r="9" fill="#ca445f" />
-                <text x="278" y="125" fontSize="11" fill="#ca445f" fontFamily="'Genova',Arial,sans-serif">Fruity</text>
+                <text x="278" y="125" fontSize="11" fill="#ca445f" fontFamily="'Lato',Arial,sans-serif">Fruity</text>
                 <circle cx="222" cy="172" r="16" fill="#a33726" fillOpacity="0.12" />
                 <circle cx="222" cy="172" r="10" fill="#a33726" />
-                <text x="236" y="169" fontSize="12" fill="#a33726" fontFamily="'Genova',Arial,sans-serif" fontWeight="500">You</text>
+                <text x="236" y="169" fontSize="12" fill="#a33726" fontFamily="'Lato',Arial,sans-serif" fontWeight="500">You</text>
               </svg>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 10 }}>
                 {[

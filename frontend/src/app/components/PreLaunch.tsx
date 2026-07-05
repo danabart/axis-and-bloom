@@ -10,7 +10,7 @@ const inputStyle: React.CSSProperties = {
   borderBottom: `1.5px solid ${BRAND}`,
   background: 'transparent',
   padding: '14px 0',
-  fontFamily: "'Genova', Arial, sans-serif",
+  fontFamily: "'Lato', Arial, sans-serif",
   fontSize: '1rem',
   color: BRAND,
   outline: 'none',
@@ -42,13 +42,13 @@ export default function PreLaunch() {
         .pl-input::placeholder {
           color: ${BRAND};
           opacity: 0.45;
-          font-family: 'Genova', Arial, sans-serif;
+          font-family: 'Lato', Arial, sans-serif;
         }
       `}</style>
 
       <div
         className="fixed inset-0 z-[9999] flex flex-col md:flex-row"
-        style={{ fontFamily: "'Genova', Arial, sans-serif" }}
+        style={{ fontFamily: "'Lato', Arial, sans-serif" }}
       >
         {/* ── Left — full-bleed photo ───────────────────────────── */}
         <div
@@ -81,7 +81,7 @@ export default function PreLaunch() {
 
             {/* Tagline */}
             <div style={{
-              fontFamily: "'Genova', Arial, sans-serif",
+              fontFamily: "'Lato', Arial, sans-serif",
               fontWeight: 400,
               fontSize: '1rem',
               letterSpacing: '0.12em',
@@ -107,7 +107,7 @@ export default function PreLaunch() {
             {/* Form / confirmation */}
             {submitted ? (
               <p style={{
-                fontFamily: "'Genova', Arial, sans-serif",
+                fontFamily: "'Lato', Arial, sans-serif",
                 fontWeight: 400,
                 color: BRAND,
                 fontSize: '0.95rem',
@@ -143,7 +143,7 @@ export default function PreLaunch() {
                   style={{
                     background: 'none',
                     border: 'none',
-                    fontFamily: "'Genova', Arial, sans-serif",
+                    fontFamily: "'Lato', Arial, sans-serif",
                     fontWeight: 400,
                     fontSize: '0.95rem',
                     color: BRAND,
