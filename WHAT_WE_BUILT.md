@@ -1950,6 +1950,28 @@ Breakfast Blend, Blonde Blend, Guatemala, Colombia, Brazil Santos, African Espre
 
 ---
 
+### 67. Admin Coffees — matrix view with alias slots (2026-07-04)
+
+**Files:** `frontend/src/app/components/admin/AdminCoffees.tsx`, `backend/src/routes/admin.ts`
+
+**Problem:** The flat coffee list was hard to read at a glance — no sense of how the catalogue maps to the Bloom Dial, and coffee aliases were not visible anywhere in admin.
+
+**New layout** mirrors the archetype matrix Excel:
+- Six archetype sections (Chocolate & Nutty, Balanced & Sweet, Fruity, Earthy, Floral, Experimental)
+- Each section is a bordered table with columns: **Position** (`← Lighter` / `◉ Classic` / `→ Richer`) · **Slot Name** (alias from `coffee_alias`) · **Path Coffee Roasters** · **Temecula Coffee Roasters**
+- Coffees with the archetype but no dial position show in an amber-tinted "— no position" row at the bottom of that section
+- **Unplaced section** at the bottom shows coffees with no archetype (Half-Caf, Decaf, Flavored) as a flat table with "+ Assign" button
+
+**Per-coffee interactions (visible on hover):**
+- Click coffee name → inline edit form expands below that matrix row (archetype, confidence, dial position, default checkbox, notes)
+- `← →` arrows for quick one-step position moves
+- `↺` to refresh AI content
+- `★` marks the default coffee for that roaster + archetype
+
+**Backend:** Added `GET /api/admin/coffee-alias` — returns all `coffee_alias` rows joined to `coffees` (name, roaster, platform_name, archetype, dial_sort_order, priority). Used by the matrix to populate the Slot Name column.
+
+---
+
 ## What's Still To Do
 
 ### Quiz / scoring
