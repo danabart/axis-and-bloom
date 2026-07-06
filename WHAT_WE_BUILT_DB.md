@@ -100,7 +100,7 @@ It was merged from the original Supabase design plus adaptations for Firebase Au
 **Sommelier (Liam)** *(added June 2026 — SERIAL PKs)*
 - `sommelier_sessions` — one row per Liam session; columns: `uid TEXT` (firebase UID), `intent TEXT`, `turn_count INT`, `is_closed BOOL`, `close_reason TEXT`, `context_data JSONB` (stores catalogText, evaluationId, archetype, coffeeIds, ragFocus), `last_active_at TIMESTAMPTZ`
 - `sommelier_messages` — **legacy** (table kept, no longer written). Conversation messages moved to Firestore `users/{uid}/sommelier_sessions/{sessionId}/messages` as of 2026-06-27. `GET /api/sommelier/:id/messages` falls back to this table for sessions created before the migration.
-- `user_tokens` — token balance per user; PK is `uid TEXT` (firebase UID); columns: `balance INT DEFAULT 0`, `lifetime_earned INT DEFAULT 0`, `lifetime_spent INT DEFAULT 0`
+- `user_tokens` — token balance per user; PK is `uid TEXT` (firebase UID); columns: `balance INT DEFAULT 0`, `lifetime_earned INT DEFAULT 0`, `lifetime_spent INT DEFAULT 0`. **This is the source of truth for token balance** — `GET /api/users/profile` reads it directly from Postgres. The `tokenBalance` field mirrored onto Firestore `users/{uid}` is a read-side cache only (written by `tokenService.ts` after every grant/spend) — editing it manually in the Firebase console has no effect on the site.
 - `token_events` — full audit trail of every earn and spend; columns: `uid TEXT`, `delta INT` (positive=earn, negative=spend), `reason TEXT`, `reference_id TEXT`, `created_at TIMESTAMPTZ`
 - `liam_sms_feedback` — legacy alias for `sommelier_sms_feedback`; one row per SMS message (outbound + inbound); tracks scheduling, delivery, reply parsing, and Firestore doc link
 - `sommelier_sms_feedback` — one row per SMS message; outbound rows track scheduling (`scheduled_for`, `sent_at`, `delivery_status`); inbound rows store reply, parsed sentiment, rating, descriptors, and `firestore_feedback_doc_id`; idempotency key: `(user_id, blend_id)`; `reply_to_id` links inbound → outbound
@@ -440,6 +440,19 @@ SELECT grant_admin('user@example.com');
 SELECT revoke_admin('user@example.com');
 SELECT * FROM list_admins();
 ```
+
+### Manual token grant
+
+Function definition: `backend/src/db/functions/grant_tokens.sql` — not run automatically by `schema.sql`; deploy once via Cloud SQL Studio (paste + run), then it's re-usable. `CREATE OR REPLACE`, safe to re-run.
+
+Mirrors `tokenService.ts`'s `grantTokens()`: upserts a `user_tokens` row if missing, adds to `balance` and `lifetime_earned`, and logs the grant to `token_events` (`reason` defaults to `'admin_grant'`).
+
+```sql
+SELECT grant_tokens('<firebase_uid>', 100);
+SELECT grant_tokens('<firebase_uid>', 100, 'admin_grant', 'manual-2026-07-05');
+```
+
+Note: only updates Postgres (the source of truth). It does not write the Firestore `tokenBalance` mirror, but that mirror isn't read by the app anyway — see `user_tokens` note above.
 
 ### Check quiz scoring table directly
 ```sql
