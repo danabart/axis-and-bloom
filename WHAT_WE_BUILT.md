@@ -2090,6 +2090,24 @@ The original "Supply & Inventory" page (entry #69) was built with stock quantity
 
 ---
 
+### 72. Blends & SKUs — matrix layout (archetype → position → ranked choices) (2026-07-05)
+
+**File:** `frontend/src/app/components/admin/AdminInventory.tsx`
+
+**Why:** The previous design grouped by coffee, so two coffees competing for the same alias slot (e.g. "Classic Chocolate") appeared as disconnected groups — the 1st/2nd choice relationship wasn't visible. The redesign flips the grouping so alias slots are the primary organizer, matching the mental model: "for Classic Chocolate, try Path first, then TCR as fallback."
+
+**Structure:**
+- Grouped by **archetype** (Chocolate & Nutty, Balanced & Sweet, …)
+- Within each archetype, grouped by **dial position** (← Lighter, ◉ Classic, → Richer, ⟶ Intense)
+- Within each position, the alias slot name is the header; coffees are listed in rank order (1st choice ★ in rust, 2nd choice in gray)
+- Each coffee entry shows its blend variants (12 oz / 5 lb) with SKU, Shopify Variant ID, Active toggle, and Edit form
+- Rank badge is clickable → inline number editor → `PATCH /api/admin/coffee-alias/:id`
+- Blends with no alias slot surface in an amber "No Alias Assigned" section at the bottom
+
+**Data source:** Combines two existing endpoints — `/api/admin/coffee-alias` (for slot/rank structure) and `/api/admin/inventory` (for blend variants) — joined on `coffee_id` in the frontend.
+
+---
+
 ## What's Still To Do
 
 ### Quiz / scoring
