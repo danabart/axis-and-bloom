@@ -420,6 +420,27 @@ router.get('/coffee-alias', async (_req, res) => {
   }
 });
 
+// ── PATCH /api/admin/coffee-alias/:id — update fulfillment rank ───────────────
+router.patch('/coffee-alias/:id', async (req, res) => {
+  const { id } = req.params;
+  const { priority } = req.body;
+  if (!Number.isInteger(priority) || priority < 1) {
+    res.status(400).json({ error: 'priority must be a positive integer' }); return;
+  }
+  try {
+    const result = await db.query(
+      `UPDATE coffee_alias SET priority = $1 WHERE id = $2
+       RETURNING id, platform_name, priority, archetype, dial_sort_order, coffee_id`,
+      [priority, id]
+    );
+    if (result.rowCount === 0) { res.status(404).json({ error: 'Alias not found' }); return; }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[admin/coffee-alias PATCH]', err);
+    res.status(500).json({ error: 'Failed to update alias rank' });
+  }
+});
+
 router.get('/dimensions', async (_req, res) => {
   try {
     const result = await db.query(
@@ -1033,9 +1054,19 @@ router.get('/inventory', async (_req, res) => {
         rb.id, rb.blend_name, rb.coffee_id, c.name AS coffee_name, c.roaster,
         rb.weight_oz, rb.roaster_sku, rb.shopify_variant_id, rb.is_active,
         rb.quantity_available, rb.safety_stock_buffer,
-        rb.inventory_status, rb.inventory_last_synced_at, rb.last_restocked_at
+        rb.inventory_status, rb.inventory_last_synced_at, rb.last_restocked_at,
+        ca.id         AS alias_id,
+        ca.platform_name AS alias_name,
+        ca.priority   AS alias_rank
       FROM roaster_blend rb
       LEFT JOIN coffees c ON c.id = rb.coffee_id
+      LEFT JOIN LATERAL (
+        SELECT id, platform_name, priority
+        FROM coffee_alias
+        WHERE coffee_id = rb.coffee_id AND is_active = true
+        ORDER BY priority
+        LIMIT 1
+      ) ca ON true
       ORDER BY
         (rb.coffee_id IS NULL) DESC,
         CASE
