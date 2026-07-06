@@ -2071,6 +2071,25 @@ The original "Supply & Inventory" page (entry #69) was built with stock quantity
 
 ---
 
+### 71. Blends & SKUs — alias display + fulfillment rank (2026-07-05)
+
+**Files:** `frontend/src/app/components/admin/AdminInventory.tsx`, `backend/src/routes/admin.ts`
+
+**Why:** Each alias slot (e.g. "Classic Chocolate") can have multiple coffees assigned at different ranks — rank 1 is the first-choice fulfillment, rank 2 is the fallback if rank 1 is unavailable, and so on. The page previously had no visibility into this, and no way to edit it.
+
+**Backend:**
+- `GET /api/admin/inventory` extended with a LATERAL LEFT JOIN on `coffee_alias` (by `coffee_id`), returning `alias_id`, `alias_name`, and `alias_rank` (the existing `priority` field) per blend. Uses `LIMIT 1 ORDER BY priority` so each blend gets its primary alias assignment without duplicating rows.
+- `PATCH /api/admin/coffee-alias/:id` — new endpoint to update `coffee_alias.priority` (fulfillment rank). Validates that priority ≥ 1.
+
+**Frontend — Blends & SKUs group header:**
+- Each coffee group now shows: **alias slot name** (e.g. "Classic Chocolate") + **rank badge** ("1st choice ★" in rust, "2nd choice" in gray).
+- Clicking the rank badge opens an inline number editor directly in the header row. Saving calls `PATCH /api/admin/coffee-alias/:alias_id` and reloads.
+- Coffees with no alias show "No alias slot assigned" in muted gray.
+
+**Fulfillment logic (future):** When a customer orders by alias name, the system tries `priority = 1` first; if that blend is inactive or out of stock, falls back to `priority = 2`, and so on. Rank is currently set manually; future versions will derive it from cupping scores, roaster ratings, or customer feedback.
+
+---
+
 ## What's Still To Do
 
 ### Quiz / scoring
