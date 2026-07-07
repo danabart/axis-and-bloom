@@ -34,18 +34,28 @@ File: `frontend/src/app/components/Sommelier.tsx`
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  [Intent label]               [X Close]              │
+│  [L] Liam                         [X Close]          │
+│  Discovering your profile                            │
 │  Exploring today: [Crosshatch] [Nocturnal] [Feather] │
 ├──────────────────────────────────────────────────────┤
 │                                                      │
-│  [Liam bubble]                                       │
-│  Hi, I'm Liam. Let's find your next coffee...        │
+│  LIAM                                                │
+│  Hi, I'm Liam. Your quiz results came out close      │
+│  between two profiles. Let me ask you a couple of    │
+│  things to narrow it down.                           │
 │                                                      │
-│                        [User bubble — rust bg]       │
-│                        I usually like dark coffee    │
+│  YOU                                                 │
+│  I usually prefer something darker and comforting.   │
 │                                                      │
-│  [Liam bubble]                                       │
-│  Interesting — tell me more about...                 │
+│  LIAM                                                │
+│  That points me toward Crosshatch. It leads with     │
+│  dark chocolate and dried fruit — familiar — with    │
+│  a soft citrus note that appears in the finish.      │
+│                                                      │
+│  ┌────────────────────────────────┐                  │
+│  │ Crosshatch                     │                  │
+│  │ Dark choc · Dried fruit · Citrus finish           │
+│  └────────────────────────────────┘                  │
 │                                                      │
 ├──────────────────────────────────────────────────────┤
 │  3 of 8 turns · 14 tokens remaining                  │
@@ -55,10 +65,33 @@ File: `frontend/src/app/components/Sommelier.tsx`
 └──────────────────────────────────────────────────────┘
 ```
 
-### Chat bubbles
+**UI direction: thread layout, not chat bubbles.**
 
-- **Liam (left):** white background, 1px rust border, rounded-lg. Small "Liam" name label above the first bubble only. Avatar: a minimal circular badge with "L" in Genova Black.
-- **User (right):** rust background, white text, rounded-lg. No label.
+This is a prose thread — the same pattern used by ChatGPT, Claude.ai, and Perplexity. No speech bubbles, no left/right asymmetry. Both sides speak in plain flowing text, distinguished only by their name label. It should feel like reading a conversation, not using a chatbot widget.
+
+### Thread messages
+
+**Liam messages:**
+- Name label: `LIAM` in Genova Thin, uppercase, tracked, rust color (`#a33726`), small — appears above every Liam message (not just the first)
+- Message text: full width, left-aligned, Genova Regular, standard body size, dark text (`#3a2e28` or `var(--color-text-primary)`)
+- No background, no border, no bubble shape
+- When Liam references a specific coffee, embed a small inline card directly below the relevant paragraph (see Coffee cards below)
+
+**User messages:**
+- Name label: `YOU` in the same style as `LIAM` label, but muted color
+- Message text: full width, left-aligned, same body style — no rust background, no bubble
+- Visually distinguished from Liam only by the label and a slightly lighter text color or left indent (choose whichever feels cleaner in the actual implementation)
+
+**Coffee inline cards (appear within Liam's message):**
+- Small, contained card: thin border (`#e2d9d0`), rounded-lg, warm background (`#faf8f5`)
+- Coffee name in Genova Regular weight 500, tasting descriptors below in small muted text
+- Width: fits content, not full-width — feels like an aside, not a section break
+- Appears directly below the paragraph where Liam mentions the coffee, before the next message
+
+**Spacing:**
+- Generous vertical gap between each message (Liam → You, You → Liam)
+- Tighter spacing between a message and its inline coffee card
+- No horizontal padding difference between Liam and user messages
 
 ### Status bar (above input)
 
@@ -260,7 +293,7 @@ When all checklist items are done, append a summary to `SOMMELIER_BUILT.md` unde
 
 ## Definition of done
 
-- [ ] `Sommelier.tsx` — Liam persona, intent label, coffee strip, turn counter, token balance display, bubble styles, loading state, close state, out-of-tokens state, resume prompt, all error states
+- [ ] `Sommelier.tsx` — Liam persona, intent label, coffee strip, turn counter, token balance display, thread message styles (no bubbles — see UI direction above), inline coffee cards, loading state, close state, out-of-tokens state, resume prompt, all error states
 - [ ] Mount flow: token fetch → evaluate → resumable check → start/resume → opening message
 - [ ] Mobile layout — coffee strip collapses, sticky input, full-screen chat
 - [ ] Quiz tie interstitial — "Talk to Liam" CTA, archetype names shown, fallback option

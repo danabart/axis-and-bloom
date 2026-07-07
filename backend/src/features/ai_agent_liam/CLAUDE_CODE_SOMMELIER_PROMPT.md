@@ -1,6 +1,6 @@
 # Coffee Sommelier — Claude Code Task Index
 
-Five tasks. Run Task 1 first. Tasks 2 and 3 can run in parallel after Task 1. Task 4 goes after Task 2. Task 5 is independent once Task 2 is done.
+Six tasks. Run Tasks 1–5 first (see original order below). Task 6 is standalone — run it after all others are complete.
 
 **Task files are in:** `backend/src/AI Agent - Liam/`
 
@@ -11,7 +11,10 @@ Task 2 — Backend          Task 3 — Admin Portal
 (depends on Task 1)       (depends on Task 1, parallel with Task 2)
     ↓                           
 Task 4 — Frontend         Task 5 — SMS Feedback Loop
-(depends on Task 2)       (depends on Task 2, can run in parallel with Task 4)
+(depends on Task 2)       (depends on Task 2, parallel with Task 4)
+
+Task 6 — Liam Voice Reset
+(standalone — run after Tasks 1–5 are complete)
 ```
 
 ---
@@ -25,6 +28,7 @@ Task 4 — Frontend         Task 5 — SMS Feedback Loop
 | `SOMMELIER_TASK_3_ADMIN.md` | Config editor, intent editor, flow diagram with live stats, Bloom Dial admin page (`dial_archetype_positions` + `dial_coffee_relationships`) |
 | `SOMMELIER_TASK_4_FRONTEND.md` | Liam chat UI with token balance display, quiz tie interstitial ("Talk to Liam"), profile and coffees entry points with token state, routing |
 | `SOMMELIER_TASK_5_FEEDBACK.md` | Post-delivery SMS feedback loop — `liam_sms_feedback` table, `smsProvider.ts` (placeholder), `liamSmsFeedback.ts`, cron endpoint, inbound webhook, Haiku reply parsing, negative signal → Firestore flag → RECOMMENDATION_MISS |
+| `SOMMELIER_TASK_6_VOICE.md` | Replace `LIAM_BASE_PROMPT` in `claude.ts` with brand-aligned voice spec, inject generation from user DOB into `openingContext`, align all 6 intent `systemPromptAddendum` values |
 
 ---
 
@@ -59,6 +63,13 @@ Task 4 — Frontend         Task 5 — SMS Feedback Loop
 `PROFILE_AMBIGUOUS` · `RECOMMENDATION_MISS` · `TASTE_EVOLUTION` · `DISCOVERY_SEEKER` · `CONVERSION` · `EXPLORATION`
 
 All intent configuration (addenda, labels, RAG focus, active toggle) is editable from the admin portal without a code deploy.
+
+**Liam's voice is brand-defined, not improvised:**
+- Primary target: `LIAM_BASE_PROMPT` in `backend/src/services/claude.ts`
+- Character: educated and precise — "the brilliant friend who knows everything about coffee"
+- Key rules: sensory language over technical, confident not hedged, guide don't educate, remember never reset
+- Generational register: calculated from user DOB, injected into `openingContext` at session start
+- Default register (no DOB): Millennial — warm, conversational, brief context
 
 **SMS feedback loop — provider is a placeholder:**
 - SMS provider not yet chosen — `smsProvider.ts` defines the interface but returns `SMS_PROVIDER_NOT_CONFIGURED` (same pattern as Stripe)

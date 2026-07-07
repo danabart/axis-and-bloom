@@ -5,6 +5,8 @@ dist/
 *.local
 .DS_Store
 Thumbs.db
+desktop.ini
+~$*
 frontend/dist/
 backend/dist/
 *.log
