@@ -337,8 +337,12 @@ Apply this in Firebase Console → Firestore → Rules before shipping Liam to p
 #### S13. Order hook — old `orders` table, not normalized `"order"` table
 **Decision**: `backend/src/routes/orders.ts` inserts into the old `orders` table (columns: `uid TEXT`, `shopify_order_id`, `status`, `items JSONB`, `shipping_address`, `total_cents`). The normalized `"order"` table in schema.sql is not yet used by the order route. As a result, `sommelier_sms_feedback.order_id` (which FKs to `"order"(id)`) is always passed as `null` until the orders route is migrated. The `blend_id` is extracted from `items[0].blendId ?? items[0].id ?? null` — either field name may appear depending on what the frontend sends. Fire-and-forget after `res.json()`, consistent with token bonus pattern.
 
+**Resolved in `WHAT_WE_BUILT.md` #73 (2026-07-07)** — `orders.ts` now writes to `"order"` + `order_line_item`; `sommelier_sms_feedback.order_id` is passed the real order ID, not `null`. This also fixed `totalOrders` in `evaluateSommelier()`, which had silently read 0 for every real customer since nothing wrote to `"order"` — see S36.
+
 #### S14. `schedulePostDeliveryMessage` takes firebase UID, not user_profile UUID
 **Decision**: The spec signature was `schedulePostDeliveryMessage(userId, orderId, blendId)` where `userId` = `user_profile.id`. But `orders.ts` only has `req.uid` (firebase UID). The function was changed to accept `(firebaseUid: string, blendId: string | null)` and does the `user_profile` lookup internally. Idempotency is keyed on `(user_id, blend_id)` — one outbound message per blend per user.
+
+**Extended in `WHAT_WE_BUILT.md` #73 (2026-07-07)** — signature gained a third param: `schedulePostDeliveryMessage(firebaseUid, blendId, orderId = null)`. The `user_profile` lookup and `(user_id, blend_id)` idempotency key are unchanged.
 
 #### S15. Message body length check
 **Decision**: Primary message: `Hey [name]! It's Liam from Axis & Bloom — how are you finding the [Coffee Name]? Any thoughts welcome 🌸`. Checked against 160 chars at runtime. Falls back to shorter variant without emoji: `Hey [name], it's Liam from Axis & Bloom! How's the [Coffee Name] treating you? Any thoughts?` Long coffee names could still push either over 160 — acceptable edge case for now since SMS concatenation is handled by providers transparently.
@@ -416,6 +420,15 @@ When a user returned to `/sommelier` and clicked "Resume conversation", the fron
 1. New `GET /api/sommelier/:sessionId/messages` endpoint returns full message history + coffee names. Reads from Firestore; falls back to SQL for sessions predating the migration.
 2. `Sommelier.tsx` `handleResumeResume()` now fetches from this endpoint, sets `messages` to the returned history (falling back to a synthetic "Welcome back" only if empty), and restores the coffee strip — before entering chat phase.
 
+#### S36. Stage 1 data collection extracted to shared `userSignals.ts` (2026-07-07)
+**Context**: `WHAT_WE_BUILT.md` #73 built a Cloud SQL user-lifecycle status system alongside a new requirement: don't duplicate the Sommelier's data-collection queries. `getUserSignals(uid)` in `backend/src/services/userSignals.ts` now owns everything `evaluateSommelier()`'s old Stage 1 used to inline directly — quiz history, order history (now correctly reading from `"order"`, see S13), demographics, and the Firestore `confidence_profile` read.
+
+**What changed in `sommelierEvaluator.ts`**: the entire Stage 1 block (quiz sessions, order count, demographic query, negative-feedback lookback — all previously inline SQL/Firestore calls) replaced with one call: `const signals = await getUserSignals(uid)`, destructured into the same local variable names the rest of the function already used. **The six-Intent rule logic itself is unchanged** — same triggers, same priority order, same feature vector shape. `TASTE_EVOLUTION`'s check simplified from comparing `latestQuiz`/`prevQuiz` archetype names directly to reading `signals.archetypeChangedLastTwoQuizzes` (a boolean `getUserSignals()` now computes once).
+
+**Why this matters for future Sommelier work**: `sommelierEvaluator.ts` no longer contains its own SQL. Any future query changes to quiz/order/demographic data collection happen in `userSignals.ts` and are automatically picked up by both the Sommelier and the lifecycle system — the two are independent consumers of one shared collector, never reading each other's output (see `WHAT_WE_BUILT.md` #73 for the full architecture split).
+
+**Verified**: `CONVERSION` (confirmed archetype + zero orders) and the feature vector's `normalizedOrderCount` dimension now reflect real order counts post-S13-fix instead of always computing against 0.
+
 #### S35. Task 6 — Liam voice reset (2026-07-04)
 Full execution of `SOMMELIER_TASK_6_VOICE.md`. Three files changed + live Firestore config patched.
 
@@ -462,7 +475,7 @@ Changes to `LIAM_BASE_PROMPT` in `backend/src/services/claude.ts`:
 
 #### S33. Liam — demographic tone calibration, brand values, register mirroring (2026-06-28)
 
-**`sommelierEvaluator.ts`** — Stage 1 demographic query:
+**`sommelierEvaluator.ts`** — Stage 1 demographic query (moved to `userSignals.ts` as of S36; `sommelierEvaluator.ts` now reads `age`/`generation`/`householdType` off the shared `getUserSignals()` result instead of running this query itself):
 ```sql
 SELECT up.date_of_birth, up.household_id,
        (SELECT COUNT(*) FROM user_profile up2 WHERE up2.household_id = up.household_id) AS household_size
