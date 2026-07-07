@@ -179,7 +179,7 @@ All backend secrets live in GCP Secret Manager (`axis-and-bloom-prod`). Cloud Ru
 
 | Account | Purpose |
 |---|---|
-| `firebase-adminsdk-fbsvc@axis-and-bloom-prod.iam.gserviceaccount.com` | Firebase Admin SDK — verifies auth tokens in the backend |
+| `firebase-adminsdk-fbsvc@axis-and-bloom-prod.iam.gserviceaccount.com` | Firebase Admin SDK — verifies auth tokens in the backend. Also granted `roles/cloudsql.client` on 2026-07-07 so its key (`serviceAccountKey.json`, already on Dana's machine) can authenticate through the Cloud SQL Auth Proxy for local seed/test scripts against the real DB — see `WHAT_WE_BUILT_DB.md`'s test-matrix notes on #73/#74. Deliberately left in place rather than revoked after use, for future testing convenience; the role alone doesn't grant data access — the separate Postgres app credentials are still required. |
 | `github-actions-deploy@axis-and-bloom-prod.iam.gserviceaccount.com` | GitHub Actions — pushes Docker images, deploys Cloud Run, deploys Firebase Hosting |
 | `892123729036-compute@developer.gserviceaccount.com` | Cloud Run runtime — reads Secret Manager secrets, connects to Cloud SQL |
 
