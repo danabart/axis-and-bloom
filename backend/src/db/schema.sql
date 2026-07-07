@@ -614,6 +614,15 @@ INSERT INTO user_lifecycle_stage (code, label, description, sort_order, homepage
   ('LAPSED_SINGLE_ORDER',          'Lapsed — single order',         'One order, long silence since, never repeated (UC4)',                       90, true)
 ON CONFLICT (code) DO NOTHING;
 
+-- FIRST_ORDER_FEEDBACK_PENDING is no longer a valid stage — pending feedback is
+-- now an independent flag (see getPendingFeedbackOrder() in userLifecycle.ts),
+-- not a stage that shadows a user's standing lifecycle state. Deactivated rather
+-- than deleted: user_lifecycle_event rows may already reference it via
+-- from_stage_id/to_stage_id. Any user_lifecycle_state row still pointing at it
+-- self-corrects on that user's next refreshLifecycleState() run.
+UPDATE user_lifecycle_stage SET is_active = false, homepage_enabled = false
+WHERE code = 'FIRST_ORDER_FEEDBACK_PENDING';
+
 -- Current state — one row per user, cheap indexed read at pageview time.
 CREATE TABLE IF NOT EXISTS user_lifecycle_state (
   user_id      UUID PRIMARY KEY REFERENCES user_profile(id) ON DELETE CASCADE,

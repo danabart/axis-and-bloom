@@ -2140,6 +2140,24 @@ They share exactly one thing: `getUserSignals(uid)` — a function, not a shared
 
 **Not done in this pass:** the doc's test matrix (seed test users covering all 9 stages, verify classification + the sanity `GROUP BY` query) is blocked — the Firebase Admin service account used locally doesn't have the `roles/cloudsql.client` IAM role, and I didn't want to change IAM permissions or run `gcloud auth application-default login` without Dana present. Deferred per Dana's go-ahead. Real UC3/UC4 verification against live checkout traffic also isn't possible until Shopify is wired for real.
 
+### 74. Fixed `FIRST_ORDER_FEEDBACK_PENDING` silently overriding every other lifecycle stage (2026-07-07)
+
+**Files:** `backend/src/db/schema.sql`, `backend/src/services/userSignals.ts`, `backend/src/services/userLifecycle.ts`, `backend/src/routes/users.ts`, `frontend/src/app/components/Home.tsx`
+
+**Found by:** running the #73 test matrix once Dana granted `roles/cloudsql.client` to the Firebase Admin service account (`firebase-adminsdk-fbsvc@axis-and-bloom-prod.iam.gserviceaccount.com`), unblocking the local Cloud SQL Auth Proxy. All 5 order-bearing test scenarios (subscriber, reorder-due, lapsed-single, active-repeat, genuine feedback-pending) landed on `FIRST_ORDER_FEEDBACK_PENDING` — because `classifyStage()` checked it as a mutually-exclusive early-return *before* the subscriber/reorder/repeat checks, with no upper time bound. A real subscriber who never answered the feedback ask on order #1 would be stuck seeing "How was your coffee?" forever instead of their subscription status.
+
+**Root cause, precisely two bugs in one check:** (1) the feedback-pending check was structured as an early return in `classifyStage()`, making it structurally incapable of coexisting with a user's actual standing relationship; (2) it had a lower bound (`FEEDBACK_WINDOW_START_DAYS`) but no upper bound, so it could persist indefinitely. Root cause traced to the original spec (`1_CLAUDE_CODE_PROMPT_CUSTOMER_STATE.md`) describing pending-feedback and standing-relationship status as separate concerns, but the implementation collapsed them into one mutually-exclusive enum value.
+
+**The fix** — documented in `2_CLAUDE_CODE_PROMPT_LIFECYCLE_FEEDBACK_FIX.md`: pending feedback becomes an independent flag, not a stage.
+- `classifyStage()` — removed the early-return block entirely; `FIRST_ORDER_FEEDBACK_PENDING` no longer participates in stage classification at all.
+- New `getPendingFeedbackOrder(signals)` (`userLifecycle.ts`) — standalone function, checked separately from `classifyStage()`. New constant `FEEDBACK_ASK_EXPIRES_DAYS = 60` bounds it on both ends (SMS already tried at day 10 for orders 1–2; past day 60, further nudging just feels naggy).
+- `userSignals.ts` — `OrderSignal` gained a `blendId` field (needed by the new function; previously only derived ad hoc in the route handler).
+- `schema.sql` — `FIRST_ORDER_FEEDBACK_PENDING` row deactivated (`is_active = false, homepage_enabled = false`), not deleted — `user_lifecycle_event` rows from testing may already reference it via `from_stage_id`/`to_stage_id`. Any `user_lifecycle_state` row still pointing at it self-corrects on that user's next `refreshLifecycleState()` run — no backfill needed.
+- `GET /api/users/homepage-state` — calls `getPendingFeedbackOrder()` unconditionally instead of gating the blend lookup on `stageCode === 'FIRST_ORDER_FEEDBACK_PENDING'`.
+- `Home.tsx` — `renderSignedInCTA()` split: a `feedbackNudge` block renders independently above whatever the real stage-specific CTA is (`renderStageCTA()`), instead of replacing it. The dismissal-suppression effect now keys off `pendingFeedback?.orderId` directly rather than `stageCode`.
+
+**Re-verified** with an expanded test matrix (10 scenarios, including a new "feedback ask expired" case): subscriber and reorder-due scenarios now correctly show their real stage *and* `pendingFeedback: true` simultaneously; the genuine feedback-pending scenario shows its real stage (`ACTIVE_REPEAT_USER`) with `pendingFeedback: true`; orders older than `FEEDBACK_ASK_EXPIRES_DAYS` correctly show no pending feedback at all. Idempotency (event rows only added on actual stage change) still holds across a second `refreshLifecycleState()` run.
+
 ---
 
 ## What's Still To Do
@@ -2166,8 +2184,7 @@ They share exactly one thing: `getUserSignals(uid)` — a function, not a shared
 10. **Replace video placeholders** — the hero and cinematic sections in `Home.tsx` and About's video section use placeholder `<source src>` URLs. Swap these for real video files when ready. No other code changes needed — the `<video autoPlay loop muted playsInline>` pattern is already in place.
 11. **`font-light` cleanup** — ~40 instances of `font-light` (Tailwind weight 300) remain on unredesigned pages (`FlavorQuiz.tsx`, `Shop.tsx`, `CoffeesPage.tsx`, `Profile.tsx`, `JoinHousehold.tsx`, `SignIn.tsx`, `FamilyTab.tsx`, `NewsletterModal.tsx`). Genova has no weight 300 so the browser falls back to Thin (100). Clean up page by page during each redesign pass.
 
-### User lifecycle (#73)
-14. **Test matrix not yet run** — seeding test users across all 9 lifecycle stages and verifying classification is blocked: the local Firebase Admin service account lacks `roles/cloudsql.client`, so the Cloud SQL Auth Proxy can't authenticate from a dev machine. Either grant that role to a service account, or run `gcloud auth application-default login` interactively, then re-run the seed/verify/cleanup pass (see task doc's Test Matrix section for the full scenario list).
+### User lifecycle (#73, #74)
 15. **Real UC3/UC4 verification** — can't be tested against live checkout traffic until Shopify is wired for real (orders don't happen yet).
 16. **Admin UI for `user_lifecycle_stage`** — the table is designed to be admin-editable the same way `lookup_value` is, but no dedicated admin screen was built yet — reuse the `AdminSommelierConfig`-style pattern if/when needed.
 

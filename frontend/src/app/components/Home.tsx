@@ -137,8 +137,9 @@ export default function Home() {
   }, [user]);
 
   useEffect(() => {
-    if (homepageState?.stageCode === 'FIRST_ORDER_FEEDBACK_PENDING' && homepageState.pendingFeedback) {
-      const key = `axisBloomFeedbackDismiss_${homepageState.pendingFeedback.orderId}`;
+    const orderId = homepageState?.pendingFeedback?.orderId;
+    if (orderId) {
+      const key = `axisBloomFeedbackDismiss_${orderId}`;
       const dismissedAt = localStorage.getItem(key);
       const suppressed = !!dismissedAt && Date.now() - Number(dismissedAt) < FEEDBACK_NAG_SUPPRESS_DAYS * 86400000;
       setFeedbackDismissed(suppressed);
@@ -189,35 +190,52 @@ export default function Home() {
   // Section 2's right column — the direct fix for the screenshots (Dana's bug report):
   // a signed-in user must never see the anonymous name-capture form, and the CTA
   // must reflect where they actually are (UC0-UC4 in WHAT_WE_BUILT.md).
+  //
+  // Pending feedback is layered independently of stageCode — a subscriber or
+  // repeat customer can still have an unanswered feedback ask sitting out there
+  // from an early order. It renders above the stage-specific CTA, not instead of it
+  // (see 2_CLAUDE_CODE_PROMPT_LIFECYCLE_FEEDBACK_FIX.md).
   function renderSignedInCTA() {
     if (homepageStateLoading || !homepageState) return null;
     const { stageCode, archetype, pendingFeedback, usualBlend, nextDeliveryDate } = homepageState;
 
-    if (stageCode === 'FIRST_ORDER_FEEDBACK_PENDING' && pendingFeedback && !feedbackDismissed) {
-      return (
-        <>
-          <p style={ctaHeadlineStyle}>How was<br />{pendingFeedback.blendName ?? 'your coffee'}?</p>
-          <div style={{ marginTop: 24, width: '100%', maxWidth: 400 }}>
-            <OrderFeedbackForm
-              orderId={pendingFeedback.orderId}
-              blendName={pendingFeedback.blendName}
-              onSubmitted={() => setFeedbackDismissed(true)}
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              localStorage.setItem(`axisBloomFeedbackDismiss_${pendingFeedback.orderId}`, String(Date.now()));
-              setFeedbackDismissed(true);
-            }}
-            style={{ ...ctaSecondaryLinkStyle, background: 'none', border: 'none', cursor: 'pointer', borderBottom: ctaSecondaryLinkStyle.borderBottom }}
-          >
-            Not now
-          </button>
-        </>
-      );
-    }
+    const feedbackNudge = pendingFeedback && !feedbackDismissed ? (
+      <div style={{ marginBottom: 32, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '100%' }}>
+        <p style={ctaHeadlineStyle}>How was<br />{pendingFeedback.blendName ?? 'your coffee'}?</p>
+        <div style={{ marginTop: 24, width: '100%', maxWidth: 400 }}>
+          <OrderFeedbackForm
+            orderId={pendingFeedback.orderId}
+            blendName={pendingFeedback.blendName}
+            onSubmitted={() => setFeedbackDismissed(true)}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            localStorage.setItem(`axisBloomFeedbackDismiss_${pendingFeedback.orderId}`, String(Date.now()));
+            setFeedbackDismissed(true);
+          }}
+          style={{ ...ctaSecondaryLinkStyle, background: 'none', border: 'none', cursor: 'pointer', borderBottom: ctaSecondaryLinkStyle.borderBottom }}
+        >
+          Not now
+        </button>
+      </div>
+    ) : null;
 
+    return (
+      <>
+        {feedbackNudge}
+        {renderStageCTA(stageCode, archetype, usualBlend, nextDeliveryDate)}
+      </>
+    );
+  }
+
+  function renderStageCTA(
+    stageCode: string,
+    archetype: HomepageState['archetype'],
+    usualBlend: HomepageState['usualBlend'],
+    nextDeliveryDate: HomepageState['nextDeliveryDate']
+  ) {
     if (stageCode === 'NEW_NO_QUIZ') {
       return (
         <>

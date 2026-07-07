@@ -7,6 +7,7 @@ import { getUserSignals, type UserSignals } from './userSignals.js';
 export const QUIZ_FRESH_DAYS = 30;
 export const QUIZ_DRIFTED_DAYS = 180;
 export const FEEDBACK_WINDOW_START_DAYS = 10;
+export const FEEDBACK_ASK_EXPIRES_DAYS = 60; // stop asking on-site after this — SMS already tried at day 10 for orders 1-2; past this, further nudging just feels naggy
 export const FEEDBACK_NAG_SUPPRESS_DAYS = 14;
 export const REORDER_GAP_MULTIPLIER = 1.5;
 export const SINGLE_ORDER_LAPSE_DAYS = 45;
@@ -28,16 +29,10 @@ export function classifyStage(signals: UserSignals): string {
     return 'QUIZ_STALE_NO_ORDER';
   }
 
-  // Feedback-pending check is scoped to the first two orders — the same window
-  // Liam's SMS loop targets (schedulePostDeliveryMessage fires for orders 1 and 2
-  // only). A feedback gap on order #7 shouldn't perpetually flag a long-time
-  // customer as "first order pending" — this stage is about onboarding, not
-  // an all-time feedback audit.
-  const earlyOrders = signals.orders.slice(0, 2);
-  const pendingEarlyOrder = earlyOrders.find(
-    o => !o.hasFeedback && daysSince(o.createdAt) >= FEEDBACK_WINDOW_START_DAYS
-  );
-  if (pendingEarlyOrder) return 'FIRST_ORDER_FEEDBACK_PENDING';
+  // Pending feedback is an independent flag (see getPendingFeedbackOrder), not a
+  // stage — a user's standing relationship (subscriber, reorder-due, etc.) and
+  // "is there an unanswered feedback ask sitting out there" are two different,
+  // simultaneously-true-able facts. One must not shadow the other.
 
   if (signals.hasActiveSubscription) return 'SUBSCRIBER';
 
@@ -51,6 +46,21 @@ export function classifyStage(signals: UserSignals): string {
   const avgGap = signals.averageOrderGapDays ?? 0;
   if (avgGap > 0 && daysSinceLastOrder > REORDER_GAP_MULTIPLIER * avgGap) return 'REORDER_DUE';
   return 'ACTIVE_REPEAT_USER';
+}
+
+// Scoped to the first two orders — the same window Liam's SMS loop targets
+// (schedulePostDeliveryMessage fires for orders 1 and 2 only). Bounded on both
+// ends: too soon (< FEEDBACK_WINDOW_START_DAYS) and SMS hasn't had its chance
+// yet; too old (> FEEDBACK_ASK_EXPIRES_DAYS) and re-asking just feels naggy.
+// Independent of classifyStage() — can be true alongside any stage.
+export function getPendingFeedbackOrder(signals: UserSignals): { orderId: string; blendId: string | null } | null {
+  const earlyOrders = signals.orders.slice(0, 2);
+  const pending = earlyOrders.find(o => {
+    if (o.hasFeedback) return false;
+    const age = daysSince(o.createdAt);
+    return age >= FEEDBACK_WINDOW_START_DAYS && age <= FEEDBACK_ASK_EXPIRES_DAYS;
+  });
+  return pending ? { orderId: pending.id, blendId: pending.blendId ?? null } : null;
 }
 
 // ── refreshLifecycleState() ───────────────────────────────────────────────────

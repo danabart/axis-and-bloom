@@ -3,7 +3,7 @@ import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { getUserSignals } from '../services/userSignals.js';
-import { classifyStage, refreshLifecycleState } from '../services/userLifecycle.js';
+import { classifyStage, getPendingFeedbackOrder, refreshLifecycleState } from '../services/userLifecycle.js';
 
 const router = Router();
 
@@ -222,17 +222,17 @@ router.get('/homepage-state', requireAuth, async (req: AuthRequest, res) => {
     let usualBlend: { id: string; name: string } | null = null;
     let nextDeliveryDate: string | null = null;
 
-    if (stageCode === 'FIRST_ORDER_FEEDBACK_PENDING') {
-      const pending = signals.orders.slice(0, 2).find(o => !o.hasFeedback);
-      if (pending) {
-        const blendResult = await db.query(
-          `SELECT rb.blend_name FROM order_line_item oli
-           JOIN roaster_blend rb ON rb.id = oli.blend_id
-           WHERE oli.order_id = $1 LIMIT 1`,
-          [pending.id]
-        );
-        pendingFeedback = { orderId: pending.id, blendName: blendResult.rows[0]?.blend_name ?? null };
-      }
+    // Independent of stageCode — a subscriber or repeat customer can still have
+    // an unanswered feedback ask sitting out there from an early order.
+    const pendingFeedbackOrder = getPendingFeedbackOrder(signals);
+    if (pendingFeedbackOrder) {
+      const blendResult = await db.query(
+        `SELECT rb.blend_name FROM order_line_item oli
+         JOIN roaster_blend rb ON rb.id = oli.blend_id
+         WHERE oli.order_id = $1 LIMIT 1`,
+        [pendingFeedbackOrder.orderId]
+      );
+      pendingFeedback = { orderId: pendingFeedbackOrder.orderId, blendName: blendResult.rows[0]?.blend_name ?? null };
     }
 
     if (stageCode === 'REORDER_DUE' && signals.userId) {

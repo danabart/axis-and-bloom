@@ -13,6 +13,7 @@ export interface OrderSignal {
   id: string;
   createdAt: Date;
   hasFeedback: boolean;
+  blendId: string | null;
 }
 
 export interface UserSignals {
@@ -116,13 +117,15 @@ export async function getUserSignals(uid: string): Promise<UserSignals> {
     : null;
 
   // ── Orders (ascending by createdAt) ──────────────────────────────────────
-  let orderRows: Array<{ id: string; created_at: string }> = [];
+  let orderRows: Array<{ id: string; created_at: string; blend_id: string | null }> = [];
   try {
     const result = await db.query(
-      `SELECT o.id, o.created_at
+      `SELECT o.id, o.created_at, (ARRAY_AGG(oli.blend_id))[1] AS blend_id
        FROM "order" o
        JOIN user_profile up ON up.id = o.user_id
+       LEFT JOIN order_line_item oli ON oli.order_id = o.id
        WHERE up.firebase_uid = $1
+       GROUP BY o.id, o.created_at
        ORDER BY o.created_at ASC`,
       [uid]
     );
@@ -147,6 +150,7 @@ export async function getUserSignals(uid: string): Promise<UserSignals> {
     id: o.id,
     createdAt: new Date(o.created_at),
     hasFeedback: orderIdsWithFeedback.has(o.id),
+    blendId: o.blend_id ?? null,
   }));
 
   const totalOrders = orders.length;
