@@ -337,9 +337,11 @@ Migration scripts: `backend/src/db/migrations/`
 
 **Orders & fulfillment**
 - `subscription` — recurring delivery schedules
-- `order` — purchase records; links to Shopify order IDs
+- `order` — purchase records; links to Shopify order IDs. Live write path as of #73 (legacy `orders` table retired — it was never actually exercised); includes shipping-address snapshot columns
 - `roastery_shipment_details` — tracking info per order
 - `order_line_item` — individual blend quantities per order
+
+**User lifecycle status** *(added #73)* — `user_lifecycle_stage`, `user_lifecycle_state`, `user_lifecycle_event`. See `WHAT_WE_BUILT_DB.md` for the full breakdown.
 
 **Intelligence**
 - `notification_log` — email/SMS notifications sent
@@ -389,9 +391,12 @@ Migration scripts: `backend/src/db/migrations/`
 | GET | `/api/shop/products` | No | Returns Shopify products (empty list until Shopify wired) |
 | POST | `/api/shop/order` | Yes | Creates Shopify order |
 | POST | `/api/agent/chat` | Yes | Claude AI chat with coffee context |
-| GET | `/api/orders` | Yes | User's order history |
-| GET | `/api/users/profile` | Yes | User's full profile — returns `firstName`, `lastName`, `dateOfBirth`, `email`, `archetype`, `addresses[]`, `orders[]`, `isAdmin` |
+| POST | `/api/orders` | Yes | Places an order — writes to `"order"` + `order_line_item` (not the retired legacy `orders` table, see #73); shipping address snapshotted onto the order |
+| GET | `/api/orders` | Yes | User's order history, from `"order"` + `order_line_item` |
+| POST | `/api/orders/:orderId/feedback` | Yes | On-site feedback form (#73) — `{ rating: 1-5, note? }`, ownership-checked; writes Firestore `feedback_events` with `source: 'onsite'`, zero LLM calls |
+| GET | `/api/users/profile` | Yes | User's full profile — returns `firstName`, `lastName`, `dateOfBirth`, `email`, `archetype`, `addresses[]`, `orders[]` (now includes `blendName`, `hasFeedback` per order), `isAdmin` |
 | PATCH | `/api/users/profile` | Yes | Update `firstName`, `lastName`, `dateOfBirth` — uses `COALESCE` so omitted fields are not cleared |
+| GET | `/api/users/homepage-state` | Yes | User lifecycle stage + display extras for the homepage CTA (#73) — `{ stageCode, archetype, daysSinceQuiz, pendingFeedback, usualBlend, nextDeliveryDate }`; falls back to a live `getUserSignals()` computation on first visit |
 | POST | `/api/users/addresses` | Yes | Add a shipping or billing address (`addressType: 'shipping' \| 'billing'`); first address of each type auto-set as default |
 | PATCH | `/api/users/addresses/:id/default` | Yes | Set an address as default for its type — unsets all others of the same type |
 | DELETE | `/api/users/addresses/:id` | Yes | Remove an address (ownership-checked) |
@@ -2108,6 +2113,35 @@ The original "Supply & Inventory" page (entry #69) was built with stock quantity
 
 ---
 
+### 73. User lifecycle status + order-table migration + homepage CTA fix (2026-07-07)
+
+**Files:** `backend/src/db/schema.sql`, `backend/src/routes/orders.ts`, `backend/src/routes/users.ts`, `backend/src/routes/quiz.ts`, `backend/src/services/userSignals.ts` (new), `backend/src/services/userLifecycle.ts` (new), `backend/src/services/sommelierEvaluator.ts`, `backend/src/services/liamSmsFeedback.ts`, `frontend/src/app/components/Home.tsx`, `frontend/src/app/components/Profile.tsx`, `frontend/src/app/components/OrderFeedbackForm.tsx` (new), `frontend/src/app/lib/api.ts`
+
+**The bug that started this:** a signed-in user landing on the homepage still saw the anonymous "Enter your name" profile-capture form and the "TAKE THE QUIZ" prompt, regardless of whether they'd already quizzed. Root cause: `Home.tsx` sections 2 and 6 rendered unconditionally for every visitor — only the small "sign in" sub-links were gated on `!user`.
+
+**Two deliberately separate systems** (not one shared taxonomy):
+- **User lifecycle status** — a business/marketing question ("where does this user stand"), queryable/joinable, with history. Lives in **Cloud SQL**.
+- **Sommelier conversation-scoping state** — what Liam should know to open a chat well. Unchanged, still Firestore (`confidence_profile`, `sommelier_evaluations`, `taste_journey`).
+They share exactly one thing: `getUserSignals(uid)` — a function, not a shared store. Neither reads the other's output.
+
+**Phase 0 — retired the legacy `orders` table.** It was hand-created outside `schema.sql` and never actually exercised — every checkout attempt failed at the Shopify step (`createOrder()` throws until real Shopify credentials exist) before it ever reached the `INSERT INTO orders`. Rewrote `POST /api/orders` to write to `"order"` + `order_line_item` instead — resolves `user_profile.id` from the firebase UID first (`"order".user_id` is a UUID FK, not a firebase UID string like the legacy table used), snapshots the shipping address onto the order (new columns `shipping_street/city/state/postal_code/country` + `shipping_address_id` convenience pointer) rather than live-referencing `address`, and inserts one `order_line_item` per cart item instead of an `items` JSONB blob. `GET /api/orders` rewritten to match. The real order ID now flows into `schedulePostDeliveryMessage()`, closing the `sommelier_sms_feedback.order_id = null` gap noted in `SOMMELIER_BUILT.md` decision S13. This also fixes `sommelierEvaluator`'s `totalOrders` signal, which silently read 0 for every real customer before this (nothing wrote to `"order"`), which in turn was capping `behavioralConfidence`'s `behavioralValidation` component at its 0.40 neutral default — that component now reflects real order history.
+
+**Phase 1 — three new SQL tables** (`user_lifecycle_stage`, `user_lifecycle_state`, `user_lifecycle_event` — see `WHAT_WE_BUILT_DB.md`). Flat classification, not a state graph — no stage has to be reached before another.
+
+**Phase 2 — shared signals + two independent consumers:**
+- `userSignals.ts` — `getUserSignals(uid)` pulls the Stage-1 data collection out of `sommelierEvaluator.ts` (quiz history, order history, behavioral confidence, feedback, demographics) plus new fields the homepage needs: per-order dates, active-subscription flag, and `oldestOrderMissingFeedback` (checked against Firestore `feedback_events.orderId`, any channel — SMS or on-site).
+- `sommelierEvaluator.ts` refactored to call `getUserSignals()` instead of inlining its own queries — six-Intent logic unchanged.
+- `userLifecycle.ts` — `classifyStage()` (pure function, named threshold constants: `QUIZ_FRESH_DAYS=30`, `QUIZ_DRIFTED_DAYS=180`, `FEEDBACK_WINDOW_START_DAYS=10`, `FEEDBACK_NAG_SUPPRESS_DAYS=14`, `REORDER_GAP_MULTIPLIER=1.5`, `SINGLE_ORDER_LAPSE_DAYS=45` — separate from the Sommelier's Firestore `config/sommelier` thresholds) + `refreshLifecycleState(uid)` (upserts current state, inserts a history row only when the stage actually changes). Wired fire-and-forget from three hooks: quiz results (`quiz.ts`), order placed (`orders.ts`), and feedback captured (both `liamSmsFeedback.ts`'s SMS parser and the new on-site feedback endpoint).
+- `GET /api/users/homepage-state` — single indexed join, falls back to a live `getUserSignals()` computation (and persists it) on a user's very first visit before any hook has fired.
+- **On-site feedback form** — `POST /api/orders/:orderId/feedback` (ownership-checked), star rating (1–5) computed to sentiment/sValue in plain code — **zero LLM calls**, unlike the SMS path which has to parse free text. Writes the same Firestore `feedback_events` doc shape as `liamSmsFeedback.ts`, plus `source: 'onsite'`, so every downstream consumer treats the two channels interchangeably. Surfaced from `Profile.tsx` order history (`OrderFeedbackForm.tsx`) and from the homepage UC3 nudge.
+- **`Home.tsx`** — sections 2 and 6 rewritten. Signed-out visitors see the unchanged name-capture form + quiz CTA (UC0). Signed-in users get a CTA driven entirely by `GET /api/users/homepage-state` (`renderSignedInCTA()`): no-quiz prompt, quiz-taken-with-archetype copy (fresh/settled/stale, quiz de-emphasized once ordered), the feedback nudge with a 14-day localStorage dismiss, subscriber/reorder/lapsed/repeat copy. Section 6's quiz CTA is now gated entirely on `!user` — every signed-in stage already has its own CTA in section 2, so showing it unconditionally would just duplicate/conflict.
+
+**Decisions carried over from the planning doc** (`backend/src/features/customer_life_cycle/1_CLAUDE_CODE_PROMPT_CUSTOMER_STATE.md`) rather than re-litigated: shipping address is a snapshot, not a live FK; the accepted threshold defaults above; no special-casing for admin/roaster accounts on the homepage (same signals-driven CTA as anyone); the on-site feedback form was in scope to build now, not defer; the `totalOrders` fix changing live Sommelier behavior (e.g. `CONVERSION` firing correctly, `behavioralValidation` no longer stuck at neutral) was expected and wanted.
+
+**Not done in this pass:** the doc's test matrix (seed test users covering all 9 stages, verify classification + the sanity `GROUP BY` query) is blocked — the Firebase Admin service account used locally doesn't have the `roles/cloudsql.client` IAM role, and I didn't want to change IAM permissions or run `gcloud auth application-default login` without Dana present. Deferred per Dana's go-ahead. Real UC3/UC4 verification against live checkout traffic also isn't possible until Shopify is wired for real.
+
+---
+
 ## What's Still To Do
 
 ### Quiz / scoring
@@ -2131,6 +2165,11 @@ The original "Supply & Inventory" page (entry #69) was built with stock quantity
 ### Frontend
 10. **Replace video placeholders** — the hero and cinematic sections in `Home.tsx` and About's video section use placeholder `<source src>` URLs. Swap these for real video files when ready. No other code changes needed — the `<video autoPlay loop muted playsInline>` pattern is already in place.
 11. **`font-light` cleanup** — ~40 instances of `font-light` (Tailwind weight 300) remain on unredesigned pages (`FlavorQuiz.tsx`, `Shop.tsx`, `CoffeesPage.tsx`, `Profile.tsx`, `JoinHousehold.tsx`, `SignIn.tsx`, `FamilyTab.tsx`, `NewsletterModal.tsx`). Genova has no weight 300 so the browser falls back to Thin (100). Clean up page by page during each redesign pass.
+
+### User lifecycle (#73)
+14. **Test matrix not yet run** — seeding test users across all 9 lifecycle stages and verifying classification is blocked: the local Firebase Admin service account lacks `roles/cloudsql.client`, so the Cloud SQL Auth Proxy can't authenticate from a dev machine. Either grant that role to a service account, or run `gcloud auth application-default login` interactively, then re-run the seed/verify/cleanup pass (see task doc's Test Matrix section for the full scenario list).
+15. **Real UC3/UC4 verification** — can't be tested against live checkout traffic until Shopify is wired for real (orders don't happen yet).
+16. **Admin UI for `user_lifecycle_stage`** — the table is designed to be admin-editable the same way `lookup_value` is, but no dedicated admin screen was built yet — reuse the `AdminSommelierConfig`-style pattern if/when needed.
 
 ### Optional
 12. **Apple sign-in** — requires an Apple Developer account ($99/year). Low priority.

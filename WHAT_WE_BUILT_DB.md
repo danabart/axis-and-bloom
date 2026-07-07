@@ -8,7 +8,7 @@ Seed files (run manually): `backend/src/db/seeds/`
 
 ---
 
-## Database Schema (60 Tables)
+## Database Schema (63 Tables)
 
 The schema runs automatically on every backend startup (`CREATE TABLE IF NOT EXISTS` — fully idempotent, safe to run repeatedly).
 
@@ -60,9 +60,16 @@ It was merged from the original Supabase design plus adaptations for Firebase Au
 
 **Orders & fulfillment**
 - `subscription` — recurring delivery schedules
-- `order` — purchase records; links to Shopify order IDs
+- `order` — purchase records; links to Shopify order IDs. **As of #73 (2026-07-07), this is the live write path** — `POST /api/orders` now inserts here instead of the legacy hand-created `orders` (plural) table, which was never actually exercised (every checkout attempt failed at the Shopify step before reaching it). Also gained shipping snapshot columns: `shipping_street`, `shipping_city`, `shipping_state`, `shipping_postal_code`, `shipping_country`, `shipping_address_id` — the address is copied onto the order at checkout time rather than live-referencing `address`, so a later address edit/delete never rewrites what a past order actually shipped to.
 - `roastery_shipment_details` — tracking info per order
 - `order_line_item` — individual blend quantities per order
+
+**User lifecycle status** *(added #73, 2026-07-07 — business/marketing classification, Cloud SQL; decoupled from the Sommelier's Firestore conversation-scoping state)*
+- `user_lifecycle_stage` — reference/lookup table, same pattern as `lookup_value`; `code` (e.g. `QUIZ_TAKEN_FRESH_NO_ORDER`), `label`, `description`, `sort_order`, `homepage_enabled`, `is_active`; seeded with 9 rows: `NEW_NO_QUIZ`, `QUIZ_TAKEN_FRESH_NO_ORDER`, `QUIZ_TAKEN_SETTLED_NO_ORDER`, `QUIZ_STALE_NO_ORDER`, `FIRST_ORDER_FEEDBACK_PENDING`, `ACTIVE_REPEAT_USER`, `SUBSCRIBER`, `REORDER_DUE`, `LAPSED_SINGLE_ORDER`
+- `user_lifecycle_state` — current state, one row per user (`user_id` PK), `stage_id` FK, `computed_at`; cheap indexed read at pageview time via `GET /api/users/homepage-state`
+- `user_lifecycle_event` — append-only history, one row per stage *change* (not every recompute); `from_stage_id` / `to_stage_id` / `transitioned_at`; for funnel and cohort analysis (e.g. "% of `QUIZ_TAKEN_FRESH_NO_ORDER` users reaching a first order within 14 days")
+
+No enforced sequence between stages — a user can land on any stage directly from any other, so this is a flat classification re-evaluated from current facts each time (`refreshLifecycleState()` in `backend/src/services/userLifecycle.ts`), not a state-transition graph.
 
 **Intelligence**
 - `notification_log` — email/SMS notifications sent
@@ -345,6 +352,14 @@ Returns 25 rows for session 001: 16 internal (5+5+6) + 9 roastery (3+3+3).
 ### Check all tables
 ```sql
 SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename;
+```
+
+### User lifecycle stage distribution
+```sql
+SELECT cls.label, COUNT(*)
+FROM user_lifecycle_state uls
+JOIN user_lifecycle_stage cls ON cls.id = uls.stage_id
+GROUP BY cls.label;
 ```
 
 ### Check enum values — single enum

@@ -6,6 +6,7 @@ import { rankScores, findWinner, findSecondary, isSecondaryClose, computeConfide
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { Timestamp } from 'firebase-admin/firestore';
 import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
+import { refreshLifecycleState } from '../services/userLifecycle.js';
 
 const router = Router();
 
@@ -249,6 +250,7 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
     ;(async () => {
       try {
         const bcResult = await computeBehavioralConfidence(req.uid!);
+        refreshLifecycleState(req.uid!).catch(err => console.error('[quiz/lifecycle]', err));
 
         const journeyRef = firestoreDb.doc(`users/${req.uid}/taste_journey`);
         const journeySnap = await journeyRef.get();

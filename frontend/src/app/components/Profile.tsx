@@ -5,6 +5,7 @@ import { ArrowRight, Package, Heart, LogOut, Users } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { getUserProfile } from '../lib/api';
 import FamilyTab from './FamilyTab';
+import OrderFeedbackForm from './OrderFeedbackForm';
 
 type Tab = 'memory' | 'orders' | 'settings' | 'family';
 
@@ -37,6 +38,7 @@ export default function Profile() {
   const [activeTab, setActiveTab]         = useState<Tab>('memory');
   const [profile, setProfile]             = useState<ProfileData | null>(null);
   const [loading, setLoading]             = useState(true);
+  const [feedbackOrderId, setFeedbackOrderId] = useState<string | null>(null);
   const { user, logout }                  = useAuth();
   const navigate                          = useNavigate();
 
@@ -251,6 +253,28 @@ export default function Profile() {
                           <span className="text-[10px] font-normal px-2 py-1 bg-[#a33726]/10 text-[#a33726] rounded-sm uppercase tracking-[0.1em]">{order.status}</span>
                         </div>
                         <p className="text-lg text-[#a33726]">Total: {order.total}</p>
+
+                        {!order.hasFeedback && (
+                          feedbackOrderId === order.id ? (
+                            <div className="mt-6">
+                              <OrderFeedbackForm
+                                orderId={order.id}
+                                blendName={order.blendName}
+                                onSubmitted={() => setProfile(p => p ? {
+                                  ...p,
+                                  orders: p.orders.map((o: any) => o.id === order.id ? { ...o, hasFeedback: true } : o),
+                                } : p)}
+                              />
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setFeedbackOrderId(order.id)}
+                              className="mt-6 self-start text-[10px] uppercase tracking-[0.2em] text-[#a33726]/50 hover:text-[#a33726] transition-colors border-b border-[#a33726]/20 pb-1"
+                            >
+                              Leave Feedback
+                            </button>
+                          )
+                        )}
                       </div>
                     ))}
                   </div>

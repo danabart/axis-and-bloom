@@ -1,8 +1,23 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, type CSSProperties } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { Link, useNavigate } from 'react-router';
 import { TasteFinderSection } from './TasteFinderSection';
+import OrderFeedbackForm from './OrderFeedbackForm';
 import { useAuth } from '../context/AuthContext';
+import { getHomepageState } from '../lib/api';
+
+// Mirrors FEEDBACK_NAG_SUPPRESS_DAYS in backend/src/services/userLifecycle.ts —
+// how long the feedback nudge stays hidden after a user dismisses it.
+const FEEDBACK_NAG_SUPPRESS_DAYS = 14;
+
+interface HomepageState {
+  stageCode: string;
+  archetype: { name: string; id: string; color: string; features: string[] } | null;
+  daysSinceQuiz: number | null;
+  pendingFeedback: { orderId: string; blendName: string | null } | null;
+  usualBlend: { id: string; name: string } | null;
+  nextDeliveryDate: string | null;
+}
 import placeholderVideo from '../../design/IMAGES/videos/PlaceHolder01.mp4'
 import heroVideo from '../../design/IMAGES/videos/PlaceHolder10.mp4'
 
@@ -108,6 +123,30 @@ export default function Home() {
   const [paused, setPaused]         = useState(false);
   const prefersReducedMotion        = useReducedMotion();
 
+  const [homepageState, setHomepageState]               = useState<HomepageState | null>(null);
+  const [homepageStateLoading, setHomepageStateLoading] = useState(false);
+  const [feedbackDismissed, setFeedbackDismissed]        = useState(false);
+
+  useEffect(() => {
+    if (!user) { setHomepageState(null); return; }
+    setHomepageStateLoading(true);
+    getHomepageState()
+      .then(setHomepageState)
+      .catch(() => setHomepageState(null))
+      .finally(() => setHomepageStateLoading(false));
+  }, [user]);
+
+  useEffect(() => {
+    if (homepageState?.stageCode === 'FIRST_ORDER_FEEDBACK_PENDING' && homepageState.pendingFeedback) {
+      const key = `axisBloomFeedbackDismiss_${homepageState.pendingFeedback.orderId}`;
+      const dismissedAt = localStorage.getItem(key);
+      const suppressed = !!dismissedAt && Date.now() - Number(dismissedAt) < FEEDBACK_NAG_SUPPRESS_DAYS * 86400000;
+      setFeedbackDismissed(suppressed);
+    } else {
+      setFeedbackDismissed(false);
+    }
+  }, [homepageState]);
+
   useEffect(() => {
     if (prefersReducedMotion || paused) return;
     const id = setInterval(() => setActiveIdx(i => (i + 1) % SENTENCES.length), 5500);
@@ -142,6 +181,107 @@ export default function Home() {
       navigate('/find-my-flavor');
     }
   };
+
+  const ctaHeadlineStyle: CSSProperties = { fontSize: 'clamp(2rem, 3.6vw, 3.6rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.15, margin: 0 };
+  const ctaPrimaryLinkStyle: CSSProperties = { marginTop: 22, fontSize: '0.88rem', fontWeight: 400, color: '#9a2918', letterSpacing: '0.22em', textTransform: 'uppercase', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,0.32)', paddingBottom: 3 };
+  const ctaSecondaryLinkStyle: CSSProperties = { marginTop: 14, fontSize: '0.72rem', fontWeight: 400, color: '#9a2918', letterSpacing: '0.14em', textTransform: 'uppercase', textDecoration: 'none', opacity: 0.5, borderBottom: '1px solid rgba(154,41,24,0.25)', paddingBottom: 2 };
+
+  // Section 2's right column — the direct fix for the screenshots (Dana's bug report):
+  // a signed-in user must never see the anonymous name-capture form, and the CTA
+  // must reflect where they actually are (UC0-UC4 in WHAT_WE_BUILT.md).
+  function renderSignedInCTA() {
+    if (homepageStateLoading || !homepageState) return null;
+    const { stageCode, archetype, pendingFeedback, usualBlend, nextDeliveryDate } = homepageState;
+
+    if (stageCode === 'FIRST_ORDER_FEEDBACK_PENDING' && pendingFeedback && !feedbackDismissed) {
+      return (
+        <>
+          <p style={ctaHeadlineStyle}>How was<br />{pendingFeedback.blendName ?? 'your coffee'}?</p>
+          <div style={{ marginTop: 24, width: '100%', maxWidth: 400 }}>
+            <OrderFeedbackForm
+              orderId={pendingFeedback.orderId}
+              blendName={pendingFeedback.blendName}
+              onSubmitted={() => setFeedbackDismissed(true)}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              localStorage.setItem(`axisBloomFeedbackDismiss_${pendingFeedback.orderId}`, String(Date.now()));
+              setFeedbackDismissed(true);
+            }}
+            style={{ ...ctaSecondaryLinkStyle, background: 'none', border: 'none', cursor: 'pointer', borderBottom: ctaSecondaryLinkStyle.borderBottom }}
+          >
+            Not now
+          </button>
+        </>
+      );
+    }
+
+    if (stageCode === 'NEW_NO_QUIZ') {
+      return (
+        <>
+          <p style={ctaHeadlineStyle}>Ready to find<br />your flavor?</p>
+          <Link to="/find-my-flavor" style={ctaPrimaryLinkStyle}>TAKE THE QUIZ →</Link>
+        </>
+      );
+    }
+
+    if (stageCode === 'QUIZ_TAKEN_FRESH_NO_ORDER' || stageCode === 'QUIZ_TAKEN_SETTLED_NO_ORDER' || stageCode === 'QUIZ_STALE_NO_ORDER') {
+      return (
+        <>
+          <p style={ctaHeadlineStyle}>You're a {archetype?.name ?? 'match'} —<br />shop your matches.</p>
+          <Link to="/shop" style={ctaPrimaryLinkStyle}>SHOP YOUR MATCHES →</Link>
+          {stageCode === 'QUIZ_TAKEN_SETTLED_NO_ORDER' && (
+            <Link to="/find-my-flavor" style={ctaSecondaryLinkStyle}>Retake the quiz →</Link>
+          )}
+          {stageCode === 'QUIZ_STALE_NO_ORDER' && (
+            <Link to="/find-my-flavor" style={ctaSecondaryLinkStyle}>Palates change — retake anytime →</Link>
+          )}
+        </>
+      );
+    }
+
+    if (stageCode === 'SUBSCRIBER') {
+      return (
+        <>
+          <p style={ctaHeadlineStyle}>Your subscription<br />is on track.</p>
+          {nextDeliveryDate && (
+            <p style={{ marginTop: 12, fontSize: '0.85rem', color: '#9a2918', opacity: 0.65 }}>
+              Next shipment: {new Date(nextDeliveryDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
+            </p>
+          )}
+          <Link to="/profile" style={ctaPrimaryLinkStyle}>MANAGE SUBSCRIPTION →</Link>
+        </>
+      );
+    }
+
+    if (stageCode === 'REORDER_DUE') {
+      return (
+        <>
+          <p style={ctaHeadlineStyle}>Ready for more<br />{usualBlend?.name ?? 'your usual'}?</p>
+          <Link to="/shop" style={ctaPrimaryLinkStyle}>REORDER →</Link>
+        </>
+      );
+    }
+
+    if (stageCode === 'LAPSED_SINGLE_ORDER') {
+      return (
+        <>
+          <p style={ctaHeadlineStyle}>New arrivals since<br />your last order.</p>
+          <Link to="/shop" style={ctaPrimaryLinkStyle}>SEE WHAT'S NEW →</Link>
+        </>
+      );
+    }
+
+    // ACTIVE_REPEAT_USER and any other fallback
+    return (
+      <>
+        <p style={ctaHeadlineStyle}>Welcome back.</p>
+        <Link to="/shop" style={ctaPrimaryLinkStyle}>SHOP AGAIN →</Link>
+      </>
+    );
+  }
 
   return (
     <div style={{ backgroundColor: '#f2f1ea' }}>
@@ -243,41 +383,47 @@ export default function Home() {
             </p>
           </div>
 
-          {/* ── RIGHT: existing profile form (unchanged) ── */}
+          {/* ── RIGHT: anonymous name-capture form, or the signed-in lifecycle CTA ── */}
           <motion.div
             {...fadeUp(0)}
             style={{ flex: '1 1 280px', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', textAlign: 'right', maxWidth: 600, marginLeft: 'auto' }}
           >
-            <p style={{ fontSize: 'clamp(2rem, 3.6vw, 3.6rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.15, margin: 0 }}>
-              Whose palate are we<br />profiling today?
-            </p>
-            <form onSubmit={handleProfileStart} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '100%', marginTop: 36 }}>
-              <style>{`#profile-name::placeholder { color: rgba(154,41,24,0.36); }`}</style>
-              <input
-                id="profile-name"
-                type="text"
-                name="name"
-                required
-                placeholder="Enter your name"
-                style={{ width: '100%', maxWidth: 400, background: 'none', border: 'none', borderBottom: '1px solid rgba(154,41,24,0.42)', borderRadius: 0, outline: 'none', fontSize: '1.25rem', fontWeight: 400, color: '#9a2918', padding: '10px 0', textAlign: 'right' }}
-              />
-              <button
-                type="submit"
-                style={{ marginTop: 22, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: '0.88rem', fontWeight: 400, color: '#9a2918', letterSpacing: '0.22em', textTransform: 'uppercase', textDecoration: 'underline', textUnderlineOffset: '4px', textDecorationColor: 'rgba(154,41,24,0.32)', transition: 'text-decoration-color 0.2s' }}
-                onMouseEnter={e => e.currentTarget.style.textDecorationColor = '#9a2918'}
-                onMouseLeave={e => e.currentTarget.style.textDecorationColor = 'rgba(154,41,24,0.32)'}
-              >
-                BEGIN PROFILE →
-              </button>
-              {!user && (
-                <Link
-                  to="/sign-in"
-                  style={{ marginTop: 14, fontSize: '0.72rem', fontWeight: 400, color: '#9a2918', letterSpacing: '0.14em', textTransform: 'uppercase', textDecoration: 'none', opacity: 0.45, borderBottom: '1px solid rgba(154,41,24,0.25)', paddingBottom: 2 }}
-                >
-                  Already a member? Sign in →
-                </Link>
-              )}
-            </form>
+            {!user ? (
+              <>
+                <p style={{ fontSize: 'clamp(2rem, 3.6vw, 3.6rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.15, margin: 0 }}>
+                  Whose palate are we<br />profiling today?
+                </p>
+                <form onSubmit={handleProfileStart} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '100%', marginTop: 36 }}>
+                  <style>{`#profile-name::placeholder { color: rgba(154,41,24,0.36); }`}</style>
+                  <input
+                    id="profile-name"
+                    type="text"
+                    name="name"
+                    required
+                    placeholder="Enter your name"
+                    style={{ width: '100%', maxWidth: 400, background: 'none', border: 'none', borderBottom: '1px solid rgba(154,41,24,0.42)', borderRadius: 0, outline: 'none', fontSize: '1.25rem', fontWeight: 400, color: '#9a2918', padding: '10px 0', textAlign: 'right' }}
+                  />
+                  <button
+                    type="submit"
+                    style={{ marginTop: 22, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: '0.88rem', fontWeight: 400, color: '#9a2918', letterSpacing: '0.22em', textTransform: 'uppercase', textDecoration: 'underline', textUnderlineOffset: '4px', textDecorationColor: 'rgba(154,41,24,0.32)', transition: 'text-decoration-color 0.2s' }}
+                    onMouseEnter={e => e.currentTarget.style.textDecorationColor = '#9a2918'}
+                    onMouseLeave={e => e.currentTarget.style.textDecorationColor = 'rgba(154,41,24,0.32)'}
+                  >
+                    BEGIN PROFILE →
+                  </button>
+                  <Link
+                    to="/sign-in"
+                    style={{ marginTop: 14, fontSize: '0.72rem', fontWeight: 400, color: '#9a2918', letterSpacing: '0.14em', textTransform: 'uppercase', textDecoration: 'none', opacity: 0.45, borderBottom: '1px solid rgba(154,41,24,0.25)', paddingBottom: 2 }}
+                  >
+                    Already a member? Sign in →
+                  </Link>
+                </form>
+              </>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '100%' }}>
+                {renderSignedInCTA()}
+              </div>
+            )}
           </motion.div>
 
         </div>
@@ -425,30 +571,31 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ━━━ 6. QUIZ CTA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ backgroundColor: '#f2f1ea', borderTop: '1px solid rgba(154,41,24,0.18)', padding: 'clamp(48px, 6vw, 72px) clamp(32px, 6vw, 96px)' }}>
-        <div style={{ maxWidth: 520, margin: '0 auto', textAlign: 'center' }}>
-          <motion.div {...fadeUp(0)} style={{ marginBottom: 22, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
-            <a
-              href="/find-my-flavor"
-              style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.85rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,0.4)', paddingBottom: 3 }}
-            >
-              TAKE THE QUIZ →
-            </a>
-            {!user && (
+      {/* ━━━ 6. QUIZ CTA — anonymous only (UC0); every signed-in stage already has
+             its own CTA in section 2, so this would otherwise duplicate/conflict ━━━ */}
+      {!user && (
+        <section style={{ backgroundColor: '#f2f1ea', borderTop: '1px solid rgba(154,41,24,0.18)', padding: 'clamp(48px, 6vw, 72px) clamp(32px, 6vw, 96px)' }}>
+          <div style={{ maxWidth: 520, margin: '0 auto', textAlign: 'center' }}>
+            <motion.div {...fadeUp(0)} style={{ marginBottom: 22, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
+              <a
+                href="/find-my-flavor"
+                style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.85rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,0.4)', paddingBottom: 3 }}
+              >
+                TAKE THE QUIZ →
+              </a>
               <Link
                 to="/sign-in"
                 style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.72rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', opacity: 0.45, borderBottom: '1px solid rgba(154,41,24,0.25)', paddingBottom: 2 }}
               >
                 or sign in →
               </Link>
-            )}
-          </motion.div>
-          <motion.p {...fadeUp(0.12)} style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: 'clamp(0.88rem, 1.4vw, 1rem)', fontWeight: 400, color: '#9a2918', opacity: 0.62, lineHeight: 1.85, margin: 0 }}>
-            Our flavor system is designed to remove the guesswork. Answer a few questions and find your perfect coffee match.
-          </motion.p>
-        </div>
-      </section>
+            </motion.div>
+            <motion.p {...fadeUp(0.12)} style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: 'clamp(0.88rem, 1.4vw, 1rem)', fontWeight: 400, color: '#9a2918', opacity: 0.62, lineHeight: 1.85, margin: 0 }}>
+              Our flavor system is designed to remove the guesswork. Answer a few questions and find your perfect coffee match.
+            </motion.p>
+          </div>
+        </section>
+      )}
 
       {/* ━━━ 7. TASTE FINDER (curtain animation) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <TasteFinderSection />

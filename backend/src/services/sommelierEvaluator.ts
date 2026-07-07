@@ -1,8 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { db } from '../db/client.js';
 import { firestoreDb } from './firebase-admin.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getSommelierConfig } from './sommelierConfig.js';
+import { getUserSignals } from './userSignals.js';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -67,152 +67,15 @@ export async function evaluateSommelier(
   flags: EvaluatorFlags
 ): Promise<EvaluatorResult> {
   const config = getSommelierConfig();
-  const lookbackDays = config?.timeWindows?.negativeFeedbackLookback ?? 30;
 
   // ── Stage 1: Collect data ────────────────────────────────────────────────
-
-  // Last 2 quiz sessions
-  let quizSessions: any[] = [];
-  try {
-    const quizResult = await db.query(
-      `SELECT qs.id, qs.context_data, qs.completed_at, ar.name AS archetype_name
-       FROM quiz_session qs
-       JOIN user_profile up ON up.id = qs.user_id
-       LEFT JOIN archetype ar ON ar.id = qs.resulting_archetype_id
-       WHERE up.firebase_uid = $1
-       ORDER BY qs.completed_at DESC
-       LIMIT 2`,
-      [uid]
-    );
-    quizSessions = quizResult.rows;
-  } catch (err) {
-    console.error('[sommelierEvaluator] quiz sessions query failed:', err);
-  }
-  const latestQuiz = quizSessions[0] ?? null;
-  const prevQuiz = quizSessions[1] ?? null;
-
-  // All quiz sessions count + archetype change count
-  let quizCount = quizSessions.length;
-  let archetypeChangeCount = 0;
-  try {
-    const quizCountResult = await db.query(
-      `SELECT COUNT(*) AS quiz_count
-       FROM quiz_session qs
-       JOIN user_profile up ON up.id = qs.user_id
-       WHERE up.firebase_uid = $1`,
-      [uid]
-    );
-    quizCount = Number(quizCountResult.rows[0]?.quiz_count ?? 0);
-
-    const allQuizzesResult = await db.query(
-      `SELECT ar.name AS archetype_name
-       FROM quiz_session qs
-       JOIN user_profile up ON up.id = qs.user_id
-       LEFT JOIN archetype ar ON ar.id = qs.resulting_archetype_id
-       WHERE up.firebase_uid = $1
-       ORDER BY qs.completed_at ASC`,
-      [uid]
-    );
-    for (let i = 1; i < allQuizzesResult.rows.length; i++) {
-      if (allQuizzesResult.rows[i].archetype_name !== allQuizzesResult.rows[i - 1].archetype_name) {
-        archetypeChangeCount++;
-      }
-    }
-  } catch (err) {
-    console.error('[sommelierEvaluator] quiz count/changes query failed:', err);
-  }
-
-  // Order count
-  let totalOrders = 0;
-  try {
-    const orderResult = await db.query(
-      `SELECT COUNT(DISTINCT o.id) AS order_count
-       FROM "order" o
-       JOIN user_profile up ON up.id = o.user_id
-       WHERE up.firebase_uid = $1`,
-      [uid]
-    );
-    totalOrders = Number(orderResult.rows[0]?.order_count ?? 0);
-  } catch (err) {
-    console.error('[sommelierEvaluator] order count query failed:', err);
-  }
-
-  // Behavioral confidence from Firestore (written by computeBehavioralConfidence)
-  let behavioralScore = 0.5;
-  let behavioralLevel = 'medium';
-  let bcComponents = { quizStability: 0.5, behavioralValidation: 0.5, dataDepth: 0.5, feedbackAlignment: 0.5 };
-  try {
-    const confSnap = await firestoreDb.doc(`users/${uid}/metadata/confidence_profile`).get();
-    if (confSnap.exists) {
-      const data = confSnap.data()!;
-      behavioralScore = data.score ?? 0.5;
-      behavioralLevel = data.level ?? 'medium';
-      bcComponents = {
-        quizStability: data.components?.quizStability ?? 0.5,
-        behavioralValidation: data.components?.behavioralValidation ?? 0.5,
-        dataDepth: data.components?.dataDepth ?? 0.5,
-        feedbackAlignment: data.components?.feedbackAlignment ?? 0.5,
-      };
-    }
-  } catch { /* use defaults */ }
-
-  // Negative feedback in lookback window
-  let hasRecentNegativeFeedback = false;
-  try {
-    const lookbackDate = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
-    const feedbackSnap = await firestoreDb
-      .collection(`users/${uid}/feedback_events`)
-      .where('createdAt', '>=', lookbackDate)
-      .where('sentiment', '==', 'negative')
-      .limit(1)
-      .get();
-    hasRecentNegativeFeedback = !feedbackSnap.empty;
-  } catch { /* no feedback_events yet */ }
-
-  // Demographic profile — age, generation, household type
-  let age: number | null = null;
-  let generation: string | null = null;
-  let householdType: 'solo' | 'family' = 'solo';
-  try {
-    const profileResult = await db.query(
-      `SELECT up.date_of_birth, up.household_id,
-              (SELECT COUNT(*) FROM user_profile up2 WHERE up2.household_id = up.household_id) AS household_size
-       FROM user_profile up WHERE up.firebase_uid = $1`,
-      [uid]
-    );
-    const profile = profileResult.rows[0];
-    if (profile?.date_of_birth) {
-      const dob = new Date(profile.date_of_birth);
-      const now = new Date();
-      age = now.getFullYear() - dob.getFullYear() -
-        (now < new Date(now.getFullYear(), dob.getMonth(), dob.getDate()) ? 1 : 0);
-      if (age >= 62) generation = 'Boomer';
-      else if (age >= 46) generation = 'Gen X';
-      else if (age >= 30) generation = 'Millennial';
-      else generation = 'Gen Z';
-    }
-    const householdSize = Number(profile?.household_size ?? 1);
-    if (profile?.household_id && householdSize > 1) householdType = 'family';
-  } catch (err) {
-    console.error('[sommelierEvaluator] demographic query failed:', err);
-  }
-
-  // Extract context from latest quiz
-  const latestCtx = latestQuiz?.context_data ?? {};
-  const archetype = latestQuiz?.archetype_name ?? null;
-  const secondaryArchetype = latestCtx.secondaryArchetype ?? null;
-  const experimental = latestCtx.experimental ?? false;
-  const foodSignalAlignment = latestCtx.foodSignalAlignment ?? 'high';
-  const recommendationMode = latestCtx.recommendationMode ?? 'primary_only';
-  const foodSignal = latestCtx.foodSignal ?? null;
-
-  // Days since last quiz
-  let daysSinceLastQuiz: number | null = null;
-  if (latestQuiz?.completed_at) {
-    daysSinceLastQuiz = Math.floor(
-      (Date.now() - new Date(latestQuiz.completed_at).getTime()) / (1000 * 60 * 60 * 24)
-    );
-  }
+  const signals = await getUserSignals(uid);
+  const {
+    archetype, secondaryArchetype, foodSignal, experimental, foodSignalAlignment, recommendationMode,
+    quizCount, archetypeChangeCount, archetypeChangedLastTwoQuizzes, daysSinceLastQuiz,
+    totalOrders, behavioralScore, behavioralLevel, behavioralComponents: bcComponents,
+    hasRecentNegativeFeedback, age, generation, householdType,
+  } = signals;
 
   // ── Build feature vector (13 dims) ──────────────────────────────────────
   const featureVector: number[] = [
@@ -266,10 +129,7 @@ export async function evaluateSommelier(
       flags.quizTie === true ||
       recommendationMode === 'ai_agent' ||
       foodSignalAlignment === 'low',
-    TASTE_EVOLUTION: () =>
-      quizSessions.length >= 2 &&
-      !!prevQuiz &&
-      latestQuiz?.archetype_name !== prevQuiz?.archetype_name,
+    TASTE_EVOLUTION: () => archetypeChangedLastTwoQuizzes,
     RECOMMENDATION_MISS: () => hasRecentNegativeFeedback,
     CONVERSION: () => behavioralLevel !== 'low' && totalOrders === 0,
     EXPLORATION: () => flags.userInitiated === true || flags.browsingSignal === true,

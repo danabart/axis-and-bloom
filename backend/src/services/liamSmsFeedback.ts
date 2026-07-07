@@ -3,6 +3,7 @@ import { db } from '../db/client.js';
 import { firestoreDb, FieldValue } from './firebase-admin.js';
 import { sendSms, logToNotificationLog } from './smsProvider.js';
 import { computeBehavioralConfidence } from './behavioralConfidence.js';
+import { refreshLifecycleState } from './userLifecycle.js';
 
 const anthropic = new Anthropic();
 
@@ -10,7 +11,8 @@ const anthropic = new Anthropic();
 // Called after order placement for orders 1 and 2. Never throws.
 export async function schedulePostDeliveryMessage(
   firebaseUid: string,
-  blendId: string | null
+  blendId: string | null,
+  orderId: string | null = null
 ): Promise<void> {
   try {
     // Look up user_profile
@@ -60,9 +62,9 @@ export async function schedulePostDeliveryMessage(
 
     await db.query(
       `INSERT INTO sommelier_sms_feedback
-         (user_id, blend_id, phone_number, direction, body, status, scheduled_for)
-       VALUES ($1, $2, $3, 'outbound', $4, 'scheduled', NOW() + INTERVAL '10 days')`,
-      [userId, blendId ?? null, phoneNumber, body]
+         (user_id, order_id, blend_id, phone_number, direction, body, status, scheduled_for)
+       VALUES ($1, $2, $3, $4, 'outbound', $5, 'scheduled', NOW() + INTERVAL '10 days')`,
+      [userId, orderId, blendId ?? null, phoneNumber, body]
     );
 
     console.log('[liamSms] scheduled message for user:', userId, 'in 10 days');
@@ -134,7 +136,7 @@ export async function processPendingMessages(): Promise<{
 // Called async after webhook inserts inbound row. Never blocks the webhook response.
 export async function parseInboundReply(
   inboundBody: string,
-  outboundRow: { id: string; user_id: string; blend_id: string | null },
+  outboundRow: { id: string; user_id: string; order_id: string | null; blend_id: string | null },
   inboundRowId: string
 ): Promise<void> {
   // Look up firebase UID and blend name for Haiku prompt
@@ -206,6 +208,7 @@ Respond with JSON only, no explanation: { "sentiment": "...", "rating": N, "desc
     const docRef = await firestoreDb
       .collection(`users/${uid}/feedback_events`)
       .add({
+        orderId:            outboundRow.order_id ?? null,
         blendId:            outboundRow.blend_id ?? null,
         signalType:         'liam_sms',
         rating:             parsedRating,
@@ -253,5 +256,10 @@ Respond with JSON only, no explanation: { "sentiment": "...", "rating": N, "desc
   // Recompute behavioral confidence — fire-and-forget
   computeBehavioralConfidence(uid).catch(err =>
     console.error('[liamSms] computeBehavioralConfidence failed:', err)
+  );
+
+  // Recompute lifecycle stage — independent write, same trigger point
+  refreshLifecycleState(uid).catch(err =>
+    console.error('[liamSms] refreshLifecycleState failed:', err)
   );
 }

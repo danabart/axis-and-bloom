@@ -63,3 +63,21 @@ export async function getUserProfile() {
   if (!res.ok) throw new Error('Failed to fetch profile');
   return res.json();
 }
+
+export async function getHomepageState() {
+  const res = await fetch(`${BASE}/users/homepage-state`, {
+    headers: await getHeaders(),
+  });
+  if (!res.ok) throw new Error('Failed to fetch homepage state');
+  return res.json();
+}
+
+export async function submitOrderFeedback(orderId: string, rating: number, note?: string) {
+  const res = await fetch(`${BASE}/orders/${orderId}/feedback`, {
+    method: 'POST',
+    headers: await getHeaders(),
+    body: JSON.stringify({ rating, note }),
+  });
+  if (!res.ok) throw new Error('Failed to submit feedback');
+  return res.json();
+}

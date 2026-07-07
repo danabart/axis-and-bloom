@@ -542,6 +542,17 @@ CREATE TABLE IF NOT EXISTS "order" (
   updated_at               TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
 
+-- Shipping address snapshot — copied onto the order at checkout time rather than
+-- live-referencing `address`, so editing/deleting a saved address never rewrites
+-- what a past order actually shipped to. shipping_address_id is kept purely as a
+-- "which saved address was this copied from" convenience pointer.
+ALTER TABLE "order" ADD COLUMN IF NOT EXISTS shipping_street      TEXT;
+ALTER TABLE "order" ADD COLUMN IF NOT EXISTS shipping_city        TEXT;
+ALTER TABLE "order" ADD COLUMN IF NOT EXISTS shipping_state       TEXT;
+ALTER TABLE "order" ADD COLUMN IF NOT EXISTS shipping_postal_code TEXT;
+ALTER TABLE "order" ADD COLUMN IF NOT EXISTS shipping_country     TEXT;
+ALTER TABLE "order" ADD COLUMN IF NOT EXISTS shipping_address_id  UUID REFERENCES address(id);
+
 CREATE TABLE IF NOT EXISTS roastery_shipment_details (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   order_id          UUID REFERENCES "order"(id),
@@ -571,6 +582,55 @@ CREATE TABLE IF NOT EXISTS order_line_item (
   created_at           TIMESTAMPTZ DEFAULT timezone('utc', now()),
   updated_at           TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
+
+-- ─────────────────────────────────────────────
+-- USER LIFECYCLE STATUS (business/marketing — decoupled from the Sommelier's
+-- Firestore conversation-scoping state; see WHAT_WE_BUILT.md for the split)
+-- ─────────────────────────────────────────────
+
+-- Definition — reference/lookup table, same pattern as lookup_value / archetype.
+-- No enforced sequence between stages: a user can land on any stage directly
+-- from any other, so this is a flat classification, not a state-transition graph.
+CREATE TABLE IF NOT EXISTS user_lifecycle_stage (
+  id                SERIAL PRIMARY KEY,
+  code              TEXT UNIQUE NOT NULL,       -- e.g. 'QUIZ_TAKEN_FRESH_NO_ORDER'
+  label             TEXT NOT NULL,               -- admin-facing name
+  description       TEXT,
+  sort_order        INTEGER DEFAULT 0,
+  homepage_enabled  BOOLEAN DEFAULT true,        -- does this stage drive a homepage CTA?
+  is_active         BOOLEAN DEFAULT true,
+  created_at        TIMESTAMPTZ DEFAULT timezone('utc', now())
+);
+
+INSERT INTO user_lifecycle_stage (code, label, description, sort_order, homepage_enabled) VALUES
+  ('NEW_NO_QUIZ',                  'New — no quiz',                'Signed in, never taken the quiz (UC2)',                                     10, true),
+  ('QUIZ_TAKEN_FRESH_NO_ORDER',    'Quiz taken — fresh, no order',  'Quiz completed under 30 days ago, no order yet (UC1)',                      20, true),
+  ('QUIZ_TAKEN_SETTLED_NO_ORDER',  'Quiz taken — settled, no order','Quiz completed 30-180 days ago, no order yet (UC1)',                        30, true),
+  ('QUIZ_STALE_NO_ORDER',          'Quiz stale, no order',          'Quiz completed over 180 days ago, no order yet — eligible for retake nudge (UC1)', 40, true),
+  ('FIRST_ORDER_FEEDBACK_PENDING', 'First order — feedback pending','Ordered, past the feedback window, no feedback captured yet (UC3)',        50, true),
+  ('ACTIVE_REPEAT_USER',           'Active repeat user',            'Ordering normally, no nudge needed',                                        60, true),
+  ('SUBSCRIBER',                   'Subscriber',                    'Active subscription row (UC4)',                                             70, true),
+  ('REORDER_DUE',                  'Reorder due',                   'Gap since last order exceeds their own cadence (UC4)',                      80, true),
+  ('LAPSED_SINGLE_ORDER',          'Lapsed — single order',         'One order, long silence since, never repeated (UC4)',                       90, true)
+ON CONFLICT (code) DO NOTHING;
+
+-- Current state — one row per user, cheap indexed read at pageview time.
+CREATE TABLE IF NOT EXISTS user_lifecycle_state (
+  user_id      UUID PRIMARY KEY REFERENCES user_profile(id) ON DELETE CASCADE,
+  stage_id     INTEGER REFERENCES user_lifecycle_stage(id),
+  computed_at  TIMESTAMPTZ DEFAULT timezone('utc', now())
+);
+
+-- History — append-only, for funnels and cohort analysis, never updated in place.
+CREATE TABLE IF NOT EXISTS user_lifecycle_event (
+  id              SERIAL PRIMARY KEY,
+  user_id         UUID REFERENCES user_profile(id) ON DELETE CASCADE,
+  from_stage_id   INTEGER REFERENCES user_lifecycle_stage(id),
+  to_stage_id     INTEGER REFERENCES user_lifecycle_stage(id),
+  transitioned_at TIMESTAMPTZ DEFAULT timezone('utc', now())
+);
+CREATE INDEX IF NOT EXISTS idx_user_lifecycle_event_user     ON user_lifecycle_event(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_lifecycle_event_to_stage ON user_lifecycle_event(to_stage_id);
 
 -- ─────────────────────────────────────────────
 -- NOTIFICATIONS, FEEDBACK & RECOMMENDATIONS

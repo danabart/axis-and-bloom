@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
+import { getUserSignals } from '../services/userSignals.js';
+import { classifyStage, refreshLifecycleState } from '../services/userLifecycle.js';
 
 const router = Router();
 
@@ -51,9 +53,11 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
       ),
       db.query(
         `SELECT o.id, o.external_shopify_order_id, o.fulfillment_status, o.created_at,
-                COALESCE(SUM(li.unit_price_charged * li.quantity), 0) AS total_cents
+                COALESCE(SUM(li.unit_price_charged * li.quantity), 0) AS total_cents,
+                (ARRAY_AGG(rb.blend_name))[1] AS blend_name
          FROM "order" o
          LEFT JOIN order_line_item li ON li.order_id = o.id
+         LEFT JOIN roaster_blend rb ON rb.id = li.blend_id
          WHERE o.user_id = $1
          GROUP BY o.id ORDER BY o.created_at DESC LIMIT 10`,
         [profileId]
@@ -91,6 +95,19 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
     const archetypeKey = quiz?.archetype_name?.toLowerCase() ?? null;
     const archetypeData = archetypeKey ? (ARCHETYPES[archetypeKey] ?? { name: quiz.archetype_name, features: [], color: '#a33726' }) : null;
 
+    // Which orders already have a feedback_events doc (any source/channel) —
+    // drives the "Leave feedback" affordance in Profile.tsx order history.
+    let orderIdsWithFeedback = new Set<string>();
+    try {
+      const feedbackSnap = await firestoreDb.collection(`users/${req.uid}/feedback_events`).get();
+      for (const doc of feedbackSnap.docs) {
+        const oid = doc.data().orderId;
+        if (oid) orderIdsWithFeedback.add(oid);
+      }
+    } catch {
+      // Subcollection may not exist yet — treat as no feedback captured
+    }
+
     // Sync to Firestore — non-blocking, Cloud SQL is source of truth
     firestoreDb.doc(`users/${req.uid}`).set({
       email:          emailResult.rows[0]?.email_address ?? req.email ?? null,
@@ -121,6 +138,8 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
         status:        o.fulfillment_status ?? 'pending',
         total:         `$${(Number(o.total_cents) / 100).toFixed(2)}`,
         date:          new Date(o.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+        blendName:     o.blend_name ?? null,
+        hasFeedback:   orderIdsWithFeedback.has(o.id),
       })),
     });
   } catch (err) {
@@ -170,6 +189,91 @@ router.patch('/profile', requireAuth, async (req: AuthRequest, res) => {
   } catch (err) {
     console.error('[PATCH /api/users/profile]', err);
     res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+// ── GET /api/users/homepage-state ─────────────────────────────────────────────
+// Single indexed join keyed on user_id — cheap at pageview time, no Firestore
+// involved. Falls back to computing live via getUserSignals() only on a user's
+// first visit, before any of the three lifecycle-refresh hooks have fired yet.
+router.get('/homepage-state', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const stateResult = await db.query(
+      `SELECT cls.code
+       FROM user_lifecycle_state uls
+       JOIN user_lifecycle_stage cls ON cls.id = uls.stage_id
+       JOIN user_profile up ON up.id = uls.user_id
+       WHERE up.firebase_uid = $1`,
+      [req.uid]
+    );
+
+    const signals = await getUserSignals(req.uid!);
+    let stageCode: string | null = stateResult.rows[0]?.code ?? null;
+    if (!stageCode) {
+      stageCode = classifyStage(signals);
+      // Persist for next time — fire-and-forget, doesn't block this response.
+      refreshLifecycleState(req.uid!).catch(err => console.error('[users/homepage-state/refresh]', err));
+    }
+
+    const archetypeKey = signals.archetype?.toLowerCase() ?? null;
+    const archetypeData = archetypeKey ? (ARCHETYPES[archetypeKey] ?? { name: signals.archetype!, features: [], color: '#a33726' }) : null;
+
+    let pendingFeedback: { orderId: string; blendName: string | null } | null = null;
+    let usualBlend: { id: string; name: string } | null = null;
+    let nextDeliveryDate: string | null = null;
+
+    if (stageCode === 'FIRST_ORDER_FEEDBACK_PENDING') {
+      const pending = signals.orders.slice(0, 2).find(o => !o.hasFeedback);
+      if (pending) {
+        const blendResult = await db.query(
+          `SELECT rb.blend_name FROM order_line_item oli
+           JOIN roaster_blend rb ON rb.id = oli.blend_id
+           WHERE oli.order_id = $1 LIMIT 1`,
+          [pending.id]
+        );
+        pendingFeedback = { orderId: pending.id, blendName: blendResult.rows[0]?.blend_name ?? null };
+      }
+    }
+
+    if (stageCode === 'REORDER_DUE' && signals.userId) {
+      const blendResult = await db.query(
+        `SELECT rb.id, rb.blend_name, COUNT(*) AS cnt
+         FROM order_line_item oli
+         JOIN "order" o ON o.id = oli.order_id
+         JOIN roaster_blend rb ON rb.id = oli.blend_id
+         WHERE o.user_id = $1
+         GROUP BY rb.id, rb.blend_name
+         ORDER BY cnt DESC LIMIT 1`,
+        [signals.userId]
+      );
+      if (blendResult.rows.length) {
+        usualBlend = { id: blendResult.rows[0].id, name: blendResult.rows[0].blend_name };
+      }
+    }
+
+    if (stageCode === 'SUBSCRIBER') {
+      const subResult = await db.query(
+        `SELECT s.next_delivery_date
+         FROM subscription s
+         JOIN user_profile up ON (up.id = s.user_id OR up.household_id = s.household_id)
+         WHERE up.firebase_uid = $1 AND s.status = 'active'
+         LIMIT 1`,
+        [req.uid]
+      );
+      nextDeliveryDate = subResult.rows[0]?.next_delivery_date ?? null;
+    }
+
+    res.json({
+      stageCode,
+      archetype: archetypeData ? { ...archetypeData, id: archetypeKey } : null,
+      daysSinceQuiz: signals.daysSinceLastQuiz,
+      pendingFeedback,
+      usualBlend,
+      nextDeliveryDate,
+    });
+  } catch (err) {
+    console.error('[/api/users/homepage-state]', err);
+    res.status(500).json({ error: 'Failed to fetch homepage state' });
   }
 });
 
