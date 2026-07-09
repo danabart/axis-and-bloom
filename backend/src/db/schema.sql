@@ -1017,6 +1017,12 @@ CREATE TABLE IF NOT EXISTS dial_archetype_config (
   created_at             TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- is_archetype: true for the 5 real flavor families, false for 'experimental'
+-- (a cross-cutting category, not a peer flavor family — see BLOOM_DIAL_ALLOCATION_SPEC.md §3).
+-- Suggestion/adjacency logic must check this flag rather than assuming every
+-- archetype_enum value is a true archetype.
+ALTER TABLE dial_archetype_config ADD COLUMN IF NOT EXISTS is_archetype BOOLEAN NOT NULL DEFAULT true;
+
 -- Archetype+dimension-specific label vocabulary for the Bloom Dial (seeded)
 CREATE TABLE IF NOT EXISTS dial_position_vocabulary (
   id            SERIAL PRIMARY KEY,
@@ -1061,6 +1067,10 @@ CREATE TABLE IF NOT EXISTS dial_coffee_relationships (
 -- Maps Axis & Bloom platform slot names to the coffees that fill them.
 -- Multiple coffees (from different roasters) can share a platform_name slot.
 -- priority=1 is preferred; priority=2 is fallback if priority=1 is out of stock.
+-- dial_sort_order/archetype below are superseded by dial_archetype_positions /
+-- archetype_assignments as the live source of truth (GET /api/admin/coffee-alias
+-- derives them from those tables) — kept here only as a fallback for rows with
+-- no matching position (e.g. Half-Caf/Decaf, which never get a dial position).
 CREATE TABLE IF NOT EXISTS coffee_alias (
   id              SERIAL PRIMARY KEY,
   platform_name   TEXT NOT NULL,
@@ -1072,6 +1082,54 @@ CREATE TABLE IF NOT EXISTS coffee_alias (
   created_at      TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE (archetype, dial_sort_order, coffee_id)
 );
+
+-- ─────────────────────────────────────────────
+-- DIAL POSITION SIGNAL INFRASTRUCTURE (Phase 5 — dormant by default)
+-- Plumbing for future multi-source dial-position signals (cupping, flavor-wheel,
+-- feedback). Only 'cupping' is populated (via recordCuppingSignal, called from
+-- POST /api/admin/scores) — nothing here auto-writes to dial_archetype_positions.
+-- See BLOOM_DIAL_ALLOCATION_SPEC.md §3 Stage 2.
+-- ─────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS dial_position_signal (
+  id                     SERIAL PRIMARY KEY,
+  coffee_id              INT REFERENCES coffees(id) ON DELETE CASCADE,
+  archetype              archetype_enum NOT NULL,
+  dimension_id           INT REFERENCES coffee_dimensions(id) NOT NULL,
+  source                 TEXT NOT NULL CHECK (source IN ('cupping','roastery_wheel','client_wheel','sms_feedback','onsite_feedback')),
+  suggested_vocabulary_id INT REFERENCES dial_position_vocabulary(id),
+  direction              TEXT CHECK (direction IN ('more','less')),
+  raw_value              NUMERIC,
+  sample_size            INT NOT NULL DEFAULT 1,
+  confidence             confidence_enum DEFAULT 'medium',
+  computed_at            TIMESTAMPTZ DEFAULT now(),
+  superseded_at          TIMESTAMPTZ,
+  notes                  TEXT
+);
+
+-- Empty on purpose — do not seed rows. Table shape only; content requires
+-- validating a descriptor's real correlation to a dimension, which needs
+-- cupping data volume that doesn't exist yet. See BLOOM_DIAL_ALLOCATION_SPEC.md §3 Stage 2.
+CREATE TABLE IF NOT EXISTS cupping_note_dimension_weight (
+  id              SERIAL PRIMARY KEY,
+  cupping_note_id UUID REFERENCES cupping_note(id) NOT NULL,
+  dimension_id    INT REFERENCES coffee_dimensions(id) NOT NULL,
+  direction       TEXT NOT NULL CHECK (direction IN ('more','less')),
+  weight          NUMERIC NOT NULL DEFAULT 0,
+  UNIQUE (cupping_note_id, dimension_id)
+);
+
+CREATE TABLE IF NOT EXISTS dial_source_weight (
+  source             TEXT PRIMARY KEY CHECK (source IN ('cupping','roastery_wheel','client_wheel','sms_feedback','onsite_feedback')),
+  reliability_weight NUMERIC NOT NULL
+);
+-- roastery_wheel/client_wheel start at 0 deliberately — cupping_note_dimension_weight
+-- has no validated rows yet, so anything computed from it shouldn't count until
+-- someone explicitly raises the weight after checking a mapping against real cupping data.
+INSERT INTO dial_source_weight (source, reliability_weight) VALUES
+  ('cupping', 3), ('sms_feedback', 1), ('onsite_feedback', 1),
+  ('roastery_wheel', 0), ('client_wheel', 0)
+ON CONFLICT (source) DO NOTHING;
 
 -- ─────────────────────────────────────────────
 -- LOOKUP VALUES  (controlled vocabulary)
@@ -1240,6 +1298,13 @@ INSERT INTO dial_archetype_config (archetype, dominant_dimension_id, has_bloom_d
   ('floral',          9, true),
   ('earthy',          6, true)
 ON CONFLICT (archetype) DO NOTHING;
+
+-- 'experimental' is a cross-cutting category, not a true flavor archetype (has_bloom_dial
+-- stays true — it has real vocabulary + Kopi Safari positioned on it — but is_archetype
+-- = false excludes it from suggestion/adjacency logic that assumes a real dominant dimension).
+INSERT INTO dial_archetype_config (archetype, dominant_dimension_id, has_bloom_dial, is_archetype)
+VALUES ('experimental', NULL, true, false)
+ON CONFLICT (archetype) DO UPDATE SET is_archetype = EXCLUDED.is_archetype;
 
 -- Seed dial_position_vocabulary (idempotent)
 INSERT INTO dial_position_vocabulary (archetype, dimension_id, sort_order, label) VALUES
@@ -2150,6 +2215,33 @@ JOIN coffee_dimensions        cd  ON cd.id  = dpv.dimension_id
 JOIN dial_archetype_config    dac ON dac.archetype = dap.archetype
 ORDER BY dap.archetype, dpv.sort_order, c.name;
 
+-- Cross-archetype bridge-hop adjacency, derived live from dial_coffee_relationships.
+-- One row per unordered archetype pair with at least one bridge_archetype hop between
+-- coffees currently tagged with those archetypes. Filters out 'experimental' (and any
+-- future non-archetype category) via dial_archetype_config.is_archetype — a hop touching
+-- a non-true-archetype coffee isn't "archetype adjacency" the way a real pair is.
+-- confidence_enum mapped low/medium/high → 1/2/3 to average.
+DROP VIEW IF EXISTS v_archetype_adjacency;
+CREATE VIEW v_archetype_adjacency AS
+SELECT
+  LEAST(aa_from.archetype, aa_to.archetype)                                            AS archetype_a,
+  GREATEST(aa_from.archetype, aa_to.archetype)                                         AS archetype_b,
+  COUNT(*)                                                                              AS hop_count,
+  COUNT(*) FILTER (WHERE dcr.direction = 'more')                                        AS more_count,
+  COUNT(*) FILTER (WHERE dcr.direction = 'less')                                        AS less_count,
+  ROUND(AVG(CASE dcr.confidence WHEN 'low' THEN 1 WHEN 'medium' THEN 2 WHEN 'high' THEN 3 END), 2) AS avg_confidence
+FROM dial_coffee_relationships dcr
+JOIN archetype_assignments aa_from ON aa_from.coffee_id = dcr.from_coffee_id AND aa_from.superseded_at IS NULL
+JOIN archetype_assignments aa_to   ON aa_to.coffee_id   = dcr.to_coffee_id   AND aa_to.superseded_at IS NULL
+JOIN dial_archetype_config  dac_from ON dac_from.archetype = aa_from.archetype
+JOIN dial_archetype_config  dac_to   ON dac_to.archetype   = aa_to.archetype
+WHERE dcr.hop_type = 'bridge_archetype'
+  AND dac_from.is_archetype = true
+  AND dac_to.is_archetype   = true
+  AND aa_from.archetype <> aa_to.archetype
+GROUP BY LEAST(aa_from.archetype, aa_to.archetype), GREATEST(aa_from.archetype, aa_to.archetype)
+ORDER BY hop_count DESC;
+
 -- Bloom Dial: directional hop graph between coffees.
 DROP VIEW IF EXISTS v_dial_navigation;
 CREATE VIEW v_dial_navigation AS
@@ -2168,6 +2260,50 @@ JOIN coffees           fc ON fc.id  = dcr.from_coffee_id
 JOIN coffees           tc ON tc.id  = dcr.to_coffee_id
 JOIN coffee_dimensions cd ON cd.id  = dcr.dimension_id
 ORDER BY fc.name, cd.name, dcr.direction;
+
+-- Dial position consensus (Phase 5 — dormant): weighted rollup of current
+-- (non-superseded) dial_position_signal rows per (coffee_id, archetype).
+-- With only 'cupping' weighted above zero today, this mirrors Phase 3's live
+-- suggestion — becomes meaningfully different once other sources gain weight.
+-- No auto-write to dial_archetype_positions from this — read-only advisory.
+DROP VIEW IF EXISTS v_dial_position_consensus;
+CREATE VIEW v_dial_position_consensus AS
+WITH current_signals AS (
+  SELECT dps.*, dsw.reliability_weight
+  FROM dial_position_signal dps
+  JOIN dial_source_weight dsw ON dsw.source = dps.source
+  WHERE dps.superseded_at IS NULL
+),
+vocab_weights AS (
+  SELECT coffee_id, archetype, suggested_vocabulary_id,
+         SUM(reliability_weight) AS weight_sum,
+         MAX(reliability_weight) AS max_single_weight
+  FROM current_signals
+  WHERE suggested_vocabulary_id IS NOT NULL
+  GROUP BY coffee_id, archetype, suggested_vocabulary_id
+),
+ranked AS (
+  SELECT *, ROW_NUMBER() OVER (
+    PARTITION BY coffee_id, archetype
+    ORDER BY weight_sum DESC, max_single_weight DESC
+  ) AS rn
+  FROM vocab_weights
+),
+totals AS (
+  SELECT coffee_id, archetype,
+         SUM(sample_size)                     AS total_sample_size,
+         SUM(sample_size * reliability_weight) AS weighted_sample_size
+  FROM current_signals
+  GROUP BY coffee_id, archetype
+)
+SELECT
+  t.coffee_id,
+  t.archetype,
+  r.suggested_vocabulary_id AS consensus_vocabulary_id,
+  t.total_sample_size,
+  t.weighted_sample_size
+FROM totals t
+LEFT JOIN ranked r ON r.coffee_id = t.coffee_id AND r.archetype = t.archetype AND r.rn = 1;
 
 -- Newsletter subscriber list — all signups with source label, ordered newest first.
 -- Columns: email, first_name, source (human-readable label), subscribed, signed_up_at

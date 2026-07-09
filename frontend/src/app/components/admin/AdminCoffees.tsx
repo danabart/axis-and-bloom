@@ -2,6 +2,22 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useAdminLookups } from '../../hooks/useAdminLookups';
 
+interface HopConflict {
+  conflicting_coffee: string;
+  note: string;
+}
+
+interface DialSuggestion {
+  suggested_vocabulary_id: number;
+  suggested_label: string;
+  suggested_sort_order: number;
+  avg_score: number;
+  session_count: number;
+  is_outlier: boolean;
+  dimension_name: string;
+  hop_conflict?: HopConflict;
+}
+
 interface Coffee {
   id: number;
   name: string;
@@ -18,6 +34,7 @@ interface Coffee {
   dial_is_default: boolean | null;
   dial_position_sort: number | null;
   dial_label: string | null;
+  dial_suggestion: DialSuggestion | null;
 }
 
 interface VocabOption {
@@ -81,6 +98,13 @@ function posIcon(sort: number) {
   return '⟶';
 }
 
+function ordinal(n: number) {
+  if (n === 1) return '1st';
+  if (n === 2) return '2nd';
+  if (n === 3) return '3rd';
+  return `${n}th`;
+}
+
 function LookupSelect({ category, value, onChange, lookups }: {
   category: string; value: string;
   onChange: (v: string) => void;
@@ -119,6 +143,19 @@ export default function AdminCoffees() {
   const [refreshingId, setRefreshingId] = useState<number | null>(null);
   const [movingId, setMovingId]         = useState<number | null>(null);
   const [deletingId, setDeletingId]     = useState<number | null>(null);
+
+  // alias rank editing (moved here from Blends & SKUs — see Phase 2)
+  const [rankAliasId, setRankAliasId] = useState<number | null>(null);
+  const [rankValue, setRankValue]     = useState('');
+  const [rankSaving, setRankSaving]   = useState(false);
+  const [rankErr, setRankErr]         = useState('');
+
+  // alias creation
+  const [creatingAliasFor, setCreatingAliasFor] = useState<number | null>(null);
+  const [newAliasName, setNewAliasName]         = useState('');
+  const [newAliasPriority, setNewAliasPriority] = useState('1');
+  const [aliasCreateSaving, setAliasCreateSaving] = useState(false);
+  const [aliasCreateErr, setAliasCreateErr]       = useState('');
 
   async function apiFetch(url: string, options: RequestInit = {}) {
     const token = await user!.getIdToken();
@@ -223,6 +260,48 @@ export default function AdminCoffees() {
     catch { /* non-critical */ } finally { setRefreshingId(null); }
   }
 
+  async function handleRankSave(aliasId: number) {
+    const rank = parseInt(rankValue);
+    if (!Number.isFinite(rank) || rank < 1) { setRankErr('Enter a number ≥ 1'); return; }
+    setRankSaving(true); setRankErr('');
+    try {
+      const res = await apiFetch(`/api/admin/coffee-alias/${aliasId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priority: rank }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
+      setRankAliasId(null); await load();
+    } catch (err: unknown) {
+      setRankErr(err instanceof Error ? err.message : 'Failed');
+    } finally { setRankSaving(false); }
+  }
+
+  async function handleCreateAlias(coffeeId: number) {
+    if (!newAliasName.trim()) { setAliasCreateErr('Platform name is required'); return; }
+    const priority = parseInt(newAliasPriority);
+    if (!Number.isFinite(priority) || priority < 1) { setAliasCreateErr('Enter a priority ≥ 1'); return; }
+    const coffee = coffees.find(c => c.id === coffeeId);
+    if (!coffee?.archetype) { setAliasCreateErr('Coffee needs an archetype and dial position first'); return; }
+    setAliasCreateSaving(true); setAliasCreateErr('');
+    try {
+      const res = await apiFetch('/api/admin/coffee-alias', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          platform_name: newAliasName.trim(),
+          archetype: coffee.archetype,
+          coffee_id: coffeeId,
+          priority,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
+      setCreatingAliasFor(null); setNewAliasName(''); setNewAliasPriority('1'); await load();
+    } catch (err: unknown) {
+      setAliasCreateErr(err instanceof Error ? err.message : 'Failed');
+    } finally { setAliasCreateSaving(false); }
+  }
+
   function openAssign(coffee: Coffee) {
     setAssigningId(coffee.id);
     setArchForm({
@@ -318,6 +397,30 @@ export default function AdminCoffees() {
               <option key={v.id} value={v.id}>{v.sort_order}. {v.label}</option>
             ))}
           </select>
+          {coffee?.dial_suggestion && coffee.dial_suggestion.suggested_vocabulary_id !== coffee.dial_vocab_id && (
+            coffee.dial_suggestion.is_outlier ? (
+              <p className="mt-1 text-xs text-amber-600 max-w-[220px]">
+                Cupping score is unusually high/low for this archetype (avg {coffee.dial_suggestion.dimension_name} {coffee.dial_suggestion.avg_score}, {coffee.dial_suggestion.session_count} session{coffee.dial_suggestion.session_count === 1 ? '' : 's'}) — worth double-checking the archetype assignment.
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-stone-500">
+                Suggested: {coffee.dial_suggestion.suggested_label} (avg {coffee.dial_suggestion.dimension_name} {coffee.dial_suggestion.avg_score}, {coffee.dial_suggestion.session_count} session{coffee.dial_suggestion.session_count === 1 ? '' : 's'})
+                {' '}
+                <button
+                  type="button"
+                  onClick={() => handleMovePosition(coffee, coffee.dial_suggestion!.suggested_vocabulary_id)}
+                  className="underline hover:text-stone-800"
+                >
+                  Apply
+                </button>
+              </p>
+            )
+          )}
+          {coffee?.dial_suggestion?.hop_conflict && (
+            <p className="mt-1 text-xs text-amber-600 max-w-[220px]">
+              {coffee.dial_suggestion.hop_conflict.note}
+            </p>
+          )}
         </div>
         {archForm.vocab_id && (
           <div className="flex items-center gap-2 pb-1.5">
@@ -334,6 +437,86 @@ export default function AdminCoffees() {
             onChange={e => setArchForm(f => ({ ...f, notes: e.target.value }))}
             className="w-full border border-stone-300 rounded px-3 py-1.5 text-sm"
             placeholder="e.g. confirmed after session 002" />
+        </div>
+        {/* alias / priority controls — moved here from Blends & SKUs (Phase 2) */}
+        <div className="w-full flex items-end gap-3 pt-2 mt-1 border-t border-stone-200">
+          {(() => {
+            const existingAlias = aliases.find(a => a.coffee_id === coffeeId);
+            if (existingAlias) {
+              const isRankEditing = rankAliasId === existingAlias.id;
+              return (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-stone-400">Alias:</span>
+                  <span className="text-sm text-stone-700">{existingAlias.platform_name}</span>
+                  {!isRankEditing ? (
+                    <button
+                      onClick={() => { setRankAliasId(existingAlias.id); setRankValue(String(existingAlias.priority)); setRankErr(''); }}
+                      className={`px-2 py-0.5 rounded text-xs border transition-colors ${
+                        existingAlias.priority === 1
+                          ? 'text-white border-transparent'
+                          : 'text-stone-500 border-stone-200 hover:border-stone-400 hover:text-stone-700'
+                      }`}
+                      style={existingAlias.priority === 1 ? { backgroundColor: '#b05642' } : {}}
+                      title="Click to change rank"
+                    >
+                      {ordinal(existingAlias.priority)} choice{existingAlias.priority === 1 ? ' ★' : ''}
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <input type="number" min="1" max="9" value={rankValue}
+                        onChange={e => setRankValue(e.target.value)}
+                        className="w-12 border border-stone-300 rounded px-2 py-0.5 text-xs text-center"
+                        autoFocus />
+                      <button onClick={() => handleRankSave(existingAlias.id)} disabled={rankSaving}
+                        className="px-3 py-0.5 rounded text-xs text-white disabled:opacity-50"
+                        style={{ backgroundColor: '#b05642' }}>
+                        {rankSaving ? '…' : 'Save'}
+                      </button>
+                      <button onClick={() => setRankAliasId(null)} className="text-xs text-stone-400 hover:text-stone-600">Cancel</button>
+                      {rankErr && <span className="text-red-500 text-xs">{rankErr}</span>}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+            if (coffee?.archetype && coffee?.dial_vocab_id) {
+              const isCreating = creatingAliasFor === coffeeId;
+              if (!isCreating) {
+                return (
+                  <button
+                    onClick={() => { setCreatingAliasFor(coffeeId); setNewAliasName(''); setNewAliasPriority('1'); setAliasCreateErr(''); }}
+                    className="px-2 py-0.5 rounded border border-dashed border-stone-300 text-xs text-stone-400 hover:border-stone-400 hover:text-stone-600"
+                  >
+                    + Create alias
+                  </button>
+                );
+              }
+              return (
+                <div className="flex items-end gap-2">
+                  <div>
+                    <label className="block text-xs text-stone-400 mb-1">Platform Name</label>
+                    <input value={newAliasName} onChange={e => setNewAliasName(e.target.value)}
+                      className="border border-stone-300 rounded px-3 py-1.5 text-sm w-40"
+                      placeholder="e.g. House Blend" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-stone-400 mb-1">Priority</label>
+                    <input type="number" min="1" max="9" value={newAliasPriority}
+                      onChange={e => setNewAliasPriority(e.target.value)}
+                      className="w-16 border border-stone-300 rounded px-2 py-1.5 text-sm text-center" />
+                  </div>
+                  <button onClick={() => handleCreateAlias(coffeeId)} disabled={aliasCreateSaving}
+                    className="px-3 py-1.5 rounded text-xs text-white disabled:opacity-50"
+                    style={{ backgroundColor: '#b05642' }}>
+                    {aliasCreateSaving ? 'Saving…' : 'Save'}
+                  </button>
+                  <button onClick={() => setCreatingAliasFor(null)} className="text-xs text-stone-400 hover:text-stone-600 pb-1.5">Cancel</button>
+                  {aliasCreateErr && <span className="text-red-500 text-xs">{aliasCreateErr}</span>}
+                </div>
+              );
+            }
+            return null;
+          })()}
         </div>
         <div className="flex gap-2">
           <button onClick={() => handleArchetypeAssign(coffeeId)} disabled={archSaving}

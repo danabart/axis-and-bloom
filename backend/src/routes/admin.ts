@@ -3,6 +3,7 @@ import { requireAdmin, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 import { generateAndStoreSummary, generateAndStoreAllContent } from './coffees.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
+import { getDialSuggestion, recordCuppingSignal } from '../services/dialSuggestion.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -77,7 +78,14 @@ router.get('/coffees', async (_req, res) => {
         ON dpv.id = dap.vocabulary_id
       ORDER BY c.id DESC
     `);
-    res.json(result.rows);
+    // Per-coffee suggestion lookups are fine at this catalogue size (~30 coffees).
+    const coffeesWithSuggestions = await Promise.all(
+      result.rows.map(async (coffee) => ({
+        ...coffee,
+        dial_suggestion: await getDialSuggestion(coffee.id),
+      }))
+    );
+    res.json(coffeesWithSuggestions);
   } catch (err) {
     console.error('[admin/coffees]', err);
     res.status(500).json({ error: 'Failed to fetch coffees' });
@@ -403,20 +411,64 @@ router.delete('/sessions/:sessionId/coffees/:scId', async (req, res) => {
 
 // ── GET /api/admin/dimensions ─────────────────────────────────────────────────
 // ── GET /api/admin/coffee-alias ──────────────────────────────────────────────
+// dial_sort_order/archetype are derived live from dial_archetype_positions /
+// archetype_assignments (the single sources of truth — see schema.sql comment
+// above coffee_alias) and only fall back to the stored coffee_alias columns
+// when a coffee has no live position (e.g. Half-Caf/Decaf, archetype = NULL by design).
 router.get('/coffee-alias', async (_req, res) => {
   try {
     const result = await db.query(`
-      SELECT ca.id, ca.platform_name, ca.archetype, ca.dial_sort_order,
+      SELECT ca.id, ca.platform_name,
+             COALESCE(aa.archetype, ca.archetype)   AS archetype,
+             COALESCE(dpv.sort_order, ca.dial_sort_order) AS dial_sort_order,
              ca.coffee_id, ca.priority, ca.is_active,
              c.name AS coffee_name, c.roaster
       FROM coffee_alias ca
       JOIN coffees c ON c.id = ca.coffee_id
-      ORDER BY ca.archetype NULLS LAST, ca.dial_sort_order, ca.priority
+      LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id
+      LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
+      LEFT JOIN archetype_assignments aa
+        ON aa.coffee_id = ca.coffee_id AND aa.superseded_at IS NULL
+      ORDER BY COALESCE(aa.archetype, ca.archetype) NULLS LAST,
+               COALESCE(dpv.sort_order, ca.dial_sort_order), ca.priority
     `);
     res.json(result.rows);
   } catch (err) {
     console.error('[admin/coffee-alias]', err);
     res.status(500).json({ error: 'Failed to fetch coffee aliases' });
+  }
+});
+
+// ── POST /api/admin/coffee-alias — create a new alias row ────────────────────
+// dial_sort_order is never accepted from the client — it's derived from the
+// coffee's current dial_archetype_positions row for the given archetype, same
+// single-source-of-truth rule as the GET route above.
+router.post('/coffee-alias', async (req, res) => {
+  const { platform_name, archetype, coffee_id, priority } = req.body;
+  if (!platform_name || !archetype || !coffee_id) {
+    res.status(400).json({ error: 'platform_name, archetype, and coffee_id are required' }); return;
+  }
+  try {
+    const posResult = await db.query(
+      `SELECT dpv.sort_order
+       FROM dial_archetype_positions dap
+       JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
+       WHERE dap.coffee_id = $1 AND dap.archetype = $2`,
+      [coffee_id, archetype]
+    );
+    if (posResult.rowCount === 0) {
+      res.status(400).json({ error: 'Coffee has no dial position for this archetype yet' }); return;
+    }
+    const result = await db.query(
+      `INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, platform_name, archetype, dial_sort_order, coffee_id, priority, is_active`,
+      [platform_name, archetype, posResult.rows[0].sort_order, coffee_id, priority ?? 1]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('[admin/coffee-alias POST]', err);
+    res.status(500).json({ error: 'Failed to create alias' });
   }
 });
 
@@ -529,6 +581,22 @@ router.post('/scores', async (req, res) => {
            VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
           [scoreId, d.cupping_note_id, d.intensity ?? null, d.custom_notes ?? null]
         );
+      }
+    }
+
+    // Non-critical: record the cupping source's dial-position signal (Phase 5 — dormant
+    // infra, never writes to the live position). A failure here shouldn't fail the score save.
+    if (is_merged) {
+      try {
+        const scRes = await db.query(
+          `SELECT coffee_id FROM cupping_session_coffees WHERE id = $1`,
+          [session_coffee_id]
+        );
+        if (scRes.rows[0]?.coffee_id) {
+          await recordCuppingSignal(scRes.rows[0].coffee_id);
+        }
+      } catch (signalErr) {
+        console.error('[admin/scores POST] recordCuppingSignal failed (non-critical)', signalErr);
       }
     }
 
@@ -685,6 +753,34 @@ router.get('/dial/navigation', async (_req, res) => {
   }
 });
 
+// GET /api/admin/dial/archetype-adjacency — cross-archetype bridge-hop summary
+router.get('/dial/archetype-adjacency', async (_req, res) => {
+  try {
+    const result = await db.query(`SELECT * FROM v_archetype_adjacency`);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[admin/dial/archetype-adjacency GET]', err);
+    res.status(500).json({ error: 'Failed to fetch archetype adjacency' });
+  }
+});
+
+// GET /api/admin/dial/consensus/:coffeeId — weighted multi-source consensus (Phase 5, dormant).
+// Read-only; not wired into any frontend page. With only 'cupping' weighted above zero
+// today this mirrors Phase 3's live suggestion.
+router.get('/dial/consensus/:coffeeId', async (req, res) => {
+  const { coffeeId } = req.params;
+  try {
+    const result = await db.query(
+      `SELECT * FROM v_dial_position_consensus WHERE coffee_id = $1`,
+      [coffeeId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[admin/dial/consensus GET]', err);
+    res.status(500).json({ error: 'Failed to fetch dial position consensus' });
+  }
+});
+
 // GET /api/admin/dial/vocabulary — all vocabulary options with dimension name
 router.get('/dial/vocabulary', async (_req, res) => {
   try {
@@ -757,11 +853,42 @@ router.patch('/dial/positions/:id', async (req, res) => {
       if (result.rowCount === 0) { res.status(404).json({ error: 'Position not found' }); return; }
     }
     if (typeof vocabulary_id === 'number') {
-      const result = await db.query(
-        `UPDATE dial_archetype_positions SET vocabulary_id = $1 WHERE id = $2 RETURNING id`,
-        [vocabulary_id, id]
+      const moverResult = await db.query(
+        `SELECT dap.archetype, dap.vocabulary_id AS old_vocabulary_id, c.roaster
+         FROM dial_archetype_positions dap
+         JOIN coffees c ON c.id = dap.coffee_id
+         WHERE dap.id = $1`,
+        [id]
       );
-      if (result.rowCount === 0) { res.status(404).json({ error: 'Position not found' }); return; }
+      if (moverResult.rowCount === 0) { res.status(404).json({ error: 'Position not found' }); return; }
+      const { archetype, old_vocabulary_id, roaster } = moverResult.rows[0];
+
+      // Same archetype + same roaster already occupies the target slot? Swap instead of overwrite.
+      const occupantResult = await db.query(
+        `SELECT dap.id
+         FROM dial_archetype_positions dap
+         JOIN coffees c ON c.id = dap.coffee_id
+         WHERE dap.archetype = $1 AND dap.vocabulary_id = $2 AND c.roaster = $3 AND dap.id <> $4`,
+        [archetype, vocabulary_id, roaster, id]
+      );
+
+      await db.query('BEGIN');
+      try {
+        await db.query(
+          `UPDATE dial_archetype_positions SET vocabulary_id = $1 WHERE id = $2`,
+          [vocabulary_id, id]
+        );
+        if ((occupantResult.rowCount ?? 0) > 0) {
+          await db.query(
+            `UPDATE dial_archetype_positions SET vocabulary_id = $1 WHERE id = $2`,
+            [old_vocabulary_id, occupantResult.rows[0].id]
+          );
+        }
+        await db.query('COMMIT');
+      } catch (txErr) {
+        await db.query('ROLLBACK');
+        throw txErr;
+      }
     }
     res.json({ ok: true });
   } catch (err) {

@@ -64,12 +64,6 @@ export default function AdminInventory() {
   const [coffees, setCoffees] = useState<CoffeeLookup[]>([]);
   const [error, setError]     = useState('');
 
-  // rank editing
-  const [rankAliasId, setRankAliasId] = useState<number | null>(null);
-  const [rankValue, setRankValue]     = useState('');
-  const [rankSaving, setRankSaving]   = useState(false);
-  const [rankErr, setRankErr]         = useState('');
-
   // blend editing
   const [editBlendId, setEditBlendId]     = useState<string | null>(null);
   const [editSku, setEditSku]             = useState('');
@@ -180,30 +174,12 @@ export default function AdminInventory() {
     } finally { setEditSaving(false); }
   }
 
-  async function handleRankSave(aliasId: number) {
-    const rank = parseInt(rankValue);
-    if (!Number.isFinite(rank) || rank < 1) { setRankErr('Enter a number ≥ 1'); return; }
-    setRankSaving(true); setRankErr('');
-    try {
-      const res = await apiFetch(`/api/admin/coffee-alias/${aliasId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ priority: rank }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
-      setRankAliasId(null); await load();
-    } catch (err: unknown) {
-      setRankErr(err instanceof Error ? err.message : 'Failed');
-    } finally { setRankSaving(false); }
-  }
-
   function openEdit(b: Blend) {
     setEditBlendId(b.id);
     setEditSku(b.roaster_sku ?? '');
     setEditShopify(b.shopify_variant_id ?? '');
     setEditCoffee('');
     setEditErr('');
-    setRankAliasId(null);
   }
 
   // ── Sub-components ────────────────────────────────────────────────────────────
@@ -297,7 +273,7 @@ export default function AdminInventory() {
         <h1 className="text-xl font-normal text-stone-800">Blends &amp; SKUs</h1>
       </div>
       <p className="text-xs text-stone-400 mb-6">
-        Organized by archetype → dial position → alias slot. Each slot lists its fulfillment choices in order — 1st is tried first, 2nd is the fallback. Drop-ship model; no inventory quantities tracked.
+        Organized by archetype → dial position → alias slot. Each slot lists its fulfillment choices in order — 1st is tried first, 2nd is the fallback. Choices, rank, and dial position are set on the Coffees page; this page reflects roastery fulfillment status only (SKU, Shopify variant, active/inactive). Drop-ship model; no inventory quantities tracked.
       </p>
 
       {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
@@ -337,44 +313,23 @@ export default function AdminInventory() {
                       </thead>
                       <tbody>
                         {pos.entries.map(({ aliasRow, blends: entryBlends }) => {
-                          const isRankEditing = rankAliasId === aliasRow.id;
                           return (
                             <>
                               {/* Coffee entry row */}
                               <tr key={`alias-${aliasRow.id}`} className="border-b border-stone-100 bg-stone-50/30">
                                 <td className="py-2 px-4" colSpan={5}>
                                   <div className="flex items-center gap-3">
-                                    {/* Rank badge / editor */}
-                                    {!isRankEditing ? (
-                                      <button
-                                        onClick={() => { setRankAliasId(aliasRow.id); setRankValue(String(aliasRow.priority)); setRankErr(''); setEditBlendId(null); }}
-                                        className={`px-2 py-0.5 rounded text-xs border transition-colors ${
-                                          aliasRow.priority === 1
-                                            ? 'text-white border-transparent'
-                                            : 'text-stone-500 border-stone-200 hover:border-stone-400 hover:text-stone-700'
-                                        }`}
-                                        style={aliasRow.priority === 1 ? { backgroundColor: '#b05642' } : {}}
-                                        title="Click to change rank"
-                                      >
-                                        {ordinal(aliasRow.priority)} choice{aliasRow.priority === 1 ? ' ★' : ''}
-                                      </button>
-                                    ) : (
-                                      <div className="flex items-center gap-2">
-                                        <input
-                                          type="number" min="1" max="9" value={rankValue}
-                                          onChange={e => setRankValue(e.target.value)}
-                                          className="w-12 border border-stone-300 rounded px-2 py-0.5 text-xs text-center"
-                                          autoFocus
-                                        />
-                                        <button onClick={() => handleRankSave(aliasRow.id)} disabled={rankSaving}
-                                          className="px-3 py-0.5 rounded text-xs text-white disabled:opacity-50"
-                                          style={{ backgroundColor: '#b05642' }}>
-                                          {rankSaving ? '…' : 'Save'}
-                                        </button>
-                                        <button onClick={() => setRankAliasId(null)} className="text-xs text-stone-400 hover:text-stone-600">Cancel</button>
-                                        {rankErr && <span className="text-red-500 text-xs">{rankErr}</span>}
-                                      </div>
-                                    )}
+                                    {/* Rank badge — read-only; set on the Coffees page */}
+                                    <span
+                                      className={`px-2 py-0.5 rounded text-xs border ${
+                                        aliasRow.priority === 1
+                                          ? 'text-white border-transparent'
+                                          : 'text-stone-500 border-stone-200'
+                                      }`}
+                                      style={aliasRow.priority === 1 ? { backgroundColor: '#b05642' } : {}}
+                                    >
+                                      {ordinal(aliasRow.priority)} choice{aliasRow.priority === 1 ? ' ★' : ''}
+                                    </span>
                                     <span className="text-sm text-stone-700">{aliasRow.coffee_name}</span>
                                     <span className="text-xs text-stone-400">{aliasRow.roaster}</span>
                                   </div>

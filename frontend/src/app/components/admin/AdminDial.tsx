@@ -20,6 +20,31 @@ interface DialHop {
 interface CoffeeOption { id: number; name: string; archetype: string | null; }
 interface DimOption    { id: number; name: string; }
 
+interface AdjacencyRow {
+  archetype_a: string;
+  archetype_b: string;
+  hop_count: number;
+  more_count: number;
+  less_count: number;
+  avg_confidence: number | null;
+}
+
+const ARCHETYPE_LABEL: Record<string, string> = {
+  chocolate_nutty: 'Chocolate & Nutty',
+  balanced_sweet:  'Balanced & Sweet',
+  fruity:          'Fruity',
+  earthy:          'Earthy',
+  floral:          'Floral',
+  experimental:    'Experimental',
+};
+
+function confidenceLabel(avg: number | null) {
+  if (avg === null) return 'unknown confidence';
+  if (avg >= 2.5) return 'high confidence';
+  if (avg >= 1.5) return 'medium confidence';
+  return 'low confidence';
+}
+
 const EMPTY_HOP = {
   from_coffee_id: '', to_coffee_id: '', dimension_id: '',
   direction: 'more' as const, hop_type: 'bridge_archetype' as const,
@@ -29,10 +54,11 @@ const EMPTY_HOP = {
 export default function AdminDial() {
   const { user } = useAuth();
 
-  const [hops, setHops]       = useState<DialHop[]>([]);
-  const [coffees, setCoffees] = useState<CoffeeOption[]>([]);
-  const [dims, setDims]       = useState<DimOption[]>([]);
-  const [error, setError]     = useState('');
+  const [hops, setHops]           = useState<DialHop[]>([]);
+  const [coffees, setCoffees]     = useState<CoffeeOption[]>([]);
+  const [dims, setDims]           = useState<DimOption[]>([]);
+  const [adjacency, setAdjacency] = useState<AdjacencyRow[]>([]);
+  const [error, setError]         = useState('');
 
   const [showHopForm, setShowHopForm] = useState(false);
   const [hopForm, setHopForm]         = useState(EMPTY_HOP);
@@ -50,14 +76,16 @@ export default function AdminDial() {
 
   async function loadAll() {
     try {
-      const [hopRes, coffeeRes, dimRes] = await Promise.all([
+      const [hopRes, coffeeRes, dimRes, adjRes] = await Promise.all([
         apiFetch('/api/admin/dial/navigation'),
         apiFetch('/api/admin/coffees'),
         apiFetch('/api/admin/dimensions'),
+        apiFetch('/api/admin/dial/archetype-adjacency'),
       ]);
       setHops(await hopRes.json());
       setCoffees(await coffeeRes.json());
       setDims(await dimRes.json());
+      setAdjacency(await adjRes.json());
     } catch {
       setError('Failed to load navigation hops');
     }
@@ -118,6 +146,28 @@ export default function AdminDial() {
 
       {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
 
+      {/* ── Archetype adjacency summary — read-only, derived from bridge hops ──── */}
+      <div className="mb-6 border border-stone-100 rounded-lg p-4 bg-stone-50/60">
+        <h2 className="text-xs font-normal text-stone-400 uppercase tracking-widest mb-2">
+          Cross-Archetype Connections
+        </h2>
+        {adjacency.length === 0 ? (
+          <p className="text-sm text-stone-400">No cross-archetype connections recorded yet.</p>
+        ) : (
+          <ul className="space-y-1">
+            {adjacency.map(a => (
+              <li key={`${a.archetype_a}-${a.archetype_b}`} className="text-sm text-stone-700">
+                {ARCHETYPE_LABEL[a.archetype_a] ?? a.archetype_a} ↔ {ARCHETYPE_LABEL[a.archetype_b] ?? a.archetype_b}
+                {' — '}
+                <span className="text-stone-500">
+                  {a.hop_count} hop{a.hop_count === 1 ? '' : 's'}, {confidenceLabel(a.avg_confidence)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       {showHopForm && (
         <form onSubmit={handleAddHop}
           className="border border-stone-200 rounded-lg p-5 mb-6 bg-stone-50 grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -164,8 +214,8 @@ export default function AdminDial() {
             <select value={hopForm.hop_type}
               onChange={e => setHopForm(f => ({ ...f, hop_type: e.target.value as 'within_archetype' | 'bridge_archetype' }))}
               className="w-full border border-stone-300 rounded px-3 py-2 text-sm">
-              <option value="within_archetype">Within Archetype</option>
-              <option value="bridge_archetype">Bridge Archetype</option>
+              <option value="within_archetype">Dial Turn</option>
+              <option value="bridge_archetype">Hop</option>
             </select>
           </div>
           <div>
