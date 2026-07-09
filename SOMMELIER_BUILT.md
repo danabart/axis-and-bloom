@@ -177,6 +177,8 @@ Label vocabulary comes from `dial_position_vocabulary` (archetype+dimension-spec
 - `DISCOVERY_SEEKER` RAG queries `v_dial_navigation` outward from the user's current coffee via `bridge_archetype` hops, not just archetype labels
 - `RECOMMENDATION_MISS` queries `v_dial_navigation` directionally: if feedback suggests "too strong," traverse `direction = 'less'` on the relevant dimension
 
+**As of the Bloom Dial admin reorg (`WHAT_WE_BUILT.md` #75, 2026-07-09):** `dial_coffee_relationships` is no longer Liam-only. `bridge_archetype` hops now also feed `v_archetype_adjacency` (cross-archetype adjacency summary, `GET /api/admin/dial/archetype-adjacency`), and `within_archetype` hops are cross-checked against a new cupping-based dial-position suggestion (`dialSuggestion.ts`, `getDialSuggestion()`) — a disagreement surfaces as `hop_conflict` on the Coffees admin page. None of this changes what Liam sees or how the RAG focus types above work; it's a second, admin-facing consumer of the same table. `dial_archetype_config` also gained `is_archetype BOOLEAN` (`false` for `experimental`, `true` for the other 5) — doesn't affect Liam's RAG queries, which don't filter on it.
+
 ---
 
 ## Firestore Collections (new)
@@ -201,8 +203,8 @@ Label vocabulary comes from `dial_position_vocabulary` (archetype+dimension-spec
 | `sommelier_messages` | **Legacy** — one row per turn (role, content, model_used, session FK). Messages now written to Firestore `users/{uid}/sommelier_sessions/{sessionId}/messages` as of 2026-06-27. Table kept for backwards compatibility; `GET /:sessionId/messages` falls back to it for sessions created before the migration. |
 | `user_tokens` | Token balance per user — balance, lifetime earned/spent |
 | `token_events` | Audit trail — every earn and spend with reason and reference ID |
-| `dial_archetype_config` | Dominant dimension and Bloom Dial flag per archetype (seeded, 5 rows) |
-| `dial_position_vocabulary` | Archetype+dimension-specific label vocabulary for the Bloom Dial (seeded, 20 rows) |
+| `dial_archetype_config` | Dominant dimension and Bloom Dial flag per archetype (seeded, 6 rows incl. `experimental`). Gained `is_archetype BOOLEAN` (#75) — `false` for `experimental` only. |
+| `dial_position_vocabulary` | Archetype+dimension-specific label vocabulary for the Bloom Dial (seeded, 24 rows incl. `experimental`) |
 | `dial_archetype_positions` | Bloom Dial positions — maps coffees to a vocabulary position per archetype |
 | `dial_coffee_relationships` | Navigation graph — directional hops between coffees along dimensions |
 
