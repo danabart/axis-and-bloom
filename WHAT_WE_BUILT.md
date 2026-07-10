@@ -2178,6 +2178,26 @@ Implements all 5 phases of `backend/src/features/bloom_dial/CLAUDE_CODE_PROMPT_B
 
 **Not done in this pass (explicitly out of scope):** decoupling "category" from "archetype" entirely (a coffee still can't hold a real archetype and `experimental` simultaneously — see the prompt's out-of-scope list); populating `cupping_note_dimension_weight`, `roastery_wheel`/`client_wheel`, or `sms_feedback`/`onsite_feedback` signals; any auto-write from the consensus view to the live position; dropping the legacy `coffee_alias` fallback columns.
 
+### 76. Bloom Dial follow-up 1 — priority-swap bug, alias editing, hop validation + computed suggestions (2026-07-09)
+
+**Files:** `backend/src/routes/admin.ts`, `backend/src/services/dialSuggestion.ts`, `frontend/src/app/components/admin/AdminCoffees.tsx`, `frontend/src/app/components/admin/AdminInventory.tsx`, `frontend/src/app/components/admin/AdminLayout.tsx`, `frontend/src/app/components/admin/AdminDial.tsx`
+
+Implements `backend/src/features/bloom_dial/CLAUDE_CODE_PROMPT_BLOOM_DIAL_FOLLOWUP_1.md`, gaps found using #75's deployed reorg.
+
+**Phase 1 — fixed a parallel-miss priority-swap bug:** `PATCH /api/admin/coffee-alias/:id` (the Coffees page rank editor) did a plain overwrite with no collision check — the position-swap fix from #75 was never given to the equivalent priority endpoint. Now finds whichever *other* alias occupies the target priority within the same live slot (same derivation as `GET /coffee-alias`: `COALESCE(aa.archetype, ca.archetype)` / `COALESCE(dpv.sort_order, ca.dial_sort_order)`, `IS NOT DISTINCT FROM` for NULL-safety) and swaps in a transaction instead of producing duplicate ranks.
+
+**Phase 2 — alias rename + active toggle:** `PATCH /api/admin/coffee-alias/:id` extended to accept `platform_name`/`is_active` as a partial update alongside `priority`. `AdminCoffees.tsx`'s alias section gained a click-to-edit name field and an active/inactive toggle badge (same visual pattern as blend toggles in `AdminInventory.tsx`). Inactive aliases still display on Blends & SKUs, now with a muted "Inactive" badge rather than disappearing.
+
+**Phase 3 — nav placement:** moved the "Bloom Dial" sidebar entry from "Sommelier AI" to "Catalogue & Supply" in `AdminLayout.tsx` — no route, label, or page-heading change. Reflects that the hop graph now feeds archetype adjacency and the Coffees suggestion cross-check (#75), not just Liam's RAG.
+
+**Phase 4 — hop validation at creation time:** `POST /api/admin/dial/relationships` now hard-rejects (400) logical contradictions before insert: same coffee on both ends, either coffee missing an archetype, a `within_archetype` hop across two different archetypes, or a `bridge_archetype` hop within the same archetype. Separately, soft-validates (never blocks) the claimed `direction` against real merged cupping data when both coffees have it on that dimension, and flags an existing opposite-direction hop between the same pair — both surface as a `warning` string in the 201 response. `AdminDial.tsx` shows it as a dismissible amber note.
+
+**Phase 5 — computed hop suggestions:** new `GET /api/admin/dial/hop-suggestions` — for every pair of coffees sharing a true archetype with merged cupping data on that archetype's dominant dimension, surfaces a suggested Dial Turn hop when the score delta clears that archetype's own bucket width (same threshold math as the #75 position suggestion), skipping pairs that already have a hop. Cross-archetype (bridge) suggestions are explicitly out of scope — needs real volume in `v_archetype_adjacency` first. `AdminDial.tsx` lists suggestions with a one-click "Add" that pre-fills `POST /dial/relationships` (`hop_type: within_archetype`, `confidence: medium`, an auto-generated note); accepted suggestions disappear from the list (no duplicate).
+
+**Refactor:** extracted `getAvgCuppingScore(coffeeId, dimensionId)` and `getArchetypeBucketWidth(archetype, dimensionId)` as shared exports in `dialSuggestion.ts` — used by `getDialSuggestion`, the Phase 4 hop-validation warning, and the Phase 5 suggestion endpoint, replacing three near-duplicate inline queries.
+
+**Verified against production Cloud SQL** via the Auth Proxy: the priority-swap logic was exercised inside a rolled-back transaction against real alias data (two aliases in the same live slot swapped correctly, then verified restored to their original priorities after `ROLLBACK` — no real data changed); `getAvgCuppingScore`/`getArchetypeBucketWidth` return correct values for known coffees/archetypes; the hop-suggestions computation, run read-only against production, correctly suggested Feather In Cap → Crosshatch on Acidity (delta 4, well above `balanced_sweet`'s ~0.5 bucket width) and correctly produced no suggestion for Ethiopia (the only cupped coffee in `floral`, no pair to compare).
+
 ---
 
 ## What's Still To Do

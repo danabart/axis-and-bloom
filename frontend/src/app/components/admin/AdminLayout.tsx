@@ -12,6 +12,7 @@ const NAV_SECTIONS = [
       { to: '/admin/coffees',   label: 'Coffees' },
       { to: '/admin/roasters',  label: 'Roasteries' },
       { to: '/admin/inventory', label: 'Blends & SKUs' },
+      { to: '/admin/dial',      label: 'Bloom Dial' },
     ],
   },
   {
@@ -28,7 +29,6 @@ const NAV_SECTIONS = [
       { to: '/admin/sommelier/config',  label: 'Configuration' },
       { to: '/admin/sommelier/intents', label: 'Intent Editor' },
       { to: '/admin/sommelier/flow',    label: 'Flow & Stats' },
-      { to: '/admin/dial',              label: 'Bloom Dial' },
     ],
   },
 ];

@@ -332,6 +332,11 @@ export default function AdminInventory() {
                                     </span>
                                     <span className="text-sm text-stone-700">{aliasRow.coffee_name}</span>
                                     <span className="text-xs text-stone-400">{aliasRow.roaster}</span>
+                                    {!aliasRow.is_active && (
+                                      <span className="px-2 py-0.5 rounded text-xs bg-stone-100 text-stone-400 border border-stone-200">
+                                        Inactive
+                                      </span>
+                                    )}
                                   </div>
                                 </td>
                               </tr>

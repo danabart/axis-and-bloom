@@ -3,7 +3,7 @@ import { requireAdmin, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 import { generateAndStoreSummary, generateAndStoreAllContent } from './coffees.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
-import { getDialSuggestion, recordCuppingSignal } from '../services/dialSuggestion.js';
+import { getDialSuggestion, recordCuppingSignal, getAvgCuppingScore, getArchetypeBucketWidth } from '../services/dialSuggestion.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -472,24 +472,92 @@ router.post('/coffee-alias', async (req, res) => {
   }
 });
 
-// ── PATCH /api/admin/coffee-alias/:id — update fulfillment rank ───────────────
+// ── PATCH /api/admin/coffee-alias/:id — update rank, rename, or toggle active ──
+// Priority swap uses the same live derivation as GET /coffee-alias (derived
+// archetype/position, not the possibly-stale stored coffee_alias columns) to
+// find whichever alias currently occupies the target rank within the same slot.
 router.patch('/coffee-alias/:id', async (req, res) => {
   const { id } = req.params;
-  const { priority } = req.body;
-  if (!Number.isInteger(priority) || priority < 1) {
+  const { priority, platform_name, is_active } = req.body;
+
+  if (priority !== undefined && (!Number.isInteger(priority) || priority < 1)) {
     res.status(400).json({ error: 'priority must be a positive integer' }); return;
   }
+  if (platform_name !== undefined && typeof platform_name !== 'string') {
+    res.status(400).json({ error: 'platform_name must be a string' }); return;
+  }
+  if (is_active !== undefined && typeof is_active !== 'boolean') {
+    res.status(400).json({ error: 'is_active must be a boolean' }); return;
+  }
+  if (priority === undefined && platform_name === undefined && is_active === undefined) {
+    res.status(400).json({ error: 'priority, platform_name, or is_active is required' }); return;
+  }
+
   try {
+    if (typeof priority === 'number') {
+      const moverResult = await db.query(
+        `SELECT COALESCE(aa.archetype, ca.archetype)         AS live_archetype,
+                COALESCE(dpv.sort_order, ca.dial_sort_order)  AS live_sort_order,
+                ca.priority                                   AS old_priority
+         FROM coffee_alias ca
+         LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id
+         LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
+         LEFT JOIN archetype_assignments aa
+           ON aa.coffee_id = ca.coffee_id AND aa.superseded_at IS NULL
+         WHERE ca.id = $1`,
+        [id]
+      );
+      if (moverResult.rowCount === 0) { res.status(404).json({ error: 'Alias not found' }); return; }
+      const { live_archetype: liveArchetype, live_sort_order: liveSortOrder, old_priority: oldPriority } = moverResult.rows[0];
+
+      // Same slot (live archetype + live position) already holding the target priority? Swap instead of overwrite.
+      const occupantResult = await db.query(
+        `SELECT ca2.id
+         FROM coffee_alias ca2
+         LEFT JOIN dial_archetype_positions dap2 ON dap2.coffee_id = ca2.coffee_id
+         LEFT JOIN dial_position_vocabulary dpv2 ON dpv2.id = dap2.vocabulary_id
+         LEFT JOIN archetype_assignments aa2
+           ON aa2.coffee_id = ca2.coffee_id AND aa2.superseded_at IS NULL
+         WHERE ca2.id <> $1
+           AND COALESCE(aa2.archetype, ca2.archetype) IS NOT DISTINCT FROM $2
+           AND COALESCE(dpv2.sort_order, ca2.dial_sort_order) IS NOT DISTINCT FROM $3
+           AND ca2.priority = $4`,
+        [id, liveArchetype, liveSortOrder, priority]
+      );
+
+      await db.query('BEGIN');
+      try {
+        await db.query(`UPDATE coffee_alias SET priority = $1 WHERE id = $2`, [priority, id]);
+        if ((occupantResult.rowCount ?? 0) > 0) {
+          await db.query(`UPDATE coffee_alias SET priority = $1 WHERE id = $2`, [oldPriority, occupantResult.rows[0].id]);
+        }
+        await db.query('COMMIT');
+      } catch (txErr) {
+        await db.query('ROLLBACK');
+        throw txErr;
+      }
+    }
+
+    if (platform_name !== undefined || is_active !== undefined) {
+      await db.query(
+        `UPDATE coffee_alias
+         SET platform_name = COALESCE($1::text, platform_name),
+             is_active     = COALESCE($2::boolean, is_active)
+         WHERE id = $3`,
+        [platform_name ?? null, is_active ?? null, id]
+      );
+    }
+
     const result = await db.query(
-      `UPDATE coffee_alias SET priority = $1 WHERE id = $2
-       RETURNING id, platform_name, priority, archetype, dial_sort_order, coffee_id`,
-      [priority, id]
+      `SELECT id, platform_name, priority, archetype, dial_sort_order, coffee_id, is_active
+       FROM coffee_alias WHERE id = $1`,
+      [id]
     );
     if (result.rowCount === 0) { res.status(404).json({ error: 'Alias not found' }); return; }
     res.json(result.rows[0]);
   } catch (err) {
     console.error('[admin/coffee-alias PATCH]', err);
-    res.status(500).json({ error: 'Failed to update alias rank' });
+    res.status(500).json({ error: 'Failed to update alias' });
   }
 });
 
@@ -753,6 +821,78 @@ router.get('/dial/navigation', async (_req, res) => {
   }
 });
 
+// GET /api/admin/dial/hop-suggestions — within-archetype Dial Turn hops computed
+// from cupping score deltas between coffee pairs sharing an archetype. Never
+// auto-creates a hop — an explicit "Add" click on the frontend does that via the
+// existing POST /dial/relationships (same as every other suggestion in this system).
+// Cross-archetype (bridge) suggestions are out of scope — see followup prompt.
+router.get('/dial/hop-suggestions', async (_req, res) => {
+  try {
+    const archetypesResult = await db.query(
+      `SELECT dac.archetype, dac.dominant_dimension_id, cd.name AS dimension_name
+       FROM dial_archetype_config dac
+       JOIN coffee_dimensions cd ON cd.id = dac.dominant_dimension_id
+       WHERE dac.is_archetype = true`
+    );
+
+    const suggestions: Array<{
+      from_coffee_id: number; from_coffee_name: string;
+      to_coffee_id: number; to_coffee_name: string;
+      dimension_id: number; dimension_name: string;
+      direction: 'more'; delta: number; archetype: string;
+    }> = [];
+
+    for (const { archetype, dominant_dimension_id: dimensionId, dimension_name: dimensionName } of archetypesResult.rows) {
+      const bucketWidth = await getArchetypeBucketWidth(archetype, dimensionId);
+      if (!bucketWidth) continue;
+
+      const coffeesResult = await db.query(
+        `SELECT aa.coffee_id, c.name
+         FROM archetype_assignments aa
+         JOIN coffees c ON c.id = aa.coffee_id
+         WHERE aa.archetype = $1 AND aa.superseded_at IS NULL`,
+        [archetype]
+      );
+
+      const scored: Array<{ id: number; name: string; avg_score: number }> = [];
+      for (const c of coffeesResult.rows) {
+        const score = await getAvgCuppingScore(c.coffee_id, dimensionId);
+        if (score) scored.push({ id: c.coffee_id, name: c.name, avg_score: score.avg_score });
+      }
+
+      for (let i = 0; i < scored.length; i++) {
+        for (let j = i + 1; j < scored.length; j++) {
+          const delta = Math.abs(scored[j].avg_score - scored[i].avg_score);
+          if (delta < bucketWidth) continue;
+
+          const lower = scored[i].avg_score <= scored[j].avg_score ? scored[i] : scored[j];
+          const higher = scored[i].avg_score <= scored[j].avg_score ? scored[j] : scored[i];
+
+          const existingResult = await db.query(
+            `SELECT 1 FROM dial_coffee_relationships
+             WHERE hop_type = 'within_archetype' AND dimension_id = $1
+               AND ((from_coffee_id = $2 AND to_coffee_id = $3) OR (from_coffee_id = $3 AND to_coffee_id = $2))`,
+            [dimensionId, lower.id, higher.id]
+          );
+          if ((existingResult.rowCount ?? 0) > 0) continue;
+
+          suggestions.push({
+            from_coffee_id: lower.id, from_coffee_name: lower.name,
+            to_coffee_id: higher.id, to_coffee_name: higher.name,
+            dimension_id: dimensionId, dimension_name: dimensionName,
+            direction: 'more', delta: Math.round(delta * 100) / 100, archetype,
+          });
+        }
+      }
+    }
+
+    res.json(suggestions);
+  } catch (err) {
+    console.error('[admin/dial/hop-suggestions GET]', err);
+    res.status(500).json({ error: 'Failed to compute hop suggestions' });
+  }
+});
+
 // GET /api/admin/dial/archetype-adjacency — cross-archetype bridge-hop summary
 router.get('/dial/archetype-adjacency', async (_req, res) => {
   try {
@@ -913,12 +1053,41 @@ router.delete('/dial/positions/:id', async (req, res) => {
 });
 
 // POST /api/admin/dial/relationships — add a hop between two coffees
+// Hard-validates logical contradictions (same coffee, missing archetypes, hop_type
+// vs. archetype mismatch) before insert. Soft-validates the claimed direction against
+// real cupping data when both coffees have it — returns a warning but still saves,
+// since cupping data can be sparse or simply not the full picture yet.
 router.post('/dial/relationships', async (req, res) => {
   const { from_coffee_id, to_coffee_id, dimension_id, direction, hop_type, delta, is_recommended, confidence, notes } = req.body;
   if (!from_coffee_id || !to_coffee_id || !dimension_id || !direction || !hop_type) {
     res.status(400).json({ error: 'from_coffee_id, to_coffee_id, dimension_id, direction, and hop_type are required' }); return;
   }
+  if (from_coffee_id === to_coffee_id) {
+    res.status(400).json({ error: 'A hop needs two different coffees.' }); return;
+  }
   try {
+    const archResult = await db.query(
+      `SELECT coffee_id, archetype FROM archetype_assignments
+       WHERE coffee_id IN ($1, $2) AND superseded_at IS NULL`,
+      [from_coffee_id, to_coffee_id]
+    );
+    const fromArchetype: string | undefined = archResult.rows.find(r => r.coffee_id === from_coffee_id)?.archetype;
+    const toArchetype: string | undefined = archResult.rows.find(r => r.coffee_id === to_coffee_id)?.archetype;
+
+    if (!fromArchetype || !toArchetype) {
+      res.status(400).json({ error: 'Both coffees need an archetype assigned before a hop can be added.' }); return;
+    }
+    if (hop_type === 'within_archetype' && fromArchetype !== toArchetype) {
+      res.status(400).json({
+        error: `Dial Turn hops must connect two coffees in the same archetype — these are tagged ${fromArchetype} and ${toArchetype}.`,
+      }); return;
+    }
+    if (hop_type === 'bridge_archetype' && fromArchetype === toArchetype) {
+      res.status(400).json({
+        error: `Hop relationships must connect two different archetypes — both these coffees are tagged ${fromArchetype}.`,
+      }); return;
+    }
+
     const result = await db.query(
       `INSERT INTO dial_coffee_relationships
          (from_coffee_id, to_coffee_id, dimension_id, direction, delta, hop_type, is_recommended, confidence, notes)
@@ -932,7 +1101,43 @@ router.post('/dial/relationships', async (req, res) => {
     if (result.rowCount === 0) {
       res.status(409).json({ error: 'A relationship with this from/to/dimension/direction already exists' }); return;
     }
-    res.status(201).json(result.rows[0]);
+
+    // Soft validation — direction vs. real cupping data, and vs. an existing opposite-direction
+    // hop between the same pair. Neither blocks the save; both are independent checks.
+    const warnings: string[] = [];
+
+    const [fromScore, toScore] = await Promise.all([
+      getAvgCuppingScore(from_coffee_id, dimension_id),
+      getAvgCuppingScore(to_coffee_id, dimension_id),
+    ]);
+    if (fromScore && toScore) {
+      const toIsMore = toScore.avg_score > fromScore.avg_score;
+      const claimedToIsMore = direction === 'more';
+      if (toIsMore !== claimedToIsMore) {
+        const namesResult = await db.query(
+          `SELECT id, name FROM coffees WHERE id IN ($1, $2)`,
+          [from_coffee_id, to_coffee_id]
+        );
+        const fromName = namesResult.rows.find(r => r.id === from_coffee_id)?.name ?? `coffee #${from_coffee_id}`;
+        const toName = namesResult.rows.find(r => r.id === to_coffee_id)?.name ?? `coffee #${to_coffee_id}`;
+        const dimResult = await db.query(`SELECT name FROM coffee_dimensions WHERE id = $1`, [dimension_id]);
+        const dimensionName = dimResult.rows[0]?.name ?? `dimension #${dimension_id}`;
+        warnings.push(`Cupping data suggests this is backwards — ${toName} currently scores ${toIsMore ? 'higher' : 'lower'} than ${fromName} on ${dimensionName} per existing sessions.`);
+      }
+    }
+
+    // Existing opposite-direction hop between the same pair + dimension — warn, don't block
+    // (the exact duplicate case is already caught by the unique constraint / 409 above).
+    const oppositeResult = await db.query(
+      `SELECT id FROM dial_coffee_relationships
+       WHERE from_coffee_id = $1 AND to_coffee_id = $2 AND dimension_id = $3 AND direction <> $4`,
+      [from_coffee_id, to_coffee_id, dimension_id, direction]
+    );
+    if ((oppositeResult.rowCount ?? 0) > 0) {
+      warnings.push('A hop already exists between these two coffees on this dimension with the opposite direction.');
+    }
+
+    res.status(201).json({ ...result.rows[0], ...(warnings.length ? { warning: warnings.join(' ') } : {}) });
   } catch (err) {
     console.error('[admin/dial/relationships POST]', err);
     res.status(500).json({ error: 'Failed to save relationship' });

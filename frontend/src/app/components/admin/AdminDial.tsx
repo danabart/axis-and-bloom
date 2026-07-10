@@ -29,6 +29,18 @@ interface AdjacencyRow {
   avg_confidence: number | null;
 }
 
+interface HopSuggestion {
+  from_coffee_id: number;
+  from_coffee_name: string;
+  to_coffee_id: number;
+  to_coffee_name: string;
+  dimension_id: number;
+  dimension_name: string;
+  direction: 'more';
+  delta: number;
+  archetype: string;
+}
+
 const ARCHETYPE_LABEL: Record<string, string> = {
   chocolate_nutty: 'Chocolate & Nutty',
   balanced_sweet:  'Balanced & Sweet',
@@ -54,16 +66,19 @@ const EMPTY_HOP = {
 export default function AdminDial() {
   const { user } = useAuth();
 
-  const [hops, setHops]           = useState<DialHop[]>([]);
-  const [coffees, setCoffees]     = useState<CoffeeOption[]>([]);
-  const [dims, setDims]           = useState<DimOption[]>([]);
-  const [adjacency, setAdjacency] = useState<AdjacencyRow[]>([]);
-  const [error, setError]         = useState('');
+  const [hops, setHops]                 = useState<DialHop[]>([]);
+  const [coffees, setCoffees]           = useState<CoffeeOption[]>([]);
+  const [dims, setDims]                 = useState<DimOption[]>([]);
+  const [adjacency, setAdjacency]       = useState<AdjacencyRow[]>([]);
+  const [hopSuggestions, setHopSuggestions] = useState<HopSuggestion[]>([]);
+  const [acceptingKey, setAcceptingKey] = useState<string | null>(null);
+  const [error, setError]               = useState('');
 
   const [showHopForm, setShowHopForm] = useState(false);
   const [hopForm, setHopForm]         = useState(EMPTY_HOP);
   const [hopSaving, setHopSaving]     = useState(false);
   const [hopError, setHopError]       = useState('');
+  const [hopWarning, setHopWarning]   = useState('');
 
   async function apiFetch(url: string, options: RequestInit = {}) {
     const token = await user!.getIdToken();
@@ -76,16 +91,18 @@ export default function AdminDial() {
 
   async function loadAll() {
     try {
-      const [hopRes, coffeeRes, dimRes, adjRes] = await Promise.all([
+      const [hopRes, coffeeRes, dimRes, adjRes, suggRes] = await Promise.all([
         apiFetch('/api/admin/dial/navigation'),
         apiFetch('/api/admin/coffees'),
         apiFetch('/api/admin/dimensions'),
         apiFetch('/api/admin/dial/archetype-adjacency'),
+        apiFetch('/api/admin/dial/hop-suggestions'),
       ]);
       setHops(await hopRes.json());
       setCoffees(await coffeeRes.json());
       setDims(await dimRes.json());
       setAdjacency(await adjRes.json());
+      setHopSuggestions(await suggRes.json());
     } catch {
       setError('Failed to load navigation hops');
     }
@@ -115,8 +132,10 @@ export default function AdminDial() {
           notes:          hopForm.notes || null,
         }),
       });
-      if (!res.ok) throw new Error((await res.json()).error ?? 'Unknown error');
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? 'Unknown error');
       setHopForm(EMPTY_HOP); setShowHopForm(false);
+      if (body.warning) setHopWarning(body.warning);
       await loadAll();
     } catch (err: unknown) {
       setHopError(err instanceof Error ? err.message : 'Failed to save');
@@ -129,6 +148,30 @@ export default function AdminDial() {
       await apiFetch(`/api/admin/dial/relationships/${id}`, { method: 'DELETE' });
       await loadAll();
     } catch { /* non-critical */ }
+  }
+
+  async function handleAcceptSuggestion(s: HopSuggestion) {
+    const key = `${s.from_coffee_id}-${s.to_coffee_id}-${s.dimension_id}`;
+    setAcceptingKey(key);
+    try {
+      const res = await apiFetch('/api/admin/dial/relationships', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from_coffee_id: s.from_coffee_id,
+          to_coffee_id:   s.to_coffee_id,
+          dimension_id:   s.dimension_id,
+          direction:      s.direction,
+          hop_type:       'within_archetype',
+          confidence:     'medium',
+          notes:          `Suggested from cupping data — ${s.delta} pt difference on ${s.dimension_name}`,
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? 'Unknown error');
+      if (body.warning) setHopWarning(body.warning);
+      await loadAll();
+    } catch { /* non-critical */ } finally { setAcceptingKey(null); }
   }
 
   return (
@@ -145,6 +188,13 @@ export default function AdminDial() {
       </div>
 
       {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
+
+      {hopWarning && (
+        <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-700">
+          <span>{hopWarning}</span>
+          <button onClick={() => setHopWarning('')} className="text-amber-400 hover:text-amber-700 shrink-0">✕</button>
+        </div>
+      )}
 
       {/* ── Archetype adjacency summary — read-only, derived from bridge hops ──── */}
       <div className="mb-6 border border-stone-100 rounded-lg p-4 bg-stone-50/60">
@@ -164,6 +214,41 @@ export default function AdminDial() {
                 </span>
               </li>
             ))}
+          </ul>
+        )}
+      </div>
+
+      {/* ── Suggested Dial Turns — computed from cupping data, never auto-created ── */}
+      <div className="mb-6 border border-stone-100 rounded-lg p-4 bg-stone-50/60">
+        <h2 className="text-xs font-normal text-stone-400 uppercase tracking-widest mb-2">
+          Suggested Dial Turns (from cupping data)
+        </h2>
+        {hopSuggestions.length === 0 ? (
+          <p className="text-sm text-stone-400">No suggestions yet — needs at least two cupped coffees in the same archetype with a meaningful score difference.</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {hopSuggestions.map(s => {
+              const key = `${s.from_coffee_id}-${s.to_coffee_id}-${s.dimension_id}`;
+              return (
+                <li key={key} className="flex items-center justify-between gap-3 text-sm text-stone-700">
+                  <span>
+                    {s.from_coffee_name} → {s.to_coffee_name}
+                    {' '}
+                    <span className="text-stone-500">
+                      ({ARCHETYPE_LABEL[s.archetype] ?? s.archetype}, {s.delta} pt on {s.dimension_name})
+                    </span>
+                  </span>
+                  <button
+                    onClick={() => handleAcceptSuggestion(s)}
+                    disabled={acceptingKey === key}
+                    className="shrink-0 px-3 py-0.5 rounded text-xs text-white disabled:opacity-50"
+                    style={{ backgroundColor: '#b05642' }}
+                  >
+                    {acceptingKey === key ? '…' : 'Add'}
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

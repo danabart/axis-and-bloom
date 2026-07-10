@@ -161,3 +161,16 @@ Design for later:
 - Dropping the legacy `coffee_alias.dial_sort_order` / `archetype` columns outright — leave them as fallback fields until the derived-value approach has been verified in production.
 
 Everything in §2 (items 1–6) plus the Stage 1 cupping suggestion (§3) and the Stage 2 infrastructure (§3, tables/rollup/cupping-population only) is scoped for the next pass — see `CLAUDE_CODE_PROMPT_BLOOM_DIAL_REORG.md` in this folder.
+
+---
+
+## 5. Post-deployment findings (`CLAUDE_CODE_PROMPT_BLOOM_DIAL_REORG.md` confirmed deployed)
+
+Checked the deployed code against the prompt rather than assuming it matched. Everything in the original reorg was implemented as specified. Found in actual use, addressed in `CLAUDE_CODE_PROMPT_BLOOM_DIAL_FOLLOWUP_1.md`:
+
+- **Priority-swap bug.** The Phase 1 position-swap fix (`PATCH /dial/positions/:id`) was correctly built, but the equivalent protection was never given to `PATCH /coffee-alias/:id` (the priority/rank endpoint) — an oversight in the original prompt, not a deployment miss. Setting a coffee's rank to one another alias in the same slot already holds just overwrites, producing duplicate ranks instead of swapping.
+- **Alias editing gap.** Create-alias and edit-rank were built; renaming an existing alias's `platform_name` or toggling `is_active` were never scoped at all.
+- **Nav placement.** Confirmed "Bloom Dial" still sits under "Sommelier AI" in the sidebar. Since the hop graph now feeds archetype adjacency and the Coffees suggestion cross-check — both catalogue concerns — moving it under "Catalogue & Supply" fits better than where it originally landed.
+- **Hops confirmed add-only by design**, not a gap — no in-place edit, consistent with the append/supersede pattern already used for `archetype_assignments` and `dial_position_signal`.
+- **New: hop validation at creation time.** `POST /dial/relationships` had no check that a `within_archetype` hop actually connects two same-archetype coffees (or that a `bridge_archetype` hop connects two different ones) — a logical contradiction, not a judgment call, so this is a hard-reject. A softer, non-blocking check compares a new hop's claimed direction against real cupping scores when both coffees have data, surfacing a warning rather than blocking (cupping data can be sparse or simply not the full picture yet).
+- **New: computed hop suggestions.** Within-archetype Dial Turn hops can now be suggested directly from cupping score deltas between coffee pairs sharing an archetype — same "compute from what's measured, never guess" approach as the Stage 1 suggestion. Cross-archetype (bridge) suggestions are deliberately not attempted yet — that needs real volume in `v_archetype_adjacency` to reason from, not a single dimension comparison.

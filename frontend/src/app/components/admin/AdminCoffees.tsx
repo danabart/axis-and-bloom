@@ -52,6 +52,7 @@ interface AliasRow {
   dial_sort_order: number | null;
   coffee_id: number;
   priority: number;
+  is_active: boolean;
   coffee_name: string;
   roaster: string;
 }
@@ -156,6 +157,13 @@ export default function AdminCoffees() {
   const [newAliasPriority, setNewAliasPriority] = useState('1');
   const [aliasCreateSaving, setAliasCreateSaving] = useState(false);
   const [aliasCreateErr, setAliasCreateErr]       = useState('');
+
+  // alias rename + active toggle (Followup 1)
+  const [nameEditAliasId, setNameEditAliasId] = useState<number | null>(null);
+  const [nameValue, setNameValue]             = useState('');
+  const [nameSaving, setNameSaving]           = useState(false);
+  const [nameErr, setNameErr]                 = useState('');
+  const [togglingAliasId, setTogglingAliasId] = useState<number | null>(null);
 
   async function apiFetch(url: string, options: RequestInit = {}) {
     const token = await user!.getIdToken();
@@ -302,6 +310,34 @@ export default function AdminCoffees() {
     } finally { setAliasCreateSaving(false); }
   }
 
+  async function handleAliasNameSave(aliasId: number) {
+    if (!nameValue.trim()) { setNameErr('Platform name is required'); return; }
+    setNameSaving(true); setNameErr('');
+    try {
+      const res = await apiFetch(`/api/admin/coffee-alias/${aliasId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform_name: nameValue.trim() }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
+      setNameEditAliasId(null); await load();
+    } catch (err: unknown) {
+      setNameErr(err instanceof Error ? err.message : 'Failed');
+    } finally { setNameSaving(false); }
+  }
+
+  async function handleAliasToggleActive(alias: AliasRow) {
+    setTogglingAliasId(alias.id);
+    try {
+      await apiFetch(`/api/admin/coffee-alias/${alias.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !alias.is_active }),
+      });
+      await load();
+    } catch { /* non-critical */ } finally { setTogglingAliasId(null); }
+  }
+
   function openAssign(coffee: Coffee) {
     setAssigningId(coffee.id);
     setArchForm({
@@ -444,10 +480,43 @@ export default function AdminCoffees() {
             const existingAlias = aliases.find(a => a.coffee_id === coffeeId);
             if (existingAlias) {
               const isRankEditing = rankAliasId === existingAlias.id;
+              const isNameEditing = nameEditAliasId === existingAlias.id;
               return (
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-stone-400">Alias:</span>
-                  <span className="text-sm text-stone-700">{existingAlias.platform_name}</span>
+                  {!isNameEditing ? (
+                    <button
+                      onClick={() => { setNameEditAliasId(existingAlias.id); setNameValue(existingAlias.platform_name); setNameErr(''); }}
+                      className="text-sm text-stone-700 hover:underline"
+                      title="Click to rename"
+                    >
+                      {existingAlias.platform_name}
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <input value={nameValue} onChange={e => setNameValue(e.target.value)}
+                        className="border border-stone-300 rounded px-2 py-0.5 text-sm w-36"
+                        autoFocus />
+                      <button onClick={() => handleAliasNameSave(existingAlias.id)} disabled={nameSaving}
+                        className="px-3 py-0.5 rounded text-xs text-white disabled:opacity-50"
+                        style={{ backgroundColor: '#b05642' }}>
+                        {nameSaving ? '…' : 'Save'}
+                      </button>
+                      <button onClick={() => setNameEditAliasId(null)} className="text-xs text-stone-400 hover:text-stone-600">Cancel</button>
+                      {nameErr && <span className="text-red-500 text-xs">{nameErr}</span>}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => handleAliasToggleActive(existingAlias)}
+                    disabled={togglingAliasId === existingAlias.id}
+                    className={`px-2 py-0.5 rounded border text-xs transition-colors disabled:opacity-40 ${
+                      existingAlias.is_active
+                        ? 'bg-green-50 text-green-700 border-green-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200'
+                        : 'bg-stone-100 text-stone-400 border-stone-200 hover:bg-green-50 hover:text-green-700 hover:border-green-200'
+                    }`}
+                  >
+                    {togglingAliasId === existingAlias.id ? '…' : existingAlias.is_active ? 'Active' : 'Inactive'}
+                  </button>
                   {!isRankEditing ? (
                     <button
                       onClick={() => { setRankAliasId(existingAlias.id); setRankValue(String(existingAlias.priority)); setRankErr(''); }}

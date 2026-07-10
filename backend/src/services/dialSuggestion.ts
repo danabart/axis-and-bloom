@@ -9,6 +9,32 @@ const ARCHETYPE_LABEL: Record<string, string> = {
   experimental:    'Experimental',
 };
 
+// Archetype's dominant-dimension bucket width — (target_max - target_min) / N vocabulary
+// slots. Shared meaningfulness threshold used by getDialSuggestion and the Phase 5
+// hop-suggestion endpoint (a delta smaller than one bucket isn't a distinguishable
+// difference on that archetype's own scale). Returns null if any lookup misses.
+export async function getArchetypeBucketWidth(archetype: string, dimensionId: number): Promise<number | null> {
+  const rangeResult = await db.query(
+    `SELECT vc.target_min, vc.target_max
+     FROM v_archetype_dimension_comparison vc
+     JOIN coffee_dimensions cd ON cd.name = vc.dimension
+     WHERE vc.archetype = $1 AND cd.id = $2`,
+    [ARCHETYPE_LABEL[archetype], dimensionId]
+  );
+  if (rangeResult.rowCount === 0) return null;
+  const { target_min: targetMin, target_max: targetMax } = rangeResult.rows[0];
+  if (targetMin === null || targetMax === null) return null;
+
+  const vocabCountResult = await db.query(
+    `SELECT COUNT(*) AS n FROM dial_position_vocabulary WHERE archetype = $1 AND dimension_id = $2`,
+    [archetype, dimensionId]
+  );
+  const n = Number(vocabCountResult.rows[0]?.n ?? 0);
+  if (n === 0) return null;
+
+  return (Number(targetMax) - Number(targetMin)) / n;
+}
+
 export interface HopConflict {
   conflicting_coffee: string;
   note: string;
@@ -23,6 +49,28 @@ export interface DialSuggestion {
   is_outlier: boolean;
   dimension_name: string;
   hop_conflict?: HopConflict;
+}
+
+export interface AvgCuppingScore {
+  avg_score: number;
+  session_count: number;
+}
+
+// Shared by getDialSuggestion, findHopConflict, hop validation, and hop suggestions —
+// one query shape for "what does this coffee's merged cupping data say about this dimension."
+export async function getAvgCuppingScore(coffeeId: number, dimensionId: number): Promise<AvgCuppingScore | null> {
+  const result = await db.query(
+    `SELECT ROUND(AVG((csv.value_min + csv.value_max) / 2.0), 2) AS avg_score,
+            COUNT(DISTINCT cs.session_coffee_id) AS session_count
+     FROM cupping_score_values csv
+     JOIN cupping_scores cs ON cs.id = csv.cupping_score_id AND cs.is_merged = true
+     JOIN cupping_session_coffees scc ON scc.id = cs.session_coffee_id
+     WHERE scc.coffee_id = $1 AND csv.dimension_id = $2`,
+    [coffeeId, dimensionId]
+  );
+  const avgScore = result.rows[0]?.avg_score;
+  if (avgScore === null || avgScore === undefined) return null;
+  return { avg_score: Number(avgScore), session_count: Number(result.rows[0].session_count) };
 }
 
 // Dial Turn (within_archetype) hops make an ordering claim — direction 'more' means
@@ -57,22 +105,14 @@ async function findHopConflict(
     );
     if (otherArchResult.rowCount === 0) continue; // other coffee has since drifted to a different archetype
 
-    const otherScoreResult = await db.query(
-      `SELECT ROUND(AVG((csv.value_min + csv.value_max) / 2.0), 2) AS avg_score
-       FROM cupping_score_values csv
-       JOIN cupping_scores cs ON cs.id = csv.cupping_score_id AND cs.is_merged = true
-       JOIN cupping_session_coffees scc ON scc.id = cs.session_coffee_id
-       WHERE scc.coffee_id = $1 AND csv.dimension_id = $2`,
-      [otherCoffeeId, dimensionId]
-    );
-    const otherAvgScore = otherScoreResult.rows[0]?.avg_score;
-    if (otherAvgScore === null || otherAvgScore === undefined) continue; // no data to compare
+    const otherScore = await getAvgCuppingScore(otherCoffeeId, dimensionId);
+    if (!otherScore) continue; // no data to compare
 
     // direction 'more' means to_coffee > from_coffee on this dimension.
     const expectedToIsMore = hop.direction === 'more';
     const thisIsMore = hop.this_side === 'from'
-      ? Number(otherAvgScore) > thisAvgScore
-      : thisAvgScore > Number(otherAvgScore);
+      ? otherScore.avg_score > thisAvgScore
+      : thisAvgScore > otherScore.avg_score;
 
     if (thisIsMore !== expectedToIsMore) {
       const otherCoffeeResult = await db.query(`SELECT name FROM coffees WHERE id = $1`, [otherCoffeeId]);
@@ -109,17 +149,9 @@ export async function getDialSuggestion(coffeeId: number): Promise<DialSuggestio
   const { dominant_dimension_id: dimensionId, dimension_name: dimensionName } = configResult.rows[0];
   if (!dimensionId) return null;
 
-  const scoreResult = await db.query(
-    `SELECT ROUND(AVG((csv.value_min + csv.value_max) / 2.0), 2) AS avg_score,
-            COUNT(DISTINCT cs.session_coffee_id) AS session_count
-     FROM cupping_score_values csv
-     JOIN cupping_scores cs ON cs.id = csv.cupping_score_id AND cs.is_merged = true
-     JOIN cupping_session_coffees scc ON scc.id = cs.session_coffee_id
-     WHERE scc.coffee_id = $1 AND csv.dimension_id = $2`,
-    [coffeeId, dimensionId]
-  );
-  const avgScore = scoreResult.rows[0]?.avg_score;
-  if (avgScore === null || avgScore === undefined) return null;
+  const score = await getAvgCuppingScore(coffeeId, dimensionId);
+  if (!score) return null;
+  const avgScore = score.avg_score;
 
   const rangeResult = await db.query(
     `SELECT vc.target_min, vc.target_max
@@ -157,7 +189,7 @@ export async function getDialSuggestion(coffeeId: number): Promise<DialSuggestio
     suggested_label: vocabRow.label,
     suggested_sort_order: suggestedSortOrder,
     avg_score: Number(avgScore),
-    session_count: Number(scoreResult.rows[0].session_count),
+    session_count: score.session_count,
     is_outlier: isOutlier,
     dimension_name: dimensionName,
     ...(hopConflict ? { hop_conflict: hopConflict } : {}),
