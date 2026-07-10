@@ -472,7 +472,7 @@ export default function AdminCoffees() {
                 <button
                   type="button"
                   onClick={() => handleMovePosition(coffee, coffee.dial_suggestion!.suggested_vocabulary_id)}
-                  className="underline hover:text-stone-800"
+                  className="text-xs underline hover:text-stone-800"
                 >
                   Apply
                 </button>
@@ -771,16 +771,16 @@ export default function AdminCoffees() {
                                         style={{ backgroundColor: '#b05642' }}>
                                         {slotNameSaving ? '…' : 'Save'}
                                       </button>
-                                      <button onClick={() => setEditingSlotKey(null)} className="text-stone-400 hover:text-stone-600">Cancel</button>
-                                      {slotNameErr && <span className="text-red-500">{slotNameErr}</span>}
+                                      <button onClick={() => setEditingSlotKey(null)} className="text-xs text-stone-400 hover:text-stone-600">Cancel</button>
+                                      {slotNameErr && <span className="text-xs text-red-500">{slotNameErr}</span>}
                                     </div>
                                   );
                                 }
-                                if (alias === '—') return <span className="text-stone-200">—</span>;
+                                if (alias === '—') return <span className="text-xs text-stone-200">—</span>;
                                 return (
                                   <button
                                     onClick={() => { setEditingSlotKey(slotKey); setSlotNameValue(alias); setSlotNameErr(''); }}
-                                    className="flex items-center gap-1.5 group hover:underline"
+                                    className="flex items-center gap-1.5 group text-xs hover:underline"
                                     title="Click to rename this slot"
                                   >
                                     {alias}

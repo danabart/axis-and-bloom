@@ -192,7 +192,7 @@ export default function AdminDial() {
       {hopWarning && (
         <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-700">
           <span>{hopWarning}</span>
-          <button onClick={() => setHopWarning('')} className="text-amber-400 hover:text-amber-700 shrink-0">✕</button>
+          <button onClick={() => setHopWarning('')} className="text-sm text-amber-400 hover:text-amber-700 shrink-0">✕</button>
         </div>
       )}
 
