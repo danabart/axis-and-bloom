@@ -2222,6 +2222,8 @@ Confirmed with Dana that the archetype → position → alias/slot → priority-
 
 **Not done in this pass:** actually placing an order end-to-end still fails at the `createOrder()` Shopify call (`shopifyEnabled` is `false` until `SHOPIFY_STORE_DOMAIN`/`SHOPIFY_STOREFRONT_TOKEN`/`SHOPIFY_ADMIN_TOKEN` are set) — unrelated to this fix, tracked separately under "Commerce" below. No frontend cart/checkout UI exists yet to actually send slot-based items; the resolver and the two endpoints above are ready for it.
 
+**Follow-up, same day: rank badge made visible in the matrix, not just on click.** The `coffee_alias.priority` ranking (1st/2nd choice — the same one `resolveBlendForSlot` walks in order) was only visible after clicking a coffee to open its `EditForm`. `CoffeeChip` (used in every Path/Temecula matrix cell in `AdminCoffees.tsx`) now shows a small inline badge next to the coffee name — same visual convention as the `EditForm`'s rank badge (priority 1 = filled brand color, priority 2+ = outlined), read-only in this view. For the Chocolate & Nutty / Classic slot, this now shows "1st" next to Noam Blend and "2nd" next to Brazil Santos directly in the table, no click required.
+
 ---
 
 ## What's Still To Do
