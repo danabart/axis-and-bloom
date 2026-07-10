@@ -390,6 +390,7 @@ export default function AdminCoffees() {
     const nextVocab  = archetypeVocab[currentIdx + 1];
     const isMoving   = movingId === coffee.id;
     const isEditing  = assigningId === coffee.id;
+    const alias      = aliases.find(a => a.coffee_id === coffee.id);
 
     return (
       <div className={`flex items-center gap-1 group py-0.5 ${isEditing ? 'opacity-60' : ''}`}>
@@ -405,6 +406,19 @@ export default function AdminCoffees() {
         >
           {coffee.name}
         </button>
+        {alias && (
+          <span
+            className={`px-1.5 py-0.5 rounded text-xs border leading-none ${
+              alias.priority === 1
+                ? 'text-white border-transparent'
+                : 'text-stone-500 border-stone-200'
+            }`}
+            style={alias.priority === 1 ? { backgroundColor: '#b05642' } : {}}
+            title={`${ordinal(alias.priority)} choice for this slot`}
+          >
+            {ordinal(alias.priority)}
+          </span>
+        )}
         {coffee.dial_is_default && <span className="text-stone-400 text-xs">★</span>}
         <button
           onClick={() => nextVocab && !isMoving && handleMovePosition(coffee, nextVocab.id)}
