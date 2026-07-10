@@ -2204,6 +2204,24 @@ Implements `backend/src/features/bloom_dial/CLAUDE_CODE_PROMPT_BLOOM_DIAL_FOLLOW
 
 **Re-verified against production Cloud SQL**, again inside a rolled-back transaction: found a real slot (`balanced_sweet` / position 2) with 3 alias rows carrying *inconsistent* names already (`Classic Balanced` ×2, `Bright & Balanced` ×1 — the exact drift this fix addresses), renamed all 3 via the new query, confirmed the row count matched the slot's alias count, then rolled back and confirmed all three were restored to their original names untouched.
 
+### 77. Priority-fallback roaster routing for order fulfillment (2026-07-10)
+
+**Files:** `backend/src/services/blendResolver.ts` (new), `backend/src/routes/orders.ts`, `backend/src/routes/shop.ts`
+
+Confirmed with Dana that the archetype → position → alias/slot → priority-ordered roaster design (the `coffee_alias.priority` convention documented since Task 6: `priority=1` preferred, `priority=2` fallback) was purely a merchandising/admin-display concept — `coffee_alias` was never actually consulted by the real order-placement code (`orders.ts`, `shop.ts`, `shopify.ts` had zero references to it). Roastery accounts aren't connected yet (Shopify remains stubbed), but the routing *logic* doesn't depend on that, so it's built now rather than deferred.
+
+**`resolveBlendForSlot(archetype, dialSortOrder, weightOz)`** — new shared service. Walks `coffee_alias` rows for a Bloom Dial slot in priority order (live-derived the same way `GET /api/admin/coffee-alias` is, so a coffee moved or re-tagged on the Coffees page is picked up automatically), and returns the first coffee with an active, in-stock `roaster_blend` at the requested weight. Returns `null` — never guesses — if nothing in the slot is currently fulfillable, with a `skipped` array explaining why each earlier-priority candidate was passed over (`no active blend at that weight` / `out of stock`).
+
+**`POST /api/orders`** — items can now specify either a direct `blendId`/`variantId` (existing behavior, unchanged) or a Bloom Dial slot (`{ archetype, dialSortOrder, weightOz }`), resolved server-side via the fallback above before Shopify order creation, line-item insertion, and inventory decrement. The response includes `resolvedCoffeeName`/`resolvedRoaster` per item. Fixed a latent bug surfaced by this change: the SMS-feedback-scheduling block read `items[0].blendId` directly, which would've silently resolved to `null` for slot-based items — now reads `resolvedItems[0].blendId`, correct for both item shapes.
+
+**`GET /api/shop/resolve-blend`** — new read-only preview endpoint (`?archetype=&dialSortOrder=&weightOz=`), same resolution, no auth, no side effects. Lets the routing logic be exercised right now even though full order placement is still blocked on Shopify credentials.
+
+**Verified against production Cloud SQL**, using Dana's own example (Chocolate & Nutty / Classic position → alias "Classic Chocolate" → Noam Blend, Path, priority 1; Brazil Santos, Temecula, priority 2) — confirmed this exact relationship is correctly modeled in the DB. Then exercised the resolver by temporarily writing real stock quantities directly (not inside a transaction, since the resolver reads through the connection pool and wouldn't see an uncommitted single-connection transaction) and restoring them in a `finally` block: both in stock → resolves to Noam/Path (priority 1); Noam set to 0 → falls back to Brazil Santos/Temecula (priority 2), with Noam correctly listed in `skipped`; both set to 0 → returns `null`. Original quantities (`0`/`0`) confirmed restored via a follow-up read.
+
+**Also fixed in this pass:** a visual bug from #76 — the per-coffee alias rename button (inside the `EditForm`, the secondary rename path since #76's slot-rename correction) was `text-sm` while its `"Alias:"` label and sibling badges (rank, active toggle) were `text-xs`, making the name look oddly larger than the rest of that row. Now `text-xs` throughout, consistent with its siblings.
+
+**Not done in this pass:** actually placing an order end-to-end still fails at the `createOrder()` Shopify call (`shopifyEnabled` is `false` until `SHOPIFY_STORE_DOMAIN`/`SHOPIFY_STOREFRONT_TOKEN`/`SHOPIFY_ADMIN_TOKEN` are set) — unrelated to this fix, tracked separately under "Commerce" below. No frontend cart/checkout UI exists yet to actually send slot-based items; the resolver and the two endpoints above are ready for it.
+
 ---
 
 ## What's Still To Do
