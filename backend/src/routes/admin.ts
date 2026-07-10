@@ -472,6 +472,48 @@ router.post('/coffee-alias', async (req, res) => {
   }
 });
 
+// ── PATCH /api/admin/coffee-alias/slot — rename every alias sharing a slot ────
+// Registered before /coffee-alias/:id so Express doesn't swallow 'slot' as an ID.
+// The "Slot Name" shown on the Coffees page (aliasMap on the frontend) isn't a
+// single row — it's one platform_name value shared by every coffee_alias row
+// that currently derives to the same (archetype, position), same live
+// derivation as GET /coffee-alias. Renaming "the slot" means renaming all of
+// them at once, not just the one row a single coffee happens to own.
+router.patch('/coffee-alias/slot', async (req, res) => {
+  const { archetype, dial_sort_order, platform_name } = req.body;
+  if (!archetype || dial_sort_order === undefined || dial_sort_order === null) {
+    res.status(400).json({ error: 'archetype and dial_sort_order are required' }); return;
+  }
+  if (typeof platform_name !== 'string' || !platform_name.trim()) {
+    res.status(400).json({ error: 'platform_name is required' }); return;
+  }
+  try {
+    const result = await db.query(
+      `UPDATE coffee_alias ca
+       SET platform_name = $3
+       WHERE ca.id IN (
+         SELECT ca2.id
+         FROM coffee_alias ca2
+         LEFT JOIN dial_archetype_positions dap2 ON dap2.coffee_id = ca2.coffee_id
+         LEFT JOIN dial_position_vocabulary dpv2 ON dpv2.id = dap2.vocabulary_id
+         LEFT JOIN archetype_assignments aa2
+           ON aa2.coffee_id = ca2.coffee_id AND aa2.superseded_at IS NULL
+         WHERE COALESCE(aa2.archetype, ca2.archetype) = $1
+           AND COALESCE(dpv2.sort_order, ca2.dial_sort_order) = $2
+       )
+       RETURNING id, platform_name, coffee_id`,
+      [archetype, dial_sort_order, platform_name.trim()]
+    );
+    if (result.rowCount === 0) {
+      res.status(404).json({ error: 'No aliases found for that slot' }); return;
+    }
+    res.json({ ok: true, updated: result.rows });
+  } catch (err) {
+    console.error('[admin/coffee-alias slot PATCH]', err);
+    res.status(500).json({ error: 'Failed to rename slot' });
+  }
+});
+
 // ── PATCH /api/admin/coffee-alias/:id — update rank, rename, or toggle active ──
 // Priority swap uses the same live derivation as GET /coffee-alias (derived
 // archetype/position, not the possibly-stale stored coffee_alias columns) to

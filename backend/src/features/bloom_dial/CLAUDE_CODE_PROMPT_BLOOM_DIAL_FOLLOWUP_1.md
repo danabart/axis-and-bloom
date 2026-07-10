@@ -14,15 +14,35 @@ Follow-up to `CLAUDE_CODE_PROMPT_BLOOM_DIAL_REORG.md` (already deployed) in this
 
 ---
 
-## Phase 2 — Alias editing (rename + active/inactive)
+## Phase 2 — Alias editing (rename at the slot level + per-coffee active/inactive)
 
-**Gap:** the Coffees page can create a new alias and edit its rank, but there's no way to rename an existing alias's `platform_name` or toggle `coffee_alias.is_active` — that column exists and is returned by the API but nothing in either admin page shows or changes it.
+**Gap, and a correction to how it was first scoped:** the Coffees page can create a new alias and edit its rank, but there's no way to rename an existing alias's `platform_name` or toggle `coffee_alias.is_active`. The name a user will actually click to fix this is the **"Slot Name" column** in the archetype matrix table on the Coffees page (`archVocab.map` → `<td>{alias}</td>`, sourced from `aliasMap`) — that's the visible "alias" in the UI, not the small per-coffee display buried inside a single coffee's expanded edit row. Those are not the same thing, and the difference matters:
 
-**2a. Backend:** extend `PATCH /api/admin/coffee-alias/:id` to also accept `platform_name` (string) and `is_active` (boolean) alongside the existing `priority`, updating whichever fields are present (`COALESCE`-style partial update, same pattern used elsewhere in this file, e.g. `admin/inventory/:id`). Keep the existing priority-swap fix from Phase 1 scoped only to when `priority` is actually being changed.
+`platform_name` is stored once **per `coffee_alias` row (per coffee)**, not once per slot — confirmed in `backend/src/db/seeds/coffee_alias_path_tcr.sql`, e.g. `'Classic Balanced'` is inserted as the `platform_name` on *two separate rows*, one for Feather In Cap (Path) and one for Guatemala (TCR), both at `archetype = 'balanced_sweet', dial_sort_order = 2`. A slot with two fulfillment choices (1st/2nd) has the same name stored twice. Renaming through a single coffee's alias row (`PATCH /coffee-alias/:id`, the original plan) would only update *that one row*, leaving the other coffee at the same slot with the old name — reintroducing exactly the kind of per-row duplication/desync this whole reorg has been about eliminating (same failure mode as the original `dial_sort_order`/`archetype` duplication fixed in `CLAUDE_CODE_PROMPT_BLOOM_DIAL_REORG.md` Phase 1, just on `platform_name` this time). Renaming needs to happen at the **slot level** — archetype + live dial position — and fan out to every `coffee_alias` row that currently belongs to that slot.
 
-**2b. Frontend, `AdminCoffees.tsx`:** in the `EditForm`'s alias section (where `existingAlias` is shown), turn the plain `platform_name` text into an editable field (small "Edit" toggle like the rank editor already uses — click to reveal a text input + Save/Cancel) and add an active/inactive toggle badge next to the rank badge, matching the visual style already used for blend active/inactive toggles in `AdminInventory.tsx`. Both call the extended `PATCH /api/admin/coffee-alias/:id`.
+**2a. Backend — new endpoint**, e.g. `PATCH /api/admin/coffee-alias/slot`, body `{ archetype, dial_sort_order, platform_name }`. Identify which `coffee_alias` rows currently belong to that slot using the **same live derivation** `GET /api/admin/coffee-alias` already uses (join through `dial_archetype_positions` / `dial_position_vocabulary` / `archetype_assignments`, `COALESCE`'d with the stored columns) — not a plain `WHERE archetype = $1 AND dial_sort_order = $2` against the possibly-stale stored columns, since that could miss a row whose stored value has drifted:
 
-**Test:** rename an existing alias's platform name from Coffees, confirm it persists after reload and shows the new name on Blends & SKUs. Toggle an alias inactive, confirm `is_active` flips in the DB (decide alongside this whether an inactive alias should still display on Blends & SKUs or be visually deprioritized — simplest: keep showing it, just with a muted "Inactive" badge, consistent with how inactive blends already display there).
+```sql
+WITH slot_alias_ids AS (
+  SELECT ca.id
+  FROM coffee_alias ca
+  LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id
+  LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
+  LEFT JOIN archetype_assignments aa ON aa.coffee_id = ca.coffee_id AND aa.superseded_at IS NULL
+  WHERE COALESCE(aa.archetype, ca.archetype) = $1
+    AND COALESCE(dpv.sort_order, ca.dial_sort_order) = $2
+)
+UPDATE coffee_alias SET platform_name = $3 WHERE id IN (SELECT id FROM slot_alias_ids)
+RETURNING id;
+```
+
+Return the count of rows updated (0 → 404, "No aliases found at this slot").
+
+**2b. Frontend, `AdminCoffees.tsx`:** make the "Slot Name" table cell itself the edit control — click to reveal a text input + Save/Cancel (same click-to-edit interaction already used for rank), calling the new `PATCH /api/admin/coffee-alias/slot` with that row's `archValue` and `v.sort_order`. This replaces the plain-text `{alias}` cell; it does **not** live inside the per-coffee `EditForm` — it's a property of the position row in the matrix, visible and editable whether or not any coffee's edit row is currently open.
+
+**2c. Active/inactive stays per-coffee, and stays where originally planned.** `is_active` is genuinely a property of one coffee's specific fulfillment choice (this particular coffee, at this rank, for this slot) — not the slot's name — so extend `PATCH /api/admin/coffee-alias/:id` (the existing per-alias-row endpoint) to also accept `is_active`, and add the toggle next to the rank badge in the `EditForm`'s alias section, as originally planned.
+
+**Test:** rename a slot with two fulfillment choices (e.g. "Classic Balanced," Feather In Cap + Guatemala) via the Slot Name cell, then confirm *both* underlying `coffee_alias` rows show the new name (query `coffee_alias` directly, or check Blends & SKUs, which groups by this same slot). Toggle one coffee's alias inactive via its `EditForm` and confirm the *other* coffee at the same slot is unaffected.
 
 ---
 

@@ -165,6 +165,13 @@ export default function AdminCoffees() {
   const [nameErr, setNameErr]                 = useState('');
   const [togglingAliasId, setTogglingAliasId] = useState<number | null>(null);
 
+  // slot-name rename — the "Slot Name" column in the matrix table, renames every
+  // alias sharing that (archetype, position) via PATCH /coffee-alias/slot
+  const [editingSlotKey, setEditingSlotKey]   = useState<string | null>(null);
+  const [slotNameValue, setSlotNameValue]     = useState('');
+  const [slotNameSaving, setSlotNameSaving]   = useState(false);
+  const [slotNameErr, setSlotNameErr]         = useState('');
+
   async function apiFetch(url: string, options: RequestInit = {}) {
     const token = await user!.getIdToken();
     return fetch(url, {
@@ -336,6 +343,26 @@ export default function AdminCoffees() {
       });
       await load();
     } catch { /* non-critical */ } finally { setTogglingAliasId(null); }
+  }
+
+  async function handleSlotNameSave(archetype: string, sortOrder: number) {
+    if (!slotNameValue.trim()) { setSlotNameErr('Slot name is required'); return; }
+    setSlotNameSaving(true); setSlotNameErr('');
+    try {
+      const res = await apiFetch('/api/admin/coffee-alias/slot', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          archetype,
+          dial_sort_order: sortOrder,
+          platform_name: slotNameValue.trim(),
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
+      setEditingSlotKey(null); await load();
+    } catch (err: unknown) {
+      setSlotNameErr(err instanceof Error ? err.message : 'Failed');
+    } finally { setSlotNameSaving(false); }
   }
 
   function openAssign(coffee: Coffee) {
@@ -729,7 +756,39 @@ export default function AdminCoffees() {
                               <span className="mr-1.5">{posIcon(v.sort_order)}</span>
                               {v.label}
                             </td>
-                            <td className="py-2.5 px-4 text-stone-500 text-xs">{alias}</td>
+                            <td className="py-2.5 px-4 text-stone-500 text-xs">
+                              {(() => {
+                                const slotKey = `${archValue}_${v.sort_order}`;
+                                if (editingSlotKey === slotKey) {
+                                  return (
+                                    <div className="flex items-center gap-1.5">
+                                      <input value={slotNameValue}
+                                        onChange={e => setSlotNameValue(e.target.value)}
+                                        className="border border-stone-300 rounded px-2 py-0.5 text-xs w-28"
+                                        autoFocus />
+                                      <button onClick={() => handleSlotNameSave(archValue, v.sort_order)} disabled={slotNameSaving}
+                                        className="px-2 py-0.5 rounded text-xs text-white disabled:opacity-50"
+                                        style={{ backgroundColor: '#b05642' }}>
+                                        {slotNameSaving ? '…' : 'Save'}
+                                      </button>
+                                      <button onClick={() => setEditingSlotKey(null)} className="text-stone-400 hover:text-stone-600">Cancel</button>
+                                      {slotNameErr && <span className="text-red-500">{slotNameErr}</span>}
+                                    </div>
+                                  );
+                                }
+                                if (alias === '—') return <span className="text-stone-200">—</span>;
+                                return (
+                                  <button
+                                    onClick={() => { setEditingSlotKey(slotKey); setSlotNameValue(alias); setSlotNameErr(''); }}
+                                    className="flex items-center gap-1.5 group hover:underline"
+                                    title="Click to rename this slot"
+                                  >
+                                    {alias}
+                                    <span className="text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity">✏️</span>
+                                  </button>
+                                );
+                              })()}
+                            </td>
                             <td className="py-2.5 px-4">
                               {pathCoffees.length > 0
                                 ? <div className="space-y-0.5">{pathCoffees.map(c => <CoffeeChip key={c.id} coffee={c} />)}</div>
