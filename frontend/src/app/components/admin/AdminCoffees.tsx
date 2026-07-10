@@ -487,10 +487,11 @@ export default function AdminCoffees() {
                   {!isNameEditing ? (
                     <button
                       onClick={() => { setNameEditAliasId(existingAlias.id); setNameValue(existingAlias.platform_name); setNameErr(''); }}
-                      className="text-sm text-stone-700 hover:underline"
+                      className="flex items-center gap-1.5 group text-sm text-stone-700 hover:underline"
                       title="Click to rename"
                     >
                       {existingAlias.platform_name}
+                      <span className="text-stone-300 text-xs opacity-0 group-hover:opacity-100 transition-opacity">✏️</span>
                     </button>
                   ) : (
                     <div className="flex items-center gap-2">
