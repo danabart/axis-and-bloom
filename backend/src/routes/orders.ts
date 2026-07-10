@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 import { createOrder } from '../services/shopify.js';
+import { resolveBlendForSlot } from '../services/blendResolver.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { getSommelierConfig } from '../services/sommelierConfig.js';
 import { updateOrderOutcomes } from '../services/outcomeTracker.js';
@@ -10,6 +11,15 @@ import { refreshLifecycleState } from '../services/userLifecycle.js';
 import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
 
 const router = Router();
+
+interface ResolvedItem {
+  variantId?: string;
+  blendId?: string;
+  quantity: number;
+  priceCents?: number;
+  resolvedCoffeeName?: string;
+  resolvedRoaster?: string;
+}
 
 router.post('/', requireAuth, async (req: AuthRequest, res) => {
   const { items, shippingAddress } = req.body;
@@ -23,12 +33,46 @@ router.post('/', requireAuth, async (req: AuthRequest, res) => {
     const userId = profileResult.rows[0]?.id;
     if (!userId) { res.status(404).json({ error: 'User profile not found' }); return; }
 
-    const subtotal = items.reduce((sum: number, item: any) => sum + ((item.priceCents ?? 0) / 100) * item.quantity, 0);
+    // Resolve each item to a concrete roaster_blend before charging or creating anything
+    // downstream. An item can specify either a direct blendId/variantId (unchanged,
+    // existing behavior) or a Bloom Dial slot — { archetype, dialSortOrder, weightOz } —
+    // resolved server-side via the same priority order set on the Coffees page, trying
+    // the preferred roaster first and falling back automatically if it's unavailable.
+    // See backend/src/services/blendResolver.ts.
+    const resolvedItems: ResolvedItem[] = [];
+    for (const item of items) {
+      if (item.archetype && item.dialSortOrder !== undefined && item.weightOz) {
+        const resolved = await resolveBlendForSlot(item.archetype, item.dialSortOrder, item.weightOz);
+        if (!resolved) {
+          res.status(409).json({
+            error: `No roaster currently available for ${item.archetype} position ${item.dialSortOrder} at ${item.weightOz}oz`,
+          });
+          return;
+        }
+        resolvedItems.push({
+          variantId: resolved.shopify_variant_id ?? undefined,
+          blendId: resolved.blend_id,
+          quantity: item.quantity ?? 1,
+          priceCents: item.priceCents,
+          resolvedCoffeeName: resolved.coffee_name,
+          resolvedRoaster: resolved.roaster,
+        });
+      } else {
+        resolvedItems.push({
+          variantId: item.variantId,
+          blendId: item.blendId ?? item.id,
+          quantity: item.quantity ?? 1,
+          priceCents: item.priceCents,
+        });
+      }
+    }
+
+    const subtotal = resolvedItems.reduce((sum, item) => sum + ((item.priceCents ?? 0) / 100) * item.quantity, 0);
 
     // Create order in Shopify (roastery)
     const shopifyResult = await createOrder({
       email: req.email!,
-      items,
+      items: resolvedItems.map(item => ({ variantId: item.variantId!, quantity: item.quantity })),
       shippingAddress,
       note: `Customer UID: ${req.uid}`,
     });
@@ -57,22 +101,20 @@ router.post('/', requireAuth, async (req: AuthRequest, res) => {
     );
     const orderId = orderResult.rows[0].id;
 
-    for (const item of items) {
-      const blendId = item.blendId ?? item.id;
-      if (!blendId) continue;
+    for (const item of resolvedItems) {
+      if (!item.blendId) continue;
       const unitPrice = (item.priceCents ?? 0) / 100;
       await db.query(
         `INSERT INTO order_line_item (order_id, blend_id, quantity, unit_price_charged)
          VALUES ($1, $2, $3, $4)`,
-        [orderId, blendId, item.quantity ?? 1, unitPrice]
+        [orderId, item.blendId, item.quantity, unitPrice]
       );
     }
 
     // Decrement inventory for each purchased blend. Best-effort per item —
     // a failure here should not block the customer's order confirmation.
-    for (const item of items) {
-      const blendId = item.blendId ?? item.id;
-      if (!blendId) continue;
+    for (const item of resolvedItems) {
+      if (!item.blendId) continue;
       try {
         await db.query(
           `UPDATE roaster_blend
@@ -83,14 +125,20 @@ router.post('/', requireAuth, async (req: AuthRequest, res) => {
                  ELSE 'in_stock'
                END
            WHERE id = $2`,
-          [item.quantity ?? 1, blendId]
+          [item.quantity, item.blendId]
         );
       } catch (err) {
-        console.error('[orders] inventory decrement failed for blend', blendId, err);
+        console.error('[orders] inventory decrement failed for blend', item.blendId, err);
       }
     }
 
-    res.json({ orderId, shopifyOrderId: shopifyResult.shopifyOrderId, orderName: shopifyResult.orderName });
+    res.json({
+      orderId, shopifyOrderId: shopifyResult.shopifyOrderId, orderName: shopifyResult.orderName,
+      items: resolvedItems.map(item => ({
+        blendId: item.blendId, quantity: item.quantity,
+        ...(item.resolvedCoffeeName ? { resolvedCoffeeName: item.resolvedCoffeeName, resolvedRoaster: item.resolvedRoaster } : {}),
+      })),
+    });
 
     // Fire-and-forget: award order bonus tokens + update sommelier outcomes.
     ;(async () => {
@@ -135,7 +183,7 @@ router.post('/', requireAuth, async (req: AuthRequest, res) => {
           [userId]
         );
         if (parseInt(orderCount.rows[0].count, 10) <= 2) {
-          const blendId = items?.[0]?.blendId ?? items?.[0]?.id ?? null;
+          const blendId = resolvedItems[0]?.blendId ?? null;
           schedulePostDeliveryMessage(req.uid!, blendId, orderId).catch(err => {
             console.error('[liamSms] schedule failed:', err);
           });

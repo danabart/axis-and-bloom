@@ -514,16 +514,16 @@ export default function AdminCoffees() {
                   {!isNameEditing ? (
                     <button
                       onClick={() => { setNameEditAliasId(existingAlias.id); setNameValue(existingAlias.platform_name); setNameErr(''); }}
-                      className="flex items-center gap-1.5 group text-sm text-stone-700 hover:underline"
+                      className="flex items-center gap-1.5 group text-xs text-stone-700 hover:underline"
                       title="Click to rename"
                     >
                       {existingAlias.platform_name}
-                      <span className="text-stone-300 text-xs opacity-0 group-hover:opacity-100 transition-opacity">✏️</span>
+                      <span className="text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity">✏️</span>
                     </button>
                   ) : (
                     <div className="flex items-center gap-2">
                       <input value={nameValue} onChange={e => setNameValue(e.target.value)}
-                        className="border border-stone-300 rounded px-2 py-0.5 text-sm w-36"
+                        className="border border-stone-300 rounded px-2 py-0.5 text-xs w-36"
                         autoFocus />
                       <button onClick={() => handleAliasNameSave(existingAlias.id)} disabled={nameSaving}
                         className="px-3 py-0.5 rounded text-xs text-white disabled:opacity-50"

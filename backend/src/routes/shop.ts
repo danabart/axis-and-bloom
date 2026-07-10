@@ -1,9 +1,34 @@
 import { Router } from 'express';
 import { optionalAuth, type AuthRequest } from '../middleware/auth.js';
 import { getProducts } from '../services/shopify.js';
+import { resolveBlendForSlot } from '../services/blendResolver.js';
 import { db } from '../db/client.js';
 
 const router = Router();
+
+// GET /api/shop/resolve-blend?archetype=&dialSortOrder=&weightOz= — preview which
+// roaster/coffee currently fulfills a Bloom Dial position, applying the same
+// priority-order fallback POST /api/orders uses. Read-only, no auth required (no
+// order side effects) — useful for testing the routing logic independently of
+// Shopify being connected.
+router.get('/resolve-blend', async (req, res) => {
+  const archetype = req.query.archetype as string;
+  const dialSortOrder = Number(req.query.dialSortOrder);
+  const weightOz = Number(req.query.weightOz);
+  if (!archetype || !Number.isFinite(dialSortOrder) || !Number.isFinite(weightOz)) {
+    res.status(400).json({ error: 'archetype, dialSortOrder, and weightOz are required' }); return;
+  }
+  try {
+    const resolved = await resolveBlendForSlot(archetype, dialSortOrder, weightOz);
+    if (!resolved) {
+      res.status(404).json({ error: 'No roaster currently available for this position at that weight' }); return;
+    }
+    res.json(resolved);
+  } catch (err) {
+    console.error('[shop/resolve-blend]', err);
+    res.status(500).json({ error: 'Failed to resolve blend' });
+  }
+});
 
 router.get('/products', async (_req, res) => {
   try {
