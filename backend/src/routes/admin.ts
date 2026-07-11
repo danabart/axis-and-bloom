@@ -967,7 +967,7 @@ router.get('/dial/consensus/:coffeeId', async (req, res) => {
 router.get('/dial/vocabulary', async (_req, res) => {
   try {
     const result = await db.query(`
-      SELECT dpv.id, dpv.archetype, dpv.sort_order, dpv.label, dpv.dimension_id,
+      SELECT dpv.id, dpv.archetype, dpv.sort_order, dpv.label, dpv.description, dpv.dimension_id,
              cd.name AS dimension
       FROM dial_position_vocabulary dpv
       JOIN coffee_dimensions cd ON cd.id = dpv.dimension_id
@@ -977,6 +977,27 @@ router.get('/dial/vocabulary', async (_req, res) => {
   } catch (err) {
     console.error('[admin/dial/vocabulary GET]', err);
     res.status(500).json({ error: 'Failed to fetch dial vocabulary' });
+  }
+});
+
+// PATCH /api/admin/dial/vocabulary/:id — update a dial position's description
+router.patch('/dial/vocabulary/:id', async (req, res) => {
+  const { id } = req.params;
+  const { description } = req.body;
+  if (typeof description !== 'string') {
+    res.status(400).json({ error: 'description must be a string' }); return;
+  }
+  try {
+    const result = await db.query(
+      `UPDATE dial_position_vocabulary SET description = $1 WHERE id = $2
+       RETURNING id, archetype, sort_order, label, description, dimension_id`,
+      [description, id]
+    );
+    if (result.rowCount === 0) { res.status(404).json({ error: 'Vocabulary entry not found' }); return; }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[admin/dial/vocabulary PATCH]', err);
+    res.status(500).json({ error: 'Failed to update description' });
   }
 });
 

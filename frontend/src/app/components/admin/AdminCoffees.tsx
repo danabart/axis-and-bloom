@@ -42,6 +42,7 @@ interface VocabOption {
   archetype: string;
   sort_order: number;
   label: string;
+  description: string | null;
   dimension: string;
 }
 
@@ -171,6 +172,13 @@ export default function AdminCoffees() {
   const [slotNameValue, setSlotNameValue]     = useState('');
   const [slotNameSaving, setSlotNameSaving]   = useState(false);
   const [slotNameErr, setSlotNameErr]         = useState('');
+
+  // position description — the "Position" column in the matrix table, edits
+  // dial_position_vocabulary.description via PATCH /dial/vocabulary/:id
+  const [editingVocabDescId, setEditingVocabDescId] = useState<number | null>(null);
+  const [vocabDescValue, setVocabDescValue]         = useState('');
+  const [vocabDescSaving, setVocabDescSaving]       = useState(false);
+  const [vocabDescErr, setVocabDescErr]             = useState('');
 
   async function apiFetch(url: string, options: RequestInit = {}) {
     const token = await user!.getIdToken();
@@ -363,6 +371,21 @@ export default function AdminCoffees() {
     } catch (err: unknown) {
       setSlotNameErr(err instanceof Error ? err.message : 'Failed');
     } finally { setSlotNameSaving(false); }
+  }
+
+  async function handleVocabDescSave(vocabId: number) {
+    setVocabDescSaving(true); setVocabDescErr('');
+    try {
+      const res = await apiFetch(`/api/admin/dial/vocabulary/${vocabId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: vocabDescValue.trim() }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
+      setEditingVocabDescId(null); await load();
+    } catch (err: unknown) {
+      setVocabDescErr(err instanceof Error ? err.message : 'Failed');
+    } finally { setVocabDescSaving(false); }
   }
 
   function openAssign(coffee: Coffee) {
@@ -766,9 +789,40 @@ export default function AdminCoffees() {
                             key={v.id}
                             className={`border-b border-stone-50 ${isDefault ? 'bg-stone-50/60' : ''}`}
                           >
-                            <td className="py-2.5 px-4 text-stone-400 text-xs whitespace-nowrap">
-                              <span className="mr-1.5">{posIcon(v.sort_order)}</span>
-                              {v.label}
+                            <td className="py-2.5 px-4 text-stone-400 text-xs align-top">
+                              <div className="whitespace-nowrap">
+                                <span className="mr-1.5">{posIcon(v.sort_order)}</span>
+                                {v.label}
+                              </div>
+                              {editingVocabDescId === v.id ? (
+                                <div className="mt-1 flex items-start gap-1.5">
+                                  <textarea value={vocabDescValue}
+                                    onChange={e => setVocabDescValue(e.target.value)}
+                                    className="border border-stone-300 rounded px-2 py-1 text-xs w-32 resize-none"
+                                    rows={2} autoFocus />
+                                  <div className="flex flex-col gap-1">
+                                    <button onClick={() => handleVocabDescSave(v.id)} disabled={vocabDescSaving}
+                                      className="px-2 py-0.5 rounded text-xs text-white disabled:opacity-50"
+                                      style={{ backgroundColor: '#b05642' }}>
+                                      {vocabDescSaving ? '…' : 'Save'}
+                                    </button>
+                                    <button onClick={() => setEditingVocabDescId(null)}
+                                      className="text-xs text-stone-400 hover:text-stone-600">
+                                      Cancel
+                                    </button>
+                                  </div>
+                                  {vocabDescErr && <span className="text-xs text-red-500">{vocabDescErr}</span>}
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => { setEditingVocabDescId(v.id); setVocabDescValue(v.description ?? ''); setVocabDescErr(''); }}
+                                  className="mt-1 flex items-start gap-1 group text-xs text-stone-400 hover:underline text-left max-w-[140px]"
+                                  title="Click to edit description"
+                                >
+                                  <span className="italic">{v.description || 'Add description'}</span>
+                                  <span className="text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">✏️</span>
+                                </button>
+                              )}
                             </td>
                             <td className="py-2.5 px-4 text-stone-500 text-xs">
                               {(() => {
