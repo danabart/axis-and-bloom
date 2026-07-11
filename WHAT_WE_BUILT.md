@@ -2244,6 +2244,20 @@ Implements `backend/src/features/bloom_dial/CLAUDE_CODE_PROMPT_BLOOM_DIAL_CATEGO
 
 **Not done in this pass (explicitly out of scope):** category-hop creation UI/API (Navigation Hops page, future work); assigning a real archetype to any of the 6 newly-categorized coffees (a cupping/tasting decision, not something to script).
 
+### 79. Coffees page cleanup — DB-driven archetypes, category delete, clearer layout (2026-07-10)
+
+**Files:** `backend/src/routes/admin.ts`, `frontend/src/app/components/admin/AdminCoffees.tsx`
+
+Post-deployment feedback on #78: `AdminCoffees.tsx`'s archetype-assignment dropdown still offered "Experimental" (it was a hardcoded `ARCHETYPE_OPTIONS` const, unaware of the new `is_archetype` flag), there was no way to delete a category outright (only deactivate), and Categories vs. Archetypes weren't visually distinct on the page.
+
+**DB-driven archetypes:** new `GET /api/admin/archetypes` — `dial_archetype_config` joined to the `archetype` table's human labels via the same enum→name `CASE` bridge already used in `v_archetype_dimension_comparison`. `AdminCoffees.tsx` fetches this once and derives two views: the full list (matrix section headers — legacy `is_archetype = false` rows like `experimental` still render if a coffee remains tagged with them, e.g. Kopi Safari) and an `is_archetype`-filtered list (the assignment dropdown — no longer offers `experimental`). The hardcoded `ARCHETYPE_OPTIONS`/`ARCHETYPE_LABEL` consts are gone.
+
+**Category delete:** new `DELETE /api/admin/categories/:id` — `coffee_category_assignment` rows cascade automatically (`ON DELETE CASCADE`, already in place from #78); a category still referenced by a `dial_coffee_relationships` hop (no cascade there, by design) is blocked with a clear `409` instead of a raw FK error. Each category in the UI is now a row (label + Active/Inactive toggle + Remove) instead of a toggle-only pill.
+
+**Clearer layout:** an "Archetypes" heading now sits above the matrix; Categories moved out of a collapsible mid-page panel down to its own clearly-labeled section at the bottom of the page, with a one-line description of what it is.
+
+**Verified against production Cloud SQL:** the `/archetypes` query returns all 6 archetypes with correct labels and `is_archetype` flags (`experimental` correctly `false`, the other 5 `true`); category delete cascades to assignments correctly and is correctly blocked (`23503`) when a hop references the category — both tested inside a rolled-back transaction, confirmed no leftover data.
+
 ---
 
 ## What's Still To Do
