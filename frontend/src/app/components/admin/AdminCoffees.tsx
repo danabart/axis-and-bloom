@@ -242,13 +242,13 @@ export default function AdminCoffees() {
   }
 
   // ── archetype lookups, DB-driven — see GET /api/admin/archetypes ──────────
-  // Matrix sections use the full list (legacy is_archetype=false rows like
-  // 'experimental' still render if a coffee is still tagged with them, e.g.
-  // Kopi Safari). New-assignment dropdowns use only is_archetype = true.
+  // The assignment dropdown intentionally includes is_archetype = false rows
+  // ('experimental') too — it's the only mechanism that places a coffee into
+  // the "Experimental" table under Categories (see renderArchetypeSection).
   const archetypeLabelMap: Record<string, string> = Object.fromEntries(
     archetypeOptions.map(a => [a.value, a.label])
   );
-  const assignableArchetypeOptions = archetypeOptions.filter(a => a.is_archetype);
+  const assignableArchetypeOptions = archetypeOptions;
 
   // ── handlers ───────────────────────────────────────────────────────────────
 

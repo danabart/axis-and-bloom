@@ -319,10 +319,12 @@ router.post('/coffees/:id/archetype', async (req, res) => {
   if (!archetype || !confidence) {
     res.status(400).json({ error: 'archetype and confidence are required' }); return;
   }
-  if (archetype === 'experimental') {
-    res.status(400).json({ error: "'experimental' is a category, not an archetype — tag the coffee under Categories instead." });
-    return;
-  }
+  // 'experimental' is a category (#78), not a true peer archetype — but it still owns its
+  // own dial_position_vocabulary/dial_archetype_positions/coffee_alias data (legacy
+  // scaffolding from before the categories decoupling), and that's still the only
+  // mechanism that places a coffee into the "Experimental" table under Categories on the
+  // Coffees page. So assignment stays allowed here, deliberately, until that table gets
+  // its own non-archetype placement mechanism — see BLOOM_DIAL_ALLOCATION_SPEC.md §6.
   try {
     await db.query('BEGIN');
 
