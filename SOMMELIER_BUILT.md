@@ -179,6 +179,8 @@ Label vocabulary comes from `dial_position_vocabulary` (archetype+dimension-spec
 
 **As of the Bloom Dial admin reorg (`WHAT_WE_BUILT.md` #75, 2026-07-09):** `dial_coffee_relationships` is no longer Liam-only. `bridge_archetype` hops now also feed `v_archetype_adjacency` (cross-archetype adjacency summary, `GET /api/admin/dial/archetype-adjacency`), and `within_archetype` hops are cross-checked against a new cupping-based dial-position suggestion (`dialSuggestion.ts`, `getDialSuggestion()`) — a disagreement surfaces as `hop_conflict` on the Coffees admin page. None of this changes what Liam sees or how the RAG focus types above work; it's a second, admin-facing consumer of the same table. `dial_archetype_config` also gained `is_archetype BOOLEAN` (`false` for `experimental`, `true` for the other 5) — doesn't affect Liam's RAG queries, which don't filter on it.
 
+**As of coffee categories (`WHAT_WE_BUILT.md` #78, 2026-07-10):** `dial_coffee_relationships` gained nullable `from_category_id`/`to_category_id` and a new `hop_type_enum` value `category_hop`, for hops where one or both endpoints is a `coffee_category` (e.g. "Experimental") rather than a specific coffee. Confirmed no impact on Liam — `sommelierRag.ts`'s `v_dial_navigation` queries above already `INNER JOIN` on `coffees` for both endpoints, so any `category_hop` row (with a NULL `from_coffee_id`/`to_coffee_id`) is automatically excluded from the view, the same way it's already excluded from `v_archetype_adjacency`. No query changes were needed here. Category-hop creation is SQL-only for now — there's no admin UI/API path that could even populate these rows yet.
+
 ---
 
 ## Firestore Collections (new)
