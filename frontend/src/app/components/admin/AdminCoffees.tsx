@@ -77,24 +77,18 @@ interface CoffeeCategoryRow {
   category_label: string;
 }
 
-const ARCHETYPE_OPTIONS = [
-  { value: 'chocolate_nutty', label: 'Chocolate & Nutty' },
-  { value: 'balanced_sweet',  label: 'Balanced & Sweet'  },
-  { value: 'fruity',          label: 'Fruity'            },
-  { value: 'earthy',          label: 'Earthy'            },
-  { value: 'floral',          label: 'Floral'            },
-  { value: 'experimental',    label: 'Experimental'      },
-];
+interface ArchetypeOption {
+  value: string;
+  label: string;
+  is_archetype: boolean;
+  has_bloom_dial: boolean;
+}
 
 const CONFIDENCE_OPTIONS = [
   { value: 'low',    label: 'Low'    },
   { value: 'medium', label: 'Medium' },
   { value: 'high',   label: 'High'   },
 ];
-
-const ARCHETYPE_LABEL: Record<string, string> = Object.fromEntries(
-  ARCHETYPE_OPTIONS.map(o => [o.value, o.label])
-);
 
 const PATH   = 'Path Coffee Roasters';
 const TCR    = 'Temecula Coffee Roasters';
@@ -149,11 +143,12 @@ export default function AdminCoffees() {
   const [roasterOptions, setRoasterOptions] = useState<RoasterOption[]>([]);
   const [categories, setCategories]                 = useState<CategoryOption[]>([]);
   const [coffeeCategories, setCoffeeCategories]     = useState<CoffeeCategoryRow[]>([]);
+  const [archetypeOptions, setArchetypeOptions]     = useState<ArchetypeOption[]>([]);
   const [error, setError]                   = useState('');
 
-  // categories panel
-  const [showCategoriesPanel, setShowCategoriesPanel] = useState(false);
+  // categories section
   const [newCategoryLabel, setNewCategoryLabel]       = useState('');
+  const [categoryDeletingId, setCategoryDeletingId]   = useState<number | null>(null);
   const [categoryCreateSaving, setCategoryCreateSaving] = useState(false);
   const [categoryCreateErr, setCategoryCreateErr]       = useState('');
   const [togglingCategoryId, setTogglingCategoryId]     = useState<number | null>(null);
@@ -217,13 +212,14 @@ export default function AdminCoffees() {
 
   async function load() {
     try {
-      const [coffeeRes, vocabRes, aliasRes, roasterRes, categoryRes, coffeeCategoryRes] = await Promise.all([
+      const [coffeeRes, vocabRes, aliasRes, roasterRes, categoryRes, coffeeCategoryRes, archetypeRes] = await Promise.all([
         apiFetch('/api/admin/coffees'),
         apiFetch('/api/admin/dial/vocabulary'),
         apiFetch('/api/admin/coffee-alias'),
         apiFetch('/api/admin/roasters'),
         apiFetch('/api/admin/categories'),
         apiFetch('/api/admin/coffee-categories'),
+        apiFetch('/api/admin/archetypes'),
       ]);
       setCoffees(await coffeeRes.json());
       setVocab(await vocabRes.json());
@@ -232,6 +228,7 @@ export default function AdminCoffees() {
       if (Array.isArray(roasters)) setRoasterOptions(roasters.filter((r: { is_active: boolean }) => r.is_active));
       setCategories(await categoryRes.json());
       setCoffeeCategories(await coffeeCategoryRes.json());
+      setArchetypeOptions(await archetypeRes.json());
     } catch { setError('Failed to load coffees'); }
   }
 
@@ -243,6 +240,15 @@ export default function AdminCoffees() {
     const key = `${a.archetype ?? 'null'}_${a.dial_sort_order ?? 'null'}`;
     if (!aliasMap[key]) aliasMap[key] = a.platform_name;
   }
+
+  // ── archetype lookups, DB-driven — see GET /api/admin/archetypes ──────────
+  // Matrix sections use the full list (legacy is_archetype=false rows like
+  // 'experimental' still render if a coffee is still tagged with them, e.g.
+  // Kopi Safari). New-assignment dropdowns use only is_archetype = true.
+  const archetypeLabelMap: Record<string, string> = Object.fromEntries(
+    archetypeOptions.map(a => [a.value, a.label])
+  );
+  const assignableArchetypeOptions = archetypeOptions.filter(a => a.is_archetype);
 
   // ── handlers ───────────────────────────────────────────────────────────────
 
@@ -450,6 +456,16 @@ export default function AdminCoffees() {
     } catch { /* non-critical */ } finally { setTogglingCategoryId(null); }
   }
 
+  async function handleDeleteCategory(cat: CategoryOption) {
+    if (!confirm(`Remove "${cat.label}" entirely? This also removes it from every coffee currently tagged with it.`)) return;
+    setCategoryDeletingId(cat.id);
+    try {
+      const res = await apiFetch(`/api/admin/categories/${cat.id}`, { method: 'DELETE' });
+      if (!res.ok) { const body = await res.json(); alert(body.error ?? 'Failed to delete category'); return; }
+      await load();
+    } catch { /* non-critical */ } finally { setCategoryDeletingId(null); }
+  }
+
   async function handleToggleCoffeeCategory(coffeeId: number, categoryId: number) {
     const key = `${coffeeId}_${categoryId}`;
     const existing = coffeeCategories.find(cc => cc.coffee_id === coffeeId && cc.category_id === categoryId);
@@ -561,7 +577,7 @@ export default function AdminCoffees() {
             onChange={e => setArchForm(f => ({ ...f, archetype: e.target.value, vocab_id: '', dial_is_default: false }))}
             className="border border-stone-300 rounded px-3 py-1.5 text-sm">
             <option value="">— select —</option>
-            {ARCHETYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            {assignableArchetypeOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
         <div>
@@ -854,57 +870,12 @@ export default function AdminCoffees() {
         </form>
       )}
 
-      {/* ── Categories panel — cross-cutting tags orthogonal to archetype ────── */}
-      <div className="mb-8 border border-stone-100 rounded-lg overflow-hidden">
-        <button
-          onClick={() => setShowCategoriesPanel(v => !v)}
-          className="w-full flex items-center justify-between px-4 py-2.5 bg-stone-50 text-xs text-stone-500 hover:bg-stone-100 transition-colors"
-        >
-          <span className="uppercase tracking-widest">Categories</span>
-          <span>{showCategoriesPanel ? '−' : '+'}</span>
-        </button>
-        {showCategoriesPanel && (
-          <div className="p-4 space-y-3">
-            <div className="flex flex-wrap gap-2">
-              {categories.map(cat => (
-                <button
-                  key={cat.id}
-                  onClick={() => handleToggleCategoryActive(cat)}
-                  disabled={togglingCategoryId === cat.id}
-                  className={`px-2.5 py-1 rounded-full border text-xs transition-colors disabled:opacity-40 ${
-                    cat.is_active
-                      ? 'bg-green-50 text-green-700 border-green-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200'
-                      : 'bg-stone-100 text-stone-400 border-stone-200 hover:bg-green-50 hover:text-green-700 hover:border-green-200'
-                  }`}
-                  title={cat.is_active ? 'Click to deactivate' : 'Click to reactivate'}
-                >
-                  {cat.label}
-                  {togglingCategoryId === cat.id ? ' …' : cat.is_active ? '' : ' (inactive)'}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-end gap-2">
-              <div>
-                <label className="block text-xs text-stone-400 mb-1">New category</label>
-                <input value={newCategoryLabel}
-                  onChange={e => setNewCategoryLabel(e.target.value)}
-                  className="border border-stone-300 rounded px-3 py-1.5 text-sm w-44"
-                  placeholder="e.g. Seasonal" />
-              </div>
-              <button onClick={handleCreateCategory} disabled={categoryCreateSaving}
-                className="px-3 py-1.5 rounded text-xs text-white disabled:opacity-50"
-                style={{ backgroundColor: '#b05642' }}>
-                {categoryCreateSaving ? 'Saving…' : '+ Add category'}
-              </button>
-              {categoryCreateErr && <span className="text-xs text-red-500">{categoryCreateErr}</span>}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ── Archetype matrix ─────────────────────────────────────────────────── */}
+      {/* ── Archetypes ────────────────────────────────────────────────────────── */}
+      <h2 className="text-xs font-normal text-stone-400 uppercase tracking-widest mb-2">
+        Archetypes
+      </h2>
       <div className="space-y-10">
-        {ARCHETYPE_OPTIONS.map(({ value: archValue, label: archLabel }) => {
+        {archetypeOptions.map(({ value: archValue, label: archLabel }) => {
           const archVocab = vocab
             .filter(v => v.archetype === archValue)
             .sort((a, b) => a.sort_order - b.sort_order);
@@ -1105,7 +1076,7 @@ export default function AdminCoffees() {
                               {c.archetype
                                 ? <>
                                     <span className="px-2 py-0.5 rounded-full text-xs text-white" style={{ backgroundColor: '#b05642' }}>
-                                      {ARCHETYPE_LABEL[c.archetype] ?? c.archetype}
+                                      {archetypeLabelMap[c.archetype] ?? c.archetype}
                                     </span>
                                     <span className="text-stone-300 text-xs opacity-0 group-hover:opacity-100 transition-opacity">✏️</span>
                                   </>
@@ -1130,6 +1101,61 @@ export default function AdminCoffees() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* ── Categories — cross-cutting tags orthogonal to archetype (e.g. Decaf, ─
+             Half-Caf, Experimental). Separate section, deliberately below the
+             archetype matrix so the two concepts don't read as the same thing. ── */}
+      <div className="mt-10 pt-6 border-t border-stone-200">
+        <h2 className="text-xs font-normal text-stone-400 uppercase tracking-widest mb-2">
+          Categories
+        </h2>
+        <p className="text-xs text-stone-400 mb-3">
+          Cross-cutting tags independent of archetype and dial position — a coffee can carry any number of these regardless of its archetype (or none yet).
+        </p>
+        <div className="border border-stone-100 rounded-lg p-4 space-y-3">
+          <div className="space-y-1.5">
+            {categories.map(cat => (
+              <div key={cat.id} className="flex items-center gap-2">
+                <span className="text-sm text-stone-700 min-w-[120px]">{cat.label}</span>
+                <button
+                  onClick={() => handleToggleCategoryActive(cat)}
+                  disabled={togglingCategoryId === cat.id}
+                  className={`px-2 py-0.5 rounded text-xs border transition-colors disabled:opacity-40 ${
+                    cat.is_active
+                      ? 'bg-green-50 text-green-700 border-green-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200'
+                      : 'bg-stone-100 text-stone-400 border-stone-200 hover:bg-green-50 hover:text-green-700 hover:border-green-200'
+                  }`}
+                >
+                  {togglingCategoryId === cat.id ? '…' : cat.is_active ? 'Active' : 'Inactive'}
+                </button>
+                <button
+                  onClick={() => handleDeleteCategory(cat)}
+                  disabled={categoryDeletingId === cat.id}
+                  className="text-xs text-stone-300 hover:text-red-400 transition-colors disabled:opacity-40"
+                >
+                  {categoryDeletingId === cat.id ? 'Removing…' : 'Remove'}
+                </button>
+              </div>
+            ))}
+            {categories.length === 0 && <p className="text-xs text-stone-300">No categories yet.</p>}
+          </div>
+          <div className="flex items-end gap-2 pt-2 border-t border-stone-100">
+            <div>
+              <label className="block text-xs text-stone-400 mb-1">New category</label>
+              <input value={newCategoryLabel}
+                onChange={e => setNewCategoryLabel(e.target.value)}
+                className="border border-stone-300 rounded px-3 py-1.5 text-sm w-44"
+                placeholder="e.g. Seasonal" />
+            </div>
+            <button onClick={handleCreateCategory} disabled={categoryCreateSaving}
+              className="px-3 py-1.5 rounded text-xs text-white disabled:opacity-50"
+              style={{ backgroundColor: '#b05642' }}>
+              {categoryCreateSaving ? 'Saving…' : '+ Add category'}
+            </button>
+            {categoryCreateErr && <span className="text-xs text-red-500">{categoryCreateErr}</span>}
+          </div>
+        </div>
       </div>
     </div>
   );

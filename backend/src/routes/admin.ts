@@ -14,6 +14,34 @@ function computeInventoryStatus(quantity: number, buffer: number): string {
   return 'in_stock';
 }
 
+// ── GET /api/admin/archetypes — every archetype_enum value with its human label ─
+// and dial_archetype_config.is_archetype flag, driven from the DB rather than a
+// hardcoded frontend list. `is_archetype = false` (currently only 'experimental')
+// marks it as a legacy category, not a true assignable archetype — frontend
+// consumers filter on this to keep it out of new-assignment dropdowns while still
+// showing legacy-tagged coffees (e.g. Kopi Safari) in matrix display.
+router.get('/archetypes', async (_req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT dac.archetype AS value, a.name AS label, dac.is_archetype, dac.has_bloom_dial
+      FROM dial_archetype_config dac
+      LEFT JOIN archetype a ON a.name = CASE dac.archetype
+        WHEN 'chocolate_nutty' THEN 'Chocolate & Nutty'
+        WHEN 'balanced_sweet'  THEN 'Balanced & Sweet'
+        WHEN 'fruity'          THEN 'Fruity'
+        WHEN 'earthy'          THEN 'Earthy'
+        WHEN 'floral'          THEN 'Floral'
+        WHEN 'experimental'    THEN 'Experimental'
+      END
+      ORDER BY dac.archetype
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[admin/archetypes GET]', err);
+    res.status(500).json({ error: 'Failed to fetch archetypes' });
+  }
+});
+
 // ── GET /api/admin/lookups ────────────────────────────────────────────────────
 // Returns all lookup categories as { category, values: [{value, label}][] }
 router.get('/lookups', async (_req, res) => {
@@ -676,6 +704,26 @@ router.patch('/categories/:id', async (req, res) => {
   } catch (err) {
     console.error('[admin/categories PATCH]', err);
     res.status(500).json({ error: 'Failed to update category' });
+  }
+});
+
+// DELETE /api/admin/categories/:id — remove a category outright. coffee_category_assignment
+// rows cascade automatically (ON DELETE CASCADE); a category still referenced by a
+// dial_coffee_relationships hop (from_category_id/to_category_id, no cascade there by
+// design) is blocked with a clear error instead of silently orphaning the hop.
+router.delete('/categories/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await db.query(`DELETE FROM coffee_category WHERE id = $1 RETURNING id`, [id]);
+    if (result.rowCount === 0) { res.status(404).json({ error: 'Category not found' }); return; }
+    res.json({ ok: true });
+  } catch (err: any) {
+    if (err?.code === '23503') {
+      res.status(409).json({ error: 'Cannot delete — this category is still referenced by a hop. Remove the hop first.' });
+      return;
+    }
+    console.error('[admin/categories DELETE]', err);
+    res.status(500).json({ error: 'Failed to delete category' });
   }
 });
 
