@@ -796,6 +796,167 @@ export default function AdminCoffees() {
     );
   }
 
+  // ── archetype/category position table — shared by the Archetypes section (real
+  // archetypes) and the Categories section (e.g. 'experimental', which still has
+  // its own dial position vocabulary and aliases, unlike Decaf/Half-Caf/Flavored) ──
+
+  function renderArchetypeSection(archValue: string, archLabel: string) {
+    const archVocab = vocab
+      .filter(v => v.archetype === archValue)
+      .sort((a, b) => a.sort_order - b.sort_order);
+    const archCoffees = coffees.filter(c => c.archetype === archValue);
+
+    if (archCoffees.length === 0 && archVocab.length === 0) return null;
+
+    return (
+      <div key={archValue}>
+        <h2 className="text-xs font-normal text-stone-400 uppercase tracking-widest mb-2">
+          {archLabel}
+        </h2>
+        <div className="border border-stone-100 rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-stone-100 bg-stone-50 text-xs text-stone-400 uppercase tracking-wide">
+                <th className="py-2 px-4 text-left w-32">Position</th>
+                <th className="py-2 px-4 text-left w-40">Slot Name</th>
+                <th className="py-2 px-4 text-left">Path Coffee Roasters</th>
+                <th className="py-2 px-4 text-left">Temecula Coffee Roasters</th>
+              </tr>
+            </thead>
+            <tbody>
+              {archVocab.map(v => {
+                const posCoffees  = archCoffees.filter(c => c.dial_position_sort === v.sort_order);
+                const pathCoffees = posCoffees.filter(c => c.roaster === PATH);
+                const tcrCoffees  = posCoffees.filter(c => c.roaster === TCR);
+                const alias       = aliasMap[`${archValue}_${v.sort_order}`] ?? '—';
+                const isDefault   = v.sort_order === 2;
+                const editingHere = posCoffees.some(c => c.id === assigningId);
+
+                return (
+                  <>
+                    <tr
+                      key={v.id}
+                      className={`border-b border-stone-50 ${isDefault ? 'bg-stone-50/60' : ''}`}
+                    >
+                      <td className="py-2.5 px-4 text-stone-400 text-xs align-top">
+                        {editingVocabLabelId === v.id ? (
+                          <div className="flex items-center gap-1.5 whitespace-nowrap">
+                            <span className="mr-0.5">{posIcon(v.sort_order)}</span>
+                            <input value={vocabLabelValue}
+                              onChange={e => setVocabLabelValue(e.target.value)}
+                              className="border border-stone-300 rounded px-2 py-0.5 text-xs w-20"
+                              autoFocus />
+                            <button onClick={() => handleVocabLabelSave(v.id)} disabled={vocabLabelSaving}
+                              className="px-2 py-0.5 rounded text-xs text-white disabled:opacity-50"
+                              style={{ backgroundColor: '#b05642' }}>
+                              {vocabLabelSaving ? '…' : 'Save'}
+                            </button>
+                            <button onClick={() => setEditingVocabLabelId(null)}
+                              className="text-xs text-stone-400 hover:text-stone-600">
+                              Cancel
+                            </button>
+                            {vocabLabelErr && <span className="text-xs text-red-500">{vocabLabelErr}</span>}
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => { setEditingVocabLabelId(v.id); setVocabLabelValue(v.label); setVocabLabelErr(''); }}
+                            className="flex items-center gap-1.5 group whitespace-nowrap text-xs hover:underline"
+                            title="Click to rename this position"
+                          >
+                            <span className="mr-0.5">{posIcon(v.sort_order)}</span>
+                            {v.label}
+                            <span className="text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity">✏️</span>
+                          </button>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-4 text-stone-500 text-xs">
+                        {(() => {
+                          const slotKey = `${archValue}_${v.sort_order}`;
+                          if (editingSlotKey === slotKey) {
+                            return (
+                              <div className="flex items-center gap-1.5">
+                                <input value={slotNameValue}
+                                  onChange={e => setSlotNameValue(e.target.value)}
+                                  className="border border-stone-300 rounded px-2 py-0.5 text-xs w-28"
+                                  autoFocus />
+                                <button onClick={() => handleSlotNameSave(archValue, v.sort_order)} disabled={slotNameSaving}
+                                  className="px-2 py-0.5 rounded text-xs text-white disabled:opacity-50"
+                                  style={{ backgroundColor: '#b05642' }}>
+                                  {slotNameSaving ? '…' : 'Save'}
+                                </button>
+                                <button onClick={() => setEditingSlotKey(null)} className="text-xs text-stone-400 hover:text-stone-600">Cancel</button>
+                                {slotNameErr && <span className="text-xs text-red-500">{slotNameErr}</span>}
+                              </div>
+                            );
+                          }
+                          if (alias === '—') return <span className="text-xs text-stone-200">—</span>;
+                          return (
+                            <button
+                              onClick={() => { setEditingSlotKey(slotKey); setSlotNameValue(alias); setSlotNameErr(''); }}
+                              className="flex items-center gap-1.5 group text-xs hover:underline"
+                              title="Click to rename this slot"
+                            >
+                              {alias}
+                              <span className="text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity">✏️</span>
+                            </button>
+                          );
+                        })()}
+                      </td>
+                      <td className="py-2.5 px-4">
+                        {pathCoffees.length > 0
+                          ? <div className="space-y-0.5">{pathCoffees.map(c => <CoffeeChip key={c.id} coffee={c} />)}</div>
+                          : <span className="text-stone-200 text-xs">—</span>}
+                      </td>
+                      <td className="py-2.5 px-4">
+                        {tcrCoffees.length > 0
+                          ? <div className="space-y-0.5">{tcrCoffees.map(c => <CoffeeChip key={c.id} coffee={c} />)}</div>
+                          : <span className="text-stone-200 text-xs">—</span>}
+                      </td>
+                    </tr>
+                    {editingHere && (
+                      <tr key={`edit-${v.id}`} className="border-b border-stone-200">
+                        <td colSpan={4} className="p-0">
+                          <EditForm coffeeId={assigningId!} />
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                );
+              })}
+
+              {/* Coffees with this archetype but no dial position */}
+              {(() => {
+                const noPos = archCoffees.filter(c => !c.dial_position_sort);
+                if (noPos.length === 0) return null;
+                const editingHere = noPos.some(c => c.id === assigningId);
+                return (
+                  <>
+                    <tr key="no-pos" className="border-b border-stone-50 bg-amber-50/40">
+                      <td className="py-2.5 px-4 text-xs text-amber-400">— no position</td>
+                      <td className="py-2.5 px-4 text-stone-200 text-xs">—</td>
+                      <td className="py-2.5 px-4" colSpan={2}>
+                        <div className="flex flex-wrap gap-x-4 gap-y-0.5">
+                          {noPos.map(c => <CoffeeChip key={c.id} coffee={c} />)}
+                        </div>
+                      </td>
+                    </tr>
+                    {editingHere && (
+                      <tr key="edit-no-pos" className="border-b border-stone-200">
+                        <td colSpan={4} className="p-0">
+                          <EditForm coffeeId={assigningId!} />
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                );
+              })()}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+
   // ── derived data ───────────────────────────────────────────────────────────
 
   const unplaced = coffees.filter(c => !c.archetype);
@@ -875,162 +1036,7 @@ export default function AdminCoffees() {
         Archetypes
       </h2>
       <div className="space-y-10">
-        {archetypeOptions.map(({ value: archValue, label: archLabel }) => {
-          const archVocab = vocab
-            .filter(v => v.archetype === archValue)
-            .sort((a, b) => a.sort_order - b.sort_order);
-          const archCoffees = coffees.filter(c => c.archetype === archValue);
-
-          if (archCoffees.length === 0 && archVocab.length === 0) return null;
-
-          return (
-            <div key={archValue}>
-              <h2 className="text-xs font-normal text-stone-400 uppercase tracking-widest mb-2">
-                {archLabel}
-              </h2>
-              <div className="border border-stone-100 rounded-lg overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-stone-100 bg-stone-50 text-xs text-stone-400 uppercase tracking-wide">
-                      <th className="py-2 px-4 text-left w-32">Position</th>
-                      <th className="py-2 px-4 text-left w-40">Slot Name</th>
-                      <th className="py-2 px-4 text-left">Path Coffee Roasters</th>
-                      <th className="py-2 px-4 text-left">Temecula Coffee Roasters</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {archVocab.map(v => {
-                      const posCoffees  = archCoffees.filter(c => c.dial_position_sort === v.sort_order);
-                      const pathCoffees = posCoffees.filter(c => c.roaster === PATH);
-                      const tcrCoffees  = posCoffees.filter(c => c.roaster === TCR);
-                      const alias       = aliasMap[`${archValue}_${v.sort_order}`] ?? '—';
-                      const isDefault   = v.sort_order === 2;
-                      const editingHere = posCoffees.some(c => c.id === assigningId);
-
-                      return (
-                        <>
-                          <tr
-                            key={v.id}
-                            className={`border-b border-stone-50 ${isDefault ? 'bg-stone-50/60' : ''}`}
-                          >
-                            <td className="py-2.5 px-4 text-stone-400 text-xs align-top">
-                              {editingVocabLabelId === v.id ? (
-                                <div className="flex items-center gap-1.5 whitespace-nowrap">
-                                  <span className="mr-0.5">{posIcon(v.sort_order)}</span>
-                                  <input value={vocabLabelValue}
-                                    onChange={e => setVocabLabelValue(e.target.value)}
-                                    className="border border-stone-300 rounded px-2 py-0.5 text-xs w-20"
-                                    autoFocus />
-                                  <button onClick={() => handleVocabLabelSave(v.id)} disabled={vocabLabelSaving}
-                                    className="px-2 py-0.5 rounded text-xs text-white disabled:opacity-50"
-                                    style={{ backgroundColor: '#b05642' }}>
-                                    {vocabLabelSaving ? '…' : 'Save'}
-                                  </button>
-                                  <button onClick={() => setEditingVocabLabelId(null)}
-                                    className="text-xs text-stone-400 hover:text-stone-600">
-                                    Cancel
-                                  </button>
-                                  {vocabLabelErr && <span className="text-xs text-red-500">{vocabLabelErr}</span>}
-                                </div>
-                              ) : (
-                                <button
-                                  onClick={() => { setEditingVocabLabelId(v.id); setVocabLabelValue(v.label); setVocabLabelErr(''); }}
-                                  className="flex items-center gap-1.5 group whitespace-nowrap text-xs hover:underline"
-                                  title="Click to rename this position"
-                                >
-                                  <span className="mr-0.5">{posIcon(v.sort_order)}</span>
-                                  {v.label}
-                                  <span className="text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity">✏️</span>
-                                </button>
-                              )}
-                            </td>
-                            <td className="py-2.5 px-4 text-stone-500 text-xs">
-                              {(() => {
-                                const slotKey = `${archValue}_${v.sort_order}`;
-                                if (editingSlotKey === slotKey) {
-                                  return (
-                                    <div className="flex items-center gap-1.5">
-                                      <input value={slotNameValue}
-                                        onChange={e => setSlotNameValue(e.target.value)}
-                                        className="border border-stone-300 rounded px-2 py-0.5 text-xs w-28"
-                                        autoFocus />
-                                      <button onClick={() => handleSlotNameSave(archValue, v.sort_order)} disabled={slotNameSaving}
-                                        className="px-2 py-0.5 rounded text-xs text-white disabled:opacity-50"
-                                        style={{ backgroundColor: '#b05642' }}>
-                                        {slotNameSaving ? '…' : 'Save'}
-                                      </button>
-                                      <button onClick={() => setEditingSlotKey(null)} className="text-xs text-stone-400 hover:text-stone-600">Cancel</button>
-                                      {slotNameErr && <span className="text-xs text-red-500">{slotNameErr}</span>}
-                                    </div>
-                                  );
-                                }
-                                if (alias === '—') return <span className="text-xs text-stone-200">—</span>;
-                                return (
-                                  <button
-                                    onClick={() => { setEditingSlotKey(slotKey); setSlotNameValue(alias); setSlotNameErr(''); }}
-                                    className="flex items-center gap-1.5 group text-xs hover:underline"
-                                    title="Click to rename this slot"
-                                  >
-                                    {alias}
-                                    <span className="text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity">✏️</span>
-                                  </button>
-                                );
-                              })()}
-                            </td>
-                            <td className="py-2.5 px-4">
-                              {pathCoffees.length > 0
-                                ? <div className="space-y-0.5">{pathCoffees.map(c => <CoffeeChip key={c.id} coffee={c} />)}</div>
-                                : <span className="text-stone-200 text-xs">—</span>}
-                            </td>
-                            <td className="py-2.5 px-4">
-                              {tcrCoffees.length > 0
-                                ? <div className="space-y-0.5">{tcrCoffees.map(c => <CoffeeChip key={c.id} coffee={c} />)}</div>
-                                : <span className="text-stone-200 text-xs">—</span>}
-                            </td>
-                          </tr>
-                          {editingHere && (
-                            <tr key={`edit-${v.id}`} className="border-b border-stone-200">
-                              <td colSpan={4} className="p-0">
-                                <EditForm coffeeId={assigningId!} />
-                              </td>
-                            </tr>
-                          )}
-                        </>
-                      );
-                    })}
-
-                    {/* Coffees with this archetype but no dial position */}
-                    {(() => {
-                      const noPos = archCoffees.filter(c => !c.dial_position_sort);
-                      if (noPos.length === 0) return null;
-                      const editingHere = noPos.some(c => c.id === assigningId);
-                      return (
-                        <>
-                          <tr key="no-pos" className="border-b border-stone-50 bg-amber-50/40">
-                            <td className="py-2.5 px-4 text-xs text-amber-400">— no position</td>
-                            <td className="py-2.5 px-4 text-stone-200 text-xs">—</td>
-                            <td className="py-2.5 px-4" colSpan={2}>
-                              <div className="flex flex-wrap gap-x-4 gap-y-0.5">
-                                {noPos.map(c => <CoffeeChip key={c.id} coffee={c} />)}
-                              </div>
-                            </td>
-                          </tr>
-                          {editingHere && (
-                            <tr key="edit-no-pos" className="border-b border-stone-200">
-                              <td colSpan={4} className="p-0">
-                                <EditForm coffeeId={assigningId!} />
-                              </td>
-                            </tr>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        })}
+        {archetypeOptions.filter(a => a.is_archetype).map(a => renderArchetypeSection(a.value, a.label))}
 
         {/* ── Unplaced (no archetype) ─────────────────────────────────────── */}
         {unplaced.length > 0 && (
@@ -1155,6 +1161,14 @@ export default function AdminCoffees() {
             </button>
             {categoryCreateErr && <span className="text-xs text-red-500">{categoryCreateErr}</span>}
           </div>
+        </div>
+
+        {/* Categories that still carry their own dial position/alias system (today just
+            'experimental' — Kopi Safari's legacy position + slot name) get their own
+            table here, same layout as an Archetypes table, so it's clear this category
+            is treated specially rather than being a plain informational tag. */}
+        <div className="space-y-10 mt-6">
+          {archetypeOptions.filter(a => !a.is_archetype).map(a => renderArchetypeSection(a.value, a.label))}
         </div>
       </div>
     </div>
