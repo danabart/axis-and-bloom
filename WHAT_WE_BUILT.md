@@ -2226,6 +2226,8 @@ Confirmed with Dana that the archetype → position → alias/slot → priority-
 
 **Follow-up, same day: dial position description made editable.** `dial_position_vocabulary.description` has existed since the original Bloom Dial build but was never populated, returned by any GET route, or exposed anywhere in the admin UI — only `label` (e.g. "Classic") was ever shown. `GET /api/admin/dial/vocabulary` now also selects it; new `PATCH /api/admin/dial/vocabulary/:id` updates it. The "Position" column in the Coffees archetype matrix is now click-to-edit for the description (same interaction as the Slot Name column: click → textarea + Save/Cancel, pencil-icon affordance on hover), showing "Add description" in muted italic when empty. Verified against production Cloud SQL: read the real Chocolate & Nutty / Classic row (`description` was `null`), wrote a test value, confirmed it persisted, restored the original `null`, confirmed the restore.
 
+**Correction, same day: "edit the position" meant the name itself, not the description.** `PATCH /api/admin/dial/vocabulary/:id` extended to accept `label` alongside `description` as an independent partial update (renaming one never touches the other). The position name in the "Position" column (e.g. "Classic") is now click-to-edit the same way — input + Save/Cancel, pencil-icon affordance. The description control from the entry above is unaffected and stays in place alongside it. Verified against production Cloud SQL: wrote a test label to the real Chocolate & Nutty / Classic row, confirmed the partial-update query left `description` untouched, restored the original label, confirmed the restore.
+
 ---
 
 ## What's Still To Do
