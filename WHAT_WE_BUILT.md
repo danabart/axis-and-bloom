@@ -2224,6 +2224,8 @@ Confirmed with Dana that the archetype → position → alias/slot → priority-
 
 **Follow-up, same day: rank badge made visible in the matrix, not just on click.** The `coffee_alias.priority` ranking (1st/2nd choice — the same one `resolveBlendForSlot` walks in order) was only visible after clicking a coffee to open its `EditForm`. `CoffeeChip` (used in every Path/Temecula matrix cell in `AdminCoffees.tsx`) now shows a small inline badge next to the coffee name — same visual convention as the `EditForm`'s rank badge (priority 1 = filled brand color, priority 2+ = outlined), read-only in this view. For the Chocolate & Nutty / Classic slot, this now shows "1st" next to Noam Blend and "2nd" next to Brazil Santos directly in the table, no click required.
 
+**Follow-up, same day: dial position description made editable.** `dial_position_vocabulary.description` has existed since the original Bloom Dial build but was never populated, returned by any GET route, or exposed anywhere in the admin UI — only `label` (e.g. "Classic") was ever shown. `GET /api/admin/dial/vocabulary` now also selects it; new `PATCH /api/admin/dial/vocabulary/:id` updates it. The "Position" column in the Coffees archetype matrix is now click-to-edit for the description (same interaction as the Slot Name column: click → textarea + Save/Cancel, pencil-icon affordance on hover), showing "Add description" in muted italic when empty. Verified against production Cloud SQL: read the real Chocolate & Nutty / Classic row (`description` was `null`), wrote a test value, confirmed it persisted, restored the original `null`, confirmed the restore.
+
 ---
 
 ## What's Still To Do
