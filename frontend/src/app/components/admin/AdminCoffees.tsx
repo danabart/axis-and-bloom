@@ -59,6 +59,24 @@ interface AliasRow {
 
 interface RoasterOption { id: string; name: string; }
 
+interface CategoryOption {
+  id: number;
+  code: string;
+  label: string;
+  sort_order: number;
+  is_active: boolean;
+  is_hoppable: boolean;
+}
+
+interface CoffeeCategoryRow {
+  id: number;
+  coffee_id: number;
+  category_id: number;
+  coffee_name: string;
+  category_code: string;
+  category_label: string;
+}
+
 const ARCHETYPE_OPTIONS = [
   { value: 'chocolate_nutty', label: 'Chocolate & Nutty' },
   { value: 'balanced_sweet',  label: 'Balanced & Sweet'  },
@@ -129,7 +147,17 @@ export default function AdminCoffees() {
   const [vocab, setVocab]                   = useState<VocabOption[]>([]);
   const [aliases, setAliases]               = useState<AliasRow[]>([]);
   const [roasterOptions, setRoasterOptions] = useState<RoasterOption[]>([]);
+  const [categories, setCategories]                 = useState<CategoryOption[]>([]);
+  const [coffeeCategories, setCoffeeCategories]     = useState<CoffeeCategoryRow[]>([]);
   const [error, setError]                   = useState('');
+
+  // categories panel
+  const [showCategoriesPanel, setShowCategoriesPanel] = useState(false);
+  const [newCategoryLabel, setNewCategoryLabel]       = useState('');
+  const [categoryCreateSaving, setCategoryCreateSaving] = useState(false);
+  const [categoryCreateErr, setCategoryCreateErr]       = useState('');
+  const [togglingCategoryId, setTogglingCategoryId]     = useState<number | null>(null);
+  const [togglingCoffeeCategoryKey, setTogglingCoffeeCategoryKey] = useState<string | null>(null);
 
   const [showForm, setShowForm]   = useState(false);
   const [form, setForm]           = useState(EMPTY_FORM);
@@ -189,17 +217,21 @@ export default function AdminCoffees() {
 
   async function load() {
     try {
-      const [coffeeRes, vocabRes, aliasRes, roasterRes] = await Promise.all([
+      const [coffeeRes, vocabRes, aliasRes, roasterRes, categoryRes, coffeeCategoryRes] = await Promise.all([
         apiFetch('/api/admin/coffees'),
         apiFetch('/api/admin/dial/vocabulary'),
         apiFetch('/api/admin/coffee-alias'),
         apiFetch('/api/admin/roasters'),
+        apiFetch('/api/admin/categories'),
+        apiFetch('/api/admin/coffee-categories'),
       ]);
       setCoffees(await coffeeRes.json());
       setVocab(await vocabRes.json());
       setAliases(await aliasRes.json());
       const roasters = await roasterRes.json();
       if (Array.isArray(roasters)) setRoasterOptions(roasters.filter((r: { is_active: boolean }) => r.is_active));
+      setCategories(await categoryRes.json());
+      setCoffeeCategories(await coffeeCategoryRes.json());
     } catch { setError('Failed to load coffees'); }
   }
 
@@ -388,6 +420,54 @@ export default function AdminCoffees() {
     } finally { setVocabLabelSaving(false); }
   }
 
+  async function handleCreateCategory() {
+    if (!newCategoryLabel.trim()) { setCategoryCreateErr('Label is required'); return; }
+    const code = newCategoryLabel.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    if (!code) { setCategoryCreateErr('Label must contain at least one letter or number'); return; }
+    setCategoryCreateSaving(true); setCategoryCreateErr('');
+    try {
+      const res = await apiFetch('/api/admin/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, label: newCategoryLabel.trim() }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
+      setNewCategoryLabel(''); await load();
+    } catch (err: unknown) {
+      setCategoryCreateErr(err instanceof Error ? err.message : 'Failed');
+    } finally { setCategoryCreateSaving(false); }
+  }
+
+  async function handleToggleCategoryActive(cat: CategoryOption) {
+    setTogglingCategoryId(cat.id);
+    try {
+      await apiFetch(`/api/admin/categories/${cat.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !cat.is_active }),
+      });
+      await load();
+    } catch { /* non-critical */ } finally { setTogglingCategoryId(null); }
+  }
+
+  async function handleToggleCoffeeCategory(coffeeId: number, categoryId: number) {
+    const key = `${coffeeId}_${categoryId}`;
+    const existing = coffeeCategories.find(cc => cc.coffee_id === coffeeId && cc.category_id === categoryId);
+    setTogglingCoffeeCategoryKey(key);
+    try {
+      if (existing) {
+        await apiFetch(`/api/admin/coffee-categories/${existing.id}`, { method: 'DELETE' });
+      } else {
+        await apiFetch('/api/admin/coffee-categories', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ coffee_id: coffeeId, category_id: categoryId }),
+        });
+      }
+      await load();
+    } catch { /* non-critical */ } finally { setTogglingCoffeeCategoryKey(null); }
+  }
+
   function openAssign(coffee: Coffee) {
     setAssigningId(coffee.id);
     setArchForm({
@@ -414,6 +494,7 @@ export default function AdminCoffees() {
     const isMoving   = movingId === coffee.id;
     const isEditing  = assigningId === coffee.id;
     const alias      = aliases.find(a => a.coffee_id === coffee.id);
+    const coffeeCats = coffeeCategories.filter(cc => cc.coffee_id === coffee.id);
 
     return (
       <div className={`flex items-center gap-1 group py-0.5 ${isEditing ? 'opacity-60' : ''}`}>
@@ -429,6 +510,11 @@ export default function AdminCoffees() {
         >
           {coffee.name}
         </button>
+        {coffeeCats.map(cc => (
+          <span key={cc.id} className="px-1.5 py-0.5 rounded text-xs border border-stone-200 text-stone-400 bg-stone-50 leading-none">
+            {cc.category_label}
+          </span>
+        ))}
         {alias && (
           <span
             className={`px-1.5 py-0.5 rounded text-xs border leading-none ${
@@ -652,6 +738,25 @@ export default function AdminCoffees() {
             return null;
           })()}
         </div>
+        {/* per-coffee category tags — independent of archetype/position */}
+        {categories.some(c => c.is_active) && (
+          <div className="w-full flex items-center flex-wrap gap-3 pt-2 mt-1 border-t border-stone-200">
+            <span className="text-xs text-stone-400">Categories:</span>
+            {categories.filter(c => c.is_active).map(cat => {
+              const isAssigned = coffeeCategories.some(cc => cc.coffee_id === coffeeId && cc.category_id === cat.id);
+              const key = `${coffeeId}_${cat.id}`;
+              return (
+                <label key={cat.id} className="flex items-center gap-1.5 text-xs text-stone-600">
+                  <input type="checkbox" checked={isAssigned}
+                    disabled={togglingCoffeeCategoryKey === key}
+                    onChange={() => handleToggleCoffeeCategory(coffeeId, cat.id)}
+                    className="accent-stone-600" />
+                  {cat.label}
+                </label>
+              );
+            })}
+          </div>
+        )}
         <div className="flex gap-2">
           <button onClick={() => handleArchetypeAssign(coffeeId)} disabled={archSaving}
             className="px-4 py-1.5 rounded text-sm text-white disabled:opacity-50"
@@ -748,6 +853,54 @@ export default function AdminCoffees() {
           </div>
         </form>
       )}
+
+      {/* ── Categories panel — cross-cutting tags orthogonal to archetype ────── */}
+      <div className="mb-8 border border-stone-100 rounded-lg overflow-hidden">
+        <button
+          onClick={() => setShowCategoriesPanel(v => !v)}
+          className="w-full flex items-center justify-between px-4 py-2.5 bg-stone-50 text-xs text-stone-500 hover:bg-stone-100 transition-colors"
+        >
+          <span className="uppercase tracking-widest">Categories</span>
+          <span>{showCategoriesPanel ? '−' : '+'}</span>
+        </button>
+        {showCategoriesPanel && (
+          <div className="p-4 space-y-3">
+            <div className="flex flex-wrap gap-2">
+              {categories.map(cat => (
+                <button
+                  key={cat.id}
+                  onClick={() => handleToggleCategoryActive(cat)}
+                  disabled={togglingCategoryId === cat.id}
+                  className={`px-2.5 py-1 rounded-full border text-xs transition-colors disabled:opacity-40 ${
+                    cat.is_active
+                      ? 'bg-green-50 text-green-700 border-green-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200'
+                      : 'bg-stone-100 text-stone-400 border-stone-200 hover:bg-green-50 hover:text-green-700 hover:border-green-200'
+                  }`}
+                  title={cat.is_active ? 'Click to deactivate' : 'Click to reactivate'}
+                >
+                  {cat.label}
+                  {togglingCategoryId === cat.id ? ' …' : cat.is_active ? '' : ' (inactive)'}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-end gap-2">
+              <div>
+                <label className="block text-xs text-stone-400 mb-1">New category</label>
+                <input value={newCategoryLabel}
+                  onChange={e => setNewCategoryLabel(e.target.value)}
+                  className="border border-stone-300 rounded px-3 py-1.5 text-sm w-44"
+                  placeholder="e.g. Seasonal" />
+              </div>
+              <button onClick={handleCreateCategory} disabled={categoryCreateSaving}
+                className="px-3 py-1.5 rounded text-xs text-white disabled:opacity-50"
+                style={{ backgroundColor: '#b05642' }}>
+                {categoryCreateSaving ? 'Saving…' : '+ Add category'}
+              </button>
+              {categoryCreateErr && <span className="text-xs text-red-500">{categoryCreateErr}</span>}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* ── Archetype matrix ─────────────────────────────────────────────────── */}
       <div className="space-y-10">
@@ -933,7 +1086,16 @@ export default function AdminCoffees() {
                     return (
                       <>
                         <tr key={c.id} className="border-b border-stone-50 hover:bg-stone-50">
-                          <td className="py-2.5 px-4 text-stone-800">{c.name}</td>
+                          <td className="py-2.5 px-4 text-stone-800">
+                            <div className="flex items-center gap-1.5">
+                              {c.name}
+                              {coffeeCategories.filter(cc => cc.coffee_id === c.id).map(cc => (
+                                <span key={cc.id} className="px-1.5 py-0.5 rounded text-xs border border-stone-200 text-stone-400 bg-stone-50 leading-none">
+                                  {cc.category_label}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
                           <td className="py-2.5 px-4 text-stone-500 text-xs">{c.roaster ?? '—'}</td>
                           <td className="py-2.5 px-4 text-stone-500 text-xs">{c.origin ?? '—'}</td>
                           <td className="py-2.5 px-4 text-stone-500 text-xs">{processLabel} · {roastLabel}</td>

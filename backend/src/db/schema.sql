@@ -827,6 +827,12 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
+-- category_hop: a hop where one or both endpoints is a coffee_category rather than a
+-- specific coffee (e.g. "try something Experimental"). Fuzzier signal than a coffee-to-
+-- coffee hop — a category has no single dimension score — so it's excluded from the
+-- within_archetype/bridge_archetype archetype-consistency logic built for real coffees.
+ALTER TYPE hop_type_enum ADD VALUE IF NOT EXISTS 'category_hop';
+
 -- Coffee catalogue
 CREATE TABLE IF NOT EXISTS coffees (
   id                         SERIAL PRIMARY KEY,
@@ -1063,6 +1069,93 @@ CREATE TABLE IF NOT EXISTS dial_coffee_relationships (
   created_at       TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(from_coffee_id, to_coffee_id, dimension_id, direction)
 );
+
+-- Cross-cutting categories, orthogonal to archetype (e.g. 'experimental' is a category,
+-- not a sixth peer flavor family — see BLOOM_DIAL_ALLOCATION_SPEC.md §6). Admin-extensible
+-- — seeded with the 4 known today, more can be added later without a schema change.
+-- is_hoppable: whether a coffee tagged with this category can be a hop endpoint. Only
+-- 'experimental' is hoppable today — Decaf/Half-Caf/Flavored are format constraints, not
+-- flavor destinations, so "try this next" doesn't apply to them. Same pattern as
+-- dial_archetype_config.is_archetype — a flag on the data, not a hardcoded string check.
+CREATE TABLE IF NOT EXISTS coffee_category (
+  id          SERIAL PRIMARY KEY,
+  code        TEXT UNIQUE NOT NULL,
+  label       TEXT NOT NULL,
+  description TEXT,
+  sort_order  INT NOT NULL DEFAULT 0,
+  is_active   BOOLEAN NOT NULL DEFAULT true,
+  is_hoppable BOOLEAN NOT NULL DEFAULT false,
+  created_at  TIMESTAMPTZ DEFAULT now()
+);
+
+INSERT INTO coffee_category (code, label, sort_order, is_hoppable) VALUES
+  ('experimental', 'Experimental', 1, true),
+  ('decaf',        'Decaf',        2, false),
+  ('half_caf',     'Half-Caf',     3, false),
+  ('flavored',     'Flavored',     4, false)
+ON CONFLICT (code) DO NOTHING;
+
+-- A coffee can carry more than one category (e.g. a seasonal decaf); a category obviously
+-- applies to many coffees. Independent of archetype_assignments/dial_archetype_positions —
+-- no FK relationship between them, a coffee can have a category with no archetype yet, or
+-- vice versa (both are normal states — see the existing "Unplaced" section on Coffees).
+CREATE TABLE IF NOT EXISTS coffee_category_assignment (
+  id          SERIAL PRIMARY KEY,
+  coffee_id   INT REFERENCES coffees(id) ON DELETE CASCADE,
+  category_id INT REFERENCES coffee_category(id) ON DELETE CASCADE,
+  assigned_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (coffee_id, category_id)
+);
+
+-- Mechanical category-tag backfill for coffees we already know by name — not a cupping
+-- judgment. Their actual archetype (a real tasting decision) is a separate, un-scripted
+-- to-do; these rows only tag the category, they don't touch archetype_assignments.
+INSERT INTO coffee_category_assignment (coffee_id, category_id)
+SELECT (SELECT MIN(id) FROM coffees WHERE name = 'Kopi Safari' AND roaster = 'Temecula Coffee Roasters'),
+       (SELECT id FROM coffee_category WHERE code = 'experimental')
+WHERE (SELECT MIN(id) FROM coffees WHERE name = 'Kopi Safari' AND roaster = 'Temecula Coffee Roasters') IS NOT NULL
+ON CONFLICT (coffee_id, category_id) DO NOTHING;
+
+INSERT INTO coffee_category_assignment (coffee_id, category_id)
+SELECT (SELECT MIN(id) FROM coffees WHERE name = 'Decaf' AND roaster = 'Path Coffee Roasters'),
+       (SELECT id FROM coffee_category WHERE code = 'decaf')
+WHERE (SELECT MIN(id) FROM coffees WHERE name = 'Decaf' AND roaster = 'Path Coffee Roasters') IS NOT NULL
+ON CONFLICT (coffee_id, category_id) DO NOTHING;
+
+INSERT INTO coffee_category_assignment (coffee_id, category_id)
+SELECT (SELECT MIN(id) FROM coffees WHERE name = 'Sleepwalker Half-Caf' AND roaster = 'Path Coffee Roasters'),
+       (SELECT id FROM coffee_category WHERE code = 'half_caf')
+WHERE (SELECT MIN(id) FROM coffees WHERE name = 'Sleepwalker Half-Caf' AND roaster = 'Path Coffee Roasters') IS NOT NULL
+ON CONFLICT (coffee_id, category_id) DO NOTHING;
+
+INSERT INTO coffee_category_assignment (coffee_id, category_id)
+SELECT (SELECT MIN(id) FROM coffees WHERE name = v.coffee_name AND roaster = 'Path Coffee Roasters'),
+       (SELECT id FROM coffee_category WHERE code = 'flavored')
+FROM (VALUES ('Vanilla'), ('Hazelnut'), ('Chocolate')) AS v(coffee_name)
+WHERE (SELECT MIN(id) FROM coffees WHERE name = v.coffee_name AND roaster = 'Path Coffee Roasters') IS NOT NULL
+ON CONFLICT (coffee_id, category_id) DO NOTHING;
+
+-- Category-endpoint hops: from_category_id/to_category_id let either side of a
+-- dial_coffee_relationships row be a coffee_category instead of a specific coffee.
+-- Exactly one of {coffee_id, category_id} must be set per side. Category-hop creation
+-- stays SQL-only for now (no admin UI/API) — see CLAUDE_CODE_PROMPT_BLOOM_DIAL_CATEGORIES_DB.md.
+-- The dial_coffee_relationships UNIQUE constraint won't meaningfully dedupe
+-- category-endpoint hops (NULL <> NULL in Postgres uniqueness — same caveat already
+-- true of coffee_alias's NULL-archetype rows); acceptable for now.
+ALTER TABLE dial_coffee_relationships ADD COLUMN IF NOT EXISTS from_category_id INT REFERENCES coffee_category(id);
+ALTER TABLE dial_coffee_relationships ADD COLUMN IF NOT EXISTS to_category_id   INT REFERENCES coffee_category(id);
+
+DO $$ BEGIN
+  ALTER TABLE dial_coffee_relationships ADD CONSTRAINT chk_from_endpoint
+    CHECK ((from_coffee_id IS NOT NULL) <> (from_category_id IS NOT NULL));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE dial_coffee_relationships ADD CONSTRAINT chk_to_endpoint
+    CHECK ((to_coffee_id IS NOT NULL) <> (to_category_id IS NOT NULL));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Maps Axis & Bloom platform slot names to the coffees that fill them.
 -- Multiple coffees (from different roasters) can share a platform_name slot.

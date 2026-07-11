@@ -291,6 +291,10 @@ router.post('/coffees/:id/archetype', async (req, res) => {
   if (!archetype || !confidence) {
     res.status(400).json({ error: 'archetype and confidence are required' }); return;
   }
+  if (archetype === 'experimental') {
+    res.status(400).json({ error: "'experimental' is a category, not an archetype — tag the coffee under Categories instead." });
+    return;
+  }
   try {
     await db.query('BEGIN');
 
@@ -600,6 +604,136 @@ router.patch('/coffee-alias/:id', async (req, res) => {
   } catch (err) {
     console.error('[admin/coffee-alias PATCH]', err);
     res.status(500).json({ error: 'Failed to update alias' });
+  }
+});
+
+// ── CATEGORIES ─────────────────────────────────────────────────────────────────
+// Cross-cutting, orthogonal to archetype (e.g. Decaf, Half-Caf, Experimental) — see
+// BLOOM_DIAL_ALLOCATION_SPEC.md §6. Managed from the Coffees page, same as archetype/
+// alias. is_hoppable is never accepted here — it's a deliberate, manual DB decision.
+
+// GET /api/admin/categories — all categories (including inactive, so an admin can
+// reactivate one), ordered by sort_order
+router.get('/categories', async (_req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT id, code, label, description, sort_order, is_active, is_hoppable
+       FROM coffee_category ORDER BY sort_order`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[admin/categories GET]', err);
+    res.status(500).json({ error: 'Failed to fetch categories' });
+  }
+});
+
+// POST /api/admin/categories — create a new category. is_hoppable always defaults
+// false here — opening a category to hop creation is a manual DB decision, not
+// something exposed to this endpoint.
+router.post('/categories', async (req, res) => {
+  const { code, label } = req.body;
+  if (!code || !label) {
+    res.status(400).json({ error: 'code and label are required' }); return;
+  }
+  try {
+    const result = await db.query(
+      `INSERT INTO coffee_category (code, label, sort_order)
+       VALUES ($1, $2, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM coffee_category))
+       RETURNING id, code, label, description, sort_order, is_active, is_hoppable`,
+      [code, label]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('[admin/categories POST]', err);
+    res.status(500).json({ error: 'Failed to create category (code may already exist)' });
+  }
+});
+
+// PATCH /api/admin/categories/:id — rename and/or toggle active (partial update)
+router.patch('/categories/:id', async (req, res) => {
+  const { id } = req.params;
+  const { label, is_active } = req.body;
+  if (label !== undefined && (typeof label !== 'string' || !label.trim())) {
+    res.status(400).json({ error: 'label must be a non-empty string' }); return;
+  }
+  if (is_active !== undefined && typeof is_active !== 'boolean') {
+    res.status(400).json({ error: 'is_active must be a boolean' }); return;
+  }
+  if (label === undefined && is_active === undefined) {
+    res.status(400).json({ error: 'label or is_active is required' }); return;
+  }
+  try {
+    const result = await db.query(
+      `UPDATE coffee_category
+       SET label     = COALESCE($1::text, label),
+           is_active = COALESCE($2::boolean, is_active)
+       WHERE id = $3
+       RETURNING id, code, label, description, sort_order, is_active, is_hoppable`,
+      [label?.trim() ?? null, is_active ?? null, id]
+    );
+    if (result.rowCount === 0) { res.status(404).json({ error: 'Category not found' }); return; }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[admin/categories PATCH]', err);
+    res.status(500).json({ error: 'Failed to update category' });
+  }
+});
+
+// GET /api/admin/coffee-categories — all category assignments, joined with coffee
+// name and category label/code (mirrors GET /api/admin/coffee-alias's shape)
+router.get('/coffee-categories', async (_req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT cca.id, cca.coffee_id, cca.category_id,
+              c.name AS coffee_name, cc.code AS category_code, cc.label AS category_label
+       FROM coffee_category_assignment cca
+       JOIN coffees c ON c.id = cca.coffee_id
+       JOIN coffee_category cc ON cc.id = cca.category_id
+       ORDER BY c.name, cc.sort_order`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[admin/coffee-categories GET]', err);
+    res.status(500).json({ error: 'Failed to fetch coffee categories' });
+  }
+});
+
+// POST /api/admin/coffee-categories — tag a coffee with a category
+router.post('/coffee-categories', async (req, res) => {
+  const { coffee_id, category_id } = req.body;
+  if (!coffee_id || !category_id) {
+    res.status(400).json({ error: 'coffee_id and category_id are required' }); return;
+  }
+  try {
+    const result = await db.query(
+      `INSERT INTO coffee_category_assignment (coffee_id, category_id)
+       VALUES ($1, $2)
+       ON CONFLICT (coffee_id, category_id) DO NOTHING
+       RETURNING id, coffee_id, category_id`,
+      [coffee_id, category_id]
+    );
+    if (result.rowCount === 0) {
+      res.status(409).json({ error: 'Coffee already tagged with this category' }); return;
+    }
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('[admin/coffee-categories POST]', err);
+    res.status(500).json({ error: 'Failed to tag coffee' });
+  }
+});
+
+// DELETE /api/admin/coffee-categories/:id — remove one category assignment
+router.delete('/coffee-categories/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await db.query(
+      `DELETE FROM coffee_category_assignment WHERE id = $1 RETURNING id`, [id]
+    );
+    if (result.rowCount === 0) { res.status(404).json({ error: 'Assignment not found' }); return; }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[admin/coffee-categories DELETE]', err);
+    res.status(500).json({ error: 'Failed to remove category tag' });
   }
 });
 
