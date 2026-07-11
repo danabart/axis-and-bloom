@@ -967,7 +967,7 @@ router.get('/dial/consensus/:coffeeId', async (req, res) => {
 router.get('/dial/vocabulary', async (_req, res) => {
   try {
     const result = await db.query(`
-      SELECT dpv.id, dpv.archetype, dpv.sort_order, dpv.label, dpv.description, dpv.dimension_id,
+      SELECT dpv.id, dpv.archetype, dpv.sort_order, dpv.label, dpv.dimension_id,
              cd.name AS dimension
       FROM dial_position_vocabulary dpv
       JOIN coffee_dimensions cd ON cd.id = dpv.dimension_id
@@ -980,28 +980,18 @@ router.get('/dial/vocabulary', async (_req, res) => {
   }
 });
 
-// PATCH /api/admin/dial/vocabulary/:id — rename a dial position's label and/or
-// update its description (partial update — send whichever fields are present).
+// PATCH /api/admin/dial/vocabulary/:id — rename a dial position's label
 router.patch('/dial/vocabulary/:id', async (req, res) => {
   const { id } = req.params;
-  const { label, description } = req.body;
-  if (label !== undefined && (typeof label !== 'string' || !label.trim())) {
+  const { label } = req.body;
+  if (typeof label !== 'string' || !label.trim()) {
     res.status(400).json({ error: 'label must be a non-empty string' }); return;
-  }
-  if (description !== undefined && typeof description !== 'string') {
-    res.status(400).json({ error: 'description must be a string' }); return;
-  }
-  if (label === undefined && description === undefined) {
-    res.status(400).json({ error: 'label or description is required' }); return;
   }
   try {
     const result = await db.query(
-      `UPDATE dial_position_vocabulary
-       SET label       = COALESCE($1::text, label),
-           description = COALESCE($2::text, description)
-       WHERE id = $3
-       RETURNING id, archetype, sort_order, label, description, dimension_id`,
-      [label?.trim() ?? null, description ?? null, id]
+      `UPDATE dial_position_vocabulary SET label = $1 WHERE id = $2
+       RETURNING id, archetype, sort_order, label, dimension_id`,
+      [label.trim(), id]
     );
     if (result.rowCount === 0) { res.status(404).json({ error: 'Vocabulary entry not found' }); return; }
     res.json(result.rows[0]);
