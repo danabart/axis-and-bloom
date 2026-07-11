@@ -2260,6 +2260,8 @@ Post-deployment feedback on #78: `AdminCoffees.tsx`'s archetype-assignment dropd
 
 **Verified against production Cloud SQL:** the `/archetypes` query returns all 6 archetypes with correct labels and `is_archetype` flags (`experimental` correctly `false`, the other 5 `true`); category delete cascades to assignments correctly and is correctly blocked (`23503`) when a hop references the category — both tested inside a rolled-back transaction, confirmed no leftover data.
 
+**Reverted, next day: `experimental` restored as an assignable archetype option.** The `POST /coffees/:id/archetype` guard added in #78 turned out to be a real regression, not a cleanup — the "Experimental" table under Categories (added in the follow-up above) is still driven by `archetype_assignments`/`dial_archetype_positions`, the exact same mechanism as a real archetype, and it never got its own placement path through the `coffee_category` system. Blocking `archetype: 'experimental'` left no way to place any coffee into that table going forward — only the legacy Kopi Safari row could ever appear there. Backend guard removed; frontend `assignableArchetypeOptions` is the full archetype list again. The Categories-vs-Archetypes section split (`is_archetype`, `renderArchetypeSection`) is unaffected — `experimental` still renders under Categories, only the ability to *assign* it is restored.
+
 ---
 
 ## What's Still To Do
