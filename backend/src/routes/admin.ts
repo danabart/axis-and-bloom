@@ -637,6 +637,49 @@ router.patch('/coffee-alias/:id', async (req, res) => {
   }
 });
 
+// ── GET /api/admin/slot-prices ────────────────────────────────────────────────
+// All explicitly-set slot prices. Slots with no row here fall back to the
+// $38.00/12oz, $199.00/5lb defaults applied client-side (AdminCoffees.tsx) and
+// at the public-read query level (GET /api/coffees/archetypes) — this endpoint
+// only returns rows that actually exist in dial_slot_price.
+router.get('/slot-prices', async (_req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT archetype, dial_sort_order, weight_oz, retail_price_cents
+       FROM dial_slot_price
+       ORDER BY archetype, dial_sort_order, weight_oz`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[admin/slot-prices GET]', err);
+    res.status(500).json({ error: 'Failed to fetch slot prices' });
+  }
+});
+
+// ── PATCH /api/admin/slot-prices — upsert one slot+weight price ──────────────
+router.patch('/slot-prices', async (req, res) => {
+  const { archetype, dialSortOrder, weightOz, retailPriceCents } = req.body;
+  if (!archetype || !Number.isInteger(dialSortOrder) || !Number.isFinite(weightOz)
+    || !Number.isInteger(retailPriceCents) || retailPriceCents < 0) {
+    res.status(400).json({ error: 'archetype, dialSortOrder, weightOz, and a non-negative integer retailPriceCents are required' });
+    return;
+  }
+  try {
+    const result = await db.query(
+      `INSERT INTO dial_slot_price (archetype, dial_sort_order, weight_oz, retail_price_cents, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (archetype, dial_sort_order, weight_oz)
+       DO UPDATE SET retail_price_cents = $4, updated_at = NOW()
+       RETURNING archetype, dial_sort_order, weight_oz, retail_price_cents`,
+      [archetype, dialSortOrder, weightOz, retailPriceCents]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[admin/slot-prices PATCH]', err);
+    res.status(500).json({ error: 'Failed to update slot price' });
+  }
+});
+
 // ── CATEGORIES ─────────────────────────────────────────────────────────────────
 // Cross-cutting, orthogonal to archetype (e.g. Decaf, Half-Caf, Experimental) — see
 // BLOOM_DIAL_ALLOCATION_SPEC.md §6. Managed from the Coffees page, same as archetype/

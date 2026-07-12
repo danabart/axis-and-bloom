@@ -57,6 +57,13 @@ interface AliasRow {
   roaster: string;
 }
 
+interface SlotPriceRow {
+  archetype: string;
+  dial_sort_order: number;
+  weight_oz: number;
+  retail_price_cents: number;
+}
+
 interface RoasterOption { id: string; name: string; }
 
 interface CategoryOption {
@@ -92,6 +99,11 @@ const CONFIDENCE_OPTIONS = [
 
 const PATH   = 'Path Coffee Roasters';
 const TCR    = 'Temecula Coffee Roasters';
+
+// Applied client-side whenever dial_slot_price has no row yet for a (archetype,
+// dial_sort_order, weight_oz) — mirrors the same defaults GET /api/coffees/archetypes
+// applies for the public read. See The Bloom Part 1 Phase 0.
+const DEFAULT_PRICE_CENTS: Record<12 | 80, number> = { 12: 3800, 80: 19900 };
 
 const EMPTY_FORM = {
   name: '', roaster: '', origin: '',
@@ -140,6 +152,7 @@ export default function AdminCoffees() {
   const [coffees, setCoffees]               = useState<Coffee[]>([]);
   const [vocab, setVocab]                   = useState<VocabOption[]>([]);
   const [aliases, setAliases]               = useState<AliasRow[]>([]);
+  const [slotPrices, setSlotPrices]         = useState<SlotPriceRow[]>([]);
   const [roasterOptions, setRoasterOptions] = useState<RoasterOption[]>([]);
   const [categories, setCategories]                 = useState<CategoryOption[]>([]);
   const [coffeeCategories, setCoffeeCategories]     = useState<CoffeeCategoryRow[]>([]);
@@ -195,6 +208,14 @@ export default function AdminCoffees() {
   const [slotNameSaving, setSlotNameSaving]   = useState(false);
   const [slotNameErr, setSlotNameErr]         = useState('');
 
+  // slot price editing (The Bloom Part 1 Phase 0) — 12oz + 5lb, upserted independently
+  // via PATCH /admin/slot-prices, one request per weight
+  const [editingPriceKey, setEditingPriceKey] = useState<string | null>(null);
+  const [price12Value, setPrice12Value]       = useState('');
+  const [price80Value, setPrice80Value]       = useState('');
+  const [priceSaving, setPriceSaving]         = useState(false);
+  const [priceErr, setPriceErr]               = useState('');
+
   // position name (label) — the "Position" column's title itself, e.g. "Classic",
   // edits dial_position_vocabulary.label via the same PATCH /dial/vocabulary/:id
   const [editingVocabLabelId, setEditingVocabLabelId] = useState<number | null>(null);
@@ -212,7 +233,7 @@ export default function AdminCoffees() {
 
   async function load() {
     try {
-      const [coffeeRes, vocabRes, aliasRes, roasterRes, categoryRes, coffeeCategoryRes, archetypeRes] = await Promise.all([
+      const [coffeeRes, vocabRes, aliasRes, roasterRes, categoryRes, coffeeCategoryRes, archetypeRes, slotPriceRes] = await Promise.all([
         apiFetch('/api/admin/coffees'),
         apiFetch('/api/admin/dial/vocabulary'),
         apiFetch('/api/admin/coffee-alias'),
@@ -220,6 +241,7 @@ export default function AdminCoffees() {
         apiFetch('/api/admin/categories'),
         apiFetch('/api/admin/coffee-categories'),
         apiFetch('/api/admin/archetypes'),
+        apiFetch('/api/admin/slot-prices'),
       ]);
       setCoffees(await coffeeRes.json());
       setVocab(await vocabRes.json());
@@ -229,6 +251,7 @@ export default function AdminCoffees() {
       setCategories(await categoryRes.json());
       setCoffeeCategories(await coffeeCategoryRes.json());
       setArchetypeOptions(await archetypeRes.json());
+      setSlotPrices(await slotPriceRes.json());
     } catch { setError('Failed to load coffees'); }
   }
 
@@ -239,6 +262,12 @@ export default function AdminCoffees() {
   for (const a of aliases) {
     const key = `${a.archetype ?? 'null'}_${a.dial_sort_order ?? 'null'}`;
     if (!aliasMap[key]) aliasMap[key] = a.platform_name;
+  }
+
+  // ── slot price lookup: `archetype_sortorder_weightOz` → retail_price_cents ──
+  const slotPriceMap: Record<string, number> = {};
+  for (const p of slotPrices) {
+    slotPriceMap[`${p.archetype}_${p.dial_sort_order}_${p.weight_oz}`] = p.retail_price_cents;
   }
 
   // ── archetype lookups, DB-driven — see GET /api/admin/archetypes ──────────
@@ -408,6 +437,35 @@ export default function AdminCoffees() {
     } catch (err: unknown) {
       setSlotNameErr(err instanceof Error ? err.message : 'Failed');
     } finally { setSlotNameSaving(false); }
+  }
+
+  async function handleSlotPriceSave(archetype: string, sortOrder: number) {
+    const cents12 = Math.round(parseFloat(price12Value) * 100);
+    const cents80 = Math.round(parseFloat(price80Value) * 100);
+    if (!Number.isFinite(cents12) || cents12 < 0 || !Number.isFinite(cents80) || cents80 < 0) {
+      setPriceErr('Enter valid non-negative prices for both weights'); return;
+    }
+    setPriceSaving(true); setPriceErr('');
+    try {
+      const results = await Promise.all([
+        apiFetch('/api/admin/slot-prices', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ archetype, dialSortOrder: sortOrder, weightOz: 12, retailPriceCents: cents12 }),
+        }),
+        apiFetch('/api/admin/slot-prices', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ archetype, dialSortOrder: sortOrder, weightOz: 80, retailPriceCents: cents80 }),
+        }),
+      ]);
+      for (const res of results) {
+        if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
+      }
+      setEditingPriceKey(null); await load();
+    } catch (err: unknown) {
+      setPriceErr(err instanceof Error ? err.message : 'Failed');
+    } finally { setPriceSaving(false); }
   }
 
   async function handleVocabLabelSave(vocabId: number) {
@@ -819,6 +877,7 @@ export default function AdminCoffees() {
               <tr className="border-b border-stone-100 bg-stone-50 text-xs text-stone-400 uppercase tracking-wide">
                 <th className="py-2 px-4 text-left w-32">Position</th>
                 <th className="py-2 px-4 text-left w-40">Slot Name</th>
+                <th className="py-2 px-4 text-left w-36">Price (12oz / 5lb)</th>
                 <th className="py-2 px-4 text-left">Path Coffee Roasters</th>
                 <th className="py-2 px-4 text-left">Temecula Coffee Roasters</th>
               </tr>
@@ -902,6 +961,54 @@ export default function AdminCoffees() {
                           );
                         })()}
                       </td>
+                      <td className="py-2.5 px-4 text-stone-500 text-xs">
+                        {(() => {
+                          const priceKey = `${archValue}_${v.sort_order}`;
+                          const cents12 = slotPriceMap[`${archValue}_${v.sort_order}_12`] ?? DEFAULT_PRICE_CENTS[12];
+                          const cents80 = slotPriceMap[`${archValue}_${v.sort_order}_80`] ?? DEFAULT_PRICE_CENTS[80];
+                          if (editingPriceKey === priceKey) {
+                            return (
+                              <div className="flex flex-col gap-1">
+                                <div className="flex items-center gap-1">
+                                  <span className="text-stone-300 w-9">12oz</span>
+                                  <input value={price12Value} onChange={e => setPrice12Value(e.target.value)}
+                                    className="border border-stone-300 rounded px-1.5 py-0.5 text-xs w-16" autoFocus />
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <span className="text-stone-300 w-9">5lb</span>
+                                  <input value={price80Value} onChange={e => setPrice80Value(e.target.value)}
+                                    className="border border-stone-300 rounded px-1.5 py-0.5 text-xs w-16" />
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <button onClick={() => handleSlotPriceSave(archValue, v.sort_order)} disabled={priceSaving}
+                                    className="px-2 py-0.5 rounded text-xs text-white disabled:opacity-50"
+                                    style={{ backgroundColor: '#b05642' }}>
+                                    {priceSaving ? '…' : 'Save'}
+                                  </button>
+                                  <button onClick={() => setEditingPriceKey(null)} className="text-xs text-stone-400 hover:text-stone-600">Cancel</button>
+                                </div>
+                                {priceErr && <span className="text-xs text-red-500">{priceErr}</span>}
+                              </div>
+                            );
+                          }
+                          if (alias === '—') return <span className="text-xs text-stone-200">—</span>;
+                          return (
+                            <button
+                              onClick={() => {
+                                setEditingPriceKey(priceKey);
+                                setPrice12Value((cents12 / 100).toFixed(2));
+                                setPrice80Value((cents80 / 100).toFixed(2));
+                                setPriceErr('');
+                              }}
+                              className="flex items-center gap-1.5 group text-xs hover:underline whitespace-nowrap"
+                              title="Click to edit 12oz / 5lb price"
+                            >
+                              ${(cents12 / 100).toFixed(2)} / ${(cents80 / 100).toFixed(2)}
+                              <span className="text-stone-300 opacity-0 group-hover:opacity-100 transition-opacity">✏️</span>
+                            </button>
+                          );
+                        })()}
+                      </td>
                       <td className="py-2.5 px-4">
                         {pathCoffees.length > 0
                           ? <div className="space-y-0.5">{pathCoffees.map(c => <CoffeeChip key={c.id} coffee={c} />)}</div>
@@ -915,7 +1022,7 @@ export default function AdminCoffees() {
                     </tr>
                     {editingHere && (
                       <tr key={`edit-${v.id}`} className="border-b border-stone-200">
-                        <td colSpan={4} className="p-0">
+                        <td colSpan={5} className="p-0">
                           <EditForm coffeeId={assigningId!} />
                         </td>
                       </tr>
@@ -934,6 +1041,7 @@ export default function AdminCoffees() {
                     <tr key="no-pos" className="border-b border-stone-50 bg-amber-50/40">
                       <td className="py-2.5 px-4 text-xs text-amber-400">— no position</td>
                       <td className="py-2.5 px-4 text-stone-200 text-xs">—</td>
+                      <td className="py-2.5 px-4 text-stone-200 text-xs">—</td>
                       <td className="py-2.5 px-4" colSpan={2}>
                         <div className="flex flex-wrap gap-x-4 gap-y-0.5">
                           {noPos.map(c => <CoffeeChip key={c.id} coffee={c} />)}
@@ -942,7 +1050,7 @@ export default function AdminCoffees() {
                     </tr>
                     {editingHere && (
                       <tr key="edit-no-pos" className="border-b border-stone-200">
-                        <td colSpan={4} className="p-0">
+                        <td colSpan={5} className="p-0">
                           <EditForm coffeeId={assigningId!} />
                         </td>
                       </tr>

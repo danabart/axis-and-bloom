@@ -30,6 +30,28 @@ router.get('/resolve-blend', async (req, res) => {
   }
 });
 
+// GET /api/shop/slot-availability?archetype=&dialSortOrder=&weightOz= — public,
+// roaster-blind wrapper over resolveBlendForSlot for The Bloom (Part 1 Phase 1b).
+// Strips everything resolveBlendForSlot returns except a plain boolean — never
+// coffee_name/roaster/blend_id/skipped. Leave GET /resolve-blend above exactly
+// as it is; that's an existing internal diagnostic tool, not this public route.
+router.get('/slot-availability', async (req, res) => {
+  const archetype = req.query.archetype as string;
+  const dialSortOrder = Number(req.query.dialSortOrder);
+  const weightOz = Number(req.query.weightOz);
+  if (!archetype || !Number.isFinite(dialSortOrder) || !Number.isFinite(weightOz)) {
+    res.status(400).json({ error: 'archetype, dialSortOrder, and weightOz are required' }); return;
+  }
+  try {
+    const resolved = await resolveBlendForSlot(archetype, dialSortOrder, weightOz);
+    if (!resolved) { res.json({ available: false }); return; }
+    res.json({ available: true, weightOz });
+  } catch (err) {
+    console.error('[shop/slot-availability]', err);
+    res.status(500).json({ error: 'Failed to check slot availability' });
+  }
+});
+
 router.get('/products', async (_req, res) => {
   try {
     const products = await getProducts();

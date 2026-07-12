@@ -433,6 +433,11 @@ When a user returned to `/sommelier` and clicked "Resume conversation", the fron
 
 **Verified**: `CONVERSION` (confirmed archetype + zero orders) and the feature vector's `normalizedOrderCount` dimension now reflect real order counts post-S13-fix instead of always computing against 0.
 
+#### S37. New public hop-navigation endpoint reads the same `dial_coffee_relationships` graph Liam's RAG uses (2026-07-11)
+**Context**: not a Sommelier change — flagged here for continuity since it touches shared data. `WHAT_WE_BUILT.md` #80 (The Bloom Part 1 backend) added `GET /api/coffees/:coffeeId/hops`, a public, roaster-blind read over `dial_coffee_relationships` (`is_recommended = true` only, live-derives the target's current slot, drops inactive targets, capped at 3, confidence-ordered) for the new customer-facing Bloom page. This is a separate, additive read path — it does not modify `dial_coffee_relationships`, does not touch `sommelierRag.ts`'s own queries against the same table, and Liam's hop-graph RAG context is unaffected.
+
+**Why it's on Liam's radar**: `backend/src/features/ai_agent_liam/NOTE_FLAVOR_INTELLIGENCE_PAGE.md` (written the same session, ahead of the Bloom build) already flagged that a future enhanced `/coffees` "flavor intelligence" page is something Liam should eventually be able to point customers toward. The Bloom build is a different, more concrete instance of the same pattern: a public surface now exists over hop-graph data that used to be Liam-only. No Liam prompt/RAG changes were made — just worth knowing the hop graph now has a second consumer.
+
 #### S35. Task 6 — Liam voice reset (2026-07-04)
 Full execution of `SOMMELIER_TASK_6_VOICE.md`. Three files changed + live Firestore config patched.
 

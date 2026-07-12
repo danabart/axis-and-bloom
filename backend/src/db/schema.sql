@@ -1176,6 +1176,23 @@ CREATE TABLE IF NOT EXISTS coffee_alias (
   UNIQUE (archetype, dial_sort_order, coffee_id)
 );
 
+-- Retail price for a Bloom Dial slot (archetype + position), per weight. Not on
+-- coffee_alias (no weight dimension there) or roaster_blend (would let two roasters
+-- fulfilling the same slot show two different prices for the same weight, breaking
+-- the "customer buys a slot, not a roaster's coffee" abstraction) — see The Bloom
+-- Part 1 Phase 0. Named to group with the existing dial_* table family. Defaults
+-- applied at the query level, not here: $38.00/12oz, $199.00/5lb (80oz) when no row
+-- exists yet for that (archetype, dial_sort_order, weight_oz).
+CREATE TABLE IF NOT EXISTS dial_slot_price (
+  id                  SERIAL PRIMARY KEY,
+  archetype           archetype_enum NOT NULL,
+  dial_sort_order     INT NOT NULL,
+  weight_oz           NUMERIC NOT NULL,
+  retail_price_cents  INTEGER NOT NULL,
+  updated_at          TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (archetype, dial_sort_order, weight_oz)
+);
+
 -- ─────────────────────────────────────────────
 -- DIAL POSITION SIGNAL INFRASTRUCTURE (Phase 5 — dormant by default)
 -- Plumbing for future multi-source dial-position signals (cupping, flavor-wheel,

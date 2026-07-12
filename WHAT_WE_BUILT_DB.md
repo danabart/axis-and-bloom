@@ -8,7 +8,7 @@ Seed files (run manually): `backend/src/db/seeds/`
 
 ---
 
-## Database Schema (63 Tables)
+## Database Schema (64 Tables)
 
 The schema runs automatically on every backend startup (`CREATE TABLE IF NOT EXISTS` — fully idempotent, safe to run repeatedly).
 
@@ -105,6 +105,7 @@ No enforced sequence between stages — a user can land on any stage directly fr
 - `dial_position_signal` *(added #75, dormant)* — one row per source's opinion about a coffee's dial position (`cupping`, `roastery_wheel`, `client_wheel`, `sms_feedback`, `onsite_feedback`); superseded not deleted, same pattern as `archetype_assignments`. Only `cupping` is populated today, via `recordCuppingSignal()` called from `POST /api/admin/scores` after a merged-score save. Never auto-writes to `dial_archetype_positions`.
 - `cupping_note_dimension_weight` *(added #75, empty by design)* — table shape only for a future descriptor→dimension mapping (e.g. Citrus → Acidity → more); intentionally has zero rows until there's enough cupping volume to validate a mapping against real scores.
 - `dial_source_weight` *(added #75)* — reliability weight per signal source: `cupping=3`, `sms_feedback`/`onsite_feedback=1`, `roastery_wheel`/`client_wheel=0` (zero until `cupping_note_dimension_weight` has validated content).
+- `dial_slot_price` *(added #80, The Bloom Part 1)* — retail price per Bloom Dial slot (`archetype`, `dial_sort_order`) per `weight_oz`; `UNIQUE(archetype, dial_sort_order, weight_oz)`. Named to group with the rest of this `dial_*` family (renamed from an earlier `slot_price` draft). Not on `coffee_alias` (no weight dimension) or `roaster_blend` (would let two roasters fulfilling the same slot show two prices for the same weight). Defaults applied at the query level when no row exists yet: `$38.00`/12oz, `$199.00`/5lb (80oz). Managed via `GET`/`PATCH /api/admin/slot-prices` and a two-price edit control in `AdminCoffees.tsx` next to Slot Name; publicly read (roaster-blind) via `GET /api/coffees/archetypes`.
 
 **`backend/src/services/dialSuggestion.ts` — shared query helpers *(refactored #76)***
 - `getAvgCuppingScore(coffeeId, dimensionId)` — a coffee's merged cupping average + session count on one dimension; `null` if no merged scores exist. Single source for this query, used by `getDialSuggestion`, the within-archetype `hop_conflict` check, hop-creation direction validation, and the hop-suggestion endpoint (previously 3 near-duplicate inline queries).
