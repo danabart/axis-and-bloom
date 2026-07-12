@@ -447,6 +447,13 @@ When a user returned to `/sommelier` and clicked "Resume conversation", the fron
 
 **Not changed, per the task doc**: `claude.ts`'s `LIAM_BASE_PROMPT`, `RECOMMENDATION_SYSTEM_PROMPT`, `getRecommendation()`, `getCoffeeSummary()`, `getCoffeeSurpriseNote()`, `getCoffeeThreeVoiceStory()` — all untouched; `chatWithSommelier()` assembly logic, model routing, token/turn logic — all untouched. Steps 1/3/4 of the original Task 6 (voice prompt, intent addendums, smoke test) were already complete from the 2026-07-04 pass (S35) and were not re-run.
 
+#### S39. Two Bloom follow-ups touch data adjacent to Liam's RAG, neither changes Liam (2026-07-12)
+**Context**: not a Sommelier change — flagged for continuity, same as S37. Two follow-ups from `WHAT_WE_BUILT.md` #84:
+1. New public `GET /api/axis/adjacency` reads `v_archetype_adjacency`, derived from `dial_coffee_relationships` — the same underlying table Liam's RAG separately queries via `v_dial_navigation` (`sommelierRag.ts`'s `alternatives`/`discovery` focus types, for bridge-hop coffee selection). Different view, same source table, no shared code path — `sommelierRag.ts` itself wasn't touched.
+2. `GET /api/coffees/:coffeeId/hops` (the Bloom-facing hops endpoint from #80/S37) now uses `COALESCE(coffee_dimensions.platform_name, name)` for its dimension-name field, so hop link wording on `/bloom` matches the Bloom Dial's own vocabulary (e.g. "Intensity" not "Body"). Unrelated to Liam's own hop consumption in `sommelierRag.ts`.
+
+No Liam prompt, RAG query, or chat behavior changed by either of these.
+
 **Why it's on Liam's radar**: `backend/src/features/ai_agent_liam/NOTE_FLAVOR_INTELLIGENCE_PAGE.md` (written the same session, ahead of the Bloom build) already flagged that a future enhanced `/coffees` "flavor intelligence" page is something Liam should eventually be able to point customers toward. The Bloom build is a different, more concrete instance of the same pattern: a public surface now exists over hop-graph data that used to be Liam-only. No Liam prompt/RAG changes were made — just worth knowing the hop graph now has a second consumer.
 
 #### S35. Task 6 — Liam voice reset (2026-07-04)
