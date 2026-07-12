@@ -91,9 +91,9 @@ function ArchetypeSection({
         className={`flex flex-col ${flip ? 'md:flex-row-reverse' : 'md:flex-row'}`}
         style={{ gap: 'clamp(24px, 3.5vw, 56px)', alignItems: 'flex-start' }}
       >
-        {/* ── Photo column ── */}
-        <div className="w-full md:basis-[34%] md:flex-none md:sticky md:top-[100px]" style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <div style={{ aspectRatio: '4 / 3', overflow: 'hidden' }}>
+        {/* ── Photo column — height-capped to roughly match the dial column (Part 6) ── */}
+        <div className="w-full md:basis-[27%] md:flex-none" style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <div style={{ height: 320, overflow: 'hidden' }}>
             <img
               src={visual.hero}
               alt={`${data.archetypeLabel} — Axis & Bloom archetype`}
@@ -104,11 +104,11 @@ function ArchetypeSection({
             />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
-            <div style={{ aspectRatio: '1 / 1', overflow: 'hidden' }}>
+            <div style={{ height: 155, overflow: 'hidden' }}>
               <img src={visual.sm1} alt="" width={400} height={400} loading="lazy" decoding="async"
                 style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
             </div>
-            <div style={{ aspectRatio: '1 / 1', overflow: 'hidden' }}>
+            <div style={{ height: 155, overflow: 'hidden' }}>
               <img src={visual.sm2} alt="" width={400} height={400} loading="lazy" decoding="async"
                 style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
             </div>
