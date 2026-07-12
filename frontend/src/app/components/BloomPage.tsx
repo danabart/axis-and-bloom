@@ -91,9 +91,10 @@ function ArchetypeSection({
         className={`flex flex-col ${flip ? 'md:flex-row-reverse' : 'md:flex-row'}`}
         style={{ gap: 'clamp(24px, 3.5vw, 56px)', alignItems: 'flex-start' }}
       >
-        {/* ── Photo column — height-capped to roughly match the dial column (Part 6) ── */}
+        {/* ── Photo column — height-capped to match the dial column, now the tallest
+             of the three since the bag moved out from underneath it (Part 7) ── */}
         <div className="w-full md:basis-[27%] md:flex-none" style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <div style={{ height: 320, overflow: 'hidden' }}>
+          <div style={{ height: 210, overflow: 'hidden' }}>
             <img
               src={visual.hero}
               alt={`${data.archetypeLabel} — Axis & Bloom archetype`}
@@ -104,18 +105,18 @@ function ArchetypeSection({
             />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
-            <div style={{ height: 155, overflow: 'hidden' }}>
+            <div style={{ height: 100, overflow: 'hidden' }}>
               <img src={visual.sm1} alt="" width={400} height={400} loading="lazy" decoding="async"
                 style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
             </div>
-            <div style={{ height: 155, overflow: 'hidden' }}>
+            <div style={{ height: 100, overflow: 'hidden' }}>
               <img src={visual.sm2} alt="" width={400} height={400} loading="lazy" decoding="async"
                 style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
             </div>
           </div>
         </div>
 
-        {/* ── Dial column ── */}
+        {/* ── Dial column — dial only; the bag lives beside the card now (Part 7) ── */}
         <div className="w-full md:basis-[26%] md:flex-none" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <BloomDialWidget
             ref={el => registerDialRef(data.archetype, el)}
@@ -127,16 +128,9 @@ function ArchetypeSection({
             initialSortOrder={selectedSortOrder}
             onSelect={sortOrder => onDialSelect(data.archetype, sortOrder)}
           />
-          <img
-            src={visual.bag}
-            alt={`${data.archetypeLabel} bag`}
-            width={160} height={200}
-            loading="lazy" decoding="async"
-            style={{ maxHeight: 160, maxWidth: '70%', objectFit: 'contain', filter: 'drop-shadow(0 18px 44px rgba(0,0,0,0.09))', marginTop: 8 }}
-          />
         </div>
 
-        {/* ── Dynamic position card (collapsed + commerce only) ── */}
+        {/* ── Dynamic position card, with the bag sitting beside it on the dial-facing side (Part 7) ── */}
         <div className="w-full md:flex-1" style={{ minWidth: 0 }}>
           <h2 style={{
             fontSize: 'clamp(2rem, 3.2vw, 4rem)', color: visual.color, fontWeight: 400,
@@ -144,24 +138,44 @@ function ArchetypeSection({
           }}>
             {data.archetypeLabel}
           </h2>
-          <PositionCard
-            key={currentKey}
-            slot={currentSlot}
-            archetype={data.archetype}
-            archetypeLabel={data.archetypeLabel}
-            color={visual.color}
-            isRevealed={isRevealed}
-            onToggleReveal={() => onToggleReveal(currentKey)}
-            onAddToCart={onAddToCart}
-            onCompare={() => onCompare(data.archetype, data.archetypeLabel, currentSlot)}
-            cardRef={() => {}}
-            teaser={cardData.teaser}
-            effectivelyActive={cardData.effectivelyActive}
-            availableWeights={cardData.availableWeights}
-            selectedWeight={cardData.selectedWeight}
-            setSelectedWeight={cardData.setSelectedWeight}
-            selectedPrice={cardData.selectedPrice}
-          />
+          <div
+            className={`flex flex-col ${flip ? 'md:flex-row-reverse' : 'md:flex-row'}`}
+            style={{ gap: 'clamp(14px, 2vw, 24px)', alignItems: 'stretch' }}
+          >
+            {/* Bag — DOM-first so it renders on the dial-facing side in both flip orientations
+                (row / row-reverse mirrors the outer row's own flip), and appears directly
+                above the card on mobile rather than off near the dial. */}
+            <div className="w-full md:basis-[15%] md:flex-none" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <img
+                src={visual.bag}
+                alt={`${data.archetypeLabel} bag`}
+                width={160} height={200}
+                loading="lazy" decoding="async"
+                className="max-h-[190px] md:max-h-full"
+                style={{ maxWidth: '75%', objectFit: 'contain', filter: 'drop-shadow(0 18px 44px rgba(0,0,0,0.09))' }}
+              />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <PositionCard
+                key={currentKey}
+                slot={currentSlot}
+                archetype={data.archetype}
+                archetypeLabel={data.archetypeLabel}
+                color={visual.color}
+                isRevealed={isRevealed}
+                onToggleReveal={() => onToggleReveal(currentKey)}
+                onAddToCart={onAddToCart}
+                onCompare={() => onCompare(data.archetype, data.archetypeLabel, currentSlot)}
+                cardRef={() => {}}
+                teaser={cardData.teaser}
+                effectivelyActive={cardData.effectivelyActive}
+                availableWeights={cardData.availableWeights}
+                selectedWeight={cardData.selectedWeight}
+                setSelectedWeight={cardData.setSelectedWeight}
+                selectedPrice={cardData.selectedPrice}
+              />
+            </div>
+          </div>
         </div>
       </div>
 
