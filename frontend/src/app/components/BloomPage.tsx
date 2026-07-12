@@ -144,15 +144,17 @@ function ArchetypeSection({
           >
             {/* Bag — DOM-first so it renders on the dial-facing side in both flip orientations
                 (row / row-reverse mirrors the outer row's own flip), and appears directly
-                above the card on mobile rather than off near the dial. */}
-            <div className="w-full md:basis-[15%] md:flex-none" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                above the card on mobile rather than off near the dial. Sized to match the
+                dial wheel's own footprint (Part 4's clamp) so it reads as equally weighted,
+                not a small accent (Part 8, Phase A). */}
+            <div className="w-full md:basis-[clamp(130px,14vw,190px)] md:flex-none" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <img
                 src={visual.bag}
                 alt={`${data.archetypeLabel} bag`}
                 width={160} height={200}
                 loading="lazy" decoding="async"
                 className="max-h-[190px] md:max-h-full"
-                style={{ maxWidth: '75%', objectFit: 'contain', filter: 'drop-shadow(0 18px 44px rgba(0,0,0,0.09))' }}
+                style={{ maxWidth: '92%', objectFit: 'contain', filter: 'drop-shadow(0 18px 44px rgba(0,0,0,0.09))' }}
               />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -184,6 +186,7 @@ function ArchetypeSection({
         key={currentKey}
         isRevealed={isRevealed}
         archetype={data.archetype}
+        coffeeId={currentSlot.coffeeId}
         content={cardData.content}
         dimensions={cardData.dimensions}
         wheelRows={cardData.wheelRows}

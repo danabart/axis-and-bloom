@@ -20,10 +20,11 @@ export function FloatingCart({ items, open, onToggle, onRemove, onCheckout, chec
 
   return (
     <>
-      {/* Talk to Liam — secondary to the cart, always-available, sits just to its left */}
+      {/* Talk to Liam — secondary to the cart, always-available, sits just to its left.
+          Icon-only by design, but a hover/focus label makes it legible on first sight. */}
       <Link
         to="/sommelier"
-        className="fixed z-[60] rounded-full flex items-center justify-center shadow-lg"
+        className="group fixed z-[60] rounded-full flex items-center justify-center shadow-lg"
         style={{
           bottom: 28, right: 96, width: 56, height: 56,
           backgroundColor: 'transparent', border: '1.5px solid #9a2918', color: '#9a2918',
@@ -31,6 +32,16 @@ export function FloatingCart({ items, open, onToggle, onRemove, onCheckout, chec
         aria-label="Talk to Liam"
       >
         <span style={{ fontSize: 20 }}>💬</span>
+        <span
+          className="absolute pointer-events-none opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity duration-150"
+          style={{
+            right: '100%', marginRight: 10, whiteSpace: 'nowrap',
+            backgroundColor: '#9a2918', color: '#f2f1ea',
+            fontSize: 12, padding: '6px 12px', borderRadius: 999,
+          }}
+        >
+          Talk to Liam
+        </span>
       </Link>
 
       {/* Floating icon — persists across the whole scroll */}

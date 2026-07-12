@@ -70,45 +70,48 @@ export function PositionCard({
       </button>
 
       {/* ─ Commerce row ─ */}
-      <div className="px-6 pb-5 flex items-center gap-4 flex-wrap">
-        {availableWeights.length > 1 && (
-          <div className="flex gap-2">
-            {availableWeights.map(p => (
-              <button
-                key={p.weightOz}
-                onClick={() => setSelectedWeight(p.weightOz)}
-                className="text-xs px-3 py-1.5 rounded-full border transition-all"
-                style={{
-                  borderColor: selectedWeight === p.weightOz ? color : '#d0ccc4',
-                  backgroundColor: selectedWeight === p.weightOz ? color : 'transparent',
-                  color: selectedWeight === p.weightOz ? '#fff' : '#8a8070',
-                }}
-              >
-                {formatWeight(p.weightOz)} · {formatPrice(p.retailPriceCents)}
-              </button>
-            ))}
-          </div>
-        )}
-        {availableWeights.length === 1 && selectedPrice && (
-          <span className="text-sm" style={{ color: '#4a4035' }}>
-            {formatWeight(selectedPrice.weightOz)} · {formatPrice(selectedPrice.retailPriceCents)}
-          </span>
-        )}
-        <button
-          onClick={handleAddToCart}
-          disabled={!selectedPrice}
-          className="text-xs px-4 py-2 rounded-full text-white disabled:opacity-40"
-          style={{ backgroundColor: color }}
-        >
-          Add to cart
-        </button>
-        <button
-          onClick={onCompare}
-          className="text-xs px-3 py-1.5 rounded-full border"
-          style={{ borderColor: '#c8c0b4', color: '#8a8070' }}
-        >
-          ⇄ Compare
-        </button>
+      <div className="px-6 pb-5">
+        <div className="flex items-center gap-4 flex-wrap">
+          {availableWeights.length > 1 && (
+            <div className="flex gap-2">
+              {availableWeights.map(p => (
+                <button
+                  key={p.weightOz}
+                  onClick={() => setSelectedWeight(p.weightOz)}
+                  className="text-xs px-3 py-1.5 rounded-full border transition-all"
+                  style={{
+                    borderColor: selectedWeight === p.weightOz ? color : '#d0ccc4',
+                    backgroundColor: selectedWeight === p.weightOz ? color : 'transparent',
+                    color: selectedWeight === p.weightOz ? '#fff' : '#8a8070',
+                  }}
+                >
+                  {formatWeight(p.weightOz)} · {formatPrice(p.retailPriceCents)}
+                </button>
+              ))}
+            </div>
+          )}
+          {availableWeights.length === 1 && selectedPrice && (
+            <span className="text-sm" style={{ color: '#4a4035' }}>
+              {formatWeight(selectedPrice.weightOz)} · {formatPrice(selectedPrice.retailPriceCents)}
+            </span>
+          )}
+          <button
+            onClick={handleAddToCart}
+            disabled={!selectedPrice}
+            className="text-xs px-4 py-2 rounded-full text-white disabled:opacity-40"
+            style={{ backgroundColor: color }}
+          >
+            Add to cart
+          </button>
+          <button
+            onClick={onCompare}
+            className="text-xs px-3 py-1.5 rounded-full border"
+            style={{ borderColor: '#c8c0b4', color: '#8a8070' }}
+          >
+            ⇄ Compare
+          </button>
+        </div>
+        <p className="text-xs mt-2" style={{ color: '#a09880' }}>Price includes shipping</p>
       </div>
     </div>
   );

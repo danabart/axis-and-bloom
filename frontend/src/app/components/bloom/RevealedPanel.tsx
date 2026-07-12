@@ -8,6 +8,7 @@ import { CompatibilityBadge, useCompatibility } from '../coffee-info/useCompatib
 interface RevealedPanelProps {
   isRevealed: boolean;
   archetype: string;
+  coffeeId: number | null;
   content: ContentData | null;
   dimensions: DimensionRow[];
   wheelRows: WheelRow[];
@@ -24,7 +25,7 @@ interface RevealedPanelProps {
  * explore-further and Talk-to-Liam links) → dimension bars → Collaborative
  * Flavor Wheel → compatibility badge → hop links.
  */
-export function RevealedPanel({ isRevealed, archetype, content, dimensions, wheelRows, hops, userArchetype, onHopClick }: RevealedPanelProps) {
+export function RevealedPanel({ isRevealed, archetype, coffeeId, content, dimensions, wheelRows, hops, userArchetype, onHopClick }: RevealedPanelProps) {
   const { compat, dimCompText } = useCompatibility(archetype, userArchetype, dimensions);
 
   return (
@@ -41,7 +42,12 @@ export function RevealedPanel({ isRevealed, archetype, content, dimensions, whee
             className="rounded-xl border px-5 py-6 md:px-8 md:py-8 space-y-8"
             style={{ borderColor: '#e0dcd4', backgroundColor: '#fff', marginTop: 'clamp(20px, 3vh, 32px)' }}
           >
-            <TastingNotes content={content} contentLoading={!content} exploreLink="/coffees" talkToLiamLink="/sommelier" />
+            <TastingNotes
+              content={content}
+              contentLoading={!content}
+              exploreLink={coffeeId ? `/coffees?coffee=${coffeeId}` : '/coffees'}
+              talkToLiamLink="/sommelier"
+            />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
               <DimensionBars dimensions={dimensions} />

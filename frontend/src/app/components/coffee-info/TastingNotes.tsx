@@ -127,24 +127,30 @@ export function TastingNotes({ content, contentLoading, exploreLink, talkToLiamL
         )}
       </div>
 
-      {/* ─ Explore-further / Talk to Liam links (Bloom only) ─ */}
+      {/* ─ Explore-further / Talk to Liam links (Bloom only) — set apart as an actions
+          row with a top border/spacing and leading icons, not more prose to skim past. ─ */}
       {(exploreLink || talkToLiamLink) && (
-        <div className="flex flex-wrap gap-x-6 gap-y-2">
+        <div
+          className="flex flex-wrap gap-x-8 gap-y-3 pt-6"
+          style={{ borderTop: '1px solid #e0dcd4' }}
+        >
           {exploreLink && (
             <Link
               to={exploreLink}
-              className="inline-block text-sm hover:underline"
+              className="inline-flex items-center gap-2 text-sm font-normal hover:underline"
               style={{ color: '#b05642' }}
             >
+              <span aria-hidden="true">🧭</span>
               Explore the full flavor breakdown →
             </Link>
           )}
           {talkToLiamLink && (
             <Link
               to={talkToLiamLink}
-              className="inline-block text-sm hover:underline"
+              className="inline-flex items-center gap-2 text-sm font-normal hover:underline"
               style={{ color: '#b05642' }}
             >
+              <span aria-hidden="true">💬</span>
               Talk to Liam about this coffee →
             </Link>
           )}

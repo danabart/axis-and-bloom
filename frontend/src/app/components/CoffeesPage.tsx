@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { getUserProfile } from '../lib/api';
@@ -26,6 +26,10 @@ interface Coffee {
 export default function CoffeesPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  // Deep-link support: /coffees?coffee={id}, e.g. from Bloom's "Explore the full
+  // flavor breakdown" link (Part 8) — same query-param pattern as FlavorQuiz's
+  // ?result= preview shortcut.
+  const [searchParams] = useSearchParams();
 
   // Coffee list + selection
   const [coffees, setCoffees]         = useState<Coffee[]>([]);
@@ -50,15 +54,27 @@ export default function CoffeesPage() {
   const [compareContent, setCompareContent]   = useState<ContentData | null>(null);
   const [compareLoading, setCompareLoading]   = useState(false);
 
-  // Load coffee list
+  // Load coffee list. Honors a ?coffee={id} deep link on first load if it
+  // matches a real coffee; falls back to today's default (first in list) otherwise.
+  // Note: deliberately doesn't scroll the sidebar's matching button into view —
+  // the sidebar and detail panel share the page's single scroll container (no
+  // independent sidebar scroll region), so scrolling to a button far down a long
+  // coffee list drags the detail panel (the actual content the deep link is for)
+  // out of the viewport entirely. The highlight on the sidebar button already
+  // reflects the selection whenever the user does scroll to it.
   useEffect(() => {
     fetch('/api/coffees')
       .then(r => r.json())
       .then((data: Coffee[]) => {
         setCoffees(data);
-        if (data.length > 0) setSelectedId(data[0].id);
+        if (data.length > 0) {
+          const paramId = Number(searchParams.get('coffee'));
+          const matched = Number.isFinite(paramId) && data.some(c => c.id === paramId);
+          setSelectedId(matched ? paramId : data[0].id);
+        }
       })
       .catch(() => setError('Failed to load coffees'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Load user archetype for personalization
@@ -161,6 +177,7 @@ export default function CoffeesPage() {
             {coffees.map(coffee => (
               <button
                 key={coffee.id}
+                id={`coffee-sidebar-${coffee.id}`}
                 onClick={() => handleSelectCoffee(coffee.id)}
                 className="flex-shrink-0 text-left px-4 py-3 rounded-lg border transition-all duration-200"
                 style={{
