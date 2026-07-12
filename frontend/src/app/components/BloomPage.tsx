@@ -87,13 +87,12 @@ function ArchetypeSection({
         </span>
       </div>
 
-      {/* ── Row 1: photos + dial + archetype name — compact, matched height, identity/discovery only ── */}
       <div
         className={`flex flex-col ${flip ? 'md:flex-row-reverse' : 'md:flex-row'}`}
-        style={{ gap: 'clamp(24px, 3.5vw, 56px)', alignItems: 'center', marginBottom: 'clamp(20px, 3vh, 32px)' }}
+        style={{ gap: 'clamp(24px, 3.5vw, 56px)', alignItems: 'flex-start' }}
       >
         {/* ── Photo column ── */}
-        <div className="w-full md:basis-[36%] md:flex-none" style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+        <div className="w-full md:basis-[34%] md:flex-none md:sticky md:top-[100px]" style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           <div style={{ aspectRatio: '4 / 3', overflow: 'hidden' }}>
             <img
               src={visual.hero}
@@ -117,7 +116,7 @@ function ArchetypeSection({
         </div>
 
         {/* ── Dial column ── */}
-        <div className="w-full md:basis-[28%] md:flex-none" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <div className="w-full md:basis-[26%] md:flex-none" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <BloomDialWidget
             ref={el => registerDialRef(data.archetype, el)}
             color={visual.color}
@@ -137,38 +136,38 @@ function ArchetypeSection({
           />
         </div>
 
-        {/* ── Archetype name — just the heading, no card; keeps row 1 compact ── */}
+        {/* ── Dynamic position card (collapsed + commerce only) ── */}
         <div className="w-full md:flex-1" style={{ minWidth: 0 }}>
           <h2 style={{
             fontSize: 'clamp(2rem, 3.2vw, 4rem)', color: visual.color, fontWeight: 400,
-            lineHeight: 0.95, margin: 0, letterSpacing: '-0.02em',
+            lineHeight: 0.95, margin: '0 0 clamp(20px, 3vh, 32px)', letterSpacing: '-0.02em',
           }}>
             {data.archetypeLabel}
           </h2>
+          <PositionCard
+            key={currentKey}
+            slot={currentSlot}
+            archetype={data.archetype}
+            archetypeLabel={data.archetypeLabel}
+            color={visual.color}
+            isRevealed={isRevealed}
+            onToggleReveal={() => onToggleReveal(currentKey)}
+            onAddToCart={onAddToCart}
+            onCompare={() => onCompare(data.archetype, data.archetypeLabel, currentSlot)}
+            cardRef={() => {}}
+            teaser={cardData.teaser}
+            effectivelyActive={cardData.effectivelyActive}
+            availableWeights={cardData.availableWeights}
+            selectedWeight={cardData.selectedWeight}
+            setSelectedWeight={cardData.setSelectedWeight}
+            selectedPrice={cardData.selectedPrice}
+          />
         </div>
       </div>
 
-      {/* ── Row 2: details — position card + revealed panel, full width, directly below row 1 ── */}
-      <PositionCard
-        key={`${currentKey}-card`}
-        slot={currentSlot}
-        archetype={data.archetype}
-        archetypeLabel={data.archetypeLabel}
-        color={visual.color}
-        isRevealed={isRevealed}
-        onToggleReveal={() => onToggleReveal(currentKey)}
-        onAddToCart={onAddToCart}
-        onCompare={() => onCompare(data.archetype, data.archetypeLabel, currentSlot)}
-        cardRef={() => {}}
-        teaser={cardData.teaser}
-        effectivelyActive={cardData.effectivelyActive}
-        availableWeights={cardData.availableWeights}
-        selectedWeight={cardData.selectedWeight}
-        setSelectedWeight={cardData.setSelectedWeight}
-        selectedPrice={cardData.selectedPrice}
-      />
+      {/* ── Revealed informational layer — full width, below the three-column row ── */}
       <RevealedPanel
-        key={`${currentKey}-panel`}
+        key={currentKey}
         isRevealed={isRevealed}
         archetype={data.archetype}
         content={cardData.content}
