@@ -322,12 +322,14 @@ router.get('/archetypes', async (_req, res) => {
 // association alone). Only is_recommended hops; drops any hop whose derived
 // target slot isn't currently active (a dead end otherwise); ordered by
 // confidence high→medium→low; capped at 3. Never includes to_coffee's id, name,
-// or roaster.
+// or roaster. dimensionName uses COALESCE(platform_name, name) (The Bloom Part 3
+// follow-up) so hop link copy ("less intensity") matches the consumer-facing
+// word the dial itself shows ("DIMENSION: INTENSITY"), not the raw SCA term.
 router.get('/:coffeeId/hops', async (req, res) => {
   const { coffeeId } = req.params;
   try {
     const hopsResult = await db.query(
-      `SELECT cd.name AS dimension_name, dcr.direction, dcr.hop_type, dcr.confidence,
+      `SELECT COALESCE(cd.platform_name, cd.name) AS dimension_name, dcr.direction, dcr.hop_type, dcr.confidence,
               aa.archetype   AS target_archetype,
               dpv.sort_order AS target_sort_order,
               dpv.label      AS target_position_label

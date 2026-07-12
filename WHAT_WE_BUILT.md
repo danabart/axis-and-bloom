@@ -2357,6 +2357,8 @@ Post-deployment feedback on #78: `AdminCoffees.tsx`'s archetype-assignment dropd
 
 Both `useCompatibility.tsx`'s pure functions (`getCompatibility`, `getDimensionComparison`) now take the live maps as parameters instead of reading module-level constants — `ARCHETYPE_LABEL`/`ARCHETYPE_COLOR` (still legitimate static label/color constants, not data) moved to a new `coffee-info/archetypeConstants.ts` to avoid a circular import between `useCompatibility.tsx` and the two new data hooks.
 
+**5. Follow-up — hop navigation link wording didn't match the dial's own vocabulary.** `GET /api/coffees/:coffeeId/hops` (`coffees.ts`, built in Part 1 before `coffee_dimensions.platform_name` existed) returned the raw dimension name (`cd.name`, e.g. "Body"), so a hop link would read "less body" right next to a dial reading "DIMENSION: INTENSITY" for the same dimension. Changed the query to `COALESCE(cd.platform_name, cd.name)`, same pattern as everywhere else this column is read. Verified live: the same real hop (coffee 3 → `balanced_sweet` position 2) now reports `dimensionName: "Intensity"` instead of `"Body"`.
+
 **Verified against production Cloud SQL and in a real browser**: both new endpoints return real data; Earthy's dial screenshot confirmed showing "← GENTLE" / "BOLDNESS →" (both real); zero console errors on `/bloom` and `/coffees`.
 
 ---
