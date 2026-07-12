@@ -598,6 +598,9 @@ export default function TheAxis() {
           <p style={{ fontSize: 12, color: 'rgba(0,0,0,0.35)', margin: '10px 0 0' }}>
             Free to take. No commitment. Your results are yours.
           </p>
+          <Link to="/bloom" style={{ display: 'inline-block', fontSize: 12, color: 'rgba(154,41,24,0.55)', marginTop: 14, textDecoration: 'underline' }}>
+            Already know your archetype? Browse The Bloom →
+          </Link>
         </motion.div>
       </section>
 

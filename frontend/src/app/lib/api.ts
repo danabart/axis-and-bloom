@@ -44,7 +44,10 @@ export async function sendChatMessage(message: string, context: object) {
 }
 
 export async function placeOrder(order: {
-  items: Array<{ variantId: string; quantity: number }>;
+  items: Array<
+    | { variantId: string; quantity: number; priceCents?: number }
+    | { archetype: string; dialSortOrder: number; weightOz: number; quantity: number; priceCents?: number }
+  >;
   shippingAddress: object;
 }) {
   const res = await fetch(`${BASE}/orders`, {

@@ -23,6 +23,7 @@ import AdminSommelierConfig from './components/admin/AdminSommelierConfig';
 import AdminIntentEditor from './components/admin/AdminIntentEditor';
 import AdminSommelierFlow from './components/admin/AdminSommelierFlow';
 import CoffeesPage from './components/CoffeesPage';
+import BloomPage from './components/BloomPage';
 import JoinHousehold from './components/JoinHousehold';
 import TheAxis from './components/TheAxis';
 import Sommelier from './components/Sommelier';
@@ -76,6 +77,7 @@ export default function App() {
             <Route path="/sign-in" element={<SignIn />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/coffees" element={<CoffeesPage />} />
+            <Route path="/bloom" element={<BloomPage />} />
             <Route
               path="/sommelier"
               element={
