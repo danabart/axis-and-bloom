@@ -12,8 +12,6 @@ const NAV_LINK: React.CSSProperties = {
   textDecoration: 'none',
   opacity: 1,
   transition: 'opacity 0.2s',
-  borderBottom: '2.5px solid #9a2918',
-  paddingBottom: '3px',
 };
 
 export default function Navigation() {
@@ -25,7 +23,7 @@ export default function Navigation() {
     <nav style={{
       position: 'fixed', top: 0, left: 0, right: 0, zIndex: 50,
       height: 64,
-      backgroundColor: '#f2f1ea',
+      backgroundColor: 'transparent',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
