@@ -32,4 +32,32 @@ router.get('/vectors', async (_req, res) => {
   }
 });
 
+// GET /api/axis/adjacency — which archetypes count as "adjacent" for the
+// compatibility badge's "Worth exploring" tier. Reads v_archetype_adjacency —
+// the same hop-derived, admin-curated view already shown on the Bloom Dial
+// admin page (AdminDial.tsx) and used by Liam's RAG bridge-hop logic
+// (sommelierRag.ts's 'alternatives'/'discovery' focus types query the
+// underlying dial_coffee_relationships directly) — not the separate
+// archetype_relationship table, which is unused (confirmed 0 rows in
+// production; superseded by the real, actively-curated hop graph). Already
+// archetype_enum-keyed and symmetric-safe (LEAST/GREATEST pair), so both
+// directions are added to the result map. No fallback — sparse/empty is the
+// honest current state for a pair with no bridge hop authored yet, not an error.
+router.get('/adjacency', async (_req, res) => {
+  try {
+    const result = await db.query(`SELECT archetype_a, archetype_b FROM v_archetype_adjacency`);
+
+    const adjacency: Record<string, string[]> = {};
+    for (const row of result.rows) {
+      (adjacency[row.archetype_a] ??= []).push(row.archetype_b);
+      (adjacency[row.archetype_b] ??= []).push(row.archetype_a);
+    }
+
+    res.json({ adjacency });
+  } catch (err) {
+    console.error('[axis/adjacency]', err);
+    res.json({ adjacency: {} });
+  }
+});
+
 export default router;

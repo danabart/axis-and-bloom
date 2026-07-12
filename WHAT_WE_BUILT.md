@@ -2343,14 +2343,34 @@ Post-deployment feedback on #78: `AdminCoffees.tsx`'s archetype-assignment dropd
 
 ---
 
+### 84. Dimension aliases completed; compatibility badge wired to real data instead of three hardcoded frontend tables (2026-07-12)
+
+**Context**: Dana asked directly whether everything shown in the Bloom UI actually comes from the DB. Audit found three real hardcoded-data spots (distinct from the intentional, spec'd static brand assets in `bloomVisuals.ts` — colors/photos/bag art, which stay local imports by design).
+
+**1. Dimension aliases completed**: the coworker's Part 3 doc update specified all 5 numeric dimensions, not just Body. Seeded: Acidity → **Brightness**, Bitterness → **Boldness**, Body → **Intensity**, Savory / Depth → **Complexity**, Finish Length → **Finish**. Verified live: each archetype's dial now shows the correct word (Earthy → "DIMENSION: BOLDNESS", Floral → "DIMENSION: COMPLEXITY", etc.).
+
+**2. `ARCHETYPE_TYPICAL` (hardcoded cupping-midpoint ranges, used to generate "this coffee has more/less X than your usual archetype" text) replaced with live data** from the existing `GET /api/axis/vectors` endpoint (built for The Axis page, reads the real, calibrated `archetype_vector`/`v_archetype_vectors`). New `coffee-info/archetypeVectors.ts` — a `useArchetypeVectors()` hook with a module-level fetch-once cache (shared across every card instead of one request per card).
+
+**3. `ARCHETYPE_ADJACENT` (hardcoded "which archetypes are adjacent" map, used for the "Worth exploring" compatibility tier) replaced with live data — but not from `archetype_relationship`.** That table is confirmed empty (0 rows) in production and unused. Per Dana's direction ("use what Liam is using, and hop in admin page"), the new `GET /api/axis/adjacency` endpoint reads **`v_archetype_adjacency`** instead — the same hop-derived, admin-curated view already shown on the Bloom Dial admin page (`AdminDial.tsx`) and fed by real authored bridge hops (`dial_coffee_relationships`). Confirmed real data: `balanced_sweet ↔ floral` (hop_count 2, avg_confidence 3.00). No fallback constant — a pair with no bridge hop authored yet honestly shows no adjacency rather than a guess. New `coffee-info/archetypeAdjacency.ts` mirrors the same fetch-once-cache pattern.
+
+**4. `BloomDialWidget`'s "← Lighter" cue was literal hardcoded text** on every archetype's dial regardless of that archetype's real lowest position (e.g. Earthy's is "Gentle", not "Lighter"). Now reads the real label from the sorted position list (`sorted[0].label`).
+
+Both `useCompatibility.tsx`'s pure functions (`getCompatibility`, `getDimensionComparison`) now take the live maps as parameters instead of reading module-level constants — `ARCHETYPE_LABEL`/`ARCHETYPE_COLOR` (still legitimate static label/color constants, not data) moved to a new `coffee-info/archetypeConstants.ts` to avoid a circular import between `useCompatibility.tsx` and the two new data hooks.
+
+**Verified against production Cloud SQL and in a real browser**: both new endpoints return real data; Earthy's dial screenshot confirmed showing "← GENTLE" / "BOLDNESS →" (both real); zero console errors on `/bloom` and `/coffees`.
+
+---
+
 ## What's Still To Do
 
 ### The Bloom — pre-launch blocker
 0. ~~AI-generated content leaks raw coffee names (confirmed, #81)~~ — **fixed, see #82.** `fetchCoffeeDataForContent()` now passes the coffee's alias instead of its raw name into `getCoffeeSummary()`/`getCoffeeSurpriseNote()`/`getCoffeeThreeVoiceStory()`; all 13 previously-cached records were regenerated and re-verified clean against production Cloud SQL.
 
-### The Bloom — content/admin follow-ups (#83)
+### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
-- **No dimension admin UI exists** — `coffee_dimensions.platform_name` (new, seeded for Body → "Intensity" only) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.
+- **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.
+- **`archetype_relationship` table is confirmed unused (0 rows)** — `v_archetype_adjacency` (hop-derived) is the real source of truth for archetype adjacency now (#84). Consider dropping `archetype_relationship`/`archetype_tunable_variable`'s sibling concerns or documenting it as legacy, if confirmed dead elsewhere too — not done here, out of scope for this pass.
+- **Sparse hop-derived adjacency** — only one archetype pair (`balanced_sweet ↔ floral`) currently has an authored bridge hop, so the "Worth exploring" compatibility tier will rarely trigger until more bridge hops are added via the Bloom Dial admin page.
 
 ### Quiz / scoring
 1. **Populate cross-archetype negative scores** — current `quiz_answer_archetype_score` rows only award one positive score per answer. Add negative rows for competing archetypes (e.g. Q5 answer A → Chocolate +3, Balanced −1, Fruity −2) to make the matrix fully competitive. Run via Cloud SQL Studio — no code deploy needed.

@@ -1,54 +1,29 @@
 import type { DimensionRow } from './DimensionBars';
+import { ARCHETYPE_LABEL, ARCHETYPE_COLOR } from './archetypeConstants';
+import { useArchetypeAdjacency } from './archetypeAdjacency';
+import { useArchetypeVectors } from './archetypeVectors';
 
-export const ARCHETYPE_LABEL: Record<string, string> = {
-  chocolate_nutty: 'Chocolate & Nutty',
-  balanced_sweet:  'Balanced & Sweet',
-  fruity:          'Fruity',
-  earthy:          'Earthy',
-  floral:          'Floral',
-  experimental:    'Experimental',
-};
-
-export const ARCHETYPE_COLOR: Record<string, string> = {
-  chocolate_nutty: '#a54c2d',
-  balanced_sweet:  '#c9a830',
-  fruity:          '#ca445f',
-  earthy:          '#7a6a4f',
-  floral:          '#8a7cbe',
-  experimental:    '#4a8a6e',
-};
-
-// Adjacent archetypes — used for "Worth exploring" compatibility tier
-const ARCHETYPE_ADJACENT: Record<string, string[]> = {
-  chocolate_nutty: ['balanced_sweet', 'earthy'],
-  balanced_sweet:  ['chocolate_nutty', 'fruity'],
-  fruity:          ['balanced_sweet', 'floral', 'experimental'],
-  earthy:          ['chocolate_nutty'],
-  floral:          ['fruity', 'experimental'],
-  experimental:    ['fruity', 'floral'],
-};
-
-// Typical cupping score mid-points per archetype (0–15 scale) for dim comparison
-const ARCHETYPE_TYPICAL: Record<string, Partial<Record<string, [number, number]>>> = {
-  chocolate_nutty: { Sweetness: [5, 8],  Acidity: [2, 5],  Bitterness: [7, 11], Body: [8, 12] },
-  balanced_sweet:  { Sweetness: [7, 10], Acidity: [4, 7],  Bitterness: [3, 6],  Body: [5, 8]  },
-  fruity:          { Sweetness: [6, 9],  Acidity: [8, 12], Bitterness: [0, 3],  Body: [2, 5]  },
-  earthy:          { Sweetness: [3, 6],  Acidity: [2, 5],  Bitterness: [6, 10], Body: [9, 13] },
-  floral:          { Sweetness: [6, 9],  Acidity: [7, 11], Bitterness: [0, 3],  Body: [2, 5]  },
-  experimental:    { Sweetness: [5, 9],  Acidity: [7, 12], Bitterness: [2, 6],  Body: [4, 8]  },
-};
+export { ARCHETYPE_LABEL, ARCHETYPE_COLOR };
 
 export type CompatLevel = 'wheelhouse' | 'exploring' | 'stretch';
 
-export function getCompatibility(coffeeArchetype: string | null, userArchetype: string | null): CompatLevel | null {
+export function getCompatibility(
+  coffeeArchetype: string | null,
+  userArchetype: string | null,
+  adjacency: Record<string, string[]>
+): CompatLevel | null {
   if (!coffeeArchetype || !userArchetype) return null;
   if (coffeeArchetype === userArchetype) return 'wheelhouse';
-  if (ARCHETYPE_ADJACENT[userArchetype]?.includes(coffeeArchetype)) return 'exploring';
+  if (adjacency[userArchetype]?.includes(coffeeArchetype)) return 'exploring';
   return 'stretch';
 }
 
-export function getDimensionComparison(dimensions: DimensionRow[], userArchetype: string): string {
-  const typical = ARCHETYPE_TYPICAL[userArchetype];
+export function getDimensionComparison(
+  dimensions: DimensionRow[],
+  userArchetype: string,
+  typicalByArchetype: Record<string, Partial<Record<string, [number, number]>>>
+): string {
+  const typical = typicalByArchetype[userArchetype];
   if (!typical) return '';
   const archetypeLabel = ARCHETYPE_LABEL[userArchetype] ?? userArchetype;
 
@@ -76,11 +51,20 @@ export function getDimensionComparison(dimensions: DimensionRow[], userArchetype
   return `This coffee has ${top[0].dir} ${top[0].dim} and ${top[1].dir} ${top[1].dim} than your usual ${archetypeLabel} profile.`;
 }
 
-/** Compatibility badge level + dimension-divergence copy for a coffee, given the signed-in user's archetype. */
+/**
+ * Compatibility badge level + dimension-divergence copy for a coffee, given the
+ * signed-in user's archetype. Both the adjacency ("Worth exploring" tier) and the
+ * dimension target ranges are real, live data — see archetypeAdjacency.ts
+ * (v_archetype_adjacency, the same hop-derived view the Bloom Dial admin page
+ * shows) and archetypeVectors.ts (v_archetype_vectors, the calibrated targets
+ * The Axis page already uses) — not hardcoded tables.
+ */
 export function useCompatibility(coffeeArchetype: string | null, userArchetype: string | null, dimensions: DimensionRow[]) {
-  const compat = getCompatibility(coffeeArchetype, userArchetype);
+  const adjacency = useArchetypeAdjacency();
+  const vectors = useArchetypeVectors();
+  const compat = getCompatibility(coffeeArchetype, userArchetype, adjacency);
   const dimCompText = (compat && userArchetype && dimensions.length)
-    ? getDimensionComparison(dimensions, userArchetype) : null;
+    ? getDimensionComparison(dimensions, userArchetype, vectors) : null;
   return { compat, dimCompText };
 }
 

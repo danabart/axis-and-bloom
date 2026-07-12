@@ -164,7 +164,7 @@ export const BloomDialWidget = forwardRef<BloomDialHandle, BloomDialWidgetProps>
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
       {dimensionLabel && (
         <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', maxWidth: 320, marginBottom: 12 }}>
-          <span style={{ fontSize: '0.48rem', letterSpacing: '0.2em', textTransform: 'uppercase', color, opacity: 0.5 }}>← Lighter</span>
+          <span style={{ fontSize: '0.48rem', letterSpacing: '0.2em', textTransform: 'uppercase', color, opacity: 0.5 }}>← {sorted[0].label}</span>
           <span style={{ fontSize: '0.48rem', letterSpacing: '0.2em', textTransform: 'uppercase', color, opacity: 0.5 }}>{dimensionLabel} →</span>
         </div>
       )}
