@@ -19,7 +19,7 @@ interface HomepageState {
   nextDeliveryDate: string | null;
 }
 import placeholderVideo from '../../design/IMAGES/videos/PlaceHolder01.mp4'
-import heroVideo from '../../design/IMAGES/videos/Espresso01.mp4'
+import heroVideo from '../../design/IMAGES/videos/PlaceHolder10.mp4'
 
 // ─── Collection: archetype photos (default) ───────────────────────────────────
 import photoFloral      from '../../design/IMAGES/photos/june2026/WEBCUTFloralJun20.png'
@@ -308,15 +308,15 @@ export default function Home() {
       {/*
         To swap in real brand video: replace <source src="..."> and update poster={}
       */}
-      <section style={{ position: 'relative', height: 'clamp(320px, 60vh, 640px)', overflow: 'hidden', backgroundColor: '#f2f1ea', marginTop: 64 }}>
+      <section style={{ position: 'relative', height: 'clamp(320px, 60vh, 640px)', overflow: 'hidden', backgroundColor: '#1a1208' }}>
         <video
           ref={heroVideoRef}
           autoPlay muted playsInline
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 50%', display: 'block' }}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 50%', display: 'block', transform: 'scale(1.06)' }}
         >
           <source src={heroVideo} type="video/mp4" />
         </video>
-        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(17,17,16,0.65) 0%, rgba(17,17,16,0.18) 50%, rgba(17,17,16,0.02) 100%)' }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(17,17,16,0.68) 0%, rgba(17,17,16,0.22) 50%, rgba(17,17,16,0.04) 100%)' }} />
 
         <div style={{ position: 'absolute', bottom: 'clamp(32px, 5vh, 60px)', left: 'clamp(32px, 6vw, 96px)' }}>
           <motion.h1
