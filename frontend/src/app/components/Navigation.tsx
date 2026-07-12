@@ -5,12 +5,15 @@ import logoMark from '../../design/LOGO/LogoQuarter1.svg'
 
 const NAV_LINK: React.CSSProperties = {
   fontFamily: "'Lato', Arial, sans-serif",
-  fontSize: '0.875rem',
-  letterSpacing: '0.04em',
+  fontSize: '0.75rem',
+  letterSpacing: '0.1em',
+  textTransform: 'uppercase',
   color: '#9a2918',
   textDecoration: 'none',
   opacity: 1,
   transition: 'opacity 0.2s',
+  borderBottom: '2.5px solid #9a2918',
+  paddingBottom: '3px',
 };
 
 export default function Navigation() {
@@ -23,7 +26,6 @@ export default function Navigation() {
       position: 'fixed', top: 0, left: 0, right: 0, zIndex: 50,
       height: 64,
       backgroundColor: '#f2f1ea',
-      borderBottom: '1px solid rgba(154,41,24,0.1)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
@@ -40,15 +42,15 @@ export default function Navigation() {
 
       {/* Primary nav — hidden on mobile */}
       <div className="hidden md:flex" style={{ alignItems: 'center', gap: 'clamp(20px, 3vw, 40px)' }}>
-        <Link to="/the-axis" style={NAV_LINK} className="hover:opacity-50 transition-opacity">The Axis</Link>
-        <Link to="/bloom" style={NAV_LINK} className="hover:opacity-50 transition-opacity">The Bloom</Link>
-        <Link to="/how-it-works" style={NAV_LINK} className="hover:opacity-50 transition-opacity">How it works</Link>
-        <Link to="/find-my-flavor" style={NAV_LINK} className="hover:opacity-50 transition-opacity">Find my flavor</Link>
-        <Link to="/coffees" style={NAV_LINK} className="hover:opacity-50 transition-opacity">Our coffees</Link>
-        <Link to="/about" style={NAV_LINK} className="hover:opacity-50 transition-opacity">About</Link>
-        <Link to="/shop" style={NAV_LINK} className="hover:opacity-50 transition-opacity">Shop</Link>
+        <Link to="/the-axis" style={NAV_LINK} className="hover:opacity-50 transition-opacity">THE AXIS</Link>
+        <Link to="/bloom" style={NAV_LINK} className="hover:opacity-50 transition-opacity">THE BLOOM</Link>
+        <Link to="/how-it-works" style={NAV_LINK} className="hover:opacity-50 transition-opacity">HOW IT WORKS</Link>
+        <Link to="/find-my-flavor" style={NAV_LINK} className="hover:opacity-50 transition-opacity">FIND MY FLAVOR</Link>
+        <Link to="/coffees" style={NAV_LINK} className="hover:opacity-50 transition-opacity">OUR COFFEES</Link>
+        <Link to="/about" style={NAV_LINK} className="hover:opacity-50 transition-opacity">ABOUT</Link>
+        <Link to="/shop" style={NAV_LINK} className="hover:opacity-50 transition-opacity">SHOP</Link>
         {isAdmin && (
-          <Link to="/admin" style={NAV_LINK} className="hover:opacity-50 transition-opacity">Admin</Link>
+          <Link to="/admin" style={NAV_LINK} className="hover:opacity-50 transition-opacity">ADMIN</Link>
         )}
       </div>
 
