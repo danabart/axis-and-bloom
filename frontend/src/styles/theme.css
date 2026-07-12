@@ -87,6 +87,10 @@
   --color-beige-dark: #ebebe3;
   --color-sand: #ddc1a6;
   --color-cream: #ead8bf;
+  /* Text & UI */
+  --color-ink: #45474a;
+  --color-ink-deep: #3a3c3e;
+  --color-hairline: #c5c7c8;
 }
 
 @layer base {

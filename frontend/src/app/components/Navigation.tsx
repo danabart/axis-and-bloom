@@ -23,7 +23,8 @@ export default function Navigation() {
     <nav style={{
       position: 'fixed', top: 0, left: 0, right: 0, zIndex: 50,
       height: 64,
-      backgroundColor: 'transparent',
+      backgroundColor: '#f2f1ea',
+      borderBottom: '1px solid #c5c7c8',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
