@@ -39,67 +39,41 @@ import bagExperimental  from '../../design/IMAGES/bags/new bags mock up/EXPERIME
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
-const archetypes = [
-  {
-    num: '01',
-    name: 'Floral',
-    body: 'Light, elegant, and aromatic. Hints of jasmine, citrus, and a tea-like clarity.',
-    footer: 'FRAGRANT, BRIGHT, DELICATE, CLEAN',
-    bg: '#a34b78',
-  },
-  {
-    num: '02',
-    name: 'Fruity',
-    body: 'Juicy and lively with notes of berries and ripe fruit.',
-    footer: 'SWEET, VIBRANT, EXPRESSIVE, LIVELY',
-    bg: '#ca445f',
-  },
-  {
-    num: '03',
-    name: 'Balanced & Sweet',
-    body: 'Round, smooth, and comforting. Notes of caramel, honey, and soft fruit.',
-    footer: 'SMOOTH, SWEET, HARMONIOUS, EASY',
-    bg: '#d1ac11',
-  },
-  {
-    num: '04',
-    name: 'Chocolate & Nutty',
-    body: 'Deep and satisfying with cocoa, roasted nuts, and a rich presence.',
-    footer: 'RICH, GROUNDED, FULL, COMFORTING',
-    bg: '#a54c2d',
-  },
-  {
-    num: '05',
-    name: 'Spicy & Earthy',
-    body: 'Warm and bold with hints of spice, wood, and lingering depth.',
-    footer: 'WARM, DEEP, BOLD, LASTING',
-    bg: '#912f2f',
-  },
-  {
-    num: '06',
-    name: 'Experimental',
-    body: 'Ever-changing and wonderfully unconventional. A rotating selection of boundary-pushing coffees that are always unique and distinctly amazing.',
-    footer: 'WILD, UNIQUE, SURPRISING',
-    bg: '#056c7a',
-  },
-];
-
 const bags = [
-  { photo: photoFloral,       bag: bagFloral,       label: 'No. 01 — Floral'           },
-  { photo: photoFruity,       bag: bagFruity,       label: 'No. 02 — Fruity'           },
-  { photo: photoBalanced,     bag: bagBalanced,     label: 'No. 03 — Balanced & Sweet' },
-  { photo: photoChocolate,    bag: bagChocolate,    label: 'No. 04 — Chocolate & Nutty'},
-  { photo: photoEarthy,       bag: bagEarthy,       label: 'No. 05 — Spicy & Earthy'  },
-  { photo: photoExperimental, bag: bagExperimental, label: 'No. 06 — Experimental'    },
+  { photo: photoFloral,       bag: bagFloral,       num: '01', name: 'Floral',             color: '#a34b78' },
+  { photo: photoFruity,       bag: bagFruity,       num: '02', name: 'Fruity',              color: '#ca445f' },
+  { photo: photoBalanced,     bag: bagBalanced,     num: '03', name: 'Balanced & Sweet',    color: '#d1ac11' },
+  { photo: photoChocolate,    bag: bagChocolate,    num: '04', name: 'Chocolate & Nutty',   color: '#a54c2d' },
+  { photo: photoEarthy,       bag: bagEarthy,       num: '05', name: 'Spicy & Earthy',      color: '#912f2f' },
+  { photo: photoExperimental, bag: bagExperimental, num: '06', name: 'Experimental',        color: '#056c7a' },
 ];
 
-const SENTENCES = [
-  "Coffee is how I come back to myself before the day begins.",
-  "I do not need more choices. I need the right one.",
-  "A good cup makes the morning feel possible.",
-  "The right coffee feels like a quiet yes.",
-  "Coffee should feel like home, even when everything else is moving.",
-  "A cup I love makes ordinary mornings feel more generous.",
+const FLAVOR_DIMS = ['Sweetness', 'Acidity', 'Bitterness', 'Body', 'Fruit', 'Spice'];
+const FLAVOR_CARDS = [
+  { name: 'Floral',            num: '01', color: '#a34b78', dark: false, desc: 'Light, elegant, and aromatic. Hints of jasmine, citrus, and a tea-like clarity.',                                     tags: 'Fragrant, bright, delicate, clean',  bars: [60, 80, 30, 40, 70, 20] },
+  { name: 'Fruity',            num: '02', color: '#ca445f', dark: false, desc: 'Juicy and lively with notes of berries and ripe fruit.',                                                               tags: 'Sweet, vibrant, expressive, lively', bars: [70, 90, 30, 50, 100, 20] },
+  { name: 'Balanced & Sweet',  num: '03', color: '#d1ac11', dark: true,  desc: 'Round, smooth, and comforting. Notes of caramel, honey, and soft fruit.',                                             tags: 'Smooth, sweet, harmonious, easy',    bars: [90, 50, 40, 70, 50, 20] },
+  { name: 'Chocolate & Nutty', num: '04', color: '#a54c2d', dark: false, desc: 'Deep and satisfying with cocoa, roasted nuts, and a rich presence.',                                                  tags: 'Rich, grounded, full, comforting',   bars: [70, 30, 70, 90, 20, 30] },
+  { name: 'Spicy & Earthy',    num: '05', color: '#912f2f', dark: false, desc: 'Warm and bold with hints of spice, wood, and lingering depth.',                                                       tags: 'Warm, deep, bold, lasting',          bars: [50, 30, 80, 90, 20, 90] },
+  { name: 'Experimental',      num: '06', color: '#056c7a', dark: false, desc: 'Ever-changing and wonderfully unconventional. A rotating selection of boundary-pushing coffees, always unique.',      tags: 'Wild, unique, surprising',           bars: [50, 70, 50, 60, 70, 60] },
+];
+
+const WEDGE_PATTERN = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Cpath d='M8 36 L14 10 L20 36 Z' fill='%23f2f1ea' fill-opacity='0.12'/%3E%3Cpath d='M26 10 L32 36 L38 10 Z' fill='%23f2f1ea' fill-opacity='0.12'/%3E%3C/svg%3E\")";
+
+type CinToken = { text: string; highlight?: boolean };
+const CINEMATIC_WORDS: CinToken[] = [
+  { text: 'Coffee' }, { text: 'is' }, { text: 'never' }, { text: 'just' }, { text: 'flavor.' },
+  { text: 'It' }, { text: 'is' }, { text: 'morning,' }, { text: 'memory,', highlight: true },
+  { text: 'temperature,' }, { text: 'texture,' }, { text: 'time.' },
+];
+
+const QUOTES = [
+  { before: 'Coffee should feel like ', word: 'home', after: ', even when everything else is moving.' },
+  { before: 'The first cup is the only ', word: 'quiet', after: ' I get all day.' },
+  { before: 'I never knew my taste had a ', word: 'name', after: ' until someone asked.' },
+  { before: 'Sunday coffee is a ', word: 'ceremony', after: '. Weekday coffee is a promise.' },
+  { before: "It tastes like my grandmother's ", word: 'kitchen', after: ' in December.' },
+  { before: "I don't drink coffee to wake up. I wake up to ", word: 'drink coffee', after: '.' },
 ];
 
 // ─── Shared animation preset ─────────────────────────────────────────────────
@@ -119,9 +93,15 @@ export default function Home() {
   const heroVideoRef      = useRef<HTMLVideoElement>(null);
   const cinematicVideoRef = useRef<HTMLVideoElement>(null);
   const [hoveredBag, setHoveredBag] = useState<number | null>(null);
+  const [hoveredCard, setHoveredCard] = useState<number | null>(null);
   const [activeIdx, setActiveIdx]   = useState(0);
   const [paused, setPaused]         = useState(false);
   const prefersReducedMotion        = useReducedMotion();
+  const [visitorName, setVisitorName] = useState(() => localStorage.getItem('axisbloom.name') || '');
+  const cinematicTextRef = useRef<HTMLParagraphElement>(null);
+  const [cinematicVisible, setCinematicVisible] = useState(false);
+  const [visibleCards, setVisibleCards] = useState<Set<number>>(new Set());
+  const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   const [homepageState, setHomepageState]               = useState<HomepageState | null>(null);
   const [homepageStateLoading, setHomepageStateLoading] = useState(false);
@@ -150,7 +130,7 @@ export default function Home() {
 
   useEffect(() => {
     if (prefersReducedMotion || paused) return;
-    const id = setInterval(() => setActiveIdx(i => (i + 1) % SENTENCES.length), 5500);
+    const id = setInterval(() => setActiveIdx(i => (i + 1) % QUOTES.length), 5000);
     return () => clearInterval(id);
   }, [paused, prefersReducedMotion]);
 
@@ -172,6 +152,35 @@ export default function Home() {
     const cleanHero      = attachLoop(heroVideoRef);
     const cleanCinematic = attachLoop(cinematicVideoRef);
     return () => { cleanHero(); cleanCinematic(); };
+  }, []);
+
+  useEffect(() => {
+    const el = cinematicTextRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) { setCinematicVisible(true); io.disconnect(); } },
+      { threshold: 0.4 }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const refs = cardRefs.current;
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach(e => {
+          if (e.isIntersecting) {
+            const i = Number((e.target as HTMLElement).dataset.cardIdx);
+            setVisibleCards(prev => new Set([...prev, i]));
+            io.unobserve(e.target);
+          }
+        });
+      },
+      { threshold: 0.4 }
+    );
+    refs.forEach((el, i) => { if (el) { el.dataset.cardIdx = String(i); io.observe(el); } });
+    return () => io.disconnect();
   }, []);
 
   const handleProfileStart = (e: React.FormEvent<HTMLFormElement>) => {
@@ -349,82 +358,84 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ━━━ 2. PROFILE CTA ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ backgroundColor: '#ebebe3', padding: 'clamp(72px, 10vw, 120px) clamp(32px, 6vw, 96px)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'clamp(48px, 8vw, 96px)', flexWrap: 'wrap' }}>
+      {/* ━━━ 2. IN THEIR WORDS + PROFILE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <section style={{ display: 'grid', gridTemplateColumns: '1.15fr 1px 1fr', backgroundColor: '#f2f1ea', minHeight: 480 }}>
 
-          {/* ── LEFT: rotating sentence composition ── */}
-          <div
-            style={{ flex: '1 1 280px', maxWidth: 460 }}
-            onMouseEnter={() => setPaused(true)}
-            onMouseLeave={() => setPaused(false)}
-          >
-            <p style={{ fontSize: '0.6rem', letterSpacing: '0.28em', textTransform: 'uppercase', color: '#9a2918', opacity: 0.5, margin: '0 0 28px' }}>
-              In Their Words
-            </p>
-            <div style={{ minHeight: '9rem', position: 'relative' }}>
-              <AnimatePresence mode="wait">
-                <motion.p
-                  key={activeIdx}
-                  initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={prefersReducedMotion ? false : { opacity: 0, y: -8 }}
-                  transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
-                  style={{ fontSize: 'clamp(1.25rem, 2vw, 1.75rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.55, margin: 0, maxWidth: 420, position: 'absolute', top: 0, left: 0 }}
-                >
-                  {SENTENCES[activeIdx]}
-                </motion.p>
-              </AnimatePresence>
-            </div>
-            <p style={{ fontSize: '0.6rem', letterSpacing: '0.22em', color: '#9a2918', opacity: 0.38, margin: '20px 0 0' }}>
-              {String(activeIdx + 1).padStart(2, '0')} / {String(SENTENCES.length).padStart(2, '0')}
-            </p>
+        {/* LEFT: rotating quote */}
+        <div
+          style={{ padding: 'clamp(56px,8vw,90px) clamp(32px,5vw,56px)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}
+          onMouseEnter={() => setPaused(true)}
+          onMouseLeave={() => setPaused(false)}
+        >
+          <span style={{ fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: '#9a2918' }}>In their words</span>
+
+          <div style={{ minHeight: '10rem', position: 'relative', margin: '32px 0' }}>
+            <AnimatePresence mode="wait">
+              <motion.p
+                key={activeIdx}
+                initial={prefersReducedMotion ? false : { opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={prefersReducedMotion ? false : { opacity: 0 }}
+                transition={{ duration: 0.3 }}
+                aria-live="polite"
+                style={{ fontSize: 'clamp(24px,2.4vw,30px)', fontWeight: 400, color: '#45474a', lineHeight: 1.4, maxWidth: 480, margin: 0, position: 'absolute', top: 0, left: 0 }}
+              >
+                {QUOTES[activeIdx].before}
+                <span style={{ backgroundColor: '#ee5974', color: '#f2f1ea', padding: '1px 8px' }}>{QUOTES[activeIdx].word}</span>
+                {QUOTES[activeIdx].after}
+              </motion.p>
+            </AnimatePresence>
           </div>
 
-          {/* ── RIGHT: anonymous name-capture form, or the signed-in lifecycle CTA ── */}
-          <motion.div
-            {...fadeUp(0)}
-            style={{ flex: '1 1 280px', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', textAlign: 'right', maxWidth: 600, marginLeft: 'auto' }}
-          >
-            {!user ? (
-              <>
-                <p style={{ fontSize: 'clamp(2rem, 3.6vw, 3.6rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.15, margin: 0 }}>
-                  Whose palate are we<br />profiling today?
-                </p>
-                <form onSubmit={handleProfileStart} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '100%', marginTop: 36 }}>
-                  <style>{`#profile-name::placeholder { color: rgba(154,41,24,0.36); }`}</style>
-                  <input
-                    id="profile-name"
-                    type="text"
-                    name="name"
-                    required
-                    placeholder="Enter your name"
-                    style={{ width: '100%', maxWidth: 400, background: 'none', border: 'none', borderBottom: '1px solid rgba(154,41,24,0.42)', borderRadius: 0, outline: 'none', fontSize: '1.25rem', fontWeight: 400, color: '#9a2918', padding: '10px 0', textAlign: 'right' }}
-                  />
-                  <button
-                    type="submit"
-                    style={{ marginTop: 22, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: '0.88rem', fontWeight: 400, color: '#9a2918', letterSpacing: '0.22em', textTransform: 'uppercase', textDecoration: 'underline', textUnderlineOffset: '4px', textDecorationColor: 'rgba(154,41,24,0.32)', transition: 'text-decoration-color 0.2s' }}
-                    onMouseEnter={e => e.currentTarget.style.textDecorationColor = '#9a2918'}
-                    onMouseLeave={e => e.currentTarget.style.textDecorationColor = 'rgba(154,41,24,0.32)'}
-                  >
-                    BEGIN PROFILE →
-                  </button>
-                  <Link
-                    to="/sign-in"
-                    style={{ marginTop: 14, fontSize: '0.72rem', fontWeight: 400, color: '#9a2918', letterSpacing: '0.14em', textTransform: 'uppercase', textDecoration: 'none', opacity: 0.45, borderBottom: '1px solid rgba(154,41,24,0.25)', paddingBottom: 2 }}
-                  >
-                    Already a member? Sign in →
-                  </Link>
-                </form>
-              </>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '100%' }}>
-                {renderSignedInCTA()}
-              </div>
-            )}
-          </motion.div>
-
+          {/* Tick counter */}
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 9 }} aria-hidden="true">
+            {QUOTES.map((_, i) => (
+              <div key={i} style={{ width: 1, height: i === activeIdx ? 18 : 9, backgroundColor: i === activeIdx ? '#9a2918' : '#c5c7c8', transition: 'all 0.3s ease' }} />
+            ))}
+          </div>
         </div>
+
+        {/* Axis divider */}
+        <div style={{ backgroundColor: '#c5c7c8' }} />
+
+        {/* RIGHT: profile */}
+        <div style={{ padding: 'clamp(56px,8vw,90px) clamp(32px,5vw,56px)', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          {!user ? (
+            <>
+              <span style={{ fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: '#9a2918', marginBottom: 18 }}>Your profile</span>
+              <h2 style={{ fontSize: 'clamp(24px,2.4vw,30px)', fontWeight: 400, lineHeight: 1.25, color: '#9a2918', margin: '0 0 36px' }}>
+                Whose palate are we profiling today?
+              </h2>
+              <style>{`#profile-name::placeholder { color: #7b7f80; }`}</style>
+              <input
+                id="profile-name"
+                type="text"
+                placeholder="Your name"
+                autoComplete="given-name"
+                value={visitorName}
+                onChange={e => { setVisitorName(e.target.value); localStorage.setItem('axisbloom.name', e.target.value); }}
+                style={{ width: '100%', maxWidth: 360, background: 'transparent', border: 'none', borderBottom: '1px solid #9a2918', borderRadius: 0, outline: 'none', fontSize: 18, color: '#45474a', padding: '10px 0' }}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 22, marginTop: 32 }}>
+                <Link
+                  to={visitorName.trim() ? `/find-my-flavor` : '#'}
+                  onClick={() => { if (visitorName.trim()) sessionStorage.setItem('axisBloomCustomerName', visitorName.trim()); }}
+                  style={{ display: 'inline-block', backgroundColor: '#9a2918', color: '#f2f1ea', padding: '14px 28px', fontSize: '0.75rem', letterSpacing: '0.14em', textTransform: 'uppercase', textDecoration: 'none' }}
+                >
+                  Begin profile →
+                </Link>
+                <Link to="/sign-in" style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#45474a', textDecoration: 'none', borderBottom: '1px solid #45474a', paddingBottom: 2 }}>
+                  Member? Sign in
+                </Link>
+              </div>
+            </>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {renderSignedInCTA()}
+            </div>
+          )}
+        </div>
+
       </section>
 
       {/* ━━━ 3. COFFEE COLLECTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
@@ -443,45 +454,46 @@ export default function Home() {
           </Link>
         </div>
         {/* Full-width grid — no padding, no gap, edge to edge */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '8px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '6px' }}>
           {bags.map((item, i) => (
             <motion.div
               key={i}
               {...fadeUp(i * 0.08)}
-              style={{ display: 'flex', flexDirection: 'column', cursor: 'default' }}
+              style={{ display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
+              tabIndex={0}
               onMouseEnter={() => setHoveredBag(i)}
               onMouseLeave={() => setHoveredBag(null)}
+              onFocus={() => setHoveredBag(i)}
+              onBlur={() => setHoveredBag(null)}
             >
-              <div style={{ backgroundColor: '#ebebe3', height: '360px', position: 'relative', overflow: 'hidden' }}>
-                {/* Archetype photo — visible by default, fades out on hover */}
-                <div style={{
-                  position: 'absolute', inset: 0,
-                  opacity: hoveredBag === i ? 0 : 1,
-                  transition: 'opacity 0.45s ease',
-                }}>
-                  <img src={item.photo} alt={item.label} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
+              {/* 3px archetype-color bar */}
+              <div style={{ height: 3, backgroundColor: item.color, flexShrink: 0 }} />
+              <div style={{ aspectRatio: '3 / 4.6', position: 'relative', overflow: 'hidden' }}>
+                {/* Photo */}
+                <div style={{ position: 'absolute', inset: 0, opacity: hoveredBag === i ? 0 : 1, transition: 'opacity 0.3s ease' }}>
+                  <img src={item.photo} alt={`${item.name} archetype`} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
                 </div>
-                {/* Bag — fades in on hover */}
+                {/* Bag on full archetype-color field */}
                 <div style={{
-                  position: 'absolute', inset: 0,
+                  position: 'absolute', inset: 0, backgroundColor: item.color,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  opacity: hoveredBag === i ? 1 : 0,
-                  transition: 'opacity 0.45s ease',
+                  opacity: hoveredBag === i ? 1 : 0, transition: 'opacity 0.3s ease',
                 }}>
-                  <img src={item.bag} alt="" style={{ width: '72%', height: '84%', objectFit: 'contain', display: 'block' }} />
+                  <img src={item.bag} alt="" aria-hidden="true" style={{ width: '72%', height: '84%', objectFit: 'contain', display: 'block' }} />
                 </div>
               </div>
-              <p style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.8rem', letterSpacing: '0.1em', color: '#9a2918', margin: '14px 0', textAlign: 'center', padding: '0 clamp(32px, 6vw, 96px)' }}>{item.label}</p>
+              {/* Two-line label */}
+              <div style={{ textAlign: 'center', padding: '14px 6px 0' }}>
+                <span style={{ display: 'block', fontSize: 12, letterSpacing: '0.14em', color: item.color, lineHeight: 1.3 }}>No. {item.num}</span>
+                <span style={{ display: 'block', fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#45474a', whiteSpace: 'nowrap', lineHeight: 1.3, marginTop: 3 }}>{item.name}</span>
+              </div>
             </motion.div>
           ))}
         </div>
       </section>
 
       {/* ━━━ 4. CINEMATIC VIDEO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      {/*
-        To swap in a different video: replace <source src={...}> and update poster={}
-      */}
-      <section style={{ position: 'relative', height: '65vh', overflow: 'hidden', backgroundColor: '#1a1208' }}>
+      <section style={{ position: 'relative', height: '90vh', overflow: 'hidden', backgroundColor: '#201812', display: 'flex', alignItems: 'flex-end' }}>
         <video
           ref={cinematicVideoRef}
           autoPlay muted playsInline
@@ -489,111 +501,107 @@ export default function Home() {
         >
           <source src={placeholderVideo} type="video/mp4" />
         </video>
-        <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(17,17,16,0.3)' }} />
-        <p style={{
-          position: 'absolute',
-          bottom: 'clamp(32px, 5vh, 56px)',
-          left: 'clamp(32px, 6vw, 64px)',
-          fontFamily: "'Lato', Arial, sans-serif",
-          fontSize: 'clamp(1.05rem, 1.9vw, 1.45rem)',
-          fontWeight: 400,
-          color: '#f2f1ea',
-          margin: 0,
-          maxWidth: 500,
-          lineHeight: 1.6,
-        }}>
-          Coffee is never just flavor.<br />
-          It is morning,{' '}
-          <span style={{ backgroundColor: '#ee5974', color: '#f2f1ea', padding: '0 7px 2px', display: 'inline' }}>memory</span>,<br />
-          temperature, texture, time.
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(16,10,6,0) 45%, rgba(16,10,6,0.6) 100%)' }} />
+        <p
+          ref={cinematicTextRef}
+          style={{
+            position: 'relative', zIndex: 2,
+            padding: '0 clamp(32px,6vw,64px) clamp(56px,8vh,80px)',
+            fontSize: 'clamp(28px,3.6vw,46px)', fontWeight: 400, color: '#f2f1ea',
+            margin: 0, maxWidth: 900, lineHeight: 1.3,
+          }}
+        >
+          {CINEMATIC_WORDS.map((tok, i) => {
+            const visible = prefersReducedMotion || cinematicVisible;
+            const delay = prefersReducedMotion ? 0 : i * 90;
+            return (
+              <span
+                key={i}
+                style={{
+                  display: 'inline-block',
+                  marginRight: tok.highlight ? '0.15em' : '0.28em',
+                  ...(tok.highlight ? { backgroundColor: '#ee5974', color: '#f2f1ea', padding: '0 7px 2px' } : {}),
+                  opacity: visible ? 1 : 0,
+                  transform: visible ? 'translateY(0)' : 'translateY(12px)',
+                  transition: visible
+                    ? `opacity 0.55s ${delay}ms cubic-bezier(.22,1,.36,1), transform 0.55s ${delay}ms cubic-bezier(.22,1,.36,1)`
+                    : 'none',
+                }}
+              >
+                {tok.text}
+              </span>
+            );
+          })}
         </p>
       </section>
 
       {/* ━━━ 5. FLAVOR MAP — archetype cards ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(56px, 8vw, 88px) clamp(24px, 4vw, 64px)' }}>
-        {/* Header — left-aligned with the blocks (no centering wrapper) */}
         <motion.div {...fadeUp(0)} style={{ marginBottom: 'clamp(28px, 4vw, 44px)' }}>
-          <p style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 12px' }}>
+          <p style={{ fontSize: 11, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 12px' }}>
             The Flavor Map
           </p>
-          <h2 style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: 'clamp(1.5rem, 2.2vw, 2.2rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.15, margin: 0 }}>
+          <h2 style={{ fontSize: 'clamp(1.5rem, 2.2vw, 2.2rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.15, margin: 0 }}>
             Every palate has a direction.
           </h2>
         </motion.div>
 
-        {/* Blocks — full width between section paddings, scroll on narrow screens */}
-        <div style={{ display: 'flex', gap: 3, overflowX: 'auto' }}>
-          {archetypes.map((arch) => (
-            <div
-              key={arch.num}
-              style={{
-                flex: '1 0 140px',
-                minHeight: 360,
-                backgroundColor: arch.bg,
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                padding: '22px 16px 18px',
-                boxSizing: 'border-box',
-              }}
-            >
-                {/* Top: number + headline + body */}
-                <div>
-                  <p style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.6rem', letterSpacing: '0.2em', color: '#ebebe3', margin: '0 0 10px', opacity: 0.65 }}>
-                    {arch.num}
-                  </p>
-                  <h3 style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: 'clamp(1rem, 1.5vw, 1.3rem)', fontWeight: 400, color: '#ebebe3', margin: '0 0 14px', lineHeight: 1.2 }}>
-                    {arch.name}
-                  </h3>
-                  <p style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: 'clamp(0.72rem, 0.9vw, 0.8rem)', color: '#ebebe3', lineHeight: 1.65, margin: 0, opacity: 0.88 }}>
-                    {arch.body}
-                  </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10, overflowX: 'auto' }}>
+          {FLAVOR_CARDS.map((card, i) => {
+            const textColor = card.dark ? '#3a3c3e' : '#f2f1ea';
+            const trackBg = card.dark ? 'rgba(58,60,62,.22)' : 'rgba(242,241,234,.25)';
+            const dividerColor = card.dark ? 'rgba(58,60,62,.4)' : 'rgba(242,241,234,.4)';
+            const cardVisible = visibleCards.has(i);
+            return (
+              <div
+                key={card.num}
+                ref={el => { cardRefs.current[i] = el; }}
+                onMouseEnter={() => setHoveredCard(i)}
+                onMouseLeave={() => setHoveredCard(null)}
+                style={{
+                  position: 'relative', minHeight: 400,
+                  backgroundColor: card.color,
+                  display: 'flex', flexDirection: 'column',
+                  padding: '26px 20px', boxSizing: 'border-box', overflow: 'hidden',
+                  color: textColor,
+                }}
+              >
+                {/* Tone-on-tone wedge pattern (hover) */}
+                <div style={{
+                  position: 'absolute', inset: 0, backgroundImage: WEDGE_PATTERN,
+                  opacity: hoveredCard === i ? 1 : 0, transition: 'opacity 0.5s ease', pointerEvents: 'none',
+                }} />
+                <span style={{ fontSize: 11, letterSpacing: '0.14em', opacity: 0.8 }}>{card.num}</span>
+                <h3 style={{ fontSize: 20, fontWeight: 400, margin: '10px 0 12px', lineHeight: 1.2 }}>{card.name}</h3>
+                <p style={{ fontSize: 13, lineHeight: 1.55, opacity: 0.94, margin: 0 }}>{card.desc}</p>
+
+                {/* Flavor bars */}
+                <div style={{ marginTop: 'auto', marginBottom: 18, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  {FLAVOR_DIMS.map((dim, j) => (
+                    <div key={dim} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 9.5, letterSpacing: '0.08em', textTransform: 'uppercase', width: 58, opacity: 0.75, flexShrink: 0 }}>{dim}</span>
+                      <div style={{ flex: 1, height: 3, backgroundColor: trackBg }}>
+                        <div style={{
+                          height: '100%',
+                          width: cardVisible ? `${card.bars[j]}%` : '0%',
+                          backgroundColor: 'currentColor',
+                          transition: cardVisible ? `width 0.7s ${j * 60}ms cubic-bezier(.22,1,.36,1)` : 'none',
+                        }} />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                {/* Bottom: keywords */}
+
+                {/* Tags */}
                 <p style={{
-                  fontFamily: "'Lato', Arial, sans-serif",
-                  fontSize: '0.58rem',
-                  letterSpacing: '0.13em',
-                  textTransform: 'uppercase',
-                  color: '#ebebe3',
-                  margin: '16px 0 0',
-                  opacity: 0.58,
-                  borderTop: '1px solid rgba(235,235,227,0.22)',
-                  paddingTop: 10,
-                  lineHeight: 1.6,
-                }}>
-                  {arch.footer}
-                </p>
+                  fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase',
+                  borderTop: `1px solid ${dividerColor}`, paddingTop: 12, margin: 0, opacity: 0.9,
+                }}>{card.tags}</p>
               </div>
-            ))}
+            );
+          })}
         </div>
       </section>
-
-      {/* ━━━ 6. QUIZ CTA — anonymous only (UC0); every signed-in stage already has
-             its own CTA in section 2, so this would otherwise duplicate/conflict ━━━ */}
-      {!user && (
-        <section style={{ backgroundColor: '#f2f1ea', borderTop: '1px solid rgba(154,41,24,0.18)', padding: 'clamp(48px, 6vw, 72px) clamp(32px, 6vw, 96px)' }}>
-          <div style={{ maxWidth: 520, margin: '0 auto', textAlign: 'center' }}>
-            <motion.div {...fadeUp(0)} style={{ marginBottom: 22, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
-              <a
-                href="/find-my-flavor"
-                style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.85rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,0.4)', paddingBottom: 3 }}
-              >
-                TAKE THE QUIZ →
-              </a>
-              <Link
-                to="/sign-in"
-                style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.72rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', opacity: 0.45, borderBottom: '1px solid rgba(154,41,24,0.25)', paddingBottom: 2 }}
-              >
-                or sign in →
-              </Link>
-            </motion.div>
-            <motion.p {...fadeUp(0.12)} style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: 'clamp(0.88rem, 1.4vw, 1rem)', fontWeight: 400, color: '#9a2918', opacity: 0.62, lineHeight: 1.85, margin: 0 }}>
-              Our flavor system is designed to remove the guesswork. Answer a few questions and find your perfect coffee match.
-            </motion.p>
-          </div>
-        </section>
-      )}
 
       {/* ━━━ 7. TASTE FINDER (curtain animation) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <TasteFinderSection />
