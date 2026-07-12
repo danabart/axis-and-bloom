@@ -91,10 +91,16 @@ function ArchetypeSection({
         className={`flex flex-col ${flip ? 'md:flex-row-reverse' : 'md:flex-row'}`}
         style={{ gap: 'clamp(24px, 3.5vw, 56px)', alignItems: 'flex-start' }}
       >
-        {/* ── Photo column — height-capped to match the dial column, now the tallest
-             of the three since the bag moved out from underneath it (Part 7) ── */}
+        {/* ── Photo column — a fixed height that never changes, regardless of whether
+             the current position is active or unavailable. Anchored to the active
+             card's typical total height (heading + bag/card sub-row, ~319px measured
+             live), not computed relative to whatever the neighboring columns produce
+             on a given row/state — the dial's own height is already state-invariant,
+             but the card column's isn't, so "match a neighbor" was the wrong mental
+             model even though Part 7's fixed pixel values happened to land close
+             (The Bloom Part 9, Phase C). ── */}
         <div className="w-full md:basis-[27%] md:flex-none" style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <div style={{ height: 210, overflow: 'hidden' }}>
+          <div style={{ height: 213, overflow: 'hidden' }}>
             <img
               src={visual.hero}
               alt={`${data.archetypeLabel} — Axis & Bloom archetype`}
@@ -105,11 +111,11 @@ function ArchetypeSection({
             />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
-            <div style={{ height: 100, overflow: 'hidden' }}>
+            <div style={{ height: 101, overflow: 'hidden' }}>
               <img src={visual.sm1} alt="" width={400} height={400} loading="lazy" decoding="async"
                 style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
             </div>
-            <div style={{ height: 100, overflow: 'hidden' }}>
+            <div style={{ height: 101, overflow: 'hidden' }}>
               <img src={visual.sm2} alt="" width={400} height={400} loading="lazy" decoding="async"
                 style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
             </div>
@@ -144,17 +150,19 @@ function ArchetypeSection({
           >
             {/* Bag — DOM-first so it renders on the dial-facing side in both flip orientations
                 (row / row-reverse mirrors the outer row's own flip), and appears directly
-                above the card on mobile rather than off near the dial. Sized to match the
-                dial wheel's own footprint (Part 4's clamp) so it reads as equally weighted,
-                not a small accent (Part 8, Phase A). */}
-            <div className="w-full md:basis-[clamp(130px,14vw,190px)] md:flex-none" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                above the card on mobile rather than off near the dial. Height stretches to
+                match the card (via the parent row's alignItems:stretch) so it reads as
+                equally weighted next to the dial (Part 8, Phase A); width is capped tightly
+                — it's a narrow, tall product shape that only needs vertical room to read
+                clearly, not a wide flex share the card column needs back (Part 9, Phase A). */}
+            <div className="w-full md:w-[clamp(90px,9vw,120px)] md:flex-none" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <img
                 src={visual.bag}
                 alt={`${data.archetypeLabel} bag`}
                 width={160} height={200}
                 loading="lazy" decoding="async"
                 className="max-h-[190px] md:max-h-full"
-                style={{ maxWidth: '92%', objectFit: 'contain', filter: 'drop-shadow(0 18px 44px rgba(0,0,0,0.09))' }}
+                style={{ maxWidth: '100%', objectFit: 'contain', filter: 'drop-shadow(0 18px 44px rgba(0,0,0,0.09))' }}
               />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>

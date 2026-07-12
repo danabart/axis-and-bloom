@@ -40,14 +40,25 @@ export function PositionCard({
   }
 
   if (!effectivelyActive) {
+    // Same box treatment and comparable structural weight as the active card below
+    // (rounded border, padding, a real minimum height) — a deliberately designed
+    // state, not a small pill floating in whatever space happens to be left over
+    // (The Bloom Part 9, Phase B).
     return (
       <div
         ref={cardRef}
-        className="rounded-xl border px-6 py-5 flex items-center justify-between"
-        style={{ borderColor: '#e0dcd4', backgroundColor: '#f7f5f0', opacity: 0.65 }}
+        className="rounded-xl border px-6 py-5 flex flex-col items-center justify-center text-center gap-2"
+        style={{ borderColor: '#e0dcd4', backgroundColor: '#f7f5f0', minHeight: 176 }}
       >
-        <span className="text-sm" style={{ color: '#8a8070' }}>{slot.positionLabel}</span>
-        <span className="text-xs px-2.5 py-1 rounded-full" style={{ backgroundColor: '#e0dcd4', color: '#8a8070' }}>
+        <h3 className="text-lg font-normal" style={{ color: '#8a8070' }}>
+          {slot.positionLabel}
+        </h3>
+        {slot.description && (
+          <p className="text-sm font-light" style={{ color: '#a09880' }}>
+            {slot.description}
+          </p>
+        )}
+        <span className="text-xs px-2.5 py-1 rounded-full mt-1" style={{ backgroundColor: '#e0dcd4', color: '#8a8070' }}>
           Temporarily unavailable
         </span>
       </div>
