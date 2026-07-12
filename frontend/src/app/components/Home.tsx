@@ -308,7 +308,7 @@ export default function Home() {
       {/*
         To swap in real brand video: replace <source src="..."> and update poster={}
       */}
-      <section style={{ position: 'relative', height: 'clamp(320px, 60vh, 640px)', overflow: 'hidden', backgroundColor: '#1a1208' }}>
+      <section style={{ position: 'relative', height: '92vh', minHeight: 480, overflow: 'hidden', backgroundColor: '#1a1208' }}>
         <video
           ref={heroVideoRef}
           autoPlay muted playsInline
@@ -316,55 +316,35 @@ export default function Home() {
         >
           <source src={heroVideo} type="video/mp4" />
         </video>
-        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(17,17,16,0.68) 0%, rgba(17,17,16,0.22) 50%, rgba(17,17,16,0.04) 100%)' }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(20,12,8,0) 40%, rgba(20,12,8,0.62) 100%)' }} />
 
-        <div style={{ position: 'absolute', bottom: 'clamp(32px, 5vh, 60px)', left: 'clamp(32px, 6vw, 96px)' }}>
+        <div style={{ position: 'absolute', left: 40, bottom: 64, maxWidth: 560, zIndex: 2 }}>
           <motion.h1
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 1, delay: 0.3, ease: [0.16, 1, 0.3, 1] }}
-            style={{ fontSize: 'clamp(2.2rem, 4.5vw, 4.8rem)', fontWeight: 400, lineHeight: 1.0, margin: '0 0 22px', letterSpacing: '-0.02em' }}
+            transition={{ duration: 0.7, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            style={{ fontSize: 'clamp(32px, 4.2vw, 52px)', fontWeight: 400, lineHeight: 1.15, color: '#f2f1ea', margin: '0 0 28px' }}
           >
-            <span style={{ display: 'block', color: '#9a2918' }}>Coffee,</span>
-            <span style={{ display: 'block', margin: '5px 0' }}>
-              <span style={{ backgroundColor: '#ee5974', color: '#f2f1ea', padding: '2px 14px 5px', display: 'inline-block' }}>matched</span>
-            </span>
-            <span style={{ display: 'block', color: '#9a2918' }}>to your</span>
-            <span style={{ display: 'block', color: '#9a2918' }}>personal flavor.</span>
+            Coffee, <span style={{ backgroundColor: '#ee5974', color: '#f2f1ea', padding: '1px 10px' }}>matched</span> to your personal flavor.
           </motion.h1>
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 1, delay: 0.7, ease: [0.16, 1, 0.3, 1] }}
-            style={{ display: 'flex', gap: 32, flexWrap: 'wrap' }}
+            transition={{ duration: 0.7, delay: 0.55, ease: [0.22, 1, 0.36, 1] }}
+            style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}
           >
             <Link
               to="/find-my-flavor"
-              style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.78rem', fontWeight: 400, color: '#f2f1ea', letterSpacing: '0.18em', textTransform: 'uppercase', textDecoration: 'none', borderBottom: '1px solid rgba(242,241,234,0.65)', paddingBottom: 4 }}
+              style={{ display: 'inline-block', backgroundColor: '#9a2918', color: '#f2f1ea', padding: '14px 28px', fontSize: '0.75rem', letterSpacing: '0.14em', textTransform: 'uppercase', textDecoration: 'none', fontFamily: "'Lato', Arial, sans-serif" }}
             >
               Find my flavor →
             </Link>
             <Link
-              to="/shop"
-              style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.78rem', fontWeight: 400, color: 'rgba(242,241,234,0.52)', letterSpacing: '0.18em', textTransform: 'uppercase', textDecoration: 'none', borderBottom: '1px solid rgba(242,241,234,0.22)', paddingBottom: 4 }}
+              to="/coffees"
+              style={{ fontSize: '0.69rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(242,241,234,0.9)', textDecoration: 'none', borderBottom: '1px solid rgba(242,241,234,0.5)', paddingBottom: 2, fontFamily: "'Lato', Arial, sans-serif" }}
             >
-              Explore coffees →
+              Explore coffees
             </Link>
-            {user ? (
-              <Link
-                to="/profile"
-                style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.78rem', fontWeight: 400, color: 'rgba(242,241,234,0.52)', letterSpacing: '0.18em', textTransform: 'uppercase', textDecoration: 'none', borderBottom: '1px solid rgba(242,241,234,0.22)', paddingBottom: 4 }}
-              >
-                My profile →
-              </Link>
-            ) : (
-              <Link
-                to="/sign-in"
-                style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.78rem', fontWeight: 400, color: 'rgba(242,241,234,0.52)', letterSpacing: '0.18em', textTransform: 'uppercase', textDecoration: 'none', borderBottom: '1px solid rgba(242,241,234,0.22)', paddingBottom: 4 }}
-              >
-                Sign in →
-              </Link>
-            )}
           </motion.div>
         </div>
       </section>
