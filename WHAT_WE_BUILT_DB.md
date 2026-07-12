@@ -8,7 +8,7 @@ Seed files (run manually): `backend/src/db/seeds/`
 
 ---
 
-## Database Schema (64 Tables)
+## Database Schema (65 Tables)
 
 The schema runs automatically on every backend startup (`CREATE TABLE IF NOT EXISTS` — fully idempotent, safe to run repeatedly).
 
@@ -85,7 +85,7 @@ No enforced sequence between stages — a user can land on any stage directly fr
 - `coffees` — coffee catalogue (name, roaster, origin, process, roast level/shade, roaster flavor descriptors)
 - `cupping_sessions` — session header (date, brew_method TEXT, location, notes); brew_method was originally `brew_method_enum` but migrated to `TEXT` so it accepts all lookup values (cupping, pour-over, etc.) without enum constraint failures
 - `cupping_session_coffees` — junction: which coffees appeared in a session and in what order
-- `coffee_dimensions` — cupping dimension catalogue, 12 seeded rows; `is_numeric = true` → scored 0–15 with scale labels; `is_numeric = false` → free-text notes only
+- `coffee_dimensions` — cupping dimension catalogue, 12 seeded rows; `is_numeric = true` → scored 0–15 with scale labels; `is_numeric = false` → free-text notes only. **`platform_name`** *(added The Bloom Part 3)* — consumer-facing word per dimension, same alias pattern as `coffee_alias.platform_name`; `COALESCE(platform_name, name)` at the query level where unset. Seeded for the 5 numeric dimensions currently in play: Acidity→Brightness, Bitterness→Boldness, Body→Intensity, Savory / Depth→Complexity, Finish Length→Finish. Sweetness/Texture left null (already plain English); the free-text dimensions aren't used for dial/bar axes. Direct-SQL-only — no dimension admin UI exists yet.
 - `cupping_scores` — per-taster score header (session_coffee_id, taster_name, is_merged, overall_notes); unique on `(session_coffee_id, taster_name)`; `is_merged = true` for the combined row
 - `cupping_score_values` — one row per (cupping_score, dimension); `value_min` / `value_max` for numeric dims, `notes` for free-text dims; unique on `(cupping_score_id, dimension_id)`
 - `cupping_score_descriptors` — structured flavor notes: links a score row to one or more SCA wheel descriptors (`cupping_note`) instead of free text; `intensity` (0–15) captures how prominent the descriptor was; `custom_notes` is an escape hatch for off-wheel descriptors; unique on `(cupping_score_id, cupping_note_id)`
@@ -106,6 +106,7 @@ No enforced sequence between stages — a user can land on any stage directly fr
 - `cupping_note_dimension_weight` *(added #75, empty by design)* — table shape only for a future descriptor→dimension mapping (e.g. Citrus → Acidity → more); intentionally has zero rows until there's enough cupping volume to validate a mapping against real scores.
 - `dial_source_weight` *(added #75)* — reliability weight per signal source: `cupping=3`, `sms_feedback`/`onsite_feedback=1`, `roastery_wheel`/`client_wheel=0` (zero until `cupping_note_dimension_weight` has validated content).
 - `dial_slot_price` *(added #80, The Bloom Part 1)* — retail price per Bloom Dial slot (`archetype`, `dial_sort_order`) per `weight_oz`; `UNIQUE(archetype, dial_sort_order, weight_oz)`. Named to group with the rest of this `dial_*` family (renamed from an earlier `slot_price` draft). Not on `coffee_alias` (no weight dimension) or `roaster_blend` (would let two roasters fulfilling the same slot show two prices for the same weight). Defaults applied at the query level when no row exists yet: `$38.00`/12oz, `$199.00`/5lb (80oz). Managed via `GET`/`PATCH /api/admin/slot-prices` and a two-price edit control in `AdminCoffees.tsx` next to Slot Name; publicly read (roaster-blind) via `GET /api/coffees/archetypes`.
+- `user_bloom_dial_position` *(added #83, The Bloom Part 3)* — a signed-in user's remembered Bloom Dial position per archetype: `(user_id, archetype)` PRIMARY KEY, `dial_sort_order`. Deliberately its own table, not a repurposing of `user_archetype_tuning`/`archetype_tunable_variable` — those are reserved for a different, computed, feedback-derived confidence/offset signal, even though the key shape coincidentally matches. Uses `archetype_enum` directly to match the rest of this `dial_*` family. Managed via `GET`/`PATCH /api/users/dial-position` (`requireAuth`); `BloomDialWidget.tsx` pre-sets to the saved position on load and auto-saves on every real snap (drag or hop-triggered), no-ops for guests.
 
 **`backend/src/services/dialSuggestion.ts` — shared query helpers *(refactored #76)***
 - `getAvgCuppingScore(coffeeId, dimensionId)` — a coffee's merged cupping average + session count on one dimension; `null` if no merged scores exist. Single source for this query, used by `getDialSuggestion`, the within-archetype `hop_conflict` check, hop-creation direction validation, and the hop-suggestion endpoint (previously 3 near-duplicate inline queries).

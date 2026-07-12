@@ -1423,10 +1423,16 @@ EXCEPTION WHEN undefined_table THEN NULL;
 END $$;
 
 -- Seed coffee_dimensions.platform_name (idempotent — only fills unset rows, never
--- overwrites a value an admin may set directly later). Body is the only dimension
--- in play across the archetypes Bloom shows data for in this pass; others stay
--- null (falls back to the raw name) until a content pass reviews them.
-UPDATE coffee_dimensions SET platform_name = 'Intensity' WHERE name = 'Body' AND platform_name IS NULL;
+-- overwrites a value an admin may set directly later). Sweetness and Texture stay
+-- null on purpose (already plain English) — falls back to the raw name for those.
+-- Free-text dimensions (Fragrance, Aroma, Flavor, Finish Character, Mouthfeel)
+-- aren't used for dial/bar axes, left unseeded. Treat every value below as
+-- adjustable first-draft copy, not locked in (The Bloom Part 3, Phase B).
+UPDATE coffee_dimensions SET platform_name = 'Brightness' WHERE name = 'Acidity'        AND platform_name IS NULL;
+UPDATE coffee_dimensions SET platform_name = 'Boldness'    WHERE name = 'Bitterness'     AND platform_name IS NULL;
+UPDATE coffee_dimensions SET platform_name = 'Intensity'   WHERE name = 'Body'           AND platform_name IS NULL;
+UPDATE coffee_dimensions SET platform_name = 'Complexity'  WHERE name = 'Savory / Depth' AND platform_name IS NULL;
+UPDATE coffee_dimensions SET platform_name = 'Finish'      WHERE name = 'Finish Length'  AND platform_name IS NULL;
 
 -- Seed dial_archetype_config (idempotent)
 INSERT INTO dial_archetype_config (archetype, dominant_dimension_id, has_bloom_dial) VALUES
