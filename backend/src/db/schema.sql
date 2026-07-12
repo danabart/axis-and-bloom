@@ -912,6 +912,13 @@ CREATE TABLE IF NOT EXISTS coffee_dimensions (
   display_order    INT
 );
 
+-- Consumer-facing word per dimension (e.g. "Intensity" instead of the raw SCA term
+-- "Body") — same public-alias pattern as coffee_alias.platform_name, applied to
+-- dimensions. Falls back to the raw `name` via COALESCE at the query level where
+-- unset. Direct-SQL-only for now — no dimension admin UI exists yet to edit this
+-- from (see The Bloom Part 3, Phase B).
+ALTER TABLE coffee_dimensions ADD COLUMN IF NOT EXISTS platform_name TEXT;
+
 -- Drop old wide-column cupping_scores if it exists (detected by sweetness_min column)
 -- and replace with the normalised design linked to dimensions via cupping_score_values.
 DO $$ BEGIN
@@ -1176,6 +1183,21 @@ CREATE TABLE IF NOT EXISTS coffee_alias (
   UNIQUE (archetype, dial_sort_order, coffee_id)
 );
 
+-- A signed-in user's remembered dial position per archetype (The Bloom Part 3,
+-- Phase D). Deliberately its own table, not a repurposing of user_archetype_tuning/
+-- archetype_tunable_variable — those are reserved for a computed, feedback-derived
+-- confidence/offset signal (a different kind of data, owned by a different future
+-- feature), even though the (user, archetype, dimension) key shape coincidentally
+-- matches. Uses archetype_enum directly to match the rest of the dial_* family
+-- (dial_archetype_positions, coffee_alias, dial_slot_price all key off the enum).
+CREATE TABLE IF NOT EXISTS user_bloom_dial_position (
+  user_id          UUID NOT NULL REFERENCES user_profile(id) ON DELETE CASCADE,
+  archetype        archetype_enum NOT NULL,
+  dial_sort_order  INT NOT NULL,
+  updated_at       TIMESTAMPTZ DEFAULT now(),
+  PRIMARY KEY (user_id, archetype)
+);
+
 -- Retail price for a Bloom Dial slot (archetype + position), per weight. Not on
 -- coffee_alias (no weight dimension there) or roaster_blend (would let two roasters
 -- fulfilling the same slot show two different prices for the same weight, breaking
@@ -1399,6 +1421,12 @@ DO $$ BEGIN
   PERFORM setval('coffee_dimensions_id_seq', (SELECT COALESCE(MAX(id), 12) FROM coffee_dimensions));
 EXCEPTION WHEN undefined_table THEN NULL;
 END $$;
+
+-- Seed coffee_dimensions.platform_name (idempotent — only fills unset rows, never
+-- overwrites a value an admin may set directly later). Body is the only dimension
+-- in play across the archetypes Bloom shows data for in this pass; others stay
+-- null (falls back to the raw name) until a content pass reviews them.
+UPDATE coffee_dimensions SET platform_name = 'Intensity' WHERE name = 'Body' AND platform_name IS NULL;
 
 -- Seed dial_archetype_config (idempotent)
 INSERT INTO dial_archetype_config (archetype, dominant_dimension_id, has_bloom_dial) VALUES

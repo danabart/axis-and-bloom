@@ -75,6 +75,24 @@ export async function getHomepageState() {
   return res.json();
 }
 
+export async function getDialPosition(archetype: string): Promise<{ dialSortOrder: number | null }> {
+  const res = await fetch(`${BASE}/users/dial-position?archetype=${encodeURIComponent(archetype)}`, {
+    headers: await getHeaders(),
+  });
+  if (!res.ok) throw new Error('Failed to fetch dial position');
+  return res.json();
+}
+
+export async function setDialPosition(archetype: string, dialSortOrder: number) {
+  const res = await fetch(`${BASE}/users/dial-position`, {
+    method: 'PATCH',
+    headers: await getHeaders(),
+    body: JSON.stringify({ archetype, dialSortOrder }),
+  });
+  if (!res.ok) throw new Error('Failed to save dial position');
+  return res.json();
+}
+
 export async function submitOrderFeedback(orderId: string, rating: number, note?: string) {
   const res = await fetch(`${BASE}/orders/${orderId}/feedback`, {
     method: 'POST',

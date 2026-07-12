@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
-import { getUserProfile, placeOrder } from '../lib/api';
+import { getUserProfile, placeOrder, getDialPosition, setDialPosition } from '../lib/api';
 import { ARCHETYPE_ORDER, ARCHETYPE_VISUALS } from './bloom/bloomVisuals';
 import { PositionCard } from './bloom/PositionCard';
 import { FloatingCart } from './bloom/FloatingCart';
 import { CompareOverlay } from './bloom/CompareOverlay';
+import { BloomDialWidget, type BloomDialHandle, type DialPosition } from './BloomDialWidget';
 import type { ArchetypeData, CartItem, Slot } from './bloom/types';
 import { slotKey } from './bloom/types';
 
@@ -13,24 +14,46 @@ interface Address {
   id: number; street: string; city: string; state: string; postal_code: string; country: string;
 }
 
+/** ★ default position — sort_order 2 ("Classic"/"Balanced"/etc.) by established convention
+ * across every archetype's seeded vocabulary; falls back to the first defined position
+ * for the rare archetype that doesn't have one. */
+function computeDefaultSortOrder(data: ArchetypeData): number {
+  return data.slots.some(s => s.dialSortOrder === 2) ? 2 : (data.slots[0]?.dialSortOrder ?? 1);
+}
+
 function ArchetypeSection({
-  data, index, revealedKeys, onToggleReveal, onAddToCart, onHopClick, onCompare, userArchetype, registerRef,
+  data, index, selectedSortOrder, revealedKeys, onDialSelect, onToggleReveal, onAddToCart, onHopClick, onCompare,
+  userArchetype, registerDialRef,
 }: {
   data: ArchetypeData;
   index: number;
+  selectedSortOrder: number;
   revealedKeys: Set<string>;
+  onDialSelect: (archetype: string, dialSortOrder: number) => void;
   onToggleReveal: (key: string) => void;
   onAddToCart: (item: CartItem) => void;
   onHopClick: (archetype: string, dialSortOrder: number) => void;
   onCompare: (archetype: string, archetypeLabel: string, slot: Slot) => void;
   userArchetype: string | null;
-  registerRef: (key: string, el: HTMLDivElement | null) => void;
+  registerDialRef: (archetype: string, handle: BloomDialHandle | null) => void;
 }) {
   const visual = ARCHETYPE_VISUALS[data.archetype];
   const flip = index % 2 !== 0;
   const eager = index === 0;
 
   if (!visual) return null;
+
+  const defaultSortOrder = computeDefaultSortOrder(data);
+  const dialPositions: DialPosition[] = data.slots.map(s => ({
+    dialSortOrder: s.dialSortOrder,
+    label: s.positionLabel,
+    description: s.description,
+    isActive: s.isActive,
+  }));
+  const currentSlot = data.slots.find(s => s.dialSortOrder === selectedSortOrder)
+    ?? data.slots.find(s => s.dialSortOrder === defaultSortOrder)
+    ?? data.slots[0];
+  const currentKey = slotKey(data.archetype, currentSlot.dialSortOrder);
 
   return (
     <motion.section
@@ -61,7 +84,7 @@ function ArchetypeSection({
         gap: 'clamp(24px, 3.5vw, 56px)', alignItems: 'flex-start',
       }}>
         {/* ── Photo column ── */}
-        <div style={{ flex: '0 0 42%', display: 'flex', flexDirection: 'column', gap: 5, position: 'sticky', top: 100 }}>
+        <div style={{ flex: '0 0 34%', display: 'flex', flexDirection: 'column', gap: 5, position: 'sticky', top: 100 }}>
           <div style={{ aspectRatio: '4 / 3', overflow: 'hidden' }}>
             <img
               src={visual.hero}
@@ -82,18 +105,29 @@ function ArchetypeSection({
                 style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
             </div>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 16 }}>
-            <img
-              src={visual.bag}
-              alt={`${data.archetypeLabel} bag`}
-              width={220} height={280}
-              loading="lazy" decoding="async"
-              style={{ maxHeight: 220, maxWidth: '70%', objectFit: 'contain', filter: 'drop-shadow(0 18px 44px rgba(0,0,0,0.09))' }}
-            />
-          </div>
         </div>
 
-        {/* ── Position cards column ── */}
+        {/* ── Dial column ── */}
+        <div style={{ flex: '0 0 26%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <BloomDialWidget
+            ref={el => registerDialRef(data.archetype, el)}
+            color={visual.color}
+            positions={dialPositions}
+            dimensionLabel={data.dimensionPlatformName}
+            defaultSortOrder={defaultSortOrder}
+            initialSortOrder={selectedSortOrder}
+            onSelect={sortOrder => onDialSelect(data.archetype, sortOrder)}
+          />
+          <img
+            src={visual.bag}
+            alt={`${data.archetypeLabel} bag`}
+            width={160} height={200}
+            loading="lazy" decoding="async"
+            style={{ maxHeight: 160, maxWidth: '70%', objectFit: 'contain', filter: 'drop-shadow(0 18px 44px rgba(0,0,0,0.09))', marginTop: 8 }}
+          />
+        </div>
+
+        {/* ── Dynamic position card ── */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <h2 style={{
             fontSize: 'clamp(2rem, 3.2vw, 4rem)', color: visual.color, fontWeight: 400,
@@ -101,27 +135,20 @@ function ArchetypeSection({
           }}>
             {data.archetypeLabel}
           </h2>
-          <div className="space-y-3">
-            {data.slots.map(slot => {
-              const key = slotKey(data.archetype, slot.dialSortOrder);
-              return (
-                <PositionCard
-                  key={key}
-                  slot={slot}
-                  archetype={data.archetype}
-                  archetypeLabel={data.archetypeLabel}
-                  color={visual.color}
-                  isRevealed={revealedKeys.has(key)}
-                  onToggleReveal={() => onToggleReveal(key)}
-                  onAddToCart={onAddToCart}
-                  onHopClick={onHopClick}
-                  onCompare={() => onCompare(data.archetype, data.archetypeLabel, slot)}
-                  userArchetype={userArchetype}
-                  cardRef={el => registerRef(key, el)}
-                />
-              );
-            })}
-          </div>
+          <PositionCard
+            key={currentKey}
+            slot={currentSlot}
+            archetype={data.archetype}
+            archetypeLabel={data.archetypeLabel}
+            color={visual.color}
+            isRevealed={revealedKeys.has(currentKey)}
+            onToggleReveal={() => onToggleReveal(currentKey)}
+            onAddToCart={onAddToCart}
+            onHopClick={onHopClick}
+            onCompare={() => onCompare(data.archetype, data.archetypeLabel, currentSlot)}
+            userArchetype={userArchetype}
+            cardRef={() => {}}
+          />
         </div>
       </div>
     </motion.section>
@@ -137,8 +164,9 @@ export default function BloomPage() {
   const [defaultAddress, setDefaultAddress] = useState<Address | null>(null);
   const [customerName, setCustomerName] = useState<{ first: string; last: string } | null>(null);
 
+  const [selectedSortOrder, setSelectedSortOrder] = useState<Record<string, number>>({});
   const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
-  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const dialRefs = useRef<Record<string, BloomDialHandle | null>>({});
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
@@ -157,6 +185,11 @@ export default function BloomPage() {
           (a, b) => ARCHETYPE_ORDER.indexOf(a.archetype as any) - ARCHETYPE_ORDER.indexOf(b.archetype as any)
         );
         setArchetypes(ordered);
+        setSelectedSortOrder(prev => {
+          const next = { ...prev };
+          for (const a of ordered) if (!(a.archetype in next)) next[a.archetype] = computeDefaultSortOrder(a);
+          return next;
+        });
       })
       .catch(() => setError('Failed to load coffees'));
   }, []);
@@ -173,8 +206,26 @@ export default function BloomPage() {
       .catch(() => {});
   }, [user]);
 
-  function registerRef(key: string, el: HTMLDivElement | null) {
-    cardRefs.current[key] = el;
+  // Phase D — pre-set each archetype's dial to the signed-in user's saved position.
+  useEffect(() => {
+    if (!user || !archetypes.length) return;
+    Promise.all(archetypes.map(a => getDialPosition(a.archetype).then(r => [a.archetype, r.dialSortOrder] as const).catch(() => [a.archetype, null] as const)))
+      .then(entries => {
+        setSelectedSortOrder(prev => {
+          const next = { ...prev };
+          for (const [archetype, sortOrder] of entries) if (sortOrder != null) next[archetype] = sortOrder;
+          return next;
+        });
+      });
+  }, [user, archetypes]);
+
+  function registerDialRef(archetype: string, handle: BloomDialHandle | null) {
+    dialRefs.current[archetype] = handle;
+  }
+
+  function handleDialSelect(archetype: string, dialSortOrder: number) {
+    setSelectedSortOrder(prev => ({ ...prev, [archetype]: dialSortOrder }));
+    if (user) setDialPosition(archetype, dialSortOrder).catch(() => {});
   }
 
   function toggleReveal(key: string) {
@@ -186,13 +237,10 @@ export default function BloomPage() {
   }
 
   function handleHopClick(archetype: string, dialSortOrder: number) {
-    const key = slotKey(archetype, dialSortOrder);
-    setRevealedKeys(prev => new Set(prev).add(key));
-    // Scroll after the reveal state applies and the section (if collapsed) has laid out.
+    dialRefs.current[archetype]?.rotateTo(dialSortOrder);
+    setRevealedKeys(prev => new Set(prev).add(slotKey(archetype, dialSortOrder)));
     requestAnimationFrame(() => {
-      setTimeout(() => {
-        cardRefs.current[key]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 50);
+      document.getElementById(archetype)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   }
 
@@ -299,13 +347,15 @@ export default function BloomPage() {
           key={data.archetype}
           data={data}
           index={i}
+          selectedSortOrder={selectedSortOrder[data.archetype] ?? computeDefaultSortOrder(data)}
           revealedKeys={revealedKeys}
+          onDialSelect={handleDialSelect}
           onToggleReveal={toggleReveal}
           onAddToCart={handleAddToCart}
           onHopClick={handleHopClick}
           onCompare={openCompare}
           userArchetype={userArchetype}
-          registerRef={registerRef}
+          registerDialRef={registerDialRef}
         />
       ))}
 

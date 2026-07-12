@@ -6,6 +6,7 @@ export interface SlotPrice {
 export interface Slot {
   dialSortOrder: number;
   positionLabel: string;
+  description: string | null;
   isActive: boolean;
   platformName: string | null;
   prices: SlotPrice[];
@@ -15,6 +16,8 @@ export interface Slot {
 export interface ArchetypeData {
   archetype: string;
   archetypeLabel: string;
+  dimensionName: string | null;
+  dimensionPlatformName: string | null;
   slots: Slot[];
 }
 

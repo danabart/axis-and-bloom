@@ -4,7 +4,7 @@ export interface SkippedCandidate {
   coffee_name: string;
   roaster: string;
   priority: number;
-  reason: 'no active blend at that weight' | 'out of stock';
+  reason: 'no active blend at that weight';
 }
 
 export interface ResolvedBlend {
@@ -21,10 +21,19 @@ export interface ResolvedBlend {
 
 // Priority-ordered fallback for a Bloom Dial slot (archetype + position): tries each
 // coffee_alias-listed coffee in priority order (1 = preferred, set on the Coffees page)
-// and returns the first one with an active, in-stock roaster_blend at the requested
-// weight. Live-derives the slot the same way GET /api/admin/coffee-alias does, so a
-// coffee moved or re-tagged on the Coffees page is picked up automatically. Never
-// guesses — returns null if nothing in the slot is currently fulfillable.
+// and returns the first one with an active roaster_blend at the requested weight.
+// Live-derives the slot the same way GET /api/admin/coffee-alias does, so a coffee
+// moved or re-tagged on the Coffees page is picked up automatically. Never guesses —
+// returns null if nothing in the slot is currently fulfillable.
+//
+// quantity_available is deliberately NOT checked here — this is a drop-ship model,
+// inventory quantities are not tracked (see WHAT_WE_BUILT.md #70), so that column
+// sits at its schema default of 0 on effectively every row. Gating on it made every
+// slot resolve to nothing (confirmed root cause of The Bloom Part 1/2 showing
+// "Temporarily unavailable" everywhere — see The Bloom Part 3, Phase A). Fulfillability
+// is is_active + a row existing at the requested weight, full stop. orders.ts's
+// decrement of quantity_available on order placement is unaffected by this — it just
+// no longer gates anything either.
 export async function resolveBlendForSlot(
   archetype: string,
   dialSortOrder: number,
@@ -49,7 +58,7 @@ export async function resolveBlendForSlot(
 
   for (const candidate of candidatesResult.rows) {
     const blendResult = await db.query(
-      `SELECT id AS blend_id, roaster_sku, shopify_variant_id, quantity_available
+      `SELECT id AS blend_id, roaster_sku, shopify_variant_id
        FROM roaster_blend
        WHERE coffee_id = $1 AND weight_oz = $2 AND is_active = true`,
       [candidate.coffee_id, weightOz]
@@ -60,13 +69,6 @@ export async function resolveBlendForSlot(
       skipped.push({
         coffee_name: candidate.coffee_name, roaster: candidate.roaster, priority: candidate.priority,
         reason: 'no active blend at that weight',
-      });
-      continue;
-    }
-    if (blend.quantity_available <= 0) {
-      skipped.push({
-        coffee_name: candidate.coffee_name, roaster: candidate.roaster, priority: candidate.priority,
-        reason: 'out of stock',
       });
       continue;
     }

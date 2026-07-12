@@ -370,4 +370,52 @@ router.delete('/addresses/:id', requireAuth, async (req: AuthRequest, res) => {
   }
 });
 
+// ── GET /api/users/dial-position?archetype= ───────────────────────────────────
+// The Bloom Part 3, Phase D — a signed-in user's remembered Bloom Dial position
+// for one archetype. Separate table from user_archetype_tuning on purpose, see
+// schema.sql comment above user_bloom_dial_position.
+router.get('/dial-position', requireAuth, async (req: AuthRequest, res) => {
+  const archetype = req.query.archetype as string;
+  if (!archetype) { res.status(400).json({ error: 'archetype is required' }); return; }
+  try {
+    const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]);
+    const profileId = profileResult.rows[0]?.id;
+    if (!profileId) { res.status(404).json({ error: 'Profile not found' }); return; }
+
+    const result = await db.query(
+      `SELECT dial_sort_order FROM user_bloom_dial_position WHERE user_id = $1 AND archetype = $2`,
+      [profileId, archetype]
+    );
+    res.json({ dialSortOrder: result.rows[0]?.dial_sort_order ?? null });
+  } catch (err) {
+    console.error('[GET /api/users/dial-position]', err);
+    res.status(500).json({ error: 'Failed to fetch dial position' });
+  }
+});
+
+// ── PATCH /api/users/dial-position — upsert on (user_id, archetype) ───────────
+router.patch('/dial-position', requireAuth, async (req: AuthRequest, res) => {
+  const { archetype, dialSortOrder } = req.body ?? {};
+  if (!archetype || !Number.isInteger(dialSortOrder)) {
+    res.status(400).json({ error: 'archetype and dialSortOrder are required' }); return;
+  }
+  try {
+    const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]);
+    const profileId = profileResult.rows[0]?.id;
+    if (!profileId) { res.status(404).json({ error: 'Profile not found' }); return; }
+
+    await db.query(
+      `INSERT INTO user_bloom_dial_position (user_id, archetype, dial_sort_order, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (user_id, archetype)
+       DO UPDATE SET dial_sort_order = $3, updated_at = NOW()`,
+      [profileId, archetype, dialSortOrder]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[PATCH /api/users/dial-position]', err);
+    res.status(500).json({ error: 'Failed to save dial position' });
+  }
+});
+
 export default router;

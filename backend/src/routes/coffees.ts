@@ -223,8 +223,18 @@ const BLOOM_DEFAULT_PRICE_CENTS: Record<number, number> = { 12: 3800, 80: 19900 
 router.get('/archetypes', async (_req, res) => {
   try {
     const [archetypeResult, vocabResult, priceResult] = await Promise.all([
-      db.query(`SELECT archetype FROM dial_archetype_config ORDER BY archetype`),
-      db.query(`SELECT archetype, sort_order, label FROM dial_position_vocabulary ORDER BY archetype, sort_order`),
+      // dominant_dimension_id -> coffee_dimensions for the dial's DIMENSION: ___ label
+      // (The Bloom Part 3, Phase B) — the same column dialSuggestion.ts already reads
+      // for "which dimension does this archetype's dial travel on", not re-derived
+      // from dial_position_vocabulary's per-row dimension_id.
+      db.query(
+        `SELECT dac.archetype, cd.name AS dimension_name,
+                COALESCE(cd.platform_name, cd.name) AS dimension_platform_name
+         FROM dial_archetype_config dac
+         LEFT JOIN coffee_dimensions cd ON cd.id = dac.dominant_dimension_id
+         ORDER BY dac.archetype`
+      ),
+      db.query(`SELECT archetype, sort_order, label, description FROM dial_position_vocabulary ORDER BY archetype, sort_order`),
       db.query(
         `SELECT archetype, dial_sort_order, weight_oz, retail_price_cents
          FROM dial_slot_price
@@ -239,7 +249,7 @@ router.get('/archetypes', async (_req, res) => {
     }
 
     const archetypes = [];
-    for (const { archetype } of archetypeResult.rows) {
+    for (const { archetype, dimension_name, dimension_platform_name } of archetypeResult.rows) {
       const slotsVocab = vocabResult.rows.filter((v: any) => v.archetype === archetype);
       const slots = [];
 
@@ -250,6 +260,7 @@ router.get('/archetypes', async (_req, res) => {
           slots.push({
             dialSortOrder: v.sort_order,
             positionLabel:  v.label,
+            description:    v.description ?? null,
             isActive:       false,
             platformName:   null,
             prices:         [],
@@ -280,6 +291,7 @@ router.get('/archetypes', async (_req, res) => {
         slots.push({
           dialSortOrder: v.sort_order,
           positionLabel:  v.label,
+          description:    v.description ?? null,
           isActive:       true,
           platformName:   aliasResult.rows[0]?.platform_name ?? null,
           prices,
@@ -290,6 +302,8 @@ router.get('/archetypes', async (_req, res) => {
       archetypes.push({
         archetype,
         archetypeLabel: ARCHETYPE_LABEL[archetype] ?? archetype,
+        dimensionName: dimension_name ?? null,
+        dimensionPlatformName: dimension_platform_name ?? null,
         slots,
       });
     }
