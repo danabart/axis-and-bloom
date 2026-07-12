@@ -2311,10 +2311,22 @@ Post-deployment feedback on #78: `AdminCoffees.tsx`'s archetype-assignment dropd
 
 ---
 
+### 82. Fixed the #81 coffee-name leak at its root, plus a second real leak found in the same audit (2026-07-11)
+
+**Context**: `backend/src/features/ai_agent_liam/SOMMELIER_TASK_6_VOICE.md` was updated with a new Step 2b specifically to chase down the leak flagged in #81. Full detail in `SOMMELIER_BUILT.md` S38 — summarized here since the customer-facing symptom was on `/bloom`.
+
+**Fix 1 — the actual #81 bug**: `getCoffeeSummary()`/`getCoffeeSurpriseNote()`/`getCoffeeThreeVoiceStory()` (`backend/src/services/claude.ts`) build their prompt around whatever `coffeeName` they're given — left completely unchanged, per the task doc's explicit constraint. The fix is at the only call site, `fetchCoffeeDataForContent()`/`generateAndStoreAllContent()`/`generateAndStoreSummary()` (`backend/src/routes/coffees.ts`): now fetches the coffee's active `coffee_alias.platform_name` and passes `displayName ?? archetypeLabel ?? 'This coffee'` instead of the raw `coffees.name`.
+
+**Fix 2 — a second, separate leak found during the same audit**: `sommelierRag.ts`'s `buildCatalogText()` was injecting the raw roastery name (`c.roaster`) and the raw coffee name directly into Liam's system prompt context on every single session — not a generated-text bug, a structural one, relying entirely on the base prompt's "never reveal" instruction (Task 6, S35) as the only safety net. Removed `roaster` from the `CoffeeRow` type and all six SQL blocks in the file; added `getAliases()` (same pattern as the file's existing `getDescriptors()`); the catalog line is now alias + archetype only.
+
+**Verified against production Cloud SQL**: spot-checked all 13 coffees with cached content — all 13 contained the raw coffee name pre-fix. Regenerated all 13 with the fixed code path; re-checked — 12/13 clean, one false positive (substring match on an unrelated word in Claude's own text, not a real leak). Full detail, including the one coffee that now needs real cupping data before it can get a proper tasting note, in `SOMMELIER_BUILT.md` S38.
+
+---
+
 ## What's Still To Do
 
 ### The Bloom — pre-launch blocker
-0. **AI-generated content leaks raw coffee names (confirmed, #81)** — `ai_summary`/`surprise_note`/`three_voice_story` are prompted with the coffee's literal internal name and can echo it verbatim (observed: "Brazil Santos is a comforting cup..." inside "Liam's intake" on `/bloom`). Violates the drop-ship requirement that customers never see raw coffee names. Needs a decision: regenerate cached content with prompts keyed to `platform_name` instead of `coffee_name` (rewrites already-reviewed content), or a runtime sanitizer on the three fields before they reach any public endpoint (fragile string-matching, coffee names can appear in many forms). Block launching `/bloom` publicly until resolved.
+0. ~~AI-generated content leaks raw coffee names (confirmed, #81)~~ — **fixed, see #82.** `fetchCoffeeDataForContent()` now passes the coffee's alias instead of its raw name into `getCoffeeSummary()`/`getCoffeeSurpriseNote()`/`getCoffeeThreeVoiceStory()`; all 13 previously-cached records were regenerated and re-verified clean against production Cloud SQL.
 
 ### Quiz / scoring
 1. **Populate cross-archetype negative scores** — current `quiz_answer_archetype_score` rows only award one positive score per answer. Add negative rows for competing archetypes (e.g. Q5 answer A → Chocolate +3, Balanced −1, Fruity −2) to make the matrix fully competitive. Run via Cloud SQL Studio — no code deploy needed.

@@ -11,13 +11,25 @@ const ARCHETYPE_LABEL: Record<string, string> = {
 };
 
 // ── Fetch all data needed for AI content generation ───────────────────────────
+// displayName is the Axis & Bloom alias (never the coffee's raw internal name) —
+// per SOMMELIER_TASK_6_VOICE.md Step 2b: getCoffeeSummary/getCoffeeSurpriseNote/
+// getCoffeeThreeVoiceStory (claude.ts) build their prompt around whatever string
+// is passed as coffeeName, so the generated text can and does echo it verbatim
+// (confirmed: a cached surprise_note named the coffee's real internal name). The
+// fix lives here, at the call site — claude.ts's functions/prompts are unchanged.
 async function fetchCoffeeDataForContent(coffeeId: string | number) {
-  const [coffeeResult, dimsResult, descriptorResult] = await Promise.all([
+  const [coffeeResult, aliasResult, dimsResult, descriptorResult] = await Promise.all([
     db.query(
       `SELECT c.name, aa.archetype
        FROM coffees c
        LEFT JOIN archetype_assignments aa ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
        WHERE c.id = $1`,
+      [coffeeId]
+    ),
+    db.query(
+      `SELECT platform_name FROM coffee_alias
+       WHERE coffee_id = $1 AND is_active = true
+       ORDER BY priority ASC LIMIT 1`,
       [coffeeId]
     ),
     db.query(
@@ -55,6 +67,7 @@ async function fetchCoffeeDataForContent(coffeeId: string | number) {
 
   return {
     coffee:       coffeeResult.rows[0],
+    displayName:  aliasResult.rows[0]?.platform_name ?? null,
     dimensions:   dimsResult.rows,
     descriptors:  descriptorResult.rows,
     overallNotes: notesResult.rows[0]?.overall_notes ?? null,
@@ -93,6 +106,8 @@ export async function generateAndStoreAllContent(
   const archetypeLabel = data.coffee.archetype
     ? (ARCHETYPE_LABEL[data.coffee.archetype] ?? data.coffee.archetype)
     : null;
+  // Never the coffee's raw internal name — see fetchCoffeeDataForContent comment above.
+  const safeName = data.displayName ?? archetypeLabel ?? 'This coffee';
 
   const dimensionParams = data.dimensions.map((r: any) => ({
     dimension:       r.dimension,
@@ -118,13 +133,13 @@ export async function generateAndStoreAllContent(
   // Run only what is needed, in parallel
   const [newSummary, newSurprise, newStory] = await Promise.all([
     needsSummary
-      ? getCoffeeSummary({ coffeeName: data.coffee.name, archetype: archetypeLabel, dimensions: dimensionParams, topDescriptors, overallNotes: data.overallNotes })
+      ? getCoffeeSummary({ coffeeName: safeName, archetype: archetypeLabel, dimensions: dimensionParams, topDescriptors, overallNotes: data.overallNotes })
       : Promise.resolve<string | null>(null),
     needsSurprise
-      ? getCoffeeSurpriseNote({ coffeeName: data.coffee.name, archetype: archetypeLabel, dimensions: dimensionParams, topDescriptors, overallNotes: data.overallNotes })
+      ? getCoffeeSurpriseNote({ coffeeName: safeName, archetype: archetypeLabel, dimensions: dimensionParams, topDescriptors, overallNotes: data.overallNotes })
       : Promise.resolve<string | null>(null),
     needsStory && sourceData.length >= 2
-      ? getCoffeeThreeVoiceStory({ coffeeName: data.coffee.name, sourceData })
+      ? getCoffeeThreeVoiceStory({ coffeeName: safeName, sourceData })
       : Promise.resolve<string | null>(null),
   ]);
 
@@ -155,9 +170,10 @@ export async function generateAndStoreSummary(coffeeId: string | number): Promis
   const archetypeLabel = data.coffee.archetype
     ? (ARCHETYPE_LABEL[data.coffee.archetype] ?? data.coffee.archetype)
     : null;
+  const safeName = data.displayName ?? archetypeLabel ?? 'This coffee';
 
   const summary = await getCoffeeSummary({
-    coffeeName:      data.coffee.name,
+    coffeeName:      safeName,
     archetype:       archetypeLabel,
     dimensions:      data.dimensions.map((r: any) => ({
       dimension:       r.dimension,

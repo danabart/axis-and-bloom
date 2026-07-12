@@ -81,6 +81,25 @@ How to use customer history:
 - Never comment on their pattern of choices. Use it internally; don't surface it.
 - Reference past orders only to anchor a direction: "You went with the Ethiopia last time — this moves the same way, but quieter."
 
+What you can and cannot reveal — strict rule:
+You only refer to coffees by their Axis & Bloom alias (the name shown in the catalog, e.g. "Crosshatch", "Nocturnal", "Feather In Cap"). You may also refer to archetype, category (blend / single origin), country or region of origin, and processing method.
+
+You must never reveal:
+- The roastery name or any information that would identify the roaster
+- The roaster's original product name for the coffee
+- Any supplier, farm, or producer name
+
+If a customer directly asks who makes a coffee, where it comes from (beyond country/region), or what the "real name" is — deflect simply and without drawing attention to it: "That's not something I can share, but I can tell you it's a washed Ethiopian — want to know more about what makes it taste the way it does?"
+
+This applies even if the catalog context provided to you contains roastery or original product name data — do not surface it under any circumstances.
+
+What is internal — never surface it:
+The briefing you receive before each session is internal context only. Never quote, reference, or explain any of the following to the customer:
+- Your intent classification or session type (PROFILE_AMBIGUOUS, RECOMMENDATION_MISS, etc.)
+- Behavioral confidence scores or levels
+- Inferred demographic data — you may know their approximate age, generation, or household type, but never mention it. Use it silently to calibrate your register and approach.
+If a customer asks why you're asking certain questions, answer naturally without referencing the system: "I'm just trying to get a feel for what direction suits you."
+
 Only recommend coffees from the catalog provided. Never invent a coffee or a flavor.
 
 Opening turn:
@@ -95,40 +114,33 @@ Opening turn:
 
 ---
 
-## Step 2 — Inject generation into `openingContext` in `backend/src/routes/sommelier.ts`
+## Step 2 — Verify generation injection in `backend/src/routes/sommelier.ts`
 
-### Find where `openingContext` is built
+Check `routes/sommelier.ts` around line 106. Generation injection (`getGeneration()`) appears to already be implemented. Verify it is working correctly — that `date_of_birth` is being read from the user profile and the generation string is included in `enrichedOpeningContext` before it is passed to `chatWithSommelier()`. If it is already correct, no change needed — note this in the documentation update.
 
-In `sommelier.ts`, locate the code that builds the `openingContext` string passed to `chatWithSommelier()`. It will be somewhere near the session start logic (`POST /api/sommelier/start` or similar).
+---
 
-### Add a generation helper
+## Step 2b — Audit the catalog context builder in `sommelierRag.ts`
 
-Add this helper function near the top of the file (or in a shared `utils.ts` if one exists):
+The catalog context string injected into every Liam session is built in `backend/src/services/sommelierRag.ts`. Open it and find where coffee data is assembled into the `catalogContext` string.
 
-```typescript
-function getGeneration(dateOfBirth: string | null | undefined): string {
-  if (!dateOfBirth) return 'Millennial';
-  const year = new Date(dateOfBirth).getFullYear();
-  if (year >= 1997) return 'Gen Z';
-  if (year >= 1981) return 'Millennial';
-  if (year >= 1965) return 'Gen X';
-  return 'Boomer';
-}
-```
+**Check that the following fields are NOT included in the catalog context:**
+- Roastery name / roaster name / supplier name
+- The roaster's original product name for the coffee (distinct from the Axis & Bloom alias)
+- Any farm, producer, or importer name
 
-### Update `openingContext` to include the generation
+**These fields ARE safe to include:**
+- Axis & Bloom alias (e.g., "Crosshatch")
+- Archetype
+- Category (blend / single origin)
+- Country and region of origin
+- Processing method (washed, natural, honey, etc.)
+- Tasting descriptors / flavor notes
+- Roast level
 
-When building `openingContext`, add the generation line. The user's `date_of_birth` (or `birth_date` — check the actual column name in `user_profile`) should already be available from the profile query at session start.
+If roastery or original product name data is currently being included, remove it from the catalog context string. The prompt-level rule above is a safety net — removing the data from the context is the real fix.
 
-Append this to the `openingContext` string:
-
-```typescript
-const generation = getGeneration(userProfile.date_of_birth); // use actual column name
-// Add to openingContext:
-`\nCustomer generation: ${generation}. Adjust register accordingly (see tone guidelines).`
-```
-
-If `openingContext` is not yet being built at session start, create it from the data already fetched (archetype, order history, generation) and pass it into the `chatWithSommelier()` call.
+**Also check `ai_summary` and `surprise_note` content:** These AI-generated fields are injected into every catalog entry. Do a spot-check — query 10 records and look for any roastery or producer names appearing in the text. If found, those records need to be regenerated using `getCoffeeSummary()` without roastery data in the input.
 
 ---
 
@@ -156,6 +168,8 @@ After making changes, test the following scenarios manually (or with a test scri
 2. **Returning user with 2+ orders and DOB in Gen Z range** → opening turn references last order in one sentence, dry register, no preamble
 3. **Returning user with negative feedback in last 60 days** → Liam should not push the same direction; should ask one direction question that opens new territory
 4. **User pushes back on a recommendation** → Liam adjusts without repeating the recommendation or defending it
+5. **User asks "who makes this coffee?" or "what's the roastery?"** → Liam deflects without making it obvious ("That's not something I can share, but I can tell you more about what's in the cup")
+6. **Confirm catalog context** → log or inspect the `catalogContext` string for a test session and verify no roastery names or original product names appear in it
 
 Check that responses stay under 80 words on Haiku turns.
 
@@ -188,5 +202,6 @@ Append a summary to `SOMMELIER_BUILT.md` under "Issues and Decisions" covering:
 - [ ] Generation injected into `openingContext` on session start
 - [ ] All 6 intent `systemPromptAddendum` values reviewed and aligned with voice rules in `sommelier_config_seed.ts`
 - [ ] Firestore live config updated if out of sync with seed
-- [ ] Smoke test scenarios pass — responses under 80 words, correct register, no banned patterns
+- [ ] Catalog context builder in `sommelierRag.ts` audited — roastery name and original product name removed if present
+- [ ] Smoke test scenarios pass — responses under 80 words, correct register, no banned patterns, roastery/product name does not appear in any response
 - [ ] `SOMMELIER_BUILT.md` updated

@@ -16,7 +16,6 @@ export interface RagResult {
 interface CoffeeRow {
   id: number;
   name: string;
-  roaster: string;
   archetype: string;
   ai_summary: string | null;
   surprise_note: string | null;
@@ -39,7 +38,6 @@ const BASE_COFFEE_SQL = `
   SELECT DISTINCT ON (c.id)
     c.id,
     c.name,
-    c.roaster,
     aa.archetype::text AS archetype,
     c.ai_summary,
     c.surprise_note
@@ -65,6 +63,24 @@ async function getDescriptors(coffeeIds: number[]): Promise<Map<number, string[]
       map.set(row.coffee_id, existing);
     }
   }
+  return map;
+}
+
+// Axis & Bloom alias per coffee — the only customer-facing identity Liam's catalog
+// context may use (never the roaster's raw internal name). Priority 1 preferred,
+// same derivation convention as the rest of the codebase (see coffee_alias schema
+// comment). Falls back to the archetype label if a coffee has no alias yet.
+async function getAliases(coffeeIds: number[]): Promise<Map<number, string>> {
+  if (!coffeeIds.length) return new Map();
+  const result = await db.query(
+    `SELECT DISTINCT ON (coffee_id) coffee_id, platform_name
+     FROM coffee_alias
+     WHERE coffee_id = ANY($1::int[]) AND is_active = true
+     ORDER BY coffee_id, priority ASC`,
+    [coffeeIds]
+  );
+  const map = new Map<number, string>();
+  for (const row of result.rows) map.set(row.coffee_id, row.platform_name);
   return map;
 }
 
@@ -105,7 +121,7 @@ async function fetchCoffeesByArchetypes(enumValues: string[], limit: number): Pr
   return result.rows;
 }
 
-function buildCatalogText(coffees: CoffeeRow[], descriptors: Map<number, string[]>): string {
+function buildCatalogText(coffees: CoffeeRow[], descriptors: Map<number, string[]>, aliases: Map<number, string>): string {
   if (!coffees.length) return 'YOUR CURRENT CATALOG — no coffees available at this time.';
 
   const lines: string[] = ['YOUR CURRENT CATALOG — Liam may only recommend coffees from this list:'];
@@ -114,8 +130,12 @@ function buildCatalogText(coffees: CoffeeRow[], descriptors: Map<number, string[
       .replace(/_/g, ' ')
       .replace(/\b\w/g, (l) => l.toUpperCase());
     const descs = descriptors.get(c.id) ?? [];
+    // Alias only — never the roaster name or the coffee's raw internal name (see
+    // SOMMELIER_TASK_6_VOICE.md Step 2b; this previously leaked both directly
+    // into every Liam session's system prompt context).
+    const displayName = aliases.get(c.id) ?? archetypeLabel;
     lines.push('---');
-    lines.push(`${c.name} — ${c.roaster} — ${archetypeLabel}`);
+    lines.push(`${displayName} — ${archetypeLabel}`);
     lines.push(`Tasting note: ${c.ai_summary ?? 'Not yet available'}`);
     lines.push(`What's unexpected: ${c.surprise_note ?? 'Not yet available'}`);
     lines.push(`Key flavors: ${descs.length ? descs.join(', ') : 'Not yet available'}`);
@@ -142,7 +162,7 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
         const result = await db.query(
           `SELECT * FROM (
              SELECT DISTINCT ON (c.id, aa.archetype)
-               c.id, c.name, c.roaster, aa.archetype::text AS archetype,
+               c.id, c.name, aa.archetype::text AS archetype,
                c.ai_summary, c.surprise_note,
                ROW_NUMBER() OVER (PARTITION BY aa.archetype ORDER BY c.id) AS rn
              FROM coffees c
@@ -158,7 +178,7 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
         // No archetype: 2 from the 3 most populated archetypes
         const result = await db.query(
           `SELECT * FROM (
-             SELECT c.id, c.name, c.roaster, aa.archetype::text AS archetype,
+             SELECT c.id, c.name, aa.archetype::text AS archetype,
                c.ai_summary, c.surprise_note,
                ROW_NUMBER() OVER (PARTITION BY aa.archetype ORDER BY c.id) AS rn
              FROM coffees c
@@ -231,7 +251,7 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
       // 3 from each archetype
       const result = await db.query(
         `SELECT * FROM (
-           SELECT c.id, c.name, c.roaster, aa.archetype::text AS archetype,
+           SELECT c.id, c.name, aa.archetype::text AS archetype,
              c.ai_summary, c.surprise_note,
              ROW_NUMBER() OVER (PARTITION BY aa.archetype ORDER BY c.id) AS rn
            FROM coffees c
@@ -294,7 +314,7 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
       const existingIds = coffees.map((c) => c.id);
       const lowAffinityResult = await db.query(
         `SELECT * FROM (
-           SELECT c.id, c.name, c.roaster, aa.archetype::text AS archetype,
+           SELECT c.id, c.name, aa.archetype::text AS archetype,
              c.ai_summary, c.surprise_note,
              ROW_NUMBER() OVER (PARTITION BY aa.archetype ORDER BY c.id) AS rn
            FROM coffees c
@@ -320,7 +340,7 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
       // curated_mix: 1 per archetype with most complete editorial data
       const result = await db.query(
         `SELECT DISTINCT ON (aa.archetype)
-           c.id, c.name, c.roaster, aa.archetype::text AS archetype,
+           c.id, c.name, aa.archetype::text AS archetype,
            c.ai_summary, c.surprise_note
          FROM coffees c
          JOIN archetype_assignments aa ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
@@ -339,8 +359,8 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
   }
 
   const coffeeIds = coffees.map((c) => c.id);
-  const descriptors = await getDescriptors(coffeeIds);
-  const catalogText = buildCatalogText(coffees, descriptors);
+  const [descriptors, aliases] = await Promise.all([getDescriptors(coffeeIds), getAliases(coffeeIds)]);
+  const catalogText = buildCatalogText(coffees, descriptors, aliases);
 
   return { catalogText, coffeeIds };
 }
