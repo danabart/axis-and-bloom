@@ -23,10 +23,12 @@ interface TastingNotesProps {
   contentLoading: boolean;
   /** When provided, renders "Explore the full flavor breakdown →" linking here (Bloom only — CoffeesPage IS this destination). */
   exploreLink?: string;
+  /** When provided, renders "Talk to Liam about this coffee →" linking here (Bloom only, The Bloom Part 4). */
+  talkToLiamLink?: string;
 }
 
-/** Surprise note + three-voice story + collapsible "Liam's intake" (ai_summary) + optional explore-further link. */
-export function TastingNotes({ content, contentLoading, exploreLink }: TastingNotesProps) {
+/** Surprise note + three-voice story + collapsible "Liam's intake" (ai_summary) + optional explore-further/Liam links. */
+export function TastingNotes({ content, contentLoading, exploreLink, talkToLiamLink }: TastingNotesProps) {
   const [aiExpanded, setAiExpanded] = useState(false);
 
   return (
@@ -125,15 +127,28 @@ export function TastingNotes({ content, contentLoading, exploreLink }: TastingNo
         )}
       </div>
 
-      {/* ─ Explore-further link (Bloom only) ─ */}
-      {exploreLink && (
-        <Link
-          to={exploreLink}
-          className="inline-block text-sm hover:underline"
-          style={{ color: '#b05642' }}
-        >
-          Explore the full flavor breakdown →
-        </Link>
+      {/* ─ Explore-further / Talk to Liam links (Bloom only) ─ */}
+      {(exploreLink || talkToLiamLink) && (
+        <div className="flex flex-wrap gap-x-6 gap-y-2">
+          {exploreLink && (
+            <Link
+              to={exploreLink}
+              className="inline-block text-sm hover:underline"
+              style={{ color: '#b05642' }}
+            >
+              Explore the full flavor breakdown →
+            </Link>
+          )}
+          {talkToLiamLink && (
+            <Link
+              to={talkToLiamLink}
+              className="inline-block text-sm hover:underline"
+              style={{ color: '#b05642' }}
+            >
+              Talk to Liam about this coffee →
+            </Link>
+          )}
+        </div>
       )}
     </div>
   );

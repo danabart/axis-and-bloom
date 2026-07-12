@@ -67,14 +67,14 @@ export function CompareOverlay({ open, onClose, left, archetypes }: CompareOverl
             transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
             onClick={e => e.stopPropagation()}
             className="rounded-2xl overflow-y-auto"
-            style={{ backgroundColor: '#f2f1ea', maxWidth: 900, width: '100%', maxHeight: '85vh', padding: '2.5rem' }}
+            style={{ backgroundColor: '#f2f1ea', maxWidth: 900, width: '100%', maxHeight: '85vh', padding: 'clamp(1.25rem, 4vw, 2.5rem)' }}
           >
             <div className="flex items-center justify-between mb-6">
               <p className="text-xs uppercase tracking-widest" style={{ color: '#b05642' }}>Compare</p>
               <button onClick={onClose} className="text-sm" style={{ color: '#8a8070' }}>✕ Close</button>
             </div>
 
-            <div className="grid grid-cols-2 gap-8 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 mb-8">
               <div>
                 <p className="text-xs uppercase tracking-widest mb-2" style={{ color: '#a09880' }}>This one</p>
                 <h3 className="text-lg font-normal" style={{ color: '#b05642' }}>{slotLabel(left)}</h3>

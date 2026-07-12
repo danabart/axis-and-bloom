@@ -1,11 +1,5 @@
-import { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import type { Slot, Hop, CartItem } from './types';
+import type { Slot, SlotPrice, CartItem } from './types';
 import { formatPrice, formatWeight } from './types';
-import { TastingNotes, type ContentData } from '../coffee-info/TastingNotes';
-import { DimensionBars, type DimensionRow } from '../coffee-info/DimensionBars';
-import { CollaborativeFlavorWheel, type WheelRow } from '../coffee-info/CollaborativeFlavorWheel';
-import { CompatibilityBadge, useCompatibility } from '../coffee-info/useCompatibility';
 
 interface PositionCardProps {
   slot: Slot;
@@ -15,68 +9,24 @@ interface PositionCardProps {
   isRevealed: boolean;
   onToggleReveal: () => void;
   onAddToCart: (item: CartItem) => void;
-  onHopClick: (targetArchetype: string, targetDialSortOrder: number) => void;
   onCompare: () => void;
-  userArchetype: string | null;
   cardRef: (el: HTMLDivElement | null) => void;
+  // Shared fetch/derived state — see usePositionCardData.ts (The Bloom Part 4,
+  // Phase D: lifted up so the full-width RevealedPanel sibling can use the same
+  // data without a second fetch).
+  teaser: string | null;
+  effectivelyActive: boolean;
+  availableWeights: SlotPrice[];
+  selectedWeight: number | null;
+  setSelectedWeight: (weightOz: number) => void;
+  selectedPrice: SlotPrice | undefined;
 }
 
+/** Collapsed header + commerce row only — the revealed informational layer lives in RevealedPanel.tsx, full-width, below this. */
 export function PositionCard({
-  slot, archetype, archetypeLabel, color, isRevealed, onToggleReveal,
-  onAddToCart, onHopClick, onCompare, userArchetype, cardRef,
+  slot, archetype, archetypeLabel, color, isRevealed, onToggleReveal, onAddToCart, onCompare, cardRef,
+  teaser, effectivelyActive, availableWeights, selectedWeight, setSelectedWeight, selectedPrice,
 }: PositionCardProps) {
-  const [content, setContent] = useState<ContentData | null>(null);
-  const [availability, setAvailability] = useState<Record<number, boolean> | null>(null);
-  const [selectedWeight, setSelectedWeight] = useState<number | null>(null);
-
-  const [dimensions, setDimensions] = useState<DimensionRow[]>([]);
-  const [wheelRows, setWheelRows] = useState<WheelRow[]>([]);
-  const [hops, setHops] = useState<Hop[]>([]);
-  const [detailLoaded, setDetailLoaded] = useState(false);
-
-  const { compat, dimCompText } = useCompatibility(archetype, userArchetype, dimensions);
-
-  // Teaser + per-weight availability, fetched as soon as this is a real position (not gated by reveal).
-  useEffect(() => {
-    if (!slot.isActive || !slot.coffeeId) return;
-    fetch(`/api/coffees/${slot.coffeeId}/content`).then(r => r.json()).then(setContent).catch(() => {});
-
-    Promise.all(
-      slot.prices.map(p =>
-        fetch(`/api/shop/slot-availability?archetype=${archetype}&dialSortOrder=${slot.dialSortOrder}&weightOz=${p.weightOz}`)
-          .then(r => r.json())
-          .then(data => [p.weightOz, !!data.available] as const)
-      )
-    ).then(entries => {
-      const map = Object.fromEntries(entries);
-      setAvailability(map);
-      const firstAvailable = slot.prices.find(p => map[p.weightOz])?.weightOz ?? null;
-      setSelectedWeight(firstAvailable);
-    }).catch(() => setAvailability({}));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slot.coffeeId, slot.isActive]);
-
-  // Full informational layer, fetched lazily on first reveal only.
-  useEffect(() => {
-    if (!isRevealed || detailLoaded || !slot.coffeeId) return;
-    setDetailLoaded(true);
-    Promise.all([
-      fetch(`/api/coffees/${slot.coffeeId}/dimensions`).then(r => r.json()),
-      fetch(`/api/coffees/${slot.coffeeId}/flavor-wheel`).then(r => r.json()),
-      fetch(`/api/coffees/${slot.coffeeId}/hops`).then(r => r.json()),
-    ]).then(([dimData, wheel, hopData]) => {
-      setDimensions(dimData.dimensions ?? []);
-      setWheelRows(wheel);
-      setHops(hopData);
-    }).catch(() => {});
-  }, [isRevealed, detailLoaded, slot.coffeeId]);
-
-  const availableWeights = slot.prices.filter(p => availability?.[p.weightOz]);
-  const effectivelyActive = slot.isActive && (availability === null || availableWeights.length > 0);
-
-  const teaser = content?.surpriseNote ? content.surpriseNote.split(/(?<=[.!?])\s/)[0] : null;
-  const selectedPrice = slot.prices.find(p => p.weightOz === selectedWeight);
-
   function handleAddToCart() {
     if (!slot.platformName || !selectedPrice) return;
     onAddToCart({
@@ -160,50 +110,6 @@ export function PositionCard({
           ⇄ Compare
         </button>
       </div>
-
-      {/* ─ Revealed informational layer ─ */}
-      <AnimatePresence initial={false}>
-        {isRevealed && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-            className="overflow-hidden"
-          >
-            <div className="px-6 pb-8 pt-2 space-y-8 border-t" style={{ borderColor: '#e0dcd4' }}>
-              <TastingNotes content={content} contentLoading={!content} exploreLink="/coffees" />
-              <DimensionBars dimensions={dimensions} />
-              <CollaborativeFlavorWheel wheelRows={wheelRows} />
-
-              {compat && userArchetype && (
-                <div className="flex flex-col gap-3">
-                  <CompatibilityBadge level={compat} userArchetype={userArchetype} />
-                  {dimCompText && (
-                    <p className="text-sm font-light leading-relaxed" style={{ color: '#8a8070' }}>{dimCompText}</p>
-                  )}
-                </div>
-              )}
-
-              {hops.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {hops.map((hop, i) => (
-                    <button
-                      key={i}
-                      onClick={() => onHopClick(hop.target.archetype, hop.target.dialSortOrder)}
-                      className="text-xs px-3 py-1.5 rounded-full border"
-                      style={{ borderColor: '#d0ccc4', color: '#8a8070' }}
-                    >
-                      {hop.target.archetype !== archetype && `→ ${hop.target.archetypeLabel} · `}
-                      {hop.target.positionLabel} — {hop.target.platformName} · {hop.direction} {hop.dimensionName.toLowerCase()}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

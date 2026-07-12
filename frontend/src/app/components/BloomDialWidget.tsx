@@ -15,6 +15,7 @@ export interface BloomDialHandle {
 
 interface BloomDialWidgetProps {
   color: string;
+  archetypeLabel: string;
   positions: DialPosition[];
   dimensionLabel: string | null;
   defaultSortOrder: number;
@@ -34,7 +35,7 @@ interface BloomDialWidgetProps {
  * this (BODY_LEVELS goes Gentle→Deep as the angle increases).
  */
 export const BloomDialWidget = forwardRef<BloomDialHandle, BloomDialWidgetProps>(function BloomDialWidget(
-  { color, positions, dimensionLabel, defaultSortOrder, initialSortOrder, onSelect }, ref
+  { color, archetypeLabel, positions, dimensionLabel, defaultSortOrder, initialSortOrder, onSelect }, ref
 ) {
   const sorted = [...positions].sort((a, b) => a.dialSortOrder - b.dialSortOrder);
   const n = sorted.length;
@@ -162,17 +163,15 @@ export const BloomDialWidget = forwardRef<BloomDialHandle, BloomDialWidgetProps>
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
-      {dimensionLabel && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', maxWidth: 320, marginBottom: 12 }}>
-          <span style={{ fontSize: '0.48rem', letterSpacing: '0.2em', textTransform: 'uppercase', color, opacity: 0.5 }}>← {sorted[0].label}</span>
-          <span style={{ fontSize: '0.48rem', letterSpacing: '0.2em', textTransform: 'uppercase', color, opacity: 0.5 }}>{dimensionLabel} →</span>
-        </div>
-      )}
+      <p style={{ fontSize: '0.49rem', letterSpacing: '0.26em', textTransform: 'uppercase', color, opacity: 0.40, margin: '0 0 14px', textAlign: 'center' }}>
+        Personalize your {archetypeLabel}
+      </p>
 
       {dimensionLabel && (
-        <p style={{ fontSize: '0.48rem', letterSpacing: '0.30em', textTransform: 'uppercase', color, opacity: 0.38, margin: '0 0 20px', textAlign: 'center' }}>
-          DIMENSION: {dimensionLabel.toUpperCase()}
-        </p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', maxWidth: 320, marginBottom: 16 }}>
+          <span style={{ fontSize: '0.58rem', letterSpacing: '0.2em', textTransform: 'uppercase', color, opacity: 0.65 }}>← {sorted[0].label}</span>
+          <span style={{ fontSize: '0.58rem', letterSpacing: '0.2em', textTransform: 'uppercase', color, opacity: 0.65 }}>{dimensionLabel} →</span>
+        </div>
       )}
 
       <div style={{ position: 'relative', marginBottom: 20 }}>
@@ -185,7 +184,7 @@ export const BloomDialWidget = forwardRef<BloomDialHandle, BloomDialWidgetProps>
         <div
           ref={wheelRef}
           style={{
-            width: 'clamp(180px, 20vw, 280px)', height: 'clamp(180px, 20vw, 280px)',
+            width: 'clamp(130px, 14vw, 190px)', height: 'clamp(130px, 14vw, 190px)',
             cursor: isDragging ? 'grabbing' : 'grab',
             transform: `rotate(${dialAngle}deg)`,
             transition: wheelT, userSelect: 'none', touchAction: 'none',
@@ -204,7 +203,7 @@ export const BloomDialWidget = forwardRef<BloomDialHandle, BloomDialWidgetProps>
           {!current.isActive && <span style={{ opacity: 0.5 }}> · Temporarily unavailable</span>}
         </p>
         {current.description && (
-          <p style={{ fontSize: 'clamp(0.68rem, 0.80vw, 0.78rem)', color, opacity: 0.46, lineHeight: 1.6, margin: 0, maxWidth: 320 }}>
+          <p style={{ fontSize: 'clamp(0.68rem, 0.80vw, 0.78rem)', color, opacity: 0.68, lineHeight: 1.6, margin: 0, maxWidth: 320 }}>
             {current.description}
           </p>
         )}

@@ -20,6 +20,19 @@ export function FloatingCart({ items, open, onToggle, onRemove, onCheckout, chec
 
   return (
     <>
+      {/* Talk to Liam — secondary to the cart, always-available, sits just to its left */}
+      <Link
+        to="/sommelier"
+        className="fixed z-[60] rounded-full flex items-center justify-center shadow-lg"
+        style={{
+          bottom: 28, right: 96, width: 56, height: 56,
+          backgroundColor: 'transparent', border: '1.5px solid #9a2918', color: '#9a2918',
+        }}
+        aria-label="Talk to Liam"
+      >
+        <span style={{ fontSize: 20 }}>💬</span>
+      </Link>
+
       {/* Floating icon — persists across the whole scroll */}
       <button
         onClick={onToggle}
@@ -44,7 +57,7 @@ export function FloatingCart({ items, open, onToggle, onRemove, onCheckout, chec
             initial={{ opacity: 0, y: 20, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.97 }}
             transition={{ duration: 0.25 }}
             className="fixed z-[60] rounded-2xl shadow-2xl overflow-hidden flex flex-col"
-            style={{ bottom: 96, right: 28, width: 360, maxHeight: '70vh', backgroundColor: '#fff', border: '1px solid #e0dcd4' }}
+            style={{ bottom: 96, right: 28, width: 360, maxWidth: 'calc(100vw - 40px)', maxHeight: '70vh', backgroundColor: '#fff', border: '1px solid #e0dcd4' }}
           >
             <div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: '#e0dcd4' }}>
               <p className="text-sm uppercase tracking-widest" style={{ color: '#9a2918' }}>Your cart</p>

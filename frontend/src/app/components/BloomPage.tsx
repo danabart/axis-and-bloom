@@ -4,6 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import { getUserProfile, placeOrder, getDialPosition, setDialPosition } from '../lib/api';
 import { ARCHETYPE_ORDER, ARCHETYPE_VISUALS } from './bloom/bloomVisuals';
 import { PositionCard } from './bloom/PositionCard';
+import { RevealedPanel } from './bloom/RevealedPanel';
+import { usePositionCardData } from './bloom/usePositionCardData';
 import { FloatingCart } from './bloom/FloatingCart';
 import { CompareOverlay } from './bloom/CompareOverlay';
 import { BloomDialWidget, type BloomDialHandle, type DialPosition } from './BloomDialWidget';
@@ -54,6 +56,12 @@ function ArchetypeSection({
     ?? data.slots.find(s => s.dialSortOrder === defaultSortOrder)
     ?? data.slots[0];
   const currentKey = slotKey(data.archetype, currentSlot.dialSortOrder);
+  const isRevealed = revealedKeys.has(currentKey);
+
+  // Shared fetch/derived state for this position — one fetch, used by both the
+  // collapsed PositionCard below and the full-width RevealedPanel underneath
+  // the three-column row (The Bloom Part 4, Phase D).
+  const cardData = usePositionCardData(currentSlot, data.archetype, isRevealed);
 
   return (
     <motion.section
@@ -79,12 +87,12 @@ function ArchetypeSection({
         </span>
       </div>
 
-      <div style={{
-        display: 'flex', flexDirection: flip ? 'row-reverse' : 'row',
-        gap: 'clamp(24px, 3.5vw, 56px)', alignItems: 'flex-start',
-      }}>
+      <div
+        className={`flex flex-col ${flip ? 'md:flex-row-reverse' : 'md:flex-row'}`}
+        style={{ gap: 'clamp(24px, 3.5vw, 56px)', alignItems: 'flex-start' }}
+      >
         {/* ── Photo column ── */}
-        <div style={{ flex: '0 0 34%', display: 'flex', flexDirection: 'column', gap: 5, position: 'sticky', top: 100 }}>
+        <div className="w-full md:basis-[34%] md:flex-none md:sticky md:top-[100px]" style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           <div style={{ aspectRatio: '4 / 3', overflow: 'hidden' }}>
             <img
               src={visual.hero}
@@ -108,10 +116,11 @@ function ArchetypeSection({
         </div>
 
         {/* ── Dial column ── */}
-        <div style={{ flex: '0 0 26%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <div className="w-full md:basis-[26%] md:flex-none" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <BloomDialWidget
             ref={el => registerDialRef(data.archetype, el)}
             color={visual.color}
+            archetypeLabel={data.archetypeLabel}
             positions={dialPositions}
             dimensionLabel={data.dimensionPlatformName}
             defaultSortOrder={defaultSortOrder}
@@ -127,8 +136,8 @@ function ArchetypeSection({
           />
         </div>
 
-        {/* ── Dynamic position card ── */}
-        <div style={{ flex: 1, minWidth: 0 }}>
+        {/* ── Dynamic position card (collapsed + commerce only) ── */}
+        <div className="w-full md:flex-1" style={{ minWidth: 0 }}>
           <h2 style={{
             fontSize: 'clamp(2rem, 3.2vw, 4rem)', color: visual.color, fontWeight: 400,
             lineHeight: 0.95, margin: '0 0 clamp(20px, 3vh, 32px)', letterSpacing: '-0.02em',
@@ -141,16 +150,33 @@ function ArchetypeSection({
             archetype={data.archetype}
             archetypeLabel={data.archetypeLabel}
             color={visual.color}
-            isRevealed={revealedKeys.has(currentKey)}
+            isRevealed={isRevealed}
             onToggleReveal={() => onToggleReveal(currentKey)}
             onAddToCart={onAddToCart}
-            onHopClick={onHopClick}
             onCompare={() => onCompare(data.archetype, data.archetypeLabel, currentSlot)}
-            userArchetype={userArchetype}
             cardRef={() => {}}
+            teaser={cardData.teaser}
+            effectivelyActive={cardData.effectivelyActive}
+            availableWeights={cardData.availableWeights}
+            selectedWeight={cardData.selectedWeight}
+            setSelectedWeight={cardData.setSelectedWeight}
+            selectedPrice={cardData.selectedPrice}
           />
         </div>
       </div>
+
+      {/* ── Revealed informational layer — full width, below the three-column row ── */}
+      <RevealedPanel
+        key={currentKey}
+        isRevealed={isRevealed}
+        archetype={data.archetype}
+        content={cardData.content}
+        dimensions={cardData.dimensions}
+        wheelRows={cardData.wheelRows}
+        hops={cardData.hops}
+        userArchetype={userArchetype}
+        onHopClick={onHopClick}
+      />
     </motion.section>
   );
 }
