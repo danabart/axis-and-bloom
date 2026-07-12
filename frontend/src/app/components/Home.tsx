@@ -603,8 +603,8 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ━━━ 7. TASTE FINDER (curtain animation) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <TasteFinderSection />
+      {/* ━━━ 6. TASTE FINDER (curtain animation) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <TasteFinderSection visitorName={visitorName} />
 
     </div>
   );

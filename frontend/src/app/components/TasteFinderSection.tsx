@@ -1,243 +1,121 @@
 import { useRef, useEffect, useState } from 'react';
-import coffeePic13 from '../../design/IMAGES/lifestyle/CoffeePic13.png';
-import bag3 from '../../design/IMAGES/bags/TransparentBag03.png';
+import { useReducedMotion } from 'motion/react';
 import Footer from './Footer';
+import { Link } from 'react-router';
 
-/*
-  Architecture:
-  - Wrapper is exactly 100vh in document flow.
-  - The revealed layer (bag + taste finder text + footer) sits position:absolute, inset:0.
-  - The curtain (full-screen chaff photo, no text) sits above it, position:absolute, inset:0, z-index 10.
-  - Wheel / touch events are intercepted at page-bottom to drive the translateY animation.
-  - Footer is always in the DOM (inside the revealed layer) — no dynamic height changes.
+const CURTAIN_PATTERN = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='52' height='52'%3E%3Cpath d='M9 42 L16 12 L23 42 Z' fill='%23a94936'/%3E%3Cpath d='M30 12 L37 42 L44 12 Z' fill='%23a94936'/%3E%3C/svg%3E\")";
 
-  Stage timeline — acc range [-WHEEL_CLOSE_HOLD, WHEEL_HOLD_END]:
+interface Props {
+  visitorName?: string;
+}
 
-  Opening (scroll down):
-    0 → WHEEL_PRE_OPEN (200):               pre-open wait — curtain still covers
-    200 → WHEEL_PRE_OPEN+WHEEL_OPEN (1100): curtain lifts, progress 0→1
-    1100 → WHEEL_HOLD_END (1300):           open hold — curtain at 100%
-    1300+:                                  nothing moves (curtain fully open)
-
-  Closing (scroll up) — mirrors in reverse:
-    1300 → 1100:                            open hold reverse
-    1100 → 200:                             curtain lowers, progress 1→0
-    200 → 0:                                pre-close wait
-    0 → -WHEEL_CLOSE_HOLD (-500):           close hold — page still intercepted
-    -500:                                   interception released, page scrolls up
-
-  progress = max(0, min(1, (acc - WHEEL_PRE_OPEN) / WHEEL_OPEN))
-*/
-
-const WHEEL_PRE_OPEN   = 200;
-const WHEEL_OPEN       = 900;   // large value = slow, user-controlled curtain travel
-const WHEEL_HOLD_END   = WHEEL_PRE_OPEN + WHEEL_OPEN + 200; // 1300
-const WHEEL_CLOSE_HOLD = 500;   // generous hold before page scrolls up on close
-
-export function TasteFinderSection() {
+export function TasteFinderSection({ visitorName }: Props) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const [progress, setProgress] = useState(0);
-  const acc = useRef(0);
+  const prefersReducedMotion = useReducedMotion();
 
   useEffect(() => {
-    const onWheel = (e: WheelEvent) => {
-      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-      const atBottom  = window.scrollY >= maxScroll - 3;
-
-      // Scrolling down at page bottom → pre-open wait → open → hold
-      if (atBottom && e.deltaY > 0 && acc.current < WHEEL_HOLD_END) {
-        e.preventDefault();
-        if (acc.current < 0) acc.current = 0; // skip close-hold on re-open
-        acc.current = Math.min(WHEEL_HOLD_END, acc.current + e.deltaY);
-        setProgress(Math.max(0, Math.min(1, (acc.current - WHEEL_PRE_OPEN) / WHEEL_OPEN)));
-        return;
-      }
-
-      // Scrolling up → open-hold reverse → curtain closes → close hold
-      if (e.deltaY < 0 && acc.current > -WHEEL_CLOSE_HOLD) {
-        e.preventDefault();
-        acc.current = Math.max(-WHEEL_CLOSE_HOLD, acc.current + e.deltaY);
-        setProgress(Math.max(0, Math.min(1, (acc.current - WHEEL_PRE_OPEN) / WHEEL_OPEN)));
-      }
+    const onScroll = () => {
+      const wrapper = wrapperRef.current;
+      if (!wrapper) return;
+      const { top, height } = wrapper.getBoundingClientRect();
+      const total = height - window.innerHeight;
+      setProgress(Math.min(1, Math.max(0, -top / total)));
     };
-
-    // Touch — same logic, 2.2× multiplier for finger velocity
-    let touchY = 0;
-    const onTouchStart = (e: TouchEvent) => { touchY = e.touches[0].clientY; };
-    const onTouchMove  = (e: TouchEvent) => {
-      const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-      const atBottom  = window.scrollY >= maxScroll - 3;
-      const delta     = touchY - e.touches[0].clientY;
-      touchY = e.touches[0].clientY;
-
-      if (atBottom && delta > 0 && acc.current < WHEEL_HOLD_END) {
-        e.preventDefault();
-        if (acc.current < 0) acc.current = 0;
-        acc.current = Math.min(WHEEL_HOLD_END, acc.current + delta * 2.2);
-        setProgress(Math.max(0, Math.min(1, (acc.current - WHEEL_PRE_OPEN) / WHEEL_OPEN)));
-      } else if (delta < 0 && acc.current > -WHEEL_CLOSE_HOLD) {
-        e.preventDefault();
-        acc.current = Math.max(-WHEEL_CLOSE_HOLD, acc.current + delta * 2.2);
-        setProgress(Math.max(0, Math.min(1, (acc.current - WHEEL_PRE_OPEN) / WHEEL_OPEN)));
-      }
-    };
-
-    window.addEventListener('wheel',      onWheel,      { passive: false });
-    window.addEventListener('touchstart', onTouchStart, { passive: true  });
-    window.addEventListener('touchmove',  onTouchMove,  { passive: false });
-    return () => {
-      window.removeEventListener('wheel',      onWheel);
-      window.removeEventListener('touchstart', onTouchStart);
-      window.removeEventListener('touchmove',  onTouchMove);
-    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
+  const hold = 0.35;
+  const slide = progress < hold ? 0 : (progress - hold) / (1 - hold);
+  const name = (visitorName || localStorage.getItem('axisbloom.name') || '').trim().toUpperCase() || 'YOU';
+
   return (
-    <>
-      <style>{`
-        .tsf-main {
-          flex: 1;
-          display: flex;
-          min-height: 0;
-        }
-        .tsf-bag-col {
-          width: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 0 clamp(16px, 3vw, 40px);
-        }
-        .tsf-text-col {
-          width: 50%;
-          display: flex;
-          flex-direction: column;
-          justify-content: center;
-          align-items: flex-start;
-          text-align: left;
-          padding: 0 clamp(20px, 3vw, 48px) 0 clamp(32px, 4vw, 56px);
-        }
-        @media (max-width: 600px) {
-          .tsf-main        { flex-direction: column; }
-          .tsf-bag-col     { width: 100% !important; height: 55%; padding-left: 0 !important; justify-content: center; }
-          .tsf-text-col    { width: 100% !important; height: auto; padding: 0 24px 20px !important; align-items: center; text-align: center; }
-        }
-      `}</style>
+    <div ref={wrapperRef} style={{ position: 'relative', height: '280vh' }}>
+      <div style={{ position: 'sticky', top: 0, height: '100vh', overflow: 'hidden' }}>
 
-      {/* ── Wrapper: 100vh, clips both layers ─────────────────────────────── */}
-      <div style={{ position: 'relative', height: '100vh', overflow: 'hidden' }}>
-
-        {/* ── REVEALED LAYER: bag + taste finder text + footer ───────────── */}
+        {/* ── Layer A: reveal beneath the curtain ──────────────────────── */}
         <div style={{
           position: 'absolute', inset: 0,
-          display: 'flex', flexDirection: 'column',
           backgroundColor: '#f2f1ea',
+          display: 'grid', gridTemplateColumns: '1fr 1.2fr',
+          alignItems: 'center',
+          padding: '60px 40px 140px',
+          boxSizing: 'border-box',
         }}>
-
-          {/* Main row: bag (left) + taste finder text (right) */}
-          <div className="tsf-main">
-
-            <div className="tsf-bag-col">
-              <img
-                src={bag3}
-                alt="Axis & Bloom coffee bag"
-                style={{ height: '88%', width: 'auto', maxHeight: 560, objectFit: 'contain', display: 'block' }}
-              />
-            </div>
-
-            <div className="tsf-text-col">
-              <p style={{
-                fontFamily: "'Lato', Arial, sans-serif",
-                fontSize: '0.68rem',
-                letterSpacing: '0.22em',
-                textTransform: 'uppercase',
-                color: '#9a2918',
-                margin: '0 0 14px',
-                opacity: 0.7,
-              }}>
-                The Taste Finder
-              </p>
-              <div style={{ fontFamily: "'Lato', Arial, sans-serif", fontWeight: 400, lineHeight: 0.95, margin: '0 0 24px' }}>
-                <span style={{ display: 'block', fontSize: 'clamp(3.2rem, 4.8vw, 5.6rem)', color: '#9a2918' }}>
-                  Which
-                </span>
-                <span style={{
-                  display: 'inline-block',
-                  fontSize: 'clamp(3.2rem, 4.8vw, 5.6rem)',
-                  backgroundColor: '#ee5974',
-                  color: '#f2f1ea',
-                  padding: '4px 14px 8px',
-                  margin: '6px 0',
-                }}>
-                  archetype
-                </span>
-                <span style={{ display: 'block', fontSize: 'clamp(3.2rem, 4.8vw, 5.6rem)', color: '#9a2918', marginTop: 6 }}>
-                  is yours?
-                </span>
-              </div>
-              <a
-                href="/find-my-flavor"
-                style={{
-                  fontFamily: "'Lato', Arial, sans-serif",
-                  fontSize: '0.72rem',
-                  letterSpacing: '0.18em',
-                  textTransform: 'uppercase',
-                  color: '#9a2918',
-                  textDecoration: 'none',
-                  borderBottom: '1px solid rgba(154,41,24,0.38)',
-                  paddingBottom: 3,
-                  width: 'fit-content',
-                }}
-              >
-                TAKE THE QUIZ →
-              </a>
-              <a
-                href="/sign-in"
-                style={{
-                  fontFamily: "'Lato', Arial, sans-serif",
-                  fontSize: '0.68rem',
-                  letterSpacing: '0.14em',
-                  textTransform: 'uppercase',
-                  color: '#9a2918',
-                  textDecoration: 'none',
-                  opacity: 0.45,
-                  borderBottom: '1px solid rgba(154,41,24,0.25)',
-                  paddingBottom: 2,
-                  width: 'fit-content',
-                  marginTop: 12,
-                }}
-              >
-                or sign in →
-              </a>
-            </div>
-
+          {/* Bag addressed to visitor */}
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <svg
+              width="230" height="320" viewBox="0 0 230 320"
+              aria-label={`Coffee bag addressed from Axis and Bloom to ${name}`}
+            >
+              <path d="M30 38 Q30 24 44 24 L186 24 Q200 24 200 38 L200 282 Q200 296 186 296 L44 296 Q30 296 30 282 Z" fill="#9a2918" />
+              <rect x="30" y="24" width="170" height="26" rx="8" fill="#7c2020" />
+              <rect x="30" y="196" width="170" height="10" fill="#f2f1ea" opacity=".85" />
+              <rect x="30" y="210" width="170" height="8" fill="#6e1c1c" />
+              <rect x="30" y="222" width="170" height="8" fill="#f2f1ea" opacity=".35" />
+              <text x="48" y="84" fill="#f2f1ea" fontSize="11" letterSpacing="2" fontFamily="Lato,sans-serif">FROM:</text>
+              <text x="48" y="108" fill="#f2f1ea" fontSize="17" letterSpacing="2" fontFamily="Lato,sans-serif">AXIS &amp; BLOOM</text>
+              <text x="48" y="140" fill="#f2f1ea" fontSize="11" letterSpacing="2" fontFamily="Lato,sans-serif">TO:</text>
+              <text x="48" y="170" fill="#f2f1ea" fontSize="24" letterSpacing="1" fontFamily="Lato,sans-serif">{name}</text>
+            </svg>
           </div>
 
-          {/* Footer — always visible once curtain lifts */}
-          <Footer />
+          {/* Copy + CTA */}
+          <div>
+            <span style={{ display: 'block', fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: '#9a2918', marginBottom: 14 }}>
+              The taste finder
+            </span>
+            <h2 style={{ fontSize: 'clamp(36px,4.6vw,60px)', fontWeight: 400, lineHeight: 1.18, margin: '0 0 32px', color: '#9a2918' }}>
+              Which{' '}
+              <span style={{ backgroundColor: '#ee5974', color: '#f2f1ea', padding: '2px 10px' }}>archetype</span>
+              <br />is yours?
+            </h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
+              <Link
+                to="/find-my-flavor"
+                style={{ display: 'inline-block', backgroundColor: '#9a2918', color: '#f2f1ea', padding: '14px 28px', fontSize: '0.75rem', letterSpacing: '0.14em', textTransform: 'uppercase', textDecoration: 'none' }}
+              >
+                Take the quiz →
+              </Link>
+              <Link
+                to="/sign-in"
+                style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#45474a', textDecoration: 'none', borderBottom: '1px solid #45474a', paddingBottom: 2 }}
+              >
+                Or sign in
+              </Link>
+            </div>
+          </div>
 
+          {/* Footer pinned to bottom of reveal layer */}
+          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, gridColumn: '1 / -1' }}>
+            <Footer />
+          </div>
         </div>
 
-        {/* ── CURTAIN: full-screen chaff photo, lifts up as progress → 1 ── */}
+        {/* ── Layer B: tissue-paper curtain ────────────────────────────── */}
         <div
           style={{
-            position: 'absolute', inset: 0,
-            transform: `translateX(${-(progress * 100)}%)`,
-            transition: 'transform 0.12s ease-out',
+            position: 'absolute', inset: 0, zIndex: 10,
+            backgroundColor: '#9a2918',
+            backgroundImage: CURTAIN_PATTERN,
             willChange: 'transform',
-            zIndex: 10,
+            ...(prefersReducedMotion
+              ? { opacity: Math.max(0, 1 - progress * 2), transform: 'none' }
+              : { transform: `translateX(${-slide * 100}%)`, opacity: 1 }),
           }}
         >
-          <img
-            src={coffeePic13}
-            alt=""
-            style={{
-              width: '100%', height: '100%',
-              objectFit: 'cover', objectPosition: 'center',
-              display: 'block',
-            }}
-          />
+          <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 6, backgroundColor: 'rgba(0,0,0,.15)' }} />
+          <span style={{
+            position: 'absolute', bottom: 36, left: 40,
+            color: 'rgba(242,241,234,.9)', fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase',
+          }}>
+            Keep scrolling to unwrap
+          </span>
         </div>
 
       </div>
-    </>
+    </div>
   );
 }
