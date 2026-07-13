@@ -23,6 +23,7 @@ import tokensRouter from './routes/tokens.js';
 import cronRouter from './routes/cron.js';
 import companyGiftsAdminRouter from './routes/companyGiftsAdmin.js';
 import companyGiftRedemptionRouter from './routes/companyGiftRedemption.js';
+import companiesAdminRouter from './routes/companiesAdmin.js';
 import { initSommelierConfig } from './services/sommelierConfig.js';
 
 const app = express();
@@ -84,6 +85,7 @@ app.use('/api/cron', cronRouter);
 app.use('/api/webhooks', cronRouter);
 app.use('/api/admin/company-gifts', companyGiftsAdminRouter);
 app.use('/api/company-gift-redemption', companyGiftRedemptionRouter);
+app.use('/api/admin/companies', companiesAdminRouter);
 
 async function start() {
   try {

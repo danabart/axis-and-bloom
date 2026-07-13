@@ -2539,3 +2539,26 @@ ALTER TABLE user_profile  ADD COLUMN IF NOT EXISTS company_gift_id UUID REFERENC
 -- placeholder — enforced at the API layer (PATCH .../email-template), not by a DB constraint,
 -- since Postgres CHECK constraints can't easily assert substring presence cleanly here.
 ALTER TABLE company_gift ADD COLUMN IF NOT EXISTS email_template_override TEXT;
+
+-- Round 2 follow-up: a stable company identity, separate from company_gift purchase
+-- batches — lets two company_gift rows (e.g. a repeat buyer months later) be recognized
+-- as the same employer instead of only eyeballing free-text company_name. Not a
+-- user_profile — a company doesn't authenticate, take the quiz, or have a household; this
+-- codebase's one schema term for people who do is "user" (see
+-- customer_life_cycle/1_CLAUDE_CODE_PROMPT_CUSTOMER_STATE.md's terminology note).
+CREATE TABLE IF NOT EXISTS company (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_name          TEXT NOT NULL,
+  primary_contact_name  TEXT,
+  primary_contact_email TEXT,
+  notes                 TEXT,   -- relationship notes spanning all purchases, separate from any single gift's payment_notes
+  created_at            TIMESTAMPTZ DEFAULT timezone('utc', now())
+);
+
+-- company_gift already exists live, so this must be an explicit ALTER, not folded into
+-- the CREATE TABLE above (a CREATE TABLE IF NOT EXISTS block would be a no-op here).
+-- company_gift.company_name/admin_contact_name/admin_contact_email stay as-is — they're a
+-- snapshot of what was true at purchase time (same pattern as "order"'s shipping-address
+-- snapshot elsewhere in this schema), not a live reference to company. Pre-migration rows
+-- get company_id = NULL — expected, not backfilled by fuzzy name-matching.
+ALTER TABLE company_gift ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES company(id);

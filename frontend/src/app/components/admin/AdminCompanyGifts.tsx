@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 
 interface CompanyGiftSummary {
@@ -12,9 +12,16 @@ interface CompanyGiftSummary {
   payment_confirmed_at: string | null;
   total_amount_cents: number | null;
   created_at: string;
+  company_id: string | null;
   redeemed_count: string;
   remaining_count: string;
   expired_count: string;
+  company_gift_count: string;
+}
+
+interface CompanySuggestion {
+  id: string;
+  companyName: string;
 }
 
 interface CompanyGiftDetailData {
@@ -57,6 +64,37 @@ function NewGiftForm({ onCreated, onCancel, getToken }: {
   const [error, setError] = useState('');
   const f = (k: keyof FormData) => (v: string | boolean) => setForm(prev => ({ ...prev, [k]: v as any }));
 
+  // Company combobox — type to search existing companies (see GET /api/admin/companies),
+  // select one to reuse it, or keep a non-matching name to fall through to create-new.
+  const [companySuggestions, setCompanySuggestions] = useState<CompanySuggestion[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleCompanyNameChange(value: string) {
+    f('companyName')(value);
+    setSelectedCompanyId(null); // typing after a selection falls through to create-new
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    if (!value.trim()) { setCompanySuggestions([]); setShowSuggestions(false); return; }
+    searchDebounceRef.current = setTimeout(async () => {
+      const res = await fetch(`/api/admin/companies?search=${encodeURIComponent(value.trim())}`, {
+        headers: { Authorization: `Bearer ${await getToken()}` },
+      });
+      if (res.ok) {
+        const data: CompanySuggestion[] = await res.json();
+        setCompanySuggestions(data);
+        setShowSuggestions(data.length > 0);
+      }
+    }, 300);
+  }
+
+  function handleSelectCompany(company: CompanySuggestion) {
+    setSelectedCompanyId(company.id);
+    f('companyName')(company.companyName);
+    setShowSuggestions(false);
+    setCompanySuggestions([]);
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -66,6 +104,7 @@ function NewGiftForm({ onCreated, onCancel, getToken }: {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getToken()}` },
         body: JSON.stringify({
+          companyId: selectedCompanyId ?? undefined,
           companyName: form.companyName.trim(),
           seatCount: Number(form.seatCount),
           sponsorshipMonths: Number(form.sponsorshipMonths) || 3,
@@ -89,10 +128,33 @@ function NewGiftForm({ onCreated, onCancel, getToken }: {
 
   return (
     <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div className="md:col-span-2">
+      <div className="md:col-span-2 relative">
         <label className="block text-xs text-stone-500 mb-1">Company Name *</label>
-        <input required value={form.companyName} onChange={e => f('companyName')(e.target.value)}
-          className="w-full border border-stone-300 rounded px-3 py-2 text-sm" placeholder="e.g. Acme Corp" />
+        <input
+          required
+          value={form.companyName}
+          onChange={e => handleCompanyNameChange(e.target.value)}
+          onFocus={() => { if (companySuggestions.length) setShowSuggestions(true); }}
+          onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+          className="w-full border border-stone-300 rounded px-3 py-2 text-sm"
+          placeholder="e.g. Acme Corp"
+          autoComplete="off"
+        />
+        {showSuggestions && (
+          <ul className="absolute z-10 w-full mt-1 bg-white border border-stone-200 rounded shadow-sm max-h-48 overflow-auto">
+            {companySuggestions.map(c => (
+              <li key={c.id}>
+                <button type="button" onMouseDown={() => handleSelectCompany(c)}
+                  className="w-full text-left px-3 py-2 text-sm text-stone-700 hover:bg-stone-50">
+                  {c.companyName}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="text-xs text-stone-400 mt-1">
+          {selectedCompanyId ? '✓ Linking to existing company' : 'No match selected — will create a new company record'}
+        </p>
       </div>
       <div>
         <label className="block text-xs text-stone-500 mb-1">Seat Count *</label>
@@ -427,6 +489,11 @@ export default function AdminCompanyGifts() {
               <div className="flex items-center gap-2 mb-1">
                 <p className="font-normal text-stone-800">{g.company_name}</p>
                 <PaymentBadge confirmedAt={g.payment_confirmed_at} />
+                {Number(g.company_gift_count) > 1 && (
+                  <span className="px-2 py-0.5 rounded-full text-xs font-normal bg-blue-100 text-blue-700">
+                    Repeat customer ({g.company_gift_count}x)
+                  </span>
+                )}
               </div>
               <p className="text-xs text-stone-500">
                 {g.redeemed_count} / {g.seat_count} redeemed · {g.remaining_count} remaining
