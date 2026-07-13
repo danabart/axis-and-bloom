@@ -67,7 +67,7 @@ export default function Navigation() {
       {/* Four primary links (The Axis, The Bloom, How It Works move to About page per v2 brief) */}
       <div className="hidden md:flex" style={{ alignItems: 'center', gap: 'clamp(14px, 2vw, 28px)' }}>
         <Link to="/find-my-flavor" style={LINK} className="hover:opacity-50">FIND MY FLAVOR</Link>
-        <Link to="/coffees"        style={LINK} className="hover:opacity-50">OUR COFFEES</Link>
+        <Link to="/flavor-intelligence" style={LINK} className="hover:opacity-50">FLAVOR INTELLIGENCE</Link>
         <Link to="/shop"           style={LINK} className="hover:opacity-50">SHOP</Link>
         <Link to="/about"          style={LINK} className="hover:opacity-50">ABOUT</Link>
         {isAdmin && <Link to="/admin" style={LINK} className="hover:opacity-50">ADMIN</Link>}
