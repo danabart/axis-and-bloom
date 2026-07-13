@@ -2486,3 +2486,47 @@ ON CONFLICT (category, value) DO NOTHING;
 -- `origin` free-text column (ambiguous strings like "Uganda & Ethiopia Blend"
 -- make that unsafe to automate; see Decision #7 for the manual-backfill rationale).
 ALTER TABLE coffees ADD COLUMN IF NOT EXISTS origin_region_id INTEGER REFERENCES lookup_value(id);
+
+-- ─────────────────────────────────────────────
+-- COMPANY GIFT SUBSCRIPTIONS (2026-07-12)
+-- Sponsored 3-month coffee perk a company buys as a gift for employees.
+-- Each row is one purchased gift batch (a specific purchase event), not a
+-- persistent company profile — a repeat buyer gets a second, independent row.
+-- See backend/src/features/b2b_company_subscriptions/CLAUDE_CODE_PROMPT_B2B_COMPANY_SUBSCRIPTIONS.md
+-- for the full decisions log this schema is built against.
+-- ─────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS company_gift (
+  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_name         TEXT NOT NULL,
+  seat_count           INTEGER NOT NULL CHECK (seat_count > 0),
+  sponsorship_months   INTEGER NOT NULL DEFAULT 3,
+  admin_contact_name   TEXT,
+  admin_contact_email  TEXT NOT NULL,
+  code_redeem_by       DATE,              -- optional outer deadline to redeem a code at all; NULL = no deadline
+  payment_notes        TEXT,              -- internal only: terms, invoice #, wire ref, etc. Never surfaced to employees.
+  payment_confirmed_at TIMESTAMPTZ,       -- NULL = payment not yet confirmed. Codes exist and can be previewed/exported, but are inert (not redeemable) until this is set. Admin action ("Mark as Paid") sets this to now().
+  total_amount_cents   INTEGER,           -- what was actually charged for this batch, for internal revenue reporting only (never surfaced to employees). Nullable — a deal negotiated a bespoke total, not necessarily seat_count × a per-seat rate, so store the agreed total directly rather than assuming linear per-seat pricing.
+  created_by_admin_id  UUID REFERENCES user_profile(id),
+  created_at           TIMESTAMPTZ DEFAULT timezone('utc', now())
+);
+
+CREATE TABLE IF NOT EXISTS company_gift_code (
+  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_gift_id      UUID REFERENCES company_gift(id) ON DELETE CASCADE,
+  code                 TEXT UNIQUE NOT NULL,   -- e.g. 8-char human-friendly token, uppercase, no ambiguous chars (0/O, 1/I)
+  status               TEXT NOT NULL DEFAULT 'unredeemed',  -- 'unredeemed' | 'redeemed' | 'expired'
+  redeemed_by_user_id  UUID REFERENCES user_profile(id),
+  redeemed_at          TIMESTAMPTZ,
+  created_at           TIMESTAMPTZ DEFAULT timezone('utc', now())
+);
+CREATE INDEX IF NOT EXISTS idx_company_gift_code_gift   ON company_gift_code(company_gift_id);
+CREATE INDEX IF NOT EXISTS idx_company_gift_code_status ON company_gift_code(company_gift_id, status);
+
+-- Nullable additions to existing tables, same pattern as household_id on subscription/order today
+ALTER TABLE subscription  ADD COLUMN IF NOT EXISTS company_gift_id UUID REFERENCES company_gift(id);
+ALTER TABLE subscription  ADD COLUMN IF NOT EXISTS sponsored_expires_at TIMESTAMPTZ;  -- NULL for normal (non-sponsored) subscriptions
+-- Quiet internal marker only, never surfaced to other employees or shown as a persistent badge —
+-- drives the Phase 3 lifecycle nudge only. A user can hold both household_id and company_gift_id
+-- at once (e.g. family household + separately redeemed work perk) — independent, not exclusive.
+ALTER TABLE user_profile  ADD COLUMN IF NOT EXISTS company_gift_id UUID REFERENCES company_gift(id);
