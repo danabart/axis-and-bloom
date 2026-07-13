@@ -18,19 +18,22 @@ function generateCodeCandidate(): string {
 }
 
 function buildEmailTemplate(companyName: string): string {
-  return `Subject: A coffee gift from ${companyName} \u{1F381}
+  return `Subject: ${companyName} is treating you to 3 months of coffee, matched to you \u{2615}
 
 Hi team,
 
-As a thank-you this season, ${companyName} is gifting everyone 3 months of Axis & Bloom —
-coffee matched to your own taste, not a generic company blend.
+This season, ${companyName} wanted to give something better than a generic gift — so everyone's getting 3 months of Axis & Bloom, on the house.
 
-Here's your code: {{CODE}}
+Here's how it works: take a 2-minute quiz to find your flavor — floral, fruity, chocolate & nutty, whatever fits your palate — and we'll match you with coffee built around it. Nobody on your team has to get the same bag.
 
-Redeem it at axisandbloomcoffee.com — there's a "Have a code?" box right on the homepage — take a 2-minute quiz, and your first bag ships free.
+Your code: {{CODE}}
 
-Enjoy!`;
+Head to axisandbloomcoffee.com, enter your code in the "Have a code?" box on the homepage, take the quiz, and your first bag ships free.
+
+Enjoy — from all of us at Axis & Bloom.`;
 }
+
+const CODE_PLACEHOLDER = '{{CODE}}';
 
 // POST /api/admin/company-gifts
 router.post('/', async (req: AuthRequest, res) => {
@@ -189,12 +192,50 @@ router.get('/:id/codes.csv', async (req, res) => {
 router.get('/:id/email-template', async (req, res) => {
   const { id } = req.params;
   try {
-    const r = await db.query(`SELECT company_name FROM company_gift WHERE id = $1`, [id]);
+    const r = await db.query(`SELECT company_name, email_template_override FROM company_gift WHERE id = $1`, [id]);
     if (!r.rows.length) { res.status(404).json({ error: 'Not found' }); return; }
-    res.json({ template: buildEmailTemplate(r.rows[0].company_name) });
+    const row = r.rows[0];
+    res.json({
+      template: row.email_template_override ?? buildEmailTemplate(row.company_name),
+      isCustom: row.email_template_override != null,
+    });
   } catch (err) {
     console.error('[admin/company-gifts/email-template]', err);
     res.status(500).json({ error: 'Failed to build email template' });
+  }
+});
+
+// PATCH /api/admin/company-gifts/:id/email-template — set or clear a per-gift override.
+// `template: string` sets a custom override (must contain the literal {{CODE}} placeholder —
+// otherwise every redemption email built from it would silently ship without a working code).
+// `template: null` clears the override, reverting to the default brand-voice template.
+router.patch('/:id/email-template', async (req, res) => {
+  const { id } = req.params;
+  const { template } = req.body as { template?: string | null };
+
+  if (template !== null && typeof template !== 'string') {
+    res.status(400).json({ error: 'template must be a string or null' });
+    return;
+  }
+  if (typeof template === 'string' && !template.includes(CODE_PLACEHOLDER)) {
+    res.status(400).json({ error: `Template must contain the literal ${CODE_PLACEHOLDER} placeholder` });
+    return;
+  }
+
+  try {
+    const r = await db.query(
+      `UPDATE company_gift SET email_template_override = $2 WHERE id = $1 RETURNING company_name, email_template_override`,
+      [id, template]
+    );
+    if (!r.rows.length) { res.status(404).json({ error: 'Not found' }); return; }
+    const row = r.rows[0];
+    res.json({
+      template: row.email_template_override ?? buildEmailTemplate(row.company_name),
+      isCustom: row.email_template_override != null,
+    });
+  } catch (err) {
+    console.error('[admin/company-gifts/email-template/update]', err);
+    res.status(500).json({ error: 'Failed to save email template' });
   }
 });
 

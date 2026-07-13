@@ -2532,3 +2532,10 @@ ALTER TABLE subscription  ADD COLUMN IF NOT EXISTS sponsored_expires_at TIMESTAM
 -- drives the Phase 3 lifecycle nudge only. A user can hold both household_id and company_gift_id
 -- at once (e.g. family household + separately redeemed work perk) — independent, not exclusive.
 ALTER TABLE user_profile  ADD COLUMN IF NOT EXISTS company_gift_id UUID REFERENCES company_gift(id);
+
+-- Round 2 follow-up: per-gift custom wording for the HR handoff email. NULL = use the
+-- default brand-voice template (buildEmailTemplate() in companyGiftsAdmin.ts); non-null =
+-- this specific gift's admin-edited override. Must always contain the literal {{CODE}}
+-- placeholder — enforced at the API layer (PATCH .../email-template), not by a DB constraint,
+-- since Postgres CHECK constraints can't easily assert substring presence cleanly here.
+ALTER TABLE company_gift ADD COLUMN IF NOT EXISTS email_template_override TEXT;

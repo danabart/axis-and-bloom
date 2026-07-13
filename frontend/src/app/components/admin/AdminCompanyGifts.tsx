@@ -157,6 +157,9 @@ function GiftDetail({ giftId, getToken, onBack }: {
   const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState(false);
   const [template, setTemplate] = useState<string | null>(null);
+  const [isCustomTemplate, setIsCustomTemplate] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [templateError, setTemplateError] = useState('');
   const [copied, setCopied] = useState(false);
 
   async function load() {
@@ -197,13 +200,55 @@ function GiftDetail({ giftId, getToken, onBack }: {
     const res = await fetch(`/api/admin/company-gifts/${giftId}/email-template`, { headers: { Authorization: `Bearer ${await getToken()}` } });
     const data = await res.json();
     setTemplate(data.template);
+    setIsCustomTemplate(data.isCustom);
     setCopied(false);
+    setTemplateError('');
   }
 
   async function handleCopyTemplate() {
     if (!template) return;
     await navigator.clipboard.writeText(template);
     setCopied(true);
+  }
+
+  async function handleSaveTemplate() {
+    setSavingTemplate(true);
+    setTemplateError('');
+    try {
+      const res = await fetch(`/api/admin/company-gifts/${giftId}/email-template`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getToken()}` },
+        body: JSON.stringify({ template }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Failed to save template');
+      setTemplate(data.template);
+      setIsCustomTemplate(data.isCustom);
+    } catch (err) {
+      setTemplateError(err instanceof Error ? err.message : 'Failed to save template');
+    } finally {
+      setSavingTemplate(false);
+    }
+  }
+
+  async function handleResetTemplate() {
+    setSavingTemplate(true);
+    setTemplateError('');
+    try {
+      const res = await fetch(`/api/admin/company-gifts/${giftId}/email-template`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getToken()}` },
+        body: JSON.stringify({ template: null }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Failed to reset template');
+      setTemplate(data.template);
+      setIsCustomTemplate(data.isCustom);
+    } catch (err) {
+      setTemplateError(err instanceof Error ? err.message : 'Failed to reset template');
+    } finally {
+      setSavingTemplate(false);
+    }
   }
 
   if (loading) return <p className="text-stone-400 text-sm py-8 text-center">Loading…</p>;
@@ -239,16 +284,39 @@ function GiftDetail({ giftId, getToken, onBack }: {
           Download CSV
         </button>
         <button onClick={handleShowTemplate} className="px-4 py-2 rounded text-sm border border-stone-200 text-stone-600 hover:bg-stone-50">
-          Copy Email Template
+          Email Template
         </button>
       </div>
 
-      {template && (
+      {template !== null && (
         <div className="border border-stone-200 rounded-lg p-4 mb-6 bg-stone-50">
-          <pre className="text-xs text-stone-700 whitespace-pre-wrap font-sans">{template}</pre>
-          <button onClick={handleCopyTemplate} className="mt-3 px-3 py-1.5 rounded text-xs border border-stone-300 text-stone-600 hover:bg-stone-100">
-            {copied ? 'Copied ✓' : 'Copy to clipboard'}
-          </button>
+          <div className="flex items-center justify-between mb-2">
+            <span className={`text-xs ${isCustomTemplate ? 'text-amber-700' : 'text-stone-500'}`}>
+              {isCustomTemplate ? 'Custom template for this company' : 'Using default template'}
+            </span>
+          </div>
+          <textarea
+            value={template}
+            onChange={e => setTemplate(e.target.value)}
+            rows={11}
+            className="w-full text-xs text-stone-700 font-sans bg-white border border-stone-200 rounded p-3 resize-y focus:outline-none focus:border-[#b05642]"
+          />
+          {templateError && <p className="text-red-500 text-xs mt-2">{templateError}</p>}
+          <div className="flex gap-2 mt-3">
+            <button onClick={handleCopyTemplate} className="px-3 py-1.5 rounded text-xs border border-stone-300 text-stone-600 hover:bg-stone-100">
+              {copied ? 'Copied ✓' : 'Copy to clipboard'}
+            </button>
+            <button onClick={handleSaveTemplate} disabled={savingTemplate}
+              className="px-3 py-1.5 rounded text-xs font-normal text-white disabled:opacity-50" style={{ backgroundColor: '#b05642' }}>
+              {savingTemplate ? 'Saving…' : 'Save'}
+            </button>
+            {isCustomTemplate && (
+              <button onClick={handleResetTemplate} disabled={savingTemplate}
+                className="px-3 py-1.5 rounded text-xs border border-stone-300 text-stone-600 hover:bg-stone-100 disabled:opacity-50">
+                Reset to default
+              </button>
+            )}
+          </div>
         </div>
       )}
 
