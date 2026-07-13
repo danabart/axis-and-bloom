@@ -1,6 +1,6 @@
 # Axis & Bloom — Open Tasks
 
-Last updated: 2026-07-13. All 5 Liam Sommelier tasks are code-complete and deployed. These are the remaining items that require manual setup, provider wiring, or future development work.
+Last updated: 2026-07-13. All 5 Liam Sommelier tasks are code-complete and deployed. The Company Gift Subscriptions feature (sponsored 3-month coffee perk companies buy for employees) is also code-complete and deployed as of 2026-07-13 — see `backend/src/features/b2b_company_subscriptions/CLAUDE_CODE_PROMPT_B2B_COMPANY_SUBSCRIPTIONS.md` for the full spec and decisions log. These are the remaining items that require manual setup, provider wiring, or future development work.
 
 ---
 
@@ -90,6 +90,38 @@ The order route (`POST /api/orders`) calls `createOrder()` from `backend/src/ser
 
 ---
 
+### OT-13: Create Cloud Scheduler jobs for Company Gift crons
+Two new cron endpoints exist and are verified working (`GET`, `requireCronSecret`, same pattern as `liam-sms-send`), but neither has a Cloud Scheduler job yet. Redemption itself works fully without these — codes can be created, paid, and redeemed right now — but until these run daily, sponsored subscriptions never auto-lapse, the trial-ending/lapsed nudge emails never fire, and stale codes never flip to `expired` on the admin dashboard.
+
+Reuses the existing `CRON_SECRET` from OT-1 — no new secret needed.
+
+```
+gcloud scheduler jobs create http sponsored-subscription-check \
+  --schedule="0 9 * * *" \
+  --uri="https://axis-bloom-backend-oiub7eumya-uc.a.run.app/api/cron/sponsored-subscription-check" \
+  --http-method=GET \
+  --headers="x-cron-secret=YOUR_SECRET" \
+  --time-zone="UTC" \
+  --project=axis-and-bloom-prod \
+  --location=us-central1
+
+gcloud scheduler jobs create http expire-company-gift-codes \
+  --schedule="0 9 * * *" \
+  --uri="https://axis-bloom-backend-oiub7eumya-uc.a.run.app/api/cron/expire-company-gift-codes" \
+  --http-method=GET \
+  --headers="x-cron-secret=YOUR_SECRET" \
+  --time-zone="UTC" \
+  --project=axis-and-bloom-prod \
+  --location=us-central1
+```
+
+---
+
+### OT-14: Company Gift "continue as paid subscriber" emails link to a placeholder
+The `SPONSORED_TRIAL_ENDING` / `SPONSORED_LAPSED_NO_PAYMENT` transition emails (sent by the OT-13 cron) link to `/profile` as a stand-in "add a payment method" CTA. There is no live checkout flow to point to yet — Shopify ordering is still stubbed (see OT-6). Deliberate placeholder, not an oversight (see Phase 3 commit message and the task spec's Phase 3 §4). **Swap the link in `buildSponsoredTrialEndingEmail()` / `buildSponsoredLapsedEmail()` (`backend/src/routes/cron.ts`) for the real individual-subscription purchase flow once it exists** — don't build a second parallel checkout for this feature alone.
+
+---
+
 ### OT-12: Cupping sessions aren't capturing descriptor intensity
 Found 2026-07-13 while shipping the Flavor Intelligence page's descriptor-bar redesign (`CLAUDE_CODE_PROMPT_FLAVOR_INTELLIGENCE_PART4_TYPE_AND_NOTES.md`). `cupping_score_descriptors.intensity` — the field `GET /api/coffees/:id/flavor-wheel`'s `avg_intensity` is computed from — is `NULL` for all 47 existing rows in production. `AdminCupping.tsx` has always had an intensity input per descriptor (`setDescIntensity`); it's just never actually been filled in for any cupping session entered so far. `user_flavor_feedback.intensity` is also empty (0 rows — separate, dormant path, blocked on OT-6).
 
@@ -154,3 +186,7 @@ The hero and cinematic sections use placeholder `<source src>` values. Swap when
 | — | OT-10: Video placeholders | ⏳ Pending (needs brand videos) |
 | — | OT-11: Font-light cleanup | ⏳ Pending |
 | 2026-07-13 | OT-12: Cupping sessions not capturing descriptor intensity | ⏳ Pending (data-entry habit, not code) |
+| 2026-07-12 | Company Gift Subscriptions — spec committed + Phase 1 (schema: `company_gift`, `company_gift_code`) + Phase 2 (admin + redemption backend routes) | ✅ Done |
+| 2026-07-13 | Company Gift Subscriptions — Phase 3 (lifecycle stages + cron + emails) + Phase 4/5 (homepage widget + admin dashboard + email template) + full test-matrix verification (incl. concurrent-redemption race, cross-employee visibility audit) | ✅ Done |
+| — | OT-13: Cloud Scheduler jobs for Company Gift crons | ⏳ Pending (needs OT-1's secret, already done) |
+| — | OT-14: Company Gift emails — swap `/profile` placeholder for real checkout | ⏳ Pending (needs OT-6) |
