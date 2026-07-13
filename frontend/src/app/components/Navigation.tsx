@@ -64,12 +64,14 @@ export default function Navigation() {
         </span>
       </Link>
 
-      {/* Four primary links (The Axis, The Bloom, How It Works move to About page per v2 brief) */}
       <div className="hidden md:flex" style={{ alignItems: 'center', gap: 'clamp(14px, 2vw, 28px)' }}>
-        <Link to="/find-my-flavor" style={LINK} className="hover:opacity-50">FIND MY FLAVOR</Link>
-        <Link to="/coffees"        style={LINK} className="hover:opacity-50">OUR COFFEES</Link>
-        <Link to="/shop"           style={LINK} className="hover:opacity-50">SHOP</Link>
-        <Link to="/about"          style={LINK} className="hover:opacity-50">ABOUT</Link>
+        <Link to="/the-axis"        style={LINK} className="hover:opacity-50">THE AXIS</Link>
+        <Link to="/bloom"           style={LINK} className="hover:opacity-50">THE BLOOM</Link>
+        <Link to="/how-it-works"    style={LINK} className="hover:opacity-50">HOW IT WORKS</Link>
+        <Link to="/find-my-flavor"  style={LINK} className="hover:opacity-50">FIND MY FLAVOR</Link>
+        <Link to="/coffees"         style={LINK} className="hover:opacity-50">OUR COFFEES</Link>
+        <Link to="/about"           style={LINK} className="hover:opacity-50">ABOUT</Link>
+        <Link to="/shop"            style={LINK} className="hover:opacity-50">SHOP</Link>
         {isAdmin && <Link to="/admin" style={LINK} className="hover:opacity-50">ADMIN</Link>}
       </div>
 
