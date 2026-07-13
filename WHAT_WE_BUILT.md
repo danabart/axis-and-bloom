@@ -1165,9 +1165,11 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 
 ### Layout
 
-Archetype accordion (one collapsible section per archetype, coffee count in the header) replaces the old flat sidebar list. Expanding a section shows its active slots as cards (`platformName` + `positionLabel`) and lazily fetches an **Archetype intelligence** stats panel (`GET /api/coffees/archetype-stats?archetype=`) showing each dimension's target range vs. the family's average actual cupping score.
+**Two-column** (Part 3, 2026-07-12, from Dana's post-deploy review): a narrower `lg:w-80` sticky archetype accordion on the left (one collapsible section per archetype, coffee count in the header), majority-width `flex-1` selected-coffee detail panel on the right — same relationship the old single-coffee `CoffeesPage.tsx` used, just with the sidebar now holding the accordion instead of a flat list. Falls back to a single stacked column below the `lg` breakpoint. Outer container widened to `max-w-[1400px]` (was `1100px`) to give the two columns room. Expanding a section shows its active slots as cards (`platformName` + `positionLabel`).
 
 Selected-coffee detail panel, top to bottom: header (`platformName` + archetype/position pills + process/roastLevel/originRegion tags + ⇄ Compare) → compatibility badge/dimension comparison → surprise angle → three-voice story → collapsible AI note ("Liam's intake") → **cupping session notes** (new — the cupper's own free-text notes, previously fetched by `/dimensions` but discarded) → dimension bars → **Collaborative Flavor Wheel, now grouped into labeled sub-sections by SCA `wheel_category`** (was one flat bubble cloud; this change is in the shared `CollaborativeFlavorWheel.tsx` component, so it also applies to The Bloom's reveal panel).
+
+**Removed in Part 3**: the per-archetype "Archetype intelligence" stats panel (target range vs. family avg actual cupping score) that briefly showed inside each expanded accordion section — didn't land well with Dana, removed along with its lazy-fetch to `GET /api/coffees/archetype-stats`. That endpoint is untouched and still live, just unused by the frontend now. Also removed the duplicate "Flavor Intelligence" eyebrow label that sat above the H1 (same text twice).
 
 ### Personalization (new — full lifecycle taxonomy, not just "has archetype")
 
@@ -1198,7 +1200,11 @@ Rebuilt from `/api/coffees/archetypes` slots (`archetypeLabel` + `platformName`)
 
 ### Navigation
 
-"Flavor Intelligence" link in the main nav and footer (was "Our coffees"/"Our Coffees").
+"Flavor Intelligence" link in the main nav and footer (was "Our coffees"/"Our Coffees"). Merged 2026-07-12 with Camila's concurrent `Navigation.tsx` redesign (two-state transparent-over-hero/solid-after-scroll nav, `IntersectionObserver` on `[data-hero]`) — the full 7-link set was kept (an intermediate version briefly consolidated to 4 links and dropped The Axis/The Bloom/How It Works per an earlier v2 brief draft, then Camila restored the full set in a follow-up commit), with the coffees link pointed at `/flavor-intelligence` rather than the reverted `/coffees` label.
+
+**Mobile bug found and fixed during Part 3 verification**: the compare-mode `<select>` had no width constraint, so a long selected-option label (e.g. "Chocolate & Nutty — Classic Chocolate") pushed 15px past the viewport at 390px width. Fixed (`min-w-0 max-w-full flex-1`, wrapping row); the side-by-side compare header also drops to one column below `sm`.
+
+**Known pre-existing gap, not fixed (out of scope for this build)**: `Navigation.tsx`'s primary link row is `hidden md:flex` with no mobile hamburger menu — every page's nav links (not just this one) are unreachable below the `md` breakpoint; only the logo/profile/cart icons remain. Worth a dedicated mobile-nav pass if/when prioritized.
 
 ### Known pre-existing data gap (not a code bug)
 
