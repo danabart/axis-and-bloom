@@ -54,18 +54,20 @@ export function aggregateDescriptors(rows: WheelRow[]): DescriptorEntry[] {
       ...entry,
       avgIntensity: weightedCount > 0 ? weightedSum / weightedCount : null,
     }))
-    .sort((a, b) => (b.avgIntensity ?? 0) - (a.avgIntensity ?? 0));
+    .sort((a, b) => b.totalMentions - a.totalMentions);
 }
 
 export interface CategoryGroup {
   category: string;
   entries: DescriptorEntry[];
-  maxIntensity: number;
+  maxMentions: number;
 }
 
 /** Groups already-aggregated descriptors by their SCA wheel_category. Entries within a
- * group, and the groups themselves, are ordered by avgIntensity — the "how dominant is
- * this note" signal — not raw mention count. */
+ * group, and the groups themselves, are ordered by totalMentions — how often/widely a note
+ * was observed reads as real, visible bar-length variation; avgIntensity values cluster too
+ * tightly together (cuppers mostly only note a descriptor when it's already reasonably
+ * present) to differentiate bar length on their own — see Part 6. */
 export function groupByCategory(entries: DescriptorEntry[]): CategoryGroup[] {
   const map: Record<string, DescriptorEntry[]> = {};
   for (const entry of entries) {
@@ -73,21 +75,22 @@ export function groupByCategory(entries: DescriptorEntry[]): CategoryGroup[] {
   }
   return Object.entries(map)
     .map(([category, categoryEntries]) => {
-      const sorted = categoryEntries.sort((a, b) => (b.avgIntensity ?? 0) - (a.avgIntensity ?? 0));
-      return { category, entries: sorted, maxIntensity: sorted[0]?.avgIntensity ?? 0 };
+      const sorted = categoryEntries.sort((a, b) => b.totalMentions - a.totalMentions);
+      return { category, entries: sorted, maxMentions: sorted[0]?.totalMentions ?? 0 };
     })
-    .sort((a, b) => b.maxIntensity - a.maxIntensity);
+    .sort((a, b) => b.maxMentions - a.maxMentions);
 }
 
-// Entries with no captured intensity still render, at a fixed short floor width, so they
-// read as "present but unconfirmed" rather than absent or arbitrarily sized.
-const NO_INTENSITY_FLOOR_RATIO = 0.2;
 const MIN_BAR_WIDTH_PCT = 8;
 const VISIBLE_PER_CATEGORY = 5;
+// Used when a descriptor has mentions but no source ever recorded an intensity for it —
+// renders at a neutral mid-thickness rather than looking artificially thin or thick.
+const INTENSITY_DEFAULT_RATIO = 0.6;
 
-function DescriptorBar({ entry, maxIntensity, index }: { entry: DescriptorEntry; maxIntensity: number; index: number }) {
-  const value = entry.avgIntensity ?? maxIntensity * NO_INTENSITY_FLOOR_RATIO;
-  const widthPct = Math.max((value / maxIntensity) * 100, MIN_BAR_WIDTH_PCT);
+function DescriptorBar({ entry, maxMentions, index }: { entry: DescriptorEntry; maxMentions: number; index: number }) {
+  const widthPct = Math.max((entry.totalMentions / maxMentions) * 100, MIN_BAR_WIDTH_PCT);
+  const intensityRatio = entry.avgIntensity != null ? Math.min(entry.avgIntensity / 15, 1) : INTENSITY_DEFAULT_RATIO;
+  const barHeightPx = 4 + intensityRatio * 4; // 4px (low intensity) to 8px (high intensity)
   const sourcesPresent = [...new Set(entry.sources.map(s => s.source))];
   const barColor = SOURCE_COLOR[sourcesPresent[0]] ?? '#b05642';
 
@@ -105,10 +108,10 @@ function DescriptorBar({ entry, maxIntensity, index }: { entry: DescriptorEntry;
           ))}
         </div>
       </div>
-      <div className="h-1.5 rounded-full w-full" style={{ backgroundColor: '#e0dcd4' }}>
+      {/* Sharp rectangles, not rounded pills — reads as a distinct, graph-like element (Part 6). */}
+      <div className="w-full" style={{ height: barHeightPx, backgroundColor: '#e0dcd4' }}>
         <motion.div
-          className="h-1.5 rounded-full"
-          style={{ backgroundColor: barColor }}
+          style={{ height: barHeightPx, backgroundColor: barColor }}
           initial={{ width: 0 }}
           animate={{ width: `${widthPct}%` }}
           transition={{ duration: 0.5, delay: index * 0.04 + 0.1 }}
@@ -121,7 +124,7 @@ function DescriptorBar({ entry, maxIntensity, index }: { entry: DescriptorEntry;
 /** One SCA-category group of descriptor bars, capped to VISIBLE_PER_CATEGORY with a
  * "+N more" expand toggle — both the bar length/scale and the count shown by default
  * favor the dominant note over the long tail of minor ones. */
-function CategoryBarGroup({ group, maxIntensity }: { group: CategoryGroup; maxIntensity: number }) {
+function CategoryBarGroup({ group, maxMentions }: { group: CategoryGroup; maxMentions: number }) {
   const [expanded, setExpanded] = useState(false);
   const visible = expanded ? group.entries : group.entries.slice(0, VISIBLE_PER_CATEGORY);
   const hiddenCount = group.entries.length - VISIBLE_PER_CATEGORY;
@@ -131,7 +134,7 @@ function CategoryBarGroup({ group, maxIntensity }: { group: CategoryGroup; maxIn
       <p className="text-xs mb-2.5" style={{ color: '#b8b0a4' }}>{group.category}</p>
       <div className="space-y-3">
         {visible.map((entry, i) => (
-          <DescriptorBar key={entry.descriptor} entry={entry} maxIntensity={maxIntensity} index={i} />
+          <DescriptorBar key={entry.descriptor} entry={entry} maxMentions={maxMentions} index={i} />
         ))}
       </div>
       {hiddenCount > 0 && (
@@ -155,26 +158,27 @@ interface CollaborativeFlavorWheelProps {
 }
 
 /** All descriptor bars for one coffee, grouped into labeled SCA-category sub-sections.
- * Bar length is relative to this coffee's own single strongest note (computed across all
+ * Bar length is relative to this coffee's own most-mentioned note (computed across all
  * categories, before grouping) — never a fixed scale and never a number — so the dominant
- * character reads as unmistakably dominant. */
+ * character reads as unmistakably dominant. Bar thickness carries intensity as a secondary
+ * signal (Part 6). */
 function GroupedDescriptorBars({ entries }: { entries: DescriptorEntry[] }) {
   if (!entries.length) return null;
-  const maxIntensity = Math.max(...entries.map(e => e.avgIntensity ?? 0), 1);
+  const maxMentions = Math.max(...entries.map(e => e.totalMentions), 1);
   const groups = groupByCategory(entries);
   return (
     <div className="space-y-6">
       {groups.map(group => (
-        <CategoryBarGroup key={group.category} group={group} maxIntensity={maxIntensity} />
+        <CategoryBarGroup key={group.category} group={group} maxMentions={maxMentions} />
       ))}
     </div>
   );
 }
 
-/** "Collaborative Flavor Wheel" — descriptor intensity bars, grouped into labeled
- * sub-sections by SCA wheel_category — single coffee, or side-by-side when
- * compareWheelRows is passed. No numbers/percentages/mention counts anywhere; bar
- * length alone carries the "how dominant is this note" signal. */
+/** "Collaborative Flavor Wheel" — descriptor bars, grouped into labeled sub-sections by
+ * SCA wheel_category — single coffee, or side-by-side when compareWheelRows is passed.
+ * No numbers/percentages/mention counts anywhere; bar length (mentions) and thickness
+ * (intensity) alone carry the "how dominant is this note" signal. */
 export function CollaborativeFlavorWheel({ wheelRows, compareWheelRows, primaryLabel, compareLabel }: CollaborativeFlavorWheelProps) {
   const entries = aggregateDescriptors(wheelRows);
   const compareEntries = compareWheelRows ? aggregateDescriptors(compareWheelRows) : [];

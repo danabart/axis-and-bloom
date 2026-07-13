@@ -39,7 +39,7 @@ export function TastingNotes({ content, contentLoading, exploreLink, talkToLiamL
           <ContentSkeleton />
         ) : content?.surpriseNote ? (
           <p
-            className="text-lg font-light leading-relaxed"
+            className="text-base leading-relaxed"
             style={{ color: '#3a3020', borderLeft: '2px solid #b0564240', paddingLeft: '1rem' }}
           >
             {content.surpriseNote}
@@ -67,7 +67,7 @@ export function TastingNotes({ content, contentLoading, exploreLink, talkToLiamL
                 );
               })}
             </div>
-            <p className="text-base font-light leading-relaxed" style={{ color: '#3a3020' }}>
+            <p className="text-base leading-relaxed" style={{ color: '#3a3020' }}>
               {content.threeVoiceStory}
             </p>
           </div>
@@ -104,7 +104,7 @@ export function TastingNotes({ content, contentLoading, exploreLink, talkToLiamL
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
-                className="text-base font-light leading-relaxed overflow-hidden"
+                className="text-base leading-relaxed overflow-hidden"
                 style={{ color: '#3a3020' }}
               >
                 {content.aiSummary}
@@ -115,7 +115,7 @@ export function TastingNotes({ content, contentLoading, exploreLink, talkToLiamL
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="text-sm font-light line-clamp-2"
+                className="text-sm line-clamp-2"
                 style={{ color: '#8a8070' }}
               >
                 {content.aiSummary}

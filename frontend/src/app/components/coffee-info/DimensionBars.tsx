@@ -35,20 +35,20 @@ function DimensionBar({ dim, index, compareDim }: { dim: DimensionRow; index: nu
     >
       <span className="text-sm text-right truncate" style={{ color: '#5a4a3a' }}>{dim.dimension}</span>
       <div className="relative flex flex-col gap-1">
-        {/* Primary coffee bar */}
+        {/* Primary coffee bar — sharp rectangle, matching the descriptor bars (Part 7). */}
         <div className="relative">
-          <div className="h-1.5 rounded-full w-full" style={{ backgroundColor: '#e0dcd4' }} />
+          <div className="h-1.5 w-full" style={{ backgroundColor: '#e0dcd4' }} />
           <div
-            className="absolute top-0 h-1.5 rounded-full transition-all duration-500"
+            className="absolute top-0 h-1.5 transition-all duration-500"
             style={{ left: `${leftPct}%`, width: `${widthPct}%`, backgroundColor: '#b05642' }}
           />
         </div>
         {/* Comparison coffee bar */}
         {hasCmp && (
           <div className="relative">
-            <div className="h-1.5 rounded-full w-full" style={{ backgroundColor: '#e0dcd4' }} />
+            <div className="h-1.5 w-full" style={{ backgroundColor: '#e0dcd4' }} />
             <div
-              className="absolute top-0 h-1.5 rounded-full transition-all duration-500"
+              className="absolute top-0 h-1.5 transition-all duration-500"
               style={{
                 left: `${cLeftPct}%`,
                 width: `${cWidthPct}%`,
@@ -111,15 +111,15 @@ export function DimensionBars({ dimensions, compareDimensions, primaryLabel, com
         {isCompare && (
           <div className="flex items-center gap-4 text-xs">
             <div className="flex items-center gap-1.5">
-              <span className="w-2 h-1.5 rounded-full inline-block" style={{ backgroundColor: '#b05642' }} />
+              <span className="w-2 h-1.5 inline-block" style={{ backgroundColor: '#b05642' }} />
               <span style={{ color: '#8a8070' }}>{primaryLabel}</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="w-2 h-1.5 rounded-full inline-block" style={{ backgroundColor: '#7c9e87' }} />
+              <span className="w-2 h-1.5 inline-block" style={{ backgroundColor: '#7c9e87' }} />
               <span style={{ color: '#8a8070' }}>{compareLabel}</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="w-2 h-1.5 rounded-full inline-block" style={{ backgroundColor: '#c9a830' }} />
+              <span className="w-2 h-1.5 inline-block" style={{ backgroundColor: '#c9a830' }} />
               <span style={{ color: '#8a8070' }}>Notable difference</span>
             </div>
           </div>
