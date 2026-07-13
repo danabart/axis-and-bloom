@@ -3,6 +3,7 @@ import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { Link, useNavigate } from 'react-router';
 import { TasteFinderSection } from './TasteFinderSection';
 import OrderFeedbackForm from './OrderFeedbackForm';
+import CompanyGiftRedemption from './CompanyGiftRedemption';
 import { useAuth } from '../context/AuthContext';
 import { getHomepageState } from '../lib/api';
 
@@ -118,14 +119,16 @@ export default function Home() {
   const [homepageStateLoading, setHomepageStateLoading] = useState(false);
   const [feedbackDismissed, setFeedbackDismissed]        = useState(false);
 
-  useEffect(() => {
+  const refreshHomepageState = () => {
     if (!user) { setHomepageState(null); return; }
     setHomepageStateLoading(true);
     getHomepageState()
       .then(setHomepageState)
       .catch(() => setHomepageState(null))
       .finally(() => setHomepageStateLoading(false));
-  }, [user]);
+  };
+
+  useEffect(refreshHomepageState, [user]);
 
   useEffect(() => {
     const orderId = homepageState?.pendingFeedback?.orderId;
@@ -463,6 +466,11 @@ export default function Home() {
           )}
         </div>
 
+      </section>
+
+      {/* ━━━ 2b. COMPANY GIFT REDEMPTION — compact, low-key, always visible ━━ */}
+      <section style={{ backgroundColor: '#f2f1ea', borderTop: '1px solid rgba(154,41,24,0.12)', borderBottom: '1px solid rgba(154,41,24,0.12)', padding: '18px clamp(32px,5vw,56px)' }}>
+        <CompanyGiftRedemption onRedeemed={refreshHomepageState} />
       </section>
 
       {/* ━━━ 3. COFFEE COLLECTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}

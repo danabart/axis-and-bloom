@@ -93,6 +93,22 @@ export async function setDialPosition(archetype: string, dialSortOrder: number) 
   return res.json();
 }
 
+export async function lookupCompanyGiftCode(code: string): Promise<
+  | { valid: true; companyName: string; sponsorshipMonths: number }
+  | { valid: false; error: string }
+> {
+  const res = await fetch(`${BASE}/company-gift-redemption/${encodeURIComponent(code)}`);
+  return res.json();
+}
+
+export async function redeemCompanyGiftCode(code: string): Promise<{ ok: true; sponsoredExpiresAt: string } | { error: string }> {
+  const res = await fetch(`${BASE}/company-gift-redemption/${encodeURIComponent(code)}/redeem`, {
+    method: 'POST',
+    headers: await getHeaders(),
+  });
+  return res.json();
+}
+
 export async function submitOrderFeedback(orderId: string, rating: number, note?: string) {
   const res = await fetch(`${BASE}/orders/${orderId}/feedback`, {
     method: 'POST',

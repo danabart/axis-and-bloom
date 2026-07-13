@@ -22,6 +22,7 @@ import AdminInventory from './components/admin/AdminInventory';
 import AdminSommelierConfig from './components/admin/AdminSommelierConfig';
 import AdminIntentEditor from './components/admin/AdminIntentEditor';
 import AdminSommelierFlow from './components/admin/AdminSommelierFlow';
+import AdminCompanyGifts from './components/admin/AdminCompanyGifts';
 import FlavorIntelligencePage from './components/FlavorIntelligencePage';
 import CoffeesRedirect from './components/CoffeesRedirect';
 import BloomPage from './components/BloomPage';
@@ -66,6 +67,7 @@ export default function App() {
             <Route path="sommelier/config"  element={<AdminSommelierConfig />} />
             <Route path="sommelier/intents" element={<AdminIntentEditor />} />
             <Route path="sommelier/flow"    element={<AdminSommelierFlow />} />
+            <Route path="company-gifts" element={<AdminCompanyGifts />} />
           </Route>
 
           {/* ── Public site — shared nav + footer ── */}

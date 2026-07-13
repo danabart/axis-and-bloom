@@ -31,6 +31,12 @@ const NAV_SECTIONS = [
       { to: '/admin/sommelier/flow',    label: 'Flow & Stats' },
     ],
   },
+  {
+    label: 'Company Gifts',
+    items: [
+      { to: '/admin/company-gifts', label: 'Company Gifts' },
+    ],
+  },
 ];
 
 export default function AdminLayout() {
