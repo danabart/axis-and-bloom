@@ -1,6 +1,6 @@
 # Axis & Bloom — Open Tasks
 
-Last updated: 2026-06-26. All 5 Liam Sommelier tasks are code-complete and deployed. These are the remaining items that require manual setup, provider wiring, or future development work.
+Last updated: 2026-07-13. All 5 Liam Sommelier tasks are code-complete and deployed. These are the remaining items that require manual setup, provider wiring, or future development work.
 
 ---
 
@@ -90,6 +90,15 @@ The order route (`POST /api/orders`) calls `createOrder()` from `backend/src/ser
 
 ---
 
+### OT-12: Cupping sessions aren't capturing descriptor intensity
+Found 2026-07-13 while shipping the Flavor Intelligence page's descriptor-bar redesign (`CLAUDE_CODE_PROMPT_FLAVOR_INTELLIGENCE_PART4_TYPE_AND_NOTES.md`). `cupping_score_descriptors.intensity` — the field `GET /api/coffees/:id/flavor-wheel`'s `avg_intensity` is computed from — is `NULL` for all 47 existing rows in production. `AdminCupping.tsx` has always had an intensity input per descriptor (`setDescIntensity`); it's just never actually been filled in for any cupping session entered so far. `user_flavor_feedback.intensity` is also empty (0 rows — separate, dormant path, blocked on OT-6).
+
+**Why this matters now**: the Flavor Intelligence page's new descriptor bars (bar length = how dominant a note is, replacing the old bubble cloud) are scaled by `avgIntensity`. With every row `NULL`, every bar on every coffee currently renders at the same fixed "no data" floor width — the code does exactly what it's supposed to when intensity is missing, but the feature can't visually show a dominant note (e.g. chocolate on a "Classic Chocolate" coffee) until real intensity values exist.
+
+**What to do**: going forward, cuppers need to actually fill in the intensity slider/field per descriptor when entering a cupping session in `AdminCupping.tsx` — no code change needed, this is a data-entry habit gap, not a missing feature. Optionally, backfill intensity for the 47 existing rows if the original cupping notes/session records make that possible without re-tasting.
+
+---
+
 ### OT-7: Migrate order write path to normalized `"order"` table
 `backend/src/routes/orders.ts` still writes to the old `orders` table (`uid TEXT`, `items JSONB`). The normalized `"order"` table in schema.sql has proper FKs (`user_id UUID`, `order_line_item` child rows). 
 
@@ -144,3 +153,4 @@ The hero and cinematic sections use placeholder `<source src>` values. Swap when
 | — | OT-9: Token purchase (Stripe) | ⏳ Pending |
 | — | OT-10: Video placeholders | ⏳ Pending (needs brand videos) |
 | — | OT-11: Font-light cleanup | ⏳ Pending |
+| 2026-07-13 | OT-12: Cupping sessions not capturing descriptor intensity | ⏳ Pending (data-entry habit, not code) |
