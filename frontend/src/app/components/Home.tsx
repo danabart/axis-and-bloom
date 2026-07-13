@@ -49,16 +49,25 @@ const bags = [
 ];
 
 const FLAVOR_DIMS = ['Sweetness', 'Acidity', 'Bitterness', 'Body', 'Fruit', 'Spice'];
-const FLAVOR_CARDS = [
-  { name: 'Floral',            num: '01', color: '#a34b78', dark: false, desc: 'Light, elegant, and aromatic. Hints of jasmine, citrus, and a tea-like clarity.',                                     tags: 'Fragrant, bright, delicate, clean',  bars: [60, 80, 30, 40, 70, 20] },
-  { name: 'Fruity',            num: '02', color: '#ca445f', dark: false, desc: 'Juicy and lively with notes of berries and ripe fruit.',                                                               tags: 'Sweet, vibrant, expressive, lively', bars: [70, 90, 30, 50, 100, 20] },
-  { name: 'Balanced & Sweet',  num: '03', color: '#d1ac11', dark: true,  desc: 'Round, smooth, and comforting. Notes of caramel, honey, and soft fruit.',                                             tags: 'Smooth, sweet, harmonious, easy',    bars: [90, 50, 40, 70, 50, 20] },
-  { name: 'Chocolate & Nutty', num: '04', color: '#a54c2d', dark: false, desc: 'Deep and satisfying with cocoa, roasted nuts, and a rich presence.',                                                  tags: 'Rich, grounded, full, comforting',   bars: [70, 30, 70, 90, 20, 30] },
-  { name: 'Spicy & Earthy',    num: '05', color: '#912f2f', dark: false, desc: 'Warm and bold with hints of spice, wood, and lingering depth.',                                                       tags: 'Warm, deep, bold, lasting',          bars: [50, 30, 80, 90, 20, 90] },
-  { name: 'Experimental',      num: '06', color: '#056c7a', dark: false, desc: 'Ever-changing and wonderfully unconventional. A rotating selection of boundary-pushing coffees, always unique.',      tags: 'Wild, unique, surprising',           bars: [50, 70, 50, 60, 70, 60] },
+
+// PLACEHOLDER VALUES — replace with roaster cupping data before launch
+const FLAVOR_BAR_VALUES = [
+  [60, 80, 30, 40, 70, 20],   // Floral
+  [70, 90, 30, 50, 100, 20],  // Fruity
+  [90, 50, 40, 70, 50, 20],   // Balanced & Sweet
+  [70, 30, 70, 90, 20, 30],   // Chocolate & Nutty
+  [50, 30, 80, 90, 20, 90],   // Spicy & Earthy
+  [50, 70, 50, 60, 70, 60],   // Experimental
 ];
 
-const WEDGE_PATTERN = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='44' height='44'%3E%3Cpath d='M8 36 L14 10 L20 36 Z' fill='%23f2f1ea' fill-opacity='0.12'/%3E%3Cpath d='M26 10 L32 36 L38 10 Z' fill='%23f2f1ea' fill-opacity='0.12'/%3E%3C/svg%3E\")";
+const FLAVOR_CARDS = [
+  { name: 'Floral',            num: '01', color: '#a34b78', dark: false, desc: 'Light, elegant, and aromatic. Hints of jasmine, citrus, and a tea-like clarity.',                                tags: 'Fragrant, bright, delicate, clean',  bars: FLAVOR_BAR_VALUES[0] },
+  { name: 'Fruity',            num: '02', color: '#ca445f', dark: false, desc: 'Juicy and lively with notes of berries and ripe fruit.',                                                          tags: 'Sweet, vibrant, expressive, lively', bars: FLAVOR_BAR_VALUES[1] },
+  { name: 'Balanced & Sweet',  num: '03', color: '#d1ac11', dark: true,  desc: 'Round, smooth, and comforting. Notes of caramel, honey, and soft fruit.',                                        tags: 'Smooth, sweet, harmonious, easy',    bars: FLAVOR_BAR_VALUES[2] },
+  { name: 'Chocolate & Nutty', num: '04', color: '#a54c2d', dark: false, desc: 'Deep and satisfying with cocoa, roasted nuts, and a rich presence.',                                             tags: 'Rich, grounded, full, comforting',   bars: FLAVOR_BAR_VALUES[3] },
+  { name: 'Spicy & Earthy',    num: '05', color: '#912f2f', dark: false, desc: 'Warm and bold with hints of spice, wood, and lingering depth.',                                                   tags: 'Warm, deep, bold, lasting',          bars: FLAVOR_BAR_VALUES[4] },
+  { name: 'Experimental',      num: '06', color: '#056c7a', dark: false, desc: 'Ever-changing and wonderfully unconventional. A rotating selection of boundary-pushing coffees, always unique.', tags: 'Wild, unique, surprising',           bars: FLAVOR_BAR_VALUES[5] },
+];
 
 type CinToken = { text: string; highlight?: boolean };
 const CINEMATIC_WORDS: CinToken[] = [
@@ -67,13 +76,15 @@ const CINEMATIC_WORDS: CinToken[] = [
   { text: 'temperature,' }, { text: 'texture,' }, { text: 'time.' },
 ];
 
-const QUOTES = [
-  { before: 'Coffee should feel like ', word: 'home', after: ', even when everything else is moving.' },
-  { before: 'The first cup is the only ', word: 'quiet', after: ' I get all day.' },
-  { before: 'I never knew my taste had a ', word: 'name', after: ' until someone asked.' },
-  { before: 'Sunday coffee is a ', word: 'ceremony', after: '. Weekday coffee is a promise.' },
-  { before: "It tastes like my grandmother's ", word: 'kitchen', after: ' in December.' },
-  { before: "I don't drink coffee to wake up. I wake up to ", word: 'drink coffee', after: '.' },
+// punct = punctuation that must hug the highlighted word (no gap)
+type QuoteToken = { before: string; word: string; punct: string; rest: string };
+const QUOTES: QuoteToken[] = [
+  { before: 'Coffee should feel like ', word: 'home',         punct: ',', rest: ' even when everything else is moving.' },
+  { before: 'The first cup is the only ', word: 'quiet',      punct: '', rest: ' I get all day.' },
+  { before: 'I never knew my taste had a ', word: 'name',     punct: '', rest: ' until someone asked.' },
+  { before: 'Sunday coffee is a ', word: 'ceremony',          punct: '.', rest: ' Weekday coffee is a promise.' },
+  { before: "It tastes like my grandmother's ", word: 'kitchen', punct: '', rest: ' in December.' },
+  { before: "I don't drink coffee to wake up. I wake up to ", word: 'drink coffee', punct: '.', rest: '' },
 ];
 
 // ─── Shared animation preset ─────────────────────────────────────────────────
@@ -93,9 +104,9 @@ export default function Home() {
   const heroVideoRef      = useRef<HTMLVideoElement>(null);
   const cinematicVideoRef = useRef<HTMLVideoElement>(null);
   const [hoveredBag, setHoveredBag] = useState<number | null>(null);
-  const [hoveredCard, setHoveredCard] = useState<number | null>(null);
   const [activeIdx, setActiveIdx]   = useState(0);
   const [paused, setPaused]         = useState(false);
+  const [resetKey, setResetKey]     = useState(0);
   const prefersReducedMotion        = useReducedMotion();
   const [visitorName, setVisitorName] = useState(() => localStorage.getItem('axisbloom.name') || '');
   const cinematicTextRef = useRef<HTMLParagraphElement>(null);
@@ -132,7 +143,7 @@ export default function Home() {
     if (prefersReducedMotion || paused) return;
     const id = setInterval(() => setActiveIdx(i => (i + 1) % QUOTES.length), 5000);
     return () => clearInterval(id);
-  }, [paused, prefersReducedMotion]);
+  }, [paused, prefersReducedMotion, resetKey]);
 
   useEffect(() => {
     // rAF-based loop: fires every frame (~60fps) so we catch the end before any black frame
@@ -314,10 +325,7 @@ export default function Home() {
     <div style={{ backgroundColor: '#f2f1ea' }}>
 
       {/* ━━━ 1. HERO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      {/*
-        To swap in real brand video: replace <source src="..."> and update poster={}
-      */}
-      <section style={{ position: 'relative', height: '92vh', minHeight: 480, overflow: 'hidden', backgroundColor: '#1a1208' }}>
+      <section data-hero style={{ position: 'relative', height: '92vh', minHeight: 480, overflow: 'hidden', backgroundColor: '#1a1208' }}>
         <video
           ref={heroVideoRef}
           autoPlay muted playsInline
@@ -325,9 +333,11 @@ export default function Home() {
         >
           <source src={heroVideo} type="video/mp4" />
         </video>
+        {/* Top scrim — keeps nav links legible in transparent state */}
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(20,12,8,.45) 0%, transparent 120px)', zIndex: 1 }} />
         <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(20,12,8,0) 40%, rgba(20,12,8,0.62) 100%)' }} />
 
-        <div style={{ position: 'absolute', left: 40, bottom: 64, maxWidth: 560, zIndex: 2 }}>
+        <div style={{ position: 'absolute', left: 40, bottom: 64, maxWidth: 560, zIndex: 3 }}>
           <motion.h1
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -363,34 +373,51 @@ export default function Home() {
 
         {/* LEFT: rotating quote */}
         <div
-          style={{ padding: 'clamp(56px,8vw,90px) clamp(32px,5vw,56px)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}
+          style={{ padding: 'clamp(56px,8vw,90px) clamp(32px,5vw,56px)', display: 'flex', flexDirection: 'column' }}
           onMouseEnter={() => setPaused(true)}
           onMouseLeave={() => setPaused(false)}
         >
           <span style={{ fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: '#9a2918' }}>In their words</span>
 
-          <div style={{ minHeight: '10rem', position: 'relative', margin: '32px 0' }}>
+          {/* Quote at display scale */}
+          <div style={{ minHeight: '8rem', position: 'relative', margin: '28px 0 16px' }}>
             <AnimatePresence mode="wait">
               <motion.p
                 key={activeIdx}
                 initial={prefersReducedMotion ? false : { opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={prefersReducedMotion ? false : { opacity: 0 }}
-                transition={{ duration: 0.3 }}
+                transition={{ duration: 0.2 }}
                 aria-live="polite"
-                style={{ fontSize: 'clamp(24px,2.4vw,30px)', fontWeight: 400, color: '#45474a', lineHeight: 1.4, maxWidth: 480, margin: 0, position: 'absolute', top: 0, left: 0 }}
+                style={{ fontSize: 'clamp(30px,3vw,42px)', fontWeight: 400, color: '#45474a', lineHeight: 1.3, maxWidth: 480, margin: 0, position: 'absolute', top: 0, left: 0 }}
               >
                 {QUOTES[activeIdx].before}
-                <span style={{ backgroundColor: '#ee5974', color: '#f2f1ea', padding: '1px 8px' }}>{QUOTES[activeIdx].word}</span>
-                {QUOTES[activeIdx].after}
+                <span style={{ backgroundColor: '#ee5974', color: '#f2f1ea', padding: '1px 8px' }}>{QUOTES[activeIdx].word}</span>{QUOTES[activeIdx].punct}{QUOTES[activeIdx].rest}
               </motion.p>
             </AnimatePresence>
           </div>
 
-          {/* Tick counter */}
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 9 }} aria-hidden="true">
+          {/* Tick controls — directly below quote, left-aligned */}
+          <div role="group" aria-label="Quote navigation" style={{ display: 'flex', alignItems: 'flex-end', gap: 0 }}>
             {QUOTES.map((_, i) => (
-              <div key={i} style={{ width: 1, height: i === activeIdx ? 18 : 9, backgroundColor: i === activeIdx ? '#9a2918' : '#c5c7c8', transition: 'all 0.3s ease' }} />
+              <button
+                key={i}
+                aria-label={`Quote ${i + 1} of ${QUOTES.length}`}
+                onClick={() => { setActiveIdx(i); setResetKey(k => k + 1); }}
+                style={{
+                  width: 24, height: 32, padding: 0, margin: 0,
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+                }}
+                className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9a2918]"
+              >
+                <div style={{
+                  width: 1, height: i === activeIdx ? 18 : 9,
+                  backgroundColor: i === activeIdx ? '#9a2918' : '#c5c7c8',
+                  transition: 'height 0.3s ease, background-color 0.3s ease',
+                  pointerEvents: 'none',
+                }} />
+              </button>
             ))}
           </div>
         </div>
@@ -439,7 +466,7 @@ export default function Home() {
       </section>
 
       {/* ━━━ 3. COFFEE COLLECTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ backgroundColor: '#f2f1ea', paddingTop: 'clamp(80px, 10vw, 120px)' }}>
+      <section style={{ backgroundColor: '#f2f1ea', paddingTop: 'clamp(80px, 10vw, 120px)', paddingBottom: 112, isolation: 'isolate' }}>
         {/* Header — keep horizontal padding */}
         <div style={{ padding: '0 clamp(32px, 6vw, 96px)', marginBottom: 'clamp(40px, 5vw, 64px)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 16 }}>
           <motion.div {...fadeUp(0)}>
@@ -546,7 +573,7 @@ export default function Home() {
           </h2>
         </motion.div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10, overflowX: 'auto' }}>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3" style={{ gap: 12 }}>
           {FLAVOR_CARDS.map((card, i) => {
             const textColor = card.dark ? '#3a3c3e' : '#f2f1ea';
             const trackBg = card.dark ? 'rgba(58,60,62,.22)' : 'rgba(242,241,234,.25)';
@@ -556,27 +583,20 @@ export default function Home() {
               <div
                 key={card.num}
                 ref={el => { cardRefs.current[i] = el; }}
-                onMouseEnter={() => setHoveredCard(i)}
-                onMouseLeave={() => setHoveredCard(null)}
                 style={{
-                  position: 'relative', minHeight: 400,
+                  minHeight: 300,
                   backgroundColor: card.color,
                   display: 'flex', flexDirection: 'column',
-                  padding: '26px 20px', boxSizing: 'border-box', overflow: 'hidden',
+                  padding: '22px 20px 18px', boxSizing: 'border-box',
                   color: textColor,
                 }}
               >
-                {/* Tone-on-tone wedge pattern (hover) */}
-                <div style={{
-                  position: 'absolute', inset: 0, backgroundImage: WEDGE_PATTERN,
-                  opacity: hoveredCard === i ? 1 : 0, transition: 'opacity 0.5s ease', pointerEvents: 'none',
-                }} />
                 <span style={{ fontSize: 11, letterSpacing: '0.14em', opacity: 0.8 }}>{card.num}</span>
-                <h3 style={{ fontSize: 20, fontWeight: 400, margin: '10px 0 12px', lineHeight: 1.2 }}>{card.name}</h3>
-                <p style={{ fontSize: 13, lineHeight: 1.55, opacity: 0.94, margin: 0 }}>{card.desc}</p>
+                <h3 style={{ fontSize: 24, fontWeight: 400, margin: '8px 0 10px', lineHeight: 1.2 }}>{card.name}</h3>
+                <p style={{ fontSize: 14, lineHeight: 1.5, opacity: 0.94, margin: 0 }}>{card.desc}</p>
 
                 {/* Flavor bars */}
-                <div style={{ marginTop: 'auto', marginBottom: 18, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <div style={{ marginTop: 'auto', marginBottom: 14, paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 5 }}>
                   {FLAVOR_DIMS.map((dim, j) => (
                     <div key={dim} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontSize: 9.5, letterSpacing: '0.08em', textTransform: 'uppercase', width: 58, opacity: 0.75, flexShrink: 0 }}>{dim}</span>

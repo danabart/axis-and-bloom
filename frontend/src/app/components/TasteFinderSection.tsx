@@ -1,9 +1,8 @@
 import { useRef, useEffect, useState } from 'react';
 import { useReducedMotion } from 'motion/react';
-import Footer from './Footer';
 import { Link } from 'react-router';
-
-const CURTAIN_PATTERN = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='52' height='52'%3E%3Cpath d='M9 42 L16 12 L23 42 Z' fill='%23a94936'/%3E%3Cpath d='M30 12 L37 42 L44 12 Z' fill='%23a94936'/%3E%3C/svg%3E\")";
+import Footer from './Footer';
+import spicyEarthyPattern from '../../design/IMAGES/patterns/spicy-earthy-2048.jpg';
 
 interface Props {
   visitorName?: string;
@@ -33,7 +32,7 @@ export function TasteFinderSection({ visitorName }: Props) {
 
   return (
     <div ref={wrapperRef} style={{ position: 'relative', height: '280vh' }}>
-      <div style={{ position: 'sticky', top: 0, height: '100vh', overflow: 'hidden' }}>
+      <div style={{ position: 'sticky', top: 0, height: '100vh', overflow: 'hidden', isolation: 'isolate' }}>
 
         {/* ── Layer A: reveal beneath the curtain ──────────────────────── */}
         <div style={{
@@ -41,14 +40,16 @@ export function TasteFinderSection({ visitorName }: Props) {
           backgroundColor: '#f2f1ea',
           display: 'grid', gridTemplateColumns: '1fr 1.2fr',
           alignItems: 'center',
-          padding: '60px 40px 140px',
+          padding: '0 40px',
           boxSizing: 'border-box',
+          paddingBottom: 80,
         }}>
-          {/* Bag addressed to visitor */}
-          <div style={{ display: 'flex', justifyContent: 'center' }}>
+          {/* Bag addressed to visitor — scales down on short viewports, never cropped */}
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
             <svg
-              width="230" height="320" viewBox="0 0 230 320"
+              viewBox="0 0 230 320"
               aria-label={`Coffee bag addressed from Axis and Bloom to ${name}`}
+              style={{ height: 'clamp(240px, 38vh, 320px)', width: 'auto', display: 'block' }}
             >
               <path d="M30 38 Q30 24 44 24 L186 24 Q200 24 200 38 L200 282 Q200 296 186 296 L44 296 Q30 296 30 282 Z" fill="#9a2918" />
               <rect x="30" y="24" width="170" height="26" rx="8" fill="#7c2020" />
@@ -88,18 +89,21 @@ export function TasteFinderSection({ visitorName }: Props) {
             </div>
           </div>
 
-          {/* Footer pinned to bottom of reveal layer */}
-          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, gridColumn: '1 / -1' }}>
+          {/* Footer pinned to bottom */}
+          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}>
             <Footer />
           </div>
         </div>
 
-        {/* ── Layer B: tissue-paper curtain ────────────────────────────── */}
+        {/* ── Layer B: official Spicy & Earthy tissue-paper curtain ─────── */}
         <div
           style={{
             position: 'absolute', inset: 0, zIndex: 10,
             backgroundColor: '#9a2918',
-            backgroundImage: CURTAIN_PATTERN,
+            backgroundImage: `url(${spicyEarthyPattern})`,
+            backgroundSize: 'clamp(900px, 80vw, 1400px)',
+            backgroundPosition: 'center',
+            backgroundRepeat: 'repeat',
             willChange: 'transform',
             ...(prefersReducedMotion
               ? { opacity: Math.max(0, 1 - progress * 2), transform: 'none' }
@@ -107,12 +111,11 @@ export function TasteFinderSection({ visitorName }: Props) {
           }}
         >
           <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 6, backgroundColor: 'rgba(0,0,0,.15)' }} />
-          <span style={{
-            position: 'absolute', bottom: 36, left: 40,
-            color: 'rgba(242,241,234,.9)', fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase',
-          }}>
-            Keep scrolling to unwrap
-          </span>
+          <div style={{ position: 'absolute', bottom: 40, left: 0, right: 0, display: 'flex', justifyContent: 'center' }}>
+            <span style={{ color: 'rgba(242,241,234,.9)', fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase' }}>
+              Keep scrolling to unwrap
+            </span>
+          </div>
         </div>
 
       </div>
