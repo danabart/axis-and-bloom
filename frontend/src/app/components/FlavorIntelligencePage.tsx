@@ -33,22 +33,6 @@ interface CuppingNote {
   session_date: string;
 }
 
-interface StatDimension {
-  dimension: string;
-  displayOrder: number;
-  targetMin: number | string | null;
-  targetIdeal: number | string | null;
-  targetMax: number | string | null;
-  avgActual: number | string | null;
-  coffeeCount: number;
-}
-
-interface ArchetypeStats {
-  archetype: string;
-  archetypeLabel: string;
-  dimensions: StatDimension[];
-}
-
 // Mirrors Home.tsx's FEEDBACK_NAG_SUPPRESS_DAYS.
 const FEEDBACK_NAG_SUPPRESS_DAYS = 14;
 
@@ -63,33 +47,6 @@ function findDefaultSlot(data: ArchetypeData | undefined): Slot | undefined {
   if (!data) return undefined;
   const activeSlots = data.slots.filter(s => s.isActive);
   return activeSlots.find(s => s.isDefault) ?? activeSlots[0];
-}
-
-// ── Archetype intelligence stats panel (Decision #7) ────────────────────────
-
-function StatsPanel({ stats, loading }: { stats: ArchetypeStats | null; loading: boolean }) {
-  if (loading) {
-    return <p className="text-xs" style={{ color: '#a09880' }}>Loading archetype intelligence…</p>;
-  }
-  if (!stats) return null;
-  return (
-    <div className="rounded-lg border px-4 py-4" style={{ borderColor: '#e8e4da', backgroundColor: '#faf9f5' }}>
-      <p className="text-xs uppercase tracking-widest mb-3" style={{ color: '#a09880' }}>Archetype intelligence</p>
-      <div className="space-y-2.5">
-        {stats.dimensions.map(dim => (
-          <div key={dim.dimension} className="flex items-baseline justify-between gap-4 text-sm">
-            <span style={{ color: '#5a4a3a' }}>{dim.dimension}</span>
-            <span className="text-right" style={{ color: '#8a8070' }}>
-              target {dim.targetMin}–{dim.targetMax} (ideal {dim.targetIdeal})
-              {dim.avgActual != null
-                ? ` · avg ${dim.avgActual} across ${dim.coffeeCount} coffee${dim.coffeeCount === 1 ? '' : 's'} cupped in this family`
-                : ' · not enough cupping data yet'}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 // ── Cupping session notes (Decision #6) ──────────────────────────────────────
@@ -158,9 +115,6 @@ export default function FlavorIntelligencePage() {
   const [wheelRows, setWheelRows] = useState<WheelRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [contentLoading, setContentLoading] = useState(false);
-
-  const [statsByArchetype, setStatsByArchetype] = useState<Record<string, ArchetypeStats>>({});
-  const [statsLoading, setStatsLoading] = useState<Record<string, boolean>>({});
 
   const [compareMode, setCompareMode] = useState(false);
   const [compareCoffeeId, setCompareCoffeeId] = useState<number | null>(null);
@@ -321,21 +275,12 @@ export default function FlavorIntelligencePage() {
     setCompareLabel(compareOptions.find(o => o.coffeeId === coffeeId)?.platformName);
   }
 
-  // ── Archetype stats, lazy-fetched on first expand (Decision #7) ────────────
   function toggleSection(archetype: string) {
     setExpanded(prev => {
       const next = new Set(prev);
       if (next.has(archetype)) next.delete(archetype); else next.add(archetype);
       return next;
     });
-    if (!statsByArchetype[archetype] && !statsLoading[archetype]) {
-      setStatsLoading(prev => ({ ...prev, [archetype]: true }));
-      fetch(`/api/coffees/archetype-stats?archetype=${archetype}`)
-        .then(r => r.json())
-        .then((data: ArchetypeStats) => setStatsByArchetype(prev => ({ ...prev, [archetype]: data })))
-        .catch(() => {})
-        .finally(() => setStatsLoading(prev => ({ ...prev, [archetype]: false })));
-    }
   }
 
   function handleSelectCard(archetype: string, dialSortOrder: number) {
@@ -434,7 +379,6 @@ export default function FlavorIntelligencePage() {
                     );
                   })}
                 </div>
-                <StatsPanel stats={statsByArchetype[data.archetype] ?? null} loading={!!statsLoading[data.archetype]} />
               </div>
             </motion.div>
           )}
@@ -447,9 +391,8 @@ export default function FlavorIntelligencePage() {
     <div className="w-full min-h-screen" style={{ backgroundColor: '#f2f1ea' }}>
 
       {/* ── Header ── */}
-      <div className="pt-32 pb-12 px-8 md:px-16 max-w-[1100px] mx-auto">
+      <div className="pt-32 pb-12 px-8 md:px-16 max-w-[1400px] mx-auto">
         <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7 }}>
-          <p className="uppercase tracking-widest text-xs mb-3" style={{ color: '#b05642' }}>Flavor Intelligence</p>
           <h1 className="text-5xl md:text-7xl font-normal leading-tight mb-4" style={{ color: '#b05642', fontFamily: "'Lato', Arial, sans-serif" }}>
             Flavor Intelligence
           </h1>
@@ -459,7 +402,7 @@ export default function FlavorIntelligencePage() {
         </motion.div>
       </div>
 
-      <div className="px-8 md:px-16 max-w-[1100px] mx-auto pb-32">
+      <div className="px-8 md:px-16 max-w-[1400px] mx-auto pb-32">
 
         {/* ── 1. Feedback nudge (UC3) ── */}
         {homepageState?.pendingFeedback && !feedbackDismissed && (
@@ -508,18 +451,20 @@ export default function FlavorIntelligencePage() {
 
         {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
 
-        {/* ── 4. Archetype accordion ── */}
-        <div className="mb-16">
-          {matchSection && renderSection(matchSection)}
-          {adjacentSections.map(a => renderSection(a, 'Worth exploring'))}
-          {isMatched && (matchSection || adjacentSections.length > 0) && restSections.length > 0 && (
-            <p className="text-xs uppercase tracking-widest py-4" style={{ color: '#b8b0a4' }}>Explore other flavor families</p>
-          )}
-          {restSections.map(a => renderSection(a))}
-        </div>
+        <div className="flex flex-col lg:flex-row gap-12">
+          {/* ── 4. Archetype accordion (left) ── */}
+          <div className="lg:w-80 flex-shrink-0 lg:sticky lg:top-24 lg:self-start">
+            {matchSection && renderSection(matchSection)}
+            {adjacentSections.map(a => renderSection(a, 'Worth exploring'))}
+            {isMatched && (matchSection || adjacentSections.length > 0) && restSections.length > 0 && (
+              <p className="text-xs uppercase tracking-widest py-4" style={{ color: '#b8b0a4' }}>Explore other flavor families</p>
+            )}
+            {restSections.map(a => renderSection(a))}
+          </div>
 
-        {/* ── 5. Selected coffee detail panel ── */}
-        {selectedSlotData && (
+          {/* ── 5. Selected coffee detail panel (right, majority width) ── */}
+          <div className="flex-1 min-w-0">
+          {selectedSlotData ? (
           <AnimatePresence mode="wait">
             <motion.div
               key={slotKey(selectedArchetype ?? '', selectedSlot ?? -1)}
@@ -565,12 +510,12 @@ export default function FlavorIntelligencePage() {
                 </div>
 
                 {compareMode && (
-                  <div className="mt-4 flex items-center gap-3">
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
                     <span className="text-xs uppercase tracking-widest" style={{ color: '#a09880' }}>Compare with</span>
                     <select
                       value={compareCoffeeId ?? ''}
                       onChange={e => e.target.value ? handleCompareSelect(Number(e.target.value)) : setCompareCoffeeId(null)}
-                      className="text-sm px-3 py-1.5 rounded border bg-white"
+                      className="text-sm px-3 py-1.5 rounded border bg-white min-w-0 max-w-full flex-1 sm:flex-none"
                       style={{ borderColor: '#d0ccc4', color: '#4a4035' }}
                     >
                       <option value="">Select a coffee…</option>
@@ -602,7 +547,7 @@ export default function FlavorIntelligencePage() {
                   )}
 
                   {compareMode && compareCoffeeId && (
-                    <div className="grid grid-cols-2 gap-6 pb-6 border-b" style={{ borderColor: '#e0ddd5' }}>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pb-6 border-b" style={{ borderColor: '#e0ddd5' }}>
                       <div className="flex flex-col gap-3">
                         <h3 className="text-lg font-normal" style={{ color: '#b05642' }}>{selectedSlotData.platformName}</h3>
                         {compat && matchArchetypeId && <CompatibilityBadge level={compat} userArchetype={matchArchetypeId} />}
@@ -637,7 +582,13 @@ export default function FlavorIntelligencePage() {
               )}
             </motion.div>
           </AnimatePresence>
-        )}
+          ) : (
+            <div className="py-16 text-center" style={{ color: '#a09880' }}>
+              <p className="text-lg">Select a coffee to see its flavor intelligence.</p>
+            </div>
+          )}
+          </div>
+        </div>
       </div>
     </div>
   );
