@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { motion } from 'motion/react';
 
 export interface WheelRow {
@@ -11,8 +12,10 @@ export interface WheelRow {
 export interface DescriptorEntry {
   descriptor: string;
   wheel_category: string;
-  sources: { source: string; mentions: number }[];
+  sources: { source: string; mentions: number; avgIntensity: number | null }[];
   totalMentions: number;
+  /** Mentions-weighted average intensity across sources; null if no source ever reported an intensity for this descriptor. */
+  avgIntensity: number | null;
 }
 
 export const SOURCE_LABEL: Record<string, string> = {
@@ -28,70 +31,118 @@ export const SOURCE_COLOR: Record<string, string> = {
 };
 
 export function aggregateDescriptors(rows: WheelRow[]): DescriptorEntry[] {
-  const map: Record<string, DescriptorEntry> = {};
+  const map: Record<string, DescriptorEntry & { weightedSum: number; weightedCount: number }> = {};
   for (const row of rows) {
+    const mentions = Number(row.mentions);
+    const intensity = row.avg_intensity != null ? Number(row.avg_intensity) : null;
     if (!map[row.descriptor]) {
-      map[row.descriptor] = { descriptor: row.descriptor, wheel_category: row.wheel_category, sources: [], totalMentions: 0 };
+      map[row.descriptor] = {
+        descriptor: row.descriptor, wheel_category: row.wheel_category,
+        sources: [], totalMentions: 0, avgIntensity: null, weightedSum: 0, weightedCount: 0,
+      };
     }
-    map[row.descriptor].sources.push({ source: row.source, mentions: Number(row.mentions) });
-    map[row.descriptor].totalMentions += Number(row.mentions);
+    const entry = map[row.descriptor];
+    entry.sources.push({ source: row.source, mentions, avgIntensity: intensity });
+    entry.totalMentions += mentions;
+    if (intensity != null) {
+      entry.weightedSum += intensity * mentions;
+      entry.weightedCount += mentions;
+    }
   }
-  return Object.values(map).sort((a, b) => b.totalMentions - a.totalMentions);
+  return Object.values(map)
+    .map(({ weightedSum, weightedCount, ...entry }) => ({
+      ...entry,
+      avgIntensity: weightedCount > 0 ? weightedSum / weightedCount : null,
+    }))
+    .sort((a, b) => (b.avgIntensity ?? 0) - (a.avgIntensity ?? 0));
 }
 
 export interface CategoryGroup {
   category: string;
   entries: DescriptorEntry[];
-  totalMentions: number;
+  maxIntensity: number;
 }
 
-/** Groups already-aggregated descriptors by their SCA wheel_category, sorted by total mentions within and across categories. */
+/** Groups already-aggregated descriptors by their SCA wheel_category. Entries within a
+ * group, and the groups themselves, are ordered by avgIntensity — the "how dominant is
+ * this note" signal — not raw mention count. */
 export function groupByCategory(entries: DescriptorEntry[]): CategoryGroup[] {
   const map: Record<string, DescriptorEntry[]> = {};
   for (const entry of entries) {
     (map[entry.wheel_category] ??= []).push(entry);
   }
   return Object.entries(map)
-    .map(([category, categoryEntries]) => ({
-      category,
-      entries: categoryEntries.sort((a, b) => b.totalMentions - a.totalMentions),
-      totalMentions: categoryEntries.reduce((sum, e) => sum + e.totalMentions, 0),
-    }))
-    .sort((a, b) => b.totalMentions - a.totalMentions);
+    .map(([category, categoryEntries]) => {
+      const sorted = categoryEntries.sort((a, b) => (b.avgIntensity ?? 0) - (a.avgIntensity ?? 0));
+      return { category, entries: sorted, maxIntensity: sorted[0]?.avgIntensity ?? 0 };
+    })
+    .sort((a, b) => b.maxIntensity - a.maxIntensity);
 }
 
-function BubbleCloud({ entries }: { entries: DescriptorEntry[] }) {
-  if (!entries.length) return null;
-  const maxMentions = Math.max(...entries.map(d => d.totalMentions), 1);
+// Entries with no captured intensity still render, at a fixed short floor width, so they
+// read as "present but unconfirmed" rather than absent or arbitrarily sized.
+const NO_INTENSITY_FLOOR_RATIO = 0.2;
+const MIN_BAR_WIDTH_PCT = 8;
+const VISIBLE_PER_CATEGORY = 5;
+
+function DescriptorBar({ entry, maxIntensity, index }: { entry: DescriptorEntry; maxIntensity: number; index: number }) {
+  const value = entry.avgIntensity ?? maxIntensity * NO_INTENSITY_FLOOR_RATIO;
+  const widthPct = Math.max((value / maxIntensity) * 100, MIN_BAR_WIDTH_PCT);
+  const sourcesPresent = [...new Set(entry.sources.map(s => s.source))];
+  const barColor = SOURCE_COLOR[sourcesPresent[0]] ?? '#b05642';
+
   return (
-    <div className="flex flex-wrap gap-3 items-center">
-      {entries.map((entry, i) => {
-        const t = Math.sqrt(entry.totalMentions / maxMentions);
-        const size = Math.round(44 + t * 104);
-        const primarySource = [...entry.sources].sort((a, b) => b.mentions - a.mentions)[0].source;
-        const color = SOURCE_COLOR[primarySource] ?? '#b05642';
-        const fontSize = Math.max(9, Math.min(13, Math.round(size / 7.5)));
-        return (
-          <motion.div
-            key={entry.descriptor}
-            initial={{ opacity: 0, scale: 0.4 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.45, delay: i * 0.03, type: 'spring', stiffness: 160, damping: 14 }}
-            className="rounded-full flex items-center justify-center text-center flex-shrink-0 cursor-default select-none"
-            style={{
-              width: size, height: size,
-              backgroundColor: color + '16',
-              border: `1.5px solid ${color}55`,
-              color,
-            }}
-            title={`${entry.descriptor} · ${entry.totalMentions} mention${entry.totalMentions !== 1 ? 's' : ''} · ${entry.sources.map(s => SOURCE_LABEL[s.source]).join(', ')}`}
-          >
-            <span className="leading-tight font-light px-2" style={{ fontSize, wordBreak: 'break-word' }}>
-              {entry.descriptor}
-            </span>
-          </motion.div>
-        );
-      })}
+    <motion.div
+      initial={{ opacity: 0, x: -8 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.35, delay: index * 0.04 }}
+    >
+      <div className="flex items-center gap-1.5 mb-1">
+        <span className="text-xs" style={{ color: '#5a4a3a' }}>{entry.descriptor}</span>
+        <div className="flex gap-0.5">
+          {sourcesPresent.map(s => (
+            <span key={s} className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: SOURCE_COLOR[s] }} title={SOURCE_LABEL[s]} />
+          ))}
+        </div>
+      </div>
+      <div className="h-1.5 rounded-full w-full" style={{ backgroundColor: '#e0dcd4' }}>
+        <motion.div
+          className="h-1.5 rounded-full"
+          style={{ backgroundColor: barColor }}
+          initial={{ width: 0 }}
+          animate={{ width: `${widthPct}%` }}
+          transition={{ duration: 0.5, delay: index * 0.04 + 0.1 }}
+        />
+      </div>
+    </motion.div>
+  );
+}
+
+/** One SCA-category group of descriptor bars, capped to VISIBLE_PER_CATEGORY with a
+ * "+N more" expand toggle — both the bar length/scale and the count shown by default
+ * favor the dominant note over the long tail of minor ones. */
+function CategoryBarGroup({ group, maxIntensity }: { group: CategoryGroup; maxIntensity: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? group.entries : group.entries.slice(0, VISIBLE_PER_CATEGORY);
+  const hiddenCount = group.entries.length - VISIBLE_PER_CATEGORY;
+
+  return (
+    <div>
+      <p className="text-xs mb-2.5" style={{ color: '#b8b0a4' }}>{group.category}</p>
+      <div className="space-y-3">
+        {visible.map((entry, i) => (
+          <DescriptorBar key={entry.descriptor} entry={entry} maxIntensity={maxIntensity} index={i} />
+        ))}
+      </div>
+      {hiddenCount > 0 && (
+        <button
+          onClick={() => setExpanded(v => !v)}
+          className="text-xs mt-2 hover:underline"
+          style={{ color: '#a09880' }}
+        >
+          {expanded ? 'Show less ←' : `+${hiddenCount} more, less prominent →`}
+        </button>
+      )}
     </div>
   );
 }
@@ -103,23 +154,27 @@ interface CollaborativeFlavorWheelProps {
   compareLabel?: string;
 }
 
-function GroupedBubbleClouds({ entries }: { entries: DescriptorEntry[] }) {
+/** All descriptor bars for one coffee, grouped into labeled SCA-category sub-sections.
+ * Bar length is relative to this coffee's own single strongest note (computed across all
+ * categories, before grouping) — never a fixed scale and never a number — so the dominant
+ * character reads as unmistakably dominant. */
+function GroupedDescriptorBars({ entries }: { entries: DescriptorEntry[] }) {
+  if (!entries.length) return null;
+  const maxIntensity = Math.max(...entries.map(e => e.avgIntensity ?? 0), 1);
   const groups = groupByCategory(entries);
   return (
     <div className="space-y-6">
       {groups.map(group => (
-        <div key={group.category}>
-          <p className="text-xs mb-2.5" style={{ color: '#b8b0a4' }}>{group.category}</p>
-          <BubbleCloud entries={group.entries} />
-        </div>
+        <CategoryBarGroup key={group.category} group={group} maxIntensity={maxIntensity} />
       ))}
     </div>
   );
 }
 
-/** "Collaborative Flavor Wheel" descriptor bubble cloud, grouped into labeled
+/** "Collaborative Flavor Wheel" — descriptor intensity bars, grouped into labeled
  * sub-sections by SCA wheel_category — single coffee, or side-by-side when
- * compareWheelRows is passed. */
+ * compareWheelRows is passed. No numbers/percentages/mention counts anywhere; bar
+ * length alone carries the "how dominant is this note" signal. */
 export function CollaborativeFlavorWheel({ wheelRows, compareWheelRows, primaryLabel, compareLabel }: CollaborativeFlavorWheelProps) {
   const entries = aggregateDescriptors(wheelRows);
   const compareEntries = compareWheelRows ? aggregateDescriptors(compareWheelRows) : [];
@@ -143,15 +198,15 @@ export function CollaborativeFlavorWheel({ wheelRows, compareWheelRows, primaryL
         <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
           <div>
             <p className="text-xs mb-4" style={{ color: '#a09880' }}>{primaryLabel}</p>
-            <GroupedBubbleClouds entries={entries} />
+            <GroupedDescriptorBars entries={entries} />
           </div>
           <div>
             <p className="text-xs mb-4" style={{ color: '#a09880' }}>{compareLabel}</p>
-            <GroupedBubbleClouds entries={compareEntries} />
+            <GroupedDescriptorBars entries={compareEntries} />
           </div>
         </div>
       ) : (
-        <GroupedBubbleClouds entries={entries} />
+        <GroupedDescriptorBars entries={entries} />
       )}
     </div>
   );

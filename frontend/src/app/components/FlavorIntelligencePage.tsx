@@ -75,7 +75,7 @@ function CuppingNotes({ notes }: { notes: CuppingNote[] }) {
                   <p className="text-xs mb-1" style={{ color: '#b8b0a4' }}>
                     {new Date(n.session_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
                   </p>
-                  <p className="text-sm font-light leading-relaxed" style={{ color: '#5a4a3a' }}>{n.overall_notes}</p>
+                  <p className="text-sm leading-relaxed" style={{ color: '#5a4a3a' }}>{n.overall_notes}</p>
                 </div>
               ))}
             </div>
@@ -344,6 +344,8 @@ export default function FlavorIntelligencePage() {
         >
           <div className="flex items-center gap-3">
             <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: ARCHETYPE_COLOR[data.archetype] ?? '#999' }} />
+            {/* Deliberately one tier below the "highlight" sub-heading role (text-xl) above —
+                this is a nav-level list label, not a content heading. */}
             <span className="text-base" style={{ color: '#3a3020' }}>{data.archetypeLabel}</span>
             <span className="text-xs" style={{ color: '#b8b0a4' }}>{activeSlots.length} coffee{activeSlots.length !== 1 ? 's' : ''}</span>
             {tag && (
@@ -396,7 +398,7 @@ export default function FlavorIntelligencePage() {
           <h1 className="text-5xl md:text-7xl font-normal leading-tight mb-4" style={{ color: '#b05642', fontFamily: "'Lato', Arial, sans-serif" }}>
             Flavor Intelligence
           </h1>
-          <p className="text-lg font-light max-w-xl" style={{ color: '#8a8070' }}>
+          <p className="text-lg max-w-xl" style={{ color: '#8a8070' }}>
             Every coffee, seen through three lenses — our cuppers, the roaster, and customers who've ordered it.
           </p>
         </motion.div>
@@ -407,7 +409,7 @@ export default function FlavorIntelligencePage() {
         {/* ── 1. Feedback nudge (UC3) ── */}
         {homepageState?.pendingFeedback && !feedbackDismissed && (
           <div className="mb-10 p-6 rounded-lg border" style={{ borderColor: '#e8e4da', backgroundColor: '#fff' }}>
-            <p className="text-lg font-light mb-3" style={{ color: '#3a3020' }}>
+            <p className="text-lg mb-3" style={{ color: '#3a3020' }}>
               How was {homepageState.pendingFeedback.blendName ?? 'your last coffee'}?
             </p>
             <OrderFeedbackForm
@@ -432,7 +434,10 @@ export default function FlavorIntelligencePage() {
         {/* ── 2. Personalized header (UC1/UC4) ── */}
         {isMatched && matchArchetypeLabel && homepageState && (
           <div className="mb-10 pb-8 border-b" style={{ borderColor: '#e8e4da' }}>
-            <p className="text-2xl font-normal mb-1" style={{ color: '#b05642', fontFamily: "'Lato', Arial, sans-serif" }}>
+            {/* Coffee/archetype "highlight" sub-heading role: text-xl everywhere it appears
+                (here and the compare-mode h3s below), one step under the selected-coffee H2
+                below (text-3xl), which stays largest as the page's primary focus. */}
+            <p className="text-xl font-normal mb-1" style={{ color: '#b05642', fontFamily: "'Lato', Arial, sans-serif" }}>
               Your match: {matchArchetypeLabel}
             </p>
             <div className="mt-3">{renderSecondary(homepageState.stageCode)}</div>
@@ -473,6 +478,7 @@ export default function FlavorIntelligencePage() {
               <div className="mb-8 pb-6 border-b" style={{ borderColor: '#e0ddd5' }}>
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="flex-1">
+                    {/* Primary focus of the page — one step larger than the "highlight" role, on purpose. */}
                     <h2 className="text-3xl font-normal" style={{ color: '#b05642', fontFamily: "'Lato', Arial, sans-serif" }}>
                       {selectedSlotData.platformName}
                     </h2>
@@ -541,7 +547,7 @@ export default function FlavorIntelligencePage() {
                     <div className="flex flex-col gap-3">
                       <CompatibilityBadge level={compat} userArchetype={matchArchetypeId} />
                       {dimCompText && (
-                        <p className="text-sm font-light leading-relaxed" style={{ color: '#8a8070' }}>{dimCompText}</p>
+                        <p className="text-sm leading-relaxed" style={{ color: '#8a8070' }}>{dimCompText}</p>
                       )}
                     </div>
                   )}
@@ -549,11 +555,11 @@ export default function FlavorIntelligencePage() {
                   {compareMode && compareCoffeeId && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pb-6 border-b" style={{ borderColor: '#e0ddd5' }}>
                       <div className="flex flex-col gap-3">
-                        <h3 className="text-lg font-normal" style={{ color: '#b05642' }}>{selectedSlotData.platformName}</h3>
+                        <h3 className="text-xl font-normal" style={{ color: '#b05642' }}>{selectedSlotData.platformName}</h3>
                         {compat && matchArchetypeId && <CompatibilityBadge level={compat} userArchetype={matchArchetypeId} />}
                       </div>
                       <div className="flex flex-col gap-3">
-                        <h3 className="text-lg font-normal" style={{ color: '#b05642' }}>{compareLabel}</h3>
+                        <h3 className="text-xl font-normal" style={{ color: '#b05642' }}>{compareLabel}</h3>
                         {compareCompat && matchArchetypeId && <CompatibilityBadge level={compareCompat} userArchetype={matchArchetypeId} />}
                       </div>
                     </div>
