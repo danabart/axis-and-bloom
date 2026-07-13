@@ -9,6 +9,8 @@ export interface Slot {
   description: string | null;
   isActive: boolean;
   platformName: string | null;
+  /** Flavor Intelligence Part 1 Decision #8 — matches whichever coffee is currently resolved for this slot. */
+  isDefault: boolean;
   prices: SlotPrice[];
   coffeeId: number | null;
 }

@@ -194,7 +194,7 @@ function ArchetypeSection({
         key={currentKey}
         isRevealed={isRevealed}
         archetype={data.archetype}
-        coffeeId={currentSlot.coffeeId}
+        dialSortOrder={currentSlot.dialSortOrder}
         content={cardData.content}
         dimensions={cardData.dimensions}
         wheelRows={cardData.wheelRows}

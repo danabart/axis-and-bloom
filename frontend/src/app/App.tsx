@@ -22,7 +22,8 @@ import AdminInventory from './components/admin/AdminInventory';
 import AdminSommelierConfig from './components/admin/AdminSommelierConfig';
 import AdminIntentEditor from './components/admin/AdminIntentEditor';
 import AdminSommelierFlow from './components/admin/AdminSommelierFlow';
-import CoffeesPage from './components/CoffeesPage';
+import FlavorIntelligencePage from './components/FlavorIntelligencePage';
+import CoffeesRedirect from './components/CoffeesRedirect';
 import BloomPage from './components/BloomPage';
 import JoinHousehold from './components/JoinHousehold';
 import TheAxis from './components/TheAxis';
@@ -76,7 +77,8 @@ export default function App() {
             <Route path="/shop" element={<Shop />} />
             <Route path="/sign-in" element={<SignIn />} />
             <Route path="/profile" element={<Profile />} />
-            <Route path="/coffees" element={<CoffeesPage />} />
+            <Route path="/flavor-intelligence" element={<FlavorIntelligencePage />} />
+            <Route path="/coffees" element={<CoffeesRedirect />} />
             <Route path="/bloom" element={<BloomPage />} />
             <Route
               path="/sommelier"

@@ -45,7 +45,7 @@ export default function Navigation() {
         <Link to="/bloom" style={NAV_LINK} className="hover:opacity-50 transition-opacity">THE BLOOM</Link>
         <Link to="/how-it-works" style={NAV_LINK} className="hover:opacity-50 transition-opacity">HOW IT WORKS</Link>
         <Link to="/find-my-flavor" style={NAV_LINK} className="hover:opacity-50 transition-opacity">FIND MY FLAVOR</Link>
-        <Link to="/coffees" style={NAV_LINK} className="hover:opacity-50 transition-opacity">OUR COFFEES</Link>
+        <Link to="/flavor-intelligence" style={NAV_LINK} className="hover:opacity-50 transition-opacity">FLAVOR INTELLIGENCE</Link>
         <Link to="/about" style={NAV_LINK} className="hover:opacity-50 transition-opacity">ABOUT</Link>
         <Link to="/shop" style={NAV_LINK} className="hover:opacity-50 transition-opacity">SHOP</Link>
         {isAdmin && (

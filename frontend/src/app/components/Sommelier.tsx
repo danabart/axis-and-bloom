@@ -203,7 +203,7 @@ export default function Sommelier() {
         setEvalResult(ev);
 
         if (!ev.needsSommelier && entry !== 'user_initiated') {
-          navigate('/coffees', { replace: true });
+          navigate('/flavor-intelligence', { replace: true });
           return;
         }
 

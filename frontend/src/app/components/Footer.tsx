@@ -26,7 +26,7 @@ export default function Footer() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {[
                 { to: '/find-my-flavor', label: 'Find my flavor' },
-                { to: '/coffees', label: 'Our coffees' },
+                { to: '/flavor-intelligence', label: 'Flavor Intelligence' },
                 { to: '/shop', label: 'Shop' },
                 { to: '/how-it-works', label: 'How it works' },
               ].map(l => (

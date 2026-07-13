@@ -66,6 +66,81 @@ router.get('/lookups', async (_req, res) => {
   }
 });
 
+// ── POST /api/admin/lookups ───────────────────────────────────────────────────
+// Add or update a value within a category. Upserts on the existing UNIQUE
+// (category, value) constraint — same idempotent-upsert spirit already used to
+// seed this table in schema.sql. Flavor Intelligence Part 1 Decision #9: so
+// future categories/values (origin regions or anything else) don't require a
+// code deploy.
+router.post('/lookups', async (req, res) => {
+  const { category, value, label, sortOrder } = req.body;
+  if (!category || !value || !label) {
+    res.status(400).json({ error: 'category, value, and label are required' }); return;
+  }
+  try {
+    const result = await db.query(
+      `INSERT INTO lookup_value (category, value, label, sort_order)
+       VALUES ($1, $2, $3, COALESCE($4, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM lookup_value WHERE category = $1)))
+       ON CONFLICT (category, value) DO UPDATE
+         SET label = EXCLUDED.label,
+             sort_order = COALESCE($4, lookup_value.sort_order)
+       RETURNING id, category, value, label, sort_order`,
+      [category, value, label, sortOrder ?? null]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('[admin/lookups POST]', err);
+    res.status(500).json({ error: 'Failed to add lookup value' });
+  }
+});
+
+// ── PATCH /api/admin/lookups/:id ──────────────────────────────────────────────
+router.patch('/lookups/:id', async (req, res) => {
+  const { id } = req.params;
+  const { label, sortOrder } = req.body;
+  if (label === undefined && sortOrder === undefined) {
+    res.status(400).json({ error: 'label or sortOrder is required' }); return;
+  }
+  try {
+    const result = await db.query(
+      `UPDATE lookup_value
+       SET label = COALESCE($1, label),
+           sort_order = COALESCE($2, sort_order)
+       WHERE id = $3
+       RETURNING id, category, value, label, sort_order`,
+      [label ?? null, sortOrder ?? null, id]
+    );
+    if (result.rowCount === 0) { res.status(404).json({ error: 'Lookup value not found' }); return; }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[admin/lookups PATCH]', err);
+    res.status(500).json({ error: 'Failed to update lookup value' });
+  }
+});
+
+// ── DELETE /api/admin/lookups/:id ─────────────────────────────────────────────
+// coffees.process/roast_level are plain TEXT (convention-matched, not FKs) so
+// deleting a value they reference just removes it from future dropdown options —
+// existing coffees keep their stored text. coffees.origin_region_id IS a real FK
+// (Decision #7), so deleting a region still assigned to a coffee hits Postgres's
+// default RESTRICT and is caught here as a clean 409, same pattern as
+// DELETE /api/admin/categories/:id.
+router.delete('/lookups/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await db.query(`DELETE FROM lookup_value WHERE id = $1 RETURNING id`, [id]);
+    if (result.rowCount === 0) { res.status(404).json({ error: 'Lookup value not found' }); return; }
+    res.json({ ok: true });
+  } catch (err: any) {
+    if (err?.code === '23503') {
+      res.status(409).json({ error: 'Cannot delete — this value is still assigned to one or more coffees.' });
+      return;
+    }
+    console.error('[admin/lookups DELETE]', err);
+    res.status(500).json({ error: 'Failed to delete lookup value' });
+  }
+});
+
 // ── GET /api/admin/stats ──────────────────────────────────────────────────────
 router.get('/stats', async (_req, res) => {
   try {
@@ -91,6 +166,7 @@ router.get('/coffees', async (_req, res) => {
     const result = await db.query(`
       SELECT c.id, c.name, c.roaster, c.origin, c.blend_or_single,
              c.process, c.roast_level, c.flavor_descriptors_roaster,
+             c.origin_region_id, lv.label AS origin_region_label, lv.value AS origin_region_value,
              aa.archetype, aa.confidence,
              dap.id       AS dial_position_id,
              dap.vocabulary_id AS dial_vocab_id,
@@ -98,6 +174,8 @@ router.get('/coffees', async (_req, res) => {
              dpv.sort_order    AS dial_position_sort,
              dpv.label         AS dial_label
       FROM coffees c
+      LEFT JOIN lookup_value lv
+        ON lv.id = c.origin_region_id
       LEFT JOIN archetype_assignments aa
         ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
       LEFT JOIN dial_archetype_positions dap
@@ -137,6 +215,39 @@ router.post('/coffees', async (req, res) => {
   } catch (err) {
     console.error('[admin/coffees POST]', err);
     res.status(500).json({ error: 'Failed to add coffee' });
+  }
+});
+
+// ── PATCH /api/admin/coffees/:id ──────────────────────────────────────────────
+// Partial update for fields not set at creation time. Today only origin_region
+// (Flavor Intelligence Part 1 Decision #7 backfill) plus process/roast_level for
+// convenience, since they share the same dropdown pattern. All optional/COALESCE —
+// omit a field to leave it untouched. origin_region takes the lookup_value.value
+// slug (not the numeric id — that's what LookupSelect options carry) and is
+// resolved to origin_region_id here; pass null/omit to clear it.
+router.patch('/coffees/:id', async (req, res) => {
+  const { id } = req.params;
+  const { process, roast_level, origin_region } = req.body;
+  if (process === undefined && roast_level === undefined && origin_region === undefined) {
+    res.status(400).json({ error: 'process, roast_level, or origin_region is required' }); return;
+  }
+  try {
+    const result = await db.query(
+      `UPDATE coffees
+       SET process = COALESCE($1, process),
+           roast_level = COALESCE($2, roast_level),
+           origin_region_id = CASE WHEN $3::boolean
+             THEN (SELECT id FROM lookup_value WHERE category = 'origin_region' AND value = $4)
+             ELSE origin_region_id END
+       WHERE id = $5
+       RETURNING id, process, roast_level, origin_region_id`,
+      [process ?? null, roast_level ?? null, origin_region !== undefined, origin_region ?? null, id]
+    );
+    if (result.rowCount === 0) { res.status(404).json({ error: 'Coffee not found' }); return; }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[admin/coffees PATCH]', err);
+    res.status(500).json({ error: 'Failed to update coffee' });
   }
 });
 

@@ -426,10 +426,17 @@ Migration scripts: `backend/src/db/migrations/`
 | POST | `/api/admin/grant-admin` | Admin | Grant admin role to a user by email — body: `{ "email": "..." }` |
 | DELETE | `/api/admin/revoke-admin` | Admin | Revoke admin role (sets back to customer) — body: `{ "email": "..." }` |
 | POST | `/api/admin/coffees/:id/refresh-summary` | Admin | Force-regenerates and stores the AI tasting note for a coffee — use after new cupping data is added |
-| GET | `/api/coffees` | No | Public coffee list with name, roaster, origin, process, roast level, and current archetype assignment |
+| GET | `/api/coffees` | No | Flat, roaster-leaking coffee list. Superseded for public/frontend use by `/api/coffees/archetypes` (2026-07-12, Flavor Intelligence Part 1) — kept for admin tooling, not called by any public page |
+| GET | `/api/coffees/archetypes` | No | Roaster-blind, archetype-grouped, slot-based catalogue — the source of truth for both The Bloom and the Flavor Intelligence page. Each slot includes `isDefault: boolean` (2026-07-12) |
+| GET | `/api/coffees/archetype-stats?archetype=` | No | Per-dimension target range + avg actual cupping score + coffee count for one archetype (2026-07-12) |
+| GET | `/api/coffees/:id/legacy-slot` | No | Resolves a raw `coffeeId` to `{ archetype, dialSortOrder }` for old `?coffee=` deep links (2026-07-12) |
 | GET | `/api/coffees/:id/flavor-wheel` | No | Flavor descriptors for one coffee aggregated from all 3 sources via `v_collaborative_flavor_wheel` |
 | GET | `/api/coffees/:id/dimensions` | No | Numeric dimension ranges (avg min/max per dimension) from all cupping scores + session overall notes |
+| GET | `/api/coffees/:id/content` | No | AI summary/surprise note/three-voice story, plus `process`/`roastLevel`/`originRegion` (2026-07-12) |
 | GET | `/api/coffees/:id/ai-summary` | No | Returns cached `ai_summary` from DB if it exists; otherwise generates via Claude haiku, stores, and returns |
+| POST | `/api/admin/lookups` | Admin | Upsert a `lookup_value` row on `(category, value)` — so new dropdown options don't need a code deploy (2026-07-12) |
+| PATCH/DELETE | `/api/admin/lookups/:id` | Admin | Update/delete a `lookup_value` row; `DELETE` returns 409 (not a raw FK error) if still assigned to a coffee (2026-07-12) |
+| PATCH | `/api/admin/coffees/:id` | Admin | Partial update — `process`/`roast_level`/`origin_region` (2026-07-12) |
 | GET | `/api/axis/vectors` | No | Returns all archetype dimension vectors from `v_archetype_vectors`, grouped by archetype name — endpoint exists and is ready; not currently fetched by the public `/the-axis` page (which is static) |
 | POST | `/api/household/create` | Yes | Create a household; caller becomes admin; fails if already in a household |
 | GET | `/api/household/mine` | Yes | Returns current household with members + pending invitations, or `null` if not in one |
@@ -1143,83 +1150,59 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 
 ---
 
-## Our Coffees Page (`/coffees`)
+## Flavor Intelligence Page (`/flavor-intelligence`)
 
-A public consumer-facing page at `/coffees` that presents each coffee's full flavor intelligence in one editorial view. The design philosophy: answer "should I order this coffee?" — not present a data spec sheet.
+**Renamed and rebuilt 2026-07-12** from the old `/coffees` page (`CoffeesPage.tsx` → `FlavorIntelligencePage.tsx`) per `backend/src/features/Flavor Intelligence Page/CLAUDE_CODE_PROMPT_FLAVOR_INTELLIGENCE_PART1_BACKEND.md` + `..._PART2_FRONTEND.md`. Same core content pipeline as before (AI editorial content, three-source descriptor wheel, dimension bars, compatibility badge, compare mode) — this build made the page **roaster-blind** (matching The Bloom's drop-ship confidentiality rule), **reorganized** the flat coffee list into an archetype accordion, **personalized** it against the full lifecycle-stage taxonomy, and went deeper on data the page already had but wasn't surfacing.
 
-**File**: `frontend/src/app/components/CoffeesPage.tsx`  
-**Backend**: `backend/src/routes/coffees.ts`, `backend/src/services/claude.ts`
+**File**: `frontend/src/app/components/FlavorIntelligencePage.tsx`
+**Backend**: `backend/src/routes/coffees.ts`, `backend/src/routes/admin.ts` (lookup CRUD), `backend/src/services/claude.ts`
 
-### DB columns on `coffees` table
+### Roaster-blind (new)
 
-| Column | Type | Description |
-|---|---|---|
-| `ai_summary` | TEXT | 2–3 sentence tasting note, generated once per coffee |
-| `surprise_note` | TEXT | 1–2 sentence "what's unexpected" hook, editorial tone |
-| `three_voice_story` | TEXT | Short paragraph narrating agreement/divergence across the 3 descriptor sources |
+`GET /api/coffees` (flat list, leaks `roaster`/raw `name`) is superseded for this page — it now reads `GET /api/coffees/archetypes`, the same roaster-blind, slot-based catalogue The Bloom uses, so the two pages can never disagree about what's currently sellable/explorable. Never sends `roaster`, raw coffee `name`, or the exact `origin` string. `process`, `roast_level`, and a new bucketed `originRegion` (broad geographic region, e.g. "East Africa" — see below) are shown directly; they're generic flavor vocabulary, not identifying.
 
-All three generated via Claude haiku, cached in SQL, never regenerated on visitor traffic. All added via idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
+**Origin region bucketing** — new `lookup_value` category `origin_region` (7 values: East Africa, Central America, South America, Southeast Asia & Pacific, Multi-Origin/Blend, Caribbean, South Asia — last two are headroom, unused today). New column `coffees.origin_region_id INTEGER REFERENCES lookup_value(id)`, nullable, admin-editable dropdown in `AdminCoffees.tsx`'s per-coffee edit panel (`PATCH /api/admin/coffees/:id`, body `{ process?, roast_level?, origin_region? }` — `origin_region` takes the lookup slug, resolved to the FK id server-side). All 29 catalogue coffees backfilled by hand against the real seed data (`coffees_path_tcr.sql` + the 3 Session 001 Path coffees) — not auto-derived from the free-text `origin` column, since strings like "Uganda & Ethiopia Blend" can't be parsed reliably.
 
 ### Layout
 
-Left sidebar (desktop) / horizontal pill scroll (mobile): coffee cards with name, roaster, and archetype pill.
+Archetype accordion (one collapsible section per archetype, coffee count in the header) replaces the old flat sidebar list. Expanding a section shows its active slots as cards (`platformName` + `positionLabel`) and lazily fetches an **Archetype intelligence** stats panel (`GET /api/coffees/archetype-stats?archetype=`) showing each dimension's target range vs. the family's average actual cupping score.
 
-Right panel, top to bottom:
+Selected-coffee detail panel, top to bottom: header (`platformName` + archetype/position pills + process/roastLevel/originRegion tags + ⇄ Compare) → compatibility badge/dimension comparison → surprise angle → three-voice story → collapsible AI note ("Liam's intake") → **cupping session notes** (new — the cupper's own free-text notes, previously fetched by `/dimensions` but discarded) → dimension bars → **Collaborative Flavor Wheel, now grouped into labeled sub-sections by SCA `wheel_category`** (was one flat bubble cloud; this change is in the shared `CollaborativeFlavorWheel.tsx` component, so it also applies to The Bloom's reveal panel).
 
-1. **Coffee header** — name, roaster, origin, process, roast level tags + archetype pill + ⇄ Compare toggle
-2. **Personalization layer** (logged-in users with an archetype only) — compatibility badge + dimension comparison sentence
-3. **Surprise angle** — italic, editorial, left-border pull-quote style
-4. **Three-voice story** — source legend (rust / sage / purple) + short narrative paragraph
-5. **AI tasting note** — collapsible ("Read full note ↓ / Collapse ↑")
-6. **Dimension bars** — range bars on 0–15 scale, staggered animation
-7. **Descriptor bubble cloud** — √(mentions)-sized circles, colored by primary source, spring-animated
+### Personalization (new — full lifecycle taxonomy, not just "has archetype")
 
-### Content layer 1 — AI content (all users)
+Reads `GET /api/users/homepage-state` (no new backend work — same endpoint `Home.tsx` already uses) and renders every `user_lifecycle_stage` explicitly, mirroring `Home.tsx`'s `renderStageCTA` pattern:
+- Anonymous / `NEW_NO_QUIZ` — neutral accordion, dismissible quiz-nudge banner.
+- `QUIZ_TAKEN_FRESH/SETTLED/STALE_NO_ORDER` — "Your match: {archetype}" header, that archetype's section expanded + its `isDefault` slot pre-selected, adjacent archetypes (`useArchetypeAdjacency`) labeled "Worth exploring" render next, then a divider, then everything else (always fully expandable — personalization only changes what leads, never what's accessible).
+- `pendingFeedback` (independent of stage) — feedback nudge at the top of the page reusing `OrderFeedbackForm`.
+- `SUBSCRIBER`/`REORDER_DUE`/`LAPSED_SINGLE_ORDER`/`ACTIVE_REPEAT_USER` — match-first layout, stage-appropriate (or no) secondary nudge; no shop/reorder CTA (that's the homepage's job).
 
-All three AI fields generated together via `GET /api/coffees/:id/content` (new endpoint). On first request for a coffee with null fields, generates all missing ones in parallel (3 Claude haiku calls), stores to SQL, writes to Firestore non-blocking. Cached hits return immediately.
+### Deep-link contract change
 
-`POST /api/admin/coffees/:id/refresh-content` force-regenerates all three fields (admin only). "↺ Refresh content" button in Admin → Coffees.
+`?coffee={coffeeId}` → `?archetype={archetype_enum}&slot={dialSortOrder}` — human-legible and stable even if `resolveBlendForSlot` changes which physical coffee fulfills a slot. Legacy links still work: `GET /api/coffees/:id/legacy-slot` resolves an old raw `coffeeId` server-side, and the frontend redirects to the new param shape. `/coffees` (bare) redirects to `/flavor-intelligence`; `/coffees?coffee={id}` resolves-then-redirects (`CoffeesRedirect.tsx`). Every internal link that pointed at `/coffees` (nav, footer, homepage, Sommelier's auto-redirect, FlavorQuiz's returning-user panel, and The Bloom's "Explore the full flavor breakdown" link — the latter needed a new `dialSortOrder` prop threaded through `RevealedPanel.tsx`) now points at `/flavor-intelligence`.
 
-All three fields are stored in Cloud SQL only (`coffees` table). Coffee AI content is not written to Firestore — it's a property of the coffee record, not user-centric data.
+### Compare mode
 
-### Content layer 2 — Personalization (logged-in users with archetype)
+Rebuilt from `/api/coffees/archetypes` slots (`archetypeLabel` + `platformName`) instead of the old flat roaster-leaking coffee list — the one remaining identity leak the API-level fix didn't already close.
 
-Pure frontend logic — no extra backend calls. User archetype fetched once via `GET /api/users/profile` on mount.
-
-**Compatibility badge** — three states:
-- **"In your wheelhouse"** (coffee archetype === user archetype): filled rust badge
-- **"Worth exploring"** (coffee archetype is adjacent — e.g. Balanced & Sweet adjacent to Chocolate & Nutty): amber outlined badge
-- **"Outside your comfort zone"** (no adjacency match): grey outlined + "not a bad thing" note
-
-Adjacency map (hardcoded): chocolate_nutty ↔ balanced_sweet; balanced_sweet ↔ fruity; fruity ↔ floral, experimental; earthy ↔ chocolate_nutty.
-
-**Dimension comparison text** — 1–2 sentences using hardcoded typical ranges per archetype vs the coffee's actual avg cupping scores. Finds the 1–2 most divergent key dimensions (Sweetness, Acidity, Bitterness, Body) and expresses them in relative language: "significantly more / slightly more / slightly less / significantly less than your usual [Archetype] profile." Only shown if divergence ≥ 1.5 points from mid.
-
-### Content layer 3 — Interactive data (all users)
-
-**Dimension bars** — unchanged from prior implementation.
-
-**Bubble cloud** — unchanged. Hover tooltip with source breakdown still works.
-
-**Compare mode** — toggle "⇄ Compare" in the coffee header. Shows a dropdown to select a second coffee. When active:
-- Side-by-side header section: name + archetype pill + compatibility badge for each coffee
-- Dimension bars show two stacked range bars per dimension (rust = primary, sage = compare). Bars where the mid-point diff > 3 pts turn amber with "Notable difference" label. Legend shows both coffee names + amber = notable difference.
-- Bubble clouds shown side by side, one per coffee.
-- Surprise angle, three-voice story, and AI note are hidden in compare mode to keep the view scannable.
-- "✕ Exit compare" button returns to single-coffee view.
-
-### Endpoints
+### Endpoints (new/changed)
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| GET | `/api/coffees/:id/content` | No | Returns `{ aiSummary, surpriseNote, threeVoiceStory }` — generates missing fields on first call |
-| GET | `/api/coffees/:id/ai-summary` | No | Legacy; kept for backward compat — new code uses `/content` |
-| POST | `/api/admin/coffees/:id/refresh-content` | Admin | Force-regenerates all three AI fields, updates SQL + Firestore |
-| POST | `/api/admin/coffees/:id/refresh-summary` | Admin | Legacy; kept for backward compat |
+| GET | `/api/coffees/archetypes` | No | Now includes `isDefault: boolean` per slot (matches whichever coffee is *currently resolved* for that slot, not a static per-archetype flag) |
+| GET | `/api/coffees/archetype-stats?archetype=` | No | Target range + avg actual cupping score + coffee count, per dimension, for one archetype. Roaster-blind, archetype-level aggregate only |
+| GET | `/api/coffees/:id/legacy-slot` | No | Resolves a raw `coffeeId` to `{ archetype, dialSortOrder }` for the old deep-link contract; 404 if no live assignment |
+| GET | `/api/coffees/:id/content` | No | Now also returns `process`, `roastLevel`, `originRegion` (never raw `origin`/`roaster`) |
+| POST/PATCH/DELETE | `/api/admin/lookups` / `/api/admin/lookups/:id` | Admin | New CRUD for `lookup_value` (upsert on `category`+`value`; `DELETE` returns 409, not a raw FK error, if a value is still assigned to a coffee) — so new categories/values (like `origin_region`) don't need a code deploy |
+| PATCH | `/api/admin/coffees/:id` | Admin | New — `process`/`roast_level`/`origin_region` partial update, used by the origin-region backfill UI |
 
 ### Navigation
 
-"Our coffees" link in the main nav between "Find my flavor" and "About".
+"Flavor Intelligence" link in the main nav and footer (was "Our coffees"/"Our Coffees").
+
+### Known pre-existing data gap (not a code bug)
+
+`chocolate_nutty`'s "Classic" slot currently resolves to Noam Blend (priority-1, Path), but `dial_archetype_positions.is_default = true` is stamped on Brazil Santos (priority-2, TCR) for that same slot — a mismatch between which coffee is *marked* default and which is *currently active*. The `isDefault` field correctly reflects the live-resolved coffee (per Decision #8's join, keyed off the resolved `coffee_id`), so this slot currently shows `isDefault: false` for everyone. Fixing it means either re-marking the default in the DB or accepting Noam Blend isn't flagged default — an admin data decision, not something this build should silently override.
 
 ---
 

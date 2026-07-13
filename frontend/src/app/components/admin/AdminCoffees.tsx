@@ -26,6 +26,9 @@ interface Coffee {
   blend_or_single: string | null;
   process: string | null;
   roast_level: string | null;
+  origin_region_id: number | null;
+  origin_region_label: string | null;
+  origin_region_value: string | null;
   flavor_descriptors_roaster: string[] | null;
   archetype: string | null;
   confidence: string | null;
@@ -111,6 +114,11 @@ const EMPTY_FORM = {
   flavor_descriptors_roaster: '',
 };
 
+// Origin region + process/roast_level, editable per existing coffee (Flavor
+// Intelligence Part 1 Decision #7 backfill) — separate from EMPTY_FORM, which is
+// only the "Add Coffee" create form.
+const EMPTY_META = { process: '', roast_level: '', origin_region: '' };
+
 const EMPTY_ARCH = {
   archetype: '', confidence: 'medium', notes: '',
   vocab_id: '', dial_is_default: false,
@@ -130,24 +138,81 @@ function ordinal(n: number) {
   return `${n}th`;
 }
 
-function LookupSelect({ category, value, onChange, lookups }: {
+// Optional inline "+ Add new value" affordance (Flavor Intelligence Part 1
+// Decision #9) — pass apiFetch + onAdded to enable it; omit either to render a
+// plain read-only dropdown (existing call sites that don't need the add path).
+function LookupSelect({ category, value, onChange, lookups, apiFetch, onAdded }: {
   category: string; value: string;
   onChange: (v: string) => void;
   lookups: Record<string, { value: string; label: string }[]>;
+  apiFetch?: (url: string, options?: RequestInit) => Promise<Response>;
+  onAdded?: () => void | Promise<void>;
 }) {
   const options = lookups[category] ?? [];
+  const [adding, setAdding] = useState(false);
+  const [newLabel, setNewLabel] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  async function handleAdd() {
+    const label = newLabel.trim();
+    if (!label) { setErr('Label is required'); return; }
+    const slug = label.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    if (!slug) { setErr('Label must contain at least one letter or number'); return; }
+    setSaving(true); setErr('');
+    try {
+      const res = await apiFetch!('/api/admin/lookups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category, value: slug, label }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed to add value');
+      await onAdded?.();
+      onChange(slug);
+      setAdding(false); setNewLabel('');
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : 'Failed to add value');
+    } finally { setSaving(false); }
+  }
+
   return (
-    <select value={value} onChange={e => onChange(e.target.value)}
-      className="w-full border border-stone-300 rounded px-3 py-2 text-sm">
-      <option value="">— select —</option>
-      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-    </select>
+    <div>
+      <div className="flex items-center gap-1.5">
+        <select value={value} onChange={e => onChange(e.target.value)}
+          className="w-full border border-stone-300 rounded px-3 py-2 text-sm">
+          <option value="">— select —</option>
+          {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        {apiFetch && (
+          <button type="button" onClick={() => { setAdding(v => !v); setErr(''); }}
+            className="shrink-0 px-2 py-2 rounded border border-dashed border-stone-300 text-xs text-stone-400 hover:border-stone-400 hover:text-stone-600"
+            title={`Add a new ${category} value`}>
+            +
+          </button>
+        )}
+      </div>
+      {adding && (
+        <div className="flex items-center gap-1.5 mt-1.5">
+          <input value={newLabel} onChange={e => setNewLabel(e.target.value)}
+            placeholder="New value label"
+            className="flex-1 border border-stone-300 rounded px-2 py-1 text-xs" autoFocus />
+          <button type="button" onClick={handleAdd} disabled={saving}
+            className="px-2 py-1 rounded text-xs text-white disabled:opacity-50"
+            style={{ backgroundColor: '#b05642' }}>
+            {saving ? '…' : 'Add'}
+          </button>
+          <button type="button" onClick={() => { setAdding(false); setErr(''); }}
+            className="text-xs text-stone-400 hover:text-stone-600">Cancel</button>
+        </div>
+      )}
+      {err && <p className="text-xs text-red-500 mt-1">{err}</p>}
+    </div>
   );
 }
 
 export default function AdminCoffees() {
   const { user } = useAuth();
-  const { lookups } = useAdminLookups();
+  const { lookups, refresh: refreshLookups } = useAdminLookups();
 
   const [coffees, setCoffees]               = useState<Coffee[]>([]);
   const [vocab, setVocab]                   = useState<VocabOption[]>([]);
@@ -176,6 +241,12 @@ export default function AdminCoffees() {
   const [archForm, setArchForm]       = useState(EMPTY_ARCH);
   const [archSaving, setArchSaving]   = useState(false);
   const [archError, setArchError]     = useState('');
+
+  // process / roast level / origin region — per-coffee backfill editor (Flavor
+  // Intelligence Part 1 Decision #7), shown alongside the archetype editor
+  const [metaForm, setMetaForm]     = useState(EMPTY_META);
+  const [metaSaving, setMetaSaving] = useState(false);
+  const [metaError, setMetaError]   = useState('');
 
   const [refreshingId, setRefreshingId] = useState<number | null>(null);
   const [movingId, setMovingId]         = useState<number | null>(null);
@@ -552,6 +623,31 @@ export default function AdminCoffees() {
       dial_is_default: coffee.dial_is_default ?? false,
     });
     setArchError('');
+    setMetaForm({
+      process:       coffee.process ?? '',
+      roast_level:   coffee.roast_level ?? '',
+      origin_region: coffee.origin_region_value ?? '',
+    });
+    setMetaError('');
+  }
+
+  async function handleMetaSave(coffeeId: number) {
+    setMetaSaving(true); setMetaError('');
+    try {
+      const res = await apiFetch(`/api/admin/coffees/${coffeeId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          process:       metaForm.process || null,
+          roast_level:   metaForm.roast_level || null,
+          origin_region: metaForm.origin_region || null,
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed to save');
+      await load();
+    } catch (err: unknown) {
+      setMetaError(err instanceof Error ? err.message : 'Failed to save');
+    } finally { setMetaSaving(false); }
   }
 
   const field = (key: keyof typeof EMPTY_FORM) => (v: string) => setForm(f => ({ ...f, [key]: v }));
@@ -697,6 +793,36 @@ export default function AdminCoffees() {
             onChange={e => setArchForm(f => ({ ...f, notes: e.target.value }))}
             className="w-full border border-stone-300 rounded px-3 py-1.5 text-sm"
             placeholder="e.g. confirmed after session 002" />
+        </div>
+        {/* process / roast level / origin region — Flavor Intelligence Part 1 Decision #7.
+            Origin region is customer-facing (broad bucket); process/roast level are already
+            shown to customers today, editable here for convenience since they share the
+            same lookup-dropdown pattern. */}
+        <div className="w-full flex items-end gap-3 pt-2 mt-1 border-t border-stone-200">
+          <div className="w-36">
+            <label className="block text-xs text-stone-400 mb-1">Process</label>
+            <LookupSelect category="process" value={metaForm.process}
+              onChange={v => setMetaForm(f => ({ ...f, process: v }))}
+              lookups={lookups} apiFetch={apiFetch} onAdded={refreshLookups} />
+          </div>
+          <div className="w-36">
+            <label className="block text-xs text-stone-400 mb-1">Roast Level</label>
+            <LookupSelect category="roast_level" value={metaForm.roast_level}
+              onChange={v => setMetaForm(f => ({ ...f, roast_level: v }))}
+              lookups={lookups} apiFetch={apiFetch} onAdded={refreshLookups} />
+          </div>
+          <div className="w-48">
+            <label className="block text-xs text-stone-400 mb-1">Origin Region <span className="opacity-60">(customer-facing)</span></label>
+            <LookupSelect category="origin_region" value={metaForm.origin_region}
+              onChange={v => setMetaForm(f => ({ ...f, origin_region: v }))}
+              lookups={lookups} apiFetch={apiFetch} onAdded={refreshLookups} />
+          </div>
+          <button type="button" onClick={() => handleMetaSave(coffeeId)} disabled={metaSaving}
+            className="px-3 py-1.5 rounded text-xs text-white disabled:opacity-50"
+            style={{ backgroundColor: '#b05642' }}>
+            {metaSaving ? '…' : 'Save'}
+          </button>
+          {metaError && <span className="text-xs text-red-500">{metaError}</span>}
         </div>
         {/* alias / priority controls — moved here from Blends & SKUs (Phase 2) */}
         <div className="w-full flex items-end gap-3 pt-2 mt-1 border-t border-stone-200">
@@ -1112,15 +1238,15 @@ export default function AdminCoffees() {
           </div>
           <div>
             <label className="block text-xs text-stone-500 mb-1">Blend or Single</label>
-            <LookupSelect category="blend_or_single" value={form.blend_or_single} onChange={field('blend_or_single')} lookups={lookups} />
+            <LookupSelect category="blend_or_single" value={form.blend_or_single} onChange={field('blend_or_single')} lookups={lookups} apiFetch={apiFetch} onAdded={refreshLookups} />
           </div>
           <div>
             <label className="block text-xs text-stone-500 mb-1">Process</label>
-            <LookupSelect category="process" value={form.process} onChange={field('process')} lookups={lookups} />
+            <LookupSelect category="process" value={form.process} onChange={field('process')} lookups={lookups} apiFetch={apiFetch} onAdded={refreshLookups} />
           </div>
           <div>
             <label className="block text-xs text-stone-500 mb-1">Roast Level</label>
-            <LookupSelect category="roast_level" value={form.roast_level} onChange={field('roast_level')} lookups={lookups} />
+            <LookupSelect category="roast_level" value={form.roast_level} onChange={field('roast_level')} lookups={lookups} apiFetch={apiFetch} onAdded={refreshLookups} />
           </div>
           <div className="md:col-span-2">
             <label className="block text-xs text-stone-500 mb-1">Roaster Flavor Descriptors <span className="opacity-60">(comma-separated)</span></label>

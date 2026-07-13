@@ -2462,3 +2462,27 @@ SELECT
 FROM newsletter_subscriber ns
 LEFT JOIN subscriber_source ss ON ss.id = ns.source_id
 ORDER BY ns.created_at DESC;
+
+-- ─────────────────────────────────────────────
+-- FLAVOR INTELLIGENCE PAGE — origin region bucketing (2026-07-12)
+-- Broad geographic region shown publicly in place of the exact `coffees.origin`
+-- string, which stays server-side only (white-label/drop-ship confidentiality —
+-- see backend/src/features/Flavor Intelligence Page/..._PART1_BACKEND.md Decision #7).
+-- Seven values: five covering the real 29-coffee catalogue today, two kept as
+-- deliberate headroom (caribbean, south_asia) for likely near-term additions.
+-- ─────────────────────────────────────────────
+
+INSERT INTO lookup_value (category, value, label, sort_order) VALUES
+  ('origin_region', 'east_africa',     'East Africa',                1),
+  ('origin_region', 'central_america', 'Central America',            2),
+  ('origin_region', 'south_america',   'South America',              3),
+  ('origin_region', 'sea_pacific',     'Southeast Asia & Pacific',   4),
+  ('origin_region', 'multi_origin',    'Multi-Origin / Blend',       5),
+  ('origin_region', 'caribbean',       'Caribbean',                  6),
+  ('origin_region', 'south_asia',      'South Asia',                 7)
+ON CONFLICT (category, value) DO NOTHING;
+
+-- Nullable, admin-set via AdminCoffees.tsx — no auto-derivation from the raw
+-- `origin` free-text column (ambiguous strings like "Uganda & Ethiopia Blend"
+-- make that unsafe to automate; see Decision #7 for the manual-backfill rationale).
+ALTER TABLE coffees ADD COLUMN IF NOT EXISTS origin_region_id INTEGER REFERENCES lookup_value(id);

@@ -39,6 +39,27 @@ export function aggregateDescriptors(rows: WheelRow[]): DescriptorEntry[] {
   return Object.values(map).sort((a, b) => b.totalMentions - a.totalMentions);
 }
 
+export interface CategoryGroup {
+  category: string;
+  entries: DescriptorEntry[];
+  totalMentions: number;
+}
+
+/** Groups already-aggregated descriptors by their SCA wheel_category, sorted by total mentions within and across categories. */
+export function groupByCategory(entries: DescriptorEntry[]): CategoryGroup[] {
+  const map: Record<string, DescriptorEntry[]> = {};
+  for (const entry of entries) {
+    (map[entry.wheel_category] ??= []).push(entry);
+  }
+  return Object.entries(map)
+    .map(([category, categoryEntries]) => ({
+      category,
+      entries: categoryEntries.sort((a, b) => b.totalMentions - a.totalMentions),
+      totalMentions: categoryEntries.reduce((sum, e) => sum + e.totalMentions, 0),
+    }))
+    .sort((a, b) => b.totalMentions - a.totalMentions);
+}
+
 function BubbleCloud({ entries }: { entries: DescriptorEntry[] }) {
   if (!entries.length) return null;
   const maxMentions = Math.max(...entries.map(d => d.totalMentions), 1);
@@ -82,7 +103,23 @@ interface CollaborativeFlavorWheelProps {
   compareLabel?: string;
 }
 
-/** "Collaborative Flavor Wheel" descriptor bubble cloud — single coffee, or side-by-side when compareWheelRows is passed. */
+function GroupedBubbleClouds({ entries }: { entries: DescriptorEntry[] }) {
+  const groups = groupByCategory(entries);
+  return (
+    <div className="space-y-6">
+      {groups.map(group => (
+        <div key={group.category}>
+          <p className="text-xs mb-2.5" style={{ color: '#b8b0a4' }}>{group.category}</p>
+          <BubbleCloud entries={group.entries} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** "Collaborative Flavor Wheel" descriptor bubble cloud, grouped into labeled
+ * sub-sections by SCA wheel_category — single coffee, or side-by-side when
+ * compareWheelRows is passed. */
 export function CollaborativeFlavorWheel({ wheelRows, compareWheelRows, primaryLabel, compareLabel }: CollaborativeFlavorWheelProps) {
   const entries = aggregateDescriptors(wheelRows);
   const compareEntries = compareWheelRows ? aggregateDescriptors(compareWheelRows) : [];
@@ -106,15 +143,15 @@ export function CollaborativeFlavorWheel({ wheelRows, compareWheelRows, primaryL
         <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
           <div>
             <p className="text-xs mb-4" style={{ color: '#a09880' }}>{primaryLabel}</p>
-            <BubbleCloud entries={entries} />
+            <GroupedBubbleClouds entries={entries} />
           </div>
           <div>
             <p className="text-xs mb-4" style={{ color: '#a09880' }}>{compareLabel}</p>
-            <BubbleCloud entries={compareEntries} />
+            <GroupedBubbleClouds entries={compareEntries} />
           </div>
         </div>
       ) : (
-        <BubbleCloud entries={entries} />
+        <GroupedBubbleClouds entries={entries} />
       )}
     </div>
   );

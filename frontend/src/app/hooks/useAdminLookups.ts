@@ -13,22 +13,22 @@ export function useAdminLookups() {
   const [lookups, setLookups] = useState<Lookups>({});
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  async function refresh() {
     if (!user) return;
-    (async () => {
-      try {
-        const token = await user.getIdToken();
-        const res = await fetch('/api/admin/lookups', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        setLookups(await res.json());
-      } catch {
-        // leave empty — forms will show no options rather than crash
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [user]);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch('/api/admin/lookups', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setLookups(await res.json());
+    } catch {
+      // leave whatever was already loaded — forms will show no/stale options rather than crash
+    } finally {
+      setLoading(false);
+    }
+  }
 
-  return { lookups, loading };
+  useEffect(() => { refresh(); }, [user]);
+
+  return { lookups, loading, refresh };
 }

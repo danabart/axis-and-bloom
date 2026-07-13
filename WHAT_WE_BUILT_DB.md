@@ -24,7 +24,7 @@ It was merged from the original Supabase design plus adaptations for Firebase Au
 - `roaster` — drop-ship roastery partners
 - `quiz` — quiz versions
 - `cupping_note` — SCA Coffee Taster's Flavor Wheel: 84 descriptors across 9 categories and ~25 subcategories; `intensity_score` is NULL by default (assigned per cupping session, not at descriptor level)
-- `lookup_value` — controlled vocabulary for admin dropdowns: `category` + `value` + `label` + `sort_order`; seeded with 20 values across 4 categories (`roast_level`, `process`, `blend_or_single`, `brew_method`); `ON CONFLICT DO UPDATE` so labels/order stay current on every deploy without duplicating rows
+- `lookup_value` — controlled vocabulary for admin dropdowns: `category` + `value` + `label` + `sort_order`; seeded across 5 categories (`roast_level`, `process`, `blend_or_single`, `brew_method`, and `origin_region` added 2026-07-12 — 7 broad geographic buckets, e.g. "East Africa," shown publicly on the Flavor Intelligence page in place of the exact `origin` string); `ON CONFLICT DO UPDATE` so labels/order stay current on every deploy without duplicating rows. Also admin-editable at runtime as of 2026-07-12 via `POST/PATCH/DELETE /api/admin/lookups` — new values no longer require a code deploy
 
 **Users**
 - `household` — shared account grouping (one household, multiple members)
@@ -82,7 +82,7 @@ No enforced sequence between stages — a user can land on any stage directly fr
 - `newsletter_subscriber` — `email` PK; `first_name TEXT`; `source_id` FK → `subscriber_source`; `user_id` FK → `user_profile` (optional); `subscribed BOOLEAN`; `created_at`
 
 **Cupping tool** *(added May 2026 — SERIAL PKs, standalone from the main schema)*
-- `coffees` — coffee catalogue (name, roaster, origin, process, roast level/shade, roaster flavor descriptors)
+- `coffees` — coffee catalogue (name, roaster, origin, process, roast level/shade, roaster flavor descriptors). `origin_region_id INTEGER REFERENCES lookup_value(id)` added 2026-07-12, nullable — broad geographic bucket for the exact `origin` string (which stays server-side only, never in a public API response). Backfilled by hand for all 29 current coffees; not auto-derived from `origin` (ambiguous free text)
 - `cupping_sessions` — session header (date, brew_method TEXT, location, notes); brew_method was originally `brew_method_enum` but migrated to `TEXT` so it accepts all lookup values (cupping, pour-over, etc.) without enum constraint failures
 - `cupping_session_coffees` — junction: which coffees appeared in a session and in what order
 - `coffee_dimensions` — cupping dimension catalogue, 12 seeded rows; `is_numeric = true` → scored 0–15 with scale labels; `is_numeric = false` → free-text notes only. **`platform_name`** *(added The Bloom Part 3)* — consumer-facing word per dimension, same alias pattern as `coffee_alias.platform_name`; `COALESCE(platform_name, name)` at the query level where unset. Seeded for the 5 numeric dimensions currently in play: Acidity→Brightness, Bitterness→Boldness, Body→Intensity, Savory / Depth→Complexity, Finish Length→Finish. Sweetness/Texture left null (already plain English); the free-text dimensions aren't used for dial/bar axes. Direct-SQL-only — no dimension admin UI exists yet.

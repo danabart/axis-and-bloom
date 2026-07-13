@@ -349,7 +349,7 @@ export default function Home() {
               Find my flavor →
             </Link>
             <Link
-              to="/coffees"
+              to="/flavor-intelligence"
               style={{ fontSize: '0.69rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(242,241,234,0.9)', textDecoration: 'none', borderBottom: '1px solid rgba(242,241,234,0.5)', paddingBottom: 2, fontFamily: "'Lato', Arial, sans-serif" }}
             >
               Explore coffees

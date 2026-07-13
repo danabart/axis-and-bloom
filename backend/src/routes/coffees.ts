@@ -263,16 +263,22 @@ router.get('/archetypes', async (_req, res) => {
             description:    v.description ?? null,
             isActive:       false,
             platformName:   null,
+            isDefault:      false,
             prices:         [],
             coffeeId:       null,
           });
           continue;
         }
 
+        // isDefault (Part 1 Decision #8) is joined off dap.archetype = $2 (this slot's
+        // archetype) explicitly, not just ca.coffee_id — dial_archetype_positions.is_default
+        // is keyed by (coffee_id, archetype), and the same coffee_id can carry is_default
+        // rows under more than one archetype context, so an unfiltered join could pick up
+        // the wrong one.
         const aliasResult = await db.query(
-          `SELECT ca.platform_name
+          `SELECT ca.platform_name, dap.is_default
            FROM coffee_alias ca
-           LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id
+           LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id AND dap.archetype = $2
            LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
            LEFT JOIN archetype_assignments aa
              ON aa.coffee_id = ca.coffee_id AND aa.superseded_at IS NULL
@@ -294,6 +300,7 @@ router.get('/archetypes', async (_req, res) => {
           description:    v.description ?? null,
           isActive:       true,
           platformName:   aliasResult.rows[0]?.platform_name ?? null,
+          isDefault:      aliasResult.rows[0]?.is_default ?? false,
           prices,
           coffeeId:       resolved.coffee_id,
         });
@@ -312,6 +319,76 @@ router.get('/archetypes', async (_req, res) => {
   } catch (err) {
     console.error('[coffees/archetypes]', err);
     res.status(500).json({ error: 'Failed to fetch archetypes' });
+  }
+});
+
+// GET /api/coffees/archetype-stats?archetype= ─────────────────────────────────
+// Public, no auth, roaster-blind — archetype-level aggregate only, never touches
+// coffee identity. Flavor Intelligence Part 1 Decision #3. Backed by
+// v_archetype_dimension_comparison, which already bridges archetype_enum ->
+// archetype.name internally (via CASE) — don't re-derive that mapping here,
+// just look the view up by the human label.
+router.get('/archetype-stats', async (req, res) => {
+  const archetype = String(req.query.archetype ?? '');
+  const archetypeLabel = ARCHETYPE_LABEL[archetype];
+  if (!archetypeLabel) {
+    res.status(400).json({ error: 'Unknown or missing archetype' });
+    return;
+  }
+  try {
+    const result = await db.query(
+      `SELECT dimension, display_order, target_min, target_ideal, target_max,
+              avg_actual, coffee_count
+       FROM v_archetype_dimension_comparison
+       WHERE archetype = $1
+       ORDER BY display_order`,
+      [archetypeLabel]
+    );
+    res.json({
+      archetype,
+      archetypeLabel,
+      dimensions: result.rows.map(r => ({
+        dimension:    r.dimension,
+        displayOrder: r.display_order,
+        targetMin:    r.target_min,
+        targetIdeal:  r.target_ideal,
+        targetMax:    r.target_max,
+        avgActual:    r.avg_actual,
+        coffeeCount:  Number(r.coffee_count),
+      })),
+    });
+  } catch (err) {
+    console.error('[coffees/archetype-stats]', err);
+    res.status(500).json({ error: 'Failed to fetch archetype stats' });
+  }
+});
+
+// GET /api/coffees/:id/legacy-slot — resolves a raw coffeeId (the old
+// `?coffee={id}` deep-link contract) to its current {archetype, dialSortOrder}
+// so the frontend can redirect to the new `?archetype=&slot=` contract (Part 1
+// Decision #4). Roaster-blind — never returns coffee identity, only the slot
+// location. 404 if the coffee has no live, non-superseded archetype/dial-position
+// assignment (nothing to redirect to).
+router.get('/:id/legacy-slot', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await db.query(
+      `SELECT aa.archetype, dpv.sort_order AS dial_sort_order
+       FROM archetype_assignments aa
+       JOIN dial_archetype_positions dap ON dap.coffee_id = aa.coffee_id AND dap.archetype = aa.archetype
+       JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
+       WHERE aa.coffee_id = $1 AND aa.superseded_at IS NULL
+       LIMIT 1`,
+      [id]
+    );
+    if (!result.rows.length) {
+      res.status(404).json({ error: 'No current slot found for this coffee' });
+      return;
+    }
+    res.json({ archetype: result.rows[0].archetype, dialSortOrder: result.rows[0].dial_sort_order });
+  } catch (err) {
+    console.error('[coffees/legacy-slot]', err);
+    res.status(500).json({ error: 'Failed to resolve legacy coffee link' });
   }
 });
 
@@ -462,15 +539,32 @@ router.get('/:id/dimensions', async (req, res) => {
 });
 
 // GET /api/coffees/:id/content ────────────────────────────────────────────────
-// Returns all three AI content fields. Generates missing ones on first request.
+// Returns all three AI content fields, plus (Flavor Intelligence Part 1 Decision
+// #7) process/roastLevel/originRegion — generic flavor vocabulary and a broad
+// geographic bucket, safe to show publicly. Never the raw `origin` column or
+// `roaster` — those stay server-side only. originRegion is null if the coffee
+// hasn't been backfilled yet.
 router.get('/:id/content', async (req, res) => {
   const { id } = req.params;
   try {
-    const content = await generateAndStoreAllContent(id, { force: false });
+    const [content, extraResult] = await Promise.all([
+      generateAndStoreAllContent(id, { force: false }),
+      db.query(
+        `SELECT c.process, c.roast_level, lv.label AS origin_region
+         FROM coffees c
+         LEFT JOIN lookup_value lv ON lv.id = c.origin_region_id
+         WHERE c.id = $1`,
+        [id]
+      ),
+    ]);
+    const extra = extraResult.rows[0] ?? {};
     res.json({
       aiSummary:       content.aiSummary,
       surpriseNote:    content.surpriseNote,
       threeVoiceStory: content.threeVoiceStory,
+      process:         extra.process ?? null,
+      roastLevel:      extra.roast_level ?? null,
+      originRegion:    extra.origin_region ?? null,
     });
   } catch (err) {
     console.error('[coffees/content]', err);

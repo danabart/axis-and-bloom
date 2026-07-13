@@ -8,7 +8,7 @@ import { CompatibilityBadge, useCompatibility } from '../coffee-info/useCompatib
 interface RevealedPanelProps {
   isRevealed: boolean;
   archetype: string;
-  coffeeId: number | null;
+  dialSortOrder: number | null;
   content: ContentData | null;
   dimensions: DimensionRow[];
   wheelRows: WheelRow[];
@@ -25,7 +25,7 @@ interface RevealedPanelProps {
  * explore-further and Talk-to-Liam links) → dimension bars → Collaborative
  * Flavor Wheel → compatibility badge → hop links.
  */
-export function RevealedPanel({ isRevealed, archetype, coffeeId, content, dimensions, wheelRows, hops, userArchetype, onHopClick }: RevealedPanelProps) {
+export function RevealedPanel({ isRevealed, archetype, dialSortOrder, content, dimensions, wheelRows, hops, userArchetype, onHopClick }: RevealedPanelProps) {
   const { compat, dimCompText } = useCompatibility(archetype, userArchetype, dimensions);
 
   return (
@@ -45,7 +45,7 @@ export function RevealedPanel({ isRevealed, archetype, coffeeId, content, dimens
             <TastingNotes
               content={content}
               contentLoading={!content}
-              exploreLink={coffeeId ? `/coffees?coffee=${coffeeId}` : '/coffees'}
+              exploreLink={archetype && dialSortOrder != null ? `/flavor-intelligence?archetype=${archetype}&slot=${dialSortOrder}` : '/flavor-intelligence'}
               talkToLiamLink="/sommelier"
             />
 

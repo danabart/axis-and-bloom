@@ -1,5 +1,7 @@
 # The Bloom — Part 2 of 2: Frontend (`BloomPage.tsx`, routing, nav)
 
+> **Superseded note (2026-07-12) — the "Explore the full flavor breakdown" link only.** Every `/coffees` reference below (the explore link's target, and the "Regression check on `/coffees`" testing item) is being replaced by `backend/src/features/Flavor Intelligence Page/` — new route `/flavor-intelligence`, new `?archetype=&slot=` param shape (see that folder's Part 1 Decision #4/#5, Part 2 Decision #8). Everything else in this file is unaffected.
+
 **Prerequisite: `CLAUDE_CODE_PROMPT_THE_BLOOM_PART1_BACKEND.md` (this same folder) must be built, deployed, and its testing task completed first.** Every endpoint this file relies on (`GET /api/coffees/archetypes`, `GET /api/shop/slot-availability`, the sanitized `/:id/content`/`/:id/dimensions`/`/:id/flavor-wheel`, `GET /api/coffees/:coffeeId/hops`) is assumed to already exist and work. If any of them are missing or behave differently than documented below, stop and reconcile with Part 1 rather than guessing.
 
 ## Context
