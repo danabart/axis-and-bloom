@@ -11,6 +11,7 @@ export const FEEDBACK_ASK_EXPIRES_DAYS = 60; // stop asking on-site after this �
 export const FEEDBACK_NAG_SUPPRESS_DAYS = 14;
 export const REORDER_GAP_MULTIPLIER = 1.5;
 export const SINGLE_ORDER_LAPSE_DAYS = 45;
+export const SPONSORED_TRIAL_ENDING_WINDOW_DAYS = 14;
 
 function daysSince(date: Date): number {
   return Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24));
@@ -21,6 +22,21 @@ function daysSince(date: Date): number {
 // on user_lifecycle_stage.
 export function classifyStage(signals: UserSignals): string {
   if (signals.quizCount === 0) return 'NEW_NO_QUIZ';
+
+  // Company Gift sponsorship states take priority over the generic order-based
+  // classification below — these drive a specific "add a payment method / continue
+  // as a paid subscriber" nudge a generic quiz/order stage wouldn't surface. A
+  // sponsorship that's active and not near expiry falls through untouched and
+  // classifies exactly as it already would below (typically SUBSCRIBER).
+  if (signals.hasLapsedSponsoredSubscription && !signals.hasActiveSubscription) {
+    return 'SPONSORED_LAPSED_NO_PAYMENT';
+  }
+  if (signals.hasActiveSponsoredSubscription && signals.sponsoredExpiresAt) {
+    const daysUntilExpiry = Math.ceil(
+      (signals.sponsoredExpiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+    );
+    if (daysUntilExpiry <= SPONSORED_TRIAL_ENDING_WINDOW_DAYS) return 'SPONSORED_TRIAL_ENDING';
+  }
 
   if (signals.totalOrders === 0) {
     const days = signals.daysSinceLastQuiz ?? 0;
@@ -69,9 +85,14 @@ export function getPendingFeedbackOrder(signals: UserSignals): { orderId: string
 // on every recompute. Fire-and-forget from the same trigger points
 // computeBehavioralConfidence() already runs from (quiz results, order placed,
 // SMS feedback parsed) plus the new on-site feedback endpoint.
-export async function refreshLifecycleState(uid: string): Promise<void> {
+export interface LifecycleRefreshResult {
+  stageCode: string;
+  transitioned: boolean; // true only when the stage actually changed on this call
+}
+
+export async function refreshLifecycleState(uid: string): Promise<LifecycleRefreshResult | null> {
   const signals = await getUserSignals(uid);
-  if (!signals.userId) return; // no user_profile row yet — nothing to classify
+  if (!signals.userId) return null; // no user_profile row yet — nothing to classify
 
   const stageCode = classifyStage(signals);
 
@@ -87,7 +108,7 @@ export async function refreshLifecycleState(uid: string): Promise<void> {
     if (!newStageId) {
       console.error('[userLifecycle] unknown stage code:', stageCode);
       await client.query('ROLLBACK');
-      return;
+      return null;
     }
 
     const currentResult = await client.query(
@@ -95,6 +116,7 @@ export async function refreshLifecycleState(uid: string): Promise<void> {
       [signals.userId]
     );
     const currentStageId = currentResult.rows[0]?.stage_id ?? null;
+    let transitioned = false;
 
     if (currentResult.rows.length === 0) {
       await client.query(
@@ -105,6 +127,7 @@ export async function refreshLifecycleState(uid: string): Promise<void> {
         `INSERT INTO user_lifecycle_event (user_id, from_stage_id, to_stage_id) VALUES ($1, NULL, $2)`,
         [signals.userId, newStageId]
       );
+      transitioned = true;
     } else if (currentStageId !== newStageId) {
       await client.query(
         `UPDATE user_lifecycle_state SET stage_id = $2, computed_at = NOW() WHERE user_id = $1`,
@@ -114,6 +137,7 @@ export async function refreshLifecycleState(uid: string): Promise<void> {
         `INSERT INTO user_lifecycle_event (user_id, from_stage_id, to_stage_id) VALUES ($1, $2, $3)`,
         [signals.userId, currentStageId, newStageId]
       );
+      transitioned = true;
     } else {
       await client.query(
         `UPDATE user_lifecycle_state SET computed_at = NOW() WHERE user_id = $1`,
@@ -122,9 +146,11 @@ export async function refreshLifecycleState(uid: string): Promise<void> {
     }
 
     await client.query('COMMIT');
+    return { stageCode, transitioned };
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[userLifecycle] refreshLifecycleState error:', err);
+    return null;
   } finally {
     client.release();
   }

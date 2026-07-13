@@ -611,7 +611,9 @@ INSERT INTO user_lifecycle_stage (code, label, description, sort_order, homepage
   ('ACTIVE_REPEAT_USER',           'Active repeat user',            'Ordering normally, no nudge needed',                                        60, true),
   ('SUBSCRIBER',                   'Subscriber',                    'Active subscription row (UC4)',                                             70, true),
   ('REORDER_DUE',                  'Reorder due',                   'Gap since last order exceeds their own cadence (UC4)',                      80, true),
-  ('LAPSED_SINGLE_ORDER',          'Lapsed — single order',         'One order, long silence since, never repeated (UC4)',                       90, true)
+  ('LAPSED_SINGLE_ORDER',          'Lapsed — single order',         'One order, long silence since, never repeated (UC4)',                       90, true),
+  ('SPONSORED_TRIAL_ENDING',       'Sponsored trial ending',        'Company-gifted subscription still active, within the expiry warning window', 100, true),
+  ('SPONSORED_LAPSED_NO_PAYMENT',  'Sponsored trial lapsed',        'Company-gifted subscription has expired, no payment method on file',        110, true)
 ON CONFLICT (code) DO NOTHING;
 
 -- FIRST_ORDER_FEEDBACK_PENDING is no longer a valid stage — pending feedback is

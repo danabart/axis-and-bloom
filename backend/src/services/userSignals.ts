@@ -57,6 +57,14 @@ export interface UserSignals {
   // Subscription
   hasActiveSubscription: boolean;
 
+  // Company Gift sponsorship — see backend/src/features/b2b_company_subscriptions.
+  // Matched on subscription.user_id directly, never household_id: a sponsored seat
+  // is individual by design (decision #6/#9 in the task spec — no cross-household or
+  // cross-employee visibility).
+  hasActiveSponsoredSubscription: boolean;
+  sponsoredExpiresAt: Date | null;          // expiry of the current active sponsored sub, if any
+  hasLapsedSponsoredSubscription: boolean;  // a sponsored sub expired and flipped to 'lapsed'
+
   // Demographics
   age: number | null;
   generation: string | null;
@@ -215,6 +223,26 @@ export async function getUserSignals(uid: string): Promise<UserSignals> {
     console.error('[userSignals] subscription query failed:', err);
   }
 
+  // ── Company Gift sponsorship ──────────────────────────────────────────────
+  let hasActiveSponsoredSubscription = false;
+  let sponsoredExpiresAt: Date | null = null;
+  let hasLapsedSponsoredSubscription = false;
+  try {
+    const sponsoredResult = await db.query(
+      `SELECT s.status, s.sponsored_expires_at
+       FROM subscription s
+       JOIN user_profile up ON up.id = s.user_id
+       WHERE up.firebase_uid = $1 AND s.company_gift_id IS NOT NULL`,
+      [uid]
+    );
+    hasActiveSponsoredSubscription = sponsoredResult.rows.some((r: any) => r.status === 'active');
+    const activeRow = sponsoredResult.rows.find((r: any) => r.status === 'active');
+    sponsoredExpiresAt = activeRow?.sponsored_expires_at ? new Date(activeRow.sponsored_expires_at) : null;
+    hasLapsedSponsoredSubscription = sponsoredResult.rows.some((r: any) => r.status === 'lapsed');
+  } catch (err) {
+    console.error('[userSignals] sponsored subscription query failed:', err);
+  }
+
   // ── Demographics ──────────────────────────────────────────────────────────
   let age: number | null = null;
   let generation: string | null = null;
@@ -268,6 +296,9 @@ export async function getUserSignals(uid: string): Promise<UserSignals> {
     hasRecentNegativeFeedback,
     oldestOrderMissingFeedback,
     hasActiveSubscription,
+    hasActiveSponsoredSubscription,
+    sponsoredExpiresAt,
+    hasLapsedSponsoredSubscription,
     age,
     generation,
     householdType,
