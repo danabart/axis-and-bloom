@@ -27,6 +27,30 @@ router.get('/liam-sms-send', requireCronSecret, async (_req, res) => {
   }
 });
 
+// ── GET /api/cron/expire-company-gift-codes ──────────────────────────────────
+// Daily sweep: flips unredeemed codes past their parent gift's code_redeem_by to
+// 'expired'. Purely for admin-dashboard reporting clarity — the redemption endpoint's
+// own deadline check is what actually blocks a late redemption; this just keeps the
+// code list from looking misleadingly "still available".
+router.get('/expire-company-gift-codes', requireCronSecret, async (_req, res) => {
+  try {
+    const r = await db.query(
+      `UPDATE company_gift_code cgc
+       SET status = 'expired'
+       FROM company_gift cg
+       WHERE cgc.company_gift_id = cg.id
+         AND cgc.status = 'unredeemed'
+         AND cg.code_redeem_by IS NOT NULL
+         AND cg.code_redeem_by < CURRENT_DATE
+       RETURNING cgc.id`
+    );
+    res.json({ expiredCount: r.rowCount });
+  } catch (err) {
+    console.error('[cron/expire-company-gift-codes]', err);
+    res.status(500).json({ error: 'Cron job failed' });
+  }
+});
+
 // ── POST /api/webhooks/sms/inbound ───────────────────────────────────────────
 // No auth — called by the SMS provider.
 // TODO: validate Twilio X-Twilio-Signature when provider is wired.

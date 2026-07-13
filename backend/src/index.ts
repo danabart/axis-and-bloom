@@ -21,6 +21,8 @@ import axisRouter from './routes/axis.js';
 import sommelierRouter from './routes/sommelier.js';
 import tokensRouter from './routes/tokens.js';
 import cronRouter from './routes/cron.js';
+import companyGiftsAdminRouter from './routes/companyGiftsAdmin.js';
+import companyGiftRedemptionRouter from './routes/companyGiftRedemption.js';
 import { initSommelierConfig } from './services/sommelierConfig.js';
 
 const app = express();
@@ -80,6 +82,8 @@ app.use('/api/sommelier', sommelierRouter);
 app.use('/api/tokens', tokensRouter);
 app.use('/api/cron', cronRouter);
 app.use('/api/webhooks', cronRouter);
+app.use('/api/admin/company-gifts', companyGiftsAdminRouter);
+app.use('/api/company-gift-redemption', companyGiftRedemptionRouter);
 
 async function start() {
   try {
