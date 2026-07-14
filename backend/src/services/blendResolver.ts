@@ -50,6 +50,17 @@ export async function resolveBlendForSlot(
      WHERE COALESCE(aa.archetype, ca.archetype) = $1
        AND COALESCE(dpv.sort_order, ca.dial_sort_order) = $2
        AND ca.is_active = true
+       -- Bloom Dial Base Data Part 3: a coffee tagged Decaf/Half-Caf/Flavored/
+       -- Experimental never fills a flavor-dial slot, even via the legacy
+       -- coffee_alias.archetype/dial_sort_order fallback columns — giving these
+       -- coffees a real archetype_assignments row (Part 1) made COALESCE(aa.archetype,...)
+       -- start matching their stale stored fallback position, which is exactly
+       -- the "category coffee squats a real dial slot" regression this excludes.
+       AND NOT EXISTS (
+         SELECT 1 FROM coffee_category_assignment cca
+         JOIN coffee_category cc ON cc.id = cca.category_id
+         WHERE cca.coffee_id = ca.coffee_id AND cc.code IN ('decaf', 'half_caf', 'flavored', 'experimental')
+       )
      ORDER BY ca.priority ASC`,
     [archetype, dialSortOrder]
   );

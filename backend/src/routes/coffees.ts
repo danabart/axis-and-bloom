@@ -222,16 +222,20 @@ const BLOOM_DEFAULT_PRICE_CENTS: Record<number, number> = { 12: 3800, 80: 19900 
 
 router.get('/archetypes', async (_req, res) => {
   try {
-    const [archetypeResult, vocabResult, priceResult] = await Promise.all([
+    const [archetypeResult, vocabResult, priceResult, slotAliasResult] = await Promise.all([
       // dominant_dimension_id -> coffee_dimensions for the dial's DIMENSION: ___ label
       // (The Bloom Part 3, Phase B) — the same column dialSuggestion.ts already reads
       // for "which dimension does this archetype's dial travel on", not re-derived
       // from dial_position_vocabulary's per-row dimension_id.
+      // is_archetype = true (Bloom Dial Base Data Part 3) — 'experimental' is a
+      // category, not a peer flavor dial; it's presented separately (The Unexpected),
+      // not looped here alongside the 5 real archetypes.
       db.query(
         `SELECT dac.archetype, cd.name AS dimension_name,
                 COALESCE(cd.platform_name, cd.name) AS dimension_platform_name
          FROM dial_archetype_config dac
          LEFT JOIN coffee_dimensions cd ON cd.id = dac.dominant_dimension_id
+         WHERE dac.is_archetype = true
          ORDER BY dac.archetype`
       ),
       db.query(`SELECT archetype, sort_order, label, description FROM dial_position_vocabulary ORDER BY archetype, sort_order`),
@@ -241,11 +245,19 @@ router.get('/archetypes', async (_req, res) => {
          WHERE weight_oz = ANY($1::numeric[])`,
         [BLOOM_WEIGHTS_OZ]
       ),
+      db.query(`SELECT archetype, dial_sort_order, platform_name FROM dial_slot_alias`),
     ]);
 
     const priceMap = new Map<string, number>();
     for (const row of priceResult.rows) {
       priceMap.set(`${row.archetype}|${row.dial_sort_order}|${Number(row.weight_oz)}`, row.retail_price_cents);
+    }
+
+    // Bloom Dial Base Data Part 3: a slot's display name is a property of the slot
+    // (archetype, dial_sort_order), never the coffee occupying it — see dial_slot_alias.
+    const slotAliasMap = new Map<string, string>();
+    for (const row of slotAliasResult.rows) {
+      slotAliasMap.set(`${row.archetype}|${row.dial_sort_order}`, row.platform_name);
     }
 
     const archetypes = [];
@@ -275,8 +287,8 @@ router.get('/archetypes', async (_req, res) => {
         // is keyed by (coffee_id, archetype), and the same coffee_id can carry is_default
         // rows under more than one archetype context, so an unfiltered join could pick up
         // the wrong one.
-        const aliasResult = await db.query(
-          `SELECT ca.platform_name, dap.is_default
+        const defaultResult = await db.query(
+          `SELECT ca.coffee_id, dap.is_default
            FROM coffee_alias ca
            LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id AND dap.archetype = $2
            LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
@@ -299,8 +311,8 @@ router.get('/archetypes', async (_req, res) => {
           positionLabel:  v.label,
           description:    v.description ?? null,
           isActive:       true,
-          platformName:   aliasResult.rows[0]?.platform_name ?? null,
-          isDefault:      aliasResult.rows[0]?.is_default ?? false,
+          platformName:   slotAliasMap.get(`${archetype}|${v.sort_order}`) ?? null,
+          isDefault:      defaultResult.rows[0]?.is_default ?? false,
           prices,
           coffeeId:       resolved.coffee_id,
         });
@@ -436,18 +448,11 @@ router.get('/:coffeeId/hops', async (req, res) => {
       const resolved = await resolveBlendForSlot(row.target_archetype, row.target_sort_order, BLOOM_CANONICAL_WEIGHT_OZ);
       if (!resolved) continue; // target slot isn't currently active — a dead end, not a feature
 
+      // Bloom Dial Base Data Part 3: the target's label is the SLOT's name
+      // (dial_slot_alias), not a per-coffee coffee_alias.platform_name.
       const aliasResult = await db.query(
-        `SELECT ca.platform_name
-         FROM coffee_alias ca
-         LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id
-         LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
-         LEFT JOIN archetype_assignments aa
-           ON aa.coffee_id = ca.coffee_id AND aa.superseded_at IS NULL
-         WHERE ca.coffee_id = $1 AND ca.is_active = true
-           AND COALESCE(aa.archetype, ca.archetype) = $2
-           AND COALESCE(dpv.sort_order, ca.dial_sort_order) = $3
-         LIMIT 1`,
-        [resolved.coffee_id, row.target_archetype, row.target_sort_order]
+        `SELECT platform_name FROM dial_slot_alias WHERE archetype = $1 AND dial_sort_order = $2`,
+        [row.target_archetype, row.target_sort_order]
       );
 
       hops.push({

@@ -1288,6 +1288,46 @@ CREATE TABLE IF NOT EXISTS coffee_alias (
   UNIQUE (archetype, dial_sort_order, coffee_id)
 );
 
+-- Bloom Dial Base Data Part 3: an alias is a SLOT (archetype, dial_sort_order),
+-- not a per-coffee property — coffee_alias.platform_name above is per-row, which
+-- let two coffees at different positions share a name and let a coffee's stored
+-- name go stale when it moved slots (both regressions surfaced deploying Parts
+-- 1-2). This table is the single source of truth for a slot's display name;
+-- coffee_alias keeps its fulfilment role (coffee<->slot mapping, priority,
+-- is_active) but platform_name there is legacy/unread going forward.
+CREATE TABLE IF NOT EXISTS dial_slot_alias (
+  id              SERIAL PRIMARY KEY,
+  archetype       archetype_enum NOT NULL,
+  dial_sort_order INT NOT NULL,
+  platform_name   TEXT NOT NULL,
+  UNIQUE (archetype, dial_sort_order),
+  UNIQUE (platform_name)
+);
+
+INSERT INTO dial_slot_alias (archetype, dial_sort_order, platform_name) VALUES
+  ('balanced_sweet',  1, 'Soft & Smooth'),
+  ('balanced_sweet',  2, 'Classic Balanced'),
+  ('balanced_sweet',  3, 'Bright & Balanced'),
+  ('balanced_sweet',  4, 'Lively & Vivid'),
+  ('chocolate_nutty', 1, 'Soft Cocoa'),
+  ('chocolate_nutty', 2, 'Classic Chocolate'),
+  ('chocolate_nutty', 3, 'Deep Cocoa'),
+  ('chocolate_nutty', 4, 'Full Cocoa'),
+  ('earthy',          1, 'Gentle Earth'),
+  ('earthy',          2, 'Grounded & Earthy'),
+  ('earthy',          3, 'Dark Grounded'),
+  ('earthy',          4, 'Intense & Dark'),
+  ('floral',          1, 'Light Floral Edge'),
+  ('floral',          2, 'Perfumed & Expressive'),
+  ('floral',          3, 'Complex Bloom'),
+  ('floral',          4, 'Layered Bouquet'),
+  ('fruity',          1, 'Clean Fruit'),
+  ('fruity',          2, 'Bright & Tart'),
+  ('fruity',          3, 'Vivid Fruit'),
+  ('fruity',          4, 'Jammy & Aromatic'),
+  ('experimental',    2, 'The Unexpected')
+ON CONFLICT (archetype, dial_sort_order) DO NOTHING;
+
 -- A signed-in user's remembered dial position per archetype (The Bloom Part 3,
 -- Phase D). Deliberately its own table, not a repurposing of user_archetype_tuning/
 -- archetype_tunable_variable — those are reserved for a computed, feedback-derived

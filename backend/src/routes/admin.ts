@@ -570,10 +570,13 @@ router.delete('/sessions/:sessionId/coffees/:scId', async (req, res) => {
 // archetype_assignments (the single sources of truth — see schema.sql comment
 // above coffee_alias) and only fall back to the stored coffee_alias columns
 // when a coffee has no live position (e.g. Half-Caf/Decaf, archetype = NULL by design).
+// platform_name (Bloom Dial Base Data Part 3) comes from dial_slot_alias, keyed
+// by the same live (archetype, dial_sort_order) — a slot property, not a
+// per-coffee one. coffee_alias.platform_name is legacy/unread here.
 router.get('/coffee-alias', async (_req, res) => {
   try {
     const result = await db.query(`
-      SELECT ca.id, ca.platform_name,
+      SELECT ca.id, dsa.platform_name,
              COALESCE(aa.archetype, ca.archetype)   AS archetype,
              COALESCE(dpv.sort_order, ca.dial_sort_order) AS dial_sort_order,
              ca.coffee_id, ca.priority, ca.is_active,
@@ -584,6 +587,9 @@ router.get('/coffee-alias', async (_req, res) => {
       LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
       LEFT JOIN archetype_assignments aa
         ON aa.coffee_id = ca.coffee_id AND aa.superseded_at IS NULL
+      LEFT JOIN dial_slot_alias dsa
+        ON dsa.archetype = COALESCE(aa.archetype, ca.archetype)
+        AND dsa.dial_sort_order = COALESCE(dpv.sort_order, ca.dial_sort_order)
       ORDER BY COALESCE(aa.archetype, ca.archetype) NULLS LAST,
                COALESCE(dpv.sort_order, ca.dial_sort_order), ca.priority
     `);
@@ -597,7 +603,11 @@ router.get('/coffee-alias', async (_req, res) => {
 // ── POST /api/admin/coffee-alias — create a new alias row ────────────────────
 // dial_sort_order is never accepted from the client — it's derived from the
 // coffee's current dial_archetype_positions row for the given archetype, same
-// single-source-of-truth rule as the GET route above.
+// single-source-of-truth rule as the GET route above. platform_name is still
+// required here (coffee_alias.platform_name is NOT NULL) but is display-inert
+// as of Bloom Dial Base Data Part 3 — the slot this row resolves to already has
+// a name in dial_slot_alias (every real slot is pre-seeded), so this value is
+// stored but never read; renaming the slot afterward uses PATCH .../slot or .../:id.
 router.post('/coffee-alias', async (req, res) => {
   const { platform_name, archetype, coffee_id, priority } = req.body;
   if (!platform_name || !archetype || !coffee_id) {
@@ -627,13 +637,14 @@ router.post('/coffee-alias', async (req, res) => {
   }
 });
 
-// ── PATCH /api/admin/coffee-alias/slot — rename every alias sharing a slot ────
+// ── PATCH /api/admin/coffee-alias/slot — rename a slot's alias ────────────────
 // Registered before /coffee-alias/:id so Express doesn't swallow 'slot' as an ID.
-// The "Slot Name" shown on the Coffees page (aliasMap on the frontend) isn't a
-// single row — it's one platform_name value shared by every coffee_alias row
-// that currently derives to the same (archetype, position), same live
-// derivation as GET /coffee-alias. Renaming "the slot" means renaming all of
-// them at once, not just the one row a single coffee happens to own.
+// Bloom Dial Base Data Part 3: the "Slot Name" is a property of the slot itself
+// (dial_slot_alias, one row per (archetype, dial_sort_order), globally unique),
+// not something fanned out across whichever coffee_alias rows happen to derive
+// to it — that per-row fan-out was the source of the duplicate-name/desync
+// regression this replaces. Works even for a currently-empty slot (a slot's
+// name exists independent of any coffee occupying it).
 router.patch('/coffee-alias/slot', async (req, res) => {
   const { archetype, dial_sort_order, platform_name } = req.body;
   if (!archetype || dial_sort_order === undefined || dial_sort_order === null) {
@@ -644,26 +655,15 @@ router.patch('/coffee-alias/slot', async (req, res) => {
   }
   try {
     const result = await db.query(
-      `UPDATE coffee_alias ca
-       SET platform_name = $3
-       WHERE ca.id IN (
-         SELECT ca2.id
-         FROM coffee_alias ca2
-         LEFT JOIN dial_archetype_positions dap2 ON dap2.coffee_id = ca2.coffee_id AND dap2.is_guest = false
-         LEFT JOIN dial_position_vocabulary dpv2 ON dpv2.id = dap2.vocabulary_id
-         LEFT JOIN archetype_assignments aa2
-           ON aa2.coffee_id = ca2.coffee_id AND aa2.superseded_at IS NULL
-         WHERE COALESCE(aa2.archetype, ca2.archetype) = $1
-           AND COALESCE(dpv2.sort_order, ca2.dial_sort_order) = $2
-       )
-       RETURNING id, platform_name, coffee_id`,
+      `INSERT INTO dial_slot_alias (archetype, dial_sort_order, platform_name)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (archetype, dial_sort_order) DO UPDATE SET platform_name = EXCLUDED.platform_name
+       RETURNING id, archetype, dial_sort_order, platform_name`,
       [archetype, dial_sort_order, platform_name.trim()]
     );
-    if (result.rowCount === 0) {
-      res.status(404).json({ error: 'No aliases found for that slot' }); return;
-    }
-    res.json({ ok: true, updated: result.rows });
-  } catch (err) {
+    res.json({ ok: true, updated: result.rows[0] });
+  } catch (err: any) {
+    if (err?.code === '23505') { res.status(409).json({ error: 'That name is already used by another slot — slot names must be unique.' }); return; }
     console.error('[admin/coffee-alias slot PATCH]', err);
     res.status(500).json({ error: 'Failed to rename slot' });
   }
@@ -735,19 +735,57 @@ router.patch('/coffee-alias/:id', async (req, res) => {
       }
     }
 
-    if (platform_name !== undefined || is_active !== undefined) {
-      await db.query(
-        `UPDATE coffee_alias
-         SET platform_name = COALESCE($1::text, platform_name),
-             is_active     = COALESCE($2::boolean, is_active)
-         WHERE id = $3`,
-        [platform_name ?? null, is_active ?? null, id]
+    if (is_active !== undefined) {
+      await db.query(`UPDATE coffee_alias SET is_active = $1 WHERE id = $2`, [is_active, id]);
+    }
+
+    // Bloom Dial Base Data Part 3: renaming an alias renames its SLOT (dial_slot_alias),
+    // same target as PATCH /coffee-alias/slot — a name is never a per-row property.
+    if (typeof platform_name === 'string') {
+      const liveResult = await db.query(
+        `SELECT COALESCE(aa.archetype, ca.archetype)        AS live_archetype,
+                COALESCE(dpv.sort_order, ca.dial_sort_order) AS live_sort_order
+         FROM coffee_alias ca
+         LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id AND dap.is_guest = false
+         LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
+         LEFT JOIN archetype_assignments aa
+           ON aa.coffee_id = ca.coffee_id AND aa.superseded_at IS NULL
+         WHERE ca.id = $1`,
+        [id]
       );
+      if (liveResult.rowCount === 0) { res.status(404).json({ error: 'Alias not found' }); return; }
+      const { live_archetype: liveArchetype, live_sort_order: liveSortOrder } = liveResult.rows[0];
+      if (liveArchetype && liveSortOrder != null) {
+        try {
+          await db.query(
+            `INSERT INTO dial_slot_alias (archetype, dial_sort_order, platform_name)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (archetype, dial_sort_order) DO UPDATE SET platform_name = EXCLUDED.platform_name`,
+            [liveArchetype, liveSortOrder, platform_name.trim()]
+          );
+        } catch (renameErr: any) {
+          if (renameErr?.code === '23505') { res.status(409).json({ error: 'That name is already used by another slot — slot names must be unique.' }); return; }
+          throw renameErr;
+        }
+      }
+      // else: this coffee has no live (archetype, position) slot (e.g. a category
+      // coffee with a legacy alias row) — nothing to rename, silently no-op.
     }
 
     const result = await db.query(
-      `SELECT id, platform_name, priority, archetype, dial_sort_order, coffee_id, is_active
-       FROM coffee_alias WHERE id = $1`,
+      `SELECT ca.id, dsa.platform_name, ca.priority,
+              COALESCE(aa.archetype, ca.archetype)          AS archetype,
+              COALESCE(dpv.sort_order, ca.dial_sort_order)  AS dial_sort_order,
+              ca.coffee_id, ca.is_active
+       FROM coffee_alias ca
+       LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id AND dap.is_guest = false
+       LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
+       LEFT JOIN archetype_assignments aa
+         ON aa.coffee_id = ca.coffee_id AND aa.superseded_at IS NULL
+       LEFT JOIN dial_slot_alias dsa
+         ON dsa.archetype = COALESCE(aa.archetype, ca.archetype)
+         AND dsa.dial_sort_order = COALESCE(dpv.sort_order, ca.dial_sort_order)
+       WHERE ca.id = $1`,
       [id]
     );
     if (result.rowCount === 0) { res.status(404).json({ error: 'Alias not found' }); return; }
