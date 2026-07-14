@@ -2571,7 +2571,12 @@ INSERT INTO lookup_value (category, value, label, sort_order) VALUES
   ('origin_region', 'sea_pacific',     'Southeast Asia & Pacific',   4),
   ('origin_region', 'multi_origin',    'Multi-Origin / Blend',       5),
   ('origin_region', 'caribbean',       'Caribbean',                  6),
-  ('origin_region', 'south_asia',      'South Asia',                 7)
+  ('origin_region', 'south_asia',      'South Asia',                 7),
+  -- Added 2026-07-14: for single-origin coffees whose roastery-provided origin string
+  -- itself spans two regions (e.g. "Central/South America") — distinct from
+  -- 'multi_origin', which is for actual blends (blend_or_single = 'blend'). Reflects
+  -- the roastery's own label directly rather than forcing an inaccurate bucket.
+  ('origin_region', 'central_south_america', 'Central & South America', 8)
 ON CONFLICT (category, value) DO NOTHING;
 
 -- Nullable, admin-set via AdminCoffees.tsx — no auto-derivation from the raw
