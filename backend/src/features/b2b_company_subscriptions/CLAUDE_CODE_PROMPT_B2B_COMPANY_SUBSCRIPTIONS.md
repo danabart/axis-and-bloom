@@ -4,7 +4,7 @@
 
 A company buys a batch of seats as a gift for its employees: each seat is a 3-month Axis & Bloom subscription, fully prepaid by the employer. Employees redeem a code, register, take the quiz, and get coffee — the company is the payer, never the drinker. Target launch: **2026-10-01** (biggest shopping/gifting month in the US).
 
-Internally this is called a **"company gift"** rather than just "company" — each record represents one purchased gift batch (a specific purchase event: N seats, a specific payment), not a persistent normalized company profile. If the same employer buys again later, that's a second, independent `company_gift` row, not a new purchase nested under an existing company entity — there is no separate "company profile" table this links to.
+Internally this is called a **"company gift"** rather than just "company" — each `company_gift` record represents one purchased gift batch (a specific purchase event: N seats, a specific payment), not the business itself. **Revised 2026-07-13:** a separate `company` table does exist (added in Phase 7) as the stable identity for the business — if the same employer buys again later, that's a second `company_gift` row linked back to the *same* `company_id`, so Dana can actually see it's a repeat customer rather than two unrelated-looking rows. `company_gift.company_name`/contact fields remain a per-purchase snapshot, not a live reference to `company` — see the Phase 1 note and Phase 7 for the reasoning and the exact migration.
 
 This is explicitly modeled as a sibling of the existing household feature (`household` / `household_invitation`, see `backend/src/routes/household.ts`), not a variant of it — read that file first, it's the closest existing pattern (token-based single-use redemption, admin/member split, Resend email), but several structural differences mean this needs its own tables rather than reusing `household_id`:
 
@@ -31,10 +31,24 @@ This is explicitly modeled as a sibling of the existing household feature (`hous
 
 Follow existing conventions in `backend/src/db/schema.sql` (UUID PKs via `gen_random_uuid()`, `TIMESTAMPTZ DEFAULT timezone('utc', now())`, `CREATE TABLE IF NOT EXISTS`, idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`).
 
+**Note on `company` vs. `company_gift` identity (this distinction matters, don't collapse it):** `company_gift.id` identifies one purchase batch, not the business that bought it. Without a separate stable identity, a repeat customer (same employer buying a second batch later) would have no link back to their first purchase — just two rows that happen to share a text `company_name`. `company` below is that stable identity; `company_gift.company_id` links to it. `company_gift.company_name`/`admin_contact_name`/`admin_contact_email` remain on the gift row as a **snapshot** of what was true at purchase time — same reasoning as `"order"`'s shipping-address snapshot elsewhere in this schema (a later edit to the canonical `company` record shouldn't silently rewrite what a past purchase actually said).
+
+**Why `company` is its own table and not a flagged row on `user_profile`:** considered and rejected. `user_profile.firebase_uid` is `TEXT UNIQUE NOT NULL` — every row there corresponds to someone who authenticates via Firebase. A company doesn't log in, take the quiz, or have a household; there's no Firebase identity to put there, so folding it in would mean weakening that constraint for real users just to accommodate an entity that isn't a person. This also matches the decision made earlier in this doc that the payer/HR contact is never a `user_profile`, and this codebase has already explicitly settled on "user," not "customer," as its one schema term for people (see the terminology note in `backend/src/features/customer_life_cycle/1_CLAUDE_CODE_PROMPT_CUSTOMER_STATE.md`) — introducing a generic "customer" concept now to house something that isn't a person would cut against that.
+
 ```sql
+CREATE TABLE IF NOT EXISTS company (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_name          TEXT NOT NULL,
+  primary_contact_name  TEXT,
+  primary_contact_email TEXT,
+  notes                 TEXT,              -- relationship notes spanning all purchases (renewal history, preferences, etc.), separate from any single gift's payment_notes
+  created_at            TIMESTAMPTZ DEFAULT timezone('utc', now())
+);
+
 CREATE TABLE IF NOT EXISTS company_gift (
   id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  company_name         TEXT NOT NULL,
+  company_id           UUID REFERENCES company(id),   -- stable link across repeat purchases by the same employer; see note above
+  company_name         TEXT NOT NULL,   -- snapshot at purchase time, not live-referenced
   seat_count           INTEGER NOT NULL CHECK (seat_count > 0),
   sponsorship_months   INTEGER NOT NULL DEFAULT 3,
   admin_contact_name   TEXT,
@@ -63,6 +77,12 @@ CREATE INDEX IF NOT EXISTS idx_company_gift_code_status ON company_gift_code(com
 ALTER TABLE subscription  ADD COLUMN IF NOT EXISTS company_gift_id UUID REFERENCES company_gift(id);
 ALTER TABLE subscription  ADD COLUMN IF NOT EXISTS sponsored_expires_at TIMESTAMPTZ;  -- NULL for normal (non-sponsored) subscriptions
 ALTER TABLE user_profile  ADD COLUMN IF NOT EXISTS company_gift_id UUID REFERENCES company_gift(id);  -- quiet internal marker only, never surfaced to other employees or shown as a persistent badge
+
+-- IMPORTANT: company_gift already exists live (this feature is already implemented — see Phase 7 below).
+-- The `CREATE TABLE company_gift` block above is documentation of the target shape; it will NOT retroactively
+-- add company_id to the real table, since CREATE TABLE IF NOT EXISTS is a no-op once the table exists.
+-- The actual mechanism for adding company_id to the live table is this ALTER, same as any other retrofit column:
+ALTER TABLE company_gift ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES company(id);
 ```
 
 `user_profile.company_gift_id` is intentionally not exposed anywhere in the UI beyond the employee's own one-time redemption confirmation screen — it exists purely to drive the lifecycle nudge in Phase 3. A user can have both a `household_id` and a `company_gift_id` at once (e.g., in a family household and separately redeeming a work perk) — these are independent, not mutually exclusive.
@@ -117,24 +137,43 @@ Read `backend/src/services/userLifecycle.ts` and `2_CLAUDE_CODE_PROMPT_LIFECYCLE
 
 ## Phase 5 — Email template copy (decision #3 — CSV + template, no sending)
 
-Provide a plain-text (or lightly-formatted HTML, matching brand voice) template roughly like:
+**Revised copy (2026-07-13) — replace whatever's currently in `buildEmailTemplate()` in `backend/src/routes/companyGiftsAdmin.ts` with this.** The original draft was functional but generic — it skipped the thing that actually makes Axis & Bloom distinct (coffee matched to *your* palate, not a one-size-fits-all gift). This version reuses language already established elsewhere on the site ("find your flavor," "matched to your palate" — see the homepage CTA and archetype/quiz system) so the email reads consistently with the rest of the brand voice rather than like a bolt-on corporate template:
 
 ```
-Subject: A coffee gift from [Company Name] 🎁
+Subject: {{COMPANY_NAME}} is treating you to 3 months of coffee, matched to you ☕
 
 Hi team,
 
-As a thank-you this season, [Company Name] is gifting everyone 3 months of Axis & Bloom —
-coffee matched to your own taste, not a generic company blend.
+This season, {{COMPANY_NAME}} wanted to give something better than a generic gift — so everyone's getting 3 months of Axis & Bloom, on the house.
 
-Here's your code: {{CODE}}
+Here's how it works: take a 2-minute quiz to find your flavor — floral, fruity, chocolate & nutty, whatever fits your palate — and we'll match you with coffee built around it. Nobody on your team has to get the same bag.
 
-Redeem it at axisandbloomcoffee.com — there's a "Have a code?" box right on the homepage — take a 2-minute quiz, and your first bag ships free.
+Your code: {{CODE}}
 
-Enjoy!
+Head to axisandbloomcoffee.com, enter your code in the "Have a code?" box on the homepage, take the quiz, and your first bag ships free.
+
+Enjoy — from all of us at Axis & Bloom.
 ```
 
-Keep this editable copy in the admin page itself (plain string, not hardcoded only in an email-sending path — there is no email-sending path in this flow, see decision #3) so Dana can tweak wording without a redeploy if it's stored as, e.g., a simple admin-editable value rather than baked into frontend code. If that's overkill for v1, a hardcoded constant in `AdminCompanyGifts.tsx` is fine — just don't make it require a backend route to edit copy text.
+This becomes the new default returned by `GET /api/admin/company-gifts/:id/email-template` (with `{{COMPANY_NAME}}` interpolated the same way the current implementation already does, and `{{CODE}}` left literal for HR's own per-employee mail-merge — see Phase 6, don't substitute a real code into this response). This is now the fallback text when no per-gift override exists (Phase 6).
+
+## Phase 6 — Follow-up: admin-editable template (added 2026-07-13, post-initial-build)
+
+The base feature is already implemented (`companyGiftsAdmin.ts`, `companyGiftRedemption.ts`, `AdminCompanyGifts.tsx` all exist) — this is an incremental patch, not a rebuild. Currently the template is a hardcoded string in `buildEmailTemplate()`; Dana wants to be able to tweak wording per company gift from the admin UI without a redeploy.
+
+1. **Schema**: `ALTER TABLE company_gift ADD COLUMN IF NOT EXISTS email_template_override TEXT;` — nullable. `NULL` means "use the default template" (Phase 5's copy); a non-null value is this specific company gift's custom wording.
+2. **Backend**: update `GET /api/admin/company-gifts/:id/email-template` to return `email_template_override` if set, else fall back to `buildEmailTemplate(companyName)` as today. Add `PATCH /api/admin/company-gifts/:id/email-template` — body `{ template: string | null }`. Passing a string sets the override (validate it contains the literal substring `{{CODE}}` — reject with a clear error if not, since HR relies on that placeholder for their own mail-merge and a saved template missing it would quietly break every future redemption email); passing `null` clears the override back to default (a "reset to default" action, not a delete-the-record action).
+3. **Frontend** (`AdminCompanyGifts.tsx`): replace the read-only `<pre>` block showing the template with an editable `<textarea>`, prefilled from the current effective template (override or default). Add "Save" (calls the new `PATCH`) and "Reset to default" (calls `PATCH` with `template: null`) buttons alongside the existing "Copy to clipboard" button. Show a small inline note distinguishing "using default" vs. "custom for this company" so it's never ambiguous which is active — consistent with how the payment-status banner already makes gift state visually unambiguous.
+4. **Test additions**: saving a template without `{{CODE}}` is rejected; saving a valid custom template persists and is returned by the `GET`; resetting clears `email_template_override` back to `NULL` and `GET` reverts to the Phase 5 default text.
+
+## Phase 7 — Follow-up: separate stable `company` identity from `company_gift` batches (added 2026-07-13, post-initial-build)
+
+Dana noticed while inspecting the live DB that `company_gift.id` is the only identifier in play, and it identifies a *purchase batch*, not the business that made it — there's no way to tell that two `company_gift` rows both belong to the same repeat customer beyond eyeballing the `company_name` text, which isn't reliable ("Acme Corp" vs. "Acme Corporation" would look unrelated). This retrofits a real `company` entity without disturbing anything already built.
+
+1. **Schema**: add the new `company` table and the `company_gift.company_id` column exactly as specified in Phase 1 above (both statements were added there rather than duplicated here — the `company` table is a fresh `CREATE TABLE IF NOT EXISTS`, but `company_gift.company_id` **must** go through the explicit `ALTER TABLE company_gift ADD COLUMN IF NOT EXISTS company_id ...` since `company_gift` already exists live). Existing `company_gift` rows will have `company_id = NULL` after this migration — that's expected and fine, don't backfill by fuzzy-matching `company_name` text; if Dana wants historical rows linked, that's a manual one-time cleanup she can do herself in Cloud SQL Studio once she sees which names actually refer to the same business, not something to automate.
+2. **Backend — creating a company gift now needs a company-selection step**: extend `POST /api/admin/company-gifts` to accept either an existing `companyId` (reuse that company's canonical name/contact as the snapshot going onto the new `company_gift` row, unless the admin overrides them in the form) or a `companyName`/`primaryContactName`/`primaryContactEmail` set with no `companyId` (creates a brand-new `company` row first, then the `company_gift` linked to it). Add `GET /api/admin/companies?search=` (admin-only) — simple `ILIKE '%...%'` search on `company_name`, returns `{ id, companyName }` matches, for the admin UI's autocomplete. A full `company` CRUD/detail page is not needed for this patch — the search endpoint plus creation-on-the-fly from the gift form is enough.
+3. **Frontend** (`AdminCompanyGifts.tsx`, the "New Company Gift" form): replace the plain company-name text field with a searchable combobox — type to search existing companies via the new endpoint, select one to reuse it, or keep typing a name that doesn't match anything to fall through to "create new company" (same UX pattern as a typeahead-with-create-option, nothing exotic). Also worth adding to the list view: group or at least visually indicate when multiple `company_gift` rows share the same `company_id`, so Dana can see repeat-customer history at a glance without a dedicated company detail page.
+4. **Test additions**: creating a company gift with a new company name creates exactly one `company` row and links it; creating a second gift with the same `companyId` reuses the existing `company` row rather than creating a duplicate; the search endpoint returns matches case-insensitively; existing pre-migration `company_gift` rows continue to work normally with `company_id = NULL` (nothing about redemption, payment confirmation, or the lifecycle cron depends on `company_id` being set — it's purely for Dana's own relationship tracking, not a functional dependency anywhere else in the flow).
 
 ## Test matrix
 
