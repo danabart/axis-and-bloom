@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, useSearchParams } from 'react-router';
 import { AuthProvider } from './context/AuthContext';
+import { CartProvider } from './context/CartContext';
 import PreLaunch from './components/PreLaunch';
 import PublicLayout from './components/PublicLayout';
 import Home from './components/Home';
@@ -45,56 +46,58 @@ function HomeOrPrelaunch() {
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          {/* ── Admin portal — own layout, no public nav/footer ── */}
-          <Route
-            path="/admin"
-            element={
-              <AdminRoute>
-                <AdminLayout />
-              </AdminRoute>
-            }
-          >
-            <Route index element={<AdminDashboard />} />
-            <Route path="coffees"    element={<AdminCoffees />} />
-            <Route path="inventory" element={<AdminInventory />} />
-            <Route path="sessions" element={<AdminSessions />} />
-            <Route path="flavor-wheel" element={<AdminFlavorWheel />} />
-            <Route path="roasters" element={<AdminRoasters />} />
-            <Route path="cupping" element={<AdminCupping />} />
-            <Route path="dial" element={<AdminDial />} />
-            <Route path="sommelier/config"  element={<AdminSommelierConfig />} />
-            <Route path="sommelier/intents" element={<AdminIntentEditor />} />
-            <Route path="sommelier/flow"    element={<AdminSommelierFlow />} />
-            <Route path="company-gifts" element={<AdminCompanyGifts />} />
-          </Route>
-
-          {/* ── Public site — shared nav + footer ── */}
-          <Route element={<PublicLayout />}>
-            <Route path="/" element={<HomeOrPrelaunch />} />
-            <Route path="/how-it-works" element={<HowItWorks />} />
-            <Route path="/find-my-flavor" element={<FlavorQuiz />} />
-            <Route path="/about" element={<About />} />
-            <Route path="/shop" element={<Shop />} />
-            <Route path="/sign-in" element={<SignIn />} />
-            <Route path="/profile" element={<Profile />} />
-            <Route path="/flavor-intelligence" element={<FlavorIntelligencePage />} />
-            <Route path="/coffees" element={<CoffeesRedirect />} />
-            <Route path="/bloom" element={<BloomPage />} />
+      <CartProvider>
+        <BrowserRouter>
+          <Routes>
+            {/* ── Admin portal — own layout, no public nav/footer ── */}
             <Route
-              path="/sommelier"
+              path="/admin"
               element={
-                <RequireAuth>
-                  <Sommelier />
-                </RequireAuth>
+                <AdminRoute>
+                  <AdminLayout />
+                </AdminRoute>
               }
-            />
-            <Route path="/join-household" element={<JoinHousehold />} />
-            <Route path="/the-axis" element={<TheAxis />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+            >
+              <Route index element={<AdminDashboard />} />
+              <Route path="coffees"    element={<AdminCoffees />} />
+              <Route path="inventory" element={<AdminInventory />} />
+              <Route path="sessions" element={<AdminSessions />} />
+              <Route path="flavor-wheel" element={<AdminFlavorWheel />} />
+              <Route path="roasters" element={<AdminRoasters />} />
+              <Route path="cupping" element={<AdminCupping />} />
+              <Route path="dial" element={<AdminDial />} />
+              <Route path="sommelier/config"  element={<AdminSommelierConfig />} />
+              <Route path="sommelier/intents" element={<AdminIntentEditor />} />
+              <Route path="sommelier/flow"    element={<AdminSommelierFlow />} />
+              <Route path="company-gifts" element={<AdminCompanyGifts />} />
+            </Route>
+
+            {/* ── Public site — shared nav + footer ── */}
+            <Route element={<PublicLayout />}>
+              <Route path="/" element={<HomeOrPrelaunch />} />
+              <Route path="/how-it-works" element={<HowItWorks />} />
+              <Route path="/find-my-flavor" element={<FlavorQuiz />} />
+              <Route path="/about" element={<About />} />
+              <Route path="/shop" element={<Shop />} />
+              <Route path="/sign-in" element={<SignIn />} />
+              <Route path="/profile" element={<Profile />} />
+              <Route path="/flavor-intelligence" element={<FlavorIntelligencePage />} />
+              <Route path="/coffees" element={<CoffeesRedirect />} />
+              <Route path="/bloom" element={<BloomPage />} />
+              <Route
+                path="/sommelier"
+                element={
+                  <RequireAuth>
+                    <Sommelier />
+                  </RequireAuth>
+                }
+              />
+              <Route path="/join-household" element={<JoinHousehold />} />
+              <Route path="/the-axis" element={<TheAxis />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </CartProvider>
     </AuthProvider>
   );
 }
