@@ -7,13 +7,34 @@ import { classifyStage, getPendingFeedbackOrder, refreshLifecycleState } from '.
 
 const router = Router();
 
+// Keyed by archetype_enum (schema.sql) — matches the archetype key format used everywhere
+// else (dial_archetype_config, /api/coffees/archetypes' `archetype` field, etc.), NOT a
+// shorthand of the display name. Previously keyed by shorthand ('chocolate', 'balanced',
+// 'spicy') while lookups below derive the key via `archetype.name.toLowerCase()` — for
+// 'Chocolate & Nutty' / 'Balanced & Sweet' / 'Earthy' that produces 'chocolate & nutty' /
+// 'balanced & sweet' / 'earthy', none of which matched the old shorthand keys (only
+// 'floral' / 'fruity' / 'experimental' happened to survive .toLowerCase() unscathed).
+// Those three silently fell through to the generic-rust-color/no-features fallback below,
+// and worse, the mangled `.id` that shape produced didn't match archetype_enum, breaking
+// BloomPage.tsx's "your matched archetype" personalization for those users too. Fixed by
+// normalizing this map's keys to archetype_enum and deriving the lookup key from an
+// explicit name→enum-key table (below) instead of a blind .toLowerCase().
 const ARCHETYPES: Record<string, { name: string; features: string[]; color: string }> = {
-  floral:       { name: 'Floral',            color: '#a34b78', features: ['You prefer delicate aromatics over heavy roasts', 'You enjoy a light, tea-like body', 'You appreciate a bright, clean finish'] },
-  fruity:       { name: 'Fruity',            color: '#ca445f', features: ['You prefer juicy acidity and bright notes', 'You enjoy vibrant fruit-forward flavors', 'You appreciate a crisp, clean finish'] },
-  balanced:     { name: 'Balanced & Sweet',  color: '#d1ac11', features: ['You prefer lower acidity and round body', 'You enjoy caramelized and nutty sweetness', 'You are less sensitive to roast intensity'] },
-  chocolate:    { name: 'Chocolate & Nutty', color: '#a54c2d', features: ['You prefer a bold and comforting cup', 'You enjoy deep cocoa and roasted nut flavors', 'You appreciate a heavy, satisfying body'] },
-  spicy:        { name: 'Spicy and Earthy',  color: '#912f2f', features: ['You prefer a complex, savory depth', 'You enjoy warming spices and earthy notes', 'You appreciate a thick, structured finish'] },
-  experimental: { name: 'Experimental',      color: '#056c7a', features: ['You prefer unique, unexpected flavor profiles', 'You enjoy wild fermentation and intense fruit', 'You appreciate complex, lively acidity'] },
+  floral:          { name: 'Floral',            color: '#a34b78', features: ['You prefer delicate aromatics over heavy roasts', 'You enjoy a light, tea-like body', 'You appreciate a bright, clean finish'] },
+  fruity:          { name: 'Fruity',            color: '#ca445f', features: ['You prefer juicy acidity and bright notes', 'You enjoy vibrant fruit-forward flavors', 'You appreciate a crisp, clean finish'] },
+  balanced_sweet:  { name: 'Balanced & Sweet',  color: '#d1ac11', features: ['You prefer lower acidity and round body', 'You enjoy caramelized and nutty sweetness', 'You are less sensitive to roast intensity'] },
+  chocolate_nutty: { name: 'Chocolate & Nutty', color: '#a54c2d', features: ['You prefer a bold and comforting cup', 'You enjoy deep cocoa and roasted nut flavors', 'You appreciate a heavy, satisfying body'] },
+  earthy:          { name: 'Earthy',            color: '#912f2f', features: ['You prefer a complex, savory depth', 'You enjoy warming spices and earthy notes', 'You appreciate a thick, structured finish'] },
+  experimental:    { name: 'Experimental',      color: '#056c7a', features: ['You prefer unique, unexpected flavor profiles', 'You enjoy wild fermentation and intense fruit', 'You appreciate complex, lively acidity'] },
+};
+
+const ARCHETYPE_NAME_TO_KEY: Record<string, string> = {
+  'Chocolate & Nutty': 'chocolate_nutty',
+  'Balanced & Sweet':  'balanced_sweet',
+  'Fruity':            'fruity',
+  'Earthy':            'earthy',
+  'Floral':            'floral',
+  'Experimental':      'experimental',
 };
 
 // ── GET /api/users/profile ────────────────────────────────────────────────────
@@ -92,7 +113,7 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
     }
 
     const quiz = quizResult.rows[0];
-    const archetypeKey = quiz?.archetype_name?.toLowerCase() ?? null;
+    const archetypeKey = quiz?.archetype_name ? (ARCHETYPE_NAME_TO_KEY[quiz.archetype_name] ?? quiz.archetype_name.toLowerCase()) : null;
     const archetypeData = archetypeKey ? (ARCHETYPES[archetypeKey] ?? { name: quiz.archetype_name, features: [], color: '#a33726' }) : null;
 
     // Which orders already have a feedback_events doc (any source/channel) —
@@ -215,7 +236,7 @@ router.get('/homepage-state', requireAuth, async (req: AuthRequest, res) => {
       refreshLifecycleState(req.uid!).catch(err => console.error('[users/homepage-state/refresh]', err));
     }
 
-    const archetypeKey = signals.archetype?.toLowerCase() ?? null;
+    const archetypeKey = signals.archetype ? (ARCHETYPE_NAME_TO_KEY[signals.archetype] ?? signals.archetype.toLowerCase()) : null;
     const archetypeData = archetypeKey ? (ARCHETYPES[archetypeKey] ?? { name: signals.archetype!, features: [], color: '#a33726' }) : null;
 
     let pendingFeedback: { orderId: string; blendName: string | null } | null = null;

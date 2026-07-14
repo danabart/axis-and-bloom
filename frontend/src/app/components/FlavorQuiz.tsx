@@ -3,7 +3,13 @@ import { Link, useNavigate, useSearchParams } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { saveQuizResult, getUserProfile } from '../lib/api';
+import { useCart } from '../context/CartContext';
+import { saveQuizResult, getUserProfile, getDialPosition, setDialPosition } from '../lib/api';
+import { ArchetypeSection, computeDefaultSortOrder } from './bloom/ArchetypeSection';
+import { CompareOverlay } from './bloom/CompareOverlay';
+import type { BloomDialHandle } from './BloomDialWidget';
+import type { ArchetypeData, Slot } from './bloom/types';
+import { slotKey } from './bloom/types';
 
 const RUST = '#a33726';
 
@@ -524,7 +530,17 @@ export default function FlavorQuiz() {
   // Coffee reveal (from Bloom Dial)
   const [revealedLevel, setRevealedLevel] = useState<BodyLevel | null>(null);
 
+  // Returning-user screen — embedded ArchetypeSection (Find My Flavor Part 1)
+  const [archetypesList, setArchetypesList]     = useState<ArchetypeData[]>([]);
+  const [matchedSortOrder, setMatchedSortOrder] = useState<number | null>(null);
+  const [revealedKeys, setRevealedKeys]         = useState<Set<string>>(new Set());
+  const matchedDialRef = useRef<BloomDialHandle | null>(null);
+  const [compareState, setCompareState] = useState<{ open: boolean; archetype: string; archetypeLabel: string; slot: Slot | null }>({
+    open: false, archetype: '', archetypeLabel: '', slot: null,
+  });
+
   const { user } = useAuth();
+  const { addToCart } = useCart();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -553,6 +569,54 @@ export default function FlavorQuiz() {
       .catch(() => {})
       .finally(() => setProfileLoading(false));
   }, [user]);
+
+  // Returning-user screen data — archetype catalogue for the embedded ArchetypeSection.
+  useEffect(() => {
+    if (!user) return;
+    fetch('/api/coffees/archetypes')
+      .then(r => r.json())
+      .then((data: ArchetypeData[]) => setArchetypesList(data))
+      .catch(() => {});
+  }, [user]);
+
+  const matchedArchetypeId = userProfile?.archetype?.id ?? null;
+  const matchedData = matchedArchetypeId
+    ? archetypesList.find(a => a.archetype === matchedArchetypeId) ?? null
+    : null;
+
+  // Pre-set the dial to the signed-in user's saved position for this archetype (mirrors BloomPage.tsx Phase D).
+  useEffect(() => {
+    if (!user || !matchedData) return;
+    getDialPosition(matchedData.archetype)
+      .then(r => { if (r?.dialSortOrder != null) setMatchedSortOrder(r.dialSortOrder); })
+      .catch(() => {});
+  }, [user, matchedData?.archetype]);
+
+  function handleMatchedDialSelect(archetype: string, dialSortOrder: number) {
+    setMatchedSortOrder(dialSortOrder);
+    if (user) setDialPosition(archetype, dialSortOrder).catch(() => {});
+  }
+
+  function toggleMatchedReveal(key: string) {
+    setRevealedKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  function handleMatchedHopClick(archetype: string, dialSortOrder: number) {
+    matchedDialRef.current?.rotateTo(dialSortOrder);
+    setRevealedKeys(prev => new Set(prev).add(slotKey(archetype, dialSortOrder)));
+  }
+
+  function openMatchedCompare(archetype: string, archetypeLabel: string, slot: Slot) {
+    setCompareState({ open: true, archetype, archetypeLabel, slot });
+  }
+
+  function registerMatchedDialRef(_archetype: string, handle: BloomDialHandle | null) {
+    matchedDialRef.current = handle;
+  }
 
   useEffect(() => {
     const savedName = sessionStorage.getItem('axisBloomCustomerName');
@@ -727,56 +791,31 @@ export default function FlavorQuiz() {
       { label: 'Talk to our coffee sommelier', href: '/sommelier?entry=user_initiated' },
       { label: 'View my profile',              href: '/profile' },
       { label: 'Explore flavor intelligence',  href: '/flavor-intelligence' },
+      { label: 'Create a household party',     href: '/profile?tab=family' },
     ];
 
     return (
-      <div className="relative w-full min-h-screen bg-[#f2f1ea] flex flex-col lg:flex-row overflow-hidden">
-        <div className="w-full lg:w-1/2 h-[50vh] lg:h-screen relative overflow-hidden flex flex-col">
-          <div className="absolute inset-0">
-            <img src="https://i.imgur.com/3NAnXgR.jpeg" alt="" className="w-full h-full object-cover" />
-            <div className="absolute inset-0 bg-black/25" />
-          </div>
+      <div className="relative w-full min-h-screen bg-[#f2f1ea]">
+        {/* Header row — profile text + nav, side by side (roughly the old two-column
+            layout). Deliberately does NOT also contain ArchetypeSection: that component's
+            photo/dial/bag/card row needs the full page width to render its collapsed
+            PositionCard header (title + "Reveal the full profile" affordance) without the
+            two colliding — measured this directly: at a 50/50 split (720px) the card
+            column shrank to ~108px; even giving the nav a fixed narrow width and the rest
+            to this column (1100px available) the card's commerce area was still only
+            ~140px of usable content width, and "Reveal the full profile ↓" (a non-wrapping
+            ~121px span) alone consumed nearly all of it, leaving the title just ~4px to
+            wrap into — letter-by-letter, reading as overlapping garbled text. Since
+            PositionCard/ArchetypeSection are out of scope to edit (see the prerequisite
+            doc), the fix is structural: keep the nav beside the profile text (which never
+            needed much width), and let ArchetypeSection render at full width below, same
+            as it does on /bloom. */}
+        <div className="flex flex-col lg:flex-row lg:items-start">
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.7 }}
-            className="relative z-10 h-full flex flex-col justify-end p-8 md:p-12 lg:p-16"
-          >
-            <p className="text-[10px] uppercase tracking-[0.3em] mb-8 font-normal text-white/60">
-              Welcome back, {firstName}
-            </p>
-            <div className="flex flex-col w-full max-w-[360px]">
-              {navItems.map(item =>
-                item.href ? (
-                  <Link
-                    key={item.label}
-                    to={item.href}
-                    className="flex items-center justify-between group text-[0.95rem] font-light tracking-wide py-4 border-b border-white/10 hover:border-white/30 text-white/75 hover:text-white transition-all duration-300"
-                  >
-                    <span>{item.label}</span>
-                    <ArrowRight size={14} className="opacity-30 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
-                  </Link>
-                ) : (
-                  <button
-                    key={item.label}
-                    onClick={item.action}
-                    className="flex items-center justify-between group text-[0.95rem] font-light tracking-wide py-4 border-b border-white/10 hover:border-white/30 text-white/75 hover:text-white transition-all duration-300 w-full text-left"
-                  >
-                    <span>{item.label}</span>
-                    <ArrowRight size={14} className="opacity-30 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
-                  </button>
-                )
-              )}
-            </div>
-          </motion.div>
-        </div>
-
-        <div className="w-full lg:w-1/2 min-h-[50vh] lg:h-screen bg-[#f2f1ea] flex items-center">
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.7, delay: 0.15 }}
-            className="w-full px-8 py-12 md:px-12 lg:px-20 max-w-[520px] mx-auto lg:mx-0"
+            className="w-full lg:w-1/2 px-8 pt-16 pb-8 md:px-12 lg:pl-20 lg:pr-12 max-w-[520px] mx-auto lg:mx-0"
           >
             <p className="text-[10px] uppercase tracking-[0.3em] mb-10 text-[#a33726]/30">
               Your coffee profile
@@ -802,7 +841,65 @@ export default function FlavorQuiz() {
               </div>
             )}
           </motion.div>
+
+          {/* Nav — restyled off-photo, dark-on-cream to match the profile text beside it. */}
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.7, delay: 0.15 }}
+            className="w-full lg:w-1/2 px-8 py-12 md:px-12 lg:pl-12 lg:pr-20"
+          >
+            <p className="text-[10px] uppercase tracking-[0.3em] mb-8 font-normal text-[#a33726]/30">
+              Welcome back, {firstName}
+            </p>
+            <div className="flex flex-col w-full max-w-[360px]">
+              {navItems.map(item =>
+                item.href ? (
+                  <Link
+                    key={item.label}
+                    to={item.href}
+                    className="flex items-center justify-between group text-[0.95rem] font-light tracking-wide py-4 border-b border-[#a33726]/10 hover:border-[#a33726]/30 text-[#a33726]/60 hover:text-[#a33726] transition-all duration-300"
+                  >
+                    <span>{item.label}</span>
+                    <ArrowRight size={14} className="opacity-30 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                  </Link>
+                ) : (
+                  <button
+                    key={item.label}
+                    onClick={item.action}
+                    className="flex items-center justify-between group text-[0.95rem] font-light tracking-wide py-4 border-b border-[#a33726]/10 hover:border-[#a33726]/30 text-[#a33726]/60 hover:text-[#a33726] transition-all duration-300 w-full text-left"
+                  >
+                    <span>{item.label}</span>
+                    <ArrowRight size={14} className="opacity-30 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                  </button>
+                )
+              )}
+            </div>
+          </motion.div>
         </div>
+
+        {matchedData && (
+          <ArchetypeSection
+            data={matchedData}
+            index={0}
+            selectedSortOrder={matchedSortOrder ?? computeDefaultSortOrder(matchedData)}
+            revealedKeys={revealedKeys}
+            onDialSelect={handleMatchedDialSelect}
+            onToggleReveal={toggleMatchedReveal}
+            onAddToCart={addToCart}
+            onHopClick={handleMatchedHopClick}
+            onCompare={openMatchedCompare}
+            userArchetype={matchedArchetypeId}
+            registerDialRef={registerMatchedDialRef}
+          />
+        )}
+
+        <CompareOverlay
+          open={compareState.open}
+          onClose={() => setCompareState(s => ({ ...s, open: false }))}
+          left={compareState.slot ? { archetype: compareState.archetype, archetypeLabel: compareState.archetypeLabel, slot: compareState.slot } : null}
+          archetypes={archetypesList}
+        />
       </div>
     );
   }

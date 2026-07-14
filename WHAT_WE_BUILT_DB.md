@@ -20,7 +20,7 @@ It was merged from the original Supabase design plus adaptations for Firebase Au
 
 **Lookup / reference**
 - `user_type` — subscriber, admin, roaster partner, etc.
-- `archetype` — named flavor profiles: Chocolate & Nutty, Balanced & Sweet, Fruity, Floral, Earthy, Experimental
+- `archetype` — named flavor profiles: Chocolate & Nutty, Balanced & Sweet, Fruity, Floral, Earthy, Experimental. **Application-layer key bug fixed 2026-07-13** (Find My Flavor Part 1, `WHAT_WE_BUILT.md` #91) — `backend/src/routes/users.ts` derived a lookup key via `archetype.name.toLowerCase()` (e.g. `"Chocolate & Nutty"` → `"chocolate & nutty"`), which never matched the `archetype_enum` values (`chocolate_nutty`, `balanced_sweet`, `earthy`, etc.) used everywhere else in the schema/API. No data was wrong — this was purely a code-side key mismatch, silently mis-serving 3 of 6 archetypes' color/features/`.id` on `GET /api/users/profile` and `/homepage-state`. Fixed with an explicit name→`archetype_enum` map.
 - `roaster` — drop-ship roastery partners
 - `quiz` — quiz versions
 - `cupping_note` — SCA Coffee Taster's Flavor Wheel: 84 descriptors across 9 categories and ~25 subcategories; `intensity_score` is NULL by default (assigned per cupping session, not at descriptor level)

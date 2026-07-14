@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowRight, Package, Heart, LogOut, Users } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -34,8 +34,14 @@ interface ProfileData {
 
 const EMPTY_ADDRESS = { street: '', city: '', state: '', postalCode: '', country: 'US', addressType: 'shipping' as 'shipping' | 'billing' };
 
+const VALID_TABS: Tab[] = ['memory', 'orders', 'settings', 'family'];
+
 export default function Profile() {
-  const [activeTab, setActiveTab]         = useState<Tab>('memory');
+  const [searchParams]                    = useSearchParams();
+  const tabParam                          = searchParams.get('tab');
+  const [activeTab, setActiveTab]         = useState<Tab>(
+    VALID_TABS.includes(tabParam as Tab) ? (tabParam as Tab) : 'memory'
+  );
   const [profile, setProfile]             = useState<ProfileData | null>(null);
   const [loading, setLoading]             = useState(true);
   const [feedbackOrderId, setFeedbackOrderId] = useState<string | null>(null);
