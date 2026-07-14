@@ -88,6 +88,69 @@ CREATE TABLE IF NOT EXISTS cupping_note (
 );
 
 -- ─────────────────────────────────────────────
+-- SENSORY SOURCE PROVENANCE (WCR Lexicon / SCA wheel / SCA CVA / platform)
+-- Records where each sensory term comes from. Our cupping_note vocabulary is
+-- the SCA Coffee Taster's Flavor Wheel, itself a derived regrouping of the
+-- WCR Sensory Lexicon 2.0 (2017) — WCR supplies the words, the wheel supplies
+-- the category/subcategory grouping. coffee_dimensions (Bloom Dial axes) are
+-- 0-15 intensity scales, the same measurement model WCR uses per attribute
+-- and the SCA CVA descriptive cupping form uses per dimension.
+-- Non-destructive: only adds nullable columns/new tables; no existing
+-- cupping_note or coffee_dimensions row is edited, renamed, or deleted.
+-- ─────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS sensory_source (
+  id         SERIAL PRIMARY KEY,
+  code       TEXT UNIQUE NOT NULL,
+  name       TEXT NOT NULL,
+  publisher  TEXT,
+  edition    TEXT,
+  year       INT,
+  url        TEXT,
+  notes      TEXT
+);
+
+INSERT INTO sensory_source (code, name, publisher, edition, year, url, notes) VALUES
+  ('wcr_lexicon',      'WCR Sensory Lexicon',                      'World Coffee Research',        '2.0', 2017,
+     'https://worldcoffeeresearch.org/resources/sensory-lexicon',
+     'Descriptive lexicon; ~110 attributes each with a 0-15 intensity reference. Source of the flavor vocabulary.'),
+  ('sca_flavor_wheel', 'SCA Coffee Taster''s Flavor Wheel',        'Specialty Coffee Association', '2016', 2016,
+     'https://sca.coffee/research/coffee-tasters-flavor-wheel',
+     'Visual regrouping of the WCR Lexicon into 9 categories. Source of our wheel_category/wheel_subcategory taxonomy, not the words.'),
+  ('sca_cva',          'SCA Cupping Form — CVA Descriptive Assessment', 'Specialty Coffee Association', '2023', 2023,
+     'https://sca.coffee/valueassessment',
+     '0-15 intensity descriptive scoring per dimension. Basis for our 0-15 coffee_dimensions.'),
+  ('platform',         'Axis & Bloom (internal)',                  'Axis & Bloom',                 NULL, NULL, NULL,
+     'Platform-specific axes / consumer-facing aliases (e.g. Brightness, Boldness, Intensity, Complexity, Finish).')
+ON CONFLICT (code) DO NOTHING;
+
+-- Full WCR Sensory Lexicon reference set (~110 attributes), kept separate from
+-- the active 84-descriptor cupping_note wheel so that vocabulary stays clean.
+-- Bulk data (name/section/wheel_category/wheel_subcategory rows) is seeded via
+-- seeds/sensory_lexicon_attributes_wcr.sql, which also backfills cupping_note_id.
+CREATE TABLE IF NOT EXISTS sensory_lexicon_attribute (
+  id                SERIAL PRIMARY KEY,
+  name              TEXT NOT NULL,
+  section           TEXT NOT NULL,          -- lexicon's own 17 sections
+  wheel_category    TEXT,                   -- best-effort SCA-wheel category (NULL if the attribute has no wheel placement, e.g. Amplitude/Mouthfeel)
+  wheel_subcategory TEXT,
+  source_id         INT REFERENCES sensory_source(id),  -- default: wcr_lexicon
+  edition           TEXT DEFAULT '2.0 (2017)',
+  definition        TEXT,                   -- NULL; fill from the PDF if desired (copyright — not stored in repo)
+  cupping_note_id   UUID REFERENCES cupping_note(id),   -- link to our active descriptor if one exists
+  UNIQUE (name, section)
+);
+
+-- Provenance on cupping_note: every active descriptor traces to the WCR Lexicon;
+-- wheel_category/wheel_subcategory (already on the table) trace to the SCA wheel.
+ALTER TABLE cupping_note ADD COLUMN IF NOT EXISTS descriptor_source_id INT REFERENCES sensory_source(id);
+ALTER TABLE cupping_note ADD COLUMN IF NOT EXISTS lexicon_section TEXT;
+
+UPDATE cupping_note
+   SET descriptor_source_id = (SELECT id FROM sensory_source WHERE code = 'wcr_lexicon')
+ WHERE descriptor_source_id IS NULL;
+
+-- ─────────────────────────────────────────────
 -- USERS  (Firebase UID as PK; no auth.users dep)
 -- ─────────────────────────────────────────────
 
@@ -920,6 +983,33 @@ CREATE TABLE IF NOT EXISTS coffee_dimensions (
 -- unset. Direct-SQL-only for now — no dimension admin UI exists yet to edit this
 -- from (see The Bloom Part 3, Phase B).
 ALTER TABLE coffee_dimensions ADD COLUMN IF NOT EXISTS platform_name TEXT;
+
+-- Sensory source provenance: which standard defines this dimension, and (where
+-- one applies) which WCR Lexicon attribute it corresponds to. Fine-grained
+-- attribute linking is backfilled by seeds/sensory_lexicon_attributes_wcr.sql
+-- (depends on that table being seeded); source_id only depends on sensory_source
+-- so it's safe to backfill here on every schema run.
+ALTER TABLE coffee_dimensions ADD COLUMN IF NOT EXISTS source_id INT REFERENCES sensory_source(id);
+ALTER TABLE coffee_dimensions ADD COLUMN IF NOT EXISTS sensory_lexicon_attribute_id INT REFERENCES sensory_lexicon_attribute(id);
+
+UPDATE coffee_dimensions cd
+   SET source_id = (SELECT id FROM sensory_source WHERE code = m.source_code)
+  FROM (VALUES
+    (1,  'sca_cva'),      -- Fragrance
+    (2,  'sca_cva'),      -- Aroma
+    (3,  'sca_cva'),      -- Flavor
+    (4,  'sca_cva'),      -- Sweetness
+    (5,  'sca_cva'),      -- Acidity / Brightness
+    (6,  'wcr_lexicon'),  -- Bitterness / Boldness
+    (7,  'wcr_lexicon'),  -- Body / Intensity
+    (8,  'wcr_lexicon'),  -- Texture / Mouthfeel
+    (9,  'platform'),     -- Savory / Depth / Complexity
+    (10, 'wcr_lexicon'),  -- Finish Length / Finish
+    (11, 'sca_cva'),      -- Finish Character
+    (12, 'wcr_lexicon')   -- Mouthfeel
+  ) AS m(dim_id, source_code)
+ WHERE cd.id = m.dim_id
+   AND cd.source_id IS NULL;
 
 -- Drop old wide-column cupping_scores if it exists (detected by sweetness_min column)
 -- and replace with the normalised design linked to dimensions via cupping_score_values.

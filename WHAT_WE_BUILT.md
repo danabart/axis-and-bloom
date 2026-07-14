@@ -2478,6 +2478,28 @@ Both `useCompatibility.tsx`'s pure functions (`getCompatibility`, `getDimensionC
 
 **Explicitly out of scope, per the spec**: the just-finished-quiz curtain/reveal screen, any order-scoped feedback prompt, quiz States 2–4, and any change to `RevealedPanel.tsx`/`PositionCard.tsx`/`BloomDialWidget.tsx`/`CompareOverlay.tsx`/`usePositionCardData.ts`/`ArchetypeSection.tsx` itself.
 
+---
+
+### 92. Sensory Source Provenance — WCR Lexicon reference table + provenance links on cupping_note/coffee_dimensions (2026-07-13)
+
+**Context**: our `cupping_note` vocabulary (the SCA Coffee Taster's Flavor Wheel, 84 descriptors) is itself a derived regrouping of the **WCR Sensory Lexicon 2.0 (2017)** — WCR supplies the words, the SCA wheel supplies the `wheel_category`/`wheel_subcategory` grouping. Separately, `coffee_dimensions` (the Bloom Dial's 12 axes) are 0–15 intensity scales, the same measurement model WCR uses per attribute and the SCA CVA descriptive cupping form uses per dimension. This feature makes that provenance explicit and queryable. Spec: `backend/src/features/sensory-source-provenance/CLAUDE_CODE_PROMPT.md`.
+
+**Two bugs found in the spec and fixed during implementation** (checked against the live schema before writing any SQL): `cupping_note.id` is `UUID`, not `INT` — the spec's `cupping_note_id INT REFERENCES cupping_note(id)` FK type was wrong; and `cupping_note`'s wheel columns are `wheel_category`/`wheel_subcategory`, not `category`/`subcategory` — the spec's own `verify.sql` checksum query used the wrong column names. Both fixed in the actual DDL/seed/verify.sql written for this feature.
+
+**Schema changes (`schema.sql`, non-destructive — only new tables + nullable columns):**
+- New `sensory_source` lookup table — 4 rows: `wcr_lexicon`, `sca_flavor_wheel`, `sca_cva`, `platform`.
+- New `sensory_lexicon_attribute` reference table — full WCR set kept separate from the active 84-descriptor wheel so that vocabulary stays clean; `cupping_note_id UUID REFERENCES cupping_note(id)` links to an active descriptor where one exists.
+- `cupping_note`: added `descriptor_source_id` (backfilled to `wcr_lexicon` for all 84 rows) and `lexicon_section`.
+- `coffee_dimensions`: added `source_id` (backfilled per dimension — `sca_cva` for the aroma/flavor-phase dims and Acidity/Finish Character, `wcr_lexicon` for Bitterness/Body/Texture/Finish Length/Mouthfeel, `platform` for Savory/Depth) and `sensory_lexicon_attribute_id`.
+
+**Seed (`seeds/sensory_lexicon_attributes_wcr.sql`, run manually, same convention as `archetype_vectors.sql`):**
+- 113 rows (109 unique attribute names — Sweet/Sour/Bitter/Salty are intentionally cross-listed once under "Taste Basics" and once under their own section, matching WCR's own structure) across all 17 lexicon sections, each with a best-effort `wheel_category`/`wheel_subcategory` mapped onto the same taxonomy `cupping_notes_sca_wheel.sql` already uses. Amplitude and Mouthfeel sections are left wheel-unmapped (`NULL`/`NULL`) — they're WCR/CVA-only constructs that feed `coffee_dimensions`, not the SCA wheel.
+- Explicit 84-row mapping (not a bare name join) links every active `cupping_note` descriptor to its lexicon attribute — needed because several WCR names are ambiguous across sections (`Bitter`/`Salty` appear in both Taste Basics and Chemical; `Sweet`/`Sour` in both Taste Basics and their own section) and three need an alias (`Overripe` → "Overripe / Near-fermented", `Brown` → "Brown-Roast", `Roast` → "Roasted"). Backfills `cupping_note.lexicon_section` from the link, then backfills `coffee_dimensions.sensory_lexicon_attribute_id` for the 7 numeric dims that map to one specific WCR attribute (Sweetness→Overall Sweet, Bitterness→Bitter, Body→Body/Fullness, Texture→Mouth Drying, Savory/Depth→Overall Impact, Finish Length→Longevity, Mouthfeel→Thickness). Acidity is deliberately left unlinked — it aggregates the whole Sour/Acid section rather than one attribute.
+
+**Verified directly against production Cloud SQL** via the Auth Proxy (see `axis_and_bloom_local_cloudsql_testing` memory): captured an md5 checksum of `cupping_note`'s descriptor/wheel_category/wheel_subcategory and `coffee_dimensions`'s name/scale_min/scale_max *before* applying anything, applied schema.sql + the seed, recaptured — both checksums matched exactly (non-destructive, confirmed). All 4 sources present, 113/113 lexicon rows sourced to `wcr_lexicon`, all 84 `cupping_note` rows linked with 0 unmatched, all 12 `coffee_dimensions` sourced with the 7 expected numeric axes correctly linked. Re-ran schema.sql + seed a second time — identical counts (idempotency confirmed). Booted the backend against the migrated DB and hit `/api/coffees`, `/api/coffees/archetype-stats`, and `/api/coffees/:id/content` — all 200, no runtime errors from the new columns.
+
+**Not done (optional per the spec)**: Part 5 (exposing `descriptor_source` on `v_collaborative_flavor_wheel` / the Flavor Intelligence descriptor query so the page can cite "Source: WCR Sensory Lexicon") — data-layer only in this pass, no UI/view changes.
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.
