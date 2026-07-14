@@ -451,16 +451,21 @@ router.post('/coffees/:id/archetype', async (req, res) => {
     );
 
     if (vocabulary_id) {
-      // Remove all existing dial positions for this coffee (handles archetype change)
-      await db.query(`DELETE FROM dial_archetype_positions WHERE coffee_id = $1`, [id]);
+      // Remove only this coffee's existing HOME row (handles archetype change) — guest
+      // (is_guest=true) rows belong to the seam path (POST/DELETE /dial/positions/guest)
+      // and must survive an archetype re-tag untouched.
+      await db.query(`DELETE FROM dial_archetype_positions WHERE coffee_id = $1 AND is_guest = false`, [id]);
 
       if (dial_is_default) {
-        // Clear previous default for same archetype + same roaster
+        // Clear previous default for same archetype + same roaster (home rows only —
+        // a guest row can never be is_default per the dap_guest_not_default CHECK, but
+        // is_guest = false here keeps that explicit rather than relying on the CHECK).
         await db.query(`
           UPDATE dial_archetype_positions
           SET is_default = false
           WHERE archetype = $1
             AND is_default = true
+            AND is_guest = false
             AND coffee_id IN (
               SELECT c.id FROM coffees c
               WHERE c.roaster = (SELECT roaster FROM coffees WHERE id = $2)
@@ -468,9 +473,14 @@ router.post('/coffees/:id/archetype', async (req, res) => {
         `, [archetype, id]);
       }
 
+      // ON CONFLICT handles the edge case where the coffee's new home archetype equals
+      // an archetype it currently guests on — promotes that row to home (is_guest=false)
+      // instead of colliding with the UNIQUE(archetype, coffee_id) key.
       await db.query(
-        `INSERT INTO dial_archetype_positions (coffee_id, archetype, vocabulary_id, is_default)
-         VALUES ($1, $2, $3, $4)`,
+        `INSERT INTO dial_archetype_positions (coffee_id, archetype, vocabulary_id, is_default, is_guest)
+         VALUES ($1, $2, $3, $4, false)
+         ON CONFLICT (archetype, coffee_id) DO UPDATE
+           SET vocabulary_id = EXCLUDED.vocabulary_id, is_default = EXCLUDED.is_default, is_guest = false`,
         [id, archetype, vocabulary_id, dial_is_default ?? false]
       );
     }
@@ -570,7 +580,7 @@ router.get('/coffee-alias', async (_req, res) => {
              c.name AS coffee_name, c.roaster
       FROM coffee_alias ca
       JOIN coffees c ON c.id = ca.coffee_id
-      LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id
+      LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id AND dap.is_guest = false
       LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
       LEFT JOIN archetype_assignments aa
         ON aa.coffee_id = ca.coffee_id AND aa.superseded_at IS NULL
@@ -598,11 +608,11 @@ router.post('/coffee-alias', async (req, res) => {
       `SELECT dpv.sort_order
        FROM dial_archetype_positions dap
        JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
-       WHERE dap.coffee_id = $1 AND dap.archetype = $2`,
+       WHERE dap.coffee_id = $1 AND dap.archetype = $2 AND dap.is_guest = false`,
       [coffee_id, archetype]
     );
     if (posResult.rowCount === 0) {
-      res.status(400).json({ error: 'Coffee has no dial position for this archetype yet' }); return;
+      res.status(400).json({ error: 'Coffee has no home dial position for this archetype yet' }); return;
     }
     const result = await db.query(
       `INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority)
@@ -639,7 +649,7 @@ router.patch('/coffee-alias/slot', async (req, res) => {
        WHERE ca.id IN (
          SELECT ca2.id
          FROM coffee_alias ca2
-         LEFT JOIN dial_archetype_positions dap2 ON dap2.coffee_id = ca2.coffee_id
+         LEFT JOIN dial_archetype_positions dap2 ON dap2.coffee_id = ca2.coffee_id AND dap2.is_guest = false
          LEFT JOIN dial_position_vocabulary dpv2 ON dpv2.id = dap2.vocabulary_id
          LEFT JOIN archetype_assignments aa2
            ON aa2.coffee_id = ca2.coffee_id AND aa2.superseded_at IS NULL
@@ -687,7 +697,7 @@ router.patch('/coffee-alias/:id', async (req, res) => {
                 COALESCE(dpv.sort_order, ca.dial_sort_order)  AS live_sort_order,
                 ca.priority                                   AS old_priority
          FROM coffee_alias ca
-         LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id
+         LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id AND dap.is_guest = false
          LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
          LEFT JOIN archetype_assignments aa
            ON aa.coffee_id = ca.coffee_id AND aa.superseded_at IS NULL
@@ -701,7 +711,7 @@ router.patch('/coffee-alias/:id', async (req, res) => {
       const occupantResult = await db.query(
         `SELECT ca2.id
          FROM coffee_alias ca2
-         LEFT JOIN dial_archetype_positions dap2 ON dap2.coffee_id = ca2.coffee_id
+         LEFT JOIN dial_archetype_positions dap2 ON dap2.coffee_id = ca2.coffee_id AND dap2.is_guest = false
          LEFT JOIN dial_position_vocabulary dpv2 ON dpv2.id = dap2.vocabulary_id
          LEFT JOIN archetype_assignments aa2
            ON aa2.coffee_id = ca2.coffee_id AND aa2.superseded_at IS NULL
@@ -1453,6 +1463,54 @@ router.delete('/dial/positions/:id', async (req, res) => {
   }
 });
 
+// POST /api/admin/dial/positions/guest — seam: add a coffee to an adjacent
+// archetype's dial without touching its home position. Guest rows never carry
+// is_default (dap_guest_not_default CHECK) and never get a separate SKU.
+router.post('/dial/positions/guest', async (req, res) => {
+  const { coffee_id, archetype, vocabulary_id } = req.body;
+  if (!coffee_id || !archetype || !vocabulary_id) {
+    res.status(400).json({ error: 'coffee_id, archetype, and vocabulary_id are required' }); return;
+  }
+  try {
+    const homeResult = await db.query(
+      `SELECT archetype FROM archetype_assignments WHERE coffee_id = $1 AND superseded_at IS NULL`,
+      [coffee_id]
+    );
+    const homeArchetype: string | undefined = homeResult.rows[0]?.archetype;
+    if (homeArchetype === archetype) {
+      res.status(400).json({ error: 'That archetype is this coffee\'s home archetype — use the archetype/position editor for a home move, not a seam.' }); return;
+    }
+
+    const result = await db.query(
+      `INSERT INTO dial_archetype_positions (archetype, coffee_id, vocabulary_id, is_default, is_guest)
+       VALUES ($1, $2, $3, false, true)
+       RETURNING id`,
+      [archetype, coffee_id, vocabulary_id]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (err: any) {
+    if (err?.code === '23505') { res.status(409).json({ error: 'This coffee already has a position on that archetype\'s dial' }); return; }
+    console.error('[admin/dial/positions/guest POST]', err);
+    res.status(500).json({ error: 'Failed to add guest position' });
+  }
+});
+
+// DELETE /api/admin/dial/positions/guest/:id — remove a seam position. Refuses to
+// delete a home row through this path — use DELETE /dial/positions/:id for that.
+router.delete('/dial/positions/guest/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await db.query(
+      `DELETE FROM dial_archetype_positions WHERE id = $1 AND is_guest = true RETURNING id`, [id]
+    );
+    if (result.rowCount === 0) { res.status(404).json({ error: 'Guest position not found' }); return; }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[admin/dial/positions/guest DELETE]', err);
+    res.status(500).json({ error: 'Failed to delete guest position' });
+  }
+});
+
 // POST /api/admin/dial/relationships — add a hop between two coffees
 // Hard-validates logical contradictions (same coffee, missing archetypes, hop_type
 // vs. archetype mismatch) before insert. Soft-validates the claimed direction against
@@ -1465,6 +1523,9 @@ router.post('/dial/relationships', async (req, res) => {
   }
   if (from_coffee_id === to_coffee_id) {
     res.status(400).json({ error: 'A hop needs two different coffees.' }); return;
+  }
+  if (hop_type === 'category_hop') {
+    res.status(400).json({ error: 'category_hop creation is not supported here — category-endpoint hops (e.g. a coffee to the Experimental category) are SQL-seed only.' }); return;
   }
   try {
     const archResult = await db.query(

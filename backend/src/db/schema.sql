@@ -1153,6 +1153,19 @@ CREATE TABLE IF NOT EXISTS dial_archetype_positions (
   UNIQUE(archetype, coffee_id)
 );
 
+-- Seam (guest) positions (Bloom Dial Base Data Part 2): a coffee's is_guest=false
+-- row is its one home position (owned exclusively by POST /coffees/:id/archetype);
+-- every other row for that coffee is a guest, welding it onto an adjacent
+-- archetype's dial without becoming a default or getting a separate SKU.
+ALTER TABLE dial_archetype_positions
+  ADD COLUMN IF NOT EXISTS is_guest BOOLEAN NOT NULL DEFAULT false;
+
+DO $$ BEGIN
+  ALTER TABLE dial_archetype_positions ADD CONSTRAINT dap_guest_not_default
+    CHECK (NOT (is_guest AND is_default));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 -- Directional dimensional hop graph between coffees
 CREATE TABLE IF NOT EXISTS dial_coffee_relationships (
   id               SERIAL PRIMARY KEY,
@@ -2441,6 +2454,7 @@ SELECT
   dpv.label            AS dial_label,
   dac.has_bloom_dial,
   dap.is_default,
+  dap.is_guest,
   dap.delta_from_default,
   dap.is_computed,
   dap.last_computed_at

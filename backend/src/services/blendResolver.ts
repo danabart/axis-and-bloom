@@ -43,7 +43,7 @@ export async function resolveBlendForSlot(
     `SELECT ca.coffee_id, ca.priority, c.name AS coffee_name, c.roaster
      FROM coffee_alias ca
      JOIN coffees c ON c.id = ca.coffee_id
-     LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id
+     LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id AND dap.is_guest = false
      LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
      LEFT JOIN archetype_assignments aa
        ON aa.coffee_id = ca.coffee_id AND aa.superseded_at IS NULL
