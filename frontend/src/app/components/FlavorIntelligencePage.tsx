@@ -502,17 +502,35 @@ export default function FlavorIntelligencePage() {
                       )}
                     </div>
                   </div>
-                  <button
-                    onClick={toggleCompareMode}
-                    className="text-xs px-3 py-1.5 rounded-full border transition-all duration-200"
-                    style={{
-                      borderColor: compareMode ? '#b05642' : '#c8c0b4',
-                      color: compareMode ? '#b05642' : '#8a8070',
-                      backgroundColor: compareMode ? '#fff8f5' : 'transparent',
-                    }}
-                  >
-                    {compareMode ? '✕ Exit compare' : '⇄ Compare'}
-                  </button>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Part 10 — the only purchase path from this page; checkout/pricing
+                        deliberately stay on The Bloom (Part 2 Decision #2). Shown for every
+                        coffee regardless of lifecycle stage — this is about the coffee
+                        currently in view, not a personalized nudge. Bloom doesn't read these
+                        query params yet (no useSearchParams in BloomPage.tsx as of this
+                        writing) — link still works, just lands on Bloom's default view
+                        instead of scrolling to this archetype; flagged as a known gap. */}
+                    {selectedArchData && selectedSlot != null && (
+                      <Link
+                        to={`/bloom?archetype=${selectedArchData.archetype}&slot=${selectedSlot}`}
+                        className="text-xs px-3 py-1.5 rounded-full border transition-all duration-200"
+                        style={{ borderColor: '#b05642', color: '#b05642', backgroundColor: '#fff8f5' }}
+                      >
+                        Shop on The Bloom →
+                      </Link>
+                    )}
+                    <button
+                      onClick={toggleCompareMode}
+                      className="text-xs px-3 py-1.5 rounded-full border transition-all duration-200"
+                      style={{
+                        borderColor: compareMode ? '#b05642' : '#c8c0b4',
+                        color: compareMode ? '#b05642' : '#8a8070',
+                        backgroundColor: compareMode ? '#fff8f5' : 'transparent',
+                      }}
+                    >
+                      {compareMode ? '✕ Exit compare' : '⇄ Compare'}
+                    </button>
+                  </div>
                 </div>
 
                 {compareMode && (

@@ -21,7 +21,7 @@ export interface DescriptorEntry {
 export const SOURCE_LABEL: Record<string, string> = {
   internal: 'Internal cupping',
   roastery: 'Roastery notes',
-  client:   'Customer feedback',
+  client:   'Community notes',
 };
 
 export const SOURCE_COLOR: Record<string, string> = {
@@ -81,18 +81,34 @@ export function groupByCategory(entries: DescriptorEntry[]): CategoryGroup[] {
     .sort((a, b) => b.maxMentions - a.maxMentions);
 }
 
-const MIN_BAR_WIDTH_PCT = 8;
+// Dominance-clarity band (Part 8) — deliberately not the full 0–100% range. Per Dana:
+// "accuracy here is not important, what's important is creating a clear visual
+// understanding about the dominance of each note." The strongest note should never look
+// "maxed out" (flush to the row's end) and the weakest visible note should still read as
+// genuinely minor, not just "somewhat smaller." Starting numbers, explicitly tunable.
+const MIN_BAR_WIDTH_PCT = 5;
+const MAX_BAR_WIDTH_PCT = 75;
 const VISIBLE_PER_CATEGORY = 5;
 // Used when a descriptor has mentions but no source ever recorded an intensity for it —
 // renders at a neutral mid-thickness rather than looking artificially thin or thick.
 const INTENSITY_DEFAULT_RATIO = 0.6;
 
-function DescriptorBar({ entry, maxMentions, index }: { entry: DescriptorEntry; maxMentions: number; index: number }) {
-  const widthPct = Math.max((entry.totalMentions / maxMentions) * 100, MIN_BAR_WIDTH_PCT);
+// Min-max normalization (not relative-to-max-only) — stretches whatever spread of mention
+// counts actually exists for this coffee across the full [MIN,MAX] band, so the top and
+// bottom note are always clearly, visibly different regardless of how close or far apart
+// the raw numbers happen to be. Computed once across all entries, before category grouping
+// and the VISIBLE_PER_CATEGORY cap, so expanding "+N more" never shifts the scale of bars
+// already on screen.
+function computeWidthPct(entry: DescriptorEntry, minMentions: number, maxMentions: number): number {
+  if (maxMentions === minMentions) return MAX_BAR_WIDTH_PCT; // only one distinct value present — treat as dominant, not ambiguous
+  const ratio = (entry.totalMentions - minMentions) / (maxMentions - minMentions);
+  return MIN_BAR_WIDTH_PCT + ratio * (MAX_BAR_WIDTH_PCT - MIN_BAR_WIDTH_PCT);
+}
+
+function DescriptorBar({ entry, minMentions, maxMentions, index }: { entry: DescriptorEntry; minMentions: number; maxMentions: number; index: number }) {
+  const widthPct = computeWidthPct(entry, minMentions, maxMentions);
   const intensityRatio = entry.avgIntensity != null ? Math.min(entry.avgIntensity / 15, 1) : INTENSITY_DEFAULT_RATIO;
-  const barHeightPx = 4 + intensityRatio * 4; // 4px (low intensity) to 8px (high intensity)
-  const sourcesPresent = [...new Set(entry.sources.map(s => s.source))];
-  const barColor = SOURCE_COLOR[sourcesPresent[0]] ?? '#b05642';
+  const barHeightPx = 6 + intensityRatio * 6; // 6px (low intensity) to 12px (high intensity)
 
   return (
     <motion.div
@@ -100,22 +116,25 @@ function DescriptorBar({ entry, maxMentions, index }: { entry: DescriptorEntry; 
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.35, delay: index * 0.04 }}
     >
-      <div className="flex items-center gap-1.5 mb-1">
-        <span className="text-xs" style={{ color: '#5a4a3a' }}>{entry.descriptor}</span>
-        <div className="flex gap-0.5">
-          {sourcesPresent.map(s => (
-            <span key={s} className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: SOURCE_COLOR[s] }} title={SOURCE_LABEL[s]} />
-          ))}
-        </div>
-      </div>
-      {/* Sharp rectangles, not rounded pills — reads as a distinct, graph-like element (Part 6). */}
+      <p className="text-xs mb-1" style={{ color: '#5a4a3a' }}>{entry.descriptor}</p>
+      {/* Sharp rectangle, not a rounded pill (Part 6). Segmented by each source's share of
+          mentions — the bar itself shows the three-source blend, not a single flat color
+          with dots next to the label (Part 8). */}
       <div className="w-full" style={{ height: barHeightPx, backgroundColor: '#e0dcd4' }}>
         <motion.div
-          style={{ height: barHeightPx, backgroundColor: barColor }}
+          className="flex"
+          style={{ height: '100%' }}
           initial={{ width: 0 }}
           animate={{ width: `${widthPct}%` }}
           transition={{ duration: 0.5, delay: index * 0.04 + 0.1 }}
-        />
+        >
+          {entry.sources.map(s => (
+            <div
+              key={s.source}
+              style={{ width: `${(s.mentions / entry.totalMentions) * 100}%`, height: '100%', backgroundColor: SOURCE_COLOR[s.source] }}
+            />
+          ))}
+        </motion.div>
       </div>
     </motion.div>
   );
@@ -124,7 +143,7 @@ function DescriptorBar({ entry, maxMentions, index }: { entry: DescriptorEntry; 
 /** One SCA-category group of descriptor bars, capped to VISIBLE_PER_CATEGORY with a
  * "+N more" expand toggle — both the bar length/scale and the count shown by default
  * favor the dominant note over the long tail of minor ones. */
-function CategoryBarGroup({ group, maxMentions }: { group: CategoryGroup; maxMentions: number }) {
+function CategoryBarGroup({ group, minMentions, maxMentions }: { group: CategoryGroup; minMentions: number; maxMentions: number }) {
   const [expanded, setExpanded] = useState(false);
   const visible = expanded ? group.entries : group.entries.slice(0, VISIBLE_PER_CATEGORY);
   const hiddenCount = group.entries.length - VISIBLE_PER_CATEGORY;
@@ -134,7 +153,7 @@ function CategoryBarGroup({ group, maxMentions }: { group: CategoryGroup; maxMen
       <p className="text-xs mb-2.5" style={{ color: '#b8b0a4' }}>{group.category}</p>
       <div className="space-y-3">
         {visible.map((entry, i) => (
-          <DescriptorBar key={entry.descriptor} entry={entry} maxMentions={maxMentions} index={i} />
+          <DescriptorBar key={entry.descriptor} entry={entry} minMentions={minMentions} maxMentions={maxMentions} index={i} />
         ))}
       </div>
       {hiddenCount > 0 && (
@@ -164,12 +183,14 @@ interface CollaborativeFlavorWheelProps {
  * signal (Part 6). */
 function GroupedDescriptorBars({ entries }: { entries: DescriptorEntry[] }) {
   if (!entries.length) return null;
-  const maxMentions = Math.max(...entries.map(e => e.totalMentions), 1);
+  const mentionCounts = entries.map(e => e.totalMentions);
+  const minMentions = Math.min(...mentionCounts);
+  const maxMentions = Math.max(...mentionCounts, 1);
   const groups = groupByCategory(entries);
   return (
     <div className="space-y-6">
       {groups.map(group => (
-        <CategoryBarGroup key={group.category} group={group} maxMentions={maxMentions} />
+        <CategoryBarGroup key={group.category} group={group} minMentions={minMentions} maxMentions={maxMentions} />
       ))}
     </div>
   );

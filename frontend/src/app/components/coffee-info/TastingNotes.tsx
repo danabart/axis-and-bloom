@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Link } from 'react-router';
+import { SOURCE_LABEL, SOURCE_COLOR } from './CollaborativeFlavorWheel';
 
 export interface ContentData {
   aiSummary: string;
@@ -57,15 +58,12 @@ export function TastingNotes({ content, contentLoading, exploreLink, talkToLiamL
               Three voices
             </p>
             <div className="flex gap-3 mb-3">
-              {['Internal cupping', 'Roastery notes', 'Customer feedback'].map((label, i) => {
-                const colors = ['#b05642', '#7c9e87', '#8a7cbe'];
-                return (
-                  <div key={label} className="flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: colors[i] }} />
-                    <span className="text-xs" style={{ color: '#8a8070' }}>{label}</span>
-                  </div>
-                );
-              })}
+              {Object.entries(SOURCE_LABEL).map(([source, label]) => (
+                <div key={source} className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: SOURCE_COLOR[source] }} />
+                  <span className="text-xs" style={{ color: '#8a8070' }}>{label}</span>
+                </div>
+              ))}
             </div>
             <p className="text-base leading-relaxed" style={{ color: '#3a3020' }}>
               {content.threeVoiceStory}
