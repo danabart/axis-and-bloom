@@ -4,8 +4,14 @@ import { Link } from 'react-router';
 import { TasteFinderSection } from './TasteFinderSection';
 import FilmModal from './FilmModal';
 import StripesDivider from './StripesDivider';
+import OrderFeedbackForm from './OrderFeedbackForm';
+import CompanyGiftRedemption from './CompanyGiftRedemption';
 import { useAuth } from '../context/AuthContext';
 import { getHomepageState } from '../lib/api';
+
+// Mirrors FEEDBACK_NAG_SUPPRESS_DAYS in backend/src/services/userLifecycle.ts —
+// how long the feedback nudge stays hidden after a user dismisses it.
+const FEEDBACK_NAG_SUPPRESS_DAYS = 14;
 
 import heroVideo    from '../../design/IMAGES/videos/PlaceHolderHERO.mp4';
 import liamVideo    from '../../design/IMAGES/videos/PlaceHolder01.mp4';
@@ -100,12 +106,31 @@ export default function Home() {
 
   // Archetype data — used in §10 gift reveal
   const [homepageState, setHomepageState] = useState<HomepageState | null>(null);
-  useEffect(() => {
+  const [homepageStateLoading, setHomepageStateLoading] = useState(false);
+  const [feedbackDismissed, setFeedbackDismissed] = useState(false);
+
+  const refreshHomepageState = () => {
     if (!user) { setHomepageState(null); return; }
+    setHomepageStateLoading(true);
     getHomepageState()
       .then(setHomepageState)
-      .catch(() => setHomepageState(null));
-  }, [user]);
+      .catch(() => setHomepageState(null))
+      .finally(() => setHomepageStateLoading(false));
+  };
+
+  useEffect(refreshHomepageState, [user]);
+
+  useEffect(() => {
+    const orderId = homepageState?.pendingFeedback?.orderId;
+    if (orderId) {
+      const key = `axisBloomFeedbackDismiss_${orderId}`;
+      const dismissedAt = localStorage.getItem(key);
+      const suppressed = !!dismissedAt && Date.now() - Number(dismissedAt) < FEEDBACK_NAG_SUPPRESS_DAYS * 86400000;
+      setFeedbackDismissed(suppressed);
+    } else {
+      setFeedbackDismissed(false);
+    }
+  }, [homepageState]);
 
   // §7 Quote auto-rotation
   useEffect(() => {
@@ -166,6 +191,119 @@ export default function Home() {
     localStorage.setItem('axisbloom.name', val);
   };
 
+  // §2 signed-in CTA — headline styled to match the anonymous headline above it
+  const q2Headline: React.CSSProperties = {
+    fontSize: 'clamp(26px,3.2vw,42px)', fontWeight: 400, color: '#9a2918',
+    lineHeight: 1.2, margin: '0 0 20px', maxWidth: 600,
+  };
+  const q2Body: React.CSSProperties = {
+    fontSize: 16, color: '#45474a', margin: '0 0 24px', fontFamily: "'Lato', Arial, sans-serif",
+  };
+  const q2Primary: React.CSSProperties = {
+    display: 'inline-block', backgroundColor: '#9a2918', color: '#f2f1ea',
+    padding: '14px 32px', fontSize: '0.75rem', letterSpacing: '0.14em',
+    textTransform: 'uppercase', textDecoration: 'none', fontFamily: "'Lato', Arial, sans-serif",
+  };
+  const q2Secondary: React.CSSProperties = {
+    fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase',
+    color: '#45474a', textDecoration: 'none', opacity: 0.55,
+    fontFamily: "'Lato', Arial, sans-serif",
+  };
+
+  function renderSignedInCTA() {
+    if (homepageStateLoading || !homepageState) return null;
+    const { stageCode, archetype, pendingFeedback, usualBlend, nextDeliveryDate } = homepageState;
+
+    const feedbackNudge = pendingFeedback && !feedbackDismissed ? (
+      <div style={{ width: '100%', maxWidth: 420, margin: '0 0 36px', textAlign: 'left' }}>
+        <OrderFeedbackForm
+          orderId={pendingFeedback.orderId}
+          blendName={pendingFeedback.blendName}
+          onSubmitted={() => setFeedbackDismissed(true)}
+        />
+        <button
+          type="button"
+          onClick={() => {
+            localStorage.setItem(`axisBloomFeedbackDismiss_${pendingFeedback.orderId}`, String(Date.now()));
+            setFeedbackDismissed(true);
+          }}
+          style={{ ...q2Secondary, background: 'none', border: 'none', cursor: 'pointer', marginTop: 10, display: 'inline-block' }}
+        >
+          Not now
+        </button>
+      </div>
+    ) : null;
+
+    return (
+      <>
+        {feedbackNudge}
+        {renderStageCTA(stageCode, archetype, usualBlend, nextDeliveryDate)}
+      </>
+    );
+  }
+
+  function renderStageCTA(
+    stageCode: string,
+    archetype: HomepageState['archetype'],
+    usualBlend: HomepageState['usualBlend'],
+    nextDeliveryDate: HomepageState['nextDeliveryDate']
+  ) {
+    if (stageCode === 'NEW_NO_QUIZ') {
+      return (
+        <>
+          <h2 style={q2Headline}>Ready to find your flavor?</h2>
+          <Link to="/find-my-flavor" style={q2Primary}>Take the quiz →</Link>
+        </>
+      );
+    }
+    if (stageCode === 'QUIZ_TAKEN_FRESH_NO_ORDER' || stageCode === 'QUIZ_TAKEN_SETTLED_NO_ORDER' || stageCode === 'QUIZ_STALE_NO_ORDER') {
+      return (
+        <>
+          <h2 style={q2Headline}>You're a {archetype?.name ?? 'match'} — shop your matches.</h2>
+          <Link to="/shop" style={q2Primary}>Shop your matches →</Link>
+          <div style={{ marginTop: 16 }}>
+            {stageCode === 'QUIZ_TAKEN_SETTLED_NO_ORDER' && <Link to="/find-my-flavor" style={q2Secondary}>Retake the quiz →</Link>}
+            {stageCode === 'QUIZ_STALE_NO_ORDER' && <Link to="/find-my-flavor" style={q2Secondary}>Palates change — retake anytime →</Link>}
+          </div>
+        </>
+      );
+    }
+    if (stageCode === 'SUBSCRIBER') {
+      return (
+        <>
+          <h2 style={q2Headline}>Your subscription is on track.</h2>
+          {nextDeliveryDate && (
+            <p style={q2Body}>Next shipment: {new Date(nextDeliveryDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}</p>
+          )}
+          <Link to="/profile" style={q2Primary}>Manage subscription →</Link>
+        </>
+      );
+    }
+    if (stageCode === 'REORDER_DUE') {
+      return (
+        <>
+          <h2 style={q2Headline}>Ready for more {usualBlend?.name ?? 'your usual'}?</h2>
+          <Link to="/shop" style={q2Primary}>Reorder →</Link>
+        </>
+      );
+    }
+    if (stageCode === 'LAPSED_SINGLE_ORDER') {
+      return (
+        <>
+          <h2 style={q2Headline}>New arrivals since your last order.</h2>
+          <Link to="/shop" style={q2Primary}>See what's new →</Link>
+        </>
+      );
+    }
+    // ACTIVE_REPEAT_USER and any other fallback
+    return (
+      <>
+        <h2 style={q2Headline}>Welcome back.</h2>
+        <Link to="/shop" style={q2Primary}>Shop again →</Link>
+      </>
+    );
+  }
+
   return (
     <div style={{ backgroundColor: '#f2f1ea' }}>
 
@@ -220,52 +358,70 @@ export default function Home() {
         padding: 'clamp(80px,12vw,140px) clamp(32px,6vw,80px)',
         display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
       }}>
-        <h2 style={{
-          fontSize: 'clamp(26px,3.2vw,42px)', fontWeight: 400, color: '#9a2918',
-          lineHeight: 1.2, margin: '0 0 40px', maxWidth: 600,
-        }}>
-          Whose palate are we profiling today?
-        </h2>
-        <div style={{ width: '100%', maxWidth: 360 }}>
-          <style>{`#q-name::placeholder { color: #7b7f80; text-align: center; }`}</style>
-          <input
-            id="q-name"
-            type="text"
-            placeholder="Your name"
-            autoComplete="given-name"
-            value={visitorName}
-            onChange={e => handleNameChange(e.target.value)}
-            style={{
-              width: '100%', background: 'transparent', border: 'none',
-              borderBottom: '1px solid #9a2918', borderRadius: 0, outline: 'none',
-              fontSize: 18, color: '#45474a', padding: '10px 0', textAlign: 'center',
-              fontFamily: "'Lato', Arial, sans-serif",
-            }}
-          />
-          <div style={{ marginTop: 28, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
-            <Link
-              to="/find-my-flavor"
-              onClick={e => {
-                if (!visitorName.trim()) { e.preventDefault(); return; }
-                sessionStorage.setItem('axisBloomCustomerName', visitorName.trim());
-              }}
-              style={{
-                display: 'inline-block', backgroundColor: '#9a2918', color: '#f2f1ea',
-                padding: '14px 32px', fontSize: '0.75rem', letterSpacing: '0.14em',
-                textTransform: 'uppercase', textDecoration: 'none', fontFamily: "'Lato', Arial, sans-serif",
-              }}
-            >
-              Begin →
-            </Link>
-            <Link to="/sign-in" style={{
-              fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase',
-              color: '#45474a', textDecoration: 'none', opacity: 0.55,
-              fontFamily: "'Lato', Arial, sans-serif",
+        {!user ? (
+          <>
+            <h2 style={{
+              fontSize: 'clamp(26px,3.2vw,42px)', fontWeight: 400, color: '#9a2918',
+              lineHeight: 1.2, margin: '0 0 40px', maxWidth: 600,
             }}>
-              Sign in
-            </Link>
+              Whose palate are we profiling today?
+            </h2>
+            <div style={{ width: '100%', maxWidth: 360 }}>
+              <style>{`#q-name::placeholder { color: #7b7f80; text-align: center; }`}</style>
+              <input
+                id="q-name"
+                type="text"
+                placeholder="Your name"
+                autoComplete="given-name"
+                value={visitorName}
+                onChange={e => handleNameChange(e.target.value)}
+                style={{
+                  width: '100%', background: 'transparent', border: 'none',
+                  borderBottom: '1px solid #9a2918', borderRadius: 0, outline: 'none',
+                  fontSize: 18, color: '#45474a', padding: '10px 0', textAlign: 'center',
+                  fontFamily: "'Lato', Arial, sans-serif",
+                }}
+              />
+              <div style={{ marginTop: 28, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+                <Link
+                  to="/find-my-flavor"
+                  onClick={e => {
+                    if (!visitorName.trim()) { e.preventDefault(); return; }
+                    sessionStorage.setItem('axisBloomCustomerName', visitorName.trim());
+                  }}
+                  style={{
+                    display: 'inline-block', backgroundColor: '#9a2918', color: '#f2f1ea',
+                    padding: '14px 32px', fontSize: '0.75rem', letterSpacing: '0.14em',
+                    textTransform: 'uppercase', textDecoration: 'none', fontFamily: "'Lato', Arial, sans-serif",
+                  }}
+                >
+                  Begin →
+                </Link>
+                <Link to="/sign-in" style={{
+                  fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase',
+                  color: '#45474a', textDecoration: 'none', opacity: 0.55,
+                  fontFamily: "'Lato', Arial, sans-serif",
+                }}>
+                  Sign in
+                </Link>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div style={{ width: '100%', maxWidth: 420, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            {renderSignedInCTA()}
           </div>
-        </div>
+        )}
+      </section>
+
+      {/* ━━━ COMPANY GIFT CODE REDEMPTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <section style={{
+        backgroundColor: '#f2f1ea',
+        borderTop: '1px solid rgba(154,41,24,0.12)', borderBottom: '1px solid rgba(154,41,24,0.12)',
+        padding: '18px clamp(32px,5vw,56px)',
+        display: 'flex', justifyContent: 'center',
+      }}>
+        <CompanyGiftRedemption onRedeemed={refreshHomepageState} />
       </section>
 
       {/* ━━━ §3 PULL QUOTE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ShoppingCart, User } from 'lucide-react';
+import { ShoppingCart, User, Menu, X } from 'lucide-react';
 import { Link, useNavigate, useLocation } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import logoMark from '../../design/LOGO/LogoQuarter1.svg';
@@ -8,14 +8,21 @@ export default function Navigation() {
   const { user, isAdmin, logout } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const handleSignOut = async () => { await logout(); navigate('/'); };
+  const handleSignOut = async () => { await logout(); navigate('/'); setMobileOpen(false); };
 
   // true = hero section is visible = transparent nav
   const [heroVisible, setHeroVisible] = useState(pathname === '/');
 
+  // Mobile hamburger menu
+  const [mobileOpen, setMobileOpen] = useState(false);
+
   // Reset on route change (prevents stale state when navigating between pages)
   useEffect(() => {
     setHeroVisible(pathname === '/');
+  }, [pathname]);
+
+  useEffect(() => {
+    setMobileOpen(false);
   }, [pathname]);
 
   // IntersectionObserver on [data-hero] — switches state as hero enters/leaves view
@@ -107,7 +114,62 @@ export default function Navigation() {
             fontFamily: "'Lato', Arial, sans-serif", fontWeight: 400,
           }}>0</span>
         </button>
+
+        <button
+          onClick={() => setMobileOpen(o => !o)}
+          aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
+          aria-expanded={mobileOpen}
+          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: linkColor, alignItems: 'center', transition: 'color 250ms' }}
+          className="flex md:hidden hover:opacity-50"
+        >
+          {mobileOpen ? <X size={19} strokeWidth={1.5} /> : <Menu size={19} strokeWidth={1.5} />}
+        </button>
       </div>
+
+      {/* Mobile menu panel */}
+      {mobileOpen && (
+        <div
+          className="md:hidden"
+          style={{
+            position: 'absolute', top: 46, left: 0, right: 0,
+            backgroundColor: '#f2f1ea', borderBottom: '1px solid #c5c7c8',
+            display: 'flex', flexDirection: 'column',
+            padding: 'clamp(16px,4vw,24px) clamp(24px,5vw,64px) 24px',
+          }}
+        >
+          {[
+            { to: '/the-axis', label: 'THE AXIS' },
+            { to: '/bloom', label: 'THE BLOOM' },
+            { to: '/how-it-works', label: 'HOW IT WORKS' },
+            { to: '/find-my-flavor', label: 'FIND MY FLAVOR' },
+            { to: '/flavor-intelligence', label: 'FLAVOR INTELLIGENCE' },
+            { to: '/about', label: 'ABOUT' },
+            { to: '/shop', label: 'SHOP' },
+            ...(isAdmin ? [{ to: '/admin', label: 'ADMIN' }] : []),
+          ].map(item => (
+            <Link
+              key={item.to}
+              to={item.to}
+              onClick={() => setMobileOpen(false)}
+              style={{ ...LINK, color: '#9a2918', padding: '12px 0', borderBottom: '1px solid #c5c7c8' }}
+            >
+              {item.label}
+            </Link>
+          ))}
+          {user && (
+            <button
+              onClick={handleSignOut}
+              style={{
+                background: 'none', border: 'none', padding: '12px 0', cursor: 'pointer', textAlign: 'left',
+                fontFamily: "'Lato', Arial, sans-serif", fontSize: '10.5px', letterSpacing: '0.12em',
+                color: '#9a2918', textTransform: 'uppercase', opacity: 0.55,
+              }}
+            >
+              Sign out
+            </button>
+          )}
+        </div>
+      )}
 
     </nav>
   );

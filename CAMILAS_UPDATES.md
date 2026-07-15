@@ -7,6 +7,10 @@ Live site: https://axisandbloom.com
 
 ---
 
+**⚠️ Before redesigning the homepage (or any page with `GET /api/users/homepage-state` personalization):** this site has a customer lifecycle feature (`user_lifecycle_stage` — see `backend/src/features/customer_life_cycle/`) that changes what signed-in users should see based on where they are (new visitor, quiz taken but no order, subscriber, reorder due, lapsed, etc.), plus a Company Gift code redemption widget (`CompanyGiftRedemption.tsx`). Full redesigns have twice dropped these as an unintended side effect of visual rebuilds (2026-07-07 bug fixed in #73/#74, then reintroduced by the 2026-07-14/15 home-v3 rebuild). When redesigning a page that currently has lifecycle-aware content, please either preserve the branch logic (`renderSignedInCTA`/`renderStageCTA` pattern in `Home.tsx`) in the new design, or flag explicitly in the commit/PR that it's being intentionally dropped so it can be re-scoped rather than silently lost again.
+
+---
+
 ## How to Deploy
 
 Any change pushed to `main` triggers the CI/CD pipeline automatically — no manual steps needed.
