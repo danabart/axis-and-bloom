@@ -1,80 +1,45 @@
-import { useRef, useEffect, useState, type CSSProperties } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
-import { Link, useNavigate } from 'react-router';
+import { useRef, useEffect, useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { Link } from 'react-router';
 import { TasteFinderSection } from './TasteFinderSection';
-import OrderFeedbackForm from './OrderFeedbackForm';
-import CompanyGiftRedemption from './CompanyGiftRedemption';
+import FilmModal from './FilmModal';
+import StripesDivider from './StripesDivider';
 import { useAuth } from '../context/AuthContext';
 import { getHomepageState } from '../lib/api';
 
-// Mirrors FEEDBACK_NAG_SUPPRESS_DAYS in backend/src/services/userLifecycle.ts —
-// how long the feedback nudge stays hidden after a user dismisses it.
-const FEEDBACK_NAG_SUPPRESS_DAYS = 14;
+import heroVideo    from '../../design/IMAGES/videos/PlaceHolderHERO.mp4';
+import liamVideo    from '../../design/IMAGES/videos/PlaceHolder01.mp4';
 
-interface HomepageState {
-  stageCode: string;
-  archetype: { name: string; id: string; color: string; features: string[] } | null;
-  daysSinceQuiz: number | null;
-  pendingFeedback: { orderId: string; blendName: string | null } | null;
-  usualBlend: { id: string; name: string } | null;
-  nextDeliveryDate: string | null;
-}
-import placeholderVideo from '../../design/IMAGES/videos/PlaceHolder01.mp4'
-import heroVideo from '../../design/IMAGES/videos/PlaceHolder10.mp4'
+// ── §4 Collection: july_scan1 edited scans ───────────────────────────────────
+import scanFloral        from '../../design/IMAGES/photos/july_scan1/EDITScanFloral.jpg';
+import scanFruity        from '../../design/IMAGES/photos/july_scan1/EDITScanFruity.jpg';
+import scanBalanced      from '../../design/IMAGES/photos/july_scan1/EDITScanBalanced&Sweet.jpg';
+import scanChocolate     from '../../design/IMAGES/photos/july_scan1/EDITScanChocolate&Nutty.jpg';
+import scanSpicy         from '../../design/IMAGES/photos/july_scan1/EDITScanSpicy&Earthy.jpg';
+import scanExperimental  from '../../design/IMAGES/photos/july_scan1/EDITScanExperimental.jpg';
 
-// ─── Collection: archetype photos (default) ───────────────────────────────────
-import photoFloral      from '../../design/IMAGES/photos/june2026/WEBCUTFloralJun20.png'
-import photoFruity      from '../../design/IMAGES/photos/june2026/WEBCUTFruityJun03.png'
-import photoBalanced    from '../../design/IMAGES/photos/june2026/WEBCUTBalanced&SweetJun07.png'
-import photoChocolate   from '../../design/IMAGES/photos/june2026/WEBCUTChocolate&NuttyJun05.png'
-import photoEarthy      from '../../design/IMAGES/photos/june2026/WEBCUTSpicy&EarthyJun05.png'
-import photoExperimental from '../../design/IMAGES/photos/june2026/WEBCUTExperimentalJun5.png'
+// ── §4 Collection: bag hover artwork (existing PNGs, do not replace) ─────────
+import bagFloral        from '../../design/IMAGES/bags/new bags mock up/FLORAL transp.png';
+import bagFruity        from '../../design/IMAGES/bags/new bags mock up/FRUITY transp.png';
+import bagBalanced      from '../../design/IMAGES/bags/new bags mock up/BALANCED & SWEET transp.png';
+import bagChocolate     from '../../design/IMAGES/bags/new bags mock up/CHOCOLATE & NUTTY transp.png';
+import bagEarthy        from '../../design/IMAGES/bags/new bags mock up/SPICY & EARTHY transp.png';
+import bagExperimental  from '../../design/IMAGES/bags/new bags mock up/EXPERIMENTAL transp.png';
 
-// ─── Collection: archetype bags (hover) ──────────────────────────────────────
-import bagFloral        from '../../design/IMAGES/bags/new bags mock up/FLORAL transp.png'
-import bagFruity        from '../../design/IMAGES/bags/new bags mock up/FRUITY transp.png'
-import bagBalanced      from '../../design/IMAGES/bags/new bags mock up/BALANCED & SWEET transp.png'
-import bagChocolate     from '../../design/IMAGES/bags/new bags mock up/CHOCOLATE & NUTTY transp.png'
-import bagEarthy        from '../../design/IMAGES/bags/new bags mock up/SPICY & EARTHY transp.png'
-import bagExperimental  from '../../design/IMAGES/bags/new bags mock up/EXPERIMENTAL transp.png'
+// ── §5 Photo essay images ─────────────────────────────────────────────────────
+import photoEssay1 from '../../design/IMAGES/photos/june2026/WEBCUTSpicy&EarthyJun03.png';
+import photoEssay2 from '../../design/IMAGES/photos/june2026/WEBCUTFruityJun02.png';
+import photoEssay3 from '../../design/IMAGES/photos/june2026/WEBCUTFloralJun06.png';
 
-// ─── Data ────────────────────────────────────────────────────────────────────
+// ── Data ─────────────────────────────────────────────────────────────────────
 
-const bags = [
-  { photo: photoFloral,       bag: bagFloral,       num: '01', name: 'Floral',             color: '#a34b78' },
-  { photo: photoFruity,       bag: bagFruity,       num: '02', name: 'Fruity',              color: '#ca445f' },
-  { photo: photoBalanced,     bag: bagBalanced,     num: '03', name: 'Balanced & Sweet',    color: '#d1ac11' },
-  { photo: photoChocolate,    bag: bagChocolate,    num: '04', name: 'Chocolate & Nutty',   color: '#a54c2d' },
-  { photo: photoEarthy,       bag: bagEarthy,       num: '05', name: 'Spicy & Earthy',      color: '#912f2f' },
-  { photo: photoExperimental, bag: bagExperimental, num: '06', name: 'Experimental',        color: '#056c7a' },
-];
-
-const FLAVOR_DIMS = ['Sweetness', 'Acidity', 'Bitterness', 'Body', 'Fruit', 'Spice'];
-
-// PLACEHOLDER VALUES — replace with roaster cupping data before launch
-const FLAVOR_BAR_VALUES = [
-  [60, 80, 30, 40, 70, 20],   // Floral
-  [70, 90, 30, 50, 100, 20],  // Fruity
-  [90, 50, 40, 70, 50, 20],   // Balanced & Sweet
-  [70, 30, 70, 90, 20, 30],   // Chocolate & Nutty
-  [50, 30, 80, 90, 20, 90],   // Spicy & Earthy
-  [50, 70, 50, 60, 70, 60],   // Experimental
-];
-
-const FLAVOR_CARDS = [
-  { name: 'Floral',            num: '01', color: '#a34b78', dark: false, desc: 'Light, elegant, and aromatic. Hints of jasmine, citrus, and a tea-like clarity.',                                tags: 'Fragrant, bright, delicate, clean',  bars: FLAVOR_BAR_VALUES[0] },
-  { name: 'Fruity',            num: '02', color: '#ca445f', dark: false, desc: 'Juicy and lively with notes of berries and ripe fruit.',                                                          tags: 'Sweet, vibrant, expressive, lively', bars: FLAVOR_BAR_VALUES[1] },
-  { name: 'Balanced & Sweet',  num: '03', color: '#d1ac11', dark: true,  desc: 'Round, smooth, and comforting. Notes of caramel, honey, and soft fruit.',                                        tags: 'Smooth, sweet, harmonious, easy',    bars: FLAVOR_BAR_VALUES[2] },
-  { name: 'Chocolate & Nutty', num: '04', color: '#a54c2d', dark: false, desc: 'Deep and satisfying with cocoa, roasted nuts, and a rich presence.',                                             tags: 'Rich, grounded, full, comforting',   bars: FLAVOR_BAR_VALUES[3] },
-  { name: 'Spicy & Earthy',    num: '05', color: '#912f2f', dark: false, desc: 'Warm and bold with hints of spice, wood, and lingering depth.',                                                   tags: 'Warm, deep, bold, lasting',          bars: FLAVOR_BAR_VALUES[4] },
-  { name: 'Experimental',      num: '06', color: '#056c7a', dark: false, desc: 'Ever-changing and wonderfully unconventional. A rotating selection of boundary-pushing coffees, always unique.', tags: 'Wild, unique, surprising',           bars: FLAVOR_BAR_VALUES[5] },
-];
-
-type CinToken = { text: string; highlight?: boolean };
-const CINEMATIC_WORDS: CinToken[] = [
-  { text: 'Coffee' }, { text: 'is' }, { text: 'never' }, { text: 'just' }, { text: 'flavor.' },
-  { text: 'It' }, { text: 'is' }, { text: 'morning,' }, { text: 'memory,', highlight: true },
-  { text: 'temperature,' }, { text: 'texture,' }, { text: 'time.' },
+const COLLECTION = [
+  { scan: scanFloral,       bag: bagFloral,       num: '01', name: 'Floral',            color: '#a34b78' },
+  { scan: scanFruity,       bag: bagFruity,       num: '02', name: 'Fruity',             color: '#ca445f' },
+  { scan: scanBalanced,     bag: bagBalanced,     num: '03', name: 'Balanced & Sweet',   color: '#d1ac11' },
+  { scan: scanChocolate,    bag: bagChocolate,    num: '04', name: 'Chocolate & Nutty',  color: '#a54c2d' },
+  { scan: scanSpicy,        bag: bagEarthy,       num: '05', name: 'Spicy & Earthy',     color: '#912f2f' },
+  { scan: scanExperimental, bag: bagExperimental, num: '06', name: 'Experimental',       color: '#056c7a' },
 ];
 
 // punct = punctuation that must hug the highlighted word (no gap)
@@ -88,466 +53,326 @@ const QUOTES: QuoteToken[] = [
   { before: "I don't drink coffee to wake up. I wake up to ", word: 'drink coffee', punct: '.', rest: '' },
 ];
 
-// ─── Shared animation preset ─────────────────────────────────────────────────
+type CinToken = { text: string; highlight?: boolean };
+const LIAM_WORDS: CinToken[] = [
+  { text: 'Coffee' }, { text: 'is' }, { text: 'never' }, { text: 'just' }, { text: 'flavor.' },
+  { text: 'It' }, { text: 'is' }, { text: 'morning,' }, { text: 'memory,', highlight: true },
+  { text: 'temperature,' }, { text: 'texture,' }, { text: 'time.' },
+];
 
-const fadeUp = (delay = 0) => ({
-  initial: { opacity: 0, y: 24 },
-  whileInView: { opacity: 1, y: 0 } as const,
-  viewport: { once: true, amount: 0.25 },
-  transition: { duration: 0.85, delay, ease: [0.16, 1, 0.3, 1] as const },
-});
+interface HomepageState {
+  stageCode: string;
+  archetype: { name: string; id: string; color: string; features: string[] } | null;
+  daysSinceQuiz: number | null;
+  pendingFeedback: { orderId: string; blendName: string | null } | null;
+  usualBlend: { id: string; name: string } | null;
+  nextDeliveryDate: string | null;
+}
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function Home() {
-  const navigate = useNavigate();
   const { user } = useAuth();
-  const heroVideoRef      = useRef<HTMLVideoElement>(null);
-  const cinematicVideoRef = useRef<HTMLVideoElement>(null);
+
+  // Film modal
+  const [filmModalOpen, setFilmModalOpen] = useState(false);
+
+  // §4 Collection hover
   const [hoveredBag, setHoveredBag] = useState<number | null>(null);
+
+  // §7 Voices rotation
   const [activeIdx, setActiveIdx]   = useState(0);
   const [paused, setPaused]         = useState(false);
   const [resetKey, setResetKey]     = useState(0);
-  const prefersReducedMotion        = useReducedMotion();
+
+  const prefersReducedMotion = useReducedMotion();
+
+  // §2 Visitor name (drives §10 gift tag + bag)
   const [visitorName, setVisitorName] = useState(() => localStorage.getItem('axisbloom.name') || '');
-  const cinematicTextRef = useRef<HTMLParagraphElement>(null);
-  const [cinematicVisible, setCinematicVisible] = useState(false);
-  const [visibleCards, setVisibleCards] = useState<Set<number>>(new Set());
-  const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-  const [homepageState, setHomepageState]               = useState<HomepageState | null>(null);
-  const [homepageStateLoading, setHomepageStateLoading] = useState(false);
-  const [feedbackDismissed, setFeedbackDismissed]        = useState(false);
+  // §6 Liam word reveal
+  const liamTextRef = useRef<HTMLParagraphElement>(null);
+  const [liamVisible, setLiamVisible] = useState(false);
 
-  const refreshHomepageState = () => {
+  // Video refs
+  const heroVideoRef = useRef<HTMLVideoElement>(null);
+  const liamVideoRef = useRef<HTMLVideoElement>(null);
+
+  // Archetype data — used in §10 gift reveal
+  const [homepageState, setHomepageState] = useState<HomepageState | null>(null);
+  useEffect(() => {
     if (!user) { setHomepageState(null); return; }
-    setHomepageStateLoading(true);
     getHomepageState()
       .then(setHomepageState)
-      .catch(() => setHomepageState(null))
-      .finally(() => setHomepageStateLoading(false));
-  };
+      .catch(() => setHomepageState(null));
+  }, [user]);
 
-  useEffect(refreshHomepageState, [user]);
-
-  useEffect(() => {
-    const orderId = homepageState?.pendingFeedback?.orderId;
-    if (orderId) {
-      const key = `axisBloomFeedbackDismiss_${orderId}`;
-      const dismissedAt = localStorage.getItem(key);
-      const suppressed = !!dismissedAt && Date.now() - Number(dismissedAt) < FEEDBACK_NAG_SUPPRESS_DAYS * 86400000;
-      setFeedbackDismissed(suppressed);
-    } else {
-      setFeedbackDismissed(false);
-    }
-  }, [homepageState]);
-
+  // §7 Quote auto-rotation
   useEffect(() => {
     if (prefersReducedMotion || paused) return;
     const id = setInterval(() => setActiveIdx(i => (i + 1) % QUOTES.length), 5000);
     return () => clearInterval(id);
   }, [paused, prefersReducedMotion, resetKey]);
 
+  // rAF loop for clean video looping (avoids black-frame tail)
   useEffect(() => {
-    // rAF-based loop: fires every frame (~60fps) so we catch the end before any black frame
-    const attachLoop = (ref: React.RefObject<HTMLVideoElement | null>) => {
-      const video = ref.current;
-      if (!video) return () => {};
-      let rafId: number;
+    const attach = (ref: React.RefObject<HTMLVideoElement | null>) => {
+      const v = ref.current;
+      if (!v) return () => {};
+      let raf: number;
       const tick = () => {
-        if (video.duration && video.currentTime >= video.duration - 0.5) {
-          video.currentTime = 0.05; // skip black first frame; cut end 500ms early
-        }
-        rafId = requestAnimationFrame(tick);
+        if (v.duration && v.currentTime >= v.duration - 0.5) v.currentTime = 0.05;
+        raf = requestAnimationFrame(tick);
       };
-      rafId = requestAnimationFrame(tick);
-      return () => cancelAnimationFrame(rafId);
+      raf = requestAnimationFrame(tick);
+      return () => cancelAnimationFrame(raf);
     };
-    const cleanHero      = attachLoop(heroVideoRef);
-    const cleanCinematic = attachLoop(cinematicVideoRef);
-    return () => { cleanHero(); cleanCinematic(); };
+    const c1 = attach(heroVideoRef);
+    const c2 = attach(liamVideoRef);
+    return () => { c1(); c2(); };
   }, []);
 
+  // Pause videos when off-screen
   useEffect(() => {
-    const el = cinematicTextRef.current;
+    const observe = (ref: React.RefObject<HTMLVideoElement | null>) => {
+      const v = ref.current;
+      if (!v) return () => {};
+      const io = new IntersectionObserver(
+        ([e]) => { e.isIntersecting ? v.play().catch(() => {}) : v.pause(); },
+        { threshold: 0.05 }
+      );
+      io.observe(v);
+      return () => io.disconnect();
+    };
+    const d1 = observe(heroVideoRef);
+    const d2 = observe(liamVideoRef);
+    return () => { d1(); d2(); };
+  }, []);
+
+  // §6 Liam word reveal
+  useEffect(() => {
+    const el = liamTextRef.current;
     if (!el) return;
     const io = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) { setCinematicVisible(true); io.disconnect(); } },
+      ([e]) => { if (e.isIntersecting) { setLiamVisible(true); io.disconnect(); } },
       { threshold: 0.4 }
     );
     io.observe(el);
     return () => io.disconnect();
   }, []);
 
-  useEffect(() => {
-    const refs = cardRefs.current;
-    const io = new IntersectionObserver(
-      (entries) => {
-        entries.forEach(e => {
-          if (e.isIntersecting) {
-            const i = Number((e.target as HTMLElement).dataset.cardIdx);
-            setVisibleCards(prev => new Set([...prev, i]));
-            io.unobserve(e.target);
-          }
-        });
-      },
-      { threshold: 0.4 }
-    );
-    refs.forEach((el, i) => { if (el) { el.dataset.cardIdx = String(i); io.observe(el); } });
-    return () => io.disconnect();
-  }, []);
-
-  const handleProfileStart = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const name = new FormData(e.currentTarget).get('name');
-    if (name) {
-      sessionStorage.setItem('axisBloomCustomerName', name.toString());
-      navigate('/find-my-flavor');
-    }
+  const handleNameChange = (val: string) => {
+    setVisitorName(val);
+    localStorage.setItem('axisbloom.name', val);
   };
-
-  const ctaHeadlineStyle: CSSProperties = { fontSize: 'clamp(2rem, 3.6vw, 3.6rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.15, margin: 0 };
-  const ctaPrimaryLinkStyle: CSSProperties = { marginTop: 22, fontSize: '0.88rem', fontWeight: 400, color: '#9a2918', letterSpacing: '0.22em', textTransform: 'uppercase', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,0.32)', paddingBottom: 3 };
-  const ctaSecondaryLinkStyle: CSSProperties = { marginTop: 14, fontSize: '0.72rem', fontWeight: 400, color: '#9a2918', letterSpacing: '0.14em', textTransform: 'uppercase', textDecoration: 'none', opacity: 0.5, borderBottom: '1px solid rgba(154,41,24,0.25)', paddingBottom: 2 };
-
-  // Section 2's right column — the direct fix for the screenshots (Dana's bug report):
-  // a signed-in user must never see the anonymous name-capture form, and the CTA
-  // must reflect where they actually are (UC0-UC4 in WHAT_WE_BUILT.md).
-  //
-  // Pending feedback is layered independently of stageCode — a subscriber or
-  // repeat customer can still have an unanswered feedback ask sitting out there
-  // from an early order. It renders above the stage-specific CTA, not instead of it
-  // (see 2_CLAUDE_CODE_PROMPT_LIFECYCLE_FEEDBACK_FIX.md).
-  function renderSignedInCTA() {
-    if (homepageStateLoading || !homepageState) return null;
-    const { stageCode, archetype, pendingFeedback, usualBlend, nextDeliveryDate } = homepageState;
-
-    const feedbackNudge = pendingFeedback && !feedbackDismissed ? (
-      <div style={{ marginBottom: 32, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', width: '100%' }}>
-        <p style={ctaHeadlineStyle}>How was<br />{pendingFeedback.blendName ?? 'your coffee'}?</p>
-        <div style={{ marginTop: 24, width: '100%', maxWidth: 400 }}>
-          <OrderFeedbackForm
-            orderId={pendingFeedback.orderId}
-            blendName={pendingFeedback.blendName}
-            onSubmitted={() => setFeedbackDismissed(true)}
-          />
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            localStorage.setItem(`axisBloomFeedbackDismiss_${pendingFeedback.orderId}`, String(Date.now()));
-            setFeedbackDismissed(true);
-          }}
-          style={{ ...ctaSecondaryLinkStyle, background: 'none', border: 'none', cursor: 'pointer', borderBottom: ctaSecondaryLinkStyle.borderBottom }}
-        >
-          Not now
-        </button>
-      </div>
-    ) : null;
-
-    return (
-      <>
-        {feedbackNudge}
-        {renderStageCTA(stageCode, archetype, usualBlend, nextDeliveryDate)}
-      </>
-    );
-  }
-
-  function renderStageCTA(
-    stageCode: string,
-    archetype: HomepageState['archetype'],
-    usualBlend: HomepageState['usualBlend'],
-    nextDeliveryDate: HomepageState['nextDeliveryDate']
-  ) {
-    if (stageCode === 'NEW_NO_QUIZ') {
-      return (
-        <>
-          <p style={ctaHeadlineStyle}>Ready to find<br />your flavor?</p>
-          <Link to="/find-my-flavor" style={ctaPrimaryLinkStyle}>TAKE THE QUIZ →</Link>
-        </>
-      );
-    }
-
-    if (stageCode === 'QUIZ_TAKEN_FRESH_NO_ORDER' || stageCode === 'QUIZ_TAKEN_SETTLED_NO_ORDER' || stageCode === 'QUIZ_STALE_NO_ORDER') {
-      return (
-        <>
-          <p style={ctaHeadlineStyle}>You're a {archetype?.name ?? 'match'} —<br />shop your matches.</p>
-          <Link to="/shop" style={ctaPrimaryLinkStyle}>SHOP YOUR MATCHES →</Link>
-          {stageCode === 'QUIZ_TAKEN_SETTLED_NO_ORDER' && (
-            <Link to="/find-my-flavor" style={ctaSecondaryLinkStyle}>Retake the quiz →</Link>
-          )}
-          {stageCode === 'QUIZ_STALE_NO_ORDER' && (
-            <Link to="/find-my-flavor" style={ctaSecondaryLinkStyle}>Palates change — retake anytime →</Link>
-          )}
-        </>
-      );
-    }
-
-    if (stageCode === 'SUBSCRIBER') {
-      return (
-        <>
-          <p style={ctaHeadlineStyle}>Your subscription<br />is on track.</p>
-          {nextDeliveryDate && (
-            <p style={{ marginTop: 12, fontSize: '0.85rem', color: '#9a2918', opacity: 0.65 }}>
-              Next shipment: {new Date(nextDeliveryDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
-            </p>
-          )}
-          <Link to="/profile" style={ctaPrimaryLinkStyle}>MANAGE SUBSCRIPTION →</Link>
-        </>
-      );
-    }
-
-    if (stageCode === 'REORDER_DUE') {
-      return (
-        <>
-          <p style={ctaHeadlineStyle}>Ready for more<br />{usualBlend?.name ?? 'your usual'}?</p>
-          <Link to="/shop" style={ctaPrimaryLinkStyle}>REORDER →</Link>
-        </>
-      );
-    }
-
-    if (stageCode === 'LAPSED_SINGLE_ORDER') {
-      return (
-        <>
-          <p style={ctaHeadlineStyle}>New arrivals since<br />your last order.</p>
-          <Link to="/shop" style={ctaPrimaryLinkStyle}>SEE WHAT'S NEW →</Link>
-        </>
-      );
-    }
-
-    // ACTIVE_REPEAT_USER and any other fallback
-    return (
-      <>
-        <p style={ctaHeadlineStyle}>Welcome back.</p>
-        <Link to="/shop" style={ctaPrimaryLinkStyle}>SHOP AGAIN →</Link>
-      </>
-    );
-  }
 
   return (
     <div style={{ backgroundColor: '#f2f1ea' }}>
 
-      {/* ━━━ 1. HERO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section data-hero style={{ position: 'relative', height: '92vh', minHeight: 480, overflow: 'hidden', backgroundColor: '#1a1208' }}>
+      <FilmModal
+        src={heroVideo}
+        open={filmModalOpen}
+        onClose={() => setFilmModalOpen(false)}
+      />
+
+      {/* ━━━ §1 FILM HERO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      {/* TODO: add poster="/poster-july26.jpg" once Camila exports the hero frame
+               ffmpeg -ss <t> -i PlaceHolderHERO.mp4 -frames:v 1 poster-july26.jpg */}
+      <section data-hero style={{ position: 'relative', height: '90vh', minHeight: 480, overflow: 'hidden', backgroundColor: '#141110' }}>
         <video
           ref={heroVideoRef}
-          autoPlay muted playsInline
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 50%', display: 'block', transform: 'scale(1.06)' }}
+          autoPlay muted loop playsInline preload="metadata"
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
         >
           <source src={heroVideo} type="video/mp4" />
         </video>
-        {/* Top scrim — keeps nav links legible in transparent state */}
-        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(20,12,8,.45) 0%, transparent 120px)', zIndex: 1 }} />
-        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(20,12,8,0) 40%, rgba(20,12,8,0.62) 100%)' }} />
 
-        <div style={{ position: 'absolute', left: 40, bottom: 64, maxWidth: 560, zIndex: 3 }}>
-          <motion.h1
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
-            style={{ fontSize: 'clamp(32px, 4.2vw, 52px)', fontWeight: 400, lineHeight: 1.15, color: '#f2f1ea', margin: '0 0 28px' }}
-          >
-            Coffee, <span style={{ backgroundColor: '#ee5974', color: '#f2f1ea', padding: '1px 10px' }}>matched</span> to your personal flavor.
-          </motion.h1>
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.55, ease: [0.22, 1, 0.36, 1] }}
-            style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}
-          >
+        {/* Bottom scrim */}
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 55%, rgba(20,12,8,.55))', pointerEvents: 'none' }} />
+
+        {/* Bottom-left title */}
+        <p style={{
+          position: 'absolute', left: 'clamp(24px,5vw,64px)', bottom: 80, zIndex: 2, margin: 0,
+          fontSize: 'clamp(22px,2.8vw,30px)', color: 'rgba(242,241,234,.7)', fontWeight: 400,
+        }}>
+          Do you hear me?
+        </p>
+
+        {/* WATCH pill — centered */}
+        <button
+          onClick={() => setFilmModalOpen(true)}
+          aria-label="Watch the film with sound"
+          style={{
+            position: 'absolute', bottom: 32, left: '50%', transform: 'translateX(-50%)',
+            zIndex: 2, background: 'none', border: '1px solid rgba(242,241,234,.55)',
+            color: '#f2f1ea', fontFamily: "'Lato', Arial, sans-serif",
+            fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase',
+            padding: '11px 28px', cursor: 'pointer',
+          }}
+        >
+          Watch
+        </button>
+      </section>
+
+      {/* ━━━ §2 THE QUESTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <section style={{
+        backgroundColor: '#f2f1ea',
+        padding: 'clamp(80px,12vw,140px) clamp(32px,6vw,80px)',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
+      }}>
+        <h2 style={{
+          fontSize: 'clamp(26px,3.2vw,42px)', fontWeight: 400, color: '#9a2918',
+          lineHeight: 1.2, margin: '0 0 40px', maxWidth: 600,
+        }}>
+          Whose palate are we profiling today?
+        </h2>
+        <div style={{ width: '100%', maxWidth: 360 }}>
+          <style>{`#q-name::placeholder { color: #7b7f80; text-align: center; }`}</style>
+          <input
+            id="q-name"
+            type="text"
+            placeholder="Your name"
+            autoComplete="given-name"
+            value={visitorName}
+            onChange={e => handleNameChange(e.target.value)}
+            style={{
+              width: '100%', background: 'transparent', border: 'none',
+              borderBottom: '1px solid #9a2918', borderRadius: 0, outline: 'none',
+              fontSize: 18, color: '#45474a', padding: '10px 0', textAlign: 'center',
+              fontFamily: "'Lato', Arial, sans-serif",
+            }}
+          />
+          <div style={{ marginTop: 28, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
             <Link
               to="/find-my-flavor"
-              style={{ display: 'inline-block', backgroundColor: '#9a2918', color: '#f2f1ea', padding: '14px 28px', fontSize: '0.75rem', letterSpacing: '0.14em', textTransform: 'uppercase', textDecoration: 'none', fontFamily: "'Lato', Arial, sans-serif" }}
+              onClick={e => {
+                if (!visitorName.trim()) { e.preventDefault(); return; }
+                sessionStorage.setItem('axisBloomCustomerName', visitorName.trim());
+              }}
+              style={{
+                display: 'inline-block', backgroundColor: '#9a2918', color: '#f2f1ea',
+                padding: '14px 32px', fontSize: '0.75rem', letterSpacing: '0.14em',
+                textTransform: 'uppercase', textDecoration: 'none', fontFamily: "'Lato', Arial, sans-serif",
+              }}
             >
-              Find my flavor →
+              Begin →
             </Link>
-            <Link
-              to="/flavor-intelligence"
-              style={{ fontSize: '0.69rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(242,241,234,0.9)', textDecoration: 'none', borderBottom: '1px solid rgba(242,241,234,0.5)', paddingBottom: 2, fontFamily: "'Lato', Arial, sans-serif" }}
-            >
-              Explore coffees
+            <Link to="/sign-in" style={{
+              fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase',
+              color: '#45474a', textDecoration: 'none', opacity: 0.55,
+              fontFamily: "'Lato', Arial, sans-serif",
+            }}>
+              Sign in
             </Link>
-          </motion.div>
-        </div>
-      </section>
-
-      {/* ━━━ 2. IN THEIR WORDS + PROFILE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ display: 'grid', gridTemplateColumns: '1.15fr 1px 1fr', backgroundColor: '#f2f1ea', minHeight: 480 }}>
-
-        {/* LEFT: rotating quote */}
-        <div
-          style={{ padding: 'clamp(56px,8vw,90px) clamp(32px,5vw,56px)', display: 'flex', flexDirection: 'column' }}
-          onMouseEnter={() => setPaused(true)}
-          onMouseLeave={() => setPaused(false)}
-        >
-          <span style={{ fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: '#9a2918' }}>In their words</span>
-
-          {/* Quote at display scale */}
-          <div style={{ minHeight: '8rem', position: 'relative', margin: '28px 0 16px' }}>
-            <AnimatePresence mode="wait">
-              <motion.p
-                key={activeIdx}
-                initial={prefersReducedMotion ? false : { opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={prefersReducedMotion ? false : { opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                aria-live="polite"
-                style={{ fontSize: 'clamp(30px,3vw,42px)', fontWeight: 400, color: '#45474a', lineHeight: 1.3, maxWidth: 480, margin: 0, position: 'absolute', top: 0, left: 0 }}
-              >
-                {QUOTES[activeIdx].before}
-                <span style={{ backgroundColor: '#ee5974', color: '#f2f1ea', padding: '1px 8px' }}>{QUOTES[activeIdx].word}</span>{QUOTES[activeIdx].punct}{QUOTES[activeIdx].rest}
-              </motion.p>
-            </AnimatePresence>
-          </div>
-
-          {/* Tick controls — directly below quote, left-aligned */}
-          <div role="group" aria-label="Quote navigation" style={{ display: 'flex', alignItems: 'flex-end', gap: 0 }}>
-            {QUOTES.map((_, i) => (
-              <button
-                key={i}
-                aria-label={`Quote ${i + 1} of ${QUOTES.length}`}
-                onClick={() => { setActiveIdx(i); setResetKey(k => k + 1); }}
-                style={{
-                  width: 24, height: 32, padding: 0, margin: 0,
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
-                }}
-                className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9a2918]"
-              >
-                <div style={{
-                  width: 1, height: i === activeIdx ? 18 : 9,
-                  backgroundColor: i === activeIdx ? '#9a2918' : '#c5c7c8',
-                  transition: 'height 0.3s ease, background-color 0.3s ease',
-                  pointerEvents: 'none',
-                }} />
-              </button>
-            ))}
           </div>
         </div>
-
-        {/* Axis divider */}
-        <div style={{ backgroundColor: '#c5c7c8' }} />
-
-        {/* RIGHT: profile */}
-        <div style={{ padding: 'clamp(56px,8vw,90px) clamp(32px,5vw,56px)', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-          {!user ? (
-            <>
-              <span style={{ fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: '#9a2918', marginBottom: 18 }}>Your profile</span>
-              <h2 style={{ fontSize: 'clamp(24px,2.4vw,30px)', fontWeight: 400, lineHeight: 1.25, color: '#9a2918', margin: '0 0 36px' }}>
-                Whose palate are we profiling today?
-              </h2>
-              <style>{`#profile-name::placeholder { color: #7b7f80; }`}</style>
-              <input
-                id="profile-name"
-                type="text"
-                placeholder="Your name"
-                autoComplete="given-name"
-                value={visitorName}
-                onChange={e => { setVisitorName(e.target.value); localStorage.setItem('axisbloom.name', e.target.value); }}
-                style={{ width: '100%', maxWidth: 360, background: 'transparent', border: 'none', borderBottom: '1px solid #9a2918', borderRadius: 0, outline: 'none', fontSize: 18, color: '#45474a', padding: '10px 0' }}
-              />
-              <div style={{ display: 'flex', alignItems: 'center', gap: 22, marginTop: 32 }}>
-                <Link
-                  to={visitorName.trim() ? `/find-my-flavor` : '#'}
-                  onClick={() => { if (visitorName.trim()) sessionStorage.setItem('axisBloomCustomerName', visitorName.trim()); }}
-                  style={{ display: 'inline-block', backgroundColor: '#9a2918', color: '#f2f1ea', padding: '14px 28px', fontSize: '0.75rem', letterSpacing: '0.14em', textTransform: 'uppercase', textDecoration: 'none' }}
-                >
-                  Begin profile →
-                </Link>
-                <Link to="/sign-in" style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#45474a', textDecoration: 'none', borderBottom: '1px solid #45474a', paddingBottom: 2 }}>
-                  Member? Sign in
-                </Link>
-              </div>
-            </>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              {renderSignedInCTA()}
-            </div>
-          )}
-        </div>
-
       </section>
 
-      {/* ━━━ 2b. COMPANY GIFT REDEMPTION — compact, low-key, always visible ━━ */}
-      <section style={{ backgroundColor: '#f2f1ea', borderTop: '1px solid rgba(154,41,24,0.12)', borderBottom: '1px solid rgba(154,41,24,0.12)', padding: '18px clamp(32px,5vw,56px)' }}>
-        <CompanyGiftRedemption onRedeemed={refreshHomepageState} />
+      {/* ━━━ §3 PULL QUOTE ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <section style={{
+        backgroundColor: '#ebebe3',
+        borderTop: '1px solid #c5c7c8', borderBottom: '1px solid #c5c7c8',
+        padding: 'clamp(64px,9vw,100px) clamp(32px,6vw,80px)',
+        textAlign: 'center',
+      }}>
+        <p style={{
+          fontSize: 'clamp(30px,3.4vw,48px)', fontWeight: 400, color: '#45474a',
+          lineHeight: 1.3, maxWidth: 800, margin: '0 auto',
+        }}>
+          The best gift is{' '}
+          <span style={{ backgroundColor: '#ee5974', color: '#f2f1ea', padding: '1px 9px' }}>time</span>
+          . And sometimes, time begins with coffee.
+        </p>
       </section>
 
-      {/* ━━━ 3. COFFEE COLLECTION ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ backgroundColor: '#f2f1ea', paddingTop: 'clamp(80px, 10vw, 120px)', paddingBottom: 112, isolation: 'isolate' }}>
-        {/* Header — keep horizontal padding */}
-        <div style={{ padding: '0 clamp(32px, 6vw, 96px)', marginBottom: 'clamp(40px, 5vw, 64px)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 16 }}>
-          <motion.div {...fadeUp(0)}>
-            <p style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 10px' }}>The Collection</p>
-            <h2 style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: 'clamp(1.8rem, 3vw, 2.8rem)', fontWeight: 400, color: '#9a2918', margin: 0, lineHeight: 1.1 }}>Find your bag.</h2>
-          </motion.div>
-          <Link
-            to="/shop"
-            style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.78rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,0.35)', paddingBottom: 4, alignSelf: 'flex-end' }}
-          >
+      <StripesDivider />
+
+      {/* ━━━ §4 COLLECTION — "Find your bag." ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <section style={{ backgroundColor: '#f2f1ea', paddingTop: 'clamp(80px,10vw,120px)', paddingBottom: 112, isolation: 'isolate' }}>
+        <div style={{ padding: '0 clamp(32px,6vw,96px)', marginBottom: 'clamp(40px,5vw,64px)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 16 }}>
+          <div>
+            <p style={{ fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 10px' }}>The Collection</p>
+            <h2 style={{ fontSize: 'clamp(1.8rem,3vw,2.8rem)', fontWeight: 400, color: '#9a2918', margin: 0, lineHeight: 1.1 }}>Find your bag.</h2>
+          </div>
+          <Link to="/shop" style={{ fontSize: '0.78rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,.35)', paddingBottom: 4, alignSelf: 'flex-end' }}>
             Shop all coffees →
           </Link>
         </div>
-        {/* Full-width grid — no padding, no gap, edge to edge */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '6px' }}>
-          {bags.map((item, i) => (
-            <motion.div
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: '6px' }}>
+          {COLLECTION.map((item, i) => (
+            <div
               key={i}
-              {...fadeUp(i * 0.08)}
               style={{ display: 'flex', flexDirection: 'column', cursor: 'pointer' }}
-              tabIndex={0}
               onMouseEnter={() => setHoveredBag(i)}
               onMouseLeave={() => setHoveredBag(null)}
               onFocus={() => setHoveredBag(i)}
               onBlur={() => setHoveredBag(null)}
+              tabIndex={0}
             >
-              {/* 3px archetype-color bar */}
               <div style={{ height: 3, backgroundColor: item.color, flexShrink: 0 }} />
-              <div style={{ aspectRatio: '3 / 4.6', position: 'relative', overflow: 'hidden' }}>
-                {/* Photo */}
+              <div style={{ aspectRatio: '3/4.6', position: 'relative', overflow: 'hidden', backgroundColor: '#141110' }}>
                 <div style={{ position: 'absolute', inset: 0, opacity: hoveredBag === i ? 0 : 1, transition: 'opacity 0.3s ease' }}>
-                  <img src={item.photo} alt={`${item.name} archetype`} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
+                  <img src={item.scan} alt={`${item.name} archetype`} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
                 </div>
-                {/* Bag on full archetype-color field */}
-                <div style={{
-                  position: 'absolute', inset: 0, backgroundColor: item.color,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  opacity: hoveredBag === i ? 1 : 0, transition: 'opacity 0.3s ease',
-                }}>
+                <div style={{ position: 'absolute', inset: 0, backgroundColor: item.color, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: hoveredBag === i ? 1 : 0, transition: 'opacity 0.3s ease' }}>
                   <img src={item.bag} alt="" aria-hidden="true" style={{ width: '72%', height: '84%', objectFit: 'contain', display: 'block' }} />
                 </div>
               </div>
-              {/* Two-line label */}
               <div style={{ textAlign: 'center', padding: '14px 6px 0' }}>
                 <span style={{ display: 'block', fontSize: 12, letterSpacing: '0.14em', color: item.color, lineHeight: 1.3 }}>No. {item.num}</span>
-                <span style={{ display: 'block', fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#45474a', whiteSpace: 'nowrap', lineHeight: 1.3, marginTop: 3 }}>{item.name}</span>
+                <span style={{ display: 'block', fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#45474a', lineHeight: 1.3, marginTop: 3 }}>{item.name}</span>
               </div>
-            </motion.div>
+            </div>
           ))}
         </div>
       </section>
 
-      {/* ━━━ 4. CINEMATIC VIDEO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ position: 'relative', height: '90vh', overflow: 'hidden', backgroundColor: '#201812', display: 'flex', alignItems: 'flex-end' }}>
+      {/* ━━━ §5 PHOTO ESSAY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(80px,10vw,120px) clamp(32px,6vw,80px)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 'clamp(48px,6vw,72px)', flexWrap: 'wrap', gap: 16 }}>
+          <h2 style={{ fontSize: 'clamp(24px,3vw,40px)', fontWeight: 400, color: '#45474a', margin: 0 }}>The first quiet hour.</h2>
+          <Link to="/essays" style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#9a2918', textDecoration: 'none', borderBottom: '1px solid rgba(154,41,24,.35)', paddingBottom: 3, alignSelf: 'flex-end' }}>
+            See all photographs →
+          </Link>
+        </div>
+        <div style={{ display: 'flex', gap: 'clamp(16px,2vw,28px)', alignItems: 'flex-start' }}>
+          {[
+            { src: photoEssay1, caption: 'Spicy & Earthy · Jun 03, 2026', offset: 0 },
+            { src: photoEssay2, caption: 'Fruity · Jun 02, 2026', offset: 44 },
+            { src: photoEssay3, caption: 'Floral · Jun 06, 2026', offset: 88 },
+          ].map((img, i) => (
+            <div key={i} style={{ flex: 1, marginTop: img.offset }}>
+              <div style={{ border: '1px solid #c5c7c8', padding: 14, backgroundColor: '#f2f1ea' }}>
+                <img src={img.src} alt="" style={{ width: '100%', display: 'block' }} />
+              </div>
+              {/* TODO: Camila writes final captions */}
+              <p style={{ fontSize: 11, color: '#7b7f80', marginTop: 10, letterSpacing: '0.06em', margin: '10px 0 0' }}>{img.caption}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ━━━ §6 LIAM — video band with word reveal ━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <section style={{ position: 'relative', height: 'clamp(56vh,62vh,65vh)', overflow: 'hidden', backgroundColor: '#201812', display: 'flex', alignItems: 'flex-end' }}>
         <video
-          ref={cinematicVideoRef}
-          autoPlay muted playsInline
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%', display: 'block', transform: 'scale(1.06)' }}
+          ref={liamVideoRef}
+          autoPlay muted loop playsInline preload="metadata"
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%', display: 'block' }}
         >
-          <source src={placeholderVideo} type="video/mp4" />
+          <source src={liamVideo} type="video/mp4" />
         </video>
-        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(16,10,6,0) 45%, rgba(16,10,6,0.6) 100%)' }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(16,10,6,0) 45%, rgba(16,10,6,.65) 100%)' }} />
         <p
-          ref={cinematicTextRef}
+          ref={liamTextRef}
           style={{
             position: 'relative', zIndex: 2,
-            padding: '0 clamp(32px,6vw,64px) clamp(56px,8vh,80px)',
+            padding: '0 clamp(32px,6vw,64px) clamp(48px,7vh,72px)',
             fontSize: 'clamp(28px,3.6vw,46px)', fontWeight: 400, color: '#f2f1ea',
             margin: 0, maxWidth: 900, lineHeight: 1.3,
           }}
         >
-          {CINEMATIC_WORDS.map((tok, i) => {
-            const visible = prefersReducedMotion || cinematicVisible;
+          {LIAM_WORDS.map((tok, i) => {
+            const visible = prefersReducedMotion || liamVisible;
             const delay = prefersReducedMotion ? 0 : i * 90;
             return (
               <span
@@ -570,69 +395,114 @@ export default function Home() {
         </p>
       </section>
 
-      {/* ━━━ 5. FLAVOR MAP — archetype cards ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(56px, 8vw, 88px) clamp(24px, 4vw, 64px)' }}>
-        <motion.div {...fadeUp(0)} style={{ marginBottom: 'clamp(28px, 4vw, 44px)' }}>
-          <p style={{ fontSize: 11, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 12px' }}>
-            The Flavor Map
-          </p>
-          <h2 style={{ fontSize: 'clamp(1.5rem, 2.2vw, 2.2rem)', fontWeight: 400, color: '#9a2918', lineHeight: 1.15, margin: 0 }}>
-            Every palate has a direction.
-          </h2>
-        </motion.div>
+      {/* ━━━ §7 VOICES — centered rotating quotes ━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <section
+        style={{ backgroundColor: '#f2f1ea', padding: 'clamp(72px,10vw,120px) clamp(32px,6vw,80px)', textAlign: 'center' }}
+        onMouseEnter={() => setPaused(true)}
+        onMouseLeave={() => setPaused(false)}
+      >
+        <span style={{ display: 'block', fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: '#9a2918', marginBottom: 28 }}>In their words</span>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3" style={{ gap: 12 }}>
-          {FLAVOR_CARDS.map((card, i) => {
-            const textColor = card.dark ? '#3a3c3e' : '#f2f1ea';
-            const trackBg = card.dark ? 'rgba(58,60,62,.22)' : 'rgba(242,241,234,.25)';
-            const dividerColor = card.dark ? 'rgba(58,60,62,.4)' : 'rgba(242,241,234,.4)';
-            const cardVisible = visibleCards.has(i);
-            return (
-              <div
-                key={card.num}
-                ref={el => { cardRefs.current[i] = el; }}
-                style={{
-                  minHeight: 300,
-                  backgroundColor: card.color,
-                  display: 'flex', flexDirection: 'column',
-                  padding: '22px 20px 18px', boxSizing: 'border-box',
-                  color: textColor,
-                }}
-              >
-                <span style={{ fontSize: 11, letterSpacing: '0.14em', opacity: 0.8 }}>{card.num}</span>
-                <h3 style={{ fontSize: 24, fontWeight: 400, margin: '8px 0 10px', lineHeight: 1.2 }}>{card.name}</h3>
-                <p style={{ fontSize: 14, lineHeight: 1.5, opacity: 0.94, margin: 0 }}>{card.desc}</p>
+        <div style={{ minHeight: '7rem', position: 'relative', marginBottom: 28 }}>
+          <AnimatePresence mode="wait">
+            <motion.p
+              key={activeIdx}
+              initial={prefersReducedMotion ? false : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={prefersReducedMotion ? false : { opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              aria-live="polite"
+              style={{
+                fontSize: 'clamp(26px,2.6vw,36px)', fontWeight: 400, color: '#45474a',
+                lineHeight: 1.35, maxWidth: 680, margin: '0 auto',
+                position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: '100%',
+              }}
+            >
+              {QUOTES[activeIdx].before}
+              <span style={{ backgroundColor: '#ee5974', color: '#f2f1ea', padding: '1px 8px' }}>{QUOTES[activeIdx].word}</span>{QUOTES[activeIdx].punct}{QUOTES[activeIdx].rest}
+            </motion.p>
+          </AnimatePresence>
+        </div>
 
-                {/* Flavor bars */}
-                <div style={{ marginTop: 'auto', marginBottom: 14, paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 5 }}>
-                  {FLAVOR_DIMS.map((dim, j) => (
-                    <div key={dim} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 9.5, letterSpacing: '0.08em', textTransform: 'uppercase', width: 58, opacity: 0.75, flexShrink: 0 }}>{dim}</span>
-                      <div style={{ flex: 1, height: 3, backgroundColor: trackBg }}>
-                        <div style={{
-                          height: '100%',
-                          width: cardVisible ? `${card.bars[j]}%` : '0%',
-                          backgroundColor: 'currentColor',
-                          transition: cardVisible ? `width 0.7s ${j * 60}ms cubic-bezier(.22,1,.36,1)` : 'none',
-                        }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Tags */}
-                <p style={{
-                  fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase',
-                  borderTop: `1px solid ${dividerColor}`, paddingTop: 12, margin: 0, opacity: 0.9,
-                }}>{card.tags}</p>
-              </div>
-            );
-          })}
+        <div role="group" aria-label="Quote navigation" style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 0 }}>
+          {QUOTES.map((_, i) => (
+            <button
+              key={i}
+              aria-label={`Quote ${i + 1} of ${QUOTES.length}`}
+              onClick={() => { setActiveIdx(i); setResetKey(k => k + 1); }}
+              style={{ width: 24, height: 32, padding: 0, margin: 0, background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+              className="focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9a2918]"
+            >
+              <div style={{
+                width: 1, height: i === activeIdx ? 18 : 9,
+                backgroundColor: i === activeIdx ? '#9a2918' : '#c5c7c8',
+                transition: 'height 0.3s ease, background-color 0.3s ease',
+                pointerEvents: 'none',
+              }} />
+            </button>
+          ))}
         </div>
       </section>
 
-      {/* ━━━ 6. TASTE FINDER (curtain animation) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <TasteFinderSection visitorName={visitorName} />
+      <StripesDivider />
+
+      {/* ━━━ §8 THE MONTHS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <section style={{ backgroundColor: '#f2f1ea', padding: 'clamp(80px,10vw,120px) clamp(32px,6vw,80px)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 'clamp(8px,1.5vw,16px)' }}>
+          {/* JULY 26 — clickable poster, opens film modal */}
+          {/* TODO: replace dark placeholder with poster-july26.jpg once extracted */}
+          <button
+            onClick={() => setFilmModalOpen(true)}
+            aria-label="Watch July 26 film"
+            style={{
+              background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+              display: 'flex', flexDirection: 'column', textAlign: 'left',
+            }}
+          >
+            <div style={{ position: 'relative', aspectRatio: '3/4', backgroundColor: '#141110', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(20,12,8,0) 55%, rgba(20,12,8,.7) 100%)' }} />
+              <div style={{ position: 'absolute', bottom: 20, left: 20, right: 20 }}>
+                <p style={{ fontSize: 11, letterSpacing: '.2em', textTransform: 'uppercase', color: 'rgba(242,241,234,.6)', margin: '0 0 6px' }}>The Collection</p>
+                <p style={{ fontSize: 'clamp(18px,2.2vw,28px)', fontWeight: 400, color: '#f2f1ea', margin: 0, lineHeight: 1.15 }}>July 26</p>
+                <p style={{ fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', color: 'rgba(242,241,234,.5)', margin: '8px 0 0' }}>Play ▶</p>
+              </div>
+            </div>
+          </button>
+
+          {/* Coming months — not clickable */}
+          {['August', 'September', 'October'].map(month => (
+            <div key={month} style={{ display: 'flex', flexDirection: 'column' }}>
+              <div style={{ aspectRatio: '3/4', backgroundColor: '#ebebe3', border: '1px solid #c5c7c8', display: 'flex', alignItems: 'flex-end', padding: 20 }}>
+                <p style={{ fontSize: 'clamp(14px,1.6vw,20px)', fontWeight: 400, color: '#7b7f80', margin: 0, lineHeight: 1.2 }}>{month}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p style={{ textAlign: 'center', fontSize: 13, color: '#7b7f80', marginTop: 28, letterSpacing: '0.1em' }}>A new one, every month.</p>
+      </section>
+
+      {/* ━━━ §9 HOW IT WORKS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <section style={{ backgroundColor: '#f2f1ea', borderTop: '1px solid #c5c7c8', padding: 'clamp(80px,10vw,120px) clamp(32px,6vw,80px)' }}>
+        <p style={{ textAlign: 'center', fontSize: 11, letterSpacing: '0.2em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 clamp(48px,6vw,72px)' }}>How it works</p>
+        <div style={{ display: 'flex', gap: 'clamp(32px,5vw,64px)', justifyContent: 'center', flexWrap: 'wrap' }}>
+          {[
+            { num: '01', text: 'Tell us how you taste. A short quiz maps your palate to one of six flavor archetypes.' },
+            { num: '02', text: 'We match you to coffees that fit. Every bag in our collection aligns with how you actually taste.' },
+            { num: '03', text: 'Your first delivery arrives. Taste it, tell us how it landed, and we refine from there.' },
+          ].map(step => (
+            <div key={step.num} style={{ flex: '1', minWidth: 220, maxWidth: 320, textAlign: 'center' }}>
+              <span style={{ display: 'block', fontSize: 28, fontWeight: 400, color: '#9a2918', letterSpacing: '0.05em', marginBottom: 20 }}>{step.num}</span>
+              <p style={{ fontSize: 15, color: '#45474a', lineHeight: 1.65, margin: 0 }}>{step.text}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ━━━ §10 THE GIFT (unwrap + footer) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+      <TasteFinderSection
+        visitorName={visitorName}
+        archetype={homepageState?.archetype}
+      />
 
     </div>
   );
