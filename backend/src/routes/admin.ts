@@ -839,6 +839,47 @@ router.patch('/slot-prices', async (req, res) => {
   }
 });
 
+// ── GET /api/admin/coffee-prices ──────────────────────────────────────────────
+// Coffee-keyed counterpart to slot-prices, for Decaf/Half-Caf/Flavored/Experimental
+// coffees (no dial slot to key a price off of) — Bloom Dial Base Data Part 3, Phase 6.
+// Same "only returns rows that actually exist" contract; unset coffees fall back to
+// the $38.00/12oz, $199.00/5lb defaults applied at GET /api/coffees/other-categories.
+router.get('/coffee-prices', async (_req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT coffee_id, weight_oz, retail_price_cents FROM coffee_retail_price ORDER BY coffee_id, weight_oz`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[admin/coffee-prices GET]', err);
+    res.status(500).json({ error: 'Failed to fetch coffee prices' });
+  }
+});
+
+// ── PATCH /api/admin/coffee-prices — upsert one coffee+weight price ──────────
+router.patch('/coffee-prices', async (req, res) => {
+  const { coffeeId, weightOz, retailPriceCents } = req.body;
+  if (!Number.isInteger(coffeeId) || !Number.isFinite(weightOz)
+    || !Number.isInteger(retailPriceCents) || retailPriceCents < 0) {
+    res.status(400).json({ error: 'coffeeId, weightOz, and a non-negative integer retailPriceCents are required' });
+    return;
+  }
+  try {
+    const result = await db.query(
+      `INSERT INTO coffee_retail_price (coffee_id, weight_oz, retail_price_cents, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (coffee_id, weight_oz)
+       DO UPDATE SET retail_price_cents = $3, updated_at = NOW()
+       RETURNING coffee_id, weight_oz, retail_price_cents`,
+      [coffeeId, weightOz, retailPriceCents]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[admin/coffee-prices PATCH]', err);
+    res.status(500).json({ error: 'Failed to update coffee price' });
+  }
+});
+
 // ── CATEGORIES ─────────────────────────────────────────────────────────────────
 // Cross-cutting, orthogonal to archetype (e.g. Decaf, Half-Caf, Experimental) — see
 // BLOOM_DIAL_ALLOCATION_SPEC.md §6. Managed from the Coffees page, same as archetype/

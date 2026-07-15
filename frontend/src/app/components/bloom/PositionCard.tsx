@@ -30,6 +30,7 @@ export function PositionCard({
   function handleAddToCart() {
     if (!slot.platformName || !selectedPrice) return;
     onAddToCart({
+      kind: 'dial',
       archetype, archetypeLabel,
       dialSortOrder: slot.dialSortOrder,
       weightOz: selectedPrice.weightOz,

@@ -39,7 +39,8 @@ export interface Hop {
   target: HopTarget;
 }
 
-export interface CartItem {
+export interface DialCartItem {
+  kind: 'dial';
   archetype: string;
   archetypeLabel: string;
   dialSortOrder: number;
@@ -47,6 +48,37 @@ export interface CartItem {
   platformName: string;
   retailPriceCents: number;
   qty: number;
+}
+
+/** A category coffee (Decaf/Half-Caf/Flavored/Experimental) with no dial position —
+ * Bloom Dial Base Data Part 3, Phase 6. Priced/resolved by coffeeId, not archetype+slot. */
+export interface DirectCartItem {
+  kind: 'direct';
+  coffeeId: number;
+  categoryLabel: string;
+  matchedArchetypeLabel: string | null;
+  weightOz: number;
+  platformName: string;
+  retailPriceCents: number;
+  qty: number;
+}
+
+export type CartItem = DialCartItem | DirectCartItem;
+
+export interface OtherCategoryPrice {
+  weightOz: number;
+  retailPriceCents: number;
+  isActive: boolean;
+}
+
+export interface OtherCategoryCoffee {
+  coffeeId: number;
+  displayName: string;
+  archetype: string | null;
+  archetypeLabel: string | null;
+  categories: { code: string; label: string; sortOrder: number }[];
+  prices: OtherCategoryPrice[];
+  effectivelyActive: boolean;
 }
 
 /** Stable key for a slot, used for refs, revealed-state, and cart line matching. */

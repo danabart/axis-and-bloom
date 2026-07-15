@@ -1360,6 +1360,23 @@ CREATE TABLE IF NOT EXISTS dial_slot_price (
   UNIQUE (archetype, dial_sort_order, weight_oz)
 );
 
+-- Retail price for a coffee with no Bloom Dial position — the coffee-keyed
+-- counterpart to dial_slot_price above, for Decaf/Half-Caf/Flavored/Experimental
+-- category coffees (Bloom Dial Base Data Part 3, Phase 6: "Other Categories" /
+-- "The Unexpected"). These coffees are excluded from every flavor dial (see
+-- blendResolver.ts's category exclusion) so they have no (archetype, dial_sort_order)
+-- to key a price off of — coffee_id is the only stable identity they have. Same
+-- "defaults applied at the query level, not here" pattern: $38.00/12oz, $199.00/5lb
+-- when no row exists yet for that (coffee_id, weight_oz).
+CREATE TABLE IF NOT EXISTS coffee_retail_price (
+  id                  SERIAL PRIMARY KEY,
+  coffee_id           INT NOT NULL REFERENCES coffees(id) ON DELETE CASCADE,
+  weight_oz           NUMERIC NOT NULL,
+  retail_price_cents  INTEGER NOT NULL,
+  updated_at          TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (coffee_id, weight_oz)
+);
+
 -- ─────────────────────────────────────────────
 -- DIAL POSITION SIGNAL INFRASTRUCTURE (Phase 5 — dormant by default)
 -- Plumbing for future multi-source dial-position signals (cupping, flavor-wheel,

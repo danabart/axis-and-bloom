@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 import { createOrder } from '../services/shopify.js';
-import { resolveBlendForSlot } from '../services/blendResolver.js';
+import { resolveBlendForSlot, resolveCoffeeBlend } from '../services/blendResolver.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { getSommelierConfig } from '../services/sommelierConfig.js';
 import { updateOrderOutcomes } from '../services/outcomeTracker.js';
@@ -34,11 +34,12 @@ router.post('/', requireAuth, async (req: AuthRequest, res) => {
     if (!userId) { res.status(404).json({ error: 'User profile not found' }); return; }
 
     // Resolve each item to a concrete roaster_blend before charging or creating anything
-    // downstream. An item can specify either a direct blendId/variantId (unchanged,
-    // existing behavior) or a Bloom Dial slot — { archetype, dialSortOrder, weightOz } —
-    // resolved server-side via the same priority order set on the Coffees page, trying
-    // the preferred roaster first and falling back automatically if it's unavailable.
-    // See backend/src/services/blendResolver.ts.
+    // downstream. An item can specify a direct blendId/variantId (unchanged, existing
+    // behavior), a Bloom Dial slot — { archetype, dialSortOrder, weightOz } — resolved
+    // server-side via the same priority order set on the Coffees page, trying the
+    // preferred roaster first and falling back automatically if it's unavailable, or
+    // (Bloom Dial Base Data Part 3, Phase 6) a direct category coffee with no dial
+    // position — { coffeeId, weightOz }. See backend/src/services/blendResolver.ts.
     const resolvedItems: ResolvedItem[] = [];
     for (const item of items) {
       if (item.archetype && item.dialSortOrder !== undefined && item.weightOz) {
@@ -56,6 +57,18 @@ router.post('/', requireAuth, async (req: AuthRequest, res) => {
           priceCents: item.priceCents,
           resolvedCoffeeName: resolved.coffee_name,
           resolvedRoaster: resolved.roaster,
+        });
+      } else if (item.coffeeId && item.weightOz) {
+        const resolved = await resolveCoffeeBlend(item.coffeeId, item.weightOz);
+        if (!resolved) {
+          res.status(409).json({ error: `This coffee is not currently available at ${item.weightOz}oz` });
+          return;
+        }
+        resolvedItems.push({
+          variantId: resolved.shopify_variant_id ?? undefined,
+          blendId: resolved.blend_id,
+          quantity: item.quantity ?? 1,
+          priceCents: item.priceCents,
         });
       } else {
         resolvedItems.push({

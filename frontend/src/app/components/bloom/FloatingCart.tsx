@@ -84,7 +84,7 @@ export function FloatingCart({ items, open, onToggle, onRemove, onCheckout, chec
                   <div className="min-w-0">
                     <p className="text-sm font-normal truncate" style={{ color: '#4a4035' }}>{item.platformName}</p>
                     <p className="text-xs" style={{ color: '#a09880' }}>
-                      {item.archetypeLabel} · {formatWeight(item.weightOz)} · qty {item.qty}
+                      {item.kind === 'dial' ? item.archetypeLabel : item.categoryLabel} · {formatWeight(item.weightOz)} · qty {item.qty}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">

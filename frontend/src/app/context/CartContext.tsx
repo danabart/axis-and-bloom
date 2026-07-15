@@ -54,9 +54,22 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setCartOpen(v => !v);
   }
 
+  // Same cart line? A dial item matches on (archetype, dialSortOrder, weightOz);
+  // a direct (Bloom Dial Base Data Part 3, Phase 6) item matches on (coffeeId, weightOz).
+  function isSameLine(a: CartItem, b: CartItem): boolean {
+    if (a.kind !== b.kind) return false;
+    if (a.kind === 'dial' && b.kind === 'dial') {
+      return a.archetype === b.archetype && a.dialSortOrder === b.dialSortOrder && a.weightOz === b.weightOz;
+    }
+    if (a.kind === 'direct' && b.kind === 'direct') {
+      return a.coffeeId === b.coffeeId && a.weightOz === b.weightOz;
+    }
+    return false;
+  }
+
   function addToCart(item: CartItem) {
     setCart(prev => {
-      const idx = prev.findIndex(i => i.archetype === item.archetype && i.dialSortOrder === item.dialSortOrder && i.weightOz === item.weightOz);
+      const idx = prev.findIndex(i => isSameLine(i, item));
       if (idx >= 0) {
         const next = [...prev];
         next[idx] = { ...next[idx], qty: next[idx].qty + 1 };
@@ -81,13 +94,20 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setCheckoutMessage(null);
     try {
       await placeOrder({
-        items: cart.map(item => ({
-          archetype: item.archetype,
-          dialSortOrder: item.dialSortOrder,
-          weightOz: item.weightOz,
-          quantity: item.qty,
-          priceCents: item.retailPriceCents,
-        })),
+        items: cart.map(item => item.kind === 'dial'
+          ? {
+              archetype: item.archetype,
+              dialSortOrder: item.dialSortOrder,
+              weightOz: item.weightOz,
+              quantity: item.qty,
+              priceCents: item.retailPriceCents,
+            }
+          : {
+              coffeeId: item.coffeeId,
+              weightOz: item.weightOz,
+              quantity: item.qty,
+              priceCents: item.retailPriceCents,
+            }),
         shippingAddress: {
           firstName: customerName?.first || 'Customer',
           lastName: customerName?.last || '',

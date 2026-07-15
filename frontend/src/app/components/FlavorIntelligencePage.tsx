@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
+import { useCart } from '../context/CartContext';
 import { getHomepageState } from '../lib/api';
 import { ARCHETYPE_LABEL, ARCHETYPE_COLOR, useCompatibility, CompatibilityBadge } from './coffee-info/useCompatibility';
 import { useArchetypeAdjacency } from './coffee-info/archetypeAdjacency';
@@ -9,7 +10,13 @@ import { DimensionBars, type DimensionRow } from './coffee-info/DimensionBars';
 import { CollaborativeFlavorWheel, type WheelRow } from './coffee-info/CollaborativeFlavorWheel';
 import { TastingNotes, type ContentData } from './coffee-info/TastingNotes';
 import OrderFeedbackForm from './OrderFeedbackForm';
-import type { ArchetypeData, Slot } from './bloom/types';
+import { OtherCategoryCard } from './bloom/OtherCategoryCard';
+import type { ArchetypeData, OtherCategoryCoffee, Slot } from './bloom/types';
+
+// Bloom Dial Base Data Part 3, Phase 6: category tags grouped in this order —
+// Decaf/Half-Caf/Flavored under "Other Categories", Experimental gets its own
+// "The Unexpected" section (matches the admin's coffee_category.sort_order).
+const OTHER_CATEGORY_CODES = ['decaf', 'half_caf', 'flavored'];
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -90,12 +97,15 @@ function CuppingNotes({ notes }: { notes: CuppingNote[] }) {
 
 export default function FlavorIntelligencePage() {
   const { user, loading: authLoading } = useAuth();
+  const { addToCart } = useCart();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const adjacency = useArchetypeAdjacency();
 
   const [archetypes, setArchetypes] = useState<ArchetypeData[]>([]);
   const [archetypesLoaded, setArchetypesLoaded] = useState(false);
+  const [otherCategories, setOtherCategories] = useState<OtherCategoryCoffee[]>([]);
+  const [directCoffeeId, setDirectCoffeeId] = useState<number | null>(null);
   const [error, setError] = useState('');
 
   const [homepageState, setHomepageState] = useState<HomepageState | null>(null);
@@ -130,6 +140,11 @@ export default function FlavorIntelligencePage() {
       .then(r => r.json())
       .then((data: ArchetypeData[]) => { setArchetypes(data); setArchetypesLoaded(true); })
       .catch(() => { setError('Failed to load coffees'); setArchetypesLoaded(true); });
+
+    fetch('/api/coffees/other-categories')
+      .then(r => r.json())
+      .then((data: OtherCategoryCoffee[]) => setOtherCategories(data))
+      .catch(() => {});
   }, []);
 
   // ── Load lifecycle personalization state ────────────────────────────────────
@@ -161,6 +176,18 @@ export default function FlavorIntelligencePage() {
     setSelectedArchetype(archetype);
     setSelectedSlot(dialSortOrder);
     setExpanded(prev => new Set(prev).add(archetype));
+    setDirectCoffeeId(null);
+  }
+
+  // Bloom Dial Base Data Part 3, Phase 6: select a Decaf/Half-Caf/Flavored/Experimental
+  // coffee directly by id — these have no archetype/dial-slot to select through.
+  // Compare mode is dial-only (its UI is omitted for a direct coffee, see the detail
+  // panel below) — force it off here so a stale compareMode=true from a prior dial
+  // selection can't leave selectedSlotData-dependent JSX rendering with no slot data.
+  function selectDirectCoffee(coffeeId: number) {
+    setDirectCoffeeId(coffeeId);
+    setCompareMode(false);
+    setCompareCoffeeId(null);
   }
 
   // ── Deep-link resolution + default selection (Decision #3) ─────────────────
@@ -171,10 +198,16 @@ export default function FlavorIntelligencePage() {
     const archParam = searchParams.get('archetype');
     const slotParam = searchParams.get('slot');
     const legacyCoffeeId = searchParams.get('coffee');
+    const directCoffeeParam = searchParams.get('directCoffee');
 
     if (archParam && slotParam != null && archetypes.some(a => a.archetype === archParam)) {
       selectSlot(archParam, Number(slotParam));
       setPendingScroll(true);
+      return;
+    }
+
+    if (directCoffeeParam) {
+      selectDirectCoffee(Number(directCoffeeParam));
       return;
     }
 
@@ -215,7 +248,12 @@ export default function FlavorIntelligencePage() {
   // ── Load selected coffee's data ─────────────────────────────────────────────
   const selectedArchData = archetypes.find(a => a.archetype === selectedArchetype);
   const selectedSlotData = selectedArchData?.slots.find(s => s.dialSortOrder === selectedSlot);
-  const selectedCoffeeId = selectedSlotData?.coffeeId ?? null;
+  // Bloom Dial Base Data Part 3, Phase 6: a directly-selected category coffee has no
+  // dial slot, so it takes priority when set — selectSlot() always clears it, so normal
+  // dial navigation naturally wins back over a stale direct selection.
+  const directCoffee = directCoffeeId != null ? otherCategories.find(c => c.coffeeId === directCoffeeId) ?? null : null;
+  const selectedCoffeeId = directCoffeeId ?? (selectedSlotData?.coffeeId ?? null);
+  const displayName = selectedSlotData?.platformName ?? directCoffee?.displayName ?? '';
 
   useEffect(() => {
     if (!selectedCoffeeId) { setContent(null); setDimensions([]); setNotes([]); setWheelRows([]); return; }
@@ -237,7 +275,7 @@ export default function FlavorIntelligencePage() {
     }).catch(() => { setError('Failed to load coffee data'); setLoading(false); setContentLoading(false); });
   }, [selectedCoffeeId]);
 
-  const { compat, dimCompText } = useCompatibility(selectedArchData?.archetype ?? null, matchArchetypeId, dimensions);
+  const { compat, dimCompText } = useCompatibility(selectedArchData?.archetype ?? directCoffee?.archetype ?? null, matchArchetypeId, dimensions);
   const compareArchetype = compareCoffeeId
     ? archetypes.find(a => a.slots.some(s => s.coffeeId === compareCoffeeId))?.archetype ?? null
     : null;
@@ -469,10 +507,10 @@ export default function FlavorIntelligencePage() {
 
           {/* ── 5. Selected coffee detail panel (right, majority width) ── */}
           <div className="flex-1 min-w-0">
-          {selectedSlotData ? (
+          {(selectedSlotData || directCoffee) ? (
           <AnimatePresence mode="wait">
             <motion.div
-              key={slotKey(selectedArchetype ?? '', selectedSlot ?? -1)}
+              key={selectedSlotData ? slotKey(selectedArchetype ?? '', selectedSlot ?? -1) : `direct-${directCoffeeId}`}
               initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.35 }}
             >
               <div className="mb-8 pb-6 border-b" style={{ borderColor: '#e0ddd5' }}>
@@ -480,7 +518,7 @@ export default function FlavorIntelligencePage() {
                   <div className="flex-1">
                     {/* Primary focus of the page — one step larger than the "highlight" role, on purpose. */}
                     <h2 className="text-3xl font-normal" style={{ color: '#b05642', fontFamily: "'Lato', Arial, sans-serif" }}>
-                      {selectedSlotData.platformName}
+                      {displayName}
                     </h2>
                     <div className="flex flex-wrap gap-2 mt-3">
                       {selectedArchData && (
@@ -488,9 +526,16 @@ export default function FlavorIntelligencePage() {
                           {selectedArchData.archetypeLabel}
                         </span>
                       )}
-                      <span className="text-xs px-2.5 py-1 rounded-full border" style={{ borderColor: '#d0ccc4', color: '#8a8070' }}>
-                        {selectedSlotData.positionLabel}
-                      </span>
+                      {selectedSlotData && (
+                        <span className="text-xs px-2.5 py-1 rounded-full border" style={{ borderColor: '#d0ccc4', color: '#8a8070' }}>
+                          {selectedSlotData.positionLabel}
+                        </span>
+                      )}
+                      {directCoffee && directCoffee.categories.map(c => (
+                        <span key={c.code} className="text-xs px-2.5 py-1 rounded-full border" style={{ borderColor: '#d0ccc4', color: '#8a8070' }}>
+                          {c.label}
+                        </span>
+                      ))}
                       {content?.process && (
                         <span className="text-xs px-2.5 py-1 rounded-full border" style={{ borderColor: '#d0ccc4', color: '#8a8070' }}>{content.process}</span>
                       )}
@@ -519,19 +564,37 @@ export default function FlavorIntelligencePage() {
                         Shop on The Bloom →
                       </Link>
                     )}
-                    <button
-                      onClick={toggleCompareMode}
-                      className="text-xs px-3 py-1.5 rounded-full border transition-all duration-200"
-                      style={{
-                        borderColor: compareMode ? '#b05642' : '#c8c0b4',
-                        color: compareMode ? '#b05642' : '#8a8070',
-                        backgroundColor: compareMode ? '#fff8f5' : 'transparent',
-                      }}
-                    >
-                      {compareMode ? '✕ Exit compare' : '⇄ Compare'}
-                    </button>
+                    {/* directCoffee has no dial slot, so no equivalent Bloom deep link exists
+                        (Bloom's Other Categories section isn't individually anchorable this
+                        pass) — buy inline here instead, reusing the same card the Bloom/Unexpected
+                        sections use (Bloom Dial Base Data Part 3, Phase 6). Compare mode is
+                        dial-only this pass, so the toggle is simply omitted for a direct coffee. */}
+                    {selectedSlotData && (
+                      <button
+                        onClick={toggleCompareMode}
+                        className="text-xs px-3 py-1.5 rounded-full border transition-all duration-200"
+                        style={{
+                          borderColor: compareMode ? '#b05642' : '#c8c0b4',
+                          color: compareMode ? '#b05642' : '#8a8070',
+                          backgroundColor: compareMode ? '#fff8f5' : 'transparent',
+                        }}
+                      >
+                        {compareMode ? '✕ Exit compare' : '⇄ Compare'}
+                      </button>
+                    )}
                   </div>
                 </div>
+
+                {directCoffee && (
+                  <div className="mt-4 max-w-sm">
+                    <OtherCategoryCard
+                      coffee={directCoffee}
+                      categoryLabel={directCoffee.categories[0]?.label ?? ''}
+                      onAddToCart={addToCart}
+                      renderFlavorIntelligenceLink={() => null}
+                    />
+                  </div>
+                )}
 
                 {compareMode && (
                   <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -573,7 +636,7 @@ export default function FlavorIntelligencePage() {
                   {compareMode && compareCoffeeId && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pb-6 border-b" style={{ borderColor: '#e0ddd5' }}>
                       <div className="flex flex-col gap-3">
-                        <h3 className="text-xl font-normal" style={{ color: '#b05642' }}>{selectedSlotData.platformName}</h3>
+                        <h3 className="text-xl font-normal" style={{ color: '#b05642' }}>{displayName}</h3>
                         {compat && matchArchetypeId && <CompatibilityBadge level={compat} userArchetype={matchArchetypeId} />}
                       </div>
                       <div className="flex flex-col gap-3">
@@ -592,14 +655,14 @@ export default function FlavorIntelligencePage() {
                   <DimensionBars
                     dimensions={dimensions}
                     compareDimensions={compareMode && compareCoffeeId ? compareDimensions : undefined}
-                    primaryLabel={selectedSlotData.platformName ?? undefined}
+                    primaryLabel={displayName || undefined}
                     compareLabel={compareLabel}
                   />
 
                   <CollaborativeFlavorWheel
                     wheelRows={wheelRows}
                     compareWheelRows={compareMode && compareCoffeeId ? compareWheelRows : undefined}
-                    primaryLabel={selectedSlotData.platformName ?? undefined}
+                    primaryLabel={displayName || undefined}
                     compareLabel={compareLabel}
                   />
                 </div>
@@ -613,6 +676,71 @@ export default function FlavorIntelligencePage() {
           )}
           </div>
         </div>
+
+        {/* ── 6. Other Categories (Decaf / Half-Caf / Flavored) + The Unexpected
+             (Experimental) — Bloom Dial Base Data Part 3, Phase 6. No dial position, so
+             grouped by category tag rather than archetype/slot; a coffee carrying more
+             than one tag renders once per tag. Clicking "Flavor Intelligence" selects
+             the coffee in-page (this page's own detail panel above), no navigation. ── */}
+        {otherCategories.length > 0 && (
+          <div className="mt-16 pt-12 border-t" style={{ borderColor: '#e8e4da' }}>
+            <h2 className="text-3xl font-normal mb-6" style={{ color: '#b05642', fontFamily: "'Lato', Arial, sans-serif" }}>
+              Other Categories
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {otherCategories
+                .flatMap(coffee => coffee.categories
+                  .filter(c => OTHER_CATEGORY_CODES.includes(c.code))
+                  .map(c => ({ coffee, categoryLabel: c.label })))
+                .map(({ coffee, categoryLabel }) => (
+                  <OtherCategoryCard
+                    key={`${coffee.coffeeId}-${categoryLabel}`}
+                    coffee={coffee}
+                    categoryLabel={categoryLabel}
+                    onAddToCart={addToCart}
+                    renderFlavorIntelligenceLink={coffeeId => (
+                      <button
+                        onClick={() => selectDirectCoffee(coffeeId)}
+                        className="text-xs underline"
+                        style={{ color: '#8a8070' }}
+                      >
+                        Flavor Intelligence
+                      </button>
+                    )}
+                  />
+                ))}
+            </div>
+          </div>
+        )}
+
+        {otherCategories.some(c => c.categories.some(cat => cat.code === 'experimental')) && (
+          <div className="mt-16 pt-12 border-t" style={{ borderColor: '#e8e4da' }}>
+            <h2 className="text-3xl font-normal mb-6" style={{ color: '#056c7a', fontFamily: "'Lato', Arial, sans-serif" }}>
+              The Unexpected
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {otherCategories
+                .filter(coffee => coffee.categories.some(c => c.code === 'experimental'))
+                .map(coffee => (
+                  <OtherCategoryCard
+                    key={coffee.coffeeId}
+                    coffee={coffee}
+                    categoryLabel="Experimental"
+                    onAddToCart={addToCart}
+                    renderFlavorIntelligenceLink={coffeeId => (
+                      <button
+                        onClick={() => selectDirectCoffee(coffeeId)}
+                        className="text-xs underline"
+                        style={{ color: '#8a8070' }}
+                      >
+                        Flavor Intelligence
+                      </button>
+                    )}
+                  />
+                ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

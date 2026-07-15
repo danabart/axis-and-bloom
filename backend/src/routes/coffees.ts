@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db/client.js';
 import { getCoffeeSummary, getCoffeeSurpriseNote, getCoffeeThreeVoiceStory } from '../services/claude.js';
-import { resolveBlendForSlot } from '../services/blendResolver.js';
+import { resolveBlendForSlot, resolveCoffeeBlend } from '../services/blendResolver.js';
 
 const router = Router();
 
@@ -331,6 +331,84 @@ router.get('/archetypes', async (_req, res) => {
   } catch (err) {
     console.error('[coffees/archetypes]', err);
     res.status(500).json({ error: 'Failed to fetch archetypes' });
+  }
+});
+
+// GET /api/coffees/other-categories ───────────────────────────────────────────
+// Public, roaster-blind. Bloom Dial Base Data Part 3, Phase 6: coffees tagged
+// Decaf/Half-Caf/Flavored/Experimental never get a flavor-dial slot (see
+// /archetypes above and blendResolver.ts's category exclusion), but are still
+// matched to an archetype (Liam/quiz) and still shoppable where a real SKU
+// exists. This is their presentation surface — grouped by category tag on the
+// frontend (Other Categories = decaf/half_caf/flavored, The Unexpected =
+// experimental), not by dial slot. displayName falls back from coffee_alias
+// (legacy per-coffee name, still meaningful here since these coffees never
+// share a slot) to the coffee's raw name when no alias row exists.
+router.get('/other-categories', async (_req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT c.id AS coffee_id, c.name AS coffee_name,
+             ca.platform_name,
+             aa.archetype,
+             cc.code AS category_code, cc.label AS category_label, cc.sort_order AS category_sort_order
+      FROM coffee_category_assignment cca
+      JOIN coffee_category cc ON cc.id = cca.category_id
+      JOIN coffees c ON c.id = cca.coffee_id
+      LEFT JOIN archetype_assignments aa ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
+      LEFT JOIN coffee_alias ca ON ca.coffee_id = c.id AND ca.is_active = true
+      WHERE cc.code IN ('decaf', 'half_caf', 'flavored', 'experimental')
+      ORDER BY cc.sort_order, c.name
+    `);
+
+    // Group by coffee first — a coffee can carry more than one category tag
+    // (e.g. a flavored decaf) and must appear once per tag on the frontend,
+    // but price/blend resolution only needs to happen once per coffee.
+    const byCoffee = new Map<number, {
+      coffee_name: string; platform_name: string | null; archetype: string | null;
+      categories: { code: string; label: string; sortOrder: number }[];
+    }>();
+    for (const row of result.rows) {
+      if (!byCoffee.has(row.coffee_id)) {
+        byCoffee.set(row.coffee_id, {
+          coffee_name: row.coffee_name, platform_name: row.platform_name, archetype: row.archetype, categories: [],
+        });
+      }
+      byCoffee.get(row.coffee_id)!.categories.push({ code: row.category_code, label: row.category_label, sortOrder: row.category_sort_order });
+    }
+
+    const priceRows = await db.query(
+      `SELECT coffee_id, weight_oz, retail_price_cents FROM coffee_retail_price WHERE weight_oz = ANY($1::numeric[])`,
+      [BLOOM_WEIGHTS_OZ]
+    );
+    const priceMap = new Map<string, number>();
+    for (const r of priceRows.rows) priceMap.set(`${r.coffee_id}|${Number(r.weight_oz)}`, r.retail_price_cents);
+
+    const coffees = [];
+    for (const [coffeeId, info] of byCoffee) {
+      const prices = [];
+      for (const weightOz of BLOOM_WEIGHTS_OZ) {
+        const blend = await resolveCoffeeBlend(coffeeId, weightOz);
+        prices.push({
+          weightOz,
+          retailPriceCents: priceMap.get(`${coffeeId}|${weightOz}`) ?? BLOOM_DEFAULT_PRICE_CENTS[weightOz],
+          isActive: !!blend,
+        });
+      }
+      coffees.push({
+        coffeeId,
+        displayName: info.platform_name ?? info.coffee_name,
+        archetype: info.archetype,
+        archetypeLabel: info.archetype ? (ARCHETYPE_LABEL[info.archetype] ?? info.archetype) : null,
+        categories: info.categories.sort((a, b) => a.sortOrder - b.sortOrder),
+        prices,
+        effectivelyActive: prices.some(p => p.isActive),
+      });
+    }
+
+    res.json(coffees);
+  } catch (err) {
+    console.error('[coffees/other-categories]', err);
+    res.status(500).json({ error: 'Failed to fetch other-category coffees' });
   }
 });
 

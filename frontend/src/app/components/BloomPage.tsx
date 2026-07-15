@@ -4,17 +4,25 @@ import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { getUserProfile, getDialPosition, setDialPosition } from '../lib/api';
 import { ARCHETYPE_ORDER, ARCHETYPE_VISUALS } from './bloom/bloomVisuals';
+import { Link } from 'react-router';
 import { ArchetypeSection, computeDefaultSortOrder } from './bloom/ArchetypeSection';
 import { CompareOverlay } from './bloom/CompareOverlay';
+import { OtherCategoryCard } from './bloom/OtherCategoryCard';
 import type { BloomDialHandle } from './BloomDialWidget';
-import type { ArchetypeData, Slot } from './bloom/types';
+import type { ArchetypeData, OtherCategoryCoffee, Slot } from './bloom/types';
 import { slotKey } from './bloom/types';
+
+// Bloom Dial Base Data Part 3, Phase 6: category tags grouped in this order —
+// Decaf/Half-Caf/Flavored under "Other Categories", Experimental gets its own
+// "The Unexpected" section (matches the admin's coffee_category.sort_order).
+const OTHER_CATEGORY_CODES = ['decaf', 'half_caf', 'flavored'];
 
 export default function BloomPage() {
   const { user } = useAuth();
   const { addToCart } = useCart();
 
   const [archetypes, setArchetypes] = useState<ArchetypeData[]>([]);
+  const [otherCategories, setOtherCategories] = useState<OtherCategoryCoffee[]>([]);
   const [error, setError] = useState('');
   const [userArchetype, setUserArchetype] = useState<string | null>(null);
 
@@ -41,6 +49,11 @@ export default function BloomPage() {
         });
       })
       .catch(() => setError('Failed to load coffees'));
+
+    fetch('/api/coffees/other-categories')
+      .then(r => r.json())
+      .then((data: OtherCategoryCoffee[]) => setOtherCategories(data))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -149,6 +162,62 @@ export default function BloomPage() {
           registerDialRef={registerDialRef}
         />
       ))}
+
+      {/* ── Other Categories (Decaf / Half-Caf / Flavored) + The Unexpected (Experimental) ──
+           Bloom Dial Base Data Part 3, Phase 6 — coffees with no dial position, grouped by
+           category tag instead of archetype/slot. A coffee carrying more than one tag
+           (e.g. a flavored decaf) renders once per tag. */}
+      {otherCategories.length > 0 && (
+        <section style={{ borderTop: '1px solid rgba(154,41,24,0.08)', padding: 'clamp(52px, 7vh, 92px) clamp(32px, 6vw, 96px)' }}>
+          <h2 style={{ fontSize: 'clamp(2rem, 3.2vw, 4rem)', color: '#9a2918', fontWeight: 400, margin: '0 0 clamp(20px, 3vh, 32px)', letterSpacing: '-0.02em' }}>
+            Other Categories
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {otherCategories
+              .flatMap(coffee => coffee.categories
+                .filter(c => OTHER_CATEGORY_CODES.includes(c.code))
+                .map(c => ({ coffee, categoryLabel: c.label })))
+              .map(({ coffee, categoryLabel }) => (
+                <OtherCategoryCard
+                  key={`${coffee.coffeeId}-${categoryLabel}`}
+                  coffee={coffee}
+                  categoryLabel={categoryLabel}
+                  onAddToCart={addToCart}
+                  renderFlavorIntelligenceLink={coffeeId => (
+                    <Link to={`/flavor-intelligence?directCoffee=${coffeeId}`} className="text-xs underline" style={{ color: '#8a8070' }}>
+                      Flavor Intelligence
+                    </Link>
+                  )}
+                />
+              ))}
+          </div>
+        </section>
+      )}
+
+      {otherCategories.some(c => c.categories.some(cat => cat.code === 'experimental')) && (
+        <section style={{ borderTop: '1px solid rgba(154,41,24,0.08)', padding: 'clamp(52px, 7vh, 92px) clamp(32px, 6vw, 96px)' }}>
+          <h2 style={{ fontSize: 'clamp(2rem, 3.2vw, 4rem)', color: '#056c7a', fontWeight: 400, margin: '0 0 clamp(20px, 3vh, 32px)', letterSpacing: '-0.02em' }}>
+            The Unexpected
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {otherCategories
+              .filter(coffee => coffee.categories.some(c => c.code === 'experimental'))
+              .map(coffee => (
+                <OtherCategoryCard
+                  key={coffee.coffeeId}
+                  coffee={coffee}
+                  categoryLabel="Experimental"
+                  onAddToCart={addToCart}
+                  renderFlavorIntelligenceLink={coffeeId => (
+                    <Link to={`/flavor-intelligence?directCoffee=${coffeeId}`} className="text-xs underline" style={{ color: '#8a8070' }}>
+                      Flavor Intelligence
+                    </Link>
+                  )}
+                />
+              ))}
+          </div>
+        </section>
+      )}
 
       <CompareOverlay
         open={compareState.open}

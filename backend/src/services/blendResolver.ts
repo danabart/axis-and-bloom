@@ -99,3 +99,25 @@ export async function resolveBlendForSlot(
 
   return null;
 }
+
+export interface ResolvedCoffeeBlend {
+  blend_id: string;
+  roaster_sku: string | null;
+  shopify_variant_id: string | null;
+}
+
+// Direct coffee->blend resolution for coffees with no dial position (Decaf/Half-Caf/
+// Flavored/Experimental category coffees — Bloom Dial Base Data Part 3, Phase 6).
+// No priority-fallback chain needed here (unlike resolveBlendForSlot) — a category
+// coffee is a single specific product, not a dial slot with multiple roaster options.
+// Same "is_active + a row exists at this weight, full stop" fulfillability rule as
+// resolveBlendForSlot — quantity_available is never checked (drop-ship model).
+export async function resolveCoffeeBlend(coffeeId: number, weightOz: number): Promise<ResolvedCoffeeBlend | null> {
+  const result = await db.query(
+    `SELECT id AS blend_id, roaster_sku, shopify_variant_id
+     FROM roaster_blend
+     WHERE coffee_id = $1 AND weight_oz = $2 AND is_active = true`,
+    [coffeeId, weightOz]
+  );
+  return result.rows[0] ?? null;
+}

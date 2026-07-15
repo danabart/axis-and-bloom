@@ -47,6 +47,8 @@ export async function placeOrder(order: {
   items: Array<
     | { variantId: string; quantity: number; priceCents?: number }
     | { archetype: string; dialSortOrder: number; weightOz: number; quantity: number; priceCents?: number }
+    // Direct category coffee, no dial position — Bloom Dial Base Data Part 3, Phase 6.
+    | { coffeeId: number; weightOz: number; quantity: number; priceCents?: number }
   >;
   shippingAddress: object;
 }) {
