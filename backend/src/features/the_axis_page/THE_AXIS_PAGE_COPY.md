@@ -1,5 +1,7 @@
 # The Axis — Page Copy & Layout
 
+> **⚠️ V1 — RETIRED (2026-07-14).** Superseded by `THE_AXIS_PAGE_COPY_V2.md` (data-journey strategy). Kept for reference only.
+
 **Strategy:** Black Box Transparency  
 **Audience:** Coffee enthusiasts + busy professionals  
 **Tone:** Technical authority, warm confidence, no jargon overload  

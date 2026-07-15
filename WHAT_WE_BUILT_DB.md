@@ -123,7 +123,7 @@ No enforced sequence between stages — a user can land on any stage directly fr
 
 **Roastery catalogue** *(seeded June 2026)*
 - `coffee_alias` — maps Axis & Bloom platform slot names (e.g. "Classic Balanced", "Jammy & Aromatic") to the coffees that fill them; `priority=1` = Path (preferred), `priority=2` = TCR (fallback); `archetype` is NULL for Half-Caf / Decaf rows; UNIQUE on `(archetype, dial_sort_order, coffee_id)` — NULL archetypes bypass the constraint so multiple NULL rows are allowed; see `seeds/coffee_alias_path_tcr.sql`. **As of #75**, `archetype`/`dial_sort_order` are superseded columns — `GET /api/admin/coffee-alias` derives both live from `dial_archetype_positions`/`archetype_assignments`, falling back to these stored columns only when a coffee has no live position. Priority/rank is now edited from the Coffees admin page, not Blends & SKUs; new alias rows are created via `POST /api/admin/coffee-alias` (also #75). **As of #94**, keeps only its fulfilment role (coffee↔slot mapping, `priority`, `is_active`) — `platform_name` here is legacy/unread; the display name now lives on `dial_slot_alias` (below).
-- `dial_slot_alias` *(added #94)* — the single source of truth for a Bloom Dial slot's display name: `(archetype, dial_sort_order, platform_name)`, `UNIQUE` on both the slot key and the name. A slot's name is a property of the slot, never of whichever coffee currently occupies it — fixes a regression where two coffees at different positions could share a name, and a coffee's name went stale when it moved slots (#93's spread moves). Seeded with 20 flavor-slot names + 1 Experimental-slot name (`ON CONFLICT DO NOTHING`, safe to re-run). Every public/admin reader that shows a slot name joins here; `PATCH /api/admin/coffee-alias/slot` and `PATCH /api/admin/coffee-alias/:id` (rename) both upsert here (`409` on a duplicate name). **As of #96**, also joined by `sommelierRag.ts`'s `getAliases()` (Liam's catalog-name source) and `GET /api/admin/inventory` — both were missed in #94's initial rollout and were citing stale/duplicate `coffee_alias.platform_name` values until fixed.
+- `dial_slot_alias` *(added #94)* — the single source of truth for a Bloom Dial slot's display name: `(archetype, dial_sort_order, platform_name)`, `UNIQUE` on both the slot key and the name. A slot's name is a property of the slot, never of whichever coffee currently occupies it — fixes a regression where two coffees at different positions could share a name, and a coffee's name went stale when it moved slots (#93's spread moves). Seeded with 20 flavor-slot names + 1 Experimental-slot name (`ON CONFLICT DO NOTHING`, safe to re-run). Every public/admin reader that shows a slot name joins here; `PATCH /api/admin/coffee-alias/slot` and `PATCH /api/admin/coffee-alias/:id` (rename) both upsert here (`409` on a duplicate name). **As of #96**, also joined by `sommelierRag.ts`'s `getAliases()` (Liam's catalog-name source) and `GET /api/admin/inventory` — both were missed in #94's initial rollout and were citing stale/duplicate `coffee_alias.platform_name` values until fixed. **As of #97**, rounded out to 24 rows total — the 3 remaining unnamed experimental slots (1/3/4) seeded ("Curious Start"/"Daring Edge"/"The Wild Card"); new `GET /api/admin/dial/slot-aliases` returns all 24 unconditionally for the admin matrix (unlike `GET /coffee-alias`, which only has rows for occupied slots).
 
 **Sommelier (Liam)** *(added June 2026 — SERIAL PKs)*
 - `sommelier_sessions` — one row per Liam session; columns: `uid TEXT` (firebase UID), `intent TEXT`, `turn_count INT`, `is_closed BOOL`, `close_reason TEXT`, `context_data JSONB` (stores catalogText, evaluationId, archetype, coffeeIds, ragFocus), `last_active_at TIMESTAMPTZ`
@@ -481,6 +481,26 @@ ORDER BY signups DESC;
 SELECT grant_admin('user@example.com');
 SELECT revoke_admin('user@example.com');
 SELECT * FROM list_admins();
+```
+
+### The Axis V2 — live stats aggregates (GET /api/axis/stats, WHAT_WE_BUILT.md #59)
+No new tables/columns — reads existing archetype/dial/feedback tables. Useful for spot-checking the page's Tier-B counters directly:
+```sql
+-- Coffees currently mapped (has a live, non-superseded archetype assignment)
+SELECT COUNT(DISTINCT coffee_id) FROM archetype_assignments WHERE superseded_at IS NULL;
+
+-- Per-archetype counts (excludes the Experimental pseudo-archetype)
+SELECT aa.archetype, COUNT(DISTINCT aa.coffee_id)
+FROM archetype_assignments aa
+JOIN dial_archetype_config dac ON dac.archetype = aa.archetype
+WHERE aa.superseded_at IS NULL AND dac.is_archetype = true
+GROUP BY aa.archetype;
+
+-- Coffees flagged Experimental (category, not archetype)
+SELECT COUNT(DISTINCT cca.coffee_id)
+FROM coffee_category_assignment cca
+JOIN coffee_category cc ON cc.id = cca.category_id
+WHERE cc.code = 'experimental';
 ```
 
 ### Manual token grant

@@ -91,6 +91,16 @@
   --color-ink: #45474a;
   --color-ink-deep: #3a3c3e;
   --color-hairline: #c5c7c8;
+
+  /* Archetype colors (The Axis V2) — aligned with Home.tsx (source of truth
+     for Camila's working palette) as of the round-2 refinement, 2026-07-14.
+     Update both places together if Camila revises these again. */
+  --color-archetype-fruity: #ca445f;
+  --color-archetype-floral: #a34b78;
+  --color-archetype-balanced-sweet: #d1ac11;
+  --color-archetype-chocolate-nutty: #a54c2d;
+  --color-archetype-earthy: #912f2f;
+  --color-experimental: #056c7a;
 }
 
 @layer base {

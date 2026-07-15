@@ -1,5 +1,7 @@
 # Build: "The Axis" page
 
+> **⚠️ V1 — RETIRED (2026-07-14).** Superseded by `CLAUDE_CODE_PROMPT_THE_AXIS_V2.md`. Kept for reference (design-system conventions remain useful).
+
 ## Goal
 Build a new public page called **The Axis** at route `/the-axis`. It explains the flavor-matching methodology behind Axis & Bloom — how coffees and users are mapped to a seven-dimensional flavor space, and how distance between vectors drives recommendations.
 
