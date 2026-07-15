@@ -220,6 +220,72 @@ const BLOOM_WEIGHTS_OZ = [12, 80] as const;
 const BLOOM_CANONICAL_WEIGHT_OZ = 12;
 const BLOOM_DEFAULT_PRICE_CENTS: Record<number, number> = { 12: 3800, 80: 19900 };
 
+// Shared per-archetype slot builder — used by both /archetypes (the 5 real
+// archetypes) and /experimental (Bloom Dial Base Data Part 4, §B2/C1). Resolves
+// each of an archetype's dial_position_vocabulary rows to a Slot via the same
+// stock-aware resolveBlendForSlot() every consumer already trusts.
+async function buildSlotsForArchetype(
+  archetype: string,
+  vocabRows: { sort_order: number; label: string; description: string | null }[],
+  slotAliasMap: Map<string, string>,
+  priceMap: Map<string, number>,
+) {
+  const slots = [];
+  for (const v of vocabRows) {
+    const resolved = await resolveBlendForSlot(archetype, v.sort_order, BLOOM_CANONICAL_WEIGHT_OZ);
+
+    if (!resolved) {
+      slots.push({
+        dialSortOrder: v.sort_order,
+        positionLabel:  v.label,
+        description:    v.description ?? null,
+        isActive:       false,
+        platformName:   null,
+        isDefault:      false,
+        prices:         [],
+        coffeeId:       null,
+      });
+      continue;
+    }
+
+    // isDefault (Part 1 Decision #8) is joined off dap.archetype = $2 (this slot's
+    // archetype) explicitly, not just ca.coffee_id — dial_archetype_positions.is_default
+    // is keyed by (coffee_id, archetype), and the same coffee_id can carry is_default
+    // rows under more than one archetype context, so an unfiltered join could pick up
+    // the wrong one.
+    const defaultResult = await db.query(
+      `SELECT ca.coffee_id, dap.is_default
+       FROM coffee_alias ca
+       LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id AND dap.archetype = $2
+       LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
+       LEFT JOIN archetype_assignments aa
+         ON aa.coffee_id = ca.coffee_id AND aa.superseded_at IS NULL
+       WHERE ca.coffee_id = $1 AND ca.is_active = true
+         AND COALESCE(aa.archetype, ca.archetype) = $2
+         AND COALESCE(dpv.sort_order, ca.dial_sort_order) = $3
+       LIMIT 1`,
+      [resolved.coffee_id, archetype, v.sort_order]
+    );
+
+    const prices = BLOOM_WEIGHTS_OZ.map(weightOz => ({
+      weightOz,
+      retailPriceCents: priceMap.get(`${archetype}|${v.sort_order}|${weightOz}`) ?? BLOOM_DEFAULT_PRICE_CENTS[weightOz],
+    }));
+
+    slots.push({
+      dialSortOrder: v.sort_order,
+      positionLabel:  v.label,
+      description:    v.description ?? null,
+      isActive:       true,
+      platformName:   slotAliasMap.get(`${archetype}|${v.sort_order}`) ?? null,
+      isDefault:      defaultResult.rows[0]?.is_default ?? false,
+      prices,
+      coffeeId:       resolved.coffee_id,
+    });
+  }
+  return slots;
+}
+
 router.get('/archetypes', async (_req, res) => {
   try {
     const [archetypeResult, vocabResult, priceResult, slotAliasResult] = await Promise.all([
@@ -228,8 +294,9 @@ router.get('/archetypes', async (_req, res) => {
       // for "which dimension does this archetype's dial travel on", not re-derived
       // from dial_position_vocabulary's per-row dimension_id.
       // is_archetype = true (Bloom Dial Base Data Part 3) — 'experimental' is a
-      // category, not a peer flavor dial; it's presented separately (The Unexpected),
-      // not looped here alongside the 5 real archetypes.
+      // category, not a peer flavor dial; it's presented separately (see
+      // GET /experimental, Bloom Dial Base Data Part 4), not looped here
+      // alongside the 5 real archetypes.
       db.query(
         `SELECT dac.archetype, cd.name AS dimension_name,
                 COALESCE(cd.platform_name, cd.name) AS dimension_platform_name
@@ -263,60 +330,7 @@ router.get('/archetypes', async (_req, res) => {
     const archetypes = [];
     for (const { archetype, dimension_name, dimension_platform_name } of archetypeResult.rows) {
       const slotsVocab = vocabResult.rows.filter((v: any) => v.archetype === archetype);
-      const slots = [];
-
-      for (const v of slotsVocab) {
-        const resolved = await resolveBlendForSlot(archetype, v.sort_order, BLOOM_CANONICAL_WEIGHT_OZ);
-
-        if (!resolved) {
-          slots.push({
-            dialSortOrder: v.sort_order,
-            positionLabel:  v.label,
-            description:    v.description ?? null,
-            isActive:       false,
-            platformName:   null,
-            isDefault:      false,
-            prices:         [],
-            coffeeId:       null,
-          });
-          continue;
-        }
-
-        // isDefault (Part 1 Decision #8) is joined off dap.archetype = $2 (this slot's
-        // archetype) explicitly, not just ca.coffee_id — dial_archetype_positions.is_default
-        // is keyed by (coffee_id, archetype), and the same coffee_id can carry is_default
-        // rows under more than one archetype context, so an unfiltered join could pick up
-        // the wrong one.
-        const defaultResult = await db.query(
-          `SELECT ca.coffee_id, dap.is_default
-           FROM coffee_alias ca
-           LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id AND dap.archetype = $2
-           LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
-           LEFT JOIN archetype_assignments aa
-             ON aa.coffee_id = ca.coffee_id AND aa.superseded_at IS NULL
-           WHERE ca.coffee_id = $1 AND ca.is_active = true
-             AND COALESCE(aa.archetype, ca.archetype) = $2
-             AND COALESCE(dpv.sort_order, ca.dial_sort_order) = $3
-           LIMIT 1`,
-          [resolved.coffee_id, archetype, v.sort_order]
-        );
-
-        const prices = BLOOM_WEIGHTS_OZ.map(weightOz => ({
-          weightOz,
-          retailPriceCents: priceMap.get(`${archetype}|${v.sort_order}|${weightOz}`) ?? BLOOM_DEFAULT_PRICE_CENTS[weightOz],
-        }));
-
-        slots.push({
-          dialSortOrder: v.sort_order,
-          positionLabel:  v.label,
-          description:    v.description ?? null,
-          isActive:       true,
-          platformName:   slotAliasMap.get(`${archetype}|${v.sort_order}`) ?? null,
-          isDefault:      defaultResult.rows[0]?.is_default ?? false,
-          prices,
-          coffeeId:       resolved.coffee_id,
-        });
-      }
+      const slots = await buildSlotsForArchetype(archetype, slotsVocab, slotAliasMap, priceMap);
 
       archetypes.push({
         archetype,
@@ -331,6 +345,124 @@ router.get('/archetypes', async (_req, res) => {
   } catch (err) {
     console.error('[coffees/archetypes]', err);
     res.status(500).json({ error: 'Failed to fetch archetypes' });
+  }
+});
+
+// GET /api/coffees/experimental ────────────────────────────────────────────────
+// Public, roaster-blind. Bloom Dial Base Data Part 4, §B2/C1: Experimental gets
+// its own archetype-style box on both The Bloom and Flavor Intelligence — same
+// shape as one entry from GET /archetypes above (reuses buildSlotsForArchetype),
+// titled "Experimental" (the family name), NOT "The Unexpected" (that's just the
+// slot-2 alias — a coffee inside this box, e.g. Kopi Safari, shows its own slot
+// alias as usual). Sourced from the experimental dial_archetype_positions/
+// dial_position_vocabulary rows, which still exist and were never removed — only
+// excluded from the main /archetypes loop (is_archetype=false). A coffee's
+// archetype_assignments match (e.g. Kopi Safari -> earthy) is unrelated and
+// untouched by this endpoint; this is presentation only.
+router.get('/experimental', async (_req, res) => {
+  try {
+    const [vocabResult, priceResult, slotAliasResult, dimensionResult] = await Promise.all([
+      db.query(`SELECT sort_order, label, description FROM dial_position_vocabulary WHERE archetype = 'experimental' ORDER BY sort_order`),
+      db.query(
+        `SELECT archetype, dial_sort_order, weight_oz, retail_price_cents
+         FROM dial_slot_price WHERE archetype = 'experimental' AND weight_oz = ANY($1::numeric[])`,
+        [BLOOM_WEIGHTS_OZ]
+      ),
+      db.query(`SELECT archetype, dial_sort_order, platform_name FROM dial_slot_alias WHERE archetype = 'experimental'`),
+      // dial_archetype_config.dominant_dimension_id is NULL for 'experimental'
+      // (is_archetype=false, not a peer flavor family with its own calibrated
+      // dimension) — resolve the dial's dimension from its own vocabulary rows
+      // instead, same dimension_id (9, Savory/Depth) on all 4 by construction.
+      db.query(
+        `SELECT cd.name AS dimension_name, COALESCE(cd.platform_name, cd.name) AS dimension_platform_name
+         FROM dial_position_vocabulary dpv
+         JOIN coffee_dimensions cd ON cd.id = dpv.dimension_id
+         WHERE dpv.archetype = 'experimental'
+         LIMIT 1`
+      ),
+    ]);
+
+    const priceMap = new Map<string, number>();
+    for (const row of priceResult.rows) {
+      priceMap.set(`${row.archetype}|${row.dial_sort_order}|${Number(row.weight_oz)}`, row.retail_price_cents);
+    }
+    const slotAliasMap = new Map<string, string>();
+    for (const row of slotAliasResult.rows) {
+      slotAliasMap.set(`${row.archetype}|${row.dial_sort_order}`, row.platform_name);
+    }
+
+    const slots = await buildSlotsForArchetype('experimental', vocabResult.rows, slotAliasMap, priceMap);
+
+    res.json({
+      archetype: 'experimental',
+      archetypeLabel: ARCHETYPE_LABEL['experimental'] ?? 'Experimental',
+      dimensionName: dimensionResult.rows[0]?.dimension_name ?? null,
+      dimensionPlatformName: dimensionResult.rows[0]?.dimension_platform_name ?? null,
+      slots,
+    });
+  } catch (err) {
+    console.error('[coffees/experimental]', err);
+    res.status(500).json({ error: 'Failed to fetch experimental' });
+  }
+});
+
+// GET /api/coffees/archetype-order?archetype= ─────────────────────────────────
+// Public. Bloom Dial Base Data Part 4, §B3: The Bloom's archetype boxes are
+// ordered by the customer's match, nearest neighbor first — computed here, not
+// hard-coded in the frontend. With a valid, real (is_archetype=true) archetype
+// match: that archetype first, then the other 4 by ascending Euclidean distance
+// over v_archetype_vectors' ideal_score (per shared dimension). No match (missing/
+// invalid param — pre-quiz guest) falls back to a fixed default order, the same
+// 5-archetype order the frontend previously hard-coded in bloomVisuals.ts.
+// Experimental is deliberately excluded from this array — it's placed after the
+// flavor archetypes as a fixed position by the frontend, not personalized.
+const DEFAULT_ARCHETYPE_ORDER = ['floral', 'fruity', 'balanced_sweet', 'chocolate_nutty', 'earthy'];
+
+router.get('/archetype-order', async (req, res) => {
+  try {
+    const requested = typeof req.query.archetype === 'string' ? req.query.archetype : '';
+
+    // Validate against the known 5 real archetypes in JS before ever touching the
+    // DB — archetype is an enum-typed column, and querying it with an arbitrary
+    // string (garbage input, or a valid-but-non-flavor enum value like
+    // 'experimental') throws a Postgres cast error rather than matching zero
+    // rows. DEFAULT_ARCHETYPE_ORDER doubles as the exact "real, is_archetype=true"
+    // allow-list, so membership here is sufficient — no separate DB check needed.
+    if (!DEFAULT_ARCHETYPE_ORDER.includes(requested)) {
+      res.json({ order: DEFAULT_ARCHETYPE_ORDER });
+      return;
+    }
+
+    const vectorsResult = await db.query(`SELECT archetype, dimension, ideal_score FROM v_archetype_vectors`);
+    const byDisplayName = new Map<string, Map<string, number>>();
+    for (const row of vectorsResult.rows) {
+      if (!byDisplayName.has(row.archetype)) byDisplayName.set(row.archetype, new Map());
+      byDisplayName.get(row.archetype)!.set(row.dimension, Number(row.ideal_score));
+    }
+
+    const matchedVec = byDisplayName.get(ARCHETYPE_LABEL[requested] ?? '');
+    if (!matchedVec) {
+      res.json({ order: DEFAULT_ARCHETYPE_ORDER });
+      return;
+    }
+
+    const others = DEFAULT_ARCHETYPE_ORDER.filter(a => a !== requested);
+    const withDistance = others.map(enumValue => {
+      const vec = byDisplayName.get(ARCHETYPE_LABEL[enumValue] ?? '');
+      let sumSquares = 0;
+      if (vec) {
+        for (const [dimension, idealScore] of matchedVec) {
+          if (vec.has(dimension)) sumSquares += (idealScore - vec.get(dimension)!) ** 2;
+        }
+      }
+      return { enumValue, distance: Math.sqrt(sumSquares) };
+    });
+    withDistance.sort((a, b) => a.distance - b.distance);
+
+    res.json({ order: [requested, ...withDistance.map(d => d.enumValue)] });
+  } catch (err) {
+    console.error('[coffees/archetype-order]', err);
+    res.status(500).json({ error: 'Failed to compute archetype order' });
   }
 });
 

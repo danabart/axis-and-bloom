@@ -72,7 +72,7 @@ export function PositionCard({
       <button onClick={onToggleReveal} className="w-full text-left px-6 py-5 flex items-center justify-between gap-4">
         <div className="flex-1 min-w-0">
           <h3 className="text-lg font-normal" style={{ color }}>
-            {slot.positionLabel} — {slot.platformName}
+            {slot.platformName}
           </h3>
           {teaser && <p className="text-sm font-light mt-1 truncate" style={{ color: '#8a8070' }}>{teaser}</p>}
         </div>

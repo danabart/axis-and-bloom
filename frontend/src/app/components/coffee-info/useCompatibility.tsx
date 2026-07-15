@@ -87,7 +87,7 @@ export function CompatibilityBadge({ level, userArchetype }: { level: CompatLeve
   return (
     <div className="flex flex-col gap-1.5">
       <span
-        className="self-start text-xs px-3 py-1 rounded-full border font-normal tracking-wide"
+        className="self-start text-xs px-4 py-1.5 rounded-full border font-normal tracking-wide whitespace-nowrap"
         style={{ backgroundColor: c.bg, color: c.text, borderColor: c.border }}
       >
         {c.label}

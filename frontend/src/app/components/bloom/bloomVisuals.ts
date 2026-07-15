@@ -38,10 +38,12 @@ export interface ArchetypeVisual {
   bag: string;
 }
 
-// Order matches Shop.tsx's ARCHETYPES array (01–06) — kept identical so customers see the
-// same "which archetype is which number/color" mapping across /shop and /bloom.
-export const ARCHETYPE_ORDER = ['floral', 'fruity', 'balanced_sweet', 'chocolate_nutty', 'earthy', 'experimental'] as const;
-
+// `num` on each entry below matches Shop.tsx's ARCHETYPES array (01–06) — kept
+// identical so customers see the same "which archetype is which number/color"
+// mapping across /shop and /bloom. Display ORDER on The Bloom itself is no
+// longer read from a hard-coded array here (Bloom Dial Base Data Part 4, §B3) —
+// it's computed server-side, personalized per customer; see GET
+// /api/coffees/archetype-order.
 export const ARCHETYPE_VISUALS: Record<string, ArchetypeVisual> = {
   floral:          { num: '01', color: '#a34b78', hero: floralHero,     sm1: floralSm1,     sm2: floralSm2,     bag: bagFloral },
   fruity:          { num: '02', color: '#ca445f', hero: fruityHero,     sm1: fruitySm1,     sm2: fruitySm2,     bag: bagFruity },

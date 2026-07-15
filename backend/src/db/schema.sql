@@ -1328,6 +1328,15 @@ INSERT INTO dial_slot_alias (archetype, dial_sort_order, platform_name) VALUES
   ('experimental',    2, 'The Unexpected')
 ON CONFLICT (archetype, dial_sort_order) DO NOTHING;
 
+-- Bloom Dial Base Data Part 4 (§A): the experimental dial only had a name for
+-- slot 2 — the other 3 slots showed blank in the admin matrix. Rounds it out
+-- to 24 total dial_slot_alias rows (20 flavor + 4 experimental).
+INSERT INTO dial_slot_alias (archetype, dial_sort_order, platform_name) VALUES
+  ('experimental', 1, 'Curious Start'),
+  ('experimental', 3, 'Daring Edge'),
+  ('experimental', 4, 'The Wild Card')
+ON CONFLICT (archetype, dial_sort_order) DO NOTHING;
+
 -- A signed-in user's remembered dial position per archetype (The Bloom Part 3,
 -- Phase D). Deliberately its own table, not a repurposing of user_archetype_tuning/
 -- archetype_tunable_variable — those are reserved for a computed, feedback-derived

@@ -48,6 +48,12 @@ interface VocabOption {
   dimension: string;
 }
 
+interface SlotAlias {
+  archetype: string;
+  dial_sort_order: number;
+  platform_name: string;
+}
+
 interface AliasRow {
   id: number;
   platform_name: string;
@@ -217,6 +223,7 @@ export default function AdminCoffees() {
   const [coffees, setCoffees]               = useState<Coffee[]>([]);
   const [vocab, setVocab]                   = useState<VocabOption[]>([]);
   const [aliases, setAliases]               = useState<AliasRow[]>([]);
+  const [slotAliases, setSlotAliases]       = useState<SlotAlias[]>([]);
   const [slotPrices, setSlotPrices]         = useState<SlotPriceRow[]>([]);
   const [roasterOptions, setRoasterOptions] = useState<RoasterOption[]>([]);
   const [categories, setCategories]                 = useState<CategoryOption[]>([]);
@@ -304,10 +311,11 @@ export default function AdminCoffees() {
 
   async function load() {
     try {
-      const [coffeeRes, vocabRes, aliasRes, roasterRes, categoryRes, coffeeCategoryRes, archetypeRes, slotPriceRes] = await Promise.all([
+      const [coffeeRes, vocabRes, aliasRes, slotAliasRes, roasterRes, categoryRes, coffeeCategoryRes, archetypeRes, slotPriceRes] = await Promise.all([
         apiFetch('/api/admin/coffees'),
         apiFetch('/api/admin/dial/vocabulary'),
         apiFetch('/api/admin/coffee-alias'),
+        apiFetch('/api/admin/dial/slot-aliases'),
         apiFetch('/api/admin/roasters'),
         apiFetch('/api/admin/categories'),
         apiFetch('/api/admin/coffee-categories'),
@@ -317,6 +325,7 @@ export default function AdminCoffees() {
       setCoffees(await coffeeRes.json());
       setVocab(await vocabRes.json());
       setAliases(await aliasRes.json());
+      setSlotAliases(await slotAliasRes.json());
       const roasters = await roasterRes.json();
       if (Array.isArray(roasters)) setRoasterOptions(roasters.filter((r: { is_active: boolean }) => r.is_active));
       setCategories(await categoryRes.json());
@@ -329,10 +338,12 @@ export default function AdminCoffees() {
   useEffect(() => { if (user) load(); }, [user]);
 
   // ── alias lookup: `archetype_sortorder` → platform_name ───────────────────
+  // Bloom Dial Base Data Part 4 (§A): sourced from dial_slot_alias directly (every
+  // slot has a name, occupied or not), not from coffee_alias (only has rows for
+  // occupied slots — an empty slot used to show blank here).
   const aliasMap: Record<string, string> = {};
-  for (const a of aliases) {
-    const key = `${a.archetype ?? 'null'}_${a.dial_sort_order ?? 'null'}`;
-    if (!aliasMap[key]) aliasMap[key] = a.platform_name;
+  for (const sa of slotAliases) {
+    aliasMap[`${sa.archetype}_${sa.dial_sort_order}`] = sa.platform_name;
   }
 
   // ── slot price lookup: `archetype_sortorder_weightOz` → retail_price_cents ──

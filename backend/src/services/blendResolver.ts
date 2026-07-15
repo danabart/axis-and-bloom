@@ -47,20 +47,43 @@ export async function resolveBlendForSlot(
      LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
      LEFT JOIN archetype_assignments aa
        ON aa.coffee_id = ca.coffee_id AND aa.superseded_at IS NULL
-     WHERE COALESCE(aa.archetype, ca.archetype) = $1
+     -- Bloom Dial Base Data Part 4: dap.archetype (the coffee's actual home dial
+     -- position, when one exists) now takes precedence over aa.archetype (its
+     -- match archetype). Before this, the archetype match was COALESCE(aa.archetype,
+     -- ca.archetype) — silently WRONG for a coffee whose match diverges from its
+     -- dial position, which now exists by design (Kopi Safari: match='earthy' for
+     -- Liam, but dial position='experimental' via the category tag). Without dap
+     -- taking priority, Kopi Safari could never resolve as active on ITS OWN
+     -- experimental dial slot, since aa.archetype='earthy' always won the COALESCE.
+     -- Safe for every other coffee: when dap exists, dap.archetype and aa.archetype
+     -- already agree in the normal (non-category) case, so this changes nothing
+     -- for them; the Part 3 category exclusion below is a separate, independent
+     -- guard and still applies regardless of this precedence change.
+     WHERE COALESCE(dap.archetype, aa.archetype, ca.archetype) = $1
        AND COALESCE(dpv.sort_order, ca.dial_sort_order) = $2
        AND ca.is_active = true
-       -- Bloom Dial Base Data Part 3: a coffee tagged Decaf/Half-Caf/Flavored/
-       -- Experimental never fills a flavor-dial slot, even via the legacy
-       -- coffee_alias.archetype/dial_sort_order fallback columns — giving these
-       -- coffees a real archetype_assignments row (Part 1) made COALESCE(aa.archetype,...)
-       -- start matching their stale stored fallback position, which is exactly
-       -- the "category coffee squats a real dial slot" regression this excludes.
+       -- Bloom Dial Base Data Part 3: a coffee tagged Decaf/Half-Caf/Flavored
+       -- never fills a flavor-dial slot, even via the legacy coffee_alias.archetype/
+       -- dial_sort_order fallback columns — giving these coffees a real
+       -- archetype_assignments row (Part 1) made COALESCE(aa.archetype,...) start
+       -- matching their stale stored fallback position, which is exactly the
+       -- "category coffee squats a real dial slot" regression this excludes.
        AND NOT EXISTS (
          SELECT 1 FROM coffee_category_assignment cca
          JOIN coffee_category cc ON cc.id = cca.category_id
-         WHERE cca.coffee_id = ca.coffee_id AND cc.code IN ('decaf', 'half_caf', 'flavored', 'experimental')
+         WHERE cca.coffee_id = ca.coffee_id AND cc.code IN ('decaf', 'half_caf', 'flavored')
        )
+       -- Experimental-tagged coffees are excluded the same way, but ONLY when
+       -- resolving a REAL flavor archetype's slot — the experimental archetype's
+       -- OWN dial is exactly where an Experimental-tagged coffee (e.g. Kopi
+       -- Safari) is supposed to resolve (Bloom Dial Base Data Part 4, the
+       -- Experimental box). Without this carve-out, the Part 3 exclusion above
+       -- would make the Experimental dial permanently unresolvable too.
+       AND ($1 = 'experimental' OR NOT EXISTS (
+         SELECT 1 FROM coffee_category_assignment cca2
+         JOIN coffee_category cc2 ON cc2.id = cca2.category_id
+         WHERE cca2.coffee_id = ca.coffee_id AND cc2.code = 'experimental'
+       ))
      ORDER BY ca.priority ASC`,
     [archetype, dialSortOrder]
   );

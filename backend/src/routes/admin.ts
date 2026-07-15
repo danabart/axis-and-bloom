@@ -564,6 +564,23 @@ router.delete('/sessions/:sessionId/coffees/:scId', async (req, res) => {
   }
 });
 
+// ── GET /api/admin/dial/slot-aliases ──────────────────────────────────────────
+// Every dial_slot_alias row (24: 20 flavor + 4 experimental) — unlike GET
+// /coffee-alias below, this is not derived through a coffee, so an unoccupied
+// slot still has a name (Bloom Dial Base Data Part 4, §A — the admin matrix
+// used to show a blank Slot Name for any slot with no coffee mapped).
+router.get('/dial/slot-aliases', async (_req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT archetype, dial_sort_order, platform_name FROM dial_slot_alias ORDER BY archetype, dial_sort_order`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[admin/dial/slot-aliases GET]', err);
+    res.status(500).json({ error: 'Failed to fetch slot aliases' });
+  }
+});
+
 // ── GET /api/admin/dimensions ─────────────────────────────────────────────────
 // ── GET /api/admin/coffee-alias ──────────────────────────────────────────────
 // dial_sort_order/archetype are derived live from dial_archetype_positions /
