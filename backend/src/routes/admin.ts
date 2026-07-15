@@ -1929,17 +1929,32 @@ router.get('/inventory', async (_req, res) => {
         rb.quantity_available, rb.safety_stock_buffer,
         rb.inventory_status, rb.inventory_last_synced_at, rb.last_restocked_at,
         ca.id         AS alias_id,
-        ca.platform_name AS alias_name,
+        COALESCE(dsa.platform_name, ca.platform_name) AS alias_name,
         ca.priority   AS alias_rank
       FROM roaster_blend rb
       LEFT JOIN coffees c ON c.id = rb.coffee_id
       LEFT JOIN LATERAL (
-        SELECT id, platform_name, priority
+        SELECT id, platform_name, priority, archetype, dial_sort_order
         FROM coffee_alias
         WHERE coffee_id = rb.coffee_id AND is_active = true
         ORDER BY priority
         LIMIT 1
       ) ca ON true
+      -- Bloom Dial Base Data Part 3: same live-slot-name derivation as everywhere
+      -- else (GET /coffee-alias, sommelierRag.ts) — a dial coffee's inventory row
+      -- should show its current slot name, not the possibly-stale/duplicate
+      -- per-row coffee_alias.platform_name (found during the #94/#95 audit).
+      LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = rb.coffee_id AND dap.is_guest = false
+      LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
+      LEFT JOIN archetype_assignments aa ON aa.coffee_id = rb.coffee_id AND aa.superseded_at IS NULL
+      LEFT JOIN dial_slot_alias dsa
+        ON dsa.archetype = COALESCE(aa.archetype, ca.archetype)
+        AND dsa.dial_sort_order = COALESCE(dpv.sort_order, ca.dial_sort_order)
+        AND NOT EXISTS (
+          SELECT 1 FROM coffee_category_assignment cca
+          JOIN coffee_category cc ON cc.id = cca.category_id
+          WHERE cca.coffee_id = rb.coffee_id AND cc.code IN ('decaf', 'half_caf', 'flavored', 'experimental')
+        )
       ORDER BY
         (rb.coffee_id IS NULL) DESC,
         CASE

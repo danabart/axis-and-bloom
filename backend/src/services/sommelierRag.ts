@@ -67,16 +67,35 @@ async function getDescriptors(coffeeIds: number[]): Promise<Map<number, string[]
 }
 
 // Axis & Bloom alias per coffee — the only customer-facing identity Liam's catalog
-// context may use (never the roaster's raw internal name). Priority 1 preferred,
-// same derivation convention as the rest of the codebase (see coffee_alias schema
-// comment). Falls back to the archetype label if a coffee has no alias yet.
+// context may use (never the roaster's raw internal name). Priority 1 preferred.
+// Bloom Dial Base Data Part 3 (#94/#95): a dial coffee's name is now the SLOT's
+// name (dial_slot_alias), never the possibly-stale per-row coffee_alias.platform_name
+// — this was a real bug found post-deploy (Liam was still citing old/duplicate
+// per-coffee names like "Deep Cocoa" for two different coffees after the admin/public
+// site had already moved to the deduplicated slot model). A category-tagged coffee
+// (Decaf/Half-Caf/Flavored/Experimental) has no dial slot, so it keeps its own
+// coffee_alias.platform_name as a legitimate per-coffee identity — same fallback
+// the public /api/coffees/other-categories endpoint uses. Falls back to the
+// archetype label (caller-side) if a coffee has no alias row at all.
 async function getAliases(coffeeIds: number[]): Promise<Map<number, string>> {
   if (!coffeeIds.length) return new Map();
   const result = await db.query(
-    `SELECT DISTINCT ON (coffee_id) coffee_id, platform_name
-     FROM coffee_alias
-     WHERE coffee_id = ANY($1::int[]) AND is_active = true
-     ORDER BY coffee_id, priority ASC`,
+    `SELECT DISTINCT ON (ca.coffee_id) ca.coffee_id,
+            COALESCE(dsa.platform_name, ca.platform_name) AS platform_name
+     FROM coffee_alias ca
+     LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id AND dap.is_guest = false
+     LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
+     LEFT JOIN archetype_assignments aa ON aa.coffee_id = ca.coffee_id AND aa.superseded_at IS NULL
+     LEFT JOIN dial_slot_alias dsa
+       ON dsa.archetype = COALESCE(aa.archetype, ca.archetype)
+       AND dsa.dial_sort_order = COALESCE(dpv.sort_order, ca.dial_sort_order)
+       AND NOT EXISTS (
+         SELECT 1 FROM coffee_category_assignment cca
+         JOIN coffee_category cc ON cc.id = cca.category_id
+         WHERE cca.coffee_id = ca.coffee_id AND cc.code IN ('decaf', 'half_caf', 'flavored', 'experimental')
+       )
+     WHERE ca.coffee_id = ANY($1::int[]) AND ca.is_active = true
+     ORDER BY ca.coffee_id, ca.priority ASC`,
     [coffeeIds]
   );
   const map = new Map<number, string>();
