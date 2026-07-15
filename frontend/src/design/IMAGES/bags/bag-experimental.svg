@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 308" font-family="Archivo, Helvetica, Arial, sans-serif">
+  <path d="M28 36 Q28 22 42 22 L178 22 Q192 22 192 36 L192 272 Q192 286 178 286 L42 286 Q28 286 28 272 Z" fill="#056c7a"/>
+  <rect x="28" y="22" width="164" height="15" rx="7" fill="#04525c"/>
+  <circle cx="162" cy="72" r="14" fill="#efe8d5"/>
+  <circle cx="162" cy="72" r="11" fill="none" stroke="#04525c" stroke-width=".6"/>
+  <text x="106" y="70" text-anchor="middle" font-size="10" letter-spacing="2" fill="#f2f1ea">AXIS &amp; BLOOM</text>
+  
+  <text x="110" y="98" text-anchor="middle" font-size="14" letter-spacing="1" fill="#f2f1ea">EXPERIMENTAL</text>
+  <text x="110" y="114" text-anchor="middle" font-size="6.5" letter-spacing="1.5" fill="#f2f1ea" opacity=".8">FRESH ROASTED COFFEE</text>
+  <g fill="#000">
+    <rect x="28" y="130" width="164" height="4" opacity=".13"/>
+    <rect x="28" y="138" width="164" height="4" opacity=".08"/>
+    <rect x="28" y="146" width="164" height="4" opacity=".13"/>
+    <rect x="28" y="154" width="164" height="4" opacity=".08"/>
+    <rect x="28" y="162" width="164" height="4" opacity=".13"/>
+  </g>
+  <text x="36" y="218" font-size="15" letter-spacing="1" fill="#f2f1ea">FROM:</text>
+  <text x="34" y="252" font-size="32" letter-spacing="1" fill="rgba(242,241,234,.5)">AXIS</text>
+  <text x="36" y="274" font-size="14" letter-spacing="1" fill="#ee5974">&amp; BLOOM</text>
+  <text transform="rotate(-90 184 274)" x="184" y="274" font-size="14" letter-spacing="2" fill="#f2f1ea">TO: YOU</text>
+</svg>
