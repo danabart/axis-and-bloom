@@ -353,7 +353,7 @@ export default function TheAxis() {
               → Take the Flavor Quiz
             </Link>
             <p style={{ fontSize: 13, color: 'rgba(0,0,0,0.35)', margin: '10px 0 0' }}>
-              Free to take. No commitment. Then come back and watch the map move.
+              Free to take. No commitment.
             </p>
           </motion.div>
 

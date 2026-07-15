@@ -161,7 +161,8 @@
 > → Take the Flavor Quiz
 
 > **Microcopy**
-> Free to take. No commitment. Then come back and watch the map move.
+> Free to take. No commitment.
+> *(Removed 2026-07-14: "Then come back and watch the map move" — implied the quiz itself moves the map, which it doesn't. May be replaced with "Next time you're here, the map will know where you belong" once profile links pass `?archetype=`.)*
 
 ---
 
