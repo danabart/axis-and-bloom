@@ -13,10 +13,6 @@ import { slotKey } from './bloom/types';
 
 const RUST = '#a33726';
 
-// ─── Logo / dial asset ───────────────────────────────────────────────────────
-
-import logoLinesSvg from '../../design/LOGO/LogoLines.svg';
-
 // ─── Archetype asset imports ──────────────────────────────────────────────────
 
 import wallpaperFloral       from '../../design/IMAGES/archetypes/Floral.jpg';
@@ -106,6 +102,20 @@ const ARCHETYPE_NAME_TO_KEY: Record<string, ArchetypeKey> = {
   'spicy':             'earthy',
   'Experimental':      'experimental',
   'experimental':      'experimental',
+};
+
+// This quiz's local ArchetypeKey ('balanced'/'chocolate'/'earthy') is a shorthand
+// that predates the archetype_enum used by /api/coffees/archetypes and everywhere
+// else server-side ('balanced_sweet'/'chocolate_nutty'/'earthy') — see the same
+// naming mismatch already documented and fixed in backend/src/routes/users.ts.
+// Needed to look up this screen's just-scored archetype in that endpoint's data.
+const ARCHETYPE_KEY_TO_ENUM: Record<ArchetypeKey, string> = {
+  floral: 'floral',
+  fruity: 'fruity',
+  balanced: 'balanced_sweet',
+  chocolate: 'chocolate_nutty',
+  earthy: 'earthy',
+  experimental: 'experimental',
 };
 
 // ─── Archetypes data ──────────────────────────────────────────────────────────
@@ -217,276 +227,6 @@ const ARCHETYPES: Record<ArchetypeKey, {
   },
 };
 
-// ─── Body levels — Chocolate & Nutty, Body dimension ─────────────────────────
-
-const BODY_LEVELS = [
-  {
-    id: 'gentle',
-    label: 'Gentle',
-    description: 'Lighter and more delicate in body.',
-    coffee: 'Guatemala Huehuetenango',
-    bestBrew: 'Pour Over',
-    alsoBrew: 'Drip Coffee',
-  },
-  {
-    id: 'rounded',
-    label: 'Rounded',
-    description: 'Smooth and balanced.',
-    coffee: 'Brazil Los Santos',
-    bestBrew: 'Drip Coffee',
-    alsoBrew: 'Cold Brew',
-  },
-  {
-    id: 'structured',
-    label: 'Structured',
-    description: 'More defined and grounded.',
-    coffee: '6-Bean Espresso Blend',
-    bestBrew: 'Espresso',
-    alsoBrew: 'French Press',
-  },
-  {
-    id: 'full',
-    label: 'Full',
-    description: 'Richer and more substantial.',
-    coffee: 'Sumatra Mandheling',
-    bestBrew: 'French Press',
-    alsoBrew: 'Drip Coffee',
-  },
-  {
-    id: 'deep',
-    label: 'Deep',
-    description: 'Dense, weighty, and lingering.',
-    coffee: 'Bali Kintamani',
-    bestBrew: 'French Press',
-    alsoBrew: 'Cold Brew',
-  },
-] as const;
-
-type BodyLevel = typeof BODY_LEVELS[number];
-
-const N_BODY = BODY_LEVELS.length;   // 5
-const SNAP_DEG = 360 / N_BODY;       // 72°
-
-// ─── BloomDial ────────────────────────────────────────────────────────────────
-
-function BloomDial({ onReveal }: { onReveal: (level: BodyLevel) => void }) {
-  const [dialAngle, setDialAngle]     = useState(0);
-  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
-  const [isDragging, setIsDragging]   = useState(false);
-  const [isSnapping, setIsSnapping]   = useState(false);
-
-  const wheelRef     = useRef<HTMLDivElement>(null);
-  const dialAngleRef = useRef(0);
-  const dragRef      = useRef({ startPA: 0, startDA: 0, active: false });
-  const snapTimeout  = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const reducedMotion =
-    typeof window !== 'undefined' &&
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-  useEffect(() => () => { if (snapTimeout.current) clearTimeout(snapTimeout.current); }, []);
-
-  const pointerAngle = (clientX: number, clientY: number): number => {
-    const el = wheelRef.current;
-    if (!el) return 0;
-    const { left, top, width, height } = el.getBoundingClientRect();
-    return Math.atan2(clientY - (top + height / 2), clientX - (left + width / 2)) * (180 / Math.PI) + 90;
-  };
-
-  const snapAndSelect = (rawAngle: number) => {
-    const n       = ((rawAngle % 360) + 360) % 360;
-    const snapped = Math.round(n / SNAP_DEG) * SNAP_DEG % 360;
-    const idx     = Math.round(n / SNAP_DEG) % N_BODY;
-    dialAngleRef.current = snapped;
-    setDialAngle(snapped);
-    setSelectedIdx(idx);
-    if (!reducedMotion) {
-      setIsSnapping(true);
-      if (snapTimeout.current) clearTimeout(snapTimeout.current);
-      snapTimeout.current = setTimeout(() => setIsSnapping(false), 400);
-    }
-  };
-
-  const onMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    dragRef.current = { startPA: pointerAngle(e.clientX, e.clientY), startDA: dialAngleRef.current, active: true };
-    setIsDragging(true);
-  };
-
-  const onTouchStart = (e: React.TouchEvent) => {
-    const t = e.touches[0];
-    dragRef.current = { startPA: pointerAngle(t.clientX, t.clientY), startDA: dialAngleRef.current, active: true };
-    setIsDragging(true);
-  };
-
-  useEffect(() => {
-    if (!isDragging) return;
-    const move = (cx: number, cy: number) => {
-      if (!dragRef.current.active) return;
-      let delta = pointerAngle(cx, cy) - dragRef.current.startPA;
-      if (delta > 180) delta -= 360;
-      if (delta < -180) delta += 360;
-      const a = dragRef.current.startDA + delta;
-      dialAngleRef.current = a;
-      setDialAngle(a);
-    };
-    const end = () => {
-      dragRef.current.active = false;
-      setIsDragging(false);
-      snapAndSelect(dialAngleRef.current);
-    };
-    const onMM = (e: MouseEvent) => move(e.clientX, e.clientY);
-    const onTM = (e: TouchEvent) => { const t = e.touches[0]; move(t.clientX, t.clientY); };
-    window.addEventListener('mousemove', onMM);
-    window.addEventListener('mouseup', end);
-    window.addEventListener('touchmove', onTM, { passive: false });
-    window.addEventListener('touchend', end);
-    return () => {
-      window.removeEventListener('mousemove', onMM);
-      window.removeEventListener('mouseup', end);
-      window.removeEventListener('touchmove', onTM);
-      window.removeEventListener('touchend', end);
-    };
-  }, [isDragging]);
-
-  const level = selectedIdx !== null ? BODY_LEVELS[selectedIdx] : null;
-
-  const wheelT = reducedMotion ? 'none'
-    : isDragging ? 'none'
-    : isSnapping ? 'transform 0.35s cubic-bezier(0.34, 1.4, 0.64, 1)'
-    : 'transform 0.08s ease-out';
-
-  return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', alignItems: 'center',
-      justifyContent: 'center', width: '100%', height: '100%',
-      padding: 'clamp(24px, 4vh, 52px) clamp(20px, 3vw, 48px)',
-    }}>
-
-      {/* Eyebrow */}
-      <p style={{
-        fontSize: '0.50rem', letterSpacing: '0.34em', textTransform: 'uppercase',
-        color: '#a54c2d', opacity: 0.45, margin: '0 0 10px', textAlign: 'center',
-      }}>
-        YOUR BLOOM DIAL
-      </p>
-
-      {/* Heading */}
-      <p style={{
-        fontSize: 'clamp(0.80rem, 0.96vw, 0.96rem)',
-        color: '#a54c2d', margin: '0 0 8px', lineHeight: 1.3,
-        textAlign: 'center', fontWeight: 400,
-      }}>
-        Personalize your Chocolate &amp; Nutty match
-      </p>
-
-      {/* Supporting line */}
-      <p style={{
-        fontSize: 'clamp(0.63rem, 0.74vw, 0.73rem)',
-        color: '#9a2918', opacity: 0.36, margin: '0 0 16px', lineHeight: 1.65,
-        textAlign: 'center', maxWidth: 'clamp(220px, 26vw, 360px)',
-      }}>
-        Adjust the body of your match to find the expression that feels most like you.
-      </p>
-
-      {/* Dimension label */}
-      <p style={{
-        fontSize: '0.48rem', letterSpacing: '0.30em', textTransform: 'uppercase',
-        color: '#a54c2d', opacity: 0.38, margin: '0 0 20px', textAlign: 'center',
-      }}>
-        DIMENSION: BODY
-      </p>
-
-      {/* Dial + fixed indicator */}
-      <div style={{ position: 'relative', marginBottom: 20 }}>
-        {/* Fixed pointer chevron */}
-        <div style={{
-          position: 'absolute', top: -15, left: '50%',
-          transform: 'translateX(-50%)',
-          width: 0, height: 0,
-          borderLeft: '5px solid transparent',
-          borderRight: '5px solid transparent',
-          borderTop: '8px solid #a54c2d',
-          zIndex: 2,
-        }} />
-
-        {/* Rotating logo */}
-        <div
-          ref={wheelRef}
-          style={{
-            width: 'clamp(220px, 24vw, 360px)',
-            height: 'clamp(220px, 24vw, 360px)',
-            cursor: isDragging ? 'grabbing' : 'grab',
-            transform: `rotate(${dialAngle}deg)`,
-            transition: wheelT,
-            userSelect: 'none',
-            touchAction: 'none',
-          }}
-          onMouseDown={onMouseDown}
-          onTouchStart={onTouchStart}
-        >
-          <img
-            src={logoLinesSvg}
-            alt=""
-            draggable={false}
-            style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', pointerEvents: 'none' }}
-          />
-        </div>
-      </div>
-
-      {/* Level label + description */}
-      <div style={{ textAlign: 'center', minHeight: 54, marginBottom: 22 }}>
-        {level ? (
-          <>
-            <p style={{
-              fontSize: '0.68rem', letterSpacing: '0.22em', textTransform: 'uppercase',
-              color: '#a54c2d', margin: '0 0 5px',
-            }}>
-              {level.label}
-            </p>
-            <p style={{
-              fontSize: 'clamp(0.68rem, 0.80vw, 0.78rem)',
-              color: '#9a2918', opacity: 0.46, lineHeight: 1.6, margin: 0,
-              maxWidth: 'clamp(190px, 22vw, 320px)',
-            }}>
-              {level.description}
-            </p>
-          </>
-        ) : (
-          <p style={{
-            fontSize: '0.55rem', letterSpacing: '0.20em', textTransform: 'uppercase',
-            color: '#9a2918', opacity: 0.24, margin: 0,
-          }}>
-            Drag to explore
-          </p>
-        )}
-      </div>
-
-      {/* Reveal button */}
-      <button
-        onClick={() => level && onReveal(level)}
-        disabled={!level}
-        style={{
-          background: level ? '#a54c2d' : 'transparent',
-          border: `1px solid ${level ? '#a54c2d' : 'rgba(165,76,45,0.18)'}`,
-          color: level ? '#f2f1ea' : 'rgba(165,76,45,0.22)',
-          padding: '13px 26px',
-          fontFamily: 'inherit',
-          fontSize: '0.54rem',
-          letterSpacing: '0.28em',
-          textTransform: 'uppercase',
-          cursor: level ? 'pointer' : 'not-allowed',
-          transition: 'opacity 0.2s',
-        }}
-        onMouseEnter={e => { if (level) e.currentTarget.style.opacity = '0.80'; }}
-        onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
-      >
-        SEE YOUR PERSONALIZED COFFEE
-      </button>
-    </div>
-  );
-}
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function FlavorQuiz() {
@@ -527,15 +267,24 @@ export default function FlavorQuiz() {
   const [revealForced, setRevealForced]     = useState(false);
   const revealContainerRef = useRef<HTMLDivElement>(null);
 
-  // Coffee reveal (from Bloom Dial)
-  const [revealedLevel, setRevealedLevel] = useState<BodyLevel | null>(null);
-
   // Returning-user screen — embedded ArchetypeSection (Find My Flavor Part 1)
   const [archetypesList, setArchetypesList]     = useState<ArchetypeData[]>([]);
+  const [experimentalData, setExperimentalData] = useState<ArchetypeData | null>(null);
   const [matchedSortOrder, setMatchedSortOrder] = useState<number | null>(null);
   const [revealedKeys, setRevealedKeys]         = useState<Set<string>>(new Set());
   const matchedDialRef = useRef<BloomDialHandle | null>(null);
   const [compareState, setCompareState] = useState<{ open: boolean; archetype: string; archetypeLabel: string; slot: Slot | null }>({
+    open: false, archetype: '', archetypeLabel: '', slot: null,
+  });
+
+  // Just-scored results screen — separate ArchetypeSection instance/state from the
+  // returning-user screen above (Find My Flavor Part 2). Kept independent per the
+  // spec's own caution, even though the two screens are unlikely to both be mounted
+  // at once today.
+  const [resultsSortOrder, setResultsSortOrder] = useState<number | null>(null);
+  const [resultsRevealedKeys, setResultsRevealedKeys] = useState<Set<string>>(new Set());
+  const resultsDialRef = useRef<BloomDialHandle | null>(null);
+  const [resultsCompareState, setResultsCompareState] = useState<{ open: boolean; archetype: string; archetypeLabel: string; slot: Slot | null }>({
     open: false, archetype: '', archetypeLabel: '', slot: null,
   });
 
@@ -570,19 +319,38 @@ export default function FlavorQuiz() {
       .finally(() => setProfileLoading(false));
   }, [user]);
 
-  // Returning-user screen data — archetype catalogue for the embedded ArchetypeSection.
+  // Archetype catalogue for the embedded ArchetypeSection — used by the returning-user
+  // screen (signed-in only) and the just-scored results screen below. The latter is
+  // reached by guests too (most quiz-takers), so this fetch must NOT be gated on `user`
+  // (Find My Flavor Part 2 — this was the exact bug: previously `if (!user) return`).
   useEffect(() => {
-    if (!user) return;
     fetch('/api/coffees/archetypes')
       .then(r => r.json())
       .then((data: ArchetypeData[]) => setArchetypesList(data))
       .catch(() => {});
-  }, [user]);
+
+    // Experimental is excluded from GET /archetypes (it's a category, not one of the
+    // 5 real archetypes — see coffees.ts) and presented via its own endpoint, same as
+    // /bloom (BloomPage.tsx) does.
+    fetch('/api/coffees/experimental')
+      .then(r => r.json())
+      .then((data: ArchetypeData) => setExperimentalData(data))
+      .catch(() => {});
+  }, []);
 
   const matchedArchetypeId = userProfile?.archetype?.id ?? null;
   const matchedData = matchedArchetypeId
     ? archetypesList.find(a => a.archetype === matchedArchetypeId) ?? null
     : null;
+
+  // This screen's just-scored archetype, looked up by archetype_enum rather than
+  // reused from `matchedData` — `matchedData` is the signed-in user's previously
+  // *saved* profile match, which may lag behind (or not exist for) what they just
+  // scored on this attempt, and is never populated for guests at all.
+  const resultsArchetypeEnum = ARCHETYPE_KEY_TO_ENUM[archetypeKey];
+  const resultsArchetypeData = resultsArchetypeEnum === 'experimental'
+    ? experimentalData
+    : archetypesList.find(a => a.archetype === resultsArchetypeEnum) ?? null;
 
   // Pre-set the dial to the signed-in user's saved position for this archetype (mirrors BloomPage.tsx Phase D).
   useEffect(() => {
@@ -618,6 +386,52 @@ export default function FlavorQuiz() {
     matchedDialRef.current = handle;
   }
 
+  // Pre-set the results screen's dial to the signed-in user's saved position for the
+  // just-scored archetype (mirrors the returning-user screen's own effect above).
+  useEffect(() => {
+    if (!user || !resultsArchetypeData) return;
+    getDialPosition(resultsArchetypeData.archetype)
+      .then(r => { if (r?.dialSortOrder != null) setResultsSortOrder(r.dialSortOrder); })
+      .catch(() => {});
+  }, [user, resultsArchetypeData?.archetype]);
+
+  function handleResultsDialSelect(archetype: string, dialSortOrder: number) {
+    setResultsSortOrder(dialSortOrder);
+    if (user) setDialPosition(archetype, dialSortOrder).catch(() => {});
+  }
+
+  function toggleResultsReveal(key: string) {
+    setResultsRevealedKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  function handleResultsHopClick(archetype: string, dialSortOrder: number) {
+    resultsDialRef.current?.rotateTo(dialSortOrder);
+    setResultsRevealedKeys(prev => new Set(prev).add(slotKey(archetype, dialSortOrder)));
+  }
+
+  function openResultsCompare(archetype: string, archetypeLabel: string, slot: Slot) {
+    setResultsCompareState({ open: true, archetype, archetypeLabel, slot });
+  }
+
+  function registerResultsDialRef(_archetype: string, handle: BloomDialHandle | null) {
+    resultsDialRef.current = handle;
+  }
+
+  // Bug fix (Find My Flavor Part 2, Bug 1): preload the scored archetype's wallpaper
+  // as soon as it's known (archetypeKey is set well before isComplete/the results
+  // screen mounts — including during the branch question's async round trip), so by
+  // the time the curtain renders the ~1MB JPG is already cached and there's no pop-in
+  // even on a slow connection. Pairs with the opaque backgroundColor fallback on the
+  // curtain div itself below, which covers the case this doesn't (a cold cache).
+  useEffect(() => {
+    const src = ARCHETYPES[archetypeKey]?.wallpaper;
+    if (src) new Image().src = src;
+  }, [archetypeKey]);
+
   useEffect(() => {
     const savedName = sessionStorage.getItem('axisBloomCustomerName');
     if (savedName) {
@@ -627,15 +441,27 @@ export default function FlavorQuiz() {
     }
   }, []);
 
-  // Scroll to top when result is ready so the reveal starts clean
+  // Scroll to top when result is ready so the reveal starts clean. Kept as a safety
+  // net (e.g. the `?result=` preview shortcut, which sets `isComplete` from its
+  // initial state rather than via a transition below), but the real fix for Bug 1's
+  // retake-flash (Find My Flavor Part 2) is `resetReveal()` below, called
+  // synchronously alongside `setIsComplete(true)` so both land in the same React
+  // batch/paint — relying solely on this effect meant the results screen could
+  // mount and paint once with a stale (non-zero) `revealProgress` left over from a
+  // previous reveal, one tick before this effect corrected it.
   useEffect(() => {
     if (isComplete) {
       window.scrollTo({ top: 0 });
       setRevealProgress(0);
       setRevealForced(false);
-      setRevealedLevel(null);
     }
   }, [isComplete]);
+
+  function resetReveal() {
+    window.scrollTo({ top: 0 });
+    setRevealProgress(0);
+    setRevealForced(false);
+  }
 
   // Scroll-driven reveal — active only on the result page
   useEffect(() => {
@@ -705,6 +531,7 @@ export default function FlavorQuiz() {
         saveQuizResult({ archetype: score.archetype, scores: score.scores, answers, decaf: false })
           .catch(console.error);
       }
+      resetReveal();
       setIsComplete(true);
     } catch (err) {
       console.error('[quiz/score]', err);
@@ -728,6 +555,7 @@ export default function FlavorQuiz() {
     }
 
     setShowBranch(false);
+    resetReveal();
     setIsComplete(true);
   };
 
@@ -746,7 +574,6 @@ export default function FlavorQuiz() {
     setArchetypeKey('balanced');
     setRevealProgress(0);
     setRevealForced(false);
-    setRevealedLevel(null);
   };
 
   // ── Loading ──────────────────────────────────────────────────────────────────
@@ -1223,6 +1050,7 @@ export default function FlavorQuiz() {
                   saveQuizResult({ archetype: scoreData.archetype, scores: scoreData.scores, answers, decaf: false })
                     .catch(console.error);
                 }
+                resetReveal();
                 setIsComplete(true);
               }}
               className="w-full py-3 rounded-lg text-sm text-stone-600 border border-stone-200 hover:bg-stone-100"
@@ -1256,153 +1084,41 @@ export default function FlavorQuiz() {
       <div ref={revealContainerRef} style={{ position: 'relative', height: '200vh' }}>
         <div style={{ position: 'sticky', top: 0, height: '100vh', overflow: 'hidden' }}>
 
-          {/* ── BASE LAYER — reveal layout ──────────────────────────────────── */}
+          {/* ── BASE LAYER — condensed header, revealed as the curtain slides away.
+               Find My Flavor Part 2, Bug 2: this used to be a 50/50 dial-placeholder/
+               bag split with a chocolate-only mock dial + hardcoded "BUY THIS COFFEE"
+               panel. The real interactive dial/position-card/reveal/cart flow now
+               lives in the full-width ArchetypeSection rendered below the scroll
+               container (in normal document flow, not clipped to this 100vh sticky
+               layer — ArchetypeSection's three-column row + full RevealedPanel is far
+               taller than one viewport and needs full page width, per the spec). ── */}
           <div style={{
             position: 'absolute', inset: 0,
             backgroundColor: '#f2f1ea',
-            display: 'flex',
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            padding: 'clamp(32px, 5vw, 72px)', textAlign: 'center',
           }}>
-
-            {/* Left column — Bloom Dial */}
-            <div style={{
-              width: '50%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRight: '1px solid rgba(165,76,45,0.07)',
+            <p style={{
+              fontSize: '0.48rem', letterSpacing: '0.32em', textTransform: 'uppercase',
+              color: archetype.color, opacity: 0.50, margin: '0 0 7px',
             }}>
-              {archetypeKey === 'chocolate' ? (
-                <BloomDial onReveal={setRevealedLevel} />
-              ) : (
-                // Placeholder for other archetypes — shows archetype description
-                <div style={{
-                  padding: 'clamp(32px, 5vw, 72px)',
-                  maxWidth: 420,
-                }}>
-                  <p style={{
-                    fontSize: '0.50rem', letterSpacing: '0.32em', textTransform: 'uppercase',
-                    color: archetype.color, opacity: 0.5, margin: '0 0 16px',
-                  }}>
-                    YOUR PROFILE
-                  </p>
-                  <p style={{
-                    fontSize: 'clamp(0.72rem, 0.84vw, 0.82rem)',
-                    color: '#9a2918', opacity: 0.48, lineHeight: 1.75, margin: 0,
-                  }}>
-                    {archetype.shortDescription}
-                  </p>
-                </div>
-              )}
-            </div>
-
-            {/* Right column — Bag + archetype text + coffee reveal */}
-            <div style={{
-              width: '50%',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              paddingTop: 'clamp(32px, 5vh, 60px)',
-              paddingBottom: 'clamp(32px, 5vh, 60px)',
-              paddingLeft: 'clamp(16px, 2vw, 32px)',
-              paddingRight: 'clamp(40px, 6vw, 88px)',
+              YOUR COFFEE ARCHETYPE
+            </p>
+            <h1 style={{
+              fontSize: 'clamp(2.4rem, 4.4vw, 4.6rem)',
+              color: archetype.color, fontWeight: 400,
+              lineHeight: 1.0, margin: '0 0 20px', letterSpacing: '-0.01em',
             }}>
-
-              {/* Archetype label */}
-              <div style={{ textAlign: 'center', marginBottom: 'clamp(14px, 2vh, 22px)' }}>
-                <p style={{
-                  fontSize: '0.48rem', letterSpacing: '0.32em', textTransform: 'uppercase',
-                  color: archetype.color, opacity: 0.50, margin: '0 0 7px',
-                }}>
-                  YOUR COFFEE ARCHETYPE
-                </p>
-                <h1 style={{
-                  fontSize: 'clamp(1.5rem, 2.2vw, 2.6rem)',
-                  color: archetype.color, fontWeight: 400,
-                  lineHeight: 1.0, margin: 0, letterSpacing: '-0.01em',
-                }}>
-                  {archetype.name}
-                </h1>
-              </div>
-
-              {/* Bag */}
-              <img
-                src={archetype.bag}
-                alt={archetype.name}
-                style={{
-                  maxHeight: revealedLevel
-                    ? 'clamp(180px, 36vh, 42vh)'
-                    : 'clamp(260px, 58vh, 64vh)',
-                  maxWidth: '100%',
-                  width: 'auto',
-                  objectFit: 'contain',
-                  display: 'block',
-                  transition: 'max-height 0.7s cubic-bezier(0.16, 1, 0.3, 1)',
-                }}
-              />
-
-              {/* Coffee reveal panel — fades in after dial CTA */}
-              <div style={{
-                width: '100%',
-                maxWidth: 360,
-                overflow: 'hidden',
-                maxHeight: revealedLevel ? 240 : 0,
-                opacity: revealedLevel ? 1 : 0,
-                transition: 'max-height 0.7s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s ease 0.25s',
-                textAlign: 'center',
-                marginTop: revealedLevel ? 'clamp(14px, 2.2vh, 22px)' : 0,
-              }}>
-                {revealedLevel && (
-                  <>
-                    <p style={{
-                      fontSize: '0.46rem', letterSpacing: '0.30em', textTransform: 'uppercase',
-                      color: archetype.color, opacity: 0.45, margin: '0 0 6px',
-                    }}>
-                      YOUR MATCH
-                    </p>
-                    <p style={{
-                      fontSize: 'clamp(1.0rem, 1.4vw, 1.5rem)',
-                      color: archetype.color, fontWeight: 400,
-                      margin: '0 0 12px', letterSpacing: '-0.01em',
-                    }}>
-                      {revealedLevel.coffee}
-                    </p>
-                    <p style={{
-                      fontSize: '0.58rem', color: '#9a2918', opacity: 0.42,
-                      margin: '0 0 3px', letterSpacing: '0.04em',
-                    }}>
-                      Best for: {revealedLevel.bestBrew}
-                    </p>
-                    <p style={{
-                      fontSize: '0.56rem', color: '#9a2918', opacity: 0.32,
-                      margin: '0 0 20px', letterSpacing: '0.04em',
-                    }}>
-                      Also great for: {revealedLevel.alsoBrew}
-                    </p>
-                    <button
-                      onClick={() => { window.location.href = '/shop'; }}
-                      style={{
-                        background: archetype.color,
-                        border: 'none',
-                        color: '#f2f1ea',
-                        padding: '13px 28px',
-                        fontFamily: 'inherit',
-                        fontSize: '0.54rem',
-                        letterSpacing: '0.28em',
-                        textTransform: 'uppercase',
-                        cursor: 'pointer',
-                        transition: 'opacity 0.2s',
-                      }}
-                      onMouseEnter={e => { e.currentTarget.style.opacity = '0.80'; }}
-                      onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
-                    >
-                      BUY THIS COFFEE
-                    </button>
-                  </>
-                )}
-              </div>
-
-            </div>
+              {archetype.name}
+            </h1>
+            <p style={{
+              fontSize: 'clamp(0.78rem, 0.92vw, 0.92rem)',
+              color: '#9a2918', opacity: 0.50, lineHeight: 1.75, margin: 0,
+              maxWidth: 480,
+            }}>
+              {archetype.shortDescription}
+            </p>
           </div>
 
           {/* ── CURTAIN LAYER — full-screen wallpaper, slides up on scroll ──── */}
@@ -1516,9 +1232,21 @@ export default function FlavorQuiz() {
             ) : (
               /* ── Other archetypes — wallpaper image ── */
               <>
+                {/* Bug 1 fix (Find My Flavor Part 2): explicit opaque backgroundColor
+                    fallback — matching the gradient overlay's own base color — so
+                    this div is never transparent while the ~1MB `archetype.wallpaper`
+                    JPG is still downloading/decoding. Without it, the base layer
+                    underneath (now the condensed header above) showed through the
+                    still-loading curtain and then "popped in" opaque once the image
+                    landed, reading as a reveal window dropping down to cover an
+                    already-visible match. The preload effect above (keyed on
+                    archetypeKey) makes this the fast path a moot point on a warm
+                    cache; this backgroundColor is what makes a cold/slow one correct
+                    too. */}
                 <div style={{
                   position: 'absolute', top: 0, left: 0,
                   width: '100%', height: '100%',
+                  backgroundColor: '#0a0604',
                   backgroundImage: `url(${archetype.wallpaper})`,
                   backgroundSize: 'cover',
                   backgroundPosition: 'center',
@@ -1580,6 +1308,37 @@ export default function FlavorQuiz() {
 
         </div>
       </div>
+
+      {/* ── Full-width archetype box — the same dial, position card, reveal panel,
+           add-to-cart, compare, and hop-link flow already proven on /bloom and this
+           page's own returning-user screen (Find My Flavor Part 2, Bug 2). Chocolate
+           & Nutty's previous special case — a local BloomDial mock with Gentle/
+           Rounded/Structured/Full/Deep body-level picks, feeding a hardcoded "BUY
+           THIS COFFEE" button that hard-navigated to /shop — is retired in favor of
+           this, same as every other archetype already got. Flagged explicitly in the
+           WHAT_WE_BUILT.md entry for this change, per the spec's instruction. ── */}
+      {resultsArchetypeData && (
+        <ArchetypeSection
+          data={resultsArchetypeData}
+          index={0}
+          selectedSortOrder={resultsSortOrder ?? computeDefaultSortOrder(resultsArchetypeData)}
+          revealedKeys={resultsRevealedKeys}
+          onDialSelect={handleResultsDialSelect}
+          onToggleReveal={toggleResultsReveal}
+          onAddToCart={addToCart}
+          onHopClick={handleResultsHopClick}
+          onCompare={openResultsCompare}
+          userArchetype={matchedArchetypeId}
+          registerDialRef={registerResultsDialRef}
+        />
+      )}
+
+      <CompareOverlay
+        open={resultsCompareState.open}
+        onClose={() => setResultsCompareState(s => ({ ...s, open: false }))}
+        left={resultsCompareState.slot ? { archetype: resultsCompareState.archetype, archetypeLabel: resultsCompareState.archetypeLabel, slot: resultsCompareState.slot } : null}
+        archetypes={archetypesList}
+      />
 
     </div>
   );
