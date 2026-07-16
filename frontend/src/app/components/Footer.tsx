@@ -27,8 +27,6 @@ export default function Footer() {
               {[
                 { to: '/find-my-flavor', label: 'Find my flavor' },
                 { to: '/flavor-intelligence', label: 'Flavor Intelligence' },
-                { to: '/shop', label: 'Shop' },
-                { to: '/how-it-works', label: 'How it works' },
               ].map(l => (
                 <Link key={l.to} to={l.to} style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.875rem', color: '#9a2918', textDecoration: 'none', opacity: 0.75 }} className="hover:opacity-100 transition-opacity">
                   {l.label}
@@ -42,7 +40,6 @@ export default function Footer() {
             <p style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.65rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 16px', opacity: 0.6 }}>Company</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {[
-                { to: '/about', label: 'About' },
                 { href: '#contact', label: 'Contact' },
                 { href: '#instagram', label: 'Instagram' },
               ].map(l => (

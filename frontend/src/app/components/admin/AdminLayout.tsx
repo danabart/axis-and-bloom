@@ -5,6 +5,12 @@ const NAV_TOP = [
   { to: '/admin', label: 'Dashboard', end: true },
 ];
 
+const NAV_UNLISTED = [
+  { to: '/about', label: 'About' },
+  { to: '/shop', label: 'Shop' },
+  { to: '/how-it-works', label: 'How It Works' },
+];
+
 const NAV_SECTIONS = [
   {
     label: 'Catalogue & Supply',
@@ -95,6 +101,25 @@ export default function AdminLayout() {
             </nav>
           </div>
         ))}
+
+        <div>
+          <p className="text-xs font-normal tracking-widest uppercase mt-6 mb-2 px-3" style={{ color: '#b05642' }}>
+            Unlisted Pages
+          </p>
+          <nav className="flex flex-col gap-1">
+            {NAV_UNLISTED.map(({ to, label }) => (
+              <a
+                key={to}
+                href={to}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-2 rounded text-sm text-stone-500 hover:text-stone-800 hover:bg-stone-100 transition-colors"
+              >
+                {label}
+              </a>
+            ))}
+          </nav>
+        </div>
 
         {/* Back to site + Sign out */}
         <div className="mt-auto pt-6 border-t border-stone-200 flex flex-col gap-1">

@@ -74,11 +74,8 @@ export default function Navigation() {
       <div className="hidden md:flex" style={{ alignItems: 'center', gap: 'clamp(14px, 2vw, 28px)' }}>
         <Link to="/the-axis"             style={LINK} className="hover:opacity-50">THE AXIS</Link>
         <Link to="/bloom"                style={LINK} className="hover:opacity-50">THE BLOOM</Link>
-        <Link to="/how-it-works"         style={LINK} className="hover:opacity-50">HOW IT WORKS</Link>
         <Link to="/find-my-flavor"       style={LINK} className="hover:opacity-50">FIND MY FLAVOR</Link>
         <Link to="/flavor-intelligence"  style={LINK} className="hover:opacity-50">FLAVOR INTELLIGENCE</Link>
-        <Link to="/about"                style={LINK} className="hover:opacity-50">ABOUT</Link>
-        <Link to="/shop"                 style={LINK} className="hover:opacity-50">SHOP</Link>
         {isAdmin && <Link to="/admin" style={LINK} className="hover:opacity-50">ADMIN</Link>}
       </div>
 
@@ -140,11 +137,8 @@ export default function Navigation() {
           {[
             { to: '/the-axis', label: 'THE AXIS' },
             { to: '/bloom', label: 'THE BLOOM' },
-            { to: '/how-it-works', label: 'HOW IT WORKS' },
             { to: '/find-my-flavor', label: 'FIND MY FLAVOR' },
             { to: '/flavor-intelligence', label: 'FLAVOR INTELLIGENCE' },
-            { to: '/about', label: 'ABOUT' },
-            { to: '/shop', label: 'SHOP' },
             ...(isAdmin ? [{ to: '/admin', label: 'ADMIN' }] : []),
           ].map(item => (
             <Link
