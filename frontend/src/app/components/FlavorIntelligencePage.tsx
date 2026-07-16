@@ -397,9 +397,14 @@ export default function FlavorIntelligencePage() {
     // Bloom Dial Base Data Part 4, §C1: category coffees (Decaf/Half-Caf/Flavored)
     // nest under their matched archetype here instead of Part 3's separate "Other
     // Categories" section (FI isn't the shopping page — Bloom keeps that section).
-    // Naturally empty for the Experimental box: no coffee's archetype_assignments
-    // is ever 'experimental' (that's a category tag, not a match archetype).
-    const categoryCoffees = otherCategories.filter(c => c.archetype === data.archetype);
+    // Part 5: Experimental-category coffees are excluded outright — Experimental is
+    // a presentation box (§B2 above), not a nestable category, so a coffee like Kopi
+    // Safari (Experimental category + matched to experimental) doesn't also get a
+    // "Categories: Experimental" sub-list inside its own Experimental box. This also
+    // means the Experimental box always ends up with an empty categoryCoffees list.
+    const categoryCoffees = otherCategories.filter(
+      c => c.archetype === data.archetype && !c.categories.some(cat => cat.code === 'experimental')
+    );
     return (
       <div key={data.archetype} className="border-b" style={{ borderColor: '#e8e4da' }}>
         <button
