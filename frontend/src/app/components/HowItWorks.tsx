@@ -53,7 +53,7 @@ export default function HowItWorks() {
             { id: '02', name: 'Fruity', color: '#ca445f', description: 'Juicy and lively with notes of berries and ripe fruit.', descriptors: 'Sweet, Vibrant, Expressive, Lively' },
             { id: '03', name: 'Balanced & Sweet', color: '#d1ac11', description: 'Round, smooth, and comforting. Notes of caramel, honey, and soft fruit.', descriptors: 'Smooth, Sweet, Harmonious, Easy' },
             { id: '04', name: 'Chocolate & Nutty', color: '#a54c2d', description: 'Deep and satisfying with cocoa, roasted nuts, and a rich presence.', descriptors: 'Rich, Grounded, Full, Comforting' },
-            { id: '05', name: 'Spicy & Earthy', color: '#912f2f', description: 'Warm and bold with hints of spice, wood, and lingering depth.', descriptors: 'Warm, Deep, Bold, Lasting' },
+            { id: '05', name: 'Earthy', color: '#912f2f', description: 'Warm and bold with hints of spice, wood, and lingering depth.', descriptors: 'Warm, Deep, Bold, Lasting' },
             { id: '06', name: 'Experimental', color: '#056c7a', description: 'Ever-changing and wonderfully unconventional. A rotating selection of boundary-pushing coffees.', descriptors: 'Wild, Unique, Surprising' },
           ].map((archetype, idx) => (
             <motion.div key={archetype.id} initial={{ opacity: 0, y: 40 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: '-50px' }} transition={{ duration: 0.8, delay: idx * 0.1 }}

@@ -13,7 +13,7 @@ const archetypes = [
   { name: 'Fruity',            bg: '#ca445f' },
   { name: 'Balanced & Sweet',  bg: '#d1ac11' },
   { name: 'Chocolate & Nutty', bg: '#a54c2d' },
-  { name: 'Spicy & Earthy',    bg: '#912f2f' },
+  { name: 'Earthy',            bg: '#912f2f' },
   { name: 'Experimental',      bg: '#056c7a' },
 ];
 

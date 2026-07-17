@@ -72,7 +72,7 @@ const ARCHETYPES = [
     bag: bagChocolate, hero: chocolateHero, sm1: chocolateSm1, sm2: chocolateSm2,
   },
   {
-    id: 'earthy', num: '05', name: 'Spicy & Earthy', color: '#912f2f',
+    id: 'earthy', num: '05', name: 'Earthy', color: '#912f2f',
     descriptor: 'Warm · Deep · Lasting',
     coffee: 'Sumatra Mandheling',
     notes: 'Cedar, Clove, Dark Cocoa',

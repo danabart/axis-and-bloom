@@ -44,7 +44,7 @@ const COLLECTION = [
   { scan: scanFruity,       bag: bagFruity,       num: '02', name: 'Fruity',             color: '#ca445f' },
   { scan: scanBalanced,     bag: bagBalanced,     num: '03', name: 'Balanced & Sweet',   color: '#d1ac11' },
   { scan: scanChocolate,    bag: bagChocolate,    num: '04', name: 'Chocolate & Nutty',  color: '#a54c2d' },
-  { scan: scanSpicy,        bag: bagEarthy,       num: '05', name: 'Spicy & Earthy',     color: '#912f2f' },
+  { scan: scanSpicy,        bag: bagEarthy,       num: '05', name: 'Earthy',             color: '#912f2f' },
   { scan: scanExperimental, bag: bagExperimental, num: '06', name: 'Experimental',       color: '#056c7a' },
 ];
 
@@ -493,7 +493,7 @@ export default function Home() {
         </div>
         <div style={{ display: 'flex', gap: 'clamp(16px,2vw,28px)', alignItems: 'flex-start' }}>
           {[
-            { src: photoEssay1, caption: 'Spicy & Earthy · Jun 03, 2026', offset: 0 },
+            { src: photoEssay1, caption: 'Earthy · Jun 03, 2026', offset: 0 },
             { src: photoEssay2, caption: 'Fruity · Jun 02, 2026', offset: 44 },
             { src: photoEssay3, caption: 'Floral · Jun 06, 2026', offset: 88 },
           ].map((img, i) => (

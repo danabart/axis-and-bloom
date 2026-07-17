@@ -194,11 +194,11 @@ const ARCHETYPES: Record<ArchetypeKey, {
     ],
   },
   earthy: {
-    name: 'Spicy & Earthy',
+    name: 'Earthy',
     color: '#912f2f',
     wallpaper: wallpaperEarthy,
     bag: bagEarthy,
-    shortDescription: 'Warm, deep, and complex. Spicy & Earthy coffees bring a more grounded sensory world, with notes that may suggest spice, wood, herbs, smoke, or lingering depth.',
+    shortDescription: 'Warm, deep, and complex. Earthy coffees bring a more grounded sensory world, with notes that may suggest spice, wood, herbs, smoke, or lingering depth.',
     whyMatches: [
       'You are drawn to coffees with depth, warmth, and character.',
       'You may enjoy earthy, spicy, rustic, or more unusual flavor notes.',
@@ -614,7 +614,7 @@ export default function FlavorQuiz() {
       : null;
 
     const navItems = [
-      { label: 'Retake the quiz',              action: () => { setUserName(firstName); setHasStarted(true); } },
+      { label: 'Retake the quiz',              action: () => { handleRetake(); setUserName(firstName); setHasStarted(true); } },
       { label: 'Talk to our coffee sommelier', href: '/sommelier?entry=user_initiated' },
       { label: 'View my profile',              href: '/profile' },
       { label: 'Explore flavor intelligence',  href: '/flavor-intelligence' },
@@ -1006,7 +1006,7 @@ export default function FlavorQuiz() {
   if (showTieInterstitial && scoreData) {
     const archetypeNameMap: Record<string, string> = {
       floral: 'Floral', fruity: 'Fruity', balanced: 'Balanced & Sweet',
-      chocolate: 'Chocolate & Nutty', spicy: 'Spicy & Earthy', experimental: 'Experimental',
+      chocolate: 'Chocolate & Nutty', spicy: 'Earthy', experimental: 'Experimental',
     };
     const tiedNames = (scoreData.tiedArchetypes ?? [])
       .map((k) => archetypeNameMap[k.toLowerCase()] ?? k);
