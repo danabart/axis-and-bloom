@@ -319,6 +319,21 @@ export default function FlavorQuiz() {
       .finally(() => setProfileLoading(false));
   }, [user]);
 
+  // Find My Flavor Part 3: refresh the signed-in user's profile (specifically
+  // matchedArchetypeId, which feeds the compatibility badge as `userArchetype`)
+  // right after a quiz result is saved. Without this, userProfile only ever
+  // refetches once per `user` reference — never after a same-session quiz
+  // retake — so a freshly-scored archetype's own compatibility badge could
+  // read against the *previous* match (real repro: retook Balanced & Sweet ->
+  // Floral, the one authored adjacency pair, and saw "Worth exploring" instead
+  // of "In your wheelhouse" on Floral's own just-scored section, self-healing
+  // only after a full page reload — confirmed a pure stale-state bug, not a
+  // backend race, since the reload immediately showed the correct badge).
+  function refreshUserProfile() {
+    if (!user) return;
+    getUserProfile().then(setUserProfile).catch(() => {});
+  }
+
   // Archetype catalogue for the embedded ArchetypeSection — used by the returning-user
   // screen (signed-in only) and the just-scored results screen below. The latter is
   // reached by guests too (most quiz-takers), so this fetch must NOT be gated on `user`
@@ -529,6 +544,7 @@ export default function FlavorQuiz() {
 
       if (user) {
         saveQuizResult({ archetype: score.archetype, scores: score.scores, answers, decaf: false })
+          .then(refreshUserProfile)
           .catch(console.error);
       }
       resetReveal();
@@ -551,6 +567,7 @@ export default function FlavorQuiz() {
 
     if (user) {
       saveQuizResult({ archetype: finalArchetypeName, scores: scoreData.scores, answers, decaf: false })
+        .then(refreshUserProfile)
         .catch(console.error);
     }
 
@@ -1048,6 +1065,7 @@ export default function FlavorQuiz() {
                 setShowTieInterstitial(false);
                 if (user) {
                   saveQuizResult({ archetype: scoreData.archetype, scores: scoreData.scores, answers, decaf: false })
+                    .then(refreshUserProfile)
                     .catch(console.error);
                 }
                 resetReveal();
