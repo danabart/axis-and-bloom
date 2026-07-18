@@ -29,6 +29,8 @@ import bagChocolate       from '../../design/IMAGES/bags/new bags mock up/CHOCOL
 import bagEarthy          from '../../design/IMAGES/bags/new bags mock up/SPICY & EARTHY transp.png';
 import bagExperimental    from '../../design/IMAGES/bags/new bags mock up/EXPERIMENTAL transp.png';
 
+import quizDoor from '../../design/IMAGES/photos/quiz-door.jpg';
+
 // ─── API types ────────────────────────────────────────────────────────────────
 
 interface ApiAnswer {
@@ -784,7 +786,7 @@ export default function FlavorQuiz() {
     return (
       <div className="relative w-full min-h-screen bg-[#f2f1ea] flex overflow-hidden">
         <div className="absolute inset-0">
-          <img src="https://i.imgur.com/3NAnXgR.jpeg" alt="" className="w-full h-full object-cover" />
+          <img src={quizDoor} alt="" className="w-full h-full object-cover" />
         </div>
         <div
           className="relative z-10 w-full flex flex-col justify-start"
