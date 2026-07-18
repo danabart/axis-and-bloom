@@ -78,6 +78,62 @@ interface BranchQuestion {
   answers: BranchAnswer[];
 }
 
+// ─── Accumulating bars (neutral during quiz; color assigned at result reveal) ──
+
+const BAR_WIDTHS = [70.6, 46.1, 100, 59.2, 70.0, 52.4, 82];
+
+function AccumulatingBars({ count, color, instant }: { count: number; color: string; instant?: boolean }) {
+  const [readySet, setReadySet] = useState<Set<number>>(
+    () => instant ? new Set(BAR_WIDTHS.map((_, i) => i)) : new Set(),
+  );
+  const prevCountRef = useRef(instant ? count : 0);
+
+  useEffect(() => {
+    if (instant) {
+      setReadySet(new Set(BAR_WIDTHS.map((_, i) => i)));
+      return;
+    }
+    const prev = prevCountRef.current;
+    prevCountRef.current = count;
+    if (count > prev) {
+      const idx = count - 1;
+      const id = requestAnimationFrame(() => {
+        setReadySet(s => new Set([...s, idx]));
+      });
+      return () => cancelAnimationFrame(id);
+    } else if (count < prev) {
+      setReadySet(s => {
+        const next = new Set(s);
+        for (let i = count; i < BAR_WIDTHS.length; i++) next.delete(i);
+        return next;
+      });
+    }
+  }, [count, instant]);
+
+  if (count <= 0) return null;
+
+  return (
+    <div style={{
+      position: 'absolute', bottom: 20, left: 0, right: 0,
+      display: 'flex', flexDirection: 'column-reverse',
+      alignItems: 'center', gap: 4,
+      pointerEvents: 'none',
+    }}>
+      {BAR_WIDTHS.slice(0, count).map((targetW, i) => (
+        <div
+          key={i}
+          style={{
+            height: 8,
+            width: readySet.has(i) ? `${targetW}%` : '0%',
+            backgroundColor: color,
+            transition: (readySet.has(i) && !instant) ? 'width 550ms cubic-bezier(.22,1,.36,1)' : 'none',
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 // ─── Pink keyword per question (one word gets the highlight device) ───────────
 
 const Q_HIGHLIGHTS: Record<number, string> = {
@@ -936,6 +992,7 @@ export default function FlavorQuiz() {
               <img src={image} alt={question.q_text} className="w-full h-full object-cover" />
             </motion.div>
           </AnimatePresence>
+          <AccumulatingBars count={currentStep} color="rgba(242,241,234,.6)" />
         </div>
 
         <div className="w-full lg:w-1/2 min-h-[60vh] lg:h-screen bg-[#f2f1ea] px-12 py-16 lg:p-24 flex flex-col justify-center relative overflow-y-auto">
@@ -1028,6 +1085,7 @@ export default function FlavorQuiz() {
   if (showBranch && branchQuestion) {
     return (
       <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center">
+        <AccumulatingBars count={questions.length} color="#c5c7c8" instant />
         <div className="w-full max-w-[560px] px-12 py-16 flex flex-col justify-center">
           <motion.div
             initial={{ opacity: 0, y: 10 }}
