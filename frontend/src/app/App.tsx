@@ -72,11 +72,13 @@ export default function App() {
               <Route path="company-gifts" element={<AdminCompanyGifts />} />
             </Route>
 
+            {/* ── Quiz — own minimal chrome, no public nav/footer/cart ── */}
+            <Route path="/find-my-flavor" element={<FlavorQuiz />} />
+
             {/* ── Public site — shared nav + footer ── */}
             <Route element={<PublicLayout />}>
               <Route path="/" element={<HomeOrPrelaunch />} />
               <Route path="/how-it-works" element={<HowItWorks />} />
-              <Route path="/find-my-flavor" element={<FlavorQuiz />} />
               <Route path="/about" element={<About />} />
               <Route path="/shop" element={<Shop />} />
               <Route path="/sign-in" element={<SignIn />} />

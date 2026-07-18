@@ -78,6 +78,68 @@ interface BranchQuestion {
   answers: BranchAnswer[];
 }
 
+// ─── Minimal quiz chrome ──────────────────────────────────────────────────────
+
+function QuizHeader() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  return (
+    <div style={{
+      position: 'fixed', top: 0, left: 0, right: 0, zIndex: 60,
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      padding: '0 clamp(20px, 3.5vw, 48px)',
+      height: 52,
+      pointerEvents: 'none',
+    }}>
+      <a href="/" style={{
+        fontFamily: 'inherit', fontSize: '0.52rem', letterSpacing: '0.28em',
+        textTransform: 'uppercase', color: '#9a2918', opacity: 0.6,
+        textDecoration: 'none', pointerEvents: 'auto',
+      }}>
+        AXIS &amp; BLOOM
+      </a>
+      <div style={{ display: 'flex', gap: 24, alignItems: 'center', pointerEvents: 'auto' }}>
+        {!user && (
+          <a href="/sign-in" style={{
+            fontFamily: 'inherit', fontSize: '0.50rem', letterSpacing: '0.24em',
+            textTransform: 'uppercase', color: '#9a2918', opacity: 0.40,
+            textDecoration: 'none',
+          }}>
+            SAVE PROGRESS
+          </a>
+        )}
+        <button
+          onClick={() => navigate('/')}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+            fontFamily: 'inherit', fontSize: '0.50rem', letterSpacing: '0.24em',
+            textTransform: 'uppercase', color: '#9a2918', opacity: 0.45,
+          }}
+        >
+          EXIT ×
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Ruler-tick progress ──────────────────────────────────────────────────────
+
+function ProgressTicks({ current, total }: { current: number; total: number }) {
+  return (
+    <div style={{ display: 'flex', gap: 5, alignItems: 'flex-end', marginBottom: 32 }}>
+      {Array.from({ length: total }, (_, i) => (
+        <div key={i} style={{
+          width: 1,
+          height: i % 3 === 0 ? 12 : 7,
+          backgroundColor: i < current ? '#9a2918' : 'rgba(154,41,24,0.15)',
+          transition: 'background-color 0.3s ease',
+        }} />
+      ))}
+    </div>
+  );
+}
+
 // ─── Accumulating bars (neutral during quiz; color assigned at result reveal) ──
 
 const BAR_WIDTHS = [70.6, 46.1, 100, 59.2, 70.0, 52.4, 82];
@@ -114,7 +176,7 @@ function AccumulatingBars({ count, color, instant }: { count: number; color: str
 
   return (
     <div style={{
-      position: 'absolute', bottom: 20, left: 0, right: 0,
+      position: 'absolute', bottom: 24, left: 0, right: 0,
       display: 'flex', flexDirection: 'column-reverse',
       alignItems: 'center', gap: 4,
       pointerEvents: 'none',
@@ -139,13 +201,13 @@ function AccumulatingBars({ count, color, instant }: { count: number; color: str
 const Q_HIGHLIGHTS: Record<number, string> = {
   1: 'relationship',
   2: 'good',
-  3: 'first reaction',
-  4: 'bother you',
-  5: 'honest reaction',
-  6: 'Without thinking',
+  3: 'reaction',
+  4: 'bother',
+  5: 'honest',
+  6: 'grab',
 };
 
-const BRANCH_HIGHLIGHT = 'at its best';
+const BRANCH_HIGHLIGHT = 'best';
 
 function highlightQuestion(text: string, keyword: string): React.ReactNode {
   const idx = text.toLowerCase().indexOf(keyword.toLowerCase());
@@ -692,6 +754,39 @@ export default function FlavorQuiz() {
     setRevealForced(false);
   };
 
+  // ── Auto-advance: always hold the latest handleNext in a ref so the 750ms
+  //    timer fires against fresh state rather than a stale closure capture.
+  const autoAdvanceRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleNextRef   = useRef(handleNext);
+  handleNextRef.current = handleNext;
+
+  const handleAnswerSelect = (answerId: string, answerIdx: number) => {
+    setAnswers(prev => ({ ...prev, [currentStep]: answerIdx }));
+    setSelectedIds(prev => ({ ...prev, [currentStep]: answerId }));
+    if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);
+    autoAdvanceRef.current = setTimeout(() => handleNextRef.current(), 750);
+  };
+
+  const handleBranchAnswerSelect = (answerId: string) => {
+    setSelectedBranchAnswerId(answerId);
+    if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);
+    autoAdvanceRef.current = setTimeout(() => {
+      if (!scoreData || !branchQuestion) return;
+      const selected = branchQuestion.answers.find(a => a.id === answerId);
+      const finalArchetypeName = selected?.archetypeName ?? scoreData.archetype;
+      const newKey = ARCHETYPE_NAME_TO_KEY[finalArchetypeName] ?? archetypeKey;
+      setArchetypeKey(newKey);
+      if (user) {
+        saveQuizResult({ archetype: finalArchetypeName, scores: scoreData.scores, answers, decaf: false })
+          .then(refreshUserProfile)
+          .catch(console.error);
+      }
+      setShowBranch(false);
+      resetReveal();
+      setIsComplete(true);
+    }, 750);
+  };
+
   // Profile Part 1 — `/find-my-flavor?retake=1`: a Profile link to plain
   // /find-my-flavor would strand a matched user on the returning-user screen
   // needing a second click. Reuses exactly the same reset the returning-user
@@ -720,6 +815,7 @@ export default function FlavorQuiz() {
   if (loading && !isPreview) {
     return (
       <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center">
+        <QuizHeader />
         <p className="text-[#a33726]/50 text-sm uppercase tracking-[0.2em]">Loading…</p>
       </div>
     );
@@ -729,6 +825,7 @@ export default function FlavorQuiz() {
   if ((loadError || !questions.length) && !isPreview) {
     return (
       <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center">
+        <QuizHeader />
         <p className="text-[#a33726]/70 text-sm uppercase tracking-[0.2em]">
           Quiz unavailable. Please try again later.
         </p>
@@ -741,6 +838,7 @@ export default function FlavorQuiz() {
     if (profileLoading) {
       return (
         <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center">
+          <QuizHeader />
           <p className="text-[#a33726]/50 text-sm uppercase tracking-[0.2em]">Loading…</p>
         </div>
       );
@@ -763,6 +861,7 @@ export default function FlavorQuiz() {
 
     return (
       <div className="relative w-full min-h-screen bg-[#f2f1ea]">
+        <QuizHeader />
         {/* Header row — profile text + nav, side by side (roughly the old two-column
             layout). Deliberately does NOT also contain ArchetypeSection: that component's
             photo/dial/bag/card row needs the full page width to render its collapsed
@@ -875,13 +974,14 @@ export default function FlavorQuiz() {
   if (!hasStarted) {
     return (
       <div className="relative w-full min-h-screen bg-[#f2f1ea] flex overflow-hidden">
+        <QuizHeader />
         <div className="absolute inset-0">
           <img src={quizDoor} alt="" className="w-full h-full object-cover" />
         </div>
         <div
           className="relative z-10 w-full flex flex-col justify-start"
           style={{
-            paddingTop: 'clamp(80px, 11vh, 120px)',
+            paddingTop: 'clamp(96px, 14vh, 140px)',
             paddingLeft: 'clamp(48px, 7vw, 112px)',
             paddingRight: 'clamp(48px, 7vw, 112px)',
           }}
@@ -894,7 +994,7 @@ export default function FlavorQuiz() {
           >
             <h1 style={{
               fontSize: 'clamp(2.8rem, 4.2vw, 4.2rem)',
-              color: '#ee5974',
+              color: '#9a2918',
               lineHeight: 1.08,
               fontWeight: 400,
               margin: '0 0 clamp(28px, 4vh, 40px)',
@@ -976,62 +1076,91 @@ export default function FlavorQuiz() {
   if (!isComplete && !showBranch) {
     const question = questions[currentStep];
     const image    = QUESTION_IMAGES[question.q_number] ?? QUESTION_IMAGES[1];
+    const kw       = Q_HIGHLIGHTS[question.q_number];
 
     return (
-      <div className="w-full min-h-screen flex flex-col lg:flex-row bg-[#f2f1ea]">
-        <div className="w-full lg:w-1/2 h-[40vh] lg:h-screen relative overflow-hidden bg-[#1a1a1a]">
+      <div className="w-full min-h-screen flex flex-col lg:flex-row" style={{ background: '#f2f1ea' }}>
+        <QuizHeader />
+
+        {/* Photo panel — 46% on desktop, full width on mobile; contain + beige letterbox */}
+        <div
+          className="w-full lg:w-[46%] h-[40vh] lg:h-screen relative overflow-hidden flex-shrink-0"
+          style={{ background: '#ebebe3' }}
+        >
           <AnimatePresence mode="wait">
             <motion.div
               key={currentStep}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 1.2 }}
-              className="absolute inset-0"
+              transition={{ duration: 0.8 }}
+              style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
-              <img src={image} alt={question.q_text} className="w-full h-full object-cover" />
+              <img
+                src={image}
+                alt=""
+                style={{ width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center', display: 'block' }}
+              />
             </motion.div>
           </AnimatePresence>
-          <AccumulatingBars count={currentStep} color="rgba(242,241,234,.6)" />
+          <AccumulatingBars count={currentStep} color="#c5c7c8" />
         </div>
 
-        <div className="w-full lg:w-1/2 min-h-[60vh] lg:h-screen bg-[#f2f1ea] px-12 py-16 lg:p-24 flex flex-col justify-center relative overflow-y-auto">
-          <div className="w-full max-w-[480px] flex flex-col justify-center mx-auto lg:ml-[15%]">
+        {/* Question panel — 54%, vertically centered */}
+        <div
+          className="w-full lg:flex-1 min-h-[60vh] lg:h-screen bg-[#f2f1ea] flex flex-col justify-center overflow-y-auto"
+          style={{ paddingTop: 72, paddingBottom: 48, paddingLeft: 'clamp(36px,5vw,80px)', paddingRight: 'clamp(36px,5vw,80px)' }}
+        >
+          <div style={{ maxWidth: 480 }}>
             <AnimatePresence mode="wait">
               <motion.div
                 key={currentStep}
-                initial={{ opacity: 0, y: 10 }}
+                initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.7 }}
-                className="flex flex-col"
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.5 }}
               >
-                <div className="text-[10px] uppercase tracking-[0.3em] text-[#a33726]/40 mb-6">
-                  {currentStep + 1} / {questions.length}
-                </div>
-                <h1 className="text-[2rem] lg:text-[2.8rem] text-[#45474a] leading-[1.15] font-normal tracking-tight mb-12">
-                  {(() => {
-                    const kw = Q_HIGHLIGHTS[question.q_number];
-                    return kw ? highlightQuestion(question.q_text, kw) : question.q_text;
-                  })()}
+                <ProgressTicks current={currentStep + 1} total={7} />
+
+                <h1 style={{
+                  fontSize: 'clamp(1.7rem, 2.4vw, 2.4rem)',
+                  color: '#9a2918',
+                  lineHeight: 1.2,
+                  fontWeight: 400,
+                  margin: '0 0 clamp(28px, 3.5vh, 44px)',
+                  letterSpacing: '-0.01em',
+                }}>
+                  {kw ? highlightQuestion(question.q_text, kw) : question.q_text}
                 </h1>
-                <div className="flex flex-col gap-4 w-full">
+
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
                   {question.answers.map((answer, idx) => {
                     const isSelected = answers[currentStep] === idx;
                     return (
                       <button
                         key={answer.id}
-                        onClick={() => {
-                          setAnswers(prev => ({ ...prev, [currentStep]: idx }));
-                          setSelectedIds(prev => ({ ...prev, [currentStep]: answer.id }));
+                        onClick={() => handleAnswerSelect(answer.id, idx)}
+                        style={{
+                          width: '100%', background: 'none', border: 'none', cursor: 'pointer',
+                          borderBottom: '1px solid rgba(69,71,74,0.12)',
+                          padding: '13px 0', textAlign: 'left',
+                          display: 'flex', alignItems: 'flex-start', gap: 10,
+                          fontFamily: 'inherit',
                         }}
-                        className={`w-full text-left text-[1.05rem] lg:text-[1.15rem] tracking-wide transition-all duration-500 px-8 py-5 rounded-[2.5rem] border-[1px] ${
-                          isSelected
-                            ? 'text-[#ee5974] border-[#ee5974]'
-                            : 'text-[#45474a] border-[#45474a]/20 opacity-70 hover:opacity-100 hover:border-[#ee5974]/50 hover:text-[#ee5974]'
-                        }`}
                       >
-                        {answer.text}
+                        <span style={{
+                          display: 'block', width: 2, height: 16, marginTop: 4, flexShrink: 0,
+                          backgroundColor: isSelected ? '#9a2918' : 'rgba(69,71,74,0.18)',
+                          transition: 'background-color 0.2s',
+                        }} />
+                        <span style={{
+                          fontSize: 'clamp(0.88rem, 1.0vw, 1.0rem)',
+                          lineHeight: 1.55,
+                          color: isSelected ? '#9a2918' : '#45474a',
+                          transition: 'color 0.2s',
+                        }}>
+                          {answer.text}
+                        </span>
                       </button>
                     );
                   })}
@@ -1039,40 +1168,32 @@ export default function FlavorQuiz() {
               </motion.div>
             </AnimatePresence>
 
-            <div className="mt-16 flex flex-col items-start w-full gap-6">
-              <div className="flex items-center gap-8">
-                {currentStep > 0 && (
-                  <button
-                    onClick={() => setCurrentStep(p => p - 1)}
-                    className="text-[10px] uppercase tracking-[0.3em] font-normal text-[#a33726] opacity-35 hover:opacity-70 transition-opacity"
-                  >
-                    ← Back
-                  </button>
-                )}
+            {/* Back + score error */}
+            <div style={{ marginTop: 'clamp(28px, 3.5vh, 44px)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {currentStep > 0 && (
                 <button
-                  onClick={handleNext}
-                  disabled={answers[currentStep] === undefined || isScoring}
-                  className={`text-[10px] uppercase tracking-[0.3em] font-normal transition-all pb-1 border-b ${
-                    answers[currentStep] === undefined || isScoring
-                      ? 'text-[#a33726] opacity-20 border-transparent cursor-not-allowed'
-                      : 'text-[#a33726] border-[#a33726]/30 hover:border-[#ee5974] hover:text-[#ee5974]'
-                  }`}
+                  onClick={() => {
+                    if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);
+                    setCurrentStep(p => p - 1);
+                  }}
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                    fontFamily: 'inherit', fontSize: '0.55rem', letterSpacing: '0.24em',
+                    textTransform: 'uppercase', color: '#9a2918', opacity: 0.38, textAlign: 'left',
+                  }}
                 >
-                  {isScoring ? 'Finding your profile…' : currentStep < questions.length - 1 ? 'Next Question' : 'See My Profile'}
+                  ← BACK
                 </button>
-              </div>
-              {scoreError && (
-                <p className="text-[11px] text-[#ee5974]">
-                  Something went wrong. Please try again.
+              )}
+              {isScoring && (
+                <p style={{ fontSize: '0.55rem', letterSpacing: '0.20em', textTransform: 'uppercase', color: '#9a2918', opacity: 0.4 }}>
+                  Finding your profile…
                 </p>
               )}
-              {!user && (
-                <Link
-                  to="/sign-in"
-                  className="text-[11px] uppercase tracking-[0.1em] text-[#a33726] opacity-40 hover:opacity-100 transition-opacity font-normal"
-                >
-                  Sign in to save progress
-                </Link>
+              {scoreError && (
+                <p style={{ fontSize: '0.75rem', color: '#ee5974' }}>
+                  Something went wrong. Please try again.
+                </p>
               )}
             </div>
           </div>
@@ -1081,54 +1202,75 @@ export default function FlavorQuiz() {
     );
   }
 
-  // ── Branch screen ────────────────────────────────────────────────────────────
+  // ── Branch / silence screen ───────────────────────────────────────────────────
   if (showBranch && branchQuestion) {
     return (
-      <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center">
-        <AccumulatingBars count={questions.length} color="#c5c7c8" instant />
-        <div className="w-full max-w-[560px] px-12 py-16 flex flex-col justify-center">
+      <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center"
+           style={{ paddingTop: 72 }}>
+        <QuizHeader />
+        <div style={{ width: '100%', maxWidth: 560, padding: '48px clamp(32px,5vw,72px)' }}>
           <motion.div
-            initial={{ opacity: 0, y: 10 }}
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7 }}
-            className="flex flex-col"
+            transition={{ duration: 0.6 }}
           >
-            <div className="text-[10px] uppercase tracking-[0.3em] text-[#a33726]/40 mb-6">
+            <div style={{
+              fontSize: '0.50rem', letterSpacing: '0.30em', textTransform: 'uppercase',
+              color: '#9a2918', opacity: 0.40, marginBottom: 24,
+            }}>
               One last thing
             </div>
-            <h1 className="text-[2rem] lg:text-[2.8rem] text-[#45474a] leading-[1.15] font-normal tracking-tight mb-12">
+            <h1 style={{
+              fontSize: 'clamp(1.7rem, 2.4vw, 2.4rem)',
+              color: '#9a2918', lineHeight: 1.2, fontWeight: 400,
+              margin: '0 0 clamp(28px, 3.5vh, 44px)', letterSpacing: '-0.01em',
+            }}>
               {highlightQuestion(branchQuestion.questionText, BRANCH_HIGHLIGHT)}
             </h1>
-            <div className="flex flex-col gap-4 w-full">
-              {branchQuestion.answers.map((answer) => (
-                <button
-                  key={answer.id}
-                  onClick={() => setSelectedBranchAnswerId(answer.id)}
-                  className={`w-full text-left text-[1.05rem] lg:text-[1.15rem] tracking-wide transition-all duration-500 px-8 py-5 rounded-[2.5rem] border-[1px] ${
-                    selectedBranchAnswerId === answer.id
-                      ? 'text-[#ee5974] border-[#ee5974]'
-                      : 'text-[#45474a] border-[#45474a]/20 opacity-70 hover:opacity-100 hover:border-[#ee5974]/50 hover:text-[#ee5974]'
-                  }`}
-                >
-                  {answer.text}
-                </button>
+
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {branchQuestion.answers.map((answer) => {
+                const isSel = selectedBranchAnswerId === answer.id;
+                return (
+                  <button
+                    key={answer.id}
+                    onClick={() => handleBranchAnswerSelect(answer.id)}
+                    style={{
+                      width: '100%', background: 'none', border: 'none', cursor: 'pointer',
+                      borderBottom: '1px solid rgba(69,71,74,0.12)',
+                      padding: '13px 0', textAlign: 'left',
+                      display: 'flex', alignItems: 'flex-start', gap: 10,
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    <span style={{
+                      display: 'block', width: 2, height: 16, marginTop: 4, flexShrink: 0,
+                      backgroundColor: isSel ? '#9a2918' : 'rgba(69,71,74,0.18)',
+                      transition: 'background-color 0.2s',
+                    }} />
+                    <span style={{
+                      fontSize: 'clamp(0.88rem, 1.0vw, 1.0rem)',
+                      lineHeight: 1.55,
+                      color: isSel ? '#9a2918' : '#45474a',
+                      transition: 'color 0.2s',
+                    }}>
+                      {answer.text}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Bars — neutral gray, centered, below answers */}
+            <div style={{
+              marginTop: 40, display: 'flex', flexDirection: 'column-reverse',
+              alignItems: 'center', gap: 4,
+            }}>
+              {BAR_WIDTHS.slice(0, questions.length).map((w, i) => (
+                <div key={i} style={{ height: 8, width: `${w}%`, backgroundColor: '#c5c7c8' }} />
               ))}
             </div>
           </motion.div>
-
-          <div className="mt-16 flex flex-col items-start w-full">
-            <button
-              onClick={handleBranchContinue}
-              disabled={selectedBranchAnswerId === null}
-              className={`text-[10px] uppercase tracking-[0.3em] font-normal transition-all pb-1 border-b ${
-                selectedBranchAnswerId === null
-                  ? 'text-[#a33726] opacity-20 border-transparent cursor-not-allowed'
-                  : 'text-[#a33726] border-[#a33726]/30 hover:border-[#ee5974] hover:text-[#ee5974]'
-              }`}
-            >
-              See My Profile
-            </button>
-          </div>
         </div>
       </div>
     );
@@ -1147,6 +1289,7 @@ export default function FlavorQuiz() {
 
     return (
       <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center px-6">
+        <QuizHeader />
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
