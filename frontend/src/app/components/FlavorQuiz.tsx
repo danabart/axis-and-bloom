@@ -30,6 +30,11 @@ import bagEarthy          from '../../design/IMAGES/bags/new bags mock up/SPICY 
 import bagExperimental    from '../../design/IMAGES/bags/new bags mock up/EXPERIMENTAL transp.png';
 
 import quizDoor from '../../design/IMAGES/photos/quiz-door.jpg';
+import q1Photo  from '../../design/IMAGES/photos/june2026/WEBCUTBalanced&SweetJun08.png';
+import q2Photo  from '../../design/IMAGES/photos/june2026/WEBCUTFloralJun03.png';
+import q3Photo  from '../../design/IMAGES/photos/june2026/WEBCUTChocolate&NuttyJun03.png';
+import q5Photo  from '../../design/IMAGES/photos/june2026/WEBCUTChocolate&NuttyJun08.png';
+import q6Photo  from '../../design/IMAGES/photos/june2026/WEBCUTFruityJun03.png';
 
 // ─── API types ────────────────────────────────────────────────────────────────
 
@@ -103,10 +108,12 @@ function highlightQuestion(text: string, keyword: string): React.ReactNode {
 // ─── Static question images (keyed by q_number) ───────────────────────────────
 
 const QUESTION_IMAGES: Record<number, string> = {
-  1: 'https://i.imgur.com/NQRCzNU.jpeg',
-  2: 'https://i.imgur.com/k2KrVf1.jpeg',
-  3: 'https://i.imgur.com/ahLdfc7.jpeg',
-  4: 'https://i.imgur.com/S46KQYC.jpeg',
+  1: q1Photo,
+  2: q2Photo,
+  3: q3Photo,
+  4: 'https://i.imgur.com/S46KQYC.jpeg', // TODO: Camila to provide Q4 photo
+  5: q5Photo,
+  6: q6Photo,
 };
 
 // ─── Archetype key + name→key mapping ────────────────────────────────────────
