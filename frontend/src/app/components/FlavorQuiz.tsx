@@ -73,6 +73,33 @@ interface BranchQuestion {
   answers: BranchAnswer[];
 }
 
+// ─── Pink keyword per question (one word gets the highlight device) ───────────
+
+const Q_HIGHLIGHTS: Record<number, string> = {
+  1: 'relationship',
+  2: 'good',
+  3: 'first reaction',
+  4: 'bother you',
+  5: 'honest reaction',
+  6: 'Without thinking',
+};
+
+const BRANCH_HIGHLIGHT = 'at its best';
+
+function highlightQuestion(text: string, keyword: string): React.ReactNode {
+  const idx = text.toLowerCase().indexOf(keyword.toLowerCase());
+  if (idx === -1) return text;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <span style={{ background: '#ee5974', color: '#f2f1ea', padding: '1px 8px' }}>
+        {text.slice(idx, idx + keyword.length)}
+      </span>
+      {text.slice(idx + keyword.length)}
+    </>
+  );
+}
+
 // ─── Static question images (keyed by q_number) ───────────────────────────────
 
 const QUESTION_IMAGES: Record<number, string> = {
@@ -918,8 +945,11 @@ export default function FlavorQuiz() {
                 <div className="text-[10px] uppercase tracking-[0.3em] text-[#a33726]/40 mb-6">
                   {currentStep + 1} / {questions.length}
                 </div>
-                <h1 className="text-[2rem] lg:text-[2.8rem] text-[#ee5974] leading-[1.15] font-normal tracking-tight mb-12">
-                  {question.q_text}
+                <h1 className="text-[2rem] lg:text-[2.8rem] text-[#45474a] leading-[1.15] font-normal tracking-tight mb-12">
+                  {(() => {
+                    const kw = Q_HIGHLIGHTS[question.q_number];
+                    return kw ? highlightQuestion(question.q_text, kw) : question.q_text;
+                  })()}
                 </h1>
                 <div className="flex flex-col gap-4 w-full">
                   {question.answers.map((answer, idx) => {
@@ -934,7 +964,7 @@ export default function FlavorQuiz() {
                         className={`w-full text-left text-[1.05rem] lg:text-[1.15rem] tracking-wide transition-all duration-500 px-8 py-5 rounded-[2.5rem] border-[1px] ${
                           isSelected
                             ? 'text-[#ee5974] border-[#ee5974]'
-                            : 'text-[#a33726] border-[#a33726]/20 opacity-70 hover:opacity-100 hover:border-[#ee5974]/50 hover:text-[#ee5974]'
+                            : 'text-[#45474a] border-[#45474a]/20 opacity-70 hover:opacity-100 hover:border-[#ee5974]/50 hover:text-[#ee5974]'
                         }`}
                       >
                         {answer.text}
@@ -1013,8 +1043,8 @@ export default function FlavorQuiz() {
               <div className="text-[10px] uppercase tracking-[0.3em] text-[#a33726]/40 mb-6">
                 One last thing
               </div>
-              <h1 className="text-[2rem] lg:text-[2.8rem] text-[#ee5974] leading-[1.15] font-normal tracking-tight mb-12">
-                {branchQuestion.questionText}
+              <h1 className="text-[2rem] lg:text-[2.8rem] text-[#45474a] leading-[1.15] font-normal tracking-tight mb-12">
+                {highlightQuestion(branchQuestion.questionText, BRANCH_HIGHLIGHT)}
               </h1>
               <div className="flex flex-col gap-4 w-full">
                 {branchQuestion.answers.map((answer) => (
@@ -1024,7 +1054,7 @@ export default function FlavorQuiz() {
                     className={`w-full text-left text-[1.05rem] lg:text-[1.15rem] tracking-wide transition-all duration-500 px-8 py-5 rounded-[2.5rem] border-[1px] ${
                       selectedBranchAnswerId === answer.id
                         ? 'text-[#ee5974] border-[#ee5974]'
-                        : 'text-[#a33726] border-[#a33726]/20 opacity-70 hover:opacity-100 hover:border-[#ee5974]/50 hover:text-[#ee5974]'
+                        : 'text-[#45474a] border-[#45474a]/20 opacity-70 hover:opacity-100 hover:border-[#ee5974]/50 hover:text-[#ee5974]'
                     }`}
                   >
                     {answer.text}
