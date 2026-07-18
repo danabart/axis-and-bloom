@@ -252,7 +252,15 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
         const bcResult = await computeBehavioralConfidence(req.uid!);
         refreshLifecycleState(req.uid!).catch(err => console.error('[quiz/lifecycle]', err));
 
-        const journeyRef = firestoreDb.doc(`users/${req.uid}/taste_journey`);
+        // Bug fix (Profile Part 2/3 verification): `users/{uid}/taste_journey` is a
+        // 3-segment path — Firestore document references require an even segment
+        // count (collection/doc/collection/doc/...), so `.doc()` on this threw
+        // synchronously on every call, silently swallowed by this block's own
+        // try/catch. taste_journey has therefore never actually persisted since
+        // Sommelier Task 1 shipped it — confirmed by reproducing the throw
+        // directly. Matches the working `confidence_profile` convention
+        // (`users/{uid}/metadata/{name}`, 4 segments) instead.
+        const journeyRef = firestoreDb.doc(`users/${req.uid}/metadata/taste_journey`);
         const journeySnap = await journeyRef.get();
         const journey = journeySnap.exists ? journeySnap.data()! : null;
 

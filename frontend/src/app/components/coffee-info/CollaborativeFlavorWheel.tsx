@@ -7,6 +7,10 @@ export interface WheelRow {
   source: 'internal' | 'roastery' | 'client';
   mentions: string;
   avg_intensity: string | null;
+  /** Profile Part 2 §C — chip vocabulary for the on-site feedback form's
+   * tasted-notes chips (Part 3). Optional/additive: existing consumers of this
+   * endpoint/type never read it. */
+  cupping_note_id?: string;
 }
 
 export interface DescriptorEntry {

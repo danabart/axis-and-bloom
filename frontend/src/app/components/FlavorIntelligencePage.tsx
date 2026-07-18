@@ -19,7 +19,7 @@ interface HomepageState {
   stageCode: string;
   archetype: { name: string; id: string; color: string; features: string[] } | null;
   daysSinceQuiz: number | null;
-  pendingFeedback: { orderId: string; blendName: string | null } | null;
+  pendingFeedback: { orderId: string; blendName: string | null; coffeeId: number | null } | null;
   usualBlend: { id: string; name: string } | null;
   nextDeliveryDate: string | null;
 }
@@ -513,6 +513,7 @@ export default function FlavorIntelligencePage() {
             <OrderFeedbackForm
               orderId={homepageState.pendingFeedback.orderId}
               blendName={homepageState.pendingFeedback.blendName}
+              coffeeId={homepageState.pendingFeedback.coffeeId}
               onSubmitted={() => setFeedbackDismissed(true)}
             />
             <button

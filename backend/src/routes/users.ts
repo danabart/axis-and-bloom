@@ -239,7 +239,7 @@ router.get('/homepage-state', requireAuth, async (req: AuthRequest, res) => {
     const archetypeKey = signals.archetype ? (ARCHETYPE_NAME_TO_KEY[signals.archetype] ?? signals.archetype.toLowerCase()) : null;
     const archetypeData = archetypeKey ? (ARCHETYPES[archetypeKey] ?? { name: signals.archetype!, features: [], color: '#a33726' }) : null;
 
-    let pendingFeedback: { orderId: string; blendName: string | null } | null = null;
+    let pendingFeedback: { orderId: string; blendName: string | null; coffeeId: number | null } | null = null;
     let usualBlend: { id: string; name: string } | null = null;
     let nextDeliveryDate: string | null = null;
 
@@ -248,12 +248,16 @@ router.get('/homepage-state', requireAuth, async (req: AuthRequest, res) => {
     const pendingFeedbackOrder = getPendingFeedbackOrder(signals);
     if (pendingFeedbackOrder) {
       const blendResult = await db.query(
-        `SELECT rb.blend_name FROM order_line_item oli
+        `SELECT rb.blend_name, rb.coffee_id FROM order_line_item oli
          JOIN roaster_blend rb ON rb.id = oli.blend_id
          WHERE oli.order_id = $1 LIMIT 1`,
         [pendingFeedbackOrder.orderId]
       );
-      pendingFeedback = { orderId: pendingFeedbackOrder.orderId, blendName: blendResult.rows[0]?.blend_name ?? null };
+      pendingFeedback = {
+        orderId: pendingFeedbackOrder.orderId,
+        blendName: blendResult.rows[0]?.blend_name ?? null,
+        coffeeId: blendResult.rows[0]?.coffee_id ?? null,
+      };
     }
 
     if (stageCode === 'REORDER_DUE' && signals.userId) {
@@ -436,6 +440,129 @@ router.patch('/dial-position', requireAuth, async (req: AuthRequest, res) => {
   } catch (err) {
     console.error('[PATCH /api/users/dial-position]', err);
     res.status(500).json({ error: 'Failed to save dial position' });
+  }
+});
+
+// ── GET /api/users/flavor-memory ──────────────────────────────────────────────
+// Profile Part 2 — the three content blocks behind the Profile page's Flavor
+// Memory tab: tasting journal (orders merged with Firestore feedback_events,
+// one read for all events, matched in code — not queried per order), archetype
+// journey (Firestore taste_journey doc), and contributionCount (this user's
+// user_flavor_feedback rows, which feed the Collaborative Flavor Wheel's client
+// source). Roaster-blind reasoning: blendName here is the user's own past
+// order, same precedent that already clears pendingFeedback.blendName for UC3 —
+// never a raw coffee/roaster name for catalogue browsing.
+router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]);
+    const profileId = profileResult.rows[0]?.id;
+    if (!profileId) { res.status(404).json({ error: 'Profile not found' }); return; }
+
+    const [ordersResult, contributionResult] = await Promise.all([
+      db.query(
+        `SELECT o.id, o.created_at,
+                (ARRAY_AGG(rb.blend_name))[1] AS blend_name,
+                (ARRAY_AGG(rb.coffee_id))[1]  AS coffee_id
+         FROM "order" o
+         LEFT JOIN order_line_item li ON li.order_id = o.id
+         LEFT JOIN roaster_blend rb ON rb.id = li.blend_id
+         WHERE o.user_id = $1
+         GROUP BY o.id ORDER BY o.created_at DESC`,
+        [profileId]
+      ),
+      db.query(`SELECT COUNT(*) FROM user_flavor_feedback WHERE user_id = $1`, [profileId]),
+    ]);
+
+    // One Firestore read for every feedback event this user has, matched to
+    // orders in code below — not a per-order query.
+    const feedbackByOrder = new Map<string, { rating: number | null; note: string | null; source: string | null }>();
+    try {
+      const feedbackSnap = await firestoreDb.collection(`users/${req.uid}/feedback_events`).get();
+      for (const doc of feedbackSnap.docs) {
+        const d = doc.data();
+        if (d.orderId) {
+          feedbackByOrder.set(d.orderId, {
+            rating: d.rating ?? null,
+            note:   d.rawText ?? null,
+            source: d.source ?? null,
+          });
+        }
+      }
+    } catch {
+      // Subcollection may not exist yet — treat as no feedback captured
+    }
+
+    const journal = ordersResult.rows.map(o => {
+      const fb = feedbackByOrder.get(o.id);
+      return {
+        orderId:   o.id,
+        // ISO, not a pre-formatted display string — the journal only needs
+        // month+year granularity (Profile Part 3 §2), coarser than the full
+        // date /profile's order history already formats server-side.
+        date:      new Date(o.created_at).toISOString(),
+        blendName: o.blend_name ?? null,
+        coffeeId:  o.coffee_id ?? null,
+        rating:    fb?.rating ?? null,
+        note:      fb?.note ?? null,
+        source:    fb?.source ?? null,
+        hasFeedback: !!fb,
+      };
+    });
+
+    // Journey — Firestore users/{uid}/metadata/taste_journey (Sommelier Task 1
+    // §12, written fire-and-forget on every authenticated quiz save; path fixed
+    // to a valid 4-segment doc reference alongside quiz.ts — see the comment
+    // there). archetype here is stored as the human-readable name (quiz.ts
+    // writes `archetype` from the request body verbatim), so it's mapped to the
+    // enum key the rest of this route already uses via ARCHETYPE_NAME_TO_KEY,
+    // same as archetypeKey above.
+    let journey: Array<{ archetype: string; archetypeLabel: string; at: string | null; trigger: string }> = [];
+    try {
+      const journeySnap = await firestoreDb.doc(`users/${req.uid}/metadata/taste_journey`).get();
+      const journeyData = journeySnap.exists ? journeySnap.data() : null;
+      const history: any[] = journeyData?.archetypeHistory ?? [];
+      journey = history.map(h => ({
+        archetype:      ARCHETYPE_NAME_TO_KEY[h.archetype] ?? String(h.archetype ?? '').toLowerCase(),
+        archetypeLabel: h.archetype,
+        at:             h.date?.toDate ? h.date.toDate().toISOString() : (h.date ?? null),
+        trigger:        h.trigger === 'first_quiz' ? 'first_quiz' : 'retake',
+      }));
+    } catch {
+      // Doc may not exist yet — backfill fallback below covers this
+    }
+
+    // Backfill caveat (Profile Part 2): users who quizzed before Sommelier Task 1
+    // shipped have a missing/empty taste_journey doc. Falls back to a single
+    // synthetic entry from the user's current archetype + quiz date, so a
+    // matched user always shows >=1 entry.
+    if (journey.length === 0) {
+      const quizResult = await db.query(
+        `SELECT qs.completed_at, a.name AS archetype_name
+         FROM quiz_session qs
+         LEFT JOIN archetype a ON a.id = qs.resulting_archetype_id
+         WHERE qs.user_id = $1
+         ORDER BY qs.completed_at DESC LIMIT 1`,
+        [profileId]
+      );
+      const quiz = quizResult.rows[0];
+      if (quiz?.archetype_name) {
+        journey = [{
+          archetype:      ARCHETYPE_NAME_TO_KEY[quiz.archetype_name] ?? quiz.archetype_name.toLowerCase(),
+          archetypeLabel: quiz.archetype_name,
+          at:             quiz.completed_at,
+          trigger:        'first_quiz',
+        }];
+      }
+    }
+
+    res.json({
+      journal,
+      journey,
+      contributionCount: Number(contributionResult.rows[0]?.count ?? 0),
+    });
+  } catch (err) {
+    console.error('[/api/users/flavor-memory]', err);
+    res.status(500).json({ error: 'Failed to fetch flavor memory' });
   }
 });
 

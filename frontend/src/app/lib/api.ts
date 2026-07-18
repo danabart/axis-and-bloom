@@ -77,6 +77,38 @@ export async function getHomepageState() {
   return res.json();
 }
 
+export interface FlavorMemoryJournalEntry {
+  orderId: string;
+  date: string;
+  blendName: string | null;
+  coffeeId: number | null;
+  rating: number | null;
+  note: string | null;
+  source: 'onsite' | 'sms' | null;
+  hasFeedback: boolean;
+}
+
+export interface FlavorMemoryJourneyEntry {
+  archetype: string;
+  archetypeLabel: string;
+  at: string | null;
+  trigger: 'first_quiz' | 'retake';
+}
+
+export interface FlavorMemoryData {
+  journal: FlavorMemoryJournalEntry[];
+  journey: FlavorMemoryJourneyEntry[];
+  contributionCount: number;
+}
+
+export async function getFlavorMemory(): Promise<FlavorMemoryData> {
+  const res = await fetch(`${BASE}/users/flavor-memory`, {
+    headers: await getHeaders(),
+  });
+  if (!res.ok) throw new Error('Failed to fetch flavor memory');
+  return res.json();
+}
+
 export async function getDialPosition(archetype: string): Promise<{ dialSortOrder: number | null }> {
   const res = await fetch(`${BASE}/users/dial-position?archetype=${encodeURIComponent(archetype)}`, {
     headers: await getHeaders(),
@@ -111,11 +143,14 @@ export async function redeemCompanyGiftCode(code: string): Promise<{ ok: true; s
   return res.json();
 }
 
-export async function submitOrderFeedback(orderId: string, rating: number, note?: string) {
+export async function submitOrderFeedback(orderId: string, rating: number, note?: string, v2?: {
+  expectation?: 'lighter' | 'as_expected' | 'bolder';
+  tastedNoteIds?: string[];
+}) {
   const res = await fetch(`${BASE}/orders/${orderId}/feedback`, {
     method: 'POST',
     headers: await getHeaders(),
-    body: JSON.stringify({ rating, note }),
+    body: JSON.stringify({ rating, note, ...v2 }),
   });
   if (!res.ok) throw new Error('Failed to submit feedback');
   return res.json();

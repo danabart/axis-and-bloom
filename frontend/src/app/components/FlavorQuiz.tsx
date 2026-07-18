@@ -303,6 +303,13 @@ export default function FlavorQuiz() {
       .finally(() => setLoading(false));
   }, []);
 
+  // profileFetchDone (Profile Part 1's ?retake=1 handler needs this): distinct
+  // from profileLoading, whose *initial* value is already `false` before this
+  // effect's own `setProfileLoading(true)` has been committed — a same-tick
+  // reader (another effect scheduled in this same render pass) sees the stale
+  // pre-fetch `false` and misreads it as "already loaded". profileFetchDone
+  // starts `false` and only ever flips true once, after the fetch truly settles.
+  const [profileFetchDone, setProfileFetchDone] = useState(false);
   useEffect(() => {
     if (!user) return;
     setProfileLoading(true);
@@ -316,7 +323,7 @@ export default function FlavorQuiz() {
         }
       })
       .catch(() => {})
-      .finally(() => setProfileLoading(false));
+      .finally(() => { setProfileLoading(false); setProfileFetchDone(true); });
   }, [user]);
 
   // Find My Flavor Part 3: refresh the signed-in user's profile (specifically
@@ -592,6 +599,30 @@ export default function FlavorQuiz() {
     setRevealProgress(0);
     setRevealForced(false);
   };
+
+  // Profile Part 1 — `/find-my-flavor?retake=1`: a Profile link to plain
+  // /find-my-flavor would strand a matched user on the returning-user screen
+  // needing a second click. Reuses exactly the same reset the returning-user
+  // screen's own "Retake the quiz" nav item performs (handleRetake() + name +
+  // hasStarted), rather than a parallel reset. Waits for the profile fetch to
+  // resolve (the name comes from it) before deciding; a guest or unmatched user
+  // makes this a no-op — they already land on the name screen/quiz naturally.
+  const retakeHandledRef = useRef(false);
+  useEffect(() => {
+    if (retakeHandledRef.current) return;
+    if (searchParams.get('retake') !== '1') return;
+    if (!user) return; // guest — no-op, nothing to strip yet either
+    if (!profileFetchDone) return; // wait for the profile fetch to actually resolve
+
+    retakeHandledRef.current = true;
+    if (userProfile?.archetype) {
+      const firstName = userProfile?.firstName ?? user.displayName?.split(' ')[0] ?? '';
+      handleRetake();
+      setUserName(firstName);
+      setHasStarted(true);
+    }
+    navigate('/find-my-flavor', { replace: true });
+  }, [searchParams, user, profileFetchDone, userProfile]);
 
   // ── Loading ──────────────────────────────────────────────────────────────────
   if (loading && !isPreview) {

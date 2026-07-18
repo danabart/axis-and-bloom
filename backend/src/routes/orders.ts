@@ -237,17 +237,27 @@ router.get('/', requireAuth, async (req: AuthRequest, res) => {
 });
 
 // ── POST /api/orders/:orderId/feedback ────────────────────────────────────────
-// On-site feedback form (UC3). Star rating is direct structured input, so
-// sentiment/sValue are computed in plain code — zero LLM calls, unlike the SMS
-// path which has to parse free text. Writes the same feedback_events doc shape
-// liamSmsFeedback.ts already writes, plus source: 'onsite', so every downstream
-// consumer (behavioralConfidence, sommelierEvaluator, userSignals) treats the
-// two channels interchangeably.
+// On-site feedback form (UC3), extended to v2 (Profile Part 2 §B). Star rating
+// is direct structured input, so sentiment/sValue are computed in plain code —
+// zero LLM calls, unlike the SMS path which has to parse free text. Writes the
+// same feedback_events doc shape liamSmsFeedback.ts already writes, plus
+// source: 'onsite', so every downstream consumer (behavioralConfidence,
+// sommelierEvaluator, userSignals) treats the two channels interchangeably.
+// v2 fields (expectation, tastedNoteIds) are additive and optional — a
+// legacy {rating, note}-only body behaves exactly as before.
 router.post('/:orderId/feedback', requireAuth, async (req: AuthRequest, res) => {
   const { orderId } = req.params;
-  const { rating, note } = req.body ?? {};
+  const { rating, note, expectation, tastedNoteIds } = req.body ?? {};
   if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
     res.status(400).json({ error: 'rating (integer 1-5) required' });
+    return;
+  }
+  if (expectation !== undefined && expectation !== null && !['lighter', 'as_expected', 'bolder'].includes(expectation)) {
+    res.status(400).json({ error: 'expectation must be lighter, as_expected, or bolder' });
+    return;
+  }
+  if (tastedNoteIds !== undefined && !Array.isArray(tastedNoteIds)) {
+    res.status(400).json({ error: 'tastedNoteIds must be an array' });
     return;
   }
 
@@ -261,11 +271,40 @@ router.post('/:orderId/feedback', requireAuth, async (req: AuthRequest, res) => 
     );
     if (!orderResult.rows.length) { res.status(404).json({ error: 'Order not found' }); return; }
 
-    const blendResult = await db.query(
-      `SELECT blend_id FROM order_line_item WHERE order_id = $1 LIMIT 1`,
+    // Order -> coffee resolution: same first-line-item convention the codebase
+    // already uses for blendId — an order spanning multiple coffees still just
+    // takes the first, rather than inventing multi-coffee handling here.
+    const lineResult = await db.query(
+      `SELECT li.blend_id, rb.coffee_id
+       FROM order_line_item li
+       JOIN roaster_blend rb ON rb.id = li.blend_id
+       WHERE li.order_id = $1 LIMIT 1`,
       [orderId]
     );
-    const blendId = blendResult.rows[0]?.blend_id ?? null;
+    const blendId = lineResult.rows[0]?.blend_id ?? null;
+    const coffeeId: number | null = lineResult.rows[0]?.coffee_id ?? null;
+
+    // Validate tastedNoteIds against this specific coffee's own wheel vocabulary
+    // (same set Part 3's chips are populated from) before writing anything.
+    const noteIds: string[] = Array.isArray(tastedNoteIds) ? tastedNoteIds : [];
+    let noteLabelById = new Map<string, string>();
+    if (noteIds.length) {
+      if (!coffeeId) {
+        res.status(400).json({ error: "Cannot resolve this order's coffee for tastedNoteIds" });
+        return;
+      }
+      const wheelResult = await db.query(
+        `SELECT DISTINCT cupping_note_id, descriptor FROM v_collaborative_flavor_wheel WHERE coffee_id = $1`,
+        [coffeeId]
+      );
+      noteLabelById = new Map(wheelResult.rows.map((r: any) => [r.cupping_note_id, r.descriptor]));
+      for (const id of noteIds) {
+        if (!noteLabelById.has(id)) {
+          res.status(400).json({ error: `tastedNoteIds contains an id not offered for this coffee: ${id}` });
+          return;
+        }
+      }
+    }
 
     const sentiment: 'positive' | 'negative' | 'neutral' =
       rating >= 4 ? 'positive' : rating <= 2 ? 'negative' : 'neutral';
@@ -281,7 +320,8 @@ router.post('/:orderId/feedback', requireAuth, async (req: AuthRequest, res) => 
       source: 'onsite',
       sentiment,
       rawText: note ?? null,
-      descriptors: [],
+      expectation: expectation ?? null,
+      descriptors: noteIds.map(id => noteLabelById.get(id)).filter((d): d is string => !!d),
       createdAt: FieldValue.serverTimestamp(),
     });
 
@@ -292,6 +332,53 @@ router.post('/:orderId/feedback', requireAuth, async (req: AuthRequest, res) => 
         negativeFeedbackDetectedAt: FieldValue.serverTimestamp(),
         negativeFeedbackSource: 'onsite',
       }, { merge: true }).catch(() => {});
+    }
+
+    // user_flavor_feedback — one row per tasted-note chip. Flows into
+    // v_collaborative_flavor_wheel as client-source mentions automatically.
+    if (noteIds.length && coffeeId) {
+      const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]);
+      const profileId = profileResult.rows[0]?.id;
+      if (profileId) {
+        for (const noteId of noteIds) {
+          await db.query(
+            `INSERT INTO user_flavor_feedback (user_id, coffee_id, order_id, cupping_note_id, intensity, notes)
+             VALUES ($1, $2, $3, $4, NULL, NULL)`,
+            [profileId, coffeeId, orderId, noteId]
+          );
+        }
+      }
+    }
+
+    // dial_position_signal — feeds the dormant Stage 2 dial loop
+    // (BLOOM_DIAL_ALLOCATION_SPEC.md §3). as_expected confirms the status quo
+    // and writes no row this pass — a confirmation-signal design is a future
+    // refinement, not built here. Appended rather than superseded: unlike
+    // recordCuppingSignal (each call recomputes the same estimate for a coffee,
+    // so the old one is stale), each feedback submission is an independent
+    // customer observation — accumulating rows for v_dial_position_consensus
+    // to aggregate is the right model, not overwriting the previous one.
+    if ((expectation === 'lighter' || expectation === 'bolder') && coffeeId) {
+      const archResult = await db.query(
+        `SELECT archetype FROM archetype_assignments WHERE coffee_id = $1 AND superseded_at IS NULL`,
+        [coffeeId]
+      );
+      const archetype: string | undefined = archResult.rows[0]?.archetype;
+      if (archetype) {
+        const configResult = await db.query(
+          `SELECT dominant_dimension_id FROM dial_archetype_config WHERE archetype = $1`,
+          [archetype]
+        );
+        const dimensionId: number | undefined = configResult.rows[0]?.dominant_dimension_id;
+        if (dimensionId) {
+          await db.query(
+            `INSERT INTO dial_position_signal
+               (coffee_id, archetype, dimension_id, source, direction, sample_size, confidence, notes)
+             VALUES ($1, $2, $3, 'onsite_feedback', $4, 1, 'medium', $5)`,
+            [coffeeId, archetype, dimensionId, expectation === 'lighter' ? 'less' : 'more', `onsite feedback for order ${orderId}`]
+          );
+        }
+      }
     }
 
     res.json({ ok: true });

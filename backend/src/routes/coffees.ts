@@ -692,15 +692,18 @@ router.get('/:coffeeId/hops', async (req, res) => {
 // cloud only ever renders wheel_category/wheel_subcategory/descriptor/source/
 // mentions/avg_intensity, and this endpoint is shared with the roaster-blind
 // Bloom page, so it must never echo the raw coffee name.
+// cupping_note_id added (Profile Part 2 §C, additive) — Profile Part 3's tasted-
+// notes chips need a stable id to submit, not just the descriptor label; every
+// existing consumer (the bubble cloud) already ignores unknown fields.
 router.get('/:id/flavor-wheel', async (req, res) => {
   const { id } = req.params;
   try {
     const result = await db.query(
-      `SELECT wheel_category, wheel_subcategory, descriptor, source,
+      `SELECT cupping_note_id, wheel_category, wheel_subcategory, descriptor, source,
               COUNT(*) AS mentions, AVG(intensity) AS avg_intensity
        FROM v_collaborative_flavor_wheel
        WHERE coffee_id = $1
-       GROUP BY wheel_category, wheel_subcategory, descriptor, source
+       GROUP BY cupping_note_id, wheel_category, wheel_subcategory, descriptor, source
        ORDER BY wheel_category, mentions DESC`,
       [id]
     );
