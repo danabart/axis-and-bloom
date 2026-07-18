@@ -1027,62 +1027,49 @@ export default function FlavorQuiz() {
   // ── Branch screen ────────────────────────────────────────────────────────────
   if (showBranch && branchQuestion) {
     return (
-      <div className="w-full min-h-screen flex flex-col lg:flex-row bg-[#f2f1ea]">
-        <div className="w-full lg:w-1/2 h-[40vh] lg:h-screen relative overflow-hidden bg-[#1a1a1a]">
+      <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center">
+        <div className="w-full max-w-[560px] px-12 py-16 flex flex-col justify-center">
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 1.2 }}
-            className="absolute inset-0"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7 }}
+            className="flex flex-col"
           >
-            <img src="https://i.imgur.com/3WOJLhq.jpeg" alt="" className="w-full h-full object-cover" />
-          </motion.div>
-        </div>
-
-        <div className="w-full lg:w-1/2 min-h-[60vh] lg:h-screen bg-[#f2f1ea] px-12 py-16 lg:p-24 flex flex-col justify-center relative overflow-y-auto">
-          <div className="w-full max-w-[480px] flex flex-col justify-center mx-auto lg:ml-[15%]">
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.7 }}
-              className="flex flex-col"
-            >
-              <div className="text-[10px] uppercase tracking-[0.3em] text-[#a33726]/40 mb-6">
-                One last thing
-              </div>
-              <h1 className="text-[2rem] lg:text-[2.8rem] text-[#45474a] leading-[1.15] font-normal tracking-tight mb-12">
-                {highlightQuestion(branchQuestion.questionText, BRANCH_HIGHLIGHT)}
-              </h1>
-              <div className="flex flex-col gap-4 w-full">
-                {branchQuestion.answers.map((answer) => (
-                  <button
-                    key={answer.id}
-                    onClick={() => setSelectedBranchAnswerId(answer.id)}
-                    className={`w-full text-left text-[1.05rem] lg:text-[1.15rem] tracking-wide transition-all duration-500 px-8 py-5 rounded-[2.5rem] border-[1px] ${
-                      selectedBranchAnswerId === answer.id
-                        ? 'text-[#ee5974] border-[#ee5974]'
-                        : 'text-[#45474a] border-[#45474a]/20 opacity-70 hover:opacity-100 hover:border-[#ee5974]/50 hover:text-[#ee5974]'
-                    }`}
-                  >
-                    {answer.text}
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-
-            <div className="mt-16 flex flex-col items-start w-full">
-              <button
-                onClick={handleBranchContinue}
-                disabled={selectedBranchAnswerId === null}
-                className={`text-[10px] uppercase tracking-[0.3em] font-normal transition-all pb-1 border-b ${
-                  selectedBranchAnswerId === null
-                    ? 'text-[#a33726] opacity-20 border-transparent cursor-not-allowed'
-                    : 'text-[#a33726] border-[#a33726]/30 hover:border-[#ee5974] hover:text-[#ee5974]'
-                }`}
-              >
-                See My Profile
-              </button>
+            <div className="text-[10px] uppercase tracking-[0.3em] text-[#a33726]/40 mb-6">
+              One last thing
             </div>
+            <h1 className="text-[2rem] lg:text-[2.8rem] text-[#45474a] leading-[1.15] font-normal tracking-tight mb-12">
+              {highlightQuestion(branchQuestion.questionText, BRANCH_HIGHLIGHT)}
+            </h1>
+            <div className="flex flex-col gap-4 w-full">
+              {branchQuestion.answers.map((answer) => (
+                <button
+                  key={answer.id}
+                  onClick={() => setSelectedBranchAnswerId(answer.id)}
+                  className={`w-full text-left text-[1.05rem] lg:text-[1.15rem] tracking-wide transition-all duration-500 px-8 py-5 rounded-[2.5rem] border-[1px] ${
+                    selectedBranchAnswerId === answer.id
+                      ? 'text-[#ee5974] border-[#ee5974]'
+                      : 'text-[#45474a] border-[#45474a]/20 opacity-70 hover:opacity-100 hover:border-[#ee5974]/50 hover:text-[#ee5974]'
+                  }`}
+                >
+                  {answer.text}
+                </button>
+              ))}
+            </div>
+          </motion.div>
+
+          <div className="mt-16 flex flex-col items-start w-full">
+            <button
+              onClick={handleBranchContinue}
+              disabled={selectedBranchAnswerId === null}
+              className={`text-[10px] uppercase tracking-[0.3em] font-normal transition-all pb-1 border-b ${
+                selectedBranchAnswerId === null
+                  ? 'text-[#a33726] opacity-20 border-transparent cursor-not-allowed'
+                  : 'text-[#a33726] border-[#a33726]/30 hover:border-[#ee5974] hover:text-[#ee5974]'
+              }`}
+            >
+              See My Profile
+            </button>
           </div>
         </div>
       </div>
