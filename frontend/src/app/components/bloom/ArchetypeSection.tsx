@@ -1,9 +1,12 @@
+import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { ARCHETYPE_VISUALS } from './bloomVisuals';
 import { PositionCard } from './PositionCard';
 import { RevealedPanel } from './RevealedPanel';
 import { usePositionCardData } from './usePositionCardData';
 import { BloomDialWidget, type BloomDialHandle, type DialPosition } from '../BloomDialWidget';
+import { useAuth } from '../../context/AuthContext';
+import { setDialPosition } from '../../lib/api';
 import type { ArchetypeData, CartItem, Slot } from './types';
 import { slotKey } from './types';
 
@@ -23,7 +26,7 @@ export function computeDefaultSortOrder(data: ArchetypeData): number {
  */
 export function ArchetypeSection({
   data, index, selectedSortOrder, revealedKeys, onDialSelect, onToggleReveal, onAddToCart, onHopClick, onCompare,
-  userArchetype, registerDialRef, showPhoto = true,
+  userArchetype, registerDialRef, showPhoto = true, source = null,
 }: {
   data: ArchetypeData;
   index: number;
@@ -40,7 +43,12 @@ export function ArchetypeSection({
    * card column's existing flex:1 naturally absorbs the freed width, so the row
    * redistributes rather than leaving a gap. Default true (today's /bloom look). */
   showPhoto?: boolean;
+  /** Liam Dial Event Log — which of the four dial surfaces rendered this instance
+   * (/bloom, both Find My Flavor screens, Profile), carried on explicit_save/
+   * add_to_cart events. Defaults to null so existing call sites compile unchanged. */
+  source?: 'bloom' | 'find_my_flavor_returning' | 'find_my_flavor_results' | 'profile' | null;
 }) {
+  const { user } = useAuth();
   const visual = ARCHETYPE_VISUALS[data.archetype];
   const flip = index % 2 !== 0;
   const eager = index === 0;
@@ -64,6 +72,31 @@ export function ArchetypeSection({
   // collapsed PositionCard below and the full-width RevealedPanel underneath
   // the three-column row (The Bloom Part 4, Phase D).
   const cardData = usePositionCardData(currentSlot, data.archetype, isRevealed);
+
+  // Liam Dial Event Log, Phase A — the "Save to my flavor memory" button and
+  // add-to-cart capture. Both PATCH /api/users/dial-position with a `trigger`,
+  // which additionally appends a Firestore users/{uid}/dial_events doc server-side;
+  // the silent auto-save on every plain dial turn (onDialSelect, in the parent) is
+  // untouched and still calls setDialPosition with no trigger. Signed-in only —
+  // nothing to save to for a guest.
+  const [savedKey, setSavedKey] = useState<string | null>(null);
+  useEffect(() => { setSavedKey(null); }, [currentKey]);
+
+  function handleExplicitSave() {
+    if (!user) return;
+    setDialPosition(data.archetype, currentSlot.dialSortOrder, { trigger: 'explicit_save', source })
+      .then(() => setSavedKey(currentKey))
+      .catch(() => {});
+  }
+
+  function handleAddToCart(item: CartItem) {
+    onAddToCart(item);
+    if (user) {
+      setDialPosition(data.archetype, currentSlot.dialSortOrder, {
+        trigger: 'add_to_cart', source, coffeeId: currentSlot.coffeeId,
+      }).catch(() => {});
+    }
+  }
 
   return (
     <motion.section
@@ -140,6 +173,16 @@ export function ArchetypeSection({
             initialSortOrder={selectedSortOrder}
             onSelect={sortOrder => onDialSelect(data.archetype, sortOrder)}
           />
+          {user && (
+            <button
+              onClick={handleExplicitSave}
+              disabled={savedKey === currentKey}
+              className="text-[10px] uppercase tracking-[0.15em] mt-3 transition-opacity"
+              style={{ color: visual.color, opacity: savedKey === currentKey ? 0.55 : 0.85 }}
+            >
+              {savedKey === currentKey ? 'Saved ✓' : 'Save to my flavor memory'}
+            </button>
+          )}
         </div>
 
         {/* ── Dynamic position card, with the bag sitting beside it on the dial-facing side (Part 7) ── */}
@@ -180,7 +223,7 @@ export function ArchetypeSection({
                 color={visual.color}
                 isRevealed={isRevealed}
                 onToggleReveal={() => onToggleReveal(currentKey)}
-                onAddToCart={onAddToCart}
+                onAddToCart={handleAddToCart}
                 onCompare={() => onCompare(data.archetype, data.archetypeLabel, currentSlot)}
                 cardRef={() => {}}
                 teaser={cardData.teaser}

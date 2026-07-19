@@ -614,9 +614,17 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
     // writes `archetype` from the request body verbatim), so it's mapped to the
     // enum key the rest of this route already uses via ARCHETYPE_NAME_TO_KEY,
     // same as archetypeKey above.
+    // Profile Part 6: the synthetic single-entry fallback below must only
+    // trigger for a genuinely-missing doc, not for a read that threw (a real
+    // error masquerading as "new user" would silently hide a read bug behind
+    // fabricated data). readFailed is tracked separately from an empty/absent
+    // doc so only the former takes the fallback path.
     let journey: Array<{ archetype: string; archetypeLabel: string; at: string | null; trigger: string }> = [];
+    let journeyDocMissing = true;
+    let journeyReadFailed = false;
     try {
       const journeySnap = await firestoreDb.doc(`users/${req.uid}/metadata/taste_journey`).get();
+      journeyDocMissing = !journeySnap.exists;
       const journeyData = journeySnap.exists ? journeySnap.data() : null;
       const history: any[] = journeyData?.archetypeHistory ?? [];
       journey = history.map(h => ({
@@ -625,15 +633,22 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
         at:             h.date?.toDate ? h.date.toDate().toISOString() : (h.date ?? null),
         trigger:        h.trigger === 'first_quiz' ? 'first_quiz' : 'retake',
       }));
-    } catch {
-      // Doc may not exist yet — backfill fallback below covers this
+    } catch (err) {
+      console.error('[/api/users/flavor-memory] taste_journey read failed:', err);
+      journeyReadFailed = true;
     }
 
     // Backfill caveat (Profile Part 2): users who quizzed before Sommelier Task 1
     // shipped have a missing/empty taste_journey doc. Falls back to a single
     // synthetic entry from the user's current archetype + quiz date, so a
-    // matched user always shows >=1 entry.
-    if (journey.length === 0) {
+    // matched user always shows >=1 entry. Only applies when the doc is
+    // genuinely missing — a real read failure surfaces as a 500 instead of
+    // silently fabricating history (Part 6).
+    if (journeyReadFailed) {
+      res.status(500).json({ error: 'Failed to fetch flavor memory' });
+      return;
+    }
+    if (journey.length === 0 && journeyDocMissing) {
       const quizResult = await db.query(
         `SELECT qs.completed_at, a.name AS archetype_name
          FROM quiz_session qs

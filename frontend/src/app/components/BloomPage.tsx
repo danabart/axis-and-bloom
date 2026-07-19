@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { getUserProfile, getDialPosition, setDialPosition } from '../lib/api';
 import { ARCHETYPE_VISUALS } from './bloom/bloomVisuals';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { ArchetypeSection, computeDefaultSortOrder } from './bloom/ArchetypeSection';
 import { CompareOverlay } from './bloom/CompareOverlay';
 import { OtherCategoryCard } from './bloom/OtherCategoryCard';
@@ -21,6 +21,7 @@ const OTHER_CATEGORY_CODES = ['decaf', 'half_caf', 'flavored'];
 export default function BloomPage() {
   const { user } = useAuth();
   const { addToCart } = useCart();
+  const [searchParams] = useSearchParams();
 
   const [archetypes, setArchetypes] = useState<ArchetypeData[]>([]);
   const [experimentalData, setExperimentalData] = useState<ArchetypeData | null>(null);
@@ -104,6 +105,36 @@ export default function BloomPage() {
         });
       });
   }, [user, archetypes]);
+
+  // Liam action links, Phase A — honor ?archetype=&slot= deep links (FI's existing
+  // "Shop on The Bloom →" link already emits this shape; it previously landed on the
+  // default view since this page had no useSearchParams at all). Waits for archetype
+  // data (and, for the experimental card, experimentalData) to be loaded so dialRefs
+  // are registered before we try to rotate one; runs once. Invalid/unknown params —
+  // no archetype param, unknown archetype, or a slot that isn't one of that
+  // archetype's positions — fall through to the plain default view, no error.
+  const deepLinkHandledRef = useRef(false);
+  useEffect(() => {
+    if (deepLinkHandledRef.current) return;
+    const archetypeParam = searchParams.get('archetype');
+    if (!archetypeParam) { deepLinkHandledRef.current = true; return; }
+
+    const all = [...orderedArchetypes, ...(experimentalData ? [experimentalData] : [])];
+    if (!all.length) return; // wait for catalogue to load
+
+    deepLinkHandledRef.current = true;
+    const target = all.find(a => a.archetype === archetypeParam);
+    if (!target) return;
+
+    const slotParam = searchParams.get('slot');
+    const slotNum = slotParam ? Number(slotParam) : NaN;
+    const validSlot = target.slots.some(s => s.dialSortOrder === slotNum) ? slotNum : null;
+
+    requestAnimationFrame(() => {
+      document.getElementById(archetypeParam)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (validSlot != null) dialRefs.current[archetypeParam]?.rotateTo(validSlot);
+    });
+  }, [orderedArchetypes, experimentalData, searchParams]);
 
   function registerDialRef(archetype: string, handle: BloomDialHandle | null) {
     dialRefs.current[archetype] = handle;
@@ -192,6 +223,7 @@ export default function BloomPage() {
           onCompare={openCompare}
           userArchetype={userArchetype}
           registerDialRef={registerDialRef}
+          source="bloom"
         />
       ))}
 
@@ -216,6 +248,7 @@ export default function BloomPage() {
           onCompare={openCompare}
           userArchetype={userArchetype}
           registerDialRef={registerDialRef}
+          source="bloom"
         />
       )}
 

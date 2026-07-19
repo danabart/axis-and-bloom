@@ -957,6 +957,7 @@ export default function FlavorQuiz() {
             onCompare={openMatchedCompare}
             userArchetype={matchedArchetypeId}
             registerDialRef={registerMatchedDialRef}
+            source="find_my_flavor_returning"
           />
         )}
 
@@ -1606,6 +1607,7 @@ export default function FlavorQuiz() {
           onCompare={openResultsCompare}
           userArchetype={matchedArchetypeId}
           registerDialRef={registerResultsDialRef}
+          source="find_my_flavor_results"
         />
       )}
 

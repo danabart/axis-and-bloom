@@ -506,6 +506,22 @@ No Liam prompt, RAG query, or chat behavior changed by either of these.
 
 **Nothing else touched**: `claude.ts`'s prompts, `sommelierEvaluator.ts`'s intent priority/rules, RAG focus selection, and every other consumer of `getUserSignals()`/`computeBehavioralConfidence()` are unchanged — only the *filtering* of what counts as "current" feedback changed, not any scoring formula, weight, or prompt.
 
+#### S51. Action links + dial-activity awareness — Liam's chat contract gains action markers and a new context field (2026-07-18)
+
+**Context**: `WHAT_WE_BUILT.md` #102. Unlike most recent entries, this is a direct, intentional change to Liam's own prompt and response contract — full treatment.
+
+**`LIAM_BASE_PROMPT` (`claude.ts`) gained one new section**, "Action markers": Liam may end a reply with `<<action:retake_quiz>>` (real archetype doubt or taste drift) or `<<action:open_dial>>` (a different position within the same archetype), at most one per turn, never on the opening turn, only once he's actually reached the recommendation — not as a placeholder while still asking questions. Explicitly told these are internal and never to be mentioned to the customer. Nothing else in the base prompt changed.
+
+**`chatWithSommelier()`'s return shape changed** — it now also returns `actionTypes: Array<'retake_quiz' | 'open_dial'>`, parsed by checking for the literal marker substrings before stripping every `<<action:...>>` token (known or malformed) from the reply text that reaches the customer. This is a function signature change; both call sites (`/start`, `/message` in `sommelier.ts`) were updated in the same pass.
+
+**New in `sommelier.ts`**: `resolveActions()` turns marker types into real payloads server-side — `open_dial` never trusts the LLM for an archetype or slot; it resolves the archetype from the session's own quiz-derived context (stored as `archetypeKey` in `sommelier_sessions.context_data` at session start) and looks up `user_bloom_dial_current_position` for a saved slot, omitting it (not guessing) when none exists. `getRecentDialActivitySummary()` reads the last ~30 `users/{uid}/dial_events` (Liam Dial Event Log's new Firestore collection — see `WHAT_WE_BUILT_DB.md`) and collapses them into a short per-archetype string, appended to `enrichedOpeningContext` for `EXPLORATION`/`PROFILE_AMBIGUOUS` sessions only. Both are new, not extensions of anything existing.
+
+**Seed addendums touched, live config not yet updated**: `PROFILE_AMBIGUOUS`, `TASTE_EVOLUTION`, `RECOMMENDATION_MISS`, and `EXPLORATION` in `sommelier_config_seed.ts` each gained one sentence nudging the relevant marker for that intent's own goal; `PROFILE_AMBIGUOUS`/`EXPLORATION` also gained permission to reference `recentDialActivity` when present, never invented. Per this doc's own established pattern (S from Task 6's voice reset), a seed-file edit alone does not reach the live `config/sommelier` doc — Dana needs to review the exact copy (in the seed-file diff) and apply it via the admin portal before Liam actually emits markers or references dial activity in production. Until then this ships inert: the code paths exist and are wired, but the live prompt doesn't yet contain the instruction that triggers them.
+
+**Nothing else touched**: intent selection/priority, `evaluatorRulePriority`, token/turn logic, model routing (Haiku/Sonnet), and `RECOMMENDATION_SYSTEM_PROMPT` (the separate content-generation system) are all unchanged.
+
+**Not verified this pass**: no live conversation was driven to confirm Liam actually emits a marker at the right moment once the addendum copy goes live (it currently can't, per the paragraph above) — the parsing/stripping/resolution code was exercised only by clean `tsc --noEmit`, not a real model response.
+
 #### S35. Task 6 — Liam voice reset (2026-07-04)
 Full execution of `SOMMELIER_TASK_6_VOICE.md`. Three files changed + live Firestore config patched.
 

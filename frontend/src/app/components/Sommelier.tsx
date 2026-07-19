@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate, useSearchParams } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 
@@ -14,10 +14,13 @@ const INTENT_LABELS: Record<string, string> = {
   EXPLORATION:         'Exploring together',
 };
 
+type SommelierAction = { type: 'retake_quiz' } | { type: 'open_dial'; archetype: string; slot?: number };
+
 interface Message {
   role: 'user' | 'assistant';
   content: string;
   synthetic?: boolean;
+  actions?: SommelierAction[];
 }
 
 interface PastSession {
@@ -45,6 +48,7 @@ interface EvalResult {
 interface StartResult {
   sessionId?: number;
   openingMessage?: string;
+  openingActions?: SommelierAction[];
   coffeeNames?: string[];
   tokenBalance?: number;
   turnsRemaining?: number;
@@ -168,7 +172,7 @@ export default function Sommelier() {
     const tr = data.turnsRemaining ?? 7;
     setMaxTurns(tr + 1);
     setTurnCount(1);
-    setMessages(data.openingMessage ? [{ role: 'assistant', content: data.openingMessage }] : []);
+    setMessages(data.openingMessage ? [{ role: 'assistant', content: data.openingMessage, actions: data.openingActions }] : []);
     setPhase('chat');
     setTimeout(() => inputRef.current?.focus(), 100);
   }, [tiedParam, tokenBalance]);
@@ -237,7 +241,7 @@ export default function Sommelier() {
       if (res.status === 409) { setSessionClosed(true); return; }
       if (!res.ok) throw new Error('Message failed');
       const data = await res.json();
-      setMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: data.reply, actions: data.actions }]);
       setTurnCount(data.turnCount);
       setTokenBalance(data.tokenBalance ?? tokenBalance);
       if (data.sessionClosed) setSessionClosed(true);
@@ -540,6 +544,29 @@ export default function Sommelier() {
                           >
                             {msg.content}
                           </p>
+                          {msg.role === 'assistant' && !!msg.actions?.length && (
+                            <div className="flex flex-wrap gap-2 mt-3">
+                              {msg.actions.map((action, ai) => action.type === 'retake_quiz' ? (
+                                <Link
+                                  key={ai}
+                                  to="/find-my-flavor?retake=1"
+                                  className="text-[11px] uppercase tracking-[0.15em] px-3 py-1.5 rounded-full border transition-colors hover:bg-stone-50"
+                                  style={{ borderColor: '#e0dcd4', color: RUST }}
+                                >
+                                  Retake the quiz →
+                                </Link>
+                              ) : (
+                                <Link
+                                  key={ai}
+                                  to={`/bloom?archetype=${action.archetype}${action.slot != null ? `&slot=${action.slot}` : ''}`}
+                                  className="text-[11px] uppercase tracking-[0.15em] px-3 py-1.5 rounded-full border transition-colors hover:bg-stone-50"
+                                  style={{ borderColor: '#e0dcd4', color: RUST }}
+                                >
+                                  Open your dial →
+                                </Link>
+                              ))}
+                            </div>
+                          )}
                         </>
                       )}
                     </motion.div>

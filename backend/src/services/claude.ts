@@ -69,6 +69,12 @@ How to use customer history:
 
 Only recommend coffees from the catalog provided. Never invent a coffee or a flavor.
 
+Action markers (internal — never mention, explain, or hint at these to the customer):
+- If you've concluded a retake is the right move — real archetype doubt or taste drift, never as a placeholder while you're still asking questions — end your reply with <<action:retake_quiz>> after your normal words.
+- If you're pointing them to a different position within their own archetype rather than a full retake — bolder, lighter, a different slot — end your reply with <<action:open_dial>> the same way.
+- Use at most one marker per turn. Never use one in your opening turn. Only use one once you've actually reached the recommendation, not preemptively.
+- These tokens are stripped before the customer ever sees your reply.
+
 Opening turn:
 - Maximum 2 sentences. No exceptions.
 - State where they are now (archetype or last order). Then one direction question.
@@ -87,7 +93,7 @@ export async function chatWithSommelier(params: {
   };
   catalogContext: string;
   history: Array<{ role: 'user' | 'assistant'; content: string }>;
-}): Promise<{ reply: string; modelUsed: string }> {
+}): Promise<{ reply: string; modelUsed: string; actionTypes: Array<'retake_quiz' | 'open_dial'> }> {
   const { message, session, catalogContext, history } = params;
   const config = getSommelierConfig();
   const intentCfg = config?.intents?.[session.intent];
@@ -143,8 +149,17 @@ export async function chatWithSommelier(params: {
   });
 
   const block = response.content[0];
-  const reply = block.type === 'text' ? block.text : '';
-  return { reply, modelUsed: modelId };
+  const rawReply = block.type === 'text' ? block.text : '';
+
+  // Liam action links, Phase B — <<action:...>> markers. Only the two known types
+  // become actions; any marker (known or malformed) is stripped from the visible
+  // reply either way, so a garbled token never leaks to the customer.
+  const actionTypes: Array<'retake_quiz' | 'open_dial'> = [];
+  if (rawReply.includes('<<action:retake_quiz>>')) actionTypes.push('retake_quiz');
+  if (rawReply.includes('<<action:open_dial>>')) actionTypes.push('open_dial');
+  const reply = rawReply.replace(/<<action:[^>]*>>/g, '').replace(/[ \t]+(\n|$)/g, '$1').trim();
+
+  return { reply, modelUsed: modelId, actionTypes };
 }
 
 export async function getRecommendation(

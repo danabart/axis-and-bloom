@@ -484,6 +484,18 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- Rename user_bloom_dial_position → user_bloom_dial_current_position (idempotent).
+-- Liam Dial Event Log Phase A0: now that users/{uid}/dial_events (Firestore) exists
+-- as the intentional-movement history, the old name was ambiguous between "the log"
+-- and "the setting." This table stays exactly what it always was — the current
+-- setting, overwritten in place — just renamed so the split is legible from the
+-- names alone. See the table comment below.
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'user_bloom_dial_position' AND schemaname = 'public') THEN
+    ALTER TABLE user_bloom_dial_position RENAME TO user_bloom_dial_current_position;
+  END IF;
+END $$;
+
 -- Rename feedback_event → user_feedback_event (idempotent)
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'feedback_event' AND schemaname = 'public') THEN
@@ -1344,13 +1356,18 @@ ON CONFLICT (archetype, dial_sort_order) DO NOTHING;
 -- feature), even though the (user, archetype, dimension) key shape coincidentally
 -- matches. Uses archetype_enum directly to match the rest of the dial_* family
 -- (dial_archetype_positions, coffee_alias, dial_slot_price all key off the enum).
-CREATE TABLE IF NOT EXISTS user_bloom_dial_position (
+-- Renamed from user_bloom_dial_position (Liam Dial Event Log Phase A0) — see the
+-- table comment below for the current-setting/history split this name encodes.
+CREATE TABLE IF NOT EXISTS user_bloom_dial_current_position (
   user_id          UUID NOT NULL REFERENCES user_profile(id) ON DELETE CASCADE,
   archetype        archetype_enum NOT NULL,
   dial_sort_order  INT NOT NULL,
   updated_at       TIMESTAMPTZ DEFAULT now(),
   PRIMARY KEY (user_id, archetype)
 );
+
+COMMENT ON TABLE user_bloom_dial_current_position IS
+  'Current dial setting per user+archetype, overwritten in place on every dial turn (silent, no history). Movement history — explicit saves and cart-anchored positions only — lives in Firestore users/{uid}/dial_events.';
 
 -- Retail price for a Bloom Dial slot (archetype + position), per weight. Not on
 -- coffee_alias (no weight dimension there) or roaster_blend (would let two roasters
