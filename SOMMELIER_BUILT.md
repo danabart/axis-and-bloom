@@ -493,6 +493,19 @@ No Liam prompt, RAG query, or chat behavior changed by either of these.
 
 **Feedback v2 checked against `behavioralConfidence.ts`'s `feedbackAlignment` component (S8)**: the extended `POST /api/orders/:orderId/feedback` (Profile Part 2) adds `expectation` and populates `descriptors` (previously hardcoded `[]`) on the same `feedback_events` doc shape — `sentiment`/`rating`/`sValue`, the only fields `feedbackAlignment` actually reads, are computed identically to before. Purely additive; no Sommelier prompt, RAG query, or confidence-scoring logic touched.
 
+#### S50. Profile Part 5 (feedback editing) touches three of Liam's own feedback consumers directly — not a continuity note, a real change (2026-07-18)
+
+**Context**: `WHAT_WE_BUILT.md` #101 makes on-site feedback editable per order via superseding `feedback_events` docs. Unlike most entries in this run of continuity notes, this one genuinely changes code Liam depends on, so it's not "confirmed no impact" — it's "confirmed correct impact."
+
+**What changed, in Liam's own files:**
+- `behavioralConfidence.ts`'s `feedbackAlignment` component (S8) now filters out superseded docs before counting events/positive-alignment — a revised rating no longer double-counts alongside its replacement.
+- `userSignals.ts`'s `hasRecentNegativeFeedback` (feeds the Sommelier's `RECOMMENDATION_MISS` trigger) dropped its `.limit(1)` and now explicitly skips superseded docs — a negative rating the customer later revised upward no longer keeps `RECOMMENDATION_MISS` firing.
+- `sommelier.ts`'s `RECOMMENDATION_MISS` handler (the `excludeCoffeeIds` query, built from negative-sentiment `feedback_events`) now filters superseded docs the same way, before taking its top-10 — a coffee the customer un-negatived stops being excluded from Liam's recommendations.
+
+**Verified directly, not assumed**: the DB/Firestore check in #101 confirmed a revised event's old doc actually carries `supersededAt` and the new one doesn't; re-read all three consumers listed above line-by-line against the new field to confirm each one's filter is correct (not just present). Did not independently re-run a live Sommelier session to observe `RECOMMENDATION_MISS` behavior end-to-end this pass — the underlying data-correctness (which doc counts) is verified, but the intent-selection UI itself wasn't re-exercised.
+
+**Nothing else touched**: `claude.ts`'s prompts, `sommelierEvaluator.ts`'s intent priority/rules, RAG focus selection, and every other consumer of `getUserSignals()`/`computeBehavioralConfidence()` are unchanged — only the *filtering* of what counts as "current" feedback changed, not any scoring formula, weight, or prompt.
+
 #### S35. Task 6 — Liam voice reset (2026-07-04)
 Full execution of `SOMMELIER_TASK_6_VOICE.md`. Three files changed + live Firestore config patched.
 

@@ -152,6 +152,7 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
       addresses:   addressResult.rows,
       tokenBalance,
       hasPhone:    phoneResult.rows.length > 0,
+      phoneNumber: phoneResult.rows[0]?.phone_number ?? null,
       smsOptIn:    phoneResult.rows[0]?.sms_opt_in ?? false,
       orders:      ordersResult.rows.map(o => ({
         id:            o.id,
@@ -169,9 +170,33 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
   }
 });
 
+// Profile Part 4: accepts digits/+/spaces/dashes/parens, normalizes to
+// [+]digits. No existing phone-creation/normalization path to reuse —
+// grepped the whole backend (including the checkout route the spec pointed
+// at) and found none; user_phone rows today only ever exist from manual/
+// admin seeding, not any live app code path.
+function normalizePhoneNumber(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!/^[0-9+\-\s()]+$/.test(trimmed)) return null;
+  const digitsOnly = trimmed.replace(/[^\d+]/g, '');
+  if (!/^\+?\d{7,15}$/.test(digitsOnly)) return null;
+  return digitsOnly;
+}
+
 // ── PATCH /api/users/profile ──────────────────────────────────────────────────
 router.patch('/profile', requireAuth, async (req: AuthRequest, res) => {
-  const { firstName, lastName, dateOfBirth, smsOptIn } = req.body ?? {};
+  const { firstName, lastName, dateOfBirth, smsOptIn, phoneNumber } = req.body ?? {};
+
+  // Validated before any write — a garbage number must leave nothing written.
+  let normalizedPhone: string | null = null;
+  if (typeof phoneNumber === 'string' && phoneNumber.trim().length > 0) {
+    normalizedPhone = normalizePhoneNumber(phoneNumber);
+    if (!normalizedPhone) {
+      res.status(400).json({ error: 'Enter a valid phone number.' });
+      return;
+    }
+  }
+
   try {
     await db.query(
       `UPDATE user_profile SET
@@ -197,6 +222,41 @@ router.patch('/profile', requireAuth, async (req: AuthRequest, res) => {
            WHERE user_id = $1 AND is_primary = true`,
           [profileId, smsOptIn]
         );
+      }
+    }
+
+    // Phone add/change — deliberately does not touch sms_opt_in either way
+    // (opt-in stays its own explicit toggle, per the spec).
+    if (normalizedPhone) {
+      const profileResult = await db.query(
+        `SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]
+      );
+      const profileId = profileResult.rows[0]?.id;
+      if (profileId) {
+        try {
+          const existing = await db.query(
+            `SELECT id FROM user_phone WHERE user_id = $1 AND is_primary = true`,
+            [profileId]
+          );
+          if (existing.rows.length) {
+            await db.query(
+              `UPDATE user_phone SET phone_number = $2, is_verified = false, updated_at = NOW() WHERE id = $1`,
+              [existing.rows[0].id, normalizedPhone]
+            );
+          } else {
+            await db.query(
+              `INSERT INTO user_phone (user_id, phone_number, is_primary, is_verified, sms_opt_in)
+               VALUES ($1, $2, true, false, false)`,
+              [profileId, normalizedPhone]
+            );
+          }
+        } catch (err: any) {
+          if (err.code === '23505') { // unique_violation — phone_number is UNIQUE across all users
+            res.status(400).json({ error: 'This phone number is already associated with another account.' });
+            return;
+          }
+          throw err;
+        }
       }
     }
 
@@ -398,7 +458,7 @@ router.delete('/addresses/:id', requireAuth, async (req: AuthRequest, res) => {
 // ── GET /api/users/dial-position?archetype= ───────────────────────────────────
 // The Bloom Part 3, Phase D — a signed-in user's remembered Bloom Dial position
 // for one archetype. Separate table from user_archetype_tuning on purpose, see
-// schema.sql comment above user_bloom_dial_position.
+// schema.sql comment above user_bloom_dial_current_position.
 router.get('/dial-position', requireAuth, async (req: AuthRequest, res) => {
   const archetype = req.query.archetype as string;
   if (!archetype) { res.status(400).json({ error: 'archetype is required' }); return; }
@@ -408,7 +468,7 @@ router.get('/dial-position', requireAuth, async (req: AuthRequest, res) => {
     if (!profileId) { res.status(404).json({ error: 'Profile not found' }); return; }
 
     const result = await db.query(
-      `SELECT dial_sort_order FROM user_bloom_dial_position WHERE user_id = $1 AND archetype = $2`,
+      `SELECT dial_sort_order FROM user_bloom_dial_current_position WHERE user_id = $1 AND archetype = $2`,
       [profileId, archetype]
     );
     res.json({ dialSortOrder: result.rows[0]?.dial_sort_order ?? null });
@@ -418,11 +478,25 @@ router.get('/dial-position', requireAuth, async (req: AuthRequest, res) => {
   }
 });
 
+// Liam Dial Event Log — the only two intentional-movement kinds ever logged (plain
+// dial turns are exploration noise, deliberately not logged). Kept in sync with
+// ArchetypeSection.tsx's `source` prop values.
+const DIAL_EVENT_TRIGGERS = ['explicit_save', 'add_to_cart'] as const;
+const DIAL_EVENT_SOURCES = ['bloom', 'find_my_flavor_returning', 'find_my_flavor_results', 'profile'] as const;
+
 // ── PATCH /api/users/dial-position — upsert on (user_id, archetype) ───────────
+// Requests without `trigger` are the silent auto-save path (every dial turn) —
+// SQL upsert only, exactly as before. Requests with a valid `trigger` additionally
+// append a Firestore users/{uid}/dial_events doc recording the *intentional* moment
+// (explicit save or add-to-cart) — fire-and-forget, a logging failure must never
+// fail the request itself.
 router.patch('/dial-position', requireAuth, async (req: AuthRequest, res) => {
-  const { archetype, dialSortOrder } = req.body ?? {};
+  const { archetype, dialSortOrder, trigger, source, coffeeId } = req.body ?? {};
   if (!archetype || !Number.isInteger(dialSortOrder)) {
     res.status(400).json({ error: 'archetype and dialSortOrder are required' }); return;
+  }
+  if (trigger !== undefined && !DIAL_EVENT_TRIGGERS.includes(trigger)) {
+    res.status(400).json({ error: 'invalid trigger' }); return;
   }
   try {
     const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]);
@@ -430,12 +504,24 @@ router.patch('/dial-position', requireAuth, async (req: AuthRequest, res) => {
     if (!profileId) { res.status(404).json({ error: 'Profile not found' }); return; }
 
     await db.query(
-      `INSERT INTO user_bloom_dial_position (user_id, archetype, dial_sort_order, updated_at)
+      `INSERT INTO user_bloom_dial_current_position (user_id, archetype, dial_sort_order, updated_at)
        VALUES ($1, $2, $3, NOW())
        ON CONFLICT (user_id, archetype)
        DO UPDATE SET dial_sort_order = $3, updated_at = NOW()`,
       [profileId, archetype, dialSortOrder]
     );
+
+    if (trigger) {
+      firestoreDb.collection(`users/${req.uid}/dial_events`).add({
+        trigger,
+        archetype,
+        dialSortOrder,
+        source: DIAL_EVENT_SOURCES.includes(source) ? source : null,
+        coffeeId: trigger === 'add_to_cart' && Number.isInteger(coffeeId) ? coffeeId : null,
+        createdAt: FieldValue.serverTimestamp(),
+      }).catch((err: unknown) => console.error('[dial-position] dial_events log failed:', err));
+    }
+
     res.json({ ok: true });
   } catch (err) {
     console.error('[PATCH /api/users/dial-position]', err);
@@ -475,16 +561,25 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
 
     // One Firestore read for every feedback event this user has, matched to
     // orders in code below — not a per-order query.
-    const feedbackByOrder = new Map<string, { rating: number | null; note: string | null; source: string | null }>();
+    const feedbackByOrder = new Map<string, {
+      rating: number | null; note: string | null; source: string | null;
+      expectation: string | null; tastedNoteIds: string[];
+    }>();
     try {
       const feedbackSnap = await firestoreDb.collection(`users/${req.uid}/feedback_events`).get();
       for (const doc of feedbackSnap.docs) {
         const d = doc.data();
+        // Skip superseded docs (Profile Part 5) — only the current revision
+        // per order should populate the journal; there is at most one
+        // non-superseded doc per orderId by construction.
+        if (d.supersededAt) continue;
         if (d.orderId) {
           feedbackByOrder.set(d.orderId, {
             rating: d.rating ?? null,
             note:   d.rawText ?? null,
             source: d.source ?? null,
+            expectation:   d.expectation ?? null,
+            tastedNoteIds: Array.isArray(d.tastedNoteIds) ? d.tastedNoteIds : [],
           });
         }
       }
@@ -506,6 +601,9 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
         note:      fb?.note ?? null,
         source:    fb?.source ?? null,
         hasFeedback: !!fb,
+        // For Part 5's edit-prefill only — additive.
+        expectation:   fb?.expectation ?? null,
+        tastedNoteIds: fb?.tastedNoteIds ?? [],
       };
     });
 

@@ -39,6 +39,7 @@ interface ProfileData {
   addresses: Address[];
   orders: any[];
   hasPhone: boolean;
+  phoneNumber: string | null;
   smsOptIn: boolean;
 }
 
@@ -81,6 +82,12 @@ export default function Profile() {
   // SMS opt-in state
   const [smsOptIn, setSmsOptIn]               = useState(false);
   const [savingSms, setSavingSms]             = useState(false);
+
+  // Phone number state (Profile Part 4)
+  const [editingPhone, setEditingPhone]       = useState(false);
+  const [phoneInput, setPhoneInput]           = useState('');
+  const [savingPhone, setSavingPhone]         = useState(false);
+  const [phoneError, setPhoneError]           = useState('');
 
   // Address form state
   const [showAddressForm, setShowAddressForm] = useState(false);
@@ -244,6 +251,30 @@ export default function Profile() {
       setSmsOptIn(value);
       setProfile(p => p ? { ...p, smsOptIn: value } : p);
     } catch { /* silent */ } finally { setSavingSms(false); }
+  }
+
+  async function handleSavePhone(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingPhone(true);
+    setPhoneError('');
+    try {
+      const token = await user!.getIdToken();
+      const res = await fetch('/api/users/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ phoneNumber: phoneInput }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed to save phone number');
+      // Enables the SMS toggle immediately, no reload — mirror what the
+      // backend just wrote rather than refetching the whole profile.
+      setProfile(p => p ? { ...p, hasPhone: true, phoneNumber: phoneInput } : p);
+      setEditingPhone(false);
+      setPhoneInput('');
+    } catch (err: any) {
+      setPhoneError(err.message ?? 'Failed to save phone number');
+    } finally {
+      setSavingPhone(false);
+    }
   }
 
   async function handleAddAddress(e: React.FormEvent) {
@@ -426,6 +457,7 @@ export default function Profile() {
                         onCompare={openCompare}
                         userArchetype={matchArchetypeId}
                         registerDialRef={registerDialRef}
+                        source="profile"
                       />
                     )}
 
@@ -513,27 +545,33 @@ export default function Profile() {
                         </div>
                         <p className="text-lg text-[#a33726]">Total: {order.total}</p>
 
-                        {!order.hasFeedback && (
-                          feedbackOrderId === order.id ? (
-                            <div className="mt-6">
-                              <OrderFeedbackForm
-                                orderId={order.id}
-                                blendName={order.blendName}
-                                coffeeId={flavorMemory?.journal.find(j => j.orderId === order.id)?.coffeeId ?? null}
-                                onSubmitted={() => setProfile(p => p ? {
+                        {feedbackOrderId === order.id ? (
+                          <div className="mt-6">
+                            <OrderFeedbackForm
+                              orderId={order.id}
+                              blendName={order.blendName}
+                              coffeeId={flavorMemory?.journal.find(j => j.orderId === order.id)?.coffeeId ?? null}
+                              initialRating={order.hasFeedback ? flavorMemory?.journal.find(j => j.orderId === order.id)?.rating : undefined}
+                              initialExpectation={order.hasFeedback ? flavorMemory?.journal.find(j => j.orderId === order.id)?.expectation : undefined}
+                              initialTastedNoteIds={order.hasFeedback ? flavorMemory?.journal.find(j => j.orderId === order.id)?.tastedNoteIds : undefined}
+                              initialNote={order.hasFeedback ? flavorMemory?.journal.find(j => j.orderId === order.id)?.note : undefined}
+                              onSubmitted={() => {
+                                setFeedbackOrderId(null);
+                                loadFlavorMemory();
+                                setProfile(p => p ? {
                                   ...p,
                                   orders: p.orders.map((o: any) => o.id === order.id ? { ...o, hasFeedback: true } : o),
-                                } : p)}
-                              />
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => setFeedbackOrderId(order.id)}
-                              className="mt-6 self-start text-[10px] uppercase tracking-[0.2em] text-[#a33726]/50 hover:text-[#a33726] transition-colors border-b border-[#a33726]/20 pb-1"
-                            >
-                              Leave Feedback
-                            </button>
-                          )
+                                } : p);
+                              }}
+                            />
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setFeedbackOrderId(order.id)}
+                            className="mt-6 self-start text-[10px] uppercase tracking-[0.2em] text-[#a33726]/50 hover:text-[#a33726] transition-colors border-b border-[#a33726]/20 pb-1"
+                          >
+                            {order.hasFeedback ? 'Edit Feedback' : 'Leave Feedback'}
+                          </button>
                         )}
                       </div>
                     ))}
@@ -704,7 +742,7 @@ export default function Profile() {
                   );
                 })}
 
-                {/* SMS opt-in */}
+                {/* SMS opt-in + phone number (Profile Part 4) */}
                 <div className="border-t border-[#a33726]/10 pt-8 flex flex-col gap-3">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 font-normal">Notifications</p>
                   <div className="flex items-center justify-between">
@@ -726,6 +764,38 @@ export default function Profile() {
                       <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${smsOptIn ? 'translate-x-4' : 'translate-x-0'}`} />
                     </button>
                   </div>
+
+                  {editingPhone ? (
+                    <form onSubmit={handleSavePhone} className="flex flex-col gap-2 mt-1">
+                      <input
+                        type="tel"
+                        value={phoneInput}
+                        onChange={e => setPhoneInput(e.target.value)}
+                        placeholder="(555) 123-4567"
+                        className={inputClass}
+                        autoFocus
+                      />
+                      {phoneError && <p className="text-xs text-red-600">{phoneError}</p>}
+                      <div className="flex gap-4">
+                        <button type="submit" disabled={savingPhone || !phoneInput.trim()}
+                          className="text-[10px] uppercase tracking-[0.3em] text-[#a33726] border-b border-[#a33726]/40 pb-1 hover:border-[#ee5974] hover:text-[#ee5974] transition-colors disabled:opacity-30">
+                          {savingPhone ? 'Saving…' : 'Save Number'}
+                        </button>
+                        <button type="button" onClick={() => { setEditingPhone(false); setPhoneInput(''); setPhoneError(''); }}
+                          className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 hover:text-[#a33726] transition-colors">
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => { setEditingPhone(true); setPhoneInput(profile?.phoneNumber ?? ''); setPhoneError(''); }}
+                      className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/50 hover:text-[#a33726] transition-colors border-b border-[#a33726]/20 pb-1 w-fit mt-1"
+                    >
+                      {profile?.hasPhone ? `${profile.phoneNumber} — Change` : '+ Add Phone Number'}
+                    </button>
+                  )}
                 </div>
 
                 {/* Sign out */}

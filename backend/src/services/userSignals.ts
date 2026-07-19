@@ -198,13 +198,14 @@ export async function getUserSignals(uid: string): Promise<UserSignals> {
     const { getSommelierConfig } = await import('./sommelierConfig.js');
     const lookbackDays = getSommelierConfig()?.timeWindows?.negativeFeedbackLookback ?? 30;
     const lookbackDate = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
+    // No `.limit(1)` — a revised (now-superseded) negative event must not count,
+    // so we need enough rows to find a non-superseded one (Profile Part 5).
     const feedbackSnap = await firestoreDb
       .collection(`users/${uid}/feedback_events`)
       .where('createdAt', '>=', lookbackDate)
       .where('sentiment', '==', 'negative')
-      .limit(1)
       .get();
-    hasRecentNegativeFeedback = !feedbackSnap.empty;
+    hasRecentNegativeFeedback = feedbackSnap.docs.some(d => !d.data().supersededAt);
   } catch { /* no feedback_events yet */ }
 
   // ── Active subscription ──────────────────────────────────────────────────

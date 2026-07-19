@@ -86,6 +86,9 @@ export interface FlavorMemoryJournalEntry {
   note: string | null;
   source: 'onsite' | 'sms' | null;
   hasFeedback: boolean;
+  /** Profile Part 5 edit-prefill only. */
+  expectation: 'lighter' | 'as_expected' | 'bolder' | null;
+  tastedNoteIds: string[];
 }
 
 export interface FlavorMemoryJourneyEntry {
@@ -117,11 +120,15 @@ export async function getDialPosition(archetype: string): Promise<{ dialSortOrde
   return res.json();
 }
 
-export async function setDialPosition(archetype: string, dialSortOrder: number) {
+export async function setDialPosition(
+  archetype: string,
+  dialSortOrder: number,
+  event?: { trigger: 'explicit_save' | 'add_to_cart'; source?: string | null; coffeeId?: number | null }
+) {
   const res = await fetch(`${BASE}/users/dial-position`, {
     method: 'PATCH',
     headers: await getHeaders(),
-    body: JSON.stringify({ archetype, dialSortOrder }),
+    body: JSON.stringify({ archetype, dialSortOrder, ...event }),
   });
   if (!res.ok) throw new Error('Failed to save dial position');
   return res.json();

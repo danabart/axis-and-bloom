@@ -111,13 +111,17 @@ router.post('/start', requireAuth, async (req: AuthRequest, res) => {
     let excludeCoffeeIds: number[] = [];
     if (intent === 'RECOMMENDATION_MISS') {
       try {
+        // No `.limit(10)` before filtering — a revised (now-superseded) negative
+        // event must not keep excluding a coffee the customer no longer feels
+        // negatively about (Profile Part 5).
         const feedbackSnap = await firestoreDb
           .collection(`users/${req.uid}/feedback_events`)
           .where('sentiment', '==', 'negative')
           .orderBy('createdAt', 'desc')
-          .limit(10)
           .get();
         excludeCoffeeIds = feedbackSnap.docs
+          .filter(d => !d.data().supersededAt)
+          .slice(0, 10)
           .map((d) => d.data().coffeeId)
           .filter((id): id is number => typeof id === 'number');
       } catch { /* no feedback events */ }

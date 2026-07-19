@@ -38,7 +38,20 @@ export default function TastingJournal({ entries, contributionCount, expandedOrd
               <p className="text-[10px] uppercase tracking-[0.15em] text-[#a33726]/40">{monthYear(entry.date)}</p>
             </div>
 
-            {entry.hasFeedback ? (
+            {expandedOrderId === entry.orderId ? (
+              <div className="mt-4">
+                <OrderFeedbackForm
+                  orderId={entry.orderId}
+                  blendName={entry.blendName}
+                  coffeeId={entry.coffeeId}
+                  initialRating={entry.hasFeedback ? entry.rating : undefined}
+                  initialExpectation={entry.hasFeedback ? entry.expectation : undefined}
+                  initialTastedNoteIds={entry.hasFeedback ? entry.tastedNoteIds : undefined}
+                  initialNote={entry.hasFeedback ? entry.note : undefined}
+                  onSubmitted={() => { onExpandOrder(null); onFeedbackSubmitted(); }}
+                />
+              </div>
+            ) : entry.hasFeedback ? (
               <>
                 {entry.rating != null && (
                   <div className="flex gap-0.5 mt-2" aria-label={`${entry.rating} out of 5 stars`}>
@@ -48,16 +61,13 @@ export default function TastingJournal({ entries, contributionCount, expandedOrd
                   </div>
                 )}
                 {entry.note && <p className="text-sm text-[#a33726]/70 italic mt-2">&ldquo;{entry.note}&rdquo;</p>}
+                <button
+                  onClick={() => onExpandOrder(entry.orderId)}
+                  className="mt-2 text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 hover:text-[#a33726] transition-colors border-b border-[#a33726]/20 pb-0.5"
+                >
+                  Edit
+                </button>
               </>
-            ) : expandedOrderId === entry.orderId ? (
-              <div className="mt-4">
-                <OrderFeedbackForm
-                  orderId={entry.orderId}
-                  blendName={entry.blendName}
-                  coffeeId={entry.coffeeId}
-                  onSubmitted={() => { onExpandOrder(null); onFeedbackSubmitted(); }}
-                />
-              </div>
             ) : (
               <button
                 onClick={() => onExpandOrder(entry.orderId)}

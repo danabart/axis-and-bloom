@@ -88,7 +88,9 @@ export async function computeBehavioralConfidence(uid: string): Promise<Behavior
       .collection(`users/${uid}/feedback_events`)
       .where('createdAt', '>=', cutoff)
       .get();
-    feedbackDocs = feedbackSnap.docs;
+    // Ignore superseded docs (Profile Part 5) — a revised event's prior version
+    // must not double-count alongside its replacement.
+    feedbackDocs = feedbackSnap.docs.filter(d => !d.data().supersededAt);
   } catch {
     // Subcollection may not exist yet — treat as zero events
   }

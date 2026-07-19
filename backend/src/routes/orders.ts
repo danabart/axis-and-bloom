@@ -237,14 +237,19 @@ router.get('/', requireAuth, async (req: AuthRequest, res) => {
 });
 
 // ── POST /api/orders/:orderId/feedback ────────────────────────────────────────
-// On-site feedback form (UC3), extended to v2 (Profile Part 2 §B). Star rating
-// is direct structured input, so sentiment/sValue are computed in plain code —
-// zero LLM calls, unlike the SMS path which has to parse free text. Writes the
-// same feedback_events doc shape liamSmsFeedback.ts already writes, plus
-// source: 'onsite', so every downstream consumer (behavioralConfidence,
-// sommelierEvaluator, userSignals) treats the two channels interchangeably.
-// v2 fields (expectation, tastedNoteIds) are additive and optional — a
-// legacy {rating, note}-only body behaves exactly as before.
+// On-site feedback form (UC3), extended to v2 (Profile Part 2 §B) and then to
+// submit-or-revise (Profile Part 5). Star rating is direct structured input, so
+// sentiment/sValue are computed in plain code — zero LLM calls, unlike the SMS
+// path which has to parse free text. Writes the same feedback_events doc shape
+// liamSmsFeedback.ts already writes, plus source: 'onsite', so every downstream
+// consumer treats the two channels interchangeably. v2 fields (expectation,
+// tastedNoteIds) are additive and optional — a legacy {rating, note}-only body
+// behaves exactly as before.
+//
+// Revision (Part 5, Dana's decision 2026-07-18): feedback is always editable by
+// its owner, per order, via superseding events — same pattern
+// dial_position_signal/archetype_assignments already use. No time window;
+// history preserved, consumers read latest-per-order.
 router.post('/:orderId/feedback', requireAuth, async (req: AuthRequest, res) => {
   const { orderId } = req.params;
   const { rating, note, expectation, tastedNoteIds } = req.body ?? {};
@@ -306,9 +311,23 @@ router.post('/:orderId/feedback', requireAuth, async (req: AuthRequest, res) => 
       }
     }
 
+    // Is this a revision? Find this order's current (non-superseded) doc, if any.
+    // Equality-only query (no orderBy) so it needs no composite index; volume per
+    // order is always tiny.
+    const existingSnap = await firestoreDb
+      .collection(`users/${req.uid}/feedback_events`)
+      .where('orderId', '==', orderId)
+      .get();
+    const activeDoc = existingSnap.docs.find(d => !d.data().supersededAt);
+    const isRevision = !!activeDoc;
+
     const sentiment: 'positive' | 'negative' | 'neutral' =
       rating >= 4 ? 'positive' : rating <= 2 ? 'negative' : 'neutral';
     const sValue = (rating - 1) / 4;
+
+    if (activeDoc) {
+      await activeDoc.ref.update({ supersededAt: FieldValue.serverTimestamp() });
+    }
 
     await firestoreDb.collection(`users/${req.uid}/feedback_events`).add({
       orderId,
@@ -322,24 +341,36 @@ router.post('/:orderId/feedback', requireAuth, async (req: AuthRequest, res) => 
       rawText: note ?? null,
       expectation: expectation ?? null,
       descriptors: noteIds.map(id => noteLabelById.get(id)).filter((d): d is string => !!d),
+      // Additive — descriptors above is the label array every consumer already
+      // reads; tastedNoteIds is only for Part 5's edit-prefill (needs the actual
+      // chip ids, not just their labels, to re-check the right chips).
+      tastedNoteIds: noteIds,
       createdAt: FieldValue.serverTimestamp(),
     });
 
-    if (sentiment === 'negative') {
-      await firestoreDb.doc(`users/${req.uid}/metadata/confidence_profile`).set({
-        hasPendingNegativeFeedback: true,
-        negativeFeedbackBlendId: blendId,
-        negativeFeedbackDetectedAt: FieldValue.serverTimestamp(),
-        negativeFeedbackSource: 'onsite',
-      }, { merge: true }).catch(() => {});
-    }
+    // Follows the *latest* sentiment (Part 5) — a revision upward clears the
+    // flag, a revision downward (re-)sets it. Scoped to this event only, same
+    // as the pre-Part-5 logic did (not a rescan across the user's other orders).
+    await firestoreDb.doc(`users/${req.uid}/metadata/confidence_profile`).set({
+      hasPendingNegativeFeedback: sentiment === 'negative',
+      ...(sentiment === 'negative'
+        ? { negativeFeedbackBlendId: blendId, negativeFeedbackDetectedAt: FieldValue.serverTimestamp(), negativeFeedbackSource: 'onsite' }
+        : {}),
+    }, { merge: true }).catch(() => {});
 
-    // user_flavor_feedback — one row per tasted-note chip. Flows into
-    // v_collaborative_flavor_wheel as client-source mentions automatically.
-    if (noteIds.length && coffeeId) {
-      const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]);
-      const profileId = profileResult.rows[0]?.id;
-      if (profileId) {
+    const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]);
+    const profileId = profileResult.rows[0]?.id;
+
+    // user_flavor_feedback — no supersede column, and it feeds
+    // v_collaborative_flavor_wheel by row count, so a revision deletes this
+    // user's rows for this order and inserts the new chips rather than
+    // appending: these rows represent the user's *current* opinion, not an
+    // append-only audit trail (that trail already lives in feedback_events).
+    if (profileId) {
+      if (isRevision) {
+        await db.query(`DELETE FROM user_flavor_feedback WHERE user_id = $1 AND order_id = $2`, [profileId, orderId]);
+      }
+      if (noteIds.length && coffeeId) {
         for (const noteId of noteIds) {
           await db.query(
             `INSERT INTO user_flavor_feedback (user_id, coffee_id, order_id, cupping_note_id, intensity, notes)
@@ -353,11 +384,21 @@ router.post('/:orderId/feedback', requireAuth, async (req: AuthRequest, res) => 
     // dial_position_signal — feeds the dormant Stage 2 dial loop
     // (BLOOM_DIAL_ALLOCATION_SPEC.md §3). as_expected confirms the status quo
     // and writes no row this pass — a confirmation-signal design is a future
-    // refinement, not built here. Appended rather than superseded: unlike
-    // recordCuppingSignal (each call recomputes the same estimate for a coffee,
-    // so the old one is stale), each feedback submission is an independent
-    // customer observation — accumulating rows for v_dial_position_consensus
-    // to aggregate is the right model, not overwriting the previous one.
+    // refinement, not built here.
+    //
+    // Prior row lookup (Part 5): matched by an *exact* equality on `notes`
+    // rather than the substring LIKE Part 2 used — Part 2's own comment flagged
+    // that as worth revisiting if it ever proved fragile. Since this exact
+    // string is the only thing this route ever writes into `notes`, and orderId
+    // is unique, equality is strictly more precise than LIKE with zero schema
+    // change, so this was the fix rather than adding an order_id column.
+    const signalNote = `onsite feedback for order ${orderId}`;
+    if (isRevision) {
+      await db.query(
+        `UPDATE dial_position_signal SET superseded_at = NOW() WHERE notes = $1 AND superseded_at IS NULL`,
+        [signalNote]
+      );
+    }
     if ((expectation === 'lighter' || expectation === 'bolder') && coffeeId) {
       const archResult = await db.query(
         `SELECT archetype FROM archetype_assignments WHERE coffee_id = $1 AND superseded_at IS NULL`,
@@ -375,13 +416,13 @@ router.post('/:orderId/feedback', requireAuth, async (req: AuthRequest, res) => 
             `INSERT INTO dial_position_signal
                (coffee_id, archetype, dimension_id, source, direction, sample_size, confidence, notes)
              VALUES ($1, $2, $3, 'onsite_feedback', $4, 1, 'medium', $5)`,
-            [coffeeId, archetype, dimensionId, expectation === 'lighter' ? 'less' : 'more', `onsite feedback for order ${orderId}`]
+            [coffeeId, archetype, dimensionId, expectation === 'lighter' ? 'less' : 'more', signalNote]
           );
         }
       }
     }
 
-    res.json({ ok: true });
+    res.json({ ok: true, revised: isRevision });
 
     computeBehavioralConfidence(req.uid!).catch(err => console.error('[orders/feedback/bc]', err));
     refreshLifecycleState(req.uid!).catch(err => console.error('[orders/feedback/lifecycle]', err));

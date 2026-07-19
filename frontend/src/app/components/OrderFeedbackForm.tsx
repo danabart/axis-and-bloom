@@ -8,6 +8,12 @@ interface Props {
    * for the tasted-notes chips. Additive/optional: existing call sites that
    * don't pass it still work, just without chips (degrade, not break). */
   coffeeId?: number | null;
+  /** Profile Part 5 — prefills an edit of existing feedback. All optional and
+   * additive; omitting them is today's fresh-submission behavior. */
+  initialRating?: number | null;
+  initialExpectation?: 'lighter' | 'as_expected' | 'bolder' | null;
+  initialTastedNoteIds?: string[];
+  initialNote?: string | null;
   onSubmitted?: () => void;
 }
 
@@ -24,12 +30,16 @@ const VISIBLE_CHIPS = 8;
  * so every surface that renders it (Profile's journal + Past Orders tab, FI's
  * UC3 nudge, the homepage nudge) gets v2 simultaneously. Stars stay the only
  * required field; everything added here is optional and degrades gracefully. */
-export default function OrderFeedbackForm({ orderId, blendName, coffeeId, onSubmitted }: Props) {
-  const [rating, setRating] = useState(0);
+export default function OrderFeedbackForm({
+  orderId, blendName, coffeeId, onSubmitted,
+  initialRating, initialExpectation, initialTastedNoteIds, initialNote,
+}: Props) {
+  const isEdit = initialRating != null;
+  const [rating, setRating] = useState(initialRating ?? 0);
   const [hoverRating, setHoverRating] = useState(0);
-  const [note, setNote] = useState('');
-  const [expectation, setExpectation] = useState<Expectation | null>(null);
-  const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
+  const [note, setNote] = useState(initialNote ?? '');
+  const [expectation, setExpectation] = useState<Expectation | null>(initialExpectation ?? null);
+  const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set(initialTastedNoteIds ?? []));
   const [chipNotes, setChipNotes] = useState<ChipNote[]>([]);
   const [chipsExpanded, setChipsExpanded] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -81,7 +91,11 @@ export default function OrderFeedbackForm({ orderId, blendName, coffeeId, onSubm
   }
 
   if (submitted) {
-    return <p className="text-sm text-[#a33726]/80 py-2">Thanks — that helps Liam get to know your taste.</p>;
+    return (
+      <p className="text-sm text-[#a33726]/80 py-2">
+        {isEdit ? 'Updated — thanks for the correction.' : 'Thanks — that helps Liam get to know your taste.'}
+      </p>
+    );
   }
 
   const visibleChips = chipsExpanded ? chipNotes : chipNotes.slice(0, VISIBLE_CHIPS);
@@ -185,7 +199,7 @@ export default function OrderFeedbackForm({ orderId, blendName, coffeeId, onSubm
         disabled={submitting}
         className="self-start text-[10px] uppercase tracking-[0.3em] text-[#a33726] border-b border-[#a33726]/40 pb-1 hover:border-[#ee5974] hover:text-[#ee5974] transition-colors disabled:opacity-30"
       >
-        {submitting ? 'Sending…' : 'Send Feedback'}
+        {submitting ? 'Sending…' : isEdit ? 'Update Feedback' : 'Send Feedback'}
       </button>
     </form>
   );
