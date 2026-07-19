@@ -29,7 +29,11 @@ import bagChocolate       from '../../design/IMAGES/bags/new bags mock up/CHOCOL
 import bagEarthy          from '../../design/IMAGES/bags/new bags mock up/SPICY & EARTHY transp.png';
 import bagExperimental    from '../../design/IMAGES/bags/new bags mock up/EXPERIMENTAL transp.png';
 
-import quizDoor from '../../design/IMAGES/photos/quiz-door.jpg';
+import coffeePic10   from '../../design/IMAGES/lifestyle/CoffeePic10.png';
+import patternTissue from '../../design/IMAGES/patterns/experimental.jpg';
+import patternSheet  from '../../design/IMAGES/patterns/balanced.jpg';
+import patternLeafL  from '../../design/IMAGES/patterns/spicy.jpg';
+import patternLeafR  from '../../design/IMAGES/patterns/fruity.jpg';
 import q1Photo from '../../design/IMAGES/photos/Quiz Pics/QuizPic01.png';
 import q2Photo from '../../design/IMAGES/photos/Quiz Pics/QuizPic02.png';
 import q3Photo from '../../design/IMAGES/photos/Quiz Pics/QuizPic03.png';
@@ -128,71 +132,120 @@ function QuizHeader() {
 
 function ProgressTicks({ current, total }: { current: number; total: number }) {
   return (
-    <div style={{ display: 'flex', gap: 5, alignItems: 'flex-end', marginBottom: 32 }}>
-      {Array.from({ length: total }, (_, i) => (
-        <div key={i} style={{
-          width: 1,
-          height: i % 3 === 0 ? 12 : 7,
-          backgroundColor: i < current ? '#9a2918' : 'rgba(154,41,24,0.15)',
-          transition: 'background-color 0.3s ease',
-        }} />
-      ))}
+    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 44 }}>
+      {Array.from({ length: total }, (_, i) => {
+        const isCurrent = i === current - 1;
+        const isDone    = i < current - 1;
+        return (
+          <div key={i} style={{
+            width: 1,
+            height: isCurrent ? 18 : 9,
+            backgroundColor: isCurrent ? '#9a2918' : isDone ? '#a94936' : '#c5c7c8',
+            transition: 'all 0.3s ease',
+          }} />
+        );
+      })}
     </div>
   );
 }
 
-// ─── Accumulating bars (neutral during quiz; color assigned at result reveal) ──
+// ─── Wrap sequence (papers close → text → papers part) ───────────────────────
 
-const BAR_WIDTHS = [70.6, 46.1, 100, 59.2, 70.0, 52.4, 82];
+function WrapSequence({ name, onComplete }: { name: string; onComplete: () => void }) {
+  const reducedMotion = typeof window !== 'undefined'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-function AccumulatingBars({ count, color, instant }: { count: number; color: string; instant?: boolean }) {
-  const [readySet, setReadySet] = useState<Set<number>>(
-    () => instant ? new Set(BAR_WIDTHS.map((_, i) => i)) : new Set(),
-  );
-  const prevCountRef = useRef(instant ? count : 0);
+  const [tissueIn, setTissueIn]   = useState(false);
+  const [sheetIn,  setSheetIn]    = useState(false);
+  const [leafRIn,  setLeafRIn]    = useState(false);
+  const [leafLIn,  setLeafLIn]    = useState(false);
+  const [wrapLine, setWrapLine]   = useState('');
+  const [showText, setShowText]   = useState(false);
 
   useEffect(() => {
-    if (instant) {
-      setReadySet(new Set(BAR_WIDTHS.map((_, i) => i)));
-      return;
-    }
-    const prev = prevCountRef.current;
-    prevCountRef.current = count;
-    if (count > prev) {
-      const idx = count - 1;
-      const id = requestAnimationFrame(() => {
-        setReadySet(s => new Set([...s, idx]));
-      });
-      return () => cancelAnimationFrame(id);
-    } else if (count < prev) {
-      setReadySet(s => {
-        const next = new Set(s);
-        for (let i = count; i < BAR_WIDTHS.length; i++) next.delete(i);
-        return next;
-      });
-    }
-  }, [count, instant]);
+    const label = name ? `Wrapping ${name}'s profile…` : 'Wrapping your profile…';
 
-  if (count <= 0) return null;
+    if (reducedMotion) {
+      setTissueIn(true); setSheetIn(true); setLeafRIn(true); setLeafLIn(true);
+      const timers = [
+        setTimeout(() => { setWrapLine(label); setShowText(true); }, 300),
+        setTimeout(() => setWrapLine('Choosing your coffee…'), 900),
+        setTimeout(() => setShowText(false), 1400),
+        setTimeout(() => { setTissueIn(false); setSheetIn(false); setLeafRIn(false); setLeafLIn(false); }, 1700),
+        setTimeout(onComplete, 1900),
+      ];
+      return () => timers.forEach(clearTimeout);
+    }
+
+    const t = (ms: number, fn: () => void) => setTimeout(fn, ms);
+    const timers = [
+      t(100,  () => setTissueIn(true)),
+      t(650,  () => setSheetIn(true)),
+      t(1200, () => setLeafRIn(true)),
+      t(1450, () => setLeafLIn(true)),
+      t(2500, () => { setWrapLine(label); setShowText(true); }),
+      t(4000, () => setWrapLine('Choosing your coffee…')),
+      t(5400, () => setShowText(false)),
+      t(5800, () => setLeafLIn(false)),
+      t(6060, () => setLeafRIn(false)),
+      t(6500, () => setSheetIn(false)),
+      t(6950, () => setTissueIn(false)),
+      t(8100, onComplete),
+    ];
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  const tx = reducedMotion ? 'opacity 0.4s ease' : 'transform 1s cubic-bezier(.22,1,.36,1)';
+  const op = (v: boolean) => reducedMotion ? (v ? 1 : 0) : 1;
 
   return (
-    <div style={{
-      position: 'absolute', bottom: 24, left: 0, right: 0,
-      display: 'flex', flexDirection: 'column-reverse',
-      alignItems: 'center', gap: 4,
-      pointerEvents: 'none',
-    }}>
-      {BAR_WIDTHS.slice(0, count).map((targetW, i) => (
-        <div
-          key={i}
-          style={{
-            height: 8,
-            width: readySet.has(i) ? `${targetW}%` : '0%',
-            backgroundColor: color,
-            transition: (readySet.has(i) && !instant) ? 'width 550ms cubic-bezier(.22,1,.36,1)' : 'none',
-          }}
-        />
-      ))}
+    <div style={{ position: 'fixed', inset: 0, zIndex: 80, overflow: 'hidden' }}>
+      {/* tissue — experimental, rises from bottom */}
+      <div style={{
+        position: 'absolute', top: '-4%', bottom: 0, left: 0, right: 0,
+        backgroundImage: `url(${patternTissue})`, backgroundSize: '1250px', backgroundPosition: '60% 40%',
+        transform: tissueIn ? 'translateY(0)' : 'translateY(112%)',
+        opacity: op(tissueIn), transition: tx, willChange: 'transform',
+      }} />
+      {/* sheet — balanced, slightly offset */}
+      <div style={{
+        position: 'absolute', top: '-5%', bottom: 0, left: 0, right: 0,
+        backgroundImage: `url(${patternSheet})`, backgroundSize: '1250px', backgroundPosition: '40% 15%',
+        transform: sheetIn ? 'translate(0,0)' : 'translate(-6%,114%)',
+        opacity: op(sheetIn), transition: tx, willChange: 'transform',
+      }} />
+      {/* right leaf — fruity */}
+      <div style={{
+        position: 'absolute', top: '-6%', bottom: '-6%', right: '-4%', width: '60%',
+        backgroundImage: `url(${patternLeafR})`, backgroundSize: '1250px', backgroundPosition: '78% 62%',
+        clipPath: 'polygon(7% 0,100% 0,100% 100%,0 100%)',
+        boxShadow: '-14px 0 34px -10px rgba(20,12,8,.4)',
+        transform: leafRIn ? 'translate(0,0) rotate(0deg)' : 'translate(116%,-22%) rotate(12deg)',
+        opacity: op(leafRIn), transition: tx, willChange: 'transform',
+      }} />
+      {/* left leaf — spicy */}
+      <div style={{
+        position: 'absolute', top: '-6%', bottom: '-6%', left: '-4%', width: '62%',
+        backgroundImage: `url(${patternLeafL})`, backgroundSize: '1250px', backgroundPosition: '12% 30%',
+        clipPath: 'polygon(0 0,100% 0,93% 100%,0 100%)',
+        boxShadow: '14px 0 34px -10px rgba(20,12,8,.45)',
+        transform: leafLIn ? 'translate(0,0) rotate(0deg)' : 'translate(-118%,-26%) rotate(-13deg)',
+        opacity: op(leafLIn), transition: tx, willChange: 'transform',
+      }} />
+      {/* wrap text */}
+      <div style={{
+        position: 'absolute', inset: 0, zIndex: 5,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        opacity: showText ? 1 : 0, transition: 'opacity 0.5s ease', pointerEvents: 'none',
+      }}>
+        <p style={{
+          color: '#f2f1ea', fontSize: 'clamp(20px,2vw,28px)',
+          letterSpacing: '0.04em', textShadow: '0 2px 14px rgba(0,0,0,.35)',
+          fontFamily: 'inherit',
+        }}>
+          {wrapLine}
+        </p>
+      </div>
     </div>
   );
 }
@@ -394,6 +447,8 @@ export default function FlavorQuiz() {
   const [hasStarted, setHasStarted]     = useState(() => isPreview);
   const [userName, setUserName]         = useState('');
   const [currentStep, setCurrentStep]   = useState(0);
+  const [isWrapping, setIsWrapping]     = useState(false);
+  const fromWrapRef                     = useRef(false);
   const [answers, setAnswers]           = useState<Record<number, number>>({});
   const [selectedIds, setSelectedIds]   = useState<Record<number, string>>({});
   const [isComplete, setIsComplete]     = useState(() => isPreview);
@@ -709,8 +764,8 @@ export default function FlavorQuiz() {
           .then(refreshUserProfile)
           .catch(console.error);
       }
-      resetReveal();
-      setIsComplete(true);
+      fromWrapRef.current = true;
+      setIsWrapping(true);
     } catch (err) {
       console.error('[quiz/score]', err);
       setScoreError(true);
@@ -734,12 +789,14 @@ export default function FlavorQuiz() {
     }
 
     setShowBranch(false);
-    resetReveal();
-    setIsComplete(true);
+    fromWrapRef.current = true;
+    setIsWrapping(true);
   };
 
   const handleRetake = () => {
     window.scrollTo({ top: 0 });
+    fromWrapRef.current = false;
+    setIsWrapping(false);
     setIsComplete(false);
     setShowBranch(false);
     setBranchQuestion(null);
@@ -783,8 +840,8 @@ export default function FlavorQuiz() {
           .catch(console.error);
       }
       setShowBranch(false);
-      resetReveal();
-      setIsComplete(true);
+      fromWrapRef.current = true;
+      setIsWrapping(true);
     }, 750);
   };
 
@@ -972,34 +1029,48 @@ export default function FlavorQuiz() {
     );
   }
 
-  // ── Name screen ──────────────────────────────────────────────────────────────
+  // ── Name screen (door) ───────────────────────────────────────────────────────
   if (!hasStarted) {
     return (
-      <div className="relative w-full min-h-screen bg-[#f2f1ea] flex overflow-hidden">
+      <div style={{ position: 'relative', width: '100%', minHeight: '100vh', overflow: 'hidden', background: '#f2f1ea' }}>
         <QuizHeader />
-        <div className="absolute inset-0">
-          <img src={quizDoor} alt="" className="w-full h-full object-cover" />
-        </div>
-        <div
-          className="relative z-10 w-full flex flex-col justify-start"
-          style={{
-            paddingTop: 'clamp(96px, 14vh, 140px)',
-            paddingLeft: 'clamp(48px, 7vw, 112px)',
-            paddingRight: 'clamp(48px, 7vw, 112px)',
-          }}
-        >
+        {/* Background photo — CoffeePic10, wide chaff, full-bleed */}
+        <img
+          src={coffeePic10}
+          alt=""
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }}
+        />
+        {/* Left wash */}
+        <div style={{
+          position: 'absolute', inset: 0,
+          background: 'linear-gradient(90deg, rgba(242,241,234,.82) 0%, rgba(242,241,234,.45) 36%, rgba(242,241,234,0) 62%)',
+        }} />
+        {/* Top wash — keeps chrome legible */}
+        <div style={{
+          position: 'absolute', top: 0, left: 0, right: 0, height: 70,
+          background: 'linear-gradient(180deg, rgba(242,241,234,.85), rgba(242,241,234,0))',
+        }} />
+        {/* Content anchored at ~39% viewport height */}
+        <div style={{
+          position: 'absolute',
+          top: '39%',
+          transform: 'translateY(-50%)',
+          left: 'clamp(48px, 7vw, 112px)',
+          maxWidth: 560,
+          zIndex: 2,
+        }}>
           <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7 }}
-            style={{ maxWidth: 640, display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}
+            style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}
           >
             <h1 style={{
               fontSize: 'clamp(2.8rem, 4.2vw, 4.2rem)',
-              color: '#9a2918',
+              color: '#ee5974',
               lineHeight: 1.08,
               fontWeight: 400,
-              margin: '0 0 clamp(28px, 4vh, 40px)',
+              margin: '0 0 clamp(28px, 4vh, 36px)',
               letterSpacing: '-0.01em',
             }}>
               Whose palate are we<br />profiling today?
@@ -1012,20 +1083,19 @@ export default function FlavorQuiz() {
               placeholder="Enter your name"
               style={{
                 width: '100%',
-                maxWidth: 400,
+                maxWidth: 340,
                 fontSize: '1.05rem',
-                padding: '0 0 12px',
+                padding: '9px 0',
                 background: 'transparent',
                 border: 'none',
-                borderBottom: '1px solid rgba(154,41,24,0.3)',
+                borderBottom: '1px solid rgba(154,41,24,0.5)',
                 borderRadius: 0,
                 outline: 'none',
-                color: '#9a2918',
+                color: '#45474a',
                 fontFamily: 'inherit',
                 letterSpacing: '0.02em',
-                marginBottom: 'clamp(20px, 3vh, 28px)',
               }}
-              className="placeholder-[#a33726]/40 focus:border-[#ee5974]"
+              className="placeholder-[#7b7f80] focus:border-[#ee5974]"
               onKeyDown={(e) => { if (e.key === 'Enter' && userName.trim()) setHasStarted(true); }}
             />
 
@@ -1035,7 +1105,7 @@ export default function FlavorQuiz() {
               style={{
                 background: 'none',
                 border: 'none',
-                borderBottom: userName.trim() ? '1px solid rgba(154,41,24,0.4)' : '1px solid transparent',
+                borderBottom: userName.trim() ? '1px solid rgba(154,41,24,0.5)' : '1px solid transparent',
                 padding: '0 0 3px',
                 cursor: userName.trim() ? 'pointer' : 'not-allowed',
                 fontFamily: 'inherit',
@@ -1044,8 +1114,9 @@ export default function FlavorQuiz() {
                 textTransform: 'uppercase',
                 color: '#9a2918',
                 opacity: userName.trim() ? 1 : 0.3,
-                transition: 'opacity 0.2s, color 0.2s',
-                marginBottom: 18,
+                transition: 'opacity 0.2s',
+                marginTop: 30,
+                marginBottom: 22,
               }}
             >
               Begin Profile
@@ -1056,15 +1127,14 @@ export default function FlavorQuiz() {
               style={{
                 fontFamily: 'inherit',
                 fontSize: '0.68rem',
-                letterSpacing: '0.18em',
+                letterSpacing: '0.14em',
                 textTransform: 'uppercase',
-                color: '#9a2918',
-                opacity: 0.45,
+                color: '#7b7f80',
                 textDecoration: 'none',
-                transition: 'opacity 0.2s',
+                transition: 'color 0.2s',
               }}
-              onMouseEnter={e => (e.currentTarget.style.opacity = '0.8')}
-              onMouseLeave={e => (e.currentTarget.style.opacity = '0.4')}
+              onMouseEnter={e => (e.currentTarget.style.color = '#9a2918')}
+              onMouseLeave={e => (e.currentTarget.style.color = '#7b7f80')}
             >
               Already have a profile? Sign in →
             </a>
@@ -1084,10 +1154,10 @@ export default function FlavorQuiz() {
       <div className="w-full min-h-screen flex flex-col lg:flex-row" style={{ background: '#f2f1ea' }}>
         <QuizHeader />
 
-        {/* Photo panel — 46% on desktop, full width on mobile; contain + beige letterbox */}
+        {/* Photo panel — 46%, framed print, full image visible */}
         <div
-          className="w-full lg:w-[46%] h-[40vh] lg:h-screen relative overflow-hidden flex-shrink-0"
-          style={{ background: '#ebebe3' }}
+          className="w-full lg:w-[46%] lg:h-screen flex-shrink-0 hidden lg:flex items-center justify-center"
+          style={{ background: '#f2f1ea', padding: '72px 30px 22px' }}
         >
           <AnimatePresence mode="wait">
             <motion.div
@@ -1095,17 +1165,21 @@ export default function FlavorQuiz() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.8 }}
-              style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              transition={{ duration: 0.45 }}
+              style={{
+                border: '1px solid #c5c7c8',
+                padding: 14,
+                background: '#f2f1ea',
+                display: 'inline-block',
+              }}
             >
               <img
                 src={image}
                 alt=""
-                style={{ width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center', display: 'block' }}
+                style={{ display: 'block', maxWidth: '100%', maxHeight: 'calc(100vh - 126px)', width: 'auto', height: 'auto' }}
               />
             </motion.div>
           </AnimatePresence>
-          <AccumulatingBars count={currentStep} color="#c5c7c8" />
         </div>
 
         {/* Question panel — 54%, vertically centered */}
@@ -1263,15 +1337,6 @@ export default function FlavorQuiz() {
               })}
             </div>
 
-            {/* Bars — neutral gray, centered, below answers */}
-            <div style={{
-              marginTop: 40, display: 'flex', flexDirection: 'column-reverse',
-              alignItems: 'center', gap: 4,
-            }}>
-              {BAR_WIDTHS.slice(0, questions.length).map((w, i) => (
-                <div key={i} style={{ height: 8, width: `${w}%`, backgroundColor: '#c5c7c8' }} />
-              ))}
-            </div>
           </motion.div>
         </div>
       </div>
@@ -1328,8 +1393,8 @@ export default function FlavorQuiz() {
                     .then(refreshUserProfile)
                     .catch(console.error);
                 }
-                resetReveal();
-                setIsComplete(true);
+                fromWrapRef.current = true;
+                setIsWrapping(true);
               }}
               className="w-full py-3 rounded-lg text-sm text-stone-600 border border-stone-200 hover:bg-stone-100"
             >
@@ -1341,12 +1406,57 @@ export default function FlavorQuiz() {
     );
   }
 
+  // ── Wrap sequence ────────────────────────────────────────────────────────────
+  if (isWrapping) {
+    return (
+      <WrapSequence
+        name={userName}
+        onComplete={() => {
+          setIsWrapping(false);
+          resetReveal();
+          setIsComplete(true);
+        }}
+      />
+    );
+  }
+
   // ── Results screen ───────────────────────────────────────────────────────────
   //
   // 200vh scroll container · 100vh sticky
   // Curtain = full-screen wallpaper that slides up as user scrolls (translateY 0→-100%)
   // After curtain clears: Bloom Dial (left) + Bag + archetype text (right) — stable, no further scroll
   //
+
+  // After the wrap sequence, skip the scroll-reveal curtain — show result directly
+  if (fromWrapRef.current) {
+    return (
+      <div style={{ backgroundColor: '#f2f1ea', minHeight: '100vh' }}>
+        <QuizHeader />
+        {resultsArchetypeData && (
+          <ArchetypeSection
+            data={resultsArchetypeData}
+            index={0}
+            selectedSortOrder={resultsSortOrder ?? computeDefaultSortOrder(resultsArchetypeData)}
+            revealedKeys={resultsRevealedKeys}
+            onDialSelect={handleResultsDialSelect}
+            onToggleReveal={toggleResultsReveal}
+            onAddToCart={addToCart}
+            onHopClick={handleResultsHopClick}
+            onCompare={openResultsCompare}
+            userArchetype={matchedArchetypeId}
+            registerDialRef={registerResultsDialRef}
+            source="find_my_flavor_results"
+          />
+        )}
+        <CompareOverlay
+          open={resultsCompareState.open}
+          onClose={() => setResultsCompareState(s => ({ ...s, open: false }))}
+          left={resultsCompareState.slot ? { archetype: resultsCompareState.archetype, archetypeLabel: resultsCompareState.archetypeLabel, slot: resultsCompareState.slot } : null}
+          archetypes={archetypesList}
+        />
+      </div>
+    );
+  }
 
   const curtainProgress = revealForced ? 1 : revealProgress;
   const curtainY        = curtainProgress * 100;
