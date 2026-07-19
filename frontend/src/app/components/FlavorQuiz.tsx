@@ -1145,7 +1145,7 @@ export default function FlavorQuiz() {
   }
 
   // ── Question screen ──────────────────────────────────────────────────────────
-  if (!isComplete && !showBranch) {
+  if (!isComplete && !showBranch && !isWrapping) {
     const question = questions[currentStep];
     const image    = QUESTION_IMAGES[question.q_number] ?? QUESTION_IMAGES[1];
     const kw       = Q_HIGHLIGHTS[question.q_number];
