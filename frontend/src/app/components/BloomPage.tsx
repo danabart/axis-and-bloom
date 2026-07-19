@@ -27,6 +27,7 @@ export default function BloomPage() {
   const [experimentalData, setExperimentalData] = useState<ArchetypeData | null>(null);
   const [archetypeOrder, setArchetypeOrder] = useState<string[] | null>(null);
   const [otherCategories, setOtherCategories] = useState<OtherCategoryCoffee[]>([]);
+  const [catalogueSettled, setCatalogueSettled] = useState(false);
   const [error, setError] = useState('');
   const [userArchetype, setUserArchetype] = useState<string | null>(null);
   const [userArchetypeLoaded, setUserArchetypeLoaded] = useState(false);
@@ -40,7 +41,7 @@ export default function BloomPage() {
   });
 
   useEffect(() => {
-    fetch('/api/coffees/archetypes')
+    const archetypesFetch = fetch('/api/coffees/archetypes')
       .then(r => r.json())
       .then((data: ArchetypeData[]) => {
         setArchetypes(data);
@@ -52,7 +53,7 @@ export default function BloomPage() {
       })
       .catch(() => setError('Failed to load coffees'));
 
-    fetch('/api/coffees/experimental')
+    const experimentalFetch = fetch('/api/coffees/experimental')
       .then(r => r.json())
       .then((data: ArchetypeData) => {
         setExperimentalData(data);
@@ -64,6 +65,12 @@ export default function BloomPage() {
       .then(r => r.json())
       .then((data: OtherCategoryCoffee[]) => setOtherCategories(data))
       .catch(() => {});
+
+    // Liam action links, Phase A: the deep-link effect below needs to know when
+    // the catalogue is *settled*, not just non-empty — experimentalData alone can
+    // resolve before archetypes does, which would otherwise make `all.length`
+    // falsely look "loaded" while the actual target archetype hasn't arrived yet.
+    Promise.allSettled([archetypesFetch, experimentalFetch]).then(() => setCatalogueSettled(true));
   }, []);
 
   useEffect(() => {
@@ -108,21 +115,23 @@ export default function BloomPage() {
 
   // Liam action links, Phase A — honor ?archetype=&slot= deep links (FI's existing
   // "Shop on The Bloom →" link already emits this shape; it previously landed on the
-  // default view since this page had no useSearchParams at all). Waits for archetype
-  // data (and, for the experimental card, experimentalData) to be loaded so dialRefs
-  // are registered before we try to rotate one; runs once. Invalid/unknown params —
-  // no archetype param, unknown archetype, or a slot that isn't one of that
-  // archetype's positions — fall through to the plain default view, no error.
+  // default view since this page had no useSearchParams at all). Gated on
+  // `catalogueSettled` rather than `all.length > 0` — experimentalData alone can
+  // resolve before the base archetypes fetch does, which would otherwise make the
+  // catalogue falsely look "loaded" while the actual target archetype hasn't
+  // arrived yet, permanently mis-resolving the deep link as "not found" (found via
+  // real testing, not assumed). Runs once. Invalid/unknown params — no archetype
+  // param, unknown archetype, or a slot that isn't one of that archetype's
+  // positions — fall through to the plain default view, no error.
   const deepLinkHandledRef = useRef(false);
   useEffect(() => {
     if (deepLinkHandledRef.current) return;
     const archetypeParam = searchParams.get('archetype');
     if (!archetypeParam) { deepLinkHandledRef.current = true; return; }
-
-    const all = [...orderedArchetypes, ...(experimentalData ? [experimentalData] : [])];
-    if (!all.length) return; // wait for catalogue to load
+    if (!catalogueSettled) return; // wait for both catalogue fetches to settle
 
     deepLinkHandledRef.current = true;
+    const all = [...orderedArchetypes, ...(experimentalData ? [experimentalData] : [])];
     const target = all.find(a => a.archetype === archetypeParam);
     if (!target) return;
 
@@ -134,7 +143,7 @@ export default function BloomPage() {
       document.getElementById(archetypeParam)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       if (validSlot != null) dialRefs.current[archetypeParam]?.rotateTo(validSlot);
     });
-  }, [orderedArchetypes, experimentalData, searchParams]);
+  }, [catalogueSettled, orderedArchetypes, experimentalData, searchParams]);
 
   function registerDialRef(archetype: string, handle: BloomDialHandle | null) {
     dialRefs.current[archetype] = handle;

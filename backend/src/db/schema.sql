@@ -490,8 +490,15 @@ END $$;
 -- and "the setting." This table stays exactly what it always was — the current
 -- setting, overwritten in place — just renamed so the split is legible from the
 -- names alone. See the table comment below.
+-- Guards on the target name too, not just the source — a deploy-ordering race
+-- (confirmed in production 2026-07-18: an older build's schema.sql re-created an
+-- empty `user_bloom_dial_position` via its own CREATE TABLE IF NOT EXISTS after
+-- this rename had already run, since at that moment the old name legitimately
+-- didn't exist) can otherwise make this ALTER fail with "already exists" and
+-- abort the rest of this file's single-batch execution for that boot.
 DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'user_bloom_dial_position' AND schemaname = 'public') THEN
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'user_bloom_dial_position' AND schemaname = 'public')
+     AND NOT EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'user_bloom_dial_current_position' AND schemaname = 'public') THEN
     ALTER TABLE user_bloom_dial_position RENAME TO user_bloom_dial_current_position;
   END IF;
 END $$;
