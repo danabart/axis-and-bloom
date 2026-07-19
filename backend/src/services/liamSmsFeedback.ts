@@ -4,6 +4,7 @@ import { firestoreDb, FieldValue } from './firebase-admin.js';
 import { sendSms, logToNotificationLog } from './smsProvider.js';
 import { computeBehavioralConfidence } from './behavioralConfidence.js';
 import { refreshLifecycleState } from './userLifecycle.js';
+import { writeDialPositionSignal } from './dialPositionSignal.js';
 
 const anthropic = new Anthropic();
 
@@ -55,9 +56,14 @@ export async function schedulePostDeliveryMessage(
       if (blendResult.rows.length) coffeeName = blendResult.rows[0].blend_name as string;
     }
 
+    // Liam SMS Dial Question: channel parity with on-site feedback v2 — both
+    // now ask the same closed dial-direction question ("lighter or bolder than
+    // expected") so both channels can populate dial_position_signal. Customer
+    // language, not the dimension name (per SOMMELIER_TASK_6_VOICE.md). The
+    // question is never dropped for length — only the greeting shortens.
     const name = firstName ? firstName.trim() : '';
-    const primary = `Hey ${name}! It's Liam from Axis & Bloom — how are you finding the ${coffeeName}? Any thoughts welcome 🌸`;
-    const fallback = `Hey ${name}, it's Liam from Axis & Bloom! How's the ${coffeeName} treating you? Any thoughts?`;
+    const primary = `Hey ${name}! It's Liam from Axis & Bloom — how are you finding the ${coffeeName}? Lighter or bolder than you expected? 🌸`;
+    const fallback = `Hi ${name}, it's Liam — how's the ${coffeeName}? Lighter or bolder than expected?`;
     const body = primary.length <= 160 ? primary : fallback;
 
     await db.query(
@@ -163,6 +169,7 @@ export async function parseInboundReply(
   let parsedSentiment: 'positive' | 'negative' | 'neutral' = 'neutral';
   let parsedRating = 3;
   let parsedDescriptors: string[] = [];
+  let parsedExpectation: 'lighter' | 'as_expected' | 'bolder' | null = null;
 
   try {
     const response = await anthropic.messages.create({
@@ -174,35 +181,49 @@ export async function parseInboundReply(
           content: `You are parsing a coffee feedback SMS reply for Axis & Bloom.
 
 The customer received: "${coffeeName}"
+They were asked how they're finding it, and whether it was lighter or bolder than expected.
 Their reply: "${inboundBody}"
 
 Extract:
 1. sentiment: "positive", "negative", or "neutral"
 2. rating: integer 1–5 (1 = very unhappy, 3 = neutral/unclear, 5 = loved it). Infer from tone if not explicit.
 3. descriptors: array of up to 5 flavor or experience words the customer mentioned (e.g. ["bitter", "too strong", "loved the chocolate notes"]). Empty array if nothing specific mentioned.
+4. expectation: "lighter", "as_expected", or "bolder" — only if the reply actually addresses the lighter/bolder question (directly or via a clear synonym, e.g. "weak"→lighter, "strong"/"intense"→bolder, "spot on"/"as expected"→as_expected). Use null if the reply doesn't address it at all — never guess.
 
 Rules:
 - Short positive replies like "loved it", "amazing", "yes!" → sentiment positive, rating 5
 - Short negative replies like "too bitter", "not for me", "didn't like" → sentiment negative, rating 2
 - Ambiguous short replies like "ok", "it was fine" → sentiment neutral, rating 3
 
-Respond with JSON only, no explanation: { "sentiment": "...", "rating": N, "descriptors": [] }`,
+Respond with JSON only, no explanation: { "sentiment": "...", "rating": N, "descriptors": [], "expectation": "..." or null }`,
         },
       ],
     });
 
+    // Haiku frequently wraps its JSON in ```json ... ``` fences despite the
+    // "no explanation" instruction (confirmed live, not theoretical — every
+    // sample reply during Liam SMS Dial Question testing came back fenced).
+    // Unguarded JSON.parse would throw on every real reply, silently falling
+    // back to sentiment=neutral/rating=3/descriptors=[] for all of them, not
+    // just the new expectation field — a live bug this task's testing surfaced,
+    // fixed here rather than left in place.
     const raw = response.content[0].type === 'text' ? response.content[0].text.trim() : '';
-    const parsed = JSON.parse(raw);
+    const jsonText = raw.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+    const parsed = JSON.parse(jsonText);
     parsedSentiment = parsed.sentiment ?? 'neutral';
     parsedRating = typeof parsed.rating === 'number' ? Math.min(5, Math.max(1, parsed.rating)) : 3;
     parsedDescriptors = Array.isArray(parsed.descriptors) ? parsed.descriptors : [];
+    parsedExpectation = ['lighter', 'as_expected', 'bolder'].includes(parsed.expectation) ? parsed.expectation : null;
   } catch (err) {
     console.error('[liamSms] Haiku parse failed for inbound', inboundRowId, err);
   }
 
   const sValue = (parsedRating - 1) / 4;
 
-  // Write to Firestore users/{uid}/feedback_events
+  // Write to Firestore users/{uid}/feedback_events — includes `expectation`
+  // (Liam SMS Dial Question), same field name on-site v2 writes, so every
+  // downstream consumer of feedback_events treats the two channels
+  // interchangeably.
   let firestoreDocId: string | null = null;
   try {
     const docRef = await firestoreDb
@@ -218,12 +239,36 @@ Respond with JSON only, no explanation: { "sentiment": "...", "rating": N, "desc
         sentiment:          parsedSentiment,
         rawText:            inboundBody,
         descriptors:        parsedDescriptors,
+        expectation:        parsedExpectation,
         liamSmsFeedbackId:  inboundRowId,
         createdAt:          FieldValue.serverTimestamp(),
       });
     firestoreDocId = docRef.id;
   } catch (err) {
     console.error('[liamSms] Firestore feedback_events write failed:', err);
+  }
+
+  // dial_position_signal — same resolution dialPositionSignal.ts already does
+  // for on-site feedback (Profile Part 2), reused here rather than duplicated.
+  // as_expected/null writes nothing (writeDialPositionSignal's own rule).
+  if (outboundRow.blend_id) {
+    try {
+      const blendResult = await db.query(
+        `SELECT coffee_id FROM roaster_blend WHERE id = $1`,
+        [outboundRow.blend_id]
+      );
+      const coffeeId: number | undefined = blendResult.rows[0]?.coffee_id;
+      if (coffeeId) {
+        await writeDialPositionSignal({
+          coffeeId,
+          expectation: parsedExpectation,
+          source: 'sms_feedback',
+          notes: `sms feedback for order ${outboundRow.order_id ?? 'unknown'}`,
+        });
+      }
+    } catch (err) {
+      console.error('[liamSms] dial_position_signal write failed:', err);
+    }
   }
 
   // Update SQL row

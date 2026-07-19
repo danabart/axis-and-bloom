@@ -9,6 +9,7 @@ import { updateOrderOutcomes } from '../services/outcomeTracker.js';
 import { schedulePostDeliveryMessage } from '../services/liamSmsFeedback.js';
 import { refreshLifecycleState } from '../services/userLifecycle.js';
 import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
+import { writeDialPositionSignal } from '../services/dialPositionSignal.js';
 
 const router = Router();
 
@@ -382,9 +383,11 @@ router.post('/:orderId/feedback', requireAuth, async (req: AuthRequest, res) => 
     }
 
     // dial_position_signal — feeds the dormant Stage 2 dial loop
-    // (BLOOM_DIAL_ALLOCATION_SPEC.md §3). as_expected confirms the status quo
-    // and writes no row this pass — a confirmation-signal design is a future
-    // refinement, not built here.
+    // (BLOOM_DIAL_ALLOCATION_SPEC.md §3). Resolution (coffee → archetype →
+    // dominant dimension → insert) lives in dialPositionSignal.ts, shared with
+    // Liam's SMS feedback (Liam SMS Dial Question) so neither channel duplicates
+    // it. as_expected confirms the status quo and writes no row this pass — a
+    // confirmation-signal design is a future refinement, not built here.
     //
     // Prior row lookup (Part 5): matched by an *exact* equality on `notes`
     // rather than the substring LIKE Part 2 used — Part 2's own comment flagged
@@ -399,27 +402,8 @@ router.post('/:orderId/feedback', requireAuth, async (req: AuthRequest, res) => 
         [signalNote]
       );
     }
-    if ((expectation === 'lighter' || expectation === 'bolder') && coffeeId) {
-      const archResult = await db.query(
-        `SELECT archetype FROM archetype_assignments WHERE coffee_id = $1 AND superseded_at IS NULL`,
-        [coffeeId]
-      );
-      const archetype: string | undefined = archResult.rows[0]?.archetype;
-      if (archetype) {
-        const configResult = await db.query(
-          `SELECT dominant_dimension_id FROM dial_archetype_config WHERE archetype = $1`,
-          [archetype]
-        );
-        const dimensionId: number | undefined = configResult.rows[0]?.dominant_dimension_id;
-        if (dimensionId) {
-          await db.query(
-            `INSERT INTO dial_position_signal
-               (coffee_id, archetype, dimension_id, source, direction, sample_size, confidence, notes)
-             VALUES ($1, $2, $3, 'onsite_feedback', $4, 1, 'medium', $5)`,
-            [coffeeId, archetype, dimensionId, expectation === 'lighter' ? 'less' : 'more', signalNote]
-          );
-        }
-      }
+    if (coffeeId) {
+      await writeDialPositionSignal({ coffeeId, expectation: expectation ?? null, source: 'onsite_feedback', notes: signalNote });
     }
 
     res.json({ ok: true, revised: isRevision });

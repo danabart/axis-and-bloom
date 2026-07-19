@@ -530,6 +530,20 @@ No Liam prompt, RAG query, or chat behavior changed by either of these.
 
 **Nothing else touched**: intent selection, RAG, `sommelierEvaluator.ts`, token economy, chat contract, and every other consumer of `computeBehavioralConfidence()`/`getUserSignals()` are unchanged.
 
+#### S53. Liam SMS Dial Question — outbound copy, reply parsing, and a live JSON-fence parsing bug fixed (2026-07-18)
+
+**Context**: `WHAT_WE_BUILT.md` #104. Direct change to `liamSmsFeedback.ts` — Liam's SMS channel, not a continuity note.
+
+**Outbound**: `schedulePostDeliveryMessage`'s primary and fallback SMS bodies both now ask "lighter or bolder than you expected?" alongside the existing open question, giving the SMS channel the same closed dial-direction question on-site feedback v2 already asks. Voice-checked against `SOMMELIER_TASK_6_VOICE.md`: customer language ("lighter or bolder"), not the dimension name. Length-checked programmatically, not assumed — worst-case realistic name+blend stays at 150/160 chars; the question is structurally guaranteed present in both variants (only the greeting shortens for the fallback).
+
+**Inbound**: the Haiku reply-parse prompt gained a fourth extraction field, `expectation`, with an explicit "never guess — null if not addressed" instruction, matching the extraction discipline the existing sentiment/rating/descriptors fields already had. `feedback_events` now carries `expectation` on the SMS channel too, matching on-site v2's field name exactly.
+
+**Signal write reuses Part 2's resolver, doesn't duplicate it**: extracted the coffee → archetype → dominant-dimension → `dial_position_signal` insert logic out of `orders.ts` (where Part 2 had inlined it) into `backend/src/services/dialPositionSignal.ts`, and both channels now call the one function. No `dial_position_signal`/`dial_source_weight` schema change needed — both already had `sms_feedback` as a valid `source` since #75/#84, this task just started actually using it.
+
+**A real bug, not hypothetical**: testing the reply parse against the Anthropic API directly (not mocked) surfaced that Haiku currently wraps its JSON response in markdown code fences on this prompt, and the pre-existing `JSON.parse(raw)` (unchanged since Sommelier Task 5) has always lacked fence-stripping — meaning it would throw on real replies and silently default `sentiment`/`rating`/`descriptors` to neutral/3/[] for every one of them, not just fail to extract the new field. Predates this task; fixed in the same block since that's where it lives. Re-verified with the exact three replies from the spec's own testing section post-fix — all parse and extract correctly (`"loved it, way bolder than I expected"` → `bolder`, `"it was nice"` → `null`, `"a bit weak honestly"` → `lighter`).
+
+**Nothing else touched**: scheduling rules (orders 1–2 only, 10-day delay, idempotency), opt-in logic, the never-ask-twice invariant, descriptor-chip extraction, and `RECOMMENDATION_SYSTEM_PROMPT` are all unchanged, per the spec's explicit scope.
+
 #### S35. Task 6 — Liam voice reset (2026-07-04)
 Full execution of `SOMMELIER_TASK_6_VOICE.md`. Three files changed + live Firestore config patched.
 
