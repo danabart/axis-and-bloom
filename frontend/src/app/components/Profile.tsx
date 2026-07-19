@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowRight, Package, Heart, LogOut } from 'lucide-react';
+import { ArrowRight, Package, Heart, LogOut, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { getUserProfile, getHomepageState, getDialPosition, setDialPosition, getFlavorMemory, type FlavorMemoryData } from '../lib/api';
@@ -210,6 +210,57 @@ export default function Profile() {
     dialRef.current = handle;
   }
 
+  // ── "Worth exploring" adjacent section (Profile Part 6, issue C) ────────────
+  // Clicking a chip expands that archetype's full ArchetypeSection in place
+  // below the primary match, instead of ejecting to Flavor Intelligence. This
+  // needs its own selection/reveal state instance — same pattern FlavorQuiz.tsx
+  // uses for its two independent ArchetypeSection instances — so turning the
+  // adjacent dial or revealing its panel never touches the primary section's
+  // state above. One adjacent section open at a time; clicking the active chip
+  // again (or its ✕) collapses it, clicking the other chip swaps it.
+  const [adjacentArchetypeId, setAdjacentArchetypeId] = useState<string | null>(null);
+  const [adjacentSortOrder, setAdjacentSortOrderState] = useState<number | null>(null);
+  const [adjacentRevealedKeys, setAdjacentRevealedKeys] = useState<Set<string>>(new Set());
+  const adjacentDialRef = useRef<BloomDialHandle | null>(null);
+
+  const adjacentData = adjacentArchetypeId
+    ? (adjacentArchetypeId === 'experimental' ? experimentalData : archetypesList.find(a => a.archetype === adjacentArchetypeId) ?? null)
+    : null;
+
+  useEffect(() => {
+    if (!adjacentArchetypeId) { setAdjacentSortOrderState(null); return; }
+    getDialPosition(adjacentArchetypeId)
+      .then(r => { if (r?.dialSortOrder != null) setAdjacentSortOrderState(r.dialSortOrder); })
+      .catch(() => {});
+  }, [adjacentArchetypeId]);
+
+  function handleAdjacentChipClick(archetype: string) {
+    setAdjacentArchetypeId(prev => (prev === archetype ? null : archetype));
+    setAdjacentRevealedKeys(new Set());
+  }
+
+  function handleAdjacentDialSelect(archetype: string, sortOrder: number) {
+    setAdjacentSortOrderState(sortOrder);
+    setDialPosition(archetype, sortOrder).catch(() => {});
+  }
+
+  function toggleAdjacentReveal(key: string) {
+    setAdjacentRevealedKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  function handleAdjacentHopClick(archetype: string, sortOrder: number) {
+    adjacentDialRef.current?.rotateTo(sortOrder);
+    setAdjacentRevealedKeys(prev => new Set(prev).add(slotKey(archetype, sortOrder)));
+  }
+
+  function registerAdjacentDialRef(_archetype: string, handle: BloomDialHandle | null) {
+    adjacentDialRef.current = handle;
+  }
+
   // Feedback-nudge dismissal — same localStorage convention as Home.tsx/FlavorIntelligencePage.tsx.
   useEffect(() => {
     const orderId = homepageState?.pendingFeedback?.orderId;
@@ -345,10 +396,10 @@ export default function Profile() {
 
   function renderStageNote() {
     if (stageCode === 'QUIZ_TAKEN_FRESH_NO_ORDER' || stageCode === 'QUIZ_TAKEN_SETTLED_NO_ORDER') {
-      return <p className="text-sm text-[#a33726]/50 tracking-wide -mt-6">You haven't tried your match yet — it's below.</p>;
+      return <p className="text-sm text-[#a33726]/50 tracking-wide mt-6">You haven't tried your match yet — it's below.</p>;
     }
     if (stageCode === 'SUBSCRIBER' && homepageState?.nextDeliveryDate) {
-      return <p className="text-sm text-[#a33726]/50 tracking-wide -mt-6">Your next delivery: {new Date(homepageState.nextDeliveryDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}</p>;
+      return <p className="text-sm text-[#a33726]/50 tracking-wide mt-6">Your next delivery: {new Date(homepageState.nextDeliveryDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}</p>;
     }
     return null;
   }
@@ -458,13 +509,58 @@ export default function Profile() {
                         userArchetype={matchArchetypeId}
                         registerDialRef={registerDialRef}
                         source="profile"
+                        hideProfileLink
                       />
                     )}
 
-                    {/* Horizon layer (Part 3 §1) — directly under ArchetypeSection. */}
+                    {/* Horizon layer (Part 3 §1) — directly under ArchetypeSection. Part 6:
+                        chips now expand the adjacent archetype in place (below) rather
+                        than navigating away. */}
                     {matchArchetypeId && archetypesList.length > 0 && (
                       <div className="max-w-2xl mt-2">
-                        <WorthExploring matchArchetypeId={matchArchetypeId} adjacency={adjacency} archetypesList={archetypesList} />
+                        <WorthExploring
+                          matchArchetypeId={matchArchetypeId}
+                          adjacency={adjacency}
+                          archetypesList={archetypesList}
+                          activeArchetype={adjacentArchetypeId}
+                          onSelect={handleAdjacentChipClick}
+                        />
+                      </div>
+                    )}
+
+                    {/* Adjacent archetype — expanded in place (Part 6, issue C). Its own
+                        independent dial/reveal state instance, never the primary section's
+                        above. The Flavor Intelligence deep link is demoted to an escape
+                        hatch here, for users who choose to leave rather than explore in place. */}
+                    {adjacentData && (
+                      <div className="flex flex-col gap-3">
+                        <div className="flex justify-end max-w-2xl">
+                          <Link
+                            to={
+                              adjacentData.slots.length
+                                ? `/flavor-intelligence?archetype=${adjacentData.archetype}&slot=${computeDefaultSortOrder(adjacentData)}`
+                                : `/flavor-intelligence?archetype=${adjacentData.archetype}`
+                            }
+                            className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 border-b border-[#a33726]/20 pb-1 hover:text-[#a33726] hover:border-[#a33726]/40 transition-colors w-fit"
+                          >
+                            See in Flavor Intelligence →
+                          </Link>
+                        </div>
+                        <ArchetypeSection
+                          data={adjacentData}
+                          index={1}
+                          selectedSortOrder={adjacentSortOrder ?? computeDefaultSortOrder(adjacentData)}
+                          revealedKeys={adjacentRevealedKeys}
+                          onDialSelect={handleAdjacentDialSelect}
+                          onToggleReveal={toggleAdjacentReveal}
+                          onAddToCart={addToCart}
+                          onHopClick={handleAdjacentHopClick}
+                          onCompare={openCompare}
+                          userArchetype={matchArchetypeId}
+                          registerDialRef={registerAdjacentDialRef}
+                          source="profile"
+                          hideProfileLink
+                        />
                       </div>
                     )}
 

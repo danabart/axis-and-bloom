@@ -522,6 +522,14 @@ No Liam prompt, RAG query, or chat behavior changed by either of these.
 
 **Not verified this pass**: no live conversation was driven to confirm Liam actually emits a marker at the right moment once the addendum copy goes live (it currently can't, per the paragraph above) — the parsing/stripping/resolution code was exercised only by clean `tsc --noEmit`, not a real model response.
 
+#### S52. Profile Part 6 — journey-write/bc coupling removed; no other Liam impact (2026-07-18)
+
+**Context**: `WHAT_WE_BUILT.md` #103, issue A. `quiz.ts`'s fire-and-forget post-quiz block previously called `computeBehavioralConfidence(uid)` and only wrote `users/{uid}/metadata/taste_journey` if that succeeded, both inside the same try/catch — a `computeBehavioralConfidence` failure would silently also drop the journey write. Split into two independent try/catches: `computeBehavioralConfidence` now runs best-effort first (its own failure just means the journey entry's `confidenceLevel` is `null` instead of a real level), and the journey write always runs regardless of whether it succeeded.
+
+**`computeBehavioralConfidence()` itself is unchanged** — same weights, thresholds, component formulas, Firestore write to `confidence_profile`. Only its caller's error handling changed, not the function's own internals or contract.
+
+**Nothing else touched**: intent selection, RAG, `sommelierEvaluator.ts`, token economy, chat contract, and every other consumer of `computeBehavioralConfidence()`/`getUserSignals()` are unchanged.
+
 #### S35. Task 6 — Liam voice reset (2026-07-04)
 Full execution of `SOMMELIER_TASK_6_VOICE.md`. Three files changed + live Firestore config patched.
 

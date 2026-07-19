@@ -26,7 +26,7 @@ export function computeDefaultSortOrder(data: ArchetypeData): number {
  */
 export function ArchetypeSection({
   data, index, selectedSortOrder, revealedKeys, onDialSelect, onToggleReveal, onAddToCart, onHopClick, onCompare,
-  userArchetype, registerDialRef, showPhoto = true, source = null,
+  userArchetype, registerDialRef, showPhoto = true, source = null, hideProfileLink = false,
 }: {
   data: ArchetypeData;
   index: number;
@@ -47,6 +47,10 @@ export function ArchetypeSection({
    * (/bloom, both Find My Flavor screens, Profile), carried on explicit_save/
    * add_to_cart events. Defaults to null so existing call sites compile unchanged. */
   source?: 'bloom' | 'find_my_flavor_returning' | 'find_my_flavor_results' | 'profile' | null;
+  /** Profile Part 6, issue D: threaded straight through to RevealedPanel's
+   * "Your flavor profile →" link. Additive, default false (shown) — only the
+   * Profile page passes true, since a self-link there is noise. */
+  hideProfileLink?: boolean;
 }) {
   const { user } = useAuth();
   const visual = ARCHETYPE_VISUALS[data.archetype];
@@ -250,6 +254,7 @@ export function ArchetypeSection({
         hops={cardData.hops}
         userArchetype={userArchetype}
         onHopClick={onHopClick}
+        hideProfileLink={hideProfileLink}
       />
     </motion.section>
   );

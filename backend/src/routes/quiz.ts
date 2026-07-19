@@ -248,10 +248,21 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
     // Fire-and-forget: compute behavioral confidence, then write taste_journey.
     // Always after the quiz session is saved so the new quiz counts in the computation.
     ;(async () => {
+      // Profile Part 6: the taste_journey write must not depend on behavioral
+      // confidence succeeding — bc failure previously meant the journey write
+      // (below) never ran at all, only console.error'd, silently dropping a
+      // real quiz completion from the user's history. bc is now computed
+      // best-effort in its own try/catch; the journey write always runs.
+      let confidenceLevel: 'low' | 'medium' | 'high' | null = null;
       try {
         const bcResult = await computeBehavioralConfidence(req.uid!);
+        confidenceLevel = bcResult.level;
         refreshLifecycleState(req.uid!).catch(err => console.error('[quiz/lifecycle]', err));
+      } catch (err) {
+        console.error('[quiz/behavioral-confidence]', err);
+      }
 
+      try {
         // Bug fix (Profile Part 2/3 verification): `users/{uid}/taste_journey` is a
         // 3-segment path — Firestore document references require an even segment
         // count (collection/doc/collection/doc/...), so `.doc()` on this threw
@@ -271,7 +282,7 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
           archetype,
           date: Timestamp.now(),
           quizSessionId: String(sessionId),
-          confidenceLevel: bcResult.level,
+          confidenceLevel,
           trigger: isFirst ? 'first_quiz' : 'retake',
         };
 

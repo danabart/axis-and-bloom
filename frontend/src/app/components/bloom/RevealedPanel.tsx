@@ -15,6 +15,10 @@ interface RevealedPanelProps {
   hops: Hop[];
   userArchetype: string | null;
   onHopClick: (targetArchetype: string, targetDialSortOrder: number) => void;
+  /** Profile Part 6, issue D: hides the "Your flavor profile →" action-row link.
+   * Additive, default false (shown) — every existing consumer keeps the link;
+   * only the Profile page itself passes true, since a self-link there is noise. */
+  hideProfileLink?: boolean;
 }
 
 /**
@@ -25,7 +29,7 @@ interface RevealedPanelProps {
  * explore-further and Talk-to-Liam links) → dimension bars → Collaborative
  * Flavor Wheel → compatibility badge → hop links.
  */
-export function RevealedPanel({ isRevealed, archetype, dialSortOrder, content, dimensions, wheelRows, hops, userArchetype, onHopClick }: RevealedPanelProps) {
+export function RevealedPanel({ isRevealed, archetype, dialSortOrder, content, dimensions, wheelRows, hops, userArchetype, onHopClick, hideProfileLink = false }: RevealedPanelProps) {
   const { compat, dimCompText } = useCompatibility(archetype, userArchetype, dimensions);
 
   return (
@@ -47,6 +51,7 @@ export function RevealedPanel({ isRevealed, archetype, dialSortOrder, content, d
               contentLoading={!content}
               exploreLink={archetype && dialSortOrder != null ? `/flavor-intelligence?archetype=${archetype}&slot=${dialSortOrder}` : '/flavor-intelligence'}
               talkToLiamLink="/sommelier"
+              profileLink={hideProfileLink ? undefined : '/profile'}
             />
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-10">

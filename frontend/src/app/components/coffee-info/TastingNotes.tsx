@@ -26,10 +26,14 @@ interface TastingNotesProps {
   exploreLink?: string;
   /** When provided, renders "Talk to Liam about this coffee →" linking here (Bloom only, The Bloom Part 4). */
   talkToLiamLink?: string;
+  /** When provided, renders "Your flavor profile →" linking here (Profile Part 6, issue D —
+   * every RevealedPanel surface except Profile itself, guests included since /profile
+   * redirects to sign-in, which is the right nudge right after finishing the quiz). */
+  profileLink?: string;
 }
 
-/** Surprise note + three-voice story + collapsible "Liam's intake" (ai_summary) + optional explore-further/Liam links. */
-export function TastingNotes({ content, contentLoading, exploreLink, talkToLiamLink }: TastingNotesProps) {
+/** Surprise note + three-voice story + collapsible "Liam's intake" (ai_summary) + optional explore-further/Liam/profile links. */
+export function TastingNotes({ content, contentLoading, exploreLink, talkToLiamLink, profileLink }: TastingNotesProps) {
   const [aiExpanded, setAiExpanded] = useState(false);
 
   return (
@@ -127,7 +131,7 @@ export function TastingNotes({ content, contentLoading, exploreLink, talkToLiamL
 
       {/* ─ Explore-further / Talk to Liam links (Bloom only) — set apart as an actions
           row with a top border/spacing and leading icons, not more prose to skim past. ─ */}
-      {(exploreLink || talkToLiamLink) && (
+      {(exploreLink || talkToLiamLink || profileLink) && (
         <div
           className="flex flex-wrap gap-x-8 gap-y-3 pt-6"
           style={{ borderTop: '1px solid #e0dcd4' }}
@@ -150,6 +154,16 @@ export function TastingNotes({ content, contentLoading, exploreLink, talkToLiamL
             >
               <span aria-hidden="true">💬</span>
               Talk to Liam about this coffee →
+            </Link>
+          )}
+          {profileLink && (
+            <Link
+              to={profileLink}
+              className="inline-flex items-center gap-2 text-sm font-normal hover:underline"
+              style={{ color: '#b05642' }}
+            >
+              <span aria-hidden="true">🌱</span>
+              Your flavor profile →
             </Link>
           )}
         </div>
