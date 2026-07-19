@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ShoppingCart, User, Menu, X } from 'lucide-react';
 import { Link, useNavigate, useLocation } from 'react-router';
 import { useAuth } from '../context/AuthContext';
@@ -15,6 +15,8 @@ export default function Navigation() {
 
   // Mobile hamburger menu
   const [mobileOpen, setMobileOpen] = useState(false);
+  const mobileTriggerRef = useRef<HTMLButtonElement>(null);
+  const mobilePanelRef = useRef<HTMLDivElement>(null);
 
   // Reset on route change (prevents stale state when navigating between pages)
   useEffect(() => {
@@ -24,6 +26,43 @@ export default function Navigation() {
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
+
+  // While the mobile menu is open: lock body scroll, close on Escape,
+  // and trap focus inside the panel; restore focus to the trigger on close.
+  useEffect(() => {
+    if (!mobileOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const focusable = mobilePanelRef.current?.querySelectorAll<HTMLElement>('a[href], button:not([disabled])');
+    focusable?.[0]?.focus();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMobileOpen(false);
+        return;
+      }
+      if (e.key === 'Tab' && focusable && focusable.length > 0) {
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+      mobileTriggerRef.current?.focus();
+    };
+  }, [mobileOpen]);
 
   // IntersectionObserver on [data-hero] — switches state as hero enters/leaves view
   useEffect(() => {
@@ -113,9 +152,11 @@ export default function Navigation() {
         </button>
 
         <button
+          ref={mobileTriggerRef}
           onClick={() => setMobileOpen(o => !o)}
           aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
           aria-expanded={mobileOpen}
+          aria-controls="mobile-nav-panel"
           style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: linkColor, alignItems: 'center', transition: 'color 250ms' }}
           className="flex md:hidden hover:opacity-50"
         >
@@ -126,6 +167,11 @@ export default function Navigation() {
       {/* Mobile menu panel */}
       {mobileOpen && (
         <div
+          id="mobile-nav-panel"
+          ref={mobilePanelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Site menu"
           className="md:hidden"
           style={{
             position: 'absolute', top: 46, left: 0, right: 0,
