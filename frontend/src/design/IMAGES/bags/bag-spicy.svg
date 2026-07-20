@@ -5,7 +5,7 @@
   <circle cx="162" cy="72" r="11" fill="none" stroke="#6e2424" stroke-width=".6"/>
   <text x="106" y="70" text-anchor="middle" font-size="10" letter-spacing="2" fill="#f2f1ea">AXIS &amp; BLOOM</text>
   
-  <text x="110" y="98" text-anchor="middle" font-size="11.5" letter-spacing="1" fill="#f2f1ea">SPICY &amp; EARTHY</text>
+  <text x="110" y="98" text-anchor="middle" font-size="11.5" letter-spacing="1" fill="#f2f1ea">EARTHY</text>
   <text x="110" y="114" text-anchor="middle" font-size="6.5" letter-spacing="1.5" fill="#f2f1ea" opacity=".8">FRESH ROASTED COFFEE</text>
   <g fill="#000">
     <rect x="28" y="130" width="164" height="4" opacity=".13"/>

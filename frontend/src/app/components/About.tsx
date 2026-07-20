@@ -16,7 +16,6 @@ const archetypes = [
   { name: 'Balanced & Sweet',  bg: '#d1ac11' },
   { name: 'Chocolate & Nutty', bg: '#a54c2d' },
   { name: 'Earthy',            bg: '#912f2f' },
-  { name: 'Experimental',      bg: '#056c7a' },
 ];
 
 // ─── Shared animation preset ─────────────────────────────────────────────────
@@ -479,7 +478,7 @@ export default function About() {
               fontSize: 'clamp(0.88rem, 1.1vw, 0.98rem)',
               fontWeight: 400, color: '#7b7f80', lineHeight: 1.85, margin: 0,
             }}>
-              Six flavor archetypes. Each one a different direction. One is made for you.
+              Five flavor archetypes. Each one a different direction. One is made for you.
             </motion.p>
           </div>
 
