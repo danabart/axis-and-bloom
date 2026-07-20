@@ -1,6 +1,6 @@
 # Step 07 (A3) — Share-your-match card
 
-> Global step 07 of 11 · Workstream: quiz-and-archetypes · Model: Sonnet · Depends on: Steps 01 + 04 · Target: early September.
+> Global step 07 of 11 · Workstream: quiz-and-archetypes · Model: Sonnet · Depends on: Steps 01 + 04 deployed (hard technical dependency — 04 itself needs 02) · Timing: run ANY TIME after those; the original "early September" target was a priority choice, not a constraint (clarified 2026-07-18).
 
 CONTEXT: Axis & Bloom quiz results screen (post soft-gate). Marketing wants every result shareable: archetype results are identity content. 5-archetype canon; each archetype has a color/wallpaper/bag visual.
 

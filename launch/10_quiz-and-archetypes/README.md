@@ -8,8 +8,8 @@ the archetype taxonomy, the results-screen email capture, and the shareable arch
 | Global step | File | What | Model | Depends on | Status |
 |---|---|---|---|---|---|
 | 01 | `01_A1_archetype_canon.md` | 5-archetype canon; Spicy & Earthy → Earthy merge; Experimental = category (visuals untouched) | Sonnet | — | ▶ v2 ready — first run was reverted; this rewrite is audit-first with hard boundaries |
-| 04 | `04_A2_quiz_soft_gate_lifecycle.md` | **FIRM** email gate on results (revised 2026-07-18: free reveal, no skip link, why+coffees email-only), lifecycle-aware (Remember, Never Reset) | Opus/Fable | Step 02 | ⬜ |
-| 07 | `07_A3_share_your_match.md` | 5 public share pages + OG images + share row | Sonnet | Steps 01 + 04 · early Sept | ⬜ |
+| 04 | `04_A2_quiz_firm_gate_lifecycle.md` | **FIRM** email gate on results (revised 2026-07-18: free reveal, no skip link, why+coffees email-only), lifecycle-aware (Remember, Never Reset) | Opus/Fable | Step 02 | ⬜ |
+| 07 | `07_A3_share_your_match.md` | 5 public share pages + OG images + share row | Sonnet | Steps 01 + 04 deployed (hard); date is flexible — anytime after | ⬜ |
 
 Step 01 also **gates marketing content**: Camila's archetype-world films/posts can't start
 until the canon is settled (companion doc flagged the six-vs-five confusion explicitly).
@@ -23,7 +23,7 @@ Read launch/README.md for context and rules, then execute the prompt in launch/1
 
 **Step 04** — model: Opus or Fable
 ```
-Read launch/README.md for context and rules, then execute the prompt in launch/10_quiz-and-archetypes/04_A2_quiz_soft_gate_lifecycle.md exactly as written. Do only this step. Before writing code, locate and explain the existing lifecycle mechanism you will reuse. When done, show me how each ACCEPTANCE criterion is met, including the homepage widgets still being intact.
+Read launch/README.md for context and rules, then execute the prompt in launch/10_quiz-and-archetypes/04_A2_quiz_firm_gate_lifecycle.md exactly as written. Do only this step. Before writing code, locate and explain the existing lifecycle mechanism you will reuse. When done, show me how each ACCEPTANCE criterion is met, including the homepage widgets still being intact.
 ```
 
 **Step 07** — model: Sonnet — early September
