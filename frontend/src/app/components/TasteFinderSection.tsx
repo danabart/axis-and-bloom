@@ -2,15 +2,20 @@ import { useRef, useEffect, useState } from 'react';
 import { useReducedMotion } from 'motion/react';
 import { Link } from 'react-router';
 
-// Archetype paper patterns (1600px JPGs)
-import patternSpicy        from '../../design/IMAGES/patterns/spicy.jpg';
-import patternFruity       from '../../design/IMAGES/patterns/fruity.jpg';
-import patternBalanced     from '../../design/IMAGES/patterns/balanced.jpg';
-import patternExperimental from '../../design/IMAGES/patterns/experimental.jpg';
-import patternFloral       from '../../design/IMAGES/patterns/floral.jpg';
-import patternChocolate    from '../../design/IMAGES/patterns/chocolate.jpg';
+// Archetype paper patterns (1600px JPGs) — sourced from the shared bucket registry
+import { patternAssets } from '../../design/assets';
 
-// Bag SVGs as raw strings for name substitution
+const patternSpicy        = patternAssets['spicy-earthy'].src;
+const patternFruity       = patternAssets.fruity.src;
+const patternBalanced     = patternAssets['balanced-sweet'].src;
+const patternExperimental = patternAssets.experimental.src;
+const patternFloral       = patternAssets.floral.src;
+const patternChocolate    = patternAssets['chocolate-nutty'].src;
+
+// Bag SVGs as raw strings for name substitution — kept as local imports, not migrated:
+// these are inlined as markup via Vite's ?raw loader, not fetched as a URL, so they
+// don't fit the registry's src/mobileSrc shape. Small files (~0.1MB total), no
+// performance case for moving them.
 import bagFloralRaw        from '../../design/IMAGES/bags/bag-floral.svg?raw';
 import bagFruityRaw        from '../../design/IMAGES/bags/bag-fruity.svg?raw';
 import bagBalancedRaw      from '../../design/IMAGES/bags/bag-balanced.svg?raw';

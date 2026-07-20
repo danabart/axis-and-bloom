@@ -1,10 +1,12 @@
 import { useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { TasteFinderSection } from './TasteFinderSection';
-import familyPhoto from '../../design/IMAGES/lifestyle/FamilyEdit.jpg'
-import coffeePic15 from '../../design/IMAGES/lifestyle/CoffeePic15.jpg'
-import heroVideo from '../../design/IMAGES/videos/PlaceHolder09.mp4'
-import video08 from '../../design/IMAGES/videos/PlaceHolder08.mp4'
+import { lifestyleAssets, videoAssets } from '../../design/assets'
+
+const familyPhoto = lifestyleAssets.family.src
+const coffeePic15 = lifestyleAssets.coffee15.src
+const heroVideo = videoAssets.aboutHero
+const video08 = videoAssets.aboutSecondary
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 

@@ -15,31 +15,33 @@ const RUST = '#a33726';
 
 // ─── Archetype asset imports ──────────────────────────────────────────────────
 
-import wallpaperFloral       from '../../design/IMAGES/archetypes/Floral.jpg';
-import wallpaperFruity       from '../../design/IMAGES/archetypes/Fruity.jpg';
-import wallpaperBalanced     from '../../design/IMAGES/archetypes/Balanced-&-Sweet.jpg';
-import wallpaperChocolate    from '../../design/IMAGES/archetypes/WEBChocolate&Nutty.png';
-import wallpaperEarthy       from '../../design/IMAGES/archetypes/Spicy-&-Earthy.jpg';
-import wallpaperExperimental from '../../design/IMAGES/archetypes/Experimental.jpg';
+import { archetypeAssets, patternAssets, quizAssets } from '../../design/assets';
 
-import bagFloral          from '../../design/IMAGES/bags/new bags mock up/FLORAL transp.png';
-import bagFruity          from '../../design/IMAGES/bags/new bags mock up/FRUITY transp.png';
-import bagBalanced        from '../../design/IMAGES/bags/new bags mock up/BALANCED & SWEET transp.png';
-import bagChocolate       from '../../design/IMAGES/bags/new bags mock up/CHOCOLATE & NUTTY transp.png';
-import bagEarthy          from '../../design/IMAGES/bags/new bags mock up/SPICY & EARTHY transp.png';
-import bagExperimental    from '../../design/IMAGES/bags/new bags mock up/EXPERIMENTAL transp.png';
+const wallpaperFloral       = archetypeAssets.floral.wallpaper.src;
+const wallpaperFruity       = archetypeAssets.fruity.wallpaper.src;
+const wallpaperBalanced     = archetypeAssets['balanced-sweet'].wallpaper.src;
+const wallpaperChocolate    = archetypeAssets['chocolate-nutty'].wallpaper.src;
+const wallpaperEarthy       = archetypeAssets['spicy-earthy'].wallpaper.src;
+const wallpaperExperimental = archetypeAssets.experimental.wallpaper.src;
 
-import coffeePic10   from '../../design/IMAGES/lifestyle/CoffeePic10.png';
-import patternTissue from '../../design/IMAGES/patterns/experimental.jpg';
-import patternSheet  from '../../design/IMAGES/patterns/balanced.jpg';
-import patternLeafL  from '../../design/IMAGES/patterns/spicy.jpg';
-import patternLeafR  from '../../design/IMAGES/patterns/fruity.jpg';
-import q1Photo from '../../design/IMAGES/photos/Quiz Pics/QuizPic01.png';
-import q2Photo from '../../design/IMAGES/photos/Quiz Pics/QuizPic02.png';
-import q3Photo from '../../design/IMAGES/photos/Quiz Pics/QuizPic03.png';
-import q4Photo from '../../design/IMAGES/photos/Quiz Pics/QuizPic04.png';
-import q5Photo from '../../design/IMAGES/photos/Quiz Pics/QuizPic05.png';
-import q6Photo from '../../design/IMAGES/photos/Quiz Pics/QuizPic06.png';
+const bagFloral          = archetypeAssets.floral.bag.src;
+const bagFruity          = archetypeAssets.fruity.bag.src;
+const bagBalanced        = archetypeAssets['balanced-sweet'].bag.src;
+const bagChocolate       = archetypeAssets['chocolate-nutty'].bag.src;
+const bagEarthy          = archetypeAssets['spicy-earthy'].bag.src;
+const bagExperimental    = archetypeAssets.experimental.bag.src;
+
+const coffeePic10   = quizAssets.coffeeLarge.src;
+const patternTissue = patternAssets.experimental.src;
+const patternSheet  = patternAssets['balanced-sweet'].src;
+const patternLeafL  = patternAssets['spicy-earthy'].src;
+const patternLeafR  = patternAssets.fruity.src;
+const q1Photo = quizAssets.pic1.src;
+const q2Photo = quizAssets.pic2.src;
+const q3Photo = quizAssets.pic3.src;
+const q4Photo = quizAssets.pic4.src;
+const q5Photo = quizAssets.pic5.src;
+const q6Photo = quizAssets.pic6.src;
 
 // ─── API types ────────────────────────────────────────────────────────────────
 

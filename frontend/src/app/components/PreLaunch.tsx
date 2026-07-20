@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import coffeeCup from '../../design/IMAGES/lifestyle/CoffeePic15Vertical.jpg';
+import { lifestyleAssets } from '../../design/assets';
+
+const coffeeCup = lifestyleAssets.coffee15Vertical.src;
 
 const BRAND = '#a33726';
 const CREAM = '#f0ebe1';

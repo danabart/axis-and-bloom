@@ -548,6 +548,10 @@ No Liam prompt, RAG query, or chat behavior changed by either of these.
 
 **Context**: `WHAT_WE_BUILT.md` #105. Pure `Navigation.tsx` change (Escape-to-close, focus trap, body scroll lock, focus return on the already-existing mobile menu). `Navigation.tsx` has no Sommelier/Liam code path — it doesn't touch `/sommelier`'s `RequireAuth` wrapper, the chat UI, action links, or any Firestore/SQL Liam reads or writes. Continuity note only.
 
+#### S55. Image pipeline (GCS bucket + registry) — confirmed no Liam impact (2026-07-19/20)
+
+**Context**: `WHAT_WE_BUILT.md` #106. New GCS bucket + Cloud Function + `frontend/src/design/assets.ts` registry, migrating 10 frontend component files off local image imports. None of the touched files are on any Liam/Sommelier code path — no `Sommelier.tsx`, `sommelierEvaluator.ts`, `claude.ts`, RAG, token economy, or chat-contract file was read or written. `Navigation.tsx` and `Footer.tsx` were touched again in this pass (brand-logo source swapped to the registry) but only for the same nav chrome S54 already cleared — nothing new for Liam here either. Continuity note only.
+
 #### S35. Task 6 — Liam voice reset (2026-07-04)
 Full execution of `SOMMELIER_TASK_6_VOICE.md`. Three files changed + live Firestore config patched.
 

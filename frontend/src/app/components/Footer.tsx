@@ -1,5 +1,7 @@
 import { Link } from 'react-router';
-import logoMark from '../../design/LOGO/LogoQuarter1.svg'
+import { brandAssets } from '../../design/assets'
+
+const logoMark = brandAssets.logoQuarter1
 
 export default function Footer() {
   return (

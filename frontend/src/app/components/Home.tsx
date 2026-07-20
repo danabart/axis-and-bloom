@@ -13,29 +13,31 @@ import { getHomepageState } from '../lib/api';
 // how long the feedback nudge stays hidden after a user dismisses it.
 const FEEDBACK_NAG_SUPPRESS_DAYS = 14;
 
-import heroVideo    from '../../design/IMAGES/videos/PlaceHolderHERO.mp4';
-import liamVideo    from '../../design/IMAGES/videos/PlaceHolder01.mp4';
+import { archetypeAssets, homeAssets, videoAssets } from '../../design/assets';
+
+const heroVideo    = videoAssets.homeHero;
+const liamVideo    = videoAssets.homePlaceholder;
 
 // ── §4 Collection: july_scan1 edited scans ───────────────────────────────────
-import scanFloral        from '../../design/IMAGES/photos/july_scan1/EDITScanFloral.jpg';
-import scanFruity        from '../../design/IMAGES/photos/july_scan1/EDITScanFruity.jpg';
-import scanBalanced      from '../../design/IMAGES/photos/july_scan1/EDITScanBalanced&Sweet.jpg';
-import scanChocolate     from '../../design/IMAGES/photos/july_scan1/EDITScanChocolate&Nutty.jpg';
-import scanSpicy         from '../../design/IMAGES/photos/july_scan1/EDITScanSpicy&Earthy.jpg';
-import scanExperimental  from '../../design/IMAGES/photos/july_scan1/EDITScanExperimental.jpg';
+const scanFloral        = homeAssets.scan.floral.src;
+const scanFruity        = homeAssets.scan.fruity.src;
+const scanBalanced      = homeAssets.scan['balanced-sweet'].src;
+const scanChocolate     = homeAssets.scan['chocolate-nutty'].src;
+const scanSpicy         = homeAssets.scan['spicy-earthy'].src;
+const scanExperimental  = homeAssets.scan.experimental.src;
 
 // ── §4 Collection: bag hover artwork (existing PNGs, do not replace) ─────────
-import bagFloral        from '../../design/IMAGES/bags/new bags mock up/FLORAL transp.png';
-import bagFruity        from '../../design/IMAGES/bags/new bags mock up/FRUITY transp.png';
-import bagBalanced      from '../../design/IMAGES/bags/new bags mock up/BALANCED & SWEET transp.png';
-import bagChocolate     from '../../design/IMAGES/bags/new bags mock up/CHOCOLATE & NUTTY transp.png';
-import bagEarthy        from '../../design/IMAGES/bags/new bags mock up/SPICY & EARTHY transp.png';
-import bagExperimental  from '../../design/IMAGES/bags/new bags mock up/EXPERIMENTAL transp.png';
+const bagFloral        = archetypeAssets.floral.bag.src;
+const bagFruity        = archetypeAssets.fruity.bag.src;
+const bagBalanced      = archetypeAssets['balanced-sweet'].bag.src;
+const bagChocolate     = archetypeAssets['chocolate-nutty'].bag.src;
+const bagEarthy        = archetypeAssets['spicy-earthy'].bag.src;
+const bagExperimental  = archetypeAssets.experimental.bag.src;
 
 // ── §5 Photo essay images ─────────────────────────────────────────────────────
-import photoEssay1 from '../../design/IMAGES/photos/june2026/WEBCUTSpicy&EarthyJun03.png';
-import photoEssay2 from '../../design/IMAGES/photos/june2026/WEBCUTFruityJun02.png';
-import photoEssay3 from '../../design/IMAGES/photos/june2026/WEBCUTFloralJun06.png';
+const photoEssay1 = homeAssets.photoEssay1.src;
+const photoEssay2 = homeAssets.photoEssay2.src;
+const photoEssay3 = homeAssets.photoEssay3.src;
 
 // ── Data ─────────────────────────────────────────────────────────────────────
 

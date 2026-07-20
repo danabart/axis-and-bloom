@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { ShoppingCart, User, Menu, X } from 'lucide-react';
 import { Link, useNavigate, useLocation } from 'react-router';
 import { useAuth } from '../context/AuthContext';
-import logoMark from '../../design/LOGO/LogoQuarter1.svg';
+import { brandAssets } from '../../design/assets';
+
+const logoMark = brandAssets.logoQuarter1;
 
 export default function Navigation() {
   const { user, isAdmin, logout } = useAuth();

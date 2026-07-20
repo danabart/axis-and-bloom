@@ -1,5 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import logoLinesSvg from '../../design/LOGO/LogoLines.svg';
+import { brandAssets } from '../../design/assets';
+
+const logoLinesSvg = brandAssets.logoLines;
 
 export interface DialPosition {
   dialSortOrder: number;

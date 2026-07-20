@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X } from 'lucide-react';
-import CoffeePic15 from '../../design/IMAGES/lifestyle/CoffeePic15Vertical.jpg';
+import { lifestyleAssets } from '../../design/assets';
+
+const CoffeePic15 = lifestyleAssets.coffee15Vertical.src;
 
 export default function NewsletterModal() {
   const [isOpen, setIsOpen] = useState(false);
