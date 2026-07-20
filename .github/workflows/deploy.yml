@@ -96,6 +96,8 @@ jobs:
           VITE_FIREBASE_MESSAGING_SENDER_ID: "892123729036"
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
           VITE_PRELAUNCH_MODE: 'true'
+          VITE_GA4_ID: 'G-GYC50VYRYN'
+          VITE_META_PIXEL_ID: '945138695260153'
         run: |
           npm ci
           npm run build

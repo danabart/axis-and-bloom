@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 import { getRecommendation } from '../services/claude.js';
@@ -7,6 +8,7 @@ import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { Timestamp } from 'firebase-admin/firestore';
 import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
 import { refreshLifecycleState } from '../services/userLifecycle.js';
+import { logFunnelEvent } from '../features/marketing/funnelEvents.js';
 
 const router = Router();
 
@@ -176,6 +178,23 @@ router.post('/score', async (req, res) => {
   } catch (err) {
     console.error('[quiz/score]', err);
     res.status(500).json({ error: 'Failed to compute archetype score' });
+  }
+});
+
+// ─── POST /api/quiz/event ─────────────────────────────────────────────────────
+// First-party funnel logging (launch/20_analytics-and-tracking/02_B1) — public,
+// guest-reachable, source of truth since /api/quiz/score has no auth requirement.
+// Handler logic lives in features/marketing/ (home for all new backend marketing
+// code); this route stays a thin wrapper. Tighter than the app-wide limiter since
+// it's unauthenticated and write-only.
+const funnelEventLimiter = rateLimit({ windowMs: 60 * 1000, max: 30 });
+router.post('/event', funnelEventLimiter, async (req, res) => {
+  const { sessionKey, event, archetype } = req.body ?? {};
+  try {
+    await logFunnelEvent(sessionKey, event, archetype);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message ?? 'Invalid funnel event' });
   }
 });
 

@@ -2761,3 +2761,16 @@ CREATE TABLE IF NOT EXISTS company (
 -- snapshot elsewhere in this schema), not a live reference to company. Pre-migration rows
 -- get company_id = NULL — expected, not backfilled by fuzzy name-matching.
 ALTER TABLE company_gift ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES company(id);
+
+-- Step 02 (B1): first-party quiz funnel logging — source of truth for the funnel since
+-- POST /api/quiz/score is public and guests dominate quiz traffic. session_key is a
+-- per-quiz-session crypto.randomUUID() generated client-side (in-memory only).
+CREATE TABLE IF NOT EXISTS quiz_funnel_event (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_key TEXT NOT NULL,
+  event       TEXT NOT NULL CHECK (event IN ('quiz_start', 'quiz_complete', 'email_submitted')),
+  archetype   TEXT,
+  created_at  TIMESTAMPTZ DEFAULT timezone('utc', now())
+);
+CREATE INDEX IF NOT EXISTS idx_quiz_funnel_event_session ON quiz_funnel_event(session_key);
+CREATE INDEX IF NOT EXISTS idx_quiz_funnel_event_created ON quiz_funnel_event(created_at);

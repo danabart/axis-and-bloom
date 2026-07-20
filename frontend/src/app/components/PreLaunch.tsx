@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { lifestyleAssets } from '../../design/assets';
+import { trackEvent, trackLead } from '../lib/analytics';
+import { logQuizFunnelEvent } from '../lib/api';
 
 const coffeeCup = lifestyleAssets.coffee15Vertical.src;
 
@@ -27,11 +29,16 @@ export default function PreLaunch() {
     e.preventDefault();
     if (!email) return;
     try {
-      await fetch('/api/newsletter/subscribe', {
+      const res = await fetch('/api/newsletter/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, firstName, source: 'pre_launch' }),
       });
+      if (res.ok) {
+        trackEvent('EmailSubmitted', { source: 'pre_launch' });
+        trackLead({ source: 'pre_launch' });
+        logQuizFunnelEvent(crypto.randomUUID(), 'email_submitted').catch(() => {});
+      }
     } catch {
       // fail silently — still show confirmation
     }
@@ -99,7 +106,7 @@ export default function PreLaunch() {
                 color: '#f2f1ea',
                 padding: '5px 14px 7px',
               }}>
-                Coming September 1.
+                Coming October 1.
               </span>
             </div>
 

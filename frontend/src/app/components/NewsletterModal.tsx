@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X } from 'lucide-react';
 import { lifestyleAssets } from '../../design/assets';
+import { trackEvent, trackLead } from '../lib/analytics';
+import { logQuizFunnelEvent } from '../lib/api';
 
 const CoffeePic15 = lifestyleAssets.coffee15Vertical.src;
 
@@ -26,11 +28,16 @@ export default function NewsletterModal() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await fetch('/api/newsletter/subscribe', {
+      const res = await fetch('/api/newsletter/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, source: 'newsletter' }),
       });
+      if (res.ok) {
+        trackEvent('EmailSubmitted', { source: 'newsletter_modal' });
+        trackLead({ source: 'newsletter_modal' });
+        logQuizFunnelEvent(crypto.randomUUID(), 'email_submitted').catch(() => {});
+      }
     } catch {}
     setHasSubmitted(true);
     setTimeout(handleClose, 2000);

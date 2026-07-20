@@ -1,4 +1,6 @@
-import { BrowserRouter, Routes, Route, useSearchParams } from 'react-router';
+import { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, useSearchParams, useLocation } from 'react-router';
+import { trackPageView } from './lib/analytics';
 import { AuthProvider } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
 import PreLaunch from './components/PreLaunch';
@@ -34,6 +36,16 @@ import RequireAuth from './components/RequireAuth';
 
 const PRELAUNCH = import.meta.env.VITE_PRELAUNCH_MODE === 'true';
 
+// GA4/Pixel config disables automatic page views (this is an SPA) — fire one on every
+// route change instead, including the initial load, from inside the Router.
+function AnalyticsRouteTracker() {
+  const location = useLocation();
+  useEffect(() => {
+    trackPageView(location.pathname + location.search);
+  }, [location.pathname, location.search]);
+  return null;
+}
+
 function HomeOrPrelaunch() {
   const [searchParams] = useSearchParams();
   const fromUrl = searchParams.get('preview') === 'true';
@@ -48,6 +60,7 @@ export default function App() {
     <AuthProvider>
       <CartProvider>
         <BrowserRouter>
+          <AnalyticsRouteTracker />
           <Routes>
             {/* ── Admin portal — own layout, no public nav/footer ── */}
             <Route

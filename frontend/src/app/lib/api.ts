@@ -61,6 +61,21 @@ export async function placeOrder(order: {
   return res.json();
 }
 
+// First-party quiz funnel logging — public endpoint, no auth. Fire-and-forget by
+// design (callers should .catch() and never let this block/break the calling flow).
+export async function logQuizFunnelEvent(
+  sessionKey: string,
+  event: 'quiz_start' | 'quiz_complete' | 'email_submitted',
+  archetype?: string,
+) {
+  const res = await fetch(`${BASE}/quiz/event`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionKey, event, archetype }),
+  });
+  if (!res.ok) throw new Error('Failed to log funnel event');
+}
+
 export async function getUserProfile() {
   const res = await fetch(`${BASE}/users/profile`, {
     headers: await getHeaders(),

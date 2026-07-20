@@ -4,7 +4,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ArrowRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
-import { saveQuizResult, getUserProfile, getDialPosition, setDialPosition } from '../lib/api';
+import { saveQuizResult, getUserProfile, getDialPosition, setDialPosition, logQuizFunnelEvent } from '../lib/api';
+import { trackEvent } from '../lib/analytics';
 import { ArchetypeSection, computeDefaultSortOrder } from './bloom/ArchetypeSection';
 import { CompareOverlay } from './bloom/CompareOverlay';
 import type { BloomDialHandle } from './BloomDialWidget';
@@ -446,6 +447,12 @@ export default function FlavorQuiz() {
   const isPreview      = _previewParam in ARCHETYPES;
   const previewKey     = isPreview ? (_previewParam as ArchetypeKey) : null;
 
+  // Step 02 (B1): per-quiz-session key for first-party funnel logging
+  // (quiz_start / quiz_complete), in-memory only — new on every mount/retake.
+  const sessionKeyRef = useRef<string>();
+  if (!sessionKeyRef.current) sessionKeyRef.current = crypto.randomUUID();
+  const quizStartFiredRef = useRef(false);
+
   const [hasStarted, setHasStarted]     = useState(() => isPreview);
   const [userName, setUserName]         = useState('');
   const [currentStep, setCurrentStep]   = useState(0);
@@ -740,6 +747,9 @@ export default function FlavorQuiz() {
       const score: ScoreResult = await scoreRes.json();
       setScoreData(score);
 
+      trackEvent('QuizComplete', { archetype: score.archetype });
+      logQuizFunnelEvent(sessionKeyRef.current!, 'quiz_complete', score.archetype).catch(() => {});
+
       const key = ARCHETYPE_NAME_TO_KEY[score.archetype] ?? 'balanced';
       setArchetypeKey(key);
 
@@ -812,6 +822,8 @@ export default function FlavorQuiz() {
     setArchetypeKey('balanced');
     setRevealProgress(0);
     setRevealForced(false);
+    sessionKeyRef.current = crypto.randomUUID();
+    quizStartFiredRef.current = false;
   };
 
   // ── Auto-advance: always hold the latest handleNext in a ref so the 750ms
@@ -821,6 +833,11 @@ export default function FlavorQuiz() {
   handleNextRef.current = handleNext;
 
   const handleAnswerSelect = (answerId: string, answerIdx: number) => {
+    if (currentStep === 0 && !quizStartFiredRef.current) {
+      quizStartFiredRef.current = true;
+      trackEvent('QuizStart');
+      logQuizFunnelEvent(sessionKeyRef.current!, 'quiz_start').catch(() => {});
+    }
     setAnswers(prev => ({ ...prev, [currentStep]: answerIdx }));
     setSelectedIds(prev => ({ ...prev, [currentStep]: answerId }));
     if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);
