@@ -544,6 +544,10 @@ No Liam prompt, RAG query, or chat behavior changed by either of these.
 
 **Nothing else touched**: scheduling rules (orders 1–2 only, 10-day delay, idempotency), opt-in logic, the never-ask-twice invariant, descriptor-chip extraction, and `RECOMMENDATION_SYSTEM_PROMPT` are all unchanged, per the spec's explicit scope.
 
+#### S54. FIX-01 mobile nav menu accessibility — confirmed no Liam impact (2026-07-19)
+
+**Context**: `WHAT_WE_BUILT.md` #105. Pure `Navigation.tsx` change (Escape-to-close, focus trap, body scroll lock, focus return on the already-existing mobile menu). `Navigation.tsx` has no Sommelier/Liam code path — it doesn't touch `/sommelier`'s `RequireAuth` wrapper, the chat UI, action links, or any Firestore/SQL Liam reads or writes. Continuity note only.
+
 #### S35. Task 6 — Liam voice reset (2026-07-04)
 Full execution of `SOMMELIER_TASK_6_VOICE.md`. Three files changed + live Firestore config patched.
 
