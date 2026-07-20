@@ -560,6 +560,10 @@ No Liam prompt, RAG query, or chat behavior changed by either of these.
 
 **Context**: `WHAT_WE_BUILT.md` #108. Dropped Experimental from two hardcoded marketing taxonomy lists (`About.tsx`, `HowItWorks.tsx`) and fixed baked-in "SPICY & EARTHY" bag artwork text to "EARTHY" (`bag-spicy.svg`). No Sommelier/Liam file touched — not `Sommelier.tsx`, `sommelierEvaluator.ts`, `claude.ts`'s `RECOMMENDATION_SYSTEM_PROMPT` (still says "Spicy & Earthy," deliberately left alone per #61's same-scoped decision), RAG, token economy, or any chat-contract file. `FlavorQuiz.tsx` (the quiz results screen, which does feed Liam's tie interstitial) was read during the audit but not edited — already canonicalized to "Earthy" since #61, no experimental-flag logic touched. Continuity note only.
 
+#### S58. Step 02 (B1) GA4/Pixel + quiz funnel events — confirmed no Liam impact (2026-07-20)
+
+**Context**: `WHAT_WE_BUILT.md` #109. `FlavorQuiz.tsx` was genuinely edited this time (unlike #108) — added a per-session `crypto.randomUUID()` ref, a `QuizStart`/`QuizComplete` tracking call in `handleAnswerSelect`/`handleNext`, and a two-line reset in `handleRetake`. None of it touches the tie interstitial, `archetypeNameMap`, Liam entry-point links, or any prop/state `Sommelier.tsx`/`sommelierEvaluator.ts` reads — purely additive analytics side-calls alongside the existing scoring flow, no branching logic changed. New backend route/table (`POST /api/quiz/event`, `quiz_funnel_event`, `features/marketing/funnelEvents.ts`) and the new `NewsletterModal.tsx`/`PreLaunch.tsx` tracking calls are nowhere near the Sommelier/Liam surface either. Continuity note only.
+
 #### S35. Task 6 — Liam voice reset (2026-07-04)
 Full execution of `SOMMELIER_TASK_6_VOICE.md`. Three files changed + live Firestore config patched.
 
