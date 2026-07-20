@@ -130,5 +130,7 @@ export const videoAssets = {
   aboutHero: raw('video/about-hero.mp4'),
   aboutSecondary: raw('video/about-secondary.mp4'),
   homePlaceholder: raw('video/home-placeholder.mp4'),
+  homePlaceholderPoster: optimized('video/home-placeholder-poster'),
   homeHero: raw('video/home-hero.mp4'),
+  homeHeroPoster: optimized('video/home-hero-poster'),
 };

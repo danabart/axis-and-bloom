@@ -19,12 +19,14 @@ const heroVideo    = videoAssets.homeHero;
 const liamVideo    = videoAssets.homePlaceholder;
 
 // ── §4 Collection: july_scan1 edited scans ───────────────────────────────────
-const scanFloral        = homeAssets.scan.floral.src;
-const scanFruity        = homeAssets.scan.fruity.src;
-const scanBalanced      = homeAssets.scan['balanced-sweet'].src;
-const scanChocolate     = homeAssets.scan['chocolate-nutty'].src;
-const scanSpicy         = homeAssets.scan['spicy-earthy'].src;
-const scanExperimental  = homeAssets.scan.experimental.src;
+// Below-the-fold thumbnail cards (~200px wide) — mobileSrc (800px cap) covers
+// this comfortably at any DPR, so it's used directly rather than a full srcSet.
+const scanFloral        = homeAssets.scan.floral.mobileSrc;
+const scanFruity        = homeAssets.scan.fruity.mobileSrc;
+const scanBalanced      = homeAssets.scan['balanced-sweet'].mobileSrc;
+const scanChocolate     = homeAssets.scan['chocolate-nutty'].mobileSrc;
+const scanSpicy         = homeAssets.scan['spicy-earthy'].mobileSrc;
+const scanExperimental  = homeAssets.scan.experimental.mobileSrc;
 
 // ── §4 Collection: bag hover artwork (existing PNGs, do not replace) ─────────
 const bagFloral        = archetypeAssets.floral.bag.src;
@@ -35,9 +37,11 @@ const bagEarthy        = archetypeAssets['spicy-earthy'].bag.src;
 const bagExperimental  = archetypeAssets.experimental.bag.src;
 
 // ── §5 Photo essay images ─────────────────────────────────────────────────────
-const photoEssay1 = homeAssets.photoEssay1.src;
-const photoEssay2 = homeAssets.photoEssay2.src;
-const photoEssay3 = homeAssets.photoEssay3.src;
+// Kept as full {src, mobileSrc} objects (not flattened to .src) — these render
+// larger than the §4 cards, so they get a real srcSet rather than a hard mobileSrc cap.
+const photoEssay1 = homeAssets.photoEssay1;
+const photoEssay2 = homeAssets.photoEssay2;
+const photoEssay3 = homeAssets.photoEssay3;
 
 // ── Data ─────────────────────────────────────────────────────────────────────
 
@@ -317,12 +321,11 @@ export default function Home() {
       />
 
       {/* ━━━ §1 FILM HERO ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      {/* TODO: add poster="/poster-july26.jpg" once Camila exports the hero frame
-               ffmpeg -ss <t> -i PlaceHolderHERO.mp4 -frames:v 1 poster-july26.jpg */}
       <section data-hero style={{ position: 'relative', height: '90vh', minHeight: 480, overflow: 'hidden', backgroundColor: '#141110' }}>
         <video
           ref={heroVideoRef}
           autoPlay muted loop playsInline preload="metadata"
+          poster={videoAssets.homeHeroPoster.src}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
         >
           <source src={heroVideo} type="video/mp4" />
@@ -471,10 +474,10 @@ export default function Home() {
               <div style={{ height: 3, backgroundColor: item.color, flexShrink: 0 }} />
               <div style={{ aspectRatio: '3/4.6', position: 'relative', overflow: 'hidden', backgroundColor: '#141110' }}>
                 <div style={{ position: 'absolute', inset: 0, opacity: hoveredBag === i ? 0 : 1, transition: 'opacity 0.3s ease' }}>
-                  <img src={item.scan} alt={`${item.name} archetype`} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
+                  <img src={item.scan} alt={`${item.name} archetype`} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center', display: 'block' }} />
                 </div>
                 <div style={{ position: 'absolute', inset: 0, backgroundColor: item.color, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: hoveredBag === i ? 1 : 0, transition: 'opacity 0.3s ease' }}>
-                  <img src={item.bag} alt="" aria-hidden="true" style={{ width: '72%', height: '84%', objectFit: 'contain', display: 'block' }} />
+                  <img src={item.bag} alt="" aria-hidden="true" loading="lazy" style={{ width: '72%', height: '84%', objectFit: 'contain', display: 'block' }} />
                 </div>
               </div>
               <div style={{ textAlign: 'center', padding: '14px 6px 0' }}>
@@ -496,13 +499,22 @@ export default function Home() {
         </div>
         <div style={{ display: 'flex', gap: 'clamp(16px,2vw,28px)', alignItems: 'flex-start' }}>
           {[
-            { src: photoEssay1, caption: 'Earthy · Jun 03, 2026', offset: 0 },
-            { src: photoEssay2, caption: 'Fruity · Jun 02, 2026', offset: 44 },
-            { src: photoEssay3, caption: 'Floral · Jun 06, 2026', offset: 88 },
+            { asset: photoEssay1, caption: 'Earthy · Jun 03, 2026', offset: 0 },
+            { asset: photoEssay2, caption: 'Fruity · Jun 02, 2026', offset: 44 },
+            { asset: photoEssay3, caption: 'Floral · Jun 06, 2026', offset: 88 },
           ].map((img, i) => (
             <div key={i} style={{ flex: 1, marginTop: img.offset }}>
               <div style={{ border: '1px solid #c5c7c8', padding: 14, backgroundColor: '#f2f1ea' }}>
-                <img src={img.src} alt="" style={{ width: '100%', display: 'block' }} />
+                <img
+                  src={img.asset.src}
+                  srcSet={`${img.asset.mobileSrc} 800w, ${img.asset.src} 1200w`}
+                  sizes="(max-width: 768px) 100vw, 33vw"
+                  loading="lazy"
+                  alt=""
+                  width={1200}
+                  height={1500}
+                  style={{ width: '100%', aspectRatio: '4/5', objectFit: 'cover', display: 'block' }}
+                />
               </div>
               {/* TODO: Camila writes final captions */}
               <p style={{ fontSize: 11, color: '#7b7f80', marginTop: 10, letterSpacing: '0.06em', margin: '10px 0 0' }}>{img.caption}</p>
@@ -515,7 +527,12 @@ export default function Home() {
       <section style={{ position: 'relative', height: 'clamp(56vh,62vh,65vh)', overflow: 'hidden', backgroundColor: '#201812', display: 'flex', alignItems: 'flex-end' }}>
         <video
           ref={liamVideoRef}
-          autoPlay muted loop playsInline preload="metadata"
+          // No autoPlay attribute (unlike the hero video): the below-the-fold
+          // IntersectionObserver already calls .play() on scroll-into-view (below) —
+          // autoplay-on-mount would force the browser to fetch immediately regardless
+          // of preload="none", defeating the point of deferring this video.
+          muted loop playsInline preload="none"
+          poster={videoAssets.homePlaceholderPoster.src}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 40%', display: 'block' }}
         >
           <source src={liamVideo} type="video/mp4" />

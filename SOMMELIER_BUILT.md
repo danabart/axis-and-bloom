@@ -552,6 +552,10 @@ No Liam prompt, RAG query, or chat behavior changed by either of these.
 
 **Context**: `WHAT_WE_BUILT.md` #106. New GCS bucket + Cloud Function + `frontend/src/design/assets.ts` registry, migrating 10 frontend component files off local image imports. None of the touched files are on any Liam/Sommelier code path — no `Sommelier.tsx`, `sommelierEvaluator.ts`, `claude.ts`, RAG, token economy, or chat-contract file was read or written. `Navigation.tsx` and `Footer.tsx` were touched again in this pass (brand-logo source swapped to the registry) but only for the same nav chrome S54 already cleared — nothing new for Liam here either. Continuity note only.
 
+#### S56. FIX-02 homepage video/loading behavior — confirmed no Liam impact (2026-07-20)
+
+**Context**: `WHAT_WE_BUILT.md` #107. Video compression + `loading="lazy"`/`preload`/poster changes confined to `Home.tsx` and the shared `assets.ts` registry (two new `videoAssets` poster keys). No Sommelier/Liam file touched — `Home.tsx`'s only Liam-adjacent surface (the signed-in lifecycle CTA, `renderSignedInCTA`/`renderStageCTA`) was explicitly left untouched, confirmed via `git diff`. Continuity note only.
+
 #### S35. Task 6 — Liam voice reset (2026-07-04)
 Full execution of `SOMMELIER_TASK_6_VOICE.md`. Three files changed + live Firestore config patched.
 
