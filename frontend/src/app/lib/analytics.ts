@@ -34,7 +34,7 @@ let initialized = false;
 
 function loadGa4() {
   window.dataLayer = window.dataLayer || [];
-  window.gtag = function gtag(...args: unknown[]) { window.dataLayer!.push(args); };
+  window.gtag = function gtag() { window.dataLayer!.push(arguments); };
   window.gtag('js', new Date());
   // send_page_view: false — this is an SPA, page views are fired manually on every
   // route change (see trackPageView / App.tsx), not just on the initial script load.
