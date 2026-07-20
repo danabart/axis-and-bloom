@@ -2820,6 +2820,26 @@ Executed `launch/05_site-readiness/FIX-02_homepage_media_weight.md` (re-scoped 2
 
 WHAT_WE_BUILT.md #107, SOMMELIER_BUILT.md S56 (no Liam impact).
 
+---
+
+### 108. Step 01 (A1) — Archetype canon cleanup: 5 archetypes, Experimental as category (2026-07-20)
+
+Executed `launch/10_quiz-and-archetypes/01_A1_archetype_canon.md` (v2, rewritten 2026-07-17 after a reverted first run).
+
+**Part 1 — audit.** Grepped every frontend surface rendering archetype names/colors/wallpapers/bag imagery/lists/counts. Found "Spicy & Earthy" already canonicalized to "Earthy" everywhere customer-facing except one place: `bag-spicy.svg`'s baked-in artwork text, rendered live via `TasteFinderSection` (used on Home/About/HowItWorks/Shop, though only Home actually passes a real `archetype` prop — About/HowItWorks/Shop always render the pre-quiz card, never the bag). Found Experimental presented as a 6th taxonomy entry in exactly two places: `About.tsx`'s hardcoded 6-item color strip ("Six flavor archetypes...") and `HowItWorks.tsx`'s hardcoded 6-card grid ("Meet your coffee archetype"). Everywhere else Experimental appears as a 6th item (`Shop.tsx`, `BloomPage.tsx`, `FlavorIntelligencePage.tsx`, `bloomVisuals.ts`, the admin archetype-assignment dropdowns) is a separate, deliberate, already-documented product decision (Bloom Dial Base Data Part 4 §B2/C1's `/api/coffees/experimental` merge, and #78's restored-assignability decision) — not taxonomy drift, left untouched.
+
+**Part 2 — merge.** `bag-spicy.svg`: fixed the one baked-in `<text>` element from "SPICY & EARTHY" to "EARTHY" (layout/colors/other text untouched — a display-text fix, not an asset rebuild). Internal keys (`spicy`, `spicy-earthy` — fixed slugs per `design/CLAUDE.md`) deliberately left alone.
+
+**Part 3 — reclassify.** `About.tsx`: removed the Experimental entry from the `archetypes` array (6 → 5); "Six flavor archetypes" → "Five flavor archetypes". `HowItWorks.tsx`: removed the 6th ("Experimental", `id: '06'`) card from the archetype grid.
+
+**Known gap, flagged not fixed**: `Home.tsx:665` still reads "...maps your palate to one of six flavor archetypes." Left untouched per this task's own hard boundary (never modify the homepage — lifecycle personalization / Company Gift widget history of silent breakage, standing warning at the top of `CAMILAS_UPDATES.md`) even though it's technically a hit for the "no copy says six" acceptance criterion.
+
+**Verified**: `vite build` clean. Backend booted against real production Cloud SQL via the Auth Proxy (see [[axis_and_bloom_local_cloudsql_testing]]). Browser-verified: `/about` and `/how-it-works` render exactly 5 archetypes with no layout break; `/find-my-flavor?result=earthy` and `?result=experimental` (preview shortcut) render correctly — Earthy shows no "Spicy" anywhere, Experimental renders byte-for-byte as before (file untouched); a full real click-through guest quiz completion (6 questions, including the actual `is_experimental_gate=true` DB answer at Q3) completed cleanly end-to-end; homepage's signed-out lifecycle CTA and the Company Gift redemption widget both confirmed still present and untouched.
+
+WHAT_WE_BUILT.md #108, SOMMELIER_BUILT.md S57 (no Liam impact).
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

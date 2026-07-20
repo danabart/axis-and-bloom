@@ -556,6 +556,10 @@ No Liam prompt, RAG query, or chat behavior changed by either of these.
 
 **Context**: `WHAT_WE_BUILT.md` #107. Video compression + `loading="lazy"`/`preload`/poster changes confined to `Home.tsx` and the shared `assets.ts` registry (two new `videoAssets` poster keys). No Sommelier/Liam file touched — `Home.tsx`'s only Liam-adjacent surface (the signed-in lifecycle CTA, `renderSignedInCTA`/`renderStageCTA`) was explicitly left untouched, confirmed via `git diff`. Continuity note only.
 
+#### S57. Step 01 (A1) archetype canon cleanup — confirmed no Liam impact (2026-07-20)
+
+**Context**: `WHAT_WE_BUILT.md` #108. Dropped Experimental from two hardcoded marketing taxonomy lists (`About.tsx`, `HowItWorks.tsx`) and fixed baked-in "SPICY & EARTHY" bag artwork text to "EARTHY" (`bag-spicy.svg`). No Sommelier/Liam file touched — not `Sommelier.tsx`, `sommelierEvaluator.ts`, `claude.ts`'s `RECOMMENDATION_SYSTEM_PROMPT` (still says "Spicy & Earthy," deliberately left alone per #61's same-scoped decision), RAG, token economy, or any chat-contract file. `FlavorQuiz.tsx` (the quiz results screen, which does feed Liam's tie interstitial) was read during the audit but not edited — already canonicalized to "Earthy" since #61, no experimental-flag logic touched. Continuity note only.
+
 #### S35. Task 6 — Liam voice reset (2026-07-04)
 Full execution of `SOMMELIER_TASK_6_VOICE.md`. Three files changed + live Firestore config patched.
 
