@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db/client.js';
 import crypto from 'crypto';
+import { optionalAuth, type AuthRequest } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -34,10 +35,26 @@ async function addToMailchimp(email: string, firstName: string) {
 }
 
 // ── Shared subscribe logic ────────────────────────────────────────────────────
+// Step 04 (A2): extended to carry the quiz result along with the signup (archetype/
+// experimental/confidence/quizSessionKey — all nullable, only populated when the
+// signup originated from a quiz completion) and to link user_id when the caller is
+// signed in, via optionalAuth. archetype/experimental/confidence/quizSessionKey use
+// COALESCE(new, existing) so a later non-quiz signup (no archetype in the payload)
+// never wipes a previously-captured quiz result — but a quiz retake's new archetype
+// does overwrite the old one, since a value IS provided in that case.
+interface SubscribeExtras {
+  archetype?: string;
+  experimental?: boolean;
+  confidence?: string;
+  quizSessionKey?: string;
+  firebaseUid?: string;
+}
+
 async function handleSubscribe(
   email: string,
   sourceName: string,
   firstName: string,
+  extra: SubscribeExtras,
   res: Parameters<Parameters<typeof router.post>[1]>[1],
 ) {
   const clean     = email.toLowerCase().trim();
@@ -49,14 +66,28 @@ async function handleSubscribe(
   );
   const sourceId: number | null = srcResult.rows[0]?.id ?? null;
 
+  let userId: string | null = null;
+  if (extra.firebaseUid) {
+    const profileResult = await db.query(
+      `SELECT id FROM user_profile WHERE firebase_uid = $1`,
+      [extra.firebaseUid],
+    );
+    userId = profileResult.rows[0]?.id ?? null;
+  }
+
   await db.query(
-    `INSERT INTO newsletter_subscriber (email, first_name, source_id)
-     VALUES ($1, $2, $3)
+    `INSERT INTO newsletter_subscriber (email, first_name, source_id, user_id, archetype, experimental, confidence, quiz_session_key)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      ON CONFLICT (email) DO UPDATE
-       SET subscribed = TRUE,
-           first_name = COALESCE(EXCLUDED.first_name, newsletter_subscriber.first_name),
-           source_id  = COALESCE(newsletter_subscriber.source_id, EXCLUDED.source_id)`,
-    [clean, cleanName || null, sourceId],
+       SET subscribed       = TRUE,
+           first_name       = COALESCE(EXCLUDED.first_name, newsletter_subscriber.first_name),
+           source_id        = COALESCE(newsletter_subscriber.source_id, EXCLUDED.source_id),
+           user_id          = COALESCE(newsletter_subscriber.user_id, EXCLUDED.user_id),
+           archetype        = COALESCE(EXCLUDED.archetype, newsletter_subscriber.archetype),
+           experimental     = COALESCE(EXCLUDED.experimental, newsletter_subscriber.experimental),
+           confidence       = COALESCE(EXCLUDED.confidence, newsletter_subscriber.confidence),
+           quiz_session_key = COALESCE(EXCLUDED.quiz_session_key, newsletter_subscriber.quiz_session_key)`,
+    [clean, cleanName || null, sourceId, userId, extra.archetype ?? null, extra.experimental ?? null, extra.confidence ?? null, extra.quizSessionKey ?? null],
   );
 
   // Forward to Mailchimp — non-blocking, never fails the request
@@ -68,17 +99,20 @@ async function handleSubscribe(
 }
 
 // ── POST /api/newsletter/subscribe ───────────────────────────────────────────
-// Body: { email: string, firstName?: string, source?: string }
-router.post('/subscribe', async (req, res) => {
-  const { email, firstName = '', source = 'newsletter' } = req.body as {
+// Body: { email, firstName?, source?, archetype?, experimental?, confidence?, quizSessionKey? }
+// optionalAuth: public (guests must be able to subscribe), but links user_id when
+// the caller is signed in.
+router.post('/subscribe', optionalAuth, async (req: AuthRequest, res) => {
+  const { email, firstName = '', source = 'newsletter', archetype, experimental, confidence, quizSessionKey } = req.body as {
     email?: string; firstName?: string; source?: string;
+    archetype?: string; experimental?: boolean; confidence?: string; quizSessionKey?: string;
   };
   if (!email || typeof email !== 'string') {
     res.status(400).json({ error: 'email required' });
     return;
   }
   try {
-    await handleSubscribe(email, source, firstName, res);
+    await handleSubscribe(email, source, firstName, { archetype, experimental, confidence, quizSessionKey, firebaseUid: req.uid }, res);
   } catch (err) {
     console.error('[newsletter/subscribe]', err);
     res.status(500).json({ error: 'Failed to subscribe' });
@@ -87,16 +121,17 @@ router.post('/subscribe', async (req, res) => {
 
 // ── POST /api/newsletter ──────────────────────────────────────────────────────
 // Backward-compat alias — NewsletterModal currently calls this path.
-router.post('/', async (req, res) => {
-  const { email, firstName = '', source = 'newsletter' } = req.body as {
+router.post('/', optionalAuth, async (req: AuthRequest, res) => {
+  const { email, firstName = '', source = 'newsletter', archetype, experimental, confidence, quizSessionKey } = req.body as {
     email?: string; firstName?: string; source?: string;
+    archetype?: string; experimental?: boolean; confidence?: string; quizSessionKey?: string;
   };
   if (!email || typeof email !== 'string') {
     res.status(400).json({ error: 'email required' });
     return;
   }
   try {
-    await handleSubscribe(email, source, firstName, res);
+    await handleSubscribe(email, source, firstName, { archetype, experimental, confidence, quizSessionKey, firebaseUid: req.uid }, res);
   } catch (err) {
     console.error('[newsletter]', err);
     res.status(500).json({ error: 'Failed to subscribe' });

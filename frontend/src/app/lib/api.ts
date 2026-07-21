@@ -61,6 +61,29 @@ export async function placeOrder(order: {
   return res.json();
 }
 
+// Step 04 (A2): shared subscribe call for the firm quiz gate (guest card submit,
+// recognized-guest silent resync, signed-in auto-subscribe/archetype-sync) — reuses
+// the existing POST /api/newsletter/subscribe endpoint, no parallel code path.
+// getHeaders() attaches the Firebase token when signed in, so the backend's
+// optionalAuth can link user_id; guests simply send no Authorization header.
+export async function subscribeNewsletter(payload: {
+  email: string;
+  firstName?: string;
+  source: string;
+  archetype?: string;
+  experimental?: boolean;
+  confidence?: string;
+  quizSessionKey?: string;
+}) {
+  const res = await fetch(`${BASE}/newsletter/subscribe`, {
+    method: 'POST',
+    headers: await getHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error('Failed to subscribe');
+  return res.json();
+}
+
 // First-party quiz funnel logging — public endpoint, no auth. Fire-and-forget by
 // design (callers should .catch() and never let this block/break the calling flow).
 export async function logQuizFunnelEvent(

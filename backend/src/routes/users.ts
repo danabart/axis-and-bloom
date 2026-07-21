@@ -112,6 +112,19 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
       // user_tokens table may not exist yet — migrations pending
     }
 
+    // Step 04 (A2): drives the firm quiz gate's "signed-in + already subscribed →
+    // no card, no consent copy repeat" branch. Depends on the resolved primary
+    // email above, so queried separately rather than folded into the Promise.all.
+    let isNewsletterSubscriber = false;
+    const primaryEmail = emailResult.rows[0]?.email_address ?? req.email ?? null;
+    if (primaryEmail) {
+      const newsletterResult = await db.query(
+        `SELECT 1 FROM newsletter_subscriber WHERE email = $1 AND subscribed = TRUE LIMIT 1`,
+        [primaryEmail.toLowerCase().trim()]
+      );
+      isNewsletterSubscriber = newsletterResult.rows.length > 0;
+    }
+
     const quiz = quizResult.rows[0];
     const archetypeKey = quiz?.archetype_name ? (ARCHETYPE_NAME_TO_KEY[quiz.archetype_name] ?? quiz.archetype_name.toLowerCase()) : null;
     const archetypeData = archetypeKey ? (ARCHETYPES[archetypeKey] ?? { name: quiz.archetype_name, features: [], color: '#a33726' }) : null;
@@ -153,6 +166,7 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
       tokenBalance,
       hasPhone:    phoneResult.rows.length > 0,
       phoneNumber: phoneResult.rows[0]?.phone_number ?? null,
+      isNewsletterSubscriber,
       smsOptIn:    phoneResult.rows[0]?.sms_opt_in ?? false,
       orders:      ordersResult.rows.map(o => ({
         id:            o.id,

@@ -4,8 +4,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ArrowRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
-import { saveQuizResult, getUserProfile, getDialPosition, setDialPosition, logQuizFunnelEvent } from '../lib/api';
-import { trackEvent } from '../lib/analytics';
+import { saveQuizResult, getUserProfile, getDialPosition, setDialPosition, logQuizFunnelEvent, subscribeNewsletter } from '../lib/api';
+import { trackEvent, trackLead } from '../lib/analytics';
+import { PostQuizEmailGate } from './PostQuizEmailGate';
 import { ArchetypeSection, computeDefaultSortOrder } from './bloom/ArchetypeSection';
 import { CompareOverlay } from './bloom/CompareOverlay';
 import type { BloomDialHandle } from './BloomDialWidget';
@@ -127,6 +128,31 @@ function QuizHeader() {
           EXIT ×
         </button>
       </div>
+    </div>
+  );
+}
+
+// ─── Step 04 (A2): quiet status line above the unlocked sections ─────────────
+// Either the signed-in one-line consent note (shown once, only when they weren't
+// already a subscriber) or the recognized-guest masked-email line — never both.
+
+function GateStatusNote({ showSignedInConsentNote, guestMaskedEmail }: {
+  showSignedInConsentNote: boolean;
+  guestMaskedEmail: string | null;
+}) {
+  if (!showSignedInConsentNote && !guestMaskedEmail) return null;
+  return (
+    <div style={{ maxWidth: 480, margin: '0 auto', padding: '20px 24px 0', textAlign: 'center' }}>
+      <p style={{
+        fontFamily: "'Lato', Arial, sans-serif",
+        fontSize: '0.78rem',
+        color: '#838686',
+        margin: 0,
+      }}>
+        {guestMaskedEmail
+          ? `Your match is on its way to ${guestMaskedEmail}.`
+          : "You're on the list — we'll follow up with more on your match. Unsubscribe anytime."}
+      </p>
     </div>
   );
 }
@@ -661,6 +687,88 @@ export default function FlavorQuiz() {
   function registerResultsDialRef(_archetype: string, handle: BloomDialHandle | null) {
     resultsDialRef.current = handle;
   }
+
+  // ── Step 04 (A2): firm email gate ──────────────────────────────────────────
+  // Sections 2-3 (the ArchetypeSection below the curtain — dial, position card,
+  // "why"/coffees in RevealedPanel) unlock only after email capture. Section 1
+  // (the curtain reveal itself) always renders free, above.
+  //
+  // Signed-in users never see the card (email already known) — handled by the
+  // effect below. Guests are recognized across visits/retakes via a local flag
+  // (no server-side guest session to key off of); a fresh guest sees the card
+  // exactly once per browser, with no skip link and no bypass.
+  const POST_QUIZ_EMAIL_KEY = 'axisbloom.postQuizEmail';
+  const [postQuizEmail, setPostQuizEmail] = useState<string | null>(() => {
+    try { return localStorage.getItem(POST_QUIZ_EMAIL_KEY); } catch { return null; }
+  });
+  const emailGateUnlocked = !!user || !!postQuizEmail;
+  const signedInSubscribeFiredRef = useRef<string | null>(null); // last archetype synced
+  const recognizedGuestSyncedRef = useRef<string | null>(null); // last archetype synced, avoids re-firing every render
+  const [showSignedInConsentNote, setShowSignedInConsentNote] = useState(false);
+
+  function maskEmail(raw: string): string {
+    const [userPart, domain] = raw.split('@');
+    if (!domain) return raw;
+    const maskUser = userPart.length <= 1 ? userPart : userPart[0] + '•'.repeat(Math.min(userPart.length - 1, 4));
+    const [domainName, ...rest] = domain.split('.');
+    const maskDomain = domainName.length <= 1 ? domainName : domainName[0] + '•'.repeat(Math.min(domainName.length - 1, 4));
+    return `${maskUser}@${maskDomain}.${rest.join('.')}`;
+  }
+
+  // First-time guest submits the card.
+  function handleGateSuccess(submittedEmail: string) {
+    try { localStorage.setItem(POST_QUIZ_EMAIL_KEY, submittedEmail); } catch {}
+    setPostQuizEmail(submittedEmail);
+    const name = ARCHETYPES[archetypeKey].name;
+    trackEvent('EmailSubmitted', { archetype: name });
+    trackLead({ archetype: name });
+    logQuizFunnelEvent(sessionKeyRef.current!, 'email_submitted', name).catch(() => {});
+  }
+
+  // Recognized guest (local flag from a previous submit) or a retake in the same
+  // session — resync the subscriber row to the current archetype, silently, no
+  // card, no repeat ask, no analytics event (they already submitted once).
+  useEffect(() => {
+    if (!resultsArchetypeData || user || !postQuizEmail) return;
+    const name = ARCHETYPES[archetypeKey].name;
+    if (recognizedGuestSyncedRef.current === name) return;
+    recognizedGuestSyncedRef.current = name;
+    subscribeNewsletter({
+      email: postQuizEmail,
+      source: 'post_quiz',
+      archetype: name,
+      experimental: archetypeKey === 'experimental',
+      confidence: scoreData?.foodSignalAlignment,
+      quizSessionKey: sessionKeyRef.current,
+    }).catch(() => {});
+  }, [user, postQuizEmail, resultsArchetypeData, archetypeKey]);
+
+  // Signed-in users: never see the card. Auto-subscribe (source post_quiz) with a
+  // one-line consent note shown once — only when they weren't already a subscriber;
+  // an existing subscriber's row is just silently resynced to the new archetype.
+  useEffect(() => {
+    if (!user || !resultsArchetypeData || !userProfile || !profileFetchDone) return;
+    const name = ARCHETYPES[archetypeKey].name;
+    if (signedInSubscribeFiredRef.current === name) return;
+    signedInSubscribeFiredRef.current = name;
+    const wasAlreadySubscribed = userProfile.isNewsletterSubscriber === true;
+    subscribeNewsletter({
+      email: userProfile.email ?? user.email ?? '',
+      firstName: userProfile.firstName ?? undefined,
+      source: 'post_quiz',
+      archetype: name,
+      experimental: archetypeKey === 'experimental',
+      confidence: scoreData?.foodSignalAlignment,
+      quizSessionKey: sessionKeyRef.current,
+    }).then(() => {
+      if (!wasAlreadySubscribed) {
+        trackEvent('EmailSubmitted', { archetype: name });
+        trackLead({ archetype: name });
+        logQuizFunnelEvent(sessionKeyRef.current!, 'email_submitted', name).catch(() => {});
+        setShowSignedInConsentNote(true);
+      }
+    }).catch(() => {});
+  }, [user, userProfile, profileFetchDone, resultsArchetypeData, archetypeKey]);
 
   // Bug fix (Find My Flavor Part 2, Bug 1): preload the scored archetype's wallpaper
   // as soon as it's known (archetypeKey is set well before isComplete/the results
@@ -1452,27 +1560,46 @@ export default function FlavorQuiz() {
       <div style={{ backgroundColor: '#f2f1ea', minHeight: '100vh' }}>
         <QuizHeader />
         {resultsArchetypeData && (
-          <ArchetypeSection
-            data={resultsArchetypeData}
-            index={0}
-            selectedSortOrder={resultsSortOrder ?? computeDefaultSortOrder(resultsArchetypeData)}
-            revealedKeys={resultsRevealedKeys}
-            onDialSelect={handleResultsDialSelect}
-            onToggleReveal={toggleResultsReveal}
-            onAddToCart={addToCart}
-            onHopClick={handleResultsHopClick}
-            onCompare={openResultsCompare}
-            userArchetype={matchedArchetypeId}
-            registerDialRef={registerResultsDialRef}
-            source="find_my_flavor_results"
+          emailGateUnlocked ? (
+            <>
+              <GateStatusNote
+                showSignedInConsentNote={showSignedInConsentNote}
+                guestMaskedEmail={!user && postQuizEmail ? maskEmail(postQuizEmail) : null}
+              />
+              <ArchetypeSection
+                data={resultsArchetypeData}
+                index={0}
+                selectedSortOrder={resultsSortOrder ?? computeDefaultSortOrder(resultsArchetypeData)}
+                revealedKeys={resultsRevealedKeys}
+                onDialSelect={handleResultsDialSelect}
+                onToggleReveal={toggleResultsReveal}
+                onAddToCart={addToCart}
+                onHopClick={handleResultsHopClick}
+                onCompare={openResultsCompare}
+                userArchetype={matchedArchetypeId}
+                registerDialRef={registerResultsDialRef}
+                source="find_my_flavor_results"
+              />
+            </>
+          ) : (
+            <PostQuizEmailGate
+              archetypeName={archetype.name}
+              archetypeColor={archetype.color}
+              experimental={archetypeKey === 'experimental'}
+              confidence={scoreData?.foodSignalAlignment}
+              sessionKey={sessionKeyRef.current!}
+              onSuccess={handleGateSuccess}
+            />
+          )
+        )}
+        {emailGateUnlocked && (
+          <CompareOverlay
+            open={resultsCompareState.open}
+            onClose={() => setResultsCompareState(s => ({ ...s, open: false }))}
+            left={resultsCompareState.slot ? { archetype: resultsCompareState.archetype, archetypeLabel: resultsCompareState.archetypeLabel, slot: resultsCompareState.slot } : null}
+            archetypes={archetypesList}
           />
         )}
-        <CompareOverlay
-          open={resultsCompareState.open}
-          onClose={() => setResultsCompareState(s => ({ ...s, open: false }))}
-          left={resultsCompareState.slot ? { archetype: resultsCompareState.archetype, archetypeLabel: resultsCompareState.archetypeLabel, slot: resultsCompareState.slot } : null}
-          archetypes={archetypesList}
-        />
       </div>
     );
   }
@@ -1725,28 +1852,47 @@ export default function FlavorQuiz() {
            this, same as every other archetype already got. Flagged explicitly in the
            WHAT_WE_BUILT.md entry for this change, per the spec's instruction. ── */}
       {resultsArchetypeData && (
-        <ArchetypeSection
-          data={resultsArchetypeData}
-          index={0}
-          selectedSortOrder={resultsSortOrder ?? computeDefaultSortOrder(resultsArchetypeData)}
-          revealedKeys={resultsRevealedKeys}
-          onDialSelect={handleResultsDialSelect}
-          onToggleReveal={toggleResultsReveal}
-          onAddToCart={addToCart}
-          onHopClick={handleResultsHopClick}
-          onCompare={openResultsCompare}
-          userArchetype={matchedArchetypeId}
-          registerDialRef={registerResultsDialRef}
-          source="find_my_flavor_results"
-        />
+        emailGateUnlocked ? (
+          <>
+            <GateStatusNote
+              showSignedInConsentNote={showSignedInConsentNote}
+              guestMaskedEmail={!user && postQuizEmail ? maskEmail(postQuizEmail) : null}
+            />
+            <ArchetypeSection
+              data={resultsArchetypeData}
+              index={0}
+              selectedSortOrder={resultsSortOrder ?? computeDefaultSortOrder(resultsArchetypeData)}
+              revealedKeys={resultsRevealedKeys}
+              onDialSelect={handleResultsDialSelect}
+              onToggleReveal={toggleResultsReveal}
+              onAddToCart={addToCart}
+              onHopClick={handleResultsHopClick}
+              onCompare={openResultsCompare}
+              userArchetype={matchedArchetypeId}
+              registerDialRef={registerResultsDialRef}
+              source="find_my_flavor_results"
+            />
+          </>
+        ) : (
+          <PostQuizEmailGate
+            archetypeName={archetype.name}
+            archetypeColor={archetype.color}
+            experimental={archetypeKey === 'experimental'}
+            confidence={scoreData?.foodSignalAlignment}
+            sessionKey={sessionKeyRef.current!}
+            onSuccess={handleGateSuccess}
+          />
+        )
       )}
 
-      <CompareOverlay
-        open={resultsCompareState.open}
-        onClose={() => setResultsCompareState(s => ({ ...s, open: false }))}
-        left={resultsCompareState.slot ? { archetype: resultsCompareState.archetype, archetypeLabel: resultsCompareState.archetypeLabel, slot: resultsCompareState.slot } : null}
-        archetypes={archetypesList}
-      />
+      {emailGateUnlocked && (
+        <CompareOverlay
+          open={resultsCompareState.open}
+          onClose={() => setResultsCompareState(s => ({ ...s, open: false }))}
+          left={resultsCompareState.slot ? { archetype: resultsCompareState.archetype, archetypeLabel: resultsCompareState.archetypeLabel, slot: resultsCompareState.slot } : null}
+          archetypes={archetypesList}
+        />
+      )}
 
     </div>
   );

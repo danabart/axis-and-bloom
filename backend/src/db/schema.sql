@@ -857,6 +857,14 @@ ALTER TABLE newsletter_subscriber
 ALTER TABLE newsletter_subscriber
   ADD COLUMN IF NOT EXISTS source_id INT REFERENCES subscriber_source(id) ON DELETE SET NULL;
 
+-- Step 04 (A2): post-quiz email capture carries the quiz result along with it so the
+-- Mailchimp journey (Step 05) can personalize Email #1 without a second lookup.
+-- Nullable — only populated when the signup originated from a quiz completion.
+ALTER TABLE newsletter_subscriber ADD COLUMN IF NOT EXISTS archetype TEXT;
+ALTER TABLE newsletter_subscriber ADD COLUMN IF NOT EXISTS experimental BOOLEAN;
+ALTER TABLE newsletter_subscriber ADD COLUMN IF NOT EXISTS confidence TEXT;
+ALTER TABLE newsletter_subscriber ADD COLUMN IF NOT EXISTS quiz_session_key TEXT;
+
 -- ─────────────────────────────────────────────
 -- CUPPING TOOL
 -- Separate from the main schema's cupping_session (singular).
