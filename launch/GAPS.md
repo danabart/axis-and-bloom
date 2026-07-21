@@ -101,6 +101,13 @@ the brand docs, and project memory. Ordered by how much they threaten Oct 1.
 
 ## F. Worth deciding, not urgent
 
+26. **(added 2026-07-20, corrected same day) Wrong domain in repo docs — FIXED.**
+    The ONLY site domain is **axisandbloomcoffee.com**. "axisandbloom.com" is NOT ours
+    (it resolves to an unrelated Wix page) but CAMILAS_UPDATES.md and WHAT_WE_BUILT.md
+    listed it as the live site — every reference in both files was corrected to
+    axisandbloomcoffee.com on 2026-07-20. Standing rule: no doc, ad, bio link, or email
+    ever uses the short domain; if it reappears anywhere, it's a typo to fix on sight.
+
 23. **SEO basics** — Step 07 prerenders 5 share pages, but there's no sitemap/robots/meta
     pass for the rest of the site. Organic won't matter by Oct 1; cheap to add later.
 24. **Support workflow** — hello@ forwards to Dana's Gmail; fine at launch scale, but

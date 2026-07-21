@@ -8,7 +8,16 @@ dashboard must be live before the first real ad dollar (Aug 3–9).**
 
 | Global step | File | What | Model | Depends on | Status |
 |---|---|---|---|---|---|
-| 02 | `02_B1_analytics_funnel_events.md` | Oct 1 date, GA4 + Pixel site-wide (env-driven), quiz funnel events table + endpoint | Sonnet | manual setup ✅ (IDs ready) | ⬜ |
+| 02 | `02_B1_analytics_funnel_events.md` | Oct 1 date, GA4 + Pixel site-wide (env-driven), quiz funnel events table + endpoint | Sonnet | manual setup ✅ (IDs ready) | ✅ deployed 2026-07-20 + gtag hotfix applied same day; GA4 Realtime receiving (verified), Meta Pixel verified live |
+
+**Verification history (2026-07-20):** first deploy shipped a silent GA4 bug — the gtag stub
+in `frontend/src/app/lib/analytics.ts` pushed rest-param ARRAYS, which gtag.js ignores, so
+zero hits were sent; hotfixed same day (`window.gtag = function gtag(){ window.dataLayer!.push(arguments); }`)
+and Realtime confirmed receiving. Standing reminders: check GA4 signed in as
+**danabar.mail@gmail.com** (Dana's Chrome defaults to another account), and Meta Pixel events
+live under Events Manager → Data sources → "Axis and Bloom Pixel" (945138695260153) — the
+ad-account screen shows nothing. Remaining step-02 checks: QuizStart/QuizComplete visible in
+Realtime after a quiz run · quiz_funnel_event rows in DB · regression trio.
 | 06 | `06_B3_reporting_views_admin_links.md` | 4 reporting views + `reporting_ro` role + admin Marketing links row | Opus/Fable | Step 02 | ⬜ |
 | M3 | manual | Ad Spend Google Sheet + assemble Looker Studio report (views + GA4 + sheet) + share with Camila + paste URL into admin config | Dana | Step 06 | ⬜ |
 

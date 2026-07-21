@@ -3,7 +3,7 @@
 A record of all frontend changes made from June 2026 onward, following the same format as WHAT_WE_BUILT.md.
 
 All changes are deployed automatically via GitHub Actions on every push to `main`.  
-Live site: https://axisandbloom.com  
+Live site: https://axisandbloomcoffee.com  
 
 ---
 
@@ -25,7 +25,7 @@ git push origin main
 
 To bypass the pre-launch page and see the full site:
 ```
-axisandbloom.com/?preview=true
+axisandbloomcoffee.com/?preview=true
 ```
 This persists for the whole browser session.
 
@@ -130,7 +130,7 @@ Changed the COMING SOON block from left-aligned (`justify-start`, `items-start`)
 ### 5. Pre-launch curtain page
 **Files:** `frontend/src/app/components/PreLaunch.tsx` (new), `frontend/src/app/App.tsx`, `.github/workflows/deploy.yml`
 
-Created a full-screen pre-launch page that shows at `axisandbloom.com/` while the site is in pre-launch mode. All other routes (`/about`, `/shop`, `/admin`, etc.) remain fully accessible.
+Created a full-screen pre-launch page that shows at `axisandbloomcoffee.com/` while the site is in pre-launch mode. All other routes (`/about`, `/shop`, `/admin`, etc.) remain fully accessible.
 
 **Layout — split screen:**
 - Left half (`#f0ebe1`): `LogoLines.svg` from `src/design/LOGO/`, centered, max-width 280px
@@ -163,7 +163,7 @@ Set in `.github/workflows/deploy.yml` under the `Install & build frontend` step.
 Added a secret preview bypass so the team can access the full site while the pre-launch page is live for the public.
 
 **How it works:**
-- Visit `axisandbloom.com/?preview=true`
+- Visit `axisandbloomcoffee.com/?preview=true`
 - The bypass is stored in `sessionStorage` — stays active for the whole browser session
 - Close and reopen the browser to reset (pre-launch shows again)
 

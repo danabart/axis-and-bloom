@@ -1,5 +1,9 @@
 # Axis & Bloom — Launch & Marketing Plan (Oct 1, 2026)
 
+**THE SITE IS https://axisandbloomcoffee.com — always with "coffee".** "axisandbloom.com"
+is not our domain (it resolves to an unrelated Wix page); older repo docs that mentioned
+it were corrected 2026-07-20. Every link, test, ad, and doc uses axisandbloomcoffee.com.
+
 Reorganized 2026-07-18. This folder replaces the flat file list that previously lived in
 `backend/src/features/marketing/` (originals preserved untouched in `_archive/`).
 **This folder is the single source of truth for the launch.** Commit it to git immediately —
