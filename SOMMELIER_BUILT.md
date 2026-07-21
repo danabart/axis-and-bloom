@@ -576,6 +576,10 @@ No Liam prompt, RAG query, or chat behavior changed by either of these.
 
 **Context**: `WHAT_WE_BUILT.md` #112. Two literal strings in `PostQuizEmailGate.tsx` (sub-line, button label). No logic, props, or component boundaries touched — nowhere near the Sommelier/Liam surface. Continuity note only.
 
+#### S62. Step 07 (A3) share-your-match — confirmed no Liam impact (2026-07-21)
+
+**Context**: `WHAT_WE_BUILT.md` #113. New standalone static HTML pages (`frontend/public/match/*`) are outside the React app entirely — no Sommelier/Liam surface exists there at all. `ShareMatchRow.tsx` is new, self-contained, and only reads `archetypeName`/`shareSlug` props; its two `FlavorQuiz.tsx` insertion points are both inside the free Section 1 reveal, nowhere near the tie interstitial, branch flow, or any Liam entry-point link. Continuity note only.
+
 #### S35. Task 6 — Liam voice reset (2026-07-04)
 Full execution of `SOMMELIER_TASK_6_VOICE.md`. Three files changed + live Firestore config patched.
 

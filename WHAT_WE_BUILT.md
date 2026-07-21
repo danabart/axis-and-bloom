@@ -2905,6 +2905,22 @@ WHAT_WE_BUILT.md #112, SOMMELIER_BUILT.md S61 (no Liam impact).
 
 ---
 
+### 113. Step 07 (A3) — Share-your-match card: 5 public share pages + OG images + share row (2026-07-21)
+
+Executed `launch/10_quiz-and-archetypes/07_A3_share_your_match.md`.
+
+**5 public share pages** at `/match/<slug>` — `floral`, `fruity`, `balanced-sweet`, `chocolate-nutty`, `earthy` (the 5-archetype canon; Experimental excluded, per its own CONTEXT). Hand-authored standalone static HTML under `frontend/public/match/<slug>/index.html` (Vite copies `public/*` verbatim into `dist/`) rather than a React/SPA route with build-time prerendering — this codebase has no existing SSR/prerender tooling, and the task's own item 3 explicitly names "host them as static files" as an equally valid simplest-correct option. Firebase Hosting's static-file priority + clean-URL resolution serves `dist/match/<slug>/index.html` directly to crawlers ahead of the SPA catch-all rewrite in `firebase.json` — confirmed live, not assumed (see Verified below).
+
+Each page: full OG/Twitter meta tags (title, description, `og:image` reusing the archetype's existing hero photo straight from the GCS bucket registry — no new image asset created, per the "reuse archetype assets" constraint), zero personal data, and real visible content matching brand (name, one-line description, tagline, "Find your flavor" CTA into `/find-my-flavor`) — a human landing on the page sees the same thing a crawler's preview shows, not a meta-tag-only shell. Same color palette as the quiz results screen's own `ARCHETYPES` data for continuity with what the user just saw.
+
+**New `ShareMatchRow.tsx`** — one-tap share row rendered on the free Section 1 reveal (available even to a locked first-time guest; sharing an identity match doesn't need email capture, and Section 1 is unconditional per Step 04b). `navigator.share` feature-detected (not UA-sniffed) for the native share sheet; falls back to `navigator.clipboard.writeText` + a "Link copied" state change. Fires `share_match` via the existing `trackEvent()`. Wired into both of `FlavorQuiz.tsx`'s result-render branches, right after `Section1Reveal`; hidden entirely (`shareSlug === null`) for Experimental.
+
+**Verified**: `vite build` clean; confirmed `dist/match/<slug>/index.html` exists for all 5. Live on production: fetched the raw HTML of all 5 `/match/<slug>` URLs directly (no JS execution, matching what a real crawler sees) and confirmed every `og:title`/`og:description`/`og:image`/`twitter:*` tag is correct per archetype; confirmed all 5 `og:image` URLs resolve 200 `image/webp`. Share row confirmed rendering on the live results screen. **Not independently click-verified**: the exact "Link copied" fallback UI swap — `navigator.share` is genuinely available in the browser used for testing, so the native-share branch was the one actually exercised; the clipboard-fallback branch was code-reviewed (standard, widely-supported API, wrapped in try/catch) rather than click-verified, since `navigator.clipboard.writeText`'s permission prompt hangs non-interactive browser automation. Local dev note (not a production gap): Vite's dev server doesn't do Firebase Hosting's automatic directory-index resolution, so `/match/<slug>` needs an explicit `/index.html` suffix locally — confirmed this is dev-only by testing the deployed site directly.
+
+WHAT_WE_BUILT.md #113, SOMMELIER_BUILT.md S62 (no Liam impact).
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

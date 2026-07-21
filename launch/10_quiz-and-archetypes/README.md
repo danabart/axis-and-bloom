@@ -11,7 +11,7 @@ the archetype taxonomy, the results-screen email capture, and the shareable arch
 | 04 | `04_A2_quiz_firm_gate_lifecycle.md` | **FIRM** email gate on results (revised 2026-07-18: free reveal, no skip link, why+coffees email-only), lifecycle-aware (Remember, Never Reset) | Opus/Fable | Step 02 | ⚠ deployed 2026-07-20 but DEVIATED — shipped as a hard gate (card before the reveal) + inverted card typography; run 04b |
 | 04b | `04b_FIX_firm_gate_reveal_order.md` | FIX for the 04 deviation: reveal renders free BEFORE the card; post-submit unlock shows full why + coffees in place; card headline/sub swapped back | Opus/Fable | Step 04 deployed | ✅ run + verified 2026-07-20 (gate order confirmed live) |
 | 04c | `04c_COPY_gate_card_text.md` | Copy polish (Dana-approved): sub-line → "See why this is you — and meet the coffees chosen for your taste. First access when doors open October 1." · button → "SHOW ME WHY" | Sonnet | 04b deployed | ▶ ready |
-| 07 | `07_A3_share_your_match.md` | 5 public share pages + OG images + share row | Sonnet | Steps 01 + 04 deployed (hard); date is flexible — anytime after | ⬜ |
+| 07 | `07_A3_share_your_match.md` | 5 public share pages + OG images + share row | Sonnet | Steps 01 + 04 deployed (hard); date is flexible — anytime after | ✅ deployed + verified 2026-07-21 (all 5 og:image URLs + meta tags confirmed live; clipboard-fallback UI swap code-reviewed, not click-verified) |
 
 Step 01 also **gates marketing content**: Camila's archetype-world films/posts can't start
 until the canon is settled (companion doc flagged the six-vs-five confusion explicitly).
