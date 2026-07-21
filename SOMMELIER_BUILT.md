@@ -568,6 +568,10 @@ No Liam prompt, RAG query, or chat behavior changed by either of these.
 
 **Context**: `WHAT_WE_BUILT.md` #110. `FlavorQuiz.tsx` gained the email-gate state block (`postQuizEmail`, `emailGateUnlocked`, the two subscribe-sync effects) and gates `ArchetypeSection`/`CompareOverlay` behind it — none of it touches the tie interstitial, branch-question flow, `archetypeNameMap`, or any Liam entry-point link (Sommelier CTA, "Talk to Liam" links unchanged). The signed-in lifecycle update (`refreshLifecycleState` via `POST /api/quiz/results`) is pre-existing code, not touched — confirmed via `git diff` on `routes/quiz.ts` showing zero lines changed in that route. New `PostQuizEmailGate.tsx` component and the extended `newsletter.ts`/`users.ts` routes are nowhere near the Sommelier/Liam surface. Continuity note only.
 
+#### S60. Step 04b — FIX: firm gate reveal order + card typography — confirmed no Liam impact (2026-07-21)
+
+**Context**: `WHAT_WE_BUILT.md` #111. Fixed the actual quiz-completion path (`fromWrapRef` branch) so Section 1's free reveal (name/wallpaper/bag/description, via a new `Section1Reveal` component) renders before the email gate instead of being hidden behind it, and swapped `PostQuizEmailGate.tsx`'s inverted headline/supporting-line styling back to spec. Neither change touches the tie interstitial, branch-question flow, or any Liam entry-point link — `Section1Reveal` is purely presentational (reads `archetype.name`/`.wallpaper`/`.bag`/`.shortDescription`, all pre-existing local data, no new fetch), and the typography swap is scoped to `PostQuizEmailGate.tsx`'s own JSX. `ArchetypeSection`'s gating logic (and therefore its Liam-adjacent "Talk to Liam" links inside `RevealedPanel`) is unchanged — only *when* it renders relative to Section 1 was touched, not what it renders. Continuity note only.
+
 #### S35. Task 6 — Liam voice reset (2026-07-04)
 Full execution of `SOMMELIER_TASK_6_VOICE.md`. Three files changed + live Firestore config patched.
 

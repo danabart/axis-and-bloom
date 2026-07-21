@@ -49,27 +49,26 @@ export function PostQuizEmailGate({ archetypeName, archetypeColor, experimental,
       padding: 'clamp(32px, 5vw, 48px) clamp(24px, 4vw, 40px)',
       textAlign: 'center',
     }}>
-      <p style={{
-        fontFamily: "'Lato', Arial, sans-serif",
-        fontSize: '0.62rem',
-        letterSpacing: '0.22em',
-        textTransform: 'uppercase',
-        color: archetypeColor,
-        opacity: 0.6,
-        margin: '0 0 14px',
-      }}>
-        Where should we send your match?
-      </p>
       <h2 style={{
         fontFamily: "'Lato', Arial, sans-serif",
         fontSize: 'clamp(1.5rem, 2.4vw, 1.9rem)',
         fontWeight: 400,
         color: BRAND,
         lineHeight: 1.3,
+        margin: '0 0 14px',
+      }}>
+        Where should we send your match?
+      </h2>
+      <p style={{
+        fontFamily: "'Lato', Arial, sans-serif",
+        fontSize: '0.9rem',
+        color: BRAND,
+        opacity: 0.62,
+        lineHeight: 1.6,
         margin: '0 0 32px',
       }}>
         The full why, your matched coffees, and your archetype card — plus first access October 1.
-      </h2>
+      </p>
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
         <input

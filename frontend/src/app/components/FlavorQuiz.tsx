@@ -157,6 +157,72 @@ function GateStatusNote({ showSignedInConsentNote, guestMaskedEmail }: {
   );
 }
 
+// ─── Step 04b (FIX 1): free Section 1 reveal — curtain, name, bag, one-line
+// description. Renders unconditionally as soon as the archetype is known (no
+// wait on the archetypesList fetch that gates Sections 2-3), above the email
+// gate. Restores the "gift-unwrap" identity moment the step-04 deploy had
+// accidentally removed from the wrap-sequence results path (the path every
+// real quiz completion takes) by wrapping the whole reveal in the email gate.
+
+function Section1Reveal({ name, wallpaper, bag, description }: {
+  name: string;
+  wallpaper: string;
+  bag: string;
+  description: string;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
+      style={{
+        position: 'relative',
+        minHeight: '64vh',
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        textAlign: 'center',
+        padding: 'clamp(48px, 8vh, 96px) clamp(24px, 5vw, 64px)',
+        backgroundColor: '#0a0604',
+        backgroundImage: `url(${wallpaper})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+      }}
+    >
+      <div style={{
+        position: 'absolute', inset: 0,
+        background: 'linear-gradient(to top, rgba(10,6,4,0.66) 0%, rgba(10,6,4,0.28) 60%, rgba(10,6,4,0.12) 100%)',
+      }} />
+      <div style={{ position: 'relative', zIndex: 1 }}>
+        <img
+          src={bag}
+          alt={`${name} bag`}
+          width={140} height={175}
+          style={{ maxWidth: 140, width: '100%', margin: '0 auto 24px', display: 'block', filter: 'drop-shadow(0 18px 44px rgba(0,0,0,0.4))' }}
+        />
+        <p style={{
+          fontSize: '0.5rem', letterSpacing: '0.32em', textTransform: 'uppercase',
+          color: 'rgba(242,241,234,0.6)', margin: '0 0 9px',
+        }}>
+          YOUR COFFEE ARCHETYPE
+        </p>
+        <h1 style={{
+          fontSize: 'clamp(2.4rem, 4.4vw, 4.6rem)', color: '#f2f1ea', fontWeight: 400,
+          lineHeight: 1.0, margin: '0 0 20px', letterSpacing: '-0.01em',
+        }}>
+          {name}
+        </h1>
+        <p style={{
+          fontSize: 'clamp(0.82rem, 0.95vw, 0.95rem)', color: 'rgba(242,241,234,0.82)',
+          lineHeight: 1.75, margin: '0 auto', maxWidth: 480,
+        }}>
+          {description}
+        </p>
+      </div>
+    </motion.div>
+  );
+}
+
 // ─── Ruler-tick progress ──────────────────────────────────────────────────────
 
 function ProgressTicks({ current, total }: { current: number; total: number }) {
@@ -1559,6 +1625,12 @@ export default function FlavorQuiz() {
     return (
       <div style={{ backgroundColor: '#f2f1ea', minHeight: '100vh' }}>
         <QuizHeader />
+        <Section1Reveal
+          name={archetype.name}
+          wallpaper={archetype.wallpaper}
+          bag={archetype.bag}
+          description={archetype.shortDescription}
+        />
         {resultsArchetypeData && (
           emailGateUnlocked ? (
             <>

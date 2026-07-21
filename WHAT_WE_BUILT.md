@@ -2881,6 +2881,22 @@ WHAT_WE_BUILT.md #110, SOMMELIER_BUILT.md S59 (no Liam impact).
 
 ---
 
+### 111. Step 04b — FIX: firm gate had shipped as a hard gate (2026-07-21)
+
+Executed `launch/10_quiz-and-archetypes/04b_FIX_firm_gate_reveal_order.md`. Step 04's deploy had deviated from spec: Section 1 (the archetype reveal — name/wallpaper/bag/description) was wrapped inside the same `emailGateUnlocked` conditional as `ArchetypeSection`, so a first-time guest on the actual completion path (`fromWrapRef.current`, the branch every real quiz finish takes — `?result=` preview links are the only thing that reach the other, unaffected scroll-curtain branch) saw nothing but the email card at the end of the quiz: no curtain, no name, no bag. The card's own typography was also inverted (the small supporting line rendered as the huge heading, the actual headline as a small eyebrow).
+
+**FIX 1 — free Section 1 reveal.** New `Section1Reveal` component in `FlavorQuiz.tsx` (wallpaper background, bag image, archetype name, one-line description, same fade/slide-up motion used elsewhere on this screen) rendered unconditionally in the `fromWrapRef` branch, gated only on `archetype` (available synchronously right after scoring) rather than the `archetypesList` fetch that gates `ArchetypeSection` — so it appears immediately, not after a network round trip. Uses `archetype.wallpaper`/`archetype.bag` uniformly for all six archetypes, including Chocolate & Nutty (the unaffected scroll-curtain branch special-cases chocolate with brand text instead of a photo; deliberately not replicated here — pre-Step-04 this path rendered every archetype, chocolate included, through the same unified `ArchetypeSection` with no special case, so uniform treatment is the correct "identical to pre-step-04" behavior, not a new inconsistency).
+
+**FIX 2 — required no code change.** The immediate in-place unlock (`handleGateSuccess` synchronously sets `postQuizEmail`, flipping `emailGateUnlocked` and swapping `PostQuizEmailGate` for `ArchetypeSection` in the same render, no reload/redirect) was already correct from Step 04 — verified live for all three paths rather than assumed.
+
+**FIX 3 — card typography swap.** `PostQuizEmailGate.tsx`: "Where should we send your match?" is now the large heading (was the small eyebrow); "The full why, your matched coffees, and your archetype card — plus first access October 1." is now the smaller supporting line beneath it (was the huge heading) — dropped its uppercase-eyebrow letter-spacing treatment since it's genuinely supporting text now, not a kicker above a title.
+
+**Verified live**, not from code reading — real guest flow against the local dev stack (frontend/backend through the Cloud SQL Auth Proxy against real production Cloud SQL): a genuinely fresh guest (cleared `localStorage` **and** the Firebase `IndexedDB` session — an earlier pass was accidentally testing the *signed-in* path because a prior test session's auth had persisted) saw the full free reveal with no email required, the swapped card hierarchy, and no skip/scroll/URL bypass to Sections 2-3. Submitting a real email unlocked `ArchetypeSection` immediately in place; confirmed server-side too — `newsletter_subscriber` row landed with `source: post_quiz`/correct `archetype`, and `quiz_start → quiz_complete → email_submitted` all logged under one `quiz_funnel_event.session_key`. Signed-in (no card, reveal + sections visible, one-line consent note) and returning-guest (no card, masked-email line, sections auto-unlocked) paths both confirmed live as well. Homepage lifecycle CTA/Company Gift widget: not part of this fix's diff (`FlavorQuiz.tsx`/`PostQuizEmailGate.tsx` only), confirmed via `git status`. All test rows (subscriber + funnel events) cleaned from production afterward, re-verified at 0 rows. `vite build` clean.
+
+WHAT_WE_BUILT.md #111, SOMMELIER_BUILT.md S60 (no Liam impact).
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.
