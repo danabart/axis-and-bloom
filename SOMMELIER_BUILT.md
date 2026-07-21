@@ -564,6 +564,10 @@ No Liam prompt, RAG query, or chat behavior changed by either of these.
 
 **Context**: `WHAT_WE_BUILT.md` #109. `FlavorQuiz.tsx` was genuinely edited this time (unlike #108) — added a per-session `crypto.randomUUID()` ref, a `QuizStart`/`QuizComplete` tracking call in `handleAnswerSelect`/`handleNext`, and a two-line reset in `handleRetake`. None of it touches the tie interstitial, `archetypeNameMap`, Liam entry-point links, or any prop/state `Sommelier.tsx`/`sommelierEvaluator.ts` reads — purely additive analytics side-calls alongside the existing scoring flow, no branching logic changed. New backend route/table (`POST /api/quiz/event`, `quiz_funnel_event`, `features/marketing/funnelEvents.ts`) and the new `NewsletterModal.tsx`/`PreLaunch.tsx` tracking calls are nowhere near the Sommelier/Liam surface either. Continuity note only.
 
+#### S59. Step 04 (A2) firm email gate + lifecycle — confirmed no Liam impact (2026-07-20/21)
+
+**Context**: `WHAT_WE_BUILT.md` #110. `FlavorQuiz.tsx` gained the email-gate state block (`postQuizEmail`, `emailGateUnlocked`, the two subscribe-sync effects) and gates `ArchetypeSection`/`CompareOverlay` behind it — none of it touches the tie interstitial, branch-question flow, `archetypeNameMap`, or any Liam entry-point link (Sommelier CTA, "Talk to Liam" links unchanged). The signed-in lifecycle update (`refreshLifecycleState` via `POST /api/quiz/results`) is pre-existing code, not touched — confirmed via `git diff` on `routes/quiz.ts` showing zero lines changed in that route. New `PostQuizEmailGate.tsx` component and the extended `newsletter.ts`/`users.ts` routes are nowhere near the Sommelier/Liam surface. Continuity note only.
+
 #### S35. Task 6 — Liam voice reset (2026-07-04)
 Full execution of `SOMMELIER_TASK_6_VOICE.md`. Three files changed + live Firestore config patched.
 
