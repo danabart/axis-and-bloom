@@ -67,7 +67,7 @@ export function PostQuizEmailGate({ archetypeName, archetypeColor, experimental,
         lineHeight: 1.6,
         margin: '0 0 32px',
       }}>
-        The full why, your matched coffees, and your archetype card — plus first access October 1.
+        See why this is you — and meet the coffees chosen for your taste. First access when doors open October 1.
       </p>
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -108,7 +108,7 @@ export function PostQuizEmailGate({ archetypeName, archetypeColor, experimental,
             opacity: submitting ? 0.6 : 1,
           }}
         >
-          {submitting ? 'Sending…' : 'Show My Match'}
+          {submitting ? 'Sending…' : 'Show me why'}
         </button>
         {error && (
           <p style={{
