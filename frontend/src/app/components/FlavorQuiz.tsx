@@ -7,6 +7,7 @@ import { useCart } from '../context/CartContext';
 import { saveQuizResult, getUserProfile, getDialPosition, setDialPosition, logQuizFunnelEvent, subscribeNewsletter } from '../lib/api';
 import { trackEvent, trackLead } from '../lib/analytics';
 import { PostQuizEmailGate } from './PostQuizEmailGate';
+import { ShareMatchRow } from './ShareMatchRow';
 import { ArchetypeSection, computeDefaultSortOrder } from './bloom/ArchetypeSection';
 import { CompareOverlay } from './bloom/CompareOverlay';
 import type { BloomDialHandle } from './BloomDialWidget';
@@ -687,6 +688,11 @@ export default function FlavorQuiz() {
   const resultsArchetypeData = resultsArchetypeEnum === 'experimental'
     ? experimentalData
     : archetypesList.find(a => a.archetype === resultsArchetypeEnum) ?? null;
+
+  // Step 07 (A3): the 5-archetype share canon excludes Experimental (it's a category,
+  // not one of the 5 archetypes with a public /match page) — underscore-to-hyphen
+  // matches archetypeAssets' ARCHETYPE_SLUGS convention (chocolate_nutty -> chocolate-nutty).
+  const shareSlug = archetypeKey === 'experimental' ? null : resultsArchetypeEnum.replace('_', '-');
 
   // Pre-set the dial to the signed-in user's saved position for this archetype (mirrors BloomPage.tsx Phase D).
   useEffect(() => {
@@ -1635,6 +1641,7 @@ export default function FlavorQuiz() {
           bag={archetype.bag}
           description={archetype.shortDescription}
         />
+        <ShareMatchRow archetypeName={archetype.name} shareSlug={shareSlug} />
         {resultsArchetypeData && (
           emailGateUnlocked ? (
             <>
@@ -1918,6 +1925,8 @@ export default function FlavorQuiz() {
 
         </div>
       </div>
+
+      <ShareMatchRow archetypeName={archetype.name} shareSlug={shareSlug} />
 
       {/* ── Full-width archetype box — the same dial, position card, reveal panel,
            add-to-cart, compare, and hop-link flow already proven on /bloom and this
