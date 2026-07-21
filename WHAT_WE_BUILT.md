@@ -1081,7 +1081,7 @@ This keeps Firebase's secure token generation while giving us full control over 
 
 ## Pre-Launch Page
 
-The site shows a full-screen pre-launch curtain at `axisandbloom.com/` while `VITE_PRELAUNCH_MODE=true` in the CI/CD pipeline. All other routes (`/about`, `/shop`, `/admin`, etc.) remain fully accessible.
+The site shows a full-screen pre-launch curtain at `axisandbloomcoffee.com/` while `VITE_PRELAUNCH_MODE=true` in the CI/CD pipeline. All other routes (`/about`, `/shop`, `/admin`, etc.) remain fully accessible.
 
 **File**: `frontend/src/app/components/PreLaunch.tsx`
 
@@ -1099,7 +1099,7 @@ On mobile (< 768px) stacks vertically: logo panel takes 45vh, content panel take
 - Errors fail silently — the success message still shows (UX: don't alarm the user)
 
 ### Team bypass
-Visit `axisandbloom.com/?preview=true` to skip the curtain and see the full site. Stored in `sessionStorage` — resets when you close the browser.
+Visit `axisandbloomcoffee.com/?preview=true` to skip the curtain and see the full site. Stored in `sessionStorage` — resets when you close the browser.
 
 Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that reads `useSearchParams` and `sessionStorage`.
 
@@ -1114,7 +1114,7 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 
 | Component | Status |
 |---|---|
-| Frontend deployed | ✅ https://axisandbloom.com (custom domain) / https://axis-and-bloom-prod.web.app |
+| Frontend deployed | ✅ https://axisandbloomcoffee.com (custom domain) / https://axis-and-bloom-prod.web.app |
 | Backend deployed | ✅ https://axis-bloom-backend-oiub7eumya-uc.a.run.app |
 | Database connected | ✅ 48 tables verified via /health/db |
 | Email/password auth | ✅ Working |
@@ -1130,7 +1130,7 @@ Implemented in `frontend/src/app/App.tsx` via a `HomeOrPrelaunch` component that
 | The Axis page (`/the-axis`) | ✅ Full rebuild from `axis v2.docx` — "Black Box Transparency" strategy. Fully static, no API calls. Hero + 5 sections: The Problem (origin-vs-profile split visual + pull quote), The Inputs (quiz/coffee input cards + 5 archetype cards with mini radar shapes + unlabeled concept parallel coordinates), The Engine (distance plot + 3-point explainer + subscription callout), The Feedback Loop (3 feedback bullets + circular loop diagram + editorial callout), CTA → `/find-my-flavor`. No calibration data exposed. |
 | Our Coffees page (`/coffees`) | ✅ Redesigned — three content layers: (1) AI editorial content (surprise angle, three-voice story, collapsible AI note — all cached in SQL + Firestore); (2) personalization layer for logged-in users (compatibility badge + dimension comparison text); (3) data layer (dimension bars + bubble cloud). Compare mode: ⇄ toggle shows two coffees side-by-side with dimension diff bars. |
 | Shopify | ⚠️ Stubbed — waiting for roastery account |
-| Pre-launch page | ✅ Live — full-screen curtain at axisandbloom.com; email + first name capture saves to DB + Mailchimp; bypass via `?preview=true` |
+| Pre-launch page | ✅ Live — full-screen curtain at axisandbloomcoffee.com; email + first name capture saves to DB + Mailchimp; bypass via `?preview=true` |
 | Newsletter subscriber tracking | ✅ `subscriber_source` table tracks signup origin (`pre_launch`, `newsletter`, `post_quiz`, `footer`); `first_name` stored |
 | Homepage editorial redesign | ✅ 9 sections: full-screen video hero, concept band, how it works grid, profile entry form (CoffeePic16 bg), flavor map, cinematic video, coffee bag collection, Human+AI terracotta band, TasteFinderSection curtain |
 | About page editorial redesign | ✅ 7 sections: FamilyEdit.jpg hero, brand story, Axis/Bloom name blocks, founders' note, video section, archetype bridge, final CTA — full editorial tone, cinematic layout |
