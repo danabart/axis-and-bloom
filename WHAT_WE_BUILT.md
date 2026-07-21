@@ -2897,6 +2897,14 @@ WHAT_WE_BUILT.md #111, SOMMELIER_BUILT.md S60 (no Liam impact).
 
 ---
 
+### 112. Step 04c — COPY: email-gate sub-line + button text (2026-07-21)
+
+Executed `launch/10_quiz-and-archetypes/04c_COPY_gate_card_text.md`. Two strings in `PostQuizEmailGate.tsx`: sub-line "The full why, your matched coffees, and your archetype card — plus first access October 1." → "See why this is you — and meet the coffees chosen for your taste. First access when doors open October 1."; button "Show My Match" → "Show me why" (button was inaccurate — the archetype is already revealed above the card by Step 04b; the button unlocks the why + coffees, not the match itself). Headline, email field, and all gate behavior untouched. Confirmed via `grep` that neither old string exists anywhere else in `frontend/src` (single occurrence each, no shared constant to fork). `vite build` clean.
+
+WHAT_WE_BUILT.md #112, SOMMELIER_BUILT.md S61 (no Liam impact).
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.
