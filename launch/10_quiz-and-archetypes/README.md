@@ -8,7 +8,9 @@ the archetype taxonomy, the results-screen email capture, and the shareable arch
 | Global step | File | What | Model | Depends on | Status |
 |---|---|---|---|---|---|
 | 01 | `01_A1_archetype_canon.md` | 5-archetype canon; Spicy & Earthy → Earthy merge; Experimental = category (visuals untouched) | Sonnet | — | ▶ v2 ready — first run was reverted; this rewrite is audit-first with hard boundaries |
-| 04 | `04_A2_quiz_firm_gate_lifecycle.md` | **FIRM** email gate on results (revised 2026-07-18: free reveal, no skip link, why+coffees email-only), lifecycle-aware (Remember, Never Reset) | Opus/Fable | Step 02 | ⬜ |
+| 04 | `04_A2_quiz_firm_gate_lifecycle.md` | **FIRM** email gate on results (revised 2026-07-18: free reveal, no skip link, why+coffees email-only), lifecycle-aware (Remember, Never Reset) | Opus/Fable | Step 02 | ⚠ deployed 2026-07-20 but DEVIATED — shipped as a hard gate (card before the reveal) + inverted card typography; run 04b |
+| 04b | `04b_FIX_firm_gate_reveal_order.md` | FIX for the 04 deviation: reveal renders free BEFORE the card; post-submit unlock shows full why + coffees in place; card headline/sub swapped back | Opus/Fable | Step 04 deployed | ✅ run + verified 2026-07-20 (gate order confirmed live) |
+| 04c | `04c_COPY_gate_card_text.md` | Copy polish (Dana-approved): sub-line → "See why this is you — and meet the coffees chosen for your taste. First access when doors open October 1." · button → "SHOW ME WHY" | Sonnet | 04b deployed | ▶ ready |
 | 07 | `07_A3_share_your_match.md` | 5 public share pages + OG images + share row | Sonnet | Steps 01 + 04 deployed (hard); date is flexible — anytime after | ⬜ |
 
 Step 01 also **gates marketing content**: Camila's archetype-world films/posts can't start
@@ -24,6 +26,16 @@ Read launch/README.md for context and rules, then execute the prompt in launch/1
 **Step 04** — model: Opus or Fable
 ```
 Read launch/README.md for context and rules, then execute the prompt in launch/10_quiz-and-archetypes/04_A2_quiz_firm_gate_lifecycle.md exactly as written. Do only this step. Before writing code, locate and explain the existing lifecycle mechanism you will reuse. When done, show me how each ACCEPTANCE criterion is met, including the homepage widgets still being intact.
+```
+
+**Step 04b (fix)** — model: Opus or Fable
+```
+Read launch/README.md for context and rules, then execute the prompt in launch/10_quiz-and-archetypes/04b_FIX_firm_gate_reveal_order.md exactly as written. Do only this fix. Before accepting the diff, demonstrate every ACCEPTANCE criterion one by one — the original step 04 session claimed a free reveal it did not deliver.
+```
+
+**Step 04c (copy)** — model: Sonnet
+```
+Read launch/README.md for context and rules, then execute the prompt in launch/10_quiz-and-archetypes/04c_COPY_gate_card_text.md exactly as written. Do only this copy change — two strings, nothing else. When done, show me how each ACCEPTANCE criterion is met, including the grep proving the old strings are gone.
 ```
 
 **Step 07** — model: Sonnet — early September
