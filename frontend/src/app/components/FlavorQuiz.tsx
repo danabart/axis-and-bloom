@@ -17,7 +17,7 @@ const RUST = '#a33726';
 
 // ─── Archetype asset imports ──────────────────────────────────────────────────
 
-import { archetypeAssets, patternAssets, quizAssets } from '../../design/assets';
+import { archetypeAssets, patternAssets, cardAssets, quizAssets } from '../../design/assets';
 
 const wallpaperFloral       = archetypeAssets.floral.wallpaper.src;
 const wallpaperFruity       = archetypeAssets.fruity.wallpaper.src;
@@ -33,11 +33,9 @@ const bagChocolate       = archetypeAssets['chocolate-nutty'].bag.src;
 const bagEarthy          = archetypeAssets['spicy-earthy'].bag.src;
 const bagExperimental    = archetypeAssets.experimental.bag.src;
 
-const coffeePic10   = quizAssets.coffeeLarge.src;
-const patternTissue = patternAssets.experimental.src;
-const patternSheet  = patternAssets['balanced-sweet'].src;
-const patternLeafL  = patternAssets['spicy-earthy'].src;
-const patternLeafR  = patternAssets.fruity.src;
+const coffeePic10    = quizAssets.coffeeLarge.src;
+const patternTissue  = patternAssets.experimental.src;
+const patternSpicy   = patternAssets['spicy-earthy'].src;
 const q1Photo = quizAssets.pic1.src;
 const q2Photo = quizAssets.pic2.src;
 const q3Photo = quizAssets.pic3.src;
@@ -246,88 +244,82 @@ function ProgressTicks({ current, total }: { current: number; total: number }) {
 
 // ─── Wrap sequence (papers close → text → papers part) ───────────────────────
 
-function WrapSequence({ name, onComplete }: { name: string; onComplete: () => void }) {
+function WrapSequence({ name, cardSrc, onComplete }: { name: string; cardSrc: string; onComplete: () => void }) {
   const reducedMotion = typeof window !== 'undefined'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  const [tissueIn, setTissueIn]   = useState(false);
-  const [sheetIn,  setSheetIn]    = useState(false);
-  const [leafRIn,  setLeafRIn]    = useState(false);
-  const [leafLIn,  setLeafLIn]    = useState(false);
-  const [wrapLine, setWrapLine]   = useState('');
-  const [showText, setShowText]   = useState(false);
+  const [expIn,    setExpIn]    = useState(false);
+  const [spicyIn,  setSpicyIn]  = useState(false);
+  const [expOut,   setExpOut]   = useState(false);
+  const [spicyOut, setSpicyOut] = useState(false);
+  const [wrapLine, setWrapLine] = useState('');
+  const [showText, setShowText] = useState(false);
 
   useEffect(() => {
-    const label = name ? `Wrapping ${name}'s profile…` : 'Wrapping your profile…';
+    const line1 = name ? `Wrapping ${name}'s coffee…`  : 'Wrapping your coffee…';
+    const line2 = name ? `Choosing ${name}'s coffee…`  : 'Choosing your coffee…';
 
     if (reducedMotion) {
-      setTissueIn(true); setSheetIn(true); setLeafRIn(true); setLeafLIn(true);
+      setExpIn(true); setSpicyIn(true);
       const timers = [
-        setTimeout(() => { setWrapLine(label); setShowText(true); }, 300),
-        setTimeout(() => setWrapLine('Choosing your coffee…'), 900),
+        setTimeout(() => { setWrapLine(line1); setShowText(true); }, 300),
+        setTimeout(() => setWrapLine(line2), 900),
         setTimeout(() => setShowText(false), 1400),
-        setTimeout(() => { setTissueIn(false); setSheetIn(false); setLeafRIn(false); setLeafLIn(false); }, 1700),
-        setTimeout(onComplete, 1900),
+        setTimeout(() => { setExpOut(true); setSpicyOut(true); }, 1700),
+        setTimeout(onComplete, 2200),
       ];
       return () => timers.forEach(clearTimeout);
     }
 
     const t = (ms: number, fn: () => void) => setTimeout(fn, ms);
     const timers = [
-      t(100,  () => setTissueIn(true)),
-      t(650,  () => setSheetIn(true)),
-      t(1200, () => setLeafRIn(true)),
-      t(1450, () => setLeafLIn(true)),
-      t(2500, () => { setWrapLine(label); setShowText(true); }),
-      t(4000, () => setWrapLine('Choosing your coffee…')),
-      t(5400, () => setShowText(false)),
-      t(5800, () => setLeafLIn(false)),
-      t(6060, () => setLeafRIn(false)),
-      t(6500, () => setSheetIn(false)),
-      t(6950, () => setTissueIn(false)),
-      t(8100, onComplete),
+      t(100,  () => setExpIn(true)),
+      t(700,  () => setSpicyIn(true)),
+      t(2200, () => { setWrapLine(line1); setShowText(true); }),
+      t(3700, () => setWrapLine(line2)),
+      t(5200, () => setShowText(false)),
+      t(5600, () => { setSpicyOut(true); setExpOut(true); }),
+      t(7500, onComplete),
     ];
     return () => timers.forEach(clearTimeout);
   }, []);
 
-  const tx = reducedMotion ? 'opacity 0.4s ease' : 'transform 1s cubic-bezier(.22,1,.36,1)';
-  const op = (v: boolean) => reducedMotion ? (v ? 1 : 0) : 1;
+  const ease = 'cubic-bezier(.22,1,.36,1)';
+  const expTransform   = expOut   ? 'translateY(100%)'  : expIn   ? 'translateY(0%)' : 'translateY(100%)';
+  const spicyTransform = spicyOut ? 'translateY(-100%)' : spicyIn ? 'translateY(0%)' : 'translateY(-100%)';
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 80, overflow: 'hidden' }}>
-      {/* tissue — experimental, rises from bottom */}
+      {/* Base — archetype card on beige, revealed once both panels exit */}
       <div style={{
-        position: 'absolute', top: '-4%', bottom: 0, left: 0, right: 0,
+        position: 'absolute', inset: 0, background: '#f2f1ea',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <img src={cardSrc} alt=""
+          style={{ maxWidth: '80%', maxHeight: '80vh', width: 'auto', height: 'auto', objectFit: 'contain' }} />
+      </div>
+
+      {/* Experimental — rises from bottom */}
+      <div style={{
+        position: 'absolute', inset: 0,
         backgroundImage: `url(${patternTissue})`, backgroundSize: '1250px', backgroundPosition: '60% 40%',
-        transform: tissueIn ? 'translateY(0)' : 'translateY(112%)',
-        opacity: op(tissueIn), transition: tx, willChange: 'transform',
+        transform: reducedMotion ? undefined : expTransform,
+        opacity: reducedMotion ? (expIn && !expOut ? 1 : 0) : 1,
+        transition: reducedMotion ? 'opacity 0.4s ease' : `transform 1s ${ease}`,
+        willChange: 'transform',
       }} />
-      {/* sheet — balanced, slightly offset */}
+
+      {/* Spicy & Earthy — drops from top */}
       <div style={{
-        position: 'absolute', top: '-5%', bottom: 0, left: 0, right: 0,
-        backgroundImage: `url(${patternSheet})`, backgroundSize: '1250px', backgroundPosition: '40% 15%',
-        transform: sheetIn ? 'translate(0,0)' : 'translate(-6%,114%)',
-        opacity: op(sheetIn), transition: tx, willChange: 'transform',
+        position: 'absolute', inset: 0,
+        backgroundImage: `url(${patternSpicy})`, backgroundSize: '1250px', backgroundPosition: '12% 30%',
+        transform: reducedMotion ? undefined : spicyTransform,
+        opacity: reducedMotion ? (spicyIn && !spicyOut ? 1 : 0) : 1,
+        transition: reducedMotion ? 'opacity 0.4s ease' : `transform 1s ${ease}`,
+        willChange: 'transform',
       }} />
-      {/* right leaf — fruity */}
-      <div style={{
-        position: 'absolute', top: '-6%', bottom: '-6%', right: '-4%', width: '60%',
-        backgroundImage: `url(${patternLeafR})`, backgroundSize: '1250px', backgroundPosition: '78% 62%',
-        clipPath: 'polygon(7% 0,100% 0,100% 100%,0 100%)',
-        boxShadow: '-14px 0 34px -10px rgba(20,12,8,.4)',
-        transform: leafRIn ? 'translate(0,0) rotate(0deg)' : 'translate(116%,-22%) rotate(12deg)',
-        opacity: op(leafRIn), transition: tx, willChange: 'transform',
-      }} />
-      {/* left leaf — spicy */}
-      <div style={{
-        position: 'absolute', top: '-6%', bottom: '-6%', left: '-4%', width: '62%',
-        backgroundImage: `url(${patternLeafL})`, backgroundSize: '1250px', backgroundPosition: '12% 30%',
-        clipPath: 'polygon(0 0,100% 0,93% 100%,0 100%)',
-        boxShadow: '14px 0 34px -10px rgba(20,12,8,.45)',
-        transform: leafLIn ? 'translate(0,0) rotate(0deg)' : 'translate(-118%,-26%) rotate(-13deg)',
-        opacity: op(leafLIn), transition: tx, willChange: 'transform',
-      }} />
-      {/* wrap text */}
+
+      {/* Text — above both panels */}
       <div style={{
         position: 'absolute', inset: 0, zIndex: 5,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -371,6 +363,17 @@ function highlightQuestion(text: string, keyword: string): React.ReactNode {
     </>
   );
 }
+
+// ─── Archetype card images for the wrap reveal (WEB* set from bucket) ────────
+
+const ARCHETYPE_CARDS: Record<string, string> = {
+  floral:       cardAssets.floral.src,
+  fruity:       cardAssets.fruity.src,
+  balanced:     cardAssets['balanced-sweet'].src,
+  chocolate:    cardAssets['chocolate-nutty'].src,
+  earthy:       cardAssets['spicy-earthy'].src,
+  experimental: cardAssets.experimental.src,
+};
 
 // ─── Static question images (keyed by q_number) ───────────────────────────────
 
@@ -1604,6 +1607,7 @@ export default function FlavorQuiz() {
     return (
       <WrapSequence
         name={userName}
+        cardSrc={ARCHETYPE_CARDS[archetypeKey] ?? ARCHETYPE_CARDS['balanced']}
         onComplete={() => {
           setIsWrapping(false);
           resetReveal();

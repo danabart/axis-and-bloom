@@ -102,6 +102,17 @@ export const quizAssets = {
   coffeeLarge: optimized('quiz/coffee-large'),
 };
 
+// Per-archetype card images (WEB* set) — used in the quiz wrap reveal.
+// Upload paths: raw/archetypes/web-{slug}.png for each (e.g. raw/archetypes/web-floral.png).
+export const cardAssets: Record<ArchetypeSlug, OptimizedAsset> = {
+  floral:           optimized('archetypes/web-floral'),
+  fruity:           optimized('archetypes/web-fruity'),
+  'balanced-sweet': optimized('archetypes/web-balanced-sweet'),
+  'chocolate-nutty':optimized('archetypes/web-chocolate-nutty'),
+  'spicy-earthy':   optimized('archetypes/web-spicy-earthy'),
+  experimental:     optimized('archetypes/web-experimental'),
+};
+
 // Small per-archetype background patterns — shared by FlavorQuiz and TasteFinderSection.
 export const patternAssets: Record<ArchetypeSlug, OptimizedAsset> = {
   floral: optimized('patterns/floral'),
