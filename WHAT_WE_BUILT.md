@@ -2921,6 +2921,22 @@ WHAT_WE_BUILT.md #113, SOMMELIER_BUILT.md S62 (no Liam impact).
 
 ---
 
+### 114. Step 06 (B3) — Reporting views, read-only role, admin Marketing links (2026-07-21)
+
+Executed `launch/20_analytics-and-tracking/06_B3_reporting_views_admin_links.md`.
+
+**4 reporting views** in `schema.sql` (`v_subscribers_weekly` by source, `v_quiz_funnel_weekly` with completion/opt-in rates, `v_archetype_distribution` by share, `v_orders_weekly` — returns 0 rows pre-launch, not an error). All `DROP VIEW IF EXISTS` + recreate on every startup, same pattern as the existing `v_*` views.
+
+**`reporting_ro` role** — created `NOLOGIN` in `schema.sql` so no credential ever lives in git; Dana enables `LOGIN` + sets a real password manually (Secret Manager), documented in the workstream README. Granted `CONNECT` + `USAGE` on the schema + `SELECT` on the 4 views only — re-granted every startup since `DROP VIEW` revokes privileges on the old view object. Verified directly against production Cloud SQL (via the Auth Proxy): temporarily enabled login with a throwaway password, confirmed `SELECT` succeeds on the views and is denied (`permission denied for table ...`) on `newsletter_subscriber` and `"order"`, then reverted to `NOLOGIN` — no lasting credential.
+
+**Admin Marketing row** — new `marketing_config` key/value table (3 seeded rows: `looker_studio_url`, `mailchimp_audience_url`, `adspend_sheet_url`), `GET`/`PATCH /api/admin/marketing/config` (thin routes in `admin.ts`, logic in `backend/src/features/marketing/reportingConfig.ts`), and `AdminDashboard.tsx` gained a "Marketing" card row above the existing 6 cupping-stat cards (demoted under a "Cupping & Catalogue" label) — each card is click-to-edit (same inline-edit convention as `coffee_alias.platform_name`) and links out once a URL is set. Empty by design until Dana pastes the Looker Studio URL in at M3.
+
+**Verified**: backend + frontend both typecheck/build clean. Ran `schema.sql` against production Cloud SQL via the Auth Proxy — all 4 views return real data (`v_subscribers_weekly`/`v_quiz_funnel_weekly`/`v_archetype_distribution` non-empty from live traffic, `v_orders_weekly` empty as expected pre-launch), role + grants confirmed exactly as specified via `information_schema.role_table_grants`. **Not browser-verified**: `/admin`'s Marketing row itself — no admin test credentials this session (`/admin` redirects unauthenticated visitors to `/`, same limitation as prior sessions); code-reviewed against the proven `AdminDashboard.tsx`/`AdminCoffees.tsx` patterns instead. Dana should spot-check with a real admin account and complete the manual GCP steps (role password + Looker Studio connector access) below.
+
+WHAT_WE_BUILT.md #114, SOMMELIER_BUILT.md S63 (no Liam impact).
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

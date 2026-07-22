@@ -4,6 +4,7 @@ import { db } from '../db/client.js';
 import { generateAndStoreSummary, generateAndStoreAllContent } from './coffees.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { getDialSuggestion, recordCuppingSignal, getAvgCuppingScore, getArchetypeBucketWidth } from '../services/dialSuggestion.js';
+import { getMarketingConfig, setMarketingConfigValue } from '../features/marketing/reportingConfig.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -157,6 +158,27 @@ router.get('/stats', async (_req, res) => {
   } catch (err) {
     console.error('[admin/stats]', err);
     res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
+// ── GET /api/admin/marketing/config — Marketing dashboard links ──────────────
+router.get('/marketing/config', async (_req, res) => {
+  try {
+    res.json(await getMarketingConfig());
+  } catch (err) {
+    console.error('[admin/marketing/config]', err);
+    res.status(500).json({ error: 'Failed to fetch marketing config' });
+  }
+});
+
+// ── PATCH /api/admin/marketing/config — set one link at a time ───────────────
+router.patch('/marketing/config', async (req, res) => {
+  try {
+    const { key, value } = req.body;
+    res.json(await setMarketingConfigValue(key, value));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to update marketing config';
+    res.status(400).json({ error: message });
   }
 });
 

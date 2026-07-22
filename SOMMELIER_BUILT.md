@@ -580,6 +580,10 @@ No Liam prompt, RAG query, or chat behavior changed by either of these.
 
 **Context**: `WHAT_WE_BUILT.md` #113. New standalone static HTML pages (`frontend/public/match/*`) are outside the React app entirely — no Sommelier/Liam surface exists there at all. `ShareMatchRow.tsx` is new, self-contained, and only reads `archetypeName`/`shareSlug` props; its two `FlavorQuiz.tsx` insertion points are both inside the free Section 1 reveal, nowhere near the tie interstitial, branch flow, or any Liam entry-point link. Continuity note only.
 
+#### S63. Step 06 (B3) reporting views + admin Marketing links — confirmed no Liam impact (2026-07-21)
+
+**Context**: `WHAT_WE_BUILT.md` #114. Pure marketing-reporting plumbing — 4 new SQL views over `newsletter_subscriber`/`quiz_funnel_event`/`"order"`, a `reporting_ro` DB role, and an admin dashboard card row. None of it reads or writes any Sommelier/Liam table (`sommelier_sessions`, `sommelier_messages`, `user_tokens`, `token_events`, `dial_*`), and `AdminDashboard.tsx` is nowhere near `AdminSommelierConfig.tsx`/`AdminSommelierFlow.tsx`. Continuity note only.
+
 #### S35. Task 6 — Liam voice reset (2026-07-04)
 Full execution of `SOMMELIER_TASK_6_VOICE.md`. Three files changed + live Firestore config patched.
 

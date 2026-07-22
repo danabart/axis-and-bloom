@@ -2782,3 +2782,119 @@ CREATE TABLE IF NOT EXISTS quiz_funnel_event (
 );
 CREATE INDEX IF NOT EXISTS idx_quiz_funnel_event_session ON quiz_funnel_event(session_key);
 CREATE INDEX IF NOT EXISTS idx_quiz_funnel_event_created ON quiz_funnel_event(created_at);
+
+-- ─────────────────────────────────────────────
+-- Step 06 (B3): reporting views, read-only role, admin Marketing config.
+-- Views feed the Looker Studio marketing dashboard (alongside GA4 + the manual
+-- Ad Spend sheet). reporting_ro gets SELECT on these views ONLY, never on base
+-- tables. See launch/20_analytics-and-tracking/README.md for the manual GCP steps.
+-- ─────────────────────────────────────────────
+
+-- Weekly newsletter signups, broken down by source. DROP first — CREATE OR
+-- REPLACE cannot rename existing columns (PG restriction), and this file reruns
+-- on every startup.
+DROP VIEW IF EXISTS v_subscribers_weekly;
+CREATE VIEW v_subscribers_weekly AS
+  SELECT
+    date_trunc('week', ns.created_at)::date AS week,
+    COALESCE(ss.label, 'Unknown')           AS source,
+    COUNT(*)                                AS new_subscribers
+  FROM newsletter_subscriber ns
+  LEFT JOIN subscriber_source ss ON ss.id = ns.source_id
+  GROUP BY 1, 2
+  ORDER BY 1 DESC, 2;
+
+-- Weekly quiz funnel from the first-party quiz_funnel_event log (source of
+-- truth — guests dominate quiz traffic and GA4 undercounts them).
+DROP VIEW IF EXISTS v_quiz_funnel_weekly;
+CREATE VIEW v_quiz_funnel_weekly AS
+  SELECT
+    date_trunc('week', created_at)::date                             AS week,
+    COUNT(*) FILTER (WHERE event = 'quiz_start')                     AS starts,
+    COUNT(*) FILTER (WHERE event = 'quiz_complete')                  AS completes,
+    COUNT(*) FILTER (WHERE event = 'email_submitted')                AS emails_submitted,
+    ROUND(
+      COUNT(*) FILTER (WHERE event = 'quiz_complete')::numeric
+      / NULLIF(COUNT(*) FILTER (WHERE event = 'quiz_start'), 0) * 100, 1
+    )                                                                 AS completion_rate,
+    ROUND(
+      COUNT(*) FILTER (WHERE event = 'email_submitted')::numeric
+      / NULLIF(COUNT(*) FILTER (WHERE event = 'quiz_complete'), 0) * 100, 1
+    )                                                                 AS optin_rate
+  FROM quiz_funnel_event
+  GROUP BY 1
+  ORDER BY 1 DESC;
+
+-- Newsletter subscribers by archetype (only populated when signup originated
+-- from a quiz completion — see the archetype column added in Step 04).
+DROP VIEW IF EXISTS v_archetype_distribution;
+CREATE VIEW v_archetype_distribution AS
+  SELECT
+    archetype,
+    COUNT(*)                                                             AS subscriber_count,
+    ROUND(COUNT(*)::numeric / NULLIF(SUM(COUNT(*)) OVER (), 0) * 100, 1) AS share
+  FROM newsletter_subscriber
+  WHERE archetype IS NOT NULL
+  GROUP BY archetype
+  ORDER BY subscriber_count DESC;
+
+-- Weekly orders/revenue. Empty "order" table pre-launch returns zero rows,
+-- not an error — no special-casing needed.
+DROP VIEW IF EXISTS v_orders_weekly;
+CREATE VIEW v_orders_weekly AS
+  WITH first_orders AS (
+    SELECT user_id, MIN(created_at) AS first_order_at
+    FROM "order"
+    WHERE user_id IS NOT NULL
+    GROUP BY user_id
+  )
+  SELECT
+    date_trunc('week', o.created_at)::date                          AS week,
+    COUNT(*)                                                        AS orders,
+    COUNT(DISTINCT fo.user_id) FILTER (
+      WHERE date_trunc('week', fo.first_order_at) = date_trunc('week', o.created_at)
+    )                                                                AS new_customers,
+    ROUND(SUM(o.total_amount_paid) * 100)::bigint                   AS revenue_cents
+  FROM "order" o
+  LEFT JOIN first_orders fo ON fo.user_id = o.user_id
+  GROUP BY 1
+  ORDER BY 1 DESC;
+
+-- Read-only reporting role for Looker Studio. Created NOLOGIN — no credential
+-- ever lives in this file or git history. Dana enables LOGIN + sets a real
+-- password manually (see README's "Manual GCP steps"), sourced from Secret Manager.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'reporting_ro') THEN
+    CREATE ROLE reporting_ro NOLOGIN;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  EXECUTE format('GRANT CONNECT ON DATABASE %I TO reporting_ro', current_database());
+END $$;
+
+GRANT USAGE ON SCHEMA public TO reporting_ro;
+-- Views only — re-granted every startup since DROP VIEW above revokes any
+-- privileges granted directly on the old view object.
+GRANT SELECT ON
+  v_subscribers_weekly,
+  v_quiz_funnel_weekly,
+  v_archetype_distribution,
+  v_orders_weekly
+TO reporting_ro;
+
+-- Admin-editable marketing dashboard links. One settable row per link so Dana
+-- can paste the Looker Studio report URL in once M3 assembles it, without a
+-- redeploy (Mailchimp audience / Ad Spend sheet URLs are editable the same way).
+CREATE TABLE IF NOT EXISTS marketing_config (
+  key        TEXT PRIMARY KEY,
+  value      TEXT,
+  updated_at TIMESTAMPTZ DEFAULT timezone('utc', now())
+);
+INSERT INTO marketing_config (key, value) VALUES
+  ('looker_studio_url',      NULL),
+  ('mailchimp_audience_url', NULL),
+  ('adspend_sheet_url',      NULL)
+ON CONFLICT (key) DO NOTHING;
