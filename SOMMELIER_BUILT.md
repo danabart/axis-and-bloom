@@ -588,6 +588,10 @@ No Liam prompt, RAG query, or chat behavior changed by either of these.
 
 **Context**: `WHAT_WE_BUILT.md` #115. New `ConsentBanner.tsx`, `Privacy.tsx`, `Terms.tsx`, and an `analytics.ts` consent-default change — none of it touches `Sommelier.tsx`, `sommelierEvaluator.ts`, or any `sommelier_*`/`liam_*` table. The one adjacent detail: `Privacy.tsx`'s copy plainly describes Liam (built on Anthropic's Claude) as an account-data processor, since the policy needs to be accurate about what the site actually does — this is prose in a legal page, not a code path, and reads no Sommelier state. `PostQuizEmailGate.tsx`/`FlavorQuiz.tsx` were touched only to append a consent-copy line and a footer link respectively, both outside the gate/reveal/tie-interstitial logic S59–S61 already tracked. Continuity note only.
 
+#### S65. Step 03b — "Nature of Recommendations" clause on /terms — confirmed no Liam impact (2026-07-21/22)
+
+**Context**: `WHAT_WE_BUILT.md` #116. One new static section in `Terms.tsx`, mentioning matching/recommendations only in the abstract (legal disclaimer language) — no reference to Liam by name, no Sommelier code or table touched. Continuity note only.
+
 #### S35. Task 6 — Liam voice reset (2026-07-04)
 Full execution of `SOMMELIER_TASK_6_VOICE.md`. Three files changed + live Firestore config patched.
 

@@ -50,6 +50,20 @@ export default function Terms() {
         </div>
 
         <div style={section}>
+          <h2 style={h2}>Nature of Recommendations</h2>
+          <p style={p}>
+            Axis &amp; Bloom matches coffees to people using statistical models of taste similarity, based on
+            your quiz responses and, over time, the feedback you share. Taste is personal and subjective; our
+            recommendations represent a considered estimate of what you are likely to enjoy — not a guarantee
+            that you will. Individual results vary, and a recommended coffee may differ from your
+            expectations. Recommendations are provided for informational purposes, "as is," and do not
+            constitute a warranty of fitness for your individual preferences. Our matching system improves
+            continuously; the more feedback you provide, the more precisely it reflects your taste. If your
+            first match isn't right, the Right Match Promise below describes exactly what we'll do about it.
+          </p>
+        </div>
+
+        <div style={section}>
           <h2 style={h2}>The Right Match Promise</h2>
           <div style={calloutCard}>
             <p style={{ ...p, margin: 0, fontStyle: 'italic' }}>

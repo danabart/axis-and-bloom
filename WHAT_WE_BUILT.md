@@ -2959,6 +2959,16 @@ WHAT_WE_BUILT.md #115, SOMMELIER_BUILT.md S64 (no Liam impact).
 
 ---
 
+### 116. Step 03b — ADD: "Nature of Recommendations" clause to /terms (2026-07-21/22)
+
+Executed `launch/30_compliance/03b_ADD_recommendations_clause.md`. One section inserted into `Terms.tsx`, verbatim per the prompt, immediately before "The Right Match Promise" (same `h2`/`p` style constants already defined in the file — no new styling). No other section, page, or file touched; confirmed via `git diff --stat` showing only `Terms.tsx`. No "beta"/unfinished-product language used, per the prompt's hard boundary.
+
+**Verified**: `vite build` clean; live text (via a real page fetch, not just a diff read) confirmed the clause renders verbatim and sits directly above the Right Match Promise placeholder. Standing trio not independently re-run — this diff touches only static Terms copy, nothing in the quiz/homepage/newsletter paths the trio covers.
+
+WHAT_WE_BUILT.md #116, SOMMELIER_BUILT.md S65 (no Liam impact).
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.
