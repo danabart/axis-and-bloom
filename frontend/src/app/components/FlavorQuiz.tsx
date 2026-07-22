@@ -1979,6 +1979,16 @@ export default function FlavorQuiz() {
         />
       )}
 
+      {/* Quiz layout hides the public nav/footer — a minimal legal link stands in for it. */}
+      <div style={{ padding: 'clamp(20px, 3vw, 32px)', textAlign: 'center' }}>
+        <Link to="/privacy" style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.7rem', color: '#7a2018', opacity: 0.45, textDecoration: 'none', marginRight: 20 }}>
+          Privacy
+        </Link>
+        <Link to="/terms" style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.7rem', color: '#7a2018', opacity: 0.45, textDecoration: 'none' }}>
+          Terms
+        </Link>
+      </div>
+
     </div>
   );
 }

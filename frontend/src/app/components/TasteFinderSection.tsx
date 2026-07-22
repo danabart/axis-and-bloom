@@ -243,6 +243,10 @@ export function TasteFinderSection({ visitorName, archetype }: Props) {
               <Link to="/about"          style={{ color: 'inherit', textDecoration: 'none' }}>About</Link>
               <span aria-hidden="true">·</span>
               <Link to="/contact"        style={{ color: 'inherit', textDecoration: 'none' }}>Contact</Link>
+              <span aria-hidden="true">·</span>
+              <Link to="/privacy"        style={{ color: 'inherit', textDecoration: 'none' }}>Privacy</Link>
+              <span aria-hidden="true">·</span>
+              <Link to="/terms"          style={{ color: 'inherit', textDecoration: 'none' }}>Terms</Link>
             </span>
           </div>
 

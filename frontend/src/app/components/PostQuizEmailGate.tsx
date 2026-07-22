@@ -110,6 +110,16 @@ export function PostQuizEmailGate({ archetypeName, archetypeColor, experimental,
         >
           {submitting ? 'Sending…' : 'Personalize my match'}
         </button>
+        <p style={{
+          fontFamily: "'Lato', Arial, sans-serif",
+          fontSize: '0.78rem',
+          color: BRAND,
+          opacity: 0.55,
+          lineHeight: 1.5,
+          margin: 0,
+        }}>
+          We'll email your match and early access — unsubscribe anytime.
+        </p>
         {error && (
           <p style={{
             fontFamily: "'Lato', Arial, sans-serif",

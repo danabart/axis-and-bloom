@@ -95,6 +95,9 @@ export default function NewsletterModal() {
                     <button type="submit" className="w-full bg-[#a33726] text-[#f2f1ea] py-4 text-xs uppercase tracking-[0.2em] hover:bg-[#8e2e1f] transition-colors mt-4">
                       Subscribe & Save
                     </button>
+                    <p className="text-xs text-[#a33726] opacity-55" style={{ lineHeight: 1.5 }}>
+                      We'll email your match and early access — unsubscribe anytime.
+                    </p>
                   </form>
                 </motion.div>
               )}

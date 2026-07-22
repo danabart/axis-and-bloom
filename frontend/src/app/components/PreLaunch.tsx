@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router';
 import { lifestyleAssets } from '../../design/assets';
 import { trackEvent, trackLead } from '../lib/analytics';
 import { logQuizFunnelEvent } from '../lib/api';
@@ -168,8 +169,20 @@ export default function PreLaunch() {
                 >
                   JOIN →
                 </button>
+                <p style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.78rem', color: BRAND, opacity: 0.55, margin: 0, lineHeight: 1.5 }}>
+                  We'll email your match and early access — unsubscribe anytime.
+                </p>
               </form>
             )}
+
+            <div style={{ marginTop: 40 }}>
+              <Link to="/privacy" style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.7rem', color: BRAND, opacity: 0.4, textDecoration: 'none', marginRight: 18 }}>
+                Privacy
+              </Link>
+              <Link to="/terms" style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.7rem', color: BRAND, opacity: 0.4, textDecoration: 'none' }}>
+                Terms
+              </Link>
+            </div>
           </div>
         </div>
       </div>

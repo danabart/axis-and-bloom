@@ -2,9 +2,9 @@
 // No-ops cleanly — no script tags, no network calls — when an ID is unset, so local
 // dev/preview builds stay clean by default.
 //
-// Consent: `consentGranted` defaults to whatever was last stored locally (or `true` if
-// nothing's been stored yet, since no consent banner exists before launch/30_compliance's
-// step). The consent banner step wires real user choice in via `setAnalyticsConsent()`.
+// Consent: `consentGranted` defaults to whatever was last stored locally, or `false` if
+// no choice has been made yet — nothing fires until the ConsentBanner (launch/30_compliance)
+// records an explicit accept via `setAnalyticsConsent()`.
 
 const GA4_ID = import.meta.env.VITE_GA4_ID as string | undefined;
 const META_PIXEL_ID = import.meta.env.VITE_META_PIXEL_ID as string | undefined;
@@ -22,10 +22,18 @@ declare global {
 
 function readStoredConsent(): boolean {
   try {
-    const stored = localStorage.getItem(CONSENT_STORAGE_KEY);
-    return stored === null ? true : stored === 'true';
+    return localStorage.getItem(CONSENT_STORAGE_KEY) === 'true';
   } catch {
-    return true;
+    return false;
+  }
+}
+
+/** Has the visitor already made a choice? Drives whether ConsentBanner renders itself. */
+export function hasStoredConsentChoice(): boolean {
+  try {
+    return localStorage.getItem(CONSENT_STORAGE_KEY) !== null;
+  } catch {
+    return false;
   }
 }
 
@@ -74,7 +82,7 @@ function ensureInit() {
   if (META_PIXEL_ID) loadMetaPixel();
 }
 
-/** Called by the (future) consent banner when the visitor makes a choice. */
+/** Called by ConsentBanner when the visitor makes a choice. */
 export function setAnalyticsConsent(granted: boolean) {
   consentGranted = granted;
   try {

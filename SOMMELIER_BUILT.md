@@ -584,6 +584,10 @@ No Liam prompt, RAG query, or chat behavior changed by either of these.
 
 **Context**: `WHAT_WE_BUILT.md` #114. Pure marketing-reporting plumbing — 4 new SQL views over `newsletter_subscriber`/`quiz_funnel_event`/`"order"`, a `reporting_ro` DB role, and an admin dashboard card row. None of it reads or writes any Sommelier/Liam table (`sommelier_sessions`, `sommelier_messages`, `user_tokens`, `token_events`, `dial_*`), and `AdminDashboard.tsx` is nowhere near `AdminSommelierConfig.tsx`/`AdminSommelierFlow.tsx`. Continuity note only.
 
+#### S64. Step 03 (B2) compliance pack — confirmed no Liam impact (2026-07-21)
+
+**Context**: `WHAT_WE_BUILT.md` #115. New `ConsentBanner.tsx`, `Privacy.tsx`, `Terms.tsx`, and an `analytics.ts` consent-default change — none of it touches `Sommelier.tsx`, `sommelierEvaluator.ts`, or any `sommelier_*`/`liam_*` table. The one adjacent detail: `Privacy.tsx`'s copy plainly describes Liam (built on Anthropic's Claude) as an account-data processor, since the policy needs to be accurate about what the site actually does — this is prose in a legal page, not a code path, and reads no Sommelier state. `PostQuizEmailGate.tsx`/`FlavorQuiz.tsx` were touched only to append a consent-copy line and a footer link respectively, both outside the gate/reveal/tie-interstitial logic S59–S61 already tracked. Continuity note only.
+
 #### S35. Task 6 — Liam voice reset (2026-07-04)
 Full execution of `SOMMELIER_TASK_6_VOICE.md`. Three files changed + live Firestore config patched.
 

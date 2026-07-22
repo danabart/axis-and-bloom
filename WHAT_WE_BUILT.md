@@ -2937,6 +2937,28 @@ WHAT_WE_BUILT.md #114, SOMMELIER_BUILT.md S63 (no Liam impact).
 
 ---
 
+### 115. Step 03 (B2) — Compliance pack: privacy, terms, consent banner (2026-07-21)
+
+Executed `launch/30_compliance/03_B2_compliance_pack.md`. Depended on Step 02's analytics utility (#109), which had already anticipated this step — `analytics.ts` shipped with a `setAnalyticsConsent()` hook and a comment flagging that its default-granted behavior was a stopgap "since no consent banner exists before launch/30_compliance's step."
+
+**Consent default flipped.** `readStoredConsent()` used to return `true` when nothing was stored yet (everyone tracked by default pre-banner). Now returns `false` until an explicit choice is stored — `hasStoredConsentChoice()` is the new export `ConsentBanner.tsx` reads to decide whether to render itself. `setAnalyticsConsent()`'s own accept/reject wiring needed no changes — it already force-reinitialized on a granted choice.
+
+**New `ConsentBanner.tsx`** — fixed bottom bar, two equal-weight buttons ("Essential only" outlined / "Accept" filled, same size, no pre-selected default), rendered once at the `App.tsx` root (inside `<BrowserRouter>`, alongside `<AnalyticsRouteTracker />`) so it covers every layout — public site, the quiz's own minimal chrome, and PreLaunch — without being duplicated per-layout. Suppressed only on `/admin` (internal staff, not the paid-ad visitor the banner exists for) via a `pathname.startsWith('/admin')` check, not a route-level omission.
+
+**New `/privacy` and `/terms` pages** (`Privacy.tsx`/`Terms.tsx`, added to `App.tsx`'s `PublicLayout` route group). Privacy covers quiz/taste-profile data, account + order data, newsletter (Mailchimp as processor), GA4/Meta Pixel (gated on consent), cookies, and a deletion contact — extended slightly beyond the prompt's named list to also mention AI chat with Liam (Anthropic) and SMS feedback, since those are real data flows a plain-language policy shouldn't omit. Terms includes the Right Match Promise as an explicit placeholder pending the Aug 8 pricing workshop, matching `launch/30_compliance/README.md`'s own framing. Contact email is `hello@axisandbloomcoffee.com` — corrected mid-session from a guessed `privacy@` address after Dana caught it; `noreply@axisandbloomcoffee.com` (the existing transactional sender) was never a candidate since it's one-way.
+
+**Linked from every layout — this took more than the standard `Footer.tsx`.** `Footer.tsx`'s Privacy/Terms links were already-present `#privacy`/`#terms` placeholders, just rewired to real routes. But `PublicLayout` suppresses that Footer entirely on `/`, `/about`, and `/find-my-flavor` (`noFooter`/`footerInPage` logic) — Home and About instead render their own footer-like nav line inside `TasteFinderSection.tsx`, which had no legal links at all before this change; added them there too (also fixes `/how-it-works`, which embeds the same component). The quiz (`FlavorQuiz.tsx`) has no footer whatsoever — added a minimal Privacy/Terms line beneath the results screen's existing content, not on every internal quiz state (name entry, questions), since the results screen is the layout's natural bottom. `PreLaunch.tsx` (the pre-Oct-1 front door, no shared layout at all) got its own minimal link pair too.
+
+**Consent copy** ("We'll email your match and early access — unsubscribe anytime.") added under all three real email-capture forms: `NewsletterModal.tsx`, `PostQuizEmailGate.tsx`, `PreLaunch.tsx`. `SignIn.tsx`/`Profile.tsx`/`FamilyTab.tsx`/admin forms audited and excluded — authentication or internal-admin email fields, not marketing capture.
+
+**Verified live** against the local dev stack (frontend/backend through the Cloud SQL Auth Proxy, GA4/Pixel IDs unset locally so no network-request check was possible here — that half of Step 02's original verification already covered the "IDs unset → zero calls" case and is unaffected by this change): cleared `localStorage` → banner appeared on first load; clicking "Essential only" set `axisbloom.analyticsConsent = 'false'` and dismissed it permanently across reloads; `/privacy` and `/terms` both render correctly; `Footer.tsx`'s and `TasteFinderSection.tsx`'s Privacy/Terms links both navigate correctly (confirmed via a real click, not just markup inspection) on `/how-it-works`; the quiz results screen (`/find-my-flavor?result=floral`) shows the new minimal footer line. `vite build` clean. No DB schema change — consent state is client-side only (`localStorage`, same mechanism Step 02 already established), so `WHAT_WE_BUILT_DB.md` is untouched by this step.
+
+**Not done, flagged rather than assumed**: no legal review of the generated text (the prompt's own note, and `GAPS.md` #21 / this workstream's `M-legal` row — both already call this out as a standing manual step, not something this step could satisfy).
+
+WHAT_WE_BUILT.md #115, SOMMELIER_BUILT.md S64 (no Liam impact).
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

@@ -60,10 +60,10 @@ export default function Footer() {
             © 2026 Axis & Bloom
           </span>
           <div style={{ display: 'flex', gap: 24 }}>
-            {[{ href: '#privacy', label: 'Privacy' }, { href: '#terms', label: 'Terms' }].map(l => (
-              <a key={l.href} href={l.href} style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.75rem', color: '#7b7f80', textDecoration: 'none', opacity: 0.7 }} className="hover:opacity-100 transition-opacity">
+            {[{ to: '/privacy', label: 'Privacy' }, { to: '/terms', label: 'Terms' }].map(l => (
+              <Link key={l.to} to={l.to} style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.75rem', color: '#7b7f80', textDecoration: 'none', opacity: 0.7 }} className="hover:opacity-100 transition-opacity">
                 {l.label}
-              </a>
+              </Link>
             ))}
           </div>
         </div>

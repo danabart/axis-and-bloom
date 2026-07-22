@@ -33,6 +33,9 @@ import JoinHousehold from './components/JoinHousehold';
 import TheAxis from './components/TheAxis';
 import Sommelier from './components/Sommelier';
 import RequireAuth from './components/RequireAuth';
+import Privacy from './components/Privacy';
+import Terms from './components/Terms';
+import ConsentBanner from './components/ConsentBanner';
 
 const PRELAUNCH = import.meta.env.VITE_PRELAUNCH_MODE === 'true';
 
@@ -61,6 +64,7 @@ export default function App() {
       <CartProvider>
         <BrowserRouter>
           <AnalyticsRouteTracker />
+          <ConsentBanner />
           <Routes>
             {/* ── Admin portal — own layout, no public nav/footer ── */}
             <Route
@@ -109,6 +113,8 @@ export default function App() {
               />
               <Route path="/join-household" element={<JoinHousehold />} />
               <Route path="/the-axis" element={<TheAxis />} />
+              <Route path="/privacy" element={<Privacy />} />
+              <Route path="/terms" element={<Terms />} />
             </Route>
           </Routes>
         </BrowserRouter>
