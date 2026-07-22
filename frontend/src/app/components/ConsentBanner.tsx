@@ -32,7 +32,8 @@ export default function ConsentBanner() {
         left: 0,
         right: 0,
         bottom: 0,
-        zIndex: 200,
+        zIndex: 10000, // above PreLaunch's/FilmModal's fixed inset-0 z-[9999] overlays — the banner
+        // must stay reachable on the pre-launch front door, the site's only entry point right now.
         backgroundColor: CREAM,
         borderTop: `1px solid rgba(154,41,24,0.15)`,
         boxShadow: '0 -4px 20px rgba(0,0,0,0.06)',
