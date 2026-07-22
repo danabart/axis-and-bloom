@@ -1,38 +1,9 @@
 import { Router } from 'express';
 import { db } from '../db/client.js';
-import crypto from 'crypto';
 import { optionalAuth, type AuthRequest } from '../middleware/auth.js';
+import { syncMailchimpMember } from '../features/marketing/mailchimp.js';
 
 const router = Router();
-
-// ── Mailchimp ─────────────────────────────────────────────────────────────────
-const MC_API_KEY = (process.env.MAILCHIMP_API_KEY ?? '').trim();
-const MC_LIST_ID = process.env.MAILCHIMP_LIST_ID ?? '';
-const MC_ENABLED = Boolean(MC_API_KEY && MC_LIST_ID);
-const MC_DC      = MC_API_KEY.split('-')[1] ?? '';
-
-async function addToMailchimp(email: string, firstName: string) {
-  if (!MC_ENABLED) return;
-  const hash = crypto.createHash('md5').update(email.toLowerCase()).digest('hex');
-  const url  = `https://${MC_DC}.api.mailchimp.com/3.0/lists/${MC_LIST_ID}/members/${hash}`;
-  const mcRes = await fetch(url, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Basic ${Buffer.from(`anystring:${MC_API_KEY}`).toString('base64')}`,
-    },
-    body: JSON.stringify({
-      email_address: email,
-      status_if_new: 'subscribed',
-      status: 'subscribed',
-      merge_fields: { FNAME: firstName },
-    }),
-  });
-  if (!mcRes.ok) {
-    const body = await mcRes.text();
-    console.error('[mailchimp] error:', mcRes.status, body);
-  }
-}
 
 // ── Shared subscribe logic ────────────────────────────────────────────────────
 // Step 04 (A2): extended to carry the quiz result along with the signup (archetype/
@@ -91,7 +62,7 @@ async function handleSubscribe(
   );
 
   // Forward to Mailchimp — non-blocking, never fails the request
-  addToMailchimp(clean, cleanName).catch(err =>
+  syncMailchimpMember(clean, cleanName, { source: sourceName, archetype: extra.archetype, experimental: extra.experimental }).catch(err =>
     console.error('[newsletter] mailchimp error:', err)
   );
 
