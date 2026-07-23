@@ -60,5 +60,11 @@ Read launch/README.md for context and rules, then execute the prompt in launch/2
 4. In Looker Studio: Add data source → PostgreSQL → host = the Cloud SQL instance's public IP, port 5432, database `axisandbloom`, user `reporting_ro`, password from step 1, SSL mode = require.
 
 **M3 — Looker dashboard (manual)**
-- [ ] Five cards + archetype distribution + growth line render real numbers
-- [ ] Camila can open it from her own account; admin config holds the report URL
+- [x] Five cards + archetype distribution + growth line render real numbers — built 2026-07-23: Completion Rate %, Opt-in Rate %, Cost per Subscriber (blended Ad Spend ÷ v_subscribers_weekly), subscriber count, orders (blank pre-launch, correct); archetype donut weighted by subscriber_count; cumulative subscriber growth line (Looker Studio "Running sum" on a `Cumulative Subscribers` field)
+- [x] admin config holds the report URL — `looker_studio_url` and `adspend_sheet_url` set directly via DB 2026-07-23; `mailchimp_audience_url` still open (see below)
+- [ ] Camila can open it from her own account — report not shared yet
+
+**Open tasks (as of 2026-07-23):**
+- [ ] Replace the placeholder Ad Spend row (`2026-07-20, meta, $0` — added only to unstick Looker Studio's empty-sheet schema detection bug) with real weekly spend once ads start
+- [ ] Share the "Axis & Bloom Report" in Looker Studio with Camila (Share button, top right) — intentionally left for Dana, not done by the assistant
+- [ ] Get the Mailchimp audience dashboard URL from your Mailchimp account and paste it into `/admin` → Marketing → "Mailchimp audience" (the other two links — Looker Studio report, Ad Spend sheet — are already set)
