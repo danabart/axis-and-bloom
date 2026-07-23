@@ -102,6 +102,18 @@ export const quizAssets = {
   coffeeLarge: optimized('quiz/coffee-large'),
 };
 
+// Per-archetype night-scan photographs — used as the quiz result hero.
+// Mapping: Floral→Scan21, Fruity→Scan59, Balanced&Sweet→Scan50, Chocolate&Nutty→Scan44, Spicy&Earthy→Scan34, Experimental→Scan76
+// Upload paths: raw/quiz/result-scan-{slug}.jpeg (uploaded 2026-07-23).
+export const quizResultAssets: Record<ArchetypeSlug, OptimizedAsset> = {
+  floral:           optimized('quiz/result-scan-floral'),
+  fruity:           optimized('quiz/result-scan-fruity'),
+  'balanced-sweet': optimized('quiz/result-scan-balanced-sweet'),
+  'chocolate-nutty':optimized('quiz/result-scan-chocolate-nutty'),
+  'spicy-earthy':   optimized('quiz/result-scan-spicy-earthy'),
+  experimental:     optimized('quiz/result-scan-experimental'),
+};
+
 // Per-archetype card images (WEB* set) — used in the quiz wrap reveal.
 // Upload paths: raw/archetypes/web-{slug}.png for each (e.g. raw/archetypes/web-floral.png).
 export const cardAssets: Record<ArchetypeSlug, OptimizedAsset> = {

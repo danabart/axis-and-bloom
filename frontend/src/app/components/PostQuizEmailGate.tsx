@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { subscribeNewsletter } from '../lib/api';
 
 const BRAND = '#a33726';
 const ACCENT = '#ee5974';
+const INK   = '#1a1a1a';
+const GRAY  = 'rgba(26,26,26,0.45)';
 
 interface Props {
   archetypeName: string;
@@ -13,13 +15,10 @@ interface Props {
   onSuccess: (email: string) => void;
 }
 
-// Step 04 (A2) — firm email gate. Calm, singular, in-place: appears once between
-// the free Section 1 reveal and the gated Sections 2-3, no popup, no follow-scroll,
-// no skip link. Firmness comes from the absence of a bypass, not UI pressure.
 export function PostQuizEmailGate({ archetypeName, archetypeColor, experimental, confidence, sessionKey, onSuccess }: Props) {
-  const [email, setEmail] = useState('');
+  const [email, setEmail]       = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState(false);
+  const [error, setError]       = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,94 +42,83 @@ export function PostQuizEmailGate({ archetypeName, archetypeColor, experimental,
   };
 
   return (
-    <div style={{
-      maxWidth: 480,
-      margin: '0 auto',
-      padding: 'clamp(32px, 5vw, 48px) clamp(24px, 4vw, 40px)',
-      textAlign: 'center',
-    }}>
+    <div style={{ maxWidth: 560, margin: '0 auto', textAlign: 'left' }}>
       <h2 style={{
-        fontFamily: "'Lato', Arial, sans-serif",
-        fontSize: 'clamp(1.5rem, 2.4vw, 1.9rem)',
-        fontWeight: 400,
-        color: BRAND,
-        lineHeight: 1.3,
-        margin: '0 0 14px',
+        fontSize: 'clamp(30px,3.2vw,46px)', fontWeight: 400,
+        color: BRAND, lineHeight: 1.2,
+        margin: '0 0 14px', letterSpacing: '-0.01em',
       }}>
         Where should we send your match?
       </h2>
       <p style={{
-        fontFamily: "'Lato', Arial, sans-serif",
-        fontSize: '0.9rem',
-        color: BRAND,
-        opacity: 0.62,
-        lineHeight: 1.6,
-        margin: '0 0 32px',
+        fontSize: 15, color: INK, opacity: 0.65, lineHeight: 1.65,
+        maxWidth: 480, margin: '0 0 40px',
       }}>
-        See why this is you, meet the coffees chosen for your taste, and personalize your match. First access when doors open October 1.
+        See why this is you — and meet the coffees chosen for your taste. Then make it entirely yours with the Bloom Dial. First access when doors open October 1.
       </p>
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        <input
-          type="email"
-          value={email}
-          onChange={e => setEmail(e.target.value)}
-          placeholder="Your email address"
-          required
-          disabled={submitting}
-          style={{
-            width: '100%',
-            border: 'none',
-            borderBottom: `1.5px solid ${BRAND}`,
-            background: 'transparent',
-            padding: '12px 4px',
-            fontFamily: "'Lato', Arial, sans-serif",
-            fontSize: '1rem',
-            color: BRAND,
-            outline: 'none',
-            textAlign: 'center',
-          }}
-        />
-        <button
-          type="submit"
-          disabled={submitting}
-          style={{
-            width: '100%',
-            background: BRAND,
-            color: '#f2f1ea',
-            border: 'none',
-            padding: '15px 0',
-            fontFamily: "'Lato', Arial, sans-serif",
-            fontSize: '0.72rem',
-            letterSpacing: '0.2em',
-            textTransform: 'uppercase',
-            cursor: submitting ? 'default' : 'pointer',
-            opacity: submitting ? 0.6 : 1,
-          }}
-        >
-          {submitting ? 'Sending…' : 'Personalize my match'}
-        </button>
+      {/* Parcel address block */}
+      <div style={{ marginBottom: 32 }}>
         <p style={{
-          fontFamily: "'Lato', Arial, sans-serif",
-          fontSize: '0.78rem',
-          color: BRAND,
-          opacity: 0.55,
-          lineHeight: 1.5,
-          margin: 0,
+          fontSize: 13, letterSpacing: '.22em', textTransform: 'uppercase',
+          color: GRAY, margin: '0 0 10px', fontWeight: 400,
         }}>
-          We'll email your match and early access — unsubscribe anytime.
+          FROM: AXIS &amp; BLOOM —
         </p>
-        {error && (
-          <p style={{
-            fontFamily: "'Lato', Arial, sans-serif",
-            fontSize: '0.78rem',
-            color: ACCENT,
-            margin: 0,
-          }}>
-            Something went wrong — please try again.
-          </p>
-        )}
-      </form>
+
+        <form onSubmit={handleSubmit}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 28 }}>
+            <span style={{
+              fontSize: 'clamp(22px,2.2vw,30px)', letterSpacing: '.18em',
+              textTransform: 'uppercase', color: INK, flexShrink: 0,
+              fontWeight: 400,
+            }}>
+              TO:
+            </span>
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="your@email.com"
+              required
+              autoComplete="email"
+              disabled={submitting}
+              style={{
+                flex: 1, border: 'none', borderBottom: `2px solid ${archetypeColor}`,
+                background: 'transparent',
+                padding: '6px 4px 8px',
+                fontSize: 'clamp(18px,1.8vw,24px)',
+                color: INK, outline: 'none', fontFamily: 'inherit',
+              }}
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={submitting}
+            style={{
+              background: BRAND, color: '#f2f1ea',
+              border: 'none', padding: '15px 32px',
+              fontSize: '0.70rem', letterSpacing: '.22em', textTransform: 'uppercase',
+              cursor: submitting ? 'default' : 'pointer',
+              opacity: submitting ? 0.6 : 1,
+              fontFamily: 'inherit',
+            }}
+          >
+            {submitting ? 'Sending…' : 'SHOW ME WHY →'}
+          </button>
+
+          {error && (
+            <p style={{ fontSize: '0.78rem', color: ACCENT, margin: '14px 0 0' }}>
+              Something went wrong — please try again.
+            </p>
+          )}
+        </form>
+      </div>
+
+      <p style={{ fontSize: 11.5, color: GRAY, letterSpacing: '.06em', margin: 0 }}>
+        Your archetype card will be waiting.
+      </p>
     </div>
   );
 }

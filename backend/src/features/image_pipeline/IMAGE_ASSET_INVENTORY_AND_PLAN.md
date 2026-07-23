@@ -127,3 +127,19 @@ Two mechanisms, working together, not one:
 3. **Bucket name/region confirmed:** `axis-and-bloom-prod` project, `us-central1`, matching existing Cloud Run/Cloud SQL infra.
 
 Registry now fully resolved — ready for the Claude Code prompt (Phase 1 GCP setup, Phase 2 code migration, Phase 3 optimization Cloud Function).
+
+---
+
+## 6. Registry drift — noted 2026-07-23
+
+This document describes the registry as it stood at the original migration (2026-07-12). `frontend/src/design/assets.ts` has since grown new sections not reflected above. Recorded here so anyone working from this doc — including a fresh Claude Code session with no memory of prior conversations — starts from what's actually in the codebase, not just the original plan.
+
+| Export | What it's for | Bucket path pattern | Status |
+|---|---|---|---|
+| `quizAssets` | FlavorQuiz question photography (6 pics) + one large lifestyle shot | `quiz/pic-1..6`, `quiz/coffee-large` | Upload status unverified — check the bucket before assuming these are live |
+| `cardAssets` | Per-archetype card images (the "WEB*" set), used in the quiz wrap reveal | `archetypes/web-<slug>.png` (e.g. `archetypes/web-floral.png`) | Not yet uploaded as of 2026-07-23. **This is the slot for Camila's 6 new WEB*.png files** (currently sitting in `frontend/src/design/IMAGES/archetypes/`) — flat naming, hyphenated slug, not a nested per-archetype subfolder. |
+| `patternAssets` | Small per-archetype background patterns, shared by FlavorQuiz and TasteFinderSection | `patterns/<slug>` | Upload status unverified |
+| `homeAssets.scan` | Home's own per-archetype photo, described in-code as the "2026-07 scan shoot" | `home/scan-<slug>.jpg` | Uploaded 2026-07-23 (6 files: `EDITScanFloral.jpg` etc. from `frontend/src/design/IMAGES/photos/scan/`). **Flag: this conflicts with the decision in Section 5.1 above** — that Home should reuse `archetypeAssets[x].hero` rather than carry its own per-archetype photo. Not yet confirmed with Dana whether this supersedes that decision or was an unintended upload. Do not build further on this assumption until resolved. |
+| `homeAssets.photoEssay1/2/3` | Undocumented — no source or purpose note found anywhere prior to this entry | `home/photo-essay-1..3` | Needs a note next time someone touches this file |
+| `brandAssets` | Reduced to 2 logos (`logo-quarter-1`, `logo-lines`) from the original 6 listed in Section 2 | `brand/*.svg` | Presumably the other 4 have no current import — unconfirmed |
+| `videoAssets` | Now includes poster-frame images for the two Home videos | `video/*-poster` | — |

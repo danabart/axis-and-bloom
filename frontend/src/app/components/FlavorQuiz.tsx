@@ -18,7 +18,8 @@ const RUST = '#a33726';
 
 // ─── Archetype asset imports ──────────────────────────────────────────────────
 
-import { archetypeAssets, patternAssets, cardAssets, quizAssets } from '../../design/assets';
+import { archetypeAssets, patternAssets, cardAssets, quizAssets, quizResultAssets } from '../../design/assets';
+import type { ArchetypeSlug } from '../../design/assets';
 
 const wallpaperFloral       = archetypeAssets.floral.wallpaper.src;
 const wallpaperFruity       = archetypeAssets.fruity.wallpaper.src;
@@ -156,71 +157,6 @@ function GateStatusNote({ showSignedInConsentNote, guestMaskedEmail }: {
   );
 }
 
-// ─── Step 04b (FIX 1): free Section 1 reveal — curtain, name, bag, one-line
-// description. Renders unconditionally as soon as the archetype is known (no
-// wait on the archetypesList fetch that gates Sections 2-3), above the email
-// gate. Restores the "gift-unwrap" identity moment the step-04 deploy had
-// accidentally removed from the wrap-sequence results path (the path every
-// real quiz completion takes) by wrapping the whole reveal in the email gate.
-
-function Section1Reveal({ name, wallpaper, bag, description }: {
-  name: string;
-  wallpaper: string;
-  bag: string;
-  description: string;
-}) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 14 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
-      style={{
-        position: 'relative',
-        minHeight: '64vh',
-        display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center',
-        textAlign: 'center',
-        padding: 'clamp(48px, 8vh, 96px) clamp(24px, 5vw, 64px)',
-        backgroundColor: '#0a0604',
-        backgroundImage: `url(${wallpaper})`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundRepeat: 'no-repeat',
-      }}
-    >
-      <div style={{
-        position: 'absolute', inset: 0,
-        background: 'linear-gradient(to top, rgba(10,6,4,0.66) 0%, rgba(10,6,4,0.28) 60%, rgba(10,6,4,0.12) 100%)',
-      }} />
-      <div style={{ position: 'relative', zIndex: 1 }}>
-        <img
-          src={bag}
-          alt={`${name} bag`}
-          width={140} height={175}
-          style={{ maxWidth: 140, width: '100%', margin: '0 auto 24px', display: 'block', filter: 'drop-shadow(0 18px 44px rgba(0,0,0,0.4))' }}
-        />
-        <p style={{
-          fontSize: '0.5rem', letterSpacing: '0.32em', textTransform: 'uppercase',
-          color: 'rgba(242,241,234,0.6)', margin: '0 0 9px',
-        }}>
-          YOUR COFFEE ARCHETYPE
-        </p>
-        <h1 style={{
-          fontSize: 'clamp(2.4rem, 4.4vw, 4.6rem)', color: '#f2f1ea', fontWeight: 400,
-          lineHeight: 1.0, margin: '0 0 20px', letterSpacing: '-0.01em',
-        }}>
-          {name}
-        </h1>
-        <p style={{
-          fontSize: 'clamp(0.82rem, 0.95vw, 0.95rem)', color: 'rgba(242,241,234,0.82)',
-          lineHeight: 1.75, margin: '0 auto', maxWidth: 480,
-        }}>
-          {description}
-        </p>
-      </div>
-    </motion.div>
-  );
-}
 
 // ─── Ruler-tick progress ──────────────────────────────────────────────────────
 
@@ -243,95 +179,136 @@ function ProgressTicks({ current, total }: { current: number; total: number }) {
   );
 }
 
-// ─── Wrap sequence (papers close → text → papers part) ───────────────────────
+// ─── Wrap overlay (fixed, covers living page — never a replacement) ───────────
+// Papers rise/drop OVER the question/branch/tie screen. While covered, isComplete
+// flips (result renders beneath). Papers then part to reveal the result hero.
 
-function WrapSequence({ name, cardSrc, onComplete }: { name: string; cardSrc: string; onComplete: () => void }) {
+function WrapOverlay({
+  name, heroImageSrc, onShowResult, onStartNaming, onDone,
+}: {
+  name: string;
+  heroImageSrc: string;
+  onShowResult: () => void;
+  onStartNaming: () => void;
+  onDone: () => void;
+}) {
   const reducedMotion = typeof window !== 'undefined'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  const [expIn,    setExpIn]    = useState(false);
-  const [spicyIn,  setSpicyIn]  = useState(false);
-  const [expOut,   setExpOut]   = useState(false);
-  const [spicyOut, setSpicyOut] = useState(false);
-  const [wrapLine, setWrapLine] = useState('');
-  const [showText, setShowText] = useState(false);
+  const [expCover,   setExpCover]   = useState(false);
+  const [spicyCover, setSpicyCover] = useState(false);
+  const [expPart,    setExpPart]    = useState(false);
+  const [spicyPart,  setSpicyPart]  = useState(false);
+  const [showVeil,   setShowVeil]   = useState(false);
+  const [wrapLine,   setWrapLine]   = useState('');
+  const [showText,   setShowText]   = useState(false);
+  const heroLoaded = useRef(false);
 
   useEffect(() => {
-    const line1 = name ? `Wrapping ${name}'s coffee…`  : 'Wrapping your coffee…';
-    const line2 = name ? `Choosing ${name}'s coffee…`  : 'Choosing your coffee…';
+    // Preload result hero — the ~5s ceremony is the loading window
+    const img = new Image();
+    img.onload = () => { heroLoaded.current = true; };
+    img.src = heroImageSrc;
+
+    const line1 = name ? `Wrapping ${name}'s coffee…` : 'Wrapping your coffee…';
+    const line2 = name ? `Choosing ${name}'s coffee…` : 'Choosing your coffee…';
+
+    document.body.style.overflow = 'hidden';
 
     if (reducedMotion) {
-      setExpIn(true); setSpicyIn(true);
+      onShowResult();
+      setShowVeil(true);
+      setWrapLine(line1);
+      setShowText(true);
       const timers = [
-        setTimeout(() => { setWrapLine(line1); setShowText(true); }, 300),
-        setTimeout(() => setWrapLine(line2), 900),
-        setTimeout(() => setShowText(false), 1400),
-        setTimeout(() => { setExpOut(true); setSpicyOut(true); }, 1700),
-        setTimeout(onComplete, 2200),
+        setTimeout(() => { setShowText(false); setTimeout(() => { setWrapLine(line2); setShowText(true); }, 350); }, 1400),
+        setTimeout(() => { setShowText(false); setShowVeil(false); }, 3200),
+        setTimeout(() => { onStartNaming(); document.body.style.overflow = ''; onDone(); }, 3700),
       ];
-      return () => timers.forEach(clearTimeout);
+      return () => { timers.forEach(clearTimeout); document.body.style.overflow = ''; };
     }
+
+    const startParting = () => {
+      setSpicyPart(true);
+      setTimeout(() => setExpPart(true), 150);
+    };
+    const tryPart = () => {
+      if (heroLoaded.current) { startParting(); return; }
+      const timeout = setTimeout(startParting, 3000);
+      const check = setInterval(() => { if (heroLoaded.current) { clearTimeout(timeout); clearInterval(check); startParting(); } }, 100);
+    };
 
     const t = (ms: number, fn: () => void) => setTimeout(fn, ms);
     const timers = [
-      t(100,  () => setExpIn(true)),
-      t(700,  () => setSpicyIn(true)),
-      t(2200, () => { setWrapLine(line1); setShowText(true); }),
-      t(3700, () => setWrapLine(line2)),
-      t(5200, () => setShowText(false)),
-      t(5600, () => { setSpicyOut(true); setExpOut(true); }),
-      t(7500, onComplete),
+      t(600,  () => setExpCover(true)),
+      t(1300, () => setSpicyCover(true)),
+      t(1900, () => { onShowResult(); setShowVeil(true); setWrapLine(line1); setShowText(true); }),
+      t(3500, () => { setShowText(false); setTimeout(() => { setWrapLine(line2); setShowText(true); }, 450); }),
+      t(5300, () => { setShowText(false); setShowVeil(false); }),
+      t(5900, tryPart),
+      t(6400, onStartNaming),
+      t(7100, () => { document.body.style.overflow = ''; onDone(); }),
     ];
-    return () => timers.forEach(clearTimeout);
+    return () => { timers.forEach(clearTimeout); document.body.style.overflow = ''; };
   }, []);
 
-  const ease = 'cubic-bezier(.22,1,.36,1)';
-  const expTransform   = expOut   ? 'translateY(100%)'  : expIn   ? 'translateY(0%)' : 'translateY(100%)';
-  const spicyTransform = spicyOut ? 'translateY(-100%)' : spicyIn ? 'translateY(0%)' : 'translateY(-100%)';
+  const ease = 'cubic-bezier(.65,0,.35,1)';
+  // Experimental: starts below (top:100dvh), covers by translateY(-100dvh), exits by resetting to translateY(0)
+  const expTransform   = expPart   ? 'translateY(0)'     : expCover   ? 'translateY(-100dvh)' : 'translateY(0)';
+  // Spicy: starts above (top:-102dvh), covers by translateY(102dvh), exits by resetting to translateY(0)
+  const spicyTransform = spicyPart ? 'translateY(0)'     : spicyCover ? 'translateY(102dvh)'  : 'translateY(0)';
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 80, overflow: 'hidden' }}>
-      {/* Base — archetype card on beige, revealed once both panels exit */}
-      <div style={{
-        position: 'absolute', inset: 0, background: '#f2f1ea',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        <img src={cardSrc} alt=""
-          style={{ maxWidth: '80%', maxHeight: '80vh', width: 'auto', height: 'auto', objectFit: 'contain' }} />
-      </div>
+      <style>{`
+        @keyframes wrapDot{0%,60%,100%{opacity:.25}30%{opacity:1}}
+        .wrap-dot{display:inline-block;animation:wrapDot 1.4s infinite}
+        .wrap-dot:nth-child(2){animation-delay:.2s}
+        .wrap-dot:nth-child(3){animation-delay:.4s}
+      `}</style>
 
-      {/* Experimental — rises from bottom */}
+      {/* Experimental — top:100dvh, rises to cover */}
       <div style={{
-        position: 'absolute', inset: 0,
+        position: 'absolute', left: 0, right: 0, height: '102dvh', top: '100dvh',
         backgroundImage: `url(${patternTissue})`, backgroundSize: '1250px', backgroundPosition: '60% 40%',
-        transform: reducedMotion ? undefined : expTransform,
-        opacity: reducedMotion ? (expIn && !expOut ? 1 : 0) : 1,
-        transition: reducedMotion ? 'opacity 0.4s ease' : `transform 1s ${ease}`,
+        transform: expTransform,
+        transition: (expCover || expPart) ? `transform 1s ${ease}` : 'none',
         willChange: 'transform',
+        zIndex: 1,
       }} />
 
-      {/* Spicy & Earthy — drops from top */}
+      {/* Spicy & Earthy — top:-102dvh, drops to cover */}
       <div style={{
-        position: 'absolute', inset: 0,
+        position: 'absolute', left: 0, right: 0, height: '102dvh', top: '-102dvh',
         backgroundImage: `url(${patternSpicy})`, backgroundSize: '1250px', backgroundPosition: '12% 30%',
-        transform: reducedMotion ? undefined : spicyTransform,
-        opacity: reducedMotion ? (spicyIn && !spicyOut ? 1 : 0) : 1,
-        transition: reducedMotion ? 'opacity 0.4s ease' : `transform 1s ${ease}`,
+        transform: spicyTransform,
+        transition: (spicyCover || spicyPart) ? `transform 1s ${ease}` : 'none',
         willChange: 'transform',
+        zIndex: 2,
       }} />
 
-      {/* Text — above both panels */}
+      {/* Veil */}
       <div style={{
-        position: 'absolute', inset: 0, zIndex: 5,
+        position: 'absolute', inset: 0, zIndex: 3,
+        background: `rgba(24,15,10,${showVeil ? '.28' : '0'})`,
+        transition: 'background 0.6s',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        opacity: showText ? 1 : 0, transition: 'opacity 0.5s ease', pointerEvents: 'none',
+        pointerEvents: 'none',
       }}>
         <p style={{
-          color: '#f2f1ea', fontSize: 'clamp(20px,2vw,28px)',
-          letterSpacing: '0.04em', textShadow: '0 2px 14px rgba(0,0,0,.35)',
+          color: '#f2f1ea',
+          fontSize: 'clamp(26px,3vw,40px)',
+          letterSpacing: '.06em',
           fontFamily: 'inherit',
+          textAlign: 'center',
+          opacity: showText ? 1 : 0,
+          transform: showText ? 'none' : 'translateY(10px)',
+          transition: 'opacity 0.6s, transform 0.6s',
         }}>
           {wrapLine}
+          <span className="wrap-dot">.</span>
+          <span className="wrap-dot">.</span>
+          <span className="wrap-dot">.</span>
         </p>
       </div>
     </div>
@@ -374,6 +351,17 @@ const ARCHETYPE_CARDS: Record<string, string> = {
   chocolate:    cardAssets['chocolate-nutty'].src,
   earthy:       cardAssets['spicy-earthy'].src,
   experimental: cardAssets.experimental.src,
+};
+
+// ─── Quiz ArchetypeKey → ArchetypeSlug (for result-scan lookup) ──────────────
+
+const QUIZ_KEY_TO_SLUG: Record<ArchetypeKey, ArchetypeSlug> = {
+  floral:       'floral',
+  fruity:       'fruity',
+  balanced:     'balanced-sweet',
+  chocolate:    'chocolate-nutty',
+  earthy:       'spicy-earthy',
+  experimental: 'experimental',
 };
 
 // ─── Static question images (keyed by q_number) ───────────────────────────────
@@ -549,12 +537,12 @@ export default function FlavorQuiz() {
   if (!sessionKeyRef.current) sessionKeyRef.current = crypto.randomUUID();
   const quizStartFiredRef = useRef(false);
 
-  const [hasStarted, setHasStarted]     = useState(() => isPreview);
-  const [userName, setUserName]         = useState('');
-  const [currentStep, setCurrentStep]   = useState(0);
-  const [isWrapping, setIsWrapping]     = useState(false);
-  const fromWrapRef                     = useRef(false);
-  const [answers, setAnswers]           = useState<Record<number, number>>({});
+  const [hasStarted, setHasStarted]       = useState(() => isPreview);
+  const [userName, setUserName]           = useState('');
+  const [currentStep, setCurrentStep]     = useState(0);
+  const [isWrapping, setIsWrapping]       = useState(false);
+  const [resultHeroShown, setResultHeroShown] = useState(() => isPreview);
+  const [answers, setAnswers]             = useState<Record<number, number>>({});
   const [selectedIds, setSelectedIds]   = useState<Record<number, string>>({});
   const [isComplete, setIsComplete]     = useState(() => isPreview);
   const [isScoring, setIsScoring]       = useState(false);
@@ -577,11 +565,6 @@ export default function FlavorQuiz() {
   const [userProfile, setUserProfile]       = useState<any>(null);
   const [profileLoading, setProfileLoading] = useState(false);
 
-  // Reveal state (curtain)
-  const [revealProgress, setRevealProgress] = useState(0);
-  const [revealForced, setRevealForced]     = useState(false);
-  const revealContainerRef = useRef<HTMLDivElement>(null);
-
   // Returning-user screen — embedded ArchetypeSection (Find My Flavor Part 1)
   const [archetypesList, setArchetypesList]     = useState<ArchetypeData[]>([]);
   const [experimentalData, setExperimentalData] = useState<ArchetypeData | null>(null);
@@ -599,6 +582,7 @@ export default function FlavorQuiz() {
   const [resultsSortOrder, setResultsSortOrder] = useState<number | null>(null);
   const [resultsRevealedKeys, setResultsRevealedKeys] = useState<Set<string>>(new Set());
   const resultsDialRef = useRef<BloomDialHandle | null>(null);
+  const heroHeadingRef = useRef<HTMLHeadingElement>(null);
   const [resultsCompareState, setResultsCompareState] = useState<{ open: boolean; archetype: string; archetypeLabel: string; slot: Slot | null }>({
     open: false, archetype: '', archetypeLabel: '', slot: null,
   });
@@ -865,48 +849,15 @@ export default function FlavorQuiz() {
     }
   }, []);
 
-  // Scroll to top when result is ready so the reveal starts clean. Kept as a safety
-  // net (e.g. the `?result=` preview shortcut, which sets `isComplete` from its
-  // initial state rather than via a transition below), but the real fix for Bug 1's
-  // retake-flash (Find My Flavor Part 2) is `resetReveal()` below, called
-  // synchronously alongside `setIsComplete(true)` so both land in the same React
-  // batch/paint — relying solely on this effect meant the results screen could
-  // mount and paint once with a stale (non-zero) `revealProgress` left over from a
-  // previous reveal, one tick before this effect corrected it.
+  // Scroll to top when result becomes visible (e.g. ?result= preview shortcut)
   useEffect(() => {
-    if (isComplete) {
-      window.scrollTo({ top: 0 });
-      setRevealProgress(0);
-      setRevealForced(false);
-    }
+    if (isComplete) window.scrollTo({ top: 0 });
   }, [isComplete]);
 
-  function resetReveal() {
-    window.scrollTo({ top: 0 });
-    setRevealProgress(0);
-    setRevealForced(false);
-  }
-
-  // Scroll-driven reveal — active only on the result page
+  // After papers part, move focus to the hero heading (§6 a11y)
   useEffect(() => {
-    if (!isComplete) return;
-
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      setRevealForced(true);
-      return;
-    }
-
-    const onScroll = () => {
-      const el = revealContainerRef.current;
-      if (!el) return;
-      const scrolled = -el.getBoundingClientRect().top;
-      const total    = Math.max(1, el.offsetHeight - window.innerHeight);
-      setRevealProgress(Math.max(0, Math.min(1, scrolled / total)));
-    };
-
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, [isComplete]);
+    if (resultHeroShown) heroHeadingRef.current?.focus();
+  }, [resultHeroShown]);
 
   const archetype = ARCHETYPES[archetypeKey];
 
@@ -959,7 +910,6 @@ export default function FlavorQuiz() {
           .then(refreshUserProfile)
           .catch(console.error);
       }
-      fromWrapRef.current = true;
       setIsWrapping(true);
     } catch (err) {
       console.error('[quiz/score]', err);
@@ -984,14 +934,14 @@ export default function FlavorQuiz() {
     }
 
     setShowBranch(false);
-    fromWrapRef.current = true;
     setIsWrapping(true);
   };
 
   const handleRetake = () => {
     window.scrollTo({ top: 0 });
-    fromWrapRef.current = false;
+    document.body.style.overflow = '';
     setIsWrapping(false);
+    setResultHeroShown(false);
     setIsComplete(false);
     setShowBranch(false);
     setBranchQuestion(null);
@@ -1003,8 +953,6 @@ export default function FlavorQuiz() {
     setScoreError(false);
     setShowTieInterstitial(false);
     setArchetypeKey('balanced');
-    setRevealProgress(0);
-    setRevealForced(false);
     sessionKeyRef.current = crypto.randomUUID();
     quizStartFiredRef.current = false;
   };
@@ -1042,7 +990,6 @@ export default function FlavorQuiz() {
           .catch(console.error);
       }
       setShowBranch(false);
-      fromWrapRef.current = true;
       setIsWrapping(true);
     }, 750);
   };
@@ -1346,649 +1293,354 @@ export default function FlavorQuiz() {
     );
   }
 
-  // ── Question screen ──────────────────────────────────────────────────────────
-  if (!isComplete && !showBranch && !isWrapping) {
-    const question = questions[currentStep];
-    const image    = QUESTION_IMAGES[question.q_number] ?? QUESTION_IMAGES[1];
-    const kw       = Q_HIGHLIGHTS[question.q_number];
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Single return — quiz and result phases share the same render tree so the
+  // WrapOverlay (a fixed sibling) stays mounted across the question→result switch.
 
-    return (
-      <div className="w-full min-h-screen flex flex-col lg:flex-row" style={{ background: '#f2f1ea' }}>
-        <QuizHeader />
+  const nightScanSrc = quizResultAssets[QUIZ_KEY_TO_SLUG[archetypeKey]].src;
+  const isOnQuestion = !isComplete && !showBranch && !showTieInterstitial;
+  const isOnBranch   = !isComplete && showBranch && !!branchQuestion;
+  const isOnTie      = showTieInterstitial && !!scoreData;
 
-        {/* Photo panel — 46%, framed print, full image visible */}
-        <div
-          className="w-full lg:w-[46%] lg:h-screen flex-shrink-0 hidden lg:flex items-center justify-center"
-          style={{ background: '#f2f1ea', padding: '72px 30px 22px' }}
-        >
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={currentStep}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.45 }}
-              style={{
-                border: '1px solid #c5c7c8',
-                padding: 14,
-                background: '#f2f1ea',
-                display: 'inline-block',
-              }}
-            >
-              <img
-                src={image}
-                alt=""
-                style={{ display: 'block', maxWidth: '100%', maxHeight: 'calc(100vh - 126px)', width: 'auto', height: 'auto' }}
-              />
-            </motion.div>
-          </AnimatePresence>
-        </div>
+  const currentQ     = isOnQuestion && currentStep < questions.length ? questions[currentStep] : null;
+  const currentImage = currentQ ? (QUESTION_IMAGES[currentQ.q_number] ?? QUESTION_IMAGES[1]) : null;
+  const currentKw    = currentQ ? Q_HIGHLIGHTS[currentQ.q_number] : undefined;
 
-        {/* Question panel — 54%, vertically centered */}
-        <div
-          className="w-full lg:flex-1 min-h-[60vh] lg:h-screen bg-[#f2f1ea] flex flex-col justify-center overflow-y-auto"
-          style={{ paddingTop: 72, paddingBottom: 48, paddingLeft: 'clamp(36px,5vw,80px)', paddingRight: 'clamp(36px,5vw,80px)' }}
-        >
-          <div style={{ maxWidth: 480 }}>
+  const archetypeNameMapTie: Record<string, string> = {
+    floral: 'Floral', fruity: 'Fruity', balanced: 'Balanced & Sweet',
+    chocolate: 'Chocolate & Nutty', spicy: 'Earthy', experimental: 'Experimental',
+  };
+  const tiedNames = isOnTie ? (scoreData!.tiedArchetypes ?? []).map(k => archetypeNameMapTie[k.toLowerCase()] ?? k) : [];
+  const tiedParam = isOnTie ? (scoreData!.tiedArchetypes ?? []).join(',') : '';
+
+  // CSS helper for the result hero naming stagger
+  const stagger = (delay: string) => ({
+    opacity:    resultHeroShown ? 1 : 0,
+    transform:  resultHeroShown ? 'none' : 'translateY(12px)',
+    transition: `opacity 0.7s ease ${delay}, transform 0.7s ease ${delay}`,
+  });
+
+  return (
+    <>
+      {/* ── Question phase ──────────────────────────────────────────────────── */}
+      {isOnQuestion && currentQ && (
+        <div className="w-full min-h-screen flex flex-col lg:flex-row" style={{ background: '#f2f1ea' }}>
+          <QuizHeader />
+
+          {/* Photo panel — 46%, framed print */}
+          <div
+            className="w-full lg:w-[46%] lg:h-screen flex-shrink-0 hidden lg:flex items-center justify-center"
+            style={{ background: '#f2f1ea', padding: '72px 30px 22px' }}
+          >
             <AnimatePresence mode="wait">
               <motion.div
                 key={currentStep}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.5 }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.45 }}
+                style={{ border: '1px solid #c5c7c8', padding: 14, background: '#f2f1ea', display: 'inline-block' }}
               >
-                <ProgressTicks current={currentStep + 1} total={7} />
-
-                <h1 style={{
-                  fontSize: 'clamp(1.7rem, 2.4vw, 2.4rem)',
-                  color: '#9a2918',
-                  lineHeight: 1.2,
-                  fontWeight: 400,
-                  margin: '0 0 clamp(28px, 3.5vh, 44px)',
-                  letterSpacing: '-0.01em',
-                }}>
-                  {kw ? highlightQuestion(question.q_text, kw) : question.q_text}
-                </h1>
-
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  {question.answers.map((answer, idx) => {
-                    const isSelected = answers[currentStep] === idx;
-                    return (
-                      <button
-                        key={answer.id}
-                        onClick={() => handleAnswerSelect(answer.id, idx)}
-                        style={{
-                          width: '100%', background: 'none', border: 'none', cursor: 'pointer',
-                          borderBottom: '1px solid rgba(69,71,74,0.12)',
-                          padding: '13px 0', textAlign: 'left',
-                          display: 'flex', alignItems: 'flex-start', gap: 10,
-                          fontFamily: 'inherit',
-                        }}
-                      >
-                        <span style={{
-                          display: 'block', width: 2, height: 16, marginTop: 4, flexShrink: 0,
-                          backgroundColor: isSelected ? '#9a2918' : 'rgba(69,71,74,0.18)',
-                          transition: 'background-color 0.2s',
-                        }} />
-                        <span style={{
-                          fontSize: 'clamp(0.88rem, 1.0vw, 1.0rem)',
-                          lineHeight: 1.55,
-                          color: isSelected ? '#9a2918' : '#45474a',
-                          transition: 'color 0.2s',
-                        }}>
-                          {answer.text}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                <img
+                  src={currentImage!}
+                  alt=""
+                  style={{ display: 'block', maxWidth: '100%', maxHeight: 'calc(100vh - 126px)', width: 'auto', height: 'auto' }}
+                />
               </motion.div>
             </AnimatePresence>
-
-            {/* Back + score error */}
-            <div style={{ marginTop: 'clamp(28px, 3.5vh, 44px)', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {currentStep > 0 && (
-                <button
-                  onClick={() => {
-                    if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current);
-                    setCurrentStep(p => p - 1);
-                  }}
-                  style={{
-                    background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-                    fontFamily: 'inherit', fontSize: '0.55rem', letterSpacing: '0.24em',
-                    textTransform: 'uppercase', color: '#9a2918', opacity: 0.38, textAlign: 'left',
-                  }}
-                >
-                  ← BACK
-                </button>
-              )}
-              {isScoring && (
-                <p style={{ fontSize: '0.55rem', letterSpacing: '0.20em', textTransform: 'uppercase', color: '#9a2918', opacity: 0.4 }}>
-                  Finding your profile…
-                </p>
-              )}
-              {scoreError && (
-                <p style={{ fontSize: '0.75rem', color: '#ee5974' }}>
-                  Something went wrong. Please try again.
-                </p>
-              )}
-            </div>
           </div>
-        </div>
-      </div>
-    );
-  }
 
-  // ── Branch / silence screen ───────────────────────────────────────────────────
-  if (showBranch && branchQuestion) {
-    return (
-      <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center"
-           style={{ paddingTop: 72 }}>
-        <QuizHeader />
-        <div style={{ width: '100%', maxWidth: 560, padding: '48px clamp(32px,5vw,72px)' }}>
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
+          {/* Question panel — 54% */}
+          <div
+            className="w-full lg:flex-1 min-h-[60vh] lg:h-screen bg-[#f2f1ea] flex flex-col justify-center overflow-y-auto"
+            style={{ paddingTop: 72, paddingBottom: 48, paddingLeft: 'clamp(36px,5vw,80px)', paddingRight: 'clamp(36px,5vw,80px)' }}
           >
-            <div style={{
-              fontSize: '0.50rem', letterSpacing: '0.30em', textTransform: 'uppercase',
-              color: '#9a2918', opacity: 0.40, marginBottom: 24,
-            }}>
-              One last thing
-            </div>
-            <h1 style={{
-              fontSize: 'clamp(1.7rem, 2.4vw, 2.4rem)',
-              color: '#9a2918', lineHeight: 1.2, fontWeight: 400,
-              margin: '0 0 clamp(28px, 3.5vh, 44px)', letterSpacing: '-0.01em',
-            }}>
-              {highlightQuestion(branchQuestion.questionText, BRANCH_HIGHLIGHT)}
-            </h1>
-
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              {branchQuestion.answers.map((answer) => {
-                const isSel = selectedBranchAnswerId === answer.id;
-                return (
+            <div style={{ maxWidth: 480 }}>
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={currentStep}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.5 }}
+                >
+                  <ProgressTicks current={currentStep + 1} total={7} />
+                  <h1 style={{
+                    fontSize: 'clamp(1.7rem, 2.4vw, 2.4rem)', color: '#9a2918',
+                    lineHeight: 1.2, fontWeight: 400,
+                    margin: '0 0 clamp(28px, 3.5vh, 44px)', letterSpacing: '-0.01em',
+                  }}>
+                    {currentKw ? highlightQuestion(currentQ.q_text, currentKw) : currentQ.q_text}
+                  </h1>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    {currentQ.answers.map((answer, idx) => {
+                      const isSelected = answers[currentStep] === idx;
+                      return (
+                        <button
+                          key={answer.id}
+                          onClick={() => handleAnswerSelect(answer.id, idx)}
+                          style={{
+                            width: '100%', background: 'none', border: 'none', cursor: 'pointer',
+                            borderBottom: '1px solid rgba(69,71,74,0.12)',
+                            padding: '13px 0', textAlign: 'left',
+                            display: 'flex', alignItems: 'flex-start', gap: 10,
+                            fontFamily: 'inherit',
+                          }}
+                        >
+                          <span style={{
+                            display: 'block', width: 2, height: 16, marginTop: 4, flexShrink: 0,
+                            backgroundColor: isSelected ? '#9a2918' : 'rgba(69,71,74,0.18)',
+                            transition: 'background-color 0.2s',
+                          }} />
+                          <span style={{
+                            fontSize: 'clamp(0.88rem, 1.0vw, 1.0rem)', lineHeight: 1.55,
+                            color: isSelected ? '#9a2918' : '#45474a',
+                            transition: 'color 0.2s',
+                          }}>
+                            {answer.text}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              </AnimatePresence>
+              <div style={{ marginTop: 'clamp(28px, 3.5vh, 44px)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {currentStep > 0 && (
                   <button
-                    key={answer.id}
-                    onClick={() => handleBranchAnswerSelect(answer.id)}
+                    onClick={() => { if (autoAdvanceRef.current) clearTimeout(autoAdvanceRef.current); setCurrentStep(p => p - 1); }}
                     style={{
-                      width: '100%', background: 'none', border: 'none', cursor: 'pointer',
-                      borderBottom: '1px solid rgba(69,71,74,0.12)',
-                      padding: '13px 0', textAlign: 'left',
-                      display: 'flex', alignItems: 'flex-start', gap: 10,
-                      fontFamily: 'inherit',
+                      background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                      fontFamily: 'inherit', fontSize: '0.55rem', letterSpacing: '0.24em',
+                      textTransform: 'uppercase', color: '#9a2918', opacity: 0.38, textAlign: 'left',
                     }}
                   >
-                    <span style={{
-                      display: 'block', width: 2, height: 16, marginTop: 4, flexShrink: 0,
-                      backgroundColor: isSel ? '#9a2918' : 'rgba(69,71,74,0.18)',
-                      transition: 'background-color 0.2s',
-                    }} />
-                    <span style={{
-                      fontSize: 'clamp(0.88rem, 1.0vw, 1.0rem)',
-                      lineHeight: 1.55,
-                      color: isSel ? '#9a2918' : '#45474a',
-                      transition: 'color 0.2s',
-                    }}>
-                      {answer.text}
-                    </span>
+                    ← BACK
                   </button>
-                );
-              })}
+                )}
+                {isScoring && (
+                  <p style={{ fontSize: '0.55rem', letterSpacing: '0.20em', textTransform: 'uppercase', color: '#9a2918', opacity: 0.4 }}>
+                    Finding your profile…
+                  </p>
+                )}
+                {scoreError && (
+                  <p style={{ fontSize: '0.75rem', color: '#ee5974' }}>Something went wrong. Please try again.</p>
+                )}
+              </div>
             </div>
+          </div>
+        </div>
+      )}
 
+      {/* ── Branch / silence screen ──────────────────────────────────────────── */}
+      {isOnBranch && (
+        <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center" style={{ paddingTop: 72 }}>
+          <QuizHeader />
+          <div style={{ width: '100%', maxWidth: 560, padding: '48px clamp(32px,5vw,72px)' }}>
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
+              <div style={{ fontSize: '0.50rem', letterSpacing: '0.30em', textTransform: 'uppercase', color: '#9a2918', opacity: 0.40, marginBottom: 24 }}>
+                One last thing
+              </div>
+              <h1 style={{ fontSize: 'clamp(1.7rem, 2.4vw, 2.4rem)', color: '#9a2918', lineHeight: 1.2, fontWeight: 400, margin: '0 0 clamp(28px, 3.5vh, 44px)', letterSpacing: '-0.01em' }}>
+                {highlightQuestion(branchQuestion!.questionText, BRANCH_HIGHLIGHT)}
+              </h1>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {branchQuestion!.answers.map((answer) => {
+                  const isSel = selectedBranchAnswerId === answer.id;
+                  return (
+                    <button
+                      key={answer.id}
+                      onClick={() => handleBranchAnswerSelect(answer.id)}
+                      style={{
+                        width: '100%', background: 'none', border: 'none', cursor: 'pointer',
+                        borderBottom: '1px solid rgba(69,71,74,0.12)',
+                        padding: '13px 0', textAlign: 'left',
+                        display: 'flex', alignItems: 'flex-start', gap: 10,
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      <span style={{ display: 'block', width: 2, height: 16, marginTop: 4, flexShrink: 0, backgroundColor: isSel ? '#9a2918' : 'rgba(69,71,74,0.18)', transition: 'background-color 0.2s' }} />
+                      <span style={{ fontSize: 'clamp(0.88rem, 1.0vw, 1.0rem)', lineHeight: 1.55, color: isSel ? '#9a2918' : '#45474a', transition: 'color 0.2s' }}>
+                        {answer.text}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </motion.div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Tie interstitial ─────────────────────────────────────────────────── */}
+      {isOnTie && (
+        <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center px-6">
+          <QuizHeader />
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="max-w-md w-full text-center space-y-8">
+            <div>
+              <p className="text-xs uppercase tracking-[0.25em] text-[#a33726] mb-3">A perfect tie</p>
+              <h2 className="text-3xl font-thin text-stone-800 leading-snug">
+                {tiedNames.length === 2
+                  ? <>{tiedNames[0]} <span className="text-stone-400">&</span> {tiedNames[1]}</>
+                  : tiedNames.join(' · ')}
+              </h2>
+              <p className="text-stone-500 mt-4 text-sm leading-relaxed">
+                Your palate sits at the edge of two worlds. Liam, our coffee sommelier, can help you find exactly where you land.
+              </p>
+            </div>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={() => { window.location.href = `/sommelier?entry=quiz_tie&tied=${encodeURIComponent(tiedParam)}`; }}
+                className="w-full py-3 rounded-lg text-white text-sm tracking-wide"
+                style={{ backgroundColor: RUST }}
+              >
+                Talk to Liam →
+              </button>
+              <button
+                onClick={() => {
+                  setShowTieInterstitial(false);
+                  if (user) {
+                    saveQuizResult({ archetype: scoreData!.archetype, scores: scoreData!.scores, answers, decaf: false })
+                      .then(refreshUserProfile).catch(console.error);
+                  }
+                  setIsWrapping(true);
+                }}
+                className="w-full py-3 rounded-lg text-sm text-stone-600 border border-stone-200 hover:bg-stone-100"
+              >
+                See my primary result
+              </button>
+            </div>
           </motion.div>
         </div>
-      </div>
-    );
-  }
+      )}
 
-  // ── Tie interstitial ─────────────────────────────────────────────────────────
-  if (showTieInterstitial && scoreData) {
-    const archetypeNameMap: Record<string, string> = {
-      floral: 'Floral', fruity: 'Fruity', balanced: 'Balanced & Sweet',
-      chocolate: 'Chocolate & Nutty', spicy: 'Earthy', experimental: 'Experimental',
-    };
-    const tiedNames = (scoreData.tiedArchetypes ?? [])
-      .map((k) => archetypeNameMap[k.toLowerCase()] ?? k);
+      {/* ── Result screen ────────────────────────────────────────────────────── */}
+      {isComplete && (
+        <div>
+          <QuizHeader />
 
-    const tiedParam = (scoreData.tiedArchetypes ?? []).join(',');
+          {/* Hero — night-scan photo, naming staggers in as papers part */}
+          <section style={{ position: 'relative', height: '100dvh', background: '#141110' }}>
+            <div style={{
+              position: 'absolute', inset: 0,
+              backgroundImage: `url(${nightScanSrc})`,
+              backgroundSize: 'cover', backgroundPosition: 'center',
+            }} />
+            <div style={{
+              position: 'absolute', inset: 0,
+              background: 'linear-gradient(180deg, rgba(16,12,10,.15) 30%, rgba(16,12,10,.72) 100%)',
+            }} />
+            <div style={{ position: 'absolute', left: 0, right: 0, bottom: '11vh', textAlign: 'center', zIndex: 2 }}>
+              <p style={{ fontSize: 13, letterSpacing: '.26em', textTransform: 'uppercase', color: 'rgba(242,241,234,.92)', marginBottom: 18, ...stagger('.2s') }}>
+                {userName ? `${userName} —` : 'Your profile —'}
+              </p>
+              <p style={{ fontSize: 11, letterSpacing: '.3em', textTransform: 'uppercase', color: 'rgba(242,241,234,.6)', marginBottom: 16, ...stagger('.35s') }}>
+                Your coffee archetype
+              </p>
+              <div
+                aria-hidden="true"
+                style={{
+                  width: 56, height: 3, margin: '0 auto 20px',
+                  background: `color-mix(in srgb, ${archetype.color} 82%, #f2f1ea)`,
+                  opacity: resultHeroShown ? 1 : 0,
+                  transform: resultHeroShown ? 'scaleX(1)' : 'scaleX(.3)',
+                  transition: 'opacity 0.7s ease 0.45s, transform 0.7s cubic-bezier(.22,1,.36,1) 0.45s',
+                }}
+              />
+              <h1
+                ref={heroHeadingRef}
+                tabIndex={-1}
+                style={{
+                  fontSize: 'clamp(48px,7.5vw,104px)', fontWeight: 400, lineHeight: 1.05,
+                  color: '#f2f1ea', margin: '0 0 26px', outline: 'none',
+                  ...stagger('.55s'),
+                }}
+              >
+                {archetype.name}.
+              </h1>
+              <p style={{ maxWidth: 560, margin: '0 auto', fontSize: 15.5, lineHeight: 1.7, color: 'rgba(242,241,234,.88)', ...stagger('.7s') }}>
+                {archetype.shortDescription}
+              </p>
+            </div>
+            {/* Scroll cue */}
+            <div aria-hidden="true" style={{
+              position: 'absolute', bottom: 26, left: '50%', transform: 'translateX(-50%)',
+              width: 1, height: 26, zIndex: 2,
+              background: `color-mix(in srgb, ${archetype.color} 70%, #f2f1ea)`,
+            }} />
+          </section>
 
-    return (
-      <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center px-6">
-        <QuizHeader />
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="max-w-md w-full text-center space-y-8"
-        >
-          <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-[#a33726] mb-3">A perfect tie</p>
-            <h2 className="text-3xl font-thin text-stone-800 leading-snug">
-              {tiedNames.length === 2
-                ? <>{tiedNames[0]} <span className="text-stone-400">&</span> {tiedNames[1]}</>
-                : tiedNames.join(' · ')}
-            </h2>
-            <p className="text-stone-500 mt-4 text-sm leading-relaxed">
-              Your palate sits at the edge of two worlds. Liam, our coffee sommelier, can help you find exactly where you land.
-            </p>
-          </div>
+          {/* Share row — available before gate unlock, hidden for Experimental (no share page) */}
+          <ShareMatchRow archetypeName={archetype.name} shareSlug={shareSlug} />
 
-          <div className="flex flex-col gap-3">
-            <button
-              onClick={() => {
-                window.location.href = `/sommelier?entry=quiz_tie&tied=${encodeURIComponent(tiedParam)}`;
-              }}
-              className="w-full py-3 rounded-lg text-white text-sm tracking-wide"
-              style={{ backgroundColor: RUST }}
-            >
-              Talk to Liam →
-            </button>
-            <button
-              onClick={() => {
-                setShowTieInterstitial(false);
-                if (user) {
-                  saveQuizResult({ archetype: scoreData.archetype, scores: scoreData.scores, answers, decaf: false })
-                    .then(refreshUserProfile)
-                    .catch(console.error);
-                }
-                fromWrapRef.current = true;
-                setIsWrapping(true);
-              }}
-              className="w-full py-3 rounded-lg text-sm text-stone-600 border border-stone-200 hover:bg-stone-100"
-            >
-              See my primary result
-            </button>
-          </div>
-        </motion.div>
-      </div>
-    );
-  }
-
-  // ── Wrap sequence ────────────────────────────────────────────────────────────
-  if (isWrapping) {
-    return (
-      <WrapSequence
-        name={userName}
-        cardSrc={ARCHETYPE_CARDS[archetypeKey] ?? ARCHETYPE_CARDS['balanced']}
-        onComplete={() => {
-          setIsWrapping(false);
-          resetReveal();
-          setIsComplete(true);
-        }}
-      />
-    );
-  }
-
-  // ── Results screen ───────────────────────────────────────────────────────────
-  //
-  // 200vh scroll container · 100vh sticky
-  // Curtain = full-screen wallpaper that slides up as user scrolls (translateY 0→-100%)
-  // After curtain clears: Bloom Dial (left) + Bag + archetype text (right) — stable, no further scroll
-  //
-
-  // After the wrap sequence, skip the scroll-reveal curtain — show result directly
-  if (fromWrapRef.current) {
-    return (
-      <div style={{ backgroundColor: '#f2f1ea', minHeight: '100vh' }}>
-        <QuizHeader />
-        <Section1Reveal
-          name={archetype.name}
-          wallpaper={archetype.wallpaper}
-          bag={archetype.bag}
-          description={archetype.shortDescription}
-        />
-        <ShareMatchRow archetypeName={archetype.name} shareSlug={shareSlug} />
-        {resultsArchetypeData && (
-          emailGateUnlocked ? (
+          {/* Gate / post-hero */}
+          {emailGateUnlocked ? (
             <>
               <GateStatusNote
                 showSignedInConsentNote={showSignedInConsentNote}
                 guestMaskedEmail={!user && postQuizEmail ? maskEmail(postQuizEmail) : null}
               />
-              <ArchetypeSection
-                data={resultsArchetypeData}
-                index={0}
-                selectedSortOrder={resultsSortOrder ?? computeDefaultSortOrder(resultsArchetypeData)}
-                revealedKeys={resultsRevealedKeys}
-                onDialSelect={handleResultsDialSelect}
-                onToggleReveal={toggleResultsReveal}
-                onAddToCart={addToCart}
-                onHopClick={handleResultsHopClick}
-                onCompare={openResultsCompare}
-                userArchetype={matchedArchetypeId}
-                registerDialRef={registerResultsDialRef}
-                source="find_my_flavor_results"
+              {resultsArchetypeData && (
+                <ArchetypeSection
+                  data={resultsArchetypeData}
+                  index={0}
+                  selectedSortOrder={resultsSortOrder ?? computeDefaultSortOrder(resultsArchetypeData)}
+                  revealedKeys={resultsRevealedKeys}
+                  onDialSelect={handleResultsDialSelect}
+                  onToggleReveal={toggleResultsReveal}
+                  onAddToCart={addToCart}
+                  onHopClick={handleResultsHopClick}
+                  onCompare={openResultsCompare}
+                  userArchetype={matchedArchetypeId}
+                  registerDialRef={registerResultsDialRef}
+                  source="find_my_flavor_results"
+                />
+              )}
+              <CompareOverlay
+                open={resultsCompareState.open}
+                onClose={() => setResultsCompareState(s => ({ ...s, open: false }))}
+                left={resultsCompareState.slot ? { archetype: resultsCompareState.archetype, archetypeLabel: resultsCompareState.archetypeLabel, slot: resultsCompareState.slot } : null}
+                archetypes={archetypesList}
               />
             </>
           ) : (
-            <PostQuizEmailGate
-              archetypeName={archetype.name}
-              archetypeColor={archetype.color}
-              experimental={archetypeKey === 'experimental'}
-              confidence={scoreData?.foodSignalAlignment}
-              sessionKey={sessionKeyRef.current!}
-              onSuccess={handleGateSuccess}
-            />
-          )
-        )}
-        {emailGateUnlocked && (
-          <CompareOverlay
-            open={resultsCompareState.open}
-            onClose={() => setResultsCompareState(s => ({ ...s, open: false }))}
-            left={resultsCompareState.slot ? { archetype: resultsCompareState.archetype, archetypeLabel: resultsCompareState.archetypeLabel, slot: resultsCompareState.slot } : null}
-            archetypes={archetypesList}
-          />
-        )}
-      </div>
-    );
-  }
-
-  const curtainProgress = revealForced ? 1 : revealProgress;
-  const curtainY        = curtainProgress * 100;
-  const curtainTextAlpha = Math.max(0, 1 - curtainProgress * 5);
-  const curtainTransition = revealForced
-    ? 'transform 1.1s cubic-bezier(0.16, 1, 0.3, 1)'
-    : 'none';
-
-  return (
-    <div style={{ backgroundColor: '#f2f1ea', minHeight: '100vh' }}>
-
-      {/* ── Scroll container (200vh) ─────────────────────────────────────────── */}
-      <div ref={revealContainerRef} style={{ position: 'relative', height: '200vh' }}>
-        <div style={{ position: 'sticky', top: 0, height: '100vh', overflow: 'hidden' }}>
-
-          {/* ── BASE LAYER — condensed header, revealed as the curtain slides away.
-               Find My Flavor Part 2, Bug 2: this used to be a 50/50 dial-placeholder/
-               bag split with a chocolate-only mock dial + hardcoded "BUY THIS COFFEE"
-               panel. The real interactive dial/position-card/reveal/cart flow now
-               lives in the full-width ArchetypeSection rendered below the scroll
-               container (in normal document flow, not clipped to this 100vh sticky
-               layer — ArchetypeSection's three-column row + full RevealedPanel is far
-               taller than one viewport and needs full page width, per the spec). ── */}
-          <div style={{
-            position: 'absolute', inset: 0,
-            backgroundColor: '#f2f1ea',
-            display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center',
-            padding: 'clamp(32px, 5vw, 72px)', textAlign: 'center',
-          }}>
-            <p style={{
-              fontSize: '0.48rem', letterSpacing: '0.32em', textTransform: 'uppercase',
-              color: archetype.color, opacity: 0.50, margin: '0 0 7px',
-            }}>
-              YOUR COFFEE ARCHETYPE
-            </p>
-            <h1 style={{
-              fontSize: 'clamp(2.4rem, 4.4vw, 4.6rem)',
-              color: archetype.color, fontWeight: 400,
-              lineHeight: 1.0, margin: '0 0 20px', letterSpacing: '-0.01em',
-            }}>
-              {archetype.name}
-            </h1>
-            <p style={{
-              fontSize: 'clamp(0.78rem, 0.92vw, 0.92rem)',
-              color: '#9a2918', opacity: 0.50, lineHeight: 1.75, margin: 0,
-              maxWidth: 480,
-            }}>
-              {archetype.shortDescription}
-            </p>
-          </div>
-
-          {/* ── CURTAIN LAYER — full-screen wallpaper, slides up on scroll ──── */}
-          <div style={{
-            position: 'absolute',
-            top: 0, left: 0,
-            width: '100%', height: '100%',
-            transform: `translateY(-${curtainY}%)`,
-            transition: curtainTransition,
-            zIndex: 10,
-            willChange: 'transform',
-          }}>
-
-            {archetypeKey === 'chocolate' ? (
-              /* ── Chocolate curtain — cream background with brand text layout ── */
-              <div style={{
-                position: 'absolute', top: 0, left: 0,
-                width: '100%', height: '100%',
-                backgroundColor: '#f2f1ea',
-              }}>
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.9, delay: 0.3 }}
-                  style={{
-                    position: 'absolute',
-                    left: 'clamp(72px, 7.5vw, 120px)',
-                    top: 'clamp(160px, 27vh, 240px)',
-                    opacity: curtainTextAlpha,
-                    transition: 'opacity 0.15s ease',
-                    pointerEvents: curtainTextAlpha < 0.05 ? 'none' : 'auto',
-                  }}
-                >
-                  {/* from: */}
-                  <p style={{
-                    fontSize: 'clamp(0.95rem, 1.2vw, 1.25rem)',
-                    color: '#7a2018',
-                    margin: '0 0 2px',
-                    fontWeight: 400,
-                    fontFamily: 'inherit',
-                  }}>
-                    from:
-                  </p>
-
-                  {/* AXIS */}
-                  <p style={{
-                    fontSize: 'clamp(4rem, 7vw, 8.5rem)',
-                    color: '#7a2018',
-                    margin: 0,
-                    lineHeight: 1.0,
-                    fontWeight: 400,
-                    letterSpacing: '-0.01em',
-                    fontFamily: 'inherit',
-                  }}>
-                    AXIS
-                  </p>
-
-                  {/* & BLOOM */}
-                  <p style={{
-                    fontSize: 'clamp(4rem, 7vw, 8.5rem)',
-                    color: '#7a2018',
-                    margin: '0 0 clamp(28px, 3.5vh, 44px)',
-                    lineHeight: 1.0,
-                    fontWeight: 400,
-                    letterSpacing: '-0.01em',
-                    fontFamily: 'inherit',
-                  }}>
-                    &amp;{' '}
-                    <span style={{ color: '#d4607a' }}>BLOOM</span>
-                  </p>
-
-                  {/* to: YOU */}
-                  <p style={{
-                    fontSize: 'clamp(0.95rem, 1.2vw, 1.25rem)',
-                    color: '#7a2018',
-                    margin: 0,
-                    fontWeight: 400,
-                    fontFamily: 'inherit',
-                  }}>
-                    to:{' '}
-                    <span style={{
-                      backgroundColor: '#d4607a',
-                      color: '#ffffff',
-                      padding: '2px 9px 3px',
-                    }}>
-                      YOU
-                    </span>
-                  </p>
-
-                  {/* Mobile tap button */}
-                  <button
-                    className="block md:hidden"
-                    onClick={() => setRevealForced(true)}
-                    style={{
-                      marginTop: 'clamp(32px, 5vh, 52px)',
-                      background: 'none',
-                      border: '1px solid rgba(122,32,24,0.35)',
-                      padding: '10px 20px',
-                      color: '#7a2018',
-                      fontFamily: 'inherit',
-                      fontSize: '0.58rem',
-                      letterSpacing: '0.22em',
-                      textTransform: 'uppercase',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    TAP TO REVEAL
-                  </button>
-                </motion.div>
-              </div>
-            ) : (
-              /* ── Other archetypes — wallpaper image ── */
-              <>
-                {/* Bug 1 fix (Find My Flavor Part 2): explicit opaque backgroundColor
-                    fallback — matching the gradient overlay's own base color — so
-                    this div is never transparent while the ~1MB `archetype.wallpaper`
-                    JPG is still downloading/decoding. Without it, the base layer
-                    underneath (now the condensed header above) showed through the
-                    still-loading curtain and then "popped in" opaque once the image
-                    landed, reading as a reveal window dropping down to cover an
-                    already-visible match. The preload effect above (keyed on
-                    archetypeKey) makes this the fast path a moot point on a warm
-                    cache; this backgroundColor is what makes a cold/slow one correct
-                    too. */}
-                <div style={{
-                  position: 'absolute', top: 0, left: 0,
-                  width: '100%', height: '100%',
-                  backgroundColor: '#0a0604',
-                  backgroundImage: `url(${archetype.wallpaper})`,
-                  backgroundSize: 'cover',
-                  backgroundPosition: 'center',
-                  backgroundRepeat: 'no-repeat',
-                  pointerEvents: 'none',
-                }} />
-                <div style={{
-                  position: 'absolute', inset: 0,
-                  background: 'linear-gradient(to top, rgba(10,6,4,0.62) 0%, rgba(10,6,4,0.08) 52%, rgba(10,6,4,0) 100%)',
-                }} />
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.9, delay: 0.3 }}
-                  style={{
-                    position: 'absolute',
-                    bottom: 'clamp(44px, 7.5vh, 80px)',
-                    left: 'clamp(44px, 5.5vw, 76px)',
-                    opacity: curtainTextAlpha,
-                    transition: 'opacity 0.15s ease',
-                    pointerEvents: curtainTextAlpha < 0.05 ? 'none' : 'auto',
-                    zIndex: 2,
-                  }}
-                >
-                  <p style={{
-                    fontSize: '0.50rem', letterSpacing: '0.32em', textTransform: 'uppercase',
-                    color: 'rgba(242,241,234,0.58)', margin: '0 0 9px',
-                  }}>
-                    YOUR RESULT
-                  </p>
-                  <p className="hidden md:block" style={{
-                    fontSize: '0.46rem', letterSpacing: '0.26em', textTransform: 'uppercase',
-                    color: 'rgba(242,241,234,0.30)', margin: 0,
-                  }}>
-                    SCROLL TO REVEAL
-                  </p>
-                  <button
-                    className="block md:hidden"
-                    onClick={() => setRevealForced(true)}
-                    style={{
-                      background: 'none',
-                      border: '1px solid rgba(242,241,234,0.32)',
-                      padding: '10px 20px',
-                      color: 'rgba(242,241,234,0.75)',
-                      fontFamily: 'inherit',
-                      fontSize: '0.58rem',
-                      letterSpacing: '0.22em',
-                      textTransform: 'uppercase',
-                      cursor: 'pointer',
-                      marginTop: 2,
-                    }}
-                  >
-                    TAP TO REVEAL
-                  </button>
-                </motion.div>
-              </>
-            )}
-          </div>
-
+            <section style={{ background: '#f2f1ea', padding: 'clamp(72px,10vh,120px) clamp(20px,5vw,40px) 90px', textAlign: 'center' }}>
+              <PostQuizEmailGate
+                archetypeName={archetype.name}
+                archetypeColor={archetype.color}
+                experimental={archetypeKey === 'experimental'}
+                confidence={scoreData?.foodSignalAlignment}
+                sessionKey={sessionKeyRef.current!}
+                onSuccess={handleGateSuccess}
+              />
+            </section>
+          )}
         </div>
-      </div>
-
-      <ShareMatchRow archetypeName={archetype.name} shareSlug={shareSlug} />
-
-      {/* ── Full-width archetype box — the same dial, position card, reveal panel,
-           add-to-cart, compare, and hop-link flow already proven on /bloom and this
-           page's own returning-user screen (Find My Flavor Part 2, Bug 2). Chocolate
-           & Nutty's previous special case — a local BloomDial mock with Gentle/
-           Rounded/Structured/Full/Deep body-level picks, feeding a hardcoded "BUY
-           THIS COFFEE" button that hard-navigated to /shop — is retired in favor of
-           this, same as every other archetype already got. Flagged explicitly in the
-           WHAT_WE_BUILT.md entry for this change, per the spec's instruction. ── */}
-      {resultsArchetypeData && (
-        emailGateUnlocked ? (
-          <>
-            <GateStatusNote
-              showSignedInConsentNote={showSignedInConsentNote}
-              guestMaskedEmail={!user && postQuizEmail ? maskEmail(postQuizEmail) : null}
-            />
-            <ArchetypeSection
-              data={resultsArchetypeData}
-              index={0}
-              selectedSortOrder={resultsSortOrder ?? computeDefaultSortOrder(resultsArchetypeData)}
-              revealedKeys={resultsRevealedKeys}
-              onDialSelect={handleResultsDialSelect}
-              onToggleReveal={toggleResultsReveal}
-              onAddToCart={addToCart}
-              onHopClick={handleResultsHopClick}
-              onCompare={openResultsCompare}
-              userArchetype={matchedArchetypeId}
-              registerDialRef={registerResultsDialRef}
-              source="find_my_flavor_results"
-            />
-          </>
-        ) : (
-          <PostQuizEmailGate
-            archetypeName={archetype.name}
-            archetypeColor={archetype.color}
-            experimental={archetypeKey === 'experimental'}
-            confidence={scoreData?.foodSignalAlignment}
-            sessionKey={sessionKeyRef.current!}
-            onSuccess={handleGateSuccess}
-          />
-        )
       )}
 
-      {emailGateUnlocked && (
-        <CompareOverlay
-          open={resultsCompareState.open}
-          onClose={() => setResultsCompareState(s => ({ ...s, open: false }))}
-          left={resultsCompareState.slot ? { archetype: resultsCompareState.archetype, archetypeLabel: resultsCompareState.archetypeLabel, slot: resultsCompareState.slot } : null}
-          archetypes={archetypesList}
+      {/* ── Wrap overlay — fixed, stays mounted across question→result switch ── */}
+      {isWrapping && (
+        <WrapOverlay
+          name={userName}
+          heroImageSrc={nightScanSrc}
+          onShowResult={() => setIsComplete(true)}
+          onStartNaming={() => setResultHeroShown(true)}
+          onDone={() => setIsWrapping(false)}
         />
       )}
 
       {/* Quiz layout hides the public nav/footer — a minimal legal link stands in for it. */}
-      <div style={{ padding: 'clamp(20px, 3vw, 32px)', textAlign: 'center' }}>
-        <Link to="/privacy" style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.7rem', color: '#7a2018', opacity: 0.45, textDecoration: 'none', marginRight: 20 }}>
-          Privacy
-        </Link>
-        <Link to="/terms" style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.7rem', color: '#7a2018', opacity: 0.45, textDecoration: 'none' }}>
-          Terms
-        </Link>
-      </div>
+      {isComplete && (
+        <div style={{ padding: 'clamp(20px, 3vw, 32px)', textAlign: 'center' }}>
+          <Link to="/privacy" style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.7rem', color: '#7a2018', opacity: 0.45, textDecoration: 'none', marginRight: 20 }}>
+            Privacy
+          </Link>
+          <Link to="/terms" style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.7rem', color: '#7a2018', opacity: 0.45, textDecoration: 'none' }}>
+            Terms
+          </Link>
+        </div>
+      )}
 
-    </div>
+    </>
   );
 }
