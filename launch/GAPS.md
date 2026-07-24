@@ -89,10 +89,13 @@ the brand docs, and project memory. Ordered by how much they threaten Oct 1.
     carousels — all gated on Step 01's canon and on brand-approved visuals
     (`misc/design_documents/`). No shoot date, no asset list. → Camila plans the shoot
     once 01 deploys; the plan's "films and copy built on the real system" warning applies.
-20. **Pricing gap is bigger than a workshop agenda item.** The site charges $38 today;
-    the decided zone is $32–34; the plan's market reference was $18–24. Until the Aug 8
-    workshop lands the number in the admin slot-price matrix, *the live site contradicts
-    the plan*. Ads must not start before price and site agree.
+20. **Pricing — DECIDED (Dana, 2026-07-24): $32 per 12oz.** 5lb = proportional minus a
+    bulk discount (10% proposed by Dana; 15–20% is the DTC specialty norm — final %
+    Dana's call). Launch perk is access-led: founding members get early Bloom Dial
+    access + increased Liam tokens (numbers TBD → E5 placeholder). **Still open: the
+    live site charges $38 — update the admin slot-price matrix to $32 before any ad
+    runs**, and fill Unit_Economics blue cells with $32 (at blended COGS ~$17.25 that's
+    ~$14.75 contribution ≈ 46% — healthy).
 21. **Legal review of privacy/terms** (Step 03 generates baseline text only) and the
     **Right Match Promise terms** (finalized Aug 8) need a professional pass before
     real ad spend scales. → Budget it; even a light review beats none.
