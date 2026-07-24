@@ -56,13 +56,17 @@ export function usePositionCardData(slot: Slot, archetype: string, isRevealed: b
   }, [isRevealed, detailLoaded, slot.coffeeId]);
 
   const availableWeights = slot.prices.filter(p => availability?.[p.weightOz]);
-  const effectivelyActive = slot.isActive && (availability === null || availableWeights.length > 0);
+  // No dial_slot_price row for any weight — distinct from "no coffee resolved"
+  // (slot.isActive false); renders as "Unpriced" rather than "Temporarily
+  // unavailable" (Pricing update, 2026-07-24 — no hardcoded fallback price).
+  const isUnpriced = slot.isActive && slot.prices.length === 0;
+  const effectivelyActive = slot.isActive && slot.prices.length > 0 && (availability === null || availableWeights.length > 0);
   const teaser = content?.surpriseNote ? content.surpriseNote.split(/(?<=[.!?])\s/)[0] : null;
   const selectedPrice = slot.prices.find(p => p.weightOz === selectedWeight);
 
   return {
     content, dimensions, wheelRows, hops,
-    availableWeights, effectivelyActive, teaser, selectedPrice,
+    availableWeights, effectivelyActive, isUnpriced, teaser, selectedPrice,
     selectedWeight, setSelectedWeight,
   };
 }

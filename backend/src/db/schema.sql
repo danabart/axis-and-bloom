@@ -1389,7 +1389,7 @@ COMMENT ON TABLE user_bloom_dial_current_position IS
 -- fulfilling the same slot show two different prices for the same weight, breaking
 -- the "customer buys a slot, not a roaster's coffee" abstraction) — see The Bloom
 -- Part 1 Phase 0. Named to group with the existing dial_* table family. Defaults
--- applied at the query level, not here: $38.00/12oz, $199.00/5lb (80oz) when no row
+-- applied at the query level, not here: $32.00/12oz, $185.00/5lb (80oz) when no row
 -- exists yet for that (archetype, dial_sort_order, weight_oz).
 CREATE TABLE IF NOT EXISTS dial_slot_price (
   id                  SERIAL PRIMARY KEY,
@@ -1407,7 +1407,7 @@ CREATE TABLE IF NOT EXISTS dial_slot_price (
 -- "The Unexpected"). These coffees are excluded from every flavor dial (see
 -- blendResolver.ts's category exclusion) so they have no (archetype, dial_sort_order)
 -- to key a price off of — coffee_id is the only stable identity they have. Same
--- "defaults applied at the query level, not here" pattern: $38.00/12oz, $199.00/5lb
+-- "defaults applied at the query level, not here" pattern: $32.00/12oz, $185.00/5lb
 -- when no row exists yet for that (coffee_id, weight_oz).
 CREATE TABLE IF NOT EXISTS coffee_retail_price (
   id                  SERIAL PRIMARY KEY,

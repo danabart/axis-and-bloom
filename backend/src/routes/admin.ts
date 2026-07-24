@@ -837,7 +837,7 @@ router.patch('/coffee-alias/:id', async (req, res) => {
 
 // ── GET /api/admin/slot-prices ────────────────────────────────────────────────
 // All explicitly-set slot prices. Slots with no row here fall back to the
-// $38.00/12oz, $199.00/5lb defaults applied client-side (AdminCoffees.tsx) and
+// $32.00/12oz, $185.00/5lb defaults applied client-side (AdminCoffees.tsx) and
 // at the public-read query level (GET /api/coffees/archetypes) — this endpoint
 // only returns rows that actually exist in dial_slot_price.
 router.get('/slot-prices', async (_req, res) => {
@@ -882,7 +882,7 @@ router.patch('/slot-prices', async (req, res) => {
 // Coffee-keyed counterpart to slot-prices, for Decaf/Half-Caf/Flavored/Experimental
 // coffees (no dial slot to key a price off of) — Bloom Dial Base Data Part 3, Phase 6.
 // Same "only returns rows that actually exist" contract; unset coffees fall back to
-// the $38.00/12oz, $199.00/5lb defaults applied at GET /api/coffees/other-categories.
+// the $32.00/12oz, $185.00/5lb defaults applied at GET /api/coffees/other-categories.
 router.get('/coffee-prices', async (_req, res) => {
   try {
     const result = await db.query(

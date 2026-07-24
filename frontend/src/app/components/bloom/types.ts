@@ -79,6 +79,10 @@ export interface OtherCategoryCoffee {
   categories: { code: string; label: string; sortOrder: number }[];
   prices: OtherCategoryPrice[];
   effectivelyActive: boolean;
+  /** No dial_slot_price/coffee_retail_price row for any weight — distinct from
+   * "no coffee resolved"; renders as "Unpriced" rather than "Temporarily unavailable"
+   * (Pricing update, 2026-07-24 — no hardcoded fallback price). */
+  isUnpriced: boolean;
 }
 
 /** Stable key for a slot, used for refs, revealed-state, and cart line matching. */

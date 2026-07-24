@@ -218,7 +218,11 @@ router.get('/', async (_req, res) => {
 // roaster or a raw coffee name anywhere in the response.
 const BLOOM_WEIGHTS_OZ = [12, 80] as const;
 const BLOOM_CANONICAL_WEIGHT_OZ = 12;
-const BLOOM_DEFAULT_PRICE_CENTS: Record<number, number> = { 12: 3800, 80: 19900 };
+// No hardcoded fallback price. A weight with no explicit dial_slot_price/
+// coffee_retail_price row is omitted from `prices` entirely rather than guessed —
+// the frontend renders that as "Unpriced" (PositionCard.tsx/OtherCategoryCard.tsx),
+// the same deliberate-gap treatment already used for "no coffee resolved" (Pricing
+// update, 2026-07-24 — see backend/src/db/migrations/pricing_update_2026_07_24.sql).
 
 // Shared per-archetype slot builder — used by both /archetypes (the 5 real
 // archetypes) and /experimental (Bloom Dial Base Data Part 4, §B2/C1). Resolves
@@ -267,10 +271,11 @@ async function buildSlotsForArchetype(
       [resolved.coffee_id, archetype, v.sort_order]
     );
 
-    const prices = BLOOM_WEIGHTS_OZ.map(weightOz => ({
-      weightOz,
-      retailPriceCents: priceMap.get(`${archetype}|${v.sort_order}|${weightOz}`) ?? BLOOM_DEFAULT_PRICE_CENTS[weightOz],
-    }));
+    const prices: { weightOz: number; retailPriceCents: number }[] = [];
+    for (const weightOz of BLOOM_WEIGHTS_OZ) {
+      const cents = priceMap.get(`${archetype}|${v.sort_order}|${weightOz}`);
+      if (cents !== undefined) prices.push({ weightOz, retailPriceCents: cents });
+    }
 
     slots.push({
       dialSortOrder: v.sort_order,
@@ -519,12 +524,10 @@ router.get('/other-categories', async (_req, res) => {
     for (const [coffeeId, info] of byCoffee) {
       const prices = [];
       for (const weightOz of BLOOM_WEIGHTS_OZ) {
+        const cents = priceMap.get(`${coffeeId}|${weightOz}`);
+        if (cents === undefined) continue; // unpriced — omit rather than guess
         const blend = await resolveCoffeeBlend(coffeeId, weightOz);
-        prices.push({
-          weightOz,
-          retailPriceCents: priceMap.get(`${coffeeId}|${weightOz}`) ?? BLOOM_DEFAULT_PRICE_CENTS[weightOz],
-          isActive: !!blend,
-        });
+        prices.push({ weightOz, retailPriceCents: cents, isActive: !!blend });
       }
       coffees.push({
         coffeeId,
@@ -534,6 +537,7 @@ router.get('/other-categories', async (_req, res) => {
         categories: info.categories.sort((a, b) => a.sortOrder - b.sortOrder),
         prices,
         effectivelyActive: prices.some(p => p.isActive),
+        isUnpriced: prices.length === 0,
       });
     }
 

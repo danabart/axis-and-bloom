@@ -16,6 +16,7 @@ interface PositionCardProps {
   // data without a second fetch).
   teaser: string | null;
   effectivelyActive: boolean;
+  isUnpriced: boolean;
   availableWeights: SlotPrice[];
   selectedWeight: number | null;
   setSelectedWeight: (weightOz: number) => void;
@@ -25,7 +26,7 @@ interface PositionCardProps {
 /** Collapsed header + commerce row only — the revealed informational layer lives in RevealedPanel.tsx, full-width, below this. */
 export function PositionCard({
   slot, archetype, archetypeLabel, color, isRevealed, onToggleReveal, onAddToCart, onCompare, cardRef,
-  teaser, effectivelyActive, availableWeights, selectedWeight, setSelectedWeight, selectedPrice,
+  teaser, effectivelyActive, isUnpriced, availableWeights, selectedWeight, setSelectedWeight, selectedPrice,
 }: PositionCardProps) {
   function handleAddToCart() {
     if (!slot.platformName || !selectedPrice) return;
@@ -60,7 +61,7 @@ export function PositionCard({
           </p>
         )}
         <span className="text-xs px-2.5 py-1 rounded-full mt-1" style={{ backgroundColor: '#e0dcd4', color: '#8a8070' }}>
-          Temporarily unavailable
+          {isUnpriced ? 'Unpriced' : 'Temporarily unavailable'}
         </span>
       </div>
     );

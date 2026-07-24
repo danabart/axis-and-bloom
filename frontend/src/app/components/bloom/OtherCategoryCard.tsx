@@ -48,7 +48,7 @@ export function OtherCategoryCard({ coffee, categoryLabel, onAddToCart, renderFl
           {categoryLabel}
         </span>
         <span className="text-xs px-2.5 py-1 rounded-full mt-1" style={{ backgroundColor: '#e0dcd4', color: '#8a8070' }}>
-          Temporarily unavailable
+          {coffee.isUnpriced ? 'Unpriced' : 'Temporarily unavailable'}
         </span>
       </div>
     );

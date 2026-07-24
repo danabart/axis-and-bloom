@@ -596,6 +596,10 @@ No Liam prompt, RAG query, or chat behavior changed by either of these.
 
 **Context**: `WHAT_WE_BUILT.md` #117. Five HTML/text email templates + a setup doc, all new files under `launch/40_email-marketing/templates/` — no `backend/`/`frontend/` code touched at all, so nothing in the Sommelier/Liam surface (`Sommelier.tsx`, `sommelierEvaluator.ts`, `sommelier_*`/`liam_*` tables) was anywhere near this change. Email 1 does introduce a "Meet Liam, your coffee sommelier" paragraph and mentions Liam again in Email 2 — both are static marketing prose describing Liam to a prospective subscriber, the same kind of accurate-description case already logged in S64 for `Privacy.tsx`, not a code path that reads or writes any Sommelier state. Continuity note only.
 
+#### S67. Pricing update ($32/12oz, $185/5lb) + removed hardcoded price fallback — confirmed no Liam impact (2026-07-24)
+
+**Context**: `WHAT_WE_BUILT.md` #118. Touched `coffees.ts` (`BLOOM_DEFAULT_PRICE_CENTS` removed, `buildSlotsForArchetype`/`GET /api/coffees/other-categories` price logic), `admin.ts` (comments only), `schema.sql` (comments only), a new migration, and the Bloom Dial commerce components (`AdminCoffees.tsx`, `ArchetypeSection.tsx`, `PositionCard.tsx`, `OtherCategoryCard.tsx`, `usePositionCardData.ts`, `types.ts`) — all pricing/commerce surface, none of it Sommelier/Liam-adjacent. `RevealedPanel.tsx` (the component that does carry a "Talk to Liam" link) was checked and confirmed to render no price data at all — grepped for `retailPriceCents`/`formatPrice`, zero matches. Continuity note only.
+
 #### S35. Task 6 — Liam voice reset (2026-07-04)
 Full execution of `SOMMELIER_TASK_6_VOICE.md`. Three files changed + live Firestore config patched.
 

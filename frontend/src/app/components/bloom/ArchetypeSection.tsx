@@ -232,6 +232,7 @@ export function ArchetypeSection({
                 cardRef={() => {}}
                 teaser={cardData.teaser}
                 effectivelyActive={cardData.effectivelyActive}
+                isUnpriced={cardData.isUnpriced}
                 availableWeights={cardData.availableWeights}
                 selectedWeight={cardData.selectedWeight}
                 setSelectedWeight={cardData.setSelectedWeight}

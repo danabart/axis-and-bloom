@@ -112,7 +112,7 @@ const TCR    = 'Temecula Coffee Roasters';
 // Applied client-side whenever dial_slot_price has no row yet for a (archetype,
 // dial_sort_order, weight_oz) — mirrors the same defaults GET /api/coffees/archetypes
 // applies for the public read. See The Bloom Part 1 Phase 0.
-const DEFAULT_PRICE_CENTS: Record<12 | 80, number> = { 12: 3800, 80: 19900 };
+const DEFAULT_PRICE_CENTS: Record<12 | 80, number> = { 12: 3200, 80: 18500 };
 
 const EMPTY_FORM = {
   name: '', roaster: '', origin: '',
