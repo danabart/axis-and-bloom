@@ -154,13 +154,13 @@ No enforced sequence between stages — a user can land on any stage directly fr
 | `v_archetype_distribution` *(added launch Step 06, 2026-07-22)* | Subscriber count and share by archetype, from `newsletter_subscriber.archetype` (rows with a NULL archetype excluded). Columns: `archetype`, `subscriber_count`, `share` (%). |
 | `v_orders_weekly` *(added launch Step 06, 2026-07-22)* | Weekly order volume/revenue from `"order"`. Columns: `week`, `orders`, `new_customers` (first-ever order landing in that week), `revenue_cents`. Returns zero rows gracefully pre-launch (no orders yet). |
 
-**Reporting views paper trail**: all four were created directly in Cloud SQL Studio on 2026-07-22 (`launch/20_analytics-and-tracking/06_B3_reporting_views_admin_links.md`) without the SQL ever being committed — closed 2026-07-23 by dumping the live definitions/grants verbatim into `backend/src/db/migrations/reporting_views_2026_07_23.sql` (verified byte-exact against production before committing; no database change made, no application code touched).
+**Reporting views paper trail — corrected 2026-07-23**: the SQL for all four views (plus the `reporting_ro` role) was committed the same day it was built, in `backend/src/db/schema.sql` (commit `5d99e94`) — it runs idempotently on every backend startup like every other view in this file, same as the rest of the table above. `backend/src/db/migrations/reporting_views_2026_07_23.sql` was added afterward on the mistaken premise that the SQL had never been committed (it's a byte-exact dump of the live production definitions, harmless and idempotent, but redundant with `schema.sql`) — kept as-is rather than deleted, but **`schema.sql` is the actual source of truth**; if the two ever drift, `schema.sql` wins since it's the one that actually runs.
 
 ### Roles
 
 | Role | Purpose |
 |---|---|
-| `reporting_ro` *(added launch Step 06, 2026-07-22)* | Read-only Postgres role for the Looker Studio connector. `LOGIN`, `CONNECT` on the database, `USAGE` on schema `public`, `SELECT` on exactly the four `v_*_weekly`/`v_archetype_distribution` reporting views above — no base tables, no other views. Password lives in Secret Manager (per the Step 06 spec), not in any committed file. Defined in `backend/src/db/migrations/reporting_views_2026_07_23.sql`. |
+| `reporting_ro` *(added launch Step 06, 2026-07-22)* | Read-only Postgres role for the Looker Studio connector. `LOGIN`, `CONNECT` on the database, `USAGE` on schema `public`, `SELECT` on exactly the four `v_*_weekly`/`v_archetype_distribution` reporting views above — no base tables, no other views. Password lives in Secret Manager (per the Step 06 spec), not in any committed file. Defined in `backend/src/db/schema.sql` (also mirrored in `backend/src/db/migrations/reporting_views_2026_07_23.sql`, a redundant paper-trail copy — see note above). |
 
 ---
 
