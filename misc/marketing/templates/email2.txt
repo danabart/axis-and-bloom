@@ -1,0 +1,24 @@
+AXIS & BLOOM
+
+HOW WE FOUND IT
+
+*|FNAME|*,
+
+Most coffee advice starts with someone else's favorite. Ours starts with data — some of it about the coffee, some of it about you.
+
+Every coffee arrives carrying its own record: origin, process, roast, what the roaster tasted. We keep all of it — and then we taste for ourselves. In structured cupping sessions we measure each coffee across the same sensory dimensions, the same way, every time, and those measurements are what place it on our map. The record tells us a coffee's story; the cupping tells us its flavor — and flavor is what we match you on.
+
+Then AI goes to work — in two roles, worth telling apart. Behind the scenes, it builds with us: as evidence accumulates, AI proposes where a coffee's position should move and keeps the bookkeeping honest, while humans do the tasting. In front of you, it speaks: Liam, your AI agent, reads the finished map — your profile, the coffees closest to it, the paths between them — and turns it into a conversation. Your recommendations come from that same reading: the coffees the system finds closest to where you already are.
+
+The whole journey is on display, from a coffee's first record to your recommendation.
+
+WATCH THE DATA WORK
+https://axisandbloomcoffee.com/the-axis
+
+— the Axis & Bloom team
+
+--
+Axis & Bloom
+*|LIST:ADDRESS|*
+
+Unsubscribe: *|UNSUB|*
