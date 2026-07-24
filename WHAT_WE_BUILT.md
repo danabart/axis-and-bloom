@@ -2969,6 +2969,70 @@ WHAT_WE_BUILT.md #116, SOMMELIER_BUILT.md S65 (no Liam impact).
 
 ---
 
+### 117. M1 — Welcome Journey: Mailchimp HTML/text templates (2026-07-23)
+
+Turned `launch/40_email-marketing/WELCOME_EMAILS_DRAFT_v3.md` (final, verbatim copy) into 5
+production-ready Mailchimp templates — `email1.html`–`email5.html` + matching `.txt` versions,
+plus `MAILCHIMP_SETUP.md` (exact import/journey-build/Email-5-campaign click-path) — all under
+the new `launch/40_email-marketing/templates/` folder. Content assets only; no `backend/` or
+`frontend/` files touched, no DB schema change (`WHAT_WE_BUILT_DB.md` untouched by this entry).
+
+**Typography — real Genova, self-hosted.** The live site currently ships Lato (its most recent
+typography commit, `cab3716`, actually reverted Genova → Lato — confirmed by reading the current
+`theme.css`/`fonts.css` and `git log`, not assumed from stale docs). Per Dana's explicit call and
+the brand's visual identity deck (`misc/design_documents/Axis & Bloom logo and visual identity_
+adjustments2 (1).pdf`, p.8), these emails use the real Genova typeface instead. Dana supplied the
+`.ttf` files, committed at `misc/design_documents/genova/` (`383184e`). Base64-embedding them
+inline was considered and rejected — 3 weights (Regular/Thin/Black, matching the site's own
+settled convention) raw ≈126KB, ~168KB base64-inflated, per email, which alone would push every
+send past Gmail's ~102KB clipping threshold. Instead, uploaded the 3 weights to the existing
+public `gs://axis-bloom-assets` bucket at `raw/fonts/genova/` (same unprocessed-passthrough
+convention as `frontend/src/design/CLAUDE.md`'s `raw()` helper), verified publicly reachable
+(200, `Content-Type: font/ttf`), and referenced via `@font-face` with an Arial/Helvetica fallback
+for clients that don't support it (Outlook desktop, mainly).
+
+**Typographic hierarchy, not new copy.** Applied the Visual Foundations brief's own stated
+ordering ("recognize the person, then present the system": Primary = Identity, Secondary =
+Recommendation, Tertiary = Explanation, Quaternary = optional System Depth) purely through size/
+weight/color — no wording changed anywhere. Email 1 got a real display moment: a 15px kicker
+("*|FNAME|*, your match is in.") under a 36px/900 archetype-colored headline ("You're
+ARCHETYPE."), the per-archetype flavor paragraph promoted into a callout bordered in the same
+archetype color, and the Liam/Taste Memory paragraph deliberately receded to the site's existing
+muted gray (`#7b7f80`) — "depth available, never imposed." Emails 2–5 each got a 26px/900 section
+headline reusing that email's own already-authored v3 working title verbatim.
+
+**Personalization.** Email 1's per-archetype flavor paragraph (and its accent-bar/headline color)
+uses `*|IF:ARCHETYPE=...|*` Mailchimp conditional blocks keyed on the exact display-name strings
+the backend already sends (`Floral`, `Fruity`, `Balanced & Sweet`, `Chocolate & Nutty`, `Earthy`
+— confirmed against `FlavorQuiz.tsx`'s `ARCHETYPES[key].name`, the same value Step 05's Mailchimp
+sync uses for the `ARCHETYPE` merge field); the `ELSE` branch reuses the site's live Experimental
+description verbatim rather than inventing new copy, and also covers a blank/unsynced value.
+Emails 3 and 5's CTAs use the same conditional pattern to link to the real public `/match/<slug>`
+pages Step 07 already shipped (slug convention confirmed against `ShareMatchRow.tsx`: `floral`,
+`fruity`, `earthy`, `chocolate-nutty`, `balanced-sweet`; Experimental/unset falls back to
+`/profile`, same as `ShareMatchRow` hiding its own share row for Experimental). Email 4 links
+statically to `/profile`. CAN-SPAM footer on every template via Mailchimp's own `*|LIST:ADDRESS|*`
++ `*|UNSUB|*` merge tags rather than a hardcoded address.
+
+**Verified**: a standalone preview harness (not committed — browser-only) confirmed all 5
+templates render and that the `*|IF|*` conditional logic (flavor paragraph, accent-bar/headline
+color, `/match/<slug>` CTA) resolves correctly for each of the 6 simulated archetype values,
+using a small parser mirroring Mailchimp's own merge-tag syntax. **Not yet done**: a real
+Mailchimp test send (the harness's own parser isn't Mailchimp's, and email-client `@font-face`
+support varies — flagged in `MAILCHIMP_SETUP.md`), and M2 itself (building the actual Mailchimp
+Customer Journey + the Email 5 one-off campaign) — both manual steps for Dana, fully spec'd in
+`MAILCHIMP_SETUP.md`.
+
+**Found, not fixed (out of scope — outside this task's `frontend/` boundary)**: `ShareMatchRow.tsx`
+hardcodes `https://www.axisandbloomcoffee.com` (with `www`) for its `/match/<slug>` links, while
+`launch/README.md`'s explicit rule and every link in these email templates use
+`https://axisandbloomcoffee.com` (no `www`). Both almost certainly resolve today; flagged for
+Dana/Camila to reconcile.
+
+WHAT_WE_BUILT.md #117, SOMMELIER_BUILT.md S66 (no Liam impact).
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.
