@@ -1,0 +1,29 @@
+AXIS & BLOOM
+
+*|FNAME|*, your match is in.
+YOU'RE *|ARCHETYPE|*.
+
+That name is a coordinate — the place where two streams of data met.
+
+One stream traveled with the beans: where they grew, how they were processed, how they were roasted, what the roaster tasted in the cup. The other stream is you — the answers you just gave about how you actually experience flavor. We measure every coffee we carry the same way, every time, and your quiz places you in that same space. Your archetype is where the two streams settled together.
+
+Here's what that means in the cup:
+
+*|IF:ARCHETYPE=Floral|*Your answers leaned toward the delicate end of flavor — lift over weight, fragrance over force. In the cup, that means coffees that feel light, elegant, and quietly expressive: jasmine and soft citrus, a tea-like clarity, sweetness that arrives gently and stays. Yours are the coffees people call beautiful before they call them anything else.*|ELSEIF:ARCHETYPE=Fruity|*Your answers pointed to brightness — flavor that moves. Fruity coffees bring juice and life to the cup: berries and ripe stone fruit, citrus that sparkles, a tropical sweetness that makes the morning cup feel awake before you are. Yours is the archetype for palates that want the cup to do something.*|ELSEIF:ARCHETYPE=Balanced & Sweet|*Your answers favored harmony — flavor where everything sits in its place. These coffees are smooth, round, and quietly generous: caramel and honey, a touch of gentle fruit, a sweetness that feels effortless. Yours is the cup that's exactly right every morning, before you've asked anything of it.*|ELSEIF:ARCHETYPE=Chocolate & Nutty|*Your answers chose depth you can lean on — the classic register of coffee, done precisely. Expect cocoa and roasted nuts, a fuller body, and a warm, grounding presence that makes the first cup feel like solid ground. Yours is the archetype of comfort with a backbone.*|ELSEIF:ARCHETYPE=Earthy|*Your answers reached for the deep end — flavor with weight and a long finish. Earthy coffees open a more grounded sensory world: spice and wood, dark herbs, a trace of smoke, complexity that unfolds slowly and rewards attention. Yours are the cups that keep offering more.*|ELSE:|*Unexpected, wild, and expressive. Experimental coffees are for curious palates, bringing unusual processing, surprising flavor, and a sense of discovery.*|END:IF|*
+
+Meet Liam, your coffee sommelier. When Axis & Bloom opens, you can talk to Liam any time you want a steer. Liam is an AI agent who reads before he speaks: your taste profile, the coffees closest to it, and the paths between them. Every suggestion he makes has a measured place behind it.
+
+Right now, your match lives in this email. Create your profile and it lives with us — saved to you, not to a browser tab. More important, that's where your Taste Memory starts: the data foundation we build about your taste, cup by cup, note by note. Taste is rarely one fixed point — you can love more than one flavor, lean with the seasons, sharpen as you go — and your profile is built to move with you. The quiz drew the first lines. Everything from here refines them.
+
+SAVE MY MATCH — CREATE MY PROFILE
+https://axisandbloomcoffee.com/signup
+
+Doors open October 1. You're on the first-access list.
+
+— the Axis & Bloom team
+
+--
+Axis & Bloom
+*|LIST:ADDRESS|*
+
+Unsubscribe: *|UNSUB|*

@@ -1,0 +1,24 @@
+AXIS & BLOOM
+
+OCTOBER 1, YOU'RE FIRST
+
+*|FNAME|*,
+
+A date for your calendar: we open October 1, and your place on the first-access list is set. You'll get one email that morning with your match ready to order.
+
+One thing worth knowing now. Founding members — anyone who joins in the first stretch — start with the deeper version of Axis & Bloom: an expanded token allowance for Liam — a bigger monthly package of conversations with your AI sommelier, spent the way tokens are in the AI plans you already know — and early access to the Bloom Dial, so you can lean your match brighter, deeper, softer, or bolder from day one. The more you use both, the sharper the system reads you.
+
+We'll say it once that morning and won't chase you about it. A date is information, not pressure.
+
+Until then, nothing to do. Your profile is saved, your coffees are chosen, and the roaster is warned.
+
+REVISIT YOUR MATCH
+*|IF:ARCHETYPE=Floral|*https://axisandbloomcoffee.com/match/floral*|ELSEIF:ARCHETYPE=Fruity|*https://axisandbloomcoffee.com/match/fruity*|ELSEIF:ARCHETYPE=Balanced & Sweet|*https://axisandbloomcoffee.com/match/balanced-sweet*|ELSEIF:ARCHETYPE=Chocolate & Nutty|*https://axisandbloomcoffee.com/match/chocolate-nutty*|ELSEIF:ARCHETYPE=Earthy|*https://axisandbloomcoffee.com/match/earthy*|ELSE:|*https://axisandbloomcoffee.com/profile*|END:IF|*
+
+— the Axis & Bloom team
+
+--
+Axis & Bloom
+*|LIST:ADDRESS|*
+
+Unsubscribe: *|UNSUB|*

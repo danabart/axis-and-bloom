@@ -1,0 +1,22 @@
+AXIS & BLOOM
+
+WHAT ARRIVES AT YOUR DOOR
+
+*|FNAME|*,
+
+When doors open, here's what an order looks like. Your coffee is roasted after you order it — not pulled from a warehouse — and it ships in your archetype's bag: the same world you saw when the curtain opened. No outer box, no filler. The bag is the reveal.
+
+Inside is a coffee chosen for your position on the map, matched to your taste. Brew it the way you already love to brew — that's the taste it was matched to.
+
+One more thing, for the people you share a pot with: your profile can hold a household. Add them, let each person find their own archetype, and we'll remember every taste under your roof — separately, and together.
+
+MEET YOUR MATCHED COFFEES
+*|IF:ARCHETYPE=Floral|*https://axisandbloomcoffee.com/match/floral*|ELSEIF:ARCHETYPE=Fruity|*https://axisandbloomcoffee.com/match/fruity*|ELSEIF:ARCHETYPE=Balanced & Sweet|*https://axisandbloomcoffee.com/match/balanced-sweet*|ELSEIF:ARCHETYPE=Chocolate & Nutty|*https://axisandbloomcoffee.com/match/chocolate-nutty*|ELSEIF:ARCHETYPE=Earthy|*https://axisandbloomcoffee.com/match/earthy*|ELSE:|*https://axisandbloomcoffee.com/profile*|END:IF|*
+
+— the Axis & Bloom team
+
+--
+Axis & Bloom
+*|LIST:ADDRESS|*
+
+Unsubscribe: *|UNSUB|*
