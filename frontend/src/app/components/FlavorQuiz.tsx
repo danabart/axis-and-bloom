@@ -1551,14 +1551,14 @@ export default function FlavorQuiz() {
                 ref={heroHeadingRef}
                 tabIndex={-1}
                 style={{
-                  fontSize: 'clamp(48px,7.5vw,104px)', fontWeight: 400, lineHeight: 1.05,
+                  fontSize: 'clamp(36px,7.5vw,104px)', fontWeight: 400, lineHeight: 1.05,
                   color: '#f2f1ea', margin: '0 0 26px', outline: 'none',
                   ...stagger('.55s'),
                 }}
               >
                 {archetype.name}.
               </h1>
-              <p style={{ maxWidth: 560, margin: '0 auto', fontSize: 15.5, lineHeight: 1.7, color: 'rgba(242,241,234,.88)', ...stagger('.7s') }}>
+              <p style={{ maxWidth: 560, margin: '0 auto', fontSize: 15.5, lineHeight: 1.7, color: 'rgba(242,241,234,.88)', padding: '0 clamp(20px,5vw,32px)', ...stagger('.7s') }}>
                 {archetype.shortDescription}
               </p>
             </div>
@@ -1604,7 +1604,7 @@ export default function FlavorQuiz() {
               />
             </>
           ) : (
-            <section style={{ background: '#f2f1ea', padding: 'clamp(72px,10vh,120px) clamp(20px,5vw,40px) 90px', textAlign: 'center' }}>
+            <section style={{ background: '#f2f1ea', padding: 'clamp(72px,10vh,120px) clamp(20px,5vw,40px) 90px' }}>
               <PostQuizEmailGate
                 archetypeName={archetype.name}
                 archetypeColor={archetype.color}
