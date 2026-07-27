@@ -1,6 +1,9 @@
 import { Link } from 'react-router';
-import { lifestyleAssets } from '../../design/assets';
+import { lifestyleAssets, brandAssets } from '../../design/assets';
 import { trackEvent } from '../lib/analytics';
+
+// Real brand mark — same logo the site nav uses (raw SVG from the bucket).
+const logoMark = brandAssets.logoQuarter1;
 
 // Her original pre-launch photograph (vertical crop) — kept per brief 28's note.
 const coffeeCup = lifestyleAssets.coffee15Vertical.src;
@@ -156,11 +159,7 @@ export default function PreLaunch() {
 
         <div className="pl-content">
           <div className="pl-wordmark">
-            <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
-              <path d="M10 2 A8 8 0 0 1 18 10 L14 10 A4 4 0 0 0 10 6 Z" fill="#9a2918" />
-              <path d="M2 10 A8 8 0 0 1 6 3.1 L8.2 6.5 A4 4 0 0 0 6 10 Z" fill="#ee5974" />
-              <path d="M10 18 A8 8 0 0 1 3.2 14.3 L6.7 12.3 A4 4 0 0 0 10 14 Z" fill="#7b7f80" />
-            </svg>
+            <img src={logoMark} alt="Axis & Bloom" style={{ height: 18, width: 'auto' }} />
             AXIS &amp; BLOOM
           </div>
 
