@@ -1,188 +1,199 @@
-import { useState } from 'react';
 import { Link } from 'react-router';
 import { lifestyleAssets } from '../../design/assets';
-import { trackEvent, trackLead } from '../lib/analytics';
-import { logQuizFunnelEvent } from '../lib/api';
+import { trackEvent } from '../lib/analytics';
 
+// Her original pre-launch photograph (vertical crop) — kept per brief 28's note.
 const coffeeCup = lifestyleAssets.coffee15Vertical.src;
 
-const BRAND = '#a33726';
-const CREAM = '#f0ebe1';
+// Palette — matches the quiz terracotta (#9a2918) and the six archetype colors
+// used on the result screen, so the flavor-world swatches read as a preview of it.
+const TERRA = '#9a2918';
+const FONT  = "'Lato', Arial, sans-serif";
 
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  border: 'none',
-  borderBottom: `1.5px solid ${BRAND}`,
-  background: 'transparent',
-  padding: '14px 0',
-  fontFamily: "'Lato', Arial, sans-serif",
-  fontSize: '1rem',
-  color: BRAND,
-  outline: 'none',
-};
+const ARCHETYPE_SWATCHES = [
+  '#a34b78', // floral
+  '#ca445f', // fruity
+  '#d1ac11', // balanced & sweet
+  '#a54c2d', // chocolate & nutty
+  '#912f2f', // spicy & earthy
+  '#056c7a', // experimental
+];
 
+// Pre-launch = the gate. No email capture here — the only action is the quiz;
+// email is captured at the post-quiz gate (brief 25). "Find my flavor" routes
+// straight to /find-my-flavor.
 export default function PreLaunch() {
-  const [firstName, setFirstName] = useState('');
-  const [email, setEmail]         = useState('');
-  const [submitted, setSubmitted] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email) return;
-    try {
-      const res = await fetch('/api/newsletter/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, firstName, source: 'pre_launch' }),
-      });
-      if (res.ok) {
-        trackEvent('EmailSubmitted', { source: 'pre_launch' });
-        trackLead({ source: 'pre_launch' });
-        logQuizFunnelEvent(crypto.randomUUID(), 'email_submitted').catch(() => {});
-      }
-    } catch {
-      // fail silently — still show confirmation
-    }
-    setSubmitted(true);
-  };
-
   return (
     <>
       <style>{`
-        .pl-input::placeholder {
-          color: ${BRAND};
-          opacity: 0.45;
-          font-family: 'Lato', Arial, sans-serif;
+        .pl-page {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          min-height: 100vh;
+          min-height: 100dvh;
+          font-family: ${FONT};
+          background: #f2f1ea;
+          color: #45474a;
+          line-height: 1.6;
+        }
+        .pl-photo {
+          background: #1c1512 center / cover no-repeat;
+          background-image: url('${coffeeCup}');
+        }
+        .pl-content {
+          display: flex;
+          flex-direction: column;
+          padding: 34px clamp(28px, 5vw, 64px) 26px;
+          position: relative;
+        }
+        .pl-wordmark {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          font-size: 13px;
+          letter-spacing: .18em;
+          color: ${TERRA};
+          font-weight: 500;
+        }
+        .pl-mid {
+          margin: auto 0;
+          max-width: 520px;
+          padding: 60px 0;
+        }
+        .pl-kicker {
+          font-size: 11px;
+          letter-spacing: .24em;
+          text-transform: uppercase;
+          color: ${TERRA};
+          display: block;
+          margin-bottom: 22px;
+        }
+        .pl-h1 {
+          font-size: clamp(34px, 3.6vw, 50px);
+          font-weight: 400;
+          line-height: 1.14;
+          color: #45474a;
+          margin-bottom: 22px;
+        }
+        .pl-hl {
+          background: #ee5974;
+          color: #f2f1ea;
+          padding: 1px 10px;
+        }
+        .pl-sub {
+          font-size: 15.5px;
+          line-height: 1.7;
+          color: #45474a;
+          max-width: 440px;
+          margin-bottom: 34px;
+        }
+        .pl-worlds {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-bottom: 8px;
+        }
+        .pl-worlds span {
+          width: 26px;
+          height: 3px;
+          display: inline-block;
+        }
+        .pl-worlds-cap {
+          font-size: 11.5px;
+          letter-spacing: .08em;
+          color: #7b7f80;
+          margin-bottom: 40px;
+        }
+        .pl-btn {
+          display: inline-block;
+          background: ${TERRA};
+          color: #f2f1ea;
+          padding: 16px 34px;
+          font-size: 12.5px;
+          letter-spacing: .18em;
+          text-transform: uppercase;
+          text-decoration: none;
+          transition: background 0.2s;
+        }
+        .pl-btn:hover { background: #a94936; }
+        .pl-micro {
+          margin-top: 20px;
+          font-size: 11.5px;
+          letter-spacing: .06em;
+          color: #7b7f80;
+        }
+        .pl-foot {
+          display: flex;
+          justify-content: space-between;
+          align-items: baseline;
+          border-top: 1px solid #c5c7c8;
+          padding-top: 14px;
+          font-size: 11px;
+          color: #7b7f80;
+          letter-spacing: .06em;
+          gap: 12px;
+        }
+        .pl-foot a {
+          color: #7b7f80;
+          text-decoration: none;
+          margin-left: 16px;
+        }
+        .pl-foot a:hover { color: ${TERRA}; }
+
+        @media (max-width: 820px) {
+          .pl-page { grid-template-columns: 1fr; }
+          .pl-photo {
+            min-height: 44vh;
+            background-position: center 65%;
+          }
+          .pl-content { padding: 28px 28px 20px; }
+          .pl-mid { padding: 44px 0; }
         }
       `}</style>
 
-      <div
-        className="fixed inset-0 z-[9999] flex flex-col md:flex-row"
-        style={{ fontFamily: "'Lato', Arial, sans-serif" }}
-      >
-        {/* ── Left — full-bleed photo ───────────────────────────── */}
-        <div
-          className="w-full h-[45vh] md:w-1/2 md:h-full"
-          style={{
-            position: 'relative',
-            overflow: 'hidden',
-          }}
-        >
-          <img
-            src={coffeeCup}
-            alt=""
-            style={{
-              position: 'absolute',
-              inset: 0,
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              objectPosition: 'center center',
-            }}
-          />
-        </div>
+      <div className="pl-page">
+        <div className="pl-photo" aria-hidden="true" />
 
-        {/* ── Right — beige ─────────────────────────────────────── */}
-        <div
-          className="w-full h-[55vh] md:w-1/2 md:h-full flex items-center justify-center p-10 md:p-20"
-          style={{ backgroundColor: '#f2f1ea' }}
-        >
-          <div style={{ width: '100%' }}>
+        <div className="pl-content">
+          <div className="pl-wordmark">
+            <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M10 2 A8 8 0 0 1 18 10 L14 10 A4 4 0 0 0 10 6 Z" fill="#9a2918" />
+              <path d="M2 10 A8 8 0 0 1 6 3.1 L8.2 6.5 A4 4 0 0 0 6 10 Z" fill="#ee5974" />
+              <path d="M10 18 A8 8 0 0 1 3.2 14.3 L6.7 12.3 A4 4 0 0 0 10 14 Z" fill="#7b7f80" />
+            </svg>
+            AXIS &amp; BLOOM
+          </div>
 
-            {/* Tagline */}
-            <div style={{
-              fontFamily: "'Lato', Arial, sans-serif",
-              fontWeight: 400,
-              fontSize: '1rem',
-              letterSpacing: '0.12em',
-              textTransform: 'uppercase',
-              lineHeight: 1.8,
-            }}>
-              <p style={{ color: BRAND, margin: '0 0 10px' }}>
-                Your coffee identity.
-              </p>
-              <span style={{
-                display: 'inline-block',
-                backgroundColor: '#ee5974',
-                color: '#f2f1ea',
-                padding: '5px 14px 7px',
-              }}>
-                Coming October 1.
-              </span>
+          <div className="pl-mid">
+            <span className="pl-kicker">Coffee, matched to your flavor</span>
+            <h1 className="pl-h1">
+              You already know what you <span className="pl-hl">love.</span>
+            </h1>
+            <p className="pl-sub">The doors open October&nbsp;1.</p>
+
+            <div className="pl-worlds" aria-hidden="true">
+              {ARCHETYPE_SWATCHES.map((c) => (
+                <span key={c} style={{ background: c }} />
+              ))}
             </div>
+            <p className="pl-worlds-cap">Six flavor worlds. One is yours.</p>
 
-            {/* Separator */}
-            <div style={{ height: '1px', backgroundColor: '#a3372640', margin: '32px 0' }} />
+            <Link
+              className="pl-btn"
+              to="/find-my-flavor"
+              onClick={() => trackEvent('PreLaunchCTA', { source: 'pre_launch' })}
+            >
+              Find my flavor &rarr;
+            </Link>
+            <p className="pl-micro">Free · three minutes · no account needed</p>
+          </div>
 
-            {/* Form / confirmation */}
-            {submitted ? (
-              <p style={{
-                fontFamily: "'Lato', Arial, sans-serif",
-                fontWeight: 400,
-                color: BRAND,
-                fontSize: '0.95rem',
-                letterSpacing: '0.15em',
-                textTransform: 'uppercase',
-              }}>
-                You're on the list.
-              </p>
-            ) : (
-              <form
-                onSubmit={handleSubmit}
-                style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}
-              >
-                <input
-                  type="text"
-                  value={firstName}
-                  onChange={e => setFirstName(e.target.value)}
-                  placeholder="your first name"
-                  className="pl-input"
-                  style={inputStyle}
-                />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  placeholder="your email"
-                  required
-                  className="pl-input"
-                  style={inputStyle}
-                />
-                <button
-                  type="submit"
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    fontFamily: "'Lato', Arial, sans-serif",
-                    fontWeight: 400,
-                    fontSize: '0.95rem',
-                    color: BRAND,
-                    letterSpacing: '0.15em',
-                    textTransform: 'uppercase',
-                    cursor: 'pointer',
-                    padding: 0,
-                    textAlign: 'left',
-                    transition: 'opacity 0.2s',
-                  }}
-                  onMouseEnter={e => (e.currentTarget.style.opacity = '0.6')}
-                  onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
-                >
-                  JOIN →
-                </button>
-                <p style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.78rem', color: BRAND, opacity: 0.55, margin: 0, lineHeight: 1.5 }}>
-                  We'll email your match and early access — unsubscribe anytime.
-                </p>
-              </form>
-            )}
-
-            <div style={{ marginTop: 40 }}>
-              <Link to="/privacy" style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.7rem', color: BRAND, opacity: 0.4, textDecoration: 'none', marginRight: 18 }}>
-                Privacy
-              </Link>
-              <Link to="/terms" style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.7rem', color: BRAND, opacity: 0.4, textDecoration: 'none' }}>
-                Terms
-              </Link>
-            </div>
+          <div className="pl-foot">
+            <span>FROM: AXIS &amp; BLOOM — TO: YOU</span>
+            <span>
+              <Link to="/privacy">Privacy</Link>
+              <Link to="/terms">Terms</Link>
+            </span>
           </div>
         </div>
       </div>
