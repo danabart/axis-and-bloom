@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { Resend } from 'resend';
 import { randomBytes } from 'crypto';
-import { requireAuth, type AuthRequest } from '../middleware/auth.js';
+import { requireAuth, blockAnonymousAuth, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 
 const router = Router();
@@ -20,7 +20,7 @@ async function getProfile(uid: string) {
 }
 
 // POST /api/household/create
-router.post('/create', requireAuth, async (req: AuthRequest, res) => {
+router.post('/create', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   const { householdName } = req.body as { householdName?: string };
   try {
     const profile = await getProfile(req.uid!);
@@ -47,7 +47,7 @@ router.post('/create', requireAuth, async (req: AuthRequest, res) => {
 });
 
 // GET /api/household/mine
-router.get('/mine', requireAuth, async (req: AuthRequest, res) => {
+router.get('/mine', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   try {
     const profile = await getProfile(req.uid!);
     if (!profile?.household_id) { res.json(null); return; }
@@ -88,7 +88,7 @@ router.get('/mine', requireAuth, async (req: AuthRequest, res) => {
 });
 
 // POST /api/household/invite
-router.post('/invite', requireAuth, async (req: AuthRequest, res) => {
+router.post('/invite', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   const { email } = req.body as { email?: string };
   if (!email || typeof email !== 'string') { res.status(400).json({ error: 'Email required' }); return; }
 
@@ -148,7 +148,7 @@ router.post('/invite', requireAuth, async (req: AuthRequest, res) => {
 });
 
 // DELETE /api/household/leave
-router.delete('/leave', requireAuth, async (req: AuthRequest, res) => {
+router.delete('/leave', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   try {
     const profile = await getProfile(req.uid!);
     if (!profile?.household_id) { res.status(400).json({ error: 'Not in a household' }); return; }
@@ -183,7 +183,7 @@ router.delete('/leave', requireAuth, async (req: AuthRequest, res) => {
 });
 
 // DELETE /api/household/members/:userId
-router.delete('/members/:userId', requireAuth, async (req: AuthRequest, res) => {
+router.delete('/members/:userId', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   const { userId } = req.params;
   try {
     const profile = await getProfile(req.uid!);
@@ -244,7 +244,7 @@ router.get('/invite/:token', async (req, res) => {
 });
 
 // POST /api/household/join/:token
-router.post('/join/:token', requireAuth, async (req: AuthRequest, res) => {
+router.post('/join/:token', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   const { token } = req.params;
   try {
     const profile = await getProfile(req.uid!);
@@ -282,7 +282,7 @@ router.post('/join/:token', requireAuth, async (req: AuthRequest, res) => {
 });
 
 // DELETE /api/household/invitations/:invitationId
-router.delete('/invitations/:invitationId', requireAuth, async (req: AuthRequest, res) => {
+router.delete('/invitations/:invitationId', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   const { invitationId } = req.params;
   try {
     const profile = await getProfile(req.uid!);

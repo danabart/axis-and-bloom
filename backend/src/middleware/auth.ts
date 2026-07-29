@@ -5,6 +5,7 @@ import { db } from '../db/client.js';
 export interface AuthRequest extends Request {
   uid?: string;
   email?: string;
+  isAnonymous?: boolean;
 }
 
 export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
@@ -14,10 +15,19 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
     const decoded = await admin.auth().verifyIdToken(token);
     req.uid = decoded.uid;
     req.email = decoded.email;
+    req.isAnonymous = decoded.firebase?.sign_in_provider === 'anonymous';
     next();
   } catch {
     res.status(401).json({ error: 'Invalid token' });
   }
+}
+
+export async function blockAnonymousAuth(req: AuthRequest, res: Response, next: NextFunction) {
+  if (req.isAnonymous) {
+    res.status(403).json({ error: 'Create a free account to continue', code: 'anonymous_not_allowed' });
+    return;
+  }
+  next();
 }
 
 export async function requireAdmin(req: AuthRequest, res: Response, next: NextFunction) {
@@ -27,6 +37,7 @@ export async function requireAdmin(req: AuthRequest, res: Response, next: NextFu
     const decoded = await admin.auth().verifyIdToken(token);
     req.uid = decoded.uid;
     req.email = decoded.email;
+    req.isAnonymous = decoded.firebase?.sign_in_provider === 'anonymous';
     const result = await db.query(
       `SELECT ut.name FROM user_profile up
        JOIN user_type ut ON ut.id = up.user_type_id
@@ -50,6 +61,7 @@ export async function optionalAuth(req: AuthRequest, _res: Response, next: NextF
       const decoded = await admin.auth().verifyIdToken(token);
       req.uid = decoded.uid;
       req.email = decoded.email;
+      req.isAnonymous = decoded.firebase?.sign_in_provider === 'anonymous';
     } catch {}
   }
   next();

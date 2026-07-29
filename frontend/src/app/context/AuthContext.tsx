@@ -2,8 +2,12 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import {
   User,
   onAuthStateChanged,
+  signInAnonymously,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  linkWithCredential,
+  linkWithPopup,
+  EmailAuthProvider,
   signInWithPopup,
   GoogleAuthProvider,
   OAuthProvider,
@@ -15,6 +19,7 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   isAdmin: boolean;
+  isGuest: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, firstName?: string, lastName?: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
@@ -32,7 +37,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
-      if (u) {
+      if (u === null) {
+        // First visit, or fully signed out — give this visitor a real (invisible)
+        // Firebase identity so quiz persistence and lifecycle tracking work for
+        // guests. This re-triggers onAuthStateChanged with the new anonymous user;
+        // let that second call handle isAdmin/setLoading.
+        signInAnonymously(auth).catch((e) => console.error('Anonymous sign-in failed:', e));
+        return;
+      }
+      if (!u.isAnonymous) {
         try {
           const token = await u.getIdToken();
           const res = await fetch('/api/users/profile', {
@@ -71,17 +84,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signUp = async (email: string, password: string, firstName?: string, lastName?: string) => {
-    await createUserWithEmailAndPassword(auth, email, password);
+    if (auth.currentUser?.isAnonymous) {
+      // Link instead of replacing the identity — the same firebase_uid carries
+      // forward, so quiz history / lifecycle state already keyed off it merges
+      // automatically with zero backend changes.
+      await linkWithCredential(auth.currentUser, EmailAuthProvider.credential(email, password));
+    } else {
+      await createUserWithEmailAndPassword(auth, email, password);
+    }
     await syncUser(firstName, lastName);
   };
 
   const signInWithGoogle = async () => {
-    await signInWithPopup(auth, new GoogleAuthProvider());
+    if (auth.currentUser?.isAnonymous) {
+      try {
+        await linkWithPopup(auth.currentUser, new GoogleAuthProvider());
+      } catch (err: any) {
+        if (err?.code === 'auth/credential-already-in-use') {
+          // This Google identity already has a separate real Firebase account —
+          // fall back to signing into that existing account instead of erroring.
+          await signInWithPopup(auth, new GoogleAuthProvider());
+        } else {
+          throw err;
+        }
+      }
+    } else {
+      await signInWithPopup(auth, new GoogleAuthProvider());
+    }
     await syncUser();
   };
 
   const signInWithApple = async () => {
-    await signInWithPopup(auth, new OAuthProvider('apple.com'));
+    if (auth.currentUser?.isAnonymous) {
+      try {
+        await linkWithPopup(auth.currentUser, new OAuthProvider('apple.com'));
+      } catch (err: any) {
+        if (err?.code === 'auth/credential-already-in-use') {
+          await signInWithPopup(auth, new OAuthProvider('apple.com'));
+        } else {
+          throw err;
+        }
+      }
+    } else {
+      await signInWithPopup(auth, new OAuthProvider('apple.com'));
+    }
     await syncUser();
   };
 
@@ -89,8 +135,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await signOut(auth);
   };
 
+  const isGuest = !!user && user.isAnonymous;
+
   return (
-    <AuthContext.Provider value={{ user, loading, isAdmin, signIn, signUp, signInWithGoogle, signInWithApple, logout }}>
+    <AuthContext.Provider value={{ user, loading, isAdmin, isGuest, signIn, signUp, signInWithGoogle, signInWithApple, logout }}>
       {children}
     </AuthContext.Provider>
   );

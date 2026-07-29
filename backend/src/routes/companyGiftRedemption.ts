@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
-import { requireAuth, type AuthRequest } from '../middleware/auth.js';
+import { requireAuth, blockAnonymousAuth, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 
 const router = Router();
@@ -49,7 +49,7 @@ router.get('/:code', async (req, res) => {
 });
 
 // POST /api/company-gift-redemption/:code/redeem
-router.post('/:code/redeem', requireAuth, async (req: AuthRequest, res) => {
+router.post('/:code/redeem', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   const code = req.params.code?.trim().toUpperCase();
   if (!code) { res.status(400).json({ error: 'code required' }); return; }
 

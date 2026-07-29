@@ -29,7 +29,7 @@ It was merged from the original Supabase design plus adaptations for Firebase Au
 **Users**
 - `household` — shared account grouping (one household, multiple members)
 - `household_invitation` — pending/accepted/cancelled invitations to join a household; token-based (32-byte hex); expires in 7 days; `ON DELETE CASCADE` from household; status: `pending`, `accepted`, `cancelled`
-- `user_profile` — core user record; `firebase_uid` is the join key from Firebase Auth; columns added: `first_name TEXT`, `last_name TEXT`, `date_of_birth DATE` (all idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`)
+- `user_profile` — core user record; `firebase_uid` is the join key from Firebase Auth; columns added: `first_name TEXT`, `last_name TEXT`, `date_of_birth DATE` (all idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`). **Guest identity (2026-07-28, `WHAT_WE_BUILT.md` #119)**: `firebase_uid` can now also be a Firebase Anonymous Auth uid — every visitor gets one via `signInAnonymously()` on first page load, no schema change, since every profile-creating query already does a lazy `INSERT ... ON CONFLICT (firebase_uid) DO UPDATE ... RETURNING id` regardless of which sign-in provider issued the uid. When a guest converts (email/password, Google, or Apple) the anonymous credential is *linked* rather than replaced, so the same `firebase_uid`/row carries forward — no merge logic needed.
 - `user_email` — multiple email addresses per user
 - `user_phone`
 - `address` — shipping and billing addresses (street, city, state, postal_code, country, is_default, address_type: `address_type_enum`); collected from the profile page Settings tab; first address of each type auto-set as default

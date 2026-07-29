@@ -116,6 +116,8 @@ export default function Home() {
   const [feedbackDismissed, setFeedbackDismissed] = useState(false);
 
   const refreshHomepageState = () => {
+    // `user` is truthy for anonymous guests too (guest identity bootstrap in
+    // AuthContext) — this already covers them, no `isAnonymous` check needed here.
     if (!user) { setHomepageState(null); return; }
     setHomepageStateLoading(true);
     getHomepageState()
@@ -364,7 +366,7 @@ export default function Home() {
         padding: 'clamp(80px,12vw,140px) clamp(32px,6vw,80px)',
         display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center',
       }}>
-        {!user ? (
+        {(!user || (user.isAnonymous && !homepageState)) ? (
           <>
             <h2 style={{
               fontSize: 'clamp(26px,3.2vw,42px)', fontWeight: 400, color: '#9a2918',

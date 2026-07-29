@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth, type AuthRequest } from '../middleware/auth.js';
+import { requireAuth, blockAnonymousAuth, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 import { createOrder } from '../services/shopify.js';
 import { resolveBlendForSlot, resolveCoffeeBlend } from '../services/blendResolver.js';
@@ -22,7 +22,7 @@ interface ResolvedItem {
   resolvedRoaster?: string;
 }
 
-router.post('/', requireAuth, async (req: AuthRequest, res) => {
+router.post('/', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   const { items, shippingAddress } = req.body;
   if (!items?.length || !shippingAddress) { res.status(400).json({ error: 'items and shippingAddress required' }); return; }
 
@@ -218,7 +218,7 @@ router.post('/', requireAuth, async (req: AuthRequest, res) => {
   }
 });
 
-router.get('/', requireAuth, async (req: AuthRequest, res) => {
+router.get('/', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   try {
     const result = await db.query(
       `SELECT o.id, o.external_shopify_order_id, o.fulfillment_status, o.created_at,
@@ -251,7 +251,7 @@ router.get('/', requireAuth, async (req: AuthRequest, res) => {
 // its owner, per order, via superseding events — same pattern
 // dial_position_signal/archetype_assignments already use. No time window;
 // history preserved, consumers read latest-per-order.
-router.post('/:orderId/feedback', requireAuth, async (req: AuthRequest, res) => {
+router.post('/:orderId/feedback', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   const { orderId } = req.params;
   const { rating, note, expectation, tastedNoteIds } = req.body ?? {};
   if (!Number.isInteger(rating) || rating < 1 || rating > 5) {

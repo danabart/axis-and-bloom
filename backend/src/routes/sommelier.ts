@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth, type AuthRequest } from '../middleware/auth.js';
+import { requireAuth, blockAnonymousAuth, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
@@ -105,7 +105,7 @@ async function getRecentDialActivitySummary(uid: string): Promise<string> {
 const router = Router();
 
 // ─── POST /api/sommelier/evaluate ────────────────────────────────────────────
-router.post('/evaluate', requireAuth, async (req: AuthRequest, res) => {
+router.post('/evaluate', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   const { quizTie, tiedArchetypes, userInitiated } = req.body;
   try {
     await computeBehavioralConfidence(req.uid!);
@@ -127,7 +127,7 @@ router.post('/evaluate', requireAuth, async (req: AuthRequest, res) => {
 });
 
 // ─── POST /api/sommelier/start ────────────────────────────────────────────────
-router.post('/start', requireAuth, async (req: AuthRequest, res) => {
+router.post('/start', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   const { intent, openingContext, evaluationId, tiedArchetypes } = req.body;
   if (!intent) { res.status(400).json({ error: 'intent required' }); return; }
 
@@ -337,7 +337,7 @@ router.post('/start', requireAuth, async (req: AuthRequest, res) => {
 });
 
 // ─── POST /api/sommelier/:sessionId/message ───────────────────────────────────
-router.post('/:sessionId/message', requireAuth, async (req: AuthRequest, res) => {
+router.post('/:sessionId/message', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   const sessionId = Number(req.params.sessionId);
   const { message } = req.body;
   if (!message || typeof message !== 'string') {
@@ -477,7 +477,7 @@ router.post('/:sessionId/message', requireAuth, async (req: AuthRequest, res) =>
 });
 
 // ─── GET /api/sommelier/sessions ─────────────────────────────────────────────
-router.get('/sessions', requireAuth, async (req: AuthRequest, res) => {
+router.get('/sessions', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   try {
     const result = await db.query(
       `SELECT id, intent, started_at, turn_count, is_closed, close_reason
@@ -495,7 +495,7 @@ router.get('/sessions', requireAuth, async (req: AuthRequest, res) => {
 });
 
 // ─── GET /api/sommelier/:sessionId/messages ──────────────────────────────────
-router.get('/:sessionId/messages', requireAuth, async (req: AuthRequest, res) => {
+router.get('/:sessionId/messages', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   const sessionId = Number(req.params.sessionId);
   try {
     const sessionResult = await db.query(
@@ -545,7 +545,7 @@ router.get('/:sessionId/messages', requireAuth, async (req: AuthRequest, res) =>
 });
 
 // ─── POST /api/sommelier/:sessionId/close ────────────────────────────────────
-router.post('/:sessionId/close', requireAuth, async (req: AuthRequest, res) => {
+router.post('/:sessionId/close', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   const sessionId = Number(req.params.sessionId);
   try {
     const sessionResult = await db.query(

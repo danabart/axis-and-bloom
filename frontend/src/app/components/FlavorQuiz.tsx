@@ -760,7 +760,7 @@ export default function FlavorQuiz() {
   const [postQuizEmail, setPostQuizEmail] = useState<string | null>(() => {
     try { return localStorage.getItem(POST_QUIZ_EMAIL_KEY); } catch { return null; }
   });
-  const emailGateUnlocked = !!user || !!postQuizEmail;
+  const emailGateUnlocked = (!!user && !user.isAnonymous) || !!postQuizEmail;
   const signedInSubscribeFiredRef = useRef<string | null>(null); // last archetype synced
   const recognizedGuestSyncedRef = useRef<string | null>(null); // last archetype synced, avoids re-firing every render
   const [showSignedInConsentNote, setShowSignedInConsentNote] = useState(false);
@@ -788,7 +788,7 @@ export default function FlavorQuiz() {
   // session — resync the subscriber row to the current archetype, silently, no
   // card, no repeat ask, no analytics event (they already submitted once).
   useEffect(() => {
-    if (!resultsArchetypeData || user || !postQuizEmail) return;
+    if (!resultsArchetypeData || (user && !user.isAnonymous) || !postQuizEmail) return;
     const name = ARCHETYPES[archetypeKey].name;
     if (recognizedGuestSyncedRef.current === name) return;
     recognizedGuestSyncedRef.current = name;
@@ -806,7 +806,7 @@ export default function FlavorQuiz() {
   // one-line consent note shown once — only when they weren't already a subscriber;
   // an existing subscriber's row is just silently resynced to the new archetype.
   useEffect(() => {
-    if (!user || !resultsArchetypeData || !userProfile || !profileFetchDone) return;
+    if (!user || user.isAnonymous || !resultsArchetypeData || !userProfile || !profileFetchDone) return;
     const name = ARCHETYPES[archetypeKey].name;
     if (signedInSubscribeFiredRef.current === name) return;
     signedInSubscribeFiredRef.current = name;

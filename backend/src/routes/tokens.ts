@@ -1,10 +1,10 @@
 import { Router } from 'express';
-import { requireAuth, type AuthRequest } from '../middleware/auth.js';
+import { requireAuth, blockAnonymousAuth, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 
 const router = Router();
 
-router.get('/balance', requireAuth, async (req: AuthRequest, res) => {
+router.get('/balance', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   try {
     const result = await db.query(
       'SELECT balance, lifetime_earned, lifetime_spent FROM user_tokens WHERE uid = $1',
@@ -22,7 +22,7 @@ router.get('/balance', requireAuth, async (req: AuthRequest, res) => {
   }
 });
 
-router.post('/purchase', requireAuth, async (_req: AuthRequest, res) => {
+router.post('/purchase', requireAuth, blockAnonymousAuth, async (_req: AuthRequest, res) => {
   res.status(503).json({
     error: 'payments_not_yet_configured',
     message: 'Token purchases will be available soon.',

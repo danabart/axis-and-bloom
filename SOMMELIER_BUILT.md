@@ -600,6 +600,10 @@ No Liam prompt, RAG query, or chat behavior changed by either of these.
 
 **Context**: `WHAT_WE_BUILT.md` #118. Touched `coffees.ts` (`BLOOM_DEFAULT_PRICE_CENTS` removed, `buildSlotsForArchetype`/`GET /api/coffees/other-categories` price logic), `admin.ts` (comments only), `schema.sql` (comments only), a new migration, and the Bloom Dial commerce components (`AdminCoffees.tsx`, `ArchetypeSection.tsx`, `PositionCard.tsx`, `OtherCategoryCard.tsx`, `usePositionCardData.ts`, `types.ts`) — all pricing/commerce surface, none of it Sommelier/Liam-adjacent. `RevealedPanel.tsx` (the component that does carry a "Talk to Liam" link) was checked and confirmed to render no price data at all — grepped for `retailPriceCents`/`formatPrice`, zero matches. Continuity note only.
 
+#### S68. Guest identity (Firebase Anonymous Auth) — sommelier routes gained the real-account gate, no other Liam impact (2026-07-28)
+
+**Context**: `WHAT_WE_BUILT.md` #119. Firebase now issues every visitor an anonymous identity on first page load, and `admin.auth().verifyIdToken()` already accepts anonymous ID tokens unchanged — so without an explicit gate, an anonymous guest with no real account could technically have started reaching `requireAuth`-only routes, including all six `sommelier.ts` routes. All six (`/evaluate`, `/start`, `/:sessionId/message`, `/sessions`, `/:sessionId/messages`, `/:sessionId/close`) now chain a new `blockAnonymousAuth` middleware after `requireAuth`, returning `403 anonymous_not_allowed` for anonymous callers — per the guest_identity spec's explicit decision to keep Liam real-account-only for now, independent of any future "Liam for guests" question. Nothing inside `sommelierEvaluator.ts`, `sommelierRag.ts`, `chatWithSommelier()`, token/turn logic, or the RAG focus types changed — this is purely an added gate at the route layer, same pattern as the token/household/order/company-gift routes gained in the same change.
+
 #### S35. Task 6 — Liam voice reset (2026-07-04)
 Full execution of `SOMMELIER_TASK_6_VOICE.md`. Three files changed + live Firestore config patched.
 
