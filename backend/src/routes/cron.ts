@@ -3,6 +3,7 @@ import { Resend } from 'resend';
 import { db } from '../db/client.js';
 import { processPendingMessages, parseInboundReply } from '../services/liamSmsFeedback.js';
 import { refreshLifecycleState } from '../services/userLifecycle.js';
+import { purgeStaleAnonymousGuests } from '../services/staleGuestCleanup.js';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -133,6 +134,22 @@ router.get('/sponsored-subscription-check', requireCronSecret, async (_req, res)
     res.json({ lapsedCount, trialEndingCount });
   } catch (err) {
     console.error('[cron/sponsored-subscription-check]', err);
+    res.status(500).json({ error: 'Cron job failed' });
+  }
+});
+
+// ── GET /api/cron/purge-stale-anonymous-guests ────────────────────────────
+// Daily sweep. No auto-cleanup exists on our Firebase Auth tier (that's an
+// Identity Platform feature we don't have), so anonymous identities from
+// guest browsing, incognito sessions, and multi-device visits would
+// otherwise accumulate in Auth/Postgres/Firestore forever. See
+// backend/src/features/guest_identity/CLAUDE_CODE_PROMPT_GUEST_IDENTITY_FOLLOWUP_NAV_AND_CLEANUP.md
+router.get('/purge-stale-anonymous-guests', requireCronSecret, async (_req, res) => {
+  try {
+    const result = await purgeStaleAnonymousGuests();
+    res.json(result);
+  } catch (err) {
+    console.error('[cron/purge-stale-anonymous-guests]', err);
     res.status(500).json({ error: 'Cron job failed' });
   }
 });

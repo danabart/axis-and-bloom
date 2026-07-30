@@ -8,7 +8,7 @@ export default function RequireAuth({
   children: React.ReactNode;
   redirectTo?: string;
 }) {
-  const { user, loading } = useAuth();
+  const { user, loading, isGuest } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -19,7 +19,7 @@ export default function RequireAuth({
     );
   }
 
-  if (!user) {
+  if (!user || isGuest) {
     const to = redirectTo ?? `/sign-in?redirect=${encodeURIComponent(location.pathname + location.search)}`;
     return <Navigate to={to} replace />;
   }

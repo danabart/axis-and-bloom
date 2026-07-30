@@ -99,7 +99,14 @@ export default function App() {
               <Route path="/about" element={<About />} />
               <Route path="/shop" element={<Shop />} />
               <Route path="/sign-in" element={<SignIn />} />
-              <Route path="/profile" element={<Profile />} />
+              <Route
+                path="/profile"
+                element={
+                  <RequireAuth>
+                    <Profile />
+                  </RequireAuth>
+                }
+              />
               <Route path="/flavor-intelligence" element={<FlavorIntelligencePage />} />
               <Route path="/coffees" element={<CoffeesRedirect />} />
               <Route path="/bloom" element={<BloomPage />} />

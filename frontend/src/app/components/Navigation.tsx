@@ -7,7 +7,7 @@ import { brandAssets } from '../../design/assets';
 const logoMark = brandAssets.logoQuarter1;
 
 export default function Navigation() {
-  const { user, isAdmin, logout } = useAuth();
+  const { user, isAdmin, isGuest, logout } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const handleSignOut = async () => { await logout(); navigate('/'); setMobileOpen(false); };
@@ -123,13 +123,13 @@ export default function Navigation() {
       {/* Icons */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexShrink: 0 }}>
         <Link
-          to={user ? '/profile' : '/sign-in'} aria-label="Profile"
+          to={user && !isGuest ? '/profile' : '/sign-in'} aria-label="Profile"
           style={{ color: linkColor, display: 'flex', alignItems: 'center', transition: 'color 250ms' }}
           className="hover:opacity-50"
         >
           <User size={17} strokeWidth={1.5} />
         </Link>
-        {user && (
+        {user && !isGuest && (
           <button
             onClick={handleSignOut} aria-label="Sign out"
             style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: "'Lato', Arial, sans-serif", fontSize: '10.5px', letterSpacing: '0.1em', color: linkColor, textTransform: 'uppercase', opacity: 0.55, transition: 'color 250ms' }}
@@ -198,7 +198,7 @@ export default function Navigation() {
               {item.label}
             </Link>
           ))}
-          {user && (
+          {user && !isGuest && (
             <button
               onClick={handleSignOut}
               style={{

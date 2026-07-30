@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireAuth, type AuthRequest } from '../middleware/auth.js';
+import { requireAuth, blockAnonymousAuth, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { getUserSignals } from '../services/userSignals.js';
@@ -38,7 +38,7 @@ const ARCHETYPE_NAME_TO_KEY: Record<string, string> = {
 };
 
 // ── GET /api/users/profile ────────────────────────────────────────────────────
-router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
+router.get('/profile', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   try {
     const profileResult = await db.query(
       `INSERT INTO user_profile (firebase_uid)
@@ -198,7 +198,7 @@ function normalizePhoneNumber(raw: string): string | null {
 }
 
 // ── PATCH /api/users/profile ──────────────────────────────────────────────────
-router.patch('/profile', requireAuth, async (req: AuthRequest, res) => {
+router.patch('/profile', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   const { firstName, lastName, dateOfBirth, smsOptIn, phoneNumber } = req.body ?? {};
 
   // Validated before any write — a garbage number must leave nothing written.
