@@ -34,6 +34,11 @@ export interface SommelierConfig {
     orderBonus: number;
     costPerTurn: number;
     purchaseEnabled: boolean;
+    // HOME_TASK_3 (§5) — Liam is inside the subscription; the meter is retired.
+    // false (default after this task): /start doesn't block on balance, /message
+    // doesn't gate on spendToken — turns are logged (usage_log) not charged.
+    // true: today's pre-HOME_TASK_3 gating behavior, kept as a rollback lever.
+    gatingEnabled: boolean;
   };
   modelRouting: {
     sonnetKeywords: string[];
@@ -72,6 +77,20 @@ export interface SommelierConfig {
   // HOME_TASK_2 (§4.6) — mode-aware context assembly.
   contextAssembly?: {
     omitCatalogInExpertiseMode: boolean;
+  };
+  // HOME_TASK_3 (§4.8) — the invisible guard layer, operator-facing only.
+  // Nothing here is ever shown to a customer; this is what replaces the meter.
+  guards?: {
+    dailyTurnCap: number;
+    monthlySpendCeilingUsd: number;
+    // $/turn estimate by model id — a planning estimate, not real Anthropic
+    // billing data. Used only to flag accounts worth an admin's attention.
+    modelCostPerTurnUsd: Record<string, number>;
+    anomalyMultiplier: number;
+    rateLimits: {
+      perIpPerMinute: number;
+      perAccountPerMinute: number;
+    };
   };
   updatedAt?: unknown;
 }

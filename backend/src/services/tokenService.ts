@@ -48,6 +48,20 @@ export async function spendToken(
   }
 }
 
+// HOME_TASK_3 (§5) — the ungated-turn path. Liam is inside the subscription now;
+// this records that a turn happened (for the guard layer's daily-cap/monthly-
+// spend accounting) without touching balance, without a lock, and without a
+// rollback path — there's nothing to roll back since nothing was spent.
+export async function logUsage(uid: string, referenceId: string, model: string | null): Promise<void> {
+  const balanceRow = await db.query('SELECT balance FROM user_tokens WHERE uid = $1', [uid]);
+  const balance = balanceRow.rows.length ? Number(balanceRow.rows[0].balance) : 0;
+  await db.query(
+    `INSERT INTO token_events (uid, delta, reason, reference_id, balance_after, model)
+     VALUES ($1, 0, 'usage_log', $2, $3, $4)`,
+    [uid, referenceId, balance, model]
+  );
+}
+
 export async function grantTokens(
   uid: string,
   amount: number,

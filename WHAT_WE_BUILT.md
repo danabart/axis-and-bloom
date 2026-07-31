@@ -3149,6 +3149,38 @@ WHAT_WE_BUILT.md #123, `WHAT_WE_BUILT_DB.md` gained the `context_data` shape add
 
 ---
 
+### 124. HOME Task 3 — Meter Retirement & the Invisible Guard Layer: token meter retired customer-facing, config-driven gating (default off), operator guard layer (2026-07-30)
+
+**Files:** `backend/src/services/sommelierGuards.ts` (new), `backend/src/services/tokenService.ts`, `backend/src/routes/sommelier.ts`, `backend/src/routes/admin.ts`, `backend/src/services/sommelierConfig.ts`, `backend/src/db/seeds/sommelier_config_seed.ts`, `backend/src/db/schema.sql`, `frontend/src/app/components/Sommelier.tsx`, `frontend/src/app/components/admin/AdminSommelierFlow.tsx`
+
+**What this builds**: Liam moves inside the subscription (§5, decided 2026-07-27) — no customer ever sees a token balance, a cost, or "buy tokens" again. `tokenEconomy.gatingEnabled` (new config flag, seed default `false`) controls whether `/start`/`/message` still gate on balance (`true`, today's old behavior, kept as a rollback lever) or just log that a turn happened (`false`, the new default — no balance check, no spend, no rollback path needed). The `user_tokens`/`token_events` schema stays exactly as-is; what replaces the meter as the actual usage bound is a new operator-facing guard layer (§4.8).
+
+**`sommelierGuards.ts` (new)**: `checkDailyCap(uid)` (default 60/day, counted from `token_events` — both the gated and ungated turn paths already write one row per turn, so one SQL counter covers either state of `gatingEnabled`); `getMonthlySpendEstimate`/`checkMonthlySpendAndAlert` (turns × a configured $/model estimate, `console.warn`-logged once per user per day when crossing the configured ceiling — a planning estimate, not real Anthropic billing data); `checkAggregateAnomaly` (today's turns vs. the trailing 7-day average, for the admin dashboard, not checked per-turn).
+
+**`tokenService.ts`** gained exactly one new export: `logUsage(uid, referenceId, model)` — the ungated-turn accounting row (`delta: 0`, no lock, no balance mutation). Every existing export is untouched.
+
+**`token_events`** gained a nullable `model TEXT` column (additive) — which model handled a turn, needed for the monthly-spend estimate.
+
+**`sommelier.ts`**: both `/start` and `/message` branch on `gatingEnabled` (balance-check-and-spend vs. `logUsage`), gained a daily-cap check (a fixed, Liam-voiced closing line — not a model call, per S33's "hard rules belong in code" — the user's message still saves, the session closes with `close_reason: 'daily_cap'`, same shape as a normal turn-limit close), and gained per-IP and per-account rate limiting (`express-rate-limit`, thresholds config-driven, `windowMs` fixed at 1 minute, **per-instance** since Cloud Run runs multiple instances — a documented, accepted tolerance at this scale, not a global limit).
+
+**Admin dashboard**: `GET /api/admin/sommelier/stats` and `AdminSommelierFlow.tsx` gained a Guard Layer section — today's turns, a 7-day trend, top-10 users by turns this month with estimated spend + an over-ceiling flag, daily-cap hit count, and the aggregate anomaly flag. Admin-only.
+
+**`Sommelier.tsx`**: removed the sidebar token balance, "Buy tokens," the status-row token count, the zero-balance "get more tokens" block, and the two fetches (`/api/tokens/balance`, the config fetch for `purchaseEnabled`) that only existed to feed them. The turn counter (`X/N`) stays — a session shape, not a price. `402`/`429` (only reachable via the `gatingEnabled` rollback lever or the invisible daily cap) now degrade to a generic error state, never token/limit language. Side-effect fix: a pre-existing placeholder-text bug (`inputDisabled` was true during ordinary `sending`, incorrectly showing "No tokens remaining") is gone along with the tokenBalance condition it depended on.
+
+**The grep Dana asked for specifically**: every read of `tokenBalance`/`token_events`/`user_tokens`/`tokenEconomy`/`costPerTurn`/"Buy tokens"/`purchaseEnabled` across `frontend/src`, broadened to a case-insensitive `token`/`balance` sweep per the S44 lesson (don't stop at the first, narrower grep). Three files matched the narrow grep: `Sommelier.tsx` (fixed, above) and `AdminSommelierConfig.tsx`/`AdminSommelierFlow.tsx` (admin-only, legitimately out of scope — admins are exactly who'd flip the rollback lever). The broadened sweep's other hits were all unrelated (`getIdToken()` auth calls, a text-splitting type named `QuoteToken`/`CinToken` in `Home.tsx`, visual/flavor "balance" copy on marketing pages). **Confirmed: nothing customer-facing renders a token balance anymore.**
+
+**Config pushed live via the config-drift/config-apply mechanism, not a one-off script**: 8 new paths (`tokenEconomy.gatingEnabled`, `guards.*`), every one confirmed new before applying, 0 remaining drift after.
+
+**Verified** (no separate dev Firestore/Postgres — `axis-and-bloom-prod` is the only environment; confirmed with Dana before flipping anything live that no deployed Cloud Run instance was serving real traffic during this pass, and that the final `gatingEnabled` state, `false`, was her explicit choice): `tsc --noEmit` clean. `ALTER TABLE token_events ADD COLUMN IF NOT EXISTS model TEXT` applied directly against prod ahead of deploy. Created a marked test user (real `user_profile`/`user_tokens` rows, since `user_tokens.uid` FKs to `user_profile` unlike `sommelier_sessions.uid`): with `gatingEnabled=false`, a zero-balance user logged two `usage_log` turns with balance staying at 0. Flipped `gatingEnabled` to `true` live — `spendToken` correctly blocked the zero-balance user, then correctly succeeded after a grant (confirming `spendToken`/`grantTokens` still work); flipped back to `false` immediately. Forced `dailyTurnCap` to 3 live — correctly hit; a manually-inserted yesterday-dated row confirmed the day-boundary query excludes it. Restored `dailyTurnCap` to 60. All test rows deleted; live config ended exactly at Dana's specified final state.
+
+**E5 TODO — not touched this pass, per explicit scope** (`launch/40_email-marketing` untouched): the welcome-journey E5 email's "expanded token allowance for Liam" line needs the full-sommelier-access reword before it ships, since the meter it references is gone. Flagged for the email workstream owner.
+
+**Out of scope, unchanged, per the task spec**: no schema drops; `tokenService.ts`'s existing exports beyond `logUsage`; no router/prompt changes (Task 2's territory); the tokens API routes still exist, admin-reachable, just uncalled by any customer surface now.
+
+WHAT_WE_BUILT.md #124, `WHAT_WE_BUILT_DB.md` gained the `token_events.model` column entry, `SOMMELIER_BUILT.md` S72 (full detail).
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

@@ -6,6 +6,8 @@ import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { getDialSuggestion, recordCuppingSignal, getAvgCuppingScore, getArchetypeBucketWidth } from '../services/dialSuggestion.js';
 import { getMarketingConfig, setMarketingConfigValue } from '../features/marketing/reportingConfig.js';
 import { DEFAULT_SOMMELIER_CONFIG } from '../db/seeds/sommelier_config_seed.js';
+import { checkAggregateAnomaly, getMonthlySpendEstimate } from '../services/sommelierGuards.js';
+import { getSommelierConfig } from '../services/sommelierConfig.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -2001,6 +2003,62 @@ router.get('/sommelier/stats', async (_req, res) => {
       usersWithZeroBalance: Number(tr.zero_balance_users),
     };
 
+    // HOME_TASK_3 (§4.8) — the invisible guard layer's admin-visible half.
+    // Counted from token_events (reason IN ('sommelier_turn','usage_log')),
+    // the same "a turn happened" signal both the gated and ungated /message
+    // paths write — see sommelierGuards.ts.
+    const todaysTurnsResult = await db.query(`
+      SELECT COUNT(*)::int AS count FROM token_events
+      WHERE reason IN ('sommelier_turn', 'usage_log') AND created_at >= date_trunc('day', NOW())
+    `);
+    const todaysTurns = Number(todaysTurnsResult.rows[0]?.count ?? 0);
+
+    const sevenDayTrendResult = await db.query(`
+      SELECT date_trunc('day', created_at) AS day, COUNT(*)::int AS count
+      FROM token_events
+      WHERE reason IN ('sommelier_turn', 'usage_log') AND created_at >= NOW() - INTERVAL '7 days'
+      GROUP BY day ORDER BY day
+    `);
+    const sevenDayTrend = sevenDayTrendResult.rows.map((r: { day: Date; count: number }) => ({
+      day: r.day.toISOString().slice(0, 10),
+      count: Number(r.count),
+    }));
+
+    const topUsersResult = await db.query(`
+      SELECT uid, COUNT(*)::int AS turn_count
+      FROM token_events
+      WHERE reason IN ('sommelier_turn', 'usage_log') AND created_at >= date_trunc('month', NOW())
+      GROUP BY uid ORDER BY turn_count DESC LIMIT 10
+    `);
+    const monthlyCeiling = getSommelierConfig()?.guards?.monthlySpendCeilingUsd ?? 5;
+    const topUsersByTurnsThisMonth = await Promise.all(
+      topUsersResult.rows.map(async (r: { uid: string; turn_count: number }) => {
+        const { estimatedUsd } = await getMonthlySpendEstimate(r.uid);
+        return {
+          uid: r.uid,
+          turnCount: Number(r.turn_count),
+          estimatedSpendUsd: Math.round(estimatedUsd * 100) / 100,
+          overCeiling: estimatedUsd >= monthlyCeiling,
+        };
+      })
+    );
+
+    const capHitsResult = await db.query(
+      `SELECT COUNT(*)::int AS count FROM sommelier_sessions WHERE close_reason = 'daily_cap' AND started_at >= $1`,
+      [cutoff]
+    );
+    const capHits = Number(capHitsResult.rows[0]?.count ?? 0);
+
+    const anomaly = await checkAggregateAnomaly();
+
+    const guardStats = {
+      todaysTurns,
+      sevenDayTrend,
+      topUsersByTurnsThisMonth,
+      capHits,
+      anomaly,
+    };
+
     res.json({
       totalEvaluations,
       needsSommelierRate: Math.round(needsSommelierRate * 1000) / 1000,
@@ -2013,6 +2071,7 @@ router.get('/sommelier/stats', async (_req, res) => {
         avgTokensPerSession: outcomeStats.avgTokensPerSession,
       },
       tokenStats,
+      guardStats,
       periodDays: PERIOD_DAYS,
     });
   } catch (err) {

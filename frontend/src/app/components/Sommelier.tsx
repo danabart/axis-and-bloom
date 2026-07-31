@@ -50,7 +50,6 @@ interface StartResult {
   openingMessage?: string;
   openingActions?: SommelierAction[];
   coffeeNames?: string[];
-  tokenBalance?: number;
   turnsRemaining?: number;
   resumableSession?: ResumableSession;
 }
@@ -73,7 +72,6 @@ export default function Sommelier() {
 
   const [phase, setPhase] = useState<'loading' | 'resume_prompt' | 'chat' | 'error'>('loading');
   const [errorMsg, setErrorMsg] = useState('');
-  const [tokenBalance, setTokenBalance] = useState(0);
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [intent, setIntent] = useState<string | null>(null);
   const [coffeeNames, setCoffeeNames] = useState<string[]>([]);
@@ -83,7 +81,6 @@ export default function Sommelier() {
   const [sessionClosed, setSessionClosed] = useState(false);
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
-  const [purchaseEnabled, setPurchaseEnabled] = useState(false);
   const [resumable, setResumable] = useState<ResumableSession | null>(null);
   const [evalResult, setEvalResult] = useState<EvalResult | null>(null);
   const [pastSessions, setPastSessions] = useState<PastSession[]>([]);
@@ -147,11 +144,12 @@ export default function Sommelier() {
       }),
     });
 
-    if (startRes.status === 402) {
-      const j = await startRes.json();
-      setTokenBalance(j.balance ?? 0);
-      setPhase('chat');
-      setMessages([]);
+    if (startRes.status === 402 || startRes.status === 429) {
+      // Rollback-only paths (gatingEnabled flipped back on, or the invisible
+      // daily cap) — neither is ever framed to the customer as a token/limit.
+      const j = await startRes.json().catch(() => ({}));
+      setErrorMsg(j.message ?? 'Something went wrong. Please try again shortly.');
+      setPhase('error');
       return;
     }
 
@@ -168,29 +166,17 @@ export default function Sommelier() {
     setSessionId(data.sessionId ?? null);
     setIntent(ev.intent);
     setCoffeeNames(data.coffeeNames ?? []);
-    setTokenBalance(data.tokenBalance ?? tokenBalance);
     const tr = data.turnsRemaining ?? 7;
     setMaxTurns(tr + 1);
     setTurnCount(1);
     setMessages(data.openingMessage ? [{ role: 'assistant', content: data.openingMessage, actions: data.openingActions }] : []);
     setPhase('chat');
     setTimeout(() => inputRef.current?.focus(), 100);
-  }, [tiedParam, tokenBalance]);
+  }, [tiedParam]);
 
   useEffect(() => {
     (async () => {
       try {
-        const [balRes, cfgRes] = await Promise.all([
-          doFetch('/api/tokens/balance'),
-          fetch('/api/admin/sommelier/config').catch(() => null),
-        ]);
-        const balData = await balRes.json();
-        setTokenBalance(balData.balance ?? 0);
-        if (cfgRes?.ok) {
-          const cfgData = await cfgRes.json();
-          setPurchaseEnabled(cfgData?.tokenEconomy?.purchaseEnabled ?? false);
-        }
-
         await loadPastSessions();
 
         const evalRes = await doFetch('/api/sommelier/evaluate', {
@@ -227,7 +213,7 @@ export default function Sommelier() {
   }, [messages]);
 
   async function sendMessage() {
-    if (!inputText.trim() || !sessionId || sending || sessionClosed || tokenBalance <= 0) return;
+    if (!inputText.trim() || !sessionId || sending || sessionClosed) return;
     const text = inputText.trim();
     setInputText('');
     setSending(true);
@@ -237,13 +223,16 @@ export default function Sommelier() {
         method: 'POST',
         body: JSON.stringify({ message: text }),
       });
-      if (res.status === 402) { const j = await res.json(); setTokenBalance(j.balance ?? 0); return; }
+      // Rollback-only path (gatingEnabled flipped back on) — no balance UI to update.
+      if (res.status === 402) {
+        setMessages(prev => [...prev, { role: 'assistant', content: 'Something went wrong. Please try again.' }]);
+        return;
+      }
       if (res.status === 409) { setSessionClosed(true); return; }
       if (!res.ok) throw new Error('Message failed');
       const data = await res.json();
       setMessages(prev => [...prev, { role: 'assistant', content: data.reply, actions: data.actions }]);
       setTurnCount(data.turnCount);
-      setTokenBalance(data.tokenBalance ?? tokenBalance);
       if (data.sessionClosed) setSessionClosed(true);
     } catch {
       setMessages(prev => [...prev, { role: 'assistant', content: 'Something went wrong. Please try again.' }]);
@@ -305,8 +294,7 @@ export default function Sommelier() {
 
   const turnsRemaining = maxTurns - turnCount;
   const turnColor = turnsRemaining <= 0 ? RUST : turnsRemaining <= 2 ? '#d97706' : '#a8a29e';
-  const balColor = tokenBalance === 0 ? RUST : tokenBalance <= 3 ? '#d97706' : '#a8a29e';
-  const inputDisabled = sessionClosed || tokenBalance <= 0 || sending;
+  const inputDisabled = sessionClosed || sending;
 
   // ── Sidebar JSX (reused for desktop + mobile drawer) ──────────────────────
   const sidebarJsx = (
@@ -357,18 +345,6 @@ export default function Sommelier() {
         )}
       </div>
 
-      <div className="px-5 py-5 border-t border-stone-100 space-y-2">
-        <p className="text-[10px] uppercase tracking-widest" style={{ color: balColor }}>
-          {tokenBalance} token{tokenBalance !== 1 ? 's' : ''}
-        </p>
-        <button
-          onClick={() => purchaseEnabled ? navigate('/shop') : alert('Token purchases coming soon.')}
-          className="text-[10px] uppercase tracking-widest border-b pb-0.5 transition-colors"
-          style={{ color: RUST, borderColor: RUST }}
-        >
-          Buy tokens
-        </button>
-      </div>
     </div>
   );
 
@@ -605,22 +581,6 @@ export default function Sommelier() {
                   </motion.div>
                 )}
 
-                {!sessionClosed && tokenBalance === 0 && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-3 pt-2">
-                    <div className="border-t border-stone-100" />
-                    <p className="text-[13px] text-stone-500 leading-relaxed">
-                      You've run out of tokens. Orders earn you more.
-                    </p>
-                    <button
-                      onClick={() => purchaseEnabled ? navigate('/shop') : alert('Token purchases coming soon.')}
-                      className="text-[10px] uppercase tracking-[0.2em] border-b pb-0.5 transition-colors"
-                      style={{ color: RUST, borderColor: RUST }}
-                    >
-                      Get more tokens
-                    </button>
-                  </motion.div>
-                )}
-
                 <div ref={messagesEndRef} />
               </div>
             )}
@@ -637,11 +597,7 @@ export default function Sommelier() {
                   rows={1}
                   className="flex-1 resize-none text-[15px] focus:outline-none disabled:text-stone-300 bg-transparent leading-relaxed"
                   style={{ color: '#3a2e28' }}
-                  placeholder={
-                    inputDisabled
-                      ? sessionClosed ? 'Conversation ended' : 'No tokens remaining'
-                      : 'Ask Liam anything…'
-                  }
+                  placeholder={sessionClosed ? 'Conversation ended' : 'Ask Liam anything…'}
                   value={inputText}
                   disabled={inputDisabled}
                   onChange={e => {
@@ -666,12 +622,9 @@ export default function Sommelier() {
                 </button>
               </div>
 
-              <div className="flex items-center justify-between mt-2 px-1">
-                <span className="text-[10px]" style={{ color: '#a8a29e' }}>
+              <div className="flex items-center justify-end mt-2 px-1">
+                <span className="text-[10px]" style={{ color: turnColor }}>
                   {turnCount > 0 ? `${turnsRemaining} turn${turnsRemaining !== 1 ? 's' : ''} remaining` : ''}
-                </span>
-                <span className="text-[10px]" style={{ color: balColor }}>
-                  {tokenBalance} token{tokenBalance !== 1 ? 's' : ''}
                 </span>
               </div>
             </div>

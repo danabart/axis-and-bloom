@@ -20,6 +20,13 @@ interface Stats {
   confidenceDistribution: { low: number; medium: number; high: number };
   outcomeStats: { sessionCompletionRate: number; orderedWithin7DaysRate: number; returnedRate: number; avgTokensPerSession: number };
   tokenStats: { totalTokensIssued: number; totalTokensSpent: number; avgBalancePerUser: number; usersWithZeroBalance: number };
+  guardStats: {
+    todaysTurns: number;
+    sevenDayTrend: Array<{ day: string; count: number }>;
+    topUsersByTurnsThisMonth: Array<{ uid: string; turnCount: number; estimatedSpendUsd: number; overCeiling: boolean }>;
+    capHits: number;
+    anomaly: { isAnomalous: boolean; todayCount: number; sevenDayAvg: number; multiplier: number };
+  };
   periodDays: number;
 }
 
@@ -314,6 +321,61 @@ export default function AdminSommelierFlow() {
               </p>
             </div>
           </div>
+        </div>
+
+        {/* ── Row 8: Guard Layer (HOME_TASK_3, §4.8) — operator-only; nothing here is ever customer-facing ── */}
+        <div>
+          <p className={LABEL}>Guard Layer</p>
+          <div className="grid grid-cols-3 gap-3">
+            <div className={`${CARD} border-stone-200 text-center`}>
+              <p className={STAT_BIG}>{stats.guardStats.todaysTurns}</p>
+              <p className="text-xs text-stone-400 mt-1">Turns today</p>
+            </div>
+            <div className={`${CARD} border-stone-200 text-center`}>
+              <p className={STAT_BIG}>{stats.guardStats.capHits}</p>
+              <p className="text-xs text-stone-400 mt-1">Daily-cap hits (last {stats.periodDays}d)</p>
+            </div>
+            <div className={`${CARD} text-center ${stats.guardStats.anomaly.isAnomalous ? 'border-2' : 'border-stone-200'}`} style={stats.guardStats.anomaly.isAnomalous ? { borderColor: RUST } : undefined}>
+              <p className={STAT_BIG} style={stats.guardStats.anomaly.isAnomalous ? { color: RUST } : undefined}>
+                {stats.guardStats.anomaly.isAnomalous ? 'Flagged' : 'Normal'}
+              </p>
+              <p className="text-xs text-stone-400 mt-1">
+                {stats.guardStats.anomaly.todayCount} vs {stats.guardStats.anomaly.sevenDayAvg.toFixed(1)} avg (×{stats.guardStats.anomaly.multiplier})
+              </p>
+            </div>
+          </div>
+
+          <div className={`${CARD} border-stone-200 mt-3`}>
+            <p className="text-xs text-stone-400 mb-2">7-day turn trend</p>
+            <div className="flex items-end gap-2 h-16">
+              {stats.guardStats.sevenDayTrend.map((d) => {
+                const max = Math.max(1, ...stats.guardStats.sevenDayTrend.map((x) => x.count));
+                return (
+                  <div key={d.day} className="flex-1 flex flex-col items-center gap-1">
+                    <div className="w-full rounded-sm bg-stone-200" style={{ height: `${Math.max(4, (d.count / max) * 56)}px` }} />
+                    <span className="text-[9px] text-stone-300">{d.day.slice(5)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {stats.guardStats.topUsersByTurnsThisMonth.length > 0 && (
+            <div className={`${CARD} border-stone-200 mt-3`}>
+              <p className="text-xs text-stone-400 mb-2">Top users by turns this month</p>
+              <div className="space-y-1">
+                {stats.guardStats.topUsersByTurnsThisMonth.map((u) => (
+                  <div key={u.uid} className="flex items-center justify-between text-xs">
+                    <span className="font-mono text-stone-500 truncate max-w-[50%]">{u.uid}</span>
+                    <span className="text-stone-400">{u.turnCount} turns</span>
+                    <span className={u.overCeiling ? 'font-normal' : 'text-stone-400'} style={u.overCeiling ? { color: RUST } : undefined}>
+                      ~${u.estimatedSpendUsd.toFixed(2)}{u.overCeiling ? ' ⚠' : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
       </div>

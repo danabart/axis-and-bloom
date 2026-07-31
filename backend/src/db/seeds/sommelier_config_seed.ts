@@ -26,6 +26,7 @@ export const DEFAULT_SOMMELIER_CONFIG = {
       orderBonus:      10,
       costPerTurn:     1,
       purchaseEnabled: false,
+      gatingEnabled:   false,
     },
 
     modelRouting: {
@@ -129,6 +130,25 @@ export const DEFAULT_SOMMELIER_CONFIG = {
     // the catalog ever turns out to hurt something, no deploy required.
     contextAssembly: {
       omitCatalogInExpertiseMode: true,
+    },
+
+    // HOME_TASK_3 (§4.8) — the invisible guard layer. Every threshold here is
+    // set where a real customer never feels it; these exist for the operator,
+    // not the customer, and matter more now that nothing is visibly priced (§5).
+    guards: {
+      dailyTurnCap: 60,
+      monthlySpendCeilingUsd: 5,
+      // Planning estimates, not real Anthropic billing figures — tune these
+      // against actual invoices once there's a month of real usage data.
+      modelCostPerTurnUsd: {
+        'claude-haiku-4-5-20251001': 0.002,
+        'claude-sonnet-4-6': 0.02,
+      },
+      anomalyMultiplier: 3,
+      rateLimits: {
+        perIpPerMinute: 30,
+        perAccountPerMinute: 15,
+      },
     },
 
     evaluatorRulePriority: [

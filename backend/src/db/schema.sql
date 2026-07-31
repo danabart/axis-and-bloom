@@ -283,11 +283,16 @@ CREATE TABLE IF NOT EXISTS token_events (
   id           SERIAL PRIMARY KEY,
   uid          TEXT NOT NULL,
   delta        INT NOT NULL,
-  reason       TEXT NOT NULL,   -- 'signup_bonus' | 'order_bonus' | 'sommelier_turn' | 'purchase' | 'admin_grant'
+  reason       TEXT NOT NULL,   -- 'signup_bonus' | 'order_bonus' | 'sommelier_turn' | 'usage_log' | 'purchase' | 'admin_grant'
   reference_id TEXT,            -- order ID, session ID, etc. — audit trail
   balance_after INT NOT NULL,
   created_at   TIMESTAMPTZ DEFAULT NOW()
 );
+-- HOME_TASK_3 (§4.8) — nullable, additive. Which model handled a 'sommelier_turn'/
+-- 'usage_log' row, for the monthly per-user spend *estimate* the guard layer computes
+-- (turns × config/sommelier.guards.modelCostPerTurnUsd[model]). NULL for bonus rows
+-- and for any row written before this column existed.
+ALTER TABLE token_events ADD COLUMN IF NOT EXISTS model TEXT;
 
 -- ─────────────────────────────────────────────
 -- FLAVOR / ARCHETYPE SYSTEM

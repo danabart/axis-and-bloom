@@ -1,15 +1,46 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { requireAuth, blockAnonymousAuth, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
 import { evaluateSommelier } from '../services/sommelierEvaluator.js';
 import { fetchSommelierCoffees } from '../services/sommelierRag.js';
-import { getTokenBalance, spendToken } from '../services/tokenService.js';
+import { getTokenBalance, spendToken, logUsage } from '../services/tokenService.js';
+import { checkDailyCap, checkMonthlySpendAndAlert } from '../services/sommelierGuards.js';
 import { writeOutcome, checkReturnedToSommelier } from '../services/outcomeTracker.js';
 import { chatWithSommelier } from '../services/claude.js';
 import { getSommelierConfig } from '../services/sommelierConfig.js';
 import { routeTopic } from '../services/topicRouter.js';
+
+// HOME_TASK_3 (§4.8) — per-IP and per-account rate limiting on the two turn-
+// generating endpoints. Thresholds read live config per request (the `max`
+// option accepts a function in express-rate-limit v7), same no-deploy-tuning
+// pattern as the rest of config/sommelier; `windowMs` itself is fixed at 1
+// minute. Cloud Run runs multiple instances, so this is a per-instance limit,
+// not a global one — acceptable at this scale per the task spec; a shared
+// store (e.g. Redis) would be the upgrade if that ever stops being true.
+const sommelierIpLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: (_req) => getSommelierConfig()?.guards?.rateLimits?.perIpPerMinute ?? 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'rate_limited', message: 'Too many requests — please slow down.' },
+});
+const sommelierAccountLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: (_req) => getSommelierConfig()?.guards?.rateLimits?.perAccountPerMinute ?? 15,
+  keyGenerator: (req: AuthRequest) => req.uid ?? req.ip ?? 'unknown',
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'rate_limited', message: 'Too many requests — please slow down.' },
+});
+
+// HOME_TASK_3 — a hard rule, not a model decision (S33: "hard rules belong in
+// code, not the prompt"), so the daily-cap close is a fixed line in Liam's
+// established voice rather than a live model call. Never mentions the words
+// "cap"/"limit" — reads as a natural, warm pause, per S32-S34's voice rules.
+const DAILY_CAP_CLOSE_MESSAGE = "That's a good amount of ground for today — let's pick this back up tomorrow.";
 
 function getGeneration(dateOfBirth: string | Date | null | undefined): string {
   if (!dateOfBirth) return 'Millennial';
@@ -128,23 +159,38 @@ router.post('/evaluate', requireAuth, blockAnonymousAuth, async (req: AuthReques
 });
 
 // ─── POST /api/sommelier/start ────────────────────────────────────────────────
-router.post('/start', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
+router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, sommelierAccountLimiter, async (req: AuthRequest, res) => {
   const { intent, openingContext, evaluationId, tiedArchetypes } = req.body;
   if (!intent) { res.status(400).json({ error: 'intent required' }); return; }
 
   const config = getSommelierConfig();
+  const gatingEnabled = config?.tokenEconomy?.gatingEnabled ?? false;
   const costPerTurn = config?.tokenEconomy?.costPerTurn ?? 1;
   const maxTurns = config?.intents?.[intent]?.maxTurns ?? config?.sessionLimits?.maxTurns ?? 8;
   const resumeWindowHours = config?.timeWindows?.sessionResumeWindowHours ?? 24;
 
   try {
-    // Token check
-    const balance = await getTokenBalance(req.uid!);
-    if (balance < costPerTurn) {
-      res.status(402).json({
-        error: 'insufficient_tokens',
-        balance,
-        message: 'You need at least 1 token to start a conversation with Liam.',
+    // Token check — only when the meter is gating (§5: off by default; the
+    // schema/rollback lever stays, nothing customer-facing depends on it).
+    if (gatingEnabled) {
+      const balance = await getTokenBalance(req.uid!);
+      if (balance < costPerTurn) {
+        res.status(402).json({
+          error: 'insufficient_tokens',
+          balance,
+          message: 'You need at least 1 token to start a conversation with Liam.',
+        });
+        return;
+      }
+    }
+
+    // Daily turn cap (§4.8) — checked before starting a new session so a
+    // capped-out customer doesn't spend a real model call just to be told no.
+    const capCheck = await checkDailyCap(req.uid!);
+    if (capCheck.hit) {
+      res.status(429).json({
+        error: 'daily_cap_reached',
+        message: DAILY_CAP_CLOSE_MESSAGE,
       });
       return;
     }
@@ -262,17 +308,24 @@ router.post('/start', requireAuth, blockAnonymousAuth, async (req: AuthRequest, 
       checkReturnedToSommelier(req.uid!, evaluationId).catch(() => {});
     }
 
-    // Spend 1 token for the opening turn
-    const spendResult = await spendToken(req.uid!, 'sommelier_turn', String(newSessionId));
-    if (!spendResult.success) {
-      // Delete the session since we can't pay for it
-      await db.query('DELETE FROM sommelier_sessions WHERE id = $1', [newSessionId]);
-      res.status(402).json({
-        error: 'insufficient_tokens',
-        balance: spendResult.newBalance,
-        message: 'You need at least 1 token to start a conversation with Liam.',
-      });
-      return;
+    // Spend 1 token for the opening turn — only when gating is on. Ungated,
+    // this is a real turn that still needs to count toward the guard layer's
+    // accounting, just without a balance gate or a rollback path (nothing was
+    // spent, so there's nothing to roll back if something downstream fails).
+    let newBalance: number | null = null;
+    if (gatingEnabled) {
+      const spendResult = await spendToken(req.uid!, 'sommelier_turn', String(newSessionId));
+      if (!spendResult.success) {
+        // Delete the session since we can't pay for it
+        await db.query('DELETE FROM sommelier_sessions WHERE id = $1', [newSessionId]);
+        res.status(402).json({
+          error: 'insufficient_tokens',
+          balance: spendResult.newBalance,
+          message: 'You need at least 1 token to start a conversation with Liam.',
+        });
+        return;
+      }
+      newBalance = spendResult.newBalance;
     }
 
     // Generate opening message (turn 0)
@@ -291,6 +344,11 @@ router.post('/start', requireAuth, blockAnonymousAuth, async (req: AuthRequest, 
       openingActionTypes = chatResult.actionTypes;
     } catch (claudeErr) {
       console.error('[sommelier/start] chatWithSommelier failed, using fallback:', claudeErr);
+    }
+
+    if (!gatingEnabled) {
+      logUsage(req.uid!, String(newSessionId), modelUsed).catch(() => {});
+      checkMonthlySpendAndAlert(req.uid!).catch(() => {});
     }
     // The prompt instructs Liam never to use a marker on the opening turn, but
     // resolve defensively anyway rather than assuming the instruction always holds.
@@ -328,7 +386,10 @@ router.post('/start', requireAuth, blockAnonymousAuth, async (req: AuthRequest, 
       openingMessage,
       openingActions,
       coffeeNames,
-      tokenBalance: spendResult.newBalance,
+      // Kept for API back-compat (nothing customer-facing reads this — see
+      // Sommelier.tsx, which no longer requests or renders a balance); null
+      // when ungated rather than a real number that suggests spend happened.
+      tokenBalance: newBalance,
       turnsRemaining: maxTurns - 1,
     });
   } catch (err) {
@@ -338,7 +399,7 @@ router.post('/start', requireAuth, blockAnonymousAuth, async (req: AuthRequest, 
 });
 
 // ─── POST /api/sommelier/:sessionId/message ───────────────────────────────────
-router.post('/:sessionId/message', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
+router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymousAuth, sommelierAccountLimiter, async (req: AuthRequest, res) => {
   const sessionId = Number(req.params.sessionId);
   const { message } = req.body;
   if (!message || typeof message !== 'string') {
@@ -347,6 +408,7 @@ router.post('/:sessionId/message', requireAuth, blockAnonymousAuth, async (req: 
   }
 
   const config = getSommelierConfig();
+  const gatingEnabled = config?.tokenEconomy?.gatingEnabled ?? false;
   const costPerTurn = config?.tokenEconomy?.costPerTurn ?? 1;
 
   try {
@@ -376,10 +438,50 @@ router.post('/:sessionId/message', requireAuth, blockAnonymousAuth, async (req: 
       return;
     }
 
-    // Token check
-    const balance = await getTokenBalance(req.uid!);
-    if (balance < costPerTurn) {
-      res.status(402).json({ error: 'insufficient_tokens', balance });
+    // Token check — only when the meter is gating (§5).
+    if (gatingEnabled) {
+      const balance = await getTokenBalance(req.uid!);
+      if (balance < costPerTurn) {
+        res.status(402).json({ error: 'insufficient_tokens', balance });
+        return;
+      }
+    }
+
+    // Daily turn cap (§4.8). Checked before generating a reply so a capped-out
+    // turn never reaches the model — this is the "Liam-voiced session close"
+    // the spec asks for, not a bare error: the user's message is still saved
+    // (they did send it), Liam's fixed closing line is saved as the reply, and
+    // the session ends the same way a normal turn-limit close would.
+    const capCheck = await checkDailyCap(req.uid!);
+    if (capCheck.hit) {
+      const messagesColForClose = firestoreDb.collection(`users/${req.uid}/sommelier_sessions/${sessionId}/messages`);
+      await messagesColForClose.doc().set({
+        role: 'user',
+        content: message,
+        seq: session.turn_count * 2 - 1,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      await messagesColForClose.add({
+        role: 'assistant',
+        content: DAILY_CAP_CLOSE_MESSAGE,
+        modelUsed: 'guard',
+        seq: session.turn_count * 2,
+        actions: [],
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      await db.query(
+        `UPDATE sommelier_sessions SET is_closed = true, close_reason = 'daily_cap', last_active_at = NOW() WHERE id = $1`,
+        [sessionId]
+      );
+      res.json({
+        reply: DAILY_CAP_CLOSE_MESSAGE,
+        actions: [],
+        turnCount: session.turn_count,
+        sessionClosed: true,
+        turnsRemaining: 0,
+        tokenBalance: null,
+        modelUsed: 'guard',
+      });
       return;
     }
 
@@ -402,12 +504,18 @@ router.post('/:sessionId/message', requireAuth, blockAnonymousAuth, async (req: 
         content: d.data().content as string,
       }));
 
-    // Spend token
-    const spendResult = await spendToken(req.uid!, 'sommelier_turn', String(sessionId));
-    if (!spendResult.success) {
-      await userMsgRef.delete();
-      res.status(402).json({ error: 'insufficient_tokens', balance: spendResult.newBalance });
-      return;
+    // Spend token — only when gating is on. Ungated, there's no balance to
+    // check and therefore no rollback path: the user message just saved stays,
+    // same as a normal turn.
+    let newBalance: number | null = null;
+    if (gatingEnabled) {
+      const spendResult = await spendToken(req.uid!, 'sommelier_turn', String(sessionId));
+      if (!spendResult.success) {
+        await userMsgRef.delete();
+        res.status(402).json({ error: 'insufficient_tokens', balance: spendResult.newBalance });
+        return;
+      }
+      newBalance = spendResult.newBalance;
     }
 
     // Generate reply
@@ -440,6 +548,11 @@ router.post('/:sessionId/message', requireAuth, blockAnonymousAuth, async (req: 
       mode: topicResult.mode,
     });
     const actions = await resolveActions(actionTypes, req.uid!, ctx.archetypeKey ?? null);
+
+    if (!gatingEnabled) {
+      logUsage(req.uid!, String(sessionId), modelUsed).catch(() => {});
+      checkMonthlySpendAndAlert(req.uid!).catch(() => {});
+    }
 
     const newTurnCount = session.turn_count + 1;
     const shouldClose = newTurnCount >= maxTurns;
@@ -495,7 +608,9 @@ router.post('/:sessionId/message', requireAuth, blockAnonymousAuth, async (req: 
       turnCount: newTurnCount,
       sessionClosed: shouldClose,
       turnsRemaining: maxTurns - newTurnCount,
-      tokenBalance: spendResult.newBalance,
+      // Kept for API back-compat — see the matching note in /start. null when
+      // ungated; nothing customer-facing reads this anymore (Sommelier.tsx).
+      tokenBalance: newBalance,
       modelUsed,
     });
   } catch (err) {
