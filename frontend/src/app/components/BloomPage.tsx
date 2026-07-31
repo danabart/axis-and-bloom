@@ -5,12 +5,11 @@ import { useCart } from '../context/CartContext';
 import { getUserProfile, getDialPosition, setDialPosition } from '../lib/api';
 import { ARCHETYPE_VISUALS } from './bloom/bloomVisuals';
 import { Link, useSearchParams } from 'react-router';
-import { ArchetypeSection, computeDefaultSortOrder } from './bloom/ArchetypeSection';
-import { CompareOverlay } from './bloom/CompareOverlay';
+import { computeDefaultSortOrder } from './bloom/ArchetypeSection';
 import { OtherCategoryCard } from './bloom/OtherCategoryCard';
-import type { BloomDialHandle } from './BloomDialWidget';
-import type { ArchetypeData, OtherCategoryCoffee, Slot } from './bloom/types';
-import { slotKey } from './bloom/types';
+import { BloomDial, type BloomDialHandle } from './bloom/dial/BloomDial';
+import { buildDialConfig, type DialCoffee } from './bloom/dial/archetypeConfig';
+import type { ArchetypeData, OtherCategoryCoffee, CartItem } from './bloom/types';
 
 // Bloom Dial Base Data Part 3, Phase 6: Decaf/Half-Caf/Flavored group under
 // "Other Categories" (Part 4 keeps this section on Bloom unchanged). Experimental
@@ -33,12 +32,7 @@ export default function BloomPage() {
   const [userArchetypeLoaded, setUserArchetypeLoaded] = useState(false);
 
   const [selectedSortOrder, setSelectedSortOrder] = useState<Record<string, number>>({});
-  const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
   const dialRefs = useRef<Record<string, BloomDialHandle | null>>({});
-
-  const [compareState, setCompareState] = useState<{ open: boolean; archetype: string; archetypeLabel: string; slot: Slot | null }>({
-    open: false, archetype: '', archetypeLabel: '', slot: null,
-  });
 
   useEffect(() => {
     const archetypesFetch = fetch('/api/coffees/archetypes')
@@ -114,15 +108,10 @@ export default function BloomPage() {
   }, [user, archetypes]);
 
   // Liam action links, Phase A — honor ?archetype=&slot= deep links (FI's existing
-  // "Shop on The Bloom →" link already emits this shape; it previously landed on the
-  // default view since this page had no useSearchParams at all). Gated on
-  // `catalogueSettled` rather than `all.length > 0` — experimentalData alone can
-  // resolve before the base archetypes fetch does, which would otherwise make the
-  // catalogue falsely look "loaded" while the actual target archetype hasn't
-  // arrived yet, permanently mis-resolving the deep link as "not found" (found via
-  // real testing, not assumed). Runs once. Invalid/unknown params — no archetype
-  // param, unknown archetype, or a slot that isn't one of that archetype's
-  // positions — fall through to the plain default view, no error.
+  // "Shop on The Bloom →" link already emits this shape). Gated on `catalogueSettled`
+  // rather than `all.length > 0` — experimentalData alone can resolve before the base
+  // archetypes fetch does, which would otherwise mis-resolve the deep link as "not
+  // found". Runs once. Invalid/unknown params fall through to the default view.
   const deepLinkHandledRef = useRef(false);
   useEffect(() => {
     if (deepLinkHandledRef.current) return;
@@ -149,30 +138,31 @@ export default function BloomPage() {
     dialRefs.current[archetype] = handle;
   }
 
+  // Silent auto-save on every settled turn (signed-in only; anonymous falls through).
   function handleDialSelect(archetype: string, dialSortOrder: number) {
     setSelectedSortOrder(prev => ({ ...prev, [archetype]: dialSortOrder }));
     if (user) setDialPosition(archetype, dialSortOrder).catch(() => {});
   }
 
-  function toggleReveal(key: string) {
-    setRevealedKeys(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
+  // PRE-ORDER THIS COFFEE → add the selected coffee to the cart (12oz default —
+  // the dial has a single pre-order button, no weight picker). Cart/checkout is
+  // slot-based for dial items, so placeholder-named slots still form valid lines.
+  function handlePreOrder(data: ArchetypeData, coffee: DialCoffee) {
+    const item: CartItem = {
+      kind: 'dial',
+      archetype: data.archetype,
+      archetypeLabel: data.archetypeLabel,
+      dialSortOrder: coffee.dialSortOrder,
+      weightOz: 12,
+      platformName: coffee.name,
+      retailPriceCents: coffee.price12Cents,
+      qty: 1,
+    };
+    addToCart(item);
+    if (user) setDialPosition(data.archetype, coffee.dialSortOrder, { trigger: 'add_to_cart', source: 'bloom', coffeeId: coffee.coffeeId }).catch(() => {});
   }
 
-  function handleHopClick(archetype: string, dialSortOrder: number) {
-    dialRefs.current[archetype]?.rotateTo(dialSortOrder);
-    setRevealedKeys(prev => new Set(prev).add(slotKey(archetype, dialSortOrder)));
-    requestAnimationFrame(() => {
-      document.getElementById(archetype)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-  }
-
-  function openCompare(archetype: string, archetypeLabel: string, slot: Slot) {
-    setCompareState({ open: true, archetype, archetypeLabel, slot });
-  }
+  const allData = [...orderedArchetypes, ...(experimentalData ? [experimentalData] : [])];
 
   return (
     <div style={{ backgroundColor: '#f2f1ea', minHeight: '100vh' }}>
@@ -195,7 +185,7 @@ export default function BloomPage() {
         padding: 'clamp(10px, 1.4vh, 16px) clamp(32px, 6vw, 96px)',
         display: 'flex', gap: 'clamp(14px, 2.5vw, 40px)', overflowX: 'auto',
       }}>
-        {[...orderedArchetypes, ...(experimentalData ? [experimentalData] : [])].map(a => {
+        {allData.map(a => {
           const visual = ARCHETYPE_VISUALS[a.archetype];
           if (!visual) return null;
           return (
@@ -215,58 +205,28 @@ export default function BloomPage() {
 
       {error && <p className="text-sm text-red-500 px-8 py-4">{error}</p>}
 
-      {/* Bloom Dial Base Data Part 4, §B3: personalized order (customer's match
-          first, nearest neighbor next) — see the archetypeOrder effect above.
-          Falls back to backend-returned default order for guests/pre-quiz. */}
-      {orderedArchetypes.map((data, i) => (
-        <ArchetypeSection
-          key={data.archetype}
-          data={data}
-          index={i}
-          selectedSortOrder={selectedSortOrder[data.archetype] ?? computeDefaultSortOrder(data)}
-          revealedKeys={revealedKeys}
-          onDialSelect={handleDialSelect}
-          onToggleReveal={toggleReveal}
-          onAddToCart={addToCart}
-          onHopClick={handleHopClick}
-          onCompare={openCompare}
-          userArchetype={userArchetype}
-          registerDialRef={registerDialRef}
-          source="bloom"
-        />
-      ))}
-
-      {/* ── Experimental — Bloom Dial Base Data Part 4, §B2. Same archetype-style
-           box as the 5 above (titled "Experimental", the family name — a coffee
-           inside, e.g. Kopi Safari, shows its own slot alias "The Unexpected" per
-           the usual title-is-the-alias rule, §B1). Always placed after the flavor
-           archetypes, never part of the personalized order. Replaces the old
-           "The Unexpected" grouped-card section, which conflated a slot alias
-           with a section name. ── */}
-      {experimentalData && (
-        <ArchetypeSection
-          key={experimentalData.archetype}
-          data={experimentalData}
-          index={orderedArchetypes.length}
-          selectedSortOrder={selectedSortOrder[experimentalData.archetype] ?? computeDefaultSortOrder(experimentalData)}
-          revealedKeys={revealedKeys}
-          onDialSelect={handleDialSelect}
-          onToggleReveal={toggleReveal}
-          onAddToCart={addToCart}
-          onHopClick={handleHopClick}
-          onCompare={openCompare}
-          userArchetype={userArchetype}
-          registerDialRef={registerDialRef}
-          source="bloom"
-        />
-      )}
+      {/* ── The Bloom Dial per archetype (brief 33) — one reusable component,
+           mounted here from its Bloom-page source. Personalized order (match
+           first) for the flavor archetypes, Experimental always last. ── */}
+      {allData.map(data => {
+        const config = buildDialConfig(data);
+        if (!config) return null;
+        return (
+          <BloomDial
+            key={data.archetype}
+            ref={h => registerDialRef(data.archetype, h)}
+            config={config}
+            initialDialSortOrder={selectedSortOrder[data.archetype] ?? computeDefaultSortOrder(data)}
+            onZoneChange={dialSortOrder => handleDialSelect(data.archetype, dialSortOrder)}
+            onPreOrder={coffee => handlePreOrder(data, coffee)}
+          />
+        );
+      })}
 
       {/* ── Other Categories (Decaf / Half-Caf / Flavored) ──
            Bloom Dial Base Data Part 3, Phase 6 — coffees with no dial position,
            grouped by category tag instead of archetype/slot. A coffee carrying
-           more than one tag (e.g. a flavored decaf) renders once per tag. Kept
-           exactly as Part 3 built it (Part 4 §B3: "keep the Other Categories
-           section on The Bloom exactly as Part 3 built it"). ── */}
+           more than one tag renders once per tag. Kept exactly as Part 3 built it. ── */}
       {otherCategories.length > 0 && (
         <section style={{ borderTop: '1px solid rgba(154,41,24,0.08)', padding: 'clamp(52px, 7vh, 92px) clamp(32px, 6vw, 96px)' }}>
           <h2 style={{ fontSize: 'clamp(2rem, 3.2vw, 4rem)', color: '#9a2918', fontWeight: 400, margin: '0 0 clamp(20px, 3vh, 32px)', letterSpacing: '-0.02em' }}>
@@ -293,13 +253,6 @@ export default function BloomPage() {
           </div>
         </section>
       )}
-
-      <CompareOverlay
-        open={compareState.open}
-        onClose={() => setCompareState(s => ({ ...s, open: false }))}
-        left={compareState.slot ? { archetype: compareState.archetype, archetypeLabel: compareState.archetypeLabel, slot: compareState.slot } : null}
-        archetypes={archetypes}
-      />
     </div>
   );
 }
