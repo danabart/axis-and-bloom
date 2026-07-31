@@ -3093,6 +3093,20 @@ WHAT_WE_BUILT.md #120, no schema change (WHAT_WE_BUILT_DB.md untouched), SOMMELI
 
 ---
 
+### 121. Hotfix — #120's `blockAnonymousAuth` on `GET /api/users/profile` was over-broad, broke guest quiz recognition (2026-07-30)
+
+**File:** `backend/src/routes/users.ts`
+
+**Problem**: #120's "defense in depth" step put `blockAnonymousAuth` on both `GET /profile` and `PATCH /profile`. The `PATCH` block was correct — `Profile.tsx` is its only caller and it's now behind `RequireAuth`. The `GET` block was wrong: `getUserProfile()` (`frontend/src/app/lib/api.ts`) isn't just `Profile.tsx`'s data source — it's also called by `FlavorQuiz.tsx` (twice — the initial profile-fetch effect and `refreshUserProfile()`), `BloomPage.tsx`, and `CartContext.tsx`, all guest-facing. Every one of those call sites swallows the error with `.catch(() => {})`, so nothing threw — a guest just silently stopped being recognized as having already taken the quiz, every single time, in every browser context. Confirmed live: fresh anonymous session hitting `/find-my-flavor` got `GET /api/users/profile → 403`. This is what Dana was seeing as "the quiz doesn't remember me." Quiz data itself was never affected — `POST /api/quiz/results` was untouched by #120 and kept saving correctly; this was purely a broken read-back path, not data loss.
+
+**Fix**: removed `blockAnonymousAuth` from `GET /profile` only, restoring `router.get('/profile', requireAuth, async (req: AuthRequest, res) => {`. `PATCH /profile` keeps the block, unchanged. `GET /profile`'s own logic already null-safes a guest with no history (lazy-upserts `user_profile`, returns nulls for anything unset) — that's exactly what guest callers were already relying on before #120 ever shipped; the API-level block was always the redundant half of #120's fix, not the actual mechanism. The actual mechanism — `RequireAuth` wrapping the `/profile` page, and `Navigation.tsx` no longer linking guests there — is untouched and still holds.
+
+**Verified** (local dev servers against production Cloud SQL/Firestore/Firebase Auth via the Cloud SQL Auth Proxy, Playwright-driven, per the spec's checklist): fresh anonymous guest's `GET /api/users/profile` → `200` (not `403`); completed the quiz via the API as that guest, reloaded `/find-my-flavor` → showed the returning-guest screen ("YOUR COFFEE PROFILE — Your primary profile is Fruity — WELCOME BACK") instead of restarting the quiz; direct nav to `/profile` as that guest still redirected to `/sign-in` (#120's `RequireAuth` fix intact); `PATCH /api/users/profile` as that guest still returned `403 anonymous_not_allowed`. Test guest identity deleted immediately after (Firebase Auth, Firestore, Postgres) rather than left for the purge cron.
+
+WHAT_WE_BUILT.md #121, no schema change, no Sommelier-adjacent files touched (SOMMELIER_BUILT.md untouched).
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

@@ -38,7 +38,7 @@ const ARCHETYPE_NAME_TO_KEY: Record<string, string> = {
 };
 
 // ── GET /api/users/profile ────────────────────────────────────────────────────
-router.get('/profile', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
+router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
   try {
     const profileResult = await db.query(
       `INSERT INTO user_profile (firebase_uid)
