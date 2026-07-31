@@ -625,6 +625,7 @@ ORDER BY sessions DESC;
 | Path | Type | Notes |
 |---|---|---|
 | `config/sommelier` | Document | Admin-configurable weights, thresholds, intents, token economy, model routing |
+| `config/sommelier/audit/{autoId}` | Document | Audit trail for `POST /api/admin/sommelier/config-apply` (HOME_TASK_1, 2026-07-30, WHAT_WE_BUILT.md #122) — `uid`, `email`, `paths` applied, `at`. **4-segment path** — `audit` is a sub-collection under the `config/sommelier` document. |
 | `config/sommelierCentroids` | Document | Intent centroid vectors — recomputed via admin button |
 | `users/{uid}/metadata/confidence_profile` | Document | Behavioral confidence score + `hasPendingNegativeFeedback` flag. **4-segment path** — `metadata` is a sub-collection, `confidence_profile` is the document. |
 | `users/{uid}/sommelier_evaluations/{id}` | Document | One doc per evaluation — intent label, 13-dim feature vector, outcome |

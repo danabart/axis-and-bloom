@@ -729,3 +729,25 @@ Rebuilt `Sommelier.tsx` from a constrained page embedded in the site layout to a
 **Ordering**: A `seq` field (integer, 0-based) is written with each message. Opening = 0, first user message = 1, first reply = 2, etc. History queries use `.orderBy('seq')`. This avoids any ambiguity from server timestamp collisions on back-to-back writes.
 
 **Rollback**: If token spend fails after saving the user message, the user message Firestore doc is deleted by doc reference (no SQL delete needed).
+
+---
+
+### HOME Task 1 — Config Source of Truth (2026-07-30)
+
+**Config source of truth, declared**: the admin portal's live `config/sommelier` Firestore document is canonical. Seed files (`DEFAULT_SOMMELIER_CONFIG`) exist only to populate a fresh environment — a seed edit that matters must be pushed live through the mechanism below, never assumed to take effect on its own.
+
+#### S70. Seed-vs-live drift indicator + one-click apply, closing the S35/S51 trap
+
+**Problem this closes**: S35 (Task 6 voice reset) and S51 (action-marker addendums) both edited `sommelier_config_seed.ts` expecting the change to reach production, and both shipped inert because `seedSommelierConfig()` is a no-op once `config/sommelier` exists — the only way either fix actually reached prod was an ad-hoc one-time script (`backend/scripts/update-intent-addendums.mjs`). This task replaces that ad-hoc pattern with a product feature so it can't happen a third time.
+
+**1. Named seed export** (`backend/src/db/seeds/sommelier_config_seed.ts`): the default config object is now `export const DEFAULT_SOMMELIER_CONFIG` — a pure refactor, no values changed. `seedSommelierConfig()` now spreads it (`{ ...DEFAULT_SOMMELIER_CONFIG, updatedAt: FieldValue.serverTimestamp() }`) instead of inlining the object.
+
+**2. `GET /api/admin/sommelier/config-drift`** (`backend/src/routes/admin.ts`, admin-gated via the router's existing `requireAdmin`): deep-compares `DEFAULT_SOMMELIER_CONFIG` against the live document. `diffSommelierConfig()` recurses through plain objects only — arrays and primitives are leaf values compared by `JSON.stringify` equality — and emits one `{ path, seedValue, liveValue }` entry per differing dot-path. Keys present on only one side surface the same way (the missing side's value is `undefined`), so "differences" and "only-in-one-side keys" are one unified list, not two. Top-level `updatedAt` is skipped.
+
+**3. `POST /api/admin/sommelier/config-apply`**: body `{ paths: string[] }`. For each requested path, looks up the value in `DEFAULT_SOMMELIER_CONFIG` (skips — doesn't error — any path the seed doesn't have) and writes via `configRef.update({ [path]: value, ... })`. Firestore's dot-notation field-path `update()` merges at the leaf: sibling keys and any path not listed survive untouched, which is what makes this safe to call with a partial selection rather than a full-document overwrite. Writes an audit doc to `config/sommelier/audit/{autoId}` (`uid`, `email`, `paths`, `at` — 4 segments, even, per house convention #6) via `req.uid`/`req.email` off the existing `requireAdmin` auth.
+
+**4. Admin UI** (`AdminSommelierConfig.tsx`): a new "Config Source of Truth" section above the existing config editor. Badge reads "seed differs from live: N fields" when drift exists, or a quiet "seed and live match" line when it doesn't. Each diff row is a checkbox (all pre-checked) showing the path plus truncated seed/live values; an "Apply N selected" button posts to config-apply and reloads both the drift list and the config form. One sentence declares the source-of-truth rule directly in the UI.
+
+**Verified against production `config/sommelier`** (there is no separate dev Firestore project — `axis-and-bloom-prod` is the only one configured; ran the check directly against it with full cleanup, per house convention #5): temporarily added a live-only test key and simulated a seed/live diff on `ragLimits.maxCoffees` — the drift logic reported exactly those two paths (the live-only key with `seedValue` undefined, the numeric diff with both values correct). Applying only the `ragLimits.maxCoffees` path updated it correctly, left the live-only test key untouched (confirming the dot-path update doesn't clobber siblings), and wrote a correct audit doc. `onSnapshot` fired on every write with no listener restart needed. All test data (the temp key, the value change, the audit doc) was reverted/deleted immediately after; the live document was back to its original state at the end of the run. `tsc --noEmit` clean on the backend.
+
+**Out of scope, per the task spec**: no config values changed, no changes to `sommelierConfig.ts`'s listener, `claude.ts`, or `sommelier.ts`.

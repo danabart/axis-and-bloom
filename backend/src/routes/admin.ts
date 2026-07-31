@@ -5,6 +5,7 @@ import { generateAndStoreSummary, generateAndStoreAllContent } from './coffees.j
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { getDialSuggestion, recordCuppingSignal, getAvgCuppingScore, getArchetypeBucketWidth } from '../services/dialSuggestion.js';
 import { getMarketingConfig, setMarketingConfigValue } from '../features/marketing/reportingConfig.js';
+import { DEFAULT_SOMMELIER_CONFIG } from '../db/seeds/sommelier_config_seed.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -1807,6 +1808,118 @@ router.patch('/sommelier/config', async (req, res) => {
   } catch (err) {
     console.error('[admin/sommelier/config PATCH]', err);
     res.status(500).json({ error: 'Failed to update config' });
+  }
+});
+
+// ── Config source of truth (HOME_TASK_1) ──────────────────────────────────────
+// The admin portal's live `config/sommelier` document is canonical. Seed files
+// (DEFAULT_SOMMELIER_CONFIG) are for fresh environments only — a seed edit that
+// matters must be applied here (S35/S51: seed-only edits shipped inert twice).
+
+interface ConfigDiffEntry {
+  path: string;
+  seedValue: unknown;
+  liveValue: unknown;
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+// Deep-compares seed vs. live, collecting one entry per differing leaf path.
+// Leaves are primitives and arrays (compared by value, not element-by-element);
+// only plain objects are recursed into, so `path` mirrors the dot-notation used
+// by config-apply below. Top-level `updatedAt` is ignored on both sides.
+function diffSommelierConfig(
+  seed: unknown,
+  live: unknown,
+  prefix: string,
+  out: ConfigDiffEntry[]
+): void {
+  if (isPlainObject(seed) || isPlainObject(live)) {
+    const seedObj = isPlainObject(seed) ? seed : {};
+    const liveObj = isPlainObject(live) ? live : {};
+    const keys = new Set([...Object.keys(seedObj), ...Object.keys(liveObj)]);
+    for (const key of keys) {
+      if (prefix === '' && key === 'updatedAt') continue;
+      const path = prefix ? `${prefix}.${key}` : key;
+      diffSommelierConfig(seedObj[key], liveObj[key], path, out);
+    }
+    return;
+  }
+  if (JSON.stringify(seed) !== JSON.stringify(live)) {
+    out.push({ path: prefix, seedValue: seed, liveValue: live });
+  }
+}
+
+function getByPath(obj: Record<string, unknown>, path: string): unknown {
+  return path.split('.').reduce<unknown>((acc, key) => {
+    if (!isPlainObject(acc)) return undefined;
+    return acc[key];
+  }, obj);
+}
+
+// ── GET /api/admin/sommelier/config-drift ─────────────────────────────────────
+router.get('/sommelier/config-drift', async (_req, res) => {
+  try {
+    const snap = await firestoreDb.doc('config/sommelier').get();
+    const live = snap.exists ? snap.data() ?? {} : {};
+    const diffs: ConfigDiffEntry[] = [];
+    diffSommelierConfig(DEFAULT_SOMMELIER_CONFIG, live, '', diffs);
+    res.json({ diffs, inSync: diffs.length === 0 });
+  } catch (err) {
+    console.error('[admin/sommelier/config-drift GET]', err);
+    res.status(500).json({ error: 'Failed to compute config drift' });
+  }
+});
+
+// ── POST /api/admin/sommelier/config-apply ────────────────────────────────────
+// Applies exactly the requested dot-paths from DEFAULT_SOMMELIER_CONFIG onto the
+// live document. Uses Firestore's dot-notation field-path update, which merges at
+// the leaf — sibling keys and any path not listed here are untouched, so a
+// live-only key or an unrelated live edit survives.
+router.post('/sommelier/config-apply', async (req: AuthRequest, res) => {
+  const paths = req.body?.paths;
+  if (!Array.isArray(paths) || paths.length === 0 || !paths.every((p) => typeof p === 'string')) {
+    res.status(400).json({ error: 'Body must include a non-empty array of string paths' });
+    return;
+  }
+
+  const updates: Record<string, unknown> = {};
+  const appliedPaths: string[] = [];
+  const skippedPaths: string[] = [];
+  for (const path of paths as string[]) {
+    const seedValue = getByPath(DEFAULT_SOMMELIER_CONFIG, path);
+    if (seedValue === undefined) {
+      skippedPaths.push(path);
+      continue;
+    }
+    updates[path] = seedValue;
+    appliedPaths.push(path);
+  }
+
+  if (appliedPaths.length === 0) {
+    res.status(400).json({ error: 'None of the requested paths exist in the seed config', skippedPaths });
+    return;
+  }
+
+  try {
+    const configRef = firestoreDb.doc('config/sommelier');
+    updates.updatedAt = FieldValue.serverTimestamp();
+    await configRef.update(updates);
+
+    // config_audit — config/sommelier/audit/{autoId} (4 segments, even — see house convention #6)
+    await firestoreDb.collection('config/sommelier/audit').add({
+      uid: req.uid ?? null,
+      email: req.email ?? null,
+      paths: appliedPaths,
+      at: FieldValue.serverTimestamp(),
+    });
+
+    res.json({ ok: true, appliedPaths, skippedPaths });
+  } catch (err) {
+    console.error('[admin/sommelier/config-apply POST]', err);
+    res.status(500).json({ error: 'Failed to apply config' });
   }
 });
 

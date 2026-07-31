@@ -1,11 +1,10 @@
 import { firestoreDb, FieldValue } from '../../services/firebase-admin.js';
 
-export async function seedSommelierConfig(): Promise<void> {
-  const configRef = firestoreDb.doc('config/sommelier');
-  const snap = await configRef.get();
-  if (snap.exists) return;
-
-  await configRef.set({
+// Canonical default shape for `config/sommelier`. Used to seed a fresh environment
+// AND as the seed side of the config-drift comparison (HOME_TASK_1) — the admin
+// portal's live document is the source of truth; this object is a starting point,
+// never applied automatically once the document exists (see seedSommelierConfig below).
+export const DEFAULT_SOMMELIER_CONFIG = {
     confidenceWeights: {
       quizStability:       0.30,
       behavioralValidation: 0.40,
@@ -132,7 +131,15 @@ export async function seedSommelierConfig(): Promise<void> {
         description: 'Is feedback consistent with the archetype?',
       },
     },
+};
 
+export async function seedSommelierConfig(): Promise<void> {
+  const configRef = firestoreDb.doc('config/sommelier');
+  const snap = await configRef.get();
+  if (snap.exists) return;
+
+  await configRef.set({
+    ...DEFAULT_SOMMELIER_CONFIG,
     updatedAt: FieldValue.serverTimestamp(),
   });
 

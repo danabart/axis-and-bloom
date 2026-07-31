@@ -1,6 +1,12 @@
 import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 
+interface ConfigDiff {
+  path: string;
+  seedValue: unknown;
+  liveValue: unknown;
+}
+
 interface SommelierConfig {
   confidenceWeights: Record<string, number>;
   confidenceThresholds: { medium: number; high: number };
@@ -34,10 +40,32 @@ export default function AdminSommelierConfig() {
   const [toast, setToast] = useState('');
   const [error, setError] = useState('');
   const [newKeyword, setNewKeyword] = useState('');
+  const [drift, setDrift] = useState<ConfigDiff[] | null>(null);
+  const [driftLoading, setDriftLoading] = useState(true);
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  const [applying, setApplying] = useState(false);
+  const [applyMsg, setApplyMsg] = useState('');
   const dragItem = useRef<number | null>(null);
   const dragOver = useRef<number | null>(null);
 
   async function getToken() { return user!.getIdToken(); }
+
+  async function loadDrift() {
+    setDriftLoading(true);
+    try {
+      const res = await fetch('/api/admin/sommelier/config-drift', {
+        headers: { Authorization: `Bearer ${await getToken()}` },
+      });
+      if (!res.ok) throw new Error();
+      const j = await res.json();
+      setDrift(j.diffs);
+      setSelectedPaths(new Set((j.diffs as ConfigDiff[]).map((d) => d.path)));
+    } catch {
+      setDrift(null);
+    } finally {
+      setDriftLoading(false);
+    }
+  }
 
   useEffect(() => {
     (async () => {
@@ -53,7 +81,50 @@ export default function AdminSommelierConfig() {
         setLoading(false);
       }
     })();
+    loadDrift();
   }, []);
+
+  function togglePath(path: string) {
+    setSelectedPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path); else next.add(path);
+      return next;
+    });
+  }
+
+  function formatDiffValue(v: unknown): string {
+    if (v === undefined) return '(not set)';
+    const s = typeof v === 'string' ? v : JSON.stringify(v);
+    return s.length > 80 ? `${s.slice(0, 80)}…` : s;
+  }
+
+  async function handleApplyDrift() {
+    if (selectedPaths.size === 0) return;
+    setApplying(true);
+    setApplyMsg('');
+    try {
+      const res = await fetch('/api/admin/sommelier/config-apply', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${await getToken()}`,
+        },
+        body: JSON.stringify({ paths: Array.from(selectedPaths) }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error ?? 'Apply failed');
+      setApplyMsg(`Applied ${j.appliedPaths.length} field${j.appliedPaths.length === 1 ? '' : 's'}`);
+      await loadDrift();
+      const cfgRes = await fetch('/api/admin/sommelier/config', {
+        headers: { Authorization: `Bearer ${await getToken()}` },
+      });
+      if (cfgRes.ok) setConfig(await cfgRes.json());
+    } catch (e: unknown) {
+      setApplyMsg(e instanceof Error ? e.message : 'Apply failed');
+    } finally {
+      setApplying(false);
+    }
+  }
 
   function updateConfig(path: string[], value: unknown) {
     setConfig((prev) => {
@@ -162,6 +233,58 @@ export default function AdminSommelierConfig() {
           {toast}
         </div>
       )}
+
+      {/* ── Section 0: Config Source of Truth ── */}
+      <section className="mb-8">
+        <div className="flex items-center justify-between gap-4 mb-2">
+          <h2 className="text-sm font-normal tracking-widest uppercase text-stone-400">Config Source of Truth</h2>
+          {!driftLoading && drift && (
+            drift.length === 0 ? (
+              <span className="text-xs text-stone-400">seed and live match</span>
+            ) : (
+              <span className="text-xs px-2 py-1 rounded bg-amber-100 text-amber-700 whitespace-nowrap">
+                seed differs from live: {drift.length} field{drift.length === 1 ? '' : 's'}
+              </span>
+            )
+          )}
+        </div>
+        <p className="text-xs text-stone-400 mb-3">
+          This admin portal is the canonical source for <code>config/sommelier</code>. Seed files only apply to fresh
+          environments — a seed edit that matters must be applied below to reach live config.
+        </p>
+        {applyMsg && <p className="text-xs text-stone-600 mb-2">{applyMsg}</p>}
+        {driftLoading && <p className="text-xs text-stone-400">Checking for drift…</p>}
+        {!driftLoading && !drift && <p className="text-xs text-red-500">Failed to load drift status</p>}
+        {!driftLoading && drift && drift.length > 0 && (
+          <div className="border border-stone-200 rounded-lg divide-y divide-stone-100">
+            {drift.map((d) => (
+              <label key={d.path} className="flex items-start gap-3 p-3 cursor-pointer hover:bg-stone-50">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={selectedPaths.has(d.path)}
+                  onChange={() => togglePath(d.path)}
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="font-mono text-xs text-stone-600">{d.path}</p>
+                  <p className="text-xs text-stone-400 mt-0.5">seed: <span className="text-stone-700">{formatDiffValue(d.seedValue)}</span></p>
+                  <p className="text-xs text-stone-400">live: <span className="text-stone-700">{formatDiffValue(d.liveValue)}</span></p>
+                </div>
+              </label>
+            ))}
+            <div className="p-3 flex justify-end">
+              <button
+                onClick={handleApplyDrift}
+                disabled={applying || selectedPaths.size === 0}
+                className="px-4 py-2 text-sm text-white rounded disabled:opacity-50"
+                style={{ backgroundColor: '#b05642' }}
+              >
+                {applying ? 'Applying…' : `Apply ${selectedPaths.size} selected`}
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
 
       {/* ── Section 1: Confidence Weights ── */}
       <section className="mb-8">

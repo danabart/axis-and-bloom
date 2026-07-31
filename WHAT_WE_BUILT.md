@@ -3107,6 +3107,24 @@ WHAT_WE_BUILT.md #121, no schema change, no Sommelier-adjacent files touched (SO
 
 ---
 
+### 122. HOME Task 1 — Config Source of Truth: seed-vs-live drift indicator + one-click apply (2026-07-30)
+
+**Files:** `backend/src/db/seeds/sommelier_config_seed.ts`, `backend/src/routes/admin.ts`, `frontend/src/app/components/admin/AdminSommelierConfig.tsx`
+
+**Problem**: `SOMMELIER_BUILT.md` S35 and S51 both edited the sommelier config seed file expecting it to reach production, and both shipped inert — `seedSommelierConfig()` is a no-op once `config/sommelier` already exists in Firestore, so a seed edit alone never touches the live document. The only thing that ever actually fixed it was a one-time ad-hoc script (`backend/scripts/update-intent-addendums.mjs`). `home_v3`'s Task 1 (`backend/src/features/ai_agent_liam/home_v3/HOME_TASK_1_CONFIG_TRUTH.md`) replaces that pattern before any home_v3 content ships through the same config document.
+
+**Declared rule**: the admin portal's live `config/sommelier` document is canonical. Seed files are for fresh environments only.
+
+**Backend**: `sommelier_config_seed.ts`'s config object is now a named export, `DEFAULT_SOMMELIER_CONFIG` — pure refactor, no values changed; `seedSommelierConfig()` spreads it plus `updatedAt`. Two new admin-gated endpoints in `admin.ts`: `GET /api/admin/sommelier/config-drift` deep-compares the seed object against the live document (recursing through plain objects, comparing arrays/primitives as leaves by `JSON.stringify` equality) and returns one `{ path, seedValue, liveValue }` entry per differing dot-path — a key present on only one side falls out of the same recursion with the missing side as `undefined`, so there's one list, not two. `POST /api/admin/sommelier/config-apply` takes `{ paths: string[] }`, looks up each path's value in the seed object, and writes via Firestore's dot-notation `update()` — which merges at the leaf rather than replacing the document, so unlisted paths and any live-only keys are untouched. Writes an audit doc per apply to `config/sommelier/audit/{autoId}` (uid, email, paths, timestamp).
+
+**Frontend**: `AdminSommelierConfig.tsx` gained a "Config Source of Truth" section above the existing editor — a drift badge ("seed differs from live: N fields" or a quiet "seed and live match"), an expandable per-field diff list with pre-checked checkboxes, and an apply button that posts the selection and refreshes both the drift list and the config form. One sentence in the UI states the source-of-truth rule.
+
+**Verified** (`tsc --noEmit` clean on the backend; no dedicated frontend type-check gate exists per #118's note, verified by careful review instead): ran a full drift → apply → audit → cleanup cycle directly against the real `config/sommelier` document — there's no separate dev Firestore project, `axis-and-bloom-prod` is the only one configured, so this was done deliberately against prod with immediate revert, per house convention #5's "prod spot-checks where the task says so." Temporarily added a live-only test key and a simulated seed/live diff on `ragLimits.maxCoffees`; the drift endpoint's logic reported exactly those two paths; applying only the numeric path updated it correctly while leaving the live-only key untouched (confirming the merge doesn't clobber siblings); the audit doc recorded the right paths; `onSnapshot` picked up every write immediately. All test artifacts (the temp key, the value change, the audit doc) were reverted/deleted before finishing — the live document ended in its original state.
+
+WHAT_WE_BUILT.md #122, `WHAT_WE_BUILT_DB.md` gained the `config/sommelier/audit/{autoId}` entry in the Firestore path table, `SOMMELIER_BUILT.md` S70 (full detail + the S35/S51 incidents this closes).
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.
