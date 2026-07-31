@@ -9,6 +9,7 @@ import { getTokenBalance, spendToken } from '../services/tokenService.js';
 import { writeOutcome, checkReturnedToSommelier } from '../services/outcomeTracker.js';
 import { chatWithSommelier } from '../services/claude.js';
 import { getSommelierConfig } from '../services/sommelierConfig.js';
+import { routeTopic } from '../services/topicRouter.js';
 
 function getGeneration(dateOfBirth: string | Date | null | undefined): string {
   if (!dateOfBirth) return 'Millennial';
@@ -411,6 +412,22 @@ router.post('/:sessionId/message', requireAuth, blockAnonymousAuth, async (req: 
 
     // Generate reply
     const ctx = session.context_data ?? {};
+
+    // Turn-level topic routing (§4.1, HOME_TASK_2) — classifies this message,
+    // carrying the previous turn's topic forward (stickiness) until it decays.
+    const topicResult = routeTopic(message, {
+      currentTopic: ctx.currentTopic ?? null,
+      turnsSinceMatch: ctx.currentTopicTurnsSinceMatch ?? 0,
+    });
+    const topicLogEntry = {
+      turn: session.turn_count,
+      topic: topicResult.topic,
+      confidence: topicResult.confidence,
+      matchedKeyword: topicResult.matchedKeyword,
+      sticky: topicResult.sticky,
+    };
+    const topicLog = Array.isArray(ctx.topicLog) ? [...ctx.topicLog, topicLogEntry] : [topicLogEntry];
+
     const { reply, modelUsed, actionTypes } = await chatWithSommelier({
       message,
       session: {
@@ -420,19 +437,30 @@ router.post('/:sessionId/message', requireAuth, blockAnonymousAuth, async (req: 
       },
       catalogContext: ctx.catalogText ?? '',
       history,
+      mode: topicResult.mode,
     });
     const actions = await resolveActions(actionTypes, req.uid!, ctx.archetypeKey ?? null);
 
     const newTurnCount = session.turn_count + 1;
     const shouldClose = newTurnCount >= maxTurns;
 
+    // Updated context_data — carries the topic router's state forward so the
+    // next turn's stickiness/decay is correct, and keeps the topic log (the
+    // §4.10 ML dataset / §7 topic-distribution metric) growing across turns.
+    const updatedContextData = {
+      ...ctx,
+      currentTopic: topicResult.topic,
+      currentTopicTurnsSinceMatch: topicResult.turnsSinceMatch,
+      topicLog,
+    };
+
     // Update session
     await db.query(
       `UPDATE sommelier_sessions
        SET turn_count = $2, last_active_at = NOW(),
-           is_closed = $3, close_reason = $4
+           is_closed = $3, close_reason = $4, context_data = $5
        WHERE id = $1`,
-      [sessionId, newTurnCount, shouldClose, shouldClose ? 'turn_limit' : null]
+      [sessionId, newTurnCount, shouldClose, shouldClose ? 'turn_limit' : null, JSON.stringify(updatedContextData)]
     );
 
     // Save assistant reply to Firestore

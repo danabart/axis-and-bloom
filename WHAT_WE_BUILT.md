@@ -3125,6 +3125,30 @@ WHAT_WE_BUILT.md #122, `WHAT_WE_BUILT_DB.md` gained the `config/sommelier/audit/
 
 ---
 
+### 123. HOME Task 2 — Modes & Topic Router: two response contracts, turn-level topic routing, mode-aware context assembly (2026-07-30)
+
+**Files:** `backend/src/services/topicRouter.ts` (new), `backend/src/services/claude.ts`, `backend/src/routes/sommelier.ts`, `backend/src/services/sommelierConfig.ts`, `backend/src/db/seeds/sommelier_config_seed.ts`, `backend/src/db/schema.sql` (comment only)
+
+**What this builds**: a turn-level topic classifier beneath Liam's existing six-intent evaluator (untouched by this task), giving knowledge-dominant turns ("how do I brew this?", "what's the process on this one?") a second response contract — a wider word ceiling, a numbers-are-always-allowed carve-out, no frozen six-coffee catalog block, and the expertise model regardless of the existing keyword/length heuristic. Matching-mode turns (recommendation flow) are unaffected.
+
+**`topicRouter.ts` (new)**: `routeTopic(message, sessionContext)` — keyword rules per topic (`config.topics`, seeded with `brewing`/`equipment`/`origins_process`/`my_coffee`/`caffeine_decaf` as expertise-mode topics, `matching`/`other` as matching-mode), checked in a configurable priority order. Stickiness: the previous turn's topic carries forward when nothing matches this turn (so "and what about temperature?" keeps the prior topic), decaying after `config.topicRouter.stickyDecayTurns` (seed: 2) silent turns. No match, no sticky topic → `null`/matching — today's Liam, unchanged.
+
+**`claude.ts`**: `assembleSystemPrompt()` pulled out as its own pure, exported function (no network call) so the system-prompt assembly is directly testable — `chatWithSommelier()` calls it internally, now accepts an optional `mode` param (default `'matching'`, preserving every existing call site's behavior). Added a "Guardrails" section to `LIAM_BASE_PROMPT` (caffeine/health — explicitly covers medication/pregnancy/children, deferring to a professional; equipment — categories only, never models/prices; origins — speak only from provided context, never invent) — this section is in the base prompt, so it applies in both modes. `max_tokens` is now config-driven for both modes (`config.responseContracts.matching/expertise.maxTokens`) instead of a hardcoded `200`; matching mode's seeded default is still `200`, so nothing changes unless an admin tunes it later.
+
+**`sommelier.ts`**: `/message` now calls `routeTopic()` before generating a reply, passes the resulting mode into `chatWithSommelier()`, and — new — persists `currentTopic`, `currentTopicTurnsSinceMatch`, and an appended `topicLog` entry back into `sommelier_sessions.context_data` every turn. Before this task, `context_data` was written once at session start and never updated again; this is the first thing to change that.
+
+**Config**: 5 new top-level sections in `config/sommelier` (`topics`, `topicRouter`, `responseContracts`, `contextAssembly`) plus `modelRouting.expertiseModelOverride` — added to `DEFAULT_SOMMELIER_CONFIG` in the seed and pushed live via the exact operation Task 1's `config-apply` endpoint performs (dot-path merge + audit doc), since Task 1 (#122) is now deployed and a one-off script is exactly the pattern it exists to retire. 22 new paths applied, zero existing values touched (verified programmatically before applying), zero remaining drift after.
+
+**Verified**: `tsc --noEmit` clean. The verification Dana cared about most — captured the pre-change assembly logic from git and diffed it against the new code for a matching-mode turn: the only difference, in both a mid-session and a final-turn scenario, is the deliberate Guardrails insertion; stripping exactly that block from the new output reproduces the old output character-for-character, so nothing else in the matching-mode path drifted. Expertise mode confirmed: catalog omitted, numbers carve-out present, guardrails present in both modes. Topic router tested against the real live config (post-push): fresh keyword match, sticky pronoun carry-forward, decay clearing after exactly the seeded 2 silent turns, cold ambiguous message → null/matching. Persistence tested end-to-end against a marked test `sommelier_sessions` row (no real Firebase account needed — `uid` has no FK) via the Cloud SQL Auth Proxy: 4-turn sequence, `topicLog` correct at each step, `topicLog` survives session close, test row deleted after.
+
+**Not verified this pass**: reading real conversation transcripts against the voice rules (S32 pattern) — there's no live traffic yet that could have hit expertise mode, since this hasn't shipped to users. Do this once real expertise-mode conversations exist.
+
+**Out of scope, unchanged**: token/meter logic (Task 3), memory markers (Task 4), story content (Task 5), the six-intent evaluator and its priority/selection logic, any frontend surface.
+
+WHAT_WE_BUILT.md #123, `WHAT_WE_BUILT_DB.md` gained the `context_data` shape additions (`currentTopic`, `currentTopicTurnsSinceMatch`, `topicLog`) and the schema.sql comment update, `SOMMELIER_BUILT.md` S71 (full detail).
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

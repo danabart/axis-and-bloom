@@ -816,7 +816,7 @@ CREATE TABLE IF NOT EXISTS sommelier_sessions (
   turn_count     INT DEFAULT 0,
   is_closed      BOOLEAN DEFAULT FALSE,
   close_reason   TEXT,
-  context_data   JSONB   -- { intent, archetype, tiedArchetypes, openingContext, ragFocus, coffeeIds, catalogText, evaluationId }
+  context_data   JSONB   -- { intent, archetype, tiedArchetypes, openingContext, ragFocus, coffeeIds, catalogText, evaluationId, currentTopic, currentTopicTurnsSinceMatch, topicLog }
 );
 
 CREATE TABLE IF NOT EXISTS sommelier_messages (

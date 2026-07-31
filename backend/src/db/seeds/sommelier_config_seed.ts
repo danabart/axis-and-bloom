@@ -35,10 +35,100 @@ export const DEFAULT_SOMMELIER_CONFIG = {
         'help me understand', 'which is better', 'how does',
       ],
       sonnetMinMessageWords: 100,
+      expertiseModelOverride: null,
     },
 
     ragLimits: {
       maxCoffees: 6,
+    },
+
+    // HOME_TASK_2 (§4.1) — seed topics. Keyword rules first; the Haiku classifier
+    // graduates in later if the topicLog shows keywords failing. `matching`/`other`
+    // both resolve to today's matching-mode behavior — only the five knowledge
+    // topics below switch a turn into expertise mode.
+    topics: {
+      brewing: {
+        mode: 'expertise',
+        keywords: [
+          'brew', 'brewing', 'v60', 'pour over', 'pour-over', 'french press',
+          'aeropress', 'chemex', 'drip', 'grind size', 'coarse', 'fine grind',
+          'ratio', 'bloom time', 'extraction', 'water temperature', 'how long',
+        ],
+      },
+      equipment: {
+        mode: 'expertise',
+        keywords: [
+          'grinder', 'burr grinder', 'scale', 'kettle', 'gooseneck',
+          'espresso machine', 'filter paper', 'filters', 'which grinder',
+          'what grinder', 'upgrade my setup', 'new grinder',
+        ],
+      },
+      origins_process: {
+        mode: 'expertise',
+        keywords: [
+          'where does this come from', 'origin', 'region', 'farm', 'co-op',
+          'process', 'washed process', 'natural process', 'honey process',
+          'altitude', 'varietal', 'harvest',
+        ],
+      },
+      my_coffee: {
+        mode: 'expertise',
+        keywords: [
+          'this bag', 'my bag', 'my coffee', 'this coffee i have',
+          'the coffee i ordered', 'my current coffee', 'what i have now',
+        ],
+      },
+      caffeine_decaf: {
+        mode: 'expertise',
+        keywords: [
+          'caffeine', 'decaf', 'decaffeinated', 'how much caffeine',
+          'pregnant', 'pregnancy', 'kids', 'children', 'medication',
+        ],
+      },
+      matching: {
+        mode: 'matching',
+        keywords: [
+          'recommend', 'suggest', 'which coffee should i', 'what should i try',
+          'help me pick', 'help me choose',
+        ],
+      },
+      other: {
+        mode: 'matching',
+        keywords: [],
+      },
+    },
+
+    topicRouter: {
+      // Checked in this order when more than one topic's keywords match —
+      // sensitive/narrow domains first (caffeine before the broader brewing net).
+      priority: [
+        'caffeine_decaf', 'origins_process', 'equipment', 'my_coffee',
+        'brewing', 'matching', 'other',
+      ],
+      stickyDecayTurns: 2,
+    },
+
+    // HOME_TASK_2 (§4.2) — response contracts as config, not hard-coded strings.
+    responseContracts: {
+      matching: {
+        maxTokens: 200,
+      },
+      expertise: {
+        maxTokens: 500,
+        lengthInstruction:
+          'Answer as short as fully answers the question — up to about 200 words when it genuinely needs that much. Never pad, never lecture past what was actually asked.',
+        numbersCarveout:
+          'Numbers, ratios, times, and temperatures are always allowed — 1:16 and 94°C are the answer, not jargon. What stays banned is the technical register: words like "percolation," "extraction yield," "TDS."',
+      },
+    },
+
+    // HOME_TASK_2 (§4.6) — the frozen catalog block has no business in a
+    // knowledge-dominant turn. No "current coffee" concept is tracked yet
+    // (arrives with brew cards, HOME_TASK_6), so the only real option today is
+    // omit; this flag exists so admin can flip it back off instantly if shrinking
+    // the catalog ever turns out to hurt something, no deploy required.
+    contextAssembly: {
+      omitCatalogInExpertiseMode: true,
     },
 
     evaluatorRulePriority: [

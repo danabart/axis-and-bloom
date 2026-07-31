@@ -10,6 +10,11 @@ export interface IntentConfig {
   maxTurns: number;
 }
 
+export interface TopicConfig {
+  keywords: string[];
+  mode: 'expertise' | 'matching';
+}
+
 export interface SommelierConfig {
   confidenceWeights: {
     quizStability: number;
@@ -33,6 +38,9 @@ export interface SommelierConfig {
   modelRouting: {
     sonnetKeywords: string[];
     sonnetMinMessageWords: number;
+    // HOME_TASK_2 — Fable/other blind-A/B override for expertise-mode turns.
+    // null = use the Sonnet default (§4.7's "Sonnet default where a topic is detected").
+    expertiseModelOverride?: string | null;
   };
   ragLimits: {
     maxCoffees: number;
@@ -47,6 +55,24 @@ export interface SommelierConfig {
   };
   intents: Record<string, IntentConfig>;
   confidenceComponents: Record<string, { active: boolean; label: string; description: string }>;
+  // HOME_TASK_2 (§4.1) — turn-level topic router, keyword rules + stickiness.
+  topics?: Record<string, TopicConfig>;
+  topicRouter?: {
+    priority: string[];
+    stickyDecayTurns: number;
+  };
+  // HOME_TASK_2 (§4.2) — the two response contracts, as config so tuning doesn't
+  // need a deploy (the S33 no-deploy lever, extended). Matching mode's own length
+  // instruction stays in LIAM_BASE_PROMPT (unchanged, core voice) — only its
+  // max_tokens is config-driven here, same as expertise mode's full contract.
+  responseContracts?: {
+    matching?: { maxTokens: number };
+    expertise?: { maxTokens: number; lengthInstruction: string; numbersCarveout: string };
+  };
+  // HOME_TASK_2 (§4.6) — mode-aware context assembly.
+  contextAssembly?: {
+    omitCatalogInExpertiseMode: boolean;
+  };
   updatedAt?: unknown;
 }
 

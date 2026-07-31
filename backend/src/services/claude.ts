@@ -69,6 +69,13 @@ How to use customer history:
 
 Only recommend coffees from the catalog provided. Never invent a coffee or a flavor.
 
+Guardrails:
+- Caffeine and health: share only general, well-established facts. Never give personal health advice — that includes anything about medication, pregnancy, or children. Defer warmly to a doctor or pharmacist for those specifically.
+  Right: "Decaf still has a small amount of caffeine — it's not zero." Then, if it's medical: "That one's really worth asking your doctor about."
+  Wrong: giving a specific caffeine-safety verdict for someone's medication, pregnancy, or child.
+- Equipment: speak in categories — what actually matters in a grinder, when an upgrade changes the cup. Never specific current models or prices. You're a sommelier, not a shopping assistant.
+- Origins: speak only from what's actually in front of you — the catalog and story content provided. Never invent a farm, region, or process detail that isn't there.
+
 Action markers (internal — never mention, explain, or hint at these to the customer):
 - If you've concluded a retake is the right move — real archetype doubt or taste drift, never as a placeholder while you're still asking questions — end your reply with <<action:retake_quiz>> after your normal words.
 - If you're pointing them to a different position within their own archetype rather than a full retake — bolder, lighter, a different slot — end your reply with <<action:open_dial>> the same way.
@@ -84,22 +91,39 @@ Opening turn:
 - Bad: "You've been moving around quite a bit — what's shifted for you?"
 - Never narrate their history. Never ask them to explain it.`;
 
-export async function chatWithSommelier(params: {
-  message: string | null;
-  session: {
-    intent: string;
-    turnCount: number;
-    openingContext: string;
-  };
+const DEFAULT_EXPERTISE_LENGTH_INSTRUCTION =
+  'Answer as short as fully answers the question — up to about 200 words when it genuinely needs that much. Never pad, never lecture past what was actually asked.';
+const DEFAULT_NUMBERS_CARVEOUT =
+  'Numbers, ratios, times, and temperatures are always allowed — 1:16 and 94°C are the answer, not jargon. What stays banned is the technical register: words like "percolation," "extraction yield," "TDS."';
+
+type SommelierMode = 'matching' | 'expertise';
+
+// Pure system-prompt assembly (HOME_TASK_2) — split out of chatWithSommelier so
+// it's directly testable without hitting the Anthropic API. Matching mode's
+// output must stay byte-for-byte identical to the pre-HOME_TASK_2 assembly
+// (aside from the deliberate guardrail sentences now in LIAM_BASE_PROMPT above).
+export function assembleSystemPrompt(params: {
+  session: { intent: string; turnCount: number; openingContext: string };
   catalogContext: string;
-  history: Array<{ role: 'user' | 'assistant'; content: string }>;
-}): Promise<{ reply: string; modelUsed: string; actionTypes: Array<'retake_quiz' | 'open_dial'> }> {
-  const { message, session, catalogContext, history } = params;
-  const config = getSommelierConfig();
+  mode: SommelierMode;
+  config: ReturnType<typeof getSommelierConfig>;
+}): string {
+  const { session, catalogContext, mode, config } = params;
   const intentCfg = config?.intents?.[session.intent];
   const maxTurns = intentCfg?.maxTurns ?? config?.sessionLimits?.maxTurns ?? 8;
 
-  const systemParts = [LIAM_BASE_PROMPT, `\n\n${catalogContext}`];
+  const systemParts = [LIAM_BASE_PROMPT];
+
+  // Mode-aware context assembly (§4.6) — the frozen catalog block has no
+  // business in a knowledge-dominant turn. Assembly-time only: this never
+  // re-queries the RAG, it just chooses what's already in context_data.
+  if (mode === 'expertise' && (config?.contextAssembly?.omitCatalogInExpertiseMode ?? true)) {
+    // No "current coffee" concept exists yet (arrives with brew cards) — the
+    // one-line-stub path has nothing to stub, so this is the omit branch.
+  } else {
+    systemParts.push(`\n\n${catalogContext}`);
+  }
+
   if (intentCfg?.systemPromptAddendum) {
     systemParts.push(`\n\n${intentCfg.systemPromptAddendum}`);
   }
@@ -114,24 +138,68 @@ export async function chatWithSommelier(params: {
       '\n\nThis is one of the final turns. Work toward a concrete recommendation or clear next step.'
     );
   }
-  const systemPrompt = systemParts.join('');
 
-  const sonnetKeywords: string[] = config?.modelRouting?.sonnetKeywords ?? [
-    'recommend', 'suggest', 'compare', 'difference', 'explain', 'why',
-  ];
-  const sonnetMinWords: number = config?.modelRouting?.sonnetMinMessageWords ?? 20;
-
-  let useSonnet = false;
-  if (message) {
-    const wordCount = message.trim().split(/\s+/).length;
-    if (wordCount >= sonnetMinWords) useSonnet = true;
-    if (!useSonnet) {
-      const lower = message.toLowerCase();
-      useSonnet = sonnetKeywords.some((kw) => lower.includes(kw.toLowerCase()));
-    }
+  // Expertise contract (§4.2) — appended last, only for knowledge-dominant
+  // turns. Matching mode's own length rule stays where it's always lived, in
+  // LIAM_BASE_PROMPT's Tone section, untouched.
+  if (mode === 'expertise') {
+    const contract = config?.responseContracts?.expertise;
+    const lengthInstruction = contract?.lengthInstruction ?? DEFAULT_EXPERTISE_LENGTH_INSTRUCTION;
+    const numbersCarveout = contract?.numbersCarveout ?? DEFAULT_NUMBERS_CARVEOUT;
+    systemParts.push(
+      `\n\nThis turn is a knowledge question, not a matching turn. ${lengthInstruction} ${numbersCarveout}`
+    );
   }
 
-  const modelId = useSonnet ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
+  return systemParts.join('');
+}
+
+export async function chatWithSommelier(params: {
+  message: string | null;
+  session: {
+    intent: string;
+    turnCount: number;
+    openingContext: string;
+  };
+  catalogContext: string;
+  history: Array<{ role: 'user' | 'assistant'; content: string }>;
+  mode?: SommelierMode;
+}): Promise<{ reply: string; modelUsed: string; actionTypes: Array<'retake_quiz' | 'open_dial'> }> {
+  const { message, session, catalogContext, history } = params;
+  const mode: SommelierMode = params.mode ?? 'matching';
+  const config = getSommelierConfig();
+
+  const systemPrompt = assembleSystemPrompt({ session, catalogContext, mode, config });
+
+  let modelId: string;
+  let maxTokens: number;
+
+  if (mode === 'expertise') {
+    // Model policy (§4.7) — a detected knowledge topic always routes to the
+    // expertise model, regardless of keywords/length. `expertiseModelOverride`
+    // is a manual A/B slot (e.g. Fable), null means the Sonnet default.
+    modelId = config?.modelRouting?.expertiseModelOverride ?? 'claude-sonnet-4-6';
+    maxTokens = config?.responseContracts?.expertise?.maxTokens ?? 500;
+  } else {
+    // Matching mode — today's routing, untouched.
+    const sonnetKeywords: string[] = config?.modelRouting?.sonnetKeywords ?? [
+      'recommend', 'suggest', 'compare', 'difference', 'explain', 'why',
+    ];
+    const sonnetMinWords: number = config?.modelRouting?.sonnetMinMessageWords ?? 20;
+
+    let useSonnet = false;
+    if (message) {
+      const wordCount = message.trim().split(/\s+/).length;
+      if (wordCount >= sonnetMinWords) useSonnet = true;
+      if (!useSonnet) {
+        const lower = message.toLowerCase();
+        useSonnet = sonnetKeywords.some((kw) => lower.includes(kw.toLowerCase()));
+      }
+    }
+
+    modelId = useSonnet ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
+    maxTokens = config?.responseContracts?.matching?.maxTokens ?? 200;
+  }
 
   const messages: Anthropic.MessageParam[] = [...history];
   if (message !== null) {
@@ -143,7 +211,7 @@ export async function chatWithSommelier(params: {
 
   const response = await client.messages.create({
     model: modelId,
-    max_tokens: 200,
+    max_tokens: maxTokens,
     system: systemPrompt,
     messages,
   });
