@@ -27,7 +27,37 @@ const headers = {
   'Content-Type': 'application/json',
   Authorization: `Basic ${Buffer.from(`anystring:${MC_API_KEY}`).toString('base64')}`,
 };
-const testTags = ['source:post_quiz', 'archetype:Floral', 'quiz-completed'];
+
+// Mirrors backend/src/features/marketing/mailchimp.ts's toArchetypeSlug() — this script
+// is a standalone .mjs (no TS build step), so it can't import the real one directly; kept
+// in lockstep by hand, same as this file already mirrors ensureArchetypeMergeField() above.
+const ARCHETYPE_NAME_TO_SLUG = {
+  floral: 'floral',
+  fruity: 'fruity',
+  'balanced & sweet': 'balanced',
+  'balanced and sweet': 'balanced',
+  'chocolate & nutty': 'chocolate',
+  'chocolate and nutty': 'chocolate',
+  earthy: 'earthy',
+  'spicy & earthy': 'earthy',
+  'spicy and earthy': 'earthy',
+  experimental: 'experimental',
+};
+function toArchetypeSlug(name) {
+  const key = name.trim().toLowerCase();
+  return ARCHETYPE_NAME_TO_SLUG[key] ?? name;
+}
+
+// Deliberately a display name ("Balanced & Sweet"), not a slug — exercises the same
+// toArchetypeSlug() normalization the live sync and backfill both go through (Step 06/C2).
+const testArchetypeName = 'Balanced & Sweet';
+const expectedArchetypeSlug = 'balanced';
+const computedSlug = toArchetypeSlug(testArchetypeName);
+if (computedSlug !== expectedArchetypeSlug) {
+  console.log(`❌ FAILED — toArchetypeSlug("${testArchetypeName}") returned "${computedSlug}", expected "${expectedArchetypeSlug}"`);
+  process.exit(1);
+}
+const testTags = ['source:post_quiz', `archetype:${computedSlug}`, 'quiz-completed'];
 
 console.log('\n── Mailchimp tag round-trip test ─────────────');
 console.log('Datacenter:', MC_DC);
@@ -57,6 +87,7 @@ try {
   }
 
   console.log('\n2. Upserting member with ARCHETYPE merge field...');
+  console.log(`   (toArchetypeSlug("${testArchetypeName}") → "${computedSlug}" — sending the slug, as the live sync now does)`);
   const upsertRes = await fetch(memberUrl, {
     method: 'PUT',
     headers,
@@ -64,7 +95,7 @@ try {
       email_address: email,
       status_if_new: 'subscribed',
       status: 'subscribed',
-      merge_fields: { FNAME: 'Test', ARCHETYPE: 'Floral' },
+      merge_fields: { FNAME: 'Test', ARCHETYPE: computedSlug },
     }),
   });
   if (!upsertRes.ok) {
@@ -100,11 +131,11 @@ try {
   console.log('  ARCHETYPE merge field:', gotArchetype);
   console.log('  Tags present:', gotTags.join(', '));
 
-  if (gotArchetype === 'Floral' && missingTags.length === 0) {
-    console.log('\n✅ SUCCESS — round trip confirmed (merge field + all tags present)');
+  if (gotArchetype === expectedArchetypeSlug && missingTags.length === 0) {
+    console.log('\n✅ SUCCESS — round trip confirmed (slug mapping + merge field + all tags present)');
   } else {
     console.log('\n❌ FAILED — round trip mismatch');
-    if (gotArchetype !== 'Floral') console.log('  ARCHETYPE expected "Floral", got', gotArchetype);
+    if (gotArchetype !== expectedArchetypeSlug) console.log(`  ARCHETYPE expected "${expectedArchetypeSlug}", got`, gotArchetype);
     if (missingTags.length) console.log('  Missing tags:', missingTags.join(', '));
     process.exit(1);
   }

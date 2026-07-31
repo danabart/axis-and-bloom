@@ -1,0 +1,71 @@
+AXIS & BLOOM
+
+*|IF:FNAME|**|FNAME|*, your match is in.*|ELSE:|*Your match is in.*|END:IF|*
+
+*|IF:ARCHETYPE=floral|*
+YOUR ARCHETYPE: FLORAL
+fragrant · bright · delicate · clean
+
+Your answers leaned toward the delicate end of flavor. Lift over weight, fragrance over force. Jasmine and soft citrus, a tea-like clarity, sweetness that arrives gently and stays. Yours are the coffees people call beautiful before they call them anything else.
+
+YOUR BLOOM DIAL
+
+Your archetype is only the beginning. The Bloom Dial lets you shape how Floral comes through in your cup, from softer and more subtle to deeper and more pronounced. Set yours, and we’ll use it to refine your profile and match you with a coffee that feels unmistakably personal.
+*|ELSEIF:ARCHETYPE=fruity|*
+YOUR ARCHETYPE: FRUITY
+sweet · vibrant · expressive · lively
+
+Your answers pointed to brightness, to flavor that moves. Berries and ripe stone fruit, citrus that sparkles, a tropical sweetness that makes the cup feel awake before you are. Yours is the archetype for palates that want the cup to do something.
+
+YOUR BLOOM DIAL
+
+Your archetype is only the beginning. The Bloom Dial lets you shape how Fruity comes through in your cup, from softer and more subtle to deeper and more pronounced. Set yours, and we’ll use it to refine your profile and match you with a coffee that feels unmistakably personal.
+*|ELSEIF:ARCHETYPE=balanced|*
+YOUR ARCHETYPE: BALANCED & SWEET
+smooth · sweet · harmonious · easy
+
+Your answers favored harmony, flavor where everything sits in its place. Caramel and honey, a touch of gentle fruit, a sweetness that feels effortless. Yours is the cup that’s exactly right every morning, before you’ve asked anything of it.
+
+YOUR BLOOM DIAL
+
+Your archetype is only the beginning. The Bloom Dial lets you shape how Balanced & Sweet comes through in your cup, from softer and more subtle to deeper and more pronounced. Set yours, and we’ll use it to refine your profile and match you with a coffee that feels unmistakably personal.
+*|ELSEIF:ARCHETYPE=chocolate|*
+YOUR ARCHETYPE: CHOCOLATE & NUTTY
+rich · grounded · full · comforting
+
+Your answers chose depth you can lean on. This is the classic register of coffee, done precisely. Cocoa and roasted nuts, a fuller body, a warm, grounding presence. Yours is the archetype of comfort with a backbone.
+
+YOUR BLOOM DIAL
+
+Your archetype is only the beginning. The Bloom Dial lets you shape how Chocolate & Nutty comes through in your cup, from softer and more subtle to deeper and more pronounced. Set yours, and we’ll use it to refine your profile and match you with a coffee that feels unmistakably personal.
+*|ELSEIF:ARCHETYPE=earthy|*
+YOUR ARCHETYPE: EARTHY
+warm · deep · bold · lasting
+
+Your answers reached for the deep end, where flavor has weight and a long finish. Spice and wood, dark herbs, a trace of smoke. Complexity that unfolds slowly and rewards attention. Yours are the cups that keep offering more.
+
+YOUR BLOOM DIAL
+
+Your archetype is only the beginning. The Bloom Dial lets you shape how Earthy comes through in your cup, from softer and more subtle to deeper and more pronounced. Set yours, and we’ll use it to refine your profile and match you with a coffee that feels unmistakably personal.
+*|ELSEIF:ARCHETYPE=experimental|*
+YOUR ARCHETYPE: EXPERIMENTAL
+wild · unique · surprising
+
+Your answers kept choosing the unexpected. Flavor as discovery, rare processes, cups that refuse to repeat themselves. Yours is the archetype for palates that want to be taken somewhere new.
+
+YOUR BLOOM DIAL
+
+Your archetype is only the beginning. The Bloom Dial lets you shape how Experimental comes through in your cup, from softer and more subtle to deeper and more pronounced. Set yours, and we’ll use it to refine your profile and match you with a coffee that feels unmistakably personal.
+*|ELSE:|*
+Your match is ready and your archetype card is waiting. Sign in to see it, then shape how your coffee comes through in your cup with the Bloom Dial.
+*|END:IF|*
+
+PERSONALIZE MY MATCH: https://axisandbloomcoffee.com/bloom?utm_source=mailchimp&utm_medium=email&utm_campaign=archetype-card
+
+Create your account · set your Bloom Dial · pre-order your first bag
+Doors open October 1. You’re on the first-access list.
+
+FROM: AXIS & BLOOM — TO: *|IF:FNAME|**|UPPER:*|FNAME|*|**|ELSE:|*YOU*|END:IF|*
+
+Axis & Bloom · *|LIST:ADDRESSLINE|*
+Unsubscribe: *|UNSUB|*

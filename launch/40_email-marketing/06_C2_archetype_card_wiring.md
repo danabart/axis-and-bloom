@@ -1,0 +1,27 @@
+# Step 06 (C2) — Archetype Card email: slug fix, image hosting, send-ready template
+
+> Workstream: email-marketing · Model: Sonnet · Depends on: Step 05 (done — `backend/src/features/marketing/mailchimp.ts` exists and syncs ARCHETYPE + tags). Companion docs: `launch/40_email-marketing/32_archetype-card-mailchimp-setup.md` (the plan this executes) and Camila's brief `misc/marketing/You're __ARCHETYPE__-20260730T010523Z-1-001/You_re _ARCHETYPE_/31-mailchimp-email-brief.md` (owns visuals/copy — read §4 and §5 before starting).
+
+CONTEXT: Camila's production Mailchimp template branches on exact lowercase ARCHETYPE slugs (`floral` · `fruity` · `balanced` · `chocolate` · `earthy` · `experimental`). Our sync currently writes archetype DISPLAY NAMES ("Balanced & Sweet") into the ARCHETYPE merge field and the `archetype:<x>` tag — the quiz gate sends `ARCHETYPES[key].name` and `mailchimp.ts` passes it through — so every send would miss all six template variants and render the fallback block. The template also carries two placeholders (`%%ASSET_BASE%%`, `%%CTA_URL%%`) that must be filled, and its seven images must be hosted on the public GCS bucket `axis-bloom-assets` (live, public-read, `axis-and-bloom-prod`).
+
+TASK:
+
+1. **Slug mapping in `backend/src/features/marketing/mailchimp.ts`.** Add a `toArchetypeSlug(name)` helper that normalizes any known variant, case-insensitively, to the six slugs: "Floral"→`floral` · "Fruity"→`fruity` · "Balanced & Sweet"/"Balanced and Sweet"→`balanced` · "Chocolate & Nutty"/"Chocolate and Nutty"→`chocolate` · "Earthy"/"Spicy & Earthy"/"Spicy and Earthy"→`earthy` · "Experimental"→`experimental`. Values already equal to a slug pass through unchanged; an unrecognized value logs a warning and passes through unchanged. Apply it to BOTH the ARCHETYPE merge-field value and the `archetype:<slug>` tag (in `syncMailchimpMember`/`buildTags`). Do not change the subscribe API shape, the frontend, or what the DB stores — display names stay in `newsletter_subscriber.archetype`; the mapping lives only at the Mailchimp boundary so it also covers the backfill script automatically. Update `test-mailchimp-tags.mjs` to assert the slug round-trip for "Balanced & Sweet" (ARCHETYPE=`balanced`, tag `archetype:balanced`).
+
+2. **Host the seven email images.** Upload every file in `misc/marketing/You're __ARCHETYPE__-20260730T010523Z-1-001/You_re _ARCHETYPE_/31-mailchimp-email-images/` (6 JPG + 1 PNG, already correctly named — upload as-is, no rename, no re-compression) to `gs://axis-bloom-assets/raw/email/archetype-card/`. These filenames contain no `&`, so the known gsutil-on-Windows `&` issue does not apply. Then verify all seven public URLs return HTTP 200 with the right content type, e.g. `https://storage.googleapis.com/axis-bloom-assets/raw/email/archetype-card/floral-email.jpg`. The optimizer Cloud Function will emit unused `optimized/…webp` copies — expected, ignore them.
+
+3. **Produce send-ready template files.** Create `launch/40_email-marketing/sendready/` containing copies of Camila's two production files with both placeholders replaced — name them `31-mailchimp-email-production.READY.html` and `31-mailchimp-email-production.READY.txt`:
+   - `%%ASSET_BASE%%` → `https://storage.googleapis.com/axis-bloom-assets/raw/email/archetype-card` (no trailing slash — the template appends `/filename`).
+   - `%%CTA_URL%%` → `https://axisandbloomcoffee.com/bloom?utm_source=mailchimp&utm_medium=email&utm_campaign=archetype-card` (working choice per doc 32 §2; Camila still signs off and it gets re-pointed when the pre-order page ships — add a one-line `README.md` in `sendready/` saying exactly that and that these files are what gets pasted into Mailchimp).
+   Replace placeholders ONLY — byte-identical otherwise. **Never edit Camila's originals**, and make zero copy/color/markup changes (her brief locks every word; the words "AI", "film", "photo essay" must not be introduced anywhere). Verify no `%%` marker remains in either READY file.
+
+4. **Backfill dry-run.** Run the Step-05 backfill script with its dry-run flag and include its summary in your report (the real run is Dana's call on timing — doc 32 §5 — do NOT run it for real).
+
+CONSTRAINTS: keep the Mailchimp sync non-blocking and MC_ENABLED-guarded exactly as today (a Mailchimp failure must never fail a signup); logic stays in `backend/src/features/marketing/`; no new dependencies; do not touch the frontend, the DB schema, or `Shop.tsx`; do not create or modify anything inside Camila's package folder.
+
+ACCEPTANCE:
+1. `tsc --noEmit` clean on the backend; `test-mailchimp-tags.mjs` passes, including the new "Balanced & Sweet"→`balanced` assertion.
+2. All seven image URLs under `raw/email/archetype-card/` return 200 (list each).
+3. Both READY files exist, contain zero `%%` markers, and diff against Camila's originals shows ONLY the placeholder substitutions.
+4. Backfill dry-run summary printed (no real run).
+5. Report closes with the remaining MANUAL checklist verbatim from doc 32: paste READY.html into a Mailchimp custom-code template · build the Customer Journey triggered on tag `quiz-completed` (NOT audience signup), one entry per contact ever, send immediately, subject "Your archetype card is here", attach the READY.txt plain-text · run the §6 QA checklist (6 slug test sends, FNAME/ARCHETYPE-empty, images-off, 375px, dark mode, UTM check) · screenshots to Camila · then Dana decides backfill timing and enables.

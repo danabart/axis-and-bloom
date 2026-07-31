@@ -28,10 +28,38 @@ export interface MailchimpTagInputs {
   experimental?: boolean | null;
 }
 
+// Step 06 (C2): the DB/quiz gate send archetype DISPLAY NAMES ("Balanced & Sweet"), but
+// Camila's Mailchimp templates branch on exact lowercase slugs. This is the one choke
+// point that normalizes to a slug — applied only at the Mailchimp boundary, so the DB
+// keeps storing display names untouched and the backfill script gets the mapping for free.
+const ARCHETYPE_SLUGS = new Set(['floral', 'fruity', 'balanced', 'chocolate', 'earthy', 'experimental']);
+
+const ARCHETYPE_NAME_TO_SLUG: Record<string, string> = {
+  floral: 'floral',
+  fruity: 'fruity',
+  'balanced & sweet': 'balanced',
+  'balanced and sweet': 'balanced',
+  'chocolate & nutty': 'chocolate',
+  'chocolate and nutty': 'chocolate',
+  earthy: 'earthy',
+  'spicy & earthy': 'earthy',
+  'spicy and earthy': 'earthy',
+  experimental: 'experimental',
+};
+
+export function toArchetypeSlug(name: string): string {
+  const key = name.trim().toLowerCase();
+  if (ARCHETYPE_SLUGS.has(key)) return key;
+  const slug = ARCHETYPE_NAME_TO_SLUG[key];
+  if (slug) return slug;
+  console.warn('[mailchimp] unrecognized archetype value, passing through unchanged:', name);
+  return name;
+}
+
 export function buildTags({ source, archetype, experimental }: MailchimpTagInputs): string[] {
   const tags: string[] = [];
   if (source) tags.push(`source:${source}`);
-  if (archetype) tags.push(`archetype:${archetype}`);
+  if (archetype) tags.push(`archetype:${toArchetypeSlug(archetype)}`);
   if (source === 'post_quiz') tags.push('quiz-completed');
   if (experimental) tags.push('experimental');
   return tags;
@@ -100,7 +128,7 @@ export async function syncMailchimpMember(
   const hash = memberHash(email);
   const url  = `https://${MC_DC}.api.mailchimp.com/3.0/lists/${MC_LIST_ID}/members/${hash}`;
   const mergeFields: Record<string, string> = { FNAME: firstName };
-  if (inputs.archetype) mergeFields.ARCHETYPE = inputs.archetype;
+  if (inputs.archetype) mergeFields.ARCHETYPE = toArchetypeSlug(inputs.archetype);
 
   const mcRes = await fetch(url, {
     method: 'PUT',
