@@ -14,7 +14,19 @@ const INTENT_LABELS: Record<string, string> = {
   EXPLORATION:         'Exploring together',
 };
 
-type SommelierAction = { type: 'retake_quiz' } | { type: 'open_dial'; archetype: string; slot?: number };
+type SommelierAction =
+  | { type: 'retake_quiz' }
+  | { type: 'open_dial'; archetype: string; slot?: number }
+  | { type: 'save_recipe' };
+
+// Profile Part 7 Task 5 — client-derived title, kept dumb and predictable
+// (server just length-validates and stores): first non-empty line of the
+// message, trimmed to a short label.
+function deriveRecipeTitle(content: string): string {
+  const firstLine = (content.split('\n').find(l => l.trim().length > 0) ?? '').trim();
+  if (!firstLine) return 'Recipe';
+  return firstLine.length > 60 ? `${firstLine.slice(0, 57)}…` : firstLine;
+}
 
 interface Message {
   role: 'user' | 'assistant';
@@ -85,6 +97,8 @@ export default function Sommelier() {
   const [evalResult, setEvalResult] = useState<EvalResult | null>(null);
   const [pastSessions, setPastSessions] = useState<PastSession[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Profile Part 7 Task 5 — save_recipe chip status, keyed by message index.
+  const [recipeSaveStatus, setRecipeSaveStatus] = useState<Record<number, 'saving' | 'saved'>>({});
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -102,6 +116,24 @@ export default function Sommelier() {
         ...(opts?.headers ?? {}),
       },
     });
+  }
+
+  // Profile Part 7 Task 5 — user-initiated content save. Liam only marked the
+  // offer appropriate (the save_recipe action); this only fires because the
+  // signed-in user tapped the chip. body is that message's already-rendered
+  // text verbatim; the endpoint length-validates and stores.
+  async function handleSaveRecipe(index: number, content: string) {
+    setRecipeSaveStatus(prev => ({ ...prev, [index]: 'saving' }));
+    try {
+      const res = await doFetch('/api/users/flavor-memory/liam-saves', {
+        method: 'POST',
+        body: JSON.stringify({ title: deriveRecipeTitle(content), body: content }),
+      });
+      if (!res.ok) throw new Error('save failed');
+      setRecipeSaveStatus(prev => ({ ...prev, [index]: 'saved' }));
+    } catch {
+      setRecipeSaveStatus(prev => { const next = { ...prev }; delete next[index]; return next; });
+    }
   }
 
   const loadPastSessions = useCallback(async () => {
@@ -521,26 +553,66 @@ export default function Sommelier() {
                             {msg.content}
                           </p>
                           {msg.role === 'assistant' && !!msg.actions?.length && (
-                            <div className="flex flex-wrap gap-2 mt-3">
-                              {msg.actions.map((action, ai) => action.type === 'retake_quiz' ? (
-                                <Link
-                                  key={ai}
-                                  to="/find-my-flavor?retake=1"
-                                  className="text-[11px] uppercase tracking-[0.15em] px-3 py-1.5 rounded-full border transition-colors hover:bg-stone-50"
-                                  style={{ borderColor: '#e0dcd4', color: RUST }}
-                                >
-                                  Retake the quiz →
-                                </Link>
-                              ) : (
-                                <Link
-                                  key={ai}
-                                  to={`/bloom?archetype=${action.archetype}${action.slot != null ? `&slot=${action.slot}` : ''}`}
-                                  className="text-[11px] uppercase tracking-[0.15em] px-3 py-1.5 rounded-full border transition-colors hover:bg-stone-50"
-                                  style={{ borderColor: '#e0dcd4', color: RUST }}
-                                >
-                                  Open your dial →
-                                </Link>
-                              ))}
+                            <div className="flex flex-wrap gap-2 mt-3 items-center">
+                              {msg.actions.map((action, ai) => {
+                                if (action.type === 'retake_quiz') {
+                                  return (
+                                    <Link
+                                      key={ai}
+                                      to="/find-my-flavor?retake=1"
+                                      className="text-[11px] uppercase tracking-[0.15em] px-3 py-1.5 rounded-full border transition-colors hover:bg-stone-50"
+                                      style={{ borderColor: '#e0dcd4', color: RUST }}
+                                    >
+                                      Retake the quiz →
+                                    </Link>
+                                  );
+                                }
+                                if (action.type === 'open_dial') {
+                                  return (
+                                    <Link
+                                      key={ai}
+                                      to={`/bloom?archetype=${action.archetype}${action.slot != null ? `&slot=${action.slot}` : ''}`}
+                                      className="text-[11px] uppercase tracking-[0.15em] px-3 py-1.5 rounded-full border transition-colors hover:bg-stone-50"
+                                      style={{ borderColor: '#e0dcd4', color: RUST }}
+                                    >
+                                      Open your dial →
+                                    </Link>
+                                  );
+                                }
+                                // save_recipe — an action, not a link: tapping posts, doesn't navigate.
+                                const status = recipeSaveStatus[i];
+                                if (status === 'saved') {
+                                  return (
+                                    <span key={ai} className="flex flex-wrap gap-2 items-center">
+                                      <span
+                                        className="text-[11px] uppercase tracking-[0.15em] px-3 py-1.5 rounded-full border"
+                                        style={{ borderColor: '#e0dcd4', color: RUST, opacity: 0.6 }}
+                                      >
+                                        Saved ✓
+                                      </span>
+                                      <Link
+                                        to="/profile?tab=memory"
+                                        className="text-[11px] uppercase tracking-[0.15em] px-3 py-1.5 rounded-full border transition-colors hover:bg-stone-50"
+                                        style={{ borderColor: '#e0dcd4', color: RUST }}
+                                      >
+                                        View in your flavor memory →
+                                      </Link>
+                                    </span>
+                                  );
+                                }
+                                return (
+                                  <button
+                                    key={ai}
+                                    type="button"
+                                    disabled={status === 'saving'}
+                                    onClick={() => handleSaveRecipe(i, msg.content)}
+                                    className="text-[11px] uppercase tracking-[0.15em] px-3 py-1.5 rounded-full border transition-colors hover:bg-stone-50 disabled:opacity-50"
+                                    style={{ borderColor: '#e0dcd4', color: RUST }}
+                                  >
+                                    Save to my flavor memory
+                                  </button>
+                                );
+                              })}
                             </div>
                           )}
                         </>

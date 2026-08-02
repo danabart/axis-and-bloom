@@ -15,7 +15,7 @@ import { slotKey } from './bloom/types';
 import FamilyTab from './FamilyTab';
 import OrderFeedbackForm from './OrderFeedbackForm';
 import TastingJournal from './profile/TastingJournal';
-import PalateTimeline from './profile/PalateTimeline';
+import ActivityTimeline from './profile/ActivityTimeline';
 import BrewProfileMirror from './profile/BrewProfileMirror';
 import WorthExploring from './profile/WorthExploring';
 
@@ -585,7 +585,7 @@ export default function Profile() {
                           />
                         </div>
                         <div className="lg:col-span-2">
-                          <PalateTimeline entries={flavorMemory.journey} retakeCopy={retakeCopy} />
+                          <ActivityTimeline entries={flavorMemory.activity} retakeCopy={retakeCopy} onRemoved={loadFlavorMemory} />
                         </div>
                       </div>
                     )}
@@ -608,7 +608,7 @@ export default function Profile() {
                       </div>
 
                       {/* Fallback retake link while flavorMemory hasn't loaded yet — once it
-                          has, PalateTimeline above owns this link (Part 3 §3). */}
+                          has, ActivityTimeline above owns this link (Part 3 §3, superseded by Part 7 Task 4). */}
                       {!flavorMemory && (
                         <Link
                           to="/find-my-flavor?retake=1"

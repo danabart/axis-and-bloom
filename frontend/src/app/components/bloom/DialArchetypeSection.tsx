@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
 import { setDialPosition } from '../../lib/api';
 import { BloomDial, type BloomDialHandle } from './dial/BloomDial';
@@ -68,7 +69,9 @@ export function DialArchetypeSection({
 
   function handleExplicitSave() {
     if (!user) return;
-    setDialPosition(data.archetype, currentSlot.dialSortOrder, { trigger: 'explicit_save', source })
+    setDialPosition(data.archetype, currentSlot.dialSortOrder, {
+      trigger: 'explicit_save', source, coffeeId: currentSlot.coffeeId, platformName: currentSlot.platformName,
+    })
       .then(() => setSavedKey(currentKey))
       .catch(() => {});
   }
@@ -183,18 +186,30 @@ export function DialArchetypeSection({
       )}
 
       {user && !isPlaceholder && (
-        <button
-          type="button"
-          onClick={handleExplicitSave}
-          disabled={savedKey === currentKey}
-          style={{
-            fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#9a2918',
-            opacity: savedKey === currentKey ? 0.55 : 0.85, background: 'none', border: 'none',
-            cursor: 'pointer', textAlign: 'left', padding: 0,
-          }}
-        >
-          {savedKey === currentKey ? 'Saved ✓' : 'Save to my flavor memory'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={handleExplicitSave}
+            disabled={savedKey === currentKey}
+            style={{
+              fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#9a2918',
+              opacity: savedKey === currentKey ? 0.55 : 0.85, background: 'none', border: 'none',
+              cursor: 'pointer', textAlign: 'left', padding: 0,
+            }}
+          >
+            {savedKey === currentKey ? 'Saved ✓' : 'Save to my flavor memory'}
+          </button>
+          {savedKey === currentKey && (
+            <Link
+              to="/profile?tab=memory"
+              style={{
+                fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#9a2918', opacity: 0.85,
+              }}
+            >
+              View in your flavor memory →
+            </Link>
+          )}
+        </div>
       )}
     </div>
   );

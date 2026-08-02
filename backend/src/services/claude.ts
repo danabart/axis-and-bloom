@@ -1,4 +1,4 @@
-﻿import Anthropic from '@anthropic-ai/sdk';
+import Anthropic from '@anthropic-ai/sdk';
 import { getSommelierConfig } from './sommelierConfig.js';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -79,7 +79,8 @@ Guardrails:
 Action markers (internal — never mention, explain, or hint at these to the customer):
 - If you've concluded a retake is the right move — real archetype doubt or taste drift, never as a placeholder while you're still asking questions — end your reply with <<action:retake_quiz>> after your normal words.
 - If you're pointing them to a different position within their own archetype rather than a full retake — bolder, lighter, a different slot — end your reply with <<action:open_dial>> the same way.
-- Use at most one marker per turn. Never use one in your opening turn. Only use one once you've actually reached the recommendation, not preemptively.
+- If the reply you just wrote is a preparation recipe or brew guide the customer actually asked for — not a passing mention of brewing — end your reply with <<action:save_recipe>> the same way. Never preemptively, never on a greeting or general chat.
+- Use at most one marker per turn. Never use one in your opening turn. Only use one once you've actually reached the recommendation (or, for save_recipe, actually written the recipe), not preemptively.
 - These tokens are stripped before the customer ever sees your reply.
 
 Remembering facts (internal marker, same rule as action markers — never mention, explain, or hint at these to the customer):
@@ -198,7 +199,7 @@ export async function chatWithSommelier(params: {
 }): Promise<{
   reply: string;
   modelUsed: string;
-  actionTypes: Array<'retake_quiz' | 'open_dial'>;
+  actionTypes: Array<'retake_quiz' | 'open_dial' | 'save_recipe'>;
   rememberOps: Array<{ field: string; rawValue: string }>;
 }> {
   const { message, session, catalogContext, history, brewProfileContext, storyContext } = params;
@@ -258,9 +259,10 @@ export async function chatWithSommelier(params: {
   // Liam action links, Phase B — <<action:...>> markers. Only the two known types
   // become actions; any marker (known or malformed) is stripped from the visible
   // reply either way, so a garbled token never leaks to the customer.
-  const actionTypes: Array<'retake_quiz' | 'open_dial'> = [];
+  const actionTypes: Array<'retake_quiz' | 'open_dial' | 'save_recipe'> = [];
   if (rawReply.includes('<<action:retake_quiz>>')) actionTypes.push('retake_quiz');
   if (rawReply.includes('<<action:open_dial>>')) actionTypes.push('open_dial');
+  if (rawReply.includes('<<action:save_recipe>>')) actionTypes.push('save_recipe');
 
   // HOME_TASK_4 (§4.5) — <<remember:field=value>> markers. Parsed here, same
   // "never trust the model" discipline as action markers: this only extracts

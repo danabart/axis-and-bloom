@@ -136,9 +136,31 @@ export interface FlavorMemoryJourneyEntry {
   trigger: 'first_quiz' | 'retake';
 }
 
+// Profile Part 7 Task 3 — the activity log. One deliberate moment per entry
+// (editorial rule): quiz, order, explicit save, accepted Liam recipe. Never
+// add_to_cart, rotation, reveal, or anything inferred.
+export interface FlavorMemoryActivityEntry {
+  id: string;
+  type: 'quiz' | 'ordered' | 'saved' | 'recipe';
+  at: string | null;
+  archetype?: string | null;
+  archetypeLabel?: string | null;
+  /** quiz only. */
+  trigger?: 'first_quiz' | 'retake';
+  /** saved only. */
+  dialSortOrder?: number | null;
+  /** ordered: own-order blend_name; saved: platformName snapshot at save time. */
+  coffeeName?: string | null;
+  /** recipe only. */
+  title?: string | null;
+  body?: string | null;
+  removable: boolean;
+}
+
 export interface FlavorMemoryData {
   journal: FlavorMemoryJournalEntry[];
   journey: FlavorMemoryJourneyEntry[];
+  activity: FlavorMemoryActivityEntry[];
   contributionCount: number;
 }
 
@@ -147,6 +169,29 @@ export async function getFlavorMemory(): Promise<FlavorMemoryData> {
     headers: await getHeaders(),
   });
   if (!res.ok) throw new Error('Failed to fetch flavor memory');
+  return res.json();
+}
+
+// Profile Part 7 Task 2 — tombstone only, never a hard delete.
+export async function removeFlavorMemoryEntry(kind: 'saved' | 'recipe', id: string) {
+  const path = kind === 'saved' ? 'saved' : 'recipes';
+  const res = await fetch(`${BASE}/users/flavor-memory/${path}/${encodeURIComponent(id)}/remove`, {
+    method: 'PATCH',
+    headers: await getHeaders(),
+  });
+  if (!res.ok) throw new Error('Failed to remove entry');
+  return res.json();
+}
+
+// Profile Part 7 Task 5 — user-initiated (chip tap), never called from a model
+// response directly. title/body come from the already-rendered chat message.
+export async function saveLiamRecipe(title: string, body: string) {
+  const res = await fetch(`${BASE}/users/flavor-memory/liam-saves`, {
+    method: 'POST',
+    headers: await getHeaders(),
+    body: JSON.stringify({ title, body }),
+  });
+  if (!res.ok) throw new Error('Failed to save recipe');
   return res.json();
 }
 
@@ -199,7 +244,7 @@ export async function getDialPosition(archetype: string): Promise<{ dialSortOrde
 export async function setDialPosition(
   archetype: string,
   dialSortOrder: number,
-  event?: { trigger: 'explicit_save' | 'add_to_cart'; source?: string | null; coffeeId?: number | null }
+  event?: { trigger: 'explicit_save' | 'add_to_cart'; source?: string | null; coffeeId?: number | null; platformName?: string | null }
 ) {
   const res = await fetch(`${BASE}/users/dial-position`, {
     method: 'PATCH',

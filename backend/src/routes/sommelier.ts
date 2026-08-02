@@ -73,7 +73,13 @@ const ARCHETYPE_NAME_TO_KEY: Record<string, string> = {
   'Experimental':      'experimental',
 };
 
-type SommelierAction = { type: 'retake_quiz' } | { type: 'open_dial'; archetype: string; slot?: number };
+type SommelierAction =
+  | { type: 'retake_quiz' }
+  | { type: 'open_dial'; archetype: string; slot?: number }
+  // Profile Part 7 Task 5 — no payload: this is user-initiated (the customer
+  // taps the chip), the LLM only marks that an offer is appropriate. The
+  // actual write is a separate, validated endpoint the LLM never touches.
+  | { type: 'save_recipe' };
 
 // Liam action links, Phase B — resolve <<action:...>> markers into real, server-
 // verified payloads. Never trusts the LLM for ids: retake_quiz needs nothing, and
@@ -103,6 +109,8 @@ async function resolveActions(
         }
       } catch { /* no saved position — link still works, just lands on the default slot */ }
       actions.push(slot != null ? { type: 'open_dial', archetype: archetypeKey, slot } : { type: 'open_dial', archetype: archetypeKey });
+    } else if (type === 'save_recipe') {
+      actions.push({ type: 'save_recipe' });
     }
     // open_dial with no known archetype: nothing sensible to link to — omitted.
   }

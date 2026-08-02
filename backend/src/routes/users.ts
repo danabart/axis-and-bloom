@@ -510,7 +510,7 @@ const DIAL_EVENT_SOURCES = ['bloom', 'find_my_flavor_returning', 'find_my_flavor
 // (explicit save or add-to-cart) — fire-and-forget, a logging failure must never
 // fail the request itself.
 router.patch('/dial-position', requireAuth, async (req: AuthRequest, res) => {
-  const { archetype, dialSortOrder, trigger, source, coffeeId } = req.body ?? {};
+  const { archetype, dialSortOrder, trigger, source, coffeeId, platformName } = req.body ?? {};
   if (!archetype || !Number.isInteger(dialSortOrder)) {
     res.status(400).json({ error: 'archetype and dialSortOrder are required' }); return;
   }
@@ -531,12 +531,18 @@ router.patch('/dial-position', requireAuth, async (req: AuthRequest, res) => {
     );
 
     if (trigger) {
+      // Profile Part 7 Task 1 — coffeeId is unified across both trigger kinds
+      // (previously add_to_cart-only); platformName is new, a display-name
+      // snapshot at save time (roaster-blind — see the flavor-memory route
+      // below). Neither field trigger-gated: whichever the caller sends is
+      // validated and stored, absent otherwise.
       firestoreDb.collection(`users/${req.uid}/dial_events`).add({
         trigger,
         archetype,
         dialSortOrder,
         source: DIAL_EVENT_SOURCES.includes(source) ? source : null,
-        coffeeId: trigger === 'add_to_cart' && Number.isInteger(coffeeId) ? coffeeId : null,
+        coffeeId: Number.isInteger(coffeeId) ? coffeeId : null,
+        platformName: typeof platformName === 'string' && platformName.trim() ? platformName.trim() : null,
         createdAt: FieldValue.serverTimestamp(),
       }).catch((err: unknown) => console.error('[dial-position] dial_events log failed:', err));
     }
@@ -563,19 +569,32 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
     const profileId = profileResult.rows[0]?.id;
     if (!profileId) { res.status(404).json({ error: 'Profile not found' }); return; }
 
-    const [ordersResult, contributionResult] = await Promise.all([
+    const [ordersResult, contributionResult, savedEventsSnap, recipeSnap] = await Promise.all([
       db.query(
         `SELECT o.id, o.created_at,
                 (ARRAY_AGG(rb.blend_name))[1] AS blend_name,
-                (ARRAY_AGG(rb.coffee_id))[1]  AS coffee_id
+                (ARRAY_AGG(rb.coffee_id))[1]  AS coffee_id,
+                (ARRAY_AGG(aa.archetype))[1]  AS archetype
          FROM "order" o
          LEFT JOIN order_line_item li ON li.order_id = o.id
          LEFT JOIN roaster_blend rb ON rb.id = li.blend_id
+         LEFT JOIN archetype_assignments aa ON aa.coffee_id = rb.coffee_id AND aa.superseded_at IS NULL
          WHERE o.user_id = $1
          GROUP BY o.id ORDER BY o.created_at DESC`,
         [profileId]
       ),
       db.query(`SELECT COUNT(*) FROM user_flavor_feedback WHERE user_id = $1`, [profileId]),
+      // Profile Part 7 Task 3 — 'saved' activity source. Filtered to explicit_save
+      // only (add_to_cart is never a journal entry, per the editorial rule);
+      // removedAt tombstones are filtered in code below, not in the query, to
+      // avoid a composite-field Firestore index requirement for a field that
+      // may not exist on most docs.
+      firestoreDb.collection(`users/${req.uid}/dial_events`).where('trigger', '==', 'explicit_save').get()
+        .catch((err: unknown) => { console.error('[/api/users/flavor-memory] dial_events read failed:', err); return null; }),
+      // 'recipe' activity source (Task 5's liam_saves) — collection may not
+      // exist yet for any given user, which reads as empty, not an error.
+      firestoreDb.collection(`users/${req.uid}/liam_saves`).get()
+        .catch((err: unknown) => { console.error('[/api/users/flavor-memory] liam_saves read failed:', err); return null; }),
     ]);
 
     // One Firestore read for every feedback event this user has, matched to
@@ -687,14 +706,150 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
       }
     }
 
+    // Profile Part 7 Task 3 — the activity log. Additive: journal/journey/
+    // contributionCount above are unchanged for their existing consumers
+    // (TastingJournal's feedback machinery, the Part 2/6 backfill contract).
+    // Editorial rule (binding): only deliberate moments — quiz, order, explicit
+    // save, accepted Liam recipe. No add_to_cart, rotation, reveal, or inferred
+    // entries, ever.
+    const quizActivity = journey.map((j, i) => ({
+      id: `quiz_${i}`,
+      type: 'quiz' as const,
+      at: j.at,
+      archetype: j.archetype,
+      archetypeLabel: j.archetypeLabel,
+      trigger: j.trigger,
+      removable: false,
+    }));
+
+    // Task 6's derived-reading-line signal needs an archetype per order too —
+    // resolved via the same archetype_assignments join used everywhere else
+    // in this file, current assignment only (superseded_at IS NULL). Kept out
+    // of `journal` itself so that response shape (and its existing consumers)
+    // stays untouched.
+    const orderedActivity = ordersResult.rows.map(o => ({
+      id: o.id,
+      type: 'ordered' as const,
+      at: new Date(o.created_at).toISOString(),
+      archetype: o.archetype ?? null,
+      archetypeLabel: o.archetype ? (ARCHETYPES[o.archetype]?.name ?? null) : null,
+      coffeeName: o.blend_name ?? null,
+      removable: false,
+    }));
+
+    // 'saved' — explicit_save dial_events, tombstones filtered here (not in the
+    // Firestore query, see the read above). Legacy pre-Task-1 events (no
+    // coffeeId/platformName) render honestly as position-only — never resolved
+    // at read time (drift + roaster-blind, same reasoning as journal above).
+    const savedActivity = (savedEventsSnap?.docs ?? [])
+      .filter(doc => !doc.data().removedAt)
+      .map(doc => {
+        const d = doc.data();
+        return {
+          id: doc.id,
+          type: 'saved' as const,
+          at: d.createdAt?.toDate ? d.createdAt.toDate().toISOString() : null,
+          archetype: d.archetype ?? null,
+          archetypeLabel: d.archetype ? (ARCHETYPES[d.archetype]?.name ?? null) : null,
+          dialSortOrder: typeof d.dialSortOrder === 'number' ? d.dialSortOrder : null,
+          coffeeName: d.platformName ?? null,
+          removable: true,
+        };
+      });
+
+    // 'recipe' — Task 5's liam_saves, tombstones filtered the same way.
+    const recipeActivity = (recipeSnap?.docs ?? [])
+      .filter(doc => !doc.data().removedAt)
+      .map(doc => {
+        const d = doc.data();
+        return {
+          id: doc.id,
+          type: 'recipe' as const,
+          at: d.createdAt?.toDate ? d.createdAt.toDate().toISOString() : null,
+          title: d.title ?? null,
+          body: d.body ?? null,
+          coffeeName: d.coffeeName ?? null,
+          removable: true,
+        };
+      });
+
+    const activity = [...quizActivity, ...orderedActivity, ...savedActivity, ...recipeActivity]
+      .sort((a, b) => new Date(b.at ?? 0).getTime() - new Date(a.at ?? 0).getTime());
+
     res.json({
       journal,
       journey,
+      activity,
       contributionCount: Number(contributionResult.rows[0]?.count ?? 0),
     });
   } catch (err) {
     console.error('[/api/users/flavor-memory]', err);
     res.status(500).json({ error: 'Failed to fetch flavor memory' });
+  }
+});
+
+// Profile Part 7 Task 2 — removable kinds. Both routes tombstone only (never
+// a hard delete — the Dial Event Log keeps full history for Liam/analytics).
+// Ownership is implicit in the doc path (scoped to req.uid by construction);
+// the explicit_save check on the first route rejects an attempt to remove an
+// add_to_cart event, the only other kind that lives in the same collection.
+router.patch('/flavor-memory/saved/:docId/remove', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const ref = firestoreDb.doc(`users/${req.uid}/dial_events/${req.params.docId}`);
+    const snap = await ref.get();
+    if (!snap.exists) { res.status(404).json({ error: 'Not found' }); return; }
+    const d = snap.data()!;
+    if (d.trigger !== 'explicit_save') { res.status(400).json({ error: 'Not removable' }); return; }
+    if (!d.removedAt) {
+      await ref.update({ removedAt: FieldValue.serverTimestamp() });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[PATCH /api/users/flavor-memory/saved/:docId/remove]', err);
+    res.status(500).json({ error: 'Failed to remove entry' });
+  }
+});
+
+router.patch('/flavor-memory/recipes/:docId/remove', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const ref = firestoreDb.doc(`users/${req.uid}/liam_saves/${req.params.docId}`);
+    const snap = await ref.get();
+    if (!snap.exists) { res.status(404).json({ error: 'Not found' }); return; }
+    if (!snap.data()?.removedAt) {
+      await ref.update({ removedAt: FieldValue.serverTimestamp() });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[PATCH /api/users/flavor-memory/recipes/:docId/remove]', err);
+    res.status(500).json({ error: 'Failed to remove entry' });
+  }
+});
+
+// Profile Part 7 Task 5 — Liam recipe saves. User-initiated, not something the
+// LLM triggers: Liam only marks an offer as appropriate (the save_recipe
+// action, see sommelier.ts/claude.ts); this endpoint only fires because the
+// signed-in user tapped the chip. title/body come from that already-rendered
+// chat message on the client — server just length-validates and stores.
+router.post('/flavor-memory/liam-saves', requireAuth, async (req: AuthRequest, res) => {
+  const { title, body } = req.body ?? {};
+  if (typeof title !== 'string' || !title.trim() || title.length > 200) {
+    res.status(400).json({ error: 'invalid title' }); return;
+  }
+  if (typeof body !== 'string' || !body.trim() || body.length > 4000) {
+    res.status(400).json({ error: 'invalid body' }); return;
+  }
+  try {
+    const ref = await firestoreDb.collection(`users/${req.uid}/liam_saves`).add({
+      kind: 'recipe',
+      title: title.trim(),
+      body: body.trim(),
+      coffeeName: null,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    res.json({ ok: true, id: ref.id });
+  } catch (err) {
+    console.error('[POST /api/users/flavor-memory/liam-saves]', err);
+    res.status(500).json({ error: 'Failed to save recipe' });
   }
 });
 
