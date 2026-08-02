@@ -82,6 +82,17 @@ Action markers (internal — never mention, explain, or hint at these to the cus
 - Use at most one marker per turn. Never use one in your opening turn. Only use one once you've actually reached the recommendation, not preemptively.
 - These tokens are stripped before the customer ever sees your reply.
 
+Remembering facts (internal marker, same rule as action markers — never mention, explain, or hint at these to the customer):
+- When the customer states a durable fact about their own setup or habits — not a guess, not something you inferred — confirm it in-voice in the same reply, then end with <<remember:field=value>>.
+- The field name must be exactly one of these five (plural/singular matters — use exactly as written): brew_methods, grinder, takes_it, decaf_constraint, aversions.
+  Good: they say "I've got a V60" → "V60 — noted." <<remember:brew_methods=v60>>
+  Good: they say "I take it black" → "Black. Good to know." <<remember:takes_it=black>>
+  Bad: <<remember:brew_method=v60>> — the field is brew_methods, not brew_method.
+  Bad: inferring a preference and saving it without them actually having said it.
+- At most one <<remember:...>> marker per turn.
+- Never save an inference or a guess — only what the customer actually stated.
+- These tokens are stripped before the customer ever sees your reply, exactly like action markers.
+
 Opening turn:
 - Maximum 2 sentences. No exceptions.
 - State where they are now (archetype or last order). Then one direction question.
@@ -107,8 +118,9 @@ export function assembleSystemPrompt(params: {
   catalogContext: string;
   mode: SommelierMode;
   config: ReturnType<typeof getSommelierConfig>;
+  brewProfileContext?: string;
 }): string {
-  const { session, catalogContext, mode, config } = params;
+  const { session, catalogContext, mode, config, brewProfileContext } = params;
   const intentCfg = config?.intents?.[session.intent];
   const maxTurns = intentCfg?.maxTurns ?? config?.sessionLimits?.maxTurns ?? 8;
 
@@ -132,6 +144,12 @@ export function assembleSystemPrompt(params: {
   }
   if (session.turnCount === 0 && session.openingContext) {
     systemParts.push(`\n\nContext for this user: ${session.openingContext}`);
+  }
+  // HOME_TASK_4 (§4.5, §3.5) — the brew profile, every turn (not just the
+  // opening one), only when non-empty. Absent/empty produces zero difference
+  // in the assembled prompt — this is the byte-for-byte guarantee's whole point.
+  if (brewProfileContext) {
+    systemParts.push(`\n\nWhat you know about their setup: ${brewProfileContext}`);
   }
   if (session.turnCount === maxTurns - 1) {
     systemParts.push(
@@ -164,12 +182,18 @@ export async function chatWithSommelier(params: {
   catalogContext: string;
   history: Array<{ role: 'user' | 'assistant'; content: string }>;
   mode?: SommelierMode;
-}): Promise<{ reply: string; modelUsed: string; actionTypes: Array<'retake_quiz' | 'open_dial'> }> {
-  const { message, session, catalogContext, history } = params;
+  brewProfileContext?: string;
+}): Promise<{
+  reply: string;
+  modelUsed: string;
+  actionTypes: Array<'retake_quiz' | 'open_dial'>;
+  rememberOps: Array<{ field: string; rawValue: string }>;
+}> {
+  const { message, session, catalogContext, history, brewProfileContext } = params;
   const mode: SommelierMode = params.mode ?? 'matching';
   const config = getSommelierConfig();
 
-  const systemPrompt = assembleSystemPrompt({ session, catalogContext, mode, config });
+  const systemPrompt = assembleSystemPrompt({ session, catalogContext, mode, config, brewProfileContext });
 
   let modelId: string;
   let maxTokens: number;
@@ -225,9 +249,25 @@ export async function chatWithSommelier(params: {
   const actionTypes: Array<'retake_quiz' | 'open_dial'> = [];
   if (rawReply.includes('<<action:retake_quiz>>')) actionTypes.push('retake_quiz');
   if (rawReply.includes('<<action:open_dial>>')) actionTypes.push('open_dial');
-  const reply = rawReply.replace(/<<action:[^>]*>>/g, '').replace(/[ \t]+(\n|$)/g, '$1').trim();
 
-  return { reply, modelUsed: modelId, actionTypes };
+  // HOME_TASK_4 (§4.5) — <<remember:field=value>> markers. Parsed here, same
+  // "never trust the model" discipline as action markers: this only extracts
+  // the raw field/value text — sommelier.ts's resolveRemember() is what
+  // validates against the whitelist and actually writes.
+  const rememberOps: Array<{ field: string; rawValue: string }> = [];
+  const rememberRegex = /<<remember:([a-zA-Z_]+)=([^>]*)>>/g;
+  let rememberMatch: RegExpExecArray | null;
+  while ((rememberMatch = rememberRegex.exec(rawReply)) !== null) {
+    rememberOps.push({ field: rememberMatch[1], rawValue: rememberMatch[2] });
+  }
+
+  const reply = rawReply
+    .replace(/<<action:[^>]*>>/g, '')
+    .replace(/<<remember:[^>]*>>/g, '')
+    .replace(/[ \t]+(\n|$)/g, '$1')
+    .trim();
+
+  return { reply, modelUsed: modelId, actionTypes, rememberOps };
 }
 
 export async function getRecommendation(

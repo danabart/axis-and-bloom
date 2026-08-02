@@ -27,6 +27,7 @@ interface Stats {
     capHits: number;
     anomaly: { isAnomalous: boolean; todayCount: number; sevenDayAvg: number; multiplier: number };
   };
+  brewProfileStats: { writes: number; failures: number };
   periodDays: number;
 }
 
@@ -376,6 +377,23 @@ export default function AdminSommelierFlow() {
               </div>
             </div>
           )}
+        </div>
+
+        {/* ── Row 9: Brew Profile (HOME_TASK_4, §4.5 write rule 3) — write rate never a buried log line ── */}
+        <div>
+          <p className={LABEL}>Brew Profile Writes</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className={`${CARD} border-stone-200 text-center`}>
+              <p className={STAT_BIG}>{stats.brewProfileStats.writes}</p>
+              <p className="text-xs text-stone-400 mt-1">Successful writes</p>
+            </div>
+            <div className={`${CARD} text-center ${stats.brewProfileStats.failures > 0 ? 'border-2' : 'border-stone-200'}`} style={stats.brewProfileStats.failures > 0 ? { borderColor: RUST } : undefined}>
+              <p className={STAT_BIG} style={stats.brewProfileStats.failures > 0 ? { color: RUST } : undefined}>
+                {stats.brewProfileStats.failures}
+              </p>
+              <p className="text-xs text-stone-400 mt-1">Dropped / failed (invalid field or value)</p>
+            </div>
+          </div>
         </div>
 
       </div>

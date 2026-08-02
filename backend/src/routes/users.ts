@@ -4,6 +4,11 @@ import { db } from '../db/client.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { getUserSignals } from '../services/userSignals.js';
 import { classifyStage, getPendingFeedbackOrder, refreshLifecycleState } from '../services/userLifecycle.js';
+import {
+  getBrewProfileFieldsConfig,
+  validateSingleValue,
+  incrementBrewProfileCounter,
+} from '../services/brewProfile.js';
 
 const router = Router();
 
@@ -690,6 +695,129 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
   } catch (err) {
     console.error('[/api/users/flavor-memory]', err);
     res.status(500).json({ error: 'Failed to fetch flavor memory' });
+  }
+});
+
+// ── GET /api/users/brew-profile ───────────────────────────────────────────────
+// HOME_TASK_4 (§4.5 write rule 2) — the day-one mirror: read, edit, delete per
+// field. A missing doc is a normal, common state (no facts captured yet), not
+// an error — returns {} rather than 404.
+router.get('/brew-profile', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
+  try {
+    const snap = await firestoreDb.doc(`users/${req.uid}/metadata/brew_profile`).get();
+    if (!snap.exists) { res.json({}); return; }
+    const data = snap.data() ?? {};
+    const profile: Record<string, unknown> = {};
+    for (const [field, entry] of Object.entries(data)) {
+      if (field === 'updatedAt' || !entry || typeof entry !== 'object') continue;
+      const e = entry as { value?: unknown; source?: string; capturedAt?: { toDate?: () => Date } };
+      profile[field] = {
+        value: e.value ?? null,
+        source: e.source ?? null,
+        capturedAt: typeof e.capturedAt?.toDate === 'function' ? e.capturedAt.toDate().toISOString() : null,
+      };
+    }
+    res.json(profile);
+  } catch (err) {
+    console.error('[GET /api/users/brew-profile]', err);
+    res.status(500).json({ error: 'Failed to fetch brew profile' });
+  }
+});
+
+// ── PATCH /api/users/brew-profile ─────────────────────────────────────────────
+// Self-serve edit — the customer supplies the full intended value for a field
+// (replace, not append; the conversation path's append/dedup semantics in
+// sommelier.ts's resolveRemember() are a separate, incremental capture mode).
+// Validated against the same whitelist as the conversation path, source
+// stamped 'profile_page'. Direct API input gets a clear 400, not a silent drop
+// — but still counted, same as the conversation path (write rule 3).
+router.patch('/brew-profile', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
+  const { field, value } = req.body ?? {};
+  if (typeof field !== 'string') { res.status(400).json({ error: 'field required' }); return; }
+
+  const fieldsCfg = getBrewProfileFieldsConfig();
+  const fieldCfg = fieldsCfg[field];
+  if (!fieldCfg) {
+    await incrementBrewProfileCounter('failures');
+    res.status(400).json({ error: `Unknown field: ${field}` });
+    return;
+  }
+
+  let validatedValue: unknown;
+  if (fieldCfg.type === 'array' || fieldCfg.type === 'array_freeform') {
+    if (!Array.isArray(value)) {
+      await incrementBrewProfileCounter('failures');
+      res.status(400).json({ error: `${field} must be an array` });
+      return;
+    }
+    const seen = new Set<string>();
+    const validatedItems: string[] = [];
+    for (const item of value) {
+      if (typeof item !== 'string') continue;
+      const v = validateSingleValue(fieldCfg, item);
+      if (v !== null && !seen.has(v as string)) { seen.add(v as string); validatedItems.push(v as string); }
+    }
+    if (validatedItems.length !== value.length) {
+      await incrementBrewProfileCounter('failures');
+      res.status(400).json({ error: `One or more values for ${field} are not allowed` });
+      return;
+    }
+    validatedValue = validatedItems.slice(0, fieldCfg.maxLength ?? 10);
+  } else {
+    if (typeof value !== 'string') {
+      await incrementBrewProfileCounter('failures');
+      res.status(400).json({ error: `${field} must be a string` });
+      return;
+    }
+    const v = validateSingleValue(fieldCfg, value);
+    if (v === null) {
+      await incrementBrewProfileCounter('failures');
+      res.status(400).json({ error: `Invalid value for ${field}: ${value}` });
+      return;
+    }
+    validatedValue = v;
+  }
+
+  try {
+    await firestoreDb.doc(`users/${req.uid}/metadata/brew_profile`).set(
+      {
+        [field]: { value: validatedValue, source: 'profile_page', capturedAt: FieldValue.serverTimestamp() },
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    await incrementBrewProfileCounter('writes');
+    res.json({ ok: true, field, value: validatedValue });
+  } catch (err) {
+    console.error('[PATCH /api/users/brew-profile]', err);
+    await incrementBrewProfileCounter('failures');
+    res.status(500).json({ error: 'Failed to save brew profile field' });
+  }
+});
+
+// ── DELETE /api/users/brew-profile ────────────────────────────────────────────
+// Delete = field removal (FieldValue.delete()), never a null-write — a null
+// value would still read as "captured, unknown" to the summary formatter,
+// whereas removal reads as "nothing captured", matching what the customer asked for.
+router.delete('/brew-profile', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
+  const field = typeof req.body?.field === 'string' ? req.body.field : (req.query.field as string | undefined);
+  if (!field || !getBrewProfileFieldsConfig()[field]) {
+    res.status(400).json({ error: 'Unknown or missing field' });
+    return;
+  }
+  try {
+    // set(..., merge) rather than update() — the doc may not exist yet if the
+    // customer never captured anything else; update() would throw NOT_FOUND.
+    await firestoreDb.doc(`users/${req.uid}/metadata/brew_profile`).set(
+      { [field]: FieldValue.delete(), updatedAt: FieldValue.serverTimestamp() },
+      { merge: true }
+    );
+    await incrementBrewProfileCounter('writes');
+    res.json({ ok: true, field });
+  } catch (err) {
+    console.error('[DELETE /api/users/brew-profile]', err);
+    await incrementBrewProfileCounter('failures');
+    res.status(500).json({ error: 'Failed to delete brew profile field' });
   }
 });
 

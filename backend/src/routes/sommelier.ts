@@ -12,6 +12,15 @@ import { writeOutcome, checkReturnedToSommelier } from '../services/outcomeTrack
 import { chatWithSommelier } from '../services/claude.js';
 import { getSommelierConfig } from '../services/sommelierConfig.js';
 import { routeTopic } from '../services/topicRouter.js';
+import {
+  getBrewProfileFieldsConfig,
+  validateSingleValue,
+  incrementBrewProfileCounter,
+  formatBrewProfileSummary,
+  getStaleFieldNudge,
+  normalizeFieldName,
+  type BrewProfileDoc,
+} from '../services/brewProfile.js';
 
 // HOME_TASK_3 (§4.8) — per-IP and per-account rate limiting on the two turn-
 // generating endpoints. Thresholds read live config per request (the `max`
@@ -131,6 +140,83 @@ async function getRecentDialActivitySummary(uid: string): Promise<string> {
       .join('; ');
   } catch {
     return ''; // no dial events — normal for most users, not an error
+  }
+}
+
+// HOME_TASK_4 (§4.5) — one Firestore read of the brew profile, shared by both
+// the summary-for-the-prompt path and resolveRemember()'s existing-array read.
+// Not cached in context_data (unlike catalogText) because a fact captured
+// earlier in *this same* conversation must be reflected on the very next turn.
+export async function getBrewProfile(uid: string): Promise<BrewProfileDoc | null> {
+  try {
+    const snap = await firestoreDb.doc(`users/${uid}/metadata/brew_profile`).get();
+    return snap.exists ? (snap.data() as BrewProfileDoc) : null;
+  } catch (err) {
+    console.error('[brewProfile] read failed', err);
+    return null;
+  }
+}
+
+// Liam memory, Phase 1 (§4.5) — resolves <<remember:...>> markers into a
+// validated, whitelisted Firestore write. Never trusts the model's field or
+// value text directly (same discipline as resolveActions()): an unknown
+// field or a value outside the whitelist is dropped and logged, not written.
+// Write rule 3: every attempt — success or failure — increments an
+// admin-visible counter, never a silent fire-and-forget.
+export async function resolveRemember(uid: string, rememberOps: Array<{ field: string; rawValue: string }>): Promise<void> {
+  if (!rememberOps.length) return;
+  const fieldsCfg = getBrewProfileFieldsConfig();
+  const docRef = firestoreDb.doc(`users/${uid}/metadata/brew_profile`);
+
+  let current: BrewProfileDoc = {};
+  try {
+    const snap = await docRef.get();
+    current = snap.exists ? (snap.data() as BrewProfileDoc) : {};
+  } catch (err) {
+    console.error('[resolveRemember] read failed', err);
+  }
+
+  const updates: Record<string, unknown> = {};
+  let anyValid = false;
+
+  for (const rawOp of rememberOps) {
+    // Defense-in-depth: a plausible singular/plural near-miss (e.g. the model
+    // saying "brew_method" for "brew_methods") is normalized before whitelist
+    // lookup — see normalizeFieldName()'s own comment for why this exists.
+    const field = normalizeFieldName(rawOp.field);
+    const fieldCfg = fieldsCfg[field];
+    if (!fieldCfg) {
+      console.warn(`[resolveRemember] unknown field "${rawOp.field}" dropped for uid=${uid}`);
+      await incrementBrewProfileCounter('failures');
+      continue;
+    }
+    const validated = validateSingleValue(fieldCfg, rawOp.rawValue);
+    if (validated === null) {
+      console.warn(`[resolveRemember] invalid value for "${field}": "${rawOp.rawValue}" dropped for uid=${uid}`);
+      await incrementBrewProfileCounter('failures');
+      continue;
+    }
+
+    if (fieldCfg.type === 'array' || fieldCfg.type === 'array_freeform') {
+      const existingArr = Array.isArray(current[field]?.value) ? (current[field]!.value as string[]) : [];
+      if (existingArr.includes(validated as string)) continue; // already known — nothing new to write
+      const maxLen = fieldCfg.maxLength ?? 10;
+      const nextArr = [...existingArr, validated as string].slice(-maxLen);
+      updates[field] = { value: nextArr, source: 'conversation', capturedAt: FieldValue.serverTimestamp() };
+    } else {
+      updates[field] = { value: validated, source: 'conversation', capturedAt: FieldValue.serverTimestamp() };
+    }
+    anyValid = true;
+  }
+
+  if (!anyValid) return;
+
+  try {
+    await docRef.set({ ...updates, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    await incrementBrewProfileCounter('writes');
+  } catch (err) {
+    console.error('[resolveRemember] write failed', err);
+    await incrementBrewProfileCounter('failures');
   }
 }
 
@@ -328,20 +414,29 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
       newBalance = spendResult.newBalance;
     }
 
+    // Brew profile (§4.5, §3.5) — a compact customer-context line, injected
+    // every turn including the opening one (not cached in context_data; see
+    // getBrewProfile()'s own comment on why this stays a live read).
+    const brewProfile = await getBrewProfile(req.uid!);
+    const brewProfileContext = formatBrewProfileSummary(brewProfile);
+
     // Generate opening message (turn 0)
     let openingMessage = "Hi, I'm Liam — Axis & Bloom's coffee sommelier. What brings you here today?";
     let modelUsed = 'fallback';
     let openingActionTypes: string[] = [];
+    let openingRememberOps: Array<{ field: string; rawValue: string }> = [];
     try {
       const chatResult = await chatWithSommelier({
         message: null,
         session: { intent, turnCount: 0, openingContext: enrichedOpeningContext },
         catalogContext: ragResult.catalogText,
         history: [],
+        brewProfileContext,
       });
       openingMessage = chatResult.reply;
       modelUsed = chatResult.modelUsed;
       openingActionTypes = chatResult.actionTypes;
+      openingRememberOps = chatResult.rememberOps;
     } catch (claudeErr) {
       console.error('[sommelier/start] chatWithSommelier failed, using fallback:', claudeErr);
     }
@@ -353,6 +448,7 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
     // The prompt instructs Liam never to use a marker on the opening turn, but
     // resolve defensively anyway rather than assuming the instruction always holds.
     const openingActions = await resolveActions(openingActionTypes, req.uid!, archetypeKey);
+    await resolveRemember(req.uid!, openingRememberOps);
 
     // Save opening message to Firestore
     await firestoreDb
@@ -536,7 +632,14 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
     };
     const topicLog = Array.isArray(ctx.topicLog) ? [...ctx.topicLog, topicLogEntry] : [topicLogEntry];
 
-    const { reply, modelUsed, actionTypes } = await chatWithSommelier({
+    // Brew profile (§4.5, §3.5) — live read every turn (see getBrewProfile()'s
+    // comment), plus the stale-re-confirm nudge (write rule 5): at most once
+    // per session (ctx.staleNudgeSent), only when relevant to this turn's topic.
+    const brewProfile = await getBrewProfile(req.uid!);
+    const staleNudge = getStaleFieldNudge(brewProfile, topicResult.topic, ctx.staleNudgeSent === true);
+    const brewProfileContext = [formatBrewProfileSummary(brewProfile), staleNudge].filter(Boolean).join(' ');
+
+    const { reply, modelUsed, actionTypes, rememberOps } = await chatWithSommelier({
       message,
       session: {
         intent: session.intent,
@@ -546,8 +649,10 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
       catalogContext: ctx.catalogText ?? '',
       history,
       mode: topicResult.mode,
+      brewProfileContext,
     });
     const actions = await resolveActions(actionTypes, req.uid!, ctx.archetypeKey ?? null);
+    await resolveRemember(req.uid!, rememberOps);
 
     if (!gatingEnabled) {
       logUsage(req.uid!, String(sessionId), modelUsed).catch(() => {});
@@ -560,11 +665,14 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
     // Updated context_data — carries the topic router's state forward so the
     // next turn's stickiness/decay is correct, and keeps the topic log (the
     // §4.10 ML dataset / §7 topic-distribution metric) growing across turns.
+    // staleNudgeSent (write rule 5) latches true the first time a nudge is
+    // used and never resets within the session — at most one per session.
     const updatedContextData = {
       ...ctx,
       currentTopic: topicResult.topic,
       currentTopicTurnsSinceMatch: topicResult.turnsSinceMatch,
       topicLog,
+      staleNudgeSent: ctx.staleNudgeSent === true || !!staleNudge,
     };
 
     // Update session

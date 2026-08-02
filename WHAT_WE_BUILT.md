@@ -3181,6 +3181,32 @@ WHAT_WE_BUILT.md #124, `WHAT_WE_BUILT_DB.md` gained the `token_events.model` col
 
 ---
 
+### 125. HOME Task 4 — Memory & the Brew Profile: `<<remember:...>>` markers, brew-profile whitelist, five write rules, Profile mirror (2026-07-31)
+
+**Files:** `backend/src/services/brewProfile.ts` (new), `frontend/src/app/components/profile/BrewProfileMirror.tsx` (new), `backend/src/services/claude.ts`, `backend/src/routes/sommelier.ts`, `backend/src/routes/users.ts`, `backend/src/routes/admin.ts`, `backend/src/services/sommelierConfig.ts`, `backend/src/db/seeds/sommelier_config_seed.ts`, `frontend/src/app/lib/api.ts`, `frontend/src/app/components/Profile.tsx`, `frontend/src/app/components/admin/AdminSommelierFlow.tsx`
+
+**What this builds**: Liam's first piece of durable memory (§4.5) — when a customer states a fact about their brewing setup or habits, he confirms it in-voice and remembers it permanently via a new `<<remember:field=value>>` marker (same "never trust the model" pattern as S51's `<<action:...>>`). Five write rules, made non-negotiable by the `taste_journey` incident (S49 — a silent 3-segment-path bug meant that doc never persisted for a year): in-voice confirmation, a day-one Profile-page mirror (read/edit/delete), an admin-visible write/failure counter (never a silent fire-and-forget), end-to-end production verification before shipping, and a stale-re-confirm nudge capped at once per session.
+
+**Marker + whitelist**: `chatWithSommelier()` (`claude.ts`) parses and strips `<<remember:...>>` the same way it already handled action markers, returning `rememberOps` for the caller to resolve — never trusting the model's field or value directly. A new `resolveRemember()` (`sommelier.ts`) validates against `config/sommelier.brewProfile.fields` (Phase 1: `brew_methods`, `grinder`, `takes_it`, `decaf_constraint`, `aversions` — every field chosen because it changes a sentence Liam can say, per §3.5) and writes to `users/{uid}/metadata/brew_profile` (4 segments). Conversation writes append/dedup array fields across turns and sessions; the Profile-page mirror's edits replace the full value — two different capture modes, one shared validator (`brewProfile.ts`).
+
+**Injection**: through `assembleSystemPrompt()` (S71) via a new `brewProfileContext` param — a one-line summary appended every turn (not just the opening one, since a fact learned mid-conversation needs to inform the rest of that same conversation), only when non-empty. Also carries the stale-re-confirm nudge when relevant (topic-gated, once per session via a new `context_data.staleNudgeSent` flag).
+
+**Mirror**: `GET/PATCH/DELETE /api/users/brew-profile` (`users.ts`) + `BrewProfileMirror.tsx` on the Profile page — shows captured fields only (full self-serve add-a-field UI is Task 10), edit replaces, delete removes the field key via `FieldValue.delete()` (never a null-write).
+
+**Admin visibility**: `admin_stats/brew_profile` (Firestore, 2-segment path) tracks `writes`/`failures`, incremented on every attempt from either writer, surfaced on `GET /api/admin/sommelier/stats` and a new row on `AdminSommelierFlow.tsx`.
+
+**A real bug, caught by this task's own required verification**: the live model emitted the field name as `brew_method` (singular) against the plural whitelist key on its first real API call — dropped and logged correctly (write rule 3 working exactly as designed), then fixed at the prompt level (all five field names now spelled out verbatim) and hardened with a small alias-normalization safety net (`brew_method`→`brew_methods`) as defense-in-depth. Re-tested live afterward — the model then emitted the correct field name.
+
+**Config pushed live via the config-drift/config-apply mechanism, not a one-off script**: 12 new paths under `brewProfile.*`, zero existing values touched, zero drift after.
+
+**Verified** (Firestore-only, no Postgres needed for this task; `axis-and-bloom-prod` is the only environment): `tsc --noEmit` clean. Byte-for-byte re-check of `assembleSystemPrompt()`: no profile → identical to pre-task output; profile present → identical plus exactly one new line. One real `chatWithSommelier()` call against production, confirmed in-voice ("V60 — noted…"), write read back via the Admin SDK directly. Forced invalid marker (unknown field + invalid value) → both dropped, neither written, failure counter incremented by exactly 2. Mirror edit/delete round-trip confirmed via read-back. Stale nudge confirmed correct on all four branches (stale+relevant+fresh-session, already-nudged, wrong-topic, not-yet-stale). All test writes deleted; the real `admin_stats/brew_profile` counters restored to their exact pre-test values.
+
+**Out of scope, unchanged**: no fields beyond the Phase 1 whitelist (Task 10's); no brew cards (Task 6); no beats (Task 8); action-marker behavior, the topic router, and the six-intent evaluator are all untouched.
+
+WHAT_WE_BUILT.md #125, `WHAT_WE_BUILT_DB.md` gained `users/{uid}/metadata/brew_profile` and `admin_stats/brew_profile` in the Firestore path table, `SOMMELIER_BUILT.md` S73 (full detail).
+
+---
+
 ### 125. The Bloom Part 12 — restore commerce/reveal/save-to-memory onto Camila's Bloom Dial (2026-08-01)
 
 **Files:** `frontend/src/app/components/bloom/dial/BloomDial.tsx`, `frontend/src/app/components/bloom/DialArchetypeSection.tsx` (new), `frontend/src/app/components/BloomPage.tsx`, `frontend/src/app/components/FlavorQuiz.tsx`, `frontend/src/app/components/Profile.tsx`

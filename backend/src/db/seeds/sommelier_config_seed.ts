@@ -151,6 +151,37 @@ export const DEFAULT_SOMMELIER_CONFIG = {
       },
     },
 
+    // HOME_TASK_4 (§4.5, §3.5) — Phase 1 brew-profile field whitelist. Every
+    // field here must change a sentence Liam can say (§3.5's own rule) — the
+    // culture/background/timing fields from the full self-serve list arrive
+    // in Task 10, not here.
+    brewProfile: {
+      fields: {
+        brew_methods: {
+          type: 'array',
+          allowedValues: ['v60', 'french_press', 'espresso', 'moka', 'aeropress', 'cold_brew', 'drip', 'other'],
+          maxLength: 8,
+        },
+        grinder: {
+          type: 'enum',
+          allowedValues: ['none', 'blade', 'burr_hand', 'burr_electric', 'unknown_type'],
+        },
+        takes_it: {
+          type: 'enum',
+          allowedValues: ['black', 'milk', 'sugar', 'milk_and_sugar'],
+        },
+        decaf_constraint: {
+          type: 'bool',
+        },
+        aversions: {
+          type: 'array_freeform',
+          maxLength: 10,
+          maxItemLength: 40,
+        },
+      },
+      staleAfterDays: 120,
+    },
+
     evaluatorRulePriority: [
       'DISCOVERY_SEEKER',
       'PROFILE_AMBIGUOUS',

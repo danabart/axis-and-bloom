@@ -16,6 +16,7 @@ import FamilyTab from './FamilyTab';
 import OrderFeedbackForm from './OrderFeedbackForm';
 import TastingJournal from './profile/TastingJournal';
 import PalateTimeline from './profile/PalateTimeline';
+import BrewProfileMirror from './profile/BrewProfileMirror';
 import WorthExploring from './profile/WorthExploring';
 
 type Tab = 'memory' | 'orders' | 'settings' | 'family';
@@ -588,6 +589,11 @@ export default function Profile() {
                         </div>
                       </div>
                     )}
+
+                    {/* HOME_TASK_4 (§4.5 write rule 2) — the brew-profile mirror, day one. */}
+                    <div className="border-t border-[#a33726]/10 pt-8 mt-6">
+                      <BrewProfileMirror />
+                    </div>
 
                     <div className="max-w-2xl flex flex-col gap-6 mt-4">
                       {/* Liam entry point — generic across stages, no stage-aware copy (decided). */}

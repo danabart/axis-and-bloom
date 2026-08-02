@@ -150,6 +150,44 @@ export async function getFlavorMemory(): Promise<FlavorMemoryData> {
   return res.json();
 }
 
+export interface BrewProfileFieldEntry {
+  value: string | boolean | string[];
+  source: 'conversation' | 'profile_page' | null;
+  capturedAt: string | null;
+}
+export type BrewProfileData = Record<string, BrewProfileFieldEntry>;
+
+// HOME_TASK_4 (§4.5 write rule 2) — the day-one mirror: read, edit, delete per
+// captured field. GET returns {} (not 404) when nothing has been captured yet.
+export async function getBrewProfile(): Promise<BrewProfileData> {
+  const res = await fetch(`${BASE}/users/brew-profile`, { headers: await getHeaders() });
+  if (!res.ok) throw new Error('Failed to fetch brew profile');
+  return res.json();
+}
+
+export async function setBrewProfileField(field: string, value: string | boolean | string[]) {
+  const res = await fetch(`${BASE}/users/brew-profile`, {
+    method: 'PATCH',
+    headers: await getHeaders(),
+    body: JSON.stringify({ field, value }),
+  });
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}));
+    throw new Error(j.error ?? 'Failed to save field');
+  }
+  return res.json();
+}
+
+export async function deleteBrewProfileField(field: string) {
+  const res = await fetch(`${BASE}/users/brew-profile`, {
+    method: 'DELETE',
+    headers: await getHeaders(),
+    body: JSON.stringify({ field }),
+  });
+  if (!res.ok) throw new Error('Failed to delete field');
+  return res.json();
+}
+
 export async function getDialPosition(archetype: string): Promise<{ dialSortOrder: number | null }> {
   const res = await fetch(`${BASE}/users/dial-position?archetype=${encodeURIComponent(archetype)}`, {
     headers: await getHeaders(),

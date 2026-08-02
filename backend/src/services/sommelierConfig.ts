@@ -15,6 +15,17 @@ export interface TopicConfig {
   mode: 'expertise' | 'matching';
 }
 
+// HOME_TASK_4 (§4.5) — the brew-profile field whitelist. `enum`/`array` values
+// are checked against `allowedValues`; `bool` accepts 'true'/'false' strings
+// (marker values arrive as text); `array_freeform` (aversions) accepts any
+// trimmed string up to `maxItemLength`, capped at `maxLength` items total.
+export interface BrewProfileFieldConfig {
+  type: 'enum' | 'bool' | 'array' | 'array_freeform';
+  allowedValues?: string[];
+  maxLength?: number;
+  maxItemLength?: number;
+}
+
 export interface SommelierConfig {
   confidenceWeights: {
     quizStability: number;
@@ -91,6 +102,13 @@ export interface SommelierConfig {
       perIpPerMinute: number;
       perAccountPerMinute: number;
     };
+  };
+  // HOME_TASK_4 (§4.5, §3.5) — the Phase 1 brew-profile field whitelist and
+  // the stale-re-confirm window (write rule 5). Full self-serve field set
+  // (culture/background/timing) arrives in Task 10; this is captured-fields-only.
+  brewProfile?: {
+    fields: Record<string, BrewProfileFieldConfig>;
+    staleAfterDays: number;
   };
   updatedAt?: unknown;
 }

@@ -8,6 +8,7 @@ import { getMarketingConfig, setMarketingConfigValue } from '../features/marketi
 import { DEFAULT_SOMMELIER_CONFIG } from '../db/seeds/sommelier_config_seed.js';
 import { checkAggregateAnomaly, getMonthlySpendEstimate } from '../services/sommelierGuards.js';
 import { getSommelierConfig } from '../services/sommelierConfig.js';
+import { getBrewProfileCounters } from '../services/brewProfile.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -2059,6 +2060,10 @@ router.get('/sommelier/stats', async (_req, res) => {
       anomaly,
     };
 
+    // HOME_TASK_4 (§4.5 write rule 3) — brew-profile write/failure counts,
+    // admin-visible rather than a buried log line.
+    const brewProfileStats = await getBrewProfileCounters();
+
     res.json({
       totalEvaluations,
       needsSommelierRate: Math.round(needsSommelierRate * 1000) / 1000,
@@ -2072,6 +2077,7 @@ router.get('/sommelier/stats', async (_req, res) => {
       },
       tokenStats,
       guardStats,
+      brewProfileStats,
       periodDays: PERIOD_DAYS,
     });
   } catch (err) {
