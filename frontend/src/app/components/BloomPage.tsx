@@ -6,10 +6,12 @@ import { getUserProfile, getDialPosition, setDialPosition } from '../lib/api';
 import { ARCHETYPE_VISUALS } from './bloom/bloomVisuals';
 import { Link, useSearchParams } from 'react-router';
 import { computeDefaultSortOrder } from './bloom/ArchetypeSection';
+import { CompareOverlay } from './bloom/CompareOverlay';
 import { OtherCategoryCard } from './bloom/OtherCategoryCard';
-import { BloomDial, type BloomDialHandle } from './bloom/dial/BloomDial';
-import { buildDialConfig, type DialCoffee } from './bloom/dial/archetypeConfig';
-import type { ArchetypeData, OtherCategoryCoffee, CartItem } from './bloom/types';
+import { DialArchetypeSection } from './bloom/DialArchetypeSection';
+import type { BloomDialHandle } from './bloom/dial/BloomDial';
+import type { ArchetypeData, OtherCategoryCoffee, Slot } from './bloom/types';
+import { slotKey } from './bloom/types';
 
 // Bloom Dial Base Data Part 3, Phase 6: Decaf/Half-Caf/Flavored group under
 // "Other Categories" (Part 4 keeps this section on Bloom unchanged). Experimental
@@ -32,7 +34,12 @@ export default function BloomPage() {
   const [userArchetypeLoaded, setUserArchetypeLoaded] = useState(false);
 
   const [selectedSortOrder, setSelectedSortOrder] = useState<Record<string, number>>({});
+  const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
   const dialRefs = useRef<Record<string, BloomDialHandle | null>>({});
+
+  const [compareState, setCompareState] = useState<{ open: boolean; archetype: string; archetypeLabel: string; slot: Slot | null }>({
+    open: false, archetype: '', archetypeLabel: '', slot: null,
+  });
 
   useEffect(() => {
     const archetypesFetch = fetch('/api/coffees/archetypes')
@@ -144,22 +151,28 @@ export default function BloomPage() {
     if (user) setDialPosition(archetype, dialSortOrder).catch(() => {});
   }
 
-  // PRE-ORDER THIS COFFEE → add the selected coffee to the cart (12oz default —
-  // the dial has a single pre-order button, no weight picker). Cart/checkout is
-  // slot-based for dial items, so placeholder-named slots still form valid lines.
-  function handlePreOrder(data: ArchetypeData, coffee: DialCoffee) {
-    const item: CartItem = {
-      kind: 'dial',
-      archetype: data.archetype,
-      archetypeLabel: data.archetypeLabel,
-      dialSortOrder: coffee.dialSortOrder,
-      weightOz: 12,
-      platformName: coffee.name,
-      retailPriceCents: coffee.price12Cents,
-      qty: 1,
-    };
-    addToCart(item);
-    if (user) setDialPosition(data.archetype, coffee.dialSortOrder, { trigger: 'add_to_cart', source: 'bloom', coffeeId: coffee.coffeeId }).catch(() => {});
+  function toggleReveal(key: string) {
+    setRevealedKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  // The Bloom Part 12: the new dial's rotateTo() only repaints — unlike the old
+  // widget, it does NOT emit onZoneChange — so the reading column won't switch
+  // to the hopped slot without also updating selectedSortOrder here.
+  function handleHopClick(archetype: string, dialSortOrder: number) {
+    dialRefs.current[archetype]?.rotateTo(dialSortOrder);
+    setSelectedSortOrder(prev => ({ ...prev, [archetype]: dialSortOrder }));
+    setRevealedKeys(prev => new Set(prev).add(slotKey(archetype, dialSortOrder)));
+    requestAnimationFrame(() => {
+      document.getElementById(archetype)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  function openCompare(archetype: string, archetypeLabel: string, slot: Slot) {
+    setCompareState({ open: true, archetype, archetypeLabel, slot });
   }
 
   const allData = [...orderedArchetypes, ...(experimentalData ? [experimentalData] : [])];
@@ -205,23 +218,26 @@ export default function BloomPage() {
 
       {error && <p className="text-sm text-red-500 px-8 py-4">{error}</p>}
 
-      {/* ── The Bloom Dial per archetype (brief 33) — one reusable component,
-           mounted here from its Bloom-page source. Personalized order (match
+      {/* ── The Bloom Dial per archetype (brief 33), with the full commerce/reveal
+           layer restored on top (The Bloom Part 12). Personalized order (match
            first) for the flavor archetypes, Experimental always last. ── */}
-      {allData.map(data => {
-        const config = buildDialConfig(data);
-        if (!config) return null;
-        return (
-          <BloomDial
-            key={data.archetype}
-            ref={h => registerDialRef(data.archetype, h)}
-            config={config}
-            initialDialSortOrder={selectedSortOrder[data.archetype] ?? computeDefaultSortOrder(data)}
-            onZoneChange={dialSortOrder => handleDialSelect(data.archetype, dialSortOrder)}
-            onPreOrder={coffee => handlePreOrder(data, coffee)}
-          />
-        );
-      })}
+      {allData.map((data, i) => (
+        <DialArchetypeSection
+          key={data.archetype}
+          data={data}
+          index={i}
+          selectedSortOrder={selectedSortOrder[data.archetype] ?? computeDefaultSortOrder(data)}
+          revealedKeys={revealedKeys}
+          onDialSelect={handleDialSelect}
+          onToggleReveal={toggleReveal}
+          onAddToCart={addToCart}
+          onHopClick={handleHopClick}
+          onCompare={openCompare}
+          userArchetype={userArchetype}
+          registerDialRef={registerDialRef}
+          source="bloom"
+        />
+      ))}
 
       {/* ── Other Categories (Decaf / Half-Caf / Flavored) ──
            Bloom Dial Base Data Part 3, Phase 6 — coffees with no dial position,
@@ -253,6 +269,13 @@ export default function BloomPage() {
           </div>
         </section>
       )}
+
+      <CompareOverlay
+        open={compareState.open}
+        onClose={() => setCompareState(s => ({ ...s, open: false }))}
+        left={compareState.slot ? { archetype: compareState.archetype, archetypeLabel: compareState.archetypeLabel, slot: compareState.slot } : null}
+        archetypes={archetypes}
+      />
     </div>
   );
 }

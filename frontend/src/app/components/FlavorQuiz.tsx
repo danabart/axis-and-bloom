@@ -8,7 +8,8 @@ import { saveQuizResult, getUserProfile, getDialPosition, setDialPosition, logQu
 import { trackEvent, trackLead } from '../lib/analytics';
 import { PostQuizEmailGate } from './PostQuizEmailGate';
 import { ShareMatchRow } from './ShareMatchRow';
-import { ArchetypeSection, computeDefaultSortOrder } from './bloom/ArchetypeSection';
+import { computeDefaultSortOrder } from './bloom/ArchetypeSection';
+import { DialArchetypeSection } from './bloom/DialArchetypeSection';
 import { CompareOverlay } from './bloom/CompareOverlay';
 import type { BloomDialHandle } from './BloomDialWidget';
 import type { ArchetypeData, Slot } from './bloom/types';
@@ -701,6 +702,7 @@ export default function FlavorQuiz() {
 
   function handleMatchedHopClick(archetype: string, dialSortOrder: number) {
     matchedDialRef.current?.rotateTo(dialSortOrder);
+    setMatchedSortOrder(dialSortOrder);
     setRevealedKeys(prev => new Set(prev).add(slotKey(archetype, dialSortOrder)));
   }
 
@@ -736,6 +738,7 @@ export default function FlavorQuiz() {
 
   function handleResultsHopClick(archetype: string, dialSortOrder: number) {
     resultsDialRef.current?.rotateTo(dialSortOrder);
+    setResultsSortOrder(dialSortOrder);
     setResultsRevealedKeys(prev => new Set(prev).add(slotKey(archetype, dialSortOrder)));
   }
 
@@ -1152,7 +1155,7 @@ export default function FlavorQuiz() {
         </div>
 
         {matchedData && (
-          <ArchetypeSection
+          <DialArchetypeSection
             data={matchedData}
             index={0}
             selectedSortOrder={matchedSortOrder ?? computeDefaultSortOrder(matchedData)}
@@ -1165,6 +1168,7 @@ export default function FlavorQuiz() {
             userArchetype={matchedArchetypeId}
             registerDialRef={registerMatchedDialRef}
             source="find_my_flavor_returning"
+            embedded
           />
         )}
 
@@ -1581,7 +1585,7 @@ export default function FlavorQuiz() {
                 guestMaskedEmail={!user && postQuizEmail ? maskEmail(postQuizEmail) : null}
               />
               {resultsArchetypeData && (
-                <ArchetypeSection
+                <DialArchetypeSection
                   data={resultsArchetypeData}
                   index={0}
                   selectedSortOrder={resultsSortOrder ?? computeDefaultSortOrder(resultsArchetypeData)}
@@ -1594,6 +1598,7 @@ export default function FlavorQuiz() {
                   userArchetype={matchedArchetypeId}
                   registerDialRef={registerResultsDialRef}
                   source="find_my_flavor_results"
+                  embedded
                 />
               )}
               <CompareOverlay
