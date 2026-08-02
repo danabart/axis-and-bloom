@@ -182,6 +182,14 @@ export const DEFAULT_SOMMELIER_CONFIG = {
       staleAfterDays: 120,
     },
 
+    // HOME_TASK_5 (§4.4) — the story-layer specificity line's post-generation
+    // safety net. Region-and-process are allowed; anything that could pin a
+    // specific farm, co-op, lot, estate, importer, or the roaster is not —
+    // checked case-insensitively, whole-word, against every generated story.
+    storyLayer: {
+      bannedTerms: ['farm', 'co-op', 'coop', 'cooperative', 'estate', 'lot', 'importer', 'roaster', 'roastery'],
+    },
+
     evaluatorRulePriority: [
       'DISCOVERY_SEEKER',
       'PROFILE_AMBIGUOUS',

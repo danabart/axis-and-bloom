@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
+﻿import Anthropic from '@anthropic-ai/sdk';
 import { getSommelierConfig } from './sommelierConfig.js';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -119,8 +119,9 @@ export function assembleSystemPrompt(params: {
   mode: SommelierMode;
   config: ReturnType<typeof getSommelierConfig>;
   brewProfileContext?: string;
+  storyContext?: string;
 }): string {
-  const { session, catalogContext, mode, config, brewProfileContext } = params;
+  const { session, catalogContext, mode, config, brewProfileContext, storyContext } = params;
   const intentCfg = config?.intents?.[session.intent];
   const maxTurns = intentCfg?.maxTurns ?? config?.sessionLimits?.maxTurns ?? 8;
 
@@ -128,10 +129,20 @@ export function assembleSystemPrompt(params: {
 
   // Mode-aware context assembly (§4.6) — the frozen catalog block has no
   // business in a knowledge-dominant turn. Assembly-time only: this never
-  // re-queries the RAG, it just chooses what's already in context_data.
+  // re-queries the RAG/story data, it just chooses what's already in
+  // context_data (§4.4, HOME_TASK_5) — the caller (sommelier.ts) decides
+  // *whether* a story is relevant this turn (my_coffee/origins_process
+  // topics only); this function just injects it, mechanically, when given one.
   if (mode === 'expertise' && (config?.contextAssembly?.omitCatalogInExpertiseMode ?? true)) {
-    // No "current coffee" concept exists yet (arrives with brew cards) — the
-    // one-line-stub path has nothing to stub, so this is the omit branch.
+    if (storyContext) {
+      // The story layer replaces raw origin/catalog fields for exactly the
+      // topics that ask about the customer's own coffee — never invented,
+      // only what's in the published story (§4.4's "speak only from provided
+      // story/catalog context" guardrail, already in LIAM_BASE_PROMPT above).
+      systemParts.push(`\n\nTheir coffee, explained:\n${storyContext}`);
+    }
+    // No story available and no "current coffee" concept exists yet (arrives
+    // with brew cards, HOME_TASK_6) — nothing to inject, the omit branch.
   } else {
     systemParts.push(`\n\n${catalogContext}`);
   }
@@ -183,17 +194,18 @@ export async function chatWithSommelier(params: {
   history: Array<{ role: 'user' | 'assistant'; content: string }>;
   mode?: SommelierMode;
   brewProfileContext?: string;
+  storyContext?: string;
 }): Promise<{
   reply: string;
   modelUsed: string;
   actionTypes: Array<'retake_quiz' | 'open_dial'>;
   rememberOps: Array<{ field: string; rawValue: string }>;
 }> {
-  const { message, session, catalogContext, history, brewProfileContext } = params;
+  const { message, session, catalogContext, history, brewProfileContext, storyContext } = params;
   const mode: SommelierMode = params.mode ?? 'matching';
   const config = getSommelierConfig();
 
-  const systemPrompt = assembleSystemPrompt({ session, catalogContext, mode, config, brewProfileContext });
+  const systemPrompt = assembleSystemPrompt({ session, catalogContext, mode, config, brewProfileContext, storyContext });
 
   let modelId: string;
   let maxTokens: number;

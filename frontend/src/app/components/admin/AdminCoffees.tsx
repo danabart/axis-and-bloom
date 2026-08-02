@@ -30,6 +30,10 @@ interface Coffee {
   origin_region_label: string | null;
   origin_region_value: string | null;
   flavor_descriptors_roaster: string[] | null;
+  story: string | null;
+  story_draft: string | null;
+  story_published: boolean | null;
+  story_admin_edited: boolean | null;
   archetype: string | null;
   confidence: string | null;
   dial_position_id: number | null;
@@ -259,6 +263,12 @@ export default function AdminCoffees() {
   const [movingId, setMovingId]         = useState<number | null>(null);
   const [deletingId, setDeletingId]     = useState<number | null>(null);
 
+  // HOME_TASK_5 (§4.4) — story edit-in-place panel
+  const [storyEditingId, setStoryEditingId] = useState<number | null>(null);
+  const [storyDraft, setStoryDraft]         = useState('');
+  const [storySaving, setStorySaving]       = useState(false);
+  const [storyViolations, setStoryViolations] = useState<string[]>([]);
+
   // alias rank editing (moved here from Blends & SKUs — see Phase 2)
   const [rankAliasId, setRankAliasId] = useState<number | null>(null);
   const [rankValue, setRankValue]     = useState('');
@@ -427,8 +437,42 @@ export default function AdminCoffees() {
 
   async function handleRefreshContent(coffeeId: number) {
     setRefreshingId(coffeeId);
-    try { await apiFetch(`/api/admin/coffees/${coffeeId}/refresh-content`, { method: 'POST' }); }
+    try { await apiFetch(`/api/admin/coffees/${coffeeId}/refresh-content`, { method: 'POST' }); await load(); }
     catch { /* non-critical */ } finally { setRefreshingId(null); }
+  }
+
+  // HOME_TASK_5 (§4.4) — story edit-in-place. "Regenerate" reuses the same
+  // refresh-content endpoint (it already skips story_admin_edited rows).
+  function handleStoryStartEdit(coffee: Coffee) {
+    setStoryEditingId(coffee.id);
+    setStoryDraft(coffee.story ?? coffee.story_draft ?? '');
+    setStoryViolations([]);
+  }
+  function handleStoryCancelEdit() {
+    setStoryEditingId(null);
+    setStoryDraft('');
+    setStoryViolations([]);
+  }
+  async function handleStorySave(coffeeId: number, force = false) {
+    setStorySaving(true);
+    setStoryViolations([]);
+    try {
+      const res = await apiFetch(`/api/admin/coffees/${coffeeId}/story`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ story: storyDraft, force }),
+      });
+      const j = await res.json();
+      if (res.status === 409) { setStoryViolations(j.violations ?? []); return; }
+      if (!res.ok) throw new Error(j.error ?? 'Failed to save');
+      setStoryEditingId(null);
+      setStoryDraft('');
+      await load();
+    } catch (err: unknown) {
+      setStoryViolations([err instanceof Error ? err.message : 'Failed to save']);
+    } finally {
+      setStorySaving(false);
+    }
   }
 
   async function handleRankSave(aliasId: number) {
@@ -722,6 +766,14 @@ export default function AdminCoffees() {
           className="text-stone-200 hover:text-stone-400 disabled:opacity-40 transition-all text-xs opacity-0 group-hover:opacity-100"
           title="Refresh AI content"
         >{refreshingId === coffee.id ? '…' : '↺'}</button>
+        {/* HOME_TASK_5 (§4.4) — story view/edit. Modal-based (rendered once at
+            the page level) rather than an inline expandable row, since
+            CoffeeChip renders inside several different table structures. */}
+        <button
+          onClick={() => handleStoryStartEdit(coffee)}
+          className={`text-xs opacity-0 group-hover:opacity-100 transition-all ${coffee.story_published ? 'text-stone-300 hover:text-stone-500' : 'text-amber-400 hover:text-amber-600'}`}
+          title={coffee.story_published ? 'View/edit story' : 'No published story yet'}
+        >▤</button>
       </div>
     );
   }
@@ -1416,6 +1468,73 @@ export default function AdminCoffees() {
           {archetypeOptions.filter(a => !a.is_archetype).map(a => renderArchetypeSection(a.value, a.label))}
         </div>
       </div>
+
+      {/* HOME_TASK_5 (§4.4) — story view/edit modal. Page-level (not an inline
+          table row) since CoffeeChip renders inside several different table
+          structures above. */}
+      {storyEditingId !== null && (() => {
+        const coffee = coffees.find(c => c.id === storyEditingId);
+        if (!coffee) return null;
+        return (
+          <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-6" onClick={handleStoryCancelEdit}>
+            <div className="bg-white rounded-lg shadow-xl max-w-xl w-full p-6" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-normal text-stone-800">Story — {coffee.name}</h3>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${coffee.story_published ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
+                  {coffee.story_published ? 'Published' : 'Unpublished draft'}
+                </span>
+              </div>
+              {coffee.story_admin_edited && (
+                <p className="text-xs text-stone-400 mb-2">Admin-edited — bulk regenerate will not overwrite this.</p>
+              )}
+              <textarea
+                value={storyDraft}
+                onChange={e => setStoryDraft(e.target.value)}
+                rows={8}
+                className="w-full border border-stone-300 rounded px-3 py-2 text-sm"
+                placeholder="120–200 words. Region and process only — never a farm, co-op, lot, estate, importer, or roaster name."
+              />
+              {storyViolations.length > 0 && (
+                <div className="mt-2 text-xs text-red-500">
+                  <p>Specificity check failed:</p>
+                  <ul className="list-disc list-inside">{storyViolations.map((v, i) => <li key={i}>{v}</li>)}</ul>
+                </div>
+              )}
+              <div className="flex items-center justify-between mt-4">
+                <button
+                  onClick={() => handleRefreshContent(coffee.id)}
+                  disabled={refreshingId === coffee.id}
+                  className="text-xs text-stone-400 hover:text-stone-600 disabled:opacity-50"
+                >
+                  {refreshingId === coffee.id ? 'Regenerating…' : 'Regenerate'}
+                </button>
+                <div className="flex gap-3">
+                  {storyViolations.length > 0 && (
+                    <button
+                      onClick={() => handleStorySave(coffee.id, true)}
+                      disabled={storySaving}
+                      className="px-3 py-1.5 text-xs text-amber-700 border border-amber-300 rounded hover:bg-amber-50 disabled:opacity-50"
+                    >
+                      Save anyway
+                    </button>
+                  )}
+                  <button onClick={handleStoryCancelEdit} className="px-3 py-1.5 text-xs text-stone-500 hover:text-stone-700">
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handleStorySave(coffee.id)}
+                    disabled={storySaving || !storyDraft.trim()}
+                    className="px-4 py-1.5 text-xs text-white rounded disabled:opacity-50"
+                    style={{ backgroundColor: '#b05642' }}
+                  >
+                    {storySaving ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -3233,6 +3233,34 @@ WHAT_WE_BUILT.md #125, no schema change (WHAT_WE_BUILT_DB.md untouched), SOMMELI
 
 ---
 
+### 126. HOME Task 5 — The Story Layer: per-coffee story content, specificity line enforced twice, public story page (2026-07-31)
+
+**Files:** `backend/src/services/storyLayer.ts` (new), `frontend/src/app/components/CoffeeStoryPage.tsx` (new), `backend/src/routes/coffees.ts`, `backend/src/routes/admin.ts`, `backend/src/routes/sommelier.ts`, `backend/src/services/claude.ts`, `backend/src/services/sommelierConfig.ts`, `backend/src/db/seeds/sommelier_config_seed.ts`, `backend/src/db/schema.sql`, `frontend/src/app/components/admin/AdminCoffees.tsx`, `frontend/src/app/App.tsx`
+
+**What this builds**: "their coffee, explained" — curated per-coffee story content (120–200 words, region/process/cupping-tied, editorial voice) that Liam speaks from on `my_coffee`/`origins_process` topic turns, instead of ever touching raw `coffees.origin`/`process` columns directly. The specificity line (region and process yes; farm/co-op/lot/estate/importer/roaster no) is enforced twice: in the generation prompt, and again post-generation via `checkStorySpecificityViolations()` (raw coffee name, every linked roaster name, and a configurable banned-term list), with up to 2 retries feeding back exactly what was caught.
+
+**Storage**: `coffees` gained `story`/`story_draft`/`story_published`/`story_admin_edited`/`story_generated_at`. "Generate, scan, then mark live" — `story` (the only field anything reads) and `story_published` only advance when a generation attempt actually passes the specificity check; a repeatedly-failing coffee leaves its latest attempt in `story_draft` for admin review, never exposed. `story_admin_edited` rows are skipped by future bulk regenerates.
+
+**The S44 lesson, copied not reinvented**: `fetchCoffeeDataForContent()`'s alias resolution was quietly still using the pre-S44 pattern (`coffee_alias.platform_name` only) — fixed by extracting a shared `resolveDisplayName()` matching `sommelierRag.ts`'s `getAliases()` join, used by both content generation and the new public story endpoint.
+
+**Injection**: through `assembleSystemPrompt()` (S71) via a new optional `storyContext` param, injected in the same branch that already omits the catalog in expertise mode — the caller (`sommelier.ts`) decides relevance (topic-gated), keeping the assembly function itself pure and topic-agnostic. The relevant coffee is whichever of the session's RAG-selected coffees (cached at session start, same no-re-query principle as `catalogText`) has a published story — no "current coffee" concept invented here (that's Task 6's).
+
+**Admin**: a story view/edit modal on `AdminCoffees.tsx` + `PATCH /api/admin/coffees/:id/story`, running the same specificity check with a logged `force: true` override for a confident human call.
+
+**Public story page**: `GET /api/coffees/:id/story` (public, roaster-blind) + `/coffee/:id/story`, a small dedicated page (not an extension of `BloomPage.tsx` — that component carries cart/compare/personalization state this public surface doesn't need) reusing the site's archetype-color and editorial-typography conventions. Also — route shape only — Task 7's future non-owner/retired-coffee scan destination.
+
+**Backfill — two real findings, fixed before calling it done**: (1) every generated story included an unwanted Markdown title header, and one invented a new name instead of using the given display name — neither a specificity leak, but both a rendering/consistency problem; fixed at the prompt level plus a defensive strip, and all 25 coffees' story field was regenerated against the corrected prompt. (2) For coffees whose *raw internal catalog name* literally is the origin country (Ethiopia, Honduras, Guatemala, Sumatra, Uganda, Papua New Guinea, Costa Rica, Kenya — an existing naming convention) or a legitimate category term (Decaf), the raw-name check correctly-per-its-own-rule flagged genuinely-compliant region-level content as a match. All but 2 reworded around it within retries; the remaining 2 (Decaf, Sumatra) were read in full, confirmed clean, and published via the documented admin override. **Final state: 25/25 active-rotation coffees have a published story.**
+
+**Config pushed live via the config-drift/config-apply mechanism, not a one-off script**: 1 new path (`storyLayer.bannedTerms`), 0 drift after.
+
+**Verified** (no dev Firestore/Postgres — content generation and backfill ran directly against `axis-and-bloom-prod`): `tsc --noEmit` clean. The S38 spot-check repeated: programmatically scanned all 25 published stories — 23 clean outright, 2 flagged exactly matching the documented overrides (the scan working correctly, not a gap). Manually read well over 5 in full across two backfill passes. Reject-and-retry demonstrated both organically (9+ real rejections during backfill, each logged with the exact violation) and via one hand-crafted deliberately-violating string caught correctly by `checkStorySpecificityViolations()` in isolation. Regenerate-after-edit: an admin-edited story survived `generateAndStoreAllContent(id, {force:true})` byte-for-byte. Injection verified both structurally (`assembleSystemPrompt()` with/without a story, expertise vs. matching mode) and in one real `chatWithSommelier()` conversation turn on a `my_coffee` topic, where Liam's reply drew accurately from the injected story alone.
+
+**Out of scope, unchanged**: `claude.ts`'s three existing content functions (and the file itself, beyond new optional params already covered); no `sommelierRag.ts` query changes; no QR/redirect work (Task 7's own).
+
+WHAT_WE_BUILT.md #126, `WHAT_WE_BUILT_DB.md` gained the `coffees.story*` column group, `SOMMELIER_BUILT.md` S74 (full detail).
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

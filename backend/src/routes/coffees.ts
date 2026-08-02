@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db } from '../db/client.js';
 import { getCoffeeSummary, getCoffeeSurpriseNote, getCoffeeThreeVoiceStory } from '../services/claude.js';
 import { resolveBlendForSlot, resolveCoffeeBlend } from '../services/blendResolver.js';
+import { generateCoffeeStoryWithRetry, checkStorySpecificityViolations } from '../services/storyLayer.js';
 
 const router = Router();
 
@@ -17,21 +18,54 @@ const ARCHETYPE_LABEL: Record<string, string> = {
 // is passed as coffeeName, so the generated text can and does echo it verbatim
 // (confirmed: a cached surprise_note named the coffee's real internal name). The
 // fix lives here, at the call site — claude.ts's functions/prompts are unchanged.
-async function fetchCoffeeDataForContent(coffeeId: string | number) {
-  const [coffeeResult, aliasResult, dimsResult, descriptorResult] = await Promise.all([
+//
+// HOME_TASK_5: the alias query below now resolves the *live dial slot name*
+// first (falling back to coffee_alias.platform_name only for category coffees
+// with no dial slot), copied from sommelierRag.ts's getAliases() rather than
+// reinvented — S44's exact lesson: the old coffee_alias-only query here would
+// have gone stale the same way Liam's catalog context once did. origin/process/
+// roasterNames are new — feeding HOME_TASK_5's story generator; roasterNames
+// covers both the legacy `coffees.roaster` column and any roaster linked via
+// roaster_blend, since either could appear in the raw source material.
+// Resolves a coffee's live dial slot name first, falling back to
+// coffee_alias.platform_name only for category coffees with no dial slot —
+// copied from sommelierRag.ts's getAliases() rather than reinvented (S44's
+// exact lesson: a coffee_alias-only query here would go stale the same way
+// Liam's catalog context once did). Shared by fetchCoffeeDataForContent
+// (content generation) and GET /:id/story (the public story page).
+async function resolveDisplayName(coffeeId: string | number): Promise<string | null> {
+  const result = await db.query(
+    `SELECT DISTINCT ON (ca.coffee_id) ca.coffee_id,
+            COALESCE(dsa.platform_name, ca.platform_name) AS platform_name
+     FROM coffee_alias ca
+     LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id AND dap.is_guest = false
+     LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
+     LEFT JOIN archetype_assignments aa ON aa.coffee_id = ca.coffee_id AND aa.superseded_at IS NULL
+     LEFT JOIN dial_slot_alias dsa
+       ON dsa.archetype = COALESCE(aa.archetype, ca.archetype)
+       AND dsa.dial_sort_order = COALESCE(dpv.sort_order, ca.dial_sort_order)
+       AND NOT EXISTS (
+         SELECT 1 FROM coffee_category_assignment cca
+         JOIN coffee_category cc ON cc.id = cca.category_id
+         WHERE cca.coffee_id = ca.coffee_id AND cc.code IN ('decaf', 'half_caf', 'flavored', 'experimental')
+       )
+     WHERE ca.coffee_id = $1 AND ca.is_active = true
+     ORDER BY ca.coffee_id, ca.priority ASC`,
+    [coffeeId]
+  );
+  return result.rows[0]?.platform_name ?? null;
+}
+
+export async function fetchCoffeeDataForContent(coffeeId: string | number) {
+  const [coffeeResult, displayName, dimsResult, descriptorResult, roasterBlendResult] = await Promise.all([
     db.query(
-      `SELECT c.name, aa.archetype
+      `SELECT c.name, c.roaster, c.origin, c.process, aa.archetype
        FROM coffees c
        LEFT JOIN archetype_assignments aa ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
        WHERE c.id = $1`,
       [coffeeId]
     ),
-    db.query(
-      `SELECT platform_name FROM coffee_alias
-       WHERE coffee_id = $1 AND is_active = true
-       ORDER BY priority ASC LIMIT 1`,
-      [coffeeId]
-    ),
+    resolveDisplayName(coffeeId),
     db.query(
       `SELECT d.name AS dimension, d.scale_min_label, d.scale_max_label,
               ROUND(AVG(csv.value_min)::numeric, 1) AS avg_min,
@@ -53,6 +87,12 @@ async function fetchCoffeeDataForContent(coffeeId: string | number) {
        ORDER BY mentions DESC`,
       [coffeeId]
     ),
+    db.query(
+      `SELECT DISTINCT r.name FROM roaster_blend rb
+       JOIN roaster r ON r.id = rb.roaster_id
+       WHERE rb.coffee_id = $1 AND r.name IS NOT NULL`,
+      [coffeeId]
+    ),
   ]);
 
   if (!coffeeResult.rows.length) throw new Error('Coffee not found');
@@ -65,27 +105,43 @@ async function fetchCoffeeDataForContent(coffeeId: string | number) {
     [coffeeId]
   );
 
+  const roasterNames = [
+    ...new Set([
+      coffeeResult.rows[0]?.roaster,
+      ...roasterBlendResult.rows.map((r: { name: string }) => r.name),
+    ].filter((n): n is string => !!n)),
+  ];
+
   return {
     coffee:       coffeeResult.rows[0],
-    displayName:  aliasResult.rows[0]?.platform_name ?? null,
+    displayName,
     dimensions:   dimsResult.rows,
     descriptors:  descriptorResult.rows,
     overallNotes: notesResult.rows[0]?.overall_notes ?? null,
+    roasterNames,
   };
 }
 
-// ── Generate and store all three AI content fields ────────────────────────────
+// ── Generate and store all three AI content fields (+ HOME_TASK_5's story) ────
 // force=false: only generate fields that are currently null in the DB
-// force=true:  regenerate all three (admin refresh)
+// force=true:  regenerate all (admin refresh) — EXCEPT story when
+//              story_admin_edited is true, which bulk regenerate always skips.
 export async function generateAndStoreAllContent(
   coffeeId: string | number,
   options: { force?: boolean } = {}
-): Promise<{ aiSummary: string; surpriseNote: string | null; threeVoiceStory: string | null }> {
+): Promise<{
+  aiSummary: string;
+  surpriseNote: string | null;
+  threeVoiceStory: string | null;
+  story: string | null;
+  storyPublished: boolean;
+}> {
   const { force = false } = options;
 
   // Check what is already cached
   const cachedResult = await db.query(
-    `SELECT ai_summary, surprise_note, three_voice_story FROM coffees WHERE id = $1`,
+    `SELECT ai_summary, surprise_note, three_voice_story, story, story_published, story_admin_edited
+     FROM coffees WHERE id = $1`,
     [coffeeId]
   );
   const cached = cachedResult.rows[0] ?? {};
@@ -93,12 +149,17 @@ export async function generateAndStoreAllContent(
   const needsSummary  = force || !cached.ai_summary;
   const needsSurprise = force || !cached.surprise_note;
   const needsStory    = force || !cached.three_voice_story;
+  // Admin-edited story content is never auto-regenerated over (spec item 3) —
+  // this is the one field `force` does not override.
+  const needsStoryText = !cached.story_admin_edited && (force || !cached.story);
 
-  if (!needsSummary && !needsSurprise && !needsStory) {
+  if (!needsSummary && !needsSurprise && !needsStory && !needsStoryText) {
     return {
       aiSummary:      cached.ai_summary,
       surpriseNote:   cached.surprise_note,
       threeVoiceStory: cached.three_voice_story,
+      story:           cached.story,
+      storyPublished:  cached.story_published ?? false,
     };
   }
 
@@ -130,8 +191,14 @@ export async function generateAndStoreAllContent(
     descriptors,
   }));
 
+  // HOME_TASK_5 — skip gracefully when there's truly no usable signal (the
+  // coffee-16 "Chocolate" case from S38: no archetype, no cupping data). No
+  // data, no story, no error — same spirit as three_voice_story's own
+  // sourceData.length >= 2 guard just above.
+  const hasEnoughDataForStory = archetypeLabel !== null || dimensionParams.length > 0 || topDescriptors.length > 0;
+
   // Run only what is needed, in parallel
-  const [newSummary, newSurprise, newStory] = await Promise.all([
+  const [newSummary, newSurprise, newStory, storyResult] = await Promise.all([
     needsSummary
       ? getCoffeeSummary({ coffeeName: safeName, archetype: archetypeLabel, dimensions: dimensionParams, topDescriptors, overallNotes: data.overallNotes })
       : Promise.resolve<string | null>(null),
@@ -141,11 +208,23 @@ export async function generateAndStoreAllContent(
     needsStory && sourceData.length >= 2
       ? getCoffeeThreeVoiceStory({ coffeeName: safeName, sourceData })
       : Promise.resolve<string | null>(null),
+    needsStoryText && hasEnoughDataForStory
+      ? generateCoffeeStoryWithRetry(
+          { displayName: safeName, archetype: archetypeLabel, origin: data.coffee.origin ?? null, process: data.coffee.process ?? null, dimensions: dimensionParams, topDescriptors },
+          { rawCoffeeName: data.coffee.name ?? null, roasterNames: data.roasterNames }
+        )
+      : Promise.resolve(null),
   ]);
 
   const aiSummary      = newSummary      ?? cached.ai_summary      ?? '';
   const surpriseNote   = newSurprise     ?? cached.surprise_note   ?? null;
   const threeVoiceStory = newStory       ?? cached.three_voice_story ?? null;
+  // "Generate, scan, THEN mark live" — story_draft always gets the latest
+  // attempt (even a failed one, for admin visibility); `story` (the only
+  // field anything customer-facing reads) and story_published only advance
+  // when that attempt actually passed the specificity check.
+  const story          = storyResult?.passed ? storyResult.text : (cached.story ?? null);
+  const storyPublished = storyResult ? storyResult.passed : (cached.story_published ?? false);
 
   // Persist to Cloud SQL — only update fields that were regenerated
   const updates: string[] = [];
@@ -155,13 +234,23 @@ export async function generateAndStoreAllContent(
   if (newSurprise !== null) { updates.push(`surprise_note = $${idx++}`);    values.push(newSurprise); }
   // For three_voice_story: if force=true and story is null (not enough sources), explicitly clear it
   if (needsStory)           { updates.push(`three_voice_story = $${idx++}`); values.push(newStory); }
+  if (storyResult) {
+    updates.push(`story_draft = $${idx++}`);       values.push(storyResult.text);
+    updates.push(`story_generated_at = NOW()`);
+    if (storyResult.passed) {
+      updates.push(`story = $${idx++}`);           values.push(storyResult.text);
+      updates.push(`story_published = true`);
+    } else {
+      console.warn(`[generateAndStoreAllContent] story for coffee ${coffeeId} failed specificity check after ${storyResult.attempts} attempt(s): ${storyResult.violations.join('; ')} — left unpublished, see story_draft`);
+    }
+  }
 
   if (updates.length) {
     values.push(coffeeId);
     await db.query(`UPDATE coffees SET ${updates.join(', ')} WHERE id = $${idx}`, values);
   }
 
-  return { aiSummary, surpriseNote, threeVoiceStory };
+  return { aiSummary, surpriseNote, threeVoiceStory, story, storyPublished };
 }
 
 // ── Backward-compat wrapper — still used by admin refresh-summary endpoint ────
@@ -791,6 +880,50 @@ router.get('/:id/content', async (req, res) => {
   } catch (err) {
     console.error('[coffees/content]', err);
     res.status(500).json({ error: 'Failed to fetch content' });
+  }
+});
+
+// GET /api/coffees/:id/story ───────────────────────────────────────────────────
+// HOME_TASK_5 (§4.4) — the public story page's data. Public, no auth: this is
+// exactly the surface Task 7's QR redirect (`/b/{token}`) will send a signed-
+// in-but-non-owner scan (or, pending Task 7's own retired-coffee handling, a
+// retired-coffee scan) to — the route shape is built to serve both without
+// change. Roaster-blind, same discipline as /:id/hops: never the raw coffee
+// name or roaster, and `story` is only ever the *published* text — a draft
+// stuck failing its specificity check is never reachable here.
+router.get('/:id/story', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [coffeeResult, displayName, slotResult] = await Promise.all([
+      db.query(`SELECT story, story_published FROM coffees WHERE id = $1`, [id]),
+      resolveDisplayName(id),
+      db.query(
+        `SELECT aa.archetype, dpv.label AS position_label, dpv.sort_order AS dial_sort_order
+         FROM archetype_assignments aa
+         JOIN dial_archetype_positions dap ON dap.coffee_id = aa.coffee_id AND dap.archetype = aa.archetype
+         JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
+         WHERE aa.coffee_id = $1 AND aa.superseded_at IS NULL
+         LIMIT 1`,
+        [id]
+      ),
+    ]);
+    if (!coffeeResult.rows.length) { res.status(404).json({ error: 'Coffee not found' }); return; }
+
+    const archetypeKey = slotResult.rows[0]?.archetype ?? null;
+    const archetypeLabel = archetypeKey ? (ARCHETYPE_LABEL[archetypeKey] ?? archetypeKey) : null;
+
+    res.json({
+      displayName: displayName ?? archetypeLabel ?? 'This coffee',
+      story: coffeeResult.rows[0].story_published ? coffeeResult.rows[0].story : null,
+      archetype: archetypeKey,
+      archetypeLabel,
+      dialPosition: slotResult.rows[0]
+        ? { label: slotResult.rows[0].position_label, sortOrder: slotResult.rows[0].dial_sort_order }
+        : null,
+    });
+  } catch (err) {
+    console.error('[coffees/:id/story]', err);
+    res.status(500).json({ error: 'Failed to fetch story' });
   }
 });
 

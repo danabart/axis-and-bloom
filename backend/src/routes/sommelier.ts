@@ -361,6 +361,23 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
       excludeCoffeeIds,
     });
 
+    // HOME_TASK_5 (§4.4) — cache published stories for this session's RAG-
+    // selected coffees at session start, same "assembly-time only, no
+    // re-query" principle Task 2 established for catalogText. Only entries
+    // that actually have a published story are kept — a coffee lacking one
+    // (no data yet, or generation never passed the specificity check) simply
+    // isn't a candidate, no error.
+    let storyCandidates: Array<{ coffeeId: number; story: string }> = [];
+    if (ragResult.coffeeIds.length) {
+      try {
+        const storyResult = await db.query(
+          `SELECT id, story FROM coffees WHERE id = ANY($1::int[]) AND story_published = true ORDER BY id`,
+          [ragResult.coffeeIds]
+        );
+        storyCandidates = storyResult.rows.map((r: { id: number; story: string }) => ({ coffeeId: r.id, story: r.story }));
+      } catch { /* no published stories yet for this catalog — fine */ }
+    }
+
     // Insert session
     const sessionResult = await db.query(
       `INSERT INTO sommelier_sessions (uid, intent, context_data)
@@ -378,6 +395,7 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
           ragFocus,
           coffeeIds: ragResult.coffeeIds,
           catalogText: ragResult.catalogText,
+          storyCandidates,
           evaluationId: evaluationId ?? null,
         }),
       ]
@@ -639,6 +657,14 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
     const staleNudge = getStaleFieldNudge(brewProfile, topicResult.topic, ctx.staleNudgeSent === true);
     const brewProfileContext = [formatBrewProfileSummary(brewProfile), staleNudge].filter(Boolean).join(' ');
 
+    // Story layer (§4.4, HOME_TASK_5) — only on the two topics that ask about
+    // the customer's own coffee. Uses whatever was cached in context_data at
+    // session start (see the /start handler's own comment); no re-query, no
+    // "current coffee" concept invented here (that's HOME_TASK_6's job).
+    const isMyCoffeeTopic = topicResult.topic === 'my_coffee' || topicResult.topic === 'origins_process';
+    const storyCandidates: Array<{ coffeeId: number; story: string }> = Array.isArray(ctx.storyCandidates) ? ctx.storyCandidates : [];
+    const storyContext = isMyCoffeeTopic && storyCandidates.length > 0 ? storyCandidates[0].story : undefined;
+
     const { reply, modelUsed, actionTypes, rememberOps } = await chatWithSommelier({
       message,
       session: {
@@ -650,6 +676,7 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
       history,
       mode: topicResult.mode,
       brewProfileContext,
+      storyContext,
     });
     const actions = await resolveActions(actionTypes, req.uid!, ctx.archetypeKey ?? null);
     await resolveRemember(req.uid!, rememberOps);

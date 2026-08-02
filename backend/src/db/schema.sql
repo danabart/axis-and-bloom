@@ -948,6 +948,22 @@ ALTER TABLE coffees ADD COLUMN IF NOT EXISTS ai_summary TEXT;
 ALTER TABLE coffees ADD COLUMN IF NOT EXISTS surprise_note TEXT;
 ALTER TABLE coffees ADD COLUMN IF NOT EXISTS three_voice_story TEXT;
 
+-- HOME_TASK_5 (§4.4) — the story layer. `story` is the only field Liam or the
+-- public story page ever reads; it is written ONLY from generated/edited text
+-- that has passed the specificity check (never a null-write of unvalidated
+-- content — "generate, scan, THEN mark live"). `story_draft` holds the most
+-- recent generation attempt even when it failed validation, so a repeatedly-
+-- failing coffee still has something for an admin to look at and fix, without
+-- ever being reachable by a customer-facing read. `story_published` is the
+-- explicit gate (redundant with "story IS NOT NULL" by construction, kept as
+-- its own column for simple admin filtering). `story_admin_edited` rows are
+-- skipped by bulk regenerate.
+ALTER TABLE coffees ADD COLUMN IF NOT EXISTS story TEXT;
+ALTER TABLE coffees ADD COLUMN IF NOT EXISTS story_draft TEXT;
+ALTER TABLE coffees ADD COLUMN IF NOT EXISTS story_published BOOLEAN DEFAULT false;
+ALTER TABLE coffees ADD COLUMN IF NOT EXISTS story_admin_edited BOOLEAN DEFAULT false;
+ALTER TABLE coffees ADD COLUMN IF NOT EXISTS story_generated_at TIMESTAMPTZ;
+
 ALTER TABLE user_profile ADD COLUMN IF NOT EXISTS first_name TEXT;
 ALTER TABLE user_profile ADD COLUMN IF NOT EXISTS last_name TEXT;
 ALTER TABLE user_profile ADD COLUMN IF NOT EXISTS date_of_birth DATE;

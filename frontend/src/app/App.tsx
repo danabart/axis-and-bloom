@@ -29,6 +29,7 @@ import AdminCompanyGifts from './components/admin/AdminCompanyGifts';
 import FlavorIntelligencePage from './components/FlavorIntelligencePage';
 import CoffeesRedirect from './components/CoffeesRedirect';
 import BloomPage from './components/BloomPage';
+import CoffeeStoryPage from './components/CoffeeStoryPage';
 import JoinHousehold from './components/JoinHousehold';
 import TheAxis from './components/TheAxis';
 import Sommelier from './components/Sommelier';
@@ -110,6 +111,7 @@ export default function App() {
               <Route path="/flavor-intelligence" element={<FlavorIntelligencePage />} />
               <Route path="/coffees" element={<CoffeesRedirect />} />
               <Route path="/bloom" element={<BloomPage />} />
+              <Route path="/coffee/:id/story" element={<CoffeeStoryPage />} />
               <Route
                 path="/sommelier"
                 element={

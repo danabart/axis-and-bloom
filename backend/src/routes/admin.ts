@@ -9,6 +9,7 @@ import { DEFAULT_SOMMELIER_CONFIG } from '../db/seeds/sommelier_config_seed.js';
 import { checkAggregateAnomaly, getMonthlySpendEstimate } from '../services/sommelierGuards.js';
 import { getSommelierConfig } from '../services/sommelierConfig.js';
 import { getBrewProfileCounters } from '../services/brewProfile.js';
+import { checkStorySpecificityViolations } from '../services/storyLayer.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -193,6 +194,7 @@ router.get('/coffees', async (_req, res) => {
       SELECT c.id, c.name, c.roaster, c.origin, c.blend_or_single,
              c.process, c.roast_level, c.flavor_descriptors_roaster,
              c.origin_region_id, lv.label AS origin_region_label, lv.value AS origin_region_value,
+             c.story, c.story_draft, c.story_published, c.story_admin_edited,
              aa.archetype, aa.confidence,
              dap.id       AS dial_position_id,
              dap.vocabulary_id AS dial_vocab_id,
@@ -1285,6 +1287,50 @@ router.post('/coffees/:id/refresh-content', async (req, res) => {
   } catch (err) {
     console.error('[admin/refresh-content]', err);
     res.status(500).json({ error: 'Failed to refresh content' });
+  }
+});
+
+// ── PATCH /api/admin/coffees/:id/story ────────────────────────────────────────
+// HOME_TASK_5 (§4.4) — edit-in-place. Marks story_admin_edited so bulk
+// regenerate (refresh-content, backfill) never overwrites it. Runs the exact
+// same specificity check generation uses; a violation is rejected by default
+// (409, listing what tripped) — an admin who's confident the check is a false
+// positive can pass `force: true` to save anyway, which is logged, not silent.
+router.patch('/coffees/:id/story', async (req: AuthRequest, res) => {
+  const { id } = req.params;
+  const { story, force } = req.body ?? {};
+  if (typeof story !== 'string' || story.trim().length === 0) {
+    res.status(400).json({ error: 'story (non-empty string) required' });
+    return;
+  }
+  try {
+    const coffeeResult = await db.query(`SELECT name, roaster FROM coffees WHERE id = $1`, [id]);
+    if (!coffeeResult.rows.length) { res.status(404).json({ error: 'Coffee not found' }); return; }
+    const roasterBlendResult = await db.query(
+      `SELECT DISTINCT r.name FROM roaster_blend rb JOIN roaster r ON r.id = rb.roaster_id WHERE rb.coffee_id = $1`,
+      [id]
+    );
+    const roasterNames = [
+      ...new Set([coffeeResult.rows[0].roaster, ...roasterBlendResult.rows.map((r: { name: string }) => r.name)].filter((n): n is string => !!n)),
+    ];
+
+    const violations = checkStorySpecificityViolations(story, { rawCoffeeName: coffeeResult.rows[0].name ?? null, roasterNames });
+    if (violations.length > 0 && !force) {
+      res.status(409).json({ error: 'Specificity check failed', violations });
+      return;
+    }
+    if (violations.length > 0 && force) {
+      console.warn(`[admin/coffees/:id/story] admin override — saved despite violations for coffee ${id} (uid=${req.uid}): ${violations.join('; ')}`);
+    }
+
+    await db.query(
+      `UPDATE coffees SET story = $1, story_draft = $1, story_published = true, story_admin_edited = true, story_generated_at = NOW() WHERE id = $2`,
+      [story.trim(), id]
+    );
+    res.json({ ok: true, story: story.trim(), violations });
+  } catch (err) {
+    console.error('[admin/coffees/:id/story PATCH]', err);
+    res.status(500).json({ error: 'Failed to save story' });
   }
 });
 

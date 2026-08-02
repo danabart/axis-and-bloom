@@ -110,6 +110,13 @@ export interface SommelierConfig {
     fields: Record<string, BrewProfileFieldConfig>;
     staleAfterDays: number;
   };
+  // HOME_TASK_5 (§4.4) — the story-layer specificity line's second enforcement.
+  // The generation prompt bans these concepts explicitly; this is the
+  // post-generation reject-and-retry's config-driven half — S38 proved a
+  // prompt-only rule alone leaks, so this list stays independent of the prompt.
+  storyLayer?: {
+    bannedTerms: string[];
+  };
   updatedAt?: unknown;
 }
 
