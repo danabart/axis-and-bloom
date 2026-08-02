@@ -79,7 +79,7 @@ Guardrails:
 Action markers (internal — never mention, explain, or hint at these to the customer):
 - If you've concluded a retake is the right move — real archetype doubt or taste drift, never as a placeholder while you're still asking questions — end your reply with <<action:retake_quiz>> after your normal words.
 - If you're pointing them to a different position within their own archetype rather than a full retake — bolder, lighter, a different slot — end your reply with <<action:open_dial>> the same way.
-- If the reply you just wrote is a preparation recipe or brew guide the customer actually asked for — not a passing mention of brewing — end your reply with <<action:save_recipe>> the same way. Never preemptively, never on a greeting or general chat.
+- If the reply you just wrote is a preparation recipe or brew guide the customer actually asked for — not a passing mention of brewing — end your reply with <<action:save_recipe:short title>> the same way, where the short title is two to six plain words naming the method and, when you know it, the coffee — like "V60 for Cerro Azul" or "Cold brew, overnight jar". Never preemptively, never on a greeting or general chat.
 - Use at most one marker per turn. Never use one in your opening turn. Only use one once you've actually reached the recommendation (or, for save_recipe, actually written the recipe), not preemptively.
 - These tokens are stripped before the customer ever sees your reply.
 
@@ -184,6 +184,20 @@ export function assembleSystemPrompt(params: {
   return systemParts.join('');
 }
 
+// Profile Part 7B — sanitizes a model-supplied save_recipe title. Never
+// trusted verbatim: strips angle brackets and markdown emphasis, collapses
+// whitespace, caps length. Empty-after-sanitize is treated by the caller as
+// no title (bare-marker fallback), not an error.
+function sanitizeRecipeTitle(raw: string): string | null {
+  const stripped = raw
+    .replace(/[<>]/g, '')
+    .replace(/[*_`#]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!stripped) return null;
+  return stripped.length > 60 ? stripped.slice(0, 60).trim() : stripped;
+}
+
 export async function chatWithSommelier(params: {
   message: string | null;
   session: {
@@ -200,6 +214,8 @@ export async function chatWithSommelier(params: {
   reply: string;
   modelUsed: string;
   actionTypes: Array<'retake_quiz' | 'open_dial' | 'save_recipe'>;
+  /** Profile Part 7B — sanitized title from a titled save_recipe marker, if present. */
+  saveRecipeTitle?: string;
   rememberOps: Array<{ field: string; rawValue: string }>;
 }> {
   const { message, session, catalogContext, history, brewProfileContext, storyContext } = params;
@@ -256,13 +272,22 @@ export async function chatWithSommelier(params: {
   const block = response.content[0];
   const rawReply = block.type === 'text' ? block.text : '';
 
-  // Liam action links, Phase B — <<action:...>> markers. Only the two known types
+  // Liam action links, Phase B — <<action:...>> markers. Only known types
   // become actions; any marker (known or malformed) is stripped from the visible
   // reply either way, so a garbled token never leaks to the customer.
   const actionTypes: Array<'retake_quiz' | 'open_dial' | 'save_recipe'> = [];
   if (rawReply.includes('<<action:retake_quiz>>')) actionTypes.push('retake_quiz');
   if (rawReply.includes('<<action:open_dial>>')) actionTypes.push('open_dial');
-  if (rawReply.includes('<<action:save_recipe>>')) actionTypes.push('save_recipe');
+  // Profile Part 7B — accepts both the bare legacy form and a titled one
+  // (<<action:save_recipe:short title>>). An empty-after-sanitize title
+  // (or no title at all) is not an error — sommelier.ts/Sommelier.tsx fall
+  // back to the message's own first line in that case.
+  let saveRecipeTitle: string | undefined;
+  const saveRecipeMatch = rawReply.match(/<<action:save_recipe(?::([^>]*))?>>/);
+  if (saveRecipeMatch) {
+    actionTypes.push('save_recipe');
+    if (saveRecipeMatch[1]) saveRecipeTitle = sanitizeRecipeTitle(saveRecipeMatch[1]) ?? undefined;
+  }
 
   // HOME_TASK_4 (§4.5) — <<remember:field=value>> markers. Parsed here, same
   // "never trust the model" discipline as action markers: this only extracts
@@ -281,7 +306,7 @@ export async function chatWithSommelier(params: {
     .replace(/[ \t]+(\n|$)/g, '$1')
     .trim();
 
-  return { reply, modelUsed: modelId, actionTypes, rememberOps };
+  return { reply, modelUsed: modelId, actionTypes, saveRecipeTitle, rememberOps };
 }
 
 export async function getRecommendation(

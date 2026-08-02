@@ -3287,6 +3287,26 @@ WHAT_WE_BUILT.md #127 (no schema change — `liam_saves`/`dial_events.platformNa
 
 ---
 
+### 128. Profile Part 7B — meaningful Liam recipe titles (2026-08-02)
+
+**Files:** `backend/src/services/claude.ts`, `backend/src/routes/sommelier.ts`, `frontend/src/app/components/Sommelier.tsx`
+
+**Why**: #127's `save_recipe` title was `deriveRecipeTitle` — the first non-empty line of Liam's reply, truncated. Liam's replies typically open conversationally ("Here's a recipe for..."), so a user who saves several recipes got a journal full of near-identical, meaningless titles. The only party who actually knows what the recipe *is* is Liam — so he now supplies the title himself, in the marker.
+
+**Task 1 — titled marker.** `<<action:save_recipe>>` becomes `<<action:save_recipe:short title>>` — 2-6 plain words naming the method and, when known, the coffee (e.g. "V60 for Cerro Azul", "Cold brew, overnight jar"). `claude.ts` parses both the bare legacy form and the titled one via one regex (`/<<action:save_recipe(?::([^>]*))?>>/`); a captured title is run through a new `sanitizeRecipeTitle()` — strips `<`/`>` and markdown emphasis chars, collapses whitespace, caps at 60 — never trusted verbatim, same "never trust the LLM for ids" discipline as the rest of Action Links (this is display text, never an id). Empty-after-sanitize is treated as no title, not an error — falls through to the bare-marker path. `chatWithSommelier()`'s return type gained `saveRecipeTitle?: string`, threaded through both `resolveActions()` call sites (opening turn and main turn) in `sommelier.ts`; `SommelierAction`'s `save_recipe` variant gained an optional `title`.
+
+**Task 2 — chip uses the supplied title.** `Sommelier.tsx`'s `handleSaveRecipe()` takes an optional title override, used when the action carries one; `deriveRecipeTitle(content)` (first-line fallback) now only fires for a bare legacy marker. No endpoint change — `POST /api/users/flavor-memory/liam-saves` already just stores whatever title it's given. No `ActivityTimeline.tsx` change — it already renders whatever title was stored.
+
+**Marker instruction location, checked as asked**: confirmed still living entirely in `LIAM_BASE_PROMPT` (code), not mirrored into any Firestore-seeded intent addendum (`sommelier_config_seed.ts` has zero `save_recipe` references) — no admin-portal edit needed.
+
+**Verified** with a real conversation, not a synthetic marker: asked Liam for a V60 recipe for a named coffee, then a separate cold-brew recipe — got back exactly `"V60 for Cerro Azul"` and `"Cold brew overnight jar"` (the first literally matches the spec's own example verbatim), both chips saved correctly, both entries distinguishable in the activity log with the model-supplied titles intact. Also unit-verified via a disposable script: bare marker (no title) still resolves the action with no title (frontend fallback applies); markdown/angle-bracket/extra-whitespace sanitization; long-title capping at exactly 60 chars; an all-markdown title (`***`) sanitizes to empty and correctly falls back to no-title rather than erroring; `tsc --noEmit`/`vite build` both clean. Throwaway account and its Firestore data cleaned up after.
+
+**Out of scope, unchanged**: `retake_quiz`/`open_dial`'s own resolution logic; no new intents/routing/token changes; old pre-Part-7B saved recipes keep their old first-line titles (no migration — not worth one, per spec).
+
+WHAT_WE_BUILT.md #128, SOMMELIER_BUILT.md S75 updated in place (same entry, titled-marker addendum — not a new S-number, since it's a direct extension of the same feature).
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

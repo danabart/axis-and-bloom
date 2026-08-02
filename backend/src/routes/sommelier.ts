@@ -76,10 +76,11 @@ const ARCHETYPE_NAME_TO_KEY: Record<string, string> = {
 type SommelierAction =
   | { type: 'retake_quiz' }
   | { type: 'open_dial'; archetype: string; slot?: number }
-  // Profile Part 7 Task 5 — no payload: this is user-initiated (the customer
-  // taps the chip), the LLM only marks that an offer is appropriate. The
-  // actual write is a separate, validated endpoint the LLM never touches.
-  | { type: 'save_recipe' };
+  // Profile Part 7 Task 5 — the LLM only marks that an offer is appropriate;
+  // the actual write is a separate, validated endpoint the LLM never touches.
+  // Profile Part 7B — `title` is the model-supplied, server-sanitized short
+  // title (display text only, never an id); absent for a bare legacy marker.
+  | { type: 'save_recipe'; title?: string };
 
 // Liam action links, Phase B — resolve <<action:...>> markers into real, server-
 // verified payloads. Never trusts the LLM for ids: retake_quiz needs nothing, and
@@ -89,7 +90,8 @@ type SommelierAction =
 async function resolveActions(
   actionTypes: string[],
   uid: string,
-  archetypeKey: string | null
+  archetypeKey: string | null,
+  saveRecipeTitle?: string
 ): Promise<SommelierAction[]> {
   const actions: SommelierAction[] = [];
   for (const type of actionTypes) {
@@ -110,7 +112,7 @@ async function resolveActions(
       } catch { /* no saved position — link still works, just lands on the default slot */ }
       actions.push(slot != null ? { type: 'open_dial', archetype: archetypeKey, slot } : { type: 'open_dial', archetype: archetypeKey });
     } else if (type === 'save_recipe') {
-      actions.push({ type: 'save_recipe' });
+      actions.push(saveRecipeTitle ? { type: 'save_recipe', title: saveRecipeTitle } : { type: 'save_recipe' });
     }
     // open_dial with no known archetype: nothing sensible to link to — omitted.
   }
@@ -451,6 +453,7 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
     let modelUsed = 'fallback';
     let openingActionTypes: string[] = [];
     let openingRememberOps: Array<{ field: string; rawValue: string }> = [];
+    let openingSaveRecipeTitle: string | undefined;
     try {
       const chatResult = await chatWithSommelier({
         message: null,
@@ -462,6 +465,7 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
       openingMessage = chatResult.reply;
       modelUsed = chatResult.modelUsed;
       openingActionTypes = chatResult.actionTypes;
+      openingSaveRecipeTitle = chatResult.saveRecipeTitle;
       openingRememberOps = chatResult.rememberOps;
     } catch (claudeErr) {
       console.error('[sommelier/start] chatWithSommelier failed, using fallback:', claudeErr);
@@ -473,7 +477,7 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
     }
     // The prompt instructs Liam never to use a marker on the opening turn, but
     // resolve defensively anyway rather than assuming the instruction always holds.
-    const openingActions = await resolveActions(openingActionTypes, req.uid!, archetypeKey);
+    const openingActions = await resolveActions(openingActionTypes, req.uid!, archetypeKey, openingSaveRecipeTitle);
     await resolveRemember(req.uid!, openingRememberOps);
 
     // Save opening message to Firestore
@@ -673,7 +677,7 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
     const storyCandidates: Array<{ coffeeId: number; story: string }> = Array.isArray(ctx.storyCandidates) ? ctx.storyCandidates : [];
     const storyContext = isMyCoffeeTopic && storyCandidates.length > 0 ? storyCandidates[0].story : undefined;
 
-    const { reply, modelUsed, actionTypes, rememberOps } = await chatWithSommelier({
+    const { reply, modelUsed, actionTypes, saveRecipeTitle, rememberOps } = await chatWithSommelier({
       message,
       session: {
         intent: session.intent,
@@ -686,7 +690,7 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
       brewProfileContext,
       storyContext,
     });
-    const actions = await resolveActions(actionTypes, req.uid!, ctx.archetypeKey ?? null);
+    const actions = await resolveActions(actionTypes, req.uid!, ctx.archetypeKey ?? null, saveRecipeTitle);
     await resolveRemember(req.uid!, rememberOps);
 
     if (!gatingEnabled) {

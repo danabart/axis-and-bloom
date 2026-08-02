@@ -17,11 +17,13 @@ const INTENT_LABELS: Record<string, string> = {
 type SommelierAction =
   | { type: 'retake_quiz' }
   | { type: 'open_dial'; archetype: string; slot?: number }
-  | { type: 'save_recipe' };
+  // Profile Part 7B — `title` is the model-supplied, server-sanitized short
+  // title; absent for a bare legacy marker, in which case the fallback below applies.
+  | { type: 'save_recipe'; title?: string };
 
-// Profile Part 7 Task 5 — client-derived title, kept dumb and predictable
-// (server just length-validates and stores): first non-empty line of the
-// message, trimmed to a short label.
+// Profile Part 7 Task 5 — bare-marker fallback only (Part 7B: Liam now
+// normally supplies his own title in the marker). Kept dumb and predictable:
+// first non-empty line of the message, trimmed to a short label.
 function deriveRecipeTitle(content: string): string {
   const firstLine = (content.split('\n').find(l => l.trim().length > 0) ?? '').trim();
   if (!firstLine) return 'Recipe';
@@ -122,12 +124,12 @@ export default function Sommelier() {
   // offer appropriate (the save_recipe action); this only fires because the
   // signed-in user tapped the chip. body is that message's already-rendered
   // text verbatim; the endpoint length-validates and stores.
-  async function handleSaveRecipe(index: number, content: string) {
+  async function handleSaveRecipe(index: number, content: string, suppliedTitle?: string) {
     setRecipeSaveStatus(prev => ({ ...prev, [index]: 'saving' }));
     try {
       const res = await doFetch('/api/users/flavor-memory/liam-saves', {
         method: 'POST',
-        body: JSON.stringify({ title: deriveRecipeTitle(content), body: content }),
+        body: JSON.stringify({ title: suppliedTitle ?? deriveRecipeTitle(content), body: content }),
       });
       if (!res.ok) throw new Error('save failed');
       setRecipeSaveStatus(prev => ({ ...prev, [index]: 'saved' }));
@@ -605,7 +607,7 @@ export default function Sommelier() {
                                     key={ai}
                                     type="button"
                                     disabled={status === 'saving'}
-                                    onClick={() => handleSaveRecipe(i, msg.content)}
+                                    onClick={() => handleSaveRecipe(i, msg.content, action.title)}
                                     className="text-[11px] uppercase tracking-[0.15em] px-3 py-1.5 rounded-full border transition-colors hover:bg-stone-50 disabled:opacity-50"
                                     style={{ borderColor: '#e0dcd4', color: RUST }}
                                   >
