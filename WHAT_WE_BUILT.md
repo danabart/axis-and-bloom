@@ -426,8 +426,7 @@ Migration scripts: `backend/src/db/migrations/`
 | POST | `/api/admin/grant-admin` | Admin | Grant admin role to a user by email — body: `{ "email": "..." }` |
 | DELETE | `/api/admin/revoke-admin` | Admin | Revoke admin role (sets back to customer) — body: `{ "email": "..." }` |
 | POST | `/api/admin/coffees/:id/refresh-summary` | Admin | Force-regenerates and stores the AI tasting note for a coffee — use after new cupping data is added |
-| GET | `/api/coffees` | No | Flat, roaster-leaking coffee list. Superseded for public/frontend use by `/api/coffees/archetypes` (2026-07-12, Flavor Intelligence Part 1) — kept for admin tooling, not called by any public page |
-| GET | `/api/coffees/archetypes` | No | Roaster-blind, archetype-grouped, slot-based catalogue — the source of truth for both The Bloom and the Flavor Intelligence page. Each slot includes `isDefault: boolean` (2026-07-12) |
+| GET | `/api/coffees/archetypes` | No | Roaster-blind, archetype-grouped, slot-based catalogue — the source of truth for both The Bloom and the Flavor Intelligence page. Each slot includes `isDefault: boolean` (2026-07-12). **Removed 2026-08-02 (#131/HOME Task 5d)**: the old flat `GET /api/coffees` (raw `name`/`roaster` list) — confirmed unreferenced by any frontend page, admin tooling, or test, and the "kept for admin tooling" note above was itself stale; this line is the sole survivor of that entry |
 | GET | `/api/coffees/archetype-stats?archetype=` | No | Per-dimension target range + avg actual cupping score + coffee count for one archetype (2026-07-12) |
 | GET | `/api/coffees/:id/legacy-slot` | No | Resolves a raw `coffeeId` to `{ archetype, dialSortOrder }` for old `?coffee=` deep links (2026-07-12) |
 | GET | `/api/coffees/:id/flavor-wheel` | No | Flavor descriptors for one coffee aggregated from all 3 sources via `v_collaborative_flavor_wheel` |
@@ -3342,6 +3341,26 @@ WHAT_WE_BUILT.md #129, `WHAT_WE_BUILT_DB.md` gained the `context_data.storyCandi
 **Out of scope, unchanged**: no story/selection-logic changes (S76's, already working); no RAG query changes beyond name resolution; no alias data edits; no Task 6 work; the two flagged findings above.
 
 WHAT_WE_BUILT.md #130, no schema change, `SOMMELIER_BUILT.md` S77 (full detail, including the complete grep audit table).
+
+---
+
+### 131. HOME Task 5d — FIX: public API raw-name exposure, closing both #130/S77 findings (2026-08-02)
+
+**Files:** `backend/src/routes/coffees.ts`
+
+**Why**: the direct follow-up to #130/S77's grep audit, which documented two findings as out-of-scope. This task closes both — one by removal, one by formal acceptance.
+
+**Finding A — `GET /api/coffees` (bare list, public, unauthenticated, returned raw `name`+`roaster`) — removed.** Confirmed dead before touching anything: no bare `fetch('/api/coffees')` anywhere in `frontend/src` (public or admin components), no reference in the static `/match/*` share pages (pure static HTML, no JS at all), no reference in `backend/scripts/`, and zero test coverage in `coffees.test.ts` despite the router being mounted there. The route table's own prior claim ("kept for admin tooling") was itself stale — no admin component calls it either. Removed the route entirely rather than rebuilding it alias-only, per the task's stated preference: nothing depends on it, so there's no alias-safe version worth maintaining. This table's own `/api/coffees` row above is corrected to reflect the removal.
+
+**Finding B — `GET /api/coffees/other-categories`'s raw-name fallback — accepted, documented, unchanged.** For the 6 category-tagged coffees (Decaf/Half-Caf/Flavored/Experimental), `platform_name ?? coffee_name` is the deliberate S44 fallback rule: these coffees have no dial slot to inherit an alias from, so their own name (or coffee_alias, where one exists) genuinely *is* their customer identity — "Decaf" is a product name, not a leaked internal codename. Formally recorded as accepted-as-designed so a future audit doesn't re-flag it from scratch.
+
+**The routes-audit table** (full table in `SOMMELIER_BUILT.md` S78) — every unauthenticated route in `routes/coffees.ts` (13, now 12 after the removal) and `routes/axis.ts` (3), each given a raw-name/roaster verdict. Confirmed both files have zero `requireAuth`/`requireAdmin` anywhere, so every route in both is public by construction. Result: one fixed (removal), one accepted (Finding B), everything else already alias-safe or carries no coffee identity at all in its response shape.
+
+**Verified**: `tsc --noEmit` clean. Local backend against production Cloud SQL (Auth Proxy, no separate dev environment): `GET /api/coffees` now `404`s; `GET /api/coffees/archetypes` (its replacement) still `200`s, confirming no collateral damage to the router.
+
+**Out of scope, unchanged**: no admin endpoint changes (raw names there are legitimate, `requireAdmin`-gated); no alias data edits; no Task 6/7/8 work.
+
+WHAT_WE_BUILT.md #131, no schema change, `SOMMELIER_BUILT.md` S78 (full detail, including the complete routes-audit table).
 
 ---
 

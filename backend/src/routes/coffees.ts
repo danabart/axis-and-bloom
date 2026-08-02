@@ -279,24 +279,6 @@ export async function generateAndStoreSummary(coffeeId: string | number): Promis
   return summary;
 }
 
-// GET /api/coffees ─────────────────────────────────────────────────────────────
-router.get('/', async (_req, res) => {
-  try {
-    const result = await db.query(
-      `SELECT c.id, c.name, c.roaster, c.origin, c.process, c.roast_level,
-              aa.archetype, aa.confidence
-       FROM coffees c
-       LEFT JOIN archetype_assignments aa
-             ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
-       ORDER BY c.name`
-    );
-    res.json(result.rows);
-  } catch (err) {
-    console.error('[coffees]', err);
-    res.status(500).json({ error: 'Failed to fetch coffees' });
-  }
-});
-
 // GET /api/coffees/archetypes ─────────────────────────────────────────────────
 // Public, roaster-blind — The Bloom Part 1 Phase 1a. Every archetype with every
 // position in its dial vocabulary (not just currently-occupied ones), so the

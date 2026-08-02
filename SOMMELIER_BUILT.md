@@ -993,3 +993,49 @@ Zero unexplained raw-name reads remain on a customer-facing path — the two gen
 - Test account (Firebase Auth + Firestore `users/{uid}` tree, including the `sommelier_sessions/{id}/messages` subcollections + `sommelier_evaluations`/`metadata` + `liam_saves`, and Cloud SQL `sommelier_sessions`/`token_events`/`user_tokens`/`user_profile` rows) fully deleted after verification; confirmed zero remaining.
 
 **Out of scope, unchanged, per the task's own list**: no story/selection-logic changes (S76's, already working); no RAG query changes beyond the name resolution itself; no alias data edits; no Task 6 work; the two flagged-not-fixed findings above (`GET /api/coffees`, `GET /api/coffees/other-categories`'s raw-name fallback).
+
+---
+
+### HOME Task 5d — FIX: Public API Raw-Name Exposure (2026-08-02)
+
+#### S78. Closes both findings S77 flagged: one removed, one formally accepted
+
+**Context**: `HOME_TASK_5D_PUBLIC_API_RAW_NAMES.md`, the direct follow-up to S77's repo-wide grep audit. Two findings, two different dispositions.
+
+**Finding A — `GET /api/coffees` (bare list, public, unauthenticated) — removed.** Confirmed genuinely dead before touching anything, not assumed: grepped `frontend/src` for any bare `fetch('/api/coffees')` (none — every frontend call is scoped to a sub-path like `/archetypes`, `/:id/content`, etc.), checked `frontend/public/match/*/index.html` (the static share pages) for any `<script>`/fetch (none — pure static HTML, no JS), checked `backend/scripts/` (no hits), and checked `coffees.test.ts` (mounts the router but has zero test coverage on the bare `GET /` route). The one place that *claimed* it was live — `WHAT_WE_BUILT.md`'s own route table, "kept for admin tooling, not called by any public page" — was itself stale: grepped every `frontend/src/app/components/admin/*` file for the same bare fetch, also zero hits. Per the task's stated preference and the environment note ("dead public surface is risk with no benefit"), removed the route entirely from `coffees.ts` rather than rebuilding it alias-only — nothing depends on it, so there's no alias-safe version worth maintaining. The stale "kept for admin tooling" line in `WHAT_WE_BUILT.md`'s route table was also corrected in the same pass (see WHAT_WE_BUILT.md #131) — leaving a documented-as-live entry for a route that no longer exists would just reseed the next audit's confusion.
+
+**Finding B — `GET /api/coffees/other-categories`'s raw-name fallback — accepted, documented, not touched.** `displayName: info.platform_name ?? info.coffee_name` — for the 6 category-tagged coffees (Decaf/Half-Caf/Flavored/Experimental), this is the deliberate S44 fallback rule, not a violation: these coffees have no dial slot to inherit a slot alias from (see S44's own reasoning), so their own `coffee_alias.platform_name` — or, for the small number with no alias row at all, their raw catalog name — genuinely *is* their customer identity ("Decaf" is not a leaked internal codename, it's the product name). Recording explicitly here, per the task's own instruction, so this doesn't get re-flagged as a fresh finding by a future audit that doesn't know the S44 precedent: **this fallback is accepted as designed.**
+
+**The routes-audit table**, per the task's own most-important verification ask — every unauthenticated route in `routes/coffees.ts` and `routes/axis.ts` (confirmed both files have zero `requireAuth`/`requireAdmin` anywhere — every route in both is public by construction), verdicted:
+
+**`routes/coffees.ts`** (all public, no auth middleware in the file):
+
+| Route | Verdict |
+|---|---|
+| `GET /` | **Removed this task** — previously raw `c.name`/`c.roaster`, confirmed dead (Finding A) |
+| `GET /archetypes` | Alias-safe — `platformName` sourced only from the `dial_slot_alias`/`coffee_alias` join (`getAliases()`'s sibling logic in `buildSlotsForArchetype()`) |
+| `GET /experimental` | Alias-safe — same `buildSlotsForArchetype()` as `/archetypes` |
+| `GET /archetype-order` | No coffee identity in the response at all — archetype-level ordering only |
+| `GET /other-categories` | Alias-preferred, raw-name fallback for a category coffee with no active alias — **accepted as designed** (Finding B, this task) |
+| `GET /archetype-stats` | No coffee identity — archetype-level dimension aggregate only |
+| `GET /:id/legacy-slot` | No coffee identity — resolves to `{archetype, dialSortOrder}` only |
+| `GET /:coffeeId/hops` | Alias-safe — target's identity is `dial_slot_alias.platform_name` only, own header comment states "never includes to_coffee's id, name, or roaster" |
+| `GET /:id/flavor-wheel` | No coffee identity — descriptor/wheel-category data only (`coffee_name` explicitly dropped from this query per an earlier Bloom Part 1 fix, per the file's own comment) |
+| `GET /:id/dimensions` | No coffee identity — numeric dimension ranges + cupping notes only |
+| `GET /:id/content` | Alias-safe — `aiSummary`/`surpriseNote`/`threeVoiceStory` generated from `safeName` (S38's fix), no raw `name` field anywhere in the response shape |
+| `GET /:id/story` | Alias-safe — `displayName` via `resolveDisplayName()` with archetype-label fallback (S74), never raw name |
+| `GET /:id/ai-summary` | Alias-safe — same `safeName` generation discipline as `/content` (legacy alias of the same underlying function) |
+
+**`routes/axis.ts`** (all public, no auth middleware in the file, and no `coffees` table read at all):
+
+| Route | Verdict |
+|---|---|
+| `GET /vectors` | No coffee identity — archetype-level dimension vectors only |
+| `GET /adjacency` | No coffee identity — archetype-pair adjacency only, from `v_archetype_adjacency` |
+| `GET /stats` | No coffee identity by explicit design — the file's own header comment states "aggregates and timestamps ONLY — no coffee IDs/names... must never leak enough to reconstruct positions or scoring" |
+
+Zero unexplained raw-name/roaster exposure remains on any unauthenticated route in either file — one genuine finding fixed by removal, one formally accepted with its reasoning on record.
+
+**Verified**: `tsc --noEmit` clean. Local backend instance connected to production Cloud SQL via the Auth Proxy (same pattern as S77 — no separate dev environment exists): `GET /api/coffees` now returns `404`; `GET /api/coffees/archetypes` (the route it was superseded by) still returns `200` unaffected, confirming the removal didn't collateral-damage the router.
+
+**Out of scope, unchanged**: no admin endpoint changes (raw names there are legitimate, gated by `requireAdmin`); no alias data edits; no Task 6/7/8 work.
