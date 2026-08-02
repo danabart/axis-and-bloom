@@ -5,7 +5,7 @@ import { db } from '../db/client.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
 import { evaluateSommelier } from '../services/sommelierEvaluator.js';
-import { fetchSommelierCoffees } from '../services/sommelierRag.js';
+import { fetchSommelierCoffees, getAliases } from '../services/sommelierRag.js';
 import { getTokenBalance, spendToken, logUsage } from '../services/tokenService.js';
 import { checkDailyCap, checkMonthlySpendAndAlert } from '../services/sommelierGuards.js';
 import { writeOutcome, checkReturnedToSommelier } from '../services/outcomeTracker.js';
@@ -72,6 +72,40 @@ const ARCHETYPE_NAME_TO_KEY: Record<string, string> = {
   'Floral':            'floral',
   'Experimental':      'experimental',
 };
+
+// HOME_TASK_5b (Defect 1 fix) — a session's RAG-selected coffees, each
+// carrying the S44-correct alias display name alongside its published story
+// (null when the coffee has none). The alias is what makes name-matching
+// against the customer's own message possible; `story: null` is a distinct,
+// meaningful state from "no candidate at all" — a coffee can be a legitimate
+// match target (Liam knows it's on the strip) without having story content.
+interface StoryCandidate {
+  coffeeId: number;
+  alias: string;
+  story: string | null;
+}
+
+// HOME_TASK_5b (Defect 1) — resolves which of the session's story candidates
+// the customer's message is actually asking about, by case-insensitive,
+// whole-word match against each candidate's alias. Exported for testability,
+// same pattern as resolveRemember()/assembleSystemPrompt(). Longest matching
+// alias wins on ties (so "classic decaf" beats "decaf" when both are
+// candidates and the message names the longer one).
+export function resolveStoryForMessage(
+  message: string,
+  candidates: StoryCandidate[]
+): StoryCandidate | null {
+  let best: StoryCandidate | null = null;
+  for (const candidate of candidates) {
+    if (!candidate.alias || candidate.alias.trim().length === 0) continue;
+    const escaped = candidate.alias.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`\\b${escaped}\\b`, 'i');
+    if (re.test(message) && (!best || candidate.alias.length > best.alias.length)) {
+      best = candidate;
+    }
+  }
+  return best;
+}
 
 type SommelierAction =
   | { type: 'retake_quiz' }
@@ -371,21 +405,31 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
       excludeCoffeeIds,
     });
 
-    // HOME_TASK_5 (§4.4) — cache published stories for this session's RAG-
-    // selected coffees at session start, same "assembly-time only, no
-    // re-query" principle Task 2 established for catalogText. Only entries
-    // that actually have a published story are kept — a coffee lacking one
-    // (no data yet, or generation never passed the specificity check) simply
-    // isn't a candidate, no error.
-    let storyCandidates: Array<{ coffeeId: number; story: string }> = [];
+    // HOME_TASK_5 (§4.4), extended by HOME_TASK_5b (Defect 1) — every one of
+    // this session's RAG-selected coffees is a candidate now, not just the
+    // ones with a published story: a coffee still needs to be a valid
+    // name-match target even when it has no story to inject (matched-but-
+    // no-story is a distinct, correct outcome from no-match — see
+    // resolveStoryForMessage()'s own comment). Alias comes from the same
+    // S44-correct join sommelierRag.ts already uses for catalogText, not
+    // reinvented here. Cached at session start, same "assembly-time only, no
+    // re-query" principle Task 2 established for catalogText.
+    let storyCandidates: StoryCandidate[] = [];
     if (ragResult.coffeeIds.length) {
       try {
-        const storyResult = await db.query(
-          `SELECT id, story FROM coffees WHERE id = ANY($1::int[]) AND story_published = true ORDER BY id`,
-          [ragResult.coffeeIds]
-        );
-        storyCandidates = storyResult.rows.map((r: { id: number; story: string }) => ({ coffeeId: r.id, story: r.story }));
-      } catch { /* no published stories yet for this catalog — fine */ }
+        const [storyResult, aliasMap] = await Promise.all([
+          db.query(
+            `SELECT id, story, story_published FROM coffees WHERE id = ANY($1::int[])`,
+            [ragResult.coffeeIds]
+          ),
+          getAliases(ragResult.coffeeIds),
+        ]);
+        storyCandidates = storyResult.rows.map((r: { id: number; story: string | null; story_published: boolean }) => ({
+          coffeeId: r.id,
+          alias: aliasMap.get(r.id) ?? '',
+          story: r.story_published ? r.story : null,
+        }));
+      } catch { /* RAG catalog/alias lookup failed — no candidates, fine */ }
     }
 
     // Insert session
@@ -669,13 +713,31 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
     const staleNudge = getStaleFieldNudge(brewProfile, topicResult.topic, ctx.staleNudgeSent === true);
     const brewProfileContext = [formatBrewProfileSummary(brewProfile), staleNudge].filter(Boolean).join(' ');
 
-    // Story layer (§4.4, HOME_TASK_5) — only on the two topics that ask about
-    // the customer's own coffee. Uses whatever was cached in context_data at
-    // session start (see the /start handler's own comment); no re-query, no
-    // "current coffee" concept invented here (that's HOME_TASK_6's job).
+    // Story layer (§4.4, HOME_TASK_5), extended by HOME_TASK_5b (Defect 1) —
+    // only on the two topics that ask about the customer's own coffee. Uses
+    // whatever was cached in context_data at session start (see the /start
+    // handler's own comment); no re-query, no "current coffee" concept
+    // invented here (that's HOME_TASK_6's job). Selection now resolves the
+    // coffee the customer actually named against the session's alias-carrying
+    // candidates, rather than always taking the first candidate with a story —
+    // the exact Kenya bug: the strip had Kenya, the customer named Kenya, but
+    // selection ignored the name and picked whichever candidate happened to
+    // be first/have a story.
     const isMyCoffeeTopic = topicResult.topic === 'my_coffee' || topicResult.topic === 'origins_process';
-    const storyCandidates: Array<{ coffeeId: number; story: string }> = Array.isArray(ctx.storyCandidates) ? ctx.storyCandidates : [];
-    const storyContext = isMyCoffeeTopic && storyCandidates.length > 0 ? storyCandidates[0].story : undefined;
+    const storyCandidates: StoryCandidate[] = Array.isArray(ctx.storyCandidates) ? ctx.storyCandidates : [];
+    let storyContext: string | undefined;
+    let selectedStoryCoffeeId: number | null = null;
+    if (isMyCoffeeTopic && storyCandidates.length > 0) {
+      const matched = resolveStoryForMessage(message, storyCandidates);
+      // Matched a named coffee: inject its story if it has one; if it doesn't,
+      // no story at all — never substitute a different candidate's story for
+      // the one the customer actually asked about.
+      const fallback = matched ? null : storyCandidates.find(c => c.story) ?? null;
+      const selected = matched ?? fallback;
+      storyContext = selected?.story ?? undefined;
+      selectedStoryCoffeeId = selected?.coffeeId ?? null;
+      console.log(`[storyLayer] turn selected coffeeId=${selectedStoryCoffeeId ?? 'none'} (${matched ? 'named match' : fallback ? 'fallback' : 'no candidate story'}) for session=${sessionId}`);
+    }
 
     const { reply, modelUsed, actionTypes, saveRecipeTitle, rememberOps } = await chatWithSommelier({
       message,

@@ -77,7 +77,7 @@ async function getDescriptors(coffeeIds: number[]): Promise<Map<number, string[]
 // coffee_alias.platform_name as a legitimate per-coffee identity — same fallback
 // the public /api/coffees/other-categories endpoint uses. Falls back to the
 // archetype label (caller-side) if a coffee has no alias row at all.
-async function getAliases(coffeeIds: number[]): Promise<Map<number, string>> {
+export async function getAliases(coffeeIds: number[]): Promise<Map<number, string>> {
   if (!coffeeIds.length) return new Map();
   const result = await db.query(
     `SELECT DISTINCT ON (ca.coffee_id) ca.coffee_id,

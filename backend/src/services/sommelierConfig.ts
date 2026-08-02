@@ -109,6 +109,11 @@ export interface SommelierConfig {
   brewProfile?: {
     fields: Record<string, BrewProfileFieldConfig>;
     staleAfterDays: number;
+    // HOME_TASK_5b — Defect 2 fix: how many <<remember:...>> markers a single
+    // reply may carry. Was an unconfigured "at most one" prompt rule only;
+    // raised to 2 so a customer who states two distinct facts in one message
+    // doesn't hear both confirmed but only one actually saved.
+    maxMarkersPerTurn: number;
   };
   // HOME_TASK_5 (§4.4) — the story-layer specificity line's second enforcement.
   // The generation prompt bans these concepts explicitly; this is the

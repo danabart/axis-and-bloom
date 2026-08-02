@@ -180,6 +180,11 @@ export const DEFAULT_SOMMELIER_CONFIG = {
         },
       },
       staleAfterDays: 120,
+      // HOME_TASK_5b — Defect 2: raised from an unconfigured "at most one"
+      // prompt rule so two distinct facts stated in one message can both be
+      // confirmed and both be saved, instead of one being verbally "noted"
+      // and silently dropped.
+      maxMarkersPerTurn: 2,
     },
 
     // HOME_TASK_5 (§4.4) — the story-layer specificity line's post-generation
