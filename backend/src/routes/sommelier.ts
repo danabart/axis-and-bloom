@@ -107,6 +107,37 @@ export function resolveStoryForMessage(
   return best;
 }
 
+// HOME_TASK_5c — the coffee-strip display names shown above the first message
+// (`/start` and `/:sessionId/messages`, both below) previously selected
+// coffees.name directly — the raw internal name, the same S38/S44 violation
+// class already fixed in buildCatalogText() and getAliases() itself. Resolves
+// through getAliases() (sommelierRag.ts, S44-correct dial_slot_alias join) —
+// not reinvented here — falling back to the archetype label, never the raw
+// name, for any coffee with no alias at all (identical rule to
+// buildCatalogText()'s own fallback). `/:sessionId/messages` calls this at
+// read time from a session's stored coffeeIds, so a pre-fix historical
+// session's strip heals itself on next load with no data migration.
+async function resolveCoffeeDisplayNames(coffeeIds: number[]): Promise<string[]> {
+  if (!coffeeIds.length) return [];
+  const [aliasMap, archetypeResult] = await Promise.all([
+    getAliases(coffeeIds),
+    db.query(
+      `SELECT c.id, aa.archetype::text AS archetype
+       FROM coffees c
+       JOIN archetype_assignments aa ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
+       WHERE c.id = ANY($1::int[])`,
+      [coffeeIds]
+    ),
+  ]);
+  const archetypeLabel = new Map<number, string>();
+  for (const row of archetypeResult.rows as { id: number; archetype: string }[]) {
+    archetypeLabel.set(row.id, row.archetype.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()));
+  }
+  return coffeeIds
+    .map((id) => aliasMap.get(id) || archetypeLabel.get(id) || 'Coffee')
+    .sort((a, b) => a.localeCompare(b));
+}
+
 type SommelierAction =
   | { type: 'retake_quiz' }
   | { type: 'open_dial'; archetype: string; slot?: number }
@@ -544,12 +575,9 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
       [newSessionId]
     );
 
-    // Coffee names for the frontend display
-    const coffeeNamesResult = await db.query(
-      'SELECT name FROM coffees WHERE id = ANY($1::int[]) ORDER BY name',
-      [ragResult.coffeeIds]
-    );
-    const coffeeNames = coffeeNamesResult.rows.map((r: { name: string }) => r.name);
+    // Coffee names for the frontend display — aliases only, see
+    // resolveCoffeeDisplayNames() above (HOME_TASK_5c).
+    const coffeeNames = await resolveCoffeeDisplayNames(ragResult.coffeeIds);
 
     res.json({
       sessionId: newSessionId,
@@ -860,15 +888,15 @@ router.get('/:sessionId/messages', requireAuth, blockAnonymousAuth, async (req: 
     }
     const ctx = sessionResult.rows[0].context_data ?? {};
 
-    // Read messages from Firestore; fall back to SQL for sessions predating this migration
-    const [firestoreSnap, coffeeNamesResult] = await Promise.all([
+    // Read messages from Firestore; fall back to SQL for sessions predating this migration.
+    // coffeeNames resolved via resolveCoffeeDisplayNames() (HOME_TASK_5c) — aliases only,
+    // resolved at read time so a pre-fix historical session's strip heals itself.
+    const [firestoreSnap, coffeeNames] = await Promise.all([
       firestoreDb
         .collection(`users/${req.uid}/sommelier_sessions/${sessionId}/messages`)
         .orderBy('seq')
         .get(),
-      ctx.coffeeIds?.length
-        ? db.query('SELECT name FROM coffees WHERE id = ANY($1::int[]) ORDER BY name', [ctx.coffeeIds])
-        : Promise.resolve({ rows: [] as { name: string }[] }),
+      resolveCoffeeDisplayNames(ctx.coffeeIds ?? []),
     ]);
 
     let messages: { role: string; content: string; actions?: SommelierAction[] }[];
@@ -888,7 +916,7 @@ router.get('/:sessionId/messages', requireAuth, blockAnonymousAuth, async (req: 
 
     res.json({
       messages,
-      coffeeNames: coffeeNamesResult.rows.map((r: { name: string }) => r.name),
+      coffeeNames,
     });
   } catch (err) {
     console.error('[sommelier/messages]', err);

@@ -3327,6 +3327,24 @@ WHAT_WE_BUILT.md #129, `WHAT_WE_BUILT_DB.md` gained the `context_data.storyCandi
 
 ---
 
+### 130. HOME Task 5c — FIX: coffee-strip raw-name leak, the last known customer-facing `coffees.name` read (2026-08-02)
+
+**Files:** `backend/src/routes/sommelier.ts`
+
+**Why**: flagged verbatim in #129/S76 while fixing HOME Task 5b — the coffee-strip line above the first Liam message (`coffeeNames`, built in both `POST /start` and `GET /:sessionId/messages`) selected the coffee's raw internal name (e.g. "Kenya") instead of its customer-safe alias, the same violation class S38 and S44 already fixed elsewhere. It also explains why S76's Defect 1 happened at all: the UI was teaching customers a name Liam is forbidden to know, so the customer could never type back an alias for the new name-matching path to catch.
+
+**Fix**: new `resolveCoffeeDisplayNames(coffeeIds)` helper resolves through `sommelierRag.ts`'s exported `getAliases()` (the S44-correct `dial_slot_alias` join, not reinvented), falling back to the coffee's archetype label — never the raw name — for any coffee with no alias, matching `buildCatalogText()`'s own fallback rule. Both `coffeeNames` build sites now call it; no third site exists. Historical sessions need no migration — names resolve at read time.
+
+**The S44 grep audit** (full table in `SOMMELIER_BUILT.md` S77): every `coffees.name`/`c.name` read across `backend/src`, verdicted. Two genuine, pre-existing, out-of-scope findings surfaced and flagged, not fixed: `GET /api/coffees` (bare list) is fully public with no auth and returns raw `c.name`/`c.roaster` directly, though unreferenced by the current frontend; `GET /api/coffees/other-categories` is alias-preferred but falls back to the raw name (not the archetype label) if a category coffee ever lacks an active alias row — currently benign, all 6 category coffees have one. Everything else audited was already alias-correct at its boundary or legitimately admin-only (`router.use(requireAdmin)`).
+
+**Verified** against production (Cloud SQL Auth Proxy + a live backend instance, real browser, marked test data, full cleanup): `tsc --noEmit` clean. Proved historical-session healing against a real pre-fix session (id 16, started 2026-07-31, containing coffee 31/Kenya) — minted a Firebase ID token for its own uid via Admin SDK custom-token exchange and called the live `GET /:sessionId/messages` endpoint directly: returns `"Jammy & Aromatic"`, never `"Kenya"`, with no data migration. Real browser signup + fresh Liam session showed an all-alias coffee strip (screenshot taken); the app's own "Resume conversation" flow (which hits the same endpoint) rendered identically on reload. Closed the loop the task called out: sent "tell me about the jammy & aromatic one" into a session and got `[storyLayer] turn selected coffeeId=31 (named match)` in the logs plus an accurate Kenya-story reply — the exact mechanism S76 built but couldn't fully exercise until this fix. Test account and all its Auth/Firestore/Postgres data deleted after.
+
+**Out of scope, unchanged**: no story/selection-logic changes (S76's, already working); no RAG query changes beyond name resolution; no alias data edits; no Task 6 work; the two flagged findings above.
+
+WHAT_WE_BUILT.md #130, no schema change, `SOMMELIER_BUILT.md` S77 (full detail, including the complete grep audit table).
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.
