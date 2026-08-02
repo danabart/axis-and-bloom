@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, type CSSProperties } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, type CSSProperties, type ReactNode } from 'react';
 import { getCells, colorizeCells, BEIGE, W, H, type Cell, type RGB } from './fillEngine';
 import { LINEWORK_URI } from './linework';
 import type { DialConfig, DialCoffee } from './archetypeConfig';
@@ -20,6 +20,14 @@ interface Props {
   onZoneChange?: (dialSortOrder: number) => void;
   /** Fired by PRE-ORDER THIS COFFEE with the currently selected coffee. */
   onPreOrder?: (coffee: DialCoffee) => void;
+  /** Replaces the built-in PRE-ORDER button when provided — the parent section
+   *  owns commerce so all four dial surfaces share one flow. */
+  bottomContent?: ReactNode;
+  /** Full-width content rendered below the reading/instrument stage, inside the
+   *  section (the revealed informational layer). */
+  belowStage?: ReactNode;
+  /** Compact variant for embedded contexts (quiz screens, Profile). */
+  embedded?: boolean;
 }
 
 const TRAVEL = 120;
@@ -41,7 +49,7 @@ function ensureStyles() {
 }
 
 export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
-  { config, initialDialSortOrder = 2, onZoneChange, onPreOrder },
+  { config, initialDialSortOrder = 2, onZoneChange, onPreOrder, bottomContent, belowStage, embedded = false },
   ref,
 ) {
   const rootRef    = useRef<HTMLDivElement>(null);
@@ -295,7 +303,12 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
   } as CSSProperties;
 
   return (
-    <section ref={rootRef} id={config.archetype} className="bd-section" style={rootVars}>
+    <section
+      ref={rootRef}
+      id={config.archetype}
+      className={embedded ? 'bd-section bd-embedded' : 'bd-section'}
+      style={rootVars}
+    >
       <div className="bd-stage">
         {/* Reading column */}
         <div className="bd-reading">
@@ -315,13 +328,15 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
             <div className="bd-coffee-price" ref={priceRef}>
               12oz · $32.00 &nbsp;/&nbsp; 5lb · $185.00
             </div>
-            <button
-              className="bd-btn"
-              type="button"
-              onClick={() => onPreOrderRef.current?.(configRef.current.coffees[zoneRef.current])}
-            >
-              PRE-ORDER THIS COFFEE&nbsp;&nbsp;→
-            </button>
+            {bottomContent ?? (
+              <button
+                className="bd-btn"
+                type="button"
+                onClick={() => onPreOrderRef.current?.(configRef.current.coffees[zoneRef.current])}
+              >
+                PRE-ORDER THIS COFFEE&nbsp;&nbsp;→
+              </button>
+            )}
           </div>
         </div>
 
@@ -356,6 +371,7 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
           </div>
         </div>
       </div>
+      {belowStage}
     </section>
   );
 });
@@ -411,5 +427,19 @@ const CSS = `
 }
 @media (prefers-reduced-motion:reduce){
   .bd-rotor,.bd-needle,.bd-now,.bd-coffee-name,.bd-btn{transition:none !important;}
+}
+.bd-section.bd-embedded .bd-stage{min-height:0;grid-template-columns:minmax(260px,32%) 1fr;}
+.bd-embedded .bd-reading{padding:34px 30px 38px;}
+.bd-embedded .bd-instrument{padding:42px 24px;}
+.bd-embedded .bd-dial-wrap{width:300px;height:300px;}
+.bd-embedded .bd-ruler{width:280px;margin-top:28px;}
+.bd-embedded .bd-bdial{font-size:19px;margin-top:8px;}
+.bd-embedded .bd-coffee-name{font-size:23px;min-height:0;margin-top:10px;}
+.bd-embedded .bd-reading-bottom{padding-top:22px;}
+.bd-embedded .bd-field-bag{right:22px;bottom:18px;}
+.bd-embedded .bd-field-bag img{width:92px;}
+@media (max-width:940px){
+  .bd-embedded .bd-instrument{padding:36px 16px 96px;}
+  .bd-embedded .bd-dial-wrap{width:260px;height:260px;}
 }
 `;

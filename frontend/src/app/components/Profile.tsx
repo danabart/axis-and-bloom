@@ -5,7 +5,8 @@ import { ArrowRight, Package, Heart, LogOut, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { getUserProfile, getHomepageState, getDialPosition, setDialPosition, getFlavorMemory, type FlavorMemoryData } from '../lib/api';
-import { ArchetypeSection, computeDefaultSortOrder } from './bloom/ArchetypeSection';
+import { computeDefaultSortOrder } from './bloom/ArchetypeSection';
+import { DialArchetypeSection } from './bloom/DialArchetypeSection';
 import { CompareOverlay } from './bloom/CompareOverlay';
 import { useArchetypeAdjacency } from './coffee-info/archetypeAdjacency';
 import type { BloomDialHandle } from './BloomDialWidget';
@@ -199,6 +200,7 @@ export default function Profile() {
 
   function handleHopClick(archetype: string, sortOrder: number) {
     dialRef.current?.rotateTo(sortOrder);
+    setDialSortOrderState(sortOrder);
     setRevealedKeys(prev => new Set(prev).add(slotKey(archetype, sortOrder)));
   }
 
@@ -254,6 +256,7 @@ export default function Profile() {
 
   function handleAdjacentHopClick(archetype: string, sortOrder: number) {
     adjacentDialRef.current?.rotateTo(sortOrder);
+    setAdjacentSortOrderState(sortOrder);
     setAdjacentRevealedKeys(prev => new Set(prev).add(slotKey(archetype, sortOrder)));
   }
 
@@ -496,7 +499,7 @@ export default function Profile() {
                         screens. Pops in once matchedData resolves; the intro block above stays
                         visible in the meantime rather than the tab appearing to jump. */}
                     {matchedData && (
-                      <ArchetypeSection
+                      <DialArchetypeSection
                         data={matchedData}
                         index={0}
                         selectedSortOrder={dialSortOrder ?? computeDefaultSortOrder(matchedData)}
@@ -510,6 +513,7 @@ export default function Profile() {
                         registerDialRef={registerDialRef}
                         source="profile"
                         hideProfileLink
+                        embedded
                       />
                     )}
 
@@ -546,7 +550,7 @@ export default function Profile() {
                             See in Flavor Intelligence →
                           </Link>
                         </div>
-                        <ArchetypeSection
+                        <DialArchetypeSection
                           data={adjacentData}
                           index={1}
                           selectedSortOrder={adjacentSortOrder ?? computeDefaultSortOrder(adjacentData)}
@@ -560,6 +564,7 @@ export default function Profile() {
                           registerDialRef={registerAdjacentDialRef}
                           source="profile"
                           hideProfileLink
+                          embedded
                         />
                       </div>
                     )}
