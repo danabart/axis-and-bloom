@@ -3394,9 +3394,6 @@ WHAT_WE_BUILT.md #132, `WHAT_WE_BUILT_DB.md` gains the `brew_card` table + the `
 
 ---
 
- 
- ---
- 
 ### 134. HOME Task 7 — The QR Door: per-coffee tokens, `/b/:token` redirect, scan logging, artwork export (2026-08-02/03)
 
 *(Numbered 134, out of file order — a concurrent session's #133 (HOME Task 8) landed while this entry was being written; renumbered here rather than touching their entry.)*
@@ -3433,6 +3430,35 @@ WHAT_WE_BUILT.md #134, `WHAT_WE_BUILT_DB.md` gains `coffees.qr_token` + `qr_scan
 
 ---
 
+### 133. HOME Task 8 — Beats v1 + Twilio: order-placed, arrival note, first-brew dial-in (2026-08-02)
+
+**Files:** `backend/src/services/beatEngine.ts` (new), `backend/src/routes/beats.ts` (new), `backend/src/db/schema.sql`, `backend/src/db/seeds/sommelier_config_seed.ts`, `backend/src/services/sommelierConfig.ts`, `backend/src/services/storyLayer.ts`, `backend/src/services/smsProvider.ts`, `backend/src/services/liamSmsFeedback.ts`, `backend/src/routes/orders.ts`, `backend/src/routes/cron.ts`, `backend/src/index.ts`, `.github/workflows/deploy.yml`, `frontend/src/app/context/CartContext.tsx`
+
+**What it is**: the bag cycle's first three beats, lifecycle-aware and degrading gracefully on silence — order-placed confirmation line, arrival note dispatch (Task 6's card+email, now routed through a real engine instead of an unconditional hook), and first-brew dial-in (a closed lighter/bolder question whose reply adjusts the customer's brew card and writes a dial-position signal). Plus a real, gated Twilio integration ready for the moment A2P approval lands.
+
+**New `beat_event` table** — one row per (user, order, beat type), `UNIQUE(user_id, order_id, beat_type)` is the idempotency guarantee: every dispatch is `ON CONFLICT DO NOTHING`, so re-firing a signal for the same order is always a safe no-op. Also new: `user_phone.sms_beats_opt_in*` (the extended consent, distinct from the legacy feedback-only opt-in) and `sommelier_sms_feedback.message_kind`/`beat_event_id` (lets the inbound webhook route a beat reply without touching its existing parsing function's signature).
+
+**The engine** (`beatEngine.ts`) reads every rule from `config/sommelier.beats` — no hard-coded cases. Bag number and repeat-coffee skip reuse Task 6's own `getBagNumberForCoffee()`. Degrade-on-silence: a trailing-window responded/sent ratio drops `dial_in` (never `arrival_note` — the minimal-set floor) below a configured response rate, with too little history never judged prematurely.
+
+**The order-placed line** is now real, injected synchronously into the checkout response (`orderPlacedLine`), shown in place of the old static "Order placed!" text.
+
+**First-brew dial-in** fires `config`-driven days after order placement (default 3, distinct from both the legacy 10-day ask and Task 6's own 4-day arrival delay) via a new daily cron. Two reply paths converge on one shared handler, `respondToDialInBeat()`: an on-site capability link ("the card's door," reachable from the email's quick-response buttons) and the existing SMS webhook (extended, not duplicated — `parseInboundReply()` now returns its parsed expectation instead of only writing it internally).
+
+**Twilio** (`smsProvider.ts`) is a real, working REST integration (plain `fetch`, no new SDK dependency) — verified against Twilio's live API with placeholder credentials (got a real, structurally-correct `401`, proving the request shape works). Three new secrets created in GCP Secret Manager with clearly-labeled placeholders so `deploy.yml` can safely reference them without breaking the next deploy. Every real send stays behind `config.beats.smsEnabled` (seed `false`) — email is the only live channel this pass.
+
+**The supersede cutover**: `orders.ts` no longer calls the legacy `schedulePostDeliveryMessage()` at all — a structural cutover, not a per-order check, so a customer can never receive both the dial-in beat and the legacy post-delivery ask for the same bag. The legacy scheduling/parsing functions themselves are untouched and still used by historical, already-scheduled rows.
+
+**A real, dormant production bug found and fixed along the way**: `FRONTEND_URL` was never actually set on Cloud Run (confirmed by querying the live service directly) — every email link built from it, including Task 6's own arrival-note link, has pointed at `localhost` in production since it shipped. Fixed via `deploy.yml`'s new `--set-env-vars`.
+
+**Verified** against real production data, not mocked: idempotency proven by calling both dispatch functions twice and confirming no duplicate rows/cards; repeat-coffee skip confirmed with a real second order (`skip_reason` recorded); degrade-on-silence confirmed in isolation (arrival note still fired, dial-in didn't); the full reply round-trip confirmed live (card grind adjusted, revision bumped, signal written, reply marked responded, and a second reply attempt correctly no-op'd); supersede audit confirmed zero legacy SMS rows created alongside real beat dispatch; Twilio's real API call and graceful failure handling both confirmed live.
+
+**Out of scope, unchanged**: no empty-bag reorder beat (Task 12's own); no palate prompts (Task 11's own); A2P carrier registration and the extended consent copy are Dana's calendar items.
+
+**Still needs manual setup**: a Cloud Scheduler job for `GET /api/cron/beat-dial-in-send` (same pattern as the still-open `brew-card-arrival-send` job from #132).
+
+WHAT_WE_BUILT.md #133, `WHAT_WE_BUILT_DB.md` gains the `beat_event` table + the `sms_beats_opt_in`/`message_kind` fields, `SOMMELIER_BUILT.md` S81 (full detail).
+
+---
 
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.

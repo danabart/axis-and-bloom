@@ -136,35 +136,29 @@ export async function generateCoffeeStoryWithRetry(
   return { text: lastText, passed: false, attempts: maxRetries + 1, violations: lastViolations };
 }
 
-// HOME_TASK_6 (§3.1) — the arrival note's one warm sentence about the coffee
-// itself (distinct from the brew card's own `params.notes`, which is pure
-// code + config — see brewCard.ts's computeRecipe()). Same content pipeline,
-// same alias-only/specificity discipline as the full story (S38/S44/S74):
-// displayName only, never the raw coffee name or roaster, checked with the
-// identical checkStorySpecificityViolations() rather than a second checker.
-// One generation attempt, one retry with the violation named, then a safe
-// generic fallback that mentions nothing coffee-specific at all — an arrival
-// note must never block on content-pipeline failure.
-export async function generateBrewNoteSentence(
-  params: { displayName: string; archetype: string | null; topDescriptors: string[] },
+// Shared by generateBrewNoteSentence() and generateOrderPlacedLine() (HOME_TASK_6
+// / HOME_TASK_8) — both are "one warm sentence about a specific coffee," same
+// content pipeline, same alias-only/specificity discipline as the full story
+// (S38/S44/S74): displayName only, never the raw coffee name or roaster,
+// checked with the identical checkStorySpecificityViolations() rather than a
+// second checker. One generation attempt, one retry with the violation
+// named, then the caller's own generic fallback — neither an arrival note
+// nor an order confirmation may ever block on content-pipeline failure.
+async function generateOneWarmSentence(
+  label: string,
+  promptCore: string,
+  fallback: string,
   identity: { rawCoffeeName: string | null; roasterNames: string[] }
 ): Promise<string> {
-  const FALLBACK = `${params.displayName} is on its way to your cup — here's how to get the most out of it.`;
-
   async function attempt(correctionNote?: string): Promise<string> {
     const correction = correctionNote
       ? `\n\nYour previous attempt was rejected for this reason: ${correctionNote}. Do not repeat this.`
       : '';
-    const content = `Write exactly one warm, editorial sentence (max 30 words) introducing "${params.displayName}"${params.archetype ? `, a ${params.archetype} coffee` : ''} for a customer whose bag just arrived. Refer to it only as "${params.displayName}" or "this coffee" — never invent another name.
-${params.topDescriptors.length ? `Top flavor descriptors: ${params.topDescriptors.join(', ')}` : ''}
-
-Rules: one sentence only, no title, no markdown. Never name a specific farm, co-op, cooperative, estate, lot, or importer. Never name a roaster.${correction}`;
-
     const response = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 100,
       system: STORY_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content }],
+      messages: [{ role: 'user', content: `${promptCore}${correction}` }],
     });
     const block = response.content[0];
     return (block.type === 'text' ? block.text : '').trim();
@@ -174,17 +168,48 @@ Rules: one sentence only, no title, no markdown. Never name a specific farm, co-
     let text = await attempt();
     let violations = checkStorySpecificityViolations(text, identity);
     if (violations.length > 0) {
-      console.warn(`[storyLayer] brew-note sentence attempt 1 rejected for "${params.displayName}": ${violations.join('; ')}`);
+      console.warn(`[storyLayer] ${label} attempt 1 rejected: ${violations.join('; ')}`);
       text = await attempt(violations.join('; '));
       violations = checkStorySpecificityViolations(text, identity);
     }
     if (violations.length > 0) {
-      console.warn(`[storyLayer] brew-note sentence attempt 2 also rejected for "${params.displayName}": ${violations.join('; ')} — using generic fallback`);
-      return FALLBACK;
+      console.warn(`[storyLayer] ${label} attempt 2 also rejected: ${violations.join('; ')} — using generic fallback`);
+      return fallback;
     }
-    return text || FALLBACK;
+    return text || fallback;
   } catch (err) {
-    console.error('[storyLayer] generateBrewNoteSentence failed, using fallback:', err);
-    return FALLBACK;
+    console.error(`[storyLayer] ${label} failed, using fallback:`, err);
+    return fallback;
   }
+}
+
+// HOME_TASK_6 (§3.1) — the arrival note's one warm sentence about the coffee
+// itself (distinct from the brew card's own `params.notes`, which is pure
+// code + config — see brewCard.ts's computeRecipe()).
+export async function generateBrewNoteSentence(
+  params: { displayName: string; archetype: string | null; topDescriptors: string[] },
+  identity: { rawCoffeeName: string | null; roasterNames: string[] }
+): Promise<string> {
+  const promptCore = `Write exactly one warm, editorial sentence (max 30 words) introducing "${params.displayName}"${params.archetype ? `, a ${params.archetype} coffee` : ''} for a customer whose bag just arrived. Refer to it only as "${params.displayName}" or "this coffee" — never invent another name.
+${params.topDescriptors.length ? `Top flavor descriptors: ${params.topDescriptors.join(', ')}` : ''}
+
+Rules: one sentence only, no title, no markdown. Never name a specific farm, co-op, cooperative, estate, lot, or importer. Never name a roaster.`;
+  const fallback = `${params.displayName} is on its way to your cup — here's how to get the most out of it.`;
+  return generateOneWarmSentence('brew-note sentence', promptCore, fallback, identity);
+}
+
+// HOME_TASK_8 (§3.1) — "Order placed. One line in the confirmation flow,
+// Liam's voice: what's coming and one thing to notice about it." Generated
+// once at order time, no conversation attached — injected into the
+// order-confirmation response (orders.ts), never stored beyond that response.
+export async function generateOrderPlacedLine(
+  params: { displayName: string; archetype: string | null; topDescriptors: string[] },
+  identity: { rawCoffeeName: string | null; roasterNames: string[] }
+): Promise<string> {
+  const promptCore = `Write exactly one warm, editorial sentence (max 30 words) telling a customer what's coming — they just ordered "${params.displayName}"${params.archetype ? `, a ${params.archetype} coffee` : ''} — and naming one specific thing about it worth noticing before it arrives. Refer to it only as "${params.displayName}" or "this coffee" — never invent another name.
+${params.topDescriptors.length ? `Top flavor descriptors: ${params.topDescriptors.join(', ')}` : ''}
+
+Rules: one sentence only, no title, no markdown. Never name a specific farm, co-op, cooperative, estate, lot, or importer. Never name a roaster.`;
+  const fallback = `${params.displayName} is on its way — worth paying attention to on the first cup.`;
+  return generateOneWarmSentence('order-placed line', promptCore, fallback, identity);
 }

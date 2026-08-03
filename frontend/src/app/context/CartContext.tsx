@@ -93,7 +93,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setCheckoutStatus('loading');
     setCheckoutMessage(null);
     try {
-      await placeOrder({
+      const result = await placeOrder({
         items: cart.map(item => item.kind === 'dial'
           ? {
               archetype: item.archetype,
@@ -119,7 +119,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
         },
       });
       setCheckoutStatus('success');
-      setCheckoutMessage('Order placed!');
+      // HOME_TASK_8 (§3.1) — the order-placed beat's one line, Liam's voice,
+      // generated at order time. Falls back to the old static confirmation
+      // if generation failed or the beat is inactive (result.orderPlacedLine
+      // is null in either case) — never a blank confirmation.
+      setCheckoutMessage(result.orderPlacedLine ?? 'Order placed!');
       setCart([]);
     } catch {
       setCheckoutStatus('error');

@@ -863,6 +863,55 @@ CREATE TABLE IF NOT EXISTS user_brew_card (
   UNIQUE(user_id, coffee_id, method)
 );
 
+-- HOME_TASK_8 (§3.1) — one row per (user, order, beat type): the beat engine's
+-- own dispatch/response ledger, separate from user_brew_card (the artifact a
+-- beat may create/adjust) and from sommelier_sms_feedback (the legacy
+-- pre-beats post-delivery ask, superseded per-order for beat-enabled users —
+-- see beatEngine.ts's supersede check). UNIQUE(user_id, order_id, beat_type)
+-- is the idempotency guarantee spec item 1 asks for: re-firing a signal for
+-- the same order/beat type is a no-op (ON CONFLICT DO NOTHING at the
+-- insert), never a duplicate send. `channel` is nullable/'inline' for the
+-- order-placed line, which is injected into the order-confirmation response
+-- rather than dispatched through a channel. `skip_reason` is set (never left
+-- to imply itself) whenever a beat that would otherwise fire is deliberately
+-- not scheduled — repeat-coffee dial-in skip, degrade-on-silence, inactive
+-- config, etc. `responded_at` is what degrade-on-silence's trailing-window
+-- responsiveness counter reads.
+CREATE TABLE IF NOT EXISTS beat_event (
+  id             SERIAL PRIMARY KEY,
+  user_id        UUID NOT NULL REFERENCES user_profile(id) ON DELETE CASCADE,
+  order_id       UUID NOT NULL REFERENCES "order"(id) ON DELETE CASCADE,
+  coffee_id      INT REFERENCES coffees(id) ON DELETE CASCADE,
+  beat_type      TEXT NOT NULL CHECK (beat_type IN ('order_placed', 'arrival_note', 'dial_in')),
+  channel        TEXT CHECK (channel IN ('sms', 'email', 'inline')),
+  scheduled_at   TIMESTAMPTZ,
+  sent_at        TIMESTAMPTZ,
+  responded_at   TIMESTAMPTZ,
+  skip_reason    TEXT,
+  created_at     TIMESTAMPTZ DEFAULT NOW(),
+  updated_at     TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, order_id, beat_type)
+);
+
+-- HOME_TASK_8 (§3.1, spec item 6) — the extended beat-SMS consent, distinct
+-- from the legacy sms_opt_in (which only ever covered the post-delivery
+-- feedback ask). Additive columns, default false — no UI toggle built here
+-- per this task's own scope note (the consent copy itself is Dana's calendar
+-- item, alongside A2P registration); the field exists so the code path that
+-- will read it is real and ready, not a stub.
+ALTER TABLE user_phone ADD COLUMN IF NOT EXISTS sms_beats_opt_in    BOOLEAN DEFAULT FALSE;
+ALTER TABLE user_phone ADD COLUMN IF NOT EXISTS sms_beats_opt_in_at TIMESTAMPTZ;
+
+-- HOME_TASK_8 (§3.1) — lets the SMS inbound webhook (cron.ts) tell a beat
+-- reply apart from a legacy post-delivery reply without touching
+-- parseInboundReply()'s own signature (reused, not duplicated, per the
+-- task's context note). 'legacy_feedback' is the default so every existing
+-- and future non-beat row needs no backfill. beat_event_id lets the webhook
+-- mark responded_at directly instead of re-deriving which beat this was.
+ALTER TABLE sommelier_sms_feedback ADD COLUMN IF NOT EXISTS message_kind TEXT NOT NULL DEFAULT 'legacy_feedback'
+  CHECK (message_kind IN ('legacy_feedback', 'beat_dial_in'));
+ALTER TABLE sommelier_sms_feedback ADD COLUMN IF NOT EXISTS beat_event_id INT REFERENCES beat_event(id);
+
 -- Where did this subscriber come from?
 CREATE TABLE IF NOT EXISTS subscriber_source (
   id    SERIAL PRIMARY KEY,

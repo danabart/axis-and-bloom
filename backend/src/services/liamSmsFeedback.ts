@@ -9,6 +9,15 @@ import { writeDialPositionSignal } from './dialPositionSignal.js';
 const anthropic = new Anthropic();
 
 // ── schedulePostDeliveryMessage ───────────────────────────────────────────────
+// HOME_TASK_8 (§3.1) SUPERSEDE NOTE: as of this task, orders.ts no longer
+// calls this function — every new order goes through the beat engine's own
+// dial_in beat instead (beatEngine.ts), which asks the same kind of
+// lighter/bolder question at its own timing and also adjusts the customer's
+// brew card. This function, processPendingMessages(), and the inbound-reply
+// parsing below are all left exactly as they were — sommelier_sms_feedback
+// rows scheduled before this deploy still process normally, and this remains
+// the reusable scheduling/parsing machinery the dial_in beat's own (currently
+// SMS-gated-off) send path is built on top of, not a duplicate of it.
 // Called after order placement for orders 1 and 2. Never throws.
 export async function schedulePostDeliveryMessage(
   firebaseUid: string,
@@ -140,11 +149,15 @@ export async function processPendingMessages(): Promise<{
 
 // ── parseInboundReply ─────────────────────────────────────────────────────────
 // Called async after webhook inserts inbound row. Never blocks the webhook response.
+// HOME_TASK_8 — now returns the parsed `expectation` (additive; every existing
+// caller already ignored the previous void return) so the webhook can route a
+// beat-originated reply into respondToDialInBeat() afterward, without this
+// function knowing anything about beats itself — reused, not duplicated.
 export async function parseInboundReply(
   inboundBody: string,
   outboundRow: { id: string; user_id: string; order_id: string | null; blend_id: string | null },
   inboundRowId: string
-): Promise<void> {
+): Promise<{ expectation: 'lighter' | 'as_expected' | 'bolder' | null }> {
   // Look up firebase UID and blend name for Haiku prompt
   const profileResult = await db.query(
     `SELECT firebase_uid FROM user_profile WHERE id = $1`,
@@ -153,7 +166,7 @@ export async function parseInboundReply(
   const uid = profileResult.rows[0]?.firebase_uid as string | undefined;
   if (!uid) {
     console.error('[liamSms] no firebase_uid for user_id:', outboundRow.user_id);
-    return;
+    return { expectation: null };
   }
 
   let coffeeName = 'the coffee';
@@ -307,4 +320,6 @@ Respond with JSON only, no explanation: { "sentiment": "...", "rating": N, "desc
   refreshLifecycleState(uid).catch(err =>
     console.error('[liamSms] refreshLifecycleState failed:', err)
   );
+
+  return { expectation: parsedExpectation };
 }

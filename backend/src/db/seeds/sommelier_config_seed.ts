@@ -262,6 +262,26 @@ export const DEFAULT_SOMMELIER_CONFIG = {
       },
     },
 
+    // HOME_TASK_8 (§3.1) — the beat engine's rules. smsEnabled starts false
+    // and stays false until Dana flips it (A2P approval + extended opt-in
+    // consent copy both live) — email is the only live channel this pass.
+    beats: {
+      smsEnabled: false,
+      types: {
+        order_placed: { active: true },
+        arrival_note: { active: true },
+        dial_in: {
+          active: true,
+          timingOffsetDays: 3,
+          skipIfRepeatCoffee: true,
+        },
+      },
+      degradeOnSilence: {
+        windowSize: 5,
+        minResponseRate: 0.2,
+      },
+    },
+
     evaluatorRulePriority: [
       'DISCOVERY_SEEKER',
       'PROFILE_AMBIGUOUS',

@@ -25,6 +25,7 @@ import companyGiftsAdminRouter from './routes/companyGiftsAdmin.js';
 import companyGiftRedemptionRouter from './routes/companyGiftRedemption.js';
 import companiesAdminRouter from './routes/companiesAdmin.js';
 import qrRouter from './routes/qr.js';
+import beatsRouter from './routes/beats.js';
 import { initSommelierConfig } from './services/sommelierConfig.js';
 
 const app = express();
@@ -88,6 +89,7 @@ app.use('/api/admin/company-gifts', companyGiftsAdminRouter);
 app.use('/api/company-gift-redemption', companyGiftRedemptionRouter);
 app.use('/api/admin/companies', companiesAdminRouter);
 app.use('/api/qr', qrRouter);
+app.use('/api/beats', beatsRouter);
 
 async function start() {
   try {

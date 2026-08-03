@@ -6,7 +6,8 @@ import { refreshLifecycleState } from '../services/userLifecycle.js';
 import { purgeStaleAnonymousGuests } from '../services/staleGuestCleanup.js';
 import { getAliases } from '../services/sommelierRag.js';
 import { generateBrewNoteSentence } from '../services/storyLayer.js';
-import { getBagNumberForCoffee, getArrivalNoteConfig, type BrewCardParams } from '../services/brewCard.js';
+import { getBagNumberForCoffee, getArrivalNoteConfig, getMostRecentCard, type BrewCardParams } from '../services/brewCard.js';
+import { buildDialInSmsBody, respondToDialInBeat } from '../services/beatEngine.js';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -50,6 +51,155 @@ router.get('/brew-card-arrival-send', requireCronSecret, async (_req, res) => {
     res.status(500).json({ error: 'Cron job failed' });
   }
 });
+
+// ── GET /api/cron/beat-dial-in-send ──────────────────────────────────────────
+// HOME_TASK_8 (§3.1) — same daily-cron shape as the two jobs above: finds
+// due dial_in beat_event rows (scheduled_at passed, not yet sent), delivers
+// each on its recorded channel, marks sent_at. Cloud Scheduler job: daily →
+// GET this path with the same x-cron-secret header.
+router.get('/beat-dial-in-send', requireCronSecret, async (_req, res) => {
+  try {
+    const result = await processDueDialInBeats();
+    res.json(result);
+  } catch (err) {
+    console.error('[cron/beat-dial-in-send]', err);
+    res.status(500).json({ error: 'Cron job failed' });
+  }
+});
+
+export async function processDueDialInBeats(): Promise<{ processed: number; sent: number; failed: number }> {
+  const due = await db.query<{
+    id: number; user_id: string; coffee_id: number; channel: 'sms' | 'email';
+    first_name: string | null; email_address: string | null; phone_number: string | null;
+  }>(
+    `SELECT be.id, be.user_id, be.coffee_id, be.channel,
+            up.first_name, ue.email_address, ph.phone_number
+     FROM beat_event be
+     JOIN user_profile up ON up.id = be.user_id
+     LEFT JOIN user_email ue ON ue.user_id = up.id AND ue.is_primary = true
+     LEFT JOIN user_phone ph ON ph.user_id = up.id AND ph.sms_beats_opt_in = true
+     WHERE be.beat_type = 'dial_in'
+       AND be.sent_at IS NULL
+       AND be.scheduled_at IS NOT NULL
+       AND be.scheduled_at <= NOW()
+     ORDER BY be.scheduled_at ASC
+     LIMIT 50`
+  );
+
+  let sent = 0;
+  let failed = 0;
+
+  for (const row of due.rows) {
+    try {
+      const aliasMap = await getAliases([row.coffee_id]);
+      const alias = aliasMap.get(row.coffee_id) ?? 'your coffee';
+      const card = await getMostRecentCard(row.user_id, row.coffee_id);
+      const method = card?.method ?? 'other';
+      const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
+      const backendUrl = process.env.BACKEND_URL ?? 'http://localhost:4000';
+
+      if (row.channel === 'sms') {
+        // Reuses sommelier_sms_feedback + the existing processPendingMessages()
+        // cron for the actual send — not a second scheduling mechanism.
+        // message_kind/beat_event_id let the inbound webhook tell this apart
+        // from a legacy post-delivery reply without touching
+        // parseInboundReply()'s own signature.
+        const { primary } = buildDialInSmsBody(alias, method);
+        if (row.phone_number) {
+          await db.query(
+            `INSERT INTO sommelier_sms_feedback
+               (user_id, blend_id, phone_number, direction, body, status, scheduled_for, message_kind, beat_event_id)
+             VALUES ($1, NULL, $2, 'outbound', $3, 'scheduled', NOW(), 'beat_dial_in', $4)`,
+            [row.user_id, row.phone_number, primary, row.id]
+          );
+        } else {
+          console.warn('[cron/beat-dial-in-send] channel=sms but no consented phone on file for user', row.user_id, '— skipping send, not falling back to email silently');
+        }
+      } else if (row.email_address) {
+        const respondBase = `${backendUrl}/api/beats/dial-in/${row.id}/respond`;
+        await resend.emails.send({
+          from: 'Axis & Bloom <noreply@axisandbloomcoffee.com>',
+          to: row.email_address,
+          subject: `How's the first cup of ${alias}?`,
+          html: buildDialInEmail({
+            firstName: row.first_name,
+            alias,
+            respondBase,
+            talkLink: `${frontendUrl}/sommelier?entry=bag&coffee=${row.coffee_id}`,
+          }),
+        });
+      } else {
+        console.warn('[cron/beat-dial-in-send] no email on file for user', row.user_id, '— marking sent without delivery');
+      }
+
+      await db.query(`UPDATE beat_event SET sent_at = NOW() WHERE id = $1`, [row.id]);
+      sent++;
+    } catch (err) {
+      console.error('[cron/beat-dial-in-send] failed for beat', row.id, err);
+      failed++;
+    }
+  }
+
+  return { processed: due.rows.length, sent, failed };
+}
+
+function buildDialInEmail(params: { firstName: string | null; alias: string; respondBase: string; talkLink: string }): string {
+  const greeting = params.firstName ? `Hi ${params.firstName},` : 'Hi there,';
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+</head>
+<body style="margin:0;padding:0;background:#f2f1ea;font-family:Georgia,serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f2f1ea;padding:48px 0;">
+    <tr>
+      <td align="center">
+        <table width="520" cellpadding="0" cellspacing="0" style="background:#ffffff;padding:48px;">
+          <tr>
+            <td style="padding-bottom:32px;border-bottom:1px solid #e8e4dc;">
+              <p style="margin:0;font-size:11px;letter-spacing:0.3em;text-transform:uppercase;color:#a33726;font-family:Georgia,serif;">
+                Axis &amp; Bloom
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:40px 0 24px;">
+              <h1 style="margin:0;font-size:32px;font-weight:400;color:#a33726;line-height:1.2;font-family:Georgia,serif;">
+                How's the first cup of ${params.alias}?
+              </h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding-bottom:32px;">
+              <p style="margin:0;font-size:16px;color:#6b5a56;line-height:1.6;font-family:Arial,sans-serif;font-weight:300;">
+                ${greeting} lighter or bolder than you expected? One tap tells Liam, and he'll adjust your brew card for next time.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding-bottom:40px;">
+              <a href="${params.respondBase}?expectation=lighter" style="display:inline-block;margin:0 8px 8px 0;padding:12px 24px;background:#f2f1ea;color:#a33726;text-decoration:none;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;font-family:Arial,sans-serif;font-weight:500;border:1px solid #a33726;">Lighter</a>
+              <a href="${params.respondBase}?expectation=as_expected" style="display:inline-block;margin:0 8px 8px 0;padding:12px 24px;background:#f2f1ea;color:#a33726;text-decoration:none;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;font-family:Arial,sans-serif;font-weight:500;border:1px solid #a33726;">About right</a>
+              <a href="${params.respondBase}?expectation=bolder" style="display:inline-block;margin:0 8px 8px 0;padding:12px 24px;background:#f2f1ea;color:#a33726;text-decoration:none;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;font-family:Arial,sans-serif;font-weight:500;border:1px solid #a33726;">Bolder</a>
+            </td>
+          </tr>
+          <tr>
+            <td style="border-top:1px solid #e8e4dc;padding-top:24px;">
+              <p style="margin:0;font-size:12px;color:#a33726;opacity:0.5;font-family:Arial,sans-serif;line-height:1.6;">
+                Prefer to talk it through? <a href="${params.talkLink}" style="color:#a33726;">Talk to Liam about this bag</a>.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `.trim();
+}
 
 const ARRIVAL_METHOD_LABEL: Record<string, string> = {
   v60: 'V60', french_press: 'French press', espresso: 'Espresso', moka: 'Moka pot',
@@ -495,8 +645,10 @@ router.post('/webhooks/sms/inbound', async (req, res) => {
       user_id: string;
       order_id: string | null;
       blend_id: string | null;
+      message_kind: string;
+      beat_event_id: number | null;
     }>(
-      `SELECT id, user_id, order_id, blend_id
+      `SELECT id, user_id, order_id, blend_id, message_kind, beat_event_id
        FROM sommelier_sms_feedback
        WHERE phone_number = $1
          AND direction = 'outbound'
@@ -529,10 +681,21 @@ router.post('/webhooks/sms/inbound', async (req, res) => {
       [outboundRow.id]
     );
 
-    // Parse async — don't await
-    parseInboundReply(body, outboundRow, inboundResult.rows[0].id).catch(err => {
-      console.error('[liamSms] parseInboundReply failed:', err);
-    });
+    // Parse async — don't await, per S18's "webhook always returns 200" discipline.
+    // HOME_TASK_8 — a beat_dial_in-originated reply additionally adjusts the
+    // brew card via the same respondToDialInBeat() the on-site card door
+    // uses (routes/beats.ts) — parseInboundReply() itself knows nothing about
+    // beats, only returns the parsed expectation it already computed.
+    (async () => {
+      try {
+        const { expectation } = await parseInboundReply(body, outboundRow, inboundResult.rows[0].id);
+        if (outboundRow.message_kind === 'beat_dial_in' && outboundRow.beat_event_id && expectation) {
+          await respondToDialInBeat(outboundRow.beat_event_id, expectation, 'sms_feedback');
+        }
+      } catch (err) {
+        console.error('[liamSms] parseInboundReply failed:', err);
+      }
+    })();
   } catch (err) {
     console.error('[webhooks/sms/inbound]', err);
   }

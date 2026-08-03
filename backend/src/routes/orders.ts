@@ -6,11 +6,10 @@ import { resolveBlendForSlot, resolveCoffeeBlend } from '../services/blendResolv
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { getSommelierConfig } from '../services/sommelierConfig.js';
 import { updateOrderOutcomes } from '../services/outcomeTracker.js';
-import { schedulePostDeliveryMessage } from '../services/liamSmsFeedback.js';
 import { refreshLifecycleState } from '../services/userLifecycle.js';
 import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
 import { writeDialPositionSignal } from '../services/dialPositionSignal.js';
-import { createArrivalCard } from '../services/brewCard.js';
+import { dispatchOrderPlacedBeat, dispatchDelayedBeats } from '../services/beatEngine.js';
 import { getBrewProfile } from './sommelier.js';
 
 const router = Router();
@@ -148,8 +147,29 @@ router.post('/', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) 
       }
     }
 
+    // HOME_TASK_8 (§3.1) — the order-placed beat. Resolved and generated
+    // synchronously, before the response, since it's injected into the
+    // order-confirmation response itself (spec item 2) — not a fire-and-
+    // forget follow-up like the delayed beats below. Primary coffee only
+    // (resolvedItems[0]), same "first item is the primary coffee" precedent
+    // Task 6's own arrival-card hook and the legacy SMS hook both already used.
+    const primaryBlendId = resolvedItems[0]?.blendId ?? null;
+    let primaryCoffeeId: number | null = null;
+    let orderPlacedLine: string | null = null;
+    if (primaryBlendId) {
+      const blendResult = await db.query(`SELECT coffee_id FROM roaster_blend WHERE id = $1`, [primaryBlendId]);
+      primaryCoffeeId = blendResult.rows[0]?.coffee_id ?? null;
+      if (primaryCoffeeId) {
+        orderPlacedLine = await dispatchOrderPlacedBeat(userId, orderId, primaryCoffeeId).catch(err => {
+          console.error('[beatEngine] order_placed dispatch failed:', err);
+          return null;
+        });
+      }
+    }
+
     res.json({
       orderId, shopifyOrderId: shopifyResult.shopifyOrderId, orderName: shopifyResult.orderName,
+      orderPlacedLine,
       items: resolvedItems.map(item => ({
         blendId: item.blendId, quantity: item.quantity,
         ...(item.resolvedCoffeeName ? { resolvedCoffeeName: item.resolvedCoffeeName, resolvedRoaster: item.resolvedRoaster } : {}),
@@ -193,39 +213,33 @@ router.post('/', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) 
         // Update sommelier outcome: orderedWithin7Days / orderedWithin30Days
         await updateOrderOutcomes(req.uid!, new Date());
 
-        // Schedule Liam SMS feedback for orders 1 and 2 only
-        const orderCount = await db.query(
-          `SELECT COUNT(*) FROM "order" WHERE user_id = $1`,
-          [userId]
-        );
-        if (parseInt(orderCount.rows[0].count, 10) <= 2) {
-          const blendId = resolvedItems[0]?.blendId ?? null;
-          schedulePostDeliveryMessage(req.uid!, blendId, orderId).catch(err => {
-            console.error('[liamSms] schedule failed:', err);
-          });
-        }
-
-        // HOME_TASK_6 (§3.1) — the arrival brew card + note. Same hook point
-        // as the SMS scheduling above (per the task's own context note: "the
-        // same delivery-timing machinery... this task hooks the same signal
-        // at arrival, not a new one"), for every order's primary coffee — not
-        // scoped to orders 1-2 like the SMS ask, since every bag gets its own
-        // conversation (§3.1), not just the first two. createArrivalCard()
-        // itself only schedules a new email for a genuinely new card (a
-        // repeat order of a coffee+method this customer already has a card
-        // for doesn't re-trigger a second arrival note — see its own comment).
-        const arrivalBlendId = resolvedItems[0]?.blendId ?? null;
-        if (arrivalBlendId) {
+        // HOME_TASK_8 (§3.1) — SUPERSEDE CUTOVER, documented per the task's
+        // explicit instruction. The legacy schedulePostDeliveryMessage() call
+        // that used to live here (SMS feedback for orders 1-2, +10 days,
+        // "how are you finding it") is retired as of this task, replaced by
+        // the beat engine's own dial_in beat (default +3 days, a closed
+        // dial-direction question, reply adjusts the brew card). This is a
+        // full cutover, not a per-order conditional: every order from this
+        // deploy forward goes through the beat engine instead, so a customer
+        // can never receive both the dial_in beat and the legacy ask for the
+        // same bag (the literal failure mode this task's supersede audit
+        // checks for). liamSmsFeedback.ts's schedulePostDeliveryMessage()
+        // function itself is untouched and still exported — sessions already
+        // scheduled in sommelier_sms_feedback before this deploy still process
+        // normally via the unchanged processPendingMessages() cron; nothing
+        // here rewrites or cancels historical rows. dispatchDelayedBeats()
+        // also owns what Task 6's arrival-card hook used to call directly
+        // (createArrivalCard) — now gated through the engine's own
+        // active-flag/channel decision and beat_event bookkeeping instead of
+        // an unconditional call.
+        if (primaryCoffeeId) {
+          const coffeeIdForDelayedBeats = primaryCoffeeId;
           (async () => {
             try {
-              const blendResult = await db.query(`SELECT coffee_id FROM roaster_blend WHERE id = $1`, [arrivalBlendId]);
-              const coffeeId = blendResult.rows[0]?.coffee_id as number | undefined;
-              if (coffeeId) {
-                const brewProfile = await getBrewProfile(req.uid!);
-                await createArrivalCard(userId, coffeeId, brewProfile);
-              }
+              const brewProfile = await getBrewProfile(req.uid!);
+              await dispatchDelayedBeats({ userId, orderId, coffeeId: coffeeIdForDelayedBeats, brewProfile });
             } catch (err) {
-              console.error('[brewCard] arrival card scheduling failed:', err);
+              console.error('[beatEngine] delayed beat dispatch failed:', err);
             }
           })();
         }

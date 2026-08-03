@@ -161,6 +161,38 @@ export interface SommelierConfig {
       shortNoteFromBagNumber: number;
     };
   };
+  // HOME_TASK_8 (§3.1) — the beat engine's own rules. No hard-coded cases in
+  // beatEngine.ts — every lifecycle/timing/channel decision reads from here.
+  beats?: {
+    // Master SMS gate — false until Dana flips it (A2P approval + the
+    // extended opt-in consent copy both live). Email-only while false,
+    // regardless of what an individual beat's channel priority says.
+    smsEnabled: boolean;
+    types: {
+      order_placed: { active: boolean };
+      arrival_note: { active: boolean };
+      dial_in: {
+        active: boolean;
+        // Days after order placement — independently anchored to order time,
+        // same approximation-from-order-date precedent as the legacy 10-day
+        // SMS and brewDefaults.arrivalNote.deliveryDelayDays, not chained
+        // after the arrival note. Deliberately distinct value from both.
+        timingOffsetDays: number;
+        // "Repeat coffee → skip dial-in" (§3.1) — config-driven, not a
+        // hard-coded engine branch.
+        skipIfRepeatCoffee: boolean;
+      };
+    };
+    // Degrade-on-silence (§3.1) — a per-user responded/sent ratio over the
+    // last windowSize *sent* beats (any type). Below minResponseRate, the
+    // engine drops every beat but arrival_note (the minimal set — arrival
+    // notes are useful even to someone who never responds to anything,
+    // per §3.1's "never a nag, never a re-send" framing).
+    degradeOnSilence: {
+      windowSize: number;
+      minResponseRate: number;
+    };
+  };
   updatedAt?: unknown;
 }
 
