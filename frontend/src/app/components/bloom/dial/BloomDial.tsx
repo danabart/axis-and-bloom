@@ -321,10 +321,22 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
             <div className="bd-vno">NO. {config.no}</div>
           </div>
           <div className="bd-reading-bottom">
-            <div className="bd-now" ref={nowRef}>THE COFFEE</div>
-            <div className="bd-coffee-name" ref={nameRef}>
-              {config.coffees[Math.min(3, Math.max(0, initialDialSortOrder - 1))].name}
+            {/* Coffee lockup — the bag sits with the name so it reads as the
+                bag of this coffee (desktop/Bloom only; embedded keeps the field bag). */}
+            <div className={embedded ? undefined : 'bd-coffee-lockup'}>
+              {!embedded && (
+                <img className="bd-bag-mini" src={config.bag} alt={`${config.archetypeLabel} bag`} draggable={false} />
+              )}
+              <div className="bd-coffee-head-text">
+                <div className="bd-now" ref={nowRef}>THE COFFEE</div>
+                <div className="bd-coffee-name" ref={nameRef}>
+                  {config.coffees[Math.min(3, Math.max(0, initialDialSortOrder - 1))].name}
+                </div>
+              </div>
             </div>
+            {!embedded && (
+              <div className="bd-wheel-line">Every turn, a coffee of its own.</div>
+            )}
             <div className="bd-coffee-price" ref={priceRef}>
               12oz · $32.00 &nbsp;/&nbsp; 5lb · $185.00
             </div>
@@ -365,10 +377,14 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
             <div className="bd-ruler-ends"><span>DELICATE</span><span>PRONOUNCED</span></div>
           </div>
           <div className="bd-hint">TURN THE WHEEL, OR SLIDE THE BAR</div>
-          <div className="bd-field-bag">
-            <img src={config.bag} alt={`${config.archetypeLabel} bag`} draggable={false} />
-            <div className="bd-bag-shadow" />
-          </div>
+          {/* Field bag only in the compact embedded dial (quiz/profile). On the
+              Bloom page the bag moves into the left lockup beside the name. */}
+          {embedded && (
+            <div className="bd-field-bag">
+              <img src={config.bag} alt={`${config.archetypeLabel} bag`} draggable={false} />
+              <div className="bd-bag-shadow" />
+            </div>
+          )}
         </div>
       </div>
       {belowStage}
@@ -414,6 +430,10 @@ const CSS = `
 .bd-now{font-size:9.5px;letter-spacing:.28em;color:#7b7f80;transition:opacity 300ms ${EASE};}
 .bd-coffee-name{margin-top:12px;font-size:32px;min-height:84px;font-weight:500;color:#9a2918;letter-spacing:-0.008em;line-height:1.25;transition:opacity 300ms ${EASE};}
 .bd-coffee-price{margin-top:10px;font-size:12.5px;color:#7b7f80;}
+.bd-coffee-lockup{display:flex;align-items:center;gap:20px;}
+.bd-bag-mini{width:66px;height:auto;flex-shrink:0;display:block;-webkit-user-drag:none;filter:drop-shadow(0 8px 13px rgba(58,60,62,.17));}
+.bd-coffee-head-text{min-width:0;}
+.bd-wheel-line{margin-top:13px;font-size:12.5px;line-height:1.55;color:#7b7f80;letter-spacing:.015em;}
 .bd-btn{display:block;width:100%;margin-top:26px;background:#9a2918;color:#f2f1ea;font-size:12px;letter-spacing:.16em;font-weight:500;padding:15px 10px;text-align:center;text-decoration:none;cursor:pointer;border:none;font-family:inherit;transition:background 480ms ${EASE};}
 .bd-btn:hover{background:#8a2416;}
 @media (max-width:940px){
