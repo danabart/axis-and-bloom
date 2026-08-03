@@ -62,6 +62,7 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
   const nameRef    = useRef<HTMLDivElement>(null);
   const priceRef   = useRef<HTMLDivElement>(null);
   const nlinesRef  = useRef<HTMLDivElement>(null);
+  const fieldNameRef = useRef<HTMLDivElement>(null);
 
   // Engine state (per instance).
   const cellsRef   = useRef<Cell[] | null>(null);
@@ -138,13 +139,14 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
       const coffee = configRef.current.coffees[zone];
       if (nowRef.current) nowRef.current.textContent = 'THE COFFEE';
       if (nameRef.current) nameRef.current.textContent = coffee.name;
+      if (fieldNameRef.current) fieldNameRef.current.textContent = coffee.name;
       if (priceRef.current) priceRef.current.textContent =
         `12oz · ${fmtPrice(coffee.price12Cents)}  /  5lb · ${fmtPrice(coffee.price5Cents)}`;
       wrap.setAttribute('aria-valuenow', String(zone));
       ticks.setAttribute('aria-valuenow', String(zone));
       if (zone !== lastZoneRef.current) {
         lastZoneRef.current = zone;
-        [nowRef.current, nameRef.current].forEach(el => {
+        [nowRef.current, nameRef.current, fieldNameRef.current].forEach(el => {
           if (!el) return;
           el.style.opacity = '0';
           setTimeout(() => { el.style.opacity = '1'; }, 60);
@@ -354,6 +356,13 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
 
         {/* Instrument field */}
         <div className="bd-instrument">
+          {/* Live coffee-name readout above the wheel (Bloom layout only) —
+              turns with the wheel so the field announces the coffee it lands on. */}
+          {!embedded && (
+            <div className="bd-field-name" ref={fieldNameRef}>
+              {config.coffees[Math.min(3, Math.max(0, initialDialSortOrder - 1))].name}
+            </div>
+          )}
           <div
             className="bd-dial-wrap" ref={wrapRef}
             role="slider" tabIndex={0}
@@ -424,6 +433,7 @@ const CSS = `
 .bd-ruler-ticks.bd-dragging .bd-needle{transition:none;}
 .bd-ruler-ends{display:flex;justify-content:space-between;font-size:9.5px;letter-spacing:.24em;color:var(--bd-ftext);}
 .bd-hint{margin-top:12px;font-size:10.5px;letter-spacing:.14em;color:var(--bd-ftext-mid);}
+.bd-field-name{color:var(--bd-ftext);font-size:clamp(20px,2.2vw,30px);font-weight:400;letter-spacing:.01em;line-height:1.2;text-align:center;max-width:90%;margin-bottom:34px;transition:opacity 300ms ${EASE};}
 .bd-field-bag{position:absolute;right:54px;bottom:42px;text-align:center;pointer-events:none;}
 .bd-field-bag img{width:146px;height:auto;display:block;-webkit-user-drag:none;}
 .bd-bag-shadow{width:102px;height:10px;margin:-4px auto 0;border-radius:50%;background:radial-gradient(ellipse,rgba(58,60,62,.22),rgba(58,60,62,0) 70%);}
@@ -446,7 +456,7 @@ const CSS = `
   .bd-dial-wrap{width:320px;height:320px;}
 }
 @media (prefers-reduced-motion:reduce){
-  .bd-rotor,.bd-needle,.bd-now,.bd-coffee-name,.bd-btn{transition:none !important;}
+  .bd-rotor,.bd-needle,.bd-now,.bd-coffee-name,.bd-field-name,.bd-btn{transition:none !important;}
 }
 .bd-section.bd-embedded .bd-stage{min-height:0;grid-template-columns:minmax(260px,32%) 1fr;}
 .bd-embedded .bd-reading{padding:34px 30px 38px;}
