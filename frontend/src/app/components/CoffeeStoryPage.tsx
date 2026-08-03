@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router';
+import { useParams, useSearchParams, Link } from 'react-router';
 import { ArrowRight } from 'lucide-react';
 import { ARCHETYPE_COLOR } from './coffee-info/archetypeConstants';
 
@@ -21,12 +21,17 @@ interface StoryData {
  * color, editorial typography) without forking its heavier logic.
  *
  * This is also the route Task 7's QR redirect resolves a signed-in
- * non-owner (or, once Task 7 builds that handling, a retired-coffee) scan
- * to — coordinate the URL shape (`/coffee/:id/story`) with that task rather
- * than reinventing it. The past-tense "this one's moved on" copy for a
- * retired coffee is explicitly Task 7's own work, not built here. */
+ * non-owner scan to, and — via `?retired=1&nearestHop=`, added by Task 7 —
+ * a retired-coffee scan. The past-tense framing below is UI chrome around
+ * this page's existing (present-tense) story text, not a rewrite of the
+ * story content itself — Task 7's own scope line is explicit that story
+ * content (Task 5) isn't touched here. */
 export default function CoffeeStoryPage() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const isRetired = searchParams.get('retired') === '1';
+  const nearestHopParam = searchParams.get('nearestHop');
+  const nearestHopCoffeeId = nearestHopParam && /^\d+$/.test(nearestHopParam) ? nearestHopParam : null;
   const [data, setData] = useState<StoryData | null>(null);
   const [phase, setPhase] = useState<'loading' | 'ready' | 'error'>('loading');
 
@@ -56,6 +61,9 @@ export default function CoffeeStoryPage() {
 
   return (
     <div className="max-w-xl mx-auto px-6 py-16">
+      {isRetired && (
+        <p className="text-xs italic text-stone-400 mb-6">This one's moved on from our lineup.</p>
+      )}
       <p className="text-[10px] uppercase tracking-[0.3em] mb-2" style={{ color: `${color}99` }}>
         {data.archetypeLabel ?? 'Axis & Bloom'}
       </p>
@@ -71,6 +79,19 @@ export default function CoffeeStoryPage() {
         </p>
       ) : (
         <p className="text-sm text-stone-400 italic">The story for this coffee isn't ready yet — check back soon.</p>
+      )}
+
+      {isRetired && nearestHopCoffeeId && (
+        <div className="mt-10 pt-6 border-t border-stone-100">
+          <p className="text-sm text-stone-500 mb-3">Here's its closest relative in the lineup today.</p>
+          <Link
+            to={`/coffee/${nearestHopCoffeeId}/story`}
+            className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] border-b pb-0.5 transition-colors"
+            style={{ color: RUST, borderColor: RUST }}
+          >
+            See the closest relative <ArrowRight size={12} />
+          </Link>
+        </div>
       )}
 
       <div className="mt-12 pt-8 border-t border-stone-100">

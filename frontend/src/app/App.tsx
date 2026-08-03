@@ -26,10 +26,12 @@ import AdminSommelierConfig from './components/admin/AdminSommelierConfig';
 import AdminIntentEditor from './components/admin/AdminIntentEditor';
 import AdminSommelierFlow from './components/admin/AdminSommelierFlow';
 import AdminCompanyGifts from './components/admin/AdminCompanyGifts';
+import AdminQrDoor from './components/admin/AdminQrDoor';
 import FlavorIntelligencePage from './components/FlavorIntelligencePage';
 import CoffeesRedirect from './components/CoffeesRedirect';
 import BloomPage from './components/BloomPage';
 import CoffeeStoryPage from './components/CoffeeStoryPage';
+import QrDoor from './components/QrDoor';
 import JoinHousehold from './components/JoinHousehold';
 import TheAxis from './components/TheAxis';
 import Sommelier from './components/Sommelier';
@@ -84,6 +86,7 @@ export default function App() {
               <Route path="roasters" element={<AdminRoasters />} />
               <Route path="cupping" element={<AdminCupping />} />
               <Route path="dial" element={<AdminDial />} />
+              <Route path="qr-door" element={<AdminQrDoor />} />
               <Route path="sommelier/config"  element={<AdminSommelierConfig />} />
               <Route path="sommelier/intents" element={<AdminIntentEditor />} />
               <Route path="sommelier/flow"    element={<AdminSommelierFlow />} />
@@ -112,6 +115,7 @@ export default function App() {
               <Route path="/coffees" element={<CoffeesRedirect />} />
               <Route path="/bloom" element={<BloomPage />} />
               <Route path="/coffee/:id/story" element={<CoffeeStoryPage />} />
+              <Route path="/b/:token" element={<QrDoor />} />
               <Route
                 path="/sommelier"
                 element={

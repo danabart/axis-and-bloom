@@ -10,6 +10,8 @@ import { checkAggregateAnomaly, getMonthlySpendEstimate } from '../services/somm
 import { getSommelierConfig } from '../services/sommelierConfig.js';
 import { getBrewProfileCounters } from '../services/brewProfile.js';
 import { checkStorySpecificityViolations } from '../services/storyLayer.js';
+import { getAliases } from '../services/sommelierRag.js';
+import { mintTokenForCoffee, mintTokensForAllCoffees, invalidateTokenCache } from '../services/qrDoor.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -2292,6 +2294,87 @@ router.post('/inventory/:id/restock', async (req, res) => {
   } catch (err) {
     console.error('[admin/inventory restock]', err);
     res.status(500).json({ error: 'Failed to restock' });
+  }
+});
+
+// ── HOME_TASK_7 — the QR door's admin surface: mint tokens, export the label
+// artwork list. router.use(requireAdmin) above already gates every route in
+// this file — no per-route auth check needed here. ──────────────────────────
+
+// POST /api/admin/qr/mint/:coffeeId — mint one coffee's token. Idempotent
+// (mintTokenForCoffee never regenerates an existing token).
+router.post('/qr/mint/:coffeeId', async (req, res) => {
+  const coffeeId = Number(req.params.coffeeId);
+  if (!Number.isInteger(coffeeId)) { res.status(400).json({ error: 'invalid coffeeId' }); return; }
+  try {
+    const token = await mintTokenForCoffee(coffeeId);
+    invalidateTokenCache(token);
+    res.json({ coffeeId, token });
+  } catch (err) {
+    console.error('[admin/qr/mint]', err);
+    res.status(500).json({ error: 'Failed to mint token' });
+  }
+});
+
+// POST /api/admin/qr/mint-missing — backfill every coffee that doesn't have
+// a token yet. Safe to re-run: coffees that already have one are skipped.
+router.post('/qr/mint-missing', async (_req, res) => {
+  try {
+    const { minted, alreadyMinted } = await mintTokensForAllCoffees();
+    invalidateTokenCache();
+    res.json({ minted, alreadyMinted });
+  } catch (err) {
+    console.error('[admin/qr/mint-missing]', err);
+    res.status(500).json({ error: 'Failed to mint tokens' });
+  }
+});
+
+// GET /api/admin/qr/tokens — the artwork-export list: every coffee, its
+// alias (never the raw name — same S44 discipline as every other
+// customer-facing-adjacent surface, even though this is admin-only), its
+// token/URL, and whether it's retired. QR_BASE_URL mirrors index.ts's own
+// FRONTEND_URL fallback convention. URL-only export (no server-side PNG) —
+// the spec allows either; adding a QR-rendering dependency for a page whose
+// output the label designer's own tool can generate directly from the URL
+// wasn't worth the new dependency footprint on a production service. Decided
+// and documented, not silently punted.
+const QR_BASE_URL = process.env.FRONTEND_URL ?? 'http://localhost:5173';
+
+router.get('/qr/tokens', async (_req, res) => {
+  try {
+    const coffeesResult = await db.query(`SELECT id, qr_token FROM coffees ORDER BY id`);
+    const coffeeIds = coffeesResult.rows.map((r: { id: number }) => r.id);
+    const [aliasMap, archetypeResult, activeBlendResult] = await Promise.all([
+      getAliases(coffeeIds),
+      // Same archetype-label fallback resolveQrDisplayName() uses for the
+      // customer-facing resolve response — this list should never show a
+      // weaker "Coffee 7"-style placeholder than what a scan itself would
+      // display for the same coffee.
+      db.query(
+        `SELECT c.id, aa.archetype::text AS archetype FROM coffees c
+         JOIN archetype_assignments aa ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
+         WHERE c.id = ANY($1::int[])`,
+        [coffeeIds]
+      ),
+      db.query(`SELECT DISTINCT coffee_id FROM roaster_blend WHERE is_active = true AND coffee_id IS NOT NULL`),
+    ]);
+    const activeCoffeeIds = new Set(activeBlendResult.rows.map((r: { coffee_id: number }) => r.coffee_id));
+    const archetypeLabel = new Map<number, string>();
+    for (const row of archetypeResult.rows as { id: number; archetype: string }[]) {
+      archetypeLabel.set(row.id, row.archetype.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()));
+    }
+
+    const rows = coffeesResult.rows.map((c: { id: number; qr_token: string | null }) => ({
+      coffeeId: c.id,
+      displayName: aliasMap.get(c.id) ?? archetypeLabel.get(c.id) ?? 'This coffee',
+      token: c.qr_token,
+      url: c.qr_token ? `${QR_BASE_URL}/b/${c.qr_token}` : null,
+      retired: !activeCoffeeIds.has(c.id),
+    }));
+    res.json(rows);
+  } catch (err) {
+    console.error('[admin/qr/tokens]', err);
+    res.status(500).json({ error: 'Failed to fetch QR tokens' });
   }
 });
 

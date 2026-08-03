@@ -19,6 +19,7 @@ const NAV_SECTIONS = [
       { to: '/admin/roasters',  label: 'Roasteries' },
       { to: '/admin/inventory', label: 'Blends & SKUs' },
       { to: '/admin/dial',      label: 'Bloom Dial' },
+      { to: '/admin/qr-door',   label: 'QR Door' },
     ],
   },
   {

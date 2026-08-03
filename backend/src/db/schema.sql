@@ -2949,3 +2949,53 @@ INSERT INTO marketing_config (key, value) VALUES
   ('mailchimp_audience_url', NULL),
   ('adspend_sheet_url',      NULL)
 ON CONFLICT (key) DO NOTHING;
+
+-- ─────────────────────────────────────────────
+-- HOME_TASK_7 (§3.1, QR indirection) — the QR door. One opaque token per
+-- coffee, printed once into label artwork, resolved fresh by the server on
+-- every scan: "never print a URL whose meaning is fixed — print a pointer
+-- the server re-aims." A `coffees.qr_token` column, not a separate
+-- `coffee_qr_token` table, per the spec's own decision point — the product
+-- is explicitly one code per coffee ("Noam Blend gets its own QR"), never
+-- per-bag/per-order, so there is no plural relationship to model. Nullable
+-- until minted (POST /api/admin/qr/mint/:coffeeId); once set, never
+-- regenerated for an active coffee (print immutability cuts both ways, same
+-- rule as the token's own opacity).
+-- ─────────────────────────────────────────────
+
+ALTER TABLE coffees ADD COLUMN IF NOT EXISTS qr_token TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS coffees_qr_token_key ON coffees(qr_token) WHERE qr_token IS NOT NULL;
+
+DO $$ BEGIN
+  -- 'unresolved' is this schema's own addition beyond the task spec's literal
+  -- three values (owner | signed_out | non_owner) — those three only make
+  -- sense once a token has resolved to a coffee AND that coffee is live, i.e.
+  -- the owner/signed-out/non-owner branches. An unknown token or a retired-
+  -- coffee scan short-circuits before ownership is ever checked, so neither
+  -- "owner" nor "non_owner" would be an honest label (a signed-in customer
+  -- scanning a retired coffee they genuinely did buy is not a "non_owner" —
+  -- ownership was simply never evaluated). Logged here rather than silently
+  -- picking one of the three incorrectly.
+  CREATE TYPE qr_auth_state_enum AS ENUM ('owner', 'signed_out', 'non_owner', 'unresolved');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE qr_destination_enum AS ENUM ('bag_view', 'sign_in', 'story_page', 'retired_story', 'unknown');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- Scan analytics point (closing pass, §3.1) — every resolve of a token logs
+-- one row here, this is the only data source for the per-bag engagement
+-- metric in §7. No PII beyond user_id (nullable — populated only when the
+-- scanner was signed in); no IP, no user-agent.
+CREATE TABLE IF NOT EXISTS qr_scan_event (
+  id          SERIAL PRIMARY KEY,
+  token       TEXT NOT NULL,
+  coffee_id   INT REFERENCES coffees(id) ON DELETE SET NULL,
+  auth_state  qr_auth_state_enum NOT NULL,
+  destination qr_destination_enum NOT NULL,
+  user_id     UUID REFERENCES user_profile(id) ON DELETE SET NULL,
+  scanned_at  TIMESTAMPTZ DEFAULT timezone('utc', now())
+);
+CREATE INDEX IF NOT EXISTS qr_scan_event_coffee_id_idx ON qr_scan_event(coffee_id);
+CREATE INDEX IF NOT EXISTS qr_scan_event_token_idx     ON qr_scan_event(token);
+CREATE INDEX IF NOT EXISTS qr_scan_event_scanned_at_idx ON qr_scan_event(scanned_at);

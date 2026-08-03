@@ -300,3 +300,38 @@ export async function submitOrderFeedback(orderId: string, rating: number, note?
   if (!res.ok) throw new Error('Failed to submit feedback');
   return res.json();
 }
+
+// HOME_TASK_7 (§3.1, QR indirection) — the /b/:token page's one call. Uses
+// getHeaders() same as every other call here, so a signed-in scanner's
+// Authorization header rides along automatically and a signed-out scanner
+// simply sends none — the backend's optionalAuth handles both, same pattern
+// subscribeNewsletter() already established. Never throws on a 404 (unknown
+// token) or a rate-limit 429 — both are real, renderable states for this
+// page, not exceptional failures, so the caller reads `status` instead.
+export type QrResolveResult =
+  | { status: 'unknown' }
+  | { status: 'sign_in' }
+  | { status: 'retired'; coffeeId: number; displayName: string; nearestHopCoffeeId: number | null }
+  | { status: 'non_owner'; coffeeId: number }
+  | {
+      status: 'owner';
+      coffeeId: number;
+      displayName: string;
+      card: { method: string; ratio: string; grindLabel: string; tempC: number | null; notes: string };
+    }
+  | { status: 'rate_limited' }
+  | { status: 'error' };
+
+export async function resolveQrToken(token: string): Promise<QrResolveResult> {
+  try {
+    const res = await fetch(`${BASE}/qr/${encodeURIComponent(token)}/resolve`, {
+      headers: await getHeaders(),
+    });
+    if (res.status === 404) return { status: 'unknown' };
+    if (res.status === 429) return { status: 'rate_limited' };
+    if (!res.ok) return { status: 'error' };
+    return res.json();
+  } catch {
+    return { status: 'error' };
+  }
+}

@@ -3394,6 +3394,46 @@ WHAT_WE_BUILT.md #132, `WHAT_WE_BUILT_DB.md` gains the `brew_card` table + the `
 
 ---
 
+ 
+ ---
+ 
+### 134. HOME Task 7 — The QR Door: per-coffee tokens, `/b/:token` redirect, scan logging, artwork export (2026-08-02/03)
+
+*(Numbered 134, out of file order — a concurrent session's #133 (HOME Task 8) landed while this entry was being written; renumbered here rather than touching their entry.)*
+
+**Files:** `backend/src/db/schema.sql`, `backend/src/services/qrDoor.ts` (new), `backend/src/routes/qr.ts` (new), `backend/src/routes/admin.ts`, `backend/src/index.ts`, `frontend/src/app/components/QrDoor.tsx` (new), `frontend/src/app/components/admin/AdminQrDoor.tsx` (new), `frontend/src/app/components/CoffeeStoryPage.tsx`, `frontend/src/app/components/admin/AdminLayout.tsx`, `frontend/src/app/App.tsx`, `frontend/src/app/lib/api.ts`
+
+**What it is**: "Never print a URL whose meaning is fixed — print a pointer the server re-aims." One opaque token per coffee (`coffees.qr_token`), a public resolve endpoint deciding the destination fresh on every scan, and the admin tooling to mint tokens and export the label-artwork URL list.
+
+**No bare `/b/{token}` Express route is possible** — every backend router in this codebase mounts under `/api/*` (`index.ts`), and the frontend is a separate SPA with no static hosting from this backend. `/b/:token` is a frontend route (`QrDoor.tsx`) that calls a new public `GET /api/qr/:token/resolve` (`optionalAuth`, rate-limited) and renders whichever of five states comes back — mirroring the existing `/coffee/:id/story` + `GET /api/coffees/:id/story` split.
+
+**The five destinations**: unknown token → inline 404-style state; retired coffee (no active `roaster_blend` row — no dedicated column exists, this is an inferred convention) → redirects to the existing story page with `?retired=1&nearestHop=`, which now renders a past-tense banner + "closest relative" CTA (`CoffeeStoryPage.tsx`, extending the stub Task 5 explicitly deferred here); signed out → `/sign-in?redirect=/b/{token}` (hand-built S21 shape, since this route isn't `RequireAuth`-wrapped — retired/non-owner/unknown all need to render without forcing sign-in); signed-in non-owner → the same story page, no query params; signed-in owner → the bag view, rendered inline on `/b/:token` itself (no dedicated single-card page existed before this task — `BrewCards.tsx` is a list section only), reusing Task 6's fetch-or-create card logic and linking to `/sommelier?entry=bag&coffee={id}`.
+
+**Real bug caught during verification, fixed before calling this done**: every visitor gets an anonymous Firebase session automatically (`AuthContext.tsx`'s `signInAnonymously()`), and the frontend's `getHeaders()` sends that anonymous user's real ID token on every request. The resolve endpoint's first version treated any decoded `req.uid` as "signed in," so a guest's first-ever scan — the strategy doc's own "majority case for a first scan" — silently landed on the public story page instead of the sign-in prompt. Fixed by mirroring `RequireAuth.tsx`'s own `isAnonymous` check (`isRealSignIn = !!req.uid && !req.isAnonymous`) in the resolve handler. Caught live, not in review — the first pass through the actual signed-out browser flow produced the wrong destination, traced to a stale anonymous session and then to this real logic gap.
+
+**Ownership resolver, two independently pluggable checks**: `checkPersonalOrderOwnership` is the standard `order_line_item → roaster_blend → coffee_id` path. `checkSponsorshipOwnership` reads `order_line_item.intended_for_user_id` — a column already present in schema before this task but never read or written anywhere in `backend/src` (grepped, confirmed). Not an invented column, per the environment note's explicit constraint: the real B2B/company-gift model (`company_gift`/`company_gift_code`) links a company to a subscription but never to a specific coffee or order line, and today's fulfillment orders already carry `order.user_id` = the receiving employee's own profile — so personal-order ownership already covers the common sponsored case. `intended_for_user_id` is the one real, currently-inert seam for when it wouldn't. TODO logged in code pointing at the B2B workstream. Verified with a real (marked test) row, not a mock: a third-party "placer" account placed an order with `intended_for_user_id` set to a "sponsored" test account that never placed an order itself — the sponsored account correctly resolved to `owner`.
+
+**Scan logging** — `qr_scan_event`, one row per resolve, every path. `auth_state` extends the task spec's literal three values (`owner`/`signed_out`/`non_owner`) with a fourth, `unresolved`, for the two cases (unknown token, retired coffee) where ownership is never evaluated at all — documented as a deliberate extension, not a silent mismatch.
+
+**A real, pre-existing drift found and worked around, not fixed**: `sommelierRag.ts` queries `v_dial_navigation` for `vdn.from_coffee_id`/`to_coffee_id`, but the view's definition checked into `schema.sql` (from `bloom_dial_seed_2026_06_23.sql`) only exposes coffee **names**, not ids — the live view must have been altered directly against prod at some point without the file being updated, the same seed-vs-live drift Task 1 exists to catch, just for a view instead of config. The nearest-hop lookup for a retired coffee queries `dial_coffee_relationships` directly instead — confirmed as the right call by finding the existing `GET /api/admin/dial/navigation` endpoint already does the identical thing, for the identical reason. Flagged for whoever next touches the Bloom Dial views; out of this task's own scope to fix.
+
+**Admin**: `POST /api/admin/qr/mint/:coffeeId` and `/mint-missing` (idempotent — never regenerates an existing token); `GET /api/admin/qr/tokens` for the artwork-export list, alias-resolved with the same archetype-label fallback the customer-facing resolve endpoint uses (an earlier pass used a weaker `Coffee ${id}` placeholder here — caught and fixed for consistency before calling this done). URL-only export, no server-side PNG generation — a deliberate decision to avoid adding a QR-rendering dependency to a production service when the label designer's own tool can generate the code directly from the exported URL (the spec allows either).
+
+**Verified against real production data, not mocked** (Cloud SQL Auth Proxy + a local backend instance pointed at prod, marked test data, full cleanup):
+- `tsc --noEmit` clean (backend); `vite build` clean (frontend — no `tsconfig.json` exists in this project, `vite build` is this codebase's actual frontend correctness check).
+- **Minted real tokens for all 30 production coffees** via `mintTokensForAllCoffees()` — the actual deliverable, left in place (not test data).
+- **All five paths exercised for real**, both via direct API calls and a real browser session (screenshots taken of each): unknown token → `{"status":"unknown"}` 404; retired coffee (a real one found in production data, coffee 14, no active blend) → past-tense story page, correctly no hop CTA since this particular coffee has no outgoing recommended hop; owner → real generated brew card for a real coffee with real cupping data; the full signed-out→sign-in→return loop through the actual `SignIn.tsx` UI, landing back on `/b/:token` showing the bag view; non-owner → redirected to the public story page.
+- **`qr_scan_event` rows confirmed for every path** with correct `auth_state`/`destination`/`user_id`, read directly from the table.
+- Test users, orders, and scan events were all marked (`CLAUDE_QR_TEST%` promo codes, `claude-qr-test-*@example.com` emails) and fully deleted after verification; confirmed zero remaining. Real minted `qr_token` values on real coffees were deliberately left in place.
+- **Not verified in this environment**: an actual physical phone scan of a printed code — no label artwork exists yet (a separate design workstream), and this environment has no printer. The redirect/resolve logic itself is fully verified end-to-end; the one remaining step is genuinely physical and needs to happen once real (even draft) artwork exists.
+
+**Out of scope, unchanged, per the task's explicit list**: no label artwork (design workstream); no changes to story-page or card content, only routing to them; no per-bag serialization — one token per coffee, exactly as specified.
+
+WHAT_WE_BUILT.md #134, `WHAT_WE_BUILT_DB.md` gains `coffees.qr_token` + `qr_scan_event` + the two new enums, `SOMMELIER_BUILT.md` S81 (full detail).
+
+---
+
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.
