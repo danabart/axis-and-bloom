@@ -139,7 +139,7 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
       const coffee = configRef.current.coffees[zone];
       if (nowRef.current) nowRef.current.textContent = 'THE COFFEE';
       if (nameRef.current) nameRef.current.textContent = coffee.name;
-      if (fieldNameRef.current) fieldNameRef.current.textContent = coffee.name;
+      if (fieldNameRef.current) fieldNameRef.current.textContent = coffee.name.split(' ').join('\n'); // one word per line
       if (priceRef.current) priceRef.current.textContent =
         `12oz · ${fmtPrice(coffee.price12Cents)}  /  5lb · ${fmtPrice(coffee.price5Cents)}`;
       wrap.setAttribute('aria-valuenow', String(zone));
@@ -356,36 +356,41 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
 
         {/* Instrument field */}
         <div className="bd-instrument">
-          {/* Live coffee-name readout above the wheel (Bloom layout only) —
-              turns with the wheel so the field announces the coffee it lands on. */}
-          {!embedded && (
-            <div className="bd-field-name" ref={fieldNameRef}>
-              {config.coffees[Math.min(3, Math.max(0, initialDialSortOrder - 1))].name}
+          <div className="bd-field-inner">
+            <div className="bd-wheel-col">
+              <div
+                className="bd-dial-wrap" ref={wrapRef}
+                role="slider" tabIndex={0}
+                aria-label={`${config.archetypeLabel} Bloom Dial`}
+                aria-valuemin={0} aria-valuemax={3} aria-valuenow={Math.min(3, Math.max(0, initialDialSortOrder - 1))}
+              >
+                <div className="bd-marker" />
+                <div className="bd-rotor" ref={rotorRef}>
+                  <canvas ref={canvasRef} width={W} height={H} />
+                  <img src={LINEWORK_URI} alt="" draggable={false} />
+                </div>
+              </div>
+              <div className="bd-ruler">
+                <div
+                  className="bd-ruler-ticks" ref={ticksRef} tabIndex={0}
+                  role="slider" aria-label={`${config.archetypeLabel} Bloom Dial position`}
+                  aria-valuemin={0} aria-valuemax={3} aria-valuenow={Math.min(3, Math.max(0, initialDialSortOrder - 1))}
+                >
+                  <div className="bd-needle" ref={needleRef} />
+                </div>
+                <div className="bd-ruler-ends"><span>DELICATE</span><span>PRONOUNCED</span></div>
+              </div>
+              <div className="bd-hint">TURN THE WHEEL, OR SLIDE THE BAR</div>
             </div>
-          )}
-          <div
-            className="bd-dial-wrap" ref={wrapRef}
-            role="slider" tabIndex={0}
-            aria-label={`${config.archetypeLabel} Bloom Dial`}
-            aria-valuemin={0} aria-valuemax={3} aria-valuenow={Math.min(3, Math.max(0, initialDialSortOrder - 1))}
-          >
-            <div className="bd-marker" />
-            <div className="bd-rotor" ref={rotorRef}>
-              <canvas ref={canvasRef} width={W} height={H} />
-              <img src={LINEWORK_URI} alt="" draggable={false} />
-            </div>
+
+            {/* Big live coffee-name display, stacked one word per line, to the
+                right of the wheel (Bloom layout only). Palette colours only. */}
+            {!embedded && (
+              <div className="bd-field-name" ref={fieldNameRef}>
+                {config.coffees[Math.min(3, Math.max(0, initialDialSortOrder - 1))].name.split(' ').join('\n')}
+              </div>
+            )}
           </div>
-          <div className="bd-ruler">
-            <div
-              className="bd-ruler-ticks" ref={ticksRef} tabIndex={0}
-              role="slider" aria-label={`${config.archetypeLabel} Bloom Dial position`}
-              aria-valuemin={0} aria-valuemax={3} aria-valuenow={Math.min(3, Math.max(0, initialDialSortOrder - 1))}
-            >
-              <div className="bd-needle" ref={needleRef} />
-            </div>
-            <div className="bd-ruler-ends"><span>DELICATE</span><span>PRONOUNCED</span></div>
-          </div>
-          <div className="bd-hint">TURN THE WHEEL, OR SLIDE THE BAR</div>
           {/* Field bag only in the compact embedded dial (quiz/profile). On the
               Bloom page the bag moves into the left lockup beside the name. */}
           {embedded && (
@@ -433,7 +438,9 @@ const CSS = `
 .bd-ruler-ticks.bd-dragging .bd-needle{transition:none;}
 .bd-ruler-ends{display:flex;justify-content:space-between;font-size:9.5px;letter-spacing:.24em;color:var(--bd-ftext);}
 .bd-hint{margin-top:12px;font-size:10.5px;letter-spacing:.14em;color:var(--bd-ftext-mid);}
-.bd-field-name{color:var(--bd-ftext);font-size:clamp(20px,2.2vw,30px);font-weight:400;letter-spacing:.01em;line-height:1.2;text-align:center;max-width:90%;margin-bottom:34px;transition:opacity 300ms ${EASE};}
+.bd-field-inner{display:flex;align-items:center;justify-content:center;gap:clamp(28px,4vw,72px);width:100%;}
+.bd-wheel-col{display:flex;flex-direction:column;align-items:center;flex-shrink:0;}
+.bd-field-name{color:var(--bd-ftext);font-size:clamp(44px,6vw,92px);font-weight:500;line-height:0.96;letter-spacing:-0.015em;text-align:left;white-space:pre-line;flex-shrink:1;min-width:0;transition:opacity 300ms ${EASE};}
 .bd-field-bag{position:absolute;right:54px;bottom:42px;text-align:center;pointer-events:none;}
 .bd-field-bag img{width:146px;height:auto;display:block;-webkit-user-drag:none;}
 .bd-bag-shadow{width:102px;height:10px;margin:-4px auto 0;border-radius:50%;background:radial-gradient(ellipse,rgba(58,60,62,.22),rgba(58,60,62,0) 70%);}
@@ -454,6 +461,8 @@ const CSS = `
   .bd-reading{order:2;padding:44px 28px;}
   .bd-coffee-name{min-height:0;}
   .bd-dial-wrap{width:320px;height:320px;}
+  .bd-field-inner{flex-direction:column;gap:26px;}
+  .bd-field-name{font-size:clamp(32px,9vw,54px);text-align:center;}
 }
 @media (prefers-reduced-motion:reduce){
   .bd-rotor,.bd-needle,.bd-now,.bd-coffee-name,.bd-field-name,.bd-btn{transition:none !important;}
