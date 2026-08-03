@@ -3484,6 +3484,18 @@ WHAT_WE_BUILT.md #133, `WHAT_WE_BUILT_DB.md` gains the `beat_event` table + the 
 
 ---
 
+### 137. HOME Task 7d — FIX: Liam's dial-navigation RAG queries actually work now, for the first time (2026-08-03)
+
+**What it is**: closes the S82 → S84 → here chain. Rewrote `sommelierRag.ts`'s two `v_dial_navigation` queries to read `dial_coffee_relationships` directly by id — the same pattern `qrDoor.ts`'s `getNearestHopCoffeeId()` already uses — since S84 proved the view has never had id columns anywhere. `RECOMMENDATION_MISS`'s directional dial-alternative lookup and `DISCOVERY_SEEKER`'s bridge-hop supplementation now genuinely run in production, for the first time since the hop graph got real data back in S43. Catch-block logging upgraded from an unread `console.warn` to a distinct, unmissable `console.error` tag with the real error attached.
+
+**Two more instances of a related bug, found live and fixed with explicit go-ahead**: proving the fix end-to-end (the verification this task cared about most) meant actually running the real `discovery`-focus code path — which threw *before* ever reaching the fixed query, on a separate, pre-existing `SELECT DISTINCT ON (c.id)` / `ORDER BY` mismatch in the RAG focus's very first query. That meant the entire `discovery` focus (not just its dial supplement) has always returned zero coffees. A grep for the same pattern found an identical second instance in `exact_match` (the `CONVERSION` intent's RAG focus) — also always empty. Both fixed with a minimal `ORDER BY` reorder, confirmed live before touching anything.
+
+**Verified**: both rewritten queries return real rows directly against prod. Real before/after coffee-id diffs through the actual `fetchSommelierCoffees()`: RECOMMENDATION_MISS-shaped gained coffee `1` it never had before; DISCOVERY_SEEKER-shaped gained `12` and `11`; CONVERSION-shaped went from always-`[]` to `[1, 3, 7, 14, 17]`. Forced a live failure and confirmed the new log tag fires and the archetype-only fallback still degrades gracefully, byte-identical to the pre-fix behavior. `tsc --noEmit` clean.
+
+**Full detail**: `SOMMELIER_BUILT.md` S85. No schema change — no `WHAT_WE_BUILT_DB.md` entry.
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

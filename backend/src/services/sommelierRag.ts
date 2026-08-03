@@ -220,22 +220,29 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
         if (adjacent[0]) enums.push(toEnum(adjacent[0]));
       }
 
-      // Bloom Dial: lighter alternatives via hop direction = 'less'
+      // Bloom Dial: lighter alternatives via hop direction = 'less'. Queries
+      // dial_coffee_relationships directly by id (HOME_TASK_7D/S84/S43) —
+      // v_dial_navigation exposes from_coffee/to_coffee as names only, never
+      // ids, in either schema.sql or production; this query selected
+      // vdn.from_coffee_id/to_coffee_id for three weeks and silently failed
+      // every time, caught by the catch below. Direct-table pattern mirrors
+      // qrDoor.ts's getNearestHopCoffeeId() (S82) for the identical reason.
       let dialAlternativeIds: number[] = [];
       if (excludeCoffeeIds.length > 0) {
         try {
           const dialResult = await db.query(
-            `SELECT DISTINCT vdn.to_coffee_id AS id
-             FROM v_dial_navigation vdn
-             WHERE vdn.from_coffee_id = ANY($1::int[])
-               AND vdn.direction = 'less'
-               AND vdn.is_recommended = true
+            `SELECT DISTINCT dcr.to_coffee_id AS id
+             FROM dial_coffee_relationships dcr
+             WHERE dcr.from_coffee_id = ANY($1::int[])
+               AND dcr.to_coffee_id IS NOT NULL
+               AND dcr.direction = 'less'
+               AND dcr.is_recommended = true
              LIMIT 2`,
             [excludeCoffeeIds]
           );
           dialAlternativeIds = dialResult.rows.map((r: { id: number }) => r.id);
-        } catch {
-          console.warn('[sommelierRag] Bloom Dial query failed — using archetype-only RAG');
+        } catch (err) {
+          console.error('[sommelierRag:DIAL_QUERY_FAILED] alternatives dial-navigation query failed — degrading to archetype-only RAG', err);
         }
       }
 
@@ -282,11 +289,17 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
       coffees = result.rows;
 
     } else if (ragFocus === 'discovery') {
-      // Experimental archetype first
+      // Experimental archetype first. Found live while verifying HOME_TASK_7D
+      // (a real, separate bug, not the dial-navigation one this task targets):
+      // BASE_COFFEE_SQL is `SELECT DISTINCT ON (c.id)`, and Postgres requires
+      // ORDER BY's leading expression(s) to match the DISTINCT ON list — c.id
+      // must come first. This always threw (42P10), caught by the outer
+      // try/catch, meaning the entire discovery focus returned zero coffees,
+      // not just the (also-broken, separately fixed) bridge-hop supplement.
       const expResult = await db.query(
         `${BASE_COFFEE_SQL}
          WHERE aa.archetype = 'experimental'::archetype_enum
-         ORDER BY c.ai_summary IS NOT NULL DESC, c.id
+         ORDER BY c.id, c.ai_summary IS NOT NULL DESC
          LIMIT $1`,
         [Math.floor(maxCoffees / 2)]
       );
@@ -303,13 +316,18 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
           );
           const currentIds = currentCoffees.rows.map((r: CoffeeRow) => r.id);
           if (currentIds.length > 0) {
+            // Direct dial_coffee_relationships read by id (HOME_TASK_7D/S84/S43)
+            // — same fix and same reasoning as the alternatives-focus query
+            // above; this one selected vdn.to_coffee_id off v_dial_navigation
+            // and had never once returned a row in production.
             const dialResult = await db.query(
-              `SELECT DISTINCT vdn.to_coffee_id AS id
-               FROM v_dial_navigation vdn
-               WHERE vdn.from_coffee_id = ANY($1::int[])
-                 AND vdn.hop_type = 'bridge_archetype'
-                 AND vdn.is_recommended = true
-                 AND vdn.to_coffee_id != ALL($2::int[])
+              `SELECT DISTINCT dcr.to_coffee_id AS id
+               FROM dial_coffee_relationships dcr
+               WHERE dcr.from_coffee_id = ANY($1::int[])
+                 AND dcr.to_coffee_id IS NOT NULL
+                 AND dcr.hop_type = 'bridge_archetype'
+                 AND dcr.is_recommended = true
+                 AND dcr.to_coffee_id != ALL($2::int[])
                LIMIT $3`,
               [currentIds, coffees.map((c) => c.id), maxCoffees - coffees.length]
             );
@@ -324,8 +342,8 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
               coffees = [...coffees, ...bridgeCoffees.rows];
             }
           }
-        } catch {
-          console.warn('[sommelierRag] Bloom Dial query failed — using archetype-only RAG');
+        } catch (err) {
+          console.error('[sommelierRag:DIAL_QUERY_FAILED] discovery bridge-hop query failed — degrading to archetype-only RAG', err);
         }
       }
 
@@ -346,10 +364,13 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
       coffees = [...coffees, ...lowAffinityResult.rows];
 
     } else if (ragFocus === 'exact_match') {
+      // Same DISTINCT ON / ORDER BY bug class as the discovery focus above,
+      // found while verifying HOME_TASK_7D — CONVERSION's RAG focus has
+      // always thrown here too (42P10), returning zero coffees.
       const result = await db.query(
         `${BASE_COFFEE_SQL}
          WHERE aa.archetype = $1::archetype_enum
-         ORDER BY (c.ai_summary IS NOT NULL) DESC, (c.surprise_note IS NOT NULL) DESC, c.id
+         ORDER BY c.id, (c.ai_summary IS NOT NULL) DESC, (c.surprise_note IS NOT NULL) DESC
          LIMIT 5`,
         [userEnum ?? 'balanced_sweet']
       );
