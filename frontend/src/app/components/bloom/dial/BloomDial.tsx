@@ -37,6 +37,19 @@ function fmtPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+// Stack a coffee name one word per line for the field display, but keep "&"
+// glued to the following word so it never sits alone on a row (Camila's rule).
+function nameToLines(name: string): string {
+  const words = name.split(' ');
+  const lines: string[] = [];
+  for (let i = 0; i < words.length; i++) {
+    if (words[i] === '&' && i + 1 < words.length) { lines.push('& ' + words[i + 1]); i++; }
+    else if (words[i] === '&' && lines.length) { lines[lines.length - 1] += ' &'; }
+    else { lines.push(words[i]); }
+  }
+  return lines.join('\n');
+}
+
 // Inject the dial stylesheet once. Colours are per-instance CSS vars set inline
 // on each root, so all dials share one <style> but render their own field colour.
 const STYLE_ID = 'bloom-dial-styles';
@@ -139,7 +152,7 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
       const coffee = configRef.current.coffees[zone];
       if (nowRef.current) nowRef.current.textContent = 'THE COFFEE';
       if (nameRef.current) nameRef.current.textContent = coffee.name;
-      if (fieldNameRef.current) fieldNameRef.current.textContent = coffee.name.split(' ').join('\n'); // one word per line
+      if (fieldNameRef.current) fieldNameRef.current.textContent = nameToLines(coffee.name);
       if (priceRef.current) priceRef.current.textContent =
         `12oz · ${fmtPrice(coffee.price12Cents)}  /  5lb · ${fmtPrice(coffee.price5Cents)}`;
       wrap.setAttribute('aria-valuenow', String(zone));
@@ -387,7 +400,7 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
                 right of the wheel (Bloom layout only). Palette colours only. */}
             {!embedded && (
               <div className="bd-field-name" ref={fieldNameRef}>
-                {config.coffees[Math.min(3, Math.max(0, initialDialSortOrder - 1))].name.split(' ').join('\n')}
+                {nameToLines(config.coffees[Math.min(3, Math.max(0, initialDialSortOrder - 1))].name)}
               </div>
             )}
           </div>
@@ -440,7 +453,9 @@ const CSS = `
 .bd-hint{margin-top:12px;font-size:10.5px;letter-spacing:.14em;color:var(--bd-ftext-mid);}
 .bd-field-inner{display:flex;align-items:center;justify-content:center;gap:clamp(28px,4vw,72px);width:100%;}
 .bd-wheel-col{display:flex;flex-direction:column;align-items:center;flex-shrink:0;}
-.bd-field-name{color:var(--bd-ftext);font-size:clamp(44px,6vw,92px);font-weight:500;line-height:0.96;letter-spacing:-0.015em;text-align:left;white-space:pre-line;flex-shrink:1;min-width:0;transition:opacity 300ms ${EASE};}
+/* Fixed box so the name never resizes as it changes — the wheel stays locked.
+   Longer names overflow (visible), centered, without pushing any layout. */
+.bd-field-name{flex:0 0 auto;width:clamp(200px,26vw,420px);height:200px;display:flex;flex-direction:column;justify-content:center;overflow:visible;color:var(--bd-ftext);font-size:clamp(44px,6vw,92px);font-weight:500;line-height:0.96;letter-spacing:-0.015em;text-align:left;white-space:pre-line;transition:opacity 300ms ${EASE};}
 .bd-field-bag{position:absolute;right:54px;bottom:42px;text-align:center;pointer-events:none;}
 .bd-field-bag img{width:146px;height:auto;display:block;-webkit-user-drag:none;}
 .bd-bag-shadow{width:102px;height:10px;margin:-4px auto 0;border-radius:50%;background:radial-gradient(ellipse,rgba(58,60,62,.22),rgba(58,60,62,0) 70%);}
@@ -461,8 +476,12 @@ const CSS = `
   .bd-reading{order:2;padding:44px 28px;}
   .bd-coffee-name{min-height:0;}
   .bd-dial-wrap{width:320px;height:320px;}
+}
+/* Below ~1100px the wheel + big name no longer fit side by side — stack the
+   name under the wheel, centered, and let its box size to content there. */
+@media (max-width:1100px){
   .bd-field-inner{flex-direction:column;gap:26px;}
-  .bd-field-name{font-size:clamp(32px,9vw,54px);text-align:center;}
+  .bd-field-name{width:auto;max-width:90%;height:auto;text-align:center;font-size:clamp(32px,7vw,60px);}
 }
 @media (prefers-reduced-motion:reduce){
   .bd-rotor,.bd-needle,.bd-now,.bd-coffee-name,.bd-field-name,.bd-btn{transition:none !important;}
