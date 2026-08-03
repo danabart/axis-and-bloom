@@ -17,6 +17,7 @@ import OrderFeedbackForm from './OrderFeedbackForm';
 import TastingJournal from './profile/TastingJournal';
 import ActivityTimeline from './profile/ActivityTimeline';
 import BrewProfileMirror from './profile/BrewProfileMirror';
+import BrewCards from './profile/BrewCards';
 import WorthExploring from './profile/WorthExploring';
 
 type Tab = 'memory' | 'orders' | 'settings' | 'family';
@@ -587,6 +588,14 @@ export default function Profile() {
                         <div className="lg:col-span-2">
                           <ActivityTimeline entries={flavorMemory.activity} retakeCopy={retakeCopy} onRemoved={loadFlavorMemory} />
                         </div>
+                      </div>
+                    )}
+
+                    {/* HOME_TASK_6 (§3.2) — brew cards, read-only v1. Renders nothing
+                        (returns null) until flavorMemory has loaded and at least one card exists. */}
+                    {flavorMemory && (
+                      <div className="border-t border-[#a33726]/10 pt-8 mt-6">
+                        <BrewCards cards={flavorMemory.brewCards} />
                       </div>
                     )}
 

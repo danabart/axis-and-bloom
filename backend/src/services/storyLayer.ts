@@ -135,3 +135,56 @@ export async function generateCoffeeStoryWithRetry(
 
   return { text: lastText, passed: false, attempts: maxRetries + 1, violations: lastViolations };
 }
+
+// HOME_TASK_6 (§3.1) — the arrival note's one warm sentence about the coffee
+// itself (distinct from the brew card's own `params.notes`, which is pure
+// code + config — see brewCard.ts's computeRecipe()). Same content pipeline,
+// same alias-only/specificity discipline as the full story (S38/S44/S74):
+// displayName only, never the raw coffee name or roaster, checked with the
+// identical checkStorySpecificityViolations() rather than a second checker.
+// One generation attempt, one retry with the violation named, then a safe
+// generic fallback that mentions nothing coffee-specific at all — an arrival
+// note must never block on content-pipeline failure.
+export async function generateBrewNoteSentence(
+  params: { displayName: string; archetype: string | null; topDescriptors: string[] },
+  identity: { rawCoffeeName: string | null; roasterNames: string[] }
+): Promise<string> {
+  const FALLBACK = `${params.displayName} is on its way to your cup — here's how to get the most out of it.`;
+
+  async function attempt(correctionNote?: string): Promise<string> {
+    const correction = correctionNote
+      ? `\n\nYour previous attempt was rejected for this reason: ${correctionNote}. Do not repeat this.`
+      : '';
+    const content = `Write exactly one warm, editorial sentence (max 30 words) introducing "${params.displayName}"${params.archetype ? `, a ${params.archetype} coffee` : ''} for a customer whose bag just arrived. Refer to it only as "${params.displayName}" or "this coffee" — never invent another name.
+${params.topDescriptors.length ? `Top flavor descriptors: ${params.topDescriptors.join(', ')}` : ''}
+
+Rules: one sentence only, no title, no markdown. Never name a specific farm, co-op, cooperative, estate, lot, or importer. Never name a roaster.${correction}`;
+
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 100,
+      system: STORY_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content }],
+    });
+    const block = response.content[0];
+    return (block.type === 'text' ? block.text : '').trim();
+  }
+
+  try {
+    let text = await attempt();
+    let violations = checkStorySpecificityViolations(text, identity);
+    if (violations.length > 0) {
+      console.warn(`[storyLayer] brew-note sentence attempt 1 rejected for "${params.displayName}": ${violations.join('; ')}`);
+      text = await attempt(violations.join('; '));
+      violations = checkStorySpecificityViolations(text, identity);
+    }
+    if (violations.length > 0) {
+      console.warn(`[storyLayer] brew-note sentence attempt 2 also rejected for "${params.displayName}": ${violations.join('; ')} — using generic fallback`);
+      return FALLBACK;
+    }
+    return text || FALLBACK;
+  } catch (err) {
+    console.error('[storyLayer] generateBrewNoteSentence failed, using fallback:', err);
+    return FALLBACK;
+  }
+}

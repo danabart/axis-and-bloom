@@ -83,6 +83,15 @@ export default function Sommelier() {
   const [searchParams] = useSearchParams();
   const entry = searchParams.get('entry') ?? '';
   const tiedParam = searchParams.get('tied') ?? '';
+  // HOME_TASK_6 (§3.1, §3.2) — entry=bag (arrival-note link) / entry=card
+  // (home-surface "ask Liam about this" link) both carry a coffee id and, like
+  // entry=user_initiated, must never redirect away to Flavor Intelligence —
+  // a customer tapping into a conversation about a specific bag always gets
+  // a session, regardless of whether they'd otherwise "need" the sommelier.
+  const coffeeParam = searchParams.get('coffee');
+  const coffeeIdNum = coffeeParam ? Number(coffeeParam) : null;
+  const isCoffeeEntry = (entry === 'bag' || entry === 'card') && Number.isInteger(coffeeIdNum);
+  const bypassesRedirect = entry === 'user_initiated' || isCoffeeEntry;
 
   const [phase, setPhase] = useState<'loading' | 'resume_prompt' | 'chat' | 'error'>('loading');
   const [errorMsg, setErrorMsg] = useState('');
@@ -175,6 +184,7 @@ export default function Sommelier() {
         openingContext: ev.openingContext,
         evaluationId: ev.evaluationId,
         tiedArchetypes: tiedParam ? tiedParam.split(',') : [],
+        ...(isCoffeeEntry ? { entry, coffeeId: coffeeIdNum } : {}),
       }),
     });
 
@@ -206,7 +216,7 @@ export default function Sommelier() {
     setMessages(data.openingMessage ? [{ role: 'assistant', content: data.openingMessage, actions: data.openingActions }] : []);
     setPhase('chat');
     setTimeout(() => inputRef.current?.focus(), 100);
-  }, [tiedParam]);
+  }, [tiedParam, isCoffeeEntry, entry, coffeeIdNum]);
 
   useEffect(() => {
     (async () => {
@@ -218,7 +228,7 @@ export default function Sommelier() {
           body: JSON.stringify({
             quizTie: entry === 'quiz_tie',
             tiedArchetypes: tiedParam ? tiedParam.split(',') : [],
-            userInitiated: entry === 'user_initiated',
+            userInitiated: bypassesRedirect,
           }),
         });
 
@@ -226,7 +236,7 @@ export default function Sommelier() {
         const ev: EvalResult = await evalRes.json();
         setEvalResult(ev);
 
-        if (!ev.needsSommelier && entry !== 'user_initiated') {
+        if (!ev.needsSommelier && !bypassesRedirect) {
           navigate('/flavor-intelligence', { replace: true });
           return;
         }

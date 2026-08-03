@@ -157,11 +157,28 @@ export interface FlavorMemoryActivityEntry {
   removable: boolean;
 }
 
+// HOME_TASK_6 (§3.2) — read-only v1 display. coffeeName is already alias-
+// resolved server-side (S44/S77 discipline) — never a raw coffee name.
+export interface BrewCardSummary {
+  id: number;
+  coffeeId: number;
+  coffeeName: string | null;
+  method: string;
+  ratio: string;
+  grindLabel: string;
+  tempC: number | null;
+  notes: string;
+  revision: number;
+  lastAdjustmentReason: string | null;
+  updatedAt: string;
+}
+
 export interface FlavorMemoryData {
   journal: FlavorMemoryJournalEntry[];
   journey: FlavorMemoryJourneyEntry[];
   activity: FlavorMemoryActivityEntry[];
   contributionCount: number;
+  brewCards: BrewCardSummary[];
 }
 
 export async function getFlavorMemory(): Promise<FlavorMemoryData> {

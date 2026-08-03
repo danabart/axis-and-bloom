@@ -122,6 +122,45 @@ export interface SommelierConfig {
   storyLayer?: {
     bannedTerms: string[];
   };
+  // HOME_TASK_6 (§3.2, §3.1) — the brew-card recipe generator's base recipes,
+  // dimension-driven adjustment rules, and the whitelisted <<card:adjust=...>>
+  // vocabulary. Code + config, never an LLM call — see brewCard.ts. Every
+  // method key here must also be a valid brewProfile.fields.brew_methods value
+  // (checked by brewCard.ts at read time, not duplicated as a second whitelist).
+  brewDefaults?: {
+    grindScale: string[];
+    methods: Record<string, { ratio: string; grindLabel: string; grindIndex: number; tempC: number | null }>;
+    // Applied in array order — see brewCard.ts's computeRecipe() for exactly
+    // how a dimension's cupping average maps to a grind/temp shift.
+    dimensionDeltas: Array<{
+      dimensionName: string;
+      highThreshold: number | null;
+      lowThreshold: number | null;
+      highGrindShift?: number;
+      lowGrindShift?: number;
+      highTempShiftC?: number;
+      lowTempShiftC?: number;
+      highNote?: string;
+      lowNote?: string;
+    }>;
+    // <<card:adjust=KEY>> — server-side whitelist; an unknown key is dropped
+    // and logged, never trusted from the model (S51 discipline).
+    adjustments: Record<string, { grindShift?: number; tempShiftC?: number; note: string }>;
+    // First-draft, adjustable mapping — no per-archetype "ideal method" data
+    // exists yet, this is a reasonable starting default only (see build log).
+    archetypeDefaultMethod: Record<string, string>;
+    arrivalNote: {
+      // Days after order placement before the arrival email sends — the same
+      // no-real-fulfillment-signal approximation liamSmsFeedback.ts already
+      // uses for its own +10-day post-delivery ask, just shorter since this
+      // is the earlier "arrival" beat, not the later feedback one.
+      deliveryDelayDays: number;
+      // Bag-number-aware length rule (§3.1) — first-ever bag of any coffee
+      // gets the fullest note; at or above this bag number, later notes render
+      // in the shorter form.
+      shortNoteFromBagNumber: number;
+    };
+  };
   updatedAt?: unknown;
 }
 

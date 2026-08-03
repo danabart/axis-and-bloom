@@ -833,6 +833,36 @@ CREATE TABLE IF NOT EXISTS sommelier_messages (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- HOME_TASK_6 (§3.2, §3.1) — one row per customer × coffee × method. Created by
+-- the arrival note or by conversation (`origin`); updated in place through the
+-- <<card:adjust>> marker (revision bumped, never a new row — the whole point is
+-- one durable card per method that sharpens over time, not a history of cards).
+-- `method` matches Task 4's brew_profile.fields.brew_methods whitelist (a
+-- Firestore-config-driven list, not a rigid Postgres enum — see brewCard.ts,
+-- validated the same way resolveRemember() validates any other brew-profile
+-- field). `params` is customer-language only (ratio/grind_label/temp_c/notes) —
+-- never raw dimension jargon, same discipline as the story layer (S74).
+CREATE TABLE IF NOT EXISTS brew_card (
+  id                      SERIAL PRIMARY KEY,
+  user_id                 UUID NOT NULL REFERENCES user_profile(id) ON DELETE CASCADE,
+  coffee_id               INT NOT NULL REFERENCES coffees(id) ON DELETE CASCADE,
+  method                  TEXT NOT NULL,
+  params                  JSONB NOT NULL,
+  origin                  TEXT NOT NULL DEFAULT 'conversation' CHECK (origin IN ('arrival_note', 'conversation')),
+  revision                INT NOT NULL DEFAULT 1,
+  last_adjustment_reason  TEXT,
+  -- Arrival-note delivery timing — the same approximation liamSmsFeedback.ts's
+  -- schedulePostDeliveryMessage already uses (no real fulfillment/tracking
+  -- webhook exists), just a shorter, config-driven delay since this is the
+  -- *arrival* signal, not the +10-day post-delivery feedback ask. NULL for
+  -- conversation-created cards, which have no note to send.
+  arrival_email_scheduled_for TIMESTAMPTZ,
+  arrival_email_sent_at       TIMESTAMPTZ,
+  created_at              TIMESTAMPTZ DEFAULT NOW(),
+  updated_at              TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, coffee_id, method)
+);
+
 -- Where did this subscriber come from?
 CREATE TABLE IF NOT EXISTS subscriber_source (
   id    SERIAL PRIMARY KEY,

@@ -10,6 +10,8 @@ import { schedulePostDeliveryMessage } from '../services/liamSmsFeedback.js';
 import { refreshLifecycleState } from '../services/userLifecycle.js';
 import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
 import { writeDialPositionSignal } from '../services/dialPositionSignal.js';
+import { createArrivalCard } from '../services/brewCard.js';
+import { getBrewProfile } from './sommelier.js';
 
 const router = Router();
 
@@ -201,6 +203,31 @@ router.post('/', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) 
           schedulePostDeliveryMessage(req.uid!, blendId, orderId).catch(err => {
             console.error('[liamSms] schedule failed:', err);
           });
+        }
+
+        // HOME_TASK_6 (§3.1) — the arrival brew card + note. Same hook point
+        // as the SMS scheduling above (per the task's own context note: "the
+        // same delivery-timing machinery... this task hooks the same signal
+        // at arrival, not a new one"), for every order's primary coffee — not
+        // scoped to orders 1-2 like the SMS ask, since every bag gets its own
+        // conversation (§3.1), not just the first two. createArrivalCard()
+        // itself only schedules a new email for a genuinely new card (a
+        // repeat order of a coffee+method this customer already has a card
+        // for doesn't re-trigger a second arrival note — see its own comment).
+        const arrivalBlendId = resolvedItems[0]?.blendId ?? null;
+        if (arrivalBlendId) {
+          (async () => {
+            try {
+              const blendResult = await db.query(`SELECT coffee_id FROM roaster_blend WHERE id = $1`, [arrivalBlendId]);
+              const coffeeId = blendResult.rows[0]?.coffee_id as number | undefined;
+              if (coffeeId) {
+                const brewProfile = await getBrewProfile(req.uid!);
+                await createArrivalCard(userId, coffeeId, brewProfile);
+              }
+            } catch (err) {
+              console.error('[brewCard] arrival card scheduling failed:', err);
+            }
+          })();
         }
 
         // Recompute lifecycle stage now that an order exists — independent write,

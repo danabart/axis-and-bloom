@@ -21,6 +21,14 @@ import {
   normalizeFieldName,
   type BrewProfileDoc,
 } from '../services/brewProfile.js';
+import {
+  generateCard,
+  adjustCard,
+  getMostRecentCard,
+  getCardByMethod,
+  resolveDefaultMethod,
+  type BrewCardRow,
+} from '../services/brewCard.js';
 
 // HOME_TASK_3 (§4.8) — per-IP and per-account rate limiting on the two turn-
 // generating endpoints. Thresholds read live config per request (the `max`
@@ -136,6 +144,82 @@ async function resolveCoffeeDisplayNames(coffeeIds: number[]): Promise<string[]>
   return coffeeIds
     .map((id) => aliasMap.get(id) || archetypeLabel.get(id) || 'Coffee')
     .sort((a, b) => a.localeCompare(b));
+}
+
+// HOME_TASK_6 — resolves a firebase uid to its user_profile.id. Small, shared
+// helper for the new brew-card code paths below; resolveActions() has its own
+// inline copy of this same query for an unrelated purpose, left as-is.
+async function resolveProfileId(uid: string): Promise<string | null> {
+  const result = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [uid]);
+  return result.rows[0]?.id ?? null;
+}
+
+const METHOD_LABEL: Record<string, string> = {
+  v60: 'V60', french_press: 'French press', espresso: 'Espresso', moka: 'Moka pot',
+  aeropress: 'Aeropress', cold_brew: 'Cold brew', drip: 'Drip', other: 'your usual method',
+};
+
+// HOME_TASK_6 (§3.1, §3.2) — resolves S71's deferred "current coffee" concept:
+// "that coffee's card + story join the context assembly." Alias via
+// getAliases() (S44/S77 discipline, not reinvented) — never the raw
+// coffees.name. The story contribution is intentionally just the published
+// story's first sentence, not the full 120-200 word text — this runs every
+// turn of a bag/card-anchored session (the card can change mid-conversation
+// via <<card:adjust>>), so it stays a light, session-wide grounding line
+// rather than duplicating the full my_coffee-topic story injection above.
+async function buildCurrentCoffeeContext(coffeeId: number, method: string, card: BrewCardRow): Promise<string> {
+  const aliasMap = await getAliases([coffeeId]);
+  const alias = aliasMap.get(coffeeId) ?? 'This coffee';
+  const methodLabel = METHOD_LABEL[method] ?? method;
+  const tempPart = card.params.tempC != null ? `, ${card.params.tempC}°C` : '';
+  const notesPart = card.params.notes ? ` ${card.params.notes}` : '';
+  let storyPart = '';
+  try {
+    const storyResult = await db.query(`SELECT story, story_published FROM coffees WHERE id = $1`, [coffeeId]);
+    const row = storyResult.rows[0];
+    if (row?.story_published && row.story) {
+      const firstSentence = String(row.story).split(/(?<=[.!?])\s/)[0];
+      if (firstSentence) storyPart = ` ${firstSentence}`;
+    }
+  } catch { /* story unavailable — card-only context is still useful */ }
+  return `${alias} — ${methodLabel}, ${card.params.ratio}, ${card.params.grindLabel}${tempPart}.${notesPart}${storyPart}`;
+}
+
+// HOME_TASK_6 (§3.2) — <<card:save>> / <<card:adjust=KEY>> resolution. Same
+// discipline as resolveActions()/resolveRemember(): the model only signals
+// intent; the coffee, method, and (for adjust) the target card are all
+// resolved from session context server-side, never trusted from the marker
+// beyond the whitelisted adjustment key. Scoped to bag/card-anchored sessions
+// only (entryCoffeeId set at /start) — a general "which coffee are we talking
+// about" resolver for every session is out of this task's scope; a marker
+// with nothing to attach to is silently dropped and logged, same as
+// open_dial's own no-archetype-known no-op.
+async function resolveCard(
+  cardMarker: { type: 'save' } | { type: 'adjust'; adjustment: string } | undefined,
+  uid: string,
+  entryCoffeeId: number | null,
+  entryMethod: string | null,
+  brewProfile: BrewProfileDoc | null,
+  customerMessage: string
+): Promise<void> {
+  if (!cardMarker || !entryCoffeeId) return;
+  const userId = await resolveProfileId(uid);
+  if (!userId) return;
+
+  if (cardMarker.type === 'save') {
+    const method = entryMethod ?? (await resolveDefaultMethod(entryCoffeeId, brewProfile));
+    await generateCard(userId, entryCoffeeId, method, 'conversation', brewProfile);
+  } else {
+    const card = entryMethod
+      ? await getCardByMethod(userId, entryCoffeeId, entryMethod)
+      : await getMostRecentCard(userId, entryCoffeeId);
+    if (!card) {
+      console.warn('[resolveCard] <<card:adjust>> with no resolvable current card — dropped');
+      return;
+    }
+    const reason = customerMessage.trim().slice(0, 200);
+    await adjustCard(card.id, cardMarker.adjustment, reason);
+  }
 }
 
 type SommelierAction =
@@ -321,7 +405,15 @@ router.post('/evaluate', requireAuth, blockAnonymousAuth, async (req: AuthReques
 
 // ─── POST /api/sommelier/start ────────────────────────────────────────────────
 router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, sommelierAccountLimiter, async (req: AuthRequest, res) => {
-  const { intent, openingContext, evaluationId, tiedArchetypes } = req.body;
+  // HOME_TASK_6 (§3.1, §3.2) — entry/coffeeId arrive from a bag/card link
+  // (this task's own arrival-note/home-surface links today; Task 7's QR
+  // redirect later, per the entry=bag param contract this task defines —
+  // see spec item 6 and the "Out of scope" note). Ownership is established by
+  // whichever entry point produced the link, not re-checked here; every
+  // brew_card row this resolves is scoped to req.uid's own user_profile.id
+  // regardless, so a forged coffeeId can only ever touch this customer's own
+  // card, never leak anyone else's.
+  const { intent, openingContext, evaluationId, tiedArchetypes, entry, coffeeId } = req.body;
   if (!intent) { res.status(400).json({ error: 'intent required' }); return; }
 
   const config = getSommelierConfig();
@@ -436,6 +528,13 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
       excludeCoffeeIds,
     });
 
+    // Brew profile (§4.5, §3.5) — moved ahead of its original spot (just
+    // before the opening chatWithSommelier call) so HOME_TASK_6's entry-coffee
+    // resolution below can reuse the same live read rather than fetching it
+    // twice. Still a live read every turn's worth of logic needs it in, not
+    // cached — see getBrewProfile()'s own comment.
+    const brewProfile = await getBrewProfile(req.uid!);
+
     // HOME_TASK_5 (§4.4), extended by HOME_TASK_5b (Defect 1) — every one of
     // this session's RAG-selected coffees is a candidate now, not just the
     // ones with a published story: a coffee still needs to be a valid
@@ -463,6 +562,34 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
       } catch { /* RAG catalog/alias lookup failed — no candidates, fine */ }
     }
 
+    // HOME_TASK_6 (§3.1, §3.2) — resolves S71's deferred "current coffee"
+    // concept. entry=bag|card + coffeeId anchors this whole session to one
+    // coffee: fetch (or, on a first-ever entry=card visit with no card yet,
+    // generate) that coffee's brew card, and build the context line
+    // chatWithSommelier() injects on every turn via assembleSystemPrompt()'s
+    // new currentCoffeeContext param. Every other session leaves both
+    // undefined — no behavior change outside this entry path.
+    let entryCoffeeId: number | null = null;
+    let entryMethod: string | null = null;
+    let currentCoffeeContext: string | undefined;
+    if ((entry === 'bag' || entry === 'card') && Number.isInteger(coffeeId)) {
+      try {
+        const userId = await resolveProfileId(req.uid!);
+        if (userId) {
+          let card = await getMostRecentCard(userId, coffeeId);
+          if (!card) {
+            const method = await resolveDefaultMethod(coffeeId, brewProfile);
+            card = await generateCard(userId, coffeeId, method, 'conversation', brewProfile);
+          }
+          entryCoffeeId = coffeeId;
+          entryMethod = card.method;
+          currentCoffeeContext = await buildCurrentCoffeeContext(coffeeId, card.method, card);
+        }
+      } catch (err) {
+        console.error('[sommelier/start] entry coffee resolution failed:', err);
+      }
+    }
+
     // Insert session
     const sessionResult = await db.query(
       `INSERT INTO sommelier_sessions (uid, intent, context_data)
@@ -482,6 +609,8 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
           catalogText: ragResult.catalogText,
           storyCandidates,
           evaluationId: evaluationId ?? null,
+          entryCoffeeId,
+          entryMethod,
         }),
       ]
     );
@@ -517,10 +646,9 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
       newBalance = spendResult.newBalance;
     }
 
-    // Brew profile (§4.5, §3.5) — a compact customer-context line, injected
-    // every turn including the opening one (not cached in context_data; see
-    // getBrewProfile()'s own comment on why this stays a live read).
-    const brewProfile = await getBrewProfile(req.uid!);
+    // Brew profile context (§4.5, §3.5) — compact customer-context line built
+    // from the live-read brewProfile fetched earlier (now shared with
+    // HOME_TASK_6's entry-coffee resolution above, not fetched twice).
     const brewProfileContext = formatBrewProfileSummary(brewProfile);
 
     // Generate opening message (turn 0)
@@ -529,6 +657,7 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
     let openingActionTypes: string[] = [];
     let openingRememberOps: Array<{ field: string; rawValue: string }> = [];
     let openingSaveRecipeTitle: string | undefined;
+    let openingCardMarker: { type: 'save' } | { type: 'adjust'; adjustment: string } | undefined;
     try {
       const chatResult = await chatWithSommelier({
         message: null,
@@ -536,12 +665,14 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
         catalogContext: ragResult.catalogText,
         history: [],
         brewProfileContext,
+        currentCoffeeContext,
       });
       openingMessage = chatResult.reply;
       modelUsed = chatResult.modelUsed;
       openingActionTypes = chatResult.actionTypes;
       openingSaveRecipeTitle = chatResult.saveRecipeTitle;
       openingRememberOps = chatResult.rememberOps;
+      openingCardMarker = chatResult.cardMarker;
     } catch (claudeErr) {
       console.error('[sommelier/start] chatWithSommelier failed, using fallback:', claudeErr);
     }
@@ -554,6 +685,7 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
     // resolve defensively anyway rather than assuming the instruction always holds.
     const openingActions = await resolveActions(openingActionTypes, req.uid!, archetypeKey, openingSaveRecipeTitle);
     await resolveRemember(req.uid!, openingRememberOps);
+    await resolveCard(openingCardMarker, req.uid!, entryCoffeeId, entryMethod, brewProfile, 'Begin the conversation.');
 
     // Save opening message to Firestore
     await firestoreDb
@@ -767,7 +899,24 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
       console.log(`[storyLayer] turn selected coffeeId=${selectedStoryCoffeeId ?? 'none'} (${matched ? 'named match' : fallback ? 'fallback' : 'no candidate story'}) for session=${sessionId}`);
     }
 
-    const { reply, modelUsed, actionTypes, saveRecipeTitle, rememberOps } = await chatWithSommelier({
+    // HOME_TASK_6 (§3.1, §3.2) — rebuilt live every turn, not cached at
+    // session start: the card can change mid-conversation via <<card:adjust>>,
+    // and the very next turn needs to reflect that (same "this same
+    // conversation" reasoning as the brew profile's own live-every-turn read).
+    const entryCoffeeId: number | null = ctx.entryCoffeeId ?? null;
+    const entryMethod: string | null = ctx.entryMethod ?? null;
+    let currentCoffeeContext: string | undefined;
+    if (entryCoffeeId && entryMethod) {
+      try {
+        const userId = await resolveProfileId(req.uid!);
+        const card = userId ? await getCardByMethod(userId, entryCoffeeId, entryMethod) : null;
+        if (card) currentCoffeeContext = await buildCurrentCoffeeContext(entryCoffeeId, entryMethod, card);
+      } catch (err) {
+        console.error('[sommelier/message] current-coffee context rebuild failed:', err);
+      }
+    }
+
+    const { reply, modelUsed, actionTypes, saveRecipeTitle, rememberOps, cardMarker } = await chatWithSommelier({
       message,
       session: {
         intent: session.intent,
@@ -779,9 +928,11 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
       mode: topicResult.mode,
       brewProfileContext,
       storyContext,
+      currentCoffeeContext,
     });
     const actions = await resolveActions(actionTypes, req.uid!, ctx.archetypeKey ?? null, saveRecipeTitle);
     await resolveRemember(req.uid!, rememberOps);
+    await resolveCard(cardMarker, req.uid!, entryCoffeeId, entryMethod, brewProfile, message);
 
     if (!gatingEnabled) {
       logUsage(req.uid!, String(sessionId), modelUsed).catch(() => {});

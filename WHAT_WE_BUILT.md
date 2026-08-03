@@ -3364,6 +3364,36 @@ WHAT_WE_BUILT.md #131, no schema change, `SOMMELIER_BUILT.md` S78 (full detail, 
 
 ---
 
+### 132. HOME Task 6 — Brew Cards + the Arrival Note, resolves S71's deferred "current coffee" concept (2026-08-02)
+
+**Files:** `backend/src/db/schema.sql`, `backend/src/db/seeds/sommelier_config_seed.ts`, `backend/src/services/sommelierConfig.ts`, `backend/src/services/brewCard.ts` (new), `backend/src/services/storyLayer.ts`, `backend/src/services/claude.ts`, `backend/src/routes/sommelier.ts`, `backend/src/routes/orders.ts`, `backend/src/routes/cron.ts`, `backend/src/routes/users.ts`, `frontend/src/app/components/profile/BrewCards.tsx` (new), `frontend/src/app/components/Profile.tsx`, `frontend/src/app/components/Sommelier.tsx`, `frontend/src/app/lib/api.ts`
+
+**What it is**: "Your Uganda · V60 · 1:16 · medium-coarse · 94°C — adjusted after you found it bitter." A per-customer, per-coffee×method brew card, created by the arrival note or by conversation, read-only on the Profile Flavor Memory tab, updated through conversation via a new server-resolved `<<card:...>>` marker (S51's exact action-marker pattern, one more type). The arrival note is the card's first version — the two loops (§3.1, §3.2) share one artifact, per the strategy doc.
+
+**New `brew_card` table** — `user_id`/`coffee_id`/`method`/`params JSONB` (ratio, grindLabel, tempC, notes — customer language only)/`origin`/`revision`/`last_adjustment_reason`, plus two deliberate additions beyond the task's literal column list: `arrival_email_scheduled_for`/`arrival_email_sent_at`, the note's own delivery-timing state, kept on the card row rather than a new queue table.
+
+**Recipe generator (`brewCard.ts`) — code + config, zero LLM calls for the numbers.** A base recipe per brew method, shifted by three cupping-dimension delta rules (Body/Intensity, Acidity/Brightness, Bitterness/Boldness), phrased through the Task 4 brew profile. Proven deterministic directly (same inputs → byte-identical output).
+
+**Arrival note** hooks the exact same order-placement signal `schedulePostDeliveryMessage` already uses — no new signal invented. Fires on every order (not orders-1-2-only like the SMS ask), but only schedules a *new* email for a genuinely new card — a repeat order of a coffee+method already carded doesn't double-send. Delivered via **Resend, not Mailchimp** — a deliberate, reasoned deviation: Mailchimp here is purely the pre-purchase tag/journey tool with no per-order dynamic-content mechanism (confirmed by reading its own README), a real template-dependency blocker the task's own spec anticipated; Resend already handles this exact shape of transactional email elsewhere in the codebase. Bag-number-aware length: only the first-ever bag of a coffee gets the content-pipeline warm sentence (`storyLayer.ts`'s new `generateBrewNoteSentence()`, same alias/specificity discipline as the full story).
+
+**`<<card:save>>` / `<<card:adjust=KEY>>`** — new `resolveCard()` in `sommelier.ts`, scoped to sessions anchored by a coffee (see below); a marker with nothing to attach to is dropped and logged, never trusted beyond its whitelisted key.
+
+**Resolves S71's deferred "current coffee" concept**: `assembleSystemPrompt()` gained a new `currentCoffeeContext` param — when a session opens with `entry=bag|card&coffee={id}` (this task's own arrival-note/home-surface links today; the contract Task 7's future QR redirect must honor), that coffee's card + published-story opening line ground the whole conversation, every turn, both modes — independent of topic. Absent produces zero prompt difference, re-verified byte-for-byte.
+
+**Home display v1**: read-only "Brew cards" section on Flavor Memory (`BrewCards.tsx`), alias names only.
+
+**Config pushed live** the same way S71/S72/S74 did with no interactive admin session available: one new path, `brewDefaults`, applied via the identical Firestore dot-path-update + audit-write the admin config-apply endpoint performs, confirmed 0 remaining drift.
+
+**Verified** against real production data end-to-end, not mocked: a real conversation opened with `entry=bag&coffee=31` correctly grounded on the coffee's alias ("Jammy & Aromatic," never the raw name "Kenya"); asking for an adjustment ("too bitter, go coarser") produced a clean reply with the marker stripped, the card's grind moved exactly one configured step, revision incremented, and the customer's own words recorded as the reason — confirmed live on both the conversation path and the home-surface read of the same row. Full grep audit of every new render path found one legitimate raw-name read (a specificity-check comparison input, never rendered — same already-audited pattern as the story layer), nothing else. One honest, disclosed limitation: this environment's placeholder `RESEND_API_KEY` means actual email delivery couldn't be proven, only the render/selection/scheduling logic around it (see `SOMMELIER_BUILT.md` S79 for the full disclosure).
+
+**Out of scope, unchanged**: no QR/redirect endpoint (Task 7's own — the `entry=bag` contract is defined here for it to honor); no SMS delivery (Task 8's own); no card-editing UI (Phase 2); the six intents/topic router/guard layer untouched.
+
+**Still needs manual setup**: a Cloud Scheduler job for the new `GET /api/cron/brew-card-arrival-send` endpoint (same `x-cron-secret` pattern as the existing `liam-sms-send` job) — the code is verified correct but nothing calls it in production yet.
+
+WHAT_WE_BUILT.md #132, `WHAT_WE_BUILT_DB.md` gains the `brew_card` table + the `entry=bag|card&coffee={id}` param contract, `SOMMELIER_BUILT.md` S79 (full detail).
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

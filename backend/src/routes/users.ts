@@ -9,6 +9,8 @@ import {
   validateSingleValue,
   incrementBrewProfileCounter,
 } from '../services/brewProfile.js';
+import { getUserBrewCards } from '../services/brewCard.js';
+import { getAliases } from '../services/sommelierRag.js';
 
 const router = Router();
 
@@ -569,7 +571,7 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
     const profileId = profileResult.rows[0]?.id;
     if (!profileId) { res.status(404).json({ error: 'Profile not found' }); return; }
 
-    const [ordersResult, contributionResult, savedEventsSnap, recipeSnap] = await Promise.all([
+    const [ordersResult, contributionResult, savedEventsSnap, recipeSnap, brewCardRows] = await Promise.all([
       db.query(
         `SELECT o.id, o.created_at,
                 (ARRAY_AGG(rb.blend_name))[1] AS blend_name,
@@ -595,7 +597,27 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
       // exist yet for any given user, which reads as empty, not an error.
       firestoreDb.collection(`users/${req.uid}/liam_saves`).get()
         .catch((err: unknown) => { console.error('[/api/users/flavor-memory] liam_saves read failed:', err); return null; }),
+      // HOME_TASK_6 — brew cards, read-only v1 display.
+      getUserBrewCards(profileId).catch((err: unknown) => { console.error('[/api/users/flavor-memory] brew cards read failed:', err); return []; }),
     ]);
+
+    // Alias only — never coffees.name/roaster, same S44/S77 discipline as
+    // every other customer-facing render path.
+    const brewCardCoffeeIds = [...new Set(brewCardRows.map(c => c.coffeeId))];
+    const brewCardAliasMap = brewCardCoffeeIds.length ? await getAliases(brewCardCoffeeIds) : new Map<number, string>();
+    const brewCards = brewCardRows.map(c => ({
+      id: c.id,
+      coffeeId: c.coffeeId,
+      coffeeName: brewCardAliasMap.get(c.coffeeId) ?? null,
+      method: c.method,
+      ratio: c.params.ratio,
+      grindLabel: c.params.grindLabel,
+      tempC: c.params.tempC,
+      notes: c.params.notes,
+      revision: c.revision,
+      lastAdjustmentReason: c.lastAdjustmentReason,
+      updatedAt: c.updatedAt,
+    }));
 
     // One Firestore read for every feedback event this user has, matched to
     // orders in code below — not a per-order query.
@@ -781,6 +803,7 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
       journey,
       activity,
       contributionCount: Number(contributionResult.rows[0]?.count ?? 0),
+      brewCards,
     });
   } catch (err) {
     console.error('[/api/users/flavor-memory]', err);

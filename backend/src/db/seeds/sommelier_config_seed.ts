@@ -195,6 +195,73 @@ export const DEFAULT_SOMMELIER_CONFIG = {
       bannedTerms: ['farm', 'co-op', 'coop', 'cooperative', 'estate', 'lot', 'importer', 'roaster', 'roastery'],
     },
 
+    // HOME_TASK_6 (§3.2, §3.1) — brew-card recipe defaults. Deliberately simple,
+    // adjustable first-draft recipes (not sourced from any external brewing
+    // authority) — the point is a deterministic, reproducible starting point
+    // that then sharpens via cupping-dimension deltas and conversation
+    // adjustments, not a "correct" recipe on day one. grindIndex is this
+    // method's starting position on grindScale; dimensionDeltas shift it.
+    brewDefaults: {
+      grindScale: ['extra-coarse', 'coarse', 'medium-coarse', 'medium', 'medium-fine', 'fine', 'extra-fine'],
+      methods: {
+        v60:          { ratio: '1:16', grindLabel: 'medium-fine',  grindIndex: 4, tempC: 94 },
+        french_press: { ratio: '1:15', grindLabel: 'coarse',       grindIndex: 1, tempC: 96 },
+        espresso:     { ratio: '1:2',  grindLabel: 'fine',         grindIndex: 5, tempC: 93 },
+        moka:         { ratio: '1:10', grindLabel: 'medium-fine',  grindIndex: 4, tempC: null },
+        aeropress:    { ratio: '1:15', grindLabel: 'medium-fine',  grindIndex: 4, tempC: 85 },
+        cold_brew:    { ratio: '1:8',  grindLabel: 'extra-coarse', grindIndex: 0, tempC: null },
+        drip:         { ratio: '1:16', grindLabel: 'medium',       grindIndex: 3, tempC: 94 },
+        other:        { ratio: '1:16', grindLabel: 'medium',       grindIndex: 3, tempC: 94 },
+      },
+      // dimension avg (0-15 scale, (avg_min+avg_max)/2) driving a grind/temp
+      // shift away from the method's base — e.g. a heavy-bodied (high
+      // Intensity) coffee starts a step coarser so it doesn't over-extract.
+      dimensionDeltas: [
+        {
+          dimensionName: 'Body', highThreshold: 10, lowThreshold: 4,
+          highGrindShift: 1, lowGrindShift: -1,
+          highNote: 'started a touch coarser for the body in this one',
+          lowNote:  'started a touch finer to build more body',
+        },
+        {
+          dimensionName: 'Acidity', highThreshold: 10, lowThreshold: 4,
+          highTempShiftC: -2, lowTempShiftC: 2,
+          highNote: 'a couple degrees cooler to keep the brightness in check',
+          lowNote:  'a couple degrees hotter to pull out more brightness',
+        },
+        {
+          dimensionName: 'Bitterness', highThreshold: 10, lowThreshold: null,
+          highGrindShift: 1, highTempShiftC: -1,
+          highNote: 'coarser and slightly cooler so it doesn\'t turn bitter',
+        },
+      ],
+      // <<card:adjust=KEY>> whitelist — server-resolved, never trusted from
+      // the model beyond the key itself (S51 discipline).
+      adjustments: {
+        grind_coarser: { grindShift: 1, note: 'went coarser' },
+        grind_finer:   { grindShift: -1, note: 'went finer' },
+        temp_up:       { tempShiftC: 2, note: 'a couple degrees hotter' },
+        temp_down:     { tempShiftC: -2, note: 'a couple degrees cooler' },
+        ratio_stronger: { note: 'a touch stronger' },
+        ratio_weaker:   { note: 'a touch lighter' },
+      },
+      // First-draft mapping, no per-archetype brewing-preference data exists —
+      // reasonable defaults only, adjustable by an admin later without a
+      // deploy (see build log for the full reasoning).
+      archetypeDefaultMethod: {
+        floral:          'v60',
+        fruity:           'v60',
+        balanced_sweet:  'drip',
+        chocolate_nutty: 'french_press',
+        earthy:          'french_press',
+        experimental:    'v60',
+      },
+      arrivalNote: {
+        deliveryDelayDays: 4,
+        shortNoteFromBagNumber: 2,
+      },
+    },
+
     evaluatorRulePriority: [
       'DISCOVERY_SEEKER',
       'PROFILE_AMBIGUOUS',

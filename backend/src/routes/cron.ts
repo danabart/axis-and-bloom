@@ -4,6 +4,9 @@ import { db } from '../db/client.js';
 import { processPendingMessages, parseInboundReply } from '../services/liamSmsFeedback.js';
 import { refreshLifecycleState } from '../services/userLifecycle.js';
 import { purgeStaleAnonymousGuests } from '../services/staleGuestCleanup.js';
+import { getAliases } from '../services/sommelierRag.js';
+import { generateBrewNoteSentence } from '../services/storyLayer.js';
+import { getBagNumberForCoffee, getArrivalNoteConfig, type BrewCardParams } from '../services/brewCard.js';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -31,6 +34,196 @@ router.get('/liam-sms-send', requireCronSecret, async (_req, res) => {
     res.status(500).json({ error: 'Cron job failed' });
   }
 });
+
+// ── GET /api/cron/brew-card-arrival-send ─────────────────────────────────────
+// HOME_TASK_6 (§3.1) — same daily-cron shape as liam-sms-send above: finds
+// brew_card rows created by an order (origin='arrival_note') whose scheduled
+// delay has passed and no email has gone out yet, renders the note, sends it,
+// and marks it sent. Cloud Scheduler job: daily → GET this path with the same
+// x-cron-secret header as liam-sms-send.
+router.get('/brew-card-arrival-send', requireCronSecret, async (_req, res) => {
+  try {
+    const result = await processArrivalNotes();
+    res.json(result);
+  } catch (err) {
+    console.error('[cron/brew-card-arrival-send]', err);
+    res.status(500).json({ error: 'Cron job failed' });
+  }
+});
+
+const ARRIVAL_METHOD_LABEL: Record<string, string> = {
+  v60: 'V60', french_press: 'French press', espresso: 'Espresso', moka: 'Moka pot',
+  aeropress: 'Aeropress', cold_brew: 'Cold brew', drip: 'Drip', other: 'your usual method',
+};
+
+export async function processArrivalNotes(): Promise<{ processed: number; sent: number; failed: number }> {
+  const due = await db.query<{
+    id: number; user_id: string; coffee_id: number; method: string; params: BrewCardParams;
+    first_name: string | null; email_address: string | null;
+  }>(
+    `SELECT bc.id, bc.user_id, bc.coffee_id, bc.method, bc.params,
+            up.first_name, ue.email_address
+     FROM brew_card bc
+     JOIN user_profile up ON up.id = bc.user_id
+     LEFT JOIN user_email ue ON ue.user_id = up.id AND ue.is_primary = true
+     WHERE bc.origin = 'arrival_note'
+       AND bc.arrival_email_sent_at IS NULL
+       AND bc.arrival_email_scheduled_for <= NOW()
+     ORDER BY bc.arrival_email_scheduled_for ASC
+     LIMIT 50`
+  );
+
+  let sent = 0;
+  let failed = 0;
+
+  for (const row of due.rows) {
+    try {
+      // Roaster-blind, alias-only — same S44/S77 discipline as every other
+      // customer-facing render path. Never the raw coffees.name/roaster.
+      const aliasMap = await getAliases([row.coffee_id]);
+      const alias = aliasMap.get(row.coffee_id) ?? 'Your coffee';
+
+      const bagNumber = await getBagNumberForCoffee(row.user_id, row.coffee_id);
+      const { shortNoteFromBagNumber } = getArrivalNoteConfig();
+      const isFirstBag = bagNumber < shortNoteFromBagNumber;
+
+      let warmSentence: string | null = null;
+      if (isFirstBag) {
+        const [archResult, rawResult, descriptorResult] = await Promise.all([
+          db.query(
+            `SELECT aa.archetype::text AS archetype FROM archetype_assignments aa
+             WHERE aa.coffee_id = $1 AND aa.superseded_at IS NULL LIMIT 1`,
+            [row.coffee_id]
+          ),
+          db.query(`SELECT name, roaster FROM coffees WHERE id = $1`, [row.coffee_id]),
+          db.query(
+            `SELECT descriptor FROM v_collaborative_flavor_wheel WHERE coffee_id = $1
+             GROUP BY descriptor ORDER BY COUNT(*) DESC LIMIT 4`,
+            [row.coffee_id]
+          ),
+        ]);
+        // First-ever bag gets the fullest note (§3.1) — the one-sentence
+        // content-pipeline hook; later bags skip it (isFirstBag false), same
+        // "shorter note" rule the length itself already implements below.
+        warmSentence = await generateBrewNoteSentence(
+          { displayName: alias, archetype: archResult.rows[0]?.archetype ?? null, topDescriptors: descriptorResult.rows.map((r: { descriptor: string }) => r.descriptor) },
+          { rawCoffeeName: rawResult.rows[0]?.name ?? null, roasterNames: rawResult.rows[0]?.roaster ? [rawResult.rows[0].roaster] : [] }
+        );
+      }
+
+      if (row.email_address) {
+        const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
+        await resend.emails.send({
+          from: 'Axis & Bloom <noreply@axisandbloomcoffee.com>',
+          to: row.email_address,
+          subject: `${alias} has arrived`,
+          html: buildArrivalNoteEmail({
+            firstName: row.first_name,
+            alias,
+            method: row.method,
+            params: row.params,
+            warmSentence,
+            coffeeId: row.coffee_id,
+            talkLink: `${frontendUrl}/sommelier?entry=bag&coffee=${row.coffee_id}`,
+          }),
+        });
+      } else {
+        // No email on file — can't send, and there's no other channel wired
+        // yet (Task 8's SMS beat is a separate, later trigger). Mark sent
+        // anyway so this row doesn't retry forever; logged so it's visible.
+        console.warn('[cron/brew-card-arrival-send] no email on file for user', row.user_id, '— marking sent without delivery');
+      }
+
+      await db.query(`UPDATE brew_card SET arrival_email_sent_at = NOW() WHERE id = $1`, [row.id]);
+      sent++;
+    } catch (err) {
+      console.error('[cron/brew-card-arrival-send] failed for card', row.id, err);
+      failed++;
+    }
+  }
+
+  return { processed: due.rows.length, sent, failed };
+}
+
+// Exported for direct unit verification (same reasoning cron.ts's own
+// buildSponsoredLapsedEmail/buildSponsoredTrialEndingEmail didn't need this
+// for, but a placeholder RESEND_API_KEY in this environment makes a real
+// send unverifiable end-to-end — see HOME_TASK_6's build log).
+export function buildArrivalNoteEmail(params: {
+  firstName: string | null;
+  alias: string;
+  method: string;
+  params: BrewCardParams;
+  warmSentence: string | null;
+  coffeeId: number;
+  talkLink: string;
+}): string {
+  const greeting = params.firstName ? `Hi ${params.firstName},` : 'Hi there,';
+  const methodLabel = ARRIVAL_METHOD_LABEL[params.method] ?? params.method;
+  const tempLine = params.params.tempC != null ? `, ${params.params.tempC}°C` : '';
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+</head>
+<body style="margin:0;padding:0;background:#f2f1ea;font-family:Georgia,serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f2f1ea;padding:48px 0;">
+    <tr>
+      <td align="center">
+        <table width="520" cellpadding="0" cellspacing="0" style="background:#ffffff;padding:48px;">
+          <tr>
+            <td style="padding-bottom:32px;border-bottom:1px solid #e8e4dc;">
+              <p style="margin:0;font-size:11px;letter-spacing:0.3em;text-transform:uppercase;color:#a33726;font-family:Georgia,serif;">
+                Axis &amp; Bloom
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:40px 0 24px;">
+              <h1 style="margin:0;font-size:32px;font-weight:400;color:#a33726;line-height:1.2;font-family:Georgia,serif;">
+                ${params.alias} has arrived.
+              </h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding-bottom:24px;">
+              <p style="margin:0 0 16px;font-size:16px;color:#6b5a56;line-height:1.6;font-family:Arial,sans-serif;font-weight:300;">
+                ${greeting}
+              </p>
+              ${params.warmSentence ? `<p style="margin:0 0 16px;font-size:16px;color:#6b5a56;line-height:1.6;font-family:Arial,sans-serif;font-weight:300;">${params.warmSentence}</p>` : ''}
+              <p style="margin:0 0 8px;font-size:14px;color:#a33726;line-height:1.6;font-family:Arial,sans-serif;font-weight:500;">
+                Your ${methodLabel}: ${params.params.ratio}, ${params.params.grindLabel}${tempLine}.
+              </p>
+              ${params.params.notes ? `<p style="margin:0;font-size:14px;color:#6b5a56;line-height:1.6;font-family:Arial,sans-serif;font-weight:300;">${params.params.notes}</p>` : ''}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding-bottom:40px;">
+              <a href="${params.talkLink}"
+                 style="display:inline-block;padding:14px 32px;background:#a33726;color:#ffffff;
+                        text-decoration:none;font-size:11px;letter-spacing:0.2em;
+                        text-transform:uppercase;font-family:Arial,sans-serif;font-weight:500;">
+                Talk to Liam About This Bag
+              </a>
+            </td>
+          </tr>
+          <tr>
+            <td style="border-top:1px solid #e8e4dc;padding-top:24px;">
+              <p style="margin:0;font-size:12px;color:#a33726;opacity:0.5;font-family:Arial,sans-serif;line-height:1.6;">
+                This card lives on your Profile's Flavor Memory page — it updates as you and Liam adjust it together.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `.trim();
+}
 
 // ── GET /api/cron/expire-company-gift-codes ──────────────────────────────────
 // Daily sweep: flips unredeemed codes past their parent gift's code_redeem_by to

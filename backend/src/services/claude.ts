@@ -101,6 +101,16 @@ Remembering facts (internal marker, same rule as action markers — never mentio
 - Never save an inference or a guess — only what the customer actually stated.
 - These tokens are stripped before the customer ever sees your reply, exactly like action markers.
 
+Brew cards (internal marker, same rule as action and remembering-facts markers — never mention, explain, or hint at these to the customer):
+- When you give brewing guidance for a specific coffee and method the customer actually owns — a real recipe, not a passing mention — end your reply with <<card:save>> after your normal words.
+  Good: "For the Uganda on your V60: 1:16, medium-fine, 94°C. Bloom it for 30 seconds first." <<card:save>>
+  Bad: ending with <<card:save>> after only discussing brewing in general, with no specific coffee and method in view.
+- When the customer describes adjusting a recipe you already gave them — "go coarser next time," "it came out bitter," "try it hotter" — confirm the change in-voice, then end with <<card:adjust=KEY>>, where KEY is exactly one of: grind_coarser, grind_finer, temp_up, temp_down, ratio_stronger, ratio_weaker.
+  Good: they say "that was too bitter, can we go coarser" → "Coarser it is — that should tame the bitterness." <<card:adjust=grind_coarser>>
+  Bad: <<card:adjust=coarser>> — the key is grind_coarser, not coarser.
+- Use at most one <<card:...>> marker per turn, and never on your opening turn.
+- These tokens are stripped before the customer ever sees your reply, exactly like the other markers.
+
 Opening turn:
 - Maximum 2 sentences. No exceptions.
 - State where they are now (archetype or last order). Then one direction question.
@@ -128,8 +138,9 @@ export function assembleSystemPrompt(params: {
   config: ReturnType<typeof getSommelierConfig>;
   brewProfileContext?: string;
   storyContext?: string;
+  currentCoffeeContext?: string;
 }): string {
-  const { session, catalogContext, mode, config, brewProfileContext, storyContext } = params;
+  const { session, catalogContext, mode, config, brewProfileContext, storyContext, currentCoffeeContext } = params;
   const intentCfg = config?.intents?.[session.intent];
   const maxTurns = intentCfg?.maxTurns ?? config?.sessionLimits?.maxTurns ?? 8;
 
@@ -149,10 +160,24 @@ export function assembleSystemPrompt(params: {
       // story/catalog context" guardrail, already in LIAM_BASE_PROMPT above).
       systemParts.push(`\n\nTheir coffee, explained:\n${storyContext}`);
     }
-    // No story available and no "current coffee" concept exists yet (arrives
-    // with brew cards, HOME_TASK_6) — nothing to inject, the omit branch.
+    // No story available for this turn's topic — nothing to inject here, the
+    // omit branch. currentCoffeeContext (below) is independent of this branch:
+    // it's the session-wide "which bag is this conversation about" grounding,
+    // not a per-topic story injection.
   } else {
     systemParts.push(`\n\n${catalogContext}`);
+  }
+
+  // HOME_TASK_6 (§3.1, §3.2) — the "current coffee" concept S71 deferred
+  // ("no current coffee concept is tracked anywhere until brew cards exist").
+  // Set only when a session opened with entry=bag|card (sommelier.ts resolves
+  // and formats this string live, every turn, since the card can change
+  // mid-conversation via <<card:adjust>>) — every other session leaves this
+  // param undefined, so the assembled prompt is byte-for-byte unchanged from
+  // before this task, in both modes, exactly like brewProfileContext's own
+  // absent/empty guarantee above it.
+  if (currentCoffeeContext) {
+    systemParts.push(`\n\nThe coffee this conversation is about: ${currentCoffeeContext}`);
   }
 
   if (intentCfg?.systemPromptAddendum) {
@@ -217,6 +242,7 @@ export async function chatWithSommelier(params: {
   mode?: SommelierMode;
   brewProfileContext?: string;
   storyContext?: string;
+  currentCoffeeContext?: string;
 }): Promise<{
   reply: string;
   modelUsed: string;
@@ -224,12 +250,14 @@ export async function chatWithSommelier(params: {
   /** Profile Part 7B — sanitized title from a titled save_recipe marker, if present. */
   saveRecipeTitle?: string;
   rememberOps: Array<{ field: string; rawValue: string }>;
+  /** HOME_TASK_6 — <<card:save>> / <<card:adjust=KEY>>, resolved server-side by sommelier.ts's resolveCard(). */
+  cardMarker?: { type: 'save' } | { type: 'adjust'; adjustment: string };
 }> {
-  const { message, session, catalogContext, history, brewProfileContext, storyContext } = params;
+  const { message, session, catalogContext, history, brewProfileContext, storyContext, currentCoffeeContext } = params;
   const mode: SommelierMode = params.mode ?? 'matching';
   const config = getSommelierConfig();
 
-  const systemPrompt = assembleSystemPrompt({ session, catalogContext, mode, config, brewProfileContext, storyContext });
+  const systemPrompt = assembleSystemPrompt({ session, catalogContext, mode, config, brewProfileContext, storyContext, currentCoffeeContext });
 
   let modelId: string;
   let maxTokens: number;
@@ -316,13 +344,27 @@ export async function chatWithSommelier(params: {
     }
   }
 
+  // HOME_TASK_6 (§3.2) — <<card:save>> / <<card:adjust=KEY>>. Same "never trust
+  // the model" discipline as every other marker: only the adjustment KEY is
+  // extracted here — sommelier.ts's resolveCard() resolves the actual
+  // coffee/method from session context and validates the key against the
+  // config whitelist, never from anything the model supplied beyond this text.
+  let cardMarker: { type: 'save' } | { type: 'adjust'; adjustment: string } | undefined;
+  const cardAdjustMatch = rawReply.match(/<<card:adjust=([a-zA-Z_]+)>>/);
+  if (cardAdjustMatch) {
+    cardMarker = { type: 'adjust', adjustment: cardAdjustMatch[1] };
+  } else if (rawReply.includes('<<card:save>>')) {
+    cardMarker = { type: 'save' };
+  }
+
   const reply = rawReply
     .replace(/<<action:[^>]*>>/g, '')
     .replace(/<<remember:[^>]*>>/g, '')
+    .replace(/<<card:[^>]*>>/g, '')
     .replace(/[ \t]+(\n|$)/g, '$1')
     .trim();
 
-  return { reply, modelUsed: modelId, actionTypes, saveRecipeTitle, rememberOps };
+  return { reply, modelUsed: modelId, actionTypes, saveRecipeTitle, rememberOps, cardMarker };
 }
 
 export async function getRecommendation(
