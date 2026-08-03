@@ -164,6 +164,29 @@ The hero and cinematic sections use placeholder `<source src>` values. Swap when
 
 ---
 
+## ☕ Liam Home v3 — manual setup before arrival notes & beats go live
+
+Added 2026-08-02, from HOME Task 6 (S79). Context: the arrival brew note is a **transactional email sent by our own backend via Resend** — it is NOT a Mailchimp email (Mailchimp = the marketing/welcome-journey emails only) and NOT an SMS (SMS = Twilio, still unwired per OT-4). Three channels, three systems: Resend (backend transactional), Mailchimp (marketing), Twilio (SMS, future).
+
+### OT-15: Create Cloud Scheduler job for the arrival-note cron
+Same pattern as OT-2 (which is also still open). Nothing calls `/api/cron/brew-card-arrival-send` until this exists — zero arrival notes go out, silently.
+
+- **URL**: `https://axis-bloom-backend-oiub7eumya-uc.a.run.app/api/cron/brew-card-arrival-send`
+- **Method**: GET · **Schedule**: `0 9 * * *` (daily 9:00 UTC, same as OT-2) · **Header**: `x-cron-secret` (same existing secret as OT-2)
+- CLI: same `gcloud scheduler jobs create http` command as OT-2 with name `brew-card-arrival-send` and this URL.
+- Do OT-2 and OT-15 in the same sitting — two jobs, one secret, five minutes total.
+
+### OT-16: Verify real Resend delivery + add send error-checking
+Task 6 verified everything up to the actual send (render, selection, scheduling) but could not prove a real email delivery — the dev environment has a placeholder `RESEND_API_KEY`, and the send call isn't error-checked (a Resend failure would still mark `arrival_email_sent_at`; same pre-existing pattern as the lapsed/trial-ending cron emails).
+
+- **After deploy + OT-15**: trigger one real arrival note (backdate a test card's `arrival_email_scheduled_for`, run the cron) and confirm the email lands in a real inbox, renders correctly, and the talk-to-Liam link opens the right bag conversation.
+- **Code follow-up** (small, fold into Task 9 or a spare session): check the Resend response before marking `arrival_email_sent_at`; on failure, leave the row schedulable and log it. Apply the same check to the two pre-existing cron sends while there.
+
+### OT-17: SMS beats go-live checklist (when Twilio is set up)
+Everything already tracked elsewhere, gathered here so SMS day is one checklist: OT-3 (phone UI) → A2P carrier registration (started August, lead time days–weeks) → OT-4 (wire Twilio in `smsProvider.ts`) → extend the SMS opt-in consent copy to cover outbound beats, not just the feedback question (HOME Task 8 requirement) → flip `config/sommelier.beats.smsEnabled` to `true` (stays `false` until every prior step is done).
+
+---
+
 ## 📋 Log
 
 | Date | Task | Status |
