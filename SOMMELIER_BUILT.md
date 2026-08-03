@@ -1074,3 +1074,17 @@ Zero unexplained raw-name/roaster exposure remains on any unauthenticated route 
 **Nothing else touched, per the task's explicit scope**: no QR/redirect endpoint (Task 7's own — the `entry=bag` param contract is defined here for Task 7 to honor, not built here); no SMS delivery (Task 8's own); no card-editing UI (Phase 2); no changes to the six intents, topic router, or guard layer.
 
 **Still needs manual setup, same as S17's original CRON_SECRET/Scheduler note**: `GET /api/cron/brew-card-arrival-send` exists and is verified correct, but nothing calls it yet — a Cloud Scheduler job (daily, alongside the existing `liam-sms-send` job, same `x-cron-secret` header, already live in Secret Manager) needs to be created pointing at this new path before any arrival note actually goes out in production. Not blocking this task's own verification (called directly, per the Verified section above), but blocking real delivery.
+
+---
+
+#### S80. `brew_card` renamed to `user_brew_card` — naming-convention fix, no logic change
+
+**Context**: small, single-purpose follow-up to S79 — `brew_card` didn't match this codebase's established `user_*` table-naming convention (`user_tokens`, `user_profile`, `user_bloom_dial_current_position`).
+
+`ALTER TABLE brew_card RENAME TO user_brew_card`, applied directly against prod, same pattern as the table's original S79 creation. Postgres does **not** auto-rename a table's dependent constraints/indexes/sequence when the table itself is renamed — confirmed by inspecting `pg_constraint`/`pg_indexes` immediately after the rename, which still showed `brew_card_pkey`, `brew_card_user_id_coffee_id_method_key`, `brew_card_coffee_id_fkey`, `brew_card_user_id_fkey`, `brew_card_origin_check`, and the `brew_card_id_seq` sequence, all untouched. Each was renamed explicitly to its `user_brew_card_*` equivalent in the same pass. `schema.sql` updated to match (`CREATE TABLE IF NOT EXISTS user_brew_card`) — the inline, unnamed constraint declarations there will auto-generate the same `user_brew_card_*` names on a fresh environment, so no explicit constraint-name lines were needed in the schema file itself.
+
+Repo-wide grep for `brew_card` found and fixed every runtime SQL reference: `brewCard.ts` (9 queries), `cron.ts` (2 — one caught on a second, broader grep pass after the first targeted read missed it further down the same function), and a doc-comment in `sommelier.ts`. `frontend/src` had none. Left untouched, deliberately: `HOME_TASK_6_BREW_CARDS_ARRIVAL_NOTE.md` (the original task spec — a historical record of what was asked, not runtime code) and every existing S79/#132 build-log prose reference to "the brew card" as a concept (English usage, not the SQL identifier).
+
+**Verified**: `tsc --noEmit` clean. Two of S79's own verifications re-run directly against prod to prove nothing broke: `generateCard()`'s fetch-or-create on a marked test user — first call inserted, second call for the same (user, coffee, method) fetched the identical row (byte-identical params), confirmed present in `user_brew_card` directly; `GET /api/users/flavor-memory` (real authenticated call) correctly returned the card in `brewCards` with its alias name intact. Test user/card cleaned up after.
+
+**Nothing else touched**: no logic changes, no new columns, no config changes — this is a rename only.

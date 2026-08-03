@@ -842,7 +842,7 @@ CREATE TABLE IF NOT EXISTS sommelier_messages (
 -- validated the same way resolveRemember() validates any other brew-profile
 -- field). `params` is customer-language only (ratio/grind_label/temp_c/notes) —
 -- never raw dimension jargon, same discipline as the story layer (S74).
-CREATE TABLE IF NOT EXISTS brew_card (
+CREATE TABLE IF NOT EXISTS user_brew_card (
   id                      SERIAL PRIMARY KEY,
   user_id                 UUID NOT NULL REFERENCES user_profile(id) ON DELETE CASCADE,
   coffee_id               INT NOT NULL REFERENCES coffees(id) ON DELETE CASCADE,

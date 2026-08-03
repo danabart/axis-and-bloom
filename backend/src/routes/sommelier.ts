@@ -410,7 +410,7 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
   // redirect later, per the entry=bag param contract this task defines —
   // see spec item 6 and the "Out of scope" note). Ownership is established by
   // whichever entry point produced the link, not re-checked here; every
-  // brew_card row this resolves is scoped to req.uid's own user_profile.id
+  // user_brew_card row this resolves is scoped to req.uid's own user_profile.id
   // regardless, so a forged coffeeId can only ever touch this customer's own
   // card, never leak anyone else's.
   const { intent, openingContext, evaluationId, tiedArchetypes, entry, coffeeId } = req.body;

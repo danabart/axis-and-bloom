@@ -37,10 +37,10 @@ router.get('/liam-sms-send', requireCronSecret, async (_req, res) => {
 
 // ── GET /api/cron/brew-card-arrival-send ─────────────────────────────────────
 // HOME_TASK_6 (§3.1) — same daily-cron shape as liam-sms-send above: finds
-// brew_card rows created by an order (origin='arrival_note') whose scheduled
-// delay has passed and no email has gone out yet, renders the note, sends it,
-// and marks it sent. Cloud Scheduler job: daily → GET this path with the same
-// x-cron-secret header as liam-sms-send.
+// user_brew_card rows created by an order (origin='arrival_note') whose
+// scheduled delay has passed and no email has gone out yet, renders the note,
+// sends it, and marks it sent. Cloud Scheduler job: daily → GET this path
+// with the same x-cron-secret header as liam-sms-send.
 router.get('/brew-card-arrival-send', requireCronSecret, async (_req, res) => {
   try {
     const result = await processArrivalNotes();
@@ -63,7 +63,7 @@ export async function processArrivalNotes(): Promise<{ processed: number; sent: 
   }>(
     `SELECT bc.id, bc.user_id, bc.coffee_id, bc.method, bc.params,
             up.first_name, ue.email_address
-     FROM brew_card bc
+     FROM user_brew_card bc
      JOIN user_profile up ON up.id = bc.user_id
      LEFT JOIN user_email ue ON ue.user_id = up.id AND ue.is_primary = true
      WHERE bc.origin = 'arrival_note'
@@ -134,7 +134,7 @@ export async function processArrivalNotes(): Promise<{ processed: number; sent: 
         console.warn('[cron/brew-card-arrival-send] no email on file for user', row.user_id, '— marking sent without delivery');
       }
 
-      await db.query(`UPDATE brew_card SET arrival_email_sent_at = NOW() WHERE id = $1`, [row.id]);
+      await db.query(`UPDATE user_brew_card SET arrival_email_sent_at = NOW() WHERE id = $1`, [row.id]);
       sent++;
     } catch (err) {
       console.error('[cron/brew-card-arrival-send] failed for card', row.id, err);

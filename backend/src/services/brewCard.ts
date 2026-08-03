@@ -203,7 +203,7 @@ export async function generateCard(
   brewProfile: BrewProfileDoc | null = null
 ): Promise<BrewCardRow> {
   const existing = await db.query(
-    `SELECT * FROM brew_card WHERE user_id = $1 AND coffee_id = $2 AND method = $3`,
+    `SELECT * FROM user_brew_card WHERE user_id = $1 AND coffee_id = $2 AND method = $3`,
     [userId, coffeeId, method]
   );
   if (existing.rows.length) return rowToCard(existing.rows[0]);
@@ -212,7 +212,7 @@ export async function generateCard(
   const params = computeRecipe(method, dimensionAverages, brewProfile);
 
   const inserted = await db.query(
-    `INSERT INTO brew_card (user_id, coffee_id, method, params, origin)
+    `INSERT INTO user_brew_card (user_id, coffee_id, method, params, origin)
      VALUES ($1, $2, $3, $4::jsonb, $5)
      RETURNING *`,
     [userId, coffeeId, method, JSON.stringify(params), origin]
@@ -236,7 +236,7 @@ export async function createArrivalCard(
 ): Promise<{ card: BrewCardRow; isNewCard: boolean }> {
   const method = await resolveDefaultMethod(coffeeId, brewProfile);
   const existing = await db.query(
-    `SELECT * FROM brew_card WHERE user_id = $1 AND coffee_id = $2 AND method = $3`,
+    `SELECT * FROM user_brew_card WHERE user_id = $1 AND coffee_id = $2 AND method = $3`,
     [userId, coffeeId, method]
   );
   if (existing.rows.length) return { card: rowToCard(existing.rows[0]), isNewCard: false };
@@ -247,7 +247,7 @@ export async function createArrivalCard(
   const scheduledFor = new Date(Date.now() + deliveryDelayDays * 86_400_000);
 
   const inserted = await db.query(
-    `INSERT INTO brew_card (user_id, coffee_id, method, params, origin, arrival_email_scheduled_for)
+    `INSERT INTO user_brew_card (user_id, coffee_id, method, params, origin, arrival_email_scheduled_for)
      VALUES ($1, $2, $3, $4::jsonb, 'arrival_note', $5)
      RETURNING *`,
     [userId, coffeeId, method, JSON.stringify(params), scheduledFor]
@@ -260,7 +260,7 @@ export async function createArrivalCard(
 // adjust-target when a customer says "go coarser" without naming a method.
 export async function getMostRecentCard(userId: string, coffeeId: number): Promise<BrewCardRow | null> {
   const result = await db.query(
-    `SELECT * FROM brew_card WHERE user_id = $1 AND coffee_id = $2 ORDER BY updated_at DESC LIMIT 1`,
+    `SELECT * FROM user_brew_card WHERE user_id = $1 AND coffee_id = $2 ORDER BY updated_at DESC LIMIT 1`,
     [userId, coffeeId]
   );
   return result.rows.length ? rowToCard(result.rows[0]) : null;
@@ -268,7 +268,7 @@ export async function getMostRecentCard(userId: string, coffeeId: number): Promi
 
 export async function getCardByMethod(userId: string, coffeeId: number, method: string): Promise<BrewCardRow | null> {
   const result = await db.query(
-    `SELECT * FROM brew_card WHERE user_id = $1 AND coffee_id = $2 AND method = $3`,
+    `SELECT * FROM user_brew_card WHERE user_id = $1 AND coffee_id = $2 AND method = $3`,
     [userId, coffeeId, method]
   );
   return result.rows.length ? rowToCard(result.rows[0]) : null;
@@ -276,7 +276,7 @@ export async function getCardByMethod(userId: string, coffeeId: number, method: 
 
 export async function getUserBrewCards(userId: string): Promise<BrewCardRow[]> {
   const result = await db.query(
-    `SELECT * FROM brew_card WHERE user_id = $1 ORDER BY updated_at DESC`,
+    `SELECT * FROM user_brew_card WHERE user_id = $1 ORDER BY updated_at DESC`,
     [userId]
   );
   return result.rows.map(rowToCard);
@@ -294,7 +294,7 @@ export async function adjustCard(cardId: number, adjustmentKey: string, reasonTe
     return null;
   }
 
-  const existing = await db.query(`SELECT * FROM brew_card WHERE id = $1`, [cardId]);
+  const existing = await db.query(`SELECT * FROM user_brew_card WHERE id = $1`, [cardId]);
   if (!existing.rows.length) return null;
   const card = rowToCard(existing.rows[0]);
 
@@ -310,7 +310,7 @@ export async function adjustCard(cardId: number, adjustmentKey: string, reasonTe
   const newParams: BrewCardParams = { ...card.params, grindLabel, tempC };
 
   const updated = await db.query(
-    `UPDATE brew_card
+    `UPDATE user_brew_card
      SET params = $2::jsonb, revision = revision + 1, last_adjustment_reason = $3, updated_at = NOW()
      WHERE id = $1
      RETURNING *`,
