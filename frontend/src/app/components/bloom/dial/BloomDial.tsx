@@ -195,7 +195,7 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
       nlines.querySelectorAll<HTMLElement>('.bd-nline').forEach(l => {
         l.style.fontSize = '100px';
         const tw = l.scrollWidth || 1;
-        l.style.fontSize = Math.min(92, Math.max(30, Math.floor(100 * lockW / tw))) + 'px';
+        l.style.fontSize = Math.min(72, Math.max(30, Math.floor(100 * lockW / tw))) + 'px';
       });
     }
     fitLines();
@@ -379,16 +379,16 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
 const EASE = 'cubic-bezier(0.22,1,0.36,1)';
 const CSS = `
 .bd-section{background:#f2f1ea;}
-.bd-stage{display:grid;grid-template-columns:minmax(300px,27%) 1fr;min-height:78vh;}
-.bd-reading{background:#f2f1ea;text-align:left;display:flex;flex-direction:column;justify-content:space-between;padding:56px 48px 60px;}
-.bd-reading-bottom{padding-top:34px;}
+.bd-stage{display:grid;grid-template-columns:minmax(300px,27%) 1fr;min-height:0;}
+.bd-reading{background:#f2f1ea;text-align:left;display:flex;flex-direction:column;justify-content:space-between;padding:40px 44px 44px;}
+.bd-reading-bottom{padding-top:22px;}
 .bd-namelock{position:relative;padding-right:36px;}
-.bd-your{font-size:12px;letter-spacing:.3em;color:#45474a;font-weight:500;margin-bottom:12px;}
+.bd-your{font-size:12px;letter-spacing:.3em;color:#45474a;font-weight:500;margin-bottom:8px;}
 .bd-nline{font-weight:600;color:#9a2918;line-height:.95;letter-spacing:-.01em;text-transform:uppercase;white-space:nowrap;}
 .bd-bdial{margin-top:12px;font-size:26px;font-weight:600;color:#ee5974;letter-spacing:.02em;}
 .bd-vno{position:absolute;right:0;top:34px;writing-mode:vertical-rl;transform:rotate(180deg);font-size:11px;letter-spacing:.3em;color:#7b7f80;font-weight:500;}
-.bd-instrument{position:relative;user-select:none;background:var(--bd-field);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 40px;}
-.bd-dial-wrap{position:relative;width:440px;height:440px;margin:0 auto;cursor:grab;touch-action:none;}
+.bd-instrument{position:relative;user-select:none;background:var(--bd-field);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 40px;}
+.bd-dial-wrap{position:relative;width:400px;height:400px;margin:0 auto;cursor:grab;touch-action:none;}
 .bd-dial-wrap:active{cursor:grabbing;}
 .bd-dial-wrap:focus{outline:none;}
 .bd-dial-wrap:focus-visible{outline:1px solid #c5c7c8;outline-offset:12px;}
@@ -397,7 +397,7 @@ const CSS = `
 .bd-rotor canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;}
 .bd-rotor img{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;-webkit-user-drag:none;}
 .bd-marker{position:absolute;top:-16px;left:50%;transform:translateX(-50%);width:2px;height:18px;background:#45474a;z-index:2;}
-.bd-ruler{width:360px;max-width:86vw;margin:38px auto 0;}
+.bd-ruler{width:360px;max-width:86vw;margin:26px auto 0;}
 .bd-ruler-ticks{position:relative;height:26px;margin-bottom:10px;cursor:pointer;touch-action:none;}
 .bd-ruler-ticks:focus{outline:none;}
 .bd-ruler-ticks:focus-visible{outline:1px solid #c5c7c8;outline-offset:6px;}
@@ -412,7 +412,7 @@ const CSS = `
 .bd-field-bag img{width:146px;height:auto;display:block;-webkit-user-drag:none;}
 .bd-bag-shadow{width:102px;height:10px;margin:-4px auto 0;border-radius:50%;background:radial-gradient(ellipse,rgba(58,60,62,.22),rgba(58,60,62,0) 70%);}
 .bd-now{font-size:9.5px;letter-spacing:.28em;color:#7b7f80;transition:opacity 300ms ${EASE};}
-.bd-coffee-name{margin-top:14px;font-size:32px;min-height:122px;font-weight:500;color:#9a2918;letter-spacing:-0.008em;line-height:1.25;transition:opacity 300ms ${EASE};}
+.bd-coffee-name{margin-top:12px;font-size:32px;min-height:84px;font-weight:500;color:#9a2918;letter-spacing:-0.008em;line-height:1.25;transition:opacity 300ms ${EASE};}
 .bd-coffee-price{margin-top:10px;font-size:12.5px;color:#7b7f80;}
 .bd-btn{display:block;width:100%;margin-top:26px;background:#9a2918;color:#f2f1ea;font-size:12px;letter-spacing:.16em;font-weight:500;padding:15px 10px;text-align:center;text-decoration:none;cursor:pointer;border:none;font-family:inherit;transition:background 480ms ${EASE};}
 .bd-btn:hover{background:#8a2416;}
