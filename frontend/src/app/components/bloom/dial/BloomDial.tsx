@@ -136,7 +136,7 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
       needle.style.left = (pos * 100) + '%';
       paintFill(Math.max(0, Math.min(1, (pos - 0.125) / 0.75)));
       const coffee = configRef.current.coffees[zone];
-      if (nowRef.current) nowRef.current.textContent = 'COFFEE NO. ' + (zone + 1);
+      if (nowRef.current) nowRef.current.textContent = 'THE COFFEE';
       if (nameRef.current) nameRef.current.textContent = coffee.name;
       if (priceRef.current) priceRef.current.textContent =
         `12oz · ${fmtPrice(coffee.price12Cents)}  /  5lb · ${fmtPrice(coffee.price5Cents)}`;
@@ -321,7 +321,7 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
             <div className="bd-vno">NO. {config.no}</div>
           </div>
           <div className="bd-reading-bottom">
-            <div className="bd-now" ref={nowRef}>COFFEE NO. {initialDialSortOrder}</div>
+            <div className="bd-now" ref={nowRef}>THE COFFEE</div>
             <div className="bd-coffee-name" ref={nameRef}>
               {config.coffees[Math.min(3, Math.max(0, initialDialSortOrder - 1))].name}
             </div>
