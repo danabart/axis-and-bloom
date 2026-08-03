@@ -1147,6 +1147,8 @@ Both paths converge on one shared function, `respondToDialInBeat(beatEventId, ex
 
 #### S82. Per-coffee opaque tokens, the redirect endpoint's five destinations, the sponsorship seam that was already in schema, and a real anonymous-auth bug caught by actually running the signed-out flow
 
+**Renumbered from a draft "S81"** — Tasks 7 and 8 ran concurrently in one working tree and both independently drafted their entry as S81 before either had committed (see house convention #9). Per house convention #9's resolution rule, S81 (below, Task 8) is the entry that appears first in this file, so it kept the number; this entry moved to S82. If you're orienting from an old note or draft that called this "S81," this is that entry.
+
 **Context**: `HOME_TASK_7_QR_DOOR.md`, depends on Task 5 (story page — live) and Task 6 (bag/brew-card surface — live, S79/S80). The rule this task exists to honor, verbatim from the strategy doc: **never print a URL whose meaning is fixed — print a pointer the server re-aims.** An alias in a URL would be S44 baked in ink.
 
 **1. Schema — one `qr_token` column on `coffees`, not a separate table.** The spec's own decision point ("`coffee_qr_token` table if multiple tokens per coffee ever needed") resolves cleanly against the strategy doc's own words — "One code per coffee, not per bag" — so a plural join table has nothing to model. `qr_token TEXT`, nullable until minted, partial unique index (`WHERE qr_token IS NOT NULL`), generated via `randomBytes(16).toString('hex')` (32 hex chars, well over the spec's ≥16 floor) — same app-generated-token convention `household_invitation.token` already established, not a new pattern. Minted for real, for all 30 production coffees, via `mintTokensForAllCoffees()` — not test data, the actual deliverable.
@@ -1176,3 +1178,94 @@ Both paths converge on one shared function, `respondToDialInBeat(beatEventId, ex
 **Nothing else touched, per the task's explicit scope**: no label artwork (design workstream); no story-page or brew-card *content* changes, only routing to the pages that already render them; no per-bag serialization anywhere — one token per coffee, exactly as specified.
 
 **Still needs**: a real printed (even draft) code, scanned once from a phone, before mass print QA becomes someone else's checklist item (the task's own words). Label-design pass itself (whose printer, final material) is Dana's calendar item, per `HOME_TASK_INDEX.md`.
+
+---
+
+### HOME Task 8b — Post-Merge Fix Pass (2026-08-03)
+
+#### S83. The S-number collision that had already resolved itself, the env-var class closed, and four retired coffees given a real story
+
+**Context**: `HOME_TASK_8B_POSTMERGE_FIX_PASS.md`. Tasks 7 and 8 ran concurrently in one working tree — a real violation of house convention #9 ("one Claude Code session per working tree"), which this incident is why that convention now exists. Both tasks survived it through careful file discipline (git plumbing on `index.ts`, per [[feedback_axis_and_bloom_task_execution]]), but still needed a cleanup pass before Task 9.
+
+**Step 0 — working-tree sanity.** `git status` + `git log --oneline -15` confirmed both `d34b8e4` (Task 7) and `08f09a2` (Task 8) fully committed and already pushed to `origin/main` before this pass began — no half-staged files remained from either session's own git-plumbing work on `index.ts`. Only pre-existing, unrelated untracked clutter remained (`home_v3/` task docs, marketing PDFs, a `slot_instance_model/` directory not created by this task), confirmed not this pass's and left untouched.
+
+**Step 1 — the S-number collision, already resolved by the time this pass started.** The task brief (and the live conversation that triggered this pass) described the collision as still unresolved. Checked the actual file before touching anything, per this pass's own house-convention discipline: it wasn't. S81 (Task 8, appears first in the file) had already correctly kept its number; the Task 7 session's own commit had already used S82 — the exact rule this task specifies ("whichever entry appears first keeps S81") had already been satisfied, apparently worked out independently by the two sessions' own build-log writes landing in commit order. Grepped all three build logs (`SOMMELIER_BUILT.md`, `WHAT_WE_BUILT.md`, `WHAT_WE_BUILT_DB.md`) plus every `home_v3/` task file for `S81`/`S82`: found exactly one real dangling reference — `WHAT_WE_BUILT.md` #134's own self-citation still read "`SOMMELIER_BUILT.md` S81" for the QR Door entry (should be S82; #133's Beats v1 citation was already correct at S81) — fixed. Added the renumber-orientation note to S82's heading, per the task's own instruction, so a reader following an old "S81" reference from either session's working notes can still orient. Verified: exactly one S81 heading, one S82 heading in this file, all four cross-references (`WHAT_WE_BUILT_DB.md` ×2, `WHAT_WE_BUILT.md` ×2) correct.
+
+**Step 2 — the dormant-env-var audit.** Confirmed via GitHub's Actions API that the `FRONTEND_URL` fix (deploy `08f09a2`) had already run and succeeded, then confirmed directly against the live service (`gcloud run services describe axis-bloom-backend`) rather than trusting the deploy's exit code alone: `FRONTEND_URL=https://www.axisandbloomcoffee.com` and `BACKEND_URL=https://axis-bloom-backend-oiub7eumya-uc.a.run.app`, both plain env vars, both correctly present. Grepped `process.env\.` across the whole of `backend/src` for every distinct variable and verdicted each against `deploy.yml`'s `--set-secrets`/`--set-env-vars` and the live service's actual env array (`gcloud ... --format=json`, distinguishing a plain `value` from a `valueFrom.secretKeyRef` for each):
+
+| Variable | Source | Verdict |
+|---|---|---|
+| `DATABASE_URL` | Secret Manager | secret-and-live |
+| `ANTHROPIC_API_KEY` | Secret Manager | secret-and-live |
+| `FIREBASE_PROJECT_ID` | Secret Manager | secret-and-live |
+| `FIREBASE_PRIVATE_KEY` | Secret Manager | secret-and-live |
+| `FIREBASE_CLIENT_EMAIL` | Secret Manager | secret-and-live |
+| `SHOPIFY_STORE_DOMAIN` | Secret Manager | secret-and-live |
+| `SHOPIFY_STOREFRONT_TOKEN` | Secret Manager | secret-and-live |
+| `SHOPIFY_ADMIN_TOKEN` | Secret Manager | secret-and-live |
+| `RESEND_API_KEY` | Secret Manager | secret-and-live |
+| `MAILCHIMP_API_KEY` | Secret Manager | secret-and-live |
+| `MAILCHIMP_LIST_ID` | Secret Manager | secret-and-live |
+| `CRON_SECRET` | Secret Manager | secret-and-live |
+| `SMS_PROVIDER_ACCOUNT_SID` | Secret Manager | secret-and-live |
+| `SMS_PROVIDER_AUTH_TOKEN` | Secret Manager | secret-and-live |
+| `SMS_FROM_NUMBER` | Secret Manager | secret-and-live |
+| `FRONTEND_URL` | `deploy.yml --set-env-vars` | set-and-live (this pass's parent bug, confirmed closed) |
+| `BACKEND_URL` | `deploy.yml --set-env-vars` | set-and-live (this pass's parent bug, confirmed closed) |
+| `NODE_ENV` | none | intentionally-absent — `db/client.ts`'s only use gates the `ssl` option, and production always connects over the Cloud SQL unix socket (`isUnixSocket` true), which already forces that branch off regardless of `NODE_ENV`; the variable's absence has zero effect on the deployed path |
+| `PORT` | none | intentionally-absent — Cloud Run injects this automatically for every container (default `8080`); `index.ts`'s `process.env.PORT ?? 4000` resolves it at the platform level, `deploy.yml` never needs to set it |
+
+Zero vars found in the `MISSING — same class as FRONTEND_URL` bucket — that bug was the only one of its kind, and it's now closed. Re-rendered one real arrival-note email (`buildArrivalNoteEmail()`, S79's own method, marked test data — coffee 31/"Jammy & Aromatic") with `FRONTEND_URL` set to the confirmed-live production value: the talk-to-Liam link resolved to `https://www.axisandbloomcoffee.com/sommelier?entry=bag&coffee=31`, zero `localhost` references anywhere in the rendered HTML.
+
+**Step 2.5 — the retired-coffee scan destination was a data gap, not a code gap.** Live finding from Task 7's own verification: a retired coffee's `/b/{token}` correctly redirects with the past-tense banner, but showed "the story for this coffee isn't ready yet" and no hop CTA. Read `CoffeeStoryPage.tsx` before writing anything: the hop-CTA rendering (`isRetired && nearestHopCoffeeId`) and the always-present quiz-path fallback were **already correctly implemented** — this needed no frontend code change at all, only the missing story content itself.
+
+Found all 5 retired coffees with a minted QR token: 14 (Vanilla), 15 (Hazelnut), 16 (Chocolate), 20 (Colombia — already had a published story), 33 (Guatemala). Ran `generateAndStoreAllContent()` (S74's own function, unmodified) for the 4 without one. Three (14/15/16) generated real text but were rejected by the specificity check on a **raw-name match only** ("Vanilla"/"Hazelnut"/"Chocolate") — the identical false-positive class S74 already documented and resolved for Decaf/Sumatra: these are Flavored-category add-ons whose raw catalog name literally *is* their legitimate public flavor identity. Read all three drafts in full before making any override decision: zero farm/co-op/lot/estate/importer/roaster terms anywhere in any of them — clean, on-brand copy that just happens to say "vanilla"/"hazelnut"/"chocolate" the same way "Decaf" says decaf. Published via the exact mechanism `PATCH /api/admin/coffees/:id/story`'s own `force: true` path uses (`story_admin_edited = true`, `story_published = true`, the override reason logged), replicated directly against the same query shape rather than minting an admin HTTP session for three rows. Coffee 33 (Guatemala) is genuinely data-starved — no archetype, no cupping dimensions, no descriptors — `hasEnoughDataForStory` correctly returned false, no draft was even attempted, skipped gracefully per the task's own instruction, same as S38's original coffee-16 case.
+
+Checked `getNearestHopCoffeeId()` (Task 7's own function, unmodified) for all 5: only coffee 20 has a real outgoing recommended hop (→18) in the actual graph; 14/15/16/33 have none. This is a real data fact, not a bug — the already-correct frontend renders the hop CTA only for coffee 20 and falls through to the always-present quiz-path link for the other four, exactly as designed. Re-verified the literal live-tested token end-to-end: `cabaa193...` (coffee 14) now resolves to a real, published, on-brand story instead of the "isn't ready yet" placeholder; still correctly shows no hop CTA, because there genuinely isn't one to show.
+
+**Verified**: `tsc --noEmit` clean. `git status` clean at the end (only this pass's own doc/schema-comment edits and the Cloud SQL data writes remain, no leftover scratch files — every verification script used in this pass was deleted immediately after use, per the codebase's established scratch-script discipline).
+
+**Nothing else touched, per the task's explicit scope**: no new features; no changes to Task 7's or Task 8's own shipped logic. Step 3 (`HOME_TASK_7B_VIEW_DRIFT_RECONCILE.md`) is its own entry, below.
+
+---
+
+### HOME Task 7b — SQL View Drift Reconciliation (2026-08-03)
+
+#### S84. Zero schema.sql-vs-live drift found across all 14 views — the real bug was a consumer query assuming columns that never existed anywhere
+
+**Context**: `HOME_TASK_7B_VIEW_DRIFT_RECONCILE.md`, run as HOME_TASK_8B's Step 3. Flagged during Task 7 (S82): `sommelierRag.ts` selects `vdn.from_coffee_id`/`to_coffee_id` from `v_dial_navigation`, but the definition checked into `schema.sql` only exposes `from_coffee`/`to_coffee` as names — S82's own text concluded "the live view must have been altered directly against prod... without the file being updated," a theory it explicitly flagged as *not* independently verified against a real `pg_get_viewdef` capture. This task's own brief repeats that premise ("why it matters even though prod works today") and marks `sommelierRag.ts`'s queries as correct, out of scope to touch. **Both of those premises turned out to be wrong.**
+
+**1. Captured live truth for every view.** `SELECT pg_get_viewdef(...)` against real production (Cloud SQL Auth Proxy) for all 14 views `schema.sql` defines (enumerated directly from the file, not assumed): `v_cupping_scores_readable`, `v_collaborative_flavor_wheel`, `v_quiz_scoring_matrix`, `v_archetype_vectors`, `v_archetype_dimension_comparison`, `v_dial_positions`, `v_archetype_adjacency`, `v_dial_navigation`, `v_dial_position_consensus`, `v_newsletter_subscribers`, `v_subscribers_weekly`, `v_quiz_funnel_weekly`, `v_archetype_distribution`, `v_orders_weekly`.
+
+**2. The per-view verdict — every single one matches:**
+
+| View | Verdict |
+|---|---|
+| `v_cupping_scores_readable` | matches |
+| `v_collaborative_flavor_wheel` | matches |
+| `v_quiz_scoring_matrix` | matches (live output is the same query with positional `ORDER BY`/window-function references expanded — Postgres's own `pg_get_viewdef` normalization, not drift) |
+| `v_archetype_vectors` | matches |
+| `v_archetype_dimension_comparison` | matches |
+| `v_dial_positions` | matches |
+| `v_archetype_adjacency` | matches |
+| `v_dial_navigation` | **matches — byte-for-byte identical to the checked-in definition**, names only, no id columns, in *either* version. There was never a schema.sql-vs-live drift here. |
+| `v_dial_position_consensus` | matches (live output expands the checked-in `SELECT *`/`SELECT dps.*` into its literal column list — the same Postgres normalization as above) |
+| `v_newsletter_subscribers` | matches |
+| `v_subscribers_weekly` | matches (positional `GROUP BY`/`ORDER BY` expanded to full expressions — same normalization) |
+| `v_quiz_funnel_weekly` | matches |
+| `v_archetype_distribution` | matches |
+| `v_orders_weekly` | matches |
+
+Zero views needed reconciliation. `schema.sql` already matches production exactly, for all 14.
+
+**3. The real bug — proven live, not theorized.** Ran `sommelierRag.ts`'s exact two dial-navigation queries (lines 229 and 308 — `RECOMMENDATION_MISS`'s dial-alternative lookup on negative-dimension feedback, and `DISCOVERY_SEEKER`'s bridge-archetype hop supplementation) directly against real production. Both fail: `error: column vdn.to_coffee_id does not exist (42703)`. Both call sites are wrapped in their own try/catch (`console.warn('[sommelierRag] Bloom Dial query failed — using archetype-only RAG')` on the first; a bare catch on the second) — which is exactly why this has never surfaced as a 500 or a visible defect. It has silently degraded to archetype-only RAG on **every single call, for every session**, since S43 (2026-07-14) first gave this graph real data to traverse. Concretely: `RECOMMENDATION_MISS`'s "customer said too strong → traverse `direction='less'` for a lighter dial-based alternative" and `DISCOVERY_SEEKER`'s bridge-hop-based catalog supplementation have never actually run in production — every session hitting either RAG focus type has silently fallen back to the archetype-only path this entire time. A real, confirmed functional gap degrading Liam's recommendation quality on two of six intents — not a stale-documentation issue, and not hypothetical.
+
+**4. Flagged, not fixed, per this task's own explicit scope line** ("no changes to `sommelierRag.ts` or any consumer's queries") — consistent with this codebase's established discipline for a finding that falls outside a task's own boundary (S37/S76/S77/S82's own flagged items). The actual fix, for whoever picks this up: either (a) select `vdn.from_coffee`/`vdn.to_coffee` (names) and join back to `coffees` by name to recover ids, or (b) bypass the view entirely and query `dial_coffee_relationships` directly by `from_coffee_id`/`to_coffee_id` — the exact pattern `qrDoor.ts`'s own `getNearestHopCoffeeId()` already uses for this identical reason, needing no schema change at all. Needs its own follow-up task.
+
+**5. Consumer audit.** Grepped the whole backend for `v_dial_navigation`: exactly 2 real query sites, both in `sommelierRag.ts`, both broken as above. `qrDoor.ts`'s own reference is comment-only — it deliberately bypasses the view already, confirmed unaffected.
+
+**6. Prevention note added** to `schema.sql`'s `-- VIEWS --` section header: views are part of the schema, not a live-only artifact — a live `CREATE OR REPLACE VIEW` (or `DROP`+`CREATE`) against prod without updating this file is the same drift class Task 1/S70 closed for Firestore config; update both or neither.
+
+**Verified**: extracted all 14 views' `DROP VIEW IF EXISTS`/`CREATE VIEW` statements straight from `schema.sql` (30 statements — some views are preceded by more than one `DROP IF EXISTS`, all idempotent) and applied every one against real production inside a transaction, then rolled back — confirms a fresh build from this file produces exactly the views currently live, zero errors, prod left untouched. Re-ran `sommelierRag.ts`'s exact failing query against that freshly-recreated, byte-proven-identical view inside the same transaction: identical `42703` error, confirming this isn't an artifact of some unrelated prod state. `tsc --noEmit` clean (no runtime code touched, per scope — only the `schema.sql` header comment).
+
+**Out of scope, per the task's explicit list, untouched**: `sommelierRag.ts` or any consumer's queries; no new drift-detection tooling (a periodic automated schema-vs-prod diff would be worth building if this class of finding recurs — noted, not built); no table changes; no Task 8 work.

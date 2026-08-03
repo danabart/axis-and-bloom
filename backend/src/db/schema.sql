@@ -2200,6 +2200,13 @@ CREATE INDEX IF NOT EXISTS idx_answer_arch_score_archetype  ON quiz_answer_arche
 -- ─────────────────────────────────────────────
 -- VIEWS
 -- ─────────────────────────────────────────────
+-- Views are part of the schema, not a live-only artifact: a CREATE OR REPLACE
+-- VIEW (or DROP+CREATE) run directly against prod without updating this file
+-- is drift, the same class HOME_TASK_1/S70 closed for Firestore config —
+-- update both or neither. (HOME_TASK_7B/S83 audited all views here against
+-- live pg_get_viewdef output on 2026-08-03 and found zero drift — the one
+-- real bug that prompted the audit turned out to live in a consumer query,
+-- not a stale view definition; see S83 for the full finding.)
 
 -- Readable cupping scores — one row per score × dimension, with session + coffee context.
 -- brew_method comes from cupping_sessions (TEXT after migration).

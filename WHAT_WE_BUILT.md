@@ -3426,7 +3426,7 @@ WHAT_WE_BUILT.md #132, `WHAT_WE_BUILT_DB.md` gains the `brew_card` table + the `
 
 **Out of scope, unchanged, per the task's explicit list**: no label artwork (design workstream); no changes to story-page or card content, only routing to them; no per-bag serialization — one token per coffee, exactly as specified.
 
-WHAT_WE_BUILT.md #134, `WHAT_WE_BUILT_DB.md` gains `coffees.qr_token` + `qr_scan_event` + the two new enums, `SOMMELIER_BUILT.md` S81 (full detail).
+WHAT_WE_BUILT.md #134, `WHAT_WE_BUILT_DB.md` gains `coffees.qr_token` + `qr_scan_event` + the two new enums, `SOMMELIER_BUILT.md` S82 (full detail).
 
 ---
 
@@ -3457,6 +3457,30 @@ WHAT_WE_BUILT.md #134, `WHAT_WE_BUILT_DB.md` gains `coffees.qr_token` + `qr_scan
 **Still needs manual setup**: a Cloud Scheduler job for `GET /api/cron/beat-dial-in-send` (same pattern as the still-open `brew-card-arrival-send` job from #132).
 
 WHAT_WE_BUILT.md #133, `WHAT_WE_BUILT_DB.md` gains the `beat_event` table + the `sms_beats_opt_in`/`message_kind` fields, `SOMMELIER_BUILT.md` S81 (full detail).
+
+---
+
+### 135. HOME Task 8b — Post-merge fix pass: S-number cleanup, env-var audit, retired-coffee story backfill (2026-08-03)
+
+**What it is**: Tasks 7 and 8 ran concurrently in one working tree — the incident that prompted `HOME_TASK_INDEX.md`'s new house convention #9. This pass ties off three loose ends before Task 9: the build-log S-number collision (turned out already resolved — S81/Task 8 and S82/Task 7 landed correctly, only one stale cross-reference needed fixing), a full audit of every `process.env.` var the backend reads against `deploy.yml`/live Cloud Run (zero more `FRONTEND_URL`-class bugs found), and real published stories for the 4 retired coffees with a minted QR token that didn't have one — closing the "story isn't ready yet" placeholder Task 7's own verification caught live.
+
+**The env-var audit**: 19 distinct variables, verdicted set-and-live / secret-and-live / intentionally-absent (with the fallback reasoning recorded) — full table in `SOMMELIER_BUILT.md` S83. `FRONTEND_URL`/`BACKEND_URL` reconfirmed live and correct on Cloud Run; a re-rendered arrival-note email now carries the production domain.
+
+**The retired-coffee backfill**: 3 of 4 (Vanilla/Hazelnut/Chocolate — Flavored-category add-ons) hit the exact same raw-name false-positive the specificity check already has documented precedent for (S74's Decaf/Sumatra) — read all three drafts in full, confirmed zero roaster/farm/lot/estate/importer leaks, published via the same reviewed-override mechanism the admin story-edit endpoint uses. The 4th (Guatemala) is genuinely data-starved (no archetype, no cupping data) — skipped gracefully, no story, per the existing guard. The frontend's hop-CTA rendering needed no code change at all — it was already correct; this was purely a missing-content gap.
+
+**Full detail**: `SOMMELIER_BUILT.md` S83.
+
+---
+
+### 136. HOME Task 7b — SQL view drift audit: zero drift found, real bug traced to a consumer query (2026-08-03)
+
+**What it is**: Task 7 (S82) flagged a suspected `schema.sql`-vs-live drift on `v_dial_navigation` — `sommelierRag.ts` selects id columns the checked-in view definition doesn't have. This task set out to reconcile the file to match live. **The premise was wrong**: captured `pg_get_viewdef()` for all 14 views in `schema.sql` against real production and diffed every one — zero drift, across the board. `v_dial_navigation`'s live definition is byte-for-byte identical to what's checked in, in both places, neither ever had id columns.
+
+**The real bug**: `sommelierRag.ts`'s two dial-navigation queries (`RECOMMENDATION_MISS`'s dial-alternative lookup, `DISCOVERY_SEEKER`'s bridge-hop supplementation) fail with a real `42703: column vdn.to_coffee_id does not exist` against production — proven by running them directly, not theorized. Both are wrapped in their own try/catch, so this has silently degraded to archetype-only RAG on every call since S43 first populated real hop data (2026-07-14) — never a visible error, never fixed, because nothing ever surfaced it. Flagged, not fixed, per this task's own scope boundary (no changes to `sommelierRag.ts`); the actual fix (select names and join back, or bypass the view the way `qrDoor.ts`'s `getNearestHopCoffeeId()` already does) is queued as its own follow-up.
+
+**Verified**: all 14 views' `DROP`/`CREATE` statements applied against real prod inside a rolled-back transaction — a fresh build from `schema.sql` produces exactly what's live today, zero errors. A prevention note was added to `schema.sql`'s views-section header.
+
+**Full detail**: `SOMMELIER_BUILT.md` S84.
 
 ---
 
