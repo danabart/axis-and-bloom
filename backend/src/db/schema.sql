@@ -3032,11 +3032,26 @@ DO $$ BEGIN
   -- scanning a retired coffee they genuinely did buy is not a "non_owner" —
   -- ownership was simply never evaluated). Logged here rather than silently
   -- picking one of the three incorrectly.
-  CREATE TYPE qr_auth_state_enum AS ENUM ('owner', 'signed_out', 'non_owner', 'unresolved');
+  -- 'no_orders' added HOME_TASK_7C (universal QR, 2026-08-03) — a signed-in
+  -- customer scanning the universal code with zero order history is a real,
+  -- distinct case a universal-token scan can produce that a per-coffee token
+  -- never could (there's no specific coffee to be a "non_owner" of). Same
+  -- honesty rule as 'unresolved': don't force it into an inaccurate label.
+  CREATE TYPE qr_auth_state_enum AS ENUM ('owner', 'signed_out', 'non_owner', 'unresolved', 'no_orders');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+ALTER TYPE qr_auth_state_enum ADD VALUE IF NOT EXISTS 'no_orders';
 
 DO $$ BEGIN
-  CREATE TYPE qr_destination_enum AS ENUM ('bag_view', 'sign_in', 'story_page', 'retired_story', 'unknown');
+  CREATE TYPE qr_destination_enum AS ENUM ('bag_view', 'sign_in', 'story_page', 'retired_story', 'unknown', 'bag_picker', 'brand_landing');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+-- 'bag_picker'/'brand_landing' added HOME_TASK_7C — the two new destinations
+-- a universal-token scan can produce that a per-coffee scan never could
+-- (2+ plausible active bags; a signed-in customer with none at all).
+ALTER TYPE qr_destination_enum ADD VALUE IF NOT EXISTS 'bag_picker';
+ALTER TYPE qr_destination_enum ADD VALUE IF NOT EXISTS 'brand_landing';
+
+DO $$ BEGIN
+  CREATE TYPE qr_token_type_enum AS ENUM ('coffee', 'universal');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- Scan analytics point (closing pass, §3.1) — every resolve of a token logs
@@ -3055,3 +3070,31 @@ CREATE TABLE IF NOT EXISTS qr_scan_event (
 CREATE INDEX IF NOT EXISTS qr_scan_event_coffee_id_idx ON qr_scan_event(coffee_id);
 CREATE INDEX IF NOT EXISTS qr_scan_event_token_idx     ON qr_scan_event(token);
 CREATE INDEX IF NOT EXISTS qr_scan_event_scanned_at_idx ON qr_scan_event(scanned_at);
+
+-- ─────────────────────────────────────────────
+-- HOME_TASK_7C — The universal printed QR (decision 2026-08-03, strategy §9).
+-- "The printed QR is universal — one identical code on every bag, every
+-- coffee, both roasteries." Per-coffee tokens (above) stay exactly as they
+-- are for digital links (story pages, emails); this is a second, additive
+-- token type, not a replacement — resolved through the same /b/{token}
+-- endpoint, never a fork. One row per roastery/print run (source-labeled,
+-- e.g. 'path', 'temecula') so scan analytics stay segmentable at zero
+-- operational cost. Same immutability rule as coffee tokens: never
+-- regenerate one that's been printed.
+-- ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS qr_universal_token (
+  id         SERIAL PRIMARY KEY,
+  token      TEXT NOT NULL UNIQUE,
+  source     TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ DEFAULT timezone('utc', now())
+);
+
+-- token_type/source are additive on the existing scan-event table, per the
+-- task's own instruction ("no schema change beyond what a source/type column
+-- needs"). token_type defaults 'coffee' so every historical row (all
+-- per-coffee scans, the only kind that existed before this task) backfills
+-- correctly without a data migration. source is NULL for coffee-token scans
+-- (coffee_id already identifies those uniquely) and populated only for
+-- universal-token scans.
+ALTER TABLE qr_scan_event ADD COLUMN IF NOT EXISTS token_type qr_token_type_enum NOT NULL DEFAULT 'coffee';
+ALTER TABLE qr_scan_event ADD COLUMN IF NOT EXISTS source TEXT;

@@ -85,6 +85,119 @@ export async function mintTokensForAllCoffees(): Promise<{ minted: number[]; alr
   return { minted, alreadyMinted };
 }
 
+// ─── HOME_TASK_7C — the universal printed QR (strategy §9, 2026-08-03) ─────
+// "The printed QR is universal — one identical code on every bag, every
+// coffee, both roasteries." A second, additive token type: not bound to a
+// coffee, one per roastery/print run, resolved through this same
+// /b/{token} endpoint. Per-coffee tokens above are untouched — they remain
+// for digital links only.
+
+// The two real roasteries this catalog has today (Path Coffee Roasters,
+// Temecula Coffee Roasters — see roaster.name in prod). A short, stable
+// source code per roastery, not a raw name (same naming discipline as
+// everything customer-facing, even though this label is admin/analytics
+// only, never shown to a customer). New roasteries mean a new source code
+// added here and minted once — this list is deliberately not DB-derived
+// from the `roaster` table, since a universal print run is a print-artwork
+// decision Dana makes, not something that should auto-mint the moment a new
+// roaster row is created.
+export const UNIVERSAL_QR_SOURCES = ['path', 'temecula'] as const;
+
+// Idempotent, same immutability rule as mintTokenForCoffee: never regenerate
+// a source's token once it exists (it may already be printed).
+export async function mintUniversalToken(source: string): Promise<string> {
+  const existing = await db.query(`SELECT token FROM qr_universal_token WHERE source = $1`, [source]);
+  if (existing.rows.length) return existing.rows[0].token;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const token = generateQrToken();
+    try {
+      const inserted = await db.query(
+        `INSERT INTO qr_universal_token (token, source) VALUES ($1, $2)
+         ON CONFLICT (source) DO NOTHING
+         RETURNING token`,
+        [token, source]
+      );
+      if (inserted.rows.length) return inserted.rows[0].token;
+      // Someone minted concurrently between the SELECT above and here.
+      const recheck = await db.query(`SELECT token FROM qr_universal_token WHERE source = $1`, [source]);
+      if (recheck.rows[0]?.token) return recheck.rows[0].token;
+    } catch (err: unknown) {
+      const code = (err as { code?: string } | null)?.code;
+      if (code !== '23505') throw err; // not a unique-violation on token — rethrow
+    }
+  }
+  throw new Error(`Failed to mint a unique universal qr token for source ${source} after 3 attempts`);
+}
+
+export async function mintMissingUniversalTokens(): Promise<{ minted: string[]; alreadyMinted: string[] }> {
+  const existingResult = await db.query(`SELECT source FROM qr_universal_token`);
+  const existingSources = new Set(existingResult.rows.map((r: { source: string }) => r.source));
+  const minted: string[] = [];
+  const alreadyMinted: string[] = [];
+  for (const source of UNIVERSAL_QR_SOURCES) {
+    if (existingSources.has(source)) { alreadyMinted.push(source); continue; }
+    await mintUniversalToken(source);
+    minted.push(source);
+  }
+  return { minted, alreadyMinted };
+}
+
+export interface UniversalTokenRow {
+  source: string;
+  token: string;
+}
+
+export async function listUniversalTokens(): Promise<UniversalTokenRow[]> {
+  const result = await db.query(`SELECT source, token FROM qr_universal_token ORDER BY source`);
+  return result.rows;
+}
+
+// Same 5-minute-TTL cache pattern as resolveTokenToCoffeeId — a distinct
+// cache since a universal token never resolves to a coffeeId at all.
+const universalTokenCache = new Map<string, { source: string | null; cachedAt: number }>();
+
+export async function resolveUniversalToken(token: string): Promise<string | null> {
+  const cached = universalTokenCache.get(token);
+  if (cached && Date.now() - cached.cachedAt < TOKEN_CACHE_TTL_MS) {
+    return cached.source;
+  }
+  const result = await db.query(`SELECT source FROM qr_universal_token WHERE token = $1`, [token]);
+  const source: string | null = result.rows[0]?.source ?? null;
+  universalTokenCache.set(token, { source, cachedAt: Date.now() });
+  return source;
+}
+
+export interface ActiveBag {
+  coffeeId: number;
+  mostRecentOrderAt: string;
+}
+
+// The universal-token resolve's core question: "what bag(s) is this
+// customer plausibly still drinking?" Unions the identical two ownership
+// paths resolveOwnership() already checks (personal + B2B sponsorship, per
+// the environment note's explicit "B2B sponsorship counts as ownership via
+// the resolver Task 7 already built") but returns the full list with dates
+// instead of a single boolean, since the picker needs to know how many
+// distinct coffees qualify and which is most recent.
+export async function getActiveBagsForProfile(profileId: string): Promise<ActiveBag[]> {
+  const result = await db.query(
+    `SELECT rb.coffee_id AS coffee_id, MAX(o.created_at) AS most_recent_order_at
+     FROM order_line_item li
+     JOIN "order" o ON o.id = li.order_id
+     JOIN roaster_blend rb ON rb.id = li.blend_id
+     WHERE (o.user_id = $1 OR li.intended_for_user_id = $1)
+       AND rb.coffee_id IS NOT NULL
+     GROUP BY rb.coffee_id
+     ORDER BY most_recent_order_at DESC`,
+    [profileId]
+  );
+  return result.rows.map((r: { coffee_id: number; most_recent_order_at: string }) => ({
+    coffeeId: r.coffee_id,
+    mostRecentOrderAt: r.most_recent_order_at,
+  }));
+}
+
 // "Retired/inactive" has no dedicated column on coffees (checked — none
 // exists). Closest real signal: a coffee is fulfillable only through an
 // active roaster_blend row, so "no active roaster_blend" is treated as

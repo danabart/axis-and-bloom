@@ -11,7 +11,7 @@ import { getSommelierConfig } from '../services/sommelierConfig.js';
 import { getBrewProfileCounters } from '../services/brewProfile.js';
 import { checkStorySpecificityViolations } from '../services/storyLayer.js';
 import { getAliases } from '../services/sommelierRag.js';
-import { mintTokenForCoffee, mintTokensForAllCoffees, invalidateTokenCache } from '../services/qrDoor.js';
+import { mintTokenForCoffee, mintTokensForAllCoffees, invalidateTokenCache, mintMissingUniversalTokens, listUniversalTokens } from '../services/qrDoor.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -2375,6 +2375,37 @@ router.get('/qr/tokens', async (_req, res) => {
   } catch (err) {
     console.error('[admin/qr/tokens]', err);
     res.status(500).json({ error: 'Failed to fetch QR tokens' });
+  }
+});
+
+// ─── HOME_TASK_7C — the universal printed QR (strategy §9, 2026-08-03) ─────
+// GET /api/admin/qr/universal-tokens — the "Printed codes" list: one row
+// per roastery/print run, full URL, ready to copy into label artwork. This
+// is the ONLY thing meant to ever reach a printer — kept as a clearly
+// separate endpoint (not folded into /qr/tokens above) specifically so the
+// admin page's own printed-vs-digital split has a matching API split, not
+// just a client-side filter of one combined list.
+router.get('/qr/universal-tokens', async (_req, res) => {
+  try {
+    const rows = await listUniversalTokens();
+    res.json(rows.map((r) => ({ source: r.source, token: r.token, url: `${QR_BASE_URL}/b/${r.token}` })));
+  } catch (err) {
+    console.error('[admin/qr/universal-tokens]', err);
+    res.status(500).json({ error: 'Failed to fetch universal QR tokens' });
+  }
+});
+
+// POST /api/admin/qr/universal-tokens/mint-missing — mint one token per
+// roastery (UNIVERSAL_QR_SOURCES in qrDoor.ts) that doesn't have one yet.
+// Idempotent, same immutability rule as the per-coffee mint — never
+// regenerates a source's token once it exists.
+router.post('/qr/universal-tokens/mint-missing', async (_req, res) => {
+  try {
+    const { minted, alreadyMinted } = await mintMissingUniversalTokens();
+    res.json({ minted, alreadyMinted });
+  } catch (err) {
+    console.error('[admin/qr/universal-tokens/mint-missing]', err);
+    res.status(500).json({ error: 'Failed to mint universal tokens' });
   }
 });
 

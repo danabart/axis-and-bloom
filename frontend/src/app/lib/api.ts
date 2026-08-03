@@ -308,17 +308,21 @@ export async function submitOrderFeedback(orderId: string, rating: number, note?
 // subscribeNewsletter() already established. Never throws on a 404 (unknown
 // token) or a rate-limit 429 — both are real, renderable states for this
 // page, not exceptional failures, so the caller reads `status` instead.
+export interface QrBagCard {
+  method: string; ratio: string; grindLabel: string; tempC: number | null; notes: string;
+}
+
 export type QrResolveResult =
   | { status: 'unknown' }
   | { status: 'sign_in' }
   | { status: 'retired'; coffeeId: number; displayName: string; nearestHopCoffeeId: number | null }
   | { status: 'non_owner'; coffeeId: number }
-  | {
-      status: 'owner';
-      coffeeId: number;
-      displayName: string;
-      card: { method: string; ratio: string; grindLabel: string; tempC: number | null; notes: string };
-    }
+  | { status: 'owner'; coffeeId: number; displayName: string; card: QrBagCard }
+  // HOME_TASK_7C (strategy §9, 2026-08-03) — the universal printed QR's two
+  // new destinations: a signed-in customer with zero order history, and a
+  // signed-in customer with 2+ plausible active bags (the picker).
+  | { status: 'no_orders' }
+  | { status: 'picker'; bags: Array<{ coffeeId: number; displayName: string; card: QrBagCard }> }
   | { status: 'rate_limited' }
   | { status: 'error' };
 

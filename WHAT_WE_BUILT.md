@@ -3496,6 +3496,22 @@ WHAT_WE_BUILT.md #133, `WHAT_WE_BUILT_DB.md` gains the `beat_event` table + the 
 
 ---
 
+### 138. HOME Task 7c — The Universal Printed QR: bag-specificity moves from ink to order history (2026-08-03)
+
+**What it is**: strategy decision, 2026-08-03 — the printed QR stops being per-coffee. One identical code goes on every bag from every roastery; scanning it resolves to the customer's own most-recent-order history instead of a fixed coffee. Per-coffee tokens (Task 7) don't go away — they stay exactly as built for digital links (story pages, emails) — this adds a second, additive token type resolved through the *same* `/b/{token}` endpoint, never a fork.
+
+**New `qr_universal_token` table** — one row per roastery (`path`, `temecula`), same immutability rule as per-coffee tokens (never regenerate a printed one). `qr_auth_state_enum` gains `no_orders`, `qr_destination_enum` gains `bag_picker`/`brand_landing`, `qr_scan_event` gains `token_type`/`source` (additive, backfills existing rows to `'coffee'`/`null` correctly).
+
+**The resolve logic**: signed-in customer, one active bag (order within the config window, default 45 days) → straight to that bag's view. Two or more active bags → a minimal picker, every candidate's full card returned in one response so a tap is client-side, no second round trip. Signed in, zero orders → the homepage (brand landing, already carries the quiz CTA). Signed out → the exact same sign-in-preserving-redirect Task 7 already built, reused verbatim. B2B sponsorship counts as an order via the same resolver Task 7 built.
+
+**Admin page**: "Printed codes" now leads, visually unmistakable (red-bordered, copy buttons, both roasteries) — the only thing meant to ever reach a printer. The original per-coffee list demotes to a muted "Digital links (not for print)" section below, with explicit reorienting copy.
+
+**Verified**: real universal tokens minted for both roasteries (the actual deliverable). Every resolve path walked live in a real browser with three marked test accounts — one active bag, two active bags (picker, with a working tap-to-select), zero orders (homepage), and the full signed-out → sign-in → destination round trip. `qr_scan_event` rows confirmed correct `token_type`/`source`/`auth_state`/`destination` for every path. Admin page's printed/digital split confirmed visually and functionally (copy buttons work). `claude.ts`: zero diff. All test data deleted after.
+
+**Full detail**: `SOMMELIER_BUILT.md` S86. `WHAT_WE_BUILT_DB.md` gains `qr_universal_token` + the `qr_scan_event`/enum extensions.
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

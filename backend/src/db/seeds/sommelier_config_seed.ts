@@ -282,6 +282,14 @@ export const DEFAULT_SOMMELIER_CONFIG = {
       },
     },
 
+    // HOME_TASK_7C (strategy §9, 2026-08-03) — the universal printed QR.
+    // How many days back an order counts as a "plausible active bag" when
+    // deciding whether to show the picker (2+ active) or go straight to a
+    // single bag view.
+    qr: {
+      activeBagWindowDays: 45,
+    },
+
     evaluatorRulePriority: [
       'DISCOVERY_SEEKER',
       'PROFILE_AMBIGUOUS',

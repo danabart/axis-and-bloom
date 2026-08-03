@@ -193,6 +193,12 @@ export interface SommelierConfig {
       minResponseRate: number;
     };
   };
+  // HOME_TASK_7C (strategy §9, 2026-08-03) — the universal printed QR's one
+  // config lever: how many days back a customer's order counts as a
+  // "plausible active bag" for the multi-bag picker decision.
+  qr?: {
+    activeBagWindowDays: number;
+  };
   updatedAt?: unknown;
 }
 
