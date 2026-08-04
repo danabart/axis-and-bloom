@@ -310,11 +310,14 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
     paintRef.current?.(rotRef.current);
   }, [initialDialSortOrder]);
 
+  // Terracotta field text (Balanced & Sweet mustard) vs beige (deep fields) —
+  // ruler ticks/labels take matching palette tints.
+  const darkFieldText = config.ftext === '#9a2918';
   const rootVars = {
     '--bd-field': config.color,
     '--bd-ftext': config.ftext,
-    '--bd-ftext-weak': config.ftext === '#3a3c3e' ? 'rgba(58,60,62,.35)' : 'rgba(242,241,234,.35)',
-    '--bd-ftext-mid':  config.ftext === '#3a3c3e' ? 'rgba(58,60,62,.65)' : 'rgba(242,241,234,.65)',
+    '--bd-ftext-weak': darkFieldText ? 'rgba(154,41,24,.40)' : 'rgba(242,241,234,.35)',
+    '--bd-ftext-mid':  darkFieldText ? 'rgba(154,41,24,.65)' : 'rgba(242,241,234,.65)',
   } as CSSProperties;
 
   return (
@@ -336,21 +339,18 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
             <div className="bd-vno">NO. {config.no}</div>
           </div>
           <div className="bd-reading-bottom">
-            {/* Coffee lockup — the bag sits with the name so it reads as the
-                bag of this coffee (desktop/Bloom only; embedded keeps the field bag). */}
-            <div className={embedded ? undefined : 'bd-coffee-lockup'}>
-              {!embedded && (
-                <img className="bd-bag-mini" src={config.bag} alt={`${config.archetypeLabel} bag`} draggable={false} />
-              )}
+            {/* Non-embedded (Bloom): only the bag lives on the left — THE COFFEE,
+                the coffee name and the tagline now sit on the right by the wheel.
+                Embedded (quiz/profile) keeps its name lockup here. */}
+            {embedded ? (
               <div className="bd-coffee-head-text">
                 <div className="bd-now" ref={nowRef}>THE COFFEE</div>
                 <div className="bd-coffee-name" ref={nameRef}>
                   {config.coffees[Math.min(3, Math.max(0, initialDialSortOrder - 1))].name}
                 </div>
               </div>
-            </div>
-            {!embedded && (
-              <div className="bd-wheel-line">Every turn, a coffee of its own.</div>
+            ) : (
+              <img className="bd-bag-mini" src={config.bag} alt={`${config.archetypeLabel} bag`} draggable={false} />
             )}
             <div className="bd-coffee-price" ref={priceRef}>
               12oz · $32.00 &nbsp;/&nbsp; 5lb · $185.00
@@ -396,11 +396,16 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
               <div className="bd-hint">TURN THE WHEEL, OR SLIDE THE BAR</div>
             </div>
 
-            {/* Big live coffee-name display, stacked one word per line, to the
-                right of the wheel (Bloom layout only). Palette colours only. */}
+            {/* Coffee identity by the wheel (Bloom layout only): small label,
+                big live name (one word per line, "&" kept with its word), small
+                tagline. Palette colours only, via --bd-ftext. */}
             {!embedded && (
-              <div className="bd-field-name" ref={fieldNameRef}>
-                {nameToLines(config.coffees[Math.min(3, Math.max(0, initialDialSortOrder - 1))].name)}
+              <div className="bd-field-id">
+                <div className="bd-field-label">THE COFFEE</div>
+                <div className="bd-field-name" ref={fieldNameRef}>
+                  {nameToLines(config.coffees[Math.min(3, Math.max(0, initialDialSortOrder - 1))].name)}
+                </div>
+                <div className="bd-field-tagline">Every turn, a coffee of its own.</div>
               </div>
             )}
           </div>
@@ -453,19 +458,21 @@ const CSS = `
 .bd-hint{margin-top:12px;font-size:10.5px;letter-spacing:.14em;color:var(--bd-ftext-mid);}
 .bd-field-inner{display:flex;align-items:center;justify-content:center;gap:clamp(28px,4vw,72px);width:100%;}
 .bd-wheel-col{display:flex;flex-direction:column;align-items:center;flex-shrink:0;}
-/* Fixed box so the name never resizes as it changes — the wheel stays locked.
-   Longer names overflow (visible), centered, without pushing any layout. */
-.bd-field-name{flex:0 0 auto;width:clamp(200px,26vw,420px);height:200px;display:flex;flex-direction:column;justify-content:center;overflow:visible;color:var(--bd-ftext);font-size:clamp(44px,6vw,92px);font-weight:500;line-height:0.96;letter-spacing:-0.015em;text-align:left;white-space:pre-line;transition:opacity 300ms ${EASE};}
+/* The identity block has a FIXED width (and the name a fixed height) so the row
+   never reflows as the coffee changes — the wheel stays locked. white-space:pre
+   means ONLY our own line breaks apply; auto-wrap was splitting "& Word" in two. */
+.bd-field-id{flex:0 0 auto;width:clamp(220px,30vw,460px);display:flex;flex-direction:column;justify-content:center;}
+.bd-field-label{font-size:10.5px;letter-spacing:.28em;text-transform:uppercase;color:var(--bd-ftext);opacity:.72;margin:0 0 14px;}
+.bd-field-name{height:172px;display:flex;flex-direction:column;justify-content:center;overflow:visible;color:var(--bd-ftext);font-size:clamp(40px,5.2vw,80px);font-weight:500;line-height:0.98;letter-spacing:-0.015em;text-align:left;white-space:pre;transition:opacity 300ms ${EASE};}
+.bd-field-tagline{font-size:12.5px;line-height:1.5;color:var(--bd-ftext);opacity:.72;margin:16px 0 0;}
 .bd-field-bag{position:absolute;right:54px;bottom:42px;text-align:center;pointer-events:none;}
 .bd-field-bag img{width:146px;height:auto;display:block;-webkit-user-drag:none;}
 .bd-bag-shadow{width:102px;height:10px;margin:-4px auto 0;border-radius:50%;background:radial-gradient(ellipse,rgba(58,60,62,.22),rgba(58,60,62,0) 70%);}
 .bd-now{font-size:9.5px;letter-spacing:.28em;color:#7b7f80;transition:opacity 300ms ${EASE};}
 .bd-coffee-name{margin-top:12px;font-size:32px;min-height:84px;font-weight:500;color:#9a2918;letter-spacing:-0.008em;line-height:1.25;transition:opacity 300ms ${EASE};}
 .bd-coffee-price{margin-top:10px;font-size:12.5px;color:#7b7f80;}
-.bd-coffee-lockup{display:flex;align-items:center;gap:20px;}
-.bd-bag-mini{width:66px;height:auto;flex-shrink:0;display:block;-webkit-user-drag:none;filter:drop-shadow(0 8px 13px rgba(58,60,62,.17));}
+.bd-bag-mini{width:70px;height:auto;display:block;margin:0 0 20px;-webkit-user-drag:none;filter:drop-shadow(0 8px 13px rgba(58,60,62,.17));}
 .bd-coffee-head-text{min-width:0;}
-.bd-wheel-line{margin-top:13px;font-size:12.5px;line-height:1.55;color:#7b7f80;letter-spacing:.015em;}
 .bd-btn{display:block;width:100%;margin-top:26px;background:#9a2918;color:#f2f1ea;font-size:12px;letter-spacing:.16em;font-weight:500;padding:15px 10px;text-align:center;text-decoration:none;cursor:pointer;border:none;font-family:inherit;transition:background 480ms ${EASE};}
 .bd-btn:hover{background:#8a2416;}
 @media (max-width:940px){
@@ -481,7 +488,8 @@ const CSS = `
    name under the wheel, centered, and let its box size to content there. */
 @media (max-width:1100px){
   .bd-field-inner{flex-direction:column;gap:26px;}
-  .bd-field-name{width:auto;max-width:90%;height:auto;text-align:center;font-size:clamp(32px,7vw,60px);}
+  .bd-field-id{width:auto;max-width:92%;align-items:center;text-align:center;}
+  .bd-field-name{height:auto;text-align:center;white-space:pre;font-size:clamp(30px,7vw,58px);}
 }
 @media (prefers-reduced-motion:reduce){
   .bd-rotor,.bd-needle,.bd-now,.bd-coffee-name,.bd-field-name,.bd-btn{transition:none !important;}
