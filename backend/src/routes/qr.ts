@@ -3,7 +3,6 @@ import rateLimit from 'express-rate-limit';
 import { db } from '../db/client.js';
 import { optionalAuth, type AuthRequest } from '../middleware/auth.js';
 import { getBrewProfile } from './sommelier.js';
-import { getSommelierConfig } from '../services/sommelierConfig.js';
 import {
   resolveTokenToCoffeeId,
   isCoffeeRetired,
@@ -12,7 +11,7 @@ import {
   resolveOwnership,
   buildBagView,
   resolveUniversalToken,
-  getActiveBagsForProfile,
+  hasAnyOrderOrSponsorship,
 } from '../services/qrDoor.js';
 
 const router = Router();
@@ -130,8 +129,9 @@ router.get('/:token/resolve', qrResolveLimiter, optionalAuth, async (req: AuthRe
 
     // HOME_TASK_7C — the universal printed QR (strategy §9, 2026-08-03).
     // Not a per-coffee token; check whether it's one of the (few) minted
-    // universal tokens instead. Bag-specificity comes from the scanner's
-    // own order history at resolve time, not from the ink.
+    // universal tokens instead — including 7c's now-dormant 'temecula' row
+    // (HOME_TASK_7E, decision #0), which still resolves through this exact
+    // branch, just never surfaced on the admin page or minted again.
     const source = await resolveUniversalToken(token);
 
     if (source !== null) {
@@ -141,44 +141,27 @@ router.get('/:token/resolve', qrResolveLimiter, optionalAuth, async (req: AuthRe
         return;
       }
 
-      const activeBags = await getActiveBagsForProfile(profileId!);
+      // HOME_TASK_7E (decision #1, amends 7c) — the universal scan no longer
+      // lands on a dedicated bag view or picker; it lands on /profile, which
+      // already shows every one of a customer's cards. So the only question
+      // left is binary: customer or not. `auth_state`/`destination` reuse
+      // the closest existing enum values rather than adding new ones (no
+      // schema changes, per this task's own scope) — 'owner'/'bag_view' for
+      // "they have a bag (or several) to see," now surfaced at /profile
+      // instead of a per-bag page; 'no_orders'/'brand_landing' for "not a
+      // customer," now pointed at the quiz specifically rather than the
+      // homepage that merely carries a quiz CTA — the quiz page IS the
+      // brand's actual conversion engine per the strategy doc.
+      const isCustomer = await hasAnyOrderOrSponsorship(profileId!);
 
-      if (activeBags.length === 0) {
+      if (!isCustomer) {
         await logScanEvent(token, null, 'no_orders', 'brand_landing', profileId, 'universal', source);
-        res.json({ status: 'no_orders' });
+        res.json({ status: 'quiz' });
         return;
       }
 
-      // "Exactly two or more plausible active bags (recent orders within a
-      // config window) → a minimal picker. No hard guessing." Below that,
-      // always resolve to a single bag — the customer's single most recent
-      // order, even if it happens to fall outside the window, rather than
-      // ever falling back to the no-orders state once we know they have
-      // real order history.
-      const activeBagWindowDays = getSommelierConfig()?.qr?.activeBagWindowDays ?? 45;
-      const windowMs = activeBagWindowDays * 24 * 60 * 60 * 1000;
-      const now = Date.now();
-      const withinWindow = activeBags.filter(b => now - new Date(b.mostRecentOrderAt).getTime() <= windowMs);
-      const candidates = withinWindow.length >= 2 ? withinWindow : [activeBags[0]];
-
-      const brewProfile = await getBrewProfile(req.uid!);
-
-      if (candidates.length >= 2) {
-        const bags = await Promise.all(
-          candidates.map(async (b) => {
-            const view = await buildBagView(profileId!, b.coffeeId, brewProfile);
-            return { coffeeId: b.coffeeId, displayName: view.displayName, card: view.card };
-          })
-        );
-        await logScanEvent(token, null, 'owner', 'bag_picker', profileId, 'universal', source);
-        res.json({ status: 'picker', bags });
-        return;
-      }
-
-      const singleCoffeeId = candidates[0].coffeeId;
-      const bagView = await buildBagView(profileId!, singleCoffeeId, brewProfile);
-      await logScanEvent(token, singleCoffeeId, 'owner', 'bag_view', profileId, 'universal', source);
-      res.json({ status: 'owner', coffeeId: singleCoffeeId, displayName: bagView.displayName, card: bagView.card });
+      await logScanEvent(token, null, 'owner', 'bag_view', profileId, 'universal', source);
+      res.json({ status: 'profile' });
       return;
     }
 

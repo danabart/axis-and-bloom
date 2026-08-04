@@ -317,12 +317,17 @@ export type QrResolveResult =
   | { status: 'sign_in' }
   | { status: 'retired'; coffeeId: number; displayName: string; nearestHopCoffeeId: number | null }
   | { status: 'non_owner'; coffeeId: number }
+  // 'owner' is the legacy per-coffee digital-link destination only (unchanged
+  // since HOME_TASK_7) — nothing mints or surfaces a per-coffee token anymore
+  // (HOME_TASK_7E, decision #2), but an existing one must keep resolving.
   | { status: 'owner'; coffeeId: number; displayName: string; card: QrBagCard }
-  // HOME_TASK_7C (strategy §9, 2026-08-03) — the universal printed QR's two
-  // new destinations: a signed-in customer with zero order history, and a
-  // signed-in customer with 2+ plausible active bags (the picker).
-  | { status: 'no_orders' }
-  | { status: 'picker'; bags: Array<{ coffeeId: number; displayName: string; card: QrBagCard }> }
+  // HOME_TASK_7E (decisions 2026-08-04, amends 7c) — the universal token's
+  // only two signed-in outcomes: a customer (orders or B2B sponsorship) goes
+  // to their profile, where every one of their cards already lives; anyone
+  // else goes to the quiz. Supersedes 7c's 'no_orders'/'picker' pair — the
+  // picker no longer exists (the profile page shows every bag for free).
+  | { status: 'profile' }
+  | { status: 'quiz' }
   | { status: 'rate_limited' }
   | { status: 'error' };
 

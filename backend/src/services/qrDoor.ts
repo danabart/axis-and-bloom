@@ -103,6 +103,20 @@ export async function mintTokensForAllCoffees(): Promise<{ minted: number[]; alr
 // roaster row is created.
 export const UNIVERSAL_QR_SOURCES = ['path', 'temecula'] as const;
 
+// ─── HOME_TASK_7E — exactly ONE universal token (2026-08-04, amends 7c) ────
+// Dana ruled the per-roastery print-run split (above) not worth carrying two
+// artwork variants. 'path' is the token that ships in ink — chosen
+// arbitrarily between the two 7c already minted, since the task's own words
+// are "pick one as canonical," not "pick which one." UNIVERSAL_QR_SOURCES
+// stays as-is (unchanged type/history for the `source` column, and
+// resolveUniversalToken() below still resolves either by row lookup, not by
+// this list) — only the admin surface and future minting narrow to one.
+// 'temecula's existing row is left in place, untouched: it keeps resolving
+// through the exact same code path as 'path', just never minted again and
+// never returned by the admin endpoint. Same "keep working, surface
+// nowhere" discipline as per-coffee token retirement (item 2 of this task).
+export const CANONICAL_UNIVERSAL_QR_SOURCE = 'path';
+
 // Idempotent, same immutability rule as mintTokenForCoffee: never regenerate
 // a source's token once it exists (it may already be printed).
 export async function mintUniversalToken(source: string): Promise<string> {
@@ -153,6 +167,14 @@ export async function listUniversalTokens(): Promise<UniversalTokenRow[]> {
   return result.rows;
 }
 
+// HOME_TASK_7E — the admin page's own "one printed URL" (decision #0). Mints
+// the canonical source on first call if 7c's original mint-missing pass
+// somehow hadn't reached it yet; idempotent, same as mintUniversalToken.
+export async function getOrMintCanonicalUniversalToken(): Promise<UniversalTokenRow> {
+  const token = await mintUniversalToken(CANONICAL_UNIVERSAL_QR_SOURCE);
+  return { source: CANONICAL_UNIVERSAL_QR_SOURCE, token };
+}
+
 // Same 5-minute-TTL cache pattern as resolveTokenToCoffeeId — a distinct
 // cache since a universal token never resolves to a coffeeId at all.
 const universalTokenCache = new Map<string, { source: string | null; cachedAt: number }>();
@@ -168,34 +190,22 @@ export async function resolveUniversalToken(token: string): Promise<string | nul
   return source;
 }
 
-export interface ActiveBag {
-  coffeeId: number;
-  mostRecentOrderAt: string;
-}
-
-// The universal-token resolve's core question: "what bag(s) is this
-// customer plausibly still drinking?" Unions the identical two ownership
-// paths resolveOwnership() already checks (personal + B2B sponsorship, per
-// the environment note's explicit "B2B sponsorship counts as ownership via
-// the resolver Task 7 already built") but returns the full list with dates
-// instead of a single boolean, since the picker needs to know how many
-// distinct coffees qualify and which is most recent.
-export async function getActiveBagsForProfile(profileId: string): Promise<ActiveBag[]> {
+// HOME_TASK_7E — the universal-token resolve's only remaining question:
+// "has this profile ever ordered, or been sponsored, at all?" Supersedes
+// 7c's getActiveBagsForProfile (deleted — no per-coffee grouping, no
+// recency window, no roaster_blend join needed, since the destination is
+// /profile either way and the profile page already shows every card).
+// Same personal-order-or-sponsorship union resolveOwnership() checks
+// per-coffee, just without a coffee_id filter.
+export async function hasAnyOrderOrSponsorship(profileId: string): Promise<boolean> {
   const result = await db.query(
-    `SELECT rb.coffee_id AS coffee_id, MAX(o.created_at) AS most_recent_order_at
-     FROM order_line_item li
+    `SELECT 1 FROM order_line_item li
      JOIN "order" o ON o.id = li.order_id
-     JOIN roaster_blend rb ON rb.id = li.blend_id
-     WHERE (o.user_id = $1 OR li.intended_for_user_id = $1)
-       AND rb.coffee_id IS NOT NULL
-     GROUP BY rb.coffee_id
-     ORDER BY most_recent_order_at DESC`,
+     WHERE o.user_id = $1 OR li.intended_for_user_id = $1
+     LIMIT 1`,
     [profileId]
   );
-  return result.rows.map((r: { coffee_id: number; most_recent_order_at: string }) => ({
-    coffeeId: r.coffee_id,
-    mostRecentOrderAt: r.most_recent_order_at,
-  }));
+  return result.rows.length > 0;
 }
 
 // "Retired/inactive" has no dedicated column on coffees (checked — none

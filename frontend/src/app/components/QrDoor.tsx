@@ -15,28 +15,27 @@ const METHOD_LABEL: Record<string, string> = {
  * scanned bag label opens. This page owns almost none of the destination
  * logic itself — GET /api/qr/:token/resolve (optionalAuth) decides where a
  * scan goes, this component just renders whichever state comes back. Not
- * wrapped in RequireAuth (App.tsx) — retired/non-owner/unknown/no_orders all
- * need to render without forcing sign-in first; only the sign_in state itself
+ * wrapped in RequireAuth (App.tsx) — retired/non-owner/unknown all need to
+ * render without forcing sign-in first; only the sign_in state itself
  * bounces to /sign-in, using the exact S21 redirect-preservation shape
  * RequireAuth uses internally (`/sign-in?redirect=...`), hand-built here since
  * this route isn't RequireAuth-wrapped.
  *
- * The owner destination (the bag view) is rendered directly on this page
- * rather than a separate route — no dedicated single-card page existed before
- * this task (BrewCards.tsx is a list section on the Profile tab only), and
- * the token URL itself is naturally "this bag's page." Retired and non-owner
- * both hand off to the existing /coffee/:id/story page (Task 5) via a
- * declarative redirect — retired carries query params for the past-tense
- * framing + nearest-hop CTA added there for this task.
+ * The `owner` destination (the bag view below) is now a legacy-only path: a
+ * per-coffee digital-link token, still resolving exactly as HOME_TASK_7 built
+ * it, but nothing mints or links to one anymore (HOME_TASK_7E, decision #2).
+ * Retired and non-owner both hand off to the existing /coffee/:id/story page
+ * (Task 5) via a declarative redirect — retired carries query params for the
+ * past-tense framing + nearest-hop CTA added there for that task.
  *
- * HOME_TASK_7C (strategy §9, 2026-08-03) — the universal printed QR adds two
- * more states this same page renders: `no_orders` (a signed-in customer with
- * no order history — the brand landing, i.e. the homepage, which already
- * carries the quiz CTA) and `picker` (2+ plausible active bags — a minimal
- * one-tap list, reusing the exact same bag-view rendering as `owner` for
- * whichever card gets tapped, entirely client-side, no second network
- * round-trip since the resolve response already carries every candidate
- * bag's full card data). */
+ * HOME_TASK_7E (decisions 2026-08-04, amends 7c) — the universal printed
+ * token's only two signed-in outcomes are declarative redirects: `profile`
+ * (a customer — orders or B2B sponsorship — whose cards and story links
+ * already live at /profile) and `quiz` (not a customer, straight to
+ * /find-my-flavor, the site's actual conversion engine). This replaces 7c's
+ * dedicated bag-view landing and two-bag picker entirely — the profile page
+ * shows every bag for free, so there's nothing left for this page to render
+ * for a universal scan. */
 function BagView({ coffeeId, displayName, card }: { coffeeId: number; displayName: string; card: QrBagCard }) {
   return (
     <div className="max-w-xl mx-auto px-6 py-16">
@@ -68,7 +67,6 @@ export default function QrDoor() {
   const { token } = useParams();
   const { loading: authLoading } = useAuth();
   const [result, setResult] = useState<QrResolveResult | null>(null);
-  const [pickedCoffeeId, setPickedCoffeeId] = useState<number | null>(null);
 
   useEffect(() => {
     if (!token || authLoading) return;
@@ -97,11 +95,14 @@ export default function QrDoor() {
     return <Navigate to={`/coffee/${result.coffeeId}/story`} replace />;
   }
 
-  // HOME_TASK_7C — signed in, universal token, zero order history. The
-  // brand landing is the homepage: it already carries the quiz path, and
-  // there's no coffee-specific story to route to (unlike non_owner above).
-  if (result.status === 'no_orders') {
-    return <Navigate to="/" replace />;
+  // HOME_TASK_7E — universal token, signed in. Customer → their profile
+  // (every bag lives there already); not a customer → the quiz.
+  if (result.status === 'profile') {
+    return <Navigate to="/profile" replace />;
+  }
+
+  if (result.status === 'quiz') {
+    return <Navigate to="/find-my-flavor" replace />;
   }
 
   if (result.status === 'unknown') {
@@ -131,35 +132,6 @@ export default function QrDoor() {
     );
   }
 
-  // HOME_TASK_7C — 2+ plausible active bags. A tap selects one, rendered via
-  // the exact same BagView as the single-bag `owner` case below — no second
-  // resolve call, the response already carried every candidate's full card.
-  if (result.status === 'picker') {
-    const picked = pickedCoffeeId != null ? result.bags.find(b => b.coffeeId === pickedCoffeeId) : null;
-    if (picked) return <BagView coffeeId={picked.coffeeId} displayName={picked.displayName} card={picked.card} />;
-
-    return (
-      <div className="max-w-xl mx-auto px-6 py-16">
-        <p className="text-[10px] uppercase tracking-[0.3em] mb-2" style={{ color: `${RUST}99` }}>Which bag?</p>
-        <h1 className="text-2xl font-normal mb-8" style={{ color: '#3a2e28' }}>You've got a couple going</h1>
-        <div className="flex flex-col gap-3">
-          {result.bags.map(bag => (
-            <button
-              key={bag.coffeeId}
-              onClick={() => setPickedCoffeeId(bag.coffeeId)}
-              className="text-left px-5 py-4 border border-stone-200 hover:border-[#a33726] transition-colors"
-            >
-              <p className="text-sm font-medium" style={{ color: '#3a2e28' }}>{bag.displayName}</p>
-              <p className="text-xs mt-1" style={{ color: `${RUST}99` }}>
-                {METHOD_LABEL[bag.card.method] ?? bag.card.method} · {bag.card.ratio}
-              </p>
-            </button>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // result.status === 'owner' — the single bag view.
+  // result.status === 'owner' — legacy per-coffee digital-link bag view.
   return <BagView coffeeId={result.coffeeId} displayName={result.displayName} card={result.card} />;
 }

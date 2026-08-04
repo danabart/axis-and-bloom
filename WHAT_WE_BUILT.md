@@ -3512,6 +3512,20 @@ WHAT_WE_BUILT.md #133, `WHAT_WE_BUILT_DB.md` gains the `beat_event` table + the 
 
 ---
 
+### 139. HOME Task 7e — QR Simplification: one universal code, the profile absorbs the bag view, per-coffee tokens go fully dark (2026-08-04)
+
+**What it is**: a Phase 1 patch closing the QR design for launch, amending #138 (Task 7c) per three fresh decisions from Dana. (0) Exactly one universal printed code, not one per roastery — 7c's `path`/`temecula` split is narrowed to `path` as canonical; `temecula`'s existing token stays valid in the DB but is never shown or minted again. (1) The universal scan now lands on the customer's own `/profile` page instead of a dedicated bag-view/picker page — signed-in customer (orders or B2B sponsorship) → `/profile`; signed out → sign-in → `/profile`; signed-in non-customer → `/find-my-flavor`. This deletes 7c's two-bag picker outright, since the profile page already shows every card for free. (2) Per-coffee tokens are retired from every remaining surface — the admin "Digital links" section (list, per-coffee mint button, mint-missing) is deleted, not demoted; existing per-coffee `/b/{token}` links (story pages, emails — already direct-linked, not token-based) keep resolving untouched, just surfaced nowhere.
+
+**Net result: less code than #138 left behind.** `qrDoor.ts` loses the per-coffee-grouped `getActiveBagsForProfile()`/`ActiveBag` (replaced by a plain existence check, `hasAnyOrderOrSponsorship()`); `qr.ts`'s universal branch drops the recency-window/picker-construction logic and the `getSommelierConfig`/`buildBagView` calls that supported it; `admin.ts` drops three now-orphaned routes (`/qr/mint/:coffeeId`, `/qr/mint-missing`, `/qr/tokens`) whose only caller was the deleted admin UI section; `AdminQrDoor.tsx` shrinks to a single printed-code block plus the print-QA checklist.
+
+**No schema change** — `auth_state`/`destination` on `qr_scan_event` reuse existing enum values (`owner`/`bag_view` for a customer scan, now surfaced at `/profile`; `no_orders`/`brand_landing` for a non-customer, now pointed at the quiz specifically) rather than growing new ones.
+
+**Verified**: all three universal-scan destinations walked live in a browser with a marked test customer (real order + quiz result + a brew card generated via the same order-placement hook real orders use) and a marked test non-customer — customer → `/profile` with brew cards visible; signed-out → sign-in → `/profile`; non-customer → `/find-my-flavor`. A legacy per-coffee token (coffee 6) confirmed still resolving, no 404. Admin QR Door page confirmed showing exactly one printed URL plus the checklist. `qr_scan_event` rows read back correct for every path. `tsc --noEmit` and `vite build` both clean. `claude.ts`: zero diff. All test data deleted after.
+
+**Full detail**: `SOMMELIER_BUILT.md` S87 (supersedes parts of S86). No `WHAT_WE_BUILT_DB.md` entry — no schema change.
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

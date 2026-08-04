@@ -10,8 +10,7 @@ import { checkAggregateAnomaly, getMonthlySpendEstimate } from '../services/somm
 import { getSommelierConfig } from '../services/sommelierConfig.js';
 import { getBrewProfileCounters } from '../services/brewProfile.js';
 import { checkStorySpecificityViolations } from '../services/storyLayer.js';
-import { getAliases } from '../services/sommelierRag.js';
-import { mintTokenForCoffee, mintTokensForAllCoffees, invalidateTokenCache, mintMissingUniversalTokens, listUniversalTokens } from '../services/qrDoor.js';
+import { getOrMintCanonicalUniversalToken } from '../services/qrDoor.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -2297,115 +2296,34 @@ router.post('/inventory/:id/restock', async (req, res) => {
   }
 });
 
-// ── HOME_TASK_7 — the QR door's admin surface: mint tokens, export the label
-// artwork list. router.use(requireAdmin) above already gates every route in
-// this file — no per-route auth check needed here. ──────────────────────────
-
-// POST /api/admin/qr/mint/:coffeeId — mint one coffee's token. Idempotent
-// (mintTokenForCoffee never regenerates an existing token).
-router.post('/qr/mint/:coffeeId', async (req, res) => {
-  const coffeeId = Number(req.params.coffeeId);
-  if (!Number.isInteger(coffeeId)) { res.status(400).json({ error: 'invalid coffeeId' }); return; }
-  try {
-    const token = await mintTokenForCoffee(coffeeId);
-    invalidateTokenCache(token);
-    res.json({ coffeeId, token });
-  } catch (err) {
-    console.error('[admin/qr/mint]', err);
-    res.status(500).json({ error: 'Failed to mint token' });
-  }
-});
-
-// POST /api/admin/qr/mint-missing — backfill every coffee that doesn't have
-// a token yet. Safe to re-run: coffees that already have one are skipped.
-router.post('/qr/mint-missing', async (_req, res) => {
-  try {
-    const { minted, alreadyMinted } = await mintTokensForAllCoffees();
-    invalidateTokenCache();
-    res.json({ minted, alreadyMinted });
-  } catch (err) {
-    console.error('[admin/qr/mint-missing]', err);
-    res.status(500).json({ error: 'Failed to mint tokens' });
-  }
-});
-
-// GET /api/admin/qr/tokens — the artwork-export list: every coffee, its
-// alias (never the raw name — same S44 discipline as every other
-// customer-facing-adjacent surface, even though this is admin-only), its
-// token/URL, and whether it's retired. QR_BASE_URL mirrors index.ts's own
-// FRONTEND_URL fallback convention. URL-only export (no server-side PNG) —
-// the spec allows either; adding a QR-rendering dependency for a page whose
-// output the label designer's own tool can generate directly from the URL
-// wasn't worth the new dependency footprint on a production service. Decided
-// and documented, not silently punted.
+// ── HOME_TASK_7E — the QR door's admin surface, simplified (2026-08-04,
+// amends 7c). router.use(requireAdmin) above already gates every route in
+// this file — no per-route auth check needed here.
+//
+// Per-coffee minting/export (`/qr/mint/:coffeeId`, `/qr/mint-missing`,
+// `/qr/tokens`) is removed: per-coffee tokens are retired from every surface
+// (decision #2) — nothing prints them, nothing digital links through them
+// anymore, and this admin list was their only remaining consumer. The
+// tokens/rows themselves are untouched in the DB (dormant, zero cost); only
+// the admin export UI/endpoints for them are gone. Legacy `/b/{token}`
+// per-coffee scans still resolve via routes/qr.ts, unchanged.
+//
+// The universal-tokens endpoint (7c) narrows to decision #0: exactly one
+// canonical printed URL, not one per roastery. QR_BASE_URL mirrors
+// index.ts's own FRONTEND_URL fallback convention.
 const QR_BASE_URL = process.env.FRONTEND_URL ?? 'http://localhost:5173';
 
-router.get('/qr/tokens', async (_req, res) => {
-  try {
-    const coffeesResult = await db.query(`SELECT id, qr_token FROM coffees ORDER BY id`);
-    const coffeeIds = coffeesResult.rows.map((r: { id: number }) => r.id);
-    const [aliasMap, archetypeResult, activeBlendResult] = await Promise.all([
-      getAliases(coffeeIds),
-      // Same archetype-label fallback resolveQrDisplayName() uses for the
-      // customer-facing resolve response — this list should never show a
-      // weaker "Coffee 7"-style placeholder than what a scan itself would
-      // display for the same coffee.
-      db.query(
-        `SELECT c.id, aa.archetype::text AS archetype FROM coffees c
-         JOIN archetype_assignments aa ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
-         WHERE c.id = ANY($1::int[])`,
-        [coffeeIds]
-      ),
-      db.query(`SELECT DISTINCT coffee_id FROM roaster_blend WHERE is_active = true AND coffee_id IS NOT NULL`),
-    ]);
-    const activeCoffeeIds = new Set(activeBlendResult.rows.map((r: { coffee_id: number }) => r.coffee_id));
-    const archetypeLabel = new Map<number, string>();
-    for (const row of archetypeResult.rows as { id: number; archetype: string }[]) {
-      archetypeLabel.set(row.id, row.archetype.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()));
-    }
-
-    const rows = coffeesResult.rows.map((c: { id: number; qr_token: string | null }) => ({
-      coffeeId: c.id,
-      displayName: aliasMap.get(c.id) ?? archetypeLabel.get(c.id) ?? 'This coffee',
-      token: c.qr_token,
-      url: c.qr_token ? `${QR_BASE_URL}/b/${c.qr_token}` : null,
-      retired: !activeCoffeeIds.has(c.id),
-    }));
-    res.json(rows);
-  } catch (err) {
-    console.error('[admin/qr/tokens]', err);
-    res.status(500).json({ error: 'Failed to fetch QR tokens' });
-  }
-});
-
-// ─── HOME_TASK_7C — the universal printed QR (strategy §9, 2026-08-03) ─────
-// GET /api/admin/qr/universal-tokens — the "Printed codes" list: one row
-// per roastery/print run, full URL, ready to copy into label artwork. This
-// is the ONLY thing meant to ever reach a printer — kept as a clearly
-// separate endpoint (not folded into /qr/tokens above) specifically so the
-// admin page's own printed-vs-digital split has a matching API split, not
-// just a client-side filter of one combined list.
+// GET /api/admin/qr/universal-tokens — the ONE printed code, mint-on-first-
+// read if 7c's original pass somehow hadn't reached it (idempotent, so a
+// second call is a no-op). No separate mint-missing POST needed anymore —
+// there's nothing left for an admin to trigger by hand.
 router.get('/qr/universal-tokens', async (_req, res) => {
   try {
-    const rows = await listUniversalTokens();
-    res.json(rows.map((r) => ({ source: r.source, token: r.token, url: `${QR_BASE_URL}/b/${r.token}` })));
+    const { source, token } = await getOrMintCanonicalUniversalToken();
+    res.json({ source, token, url: `${QR_BASE_URL}/b/${token}` });
   } catch (err) {
     console.error('[admin/qr/universal-tokens]', err);
-    res.status(500).json({ error: 'Failed to fetch universal QR tokens' });
-  }
-});
-
-// POST /api/admin/qr/universal-tokens/mint-missing — mint one token per
-// roastery (UNIVERSAL_QR_SOURCES in qrDoor.ts) that doesn't have one yet.
-// Idempotent, same immutability rule as the per-coffee mint — never
-// regenerates a source's token once it exists.
-router.post('/qr/universal-tokens/mint-missing', async (_req, res) => {
-  try {
-    const { minted, alreadyMinted } = await mintMissingUniversalTokens();
-    res.json({ minted, alreadyMinted });
-  } catch (err) {
-    console.error('[admin/qr/universal-tokens/mint-missing]', err);
-    res.status(500).json({ error: 'Failed to mint universal tokens' });
+    res.status(500).json({ error: 'Failed to fetch universal QR token' });
   }
 });
 
