@@ -123,23 +123,27 @@ export function DialArchetypeSection({
       ) : (
         <>
           {cardData.availableWeights.length > 1 && (
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {cardData.availableWeights.map(p => (
-                <button
-                  key={p.weightOz}
-                  type="button"
-                  onClick={() => cardData.setSelectedWeight(p.weightOz)}
-                  style={{
-                    fontSize: 11, letterSpacing: '0.05em', padding: '6px 12px', borderRadius: 999,
-                    border: `1px solid ${cardData.selectedWeight === p.weightOz ? '#9a2918' : 'rgba(123,127,128,0.35)'}`,
-                    backgroundColor: cardData.selectedWeight === p.weightOz ? '#9a2918' : 'transparent',
-                    color: cardData.selectedWeight === p.weightOz ? '#f2f1ea' : '#7b7f80',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {formatWeight(p.weightOz)} · {formatPrice(p.retailPriceCents)}
-                </button>
-              ))}
+            <div style={{ display: 'flex', gap: 26, flexWrap: 'wrap' }}>
+              {cardData.availableWeights.map(p => {
+                const selected = cardData.selectedWeight === p.weightOz;
+                return (
+                  <button
+                    key={p.weightOz}
+                    type="button"
+                    onClick={() => cardData.setSelectedWeight(p.weightOz)}
+                    style={{
+                      fontSize: 12.5, letterSpacing: '0.02em', padding: '2px 0',
+                      border: 'none', borderBottom: `1.5px solid ${selected ? '#9a2918' : 'transparent'}`,
+                      background: 'none',
+                      color: selected ? '#9a2918' : '#7b7f80',
+                      fontWeight: selected ? 500 : 400,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {formatWeight(p.weightOz)} · {formatPrice(p.retailPriceCents)}
+                  </button>
+                );
+              })}
             </div>
           )}
           {cardData.availableWeights.length === 1 && cardData.selectedPrice && (

@@ -463,7 +463,7 @@ const CSS = `
    means ONLY our own line breaks apply; auto-wrap was splitting "& Word" in two. */
 .bd-field-id{flex:0 0 auto;width:clamp(220px,30vw,460px);display:flex;flex-direction:column;justify-content:center;}
 .bd-field-label{font-size:10.5px;letter-spacing:.28em;text-transform:uppercase;color:var(--bd-ftext);opacity:.72;margin:0 0 14px;}
-.bd-field-name{height:172px;display:flex;flex-direction:column;justify-content:center;overflow:visible;color:var(--bd-ftext);font-size:clamp(40px,5.2vw,80px);font-weight:500;line-height:0.98;letter-spacing:-0.015em;text-align:left;white-space:pre;transition:opacity 300ms ${EASE};}
+.bd-field-name{min-height:172px;display:flex;flex-direction:column;justify-content:center;color:var(--bd-ftext);font-size:clamp(40px,5.2vw,80px);font-weight:500;line-height:0.98;letter-spacing:-0.015em;text-align:left;white-space:pre;transition:opacity 300ms ${EASE};}
 .bd-field-tagline{font-size:12.5px;line-height:1.5;color:var(--bd-ftext);opacity:.72;margin:16px 0 0;}
 .bd-field-bag{position:absolute;right:54px;bottom:42px;text-align:center;pointer-events:none;}
 .bd-field-bag img{width:146px;height:auto;display:block;-webkit-user-drag:none;}
@@ -489,7 +489,7 @@ const CSS = `
 @media (max-width:1100px){
   .bd-field-inner{flex-direction:column;gap:26px;}
   .bd-field-id{width:auto;max-width:92%;align-items:center;text-align:center;}
-  .bd-field-name{height:auto;text-align:center;white-space:pre;font-size:clamp(30px,7vw,58px);}
+  .bd-field-name{min-height:0;text-align:center;white-space:pre;font-size:clamp(30px,7vw,58px);}
 }
 @media (prefers-reduced-motion:reduce){
   .bd-rotor,.bd-needle,.bd-now,.bd-coffee-name,.bd-field-name,.bd-btn{transition:none !important;}
