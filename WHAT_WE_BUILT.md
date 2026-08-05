@@ -3526,10 +3526,36 @@ WHAT_WE_BUILT.md #133, `WHAT_WE_BUILT_DB.md` gains the `beat_event` table + the 
 
 ---
 
+### 140. HOME Task 9 — End-to-End Launch Verification (2026-08-04)
+
+**What it is**: the last-before-launch verification pass, not a build task — all six scripted journeys, the RAG smoke test (all six focus types), the six-intent regression, a 15-transcript voice pass, the five §7 engagement metrics (now real queries for the first time, `engagementMetrics.ts`), and a full write-path audit, run against production via the Cloud SQL Auth Proxy and real Firebase test accounts.
+
+**Real defects found and fixed**: coffee 32 + five more coffees had cached AI refusals or stale-name leaks in `ai_summary`/`surprise_note`, injected straight into Liam's catalog context; `RECOMMENDATION_MISS` had never fired for a real customer (a missing Firestore composite index, silently swallowed — see #141 below for the full close-out); four `resend.emails.send()` call sites in `cron.ts` never checked the delivery result before marking sent. New `brew_card_view_event` table + a fire-and-forget log write in `GET /api/users/flavor-memory` — Task 6 never built this, and §7's "brew card viewed" metric had no data source until now.
+
+**Critical, launch-blocking findings, outside this task's own fix authority**: real checkout is completely broken (OT-6 — zero of 52 active `roaster_blend` rows have a `shopify_variant_id`; zero real orders exist in production); `axisandbloomcoffee.com` is not verified with Resend (no transactional email can send regardless of API key); OT-15's Cloud Scheduler job doesn't exist.
+
+**Verdict**: CONDITIONAL on the three items above. `REGRESSION.md` and `GAPS.md` created (new files, didn't exist before this task).
+
+**Full detail**: `SOMMELIER_BUILT.md` S88. `WHAT_WE_BUILT_DB.md` updated (the Firestore-index incident, the new `brew_card_view_event` table).
+
+---
+
+### 141. HOME Task 9b — Post-Audit Fixes: archetype adjacency migrated, Firestore indexes declared as code (2026-08-04)
+
+**What it is**: closes two of #140/S88's four flagged items, per Dana's decision. (1) `getAdjacentArchetypes()` (`sommelierRag.ts`) migrated off the dead `archetype_relationship` table (0 rows in prod — **this closes the exact gap #84's own follow-up note, above, already flagged**: "documenting it as legacy... not done here, out of scope for this pass") onto `v_archetype_adjacency`, the real Bloom Dial hop-derived view; an empty result now falls back to the hardcoded adjacency map the same as a thrown error (S88's actual root-cause finding — empty ≠ error, pre-fix). (2) `firestore.indexes.json` created at repo root (generated directly from live prod, not hand-typed); `firebase.json` — which does already exist, carrying real Hosting config — extended with a `firestore` entry for the named `axis-bloom-fs` database.
+
+**A fourth, previously-undiscovered live instance of S88's own index bug**, found by this task's own required silent-catch audit: `sommelier.ts`'s `RECOMMENDATION_MISS` handler had a bare `catch {}` around a query needing a *different* composite index than the one S88 created (direction-specific) — meaning the "never re-recommend a coffee they rated negatively" promise had silently never worked. Fourth index created; catch upgraded to the unmissable-log-tag pattern (7d/S85's convention) everywhere in this audit that could hide an index failure.
+
+**Verified**: `archetype_range`/`alternatives` RAG counts rose from S88's degraded `[2, 4]` to `[6, 6]`, real archetype spread confirmed. `firestore.indexes.json` matches `gcloud firestore indexes composite list` exactly (generated from the same source). The `RECOMMENDATION_MISS` exclusion proven end-to-end through the real `/start` route with a real negative-feedback test account. `tsc --noEmit` clean throughout.
+
+**Full detail**: `SOMMELIER_BUILT.md` S89. `WHAT_WE_BUILT_DB.md` updated (table-deprecation note + indexes-as-code entry). `GAPS.md`'s items 1/2 moved to a new "Closed since S88" section.
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.
-- **`archetype_relationship` table is confirmed unused (0 rows)** — `v_archetype_adjacency` (hop-derived) is the real source of truth for archetype adjacency now (#84). Consider dropping `archetype_relationship`/`archetype_tunable_variable`'s sibling concerns or documenting it as legacy, if confirmed dead elsewhere too — not done here, out of scope for this pass.
+- ~~`archetype_relationship` table is confirmed unused (0 rows)~~ — done, #141 (2026-08-04): last consumer (`sommelierRag.ts`'s `getAdjacentArchetypes()`) migrated to `v_archetype_adjacency`; table deprecated in place in `schema.sql` (not dropped — dormant-data discipline). `archetype_tunable_variable`'s own status is unrelated and still unreviewed.
 - **Sparse hop-derived adjacency** — only one archetype pair (`balanced_sweet ↔ floral`) currently has an authored bridge hop, so the "Worth exploring" compatibility tier will rarely trigger until more bridge hops are added via the Bloom Dial admin page.
 
 ### Quiz / scoring

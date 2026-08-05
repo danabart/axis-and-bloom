@@ -80,6 +80,18 @@ match /config/{doc} {
 
 ---
 
+### Firestore composite indexes — now declared as code
+
+Added 2026-08-04, from HOME Task 9b (S89). `firestore.indexes.json` (repo root) declares every composite index the `axis-bloom-fs` database currently needs — before this, every one had been created ad hoc via `gcloud`/the console link a failing query prints, undeclared anywhere, which is exactly how `RECOMMENDATION_MISS` silently went dead for two months (S88).
+
+**When to run it**: after adding or changing a Firestore query that combines an equality filter with a range filter or an `orderBy` on a different field (the exact shape that needs a composite index) — add the index to `firestore.indexes.json` first, deploy it, *then* ship the query. Deploy command (not wired into CI — run by hand):
+```
+firebase deploy --only firestore:indexes --project axis-and-bloom-prod
+```
+`firebase.json`'s `firestore` entry targets the named `axis-bloom-fs` database explicitly (this project has no `(default)` Firestore database in use). No `firestore.rules` file exists yet — see OT-5 above; that's a separate, still-open gap, not something this entry's `indexes`-only deploy target touches.
+
+---
+
 ### OT-6: Shopify ordering
 The order route (`POST /api/orders`) calls `createOrder()` from `backend/src/services/shopify.ts` which is stubbed. Orders cannot actually be placed until the roastery Shopify account is set up.
 

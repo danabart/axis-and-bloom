@@ -1494,3 +1494,54 @@ Sample sizes are honest, not a verdict — every row above is this pass's own te
 3. **OT-15 (Cloud Scheduler job for `brew-card-arrival-send`)** — not created; arrival notes only go out today if invoked directly. A five-minute fix once someone has console/CLI access, same as the still-open OT-2.
 
 None of these are things a Claude Code session can close from inside the repo. Once they are — in particular OT-6, the one with no home_v3 workaround at all — this pass's own verification of the launch machinery itself should still hold; nothing here found a reason to re-run the whole pass, only to re-run the "founding member" journey once a real order can actually complete, to confirm the same chain fires from a real Shopify order instead of a directly-inserted test row.
+
+---
+
+### HOME Task 9b — Post-Audit Fixes (from Task 9 / S88's flagged list) (2026-08-04)
+
+#### S89. The archetype-adjacency migration, indexes declared as code, and a fourth live instance of S88's own bug class — found by the audit S88's own flagged item asked for
+
+**Context**: `HOME_TASK_9B_POSTAUDIT_FIXES.md`. Dana's decisions on S88's four flagged items: two are code fixes (this task), one (the voice soft case) stays with the monthly transcript read, one (E5 wording) rides the email workstream. Also folds in Dana's confirmation that `archetype_relationship` is a legacy table, superseded by the Bloom Dial framework — `axis.ts`'s own comment already said so.
+
+**Fix 1 — migrated `getAdjacentArchetypes()` off the dead `archetype_relationship` table onto `v_archetype_adjacency`.** The old query joined `archetype`/`archetype_relationship` directly (0 rows in prod, confirmed dead by S88) and only fell back to a hardcoded adjacency map on a *thrown* error — S88's own finding was that an *empty* result set doesn't throw, so `archetype_range`/`alternatives` silently degraded to single-archetype RAG this whole time. New version queries `v_archetype_adjacency` (the same real, hop-derived, admin-curated view `GET /api/axis/adjacency` and the Bloom Dial admin page already read — `archetype_a`/`archetype_b`/`hop_count`, symmetric via `LEAST`/`GREATEST`, ordered `hop_count DESC` so "nearest" stays a meaningful signal, not an arbitrary row order), and now treats an empty result exactly like a thrown error — both fall back to the same hardcoded map, both logged with the unmissable-log-tag pattern (`[sommelierRag:ADJACENCY_EMPTY_FALLBACK]` / `[sommelierRag:ADJACENCY_QUERY_FAILED]`, 7d/S85's own convention) instead of one path being silent and the other not. `v_archetype_adjacency` is `archetype_enum`-keyed (`chocolate_nutty`), not display-name-keyed (`Chocolate & Nutty`) — resolved by running the input through the existing `toEnum()` once before querying; `toEnum()` is idempotent on an already-enum string (falls through its own lowercase/no-spaces else-branch unchanged), so every caller downstream (which already calls `toEnum()` on whatever `getAdjacentArchetypes()` returns) needed no change.
+
+**Table deprecated in place, not dropped** — `schema.sql`'s `archetype_relationship` definition now carries a `DEPRECATED, superseded by v_archetype_adjacency / Bloom Dial (2026-08-04)` comment naming this entry as the migration point, same dormant-data discipline as the per-coffee QR tokens after HOME_TASK_7E. Repo-wide grep for `archetype_relationship` post-fix: exactly `schema.sql` (the deprecated table + comment) and `sommelierRag.ts` (this fix's own explanatory comments, no live query) remain as code; `axis.ts`'s pre-existing comment is untouched; the two mentions in `SOMMELIER_TASK_2_BACKEND.md` are the original historical task spec, not runtime code, left alone per the S80 precedent.
+
+**Verified — the before/after RAG counts Dana asked about most directly**, both against real production with identical inputs to S88's own smoke test (`userArchetype: 'Floral'`, `excludeCoffeeIds: [2]` for `alternatives`):
+
+| RAG focus | S88 (degraded) | S89 (fixed) | Selected archetypes (post-fix) |
+|---|---|---|---|
+| `archetype_range` | 2 | **6** | floral, balanced_sweet, fruity |
+| `alternatives` | 4 | **6** | floral, balanced_sweet |
+
+Both rose, exactly as expected. `v_archetype_adjacency`'s raw Floral row confirmed the real data behind it: Floral↔Balanced&Sweet and Floral↔Fruity both at `hop_count: 4` (a tie — `alternatives`' own code only takes `adjacent[0]`, so which of the two wins on a tie depends on the query's own row order; not a bug, `alternatives` was never spec'd to use more than the nearest one).
+
+**Fix 2 — Firestore indexes declared as code, and a fourth live bug found by the audit itself.** `firestore.indexes.json` created at repo root, generated directly from `firebase firestore:indexes --project axis-and-bloom-prod --database axis-bloom-fs` against live prod — not hand-typed, so it's guaranteed to match production exactly by construction rather than by careful transcription. `firebase.json` **does exist at repo root** (already carrying real Hosting/Cloud-Run-rewrite config) — S88's own audit had missed it (a real gap in that pass's own thoroughness, corrected here); extended with a `firestore` array entry targeting the named `axis-bloom-fs` database (this project has no `(default)` Firestore database in use at all). The deploy command (`firebase deploy --only firestore:indexes --project axis-and-bloom-prod`) is documented in `OPEN_TASKS.md`, next to OT-5 — the closest existing home for Firestore-ops steps, since `README.md` is a one-line stub. **Not wired into CI this pass**, per the task's own explicit scope — declared-and-documented was the goal, automation is future work.
+
+**The silent-catch audit — every `.where()`/`.orderBy()` combination in `services/`/`routes/`, verdicted:**
+
+| Site | Query shape | Verdict |
+|---|---|---|
+| `userSignals.ts` (negative-feedback lookup) | `createdAt` range + `sentiment` EQ | Index existed (S88); catch was still bare — **upgraded to `[userSignals:INDEX_QUERY_FAILED]`** |
+| `outcomeTracker.ts`'s `updateOrderOutcomes()` | `sessionStarted` EQ + `startedAt` range | Index existed (S88); catch already logged the real error, not silent — **upgraded to the distinct `[outcomeTracker:INDEX_QUERY_FAILED]` tag** for convention consistency |
+| `outcomeTracker.ts`'s `checkReturnedToSommelier()` | `sessionStarted` EQ + `startedAt` orderBy DESC | Same as above — **upgraded to the same tag** |
+| `sommelier.ts`'s `RECOMMENDATION_MISS` handler (`excludeCoffeeIds`) | `sentiment` EQ + `createdAt` orderBy **DESC** | **A real, previously-undiscovered live bug** — a *different* composite index than `userSignals.ts`'s ASC-ordered version of the same shape (Firestore composite indexes are direction-specific); confirmed throwing `FAILED_PRECONDITION` on every call via a direct query before touching anything. Bare `catch { /* no feedback events */ }` — meant every `RECOMMENDATION_MISS` session's "never re-recommend a coffee they rated negatively" promise (S50's own feature) has silently never worked. **Fourth composite index created; catch upgraded to `[sommelier:INDEX_QUERY_FAILED]`.** |
+| `orders.ts` (feedback revision lookup) | `orderId` EQ only | Single-field — structurally cannot need a composite index. Already commented as such. No change. |
+| `users.ts` (`dial_events`, flavor-memory) | `trigger` EQ only | Single-field, safe. Catch already logs via `console.error` with context. No change. |
+| `behavioralConfidence.ts` (feedback in last 180 days) | `createdAt` range only | Single-field range, safe today. Bare catch, but cannot hide an index failure as written — left as-is per the task's own scope ("any that *could* hide an index failure"); would need revisiting only if a second filter is ever added here. |
+| `sommelier.ts`'s `getRecentDialActivitySummary()` | `orderBy('createdAt', 'desc')` only, no `where` | Single-field orderBy, safe — Firestore auto-indexes this. No change. |
+| `sommelier.ts`'s message-history reads (×2) | `orderBy('seq')` only, no `where` | Same as above — safe, no change. |
+| `admin.ts`'s stats/centroid-recompute (`collectionGroup('sommelier_evaluations').get()`, ×2) | Unfiltered scan, filtered in JS | Already deliberately engineered around the risk — one site's own comment says so explicitly ("collectionGroup date index not guaranteed"). No change. |
+
+**Fourth index created and verified**: `feedback_events` (`sentiment` ASC + `createdAt` DESC), confirmed `READY`, `firestore.indexes.json` regenerated from the live CLI output afterward to include it (4 indexes total, matching `gcloud firestore indexes composite list` exactly — pasted both in this pass's own verification, not just claimed). Re-ran `sommelier.ts`'s exact `RECOMMENDATION_MISS` query directly: succeeds. **Full end-to-end proof, not just the direct query**: a real test account with a real negative `feedback_events` doc naming coffee 2 (alias "Jammy & Aromatic"), run through the actual `POST /api/sommelier/start` with `intent: RECOMMENDATION_MISS` — the returned `coffeeNames` correctly excluded coffee 2's alias, proving the exclusion works through the real route handler, not only in isolation.
+
+**Verified** (`axis-and-bloom-prod` only; Cloud SQL Auth Proxy + a local backend pointed at prod, marked test data, full cleanup):
+- `tsc --noEmit` clean throughout.
+- Fix 1's before/after RAG counts and archetype lists: above.
+- `firestore.indexes.json` generated directly from `firebase firestore:indexes` against live prod, not hand-authored — matches `gcloud firestore indexes composite list` by construction.
+- Silent-catch verdict table: above.
+- Real negative-feedback exclusion proven end-to-end through the live `/start` route, test account cleaned up after (Firestore tree, `user_profile`/`user_tokens`/`sommelier_sessions`/`quiz_session` rows, Firebase Auth user).
+
+**Docs**: `GAPS.md`'s two closed flagged items moved to a new "Closed since S88" section with this entry's own reference, rather than deleted — a future reader following S88's own flagged-item list shouldn't have to guess whether item 1/2 were fixed, dropped, or just forgotten. `OPEN_TASKS.md` gained the indexes-deploy documentation next to OT-5. `WHAT_WE_BUILT_DB.md` gained the table-deprecation note and the indexes-as-code entry.
+
+**Out of scope, per the task's own explicit list, untouched**: the voice-pass soft case (stays with the monthly transcript read); E5 wording (email workstream); OT-6/Resend-domain-verification/OT-15 (human setup, tracked in `GAPS.md`, unchanged by this pass). No prompt changes. No new features.

@@ -308,6 +308,13 @@ CREATE TABLE IF NOT EXISTS archetype_vector (
   PRIMARY KEY (archetype_id, dimension_id)
 );
 
+-- DEPRECATED, superseded by v_archetype_adjacency / Bloom Dial (2026-08-04);
+-- last consumer (sommelierRag.ts's getAdjacentArchetypes()) migrated in S89.
+-- 0 rows in production, confirmed dead (S88/HOME_TASK_9B) — never populated,
+-- superseded by the real, actively-curated dial_coffee_relationships hop
+-- graph before it ever needed to be. Left in place, not dropped (dormant
+-- data discipline, same as the per-coffee QR tokens after HOME_TASK_7E) —
+-- do not add a new consumer of this table; use v_archetype_adjacency instead.
 CREATE TABLE IF NOT EXISTS archetype_relationship (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   from_archetype_id UUID REFERENCES archetype(id) ON DELETE CASCADE,

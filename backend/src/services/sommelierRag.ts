@@ -103,29 +103,58 @@ export async function getAliases(coffeeIds: number[]): Promise<Map<number, strin
   return map;
 }
 
+// Hardcoded fallback adjacency, keyed by display name — used whenever the
+// real graph has nothing to say (a thrown query error, or a genuinely empty
+// result). Both cases are equally "no real data," never distinguished before
+// this fix (HOME_TASK_9B) — an empty result from `v_archetype_adjacency`
+// silently degraded `archetype_range`/`alternatives` to single-archetype RAG
+// for as long as this project has had any adjacency data at all, since the
+// old `archetype_relationship` table (0 rows in prod, dead — see schema.sql's
+// own DEPRECATED comment) never threw on an empty SELECT, it just returned
+// nothing, and nothing here ever checked for that (S88's own finding).
+const FALLBACK_ADJACENCY: Record<string, string[]> = {
+  'Floral': ['Fruity', 'Experimental'],
+  'Fruity': ['Floral', 'Balanced & Sweet'],
+  'Balanced & Sweet': ['Fruity', 'Chocolate & Nutty'],
+  'Chocolate & Nutty': ['Balanced & Sweet', 'Earthy'],
+  'Earthy': ['Chocolate & Nutty', 'Experimental'],
+  'Experimental': ['Floral', 'Earthy'],
+};
+
+// HOME_TASK_9B (S89) — migrated off the dead `archetype_relationship` table
+// (0 rows in prod, superseded by the Bloom Dial framework — confirmed by
+// Dana, `axis.ts`'s own comment agrees) onto `v_archetype_adjacency`, the
+// same real, actively-curated hop-derived view `GET /api/axis/adjacency`
+// and the admin Bloom Dial page already read. `v_archetype_adjacency` is
+// archetype_enum-keyed (e.g. 'chocolate_nutty'), not display-name-keyed
+// (e.g. 'Chocolate & Nutty') — `toEnum()` is idempotent on an already-enum
+// string (lowercase, no spaces, falls through its own else branch
+// unchanged), so round-tripping through it here and again in every caller
+// is safe and requires no caller-side change.
 async function getAdjacentArchetypes(archetypeName: string): Promise<string[]> {
+  const enumValue = toEnum(archetypeName);
   try {
     const result = await db.query(
-      `SELECT ar2.name
-       FROM archetype ar1
-       JOIN archetype_relationship rel ON rel.from_archetype_id = ar1.id
-       JOIN archetype ar2 ON ar2.id = rel.to_archetype_id
-       WHERE ar1.name = $1
+      `SELECT
+         CASE WHEN archetype_a = $1 THEN archetype_b ELSE archetype_a END AS adjacent
+       FROM v_archetype_adjacency
+       WHERE archetype_a = $1 OR archetype_b = $1
+       ORDER BY hop_count DESC
        LIMIT 5`,
-      [archetypeName]
+      [enumValue]
     );
-    return result.rows.map((r: { name: string }) => r.name);
-  } catch {
-    // Fallback hardcoded adjacency
-    const adj: Record<string, string[]> = {
-      'Floral': ['Fruity', 'Experimental'],
-      'Fruity': ['Floral', 'Balanced & Sweet'],
-      'Balanced & Sweet': ['Fruity', 'Chocolate & Nutty'],
-      'Chocolate & Nutty': ['Balanced & Sweet', 'Earthy'],
-      'Earthy': ['Chocolate & Nutty', 'Experimental'],
-      'Experimental': ['Floral', 'Earthy'],
-    };
-    return adj[archetypeName] ?? [];
+    if (result.rows.length > 0) {
+      return result.rows.map((r: { adjacent: string }) => r.adjacent);
+    }
+    // Empty is not an error — but it's exactly as "no real data" as one, and
+    // the pre-fix code only fell back on a throw. Unmissable-log-tag pattern
+    // from 7d/S85: a distinct, greppable tag with real context attached, not
+    // a warn nobody reads.
+    console.error('[sommelierRag:ADJACENCY_EMPTY_FALLBACK] v_archetype_adjacency returned zero rows for', enumValue, '— using hardcoded fallback adjacency');
+    return FALLBACK_ADJACENCY[archetypeName] ?? [];
+  } catch (err) {
+    console.error('[sommelierRag:ADJACENCY_QUERY_FAILED] v_archetype_adjacency query failed for', enumValue, '— using hardcoded fallback adjacency', err);
+    return FALLBACK_ADJACENCY[archetypeName] ?? [];
   }
 }
 

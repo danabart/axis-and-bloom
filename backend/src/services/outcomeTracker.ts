@@ -51,7 +51,13 @@ export async function updateOrderOutcomes(uid: string, orderedAt: Date): Promise
       await writeOutcome(uid, doc.id, update);
     }
   } catch (err) {
-    console.error('[outcomeTracker] updateOrderOutcomes error:', err);
+    // HOME_TASK_9B (S89) — this compound query (sessionStarted EQ + startedAt
+    // range) needs a composite index that never existed until S88; already
+    // logged with the real error attached (unlike the bare catches S88/S89
+    // found and fixed elsewhere), upgraded here to the same distinct,
+    // greppable [file:TAG] convention (7d/S85's unmissable-log-tag pattern)
+    // for consistency across every index-dependent query in this codebase.
+    console.error('[outcomeTracker:INDEX_QUERY_FAILED] updateOrderOutcomes query failed — orderedWithin7Days/30Days not updated', err);
   }
 }
 
@@ -71,6 +77,9 @@ export async function checkReturnedToSommelier(uid: string, currentEvaluationId:
       await writeOutcome(uid, doc.id, { returnedToSommelier: true });
     }
   } catch (err) {
-    console.error('[outcomeTracker] checkReturnedToSommelier error:', err);
+    // HOME_TASK_9B (S89) — same index-dependent query class (sessionStarted
+    // EQ + startedAt orderBy DESC) as updateOrderOutcomes above; upgraded to
+    // the distinct [file:TAG] convention for consistency.
+    console.error('[outcomeTracker:INDEX_QUERY_FAILED] checkReturnedToSommelier query failed — returnedToSommelier not updated', err);
   }
 }

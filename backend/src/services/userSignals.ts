@@ -206,7 +206,13 @@ export async function getUserSignals(uid: string): Promise<UserSignals> {
       .where('sentiment', '==', 'negative')
       .get();
     hasRecentNegativeFeedback = feedbackSnap.docs.some(d => !d.data().supersededAt);
-  } catch { /* no feedback_events yet */ }
+  } catch (err) {
+    // HOME_TASK_9B (S89) — this exact bare catch is what let a missing
+    // Firestore composite index silently zero out RECOMMENDATION_MISS for
+    // two months (S88). Unmissable-log-tag pattern from 7d/S85: a distinct,
+    // greppable tag with the real error attached, never a silent no-op.
+    console.error('[userSignals:INDEX_QUERY_FAILED] negative-feedback lookup failed — hasRecentNegativeFeedback defaulting to false', err);
+  }
 
   // ── Active subscription ──────────────────────────────────────────────────
   let hasActiveSubscription = false;

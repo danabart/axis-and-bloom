@@ -517,7 +517,15 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
           .slice(0, 10)
           .map((d) => d.data().coffeeId)
           .filter((id): id is number => typeof id === 'number');
-      } catch { /* no feedback events */ }
+      } catch (err) {
+        // HOME_TASK_9B (S89) — a real, live instance of the exact same
+        // missing-composite-index bug class S88 found in userSignals.ts and
+        // outcomeTracker.ts: this query (sentiment EQ + createdAt orderBy
+        // DESC) needs its own index, distinct from the ASC one S88 created —
+        // confirmed throwing FAILED_PRECONDITION before this task's fix.
+        // Unmissable-log-tag pattern from 7d/S85, not a silent no-op.
+        console.error('[sommelier:INDEX_QUERY_FAILED] RECOMMENDATION_MISS excludeCoffeeIds lookup failed — proceeding with zero exclusions', err);
+      }
     }
 
     const ragFocus = config?.intents?.[intent]?.ragFocus ?? 'curated_mix';
