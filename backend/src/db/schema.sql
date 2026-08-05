@@ -893,6 +893,19 @@ CREATE TABLE IF NOT EXISTS beat_event (
   UNIQUE(user_id, order_id, beat_type)
 );
 
+-- HOME_TASK_9 (§7) — the lightweight brew-card view log Task 6 didn't add.
+-- One row per (user, card) render of the Flavor Memory brew-cards section —
+-- the §7 engagement definition's "brew card viewed or edited" leg needed a
+-- data source, and none existed. Deliberately not deduped/throttled: a
+-- coarse per-render count is what the per-bag engagement rate needs, not a
+-- unique-viewer count; if that changes, aggregate at query time, not here.
+CREATE TABLE IF NOT EXISTS brew_card_view_event (
+  id         SERIAL PRIMARY KEY,
+  user_id    UUID NOT NULL REFERENCES user_profile(id) ON DELETE CASCADE,
+  card_id    INT NOT NULL REFERENCES user_brew_card(id) ON DELETE CASCADE,
+  viewed_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- HOME_TASK_8 (§3.1, spec item 6) — the extended beat-SMS consent, distinct
 -- from the legacy sms_opt_in (which only ever covered the post-delivery
 -- feedback ask). Additive columns, default false — no UI toggle built here

@@ -619,6 +619,19 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
       updatedAt: c.updatedAt,
     }));
 
+    // HOME_TASK_9 (§7) — the lightweight brew-card view log Task 6 didn't
+    // add: one row per card rendered here, fire-and-forget, never blocking
+    // the response. This is the §7 engagement definition's data source for
+    // "a brew card viewed" — coarse per-render logging, not a unique-viewer
+    // count (see schema.sql's own comment on the table).
+    if (brewCards.length) {
+      const values = brewCards.map((_, i) => `($1, $${i + 2})`).join(', ');
+      db.query(
+        `INSERT INTO brew_card_view_event (user_id, card_id) VALUES ${values}`,
+        [profileId, ...brewCards.map(c => c.id)]
+      ).catch((err: unknown) => console.error('[/api/users/flavor-memory] brew_card_view_event log failed:', err));
+    }
+
     // One Firestore read for every feedback event this user has, matched to
     // orders in code below — not a per-order query.
     const feedbackByOrder = new Map<string, {

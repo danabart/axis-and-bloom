@@ -117,7 +117,13 @@ export async function processDueDialInBeats(): Promise<{ processed: number; sent
         }
       } else if (row.email_address) {
         const respondBase = `${backendUrl}/api/beats/dial-in/${row.id}/respond`;
-        await resend.emails.send({
+        // Resend's send() resolves { data, error } — it does not throw for an
+        // API-level failure (invalid recipient, provider outage, etc.), only
+        // for a network-level one. Checking .error is required, not optional
+        // — the pre-existing pattern here fell straight through to marking
+        // sent_at regardless (HOME_TASK_9/OT-16 fix, applied consistently
+        // across all four cron send sites in this file).
+        const { error: sendError } = await resend.emails.send({
           from: 'Axis & Bloom <noreply@axisandbloomcoffee.com>',
           to: row.email_address,
           subject: `How's the first cup of ${alias}?`,
@@ -128,6 +134,11 @@ export async function processDueDialInBeats(): Promise<{ processed: number; sent
             talkLink: `${frontendUrl}/sommelier?entry=bag&coffee=${row.coffee_id}`,
           }),
         });
+        if (sendError) {
+          console.error('[cron/beat-dial-in-send] Resend error for beat', row.id, sendError);
+          failed++;
+          continue;
+        }
       } else {
         console.warn('[cron/beat-dial-in-send] no email on file for user', row.user_id, '— marking sent without delivery');
       }
@@ -263,7 +274,13 @@ export async function processArrivalNotes(): Promise<{ processed: number; sent: 
 
       if (row.email_address) {
         const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
-        await resend.emails.send({
+        // Resend's send() resolves { data, error } rather than throwing on an
+        // API-level failure — checking .error before marking sent is required
+        // (HOME_TASK_9/OT-16 fix: "check the Resend response before marking
+        // arrival_email_sent_at; on failure, leave the row schedulable and
+        // log it"). A failed send now leaves arrival_email_sent_at NULL so
+        // the next cron run retries it, instead of silently losing the note.
+        const { error: sendError } = await resend.emails.send({
           from: 'Axis & Bloom <noreply@axisandbloomcoffee.com>',
           to: row.email_address,
           subject: `${alias} has arrived`,
@@ -277,6 +294,11 @@ export async function processArrivalNotes(): Promise<{ processed: number; sent: 
             talkLink: `${frontendUrl}/sommelier?entry=bag&coffee=${row.coffee_id}`,
           }),
         });
+        if (sendError) {
+          console.error('[cron/brew-card-arrival-send] Resend error for card', row.id, sendError);
+          failed++;
+          continue;
+        }
       } else {
         // No email on file — can't send, and there's no other channel wired
         // yet (Task 8's SMS beat is a separate, later trigger). Mark sent
@@ -433,12 +455,16 @@ router.get('/sponsored-subscription-check', requireCronSecret, async (_req, res)
         lapsedCount++;
         if (row.email_address) {
           try {
-            await resend.emails.send({
+            // See the arrival-note/dial-in cron sends above (HOME_TASK_9/OT-16
+            // fix) — Resend resolves { data, error } rather than throwing on
+            // an API-level failure, so .error must be checked explicitly.
+            const { error: sendError } = await resend.emails.send({
               from: 'Axis & Bloom <noreply@axisandbloomcoffee.com>',
               to: row.email_address,
               subject: 'Your sponsored Axis & Bloom subscription has ended',
               html: buildSponsoredLapsedEmail(row.first_name, `${frontendUrl}/profile`),
             });
+            if (sendError) console.error('[cron/sponsored-subscription-check] lapsed email Resend error:', sendError);
           } catch (err) {
             console.error('[cron/sponsored-subscription-check] lapsed email failed:', err);
           }
@@ -461,12 +487,13 @@ router.get('/sponsored-subscription-check', requireCronSecret, async (_req, res)
         trialEndingCount++;
         if (row.email_address) {
           try {
-            await resend.emails.send({
+            const { error: sendError } = await resend.emails.send({
               from: 'Axis & Bloom <noreply@axisandbloomcoffee.com>',
               to: row.email_address,
               subject: 'Your sponsored Axis & Bloom subscription is ending soon',
               html: buildSponsoredTrialEndingEmail(row.first_name, `${frontendUrl}/profile`),
             });
+            if (sendError) console.error('[cron/sponsored-subscription-check] trial-ending email Resend error:', sendError);
           } catch (err) {
             console.error('[cron/sponsored-subscription-check] trial-ending email failed:', err);
           }
