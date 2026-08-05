@@ -100,9 +100,15 @@ export function DialArchetypeSection({
 
   const bottomContent = (
     <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {!isPlaceholder && cardData.effectivelyActive && cardData.teaser && (
+      {(!isPlaceholder && cardData.effectivelyActive && cardData.teaser) ? (
         <p style={{ fontSize: 12, letterSpacing: '0.02em', color: '#7b7f80', fontWeight: 400, lineHeight: 1.5, margin: 0 }}>
           {cardData.teaser}
+        </p>
+      ) : (
+        // Placeholder body so positions without a coffee yet still read like the
+        // active ones (keeps every archetype's left column consistent).
+        <p style={{ fontSize: 12, letterSpacing: '0.02em', color: '#7b7f80', fontWeight: 400, lineHeight: 1.5, margin: 0, opacity: 0.85 }}>
+          A {data.archetypeLabel} coffee for this turn of the dial. Its full tasting notes are arriving soon.
         </p>
       )}
 
