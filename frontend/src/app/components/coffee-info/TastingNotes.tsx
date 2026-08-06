@@ -19,6 +19,18 @@ function ContentSkeleton() {
   );
 }
 
+/** Reveal-panel loading skeleton (Part 13) — same shape as ContentSkeleton, brand
+ * neutral (`#f2f1ea`, the new track/skeleton background) instead of the legacy hairline. */
+function ContentSkeletonReveal() {
+  return (
+    <div className="space-y-3 animate-pulse">
+      <div className="h-3 rounded w-3/4" style={{ backgroundColor: '#f2f1ea' }} />
+      <div className="h-3 rounded w-full" style={{ backgroundColor: '#f2f1ea' }} />
+      <div className="h-3 rounded w-2/3" style={{ backgroundColor: '#f2f1ea' }} />
+    </div>
+  );
+}
+
 interface TastingNotesProps {
   content: ContentData | null;
   contentLoading: boolean;
@@ -30,11 +42,58 @@ interface TastingNotesProps {
    * every RevealedPanel surface except Profile itself, guests included since /profile
    * redirects to sign-in, which is the right nudge right after finishing the quiz). */
   profileLink?: string;
+  /** Reveal-panel trimmed presentation (Part 13) — renders ONLY the Three voices block
+   * (with the surprise-note fallback when there's no story yet): no surprise-note block
+   * when a story exists, no Liam's intake box, no action links (those move to
+   * RevealedPanel's own footer). Default 'full' preserves today's rendering byte-for-byte —
+   * FlavorIntelligencePage's own TastingNotes call keeps rendering unchanged. */
+  variant?: 'full' | 'reveal';
 }
 
 /** Surprise note + three-voice story + collapsible "Liam's intake" (ai_summary) + optional explore-further/Liam/profile links. */
-export function TastingNotes({ content, contentLoading, exploreLink, talkToLiamLink, profileLink }: TastingNotesProps) {
+export function TastingNotes({ content, contentLoading, exploreLink, talkToLiamLink, profileLink, variant = 'full' }: TastingNotesProps) {
   const [aiExpanded, setAiExpanded] = useState(false);
+
+  if (variant === 'reveal') {
+    const story = content?.threeVoiceStory;
+    const fallback = content?.surpriseNote;
+    const stillLoading = contentLoading && !story && !fallback;
+
+    if (stillLoading) return <ContentSkeletonReveal />;
+
+    if (story) {
+      return (
+        <div>
+          <div className="flex items-center gap-[18px] flex-wrap mb-[14px]">
+            <span className="text-[10px] uppercase tracking-[.18em]" style={{ color: '#7b7f80', fontWeight: 400 }}>
+              Three voices
+            </span>
+            <div className="flex gap-[14px] flex-wrap">
+              {Object.entries(SOURCE_LABEL).map(([source, label]) => (
+                <div key={source} className="flex items-center gap-1.5">
+                  <span className="w-[7px] h-[7px] rounded-full" style={{ backgroundColor: SOURCE_COLOR[source] }} />
+                  <span className="text-[11px]" style={{ color: '#7b7f80' }}>{label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <p className="text-[15.5px] font-light" style={{ color: '#45474a', lineHeight: 1.75, maxWidth: '66ch' }}>
+            {story}
+          </p>
+        </div>
+      );
+    }
+
+    if (fallback) {
+      return (
+        <p className="text-[15.5px] font-light" style={{ color: '#45474a', lineHeight: 1.7, maxWidth: '66ch' }}>
+          {fallback}
+        </p>
+      );
+    }
+
+    return null;
+  }
 
   return (
     <div className="space-y-8">

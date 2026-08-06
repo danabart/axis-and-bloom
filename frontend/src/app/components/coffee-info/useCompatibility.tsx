@@ -68,7 +68,31 @@ export function useCompatibility(coffeeArchetype: string | null, userArchetype: 
   return { compat, dimCompText };
 }
 
-export function CompatibilityBadge({ level, userArchetype }: { level: CompatLevel; userArchetype: string }) {
+/**
+ * Part 13 (reveal-panel redesign) — `variant` is additive, default 'default' preserves
+ * today's rendering byte-for-byte (FlavorIntelligencePage's three call sites, which must
+ * stay as-is per the redesign's out-of-scope list). `variant='reveal'` is RevealedPanel's
+ * new Row 1 styling: brand pill colors, and — per Dana's "transparent, not apologetic"
+ * call — no apology paragraph on the 'stretch' tier.
+ */
+export function CompatibilityBadge({ level, userArchetype, variant = 'default' }: { level: CompatLevel; userArchetype: string; variant?: 'default' | 'reveal' }) {
+  if (variant === 'reveal') {
+    const revealConfigs = {
+      wheelhouse: { label: 'In your wheelhouse', bg: '#9a2918', text: '#fff', border: 'transparent' },
+      exploring: { label: 'Worth exploring', bg: 'transparent', text: '#9a2918', border: '#9a2918' },
+      stretch: { label: 'Outside your comfort zone', bg: 'transparent', text: '#45474a', border: '#7b7f80' },
+    };
+    const rc = revealConfigs[level];
+    return (
+      <span
+        className="self-start text-[10.5px] uppercase tracking-[.16em] px-4 py-[7px] rounded-full border font-normal whitespace-nowrap"
+        style={{ backgroundColor: rc.bg, color: rc.text, borderColor: rc.border }}
+      >
+        {rc.label}
+      </span>
+    );
+  }
+
   const configs = {
     wheelhouse: {
       label: 'In your wheelhouse',

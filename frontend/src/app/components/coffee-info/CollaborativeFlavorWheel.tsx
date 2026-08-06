@@ -22,16 +22,26 @@ export interface DescriptorEntry {
   avgIntensity: number | null;
 }
 
+/** Part 13 (reveal-panel redesign) — customer-facing copy warms up ("Our cupping table" /
+ * "The roastery" / "Drinkers like you"). Admin's Flavor Wheel page defines its own separate
+ * `SOURCE_LABELS` constant (AdminFlavorWheel.tsx) rather than importing this one, so this
+ * change doesn't touch admin wording. */
 export const SOURCE_LABEL: Record<string, string> = {
-  internal: 'Internal cupping',
-  roastery: 'Roastery notes',
-  client:   'Community notes',
+  internal: 'Our cupping table',
+  roastery: 'The roastery',
+  client:   'Drinkers like you',
 };
 
+/** Part 13 — accessibility fix: the prior green/purple pair failed a color-vision
+ * distinguishability check and sat outside the brand palette. New triad is CVD-safe and
+ * brand-derived (deep red / petrol / dark gold). Propagates everywhere this constant is
+ * imported (TastingNotes' legend, this file's own legend + descriptor-bar fills) —
+ * intended. Admin's Flavor Wheel page defines its own separate `SOURCE_COLORS` constant
+ * and is unaffected; out of scope for this pass. */
 export const SOURCE_COLOR: Record<string, string> = {
-  internal: '#b05642',
-  roastery: '#7c9e87',
-  client:   '#8a7cbe',
+  internal: '#9a2918',
+  roastery: '#006e9c',
+  client:   '#8f7410',
 };
 
 export function aggregateDescriptors(rows: WheelRow[]): DescriptorEntry[] {
@@ -173,11 +183,122 @@ function CategoryBarGroup({ group, minMentions, maxMentions }: { group: Category
   );
 }
 
+// Part 13 (reveal-panel redesign) — "Signature notes" default. Strength ranks every
+// descriptor across all categories, independent of the bar-width normalization above
+// (which stays mention-count-based, computed across all entries, so the expander never
+// rescales the top-5 bars already on screen). 9 = INTENSITY_DEFAULT_RATIO (0.6) × 15, the
+// same neutral mid-thickness fallback used when a descriptor has no recorded intensity.
+const SIGNATURE_COUNT = 5;
+function computeStrength(entry: DescriptorEntry): number {
+  return entry.totalMentions * ((entry.avgIntensity ?? INTENSITY_DEFAULT_RATIO * 15) / 15);
+}
+
+/** Reveal-panel descriptor row (Part 13) — brand colors/track. `showCategory` prints the
+ * `· {wheel_category}` tag inline (the flat top-5 list, which has no group header of its
+ * own); the grouped tail omits it since its category header already says so. */
+function DescriptorBarReveal({ entry, minMentions, maxMentions, index, showCategory }: { entry: DescriptorEntry; minMentions: number; maxMentions: number; index: number; showCategory: boolean }) {
+  const widthPct = computeWidthPct(entry, minMentions, maxMentions);
+  const intensityRatio = entry.avgIntensity != null ? Math.min(entry.avgIntensity / 15, 1) : INTENSITY_DEFAULT_RATIO;
+  const barHeightPx = 6 + intensityRatio * 6; // 6px (low intensity) to 12px (high intensity)
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -8 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.35, delay: index * 0.04 }}
+      className="mb-[11px]"
+    >
+      <p className="text-[12px] mb-1" style={{ color: '#45474a', fontWeight: 400 }}>
+        {entry.descriptor}
+        {showCategory && (
+          <span className="ml-1" style={{ fontSize: 10, letterSpacing: '.06em', color: '#b3b0a6' }}>· {entry.wheel_category}</span>
+        )}
+      </p>
+      <div className="w-full" style={{ height: barHeightPx, backgroundColor: '#f2f1ea' }}>
+        <motion.div
+          className="flex"
+          style={{ height: '100%' }}
+          initial={{ width: 0 }}
+          animate={{ width: `${widthPct}%` }}
+          transition={{ duration: 0.5, delay: index * 0.04 + 0.1 }}
+        >
+          {entry.sources.map(s => (
+            <div
+              key={s.source}
+              style={{ width: `${(s.mentions / entry.totalMentions) * 100}%`, height: '100%', backgroundColor: SOURCE_COLOR[s.source] }}
+            />
+          ))}
+        </motion.div>
+      </div>
+    </motion.div>
+  );
+}
+
+/** "Signature notes" — top 5 descriptors by strength (totalMentions × intensity ratio),
+ * flat, no category groups. The remaining entries sit behind a "The quieter notes"
+ * expander, grouped by category (today's grouped view, minus the per-category "+N more"
+ * — this is already the tail, no further nested expansion). No expander at all when there
+ * are ≤5 entries total. Width normalization is computed once across ALL entries (top 5 +
+ * tail) before either split, so expanding never rescales the bars already visible. */
+function SignatureNotes({ entries }: { entries: DescriptorEntry[] }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!entries.length) return null;
+
+  const mentionCounts = entries.map(e => e.totalMentions);
+  const minMentions = Math.min(...mentionCounts);
+  const maxMentions = Math.max(...mentionCounts, 1);
+
+  const strengthSorted = [...entries].sort((a, b) => computeStrength(b) - computeStrength(a));
+  const top = strengthSorted.slice(0, SIGNATURE_COUNT);
+  const topKeys = new Set(top.map(e => e.descriptor));
+  const tail = entries.filter(e => !topKeys.has(e.descriptor));
+  const tailGroups = groupByCategory(tail);
+
+  return (
+    <div>
+      <div>
+        {top.map((entry, i) => (
+          <DescriptorBarReveal key={entry.descriptor} entry={entry} minMentions={minMentions} maxMentions={maxMentions} index={i} showCategory />
+        ))}
+      </div>
+      {tail.length > 0 && expanded && (
+        <div className="mt-2">
+          {tailGroups.map(group => (
+            <div key={group.category}>
+              <p className="mt-5 first:mt-0 mb-[10px]" style={{ fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: '#b3b0a6' }}>
+                {group.category}
+              </p>
+              {group.entries.map((entry, i) => (
+                <DescriptorBarReveal key={entry.descriptor} entry={entry} minMentions={minMentions} maxMentions={maxMentions} index={i} showCategory={false} />
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+      {tail.length > 0 && (
+        <button
+          onClick={() => setExpanded(v => !v)}
+          className="mt-4"
+          style={{ fontSize: 10.5, letterSpacing: '.14em', textTransform: 'uppercase', color: '#ee5974', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+        >
+          {expanded ? 'Show less ↑' : 'The quieter notes ↓'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 interface CollaborativeFlavorWheelProps {
   wheelRows: WheelRow[];
   compareWheelRows?: WheelRow[] | null;
   primaryLabel?: string;
   compareLabel?: string;
+  /** Reveal-panel "Signature notes" default (Part 13) — top-5-by-strength flat list with a
+   * "The quieter notes" expander for the grouped tail. Default 'grouped' preserves today's
+   * rendering byte-for-byte (CompareOverlay and FlavorIntelligencePage, which must stay as
+   * -is). Compare mode (compareWheelRows set) always renders the grouped/compare
+   * presentation regardless of variant — 'signature' never carries a comparison. */
+  variant?: 'grouped' | 'signature';
 }
 
 /** All descriptor bars for one coffee, grouped into labeled SCA-category sub-sections.
@@ -204,11 +325,22 @@ function GroupedDescriptorBars({ entries }: { entries: DescriptorEntry[] }) {
  * SCA wheel_category — single coffee, or side-by-side when compareWheelRows is passed.
  * No numbers/percentages/mention counts anywhere; bar length (mentions) and thickness
  * (intensity) alone carry the "how dominant is this note" signal. */
-export function CollaborativeFlavorWheel({ wheelRows, compareWheelRows, primaryLabel, compareLabel }: CollaborativeFlavorWheelProps) {
+export function CollaborativeFlavorWheel({ wheelRows, compareWheelRows, primaryLabel, compareLabel, variant = 'grouped' }: CollaborativeFlavorWheelProps) {
   const entries = aggregateDescriptors(wheelRows);
   const compareEntries = compareWheelRows ? aggregateDescriptors(compareWheelRows) : [];
   const activeSources = [...new Set(wheelRows.map(r => r.source))];
   if (!entries.length) return null;
+
+  if (variant === 'signature' && !compareWheelRows) {
+    return (
+      <div>
+        <p className="mb-[18px]" style={{ fontSize: 10, letterSpacing: '.18em', textTransform: 'uppercase', color: '#7b7f80', fontWeight: 400 }}>
+          Signature notes
+        </p>
+        <SignatureNotes entries={entries} />
+      </div>
+    );
+  }
 
   return (
     <div>

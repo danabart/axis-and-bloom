@@ -83,17 +83,71 @@ export function mergeDimensions(primary: DimensionRow[], compare: DimensionRow[]
   return [...order, ...rest].map(name => ({ name, a: mapA.get(name) ?? null, b: mapB.get(name) ?? null }));
 }
 
+/** Reveal-panel trimmed row (Part 13) — no numeric column, no scale-label wraparound below
+ * a session caption; just name · track · scale end-labels. Same entrance animation as
+ * DimensionBar. */
+function DimensionBarReveal({ dim, index }: { dim: DimensionRow; index: number }) {
+  const min = Number(dim.avg_min);
+  const max = Number(dim.avg_max);
+  const leftPct  = (min / 15) * 100;
+  const widthPct = Math.max(((max - min) / 15) * 100, 2);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -12 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.3, delay: index * 0.04 }}
+      className="grid items-center gap-4"
+      style={{ gridTemplateColumns: '88px 1fr' }}
+    >
+      <span className="text-[12px] text-right" style={{ color: '#45474a', fontWeight: 400 }}>{dim.dimension}</span>
+      <div>
+        <div className="relative">
+          <div className="h-[5px] w-full" style={{ backgroundColor: '#f2f1ea' }} />
+          <div
+            className="absolute top-0 h-[5px] transition-all duration-500"
+            style={{ left: `${leftPct}%`, width: `${widthPct}%`, backgroundColor: '#9a2918' }}
+          />
+        </div>
+        <div className="flex justify-between mt-1">
+          <span className="text-[10px]" style={{ color: '#b3b0a6' }}>{dim.scale_min_label}</span>
+          <span className="text-[10px]" style={{ color: '#b3b0a6' }}>{dim.scale_max_label}</span>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 interface DimensionBarsProps {
   dimensions: DimensionRow[];
   compareDimensions?: DimensionRow[] | null;
   primaryLabel?: string;
   compareLabel?: string;
+  /** Reveal-panel trimmed presentation (Part 13) — no numbers, no session-count caption,
+   * brand colors/track. Default 'default' preserves today's rendering byte-for-byte
+   * (CompareOverlay and FlavorIntelligencePage, which must stay as-is). Compare mode
+   * (compareDimensions set) always renders the default/compare presentation regardless
+   * of variant — 'reveal' never carries a comparison. */
+  variant?: 'default' | 'reveal';
 }
 
 /** "Cupping profile" section — single-coffee bars, or side-by-side comparison when compareDimensions is passed. */
-export function DimensionBars({ dimensions, compareDimensions, primaryLabel, compareLabel }: DimensionBarsProps) {
+export function DimensionBars({ dimensions, compareDimensions, primaryLabel, compareLabel, variant = 'default' }: DimensionBarsProps) {
   const isCompare = !!compareDimensions;
   if (!dimensions.length && !(compareDimensions?.length)) return null;
+
+  if (variant === 'reveal' && !isCompare) {
+    return (
+      <div>
+        <p className="text-[10px] uppercase tracking-[.18em] mb-[18px]" style={{ color: '#7b7f80', fontWeight: 400 }}>
+          Cupping profile
+        </p>
+        <div className="space-y-4">
+          {dimensions.map((dim, i) => <DimensionBarReveal key={dim.dimension} dim={dim} index={i} />)}
+        </div>
+      </div>
+    );
+  }
 
   const merged = isCompare ? mergeDimensions(dimensions, compareDimensions!) : [];
 
