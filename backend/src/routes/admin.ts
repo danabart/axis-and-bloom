@@ -1358,6 +1358,45 @@ router.get('/dial/positions', async (_req, res) => {
   }
 });
 
+// GET /api/admin/dial/dimension-config — Part 14: per-archetype dial dimension +
+// its ruler scale labels (same coffee_dimensions row GET /api/coffees/archetypes
+// reads for the customer-facing dial), so a missing dimension or missing scale
+// labels — currently only visible in server logs (a console.warn in coffees.ts) —
+// is also visible somewhere Dana actually looks. Read-only: there is no admin UI
+// yet to edit dominant_dimension_id or coffee_dimensions.scale_*_label (same
+// "direct-SQL-only for now" state as coffee_dimensions.platform_name); this
+// endpoint only surfaces the gap, it doesn't let you fix it.
+router.get('/dial/dimension-config', async (_req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT dac.archetype, cd.name AS dimension_name,
+             COALESCE(cd.platform_name, cd.name) AS dimension_platform_name,
+             cd.scale_min_label, cd.scale_max_label
+      FROM dial_archetype_config dac
+      LEFT JOIN coffee_dimensions cd ON cd.id = dac.dominant_dimension_id
+      WHERE dac.is_archetype = true
+      ORDER BY dac.archetype
+    `);
+    const experimentalResult = await db.query(`
+      SELECT cd.name AS dimension_name,
+             COALESCE(cd.platform_name, cd.name) AS dimension_platform_name,
+             cd.scale_min_label, cd.scale_max_label
+      FROM dial_position_vocabulary dpv
+      JOIN coffee_dimensions cd ON cd.id = dpv.dimension_id
+      WHERE dpv.archetype = 'experimental'
+      LIMIT 1
+    `);
+    const rows = [
+      ...result.rows,
+      { archetype: 'experimental', ...(experimentalResult.rows[0] ?? { dimension_name: null, dimension_platform_name: null, scale_min_label: null, scale_max_label: null }) },
+    ];
+    res.json(rows);
+  } catch (err) {
+    console.error('[admin/dial/dimension-config GET]', err);
+    res.status(500).json({ error: 'Failed to fetch dial dimension config' });
+  }
+});
+
 // GET /api/admin/dial/navigation — full hop graph with coffee names
 router.get('/dial/navigation', async (_req, res) => {
   try {

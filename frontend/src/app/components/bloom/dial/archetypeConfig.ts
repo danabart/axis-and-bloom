@@ -25,6 +25,11 @@ export interface DialConfig {
   ftext: string;              // field text colour (ink on mustard, beige elsewhere)
   bag: string;                // asset-helper URL (archetypeAssets[slug].bag)
   coffees: DialCoffee[];      // exactly 4, ordered by dialSortOrder
+  /** Part 14 — dial dimension's scale end labels, for the ruler ends. Null when the
+   * archetype has no dial dimension configured; BloomDial falls back to
+   * Delicate/Pronounced in that case. */
+  scaleMinLabel: string | null;
+  scaleMaxLabel: string | null;
 }
 
 // Title stack line breaks (brief 33 §2).
@@ -87,5 +92,7 @@ export function buildDialConfig(data: ArchetypeData): DialConfig | null {
     ftext: data.archetype === 'balanced_sweet' ? '#9a2918' : '#f2f1ea',
     bag: visual.bag,
     coffees,
+    scaleMinLabel: data.dimensionScaleMinLabel,
+    scaleMaxLabel: data.dimensionScaleMaxLabel,
   };
 }

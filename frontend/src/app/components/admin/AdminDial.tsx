@@ -29,6 +29,14 @@ interface AdjacencyRow {
   avg_confidence: number | null;
 }
 
+interface DimensionConfigRow {
+  archetype: string;
+  dimension_name: string | null;
+  dimension_platform_name: string | null;
+  scale_min_label: string | null;
+  scale_max_label: string | null;
+}
+
 interface HopSuggestion {
   from_coffee_id: number;
   from_coffee_name: string;
@@ -71,6 +79,7 @@ export default function AdminDial() {
   const [dims, setDims]                 = useState<DimOption[]>([]);
   const [adjacency, setAdjacency]       = useState<AdjacencyRow[]>([]);
   const [hopSuggestions, setHopSuggestions] = useState<HopSuggestion[]>([]);
+  const [dimensionConfig, setDimensionConfig] = useState<DimensionConfigRow[]>([]);
   const [acceptingKey, setAcceptingKey] = useState<string | null>(null);
   const [error, setError]               = useState('');
 
@@ -91,18 +100,20 @@ export default function AdminDial() {
 
   async function loadAll() {
     try {
-      const [hopRes, coffeeRes, dimRes, adjRes, suggRes] = await Promise.all([
+      const [hopRes, coffeeRes, dimRes, adjRes, suggRes, dimConfigRes] = await Promise.all([
         apiFetch('/api/admin/dial/navigation'),
         apiFetch('/api/admin/coffees'),
         apiFetch('/api/admin/dimensions'),
         apiFetch('/api/admin/dial/archetype-adjacency'),
         apiFetch('/api/admin/dial/hop-suggestions'),
+        apiFetch('/api/admin/dial/dimension-config'),
       ]);
       setHops(await hopRes.json());
       setCoffees(await coffeeRes.json());
       setDims(await dimRes.json());
       setAdjacency(await adjRes.json());
       setHopSuggestions(await suggRes.json());
+      setDimensionConfig(await dimConfigRes.json());
     } catch {
       setError('Failed to load navigation hops');
     }
@@ -195,6 +206,53 @@ export default function AdminDial() {
           <button onClick={() => setHopWarning('')} className="text-sm text-amber-400 hover:text-amber-700 shrink-0">✕</button>
         </div>
       )}
+
+      {/* ── Dial dimension configuration (Part 14) — read-only. The Bloom Dial ruler's
+          end labels (e.g. "DELICATE"/"PRONOUNCED") are now pulled from each
+          archetype's dial dimension row; an archetype with no dimension set, or a
+          dimension missing a min/max scale label, silently falls back to
+          Delicate/Pronounced on the customer-facing dial instead of its real
+          labels. Flagged here since there's no admin UI yet to edit
+          dominant_dimension_id or coffee_dimensions.scale_*_label — this table
+          only surfaces the gap; fixing it is still a direct-SQL change for now,
+          same as coffee_dimensions.platform_name. ── */}
+      <div className="mb-6 border border-stone-100 rounded-lg p-4 bg-stone-50/60">
+        <h2 className="text-xs font-normal text-stone-400 uppercase tracking-widest mb-2">
+          Dial Dimension Configuration
+        </h2>
+        {dimensionConfig.length === 0 ? (
+          <p className="text-sm text-stone-400">Loading…</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {dimensionConfig.map(row => {
+              const missingDimension = !row.dimension_name;
+              const missingLabels = !missingDimension && (!row.scale_min_label || !row.scale_max_label);
+              const gap = missingDimension || missingLabels;
+              return (
+                <li key={row.archetype} className="text-sm text-stone-700">
+                  {ARCHETYPE_LABEL[row.archetype] ?? row.archetype}
+                  {' — '}
+                  {missingDimension ? (
+                    <span className="text-stone-500">no dimension</span>
+                  ) : (
+                    <span className="text-stone-500">
+                      {row.dimension_platform_name ?? row.dimension_name}
+                      {' ('}{row.scale_min_label ?? '—'} ↔ {row.scale_max_label ?? '—'}{')'}
+                    </span>
+                  )}
+                  {gap && (
+                    <span className="ml-2 inline-block rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700">
+                      {missingDimension
+                        ? 'No dial dimension configured — dial shows default labels'
+                        : 'Missing min/max scale label — dial shows default labels'}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
 
       {/* ── Archetype adjacency summary — read-only, derived from bridge hops ──── */}
       <div className="mb-6 border border-stone-100 rounded-lg p-4 bg-stone-50/60">

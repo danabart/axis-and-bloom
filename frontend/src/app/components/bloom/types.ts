@@ -20,6 +20,12 @@ export interface ArchetypeData {
   archetypeLabel: string;
   dimensionName: string | null;
   dimensionPlatformName: string | null;
+  /** Part 14 — the dial dimension's scale end labels (coffee_dimensions.scale_min_label/
+   * scale_max_label, the same values Admin's dimension data reads), for the Bloom Dial
+   * ruler ends. Null when the archetype has no dial dimension configured — BloomDial
+   * falls back to Delicate/Pronounced in that case. */
+  dimensionScaleMinLabel: string | null;
+  dimensionScaleMaxLabel: string | null;
   slots: Slot[];
 }
 

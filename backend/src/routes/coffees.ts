@@ -375,7 +375,8 @@ router.get('/archetypes', async (_req, res) => {
       // alongside the 5 real archetypes.
       db.query(
         `SELECT dac.archetype, cd.name AS dimension_name,
-                COALESCE(cd.platform_name, cd.name) AS dimension_platform_name
+                COALESCE(cd.platform_name, cd.name) AS dimension_platform_name,
+                cd.scale_min_label, cd.scale_max_label
          FROM dial_archetype_config dac
          LEFT JOIN coffee_dimensions cd ON cd.id = dac.dominant_dimension_id
          WHERE dac.is_archetype = true
@@ -404,15 +405,27 @@ router.get('/archetypes', async (_req, res) => {
     }
 
     const archetypes = [];
-    for (const { archetype, dimension_name, dimension_platform_name } of archetypeResult.rows) {
+    for (const { archetype, dimension_name, dimension_platform_name, scale_min_label, scale_max_label } of archetypeResult.rows) {
       const slotsVocab = vocabResult.rows.filter((v: any) => v.archetype === archetype);
       const slots = await buildSlotsForArchetype(archetype, slotsVocab, slotAliasMap, priceMap);
+
+      // Part 14: the Bloom Dial ruler falls back to Delicate/Pronounced when
+      // these are null — a customer-facing safety net, not an accepted state.
+      // Every archetype is supposed to have a dial dimension with both scale
+      // labels set; surface the gap here rather than let it pass silently.
+      if (!dimension_name) {
+        console.warn(`[bloom/archetypes] no dial dimension configured for '${archetype}'`);
+      } else if (!scale_min_label || !scale_max_label) {
+        console.warn(`[bloom/archetypes] dial dimension '${dimension_name}' for '${archetype}' is missing scale_min_label/scale_max_label`);
+      }
 
       archetypes.push({
         archetype,
         archetypeLabel: ARCHETYPE_LABEL[archetype] ?? archetype,
         dimensionName: dimension_name ?? null,
         dimensionPlatformName: dimension_platform_name ?? null,
+        dimensionScaleMinLabel: scale_min_label ?? null,
+        dimensionScaleMaxLabel: scale_max_label ?? null,
         slots,
       });
     }
@@ -450,7 +463,8 @@ router.get('/experimental', async (_req, res) => {
       // dimension) — resolve the dial's dimension from its own vocabulary rows
       // instead, same dimension_id (9, Savory/Depth) on all 4 by construction.
       db.query(
-        `SELECT cd.name AS dimension_name, COALESCE(cd.platform_name, cd.name) AS dimension_platform_name
+        `SELECT cd.name AS dimension_name, COALESCE(cd.platform_name, cd.name) AS dimension_platform_name,
+                cd.scale_min_label, cd.scale_max_label
          FROM dial_position_vocabulary dpv
          JOIN coffee_dimensions cd ON cd.id = dpv.dimension_id
          WHERE dpv.archetype = 'experimental'
@@ -469,11 +483,21 @@ router.get('/experimental', async (_req, res) => {
 
     const slots = await buildSlotsForArchetype('experimental', vocabResult.rows, slotAliasMap, priceMap);
 
+    // Part 14 — same gap-surfacing as GET /archetypes above.
+    const dimRow = dimensionResult.rows[0];
+    if (!dimRow?.dimension_name) {
+      console.warn(`[bloom/archetypes] no dial dimension configured for 'experimental'`);
+    } else if (!dimRow.scale_min_label || !dimRow.scale_max_label) {
+      console.warn(`[bloom/archetypes] dial dimension '${dimRow.dimension_name}' for 'experimental' is missing scale_min_label/scale_max_label`);
+    }
+
     res.json({
       archetype: 'experimental',
       archetypeLabel: ARCHETYPE_LABEL['experimental'] ?? 'Experimental',
-      dimensionName: dimensionResult.rows[0]?.dimension_name ?? null,
-      dimensionPlatformName: dimensionResult.rows[0]?.dimension_platform_name ?? null,
+      dimensionName: dimRow?.dimension_name ?? null,
+      dimensionPlatformName: dimRow?.dimension_platform_name ?? null,
+      dimensionScaleMinLabel: dimRow?.scale_min_label ?? null,
+      dimensionScaleMaxLabel: dimRow?.scale_max_label ?? null,
       slots,
     });
   } catch (err) {

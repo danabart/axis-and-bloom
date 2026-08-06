@@ -391,7 +391,10 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
                 >
                   <div className="bd-needle" ref={needleRef} />
                 </div>
-                <div className="bd-ruler-ends"><span>DELICATE</span><span>PRONOUNCED</span></div>
+                <div className="bd-ruler-ends">
+                  <span>{(config.scaleMinLabel ?? 'Delicate').toUpperCase()}</span>
+                  <span>{(config.scaleMaxLabel ?? 'Pronounced').toUpperCase()}</span>
+                </div>
               </div>
               <div className="bd-hint">TURN THE WHEEL, OR SLIDE THE BAR</div>
             </div>
@@ -455,6 +458,13 @@ const CSS = `
 .bd-needle::after{content:'';position:absolute;top:-9px;left:50%;transform:translateX(-50%);border:5px solid transparent;border-top-color:var(--bd-ftext);}
 .bd-ruler-ticks.bd-dragging .bd-needle{transition:none;}
 .bd-ruler-ends{display:flex;justify-content:space-between;font-size:9.5px;letter-spacing:.24em;color:var(--bd-ftext);}
+/* Part 14 — end labels are now DB-driven per archetype (Body/Acidity/etc.'s real
+   scale_min_label/scale_max_label) instead of the fixed "DELICATE"/"PRONOUNCED",
+   so length varies (e.g. Floral's "TRANSPARENT / CLEAN" / "VERY DEEP / COMPLEX" is
+   much longer). Never wrap — clip to an ellipsis instead so the ruler's width/
+   layout never shifts; each side caps at ~48% so a long label on one side can't
+   crowd out the other. */
+.bd-ruler-ends span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:48%;}
 .bd-hint{margin-top:12px;font-size:10.5px;letter-spacing:.14em;color:var(--bd-ftext-mid);}
 .bd-field-inner{display:flex;align-items:center;justify-content:center;gap:clamp(28px,4vw,72px);width:100%;}
 .bd-wheel-col{display:flex;flex-direction:column;align-items:center;flex-shrink:0;}
