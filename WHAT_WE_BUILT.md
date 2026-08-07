@@ -3646,6 +3646,33 @@ Re-ran the scan after applying: 0 candidate hits remain. Side-observation, expli
 
 ---
 
+### 146. Second refusal-text leak found and cleaned + guard pattern expanded (2026-08-08)
+
+**What it is**: a follow-up to #145's cleanup, found while live-verifying the C3 security fix (public coffee AI endpoints made read-only — see `WHAT_WE_BUILT_SECURITY.md` entry 4). Browsing Flavor Intelligence turned up "Working Late Hours" (coffee 23) serving a verbatim stored refusal as its surprise-note hook.
+
+**Root cause, traced not assumed**: #145's cleanup (2026-08-07 ~13:3x) nulled 6 coffees' refusal fields directly against production, but that null-out landed *before* the code that would stop it recurring (`contentGuard.ts`'s `guardGenerated`) actually reached a successful deploy — the first deploy attempt containing that guard (`5663151`) failed CI (missing module, see `WHAT_WE_BUILT_SECURITY.md` entry 3's account of that same collision) and didn't go live until the follow-up fix deployed ~16 minutes later (`38f35fc`). In that gap, the still-live old code (public `/content`, generate-on-cache-miss, no guard) was hit for at least 4 of the just-nulled coffees, regenerated, got a refusal again (the underlying cause — insufficient cupping data — hadn't changed), and this time stored it raw with nothing to catch it.
+
+**Re-scanned all 30 coffees, all 4 content fields, by hand** (not just the automated `looksLikeRefusal` regex — see why below) and found 5 affected fields across 4 coffees, one more than the automated scan alone caught:
+| Coffee | Field | Caught by regex scan? |
+|---|---|---|
+| 17 — Breakfast Blend | `surprise_note` | yes |
+| 22 — African Espresso Blend | `surprise_note` | yes |
+| 23 — 6-Bean Espresso Blend ("Working Late Hours") | `surprise_note` | yes |
+| 32 — Kopi Safari ("The Unexpected") | `surprise_note` | yes |
+| 32 — Kopi Safari ("The Unexpected") | `ai_summary` | **no** — "I'd love to write a tasting note for..., but I'm missing the cupping data..." doesn't match any pattern in `REFUSAL_PATTERNS` (no "I don't have"/"I can't"/etc.) — found only by reading the full text of every field for every coffee directly. |
+
+**Fixed exactly like #145**: each field nulled directly against production Cloud SQL (via the Auth Proxy). **Additive on top of #145's approach, per C3's new terminal-state design**: each field's `*_generation_failed` flag also set `true`, so the cron backfill (`GET /api/cron/coffee-content-backfill`, added in C3) never regenerates the same refusal — #145 predates that mechanism and had no such flag to set. Re-scanned all 30 coffees after applying: 0 candidate hits remain. `ai_summary`/`surprise_note`/`three_voice_story`/`story` on every other coffee were read in full and confirmed to be genuine content, not refusals (including two coffees with meta-text artifacts worth noting but *not* refusals — #20 and #25's `surprise_note` both open with leaked instruction-following phrasing, "Here's an unexpected hook:" / "Here's a hook for X:", not a decline; left alone, flagged here for a possible future prompt-tightening pass, not a security/leak issue).
+
+**`contentGuard.ts`'s `REFUSAL_PATTERNS` expanded** with `/i'?m missing/i` to catch the phrasing that slipped through this time — the guard is a fixed pattern list, not a semantic detector, so this remains a floor, not a guarantee; the next unseen phrasing could still slip through until it's observed and added, same as this one.
+
+**Verified**: `tsc --noEmit` clean. Live-confirmed via `GET /api/coffees/23/content` and `/32/content` against production immediately after the fix (no redeploy needed for the data fix itself — C3 already made these routes pure reads): both now return `surpriseNote: null` (23) and `aiSummary: ""`/`surpriseNote: null` (32), no leaked refusal text; `aiSummary` on coffee 23 (genuine content, untouched) still renders correctly.
+
+**Not done in this pass**: no further audit of `story`/`story_draft` for a similar historical leak beyond the regex+manual scan already run against the live `story` column (clean); the two meta-text artifacts noted above (#20, #25) were flagged, not fixed — they're not refusals and don't leak anything, just slightly awkward phrasing.
+
+**Files**: `backend/src/services/contentGuard.ts` (code, committed). Data fix applied directly to production Cloud SQL (coffee rows 17, 22, 23, 32) — no schema change, no migration needed (uses C3's existing `*_generation_failed` columns).
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

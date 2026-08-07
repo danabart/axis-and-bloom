@@ -31,6 +31,14 @@ export const REFUSAL_PATTERNS: RegExp[] = [
   /please provide/i,
   /as an ai/i,
   /i'?d need/i,
+  // Added 2026-08-08 (3-fix): a real refusal ("I'd love to write a tasting
+  // note for X, but I'm missing the cupping data...") reached production
+  // storage because this exact phrasing didn't match any pattern above —
+  // found by a manual full-text re-read of every coffee's cached content
+  // during a C3 verification pass, not by the automated scan (which only
+  // checks these patterns) — a reminder that this list is a floor, not a
+  // guarantee.
+  /i'?m missing/i,
 ];
 
 /** True when `text` looks like Claude declining/talking about missing data
