@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
+import { getRealClientIp } from '../middleware/clientIp.js';
 import { db } from '../db/client.js';
 import { getRecommendation } from '../services/claude.js';
 import { rankScores, findWinner, findSecondary, isSecondaryClose, computeConfidenceAndMode } from '../services/quizScoring.js';
@@ -187,7 +188,9 @@ router.post('/score', async (req, res) => {
 // Handler logic lives in features/marketing/ (home for all new backend marketing
 // code); this route stays a thin wrapper. Tighter than the app-wide limiter since
 // it's unauthenticated and write-only.
-const funnelEventLimiter = rateLimit({ windowMs: 60 * 1000, max: 30 });
+// C17 — keyed on the real visitor IP (see middleware/clientIp.ts); req.ip
+// alone collapses behind Cloudflare -> Firebase Hosting -> Cloud Run.
+const funnelEventLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, keyGenerator: getRealClientIp });
 router.post('/event', funnelEventLimiter, async (req, res) => {
   const { sessionKey, event, archetype } = req.body ?? {};
   try {

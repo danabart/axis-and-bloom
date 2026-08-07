@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { requireAuth, blockAnonymousAuth, type AuthRequest } from '../middleware/auth.js';
+import { getRealClientIp } from '../middleware/clientIp.js';
 import { db } from '../db/client.js';
 
 const router = Router();
@@ -8,7 +9,9 @@ const router = Router();
 // Codes are short and human-typeable by design (unlike household_invitation's 32-byte hex
 // token) — that trades away brute-force resistance for usability, so this route pair gets a
 // much tighter IP-scoped limiter than the site-wide default (200/15min in index.ts).
-const redemptionLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 15 });
+// C17 — keyed on the real visitor IP (see middleware/clientIp.ts); req.ip
+// alone collapses behind Cloudflare -> Firebase Hosting -> Cloud Run.
+const redemptionLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 15, keyGenerator: getRealClientIp });
 router.use(redemptionLimiter);
 
 async function getProfile(uid: string) {

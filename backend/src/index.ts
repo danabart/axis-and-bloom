@@ -7,6 +7,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { db } from './db/client.js';
+import { getRealClientIp } from './middleware/clientIp.js';
 
 import authRouter from './routes/auth.js';
 import quizRouter from './routes/quiz.js';
@@ -40,7 +41,11 @@ const allowedOrigins = [
 ];
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json());
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200 }));
+// C17 — keyed on the real visitor IP (see middleware/clientIp.ts), not
+// req.ip directly: behind Cloudflare -> Firebase Hosting -> Cloud Run,
+// req.ip alone collapses every visitor onto a shared Google-internal
+// address (finding M11).
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200, keyGenerator: getRealClientIp }));
 
 // Prevent browsers and CDNs from caching any API response
 app.use('/api', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
@@ -54,23 +59,6 @@ app.get('/health/db', async (_req, res) => {
   } catch (e: any) {
     res.status(500).json({ connected: false, error: e.message });
   }
-});
-
-// TEMP — C17 IP diagnostic (Cloudflare rate-limit fix). Logs exactly what
-// arrives at Cloud Run through the Cloudflare → Firebase Hosting → Cloud Run
-// chain, so the real-IP fix below is based on measured headers, not assumed
-// ones. Mounted under /api so Firebase Hosting's /api/** rewrite reaches it
-// (Hosting only rewrites that prefix to Cloud Run — see firebase.json).
-// Removed once the fix lands; nothing here is destructive or sensitive.
-app.get('/api/_debug/ip-check', (req, res) => {
-  console.log('[ip-debug]', JSON.stringify({
-    xForwardedFor: req.headers['x-forwarded-for'] ?? null,
-    cfConnectingIp: req.headers['cf-connecting-ip'] ?? null,
-    reqIp: req.ip,
-    reqIps: req.ips,
-    remoteAddress: req.socket.remoteAddress ?? null,
-  }));
-  res.json({ ok: true });
 });
 
 // Diagnostic: show actual column types for cupping_sessions in the live DB

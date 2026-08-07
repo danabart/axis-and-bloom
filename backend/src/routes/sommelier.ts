@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { requireAuth, blockAnonymousAuth, type AuthRequest } from '../middleware/auth.js';
+import { getRealClientIp } from '../middleware/clientIp.js';
 import { db } from '../db/client.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
@@ -37,9 +38,12 @@ import {
 // minute. Cloud Run runs multiple instances, so this is a per-instance limit,
 // not a global one — acceptable at this scale per the task spec; a shared
 // store (e.g. Redis) would be the upgrade if that ever stops being true.
+// C17 — keyed on the real visitor IP (see middleware/clientIp.ts); req.ip
+// alone collapses behind Cloudflare -> Firebase Hosting -> Cloud Run.
 const sommelierIpLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: (_req) => getSommelierConfig()?.guards?.rateLimits?.perIpPerMinute ?? 30,
+  keyGenerator: getRealClientIp,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'rate_limited', message: 'Too many requests — please slow down.' },
@@ -47,7 +51,7 @@ const sommelierIpLimiter = rateLimit({
 const sommelierAccountLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: (_req) => getSommelierConfig()?.guards?.rateLimits?.perAccountPerMinute ?? 15,
-  keyGenerator: (req: AuthRequest) => req.uid ?? req.ip ?? 'unknown',
+  keyGenerator: (req: AuthRequest) => req.uid ?? getRealClientIp(req),
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'rate_limited', message: 'Too many requests — please slow down.' },

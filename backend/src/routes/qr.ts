@@ -2,6 +2,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { db } from '../db/client.js';
 import { optionalAuth, type AuthRequest } from '../middleware/auth.js';
+import { getRealClientIp } from '../middleware/clientIp.js';
 import { getBrewProfile } from './sommelier.js';
 import {
   resolveTokenToCoffeeId,
@@ -22,9 +23,12 @@ const router = Router();
 // shape Task 3 established in sommelier.ts, just not config-driven. A scan
 // endpoint has no per-account concept worth limiting separately (most scans
 // are signed out) — per-IP only.
+// C17 — keyed on the real visitor IP (see middleware/clientIp.ts); req.ip
+// alone collapses behind Cloudflare -> Firebase Hosting -> Cloud Run.
 const qrResolveLimiter = rateLimit({
   windowMs: 60 * 1000,
   limit: 30,
+  keyGenerator: getRealClientIp,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'rate_limited', message: 'Too many requests — please slow down.' },
