@@ -3117,4 +3117,21 @@ CREATE TABLE IF NOT EXISTS qr_universal_token (
 -- (coffee_id already identifies those uniquely) and populated only for
 -- universal-token scans.
 ALTER TABLE qr_scan_event ADD COLUMN IF NOT EXISTS token_type qr_token_type_enum NOT NULL DEFAULT 'coffee';
+
+-- C2 -- Global Claude aggregate kill-switch (2026-08-08). One row per UTC
+-- calendar date, atomically incremented after every successful Anthropic
+-- call across every Claude call site in the app -- real usage-based cost
+-- (input/output tokens x the per-model rate), never a flat call count -- by
+-- guardClaudeCall() (backend/src/services/anthropicGuard.ts), the single
+-- shared gate every call site passes through before hitting Anthropic.
+-- Postgres, not in-memory, so the total is cross-instance by construction
+-- (Cloud Run runs multiple instances). CLAUDE_GLOBAL_DAILY_USD (env,
+-- default 20) is the ceiling checked against this table before each call;
+-- CLAUDE_ENABLED (env, default true) is a separate manual kill-switch that
+-- never even reads this table.
+CREATE TABLE IF NOT EXISTS claude_daily_spend (
+  date       DATE PRIMARY KEY,
+  cents      INT NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ DEFAULT timezone('utc', now())
+);
 ALTER TABLE qr_scan_event ADD COLUMN IF NOT EXISTS source TEXT;
