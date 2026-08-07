@@ -18,7 +18,7 @@
 - [ ] Note: Cloudflare does **not** cover Firebase signup/login (those go straight to Google) — that's App Check's job in Phase 3.
 
 ## Phase 2 — high-value code (run in this order)
-- [ ] **C1** — remove `/health/db` + `/health/session-cols`.
+- [x] **C1 — DONE 2026-08-07:** removed `/health/db` + `/health/session-cols` (`backend/src/index.ts`, `a0fa591`). `GET /health` untouched. Verified live: `/health` 200, both removed routes 404 at the Cloud Run origin. Full writeup in `WHAT_WE_BUILT_SECURITY.md`.
 - [ ] **C2** — global aggregate Claude kill-switch + fix model-tier escalation. *(do before C3 — C3 relies on the same ceiling)*
 - [ ] **C3** — stop public coffee AI endpoints from generating on demand.
 - [ ] **C4** — beats dial-in IDOR → capability token. *(schema migration)*
