@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Link } from 'react-router';
@@ -9,18 +10,12 @@ export interface ContentData {
   threeVoiceStory: string | null;
 }
 
-function ContentSkeleton() {
-  return (
-    <div className="space-y-3 animate-pulse">
-      <div className="h-3 rounded w-3/4" style={{ backgroundColor: '#e0dcd4' }} />
-      <div className="h-3 rounded w-full" style={{ backgroundColor: '#e0dcd4' }} />
-      <div className="h-3 rounded w-2/3" style={{ backgroundColor: '#e0dcd4' }} />
-    </div>
-  );
-}
+const RULE_STYLE: CSSProperties = { border: 'none', borderTop: '1px solid #deded1', margin: '32px 0' };
+const QUIET_LINK_CLASS = 'text-[10.5px] uppercase tracking-[.14em] text-[#9a2918] opacity-[.85] hover:opacity-100 no-underline transition-opacity';
 
-/** Reveal-panel loading skeleton (Part 13) — same shape as ContentSkeleton, brand
- * neutral (`#f2f1ea`, the new track/skeleton background) instead of the legacy hairline. */
+/** Loading skeleton — brand-neutral (`#f2f1ea`, the track/skeleton background), used by
+ * both variants (Part 13 introduced it for 'reveal'; Part 15 reused it for 'full' rather
+ * than keep a second, legacy-`#e0dcd4` skeleton around). */
 function ContentSkeletonReveal() {
   return (
     <div className="space-y-3 animate-pulse">
@@ -95,67 +90,85 @@ export function TastingNotes({ content, contentLoading, exploreLink, talkToLiamL
     return null;
   }
 
+  // Part 15 — brand reskin of the 'full' variant (Flavor Intelligence + CompareOverlay
+  // never call TastingNotes, so this branch is FI-only). Content/structure unchanged;
+  // sections separated by 1px #deded1 hairlines instead of plain vertical gaps, no
+  // tinted rounded box for Liam's intake. Track which blocks actually render so a
+  // conditionally-empty block (surprise/three-voice can both be null) never leaves an
+  // orphaned hairline — Liam's intake and (when link props are given) the actions row
+  // always render, so hairlines before them are unconditional.
+  const showSurprise = (contentLoading && !content?.surpriseNote) || !!content?.surpriseNote;
+  const showThreeVoice = (contentLoading && !content?.threeVoiceStory) || !!content?.threeVoiceStory;
+  const hasActions = !!(exploreLink || talkToLiamLink || profileLink);
+
   return (
-    <div className="space-y-8">
+    <div>
       {/* ─ Surprise angle ─ */}
-      <div>
-        {contentLoading && !content?.surpriseNote ? (
-          <ContentSkeleton />
-        ) : content?.surpriseNote ? (
-          <p
-            className="text-base leading-relaxed"
-            style={{ color: '#3a3020', borderLeft: '2px solid #b0564240', paddingLeft: '1rem' }}
-          >
-            {content.surpriseNote}
-          </p>
-        ) : null}
-      </div>
+      {showSurprise && (
+        <div>
+          {contentLoading && !content?.surpriseNote ? (
+            <ContentSkeletonReveal />
+          ) : (
+            <p className="text-[15.5px] font-light" style={{ color: '#45474a', lineHeight: 1.7, maxWidth: '66ch' }}>
+              {content!.surpriseNote}
+            </p>
+          )}
+        </div>
+      )}
+
+      {showSurprise && <hr style={RULE_STYLE} />}
 
       {/* ─ Three-voice story ─ */}
-      <div>
-        {contentLoading && !content?.threeVoiceStory ? (
-          <ContentSkeleton />
-        ) : content?.threeVoiceStory ? (
-          <div>
-            <p className="text-xs uppercase tracking-widest mb-3" style={{ color: '#a09880' }}>
-              Three voices
-            </p>
-            <div className="flex gap-3 mb-3">
-              {Object.entries(SOURCE_LABEL).map(([source, label]) => (
-                <div key={source} className="flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: SOURCE_COLOR[source] }} />
-                  <span className="text-xs" style={{ color: '#8a8070' }}>{label}</span>
+      {showThreeVoice && (
+        <div>
+          {contentLoading && !content?.threeVoiceStory ? (
+            <ContentSkeletonReveal />
+          ) : (
+            <div>
+              <div className="flex items-center gap-[18px] flex-wrap mb-[14px]">
+                <span className="text-[10px] uppercase tracking-[.18em]" style={{ color: '#7b7f80', fontWeight: 400 }}>
+                  Three voices
+                </span>
+                <div className="flex gap-[14px] flex-wrap">
+                  {Object.entries(SOURCE_LABEL).map(([source, label]) => (
+                    <div key={source} className="flex items-center gap-1.5">
+                      <span className="w-[7px] h-[7px] rounded-full" style={{ backgroundColor: SOURCE_COLOR[source] }} />
+                      <span className="text-[11px]" style={{ color: '#7b7f80' }}>{label}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
+              <p className="text-[15.5px] font-light" style={{ color: '#45474a', lineHeight: 1.7, maxWidth: '66ch' }}>
+                {content!.threeVoiceStory}
+              </p>
             </div>
-            <p className="text-base leading-relaxed" style={{ color: '#3a3020' }}>
-              {content.threeVoiceStory}
-            </p>
-          </div>
-        ) : null}
-      </div>
+          )}
+        </div>
+      )}
 
-      {/* ─ Liam's intake (collapsible) ─ */}
-      <div className="rounded-xl border px-6 py-5" style={{ borderColor: '#e0dcd4', backgroundColor: '#faf9f5' }}>
-        <div className="flex items-center justify-between mb-2">
+      {showThreeVoice && <hr style={RULE_STYLE} />}
+
+      {/* ─ Liam's intake (collapsible) — flat hairline section, no tinted rounded box. ─ */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <span className="text-xs uppercase tracking-widest" style={{ color: '#a09880' }}>Liam's intake</span>
-            <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#f0ede6', color: '#b05642' }}>AI</span>
+            <span className="text-[10px] uppercase tracking-[.18em]" style={{ color: '#7b7f80', fontWeight: 400 }}>Liam's intake</span>
+            <span className="text-[10px] uppercase tracking-[.06em] px-1.5 py-0.5" style={{ backgroundColor: '#f2f1ea', color: '#9a2918' }}>AI</span>
           </div>
           {content?.aiSummary && (
             <button
               onClick={() => setAiExpanded(v => !v)}
-              className="text-xs transition-colors"
-              style={{ color: '#a09880' }}
+              className="transition-opacity hover:opacity-100"
+              style={{ fontSize: 10.5, letterSpacing: '.14em', textTransform: 'uppercase', color: '#ee5974', background: 'none', border: 'none', cursor: 'pointer', padding: 0, opacity: 0.9 }}
             >
               {aiExpanded ? 'Collapse ↑' : 'Read full note ↓'}
             </button>
           )}
         </div>
         {contentLoading && !content?.aiSummary ? (
-          <div className="flex items-center gap-2 text-stone-400">
-            <div className="w-3 h-3 rounded-full border-2 border-stone-300 border-t-stone-400 animate-spin" />
-            <span className="text-sm">Generating…</span>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full border-2 animate-spin" style={{ borderColor: '#deded1', borderTopColor: '#7b7f80' }} />
+            <span className="text-[15.5px] font-light" style={{ color: '#7b7f80' }}>Generating…</span>
           </div>
         ) : content?.aiSummary ? (
           <AnimatePresence initial={false}>
@@ -165,8 +178,8 @@ export function TastingNotes({ content, contentLoading, exploreLink, talkToLiamL
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
-                className="text-base leading-relaxed overflow-hidden"
-                style={{ color: '#3a3020' }}
+                className="overflow-hidden text-[15.5px] font-light"
+                style={{ color: '#45474a', lineHeight: 1.7, maxWidth: '66ch' }}
               >
                 {content.aiSummary}
               </motion.p>
@@ -176,52 +189,35 @@ export function TastingNotes({ content, contentLoading, exploreLink, talkToLiamL
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="text-sm line-clamp-2"
-                style={{ color: '#8a8070' }}
+                className="line-clamp-2 text-[15.5px] font-light"
+                style={{ color: '#7b7f80', lineHeight: 1.7, maxWidth: '66ch' }}
               >
                 {content.aiSummary}
               </motion.p>
             )}
           </AnimatePresence>
         ) : (
-          <p className="text-sm" style={{ color: '#a09880' }}>Not enough data to generate a summary yet.</p>
+          <p className="text-[15.5px] font-light" style={{ color: '#7b7f80' }}>Not enough data to generate a summary yet.</p>
         )}
       </div>
 
-      {/* ─ Explore-further / Talk to Liam links (Bloom only) — set apart as an actions
-          row with a top border/spacing and leading icons, not more prose to skim past. ─ */}
-      {(exploreLink || talkToLiamLink || profileLink) && (
-        <div
-          className="flex flex-wrap gap-x-8 gap-y-3 pt-6"
-          style={{ borderTop: '1px solid #e0dcd4' }}
-        >
+      {/* ─ Explore-further / Talk to Liam links (Bloom only) — set apart as a quiet
+          actions row, no emojis. ─ */}
+      {hasActions && <hr style={RULE_STYLE} />}
+      {hasActions && (
+        <div className="flex flex-wrap gap-x-9 gap-y-3">
           {exploreLink && (
-            <Link
-              to={exploreLink}
-              className="inline-flex items-center gap-2 text-sm font-normal hover:underline"
-              style={{ color: '#b05642' }}
-            >
-              <span aria-hidden="true">🧭</span>
+            <Link to={exploreLink} className={QUIET_LINK_CLASS}>
               Explore the full flavor breakdown →
             </Link>
           )}
           {talkToLiamLink && (
-            <Link
-              to={talkToLiamLink}
-              className="inline-flex items-center gap-2 text-sm font-normal hover:underline"
-              style={{ color: '#b05642' }}
-            >
-              <span aria-hidden="true">💬</span>
+            <Link to={talkToLiamLink} className={QUIET_LINK_CLASS}>
               Talk to Liam about this coffee →
             </Link>
           )}
           {profileLink && (
-            <Link
-              to={profileLink}
-              className="inline-flex items-center gap-2 text-sm font-normal hover:underline"
-              style={{ color: '#b05642' }}
-            >
-              <span aria-hidden="true">🌱</span>
+            <Link to={profileLink} className={QUIET_LINK_CLASS}>
               Your flavor profile →
             </Link>
           )}

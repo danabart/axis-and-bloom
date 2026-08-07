@@ -66,26 +66,26 @@ export function CompareOverlay({ open, onClose, left, archetypes }: CompareOverl
             initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.98 }}
             transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
             onClick={e => e.stopPropagation()}
-            className="rounded-2xl overflow-y-auto"
-            style={{ backgroundColor: '#f2f1ea', maxWidth: 900, width: '100%', maxHeight: '85vh', padding: 'clamp(1.25rem, 4vw, 2.5rem)' }}
+            className="overflow-y-auto border"
+            style={{ backgroundColor: '#fff', borderColor: '#deded1', borderRadius: 2, maxWidth: 900, width: '100%', maxHeight: '85vh', padding: 'clamp(1.25rem, 4vw, 2.5rem)' }}
           >
             <div className="flex items-center justify-between mb-6">
-              <p className="text-xs uppercase tracking-widest" style={{ color: '#b05642' }}>Compare</p>
-              <button onClick={onClose} className="text-sm" style={{ color: '#8a8070' }}>✕ Close</button>
+              <p className="text-[10px] uppercase tracking-[.18em]" style={{ color: '#7b7f80', fontWeight: 400 }}>Compare</p>
+              <button onClick={onClose} className="text-[10.5px] uppercase tracking-[.14em] opacity-85 hover:opacity-100" style={{ color: '#9a2918', background: 'none', border: 'none', cursor: 'pointer' }}>Close</button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 mb-8">
               <div>
-                <p className="text-xs uppercase tracking-widest mb-2" style={{ color: '#a09880' }}>This one</p>
-                <h3 className="text-lg font-normal" style={{ color: '#b05642' }}>{slotLabel(left)}</h3>
+                <p className="text-[10px] uppercase tracking-[.18em] mb-2" style={{ color: '#7b7f80', fontWeight: 400 }}>This one</p>
+                <h3 className="text-lg font-normal" style={{ color: '#9a2918' }}>{slotLabel(left)}</h3>
               </div>
               <div>
-                <p className="text-xs uppercase tracking-widest mb-2" style={{ color: '#a09880' }}>Compare with</p>
+                <p className="text-[10px] uppercase tracking-[.18em] mb-2" style={{ color: '#7b7f80', fontWeight: 400 }}>Compare with</p>
                 <select
                   value={rightKey}
                   onChange={e => setRightKey(e.target.value)}
-                  className="text-sm px-3 py-1.5 rounded border bg-white w-full"
-                  style={{ borderColor: '#d0ccc4', color: '#4a4035' }}
+                  className="text-sm px-3 py-1.5 border bg-white w-full"
+                  style={{ borderColor: '#deded1', color: '#45474a', borderRadius: 2 }}
                 >
                   <option value="">Select a coffee…</option>
                   {options
@@ -108,12 +108,12 @@ export function CompareOverlay({ open, onClose, left, archetypes }: CompareOverl
               />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                 <div>
-                  <p className="text-xs mb-4" style={{ color: '#a09880' }}>{left.slot.platformName}</p>
+                  <p className="text-xs mb-4" style={{ color: '#7b7f80' }}>{left.slot.platformName}</p>
                   <CollaborativeFlavorWheel wheelRows={leftWheel} />
                 </div>
                 {right && (
                   <div>
-                    <p className="text-xs mb-4" style={{ color: '#a09880' }}>{right.slot.platformName}</p>
+                    <p className="text-xs mb-4" style={{ color: '#7b7f80' }}>{right.slot.platformName}</p>
                     <CollaborativeFlavorWheel wheelRows={rightWheel} />
                   </div>
                 )}

@@ -7,6 +7,16 @@ export { ARCHETYPE_LABEL, ARCHETYPE_COLOR };
 
 export type CompatLevel = 'wheelhouse' | 'exploring' | 'stretch';
 
+// Part 13/15 — the one pill styling for CompatibilityBadge, shared by both variants
+// (Part 15 folded 'default' onto this exact palette so the badge never renders two
+// different ways on the site).
+const BADGE_CONFIG: Record<CompatLevel, { label: string; bg: string; text: string; border: string }> = {
+  wheelhouse: { label: 'In your wheelhouse', bg: '#9a2918', text: '#fff', border: 'transparent' },
+  exploring: { label: 'Worth exploring', bg: 'transparent', text: '#9a2918', border: '#9a2918' },
+  stretch: { label: 'Outside your comfort zone', bg: 'transparent', text: '#45474a', border: '#7b7f80' },
+};
+const BADGE_PILL_CLASS = 'self-start text-[10.5px] uppercase tracking-[.16em] px-4 py-[7px] rounded-full border font-normal whitespace-nowrap';
+
 export function getCompatibility(
   coffeeArchetype: string | null,
   userArchetype: string | null,
@@ -69,55 +79,29 @@ export function useCompatibility(coffeeArchetype: string | null, userArchetype: 
 }
 
 /**
- * Part 13 (reveal-panel redesign) — `variant` is additive, default 'default' preserves
- * today's rendering byte-for-byte (FlavorIntelligencePage's three call sites, which must
- * stay as-is per the redesign's out-of-scope list). `variant='reveal'` is RevealedPanel's
- * new Row 1 styling: brand pill colors, and — per Dana's "transparent, not apologetic"
- * call — no apology paragraph on the 'stretch' tier.
+ * Part 13 (reveal-panel redesign) — `variant` is additive. `variant='reveal'` is
+ * RevealedPanel's Row 1: just the pill, no apology paragraph on 'stretch' (Dana's
+ * "transparent, not apologetic" call). `variant='default'` (Flavor Intelligence,
+ * Part 15) is a reskin of the same pill — Part 15 folded its colors/shape onto the
+ * 'reveal' styling so the badge never renders two different ways on the site — plus
+ * the stretch-tier apology sentence, which is content, not styling, so it stays
+ * (restyled, not deleted, unlike 'reveal').
  */
 export function CompatibilityBadge({ level, userArchetype, variant = 'default' }: { level: CompatLevel; userArchetype: string; variant?: 'default' | 'reveal' }) {
-  if (variant === 'reveal') {
-    const revealConfigs = {
-      wheelhouse: { label: 'In your wheelhouse', bg: '#9a2918', text: '#fff', border: 'transparent' },
-      exploring: { label: 'Worth exploring', bg: 'transparent', text: '#9a2918', border: '#9a2918' },
-      stretch: { label: 'Outside your comfort zone', bg: 'transparent', text: '#45474a', border: '#7b7f80' },
-    };
-    const rc = revealConfigs[level];
-    return (
-      <span
-        className="self-start text-[10.5px] uppercase tracking-[.16em] px-4 py-[7px] rounded-full border font-normal whitespace-nowrap"
-        style={{ backgroundColor: rc.bg, color: rc.text, borderColor: rc.border }}
-      >
-        {rc.label}
-      </span>
-    );
-  }
+  const c = BADGE_CONFIG[level];
+  const pill = (
+    <span className={BADGE_PILL_CLASS} style={{ backgroundColor: c.bg, color: c.text, borderColor: c.border }}>
+      {c.label}
+    </span>
+  );
 
-  const configs = {
-    wheelhouse: {
-      label: 'In your wheelhouse',
-      bg: '#a33726', text: '#fff', border: 'transparent',
-    },
-    exploring: {
-      label: 'Worth exploring',
-      bg: 'transparent', text: '#b07d1a', border: '#b07d1a',
-    },
-    stretch: {
-      label: 'Outside your comfort zone',
-      bg: 'transparent', text: '#8a8070', border: '#c8c0b4',
-    },
-  };
-  const c = configs[level];
+  if (variant === 'reveal') return pill;
+
   return (
     <div className="flex flex-col gap-1.5">
-      <span
-        className="self-start text-xs px-4 py-1.5 rounded-full border font-normal tracking-wide whitespace-nowrap"
-        style={{ backgroundColor: c.bg, color: c.text, borderColor: c.border }}
-      >
-        {c.label}
-      </span>
+      {pill}
       {level === 'stretch' && (
-        <p className="text-xs font-light" style={{ color: '#a09880' }}>
+        <p className="text-xs font-light" style={{ color: '#7b7f80' }}>
           This is a stretch from your usual {ARCHETYPE_LABEL[userArchetype]} profile — but that's not a bad thing.
         </p>
       )}

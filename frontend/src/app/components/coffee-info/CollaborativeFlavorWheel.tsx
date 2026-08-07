@@ -130,11 +130,11 @@ function DescriptorBar({ entry, minMentions, maxMentions, index }: { entry: Desc
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.35, delay: index * 0.04 }}
     >
-      <p className="text-xs mb-1" style={{ color: '#5a4a3a' }}>{entry.descriptor}</p>
+      <p className="text-xs mb-1" style={{ color: '#45474a' }}>{entry.descriptor}</p>
       {/* Sharp rectangle, not a rounded pill (Part 6). Segmented by each source's share of
           mentions — the bar itself shows the three-source blend, not a single flat color
           with dots next to the label (Part 8). */}
-      <div className="w-full" style={{ height: barHeightPx, backgroundColor: '#e0dcd4' }}>
+      <div className="w-full" style={{ height: barHeightPx, backgroundColor: '#f2f1ea' }}>
         <motion.div
           className="flex"
           style={{ height: '100%' }}
@@ -164,7 +164,7 @@ function CategoryBarGroup({ group, minMentions, maxMentions }: { group: Category
 
   return (
     <div>
-      <p className="text-xs mb-2.5" style={{ color: '#b8b0a4' }}>{group.category}</p>
+      <p className="mb-2.5" style={{ fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: '#b3b0a6' }}>{group.category}</p>
       <div className="space-y-3">
         {visible.map((entry, i) => (
           <DescriptorBar key={entry.descriptor} entry={entry} minMentions={minMentions} maxMentions={maxMentions} index={i} />
@@ -173,8 +173,8 @@ function CategoryBarGroup({ group, minMentions, maxMentions }: { group: Category
       {hiddenCount > 0 && (
         <button
           onClick={() => setExpanded(v => !v)}
-          className="text-xs mt-2 hover:underline"
-          style={{ color: '#a09880' }}
+          className="mt-2"
+          style={{ fontSize: 10.5, letterSpacing: '.14em', textTransform: 'uppercase', color: '#ee5974', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
         >
           {expanded ? 'Show less ←' : `+${hiddenCount} more, less prominent →`}
         </button>
@@ -345,12 +345,12 @@ export function CollaborativeFlavorWheel({ wheelRows, compareWheelRows, primaryL
   return (
     <div>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mb-6">
-        <p className="text-xs uppercase tracking-widest" style={{ color: '#a09880' }}>Collaborative Flavor Wheel</p>
+        <p className="text-[10px] uppercase tracking-[.18em]" style={{ color: '#7b7f80', fontWeight: 400 }}>Collaborative Flavor Wheel</p>
         <div className="flex flex-wrap gap-4">
           {activeSources.map(source => (
             <div key={source} className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: SOURCE_COLOR[source] }} />
-              <span className="text-xs" style={{ color: '#8a8070' }}>{SOURCE_LABEL[source]}</span>
+              <span className="w-[7px] h-[7px] rounded-full" style={{ backgroundColor: SOURCE_COLOR[source] }} />
+              <span className="text-[11px]" style={{ color: '#7b7f80' }}>{SOURCE_LABEL[source]}</span>
             </div>
           ))}
         </div>
@@ -358,11 +358,11 @@ export function CollaborativeFlavorWheel({ wheelRows, compareWheelRows, primaryL
       {compareWheelRows && compareEntries.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
           <div>
-            <p className="text-xs mb-4" style={{ color: '#a09880' }}>{primaryLabel}</p>
+            <p className="text-xs mb-4" style={{ color: '#7b7f80' }}>{primaryLabel}</p>
             <GroupedDescriptorBars entries={entries} />
           </div>
           <div>
-            <p className="text-xs mb-4" style={{ color: '#a09880' }}>{compareLabel}</p>
+            <p className="text-xs mb-4" style={{ color: '#7b7f80' }}>{compareLabel}</p>
             <GroupedDescriptorBars entries={compareEntries} />
           </div>
         </div>

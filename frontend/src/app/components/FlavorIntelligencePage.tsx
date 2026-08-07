@@ -38,6 +38,12 @@ interface CuppingNote {
 // Mirrors Home.tsx's FEEDBACK_NAG_SUPPRESS_DAYS.
 const FEEDBACK_NAG_SUPPRESS_DAYS = 14;
 
+// Part 15 — brand reskin tokens (same as Part 13's reveal panel / RevealedPanel.tsx).
+const QUIET_LINK_CLASS = 'text-[10.5px] uppercase tracking-[.14em] text-[#9a2918] opacity-[.85] hover:opacity-100 no-underline transition-opacity';
+const MICRO_LABEL_CLASS = 'text-[10px] uppercase tracking-[.18em]';
+const MICRO_LABEL_STYLE = { color: '#7b7f80', fontWeight: 400 } as const;
+const RULE_STYLE = { border: 'none', borderTop: '1px solid #deded1', margin: '32px 0' } as const;
+
 const MATCH_FIRST_STAGES = new Set([
   'QUIZ_TAKEN_FRESH_NO_ORDER', 'QUIZ_TAKEN_SETTLED_NO_ORDER', 'QUIZ_STALE_NO_ORDER',
   'SUBSCRIBER', 'REORDER_DUE', 'LAPSED_SINGLE_ORDER', 'ACTIVE_REPEAT_USER',
@@ -60,8 +66,7 @@ function CuppingNotes({ notes }: { notes: CuppingNote[] }) {
     <div>
       <button
         onClick={() => setOpen(v => !v)}
-        className="text-xs uppercase tracking-widest hover:underline"
-        style={{ color: '#a09880' }}
+        style={{ fontSize: 10.5, letterSpacing: '.14em', textTransform: 'uppercase', color: '#ee5974', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
       >
         {open ? 'Hide' : 'Show'} cupping session notes ({notes.length}) {open ? '↑' : '↓'}
       </button>
@@ -73,11 +78,11 @@ function CuppingNotes({ notes }: { notes: CuppingNote[] }) {
           >
             <div className="space-y-4 mt-4">
               {notes.map((n, i) => (
-                <div key={i} className="pl-4" style={{ borderLeft: '2px solid #e0dcd4' }}>
-                  <p className="text-xs mb-1" style={{ color: '#b8b0a4' }}>
+                <div key={i} className="pl-4" style={{ borderLeft: '2px solid #deded1' }}>
+                  <p className="text-xs mb-1" style={{ color: '#b3b0a6' }}>
                     {new Date(n.session_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
                   </p>
-                  <p className="text-sm leading-relaxed" style={{ color: '#5a4a3a' }}>{n.overall_notes}</p>
+                  <p className="text-[15.5px] font-light" style={{ color: '#45474a', lineHeight: 1.7 }}>{n.overall_notes}</p>
                 </div>
               ))}
             </div>
@@ -361,29 +366,29 @@ export default function FlavorIntelligencePage() {
   // ── Personalized secondary copy per stage (Decision #2) ─────────────────────
   function renderSecondary(stageCode: string) {
     if (stageCode === 'QUIZ_TAKEN_FRESH_NO_ORDER') {
-      return <Link to="/bloom" className="text-sm hover:underline" style={{ color: '#b05642' }}>Shop your match on The Bloom →</Link>;
+      return <Link to="/bloom" className={QUIET_LINK_CLASS}>Shop your match on The Bloom →</Link>;
     }
     if (stageCode === 'QUIZ_TAKEN_SETTLED_NO_ORDER') {
       return (
-        <div className="flex flex-wrap gap-4">
-          <Link to="/bloom" className="text-sm hover:underline" style={{ color: '#b05642' }}>Shop your match on The Bloom →</Link>
-          <Link to="/find-my-flavor" className="text-sm hover:underline opacity-70" style={{ color: '#8a8070' }}>Retake the quiz →</Link>
+        <div className="flex flex-wrap gap-x-9 gap-y-3">
+          <Link to="/bloom" className={QUIET_LINK_CLASS}>Shop your match on The Bloom →</Link>
+          <Link to="/find-my-flavor" className={QUIET_LINK_CLASS} style={{ opacity: 0.6 }}>Retake the quiz →</Link>
         </div>
       );
     }
     if (stageCode === 'QUIZ_STALE_NO_ORDER') {
       return (
-        <div className="flex flex-wrap gap-4">
-          <Link to="/bloom" className="text-sm hover:underline" style={{ color: '#b05642' }}>Shop your match on The Bloom →</Link>
-          <Link to="/find-my-flavor" className="text-sm hover:underline opacity-70" style={{ color: '#8a8070' }}>Palates change — retake anytime →</Link>
+        <div className="flex flex-wrap gap-x-9 gap-y-3">
+          <Link to="/bloom" className={QUIET_LINK_CLASS}>Shop your match on The Bloom →</Link>
+          <Link to="/find-my-flavor" className={QUIET_LINK_CLASS} style={{ opacity: 0.6 }}>Palates change — retake anytime →</Link>
         </div>
       );
     }
     if (stageCode === 'SUBSCRIBER') {
-      return <p className="text-sm" style={{ color: '#8a8070' }}>This is the flavor intelligence behind your regular pick.</p>;
+      return <p className="text-[15.5px] font-light" style={{ color: '#7b7f80' }}>This is the flavor intelligence behind your regular pick.</p>;
     }
     if (stageCode === 'LAPSED_SINGLE_ORDER') {
-      return <p className="text-sm" style={{ color: '#8a8070' }}>It's been a while — here's what else is worth trying.</p>;
+      return <p className="text-[15.5px] font-light" style={{ color: '#7b7f80' }}>It's been a while — here's what else is worth trying.</p>;
     }
     return null; // REORDER_DUE, ACTIVE_REPEAT_USER — no secondary nudge on this page
   }
@@ -406,7 +411,7 @@ export default function FlavorIntelligencePage() {
       c => c.archetype === data.archetype && !c.categories.some(cat => cat.code === 'experimental')
     );
     return (
-      <div key={data.archetype} className="border-b" style={{ borderColor: '#e8e4da' }}>
+      <div key={data.archetype} style={{ borderBottom: '1px solid #deded1' }}>
         <button
           onClick={() => toggleSection(data.archetype)}
           className="w-full flex items-center justify-between gap-4 py-4 text-left"
@@ -415,13 +420,13 @@ export default function FlavorIntelligencePage() {
             <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: ARCHETYPE_COLOR[data.archetype] ?? '#999' }} />
             {/* Deliberately one tier below the "highlight" sub-heading role (text-xl) above —
                 this is a nav-level list label, not a content heading. */}
-            <span className="text-base" style={{ color: '#3a3020' }}>{data.archetypeLabel}</span>
-            <span className="text-xs" style={{ color: '#b8b0a4' }}>{activeSlots.length} coffee{activeSlots.length !== 1 ? 's' : ''}</span>
+            <span className="text-base font-light" style={{ color: '#45474a' }}>{data.archetypeLabel}</span>
+            <span className="text-xs" style={{ color: '#b3b0a6' }}>{activeSlots.length} coffee{activeSlots.length !== 1 ? 's' : ''}</span>
             {tag && (
-              <span className="text-xs px-2 py-0.5 rounded-full border" style={{ borderColor: '#b07d1a', color: '#b07d1a' }}>{tag}</span>
+              <span className="text-[10px] uppercase tracking-[.1em] px-2 py-0.5 rounded-full border" style={{ borderColor: '#9a2918', color: '#9a2918' }}>{tag}</span>
             )}
           </div>
-          <span className="text-sm" style={{ color: '#a09880' }}>{isOpen ? '−' : '+'}</span>
+          <span className="text-sm" style={{ color: '#7b7f80' }}>{isOpen ? '−' : '+'}</span>
         </button>
         <AnimatePresence initial={false}>
           {isOpen && (
@@ -438,14 +443,15 @@ export default function FlavorIntelligencePage() {
                         key={slot.dialSortOrder}
                         ref={el => { cardRefs.current[slotKey(data.archetype, slot.dialSortOrder)] = el; }}
                         onClick={() => handleSelectCard(data.archetype, slot.dialSortOrder)}
-                        className="text-left px-4 py-3 rounded-lg border transition-all duration-200 min-w-[180px]"
+                        className="text-left px-4 py-3 border transition-all duration-200 min-w-[180px]"
                         style={{
-                          borderColor: isSelected ? '#b05642' : '#e0ddd5',
-                          backgroundColor: isSelected ? '#fff8f5' : 'transparent',
+                          borderRadius: 2,
+                          borderColor: isSelected ? '#9a2918' : '#deded1',
+                          backgroundColor: 'transparent',
                         }}
                       >
-                        <p className="text-sm" style={{ color: isSelected ? '#b05642' : '#4a4035' }}>{slot.platformName}</p>
-                        <p className="text-xs mt-0.5" style={{ color: '#a09880' }}>{slot.positionLabel}</p>
+                        <p className="text-sm" style={{ color: isSelected ? '#9a2918' : '#45474a' }}>{slot.platformName}</p>
+                        <p className="text-xs mt-0.5" style={{ color: '#7b7f80' }}>{slot.positionLabel}</p>
                       </button>
                     );
                   })}
@@ -453,7 +459,7 @@ export default function FlavorIntelligencePage() {
 
                 {categoryCoffees.length > 0 && (
                   <div>
-                    <p className="text-xs uppercase tracking-widest mb-2" style={{ color: '#b8b0a4' }}>
+                    <p className={`${MICRO_LABEL_CLASS} mb-2`} style={MICRO_LABEL_STYLE}>
                       Categories: {categoryCoffees.map(c => c.categories[0]?.label).filter(Boolean).join(', ')}
                     </p>
                     <div className="flex flex-wrap gap-3">
@@ -463,14 +469,15 @@ export default function FlavorIntelligencePage() {
                           <button
                             key={coffee.coffeeId}
                             onClick={() => selectDirectCoffee(coffee.coffeeId)}
-                            className="text-left px-4 py-3 rounded-lg border transition-all duration-200 min-w-[180px]"
+                            className="text-left px-4 py-3 border transition-all duration-200 min-w-[180px]"
                             style={{
-                              borderColor: isSelected ? '#b05642' : '#e0ddd5',
-                              backgroundColor: isSelected ? '#fff8f5' : 'transparent',
+                              borderRadius: 2,
+                              borderColor: isSelected ? '#9a2918' : '#deded1',
+                              backgroundColor: 'transparent',
                             }}
                           >
-                            <p className="text-sm" style={{ color: isSelected ? '#b05642' : '#4a4035' }}>{coffee.displayName}</p>
-                            <p className="text-xs mt-0.5" style={{ color: '#a09880' }}>
+                            <p className="text-sm" style={{ color: isSelected ? '#9a2918' : '#45474a' }}>{coffee.displayName}</p>
+                            <p className="text-xs mt-0.5" style={{ color: '#7b7f80' }}>
                               {coffee.categories.map(c => c.label).join(' · ')}
                             </p>
                           </button>
@@ -493,10 +500,10 @@ export default function FlavorIntelligencePage() {
       {/* ── Header ── */}
       <div className="pt-32 pb-12 px-8 md:px-16 max-w-[1400px] mx-auto">
         <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7 }}>
-          <h1 className="text-5xl md:text-7xl font-normal leading-tight mb-4" style={{ color: '#b05642', fontFamily: "'Lato', Arial, sans-serif" }}>
+          <h1 className="text-5xl md:text-7xl font-normal leading-tight mb-4" style={{ color: '#9a2918' }}>
             Flavor Intelligence
           </h1>
-          <p className="text-lg max-w-xl" style={{ color: '#8a8070' }}>
+          <p className="font-light max-w-xl" style={{ fontSize: 15.5, color: '#7b7f80', lineHeight: 1.65 }}>
             Every coffee, seen through three lenses — our cuppers, the roaster, and customers who've ordered it.
           </p>
         </motion.div>
@@ -506,8 +513,8 @@ export default function FlavorIntelligencePage() {
 
         {/* ── 1. Feedback nudge (UC3) ── */}
         {homepageState?.pendingFeedback && !feedbackDismissed && (
-          <div className="mb-10 p-6 rounded-lg border" style={{ borderColor: '#e8e4da', backgroundColor: '#fff' }}>
-            <p className="text-lg mb-3" style={{ color: '#3a3020' }}>
+          <div className="mb-10 p-6 border" style={{ borderColor: '#deded1', borderRadius: 2, backgroundColor: '#fff' }}>
+            <p className="text-lg font-light mb-3" style={{ color: '#45474a' }}>
               How was {homepageState.pendingFeedback.blendName ?? 'your last coffee'}?
             </p>
             <OrderFeedbackForm
@@ -522,8 +529,8 @@ export default function FlavorIntelligencePage() {
                 localStorage.setItem(`axisBloomFeedbackDismiss_${homepageState.pendingFeedback!.orderId}`, String(Date.now()));
                 setFeedbackDismissed(true);
               }}
-              className="mt-3 text-xs opacity-60 hover:opacity-100"
-              style={{ color: '#8a8070' }}
+              className="mt-3 opacity-85 hover:opacity-100"
+              style={{ fontSize: 10.5, letterSpacing: '.14em', textTransform: 'uppercase', color: '#9a2918' }}
             >
               Not now
             </button>
@@ -532,11 +539,11 @@ export default function FlavorIntelligencePage() {
 
         {/* ── 2. Personalized header (UC1/UC4) ── */}
         {isMatched && matchArchetypeLabel && homepageState && (
-          <div className="mb-10 pb-8 border-b" style={{ borderColor: '#e8e4da' }}>
+          <div className="mb-10 pb-8" style={{ borderBottom: '1px solid #deded1' }}>
             {/* Coffee/archetype "highlight" sub-heading role: text-xl everywhere it appears
                 (here and the compare-mode h3s below), one step under the selected-coffee H2
                 below (text-3xl), which stays largest as the page's primary focus. */}
-            <p className="text-xl font-normal mb-1" style={{ color: '#b05642', fontFamily: "'Lato', Arial, sans-serif" }}>
+            <p className="text-xl font-normal mb-1" style={{ color: '#9a2918' }}>
               Your match: {matchArchetypeLabel}
             </p>
             <div className="mt-3">{renderSecondary(homepageState.stageCode)}</div>
@@ -545,11 +552,11 @@ export default function FlavorIntelligencePage() {
 
         {/* ── 3. Quiz nudge banner (UC0/UC2) ── */}
         {!isMatched && (
-          <div className="mb-10 pb-8 border-b flex items-center justify-between flex-wrap gap-3" style={{ borderColor: '#e8e4da' }}>
-            <p className="text-sm" style={{ color: '#8a8070' }}>
+          <div className="mb-10 pb-8 flex items-center justify-between flex-wrap gap-3" style={{ borderBottom: '1px solid #deded1' }}>
+            <p className="text-[15.5px] font-light" style={{ color: '#45474a' }}>
               {user ? "Ready to find your flavor?" : "Not sure where to start? Take the quiz to see your match →"}
             </p>
-            <Link to="/find-my-flavor" className="text-sm hover:underline" style={{ color: '#b05642' }}>Take the quiz →</Link>
+            <Link to="/find-my-flavor" className={QUIET_LINK_CLASS}>Take the quiz →</Link>
           </div>
         )}
 
@@ -561,7 +568,7 @@ export default function FlavorIntelligencePage() {
             {matchSection && renderSection(matchSection)}
             {adjacentSections.map(a => renderSection(a, 'Worth exploring'))}
             {isMatched && (matchSection || adjacentSections.length > 0) && restSections.length > 0 && (
-              <p className="text-xs uppercase tracking-widest py-4" style={{ color: '#b8b0a4' }}>Explore other flavor families</p>
+              <p className={`${MICRO_LABEL_CLASS} py-4`} style={MICRO_LABEL_STYLE}>Explore other flavor families</p>
             )}
             {restSections.map(a => renderSection(a))}
           </div>
@@ -574,11 +581,11 @@ export default function FlavorIntelligencePage() {
               key={selectedSlotData ? slotKey(selectedArchetype ?? '', selectedSlot ?? -1) : `direct-${directCoffeeId}`}
               initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.35 }}
             >
-              <div className="mb-8 pb-6 border-b" style={{ borderColor: '#e0ddd5' }}>
+              <div className="mb-8 pb-6" style={{ borderBottom: '1px solid #deded1' }}>
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="flex-1">
                     {/* Primary focus of the page — one step larger than the "highlight" role, on purpose. */}
-                    <h2 className="text-3xl font-normal" style={{ color: '#b05642', fontFamily: "'Lato', Arial, sans-serif" }}>
+                    <h2 className="text-3xl font-normal" style={{ color: '#9a2918' }}>
                       {displayName}
                     </h2>
                     <div className="flex flex-wrap gap-2 mt-3">
@@ -588,23 +595,23 @@ export default function FlavorIntelligencePage() {
                         </span>
                       )}
                       {selectedSlotData && (
-                        <span className="text-xs px-2.5 py-1 rounded-full border" style={{ borderColor: '#d0ccc4', color: '#8a8070' }}>
+                        <span className="text-xs px-2.5 py-1 rounded-full border" style={{ borderColor: '#deded1', color: '#7b7f80' }}>
                           {selectedSlotData.positionLabel}
                         </span>
                       )}
                       {directCoffee && directCoffee.categories.map(c => (
-                        <span key={c.code} className="text-xs px-2.5 py-1 rounded-full border" style={{ borderColor: '#d0ccc4', color: '#8a8070' }}>
+                        <span key={c.code} className="text-xs px-2.5 py-1 rounded-full border" style={{ borderColor: '#deded1', color: '#7b7f80' }}>
                           {c.label}
                         </span>
                       ))}
                       {content?.process && (
-                        <span className="text-xs px-2.5 py-1 rounded-full border" style={{ borderColor: '#d0ccc4', color: '#8a8070' }}>{content.process}</span>
+                        <span className="text-xs px-2.5 py-1 rounded-full border" style={{ borderColor: '#deded1', color: '#7b7f80' }}>{content.process}</span>
                       )}
                       {content?.roastLevel && (
-                        <span className="text-xs px-2.5 py-1 rounded-full border" style={{ borderColor: '#d0ccc4', color: '#8a8070' }}>{content.roastLevel}</span>
+                        <span className="text-xs px-2.5 py-1 rounded-full border" style={{ borderColor: '#deded1', color: '#7b7f80' }}>{content.roastLevel}</span>
                       )}
                       {content?.originRegion && (
-                        <span className="text-xs px-2.5 py-1 rounded-full border" style={{ borderColor: '#d0ccc4', color: '#8a8070' }}>{content.originRegion}</span>
+                        <span className="text-xs px-2.5 py-1 rounded-full border" style={{ borderColor: '#deded1', color: '#7b7f80' }}>{content.originRegion}</span>
                       )}
                     </div>
                   </div>
@@ -619,8 +626,8 @@ export default function FlavorIntelligencePage() {
                     {selectedArchData && selectedSlot != null && (
                       <Link
                         to={`/bloom?archetype=${selectedArchData.archetype}&slot=${selectedSlot}`}
-                        className="text-xs px-3 py-1.5 rounded-full border transition-all duration-200"
-                        style={{ borderColor: '#b05642', color: '#b05642', backgroundColor: '#fff8f5' }}
+                        className="text-[10.5px] uppercase tracking-[.1em] px-3 py-1.5 rounded-full border transition-all duration-200"
+                        style={{ borderColor: '#9a2918', color: '#9a2918', backgroundColor: 'transparent' }}
                       >
                         Shop on The Bloom →
                       </Link>
@@ -633,14 +640,14 @@ export default function FlavorIntelligencePage() {
                     {selectedSlotData && (
                       <button
                         onClick={toggleCompareMode}
-                        className="text-xs px-3 py-1.5 rounded-full border transition-all duration-200"
+                        className="text-[10.5px] uppercase tracking-[.1em] px-3 py-1.5 rounded-full border transition-all duration-200"
                         style={{
-                          borderColor: compareMode ? '#b05642' : '#c8c0b4',
-                          color: compareMode ? '#b05642' : '#8a8070',
-                          backgroundColor: compareMode ? '#fff8f5' : 'transparent',
+                          borderColor: compareMode ? '#9a2918' : '#deded1',
+                          color: compareMode ? '#9a2918' : '#7b7f80',
+                          backgroundColor: 'transparent',
                         }}
                       >
-                        {compareMode ? '✕ Exit compare' : '⇄ Compare'}
+                        {compareMode ? 'Exit compare' : '⇄ Compare'}
                       </button>
                     )}
                   </div>
@@ -659,80 +666,106 @@ export default function FlavorIntelligencePage() {
 
                 {compareMode && (
                   <div className="mt-4 flex flex-wrap items-center gap-3">
-                    <span className="text-xs uppercase tracking-widest" style={{ color: '#a09880' }}>Compare with</span>
+                    <span className={MICRO_LABEL_CLASS} style={MICRO_LABEL_STYLE}>Compare with</span>
                     <select
                       value={compareCoffeeId ?? ''}
                       onChange={e => e.target.value ? handleCompareSelect(Number(e.target.value)) : setCompareCoffeeId(null)}
-                      className="text-sm px-3 py-1.5 rounded border bg-white min-w-0 max-w-full flex-1 sm:flex-none"
-                      style={{ borderColor: '#d0ccc4', color: '#4a4035' }}
+                      className="text-sm px-3 py-1.5 border bg-white min-w-0 max-w-full flex-1 sm:flex-none"
+                      style={{ borderColor: '#deded1', color: '#45474a', borderRadius: 2 }}
                     >
                       <option value="">Select a coffee…</option>
                       {compareOptions.map(o => (
                         <option key={o.coffeeId} value={o.coffeeId}>{o.archetypeLabel} — {o.platformName}</option>
                       ))}
                     </select>
-                    {compareLoading && <span className="text-xs" style={{ color: '#a09880' }}>Loading…</span>}
+                    {compareLoading && <span className="text-xs" style={{ color: '#7b7f80' }}>Loading…</span>}
                   </div>
                 )}
               </div>
 
               {loading && (
-                <div className="flex items-center gap-2 py-16 text-stone-400">
-                  <div className="w-4 h-4 rounded-full border-2 border-stone-300 border-t-stone-500 animate-spin" />
-                  <span className="text-sm">Loading…</span>
+                <div className="flex items-center gap-2 py-16">
+                  <div className="w-4 h-4 rounded-full border-2 animate-spin" style={{ borderColor: '#deded1', borderTopColor: '#7b7f80' }} />
+                  <span className="text-[15.5px] font-light" style={{ color: '#7b7f80' }}>Loading…</span>
                 </div>
               )}
 
-              {!loading && (
-                <div className="space-y-12">
-                  {compat && matchArchetypeId && !compareMode && (
-                    <div className="flex flex-col gap-3">
-                      <CompatibilityBadge level={compat} userArchetype={matchArchetypeId} />
-                      {dimCompText && (
-                        <p className="text-sm leading-relaxed" style={{ color: '#8a8070' }}>{dimCompText}</p>
-                      )}
-                    </div>
-                  )}
-
-                  {compareMode && compareCoffeeId && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pb-6 border-b" style={{ borderColor: '#e0ddd5' }}>
+              {!loading && (() => {
+                // Part 15 — hairline rhythm between sections (Section 2: "flat 1px #deded1
+                // hairlines between sections, ~32px rhythm"). Each block's "will it render"
+                // condition mirrors the JSX below exactly, so a hairline never appears next
+                // to an empty/absent block — same discipline as RevealedPanel.tsx/Part 13.
+                const showCompatBadge = !!(compat && matchArchetypeId && !compareMode);
+                const showCompareGrid = compareMode && !!compareCoffeeId;
+                const showTastingNotes = !compareMode; // 'full' TastingNotes always renders at least Liam's intake
+                const showCuppingNotes = !compareMode && notes.length > 0;
+                const showDimensionBars = dimensions.length > 0 || !!(compareMode && compareCoffeeId && compareDimensions.length > 0);
+                const showWheel = wheelRows.length > 0;
+                return (
+                  <div>
+                    {showCompatBadge && (
                       <div className="flex flex-col gap-3">
-                        <h3 className="text-xl font-normal" style={{ color: '#b05642' }}>{displayName}</h3>
-                        {compat && matchArchetypeId && <CompatibilityBadge level={compat} userArchetype={matchArchetypeId} />}
+                        <CompatibilityBadge level={compat!} userArchetype={matchArchetypeId!} />
+                        {dimCompText && (
+                          <p className="text-[15.5px] font-light" style={{ color: '#7b7f80', lineHeight: 1.55, maxWidth: '52ch' }}>{dimCompText}</p>
+                        )}
                       </div>
-                      <div className="flex flex-col gap-3">
-                        <h3 className="text-xl font-normal" style={{ color: '#b05642' }}>{compareLabel}</h3>
-                        {compareCompat && matchArchetypeId && <CompatibilityBadge level={compareCompat} userArchetype={matchArchetypeId} />}
+                    )}
+
+                    {showCompatBadge && (showCompareGrid || showTastingNotes || showCuppingNotes || showDimensionBars || showWheel) && <hr style={RULE_STYLE} />}
+
+                    {showCompareGrid && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        <div className="flex flex-col gap-3">
+                          <h3 className="text-xl font-normal" style={{ color: '#9a2918' }}>{displayName}</h3>
+                          {compat && matchArchetypeId && <CompatibilityBadge level={compat} userArchetype={matchArchetypeId} />}
+                        </div>
+                        <div className="flex flex-col gap-3">
+                          <h3 className="text-xl font-normal" style={{ color: '#9a2918' }}>{compareLabel}</h3>
+                          {compareCompat && matchArchetypeId && <CompatibilityBadge level={compareCompat} userArchetype={matchArchetypeId} />}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
 
-                  {!compareMode && (
-                    <TastingNotes content={content} contentLoading={contentLoading} talkToLiamLink="/sommelier?entry=user_initiated" />
-                  )}
+                    {showCompareGrid && (showTastingNotes || showCuppingNotes || showDimensionBars || showWheel) && <hr style={RULE_STYLE} />}
 
-                  {!compareMode && <CuppingNotes notes={notes} />}
+                    {showTastingNotes && (
+                      <TastingNotes content={content} contentLoading={contentLoading} talkToLiamLink="/sommelier?entry=user_initiated" />
+                    )}
 
-                  <DimensionBars
-                    dimensions={dimensions}
-                    compareDimensions={compareMode && compareCoffeeId ? compareDimensions : undefined}
-                    primaryLabel={displayName || undefined}
-                    compareLabel={compareLabel}
-                  />
+                    {showTastingNotes && (showCuppingNotes || showDimensionBars || showWheel) && <hr style={RULE_STYLE} />}
 
-                  <CollaborativeFlavorWheel
-                    wheelRows={wheelRows}
-                    compareWheelRows={compareMode && compareCoffeeId ? compareWheelRows : undefined}
-                    primaryLabel={displayName || undefined}
-                    compareLabel={compareLabel}
-                  />
-                </div>
-              )}
+                    {showCuppingNotes && <CuppingNotes notes={notes} />}
+
+                    {showCuppingNotes && (showDimensionBars || showWheel) && <hr style={RULE_STYLE} />}
+
+                    {showDimensionBars && (
+                      <DimensionBars
+                        dimensions={dimensions}
+                        compareDimensions={compareMode && compareCoffeeId ? compareDimensions : undefined}
+                        primaryLabel={displayName || undefined}
+                        compareLabel={compareLabel}
+                      />
+                    )}
+
+                    {showDimensionBars && showWheel && <hr style={RULE_STYLE} />}
+
+                    {showWheel && (
+                      <CollaborativeFlavorWheel
+                        wheelRows={wheelRows}
+                        compareWheelRows={compareMode && compareCoffeeId ? compareWheelRows : undefined}
+                        primaryLabel={displayName || undefined}
+                        compareLabel={compareLabel}
+                      />
+                    )}
+                  </div>
+                );
+              })()}
             </motion.div>
           </AnimatePresence>
           ) : (
-            <div className="py-16 text-center" style={{ color: '#a09880' }}>
-              <p className="text-lg">Select a coffee to see its flavor intelligence.</p>
+            <div className="py-16 text-center">
+              <p className="text-[15.5px] font-light" style={{ color: '#7b7f80' }}>Select a coffee to see its flavor intelligence.</p>
             </div>
           )}
           </div>

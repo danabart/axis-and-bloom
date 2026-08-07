@@ -9,6 +9,15 @@ export interface DimensionRow {
   session_count?: string;
 }
 
+// Part 15 — compare-mode hues, brand-aligned. Reuses two colors from Part 13's
+// already-validated (CVD-safe, ≥3:1 on white) source triad rather than inventing and
+// re-validating a new pair: `#006e9c` (petrol) for the compare bar, `#8f7410` (dark
+// gold) for "notable difference" — the same two non-primary hues from
+// CollaborativeFlavorWheel's SOURCE_COLOR, so the whole site's compare/divergence
+// language stays to a single validated palette instead of growing a second one.
+const COMPARE_COLOR = '#006e9c';
+const DIVERGENT_COLOR = '#8f7410';
+
 function DimensionBar({ dim, index, compareDim }: { dim: DimensionRow; index: number; compareDim?: DimensionRow | null }) {
   const min = Number(dim.avg_min);
   const max = Number(dim.avg_max);
@@ -33,41 +42,41 @@ function DimensionBar({ dim, index, compareDim }: { dim: DimensionRow; index: nu
       className="grid items-center gap-4"
       style={{ gridTemplateColumns: '110px 1fr 72px' }}
     >
-      <span className="text-sm text-right truncate" style={{ color: '#5a4a3a' }}>{dim.dimension}</span>
+      <span className="text-sm text-right truncate" style={{ color: '#45474a' }}>{dim.dimension}</span>
       <div className="relative flex flex-col gap-1">
         {/* Primary coffee bar — sharp rectangle, matching the descriptor bars (Part 7). */}
         <div className="relative">
-          <div className="h-1.5 w-full" style={{ backgroundColor: '#e0dcd4' }} />
+          <div className="h-1.5 w-full" style={{ backgroundColor: '#f2f1ea' }} />
           <div
             className="absolute top-0 h-1.5 transition-all duration-500"
-            style={{ left: `${leftPct}%`, width: `${widthPct}%`, backgroundColor: '#b05642' }}
+            style={{ left: `${leftPct}%`, width: `${widthPct}%`, backgroundColor: '#9a2918' }}
           />
         </div>
         {/* Comparison coffee bar */}
         {hasCmp && (
           <div className="relative">
-            <div className="h-1.5 w-full" style={{ backgroundColor: '#e0dcd4' }} />
+            <div className="h-1.5 w-full" style={{ backgroundColor: '#f2f1ea' }} />
             <div
               className="absolute top-0 h-1.5 transition-all duration-500"
               style={{
                 left: `${cLeftPct}%`,
                 width: `${cWidthPct}%`,
-                backgroundColor: isDivergent ? '#c9a830' : '#7c9e87',
+                backgroundColor: isDivergent ? DIVERGENT_COLOR : COMPARE_COLOR,
               }}
             />
           </div>
         )}
         {!hasCmp && (
           <div className="flex justify-between mt-1">
-            <span className="text-xs" style={{ color: '#b8b0a4' }}>{dim.scale_min_label}</span>
-            <span className="text-xs" style={{ color: '#b8b0a4' }}>{dim.scale_max_label}</span>
+            <span className="text-xs" style={{ color: '#b3b0a6' }}>{dim.scale_min_label}</span>
+            <span className="text-xs" style={{ color: '#b3b0a6' }}>{dim.scale_max_label}</span>
           </div>
         )}
         {hasCmp && isDivergent && (
-          <span className="text-[10px] mt-0.5" style={{ color: '#c9a830' }}>Notable difference</span>
+          <span className="text-[10px] mt-0.5" style={{ color: DIVERGENT_COLOR }}>Notable difference</span>
         )}
       </div>
-      <span className="text-sm font-light tabular-nums" style={{ color: '#b05642' }}>
+      <span className="text-sm font-light tabular-nums" style={{ color: '#9a2918' }}>
         {min}–{max}<span className="text-xs opacity-40">/15</span>
       </span>
     </motion.div>
@@ -154,10 +163,10 @@ export function DimensionBars({ dimensions, compareDimensions, primaryLabel, com
   return (
     <div>
       <div className="flex items-center gap-4 mb-6">
-        <p className="text-xs uppercase tracking-widest" style={{ color: '#a09880' }}>
+        <p className="text-[10px] uppercase tracking-[.18em]" style={{ color: '#7b7f80', fontWeight: 400 }}>
           Cupping profile
           {!isCompare && dimensions[0]?.session_count && (
-            <span className="ml-2 normal-case" style={{ color: '#c8c0b4' }}>
+            <span className="ml-2 normal-case" style={{ color: '#b3b0a6' }}>
               — avg across {dimensions[0].session_count} session{Number(dimensions[0].session_count) !== 1 ? 's' : ''}
             </span>
           )}
@@ -165,16 +174,16 @@ export function DimensionBars({ dimensions, compareDimensions, primaryLabel, com
         {isCompare && (
           <div className="flex items-center gap-4 text-xs">
             <div className="flex items-center gap-1.5">
-              <span className="w-2 h-1.5 inline-block" style={{ backgroundColor: '#b05642' }} />
-              <span style={{ color: '#8a8070' }}>{primaryLabel}</span>
+              <span className="w-2 h-1.5 inline-block" style={{ backgroundColor: '#9a2918' }} />
+              <span style={{ color: '#7b7f80' }}>{primaryLabel}</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="w-2 h-1.5 inline-block" style={{ backgroundColor: '#7c9e87' }} />
-              <span style={{ color: '#8a8070' }}>{compareLabel}</span>
+              <span className="w-2 h-1.5 inline-block" style={{ backgroundColor: COMPARE_COLOR }} />
+              <span style={{ color: '#7b7f80' }}>{compareLabel}</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="w-2 h-1.5 inline-block" style={{ backgroundColor: '#c9a830' }} />
-              <span style={{ color: '#8a8070' }}>Notable difference</span>
+              <span className="w-2 h-1.5 inline-block" style={{ backgroundColor: DIVERGENT_COLOR }} />
+              <span style={{ color: '#7b7f80' }}>Notable difference</span>
             </div>
           </div>
         )}
