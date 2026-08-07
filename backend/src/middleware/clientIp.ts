@@ -47,13 +47,22 @@ import type { Request } from 'express';
 // published Cloudflare IP address, which passes this range check and gets
 // its forged CF-Connecting-IP trusted. Cloudflare's IP list is public, so
 // this is "requires deliberately reading Cloudflare's docs," not "trivial" —
-// but it is not zero. Fully closing it means restricting Cloud Run ingress
-// so *.run.app isn't reachable except via Firebase Hosting (see
+// but it is not zero. NOT closable by restricting Cloud Run ingress —
+// confirmed live in the GCP console 2026-08-06: the API is served via a
+// Firebase Hosting rewrite (/api/** -> Cloud Run in firebase.json), and
+// Firebase Hosting rewrites require Cloud Run ingress = "All"; restricting
+// it breaks the entire API, not just this bypass. The real remediation is
+// Firebase App Check (C6): once enforced on the backend, a direct-origin
+// request with no valid App Check token is rejected before it reaches this
+// keyGenerator at all, so the *.run.app bypass stops being reachable
+// without ever touching Cloud Run's ingress setting. App Check enforcement
+// must exempt the requireCronSecret routes (/api/cron/*, /api/webhooks/*),
+// which legitimately call *.run.app directly with the cron secret. See
 // CLOUDFLARE_SETUP.md's "important caveat" section and
-// WHAT_WE_BUILT_SECURITY.md) — an infra change, flagged there, out of this
-// fix's scope. What this DOES fully close, and what C17's acceptance bar
-// asks for: a spoofed X-Forwarded-For *alone*, on a direct-to-origin
-// request, never changes the keyed IP — it falls back to the tamper-proof
+// WHAT_WE_BUILT_SECURITY.md — C6 is still open, not attempted here. What
+// this fix DOES fully close today, and what C17's acceptance bar asks for:
+// a spoofed X-Forwarded-For *alone*, on a direct-to-origin request, never
+// changes the keyed IP — it falls back to the tamper-proof
 // req.ip instead of being able to redirect the limiter onto an arbitrary
 // address.
 

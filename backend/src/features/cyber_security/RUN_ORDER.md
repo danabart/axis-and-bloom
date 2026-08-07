@@ -13,7 +13,7 @@
 - [ ] **Cloudflare:** steps 1–11 in `CLOUDFLARE_SETUP.md` (DNS move, Full-strict SSL, HSTS, DNSSEC, WAF, Bot Fight, Managed Challenge, edge headers, Turnstile, one rate-limit rule) — **carry over email/MX/SPF/DKIM records exactly.**
 - [ ] **Cloudflare + registrar:** MFA on both accounts, registrar lock, least-privilege collaborator accounts (runbook step 11).
 - [x] **C17 — DONE 2026-08-07:** read the real client IP behind Cloudflare, so per-IP rate limiting keeps working. `backend/src/middleware/clientIp.ts` (`d294cc4`); root cause + fix confirmed empirically via a temp diagnostic route hit through every real request path before writing the fix. Full writeup in `WHAT_WE_BUILT_SECURITY.md`.
-- [ ] **Console:** restrict Cloud Run ingress so the API can't be hit directly around Cloudflare (runbook caveat).
+- [x] **NOT VIABLE — confirmed 2026-08-06, do not attempt:** restricting Cloud Run ingress to close the direct-`*.run.app` bypass. The API is served via a Firebase Hosting rewrite (`/api/**` → Cloud Run in `firebase.json`), and Firebase Hosting rewrites require Cloud Run ingress = "All" — confirmed live in the GCP console. Restricting ingress breaks the entire API, not just the bypass. The C17 residual gap this was meant to close is instead closed by **C6** (Firebase App Check) below: once enforced, a direct-to-origin request without a valid App Check token is rejected before it reaches the rate limiter, so the *.run.app bypass is unreachable without ever touching Cloud Run's ingress setting.
 - [ ] **Console:** confirm PostgreSQL / Cloud SQL is **not** publicly reachable (only via the proxy/connector) and the app DB user is minimally privileged.
 - [ ] Note: Cloudflare does **not** cover Firebase signup/login (those go straight to Google) — that's App Check's job in Phase 3.
 
@@ -25,7 +25,7 @@
 - [ ] **C5** — order-bonus abuse + server-side pricing. *(may need a Shopify paid-webhook; can split)*
 
 ## Phase 3 — close the front door
-- [ ] **C6** — Firebase App Check enforced on backend + frontend. *(Console: register reCAPTCHA Enterprise key, enable App Check; keep `APP_CHECK_ENFORCED=false` until real traffic passes, then flip on)*
+- [ ] **C6** — Firebase App Check enforced on backend + frontend. *(Console: register reCAPTCHA Enterprise key, enable App Check; keep `APP_CHECK_ENFORCED=false` until real traffic passes, then flip on)* **Must exempt the `requireCronSecret` routes** (`/api/cron/*`, `/api/webhooks/*`) from App Check enforcement — Cloud Scheduler and inbound webhooks call the `*.run.app` URL directly with the cron secret, not through the browser/App Check flow, and would otherwise be locked out. This also closes C17's residual direct-origin-spoofing gap for every *other* rate-limited route — see the Phase 1 note above.
 - [ ] **C16** — throttle anonymous-identity abuse on guest-write endpoints. *(depends on C6's App Check)*
 - [ ] **C8** — rate-limit account creation + password reset.
 - [ ] **C7** — email-verified gate on Liam. **DECISION** — only if you accept the small extra step for real users; skip otherwise.
