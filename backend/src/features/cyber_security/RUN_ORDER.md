@@ -20,7 +20,8 @@
 ## Phase 2 — high-value code (run in this order)
 - [x] **C1 — DONE 2026-08-07:** removed `/health/db` + `/health/session-cols` (`backend/src/index.ts`, `a0fa591`). `GET /health` untouched. Verified live: `/health` 200, both removed routes 404 at the Cloud Run origin. Full writeup in `WHAT_WE_BUILT_SECURITY.md`.
 - [x] **C2 — DONE 2026-08-07:** global aggregate Claude kill-switch (`CLAUDE_ENABLED`/`CLAUDE_GLOBAL_DAILY_USD`, `backend/src/services/anthropicGuard.ts`) + M4's content-based model escalation removed entirely from `claude.ts`. Wired into all 9 real Claude call sites app-wide. Full writeup in `WHAT_WE_BUILT_SECURITY.md`. **C3 can now build on this ceiling.**
-- [ ] **C3** — stop public coffee AI endpoints from generating on demand.
+- [x] **C3 — DONE 2026-08-08:** public coffee AI endpoints (`/content`, `/ai-summary`) are now pure reads, no code path to Claude. Generation moved to a new daily cron (`GET /api/cron/coffee-content-backfill`) + the existing admin refresh endpoints, both authenticated. New terminal-failure flags on `coffees` stop the backfill from retrying permanently-refused fields forever. Full writeup in `WHAT_WE_BUILT_SECURITY.md`.
+- [ ] **Console — STILL TODO:** create the Cloud Scheduler job for the new `coffee-content-backfill` cron (same pattern as `liam-sms-send`/`brew-card-arrival-send`/`beat-dial-in-send`: daily, `GET [backend-url]/api/cron/coffee-content-backfill` with header `x-cron-secret: [CRON_SECRET value]`). The endpoint exists and is correctly gated, but **nothing triggers it in prod yet** — until this is set up, coffees with no cached content stay uncached until an admin manually refreshes them.
 - [ ] **C4** — beats dial-in IDOR → capability token. *(schema migration)*
 - [ ] **C5** — order-bonus abuse + server-side pricing. *(may need a Shopify paid-webhook; can split)*
 
