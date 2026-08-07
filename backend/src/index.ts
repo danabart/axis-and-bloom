@@ -52,30 +52,6 @@ app.use('/api', (_req, res, next) => { res.set('Cache-Control', 'no-store'); nex
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
-app.get('/health/db', async (_req, res) => {
-  try {
-    const r = await db.query("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename");
-    res.json({ connected: true, tableCount: r.rows.length, tables: r.rows.map((x: any) => x.tablename) });
-  } catch (e: any) {
-    res.status(500).json({ connected: false, error: e.message });
-  }
-});
-
-// Diagnostic: show actual column types for cupping_sessions in the live DB
-app.get('/health/session-cols', async (_req, res) => {
-  try {
-    const r = await db.query(`
-      SELECT column_name, data_type, udt_name, is_nullable, column_default
-      FROM information_schema.columns
-      WHERE table_name = 'cupping_sessions'
-      ORDER BY ordinal_position
-    `);
-    res.json(r.rows);
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
 app.use('/api/auth', authRouter);
 app.use('/api/quiz', quizRouter);
 app.use('/api/shop', shopRouter);
