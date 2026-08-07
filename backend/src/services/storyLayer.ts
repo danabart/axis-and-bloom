@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getSommelierConfig } from './sommelierConfig.js';
+import { guardClaudeCall } from './anthropicGuard.js';
 
 // HOME_TASK_5 (§4.4) — "their coffee, explained." A dedicated, independent
 // Anthropic client rather than importing from claude.ts: per the S38
@@ -82,12 +83,14 @@ Rules:
 - Warm, specific, editorial voice. No marketing language.
 - 120–200 words.${correction}`;
 
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 400,
-    system: STORY_SYSTEM_PROMPT,
-    messages: [{ role: 'user', content }],
-  });
+  const response = await guardClaudeCall('claude-haiku-4-5-20251001', () =>
+    client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 400,
+      system: STORY_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content }],
+    })
+  );
 
   const block = response.content[0];
   const rawText = block.type === 'text' ? block.text : '';
@@ -154,12 +157,14 @@ async function generateOneWarmSentence(
     const correction = correctionNote
       ? `\n\nYour previous attempt was rejected for this reason: ${correctionNote}. Do not repeat this.`
       : '';
-    const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 100,
-      system: STORY_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: `${promptCore}${correction}` }],
-    });
+    const response = await guardClaudeCall('claude-haiku-4-5-20251001', () =>
+      client.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 100,
+        system: STORY_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: `${promptCore}${correction}` }],
+      })
+    );
     const block = response.content[0];
     return (block.type === 'text' ? block.text : '').trim();
   }

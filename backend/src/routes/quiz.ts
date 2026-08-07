@@ -4,6 +4,7 @@ import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { getRealClientIp } from '../middleware/clientIp.js';
 import { db } from '../db/client.js';
 import { getRecommendation } from '../services/claude.js';
+import { isClaudeGuardBlocked } from '../services/anthropicGuard.js';
 import { rankScores, findWinner, findSecondary, isSecondaryClose, computeConfidenceAndMode } from '../services/quizScoring.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { Timestamp } from 'firebase-admin/firestore';
@@ -257,13 +258,22 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
       completedAt:         FieldValue.serverTimestamp(),
     }).catch((err: unknown) => console.error('[quiz/firestore-session]', err));
 
-    // Get AI recommendation
-    const recommendation = await getRecommendation(archetype, decaf ?? false, {
-      secondaryArchetype: secondaryArchetype ?? null,
-      confidence: foodSignalAlignment ?? 'high',
-      recommendationMode,
-      experimental: experimental ?? false,
-    });
+    // Get AI recommendation. C2 Part 1 — the quiz session above is already
+    // durably saved (Cloud SQL + Firestore) by this point; a guard block
+    // (kill-switch / daily ceiling) must not turn an already-successful save
+    // into a 500 — fall back to a graceful placeholder and still return 200.
+    let recommendation: string;
+    try {
+      recommendation = await getRecommendation(archetype, decaf ?? false, {
+        secondaryArchetype: secondaryArchetype ?? null,
+        confidence: foodSignalAlignment ?? 'high',
+        recommendationMode,
+        experimental: experimental ?? false,
+      });
+    } catch (err) {
+      if (!isClaudeGuardBlocked(err)) console.error('[quiz/results] recommendation generation failed:', err);
+      recommendation = 'Your results are saved — check back shortly for your personalized coffee recommendation.';
+    }
 
     res.json({ id: sessionId, recommendation });
 

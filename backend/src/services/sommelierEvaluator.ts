@@ -3,6 +3,7 @@ import { firestoreDb } from './firebase-admin.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getSommelierConfig } from './sommelierConfig.js';
 import { getUserSignals } from './userSignals.js';
+import { guardClaudeCall } from './anthropicGuard.js';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -191,12 +192,14 @@ Write only the briefing, including a tone note for Liam at the end (e.g. "Tone: 
 
   let openingContext = `${archetype ?? 'Unknown archetype'} user — ${matchedIntent} intent.`;
   try {
-    const haikuResp = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 100,
-      system: 'You generate concise briefings. Respond with only the briefing text, no preamble.',
-      messages: [{ role: 'user', content: userPrompt }],
-    });
+    const haikuResp = await guardClaudeCall('claude-haiku-4-5-20251001', () =>
+      client.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 100,
+        system: 'You generate concise briefings. Respond with only the briefing text, no preamble.',
+        messages: [{ role: 'user', content: userPrompt }],
+      })
+    );
     const block = haikuResp.content[0];
     if (block.type === 'text') openingContext = block.text;
   } catch (err) {

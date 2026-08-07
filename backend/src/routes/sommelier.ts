@@ -11,6 +11,7 @@ import { getTokenBalance, spendToken, logUsage } from '../services/tokenService.
 import { checkDailyCap, checkMonthlySpendAndAlert } from '../services/sommelierGuards.js';
 import { writeOutcome, checkReturnedToSommelier } from '../services/outcomeTracker.js';
 import { chatWithSommelier } from '../services/claude.js';
+import { isClaudeGuardBlocked } from '../services/anthropicGuard.js';
 import { getSommelierConfig } from '../services/sommelierConfig.js';
 import { routeTopic } from '../services/topicRouter.js';
 import {
@@ -62,6 +63,12 @@ const sommelierAccountLimiter = rateLimit({
 // established voice rather than a live model call. Never mentions the words
 // "cap"/"limit" — reads as a natural, warm pause, per S32-S34's voice rules.
 const DAILY_CAP_CLOSE_MESSAGE = "That's a good amount of ground for today — let's pick this back up tomorrow.";
+
+// C2 Part 1 — customer-facing text for a guard block (global kill-switch
+// off, or the daily spend ceiling reached). Distinct, honest surface from
+// DAILY_CAP_CLOSE_MESSAGE above (a per-customer cap on a session that's
+// otherwise working) — this means Liam himself is unavailable right now.
+const LIAM_UNAVAILABLE_MESSAGE = 'Liam is temporarily unavailable — please try again shortly.';
 
 function getGeneration(dateOfBirth: string | Date | null | undefined): string {
   if (!dateOfBirth) return 'Millennial';
@@ -686,6 +693,20 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
       openingRememberOps = chatResult.rememberOps;
       openingCardMarker = chatResult.cardMarker;
     } catch (claudeErr) {
+      // C2 Part 1 — a guard block (kill-switch / daily ceiling) means Liam
+      // genuinely can't respond right now. Silently creating a session with
+      // a canned opening line would be dishonest (the customer would then
+      // send real messages into a session that will keep failing) — roll
+      // back the session just inserted above (same rollback pattern the
+      // insufficient-tokens path below already uses) and say so plainly,
+      // rather than a bare 500. Any other/unexpected Anthropic error keeps
+      // today's existing behavior: log it, fall through to the canned
+      // opening message, session proceeds normally.
+      if (isClaudeGuardBlocked(claudeErr)) {
+        await db.query('DELETE FROM sommelier_sessions WHERE id = $1', [newSessionId]);
+        res.status(503).json({ error: 'liam_unavailable', message: LIAM_UNAVAILABLE_MESSAGE });
+        return;
+      }
       console.error('[sommelier/start] chatWithSommelier failed, using fallback:', claudeErr);
     }
 
@@ -928,20 +949,36 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
       }
     }
 
-    const { reply, modelUsed, actionTypes, saveRecipeTitle, rememberOps, cardMarker } = await chatWithSommelier({
-      message,
-      session: {
-        intent: session.intent,
-        turnCount: session.turn_count,
-        openingContext: ctx.openingContext ?? '',
-      },
-      catalogContext: ctx.catalogText ?? '',
-      history,
-      mode: topicResult.mode,
-      brewProfileContext,
-      storyContext,
-      currentCoffeeContext,
-    });
+    // C2 Part 1 — a guard block (kill-switch / daily ceiling) must not 500 an
+    // otherwise-successful turn. Roll back the user message just saved above
+    // (same rollback discipline the insufficient-tokens path a few lines up
+    // already uses) and respond gracefully instead of letting this throw
+    // reach the route's outer catch (which would 500).
+    let chatResult: Awaited<ReturnType<typeof chatWithSommelier>>;
+    try {
+      chatResult = await chatWithSommelier({
+        message,
+        session: {
+          intent: session.intent,
+          turnCount: session.turn_count,
+          openingContext: ctx.openingContext ?? '',
+        },
+        catalogContext: ctx.catalogText ?? '',
+        history,
+        mode: topicResult.mode,
+        brewProfileContext,
+        storyContext,
+        currentCoffeeContext,
+      });
+    } catch (claudeErr) {
+      if (isClaudeGuardBlocked(claudeErr)) {
+        await userMsgRef.delete();
+        res.status(503).json({ error: 'liam_unavailable', message: LIAM_UNAVAILABLE_MESSAGE });
+        return;
+      }
+      throw claudeErr; // unexpected error — preserve existing behavior (outer catch, 500)
+    }
+    const { reply, modelUsed, actionTypes, saveRecipeTitle, rememberOps, cardMarker } = chatResult;
     const actions = await resolveActions(actionTypes, req.uid!, ctx.archetypeKey ?? null, saveRecipeTitle);
     await resolveRemember(req.uid!, rememberOps);
     await resolveCard(cardMarker, req.uid!, entryCoffeeId, entryMethod, brewProfile, message);

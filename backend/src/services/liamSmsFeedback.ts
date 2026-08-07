@@ -5,6 +5,7 @@ import { sendSms, logToNotificationLog } from './smsProvider.js';
 import { computeBehavioralConfidence } from './behavioralConfidence.js';
 import { refreshLifecycleState } from './userLifecycle.js';
 import { writeDialPositionSignal } from './dialPositionSignal.js';
+import { guardClaudeCall } from './anthropicGuard.js';
 
 const anthropic = new Anthropic();
 
@@ -185,7 +186,7 @@ export async function parseInboundReply(
   let parsedExpectation: 'lighter' | 'as_expected' | 'bolder' | null = null;
 
   try {
-    const response = await anthropic.messages.create({
+    const response = await guardClaudeCall('claude-haiku-4-5-20251001', () => anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 200,
       messages: [
@@ -211,7 +212,7 @@ Rules:
 Respond with JSON only, no explanation: { "sentiment": "...", "rating": N, "descriptors": [], "expectation": "..." or null }`,
         },
       ],
-    });
+    }));
 
     // Haiku frequently wraps its JSON in ```json ... ``` fences despite the
     // "no explanation" instruction (confirmed live, not theoretical — every
