@@ -8,6 +8,7 @@ import { getAliases } from '../services/sommelierRag.js';
 import { generateBrewNoteSentence } from '../services/storyLayer.js';
 import { getBagNumberForCoffee, getArrivalNoteConfig, getMostRecentCard, type BrewCardParams } from '../services/brewCard.js';
 import { buildDialInSmsBody, respondToDialInBeat } from '../services/beatEngine.js';
+import { backfillCoffeeContent } from './coffees.js';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -63,6 +64,26 @@ router.get('/beat-dial-in-send', requireCronSecret, async (_req, res) => {
     res.json(result);
   } catch (err) {
     console.error('[cron/beat-dial-in-send]', err);
+    res.status(500).json({ error: 'Cron job failed' });
+  }
+});
+
+// ── GET /api/cron/coffee-content-backfill ────────────────────────────────────
+// C3 (M2 fix) — same daily-cron shape as the jobs above. The only authenticated,
+// non-public trigger for AI content generation now that GET /api/coffees/:id/
+// content and /:id/ai-summary are pure reads (coffees.ts); the other trigger is
+// an admin's explicit POST /api/admin/coffees/:id/refresh-content (requireAdmin).
+// backfillCoffeeContent() (coffees.ts) already goes through the C2 global
+// spend gate on every Claude call it makes (via generateAndStoreAllContent ->
+// getCoffeeSummary/-SurpriseNote/-ThreeVoiceStory/generateCoffeeStoryWithRetry,
+// all guardClaudeCall-wrapped) and stops early the moment a call is blocked.
+// Cloud Scheduler job: daily → GET this path with the same x-cron-secret header.
+router.get('/coffee-content-backfill', requireCronSecret, async (_req, res) => {
+  try {
+    const result = await backfillCoffeeContent();
+    res.json(result);
+  } catch (err) {
+    console.error('[cron/coffee-content-backfill]', err);
     res.status(500).json({ error: 'Cron job failed' });
   }
 });

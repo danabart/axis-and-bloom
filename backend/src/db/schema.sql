@@ -3135,3 +3135,20 @@ CREATE TABLE IF NOT EXISTS claude_daily_spend (
   updated_at TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
 ALTER TABLE qr_scan_event ADD COLUMN IF NOT EXISTS source TEXT;
+
+-- C3 -- terminal generation-failure flags (2026-08-08). Distinguishes "never
+-- attempted yet" (column NULL, flag NULL/false -- eligible for the cron
+-- backfill to try) from "attempted with sufficient data and Claude
+-- genuinely declined/refused" (flag true -- the cron backfill skips it
+-- forever, so a permanently-refusing coffee doesn't burn Claude spend on
+-- every run). Only set on a real, non-blocked attempt that came back
+-- refusal-like (looksLikeRefusal) or, for story text, exhausted its retry
+-- loop without passing the specificity check -- never set when generation
+-- was skipped for insufficient data (that's not terminal, worth retrying
+-- once real data arrives) or blocked by the C2 guard (not an attempt at
+-- all). An admin's explicit force-regenerate (force=true) ignores these
+-- flags and always retries, resetting the flag on success.
+ALTER TABLE coffees ADD COLUMN IF NOT EXISTS ai_summary_generation_failed BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE coffees ADD COLUMN IF NOT EXISTS surprise_note_generation_failed BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE coffees ADD COLUMN IF NOT EXISTS three_voice_story_generation_failed BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE coffees ADD COLUMN IF NOT EXISTS story_generation_failed BOOLEAN NOT NULL DEFAULT false;

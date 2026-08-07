@@ -157,18 +157,28 @@ export async function generateAndStoreAllContent(
 
   // Check what is already cached
   const cachedResult = await db.query(
-    `SELECT ai_summary, surprise_note, three_voice_story, story, story_published, story_admin_edited
+    `SELECT ai_summary, surprise_note, three_voice_story, story, story_published, story_admin_edited,
+            ai_summary_generation_failed, surprise_note_generation_failed,
+            three_voice_story_generation_failed, story_generation_failed
      FROM coffees WHERE id = $1`,
     [coffeeId]
   );
   const cached = cachedResult.rows[0] ?? {};
 
-  const needsSummary  = force || !cached.ai_summary;
-  const needsSurprise = force || !cached.surprise_note;
-  const needsStory    = force || !cached.three_voice_story;
+  // C3 — a field marked "generation_failed" (a real, non-blocked attempt
+  // that came back refusal-like, or a story that exhausted its retry loop
+  // without passing specificity) is terminal for the automatic path: never
+  // retried again by the cron backfill, so a permanently-refusing coffee
+  // doesn't burn Claude spend every run. `force=true` (the admin manual
+  // refresh) ignores these flags and always retries — see the flag-write
+  // logic further down, which resets a flag to false on a successful
+  // forced retry.
+  const needsSummary  = force || (!cached.ai_summary && !cached.ai_summary_generation_failed);
+  const needsSurprise = force || (!cached.surprise_note && !cached.surprise_note_generation_failed);
+  const needsStory    = force || (!cached.three_voice_story && !cached.three_voice_story_generation_failed);
   // Admin-edited story content is never auto-regenerated over (spec item 3) —
   // this is the one field `force` does not override.
-  const needsStoryText = !cached.story_admin_edited && (force || !cached.story);
+  const needsStoryText = !cached.story_admin_edited && (force || (!cached.story && !cached.story_generation_failed));
 
   if (!needsSummary && !needsSurprise && !needsStory && !needsStoryText) {
     return {
@@ -276,6 +286,16 @@ export async function generateAndStoreAllContent(
       : Promise.resolve(null),
   ]);
 
+  // C3 — a "refused" field is one that was genuinely attempted (needed,
+  // had sufficient data, not blocked) and still came back null — the only
+  // way guardGenerated() (or a truly-empty model response) produces null
+  // once blocking is ruled out. Distinct from "skipped" (insufficient data
+  // — not terminal, worth retrying once real data exists) and "blocked"
+  // (not an attempt at all). Drives the terminal-flag writes below.
+  const summaryRefused    = needsSummary  && hasSufficientData  && !summaryBlocked    && newSummary  === null;
+  const surpriseRefused   = needsSurprise && hasSufficientData  && !surpriseBlocked   && newSurprise === null;
+  const storyVoiceRefused = needsStory    && hasSufficientVoices && !storyVoiceBlocked && newStory    === null;
+
   const aiSummary      = newSummary      ?? cached.ai_summary      ?? '';
   const surpriseNote   = newSurprise     ?? cached.surprise_note   ?? null;
   const threeVoiceStory = newStory       ?? cached.three_voice_story ?? null;
@@ -302,17 +322,25 @@ export async function generateAndStoreAllContent(
   const updates: string[] = [];
   const values: unknown[] = [];
   let idx = 1;
-  if (needsSummary  && !summaryBlocked)     { updates.push(`ai_summary = $${idx++}`);       values.push(newSummary); }
-  if (needsSurprise && !surpriseBlocked)    { updates.push(`surprise_note = $${idx++}`);    values.push(newSurprise); }
-  if (needsStory    && !storyVoiceBlocked)  { updates.push(`three_voice_story = $${idx++}`); values.push(newStory); }
+  // C3 — the terminal-failure flag is written alongside its content field
+  // every time that field is actually attempted (same gating as the content
+  // write itself): true on a genuine refusal, false on real success — the
+  // false case is what resets a previously-failed flag after an admin's
+  // force=true retry succeeds. Never touched when the field wasn't
+  // attempted at all (skipped for insufficient data, or blocked).
+  if (needsSummary  && !summaryBlocked)     { updates.push(`ai_summary = $${idx++}`);       values.push(newSummary); updates.push(`ai_summary_generation_failed = $${idx++}`); values.push(summaryRefused); }
+  if (needsSurprise && !surpriseBlocked)    { updates.push(`surprise_note = $${idx++}`);    values.push(newSurprise); updates.push(`surprise_note_generation_failed = $${idx++}`); values.push(surpriseRefused); }
+  if (needsStory    && !storyVoiceBlocked)  { updates.push(`three_voice_story = $${idx++}`); values.push(newStory); updates.push(`three_voice_story_generation_failed = $${idx++}`); values.push(storyVoiceRefused); }
   if (storyResult) {
     updates.push(`story_draft = $${idx++}`);       values.push(storyResult.text);
     updates.push(`story_generated_at = NOW()`);
     if (storyResult.passed) {
       updates.push(`story = $${idx++}`);           values.push(storyResult.text);
       updates.push(`story_published = true`);
+      updates.push(`story_generation_failed = $${idx++}`); values.push(false);
     } else {
       console.warn(`[generateAndStoreAllContent] story for coffee ${coffeeId} failed specificity check after ${storyResult.attempts} attempt(s): ${storyResult.violations.join('; ')} — left unpublished, see story_draft`);
+      updates.push(`story_generation_failed = $${idx++}`); values.push(true);
     }
   }
 
@@ -322,6 +350,70 @@ export async function generateAndStoreAllContent(
   }
 
   return { aiSummary, surpriseNote, threeVoiceStory, story, storyPublished };
+}
+
+export interface ContentBackfillResult {
+  candidateCount: number;
+  processed: number;
+  succeeded: number;
+  /** True when a call was blocked by the C2 guard (kill-switch / daily
+   *  ceiling) and the run stopped early — every remaining candidate would
+   *  just block too, so there's no point burning the round-trips. The
+   *  unprocessed candidates are picked up again on the next cron run. */
+  blocked: boolean;
+  errors: Array<{ coffeeId: number; error: string }>;
+}
+
+// ── Out-of-band content generation — C3 (M2 fix) ───────────────────────────
+// The only place generateAndStoreAllContent() is called with force=false
+// (i.e. respecting the terminal-failure flags) now that the public routes
+// above are pure reads. Driven by GET /api/cron/coffee-content-backfill
+// (requireCronSecret, cron.ts) — an admin's explicit force=true refresh
+// (POST /api/admin/coffees/:id/refresh-content, requireAdmin) is the other
+// authenticated trigger and is unaffected by this function.
+//
+// Finds every coffee still missing at least one content field that hasn't
+// been marked permanently refused (the WHERE clause mirrors
+// generateAndStoreAllContent's own needsX logic), then generates for each,
+// sequentially — not in parallel, so this doesn't burst Anthropic with N
+// concurrent requests for what's a low-frequency nightly job, and so the C2
+// daily-ceiling check between each call is actually meaningful. Stops the
+// moment a call is blocked (kill-switch / ceiling): every subsequent
+// candidate would block too, so the run ends early and picks back up next
+// time rather than looping through the rest of the list for nothing.
+export async function backfillCoffeeContent(): Promise<ContentBackfillResult> {
+  const candidates = await db.query<{ id: number }>(
+    `SELECT id FROM coffees
+     WHERE (ai_summary IS NULL AND NOT ai_summary_generation_failed)
+        OR (surprise_note IS NULL AND NOT surprise_note_generation_failed)
+        OR (three_voice_story IS NULL AND NOT three_voice_story_generation_failed)
+        OR (story IS NULL AND NOT story_admin_edited AND NOT story_generation_failed)
+     ORDER BY id`
+  );
+
+  let processed = 0;
+  let succeeded = 0;
+  let blocked = false;
+  const errors: Array<{ coffeeId: number; error: string }> = [];
+
+  for (const row of candidates.rows) {
+    if (blocked) break;
+    processed++;
+    try {
+      await generateAndStoreAllContent(row.id, { force: false });
+      succeeded++;
+    } catch (err) {
+      if (isClaudeGuardBlocked(err)) {
+        blocked = true;
+        console.warn(`[coffee-content-backfill] guard blocked at coffee ${row.id} — stopping run early, ${candidates.rows.length - processed} candidate(s) left for the next run`);
+        break;
+      }
+      console.error(`[coffee-content-backfill] coffee ${row.id} failed:`, err);
+      errors.push({ coffeeId: row.id, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  return { candidateCount: candidates.rows.length, processed, succeeded, blocked, errors };
 }
 
 // ── Backward-compat wrapper — still used by admin refresh-summary endpoint ────
@@ -927,16 +1019,29 @@ router.get('/:id/dimensions', async (req, res) => {
 });
 
 // GET /api/coffees/:id/content ────────────────────────────────────────────────
-// Returns all three AI content fields, plus (Flavor Intelligence Part 1 Decision
-// #7) process/roastLevel/originRegion — generic flavor vocabulary and a broad
-// geographic bucket, safe to show publicly. Never the raw `origin` column or
-// `roaster` — those stay server-side only. originRegion is null if the coffee
-// hasn't been backfilled yet.
+// C3 (M2 fix) — pure read, NEVER calls Claude. Returns whatever's already
+// cached; a coffee with no generated content yet (or one that's been
+// terminally marked as refused — see the *_generation_failed columns)
+// simply comes back with null/empty fields, same as any other cache-miss.
+// The frontend already renders that state gracefully (TastingNotes.tsx:
+// "Not enough data to generate a summary yet." / nothing, for the reveal
+// variant) — no frontend change needed. Generation now only happens
+// out-of-band, via the authenticated cron backfill (see
+// backfillCoffeeContent() + GET /api/cron/coffee-content-backfill in
+// cron.ts) or an admin's explicit force-refresh (POST
+// /api/admin/coffees/:id/refresh-content, requireAdmin) — both call
+// generateAndStoreAllContent() directly, never this route.
+//
+// Also returns (Flavor Intelligence Part 1 Decision #7) process/roastLevel/
+// originRegion — generic flavor vocabulary and a broad geographic bucket,
+// safe to show publicly. Never the raw `origin` column or `roaster` — those
+// stay server-side only. originRegion is null if the coffee hasn't been
+// backfilled yet.
 router.get('/:id/content', async (req, res) => {
   const { id } = req.params;
   try {
-    const [content, extraResult] = await Promise.all([
-      generateAndStoreAllContent(id, { force: false }),
+    const [contentResult, extraResult] = await Promise.all([
+      db.query(`SELECT ai_summary, surprise_note, three_voice_story FROM coffees WHERE id = $1`, [id]),
       db.query(
         `SELECT c.process, c.roast_level, lv.label AS origin_region
          FROM coffees c
@@ -945,11 +1050,12 @@ router.get('/:id/content', async (req, res) => {
         [id]
       ),
     ]);
+    const content = contentResult.rows[0] ?? {};
     const extra = extraResult.rows[0] ?? {};
     res.json({
-      aiSummary:       content.aiSummary,
-      surpriseNote:    content.surpriseNote,
-      threeVoiceStory: content.threeVoiceStory,
+      aiSummary:       content.ai_summary ?? '',
+      surpriseNote:    content.surprise_note ?? null,
+      threeVoiceStory: content.three_voice_story ?? null,
       process:         extra.process ?? null,
       roastLevel:      extra.roast_level ?? null,
       originRegion:    extra.origin_region ?? null,
@@ -1006,25 +1112,18 @@ router.get('/:id/story', async (req, res) => {
 
 // GET /api/coffees/:id/ai-summary ─────────────────────────────────────────────
 // Kept for backward compatibility. New code should use /content.
+// C3 (M2 fix) — pure read, NEVER calls Claude, same discipline as /content
+// above. A cache-miss returns `summary: null` (200), not a generation
+// attempt — the frontend has no live caller of this legacy route today, but
+// the contract stays graceful for anything that does hit it.
 router.get('/:id/ai-summary', async (req, res) => {
   const { id } = req.params;
   try {
     const cached = await db.query(`SELECT ai_summary FROM coffees WHERE id = $1`, [id]);
-    if (cached.rows[0]?.ai_summary) {
-      res.json({ summary: cached.rows[0].ai_summary });
-      return;
-    }
-    const summary = await generateAndStoreSummary(id);
-    res.json({ summary });
+    res.json({ summary: cached.rows[0]?.ai_summary ?? null });
   } catch (err) {
-    // C2 Part 1 — a guard block (kill-switch / daily ceiling) on this public,
-    // unauthenticated route is a graceful "try again later," not a 500.
-    if (isClaudeGuardBlocked(err)) {
-      res.status(503).json({ error: 'ai_unavailable', message: 'AI-generated content is temporarily unavailable — please try again shortly.' });
-      return;
-    }
     console.error('[coffees/ai-summary]', err);
-    res.status(500).json({ error: 'Failed to generate summary' });
+    res.status(500).json({ error: 'Failed to fetch summary' });
   }
 });
 
