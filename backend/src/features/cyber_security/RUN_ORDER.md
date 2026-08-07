@@ -19,7 +19,7 @@
 
 ## Phase 2 — high-value code (run in this order)
 - [x] **C1 — DONE 2026-08-07:** removed `/health/db` + `/health/session-cols` (`backend/src/index.ts`, `a0fa591`). `GET /health` untouched. Verified live: `/health` 200, both removed routes 404 at the Cloud Run origin. Full writeup in `WHAT_WE_BUILT_SECURITY.md`.
-- [ ] **C2** — global aggregate Claude kill-switch + fix model-tier escalation. *(do before C3 — C3 relies on the same ceiling)*
+- [x] **C2 — DONE 2026-08-07:** global aggregate Claude kill-switch (`CLAUDE_ENABLED`/`CLAUDE_GLOBAL_DAILY_USD`, `backend/src/services/anthropicGuard.ts`) + M4's content-based model escalation removed entirely from `claude.ts`. Wired into all 9 real Claude call sites app-wide. Full writeup in `WHAT_WE_BUILT_SECURITY.md`. **C3 can now build on this ceiling.**
 - [ ] **C3** — stop public coffee AI endpoints from generating on demand.
 - [ ] **C4** — beats dial-in IDOR → capability token. *(schema migration)*
 - [ ] **C5** — order-bonus abuse + server-side pricing. *(may need a Shopify paid-webhook; can split)*
