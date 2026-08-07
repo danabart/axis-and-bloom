@@ -1,7 +1,6 @@
 import type { CSSProperties } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Link } from 'react-router';
-import type { Hop } from './types';
 import { TastingNotes, type ContentData } from '../coffee-info/TastingNotes';
 import { DimensionBars, type DimensionRow } from '../coffee-info/DimensionBars';
 import { CollaborativeFlavorWheel, type WheelRow } from '../coffee-info/CollaborativeFlavorWheel';
@@ -14,9 +13,7 @@ interface RevealedPanelProps {
   content: ContentData | null;
   dimensions: DimensionRow[];
   wheelRows: WheelRow[];
-  hops: Hop[];
   userArchetype: string | null;
-  onHopClick: (targetArchetype: string, targetDialSortOrder: number) => void;
   /** Profile Part 6, issue D: hides the "Your flavor profile →" action-row link.
    * Additive, default false (shown) — every existing consumer keeps the link;
    * only the Profile page itself passes true, since a self-link there is noise. */
@@ -24,8 +21,6 @@ interface RevealedPanelProps {
 }
 
 const RULE_STYLE: CSSProperties = { border: 'none', borderTop: '1px solid #deded1', margin: '32px 0' };
-const MICRO_LABEL_STYLE: CSSProperties = { color: '#7b7f80', fontWeight: 400 };
-const MICRO_LABEL_CLASS = 'text-[10px] uppercase tracking-[.18em]';
 const QUIET_LINK_CLASS = 'text-[10.5px] uppercase tracking-[.14em] text-[#9a2918] opacity-[.85] hover:opacity-100 no-underline transition-opacity';
 
 /**
@@ -37,14 +32,21 @@ const QUIET_LINK_CLASS = 'text-[10.5px] uppercase tracking-[.14em] text-[#9a2918
  * Part 13 (reveal-panel redesign) — new order: verdict (compatibility badge +
  * why-sentence) → Three voices (the only prose left; TastingNotes' surprise-note
  * and Liam's-intake blocks are retired here) → evidence (trimmed cupping bars +
- * Signature notes) → footer (actions + nearby-on-the-dial hops). Brand type/color
- * language throughout (matches the Bloom Dial above it), 1px hairlines instead of
- * nested rounded cards, no emojis. See PROMPT_reveal_panel_redesign.md.
+ * Signature notes) → footer (actions). Brand type/color language throughout
+ * (matches the Bloom Dial above it), 1px hairlines instead of nested rounded
+ * cards, no emojis. See PROMPT_reveal_panel_redesign.md.
+ *
+ * Part 16 §A — "Nearby on the dial" hop chips moved OUT of this footer and onto
+ * the dial instrument itself (`BloomDial.tsx`, rendered pre-reveal below the
+ * "TURN THE WHEEL" hint) — no longer this component's concern at all; `hops`/
+ * `onHopClick` dropped from the prop surface accordingly.
  */
-export function RevealedPanel({ isRevealed, archetype, dialSortOrder, content, dimensions, wheelRows, hops, userArchetype, onHopClick, hideProfileLink = false }: RevealedPanelProps) {
+export function RevealedPanel({ isRevealed, archetype, dialSortOrder, content, dimensions, wheelRows, userArchetype, hideProfileLink = false }: RevealedPanelProps) {
   const { compat, dimCompText } = useCompatibility(archetype, userArchetype, dimensions);
   const exploreLink = archetype && dialSortOrder != null ? `/flavor-intelligence?archetype=${archetype}&slot=${dialSortOrder}` : '/flavor-intelligence';
-  const hasEvidence = dimensions.length > 0 || wheelRows.length > 0;
+  const hasDimensions = dimensions.length > 0;
+  const hasWheel = wheelRows.length > 0;
+  const hasEvidence = hasDimensions || hasWheel;
 
   return (
     <AnimatePresence initial={false}>
@@ -82,43 +84,32 @@ export function RevealedPanel({ isRevealed, archetype, dialSortOrder, content, d
             <TastingNotes content={content} contentLoading={!content} variant="reveal" />
 
             {/* ── Row 3 · Evidence ── */}
+            {/* Part 16 §C — two-column grid only when BOTH blocks have data; a single
+                full-width column (no orphan half-width cell) when only one does. */}
             {hasEvidence && (
               <>
                 <hr style={RULE_STYLE} />
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                  <DimensionBars dimensions={dimensions} variant="reveal" />
-                  <CollaborativeFlavorWheel wheelRows={wheelRows} variant="signature" />
-                </div>
+                {hasDimensions && hasWheel ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                    <DimensionBars dimensions={dimensions} variant="reveal" />
+                    <CollaborativeFlavorWheel wheelRows={wheelRows} variant="signature" />
+                  </div>
+                ) : (
+                  <div>
+                    {hasDimensions && <DimensionBars dimensions={dimensions} variant="reveal" />}
+                    {hasWheel && <CollaborativeFlavorWheel wheelRows={wheelRows} variant="signature" />}
+                  </div>
+                )}
               </>
             )}
 
             <hr style={RULE_STYLE} />
 
-            {/* ── Row 4 · Footer: actions + nearby positions ── */}
-            <div>
-              <div className="flex flex-wrap gap-x-9 gap-y-3">
-                <Link to={exploreLink} className={QUIET_LINK_CLASS}>Explore the full breakdown →</Link>
-                <Link to="/sommelier" className={QUIET_LINK_CLASS}>Talk to Liam →</Link>
-                {!hideProfileLink && <Link to="/profile" className={QUIET_LINK_CLASS}>Your flavor profile →</Link>}
-              </div>
-
-              {hops.length > 0 && (
-                <div style={{ marginTop: 26 }}>
-                  <span className={MICRO_LABEL_CLASS} style={MICRO_LABEL_STYLE}>Nearby on the dial</span>
-                  <div className="flex flex-wrap gap-2" style={{ marginTop: 10 }}>
-                    {hops.map((hop, i) => (
-                      <button
-                        key={i}
-                        onClick={() => onHopClick(hop.target.archetype, hop.target.dialSortOrder)}
-                        className="text-[11px] tracking-[.03em] px-[14px] py-[6px] rounded-full border border-[#deded1] bg-transparent text-[#7b7f80] hover:border-[#9a2918] hover:text-[#9a2918] transition-colors text-left"
-                      >
-                        {hop.direction === 'more' ? 'More' : 'Less'} {hop.dimensionName.toLowerCase()} → {hop.target.positionLabel}
-                        {hop.target.archetype !== archetype && ` · ${hop.target.archetypeLabel}`}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+            {/* ── Row 4 · Footer: actions ── */}
+            <div className="flex flex-wrap gap-x-9 gap-y-3">
+              <Link to={exploreLink} className={QUIET_LINK_CLASS}>Explore the full breakdown →</Link>
+              <Link to="/sommelier" className={QUIET_LINK_CLASS}>Talk to Liam →</Link>
+              {!hideProfileLink && <Link to="/profile" className={QUIET_LINK_CLASS}>Your flavor profile →</Link>}
             </div>
           </div>
         </motion.div>

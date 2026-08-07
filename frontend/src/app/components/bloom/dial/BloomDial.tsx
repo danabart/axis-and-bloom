@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, type CSSProperties,
 import { getCells, colorizeCells, BEIGE, W, H, type Cell, type RGB } from './fillEngine';
 import { LINEWORK_URI } from './linework';
 import type { DialConfig, DialCoffee } from './archetypeConfig';
+import type { Hop } from '../types';
 
 // The Bloom Dial — reusable component, source of truth on the Bloom page
 // (brief 33). One archetype per mount; the wheel/ruler/bag interaction and the
@@ -28,10 +29,37 @@ interface Props {
   belowStage?: ReactNode;
   /** Compact variant for embedded contexts (quiz screens, Profile). */
   embedded?: boolean;
+  /** Part 16 §A — "Nearby on the dial" navigation chips, rendered under the
+   * "TURN THE WHEEL" hint (pre-reveal — DialArchetypeSection fetches these as
+   * soon as the position resolves to a real coffee, not gated on reveal
+   * anymore). Additive/optional so a bare `<BloomDial>` without hops still
+   * renders exactly as before. */
+  hops?: Hop[];
+  onHopClick?: (targetArchetype: string, targetDialSortOrder: number) => void;
 }
 
 const TRAVEL = 120;
-const ZONE_ROT = [-90, -30, 30, 90];
+
+// Part 16 §B — stop layout: the default position anchors at the visual center
+// of the bar, the first/last positions (by dialSortOrder) sit at the edges, and
+// any remaining positions distribute evenly between center and their nearer
+// edge. dialSortOrder order is always preserved left-to-right. Falls back to
+// dumb even spacing — no cleverness — when the default is itself the first/last
+// position, no position is flagged default, or there are fewer than 3
+// positions (nothing meaningful to "center").
+function computeStopPositions(coffees: DialCoffee[]): number[] {
+  const n = coffees.length;
+  const ordered = [...coffees].sort((a, b) => a.dialSortOrder - b.dialSortOrder);
+  const defaultIdx = ordered.findIndex(c => c.isDefault);
+  const evenFallback = () => Array.from({ length: n }, (_, i) => (n <= 1 ? 0.5 : i / (n - 1)));
+
+  if (n < 3 || defaultIdx <= 0 || defaultIdx >= n - 1) return evenFallback();
+
+  const stops = new Array<number>(n);
+  for (let i = 0; i <= defaultIdx; i++) stops[i] = (i / defaultIdx) * 0.5;
+  for (let i = defaultIdx; i < n; i++) stops[i] = 0.5 + ((i - defaultIdx) / (n - 1 - defaultIdx)) * 0.5;
+  return stops;
+}
 
 function fmtPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
@@ -62,9 +90,26 @@ function ensureStyles() {
 }
 
 export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
-  { config, initialDialSortOrder = 2, onZoneChange, onPreOrder, bottomContent, belowStage, embedded = false },
+  { config, initialDialSortOrder = 2, onZoneChange, onPreOrder, bottomContent, belowStage, embedded = false, hops = [], onHopClick },
   ref,
 ) {
+  // Part 16 §B — this archetype's stop layout (0..1 position per coffee, index
+  // = zone). Recomputed every render (cheap — at most a handful of positions)
+  // but only actually read at ref-init time and inside the setup effect below,
+  // which only reruns when `config.archetype` changes — same lifecycle as the
+  // rest of the drag/snap machinery, so a stale closure here is no different
+  // from the existing TRAVEL-based logic.
+  const stopPositions = computeStopPositions(config.coffees);
+  const maxZone = stopPositions.length - 1;
+  const clampZone = (z: number) => Math.min(maxZone, Math.max(0, z));
+  const stopRot = (zone: number) => stopPositions[zone] * 2 * TRAVEL - TRAVEL;
+  // Kept fresh every render (unlike the setup effect below, which only reruns on
+  // `config.archetype` change) so `rotateTo` and the drag handlers never snap
+  // against a stale stop layout if `config.coffees`' isDefault flags change
+  // after mount (e.g. placeholder → real catalogue data resolving).
+  const stopPositionsRef = useRef<number[]>(stopPositions);
+  stopPositionsRef.current = stopPositions;
+
   const rootRef    = useRef<HTMLDivElement>(null);
   const wrapRef    = useRef<HTMLDivElement>(null);
   const rotorRef   = useRef<HTMLDivElement>(null);
@@ -84,8 +129,8 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
   const alphaRef   = useRef<number[]>([]);
   const ctxRef     = useRef<CanvasRenderingContext2D | null>(null);
 
-  const rotRef     = useRef<number>(ZONE_ROT[Math.min(3, Math.max(0, initialDialSortOrder - 1))]);
-  const zoneRef    = useRef<number>(Math.min(3, Math.max(0, initialDialSortOrder - 1)));
+  const rotRef     = useRef<number>(stopRot(clampZone(initialDialSortOrder - 1)));
+  const zoneRef    = useRef<number>(clampZone(initialDialSortOrder - 1));
   const draggingRef = useRef<false | 'wheel' | 'bar'>(false);
   const lastZoneRef = useRef<number>(-1);
 
@@ -99,9 +144,10 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
 
   useImperativeHandle(ref, () => ({
     rotateTo(dialSortOrder: number) {
-      const zone = Math.min(3, Math.max(0, dialSortOrder - 1));
+      const positions = stopPositionsRef.current;
+      const zone = Math.min(positions.length - 1, Math.max(0, dialSortOrder - 1));
       zoneRef.current = zone;
-      rotRef.current = ZONE_ROT[zone];
+      rotRef.current = positions[zone] * 2 * TRAVEL - TRAVEL;
       paintRef.current?.(rotRef.current);
     },
   }), []);
@@ -119,7 +165,21 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
     ctxRef.current = ctx;
 
     const posOf = (rot: number) => (rot + TRAVEL) / (2 * TRAVEL);
-    const zoneOf = (pos: number) => Math.max(0, Math.min(3, Math.floor(pos * 4)));
+    // Part 16 §B — nearest stop, not a fixed floor(pos*4): positions are no
+    // longer necessarily evenly spaced (the default position sits at center).
+    // Reads stopPositionsRef fresh each call rather than closing over a single
+    // snapshot, so this effect doesn't need to rerun if the stop layout changes
+    // without the archetype itself changing.
+    const zoneOf = (pos: number) => {
+      const positions = stopPositionsRef.current;
+      let best = 0, bestDist = Infinity;
+      for (let i = 0; i < positions.length; i++) {
+        const d = Math.abs(positions[i] - pos);
+        if (d < bestDist) { bestDist = d; best = i; }
+      }
+      return best;
+    };
+    const rotForZone = (zone: number) => stopPositionsRef.current[zone] * 2 * TRAVEL - TRAVEL;
 
     function paintFill(pos: number) {
       const cells = cellsRef.current, colors = colorsRef.current, imgData = imgDataRef.current;
@@ -168,10 +228,16 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
     }
     paintRef.current = paint;
 
+    // Part 16 §B — always lands on exactly one stop, never between: called on
+    // every release path (wheel drag, bar/needle drag; PointerEvent already
+    // unifies mouse/touch/pen, so no separate touch handling is needed). Keeps
+    // the existing spring/ease (rotor & needle's own CSS transitions, restored
+    // the instant `bd-dragging` is removed just before this runs) — short,
+    // confident, no bounce past the stop.
     function snap() {
       const zone = zoneOf(posOf(rotRef.current));
       zoneRef.current = zone;
-      rotRef.current = ZONE_ROT[zone];
+      rotRef.current = rotForZone(zone);
       paint(rotRef.current);
       onZoneChangeRef.current?.(zone + 1);
     }
@@ -266,10 +332,13 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
     ticks.addEventListener('pointerup', onBarUp);
     ticks.addEventListener('pointercancel', onBarUp);
 
-    // ── Keyboard (both wheel and bar) ──
+    // ── Keyboard (both wheel and bar) — already moves in whole positions;
+    // Part 16 §B just points it at the same computed stops as drag/snap so
+    // ARIA values stay correct for the new (possibly uneven) layout. ──
     const step = (d: number) => {
-      const zone = Math.max(0, Math.min(3, zoneRef.current + d));
-      zoneRef.current = zone; rotRef.current = ZONE_ROT[zone];
+      const positions = stopPositionsRef.current;
+      const zone = Math.max(0, Math.min(positions.length - 1, zoneRef.current + d));
+      zoneRef.current = zone; rotRef.current = rotForZone(zone);
       paint(rotRef.current);
       onZoneChangeRef.current?.(zone + 1);
     };
@@ -303,10 +372,11 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
   // Apply an externally-changed position (saved position arriving, deep link)
   // without fighting an in-progress drag or looping on our own emits.
   useEffect(() => {
-    const zone = Math.min(3, Math.max(0, initialDialSortOrder - 1));
+    const positions = stopPositionsRef.current;
+    const zone = Math.min(positions.length - 1, Math.max(0, initialDialSortOrder - 1));
     if (draggingRef.current || zone === zoneRef.current) return;
     zoneRef.current = zone;
-    rotRef.current = ZONE_ROT[zone];
+    rotRef.current = positions[zone] * 2 * TRAVEL - TRAVEL;
     paintRef.current?.(rotRef.current);
   }, [initialDialSortOrder]);
 
@@ -346,7 +416,7 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
               <div className="bd-coffee-head-text">
                 <div className="bd-now" ref={nowRef}>THE COFFEE</div>
                 <div className="bd-coffee-name" ref={nameRef}>
-                  {config.coffees[Math.min(3, Math.max(0, initialDialSortOrder - 1))].name}
+                  {config.coffees[clampZone(initialDialSortOrder - 1)].name}
                 </div>
               </div>
             ) : (
@@ -375,7 +445,7 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
                 className="bd-dial-wrap" ref={wrapRef}
                 role="slider" tabIndex={0}
                 aria-label={`${config.archetypeLabel} Bloom Dial`}
-                aria-valuemin={0} aria-valuemax={3} aria-valuenow={Math.min(3, Math.max(0, initialDialSortOrder - 1))}
+                aria-valuemin={0} aria-valuemax={maxZone} aria-valuenow={clampZone(initialDialSortOrder - 1)}
               >
                 <div className="bd-marker" />
                 <div className="bd-rotor" ref={rotorRef}>
@@ -387,7 +457,7 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
                 <div
                   className="bd-ruler-ticks" ref={ticksRef} tabIndex={0}
                   role="slider" aria-label={`${config.archetypeLabel} Bloom Dial position`}
-                  aria-valuemin={0} aria-valuemax={3} aria-valuenow={Math.min(3, Math.max(0, initialDialSortOrder - 1))}
+                  aria-valuemin={0} aria-valuemax={maxZone} aria-valuenow={clampZone(initialDialSortOrder - 1)}
                 >
                   <div className="bd-needle" ref={needleRef} />
                 </div>
@@ -397,6 +467,27 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
                 </div>
               </div>
               <div className="bd-hint">TURN THE WHEEL, OR SLIDE THE BAR</div>
+
+              {/* Part 16 §A — "Nearby on the dial" navigation, moved here from
+                  RevealedPanel's footer: this is dial navigation, so it lives on
+                  the instrument, visible pre-reveal. Styled with the field-text
+                  color system (--bd-ftext*), not the panel's palette, so it reads
+                  as part of the instrument rather than panel UI pasted onto it. */}
+              {hops.length > 0 && (
+                <div className="bd-hops">
+                  {hops.map((hop, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      className="bd-hop-chip"
+                      onClick={() => onHopClick?.(hop.target.archetype, hop.target.dialSortOrder)}
+                    >
+                      {hop.direction === 'more' ? 'More' : 'Less'} {hop.dimensionName.toLowerCase()} → {hop.target.positionLabel}
+                      {hop.target.archetype !== config.archetype && ` · ${hop.target.archetypeLabel}`}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Coffee identity by the wheel (Bloom layout only): small label,
@@ -406,7 +497,7 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
               <div className="bd-field-id">
                 <div className="bd-field-label">THE COFFEE</div>
                 <div className="bd-field-name" ref={fieldNameRef}>
-                  {nameToLines(config.coffees[Math.min(3, Math.max(0, initialDialSortOrder - 1))].name)}
+                  {nameToLines(config.coffees[clampZone(initialDialSortOrder - 1)].name)}
                 </div>
                 <div className="bd-field-tagline">Every turn, a coffee of its own.</div>
               </div>
@@ -466,6 +557,11 @@ const CSS = `
    crowd out the other. */
 .bd-ruler-ends span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:48%;}
 .bd-hint{margin-top:12px;font-size:10.5px;letter-spacing:.14em;color:var(--bd-ftext-mid);}
+/* Part 16 §A — instrument-native hop chips (not panel UI): transparent, thin
+   field-text border at reduced opacity, field-text-mid label, small pill. */
+.bd-hops{margin-top:16px;display:flex;flex-wrap:wrap;gap:8px;justify-content:center;max-width:360px;}
+.bd-hop-chip{font-family:inherit;font-size:11px;letter-spacing:.02em;padding:6px 13px;border-radius:999px;border:1px solid var(--bd-ftext-weak);background:none;color:var(--bd-ftext-mid);cursor:pointer;text-align:left;transition:border-color 240ms ${EASE},color 240ms ${EASE};}
+.bd-hop-chip:hover{border-color:var(--bd-ftext);color:var(--bd-ftext);}
 .bd-field-inner{display:flex;align-items:center;justify-content:center;gap:clamp(28px,4vw,72px);width:100%;}
 .bd-wheel-col{display:flex;flex-direction:column;align-items:center;flex-shrink:0;}
 /* The identity block has a FIXED width (and the name a fixed height) so the row
@@ -509,6 +605,7 @@ const CSS = `
 .bd-embedded .bd-instrument{padding:42px 24px;}
 .bd-embedded .bd-dial-wrap{width:300px;height:300px;}
 .bd-embedded .bd-ruler{width:280px;margin-top:28px;}
+.bd-embedded .bd-hops{max-width:280px;}
 .bd-embedded .bd-bdial{font-size:19px;margin-top:8px;}
 .bd-embedded .bd-coffee-name{font-size:23px;min-height:0;margin-top:10px;}
 .bd-embedded .bd-reading-bottom{padding-top:22px;}

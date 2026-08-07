@@ -20,10 +20,16 @@ export function usePositionCardData(slot: Slot, archetype: string, isRevealed: b
   const [hops, setHops] = useState<Hop[]>([]);
   const [detailLoaded, setDetailLoaded] = useState(false);
 
-  // Teaser + per-weight availability, fetched as soon as this is a real position (not gated by reveal).
+  // Teaser + per-weight availability + hops, fetched as soon as this is a real
+  // position (not gated by reveal). Part 16 §A — hops moved here from the
+  // reveal-gated effect below: the chips now render on the dial instrument
+  // itself, pre-reveal, so they need to be ready before the first reveal click,
+  // not after it. Still fetched once per slot (own effect, own dep array) and
+  // cached in state exactly as before — just triggered earlier.
   useEffect(() => {
     if (!slot.isActive || !slot.coffeeId) return;
     fetch(`/api/coffees/${slot.coffeeId}/content`).then(r => r.json()).then(setContent).catch(() => {});
+    fetch(`/api/coffees/${slot.coffeeId}/hops`).then(r => r.json()).then(setHops).catch(() => {});
 
     Promise.all(
       slot.prices.map(p =>
@@ -40,18 +46,17 @@ export function usePositionCardData(slot: Slot, archetype: string, isRevealed: b
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slot.coffeeId, slot.isActive]);
 
-  // Full informational layer, fetched lazily on first reveal only.
+  // Dimensions + flavor wheel, fetched lazily on first reveal only (hops no
+  // longer live here — see the effect above).
   useEffect(() => {
     if (!isRevealed || detailLoaded || !slot.coffeeId) return;
     setDetailLoaded(true);
     Promise.all([
       fetch(`/api/coffees/${slot.coffeeId}/dimensions`).then(r => r.json()),
       fetch(`/api/coffees/${slot.coffeeId}/flavor-wheel`).then(r => r.json()),
-      fetch(`/api/coffees/${slot.coffeeId}/hops`).then(r => r.json()),
-    ]).then(([dimData, wheel, hopData]) => {
+    ]).then(([dimData, wheel]) => {
       setDimensions(dimData.dimensions ?? []);
       setWheelRows(wheel);
-      setHops(hopData);
     }).catch(() => {});
   }, [isRevealed, detailLoaded, slot.coffeeId]);
 

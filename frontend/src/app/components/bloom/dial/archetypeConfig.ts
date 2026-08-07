@@ -14,6 +14,9 @@ export interface DialCoffee {
   price12Cents: number;
   price5Cents: number;
   coffeeId: number | null;    // real coffee id when resolved, else null
+  /** Part 16 §B — which position is the archetype's default slot (Slot.isDefault),
+   * used to compute the dial's stop layout (default anchors at visual center). */
+  isDefault: boolean;
 }
 
 export interface DialConfig {
@@ -78,6 +81,7 @@ export function buildDialConfig(data: ArchetypeData): DialConfig | null {
       price12Cents: slot ? priceForWeight(slot.prices, 12, DEFAULT_PRICE_12) : DEFAULT_PRICE_12,
       price5Cents:  slot ? priceForWeight(slot.prices, 80, DEFAULT_PRICE_5LB) : DEFAULT_PRICE_5LB,
       coffeeId: slot?.coffeeId ?? null,
+      isDefault: slot?.isDefault ?? false,
     };
   });
 

@@ -235,9 +235,7 @@ export function DialArchetypeSection({
         content={cardData.content}
         dimensions={cardData.dimensions}
         wheelRows={cardData.wheelRows}
-        hops={cardData.hops}
         userArchetype={userArchetype}
-        onHopClick={onHopClick}
         hideProfileLink={hideProfileLink}
       />
     </div>
@@ -252,6 +250,8 @@ export function DialArchetypeSection({
       bottomContent={bottomContent}
       belowStage={belowStage}
       embedded={embedded}
+      hops={cardData.hops}
+      onHopClick={onHopClick}
     />
   );
 }

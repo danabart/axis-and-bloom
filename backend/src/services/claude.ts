@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getSommelierConfig } from './sommelierConfig.js';
+import { guardClaudeCall } from './anthropicGuard.js';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -259,35 +260,29 @@ export async function chatWithSommelier(params: {
 
   const systemPrompt = assembleSystemPrompt({ session, catalogContext, mode, config, brewProfileContext, storyContext, currentCoffeeContext });
 
-  let modelId: string;
-  let maxTokens: number;
-
-  if (mode === 'expertise') {
-    // Model policy (§4.7) — a detected knowledge topic always routes to the
-    // expertise model, regardless of keywords/length. `expertiseModelOverride`
-    // is a manual A/B slot (e.g. Fable), null means the Sonnet default.
-    modelId = config?.modelRouting?.expertiseModelOverride ?? 'claude-sonnet-4-6';
-    maxTokens = config?.responseContracts?.expertise?.maxTokens ?? 500;
-  } else {
-    // Matching mode — today's routing, untouched.
-    const sonnetKeywords: string[] = config?.modelRouting?.sonnetKeywords ?? [
-      'recommend', 'suggest', 'compare', 'difference', 'explain', 'why',
-    ];
-    const sonnetMinWords: number = config?.modelRouting?.sonnetMinMessageWords ?? 20;
-
-    let useSonnet = false;
-    if (message) {
-      const wordCount = message.trim().split(/\s+/).length;
-      if (wordCount >= sonnetMinWords) useSonnet = true;
-      if (!useSonnet) {
-        const lower = message.toLowerCase();
-        useSonnet = sonnetKeywords.some((kw) => lower.includes(kw.toLowerCase()));
-      }
-    }
-
-    modelId = useSonnet ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001';
-    maxTokens = config?.responseContracts?.matching?.maxTokens ?? 200;
-  }
+  // C2 Part 2 (M4 fix) — model choice is decided purely by surface, never by
+  // message content. chatWithSommelier is the authenticated Liam
+  // conversation (every caller — sommelier.ts's /start and /:sessionId/
+  // message — sits behind requireAuth + blockAnonymousAuth): a single
+  // quality path, always claude-sonnet-4-6, regardless of turn content,
+  // word count, or mode. It's bounded by login + the per-account/per-IP
+  // turn limiters + checkDailyCap + the shared global-spend gate
+  // (guardClaudeCall, below) — not by picking a cheaper model per turn.
+  // The old word-count/keyword escalation (a user could force Sonnet for
+  // free just by writing 20+ words or saying "why") is deleted entirely,
+  // not tuned: no request body, header, or query param reaches this
+  // function in any form that influences modelId below. `mode` still
+  // selects prompt content/length (assembleSystemPrompt, maxTokens) — a
+  // presentation/length contract, not a model choice — set server-side from
+  // topicRouter.ts's classification, never from raw message text length or
+  // keywords. `expertiseModelOverride` is kept as the one legitimate,
+  // operator-controlled (not user-content-driven) lever — a manual A/B slot
+  // (e.g. Fable) against blind transcripts, now applying to the whole
+  // authenticated conversation rather than just expertise-mode turns.
+  const modelId = config?.modelRouting?.expertiseModelOverride ?? 'claude-sonnet-4-6';
+  const maxTokens = mode === 'expertise'
+    ? (config?.responseContracts?.expertise?.maxTokens ?? 500)
+    : (config?.responseContracts?.matching?.maxTokens ?? 200);
 
   const messages: Anthropic.MessageParam[] = [...history];
   if (message !== null) {
@@ -297,12 +292,14 @@ export async function chatWithSommelier(params: {
     messages.push({ role: 'user', content: 'Begin the conversation.' });
   }
 
-  const response = await client.messages.create({
-    model: modelId,
-    max_tokens: maxTokens,
-    system: systemPrompt,
-    messages,
-  });
+  const response = await guardClaudeCall(modelId, () =>
+    client.messages.create({
+      model: modelId,
+      max_tokens: maxTokens,
+      system: systemPrompt,
+      messages,
+    })
+  );
 
   const block = response.content[0];
   const rawReply = block.type === 'text' ? block.text : '';
@@ -403,12 +400,17 @@ export async function getRecommendation(
 
   const content = prompts[mode] ?? prompts['primary_only'];
 
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 300,
-    system: RECOMMENDATION_SYSTEM_PROMPT,
-    messages: [{ role: 'user', content }],
-  });
+  // C2 Part 2 — public/anon-reachable surface (POST /api/quiz/results is
+  // requireAuth-only, reachable by anonymous guest identities too — see M10).
+  // Haiku, unconditionally — never content-driven, never escalated.
+  const response = await guardClaudeCall('claude-haiku-4-5-20251001', () =>
+    client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 300,
+      system: RECOMMENDATION_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content }],
+    })
+  );
 
   const block = response.content[0];
   return block.type === 'text' ? block.text : '';
@@ -435,14 +437,18 @@ ${dimLines || '  (no numeric data)'}
 Top flavor descriptors: ${topDescriptors.length ? topDescriptors.join(', ') : 'none recorded'}
 ${overallNotes ? `\nCupper's notes: "${overallNotes}"` : ''}
 
-Be warm and specific. Name actual flavors and textures. No marketing language. Under 80 words.`;
+Be warm and specific. Name actual flavors and textures. No marketing language. Under 80 words. If the data above is genuinely insufficient to write this honestly, respond with exactly: INSUFFICIENT_DATA`;
 
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 200,
-    system: RECOMMENDATION_SYSTEM_PROMPT,
-    messages: [{ role: 'user', content }],
-  });
+  // C2 Part 2 — public, unauthenticated surface (GET /api/coffees/:id/content
+  // and /:id/ai-summary — see M2). Haiku, unconditionally.
+  const response = await guardClaudeCall('claude-haiku-4-5-20251001', () =>
+    client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 200,
+      system: RECOMMENDATION_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content }],
+    })
+  );
 
   const block = response.content[0];
   return block.type === 'text' ? block.text : '';
@@ -468,14 +474,17 @@ Cupping dimensions:
 ${dimLines || '  (no numeric data)'}
 Top flavor descriptors: ${topDescriptors.length ? topDescriptors.join(', ') : 'none recorded'}${overallNotes ? `\nCupper's notes: "${overallNotes}"` : ''}
 
-Be direct and editorial. Do not start with the coffee name. Do not use marketing language. Under 50 words.`;
+Be direct and editorial. Do not start with the coffee name. Do not use marketing language. Under 50 words. If the data above is genuinely insufficient to write this honestly, respond with exactly: INSUFFICIENT_DATA`;
 
-  const surpriseResponse = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 150,
-    system: RECOMMENDATION_SYSTEM_PROMPT,
-    messages: [{ role: 'user', content }],
-  });
+  // C2 Part 2 — public, unauthenticated surface (see M2). Haiku, unconditionally.
+  const surpriseResponse = await guardClaudeCall('claude-haiku-4-5-20251001', () =>
+    client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 150,
+      system: RECOMMENDATION_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content }],
+    })
+  );
   const surpriseBlock = surpriseResponse.content[0];
   return surpriseBlock.type === 'text' ? surpriseBlock.text : '';
 }
@@ -500,14 +509,17 @@ export async function getCoffeeThreeVoiceStory(params: {
 
 ${lines}
 
-Write this as editorial storytelling — not a list. Name the agreement and divergence naturally. Example style: "Our team kept coming back to blueberry and black tea. The roaster's bag notes said stone fruit and floral — closer than it sounds. Customers have been landing on citrus." Under 80 words.`;
+Write this as editorial storytelling — not a list. Name the agreement and divergence naturally. Example style: "Our team kept coming back to blueberry and black tea. The roaster's bag notes said stone fruit and floral — closer than it sounds. Customers have been landing on citrus." Under 80 words. If the data above is genuinely insufficient to write this honestly, respond with exactly: INSUFFICIENT_DATA`;
 
-  const storyResponse = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 200,
-    system: RECOMMENDATION_SYSTEM_PROMPT,
-    messages: [{ role: 'user', content }],
-  });
+  // C2 Part 2 — public, unauthenticated surface (see M2). Haiku, unconditionally.
+  const storyResponse = await guardClaudeCall('claude-haiku-4-5-20251001', () =>
+    client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 200,
+      system: RECOMMENDATION_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content }],
+    })
+  );
   const storyBlock = storyResponse.content[0];
   return storyBlock.type === 'text' ? storyBlock.text : null;
 }

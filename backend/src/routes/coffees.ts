@@ -3,6 +3,23 @@ import { db } from '../db/client.js';
 import { getCoffeeSummary, getCoffeeSurpriseNote, getCoffeeThreeVoiceStory } from '../services/claude.js';
 import { resolveBlendForSlot, resolveCoffeeBlend } from '../services/blendResolver.js';
 import { generateCoffeeStoryWithRetry, checkStorySpecificityViolations } from '../services/storyLayer.js';
+import { looksLikeRefusal } from '../services/contentGuard.js';
+import { isClaudeGuardBlocked } from '../services/anthropicGuard.js';
+
+// C2 Part 1 — a blocked generation call (global kill-switch / daily ceiling)
+// must degrade to "nothing new, keep whatever's cached" — never to "write
+// NULL over good cached content," which is what would happen if a blocked
+// call were indistinguishable from a genuine empty/refused generation.
+// Resolves to null on a guard block (caller already treats null as "no new
+// content this pass"); any other error still rejects normally.
+async function toNullIfBlocked<T>(promise: Promise<T | null>): Promise<T | null> {
+  try {
+    return await promise;
+  } catch (err) {
+    if (isClaudeGuardBlocked(err)) return null;
+    throw err;
+  }
+}
 
 const router = Router();
 
@@ -197,22 +214,65 @@ export async function generateAndStoreAllContent(
   // sourceData.length >= 2 guard just above.
   const hasEnoughDataForStory = archetypeLabel !== null || dimensionParams.length > 0 || topDescriptors.length > 0;
 
+  // Part 16 §D1 — input gate: getCoffeeSummary/getCoffeeSurpriseNote both
+  // consume the same three inputs (dimensions, topDescriptors, overallNotes);
+  // with all three empty there's nothing to write a real note from, and asking
+  // anyway is exactly how the live bug happened (a coffee with no cupping data
+  // got Claude's refusal text stored verbatim as its surprise_note). Skip the
+  // call entirely rather than let the model improvise or apologize.
+  // getCoffeeThreeVoiceStory already has its own sufficiency gate
+  // (sourceData.length >= 2, below) — this just adds the warning log for it.
+  const hasSufficientData = dimensionParams.length > 0 || topDescriptors.length > 0 || !!data.overallNotes;
+  const hasSufficientVoices = sourceData.length >= 2;
+  if (needsSummary && !hasSufficientData) {
+    console.warn(`[coffees/content] insufficient data to generate ai_summary for coffee ${coffeeId}`);
+  }
+  if (needsSurprise && !hasSufficientData) {
+    console.warn(`[coffees/content] insufficient data to generate surprise_note for coffee ${coffeeId}`);
+  }
+  if (needsStory && !hasSufficientVoices) {
+    console.warn(`[coffees/content] insufficient data to generate three_voice_story for coffee ${coffeeId}`);
+  }
+
+  // Part 16 §D2 — output validation: even with sufficient inputs, reject a
+  // result that reads like Claude declining/talking about missing data (the
+  // REFUSAL_PATTERNS list, or the literal INSUFFICIENT_DATA token the prompts
+  // now instruct the model to return in that case) rather than store it.
+  function guardGenerated(field: string, text: string): string | null {
+    if (looksLikeRefusal(text)) {
+      console.warn(`[coffees/content] rejected generated ${field} for coffee ${coffeeId} — looks like a refusal/meta reply, not content: ${JSON.stringify(text.slice(0, 120))}`);
+      return null;
+    }
+    return text;
+  }
+
+  // C2 Part 1 — a blocked call (global kill-switch / daily ceiling) must
+  // resolve to null via toNullIfBlocked (below) just like a skipped/refused
+  // generation does, but must NOT be treated as "generation ran and came up
+  // empty" when it comes time to persist — see the blocked-flag gating on
+  // the `updates` array further down. Any other error still rejects the
+  // whole Promise.all normally (unchanged from before this task).
+  let summaryBlocked = false, surpriseBlocked = false, storyVoiceBlocked = false;
+
   // Run only what is needed, in parallel
   const [newSummary, newSurprise, newStory, storyResult] = await Promise.all([
-    needsSummary
-      ? getCoffeeSummary({ coffeeName: safeName, archetype: archetypeLabel, dimensions: dimensionParams, topDescriptors, overallNotes: data.overallNotes })
+    needsSummary && hasSufficientData
+      ? toNullIfBlocked(getCoffeeSummary({ coffeeName: safeName, archetype: archetypeLabel, dimensions: dimensionParams, topDescriptors, overallNotes: data.overallNotes }).then(text => guardGenerated('ai_summary', text)))
+          .then(text => { if (text === null) summaryBlocked = true; return text; })
       : Promise.resolve<string | null>(null),
-    needsSurprise
-      ? getCoffeeSurpriseNote({ coffeeName: safeName, archetype: archetypeLabel, dimensions: dimensionParams, topDescriptors, overallNotes: data.overallNotes })
+    needsSurprise && hasSufficientData
+      ? toNullIfBlocked(getCoffeeSurpriseNote({ coffeeName: safeName, archetype: archetypeLabel, dimensions: dimensionParams, topDescriptors, overallNotes: data.overallNotes }).then(text => guardGenerated('surprise_note', text)))
+          .then(text => { if (text === null) surpriseBlocked = true; return text; })
       : Promise.resolve<string | null>(null),
-    needsStory && sourceData.length >= 2
-      ? getCoffeeThreeVoiceStory({ coffeeName: safeName, sourceData })
+    needsStory && hasSufficientVoices
+      ? toNullIfBlocked(getCoffeeThreeVoiceStory({ coffeeName: safeName, sourceData }).then(text => text === null ? null : guardGenerated('three_voice_story', text)))
+          .then(text => { if (text === null) storyVoiceBlocked = true; return text; })
       : Promise.resolve<string | null>(null),
     needsStoryText && hasEnoughDataForStory
-      ? generateCoffeeStoryWithRetry(
+      ? toNullIfBlocked(generateCoffeeStoryWithRetry(
           { displayName: safeName, archetype: archetypeLabel, origin: data.coffee.origin ?? null, process: data.coffee.process ?? null, dimensions: dimensionParams, topDescriptors },
           { rawCoffeeName: data.coffee.name ?? null, roasterNames: data.roasterNames }
-        )
+        ))
       : Promise.resolve(null),
   ]);
 
@@ -222,18 +282,29 @@ export async function generateAndStoreAllContent(
   // "Generate, scan, THEN mark live" — story_draft always gets the latest
   // attempt (even a failed one, for admin visibility); `story` (the only
   // field anything customer-facing reads) and story_published only advance
-  // when that attempt actually passed the specificity check.
+  // when that attempt actually passed the specificity check. A blocked call
+  // resolves storyResult to null (toNullIfBlocked above) — indistinguishable
+  // here from "nothing needed," which is exactly right: `if (storyResult)`
+  // below already skips every story-related write in that case, so a block
+  // never touches story/story_draft/story_published.
   const story          = storyResult?.passed ? storyResult.text : (cached.story ?? null);
   const storyPublished = storyResult ? storyResult.passed : (cached.story_published ?? false);
 
-  // Persist to Cloud SQL — only update fields that were regenerated
+  // Persist to Cloud SQL — only touch fields that were actually requested this
+  // pass (needsX) AND not blocked, but touch them unconditionally once
+  // requested-and-not-blocked (including explicitly writing NULL when
+  // generation was skipped/rejected — a genuine attempt that came back
+  // empty) — "null is the correct state" per §D1, not "leave whatever was
+  // there before." A blocked call is a *no* attempt, not an empty one: it
+  // must leave the existing cached value alone, never overwrite it with
+  // NULL, or a global kill-switch flip (or hitting the daily ceiling) would
+  // silently wipe every coffee's content the next time anyone requests it.
   const updates: string[] = [];
   const values: unknown[] = [];
   let idx = 1;
-  if (newSummary  !== null) { updates.push(`ai_summary = $${idx++}`);       values.push(newSummary); }
-  if (newSurprise !== null) { updates.push(`surprise_note = $${idx++}`);    values.push(newSurprise); }
-  // For three_voice_story: if force=true and story is null (not enough sources), explicitly clear it
-  if (needsStory)           { updates.push(`three_voice_story = $${idx++}`); values.push(newStory); }
+  if (needsSummary  && !summaryBlocked)     { updates.push(`ai_summary = $${idx++}`);       values.push(newSummary); }
+  if (needsSurprise && !surpriseBlocked)    { updates.push(`surprise_note = $${idx++}`);    values.push(newSurprise); }
+  if (needsStory    && !storyVoiceBlocked)  { updates.push(`three_voice_story = $${idx++}`); values.push(newStory); }
   if (storyResult) {
     updates.push(`story_draft = $${idx++}`);       values.push(storyResult.text);
     updates.push(`story_generated_at = NOW()`);
@@ -946,6 +1017,12 @@ router.get('/:id/ai-summary', async (req, res) => {
     const summary = await generateAndStoreSummary(id);
     res.json({ summary });
   } catch (err) {
+    // C2 Part 1 — a guard block (kill-switch / daily ceiling) on this public,
+    // unauthenticated route is a graceful "try again later," not a 500.
+    if (isClaudeGuardBlocked(err)) {
+      res.status(503).json({ error: 'ai_unavailable', message: 'AI-generated content is temporarily unavailable — please try again shortly.' });
+      return;
+    }
     console.error('[coffees/ai-summary]', err);
     res.status(500).json({ error: 'Failed to generate summary' });
   }
