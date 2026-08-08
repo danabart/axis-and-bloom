@@ -9,6 +9,7 @@ import { computeDefaultSortOrder } from './bloom/ArchetypeSection';
 import { DialArchetypeSection } from './bloom/DialArchetypeSection';
 import { CompareOverlay } from './bloom/CompareOverlay';
 import { useArchetypeAdjacency } from './coffee-info/archetypeAdjacency';
+import { useAdjacentArchetype } from './bloom/useAdjacentArchetype';
 import type { BloomDialHandle } from './BloomDialWidget';
 import type { ArchetypeData, Slot } from './bloom/types';
 import { slotKey } from './bloom/types';
@@ -200,10 +201,50 @@ export default function Profile() {
     });
   }
 
+  // ── "Worth exploring" adjacent section (Profile Part 6, issue C) ────────────
+  // Clicking a chip expands that archetype's full ArchetypeSection in place
+  // below the primary match, instead of ejecting to Flavor Intelligence. One
+  // adjacent section open at a time; clicking the active chip again (or its ✕)
+  // collapses it, clicking the other chip swaps it. Part 17 §F — this state
+  // (previously local to this component) now lives in useAdjacentArchetype so
+  // cross-archetype hop chips can open/retarget it too, not just the Worth
+  // Exploring CTA — same mechanism, two entry points.
+  const {
+    adjacentArchetypeId, adjacentData, adjacentSortOrder, adjacentRevealedKeys, sectionRef: adjacentSectionRef,
+    handleChipClick: handleAdjacentChipClick, openAtHop, handleDialSelect: handleAdjacentDialSelect,
+    toggleReveal: toggleAdjacentReveal, registerDialRef: registerAdjacentDialRef,
+  } = useAdjacentArchetype(archetypesList, experimentalData);
+
+  // Part 17 §F — a hop on the PRIMARY section either stays within it (same
+  // archetype: rotate this dial, as before) or crosses to a different
+  // archetype (open/retarget the adjacent section via the same mechanism
+  // Worth Exploring uses, then scroll+turn to it — Part 17 §C's choreography).
   function handleHopClick(archetype: string, sortOrder: number) {
-    dialRef.current?.rotateTo(sortOrder);
-    setDialSortOrderState(sortOrder);
-    setRevealedKeys(prev => new Set(prev).add(slotKey(archetype, sortOrder)));
+    if (archetype === matchArchetypeId) {
+      dialRef.current?.rotateTo(sortOrder);
+      setDialSortOrderState(sortOrder);
+      setRevealedKeys(prev => new Set(prev).add(slotKey(archetype, sortOrder)));
+      return;
+    }
+    openAtHop(archetype, sortOrder);
+  }
+
+  // A hop clicked FROM the adjacent section: within its own archetype rotates
+  // it directly; a hop back to the primary archetype or on to a third one
+  // re-routes through openAtHop the same way the primary section's hops do.
+  function handleAdjacentHopClick(archetype: string, sortOrder: number) {
+    if (archetype === adjacentArchetypeId) {
+      openAtHop(archetype, sortOrder); // already-open archetype, new position — same path, turns in place
+      return;
+    }
+    if (archetype === matchArchetypeId) {
+      dialRef.current?.rotateTo(sortOrder);
+      setDialSortOrderState(sortOrder);
+      setRevealedKeys(prev => new Set(prev).add(slotKey(archetype, sortOrder)));
+      requestAnimationFrame(() => document.getElementById(archetype)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      return;
+    }
+    openAtHop(archetype, sortOrder);
   }
 
   function openCompare(archetype: string, archetypeLabel: string, slot: Slot) {
@@ -212,58 +253,6 @@ export default function Profile() {
 
   function registerDialRef(_archetype: string, handle: BloomDialHandle | null) {
     dialRef.current = handle;
-  }
-
-  // ── "Worth exploring" adjacent section (Profile Part 6, issue C) ────────────
-  // Clicking a chip expands that archetype's full ArchetypeSection in place
-  // below the primary match, instead of ejecting to Flavor Intelligence. This
-  // needs its own selection/reveal state instance — same pattern FlavorQuiz.tsx
-  // uses for its two independent ArchetypeSection instances — so turning the
-  // adjacent dial or revealing its panel never touches the primary section's
-  // state above. One adjacent section open at a time; clicking the active chip
-  // again (or its ✕) collapses it, clicking the other chip swaps it.
-  const [adjacentArchetypeId, setAdjacentArchetypeId] = useState<string | null>(null);
-  const [adjacentSortOrder, setAdjacentSortOrderState] = useState<number | null>(null);
-  const [adjacentRevealedKeys, setAdjacentRevealedKeys] = useState<Set<string>>(new Set());
-  const adjacentDialRef = useRef<BloomDialHandle | null>(null);
-
-  const adjacentData = adjacentArchetypeId
-    ? (adjacentArchetypeId === 'experimental' ? experimentalData : archetypesList.find(a => a.archetype === adjacentArchetypeId) ?? null)
-    : null;
-
-  useEffect(() => {
-    if (!adjacentArchetypeId) { setAdjacentSortOrderState(null); return; }
-    getDialPosition(adjacentArchetypeId)
-      .then(r => { if (r?.dialSortOrder != null) setAdjacentSortOrderState(r.dialSortOrder); })
-      .catch(() => {});
-  }, [adjacentArchetypeId]);
-
-  function handleAdjacentChipClick(archetype: string) {
-    setAdjacentArchetypeId(prev => (prev === archetype ? null : archetype));
-    setAdjacentRevealedKeys(new Set());
-  }
-
-  function handleAdjacentDialSelect(archetype: string, sortOrder: number) {
-    setAdjacentSortOrderState(sortOrder);
-    setDialPosition(archetype, sortOrder).catch(() => {});
-  }
-
-  function toggleAdjacentReveal(key: string) {
-    setAdjacentRevealedKeys(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  }
-
-  function handleAdjacentHopClick(archetype: string, sortOrder: number) {
-    adjacentDialRef.current?.rotateTo(sortOrder);
-    setAdjacentSortOrderState(sortOrder);
-    setAdjacentRevealedKeys(prev => new Set(prev).add(slotKey(archetype, sortOrder)));
-  }
-
-  function registerAdjacentDialRef(_archetype: string, handle: BloomDialHandle | null) {
-    adjacentDialRef.current = handle;
   }
 
   // Feedback-nudge dismissal — same localStorage convention as Home.tsx/FlavorIntelligencePage.tsx.
@@ -539,7 +528,7 @@ export default function Profile() {
                         above. The Flavor Intelligence deep link is demoted to an escape
                         hatch here, for users who choose to leave rather than explore in place. */}
                     {adjacentData && (
-                      <div className="flex flex-col gap-3">
+                      <div className="flex flex-col gap-3" ref={adjacentSectionRef}>
                         <div className="flex justify-end max-w-2xl">
                           <Link
                             to={

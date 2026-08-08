@@ -21,6 +21,33 @@ async function toNullIfBlocked<T>(promise: Promise<T | null>): Promise<T | null>
   }
 }
 
+// Part 17 §D2 — serving-time validation ("belt and braces"). Part 16 §D2's
+// guardGenerated() only ever protected a FRESH generation call; anything
+// already sitting in a content column — from before the guard existed, from
+// a refusal phrasing REFUSAL_PATTERNS didn't happen to cover yet (the exact
+// way the live bug this section fixes reached production: a real regeneration
+// AFTER the Part 16 cleanup, caught by neither gate), or from any future write
+// path — was served to customers with zero revalidation. Every read of a
+// content column now goes through this first: a stored value matching the
+// same patterns is treated as null in the response AND nulled in the DB in
+// passing, so cached garbage is structurally unable to reach a customer twice,
+// regardless of how it got into the column. Shared by GET /:id/content (the
+// route Dana's spec names directly) and generateAndStoreAllContent's own
+// cache-passthrough paths (admin refresh, cron backfill) — one definition,
+// same as contentGuard.ts's own reasoning for staying a single shared module.
+async function sanitizeStoredField(
+  coffeeId: string | number,
+  column: 'ai_summary' | 'surprise_note' | 'three_voice_story',
+  value: string | null | undefined
+): Promise<string | null> {
+  if (!value || !looksLikeRefusal(value)) return value ?? null;
+  console.warn(`[coffees/content] serving-time guard caught a stored ${column} for coffee ${coffeeId} that looks like a refusal/meta reply — nulling in the response and the DB: ${JSON.stringify(value.slice(0, 120))}`);
+  await db.query(`UPDATE coffees SET ${column} = NULL WHERE id = $1`, [coffeeId]).catch(err => {
+    console.error(`[coffees/content] failed to null ${column} for coffee ${coffeeId} after a serving-time guard catch:`, err);
+  });
+  return null;
+}
+
 const router = Router();
 
 const ARCHETYPE_LABEL: Record<string, string> = {
@@ -181,10 +208,15 @@ export async function generateAndStoreAllContent(
   const needsStoryText = !cached.story_admin_edited && (force || (!cached.story && !cached.story_generation_failed));
 
   if (!needsSummary && !needsSurprise && !needsStory && !needsStoryText) {
+    const [sanitizedSummary, sanitizedSurprise, sanitizedStory] = await Promise.all([
+      sanitizeStoredField(coffeeId, 'ai_summary', cached.ai_summary),
+      sanitizeStoredField(coffeeId, 'surprise_note', cached.surprise_note),
+      sanitizeStoredField(coffeeId, 'three_voice_story', cached.three_voice_story),
+    ]);
     return {
-      aiSummary:      cached.ai_summary,
-      surpriseNote:   cached.surprise_note,
-      threeVoiceStory: cached.three_voice_story,
+      aiSummary:      sanitizedSummary ?? '',
+      surpriseNote:   sanitizedSurprise,
+      threeVoiceStory: sanitizedStory,
       story:           cached.story,
       storyPublished:  cached.story_published ?? false,
     };
@@ -232,12 +264,28 @@ export async function generateAndStoreAllContent(
   // call entirely rather than let the model improvise or apologize.
   // getCoffeeThreeVoiceStory already has its own sufficiency gate
   // (sourceData.length >= 2, below) — this just adds the warning log for it.
+  //
+  // Part 17 §D1 — diagnosis: this OR-based gate let ai_summary AND surprise_note
+  // both through on overallNotes alone (no dimensions, no descriptors) — real
+  // repro, coffee "There's No Place Like Home": overallNotes present, both
+  // structured signals empty, and the live refusal text it got back explicitly
+  // named the thing actually missing ("the cupping notes, origin, processing
+  // method, or roast level"), not overallNotes. getCoffeeSummary's plain
+  // tasting-note framing can honestly work from cupper's prose alone, but
+  // getCoffeeSurpriseNote's ask (claude.ts: "a contradiction... something that
+  // defies the archetype") has nothing to contrast without a real number or
+  // descriptor to point at — overallNotes alone was never actually sufficient
+  // for THIS field, the shared gate just didn't know that. hasSufficientData
+  // (ai_summary, unchanged) stays OR-based; surprise_note gets its own,
+  // stricter bar — dimensions or descriptors only, per Dana's literal spec
+  // ("no descriptors AND no cupping dimensions... regardless of other fields").
   const hasSufficientData = dimensionParams.length > 0 || topDescriptors.length > 0 || !!data.overallNotes;
+  const hasSufficientSurpriseData = dimensionParams.length > 0 || topDescriptors.length > 0;
   const hasSufficientVoices = sourceData.length >= 2;
   if (needsSummary && !hasSufficientData) {
     console.warn(`[coffees/content] insufficient data to generate ai_summary for coffee ${coffeeId}`);
   }
-  if (needsSurprise && !hasSufficientData) {
+  if (needsSurprise && !hasSufficientSurpriseData) {
     console.warn(`[coffees/content] insufficient data to generate surprise_note for coffee ${coffeeId}`);
   }
   if (needsStory && !hasSufficientVoices) {
@@ -270,7 +318,7 @@ export async function generateAndStoreAllContent(
       ? toNullIfBlocked(getCoffeeSummary({ coffeeName: safeName, archetype: archetypeLabel, dimensions: dimensionParams, topDescriptors, overallNotes: data.overallNotes }).then(text => guardGenerated('ai_summary', text)))
           .then(text => { if (text === null) summaryBlocked = true; return text; })
       : Promise.resolve<string | null>(null),
-    needsSurprise && hasSufficientData
+    needsSurprise && hasSufficientSurpriseData
       ? toNullIfBlocked(getCoffeeSurpriseNote({ coffeeName: safeName, archetype: archetypeLabel, dimensions: dimensionParams, topDescriptors, overallNotes: data.overallNotes }).then(text => guardGenerated('surprise_note', text)))
           .then(text => { if (text === null) surpriseBlocked = true; return text; })
       : Promise.resolve<string | null>(null),
@@ -292,9 +340,9 @@ export async function generateAndStoreAllContent(
   // once blocking is ruled out. Distinct from "skipped" (insufficient data
   // — not terminal, worth retrying once real data exists) and "blocked"
   // (not an attempt at all). Drives the terminal-flag writes below.
-  const summaryRefused    = needsSummary  && hasSufficientData  && !summaryBlocked    && newSummary  === null;
-  const surpriseRefused   = needsSurprise && hasSufficientData  && !surpriseBlocked   && newSurprise === null;
-  const storyVoiceRefused = needsStory    && hasSufficientVoices && !storyVoiceBlocked && newStory    === null;
+  const summaryRefused    = needsSummary  && hasSufficientData         && !summaryBlocked    && newSummary  === null;
+  const surpriseRefused   = needsSurprise && hasSufficientSurpriseData && !surpriseBlocked   && newSurprise === null;
+  const storyVoiceRefused = needsStory    && hasSufficientVoices       && !storyVoiceBlocked && newStory    === null;
 
   const aiSummary      = newSummary      ?? cached.ai_summary      ?? '';
   const surpriseNote   = newSurprise     ?? cached.surprise_note   ?? null;
@@ -349,7 +397,17 @@ export async function generateAndStoreAllContent(
     await db.query(`UPDATE coffees SET ${updates.join(', ')} WHERE id = $${idx}`, values);
   }
 
-  return { aiSummary, surpriseNote, threeVoiceStory, story, storyPublished };
+  // Part 17 §D2 — a field NOT touched this pass (needsX was false) still
+  // falls through to `cached.x` above; sanitize on the way out regardless of
+  // freshness. A field that WAS just generated this pass already passed
+  // guardGenerated, so this is a harmless no-op for it — no double DB write.
+  const [sanitizedSummary, sanitizedSurprise, sanitizedStory] = await Promise.all([
+    sanitizeStoredField(coffeeId, 'ai_summary', aiSummary),
+    sanitizeStoredField(coffeeId, 'surprise_note', surpriseNote),
+    sanitizeStoredField(coffeeId, 'three_voice_story', threeVoiceStory),
+  ]);
+
+  return { aiSummary: sanitizedSummary ?? '', surpriseNote: sanitizedSurprise, threeVoiceStory: sanitizedStory, story, storyPublished };
 }
 
 export interface ContentBackfillResult {
@@ -1052,10 +1110,19 @@ router.get('/:id/content', async (req, res) => {
     ]);
     const content = contentResult.rows[0] ?? {};
     const extra = extraResult.rows[0] ?? {};
+    // Part 17 §D2 — even a pure cache read is re-validated on the way out (see
+    // sanitizeStoredField above) — this is the exact route the live "There's
+    // No Place Like Home" bug reached customers through, and it now has zero
+    // path from a bad stored value to a response.
+    const [aiSummary, surpriseNote, threeVoiceStory] = await Promise.all([
+      sanitizeStoredField(id, 'ai_summary', content.ai_summary),
+      sanitizeStoredField(id, 'surprise_note', content.surprise_note),
+      sanitizeStoredField(id, 'three_voice_story', content.three_voice_story),
+    ]);
     res.json({
-      aiSummary:       content.ai_summary ?? '',
-      surpriseNote:    content.surprise_note ?? null,
-      threeVoiceStory: content.three_voice_story ?? null,
+      aiSummary:       aiSummary ?? '',
+      surpriseNote,
+      threeVoiceStory,
       process:         extra.process ?? null,
       roastLevel:      extra.roast_level ?? null,
       originRegion:    extra.origin_region ?? null,

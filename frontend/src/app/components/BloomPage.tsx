@@ -162,12 +162,32 @@ export default function BloomPage() {
   // The Bloom Part 12: the new dial's rotateTo() only repaints — unlike the old
   // widget, it does NOT emit onZoneChange — so the reading column won't switch
   // to the hopped slot without also updating selectedSortOrder here.
+  //
+  // Part 17 §C — "it just throws me to the next archetype" fix: every archetype
+  // section is already mounted on this page (unlike Profile/Find My Flavor),
+  // so the missing piece was purely sequencing. The old code called rotateTo()
+  // FIRST and scrolled second — the dial silently jumped to its new position
+  // before the target section was even in view, so the turn (BloomDial's own
+  // 560ms rotor transition, already built) never registered as an event the
+  // user witnessed. Now: scroll first, then rotate once the smooth-scroll has
+  // had time to land — the turn plus paint()'s existing zone-change name-fade
+  // (BloomDial.tsx, unchanged) together ARE the arrival cue §C.2/§C.3 ask for,
+  // no new animation needed, just the right order.
   function handleHopClick(archetype: string, dialSortOrder: number) {
-    dialRefs.current[archetype]?.rotateTo(dialSortOrder);
-    setSelectedSortOrder(prev => ({ ...prev, [archetype]: dialSortOrder }));
     setRevealedKeys(prev => new Set(prev).add(slotKey(archetype, dialSortOrder)));
     requestAnimationFrame(() => {
       document.getElementById(archetype)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // selectedSortOrder is deliberately NOT updated until this same delayed
+      // callback as rotateTo(): BloomDial has its own effect that repaints the
+      // instant its initialDialSortOrder prop changes (for deep-link/saved-
+      // position sync) — updating the state early would trigger that silent,
+      // immediate repaint and reproduce the exact "throws me to the next
+      // archetype" bug this section fixes. Both updates land together, once
+      // the section has actually scrolled into view.
+      setTimeout(() => {
+        dialRefs.current[archetype]?.rotateTo(dialSortOrder);
+        setSelectedSortOrder(prev => ({ ...prev, [archetype]: dialSortOrder }));
+      }, 550);
     });
   }
 

@@ -11,6 +11,9 @@ import { ShareMatchRow } from './ShareMatchRow';
 import { computeDefaultSortOrder } from './bloom/ArchetypeSection';
 import { DialArchetypeSection } from './bloom/DialArchetypeSection';
 import { CompareOverlay } from './bloom/CompareOverlay';
+import { useAdjacentArchetype } from './bloom/useAdjacentArchetype';
+import { useArchetypeAdjacency } from './coffee-info/archetypeAdjacency';
+import WorthExploring from './profile/WorthExploring';
 import type { BloomDialHandle } from './BloomDialWidget';
 import type { ArchetypeData, Slot } from './bloom/types';
 import { slotKey } from './bloom/types';
@@ -575,6 +578,10 @@ export default function FlavorQuiz() {
   const [compareState, setCompareState] = useState<{ open: boolean; archetype: string; archetypeLabel: string; slot: Slot | null }>({
     open: false, archetype: '', archetypeLabel: '', slot: null,
   });
+  // Part 17 §F — "Worth exploring" adjacent-archetype section for this screen,
+  // same mechanism as Profile.tsx's. Independent hook instance from the results
+  // screen's below, matching this file's existing per-screen state isolation.
+  const matchedAdjacent = useAdjacentArchetype(archetypesList, experimentalData);
 
   // Just-scored results screen — separate ArchetypeSection instance/state from the
   // returning-user screen above (Find My Flavor Part 2). Kept independent per the
@@ -587,6 +594,10 @@ export default function FlavorQuiz() {
   const [resultsCompareState, setResultsCompareState] = useState<{ open: boolean; archetype: string; archetypeLabel: string; slot: Slot | null }>({
     open: false, archetype: '', archetypeLabel: '', slot: null,
   });
+  // Part 17 §F — same idea as matchedAdjacent above, independent instance for
+  // this screen.
+  const resultsAdjacent = useAdjacentArchetype(archetypesList, experimentalData);
+  const adjacency = useArchetypeAdjacency();
 
   const { user } = useAuth();
   const { addToCart } = useCart();
@@ -700,10 +711,36 @@ export default function FlavorQuiz() {
     });
   }
 
+  // Part 17 §F — same archetype: rotate this screen's own dial as before;
+  // a different archetype: open/retarget the adjacent section (below) via the
+  // same mechanism Worth Exploring's chips use on Profile, then scroll+turn to
+  // it (Part 17 §C's choreography, reused here).
   function handleMatchedHopClick(archetype: string, dialSortOrder: number) {
-    matchedDialRef.current?.rotateTo(dialSortOrder);
-    setMatchedSortOrder(dialSortOrder);
-    setRevealedKeys(prev => new Set(prev).add(slotKey(archetype, dialSortOrder)));
+    if (archetype === matchedArchetypeId) {
+      matchedDialRef.current?.rotateTo(dialSortOrder);
+      setMatchedSortOrder(dialSortOrder);
+      setRevealedKeys(prev => new Set(prev).add(slotKey(archetype, dialSortOrder)));
+      return;
+    }
+    matchedAdjacent.openAtHop(archetype, dialSortOrder);
+  }
+
+  // A hop clicked from the adjacent section itself: within its own archetype
+  // rotates it directly; back to the matched archetype or on to a third one
+  // re-routes through openAtHop the same way.
+  function handleMatchedAdjacentHopClick(archetype: string, dialSortOrder: number) {
+    if (archetype === matchedAdjacent.adjacentArchetypeId) {
+      matchedAdjacent.openAtHop(archetype, dialSortOrder);
+      return;
+    }
+    if (archetype === matchedArchetypeId) {
+      matchedDialRef.current?.rotateTo(dialSortOrder);
+      setMatchedSortOrder(dialSortOrder);
+      setRevealedKeys(prev => new Set(prev).add(slotKey(archetype, dialSortOrder)));
+      requestAnimationFrame(() => document.getElementById(archetype)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      return;
+    }
+    matchedAdjacent.openAtHop(archetype, dialSortOrder);
   }
 
   function openMatchedCompare(archetype: string, archetypeLabel: string, slot: Slot) {
@@ -737,9 +774,28 @@ export default function FlavorQuiz() {
   }
 
   function handleResultsHopClick(archetype: string, dialSortOrder: number) {
-    resultsDialRef.current?.rotateTo(dialSortOrder);
-    setResultsSortOrder(dialSortOrder);
-    setResultsRevealedKeys(prev => new Set(prev).add(slotKey(archetype, dialSortOrder)));
+    if (archetype === resultsArchetypeEnum) {
+      resultsDialRef.current?.rotateTo(dialSortOrder);
+      setResultsSortOrder(dialSortOrder);
+      setResultsRevealedKeys(prev => new Set(prev).add(slotKey(archetype, dialSortOrder)));
+      return;
+    }
+    resultsAdjacent.openAtHop(archetype, dialSortOrder);
+  }
+
+  function handleResultsAdjacentHopClick(archetype: string, dialSortOrder: number) {
+    if (archetype === resultsAdjacent.adjacentArchetypeId) {
+      resultsAdjacent.openAtHop(archetype, dialSortOrder);
+      return;
+    }
+    if (archetype === resultsArchetypeEnum) {
+      resultsDialRef.current?.rotateTo(dialSortOrder);
+      setResultsSortOrder(dialSortOrder);
+      setResultsRevealedKeys(prev => new Set(prev).add(slotKey(archetype, dialSortOrder)));
+      requestAnimationFrame(() => document.getElementById(archetype)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      return;
+    }
+    resultsAdjacent.openAtHop(archetype, dialSortOrder);
   }
 
   function openResultsCompare(archetype: string, archetypeLabel: string, slot: Slot) {
@@ -1172,6 +1228,40 @@ export default function FlavorQuiz() {
           />
         )}
 
+        {/* Part 17 §F — Worth Exploring + adjacent-archetype section, same
+            mechanism as Profile.tsx: cross-archetype hop chips on this screen
+            now have somewhere to land instead of doing nothing. */}
+        {matchedArchetypeId && archetypesList.length > 0 && (
+          <div className="max-w-2xl mx-auto px-6 mt-2">
+            <WorthExploring
+              matchArchetypeId={matchedArchetypeId}
+              adjacency={adjacency}
+              archetypesList={archetypesList}
+              activeArchetype={matchedAdjacent.adjacentArchetypeId}
+              onSelect={matchedAdjacent.handleChipClick}
+            />
+          </div>
+        )}
+        {matchedAdjacent.adjacentData && (
+          <div ref={matchedAdjacent.sectionRef}>
+            <DialArchetypeSection
+              data={matchedAdjacent.adjacentData}
+              index={1}
+              selectedSortOrder={matchedAdjacent.adjacentSortOrder ?? computeDefaultSortOrder(matchedAdjacent.adjacentData)}
+              revealedKeys={matchedAdjacent.adjacentRevealedKeys}
+              onDialSelect={matchedAdjacent.handleDialSelect}
+              onToggleReveal={matchedAdjacent.toggleReveal}
+              onAddToCart={addToCart}
+              onHopClick={handleMatchedAdjacentHopClick}
+              onCompare={openMatchedCompare}
+              userArchetype={matchedArchetypeId}
+              registerDialRef={matchedAdjacent.registerDialRef}
+              source="find_my_flavor_returning"
+              embedded
+            />
+          </div>
+        )}
+
         <CompareOverlay
           open={compareState.open}
           onClose={() => setCompareState(s => ({ ...s, open: false }))}
@@ -1600,6 +1690,39 @@ export default function FlavorQuiz() {
                   source="find_my_flavor_results"
                   embedded
                 />
+              )}
+
+              {/* Part 17 §F — same Worth Exploring + adjacent-section mechanism as the
+                  returning-user screen above and Profile.tsx. */}
+              {resultsArchetypeEnum && archetypesList.length > 0 && (
+                <div className="max-w-2xl mx-auto px-6 mt-2">
+                  <WorthExploring
+                    matchArchetypeId={resultsArchetypeEnum}
+                    adjacency={adjacency}
+                    archetypesList={archetypesList}
+                    activeArchetype={resultsAdjacent.adjacentArchetypeId}
+                    onSelect={resultsAdjacent.handleChipClick}
+                  />
+                </div>
+              )}
+              {resultsAdjacent.adjacentData && (
+                <div ref={resultsAdjacent.sectionRef}>
+                  <DialArchetypeSection
+                    data={resultsAdjacent.adjacentData}
+                    index={1}
+                    selectedSortOrder={resultsAdjacent.adjacentSortOrder ?? computeDefaultSortOrder(resultsAdjacent.adjacentData)}
+                    revealedKeys={resultsAdjacent.adjacentRevealedKeys}
+                    onDialSelect={resultsAdjacent.handleDialSelect}
+                    onToggleReveal={resultsAdjacent.toggleReveal}
+                    onAddToCart={addToCart}
+                    onHopClick={handleResultsAdjacentHopClick}
+                    onCompare={openResultsCompare}
+                    userArchetype={matchedArchetypeId}
+                    registerDialRef={resultsAdjacent.registerDialRef}
+                    source="find_my_flavor_results"
+                    embedded
+                  />
+                </div>
               )}
               <CompareOverlay
                 open={resultsCompareState.open}

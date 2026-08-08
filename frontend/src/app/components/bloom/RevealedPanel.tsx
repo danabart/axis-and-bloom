@@ -40,6 +40,13 @@ const QUIET_LINK_CLASS = 'text-[10.5px] uppercase tracking-[.14em] text-[#9a2918
  * the dial instrument itself (`BloomDial.tsx`, rendered pre-reveal below the
  * "TURN THE WHEEL" hint) — no longer this component's concern at all; `hops`/
  * `onHopClick` dropped from the prop surface accordingly.
+ *
+ * Part 17 §A — on wide panels (≥ ~1200px) prose no longer stacks above the
+ * evidence grid; it becomes the first column of one shared row (prose | cupping
+ * | signature notes, ~40/30/30). Medium/narrow unchanged. See the inline
+ * comment at the row itself for how one nested flex+grid structure covers
+ * every breakpoint and every evidence-presence combination without a
+ * JS-computed template per case.
  */
 export function RevealedPanel({ isRevealed, archetype, dialSortOrder, content, dimensions, wheelRows, userArchetype, hideProfileLink = false }: RevealedPanelProps) {
   const { compat, dimCompText } = useCompatibility(archetype, userArchetype, dimensions);
@@ -80,28 +87,39 @@ export function RevealedPanel({ isRevealed, archetype, dialSortOrder, content, d
 
             <hr style={RULE_STYLE} />
 
-            {/* ── Row 2 · Three voices ── */}
-            <TastingNotes content={content} contentLoading={!content} variant="reveal" />
-
-            {/* ── Row 3 · Evidence ── */}
-            {/* Part 16 §C — two-column grid only when BOTH blocks have data; a single
-                full-width column (no orphan half-width cell) when only one does. */}
-            {hasEvidence && (
-              <>
-                <hr style={RULE_STYLE} />
-                {hasDimensions && hasWheel ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                    <DimensionBars dimensions={dimensions} variant="reveal" />
-                    <CollaborativeFlavorWheel wheelRows={wheelRows} variant="signature" />
-                  </div>
-                ) : (
-                  <div>
-                    {hasDimensions && <DimensionBars dimensions={dimensions} variant="reveal" />}
-                    {hasWheel && <CollaborativeFlavorWheel wheelRows={wheelRows} variant="signature" />}
-                  </div>
-                )}
-              </>
-            )}
+            {/* ── Row 2+3 · Three voices + Evidence ──
+                Part 17 §A — on wide panels (≥ ~1200px) prose stops stacking above
+                the evidence grid and instead shares ONE row with it: prose | cupping
+                | signature notes, roughly 40/30/30. Medium keeps today's behavior
+                (prose full-width, then the evidence grid below); narrow keeps
+                everything stacked. One outer flex row (column below 1200px, row at
+                it) does the 40/60 prose/evidence split; the evidence side is its own
+                nested grid (1 col below md, 2 col from md up) for the dims|wheel
+                split — nesting rather than one flat 3-col grid so the SAME markup
+                naturally satisfies every breakpoint without a separate JS-computed
+                template per hasDimensions/hasWheel combination. Part 16 §C's rule
+                still applies: an absent evidence column's share isn't reserved —
+                the evidence side just holds whichever one block exists (or none),
+                so 40/60 quietly becomes "prose alone" when there's no evidence at
+                all (the wide row itself is skipped in that case, see hasEvidence
+                below) and prose/single-block when there's exactly one. */}
+            <div className="flex flex-col min-[1200px]:flex-row gap-10">
+              <div className="min-w-0 min-[1200px]:flex-[2]">
+                <TastingNotes content={content} contentLoading={!content} variant="reveal" />
+              </div>
+              {hasEvidence && (
+                <div
+                  className={
+                    hasDimensions && hasWheel
+                      ? 'min-w-0 min-[1200px]:flex-[3] grid grid-cols-1 md:grid-cols-2 gap-10'
+                      : 'min-w-0 min-[1200px]:flex-[3]'
+                  }
+                >
+                  {hasDimensions && <DimensionBars dimensions={dimensions} variant="reveal" />}
+                  {hasWheel && <CollaborativeFlavorWheel wheelRows={wheelRows} variant="signature" />}
+                </div>
+              )}
+            </div>
 
             <hr style={RULE_STYLE} />
 

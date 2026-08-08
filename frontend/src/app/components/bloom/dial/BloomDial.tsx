@@ -40,29 +40,52 @@ interface Props {
 
 const TRAVEL = 120;
 
-// Part 16 §B — stop layout: the default position anchors at the visual center
-// of the bar, the first/last positions (by dialSortOrder) sit at the edges, and
-// any remaining positions distribute evenly between center and their nearer
-// edge. dialSortOrder order is always preserved left-to-right. Falls back to
-// dumb even spacing — no cleverness — when the default is itself the first/last
-// position, no position is flagged default, or there are fewer than 3
-// positions (nothing meaningful to "center").
+// Part 16 §B, hardened by Part 17 §E — stop layout, Dana's literal assignment
+// order:
+//   1. The default coffee (isDefault slot)              -> the CENTER of the bar.
+//   2. The extreme positions (first/last by dialSortOrder) -> the EDGES.
+//   3. Any remaining positions                           -> spaced evenly between
+//      center and their nearer edge (their side of the default).
+//   4. dialSortOrder order is always preserved left-to-right.
+// Falls back to dumb even spacing — no cleverness, but every position still a
+// distinct, reachable, snappable stop — when there's no single clean default to
+// center on: no position flagged default, MORE than one flagged default (Part 17
+// §E hardening — Part 16 silently took the first match via findIndex and ignored
+// the conflict; an archetype with two isDefault=true rows is a data problem, not
+// something to center on ambiguously), the one default is itself an extreme, or
+// fewer than 3 positions exist (nothing meaningful to "center").
 function computeStopPositions(coffees: DialCoffee[]): number[] {
   const n = coffees.length;
   const ordered = [...coffees].sort((a, b) => a.dialSortOrder - b.dialSortOrder);
-  const defaultIdx = ordered.findIndex(c => c.isDefault);
   const evenFallback = () => Array.from({ length: n }, (_, i) => (n <= 1 ? 0.5 : i / (n - 1)));
+
+  const defaultIndices = ordered.reduce<number[]>((acc, c, i) => (c.isDefault ? [...acc, i] : acc), []);
+  if (defaultIndices.length !== 1) return evenFallback();
+  const defaultIdx = defaultIndices[0];
 
   if (n < 3 || defaultIdx <= 0 || defaultIdx >= n - 1) return evenFallback();
 
   const stops = new Array<number>(n);
+  // Left side: edge (index 0) at 0, default at 0.5, anything between spaced
+  // evenly across [0, 0.5].
   for (let i = 0; i <= defaultIdx; i++) stops[i] = (i / defaultIdx) * 0.5;
+  // Right side: default at 0.5, edge (index n-1) at 1, anything between spaced
+  // evenly across [0.5, 1].
   for (let i = defaultIdx; i < n; i++) stops[i] = 0.5 + ((i - defaultIdx) / (n - 1 - defaultIdx)) * 0.5;
   return stops;
 }
 
 function fmtPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+// Part 16 §A's algorithmic chip format, unchanged by Part 17 §B (only the
+// layout moved, not the copy): "{More|Less} {dimension} → {position}", plus
+// the target's archetype label when a hop crosses archetypes.
+function hopChipText(hop: Hop, ownArchetype: string): string {
+  const dir = hop.direction === 'more' ? 'More' : 'Less';
+  const cross = hop.target.archetype !== ownArchetype ? ` · ${hop.target.archetypeLabel}` : '';
+  return `${dir} ${hop.dimensionName.toLowerCase()} → ${hop.target.positionLabel}${cross}`;
 }
 
 // Stack a coffee name one word per line for the field display, but keep "&"
@@ -93,6 +116,11 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
   { config, initialDialSortOrder = 2, onZoneChange, onPreOrder, bottomContent, belowStage, embedded = false, hops = [], onHopClick },
   ref,
 ) {
+  // Part 17 §B — split once per render; the API already orders by confidence
+  // high→medium→low, so each side keeps that order without a separate sort.
+  const lessHops = hops.filter(h => h.direction === 'less');
+  const moreHops = hops.filter(h => h.direction === 'more');
+
   // Part 16 §B — this archetype's stop layout (0..1 position per coffee, index
   // = zone). Recomputed every render (cheap — at most a handful of positions)
   // but only actually read at ref-init time and inside the setup effect below,
@@ -466,28 +494,51 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
                   <span>{(config.scaleMaxLabel ?? 'Pronounced').toUpperCase()}</span>
                 </div>
               </div>
-              <div className="bd-hint">TURN THE WHEEL, OR SLIDE THE BAR</div>
-
               {/* Part 16 §A — "Nearby on the dial" navigation, moved here from
                   RevealedPanel's footer: this is dial navigation, so it lives on
                   the instrument, visible pre-reveal. Styled with the field-text
                   color system (--bd-ftext*), not the panel's palette, so it reads
-                  as part of the instrument rather than panel UI pasted onto it. */}
-              {hops.length > 0 && (
+                  as part of the instrument rather than panel UI pasted onto it.
+                  Part 17 §B — anchored to the ruler's own edges instead of flowing
+                  inline: "less" stacks left (the ruler's delicate/low end), "more"
+                  stacks right (the pronounced/high end), regardless of text length
+                  — every archetype gets identical chip positions. An empty side
+                  stays empty (never re-centers the other side's chips). The API
+                  already orders hops by confidence high→medium→low, so filtering
+                  by direction preserves "top one first by confidence" within each
+                  side without a separate sort. */}
+              {(lessHops.length > 0 || moreHops.length > 0) && (
                 <div className="bd-hops">
-                  {hops.map((hop, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      className="bd-hop-chip"
-                      onClick={() => onHopClick?.(hop.target.archetype, hop.target.dialSortOrder)}
-                    >
-                      {hop.direction === 'more' ? 'More' : 'Less'} {hop.dimensionName.toLowerCase()} → {hop.target.positionLabel}
-                      {hop.target.archetype !== config.archetype && ` · ${hop.target.archetypeLabel}`}
-                    </button>
-                  ))}
+                  <div className="bd-hops-side bd-hops-less">
+                    {lessHops.map((hop, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        className="bd-hop-chip"
+                        title={hopChipText(hop, config.archetype)}
+                        onClick={() => onHopClick?.(hop.target.archetype, hop.target.dialSortOrder)}
+                      >
+                        {hopChipText(hop, config.archetype)}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="bd-hops-side bd-hops-more">
+                    {moreHops.map((hop, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        className="bd-hop-chip"
+                        title={hopChipText(hop, config.archetype)}
+                        onClick={() => onHopClick?.(hop.target.archetype, hop.target.dialSortOrder)}
+                      >
+                        {hopChipText(hop, config.archetype)}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
+
+              <div className="bd-hint">TURN THE WHEEL, OR SLIDE THE BAR</div>
             </div>
 
             {/* Coffee identity by the wheel (Bloom layout only): small label,
@@ -558,9 +609,16 @@ const CSS = `
 .bd-ruler-ends span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:48%;}
 .bd-hint{margin-top:12px;font-size:10.5px;letter-spacing:.14em;color:var(--bd-ftext-mid);}
 /* Part 16 §A — instrument-native hop chips (not panel UI): transparent, thin
-   field-text border at reduced opacity, field-text-mid label, small pill. */
-.bd-hops{margin-top:16px;display:flex;flex-wrap:wrap;gap:8px;justify-content:center;max-width:360px;}
-.bd-hop-chip{font-family:inherit;font-size:11px;letter-spacing:.02em;padding:6px 13px;border-radius:999px;border:1px solid var(--bd-ftext-weak);background:none;color:var(--bd-ftext-mid);cursor:pointer;text-align:left;transition:border-color 240ms ${EASE},color 240ms ${EASE};}
+   field-text border at reduced opacity, field-text-mid label, small pill.
+   Part 17 §B — fixed anchors instead of flow: the row spans the ruler's own
+   width, "less" stacked flush left, "more" stacked flush right — identical
+   position on every archetype regardless of text length. An empty side is
+   just an empty flex child; space-between never re-centers the other side. */
+.bd-hops{width:360px;max-width:86vw;margin:14px auto 0;display:flex;justify-content:space-between;gap:14px;}
+.bd-hops-side{display:flex;flex-direction:column;gap:8px;min-width:0;flex:0 1 auto;}
+.bd-hops-less{align-items:flex-start;}
+.bd-hops-more{align-items:flex-end;}
+.bd-hop-chip{font-family:inherit;font-size:11px;letter-spacing:.02em;padding:6px 13px;border-radius:999px;border:1px solid var(--bd-ftext-weak);background:none;color:var(--bd-ftext-mid);cursor:pointer;transition:border-color 240ms ${EASE},color 240ms ${EASE};max-width:172px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
 .bd-hop-chip:hover{border-color:var(--bd-ftext);color:var(--bd-ftext);}
 .bd-field-inner{display:flex;align-items:center;justify-content:center;gap:clamp(28px,4vw,72px);width:100%;}
 .bd-wheel-col{display:flex;flex-direction:column;align-items:center;flex-shrink:0;}
@@ -605,7 +663,8 @@ const CSS = `
 .bd-embedded .bd-instrument{padding:42px 24px;}
 .bd-embedded .bd-dial-wrap{width:300px;height:300px;}
 .bd-embedded .bd-ruler{width:280px;margin-top:28px;}
-.bd-embedded .bd-hops{max-width:280px;}
+.bd-embedded .bd-hops{width:280px;}
+.bd-embedded .bd-hop-chip{max-width:128px;}
 .bd-embedded .bd-bdial{font-size:19px;margin-top:8px;}
 .bd-embedded .bd-coffee-name{font-size:23px;min-height:0;margin-top:10px;}
 .bd-embedded .bd-reading-bottom{padding-top:22px;}

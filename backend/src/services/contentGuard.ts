@@ -39,6 +39,12 @@ export const REFUSAL_PATTERNS: RegExp[] = [
   // checks these patterns) — a reminder that this list is a floor, not a
   // guarantee.
   /i'?m missing/i,
+  // Part 17 §D3 — "Could you share" / "That would help me find" added after a
+  // live regeneration (coffee "There's No Place Like Home") still showed
+  // refusal text post-Part-16-cleanup; re-run cleanup scan with these added,
+  // see WHAT_WE_BUILT.md #146 for the audit.
+  /could you share/i,
+  /that would help me/i,
 ];
 
 /** True when `text` looks like Claude declining/talking about missing data
