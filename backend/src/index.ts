@@ -45,7 +45,20 @@ app.use(express.json());
 // req.ip directly: behind Cloudflare -> Firebase Hosting -> Cloud Run,
 // req.ip alone collapses every visitor onto a shared Google-internal
 // address (finding M11).
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200, keyGenerator: getRealClientIp }));
+//
+// max/windowMs are env-configurable, no redeploy needed to retune. This is
+// a coarse backstop, not the real abuse guard — a shared IP (mobile CGNAT,
+// office/cafe NAT) can legitimately carry many real customers at once, and
+// a low ceiling here means "failed to load" for all of them over one bad
+// actor (or, in practice, over nothing at all — just normal multi-user
+// traffic through one address). The actual abuse guards are the per-route
+// limiters (sommelierIpLimiter, sommelierAccountLimiter, checkDailyCap, the
+// auth/guest limiters) — untouched by this, and where a real per-user/
+// per-account ceiling belongs. Default raised from 200 to 2000 for exactly
+// that reason.
+const GLOBAL_RATE_LIMIT_MAX = Number(process.env.GLOBAL_RATE_LIMIT_MAX ?? 2000);
+const GLOBAL_RATE_LIMIT_WINDOW_MS = Number(process.env.GLOBAL_RATE_LIMIT_WINDOW_MS ?? 15 * 60 * 1000);
+app.use(rateLimit({ windowMs: GLOBAL_RATE_LIMIT_WINDOW_MS, max: GLOBAL_RATE_LIMIT_MAX, keyGenerator: getRealClientIp }));
 
 // Prevent browsers and CDNs from caching any API response
 app.use('/api', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
