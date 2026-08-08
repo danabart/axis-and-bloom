@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { motion } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
@@ -11,7 +11,6 @@ import { OtherCategoryCard } from './bloom/OtherCategoryCard';
 import { DialArchetypeSection } from './bloom/DialArchetypeSection';
 import type { BloomDialHandle } from './bloom/dial/BloomDial';
 import type { ArchetypeData, OtherCategoryCoffee, Slot } from './bloom/types';
-import { slotKey } from './bloom/types';
 
 // Bloom Dial Base Data Part 3, Phase 6: Decaf/Half-Caf/Flavored group under
 // "Other Categories" (Part 4 keeps this section on Bloom unchanged). Experimental
@@ -159,36 +158,23 @@ export default function BloomPage() {
     });
   }
 
-  // The Bloom Part 12: the new dial's rotateTo() only repaints — unlike the old
-  // widget, it does NOT emit onZoneChange — so the reading column won't switch
-  // to the hopped slot without also updating selectedSortOrder here.
+  // Part 18 §A/§C — the hop-graph chips (and the handler that used to fire on
+  // their click) are gone; cross-archetype travel on this page is now only the
+  // archetype strip below, handled by handleStripClick. dialRefs/registerDialRef
+  // stay — still needed by the deep-link effect above.
   //
-  // Part 17 §C — "it just throws me to the next archetype" fix: every archetype
-  // section is already mounted on this page (unlike Profile/Find My Flavor),
-  // so the missing piece was purely sequencing. The old code called rotateTo()
-  // FIRST and scrolled second — the dial silently jumped to its new position
-  // before the target section was even in view, so the turn (BloomDial's own
-  // 560ms rotor transition, already built) never registered as an event the
-  // user witnessed. Now: scroll first, then rotate once the smooth-scroll has
-  // had time to land — the turn plus paint()'s existing zone-change name-fade
-  // (BloomDial.tsx, unchanged) together ARE the arrival cue §C.2/§C.3 ask for,
-  // no new animation needed, just the right order.
-  function handleHopClick(archetype: string, dialSortOrder: number) {
-    setRevealedKeys(prev => new Set(prev).add(slotKey(archetype, dialSortOrder)));
-    requestAnimationFrame(() => {
-      document.getElementById(archetype)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      // selectedSortOrder is deliberately NOT updated until this same delayed
-      // callback as rotateTo(): BloomDial has its own effect that repaints the
-      // instant its initialDialSortOrder prop changes (for deep-link/saved-
-      // position sync) — updating the state early would trigger that silent,
-      // immediate repaint and reproduce the exact "throws me to the next
-      // archetype" bug this section fixes. Both updates land together, once
-      // the section has actually scrolled into view.
-      setTimeout(() => {
-        dialRefs.current[archetype]?.rotateTo(dialSortOrder);
-        setSelectedSortOrder(prev => ({ ...prev, [archetype]: dialSortOrder }));
-      }, 550);
-    });
+  // Part 18 §B.6 — the strip's <a href="#archetype"> links previously relied on
+  // the browser's native anchor jump, which is INSTANT (no `scroll-behavior:
+  // smooth` is set anywhere in this app, confirmed by grep) — "fling," not a
+  // smooth scroll. Intercept the click and drive it with scrollIntoView instead;
+  // href stays for accessibility/right-click/middle-click. Every archetype
+  // section is already mounted on this page, so — unlike Profile's "Worth
+  // exploring" (§B.1) — there's no mount-and-settle wait needed here, just the
+  // smooth scroll itself (BloomDial's own scroll-margin-top clears the sticky
+  // header/jump-nav on landing).
+  function handleStripClick(e: MouseEvent, archetype: string) {
+    e.preventDefault();
+    document.getElementById(archetype)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   function openCompare(archetype: string, archetypeLabel: string, slot: Slot) {
@@ -225,6 +211,7 @@ export default function BloomPage() {
             <a
               key={a.archetype}
               href={`#${a.archetype}`}
+              onClick={e => handleStripClick(e, a.archetype)}
               style={{
                 fontSize: '0.48rem', letterSpacing: '0.28em', textTransform: 'uppercase',
                 color: visual.color, opacity: 0.6, whiteSpace: 'nowrap', textDecoration: 'none',
@@ -251,7 +238,6 @@ export default function BloomPage() {
           onDialSelect={handleDialSelect}
           onToggleReveal={toggleReveal}
           onAddToCart={addToCart}
-          onHopClick={handleHopClick}
           onCompare={openCompare}
           userArchetype={userArchetype}
           registerDialRef={registerDialRef}

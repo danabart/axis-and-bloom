@@ -18,7 +18,7 @@ import { slotKey, formatPrice, formatWeight } from './types';
  * layout — the dial owns its own presentation).
  */
 export function DialArchetypeSection({
-  data, selectedSortOrder, revealedKeys, onDialSelect, onToggleReveal, onAddToCart, onHopClick, onCompare,
+  data, selectedSortOrder, revealedKeys, onDialSelect, onToggleReveal, onAddToCart, onCompare,
   userArchetype, registerDialRef, source = null, hideProfileLink = false, embedded = false,
 }: {
   data: ArchetypeData;
@@ -28,7 +28,6 @@ export function DialArchetypeSection({
   onDialSelect: (archetype: string, dialSortOrder: number) => void;
   onToggleReveal: (key: string) => void;
   onAddToCart: (item: CartItem) => void;
-  onHopClick: (archetype: string, dialSortOrder: number) => void;
   onCompare: (archetype: string, archetypeLabel: string, slot: Slot) => void;
   userArchetype: string | null;
   registerDialRef: (archetype: string, handle: BloomDialHandle | null) => void;
@@ -250,8 +249,6 @@ export function DialArchetypeSection({
       bottomContent={bottomContent}
       belowStage={belowStage}
       embedded={embedded}
-      hops={cardData.hops}
-      onHopClick={onHopClick}
     />
   );
 }

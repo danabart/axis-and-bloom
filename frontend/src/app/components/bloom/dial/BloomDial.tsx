@@ -2,7 +2,6 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, type CSSProperties,
 import { getCells, colorizeCells, BEIGE, W, H, type Cell, type RGB } from './fillEngine';
 import { LINEWORK_URI } from './linework';
 import type { DialConfig, DialCoffee } from './archetypeConfig';
-import type { Hop } from '../types';
 
 // The Bloom Dial — reusable component, source of truth on the Bloom page
 // (brief 33). One archetype per mount; the wheel/ruler/bag interaction and the
@@ -29,13 +28,6 @@ interface Props {
   belowStage?: ReactNode;
   /** Compact variant for embedded contexts (quiz screens, Profile). */
   embedded?: boolean;
-  /** Part 16 §A — "Nearby on the dial" navigation chips, rendered under the
-   * "TURN THE WHEEL" hint (pre-reveal — DialArchetypeSection fetches these as
-   * soon as the position resolves to a real coffee, not gated on reveal
-   * anymore). Additive/optional so a bare `<BloomDial>` without hops still
-   * renders exactly as before. */
-  hops?: Hop[];
-  onHopClick?: (targetArchetype: string, targetDialSortOrder: number) => void;
 }
 
 const TRAVEL = 120;
@@ -79,13 +71,16 @@ function fmtPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-// Part 16 §A's algorithmic chip format, unchanged by Part 17 §B (only the
-// layout moved, not the copy): "{More|Less} {dimension} → {position}", plus
-// the target's archetype label when a hop crosses archetypes.
-function hopChipText(hop: Hop, ownArchetype: string): string {
-  const dir = hop.direction === 'more' ? 'More' : 'Less';
-  const cross = hop.target.archetype !== ownArchetype ? ` · ${hop.target.archetypeLabel}` : '';
-  return `${dir} ${hop.dimensionName.toLowerCase()} → ${hop.target.positionLabel}${cross}`;
+// Part 18 §A — the dial-native step chip's text: "{More|Less} {dimension} →
+// {position label}", where {dimension} is this archetype's OWN dial dimension
+// (config.dimensionName, lowercased) and {position label} is the neighboring
+// stop's generic position label (dial_position_vocabulary.label) — never a
+// different archetype (that's the whole point of this section: the dial only
+// ever travels its own one dimension now, never a hop-graph jump).
+function stepChipText(direction: 'less' | 'more', dimensionName: string | null, targetLabel: string): string {
+  const dir = direction === 'more' ? 'More' : 'Less';
+  const dim = (dimensionName ?? '').toLowerCase();
+  return dim ? `${dir} ${dim} → ${targetLabel}` : `${dir} → ${targetLabel}`;
 }
 
 // Stack a coffee name one word per line for the field display, but keep "&"
@@ -113,14 +108,9 @@ function ensureStyles() {
 }
 
 export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
-  { config, initialDialSortOrder = 2, onZoneChange, onPreOrder, bottomContent, belowStage, embedded = false, hops = [], onHopClick },
+  { config, initialDialSortOrder = 2, onZoneChange, onPreOrder, bottomContent, belowStage, embedded = false },
   ref,
 ) {
-  // Part 17 §B — split once per render; the API already orders by confidence
-  // high→medium→low, so each side keeps that order without a separate sort.
-  const lessHops = hops.filter(h => h.direction === 'less');
-  const moreHops = hops.filter(h => h.direction === 'more');
-
   // Part 16 §B — this archetype's stop layout (0..1 position per coffee, index
   // = zone). Recomputed every render (cheap — at most a handful of positions)
   // but only actually read at ref-init time and inside the setup effect below,
@@ -149,6 +139,12 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
   const priceRef   = useRef<HTMLDivElement>(null);
   const nlinesRef  = useRef<HTMLDivElement>(null);
   const fieldNameRef = useRef<HTMLDivElement>(null);
+  // Part 18 §A — the two dial-native step chips; text and visibility are set
+  // imperatively in paint() (same pattern as nameRef/priceRef above), not via
+  // React state, so they stay correct mid-drag the same way the coffee name
+  // does — not just at rest.
+  const lessChipRef = useRef<HTMLButtonElement>(null);
+  const moreChipRef = useRef<HTMLButtonElement>(null);
 
   // Engine state (per instance).
   const cellsRef   = useRef<Cell[] | null>(null);
@@ -182,6 +178,10 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
 
   // paint() is stored in a ref so handlers/imperative calls share one instance.
   const paintRef = useRef<((rot: number) => void) | null>(null);
+  // Part 18 §A — step() likewise, so the step-chip buttons (rendered outside
+  // the effect closure) can trigger the exact same one-position move keyboard
+  // arrows use.
+  const stepRef = useRef<((d: number) => void) | null>(null);
 
   useEffect(() => {
     ensureStyles();
@@ -252,6 +252,31 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
           el.style.opacity = '0';
           setTimeout(() => { el.style.opacity = '1'; }, 60);
         });
+      }
+
+      // Part 18 §A — step chips: text + visibility both set here (not via
+      // React state) so they stay correct on every zone change, including
+      // mid-drag, the same way the coffee name/price already do. visibility
+      // (not display) keeps the hidden chip's flex slot reserved at an
+      // extreme, so the remaining chip stays anchored to its own edge instead
+      // of the row collapsing to a single centered item.
+      const positions = stopPositionsRef.current;
+      const dimName = configRef.current.dimensionName;
+      if (lessChipRef.current) {
+        if (zone > 0) {
+          lessChipRef.current.textContent = stepChipText('less', dimName, configRef.current.coffees[zone - 1].positionLabel);
+          lessChipRef.current.style.visibility = 'visible';
+        } else {
+          lessChipRef.current.style.visibility = 'hidden';
+        }
+      }
+      if (moreChipRef.current) {
+        if (zone < positions.length - 1) {
+          moreChipRef.current.textContent = stepChipText('more', dimName, configRef.current.coffees[zone + 1].positionLabel);
+          moreChipRef.current.style.visibility = 'visible';
+        } else {
+          moreChipRef.current.style.visibility = 'hidden';
+        }
       }
     }
     paintRef.current = paint;
@@ -370,6 +395,11 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
       paint(rotRef.current);
       onZoneChangeRef.current?.(zone + 1);
     };
+    // Part 18 §A — the step chips call this exact function (via the ref below),
+    // so clicking one is "identical effect to turning the wheel one stop": same
+    // snap-free direct paint, same onZoneChange, same everything keyboard
+    // stepping already gets.
+    stepRef.current = step;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
       if (e.key === 'ArrowLeft')  { e.preventDefault(); step(-1); }
@@ -392,6 +422,7 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
       ticks.removeEventListener('keydown', onKey);
       ticks.innerHTML = '';
       paintRef.current = null;
+      stepRef.current = null;
     };
     // Rebuild only if the archetype identity changes (each dial is one archetype).
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -416,6 +447,13 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
     '--bd-ftext': config.ftext,
     '--bd-ftext-weak': darkFieldText ? 'rgba(154,41,24,.40)' : 'rgba(242,241,234,.35)',
     '--bd-ftext-mid':  darkFieldText ? 'rgba(154,41,24,.65)' : 'rgba(242,241,234,.65)',
+    // Part 18 §B — scroll-margin-top so any scroll-to-this-section (archetype
+    // strip, Worth Exploring) clears the sticky header(s) instead of landing
+    // with the title tucked underneath. Bloom (non-embedded) sits under BOTH
+    // the site's fixed 46px global nav AND its own sticky archetype jump-nav
+    // (own ~45px, offset 64px down) — embedded contexts (Profile/quiz) only
+    // ever have the global 46px nav.
+    scrollMarginTop: embedded ? 70 : 130,
   } as CSSProperties;
 
   return (
@@ -494,49 +532,39 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
                   <span>{(config.scaleMaxLabel ?? 'Pronounced').toUpperCase()}</span>
                 </div>
               </div>
-              {/* Part 16 §A — "Nearby on the dial" navigation, moved here from
-                  RevealedPanel's footer: this is dial navigation, so it lives on
-                  the instrument, visible pre-reveal. Styled with the field-text
-                  color system (--bd-ftext*), not the panel's palette, so it reads
-                  as part of the instrument rather than panel UI pasted onto it.
-                  Part 17 §B — anchored to the ruler's own edges instead of flowing
-                  inline: "less" stacks left (the ruler's delicate/low end), "more"
-                  stacks right (the pronounced/high end), regardless of text length
-                  — every archetype gets identical chip positions. An empty side
-                  stays empty (never re-centers the other side's chips). The API
-                  already orders hops by confidence high→medium→low, so filtering
-                  by direction preserves "top one first by confidence" within each
-                  side without a separate sort. */}
-              {(lessHops.length > 0 || moreHops.length > 0) && (
-                <div className="bd-hops">
-                  <div className="bd-hops-side bd-hops-less">
-                    {lessHops.map((hop, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        className="bd-hop-chip"
-                        title={hopChipText(hop, config.archetype)}
-                        onClick={() => onHopClick?.(hop.target.archetype, hop.target.dialSortOrder)}
-                      >
-                        {hopChipText(hop, config.archetype)}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="bd-hops-side bd-hops-more">
-                    {moreHops.map((hop, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        className="bd-hop-chip"
-                        title={hopChipText(hop, config.archetype)}
-                        onClick={() => onHopClick?.(hop.target.archetype, hop.target.dialSortOrder)}
-                      >
-                        {hopChipText(hop, config.archetype)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {/* Part 18 §A — dial-native step chips, replacing the Part 16/17
+                  hop-graph chips: these travel ONE dimension only (this dial's
+                  own), one position at a time, never leaving the archetype. Text
+                  and visibility are set imperatively in paint() so they stay
+                  correct through drag/keyboard/click the same way the coffee
+                  name does; the values below are just the pre-paint initial
+                  render, computed the same way the embedded coffee-name default
+                  is a few lines up. Anchored to the ruler's own edges (Part 17 §B's
+                  layout, kept); at an extreme the outward chip is invisible but
+                  still occupies its flex slot, so the remaining chip stays
+                  anchored to its own edge instead of the row re-centering. */}
+              <div className="bd-step-chips">
+                <button
+                  type="button"
+                  ref={lessChipRef}
+                  className="bd-step-chip bd-step-chip-less"
+                  style={{ visibility: clampZone(initialDialSortOrder - 1) > 0 ? 'visible' : 'hidden' }}
+                  onClick={() => stepRef.current?.(-1)}
+                >
+                  {clampZone(initialDialSortOrder - 1) > 0 &&
+                    stepChipText('less', config.dimensionName, config.coffees[clampZone(initialDialSortOrder - 1) - 1].positionLabel)}
+                </button>
+                <button
+                  type="button"
+                  ref={moreChipRef}
+                  className="bd-step-chip bd-step-chip-more"
+                  style={{ visibility: clampZone(initialDialSortOrder - 1) < maxZone ? 'visible' : 'hidden' }}
+                  onClick={() => stepRef.current?.(1)}
+                >
+                  {clampZone(initialDialSortOrder - 1) < maxZone &&
+                    stepChipText('more', config.dimensionName, config.coffees[clampZone(initialDialSortOrder - 1) + 1].positionLabel)}
+                </button>
+              </div>
 
               <div className="bd-hint">TURN THE WHEEL, OR SLIDE THE BAR</div>
             </div>
@@ -608,18 +636,21 @@ const CSS = `
    crowd out the other. */
 .bd-ruler-ends span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:48%;}
 .bd-hint{margin-top:12px;font-size:10.5px;letter-spacing:.14em;color:var(--bd-ftext-mid);}
-/* Part 16 §A — instrument-native hop chips (not panel UI): transparent, thin
-   field-text border at reduced opacity, field-text-mid label, small pill.
-   Part 17 §B — fixed anchors instead of flow: the row spans the ruler's own
-   width, "less" stacked flush left, "more" stacked flush right — identical
-   position on every archetype regardless of text length. An empty side is
-   just an empty flex child; space-between never re-centers the other side. */
-.bd-hops{width:360px;max-width:86vw;margin:14px auto 0;display:flex;justify-content:space-between;gap:14px;}
-.bd-hops-side{display:flex;flex-direction:column;gap:8px;min-width:0;flex:0 1 auto;}
-.bd-hops-less{align-items:flex-start;}
-.bd-hops-more{align-items:flex-end;}
-.bd-hop-chip{font-family:inherit;font-size:11px;letter-spacing:.02em;padding:6px 13px;border-radius:999px;border:1px solid var(--bd-ftext-weak);background:none;color:var(--bd-ftext-mid);cursor:pointer;transition:border-color 240ms ${EASE},color 240ms ${EASE};max-width:172px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
-.bd-hop-chip:hover{border-color:var(--bd-ftext);color:var(--bd-ftext);}
+/* Part 18 §A — dial-native step chips, replacing Part 16/17's hop-graph chips.
+   Same instrument-native styling (transparent, thin field-text border,
+   field-text-mid label, small pill) and the same fixed left/right anchoring
+   Part 17 §B introduced — kept because it's still correct for two fixed
+   controls, just no longer graph-driven. Full text always: wrap to a second
+   line instead of the old ellipsis truncation (spec's own "no ellipsis, ever"
+   — these are short, deterministic sentences now, not hop-graph labels of
+   unpredictable length). visibility (not display) hides the outward chip at
+   an extreme so the remaining one stays anchored to its own edge — the row
+   never collapses to a single centered item. */
+.bd-step-chips{width:360px;max-width:86vw;margin:14px auto 0;display:flex;justify-content:space-between;gap:14px;}
+.bd-step-chip{font-family:inherit;font-size:11px;letter-spacing:.02em;line-height:1.4;padding:8px 15px;border-radius:999px;border:1px solid var(--bd-ftext-weak);background:none;color:var(--bd-ftext-mid);cursor:pointer;transition:border-color 240ms ${EASE},color 240ms ${EASE};max-width:172px;white-space:normal;}
+.bd-step-chip-less{text-align:left;}
+.bd-step-chip-more{text-align:right;}
+.bd-step-chip:hover{border-color:var(--bd-ftext);color:var(--bd-ftext);}
 .bd-field-inner{display:flex;align-items:center;justify-content:center;gap:clamp(28px,4vw,72px);width:100%;}
 .bd-wheel-col{display:flex;flex-direction:column;align-items:center;flex-shrink:0;}
 /* The identity block has a FIXED width (and the name a fixed height) so the row
@@ -663,8 +694,8 @@ const CSS = `
 .bd-embedded .bd-instrument{padding:42px 24px;}
 .bd-embedded .bd-dial-wrap{width:300px;height:300px;}
 .bd-embedded .bd-ruler{width:280px;margin-top:28px;}
-.bd-embedded .bd-hops{width:280px;}
-.bd-embedded .bd-hop-chip{max-width:128px;}
+.bd-embedded .bd-step-chips{width:280px;}
+.bd-embedded .bd-step-chip{max-width:128px;}
 .bd-embedded .bd-bdial{font-size:19px;margin-top:8px;}
 .bd-embedded .bd-coffee-name{font-size:23px;min-height:0;margin-top:10px;}
 .bd-embedded .bd-reading-bottom{padding-top:22px;}

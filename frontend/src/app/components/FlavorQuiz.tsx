@@ -16,7 +16,6 @@ import { useArchetypeAdjacency } from './coffee-info/archetypeAdjacency';
 import WorthExploring from './profile/WorthExploring';
 import type { BloomDialHandle } from './BloomDialWidget';
 import type { ArchetypeData, Slot } from './bloom/types';
-import { slotKey } from './bloom/types';
 
 const RUST = '#a33726';
 
@@ -711,38 +710,6 @@ export default function FlavorQuiz() {
     });
   }
 
-  // Part 17 §F — same archetype: rotate this screen's own dial as before;
-  // a different archetype: open/retarget the adjacent section (below) via the
-  // same mechanism Worth Exploring's chips use on Profile, then scroll+turn to
-  // it (Part 17 §C's choreography, reused here).
-  function handleMatchedHopClick(archetype: string, dialSortOrder: number) {
-    if (archetype === matchedArchetypeId) {
-      matchedDialRef.current?.rotateTo(dialSortOrder);
-      setMatchedSortOrder(dialSortOrder);
-      setRevealedKeys(prev => new Set(prev).add(slotKey(archetype, dialSortOrder)));
-      return;
-    }
-    matchedAdjacent.openAtHop(archetype, dialSortOrder);
-  }
-
-  // A hop clicked from the adjacent section itself: within its own archetype
-  // rotates it directly; back to the matched archetype or on to a third one
-  // re-routes through openAtHop the same way.
-  function handleMatchedAdjacentHopClick(archetype: string, dialSortOrder: number) {
-    if (archetype === matchedAdjacent.adjacentArchetypeId) {
-      matchedAdjacent.openAtHop(archetype, dialSortOrder);
-      return;
-    }
-    if (archetype === matchedArchetypeId) {
-      matchedDialRef.current?.rotateTo(dialSortOrder);
-      setMatchedSortOrder(dialSortOrder);
-      setRevealedKeys(prev => new Set(prev).add(slotKey(archetype, dialSortOrder)));
-      requestAnimationFrame(() => document.getElementById(archetype)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-      return;
-    }
-    matchedAdjacent.openAtHop(archetype, dialSortOrder);
-  }
-
   function openMatchedCompare(archetype: string, archetypeLabel: string, slot: Slot) {
     setCompareState({ open: true, archetype, archetypeLabel, slot });
   }
@@ -771,31 +738,6 @@ export default function FlavorQuiz() {
       if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
-  }
-
-  function handleResultsHopClick(archetype: string, dialSortOrder: number) {
-    if (archetype === resultsArchetypeEnum) {
-      resultsDialRef.current?.rotateTo(dialSortOrder);
-      setResultsSortOrder(dialSortOrder);
-      setResultsRevealedKeys(prev => new Set(prev).add(slotKey(archetype, dialSortOrder)));
-      return;
-    }
-    resultsAdjacent.openAtHop(archetype, dialSortOrder);
-  }
-
-  function handleResultsAdjacentHopClick(archetype: string, dialSortOrder: number) {
-    if (archetype === resultsAdjacent.adjacentArchetypeId) {
-      resultsAdjacent.openAtHop(archetype, dialSortOrder);
-      return;
-    }
-    if (archetype === resultsArchetypeEnum) {
-      resultsDialRef.current?.rotateTo(dialSortOrder);
-      setResultsSortOrder(dialSortOrder);
-      setResultsRevealedKeys(prev => new Set(prev).add(slotKey(archetype, dialSortOrder)));
-      requestAnimationFrame(() => document.getElementById(archetype)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-      return;
-    }
-    resultsAdjacent.openAtHop(archetype, dialSortOrder);
   }
 
   function openResultsCompare(archetype: string, archetypeLabel: string, slot: Slot) {
@@ -1219,7 +1161,6 @@ export default function FlavorQuiz() {
             onDialSelect={handleMatchedDialSelect}
             onToggleReveal={toggleMatchedReveal}
             onAddToCart={addToCart}
-            onHopClick={handleMatchedHopClick}
             onCompare={openMatchedCompare}
             userArchetype={matchedArchetypeId}
             registerDialRef={registerMatchedDialRef}
@@ -1252,7 +1193,6 @@ export default function FlavorQuiz() {
               onDialSelect={matchedAdjacent.handleDialSelect}
               onToggleReveal={matchedAdjacent.toggleReveal}
               onAddToCart={addToCart}
-              onHopClick={handleMatchedAdjacentHopClick}
               onCompare={openMatchedCompare}
               userArchetype={matchedArchetypeId}
               registerDialRef={matchedAdjacent.registerDialRef}
@@ -1683,7 +1623,6 @@ export default function FlavorQuiz() {
                   onDialSelect={handleResultsDialSelect}
                   onToggleReveal={toggleResultsReveal}
                   onAddToCart={addToCart}
-                  onHopClick={handleResultsHopClick}
                   onCompare={openResultsCompare}
                   userArchetype={matchedArchetypeId}
                   registerDialRef={registerResultsDialRef}
@@ -1715,7 +1654,6 @@ export default function FlavorQuiz() {
                     onDialSelect={resultsAdjacent.handleDialSelect}
                     onToggleReveal={resultsAdjacent.toggleReveal}
                     onAddToCart={addToCart}
-                    onHopClick={handleResultsAdjacentHopClick}
                     onCompare={openResultsCompare}
                     userArchetype={matchedArchetypeId}
                     registerDialRef={resultsAdjacent.registerDialRef}

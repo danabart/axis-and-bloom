@@ -12,7 +12,6 @@ import { useArchetypeAdjacency } from './coffee-info/archetypeAdjacency';
 import { useAdjacentArchetype } from './bloom/useAdjacentArchetype';
 import type { BloomDialHandle } from './BloomDialWidget';
 import type { ArchetypeData, Slot } from './bloom/types';
-import { slotKey } from './bloom/types';
 import FamilyTab from './FamilyTab';
 import OrderFeedbackForm from './OrderFeedbackForm';
 import TastingJournal from './profile/TastingJournal';
@@ -205,47 +204,15 @@ export default function Profile() {
   // Clicking a chip expands that archetype's full ArchetypeSection in place
   // below the primary match, instead of ejecting to Flavor Intelligence. One
   // adjacent section open at a time; clicking the active chip again (or its ✕)
-  // collapses it, clicking the other chip swaps it. Part 17 §F — this state
-  // (previously local to this component) now lives in useAdjacentArchetype so
-  // cross-archetype hop chips can open/retarget it too, not just the Worth
-  // Exploring CTA — same mechanism, two entry points.
+  // collapses it, clicking the other chip swaps it. Part 18 §A/§C — the hop
+  // chips that used to ALSO open/retarget this (via `openAtHop`) are gone; the
+  // dial only travels its own dimension now, so this CTA is the only entry
+  // point into the adjacent section again.
   const {
     adjacentArchetypeId, adjacentData, adjacentSortOrder, adjacentRevealedKeys, sectionRef: adjacentSectionRef,
-    handleChipClick: handleAdjacentChipClick, openAtHop, handleDialSelect: handleAdjacentDialSelect,
+    handleChipClick: handleAdjacentChipClick, handleDialSelect: handleAdjacentDialSelect,
     toggleReveal: toggleAdjacentReveal, registerDialRef: registerAdjacentDialRef,
   } = useAdjacentArchetype(archetypesList, experimentalData);
-
-  // Part 17 §F — a hop on the PRIMARY section either stays within it (same
-  // archetype: rotate this dial, as before) or crosses to a different
-  // archetype (open/retarget the adjacent section via the same mechanism
-  // Worth Exploring uses, then scroll+turn to it — Part 17 §C's choreography).
-  function handleHopClick(archetype: string, sortOrder: number) {
-    if (archetype === matchArchetypeId) {
-      dialRef.current?.rotateTo(sortOrder);
-      setDialSortOrderState(sortOrder);
-      setRevealedKeys(prev => new Set(prev).add(slotKey(archetype, sortOrder)));
-      return;
-    }
-    openAtHop(archetype, sortOrder);
-  }
-
-  // A hop clicked FROM the adjacent section: within its own archetype rotates
-  // it directly; a hop back to the primary archetype or on to a third one
-  // re-routes through openAtHop the same way the primary section's hops do.
-  function handleAdjacentHopClick(archetype: string, sortOrder: number) {
-    if (archetype === adjacentArchetypeId) {
-      openAtHop(archetype, sortOrder); // already-open archetype, new position — same path, turns in place
-      return;
-    }
-    if (archetype === matchArchetypeId) {
-      dialRef.current?.rotateTo(sortOrder);
-      setDialSortOrderState(sortOrder);
-      setRevealedKeys(prev => new Set(prev).add(slotKey(archetype, sortOrder)));
-      requestAnimationFrame(() => document.getElementById(archetype)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-      return;
-    }
-    openAtHop(archetype, sortOrder);
-  }
 
   function openCompare(archetype: string, archetypeLabel: string, slot: Slot) {
     setCompareState({ open: true, archetype, archetypeLabel, slot });
@@ -498,7 +465,6 @@ export default function Profile() {
                         onDialSelect={handleDialSelect}
                         onToggleReveal={toggleReveal}
                         onAddToCart={addToCart}
-                        onHopClick={handleHopClick}
                         onCompare={openCompare}
                         userArchetype={matchArchetypeId}
                         registerDialRef={registerDialRef}
@@ -549,7 +515,6 @@ export default function Profile() {
                           onDialSelect={handleAdjacentDialSelect}
                           onToggleReveal={toggleAdjacentReveal}
                           onAddToCart={addToCart}
-                          onHopClick={handleAdjacentHopClick}
                           onCompare={openCompare}
                           userArchetype={matchArchetypeId}
                           registerDialRef={registerAdjacentDialRef}

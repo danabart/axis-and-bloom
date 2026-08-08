@@ -17,6 +17,12 @@ export interface DialCoffee {
   /** Part 16 §B — which position is the archetype's default slot (Slot.isDefault),
    * used to compute the dial's stop layout (default anchors at visual center). */
   isDefault: boolean;
+  /** Part 18 §A — the position's own generic label (dial_position_vocabulary.label,
+   * e.g. "Lighter"/"Classic"/"Richer"/"Full"), always present regardless of whether
+   * a real coffee is resolved for this slot — used as the destination name in the
+   * dial's step chips ("Less {dimension} → {positionLabel}"), same convention the
+   * Part 16/17 hop chips used for their own target label. */
+  positionLabel: string;
 }
 
 export interface DialConfig {
@@ -33,6 +39,15 @@ export interface DialConfig {
    * Delicate/Pronounced in that case. */
   scaleMinLabel: string | null;
   scaleMaxLabel: string | null;
+  /** Part 18 §A — the dial dimension's own display name (e.g. "Brightness",
+   * "Body"), for the step chips' "Less/More {dimension} → ..." sentence.
+   * dimensionPlatformName preferred (the consumer-facing word), falling back to
+   * the raw dimensionName — same preference order the old hop-chip copy used
+   * (Part 16's own `dimensionName uses COALESCE(platform_name, name)` note).
+   * Null only if the archetype has no dial dimension configured at all (Part 14's
+   * audit found zero such gaps across all 6 archetypes, but the type stays
+   * honest about it being possible). */
+  dimensionName: string | null;
 }
 
 // Title stack line breaks (brief 33 §2).
@@ -82,6 +97,7 @@ export function buildDialConfig(data: ArchetypeData): DialConfig | null {
       price5Cents:  slot ? priceForWeight(slot.prices, 80, DEFAULT_PRICE_5LB) : DEFAULT_PRICE_5LB,
       coffeeId: slot?.coffeeId ?? null,
       isDefault: slot?.isDefault ?? false,
+      positionLabel: slot?.positionLabel ?? '',
     };
   });
 
@@ -98,5 +114,6 @@ export function buildDialConfig(data: ArchetypeData): DialConfig | null {
     coffees,
     scaleMinLabel: data.dimensionScaleMinLabel,
     scaleMaxLabel: data.dimensionScaleMaxLabel,
+    dimensionName: data.dimensionPlatformName ?? data.dimensionName,
   };
 }
