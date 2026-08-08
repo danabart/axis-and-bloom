@@ -1,28 +1,44 @@
 import { Router } from 'express';
-import { respondToDialInBeat } from '../services/beatEngine.js';
+import { respondToDialInBeat, resolveDialInBeatIdByRespondToken } from '../services/beatEngine.js';
 
 const router = Router();
 
-// ── GET /api/beats/dial-in/:beatEventId/respond ───────────────────────────────
+// ── GET /api/beats/dial-in/:token/respond ─────────────────────────────────────
 // HOME_TASK_8 (§3.1, spec item 2) — "on-site via the card's door." A capability
-// link (the beatEventId itself, emailed only to its own recipient) rather than
-// a logged-in form — the same low-friction, single-click pattern the email's
+// link (the token itself, emailed only to its own recipient) rather than a
+// logged-in form — the same low-friction, single-click pattern the email's
 // own quick-response buttons need to work without asking the customer to sign
 // in again from their inbox. GET is used deliberately for the same reason a
 // calendar RSVP or unsubscribe link uses GET: one click, no form, no session
 // requirement — respondToDialInBeat() is itself idempotent (a beat_event that
 // already has responded_at is a no-op), so a prefetching email client or a
 // double-click can't double-adjust the card.
-router.get('/dial-in/:beatEventId/respond', async (req, res) => {
-  const beatEventId = Number(req.params.beatEventId);
+//
+// H3/C4 security fix — this used to identify the beat by beat_event.id, a
+// plain SERIAL: unauthenticated, no ownership check, trivially enumerable
+// (loop integers, mark any customer's beat responded, shift *their* next
+// brew-card grind). The SERIAL id never appears in this URL anymore — the
+// path segment is now an unguessable 32-byte token (respond_token,
+// schema.sql), looked up directly with no separate existence-then-ownership
+// step to time or otherwise distinguish. A wrong/guessed/expired-format
+// token and a real-but-already-responded beat both resolve through the same
+// 404/idempotent-no-op shape below where relevant — nothing here tells an
+// attacker "closer" from "not even close."
+router.get('/dial-in/:token/respond', async (req, res) => {
+  const { token } = req.params;
   const expectation = req.query.expectation as string | undefined;
 
-  if (!Number.isInteger(beatEventId) || !['lighter', 'as_expected', 'bolder'].includes(expectation ?? '')) {
+  if (!token || !['lighter', 'as_expected', 'bolder'].includes(expectation ?? '')) {
     res.status(400).send(renderResponsePage('That link looks incomplete — nothing was recorded.'));
     return;
   }
 
   try {
+    const beatEventId = await resolveDialInBeatIdByRespondToken(token);
+    if (beatEventId === null) {
+      res.status(404).send(renderResponsePage('That link is no longer valid — nothing was recorded.'));
+      return;
+    }
     const applied = await respondToDialInBeat(beatEventId, expectation as 'lighter' | 'as_expected' | 'bolder', 'onsite_feedback');
     res.send(renderResponsePage(
       applied

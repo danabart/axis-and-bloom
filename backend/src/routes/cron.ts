@@ -90,10 +90,10 @@ router.get('/coffee-content-backfill', requireCronSecret, async (_req, res) => {
 
 export async function processDueDialInBeats(): Promise<{ processed: number; sent: number; failed: number }> {
   const due = await db.query<{
-    id: number; user_id: string; coffee_id: number; channel: 'sms' | 'email';
+    id: number; user_id: string; coffee_id: number; channel: 'sms' | 'email'; respond_token: string;
     first_name: string | null; email_address: string | null; phone_number: string | null;
   }>(
-    `SELECT be.id, be.user_id, be.coffee_id, be.channel,
+    `SELECT be.id, be.user_id, be.coffee_id, be.channel, be.respond_token,
             up.first_name, ue.email_address, ph.phone_number
      FROM beat_event be
      JOIN user_profile up ON up.id = be.user_id
@@ -137,7 +137,8 @@ export async function processDueDialInBeats(): Promise<{ processed: number; sent
           console.warn('[cron/beat-dial-in-send] channel=sms but no consented phone on file for user', row.user_id, '— skipping send, not falling back to email silently');
         }
       } else if (row.email_address) {
-        const respondBase = `${backendUrl}/api/beats/dial-in/${row.id}/respond`;
+        // H3/C4 — the token, never the SERIAL id, is what goes in the link.
+        const respondBase = `${backendUrl}/api/beats/dial-in/${row.respond_token}/respond`;
         // Resend's send() resolves { data, error } — it does not throw for an
         // API-level failure (invalid recipient, provider outage, etc.), only
         // for a network-level one. Checking .error is required, not optional

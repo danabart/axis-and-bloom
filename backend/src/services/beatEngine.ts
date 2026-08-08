@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import { db } from '../db/client.js';
 import { getSommelierConfig, type SommelierConfig } from './sommelierConfig.js';
 import { getAliases } from './sommelierRag.js';
@@ -5,6 +6,17 @@ import { generateOrderPlacedLine } from './storyLayer.js';
 import { createArrivalCard, getBagNumberForCoffee, getMostRecentCard, adjustCard } from './brewCard.js';
 import { writeDialPositionSignal } from './dialPositionSignal.js';
 import type { BrewProfileDoc } from './brewProfile.js';
+
+// H3/C4 security fix — every beat_event row gets an unguessable capability
+// token at creation, same pattern as household_invitation.token
+// (routes/household.ts) and coffees.qr_token (services/qrDoor.ts): 32 random
+// bytes, hex-encoded. Only the dial_in beat type's public respond link
+// actually uses this today, but the column is NOT NULL table-wide (see
+// schema.sql), so every insert — order_placed and arrival_note included —
+// generates one regardless of whether that row will ever be looked up by it.
+function generateBeatRespondToken(): string {
+  return randomBytes(32).toString('hex');
+}
 
 // HOME_TASK_8 (§3.1) — the bag cycle's first three beats: order-placed line,
 // arrival note dispatch, first-brew dial-in. Lifecycle-aware selection reads
@@ -121,13 +133,13 @@ export async function dispatchOrderPlacedBeat(userId: string, orderId: string, c
 
   const inserted = await db.query(
     active
-      ? `INSERT INTO beat_event (user_id, order_id, coffee_id, beat_type, channel, sent_at)
-         VALUES ($1, $2, $3, 'order_placed', 'inline', NOW())
+      ? `INSERT INTO beat_event (user_id, order_id, coffee_id, beat_type, channel, sent_at, respond_token)
+         VALUES ($1, $2, $3, 'order_placed', 'inline', NOW(), $4)
          ON CONFLICT (user_id, order_id, beat_type) DO NOTHING RETURNING id`
-      : `INSERT INTO beat_event (user_id, order_id, coffee_id, beat_type, channel, skip_reason)
-         VALUES ($1, $2, $3, 'order_placed', NULL, 'inactive_config')
+      : `INSERT INTO beat_event (user_id, order_id, coffee_id, beat_type, channel, skip_reason, respond_token)
+         VALUES ($1, $2, $3, 'order_placed', NULL, 'inactive_config', $4)
          ON CONFLICT (user_id, order_id, beat_type) DO NOTHING RETURNING id`,
-    [userId, orderId, coffeeId]
+    [userId, orderId, coffeeId, generateBeatRespondToken()]
   );
   if (!active || !inserted.rows.length) return null;
 
@@ -167,11 +179,11 @@ export async function dispatchDelayedBeats(params: {
   // ── arrival_note ──────────────────────────────────────────────────────
   if (selection.arrivalNote.active) {
     const inserted = await db.query(
-      `INSERT INTO beat_event (user_id, order_id, coffee_id, beat_type, channel, scheduled_at)
-       VALUES ($1, $2, $3, 'arrival_note', $4, NOW())
+      `INSERT INTO beat_event (user_id, order_id, coffee_id, beat_type, channel, scheduled_at, respond_token)
+       VALUES ($1, $2, $3, 'arrival_note', $4, NOW(), $5)
        ON CONFLICT (user_id, order_id, beat_type) DO NOTHING
        RETURNING id`,
-      [userId, orderId, coffeeId, selection.arrivalNote.channel]
+      [userId, orderId, coffeeId, selection.arrivalNote.channel, generateBeatRespondToken()]
     );
     // Task 6's own createArrivalCard() is independently idempotent per
     // (user, coffee, method) — only called when this order's beat_event row
@@ -185,31 +197,50 @@ export async function dispatchDelayedBeats(params: {
     }
   } else {
     await db.query(
-      `INSERT INTO beat_event (user_id, order_id, coffee_id, beat_type, channel, skip_reason)
-       VALUES ($1, $2, $3, 'arrival_note', NULL, $4)
+      `INSERT INTO beat_event (user_id, order_id, coffee_id, beat_type, channel, skip_reason, respond_token)
+       VALUES ($1, $2, $3, 'arrival_note', NULL, $4, $5)
        ON CONFLICT (user_id, order_id, beat_type) DO NOTHING`,
-      [userId, orderId, coffeeId, selection.arrivalNote.skipReason]
+      [userId, orderId, coffeeId, selection.arrivalNote.skipReason, generateBeatRespondToken()]
     );
   }
 
   // ── dial_in ───────────────────────────────────────────────────────────
   if (selection.dialIn.active) {
     await db.query(
-      `INSERT INTO beat_event (user_id, order_id, coffee_id, beat_type, channel, scheduled_at)
-       VALUES ($1, $2, $3, 'dial_in', $4, $5)
+      `INSERT INTO beat_event (user_id, order_id, coffee_id, beat_type, channel, scheduled_at, respond_token)
+       VALUES ($1, $2, $3, 'dial_in', $4, $5, $6)
        ON CONFLICT (user_id, order_id, beat_type) DO NOTHING`,
-      [userId, orderId, coffeeId, selection.dialIn.channel, selection.dialIn.scheduledFor]
+      [userId, orderId, coffeeId, selection.dialIn.channel, selection.dialIn.scheduledFor, generateBeatRespondToken()]
     );
   } else {
     await db.query(
-      `INSERT INTO beat_event (user_id, order_id, coffee_id, beat_type, channel, scheduled_at, skip_reason)
-       VALUES ($1, $2, $3, 'dial_in', NULL, $4, $5)
+      `INSERT INTO beat_event (user_id, order_id, coffee_id, beat_type, channel, scheduled_at, skip_reason, respond_token)
+       VALUES ($1, $2, $3, 'dial_in', NULL, $4, $5, $6)
        ON CONFLICT (user_id, order_id, beat_type) DO NOTHING`,
-      [userId, orderId, coffeeId, selection.dialIn.scheduledFor, selection.dialIn.skipReason]
+      [userId, orderId, coffeeId, selection.dialIn.scheduledFor, selection.dialIn.skipReason, generateBeatRespondToken()]
     );
   }
 
   return selection;
+}
+
+// H3/C4 security fix — the ONLY thing the public respond route (routes/
+// beats.ts) is allowed to identify a beat by. Resolves an unguessable
+// respond_token to the beat's internal SERIAL id (never exposed in a URL —
+// see beats.ts) or null on no match. Deliberately returns null for "wrong
+// token" and "no such beat" alike — the caller 404s either way, so nothing
+// here distinguishable lets an attacker tell a mistyped/guessed token apart
+// from one that once existed. Scoped to beat_type = 'dial_in' here too
+// (rather than leaving that check to the caller) since that's the only beat
+// type with a respond concept at all — order_placed/arrival_note rows have
+// a respond_token (every row does, table-wide NOT NULL) but nothing should
+// ever resolve one back to an action.
+export async function resolveDialInBeatIdByRespondToken(token: string): Promise<number | null> {
+  const result = await db.query(
+    `SELECT id FROM beat_event WHERE respond_token = $1 AND beat_type = 'dial_in'`,
+    [token]
+  );
+  return result.rows[0]?.id ?? null;
 }
 
 // HOME_TASK_8 (§3.1, spec item 2) — "the reply... adjusts the brew card
