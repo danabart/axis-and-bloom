@@ -895,10 +895,26 @@ CREATE TABLE IF NOT EXISTS beat_event (
   sent_at        TIMESTAMPTZ,
   responded_at   TIMESTAMPTZ,
   skip_reason    TEXT,
+  -- H3/C4 security fix (2026-08-09) — a capability token identifying this
+  -- beat for the public dial-in respond link, replacing the old bare `id`
+  -- (a SERIAL, enumerable, unauthenticated IDOR). 32 random bytes, generated
+  -- app-side via crypto.randomBytes at insert time (beatEngine.ts) for
+  -- every new row, same pattern as household_invitation.token/coffees.
+  -- qr_token. NOT NULL here only applies to a fresh CREATE TABLE (an empty
+  -- table has no pre-existing rows to violate it) — an already-deployed
+  -- table gets this column via the plain nullable ALTER below instead,
+  -- promoted to NOT NULL only by the dedicated migration (see
+  -- db/migrations/beat_event_respond_token_2026_08_09.sql) after its
+  -- backfill script confirms zero remaining NULLs, never automatically here.
+  respond_token  TEXT NOT NULL UNIQUE,
   created_at     TIMESTAMPTZ DEFAULT NOW(),
   updated_at     TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id, order_id, beat_type)
 );
+-- Idempotent path for an already-deployed table (see the column comment
+-- above for why this stays nullable here, unlike the CREATE TABLE default).
+ALTER TABLE beat_event ADD COLUMN IF NOT EXISTS respond_token TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS beat_event_respond_token_key ON beat_event(respond_token);
 
 -- HOME_TASK_9 (§7) — the lightweight brew-card view log Task 6 didn't add.
 -- One row per (user, card) render of the Flavor Memory brew-cards section —
