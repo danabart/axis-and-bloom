@@ -7,7 +7,7 @@ import 'dotenv/config';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
 import type { Server } from 'http';
-import coffeesRouter from './coffees.js';
+import coffeesRouter, { computeDoorMap, assertDoorMapInvariants } from './coffees.js';
 
 let server: Server;
 let baseUrl: string;
@@ -49,6 +49,71 @@ describe('GET /api/coffees/archetypes', () => {
       expect(defaultCount).toBeLessThanOrEqual(1);
     }
   }, 20000); // sequential per-slot DB round trips over the Cloud SQL proxy tunnel
+});
+
+// Part 19 §A, revised — the door map used to be derived per-archetype from
+// bridge_archetype hop data, which live QA found could produce an archetype
+// whose left and right doors were the SAME target, and seams that weren't
+// walkable both ways (A's right door pointing at B without B's left door
+// pointing back at A). Replaced with one fixed symmetric chain around
+// CANONICAL_ARCHETYPE_ORDER; these tests pin both the exact 6x2 map (so a
+// future edit to the chain is a visible, deliberate diff) and the invariant
+// checker itself (so it isn't just quietly passing because the current data
+// happens to be fine — it has to actually catch a broken map too).
+describe('Bloom Dial door map (Part 19 §A)', () => {
+  it('matches the canonical Floral<->Fruity<->Balanced&Sweet<->Chocolate&Nutty<->Earthy<->Experimental<->Floral chain', async () => {
+    const doorMap = await computeDoorMap();
+    const expected: Record<string, { left: string; right: string }> = {
+      floral: { left: 'experimental', right: 'fruity' },
+      fruity: { left: 'floral', right: 'balanced_sweet' },
+      balanced_sweet: { left: 'fruity', right: 'chocolate_nutty' },
+      chocolate_nutty: { left: 'balanced_sweet', right: 'earthy' },
+      earthy: { left: 'chocolate_nutty', right: 'experimental' },
+      experimental: { left: 'earthy', right: 'floral' },
+    };
+    for (const archetype of Object.keys(expected)) {
+      expect(doorMap[archetype].left.archetype).toBe(expected[archetype].left);
+      expect(doorMap[archetype].right.archetype).toBe(expected[archetype].right);
+      expect(doorMap[archetype].left.rule).toBe('chain');
+      expect(doorMap[archetype].right.rule).toBe('chain');
+    }
+  });
+
+  it('is internally symmetric: every door is walkable back through', async () => {
+    const doorMap = await computeDoorMap();
+    // Re-run the same invariant the module asserts at startup — proves the
+    // live map still satisfies it, not just that startup didn't crash once.
+    expect(() => assertDoorMapInvariants(doorMap)).not.toThrow();
+    for (const archetype of Object.keys(doorMap)) {
+      expect(doorMap[archetype].left.archetype).not.toBe(doorMap[archetype].right.archetype);
+    }
+  });
+
+  it('assertDoorMapInvariants actually catches a broken map (both doors the same target)', () => {
+    const broken = {
+      floral: { left: { archetype: 'fruity', archetypeLabel: 'Fruity', rule: 'chain' as const }, right: { archetype: 'fruity', archetypeLabel: 'Fruity', rule: 'chain' as const } },
+      fruity: { left: { archetype: 'floral', archetypeLabel: 'Floral', rule: 'chain' as const }, right: { archetype: 'floral', archetypeLabel: 'Floral', rule: 'chain' as const } },
+    };
+    expect(() => assertDoorMapInvariants(broken)).toThrow(/left and right doors are both/);
+  });
+
+  it('assertDoorMapInvariants actually catches a broken map (asymmetric seam)', () => {
+    // north's right door is east — but east's left door points at south,
+    // not back at north. Each node's own left/right still differ (so this
+    // isn't the "both doors the same" case above), it's specifically an
+    // unwalkable seam: exactly the live Fruity/Balanced & Sweet defect this
+    // chain replaced (Fruity's door pointed at Balanced & Sweet, but
+    // Balanced & Sweet's matching door didn't point back).
+    const chain = (l: string, r: string) => ({
+      left: { archetype: l, archetypeLabel: l, rule: 'chain' as const },
+      right: { archetype: r, archetypeLabel: r, rule: 'chain' as const },
+    });
+    const broken = {
+      north: chain('south', 'east'),
+      east: chain('south', 'west'), // broken: should be chain('north', ...)
+    };
+    expect(() => assertDoorMapInvariants(broken)).toThrow(/north's right door is east, but east's left door is south, not north/);
+  });
 });
 
 describe('GET /api/coffees/archetype-stats', () => {

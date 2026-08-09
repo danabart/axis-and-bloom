@@ -609,77 +609,82 @@ function computeCollectionOfferFromSlots(slots: Array<{ dialSortOrder: number; i
 // Part 19 §A — canonical archetype order: mirrors the frontend's FIXED nav-strip
 // numbering (ARCHETYPE_VISUALS.num in bloomVisuals.ts — 01 Floral through 06
 // Experimental), not the personalized /archetype-order used for page display
-// order. Used only as the door map's fallback when no same-dimension bridge
-// hop exists in a given direction — a stable ordering every customer sees the
-// same way, unlike the personalized one.
+// order. A stable ordering every customer sees the same way, unlike the
+// personalized one.
 const CANONICAL_ARCHETYPE_ORDER = ['floral', 'fruity', 'balanced_sweet', 'chocolate_nutty', 'earthy', 'experimental'];
 
-export interface DoorTarget { archetype: string; archetypeLabel: string; rule: 'graph' | 'fallback'; }
+export interface DoorTarget { archetype: string; archetypeLabel: string; rule: 'chain'; }
 
-// Part 19 §A — the door map, computed once, entirely data-driven (no
-// per-archetype hardcoding). For each archetype's two edges:
-//   Primary rule: the archetype most connected via a bridge_archetype hop that
-//   shares THIS archetype's own dial dimension (dial_archetype_config.
-//   dominant_dimension_id — falling back to experimental's vocabulary-derived
-//   dimension, the same resolution GET /experimental already uses for its
-//   ruler labels, since dominant_dimension_id is null there), in the matching
-//   direction (right edge = 'more', left edge = 'less'). Ties (more than one
-//   target archetype with the same hop count) broken by higher average
-//   confidence.
-//   Fallback (no such edge at all): CANONICAL_ARCHETYPE_ORDER, wrapping.
-async function computeDoorMap(): Promise<Record<string, { left: DoorTarget; right: DoorTarget }>> {
-  const dimResult = await db.query(
-    `SELECT archetype, dominant_dimension_id AS dimension_id FROM dial_archetype_config WHERE archetype <> 'experimental'`
-  );
-  const dimByArchetype = new Map<string, number | null>();
-  for (const row of dimResult.rows) dimByArchetype.set(row.archetype, row.dimension_id);
-  const expDimResult = await db.query(
-    `SELECT dimension_id FROM dial_position_vocabulary WHERE archetype = 'experimental' LIMIT 1`
-  );
-  dimByArchetype.set('experimental', expDimResult.rows[0]?.dimension_id ?? null);
-
-  const bridgeResult = await db.query(
-    `SELECT aa_from.archetype AS from_archetype, aa_to.archetype AS to_archetype, dcr.dimension_id, dcr.direction,
-            COUNT(*) AS cnt,
-            AVG(CASE dcr.confidence WHEN 'low' THEN 1 WHEN 'medium' THEN 2 WHEN 'high' THEN 3 END) AS avg_conf
-     FROM dial_coffee_relationships dcr
-     JOIN archetype_assignments aa_from ON aa_from.coffee_id = dcr.from_coffee_id AND aa_from.superseded_at IS NULL
-     JOIN archetype_assignments aa_to   ON aa_to.coffee_id   = dcr.to_coffee_id   AND aa_to.superseded_at   IS NULL
-     WHERE dcr.hop_type = 'bridge_archetype' AND aa_from.archetype <> aa_to.archetype
-     GROUP BY aa_from.archetype, aa_to.archetype, dcr.dimension_id, dcr.direction`
-  );
-
-  function graphTarget(archetype: string, direction: 'more' | 'less'): { archetype: string; cnt: number; avgConf: number } | null {
-    const dimId = dimByArchetype.get(archetype);
-    if (dimId == null) return null;
-    let best: { archetype: string; cnt: number; avgConf: number } | null = null;
-    for (const row of bridgeResult.rows) {
-      if (row.from_archetype !== archetype || row.direction !== direction || row.dimension_id !== dimId) continue;
-      const cnt = Number(row.cnt), avgConf = Number(row.avg_conf);
-      if (!best || cnt > best.cnt || (cnt === best.cnt && avgConf > best.avgConf)) best = { archetype: row.to_archetype, cnt, avgConf };
-    }
-    return best;
-  }
-
-  function fallbackTarget(archetype: string, direction: 'more' | 'less'): string {
-    const idx = CANONICAL_ARCHETYPE_ORDER.indexOf(archetype);
-    const n = CANONICAL_ARCHETYPE_ORDER.length;
-    const delta = direction === 'more' ? 1 : -1;
-    return CANONICAL_ARCHETYPE_ORDER[(idx + delta + n) % n];
-  }
-
+// Part 19 §A, revised — the door map is ONE canonical symmetric chain around
+// CANONICAL_ARCHETYPE_ORDER, wrapping: Floral <-> Fruity <-> Balanced & Sweet
+// <-> Chocolate & Nutty <-> Earthy <-> Experimental <-> Floral. Left door =
+// previous in the chain, right door = next. Deliberately not per-archetype
+// bridge-hop-derived anymore (that was the original design) — a bridge hop
+// is a "this coffee is similar to that one" signal, not a "these two
+// archetypes are each other's canonical neighbor" one, and using it for
+// doors produced two live defects: Floral and Fruity each had the SAME
+// archetype on both edges (both edges' hop search found the same best
+// match), and the seams weren't walkable both ways (Fruity's right door
+// went to Balanced & Sweet via a hop, but Balanced & Sweet's left door
+// went to Fruity only via the fallback path, which is a coincidence, not
+// a guarantee — Chocolate & Nutty's left door already had no such
+// coincidence, since its hop neighbor there was Balanced & Sweet, not
+// matched by Balanced & Sweet's own right-hop pick of Floral). A fixed
+// chain makes both properties structural instead of incidental — see
+// assertDoorMapInvariants below, which is asserted once at module load so
+// the app refuses to start if this chain (or the invariant check itself)
+// is ever edited into something broken.
+function buildDoorMap(): Record<string, { left: DoorTarget; right: DoorTarget }> {
+  const n = CANONICAL_ARCHETYPE_ORDER.length;
   const doorMap: Record<string, { left: DoorTarget; right: DoorTarget }> = {};
-  for (const archetype of CANONICAL_ARCHETYPE_ORDER) {
-    const rightGraph = graphTarget(archetype, 'more');
-    const leftGraph = graphTarget(archetype, 'less');
-    const rightArchetype = rightGraph?.archetype ?? fallbackTarget(archetype, 'more');
-    const leftArchetype = leftGraph?.archetype ?? fallbackTarget(archetype, 'less');
+  CANONICAL_ARCHETYPE_ORDER.forEach((archetype, i) => {
+    const leftArchetype = CANONICAL_ARCHETYPE_ORDER[(i - 1 + n) % n];
+    const rightArchetype = CANONICAL_ARCHETYPE_ORDER[(i + 1) % n];
     doorMap[archetype] = {
-      right: { archetype: rightArchetype, archetypeLabel: ARCHETYPE_LABEL[rightArchetype] ?? rightArchetype, rule: rightGraph ? 'graph' : 'fallback' },
-      left:  { archetype: leftArchetype,  archetypeLabel: ARCHETYPE_LABEL[leftArchetype]  ?? leftArchetype,  rule: leftGraph  ? 'graph' : 'fallback' },
+      left: { archetype: leftArchetype, archetypeLabel: ARCHETYPE_LABEL[leftArchetype] ?? leftArchetype, rule: 'chain' },
+      right: { archetype: rightArchetype, archetypeLabel: ARCHETYPE_LABEL[rightArchetype] ?? rightArchetype, rule: 'chain' },
     };
-  }
+  });
   return doorMap;
+}
+
+// Startup invariant, exported so the test suite asserts it too (not just at
+// import time): every archetype's two doors must differ from each other, and
+// the map must be symmetric — if A's right door is B, B's left door must be
+// A (equivalently, if A's left door is B, B's right door must be A). Throws
+// on the first violation rather than collecting all of them — this is meant
+// to fail loudly and immediately, not report a survey.
+export function assertDoorMapInvariants(doorMap: Record<string, { left: DoorTarget; right: DoorTarget }>): void {
+  for (const archetype of Object.keys(doorMap)) {
+    const { left, right } = doorMap[archetype];
+    if (left.archetype === right.archetype) {
+      throw new Error(`Door map invariant violated: ${archetype}'s left and right doors are both ${left.archetype}`);
+    }
+    const rightNeighbor = doorMap[right.archetype];
+    if (!rightNeighbor || rightNeighbor.left.archetype !== archetype) {
+      throw new Error(
+        `Door map invariant violated: ${archetype}'s right door is ${right.archetype}, but ${right.archetype}'s left door is ${rightNeighbor?.left.archetype ?? '(missing)'}, not ${archetype}`
+      );
+    }
+    const leftNeighbor = doorMap[left.archetype];
+    if (!leftNeighbor || leftNeighbor.right.archetype !== archetype) {
+      throw new Error(
+        `Door map invariant violated: ${archetype}'s left door is ${left.archetype}, but ${left.archetype}'s right door is ${leftNeighbor?.right.archetype ?? '(missing)'}, not ${archetype}`
+      );
+    }
+  }
+}
+
+// Built and validated once at module load, not per-request — the chain is a
+// static array, so recomputing it per-request bought nothing but a wasted
+// DB round trip (the original bridge-hop version genuinely needed one; this
+// one no longer does). computeDoorMap() keeps its async signature/name
+// purely so its two call sites below don't need to change.
+const DOOR_MAP = buildDoorMap();
+assertDoorMapInvariants(DOOR_MAP);
+
+export async function computeDoorMap(): Promise<Record<string, { left: DoorTarget; right: DoorTarget }>> {
+  return DOOR_MAP;
 }
 
 router.get('/archetypes', async (_req, res) => {
