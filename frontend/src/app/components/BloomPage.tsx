@@ -217,6 +217,16 @@ export default function BloomPage() {
         </motion.div>
       </section>
 
+      {/* Part 20 — "BLOOM DIAL" moves here from repeating in all six archetype
+          columns (where each one showed it once, six times over) to appearing
+          exactly once, page-level, right above the strip it introduces. */}
+      <p style={{
+        padding: '0 clamp(32px, 6vw, 96px)', margin: '0 0 clamp(10px, 1.4vh, 16px)',
+        fontSize: 'clamp(15px, 1.6vw, 20px)', fontWeight: 600, color: '#ee5974', letterSpacing: '0.02em',
+      }}>
+        BLOOM&nbsp;DIAL
+      </p>
+
       {/* ── Sticky archetype jump-nav ── */}
       <div style={{
         position: 'sticky', top: 64, zIndex: 40, backgroundColor: '#f2f1ea',

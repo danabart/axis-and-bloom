@@ -84,10 +84,11 @@ export function FloatingCart({ items, open, onToggle, onRemove, onCheckout, chec
                   <div className="min-w-0">
                     {item.kind === 'collection' ? (
                       <>
-                        {/* Part 19 §C — "{Archetype} collection · {N} coffees", one line,
-                            removed/re-added as a whole (never splits into its members). */}
+                        {/* Part 19 §C, naming updated by Part 20 — "The {Archetype} Collection ·
+                            {N} coffees", one line, removed/re-added as a whole (never splits
+                            into its members). */}
                         <p className="text-sm font-normal truncate" style={{ color: '#4a4035' }}>
-                          {item.archetypeLabel} collection · {item.memberCount} coffees
+                          The {item.archetypeLabel} Collection · {item.memberCount} coffees
                         </p>
                         <p className="text-xs" style={{ color: '#a09880' }}>qty {item.qty}</p>
                       </>

@@ -36,6 +36,12 @@ interface Props {
    * `<BloomDial>` without a handler just doesn't render doors (they only ever
    * appear when both this prop and config.doors are present). */
   onDoorClick?: (edge: 'left' | 'right', target: DoorTarget) => void;
+  /** Part 20 — non-embedded Zone 1 only: whether to show the "YOUR" prefix on
+   * the identity row ("YOUR FRUITY" vs just "FRUITY" for a guest). Embedded's
+   * own identity block is untouched by Part 20 and always shows it, same as
+   * before. Defaults false (omit) since the only real caller always passes it
+   * explicitly from its own auth state. */
+  signedIn?: boolean;
 }
 
 const TRAVEL = 120;
@@ -75,10 +81,6 @@ function computeStopPositions(coffees: DialCoffee[]): number[] {
   return stops;
 }
 
-function fmtPrice(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
-}
-
 // Part 18 §A — the dial-native step chip's text: "{More|Less} {dimension} →
 // {position label}", where {dimension} is this archetype's OWN dial dimension
 // (config.dimensionName, lowercased) and {position label} is the neighboring
@@ -116,7 +118,7 @@ function ensureStyles() {
 }
 
 export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
-  { config, initialDialSortOrder = 2, onZoneChange, onPreOrder, bottomContent, belowStage, embedded = false, onDoorClick },
+  { config, initialDialSortOrder = 2, onZoneChange, onPreOrder, bottomContent, belowStage, embedded = false, onDoorClick, signedIn = false },
   ref,
 ) {
   // Part 16 §B — this archetype's stop layout (0..1 position per coffee, index
@@ -144,7 +146,6 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
   const needleRef  = useRef<HTMLDivElement>(null);
   const nowRef     = useRef<HTMLDivElement>(null);
   const nameRef    = useRef<HTMLDivElement>(null);
-  const priceRef   = useRef<HTMLDivElement>(null);
   const nlinesRef  = useRef<HTMLDivElement>(null);
   const fieldNameRef = useRef<HTMLDivElement>(null);
   // Part 18 §A — the two dial-native step chips; text and visibility are set
@@ -246,11 +247,9 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
       needle.style.left = (pos * 100) + '%';
       paintFill(Math.max(0, Math.min(1, (pos - 0.125) / 0.75)));
       const coffee = configRef.current.coffees[zone];
-      if (nowRef.current) nowRef.current.textContent = 'THE COFFEE';
+      if (nowRef.current) nowRef.current.textContent = 'ON THE DIAL NOW';
       if (nameRef.current) nameRef.current.textContent = coffee.name;
       if (fieldNameRef.current) fieldNameRef.current.textContent = nameToLines(coffee.name);
-      if (priceRef.current) priceRef.current.textContent =
-        `12oz · ${fmtPrice(coffee.price12Cents)}  /  5lb · ${fmtPrice(coffee.price5Cents)}`;
       wrap.setAttribute('aria-valuenow', String(zone));
       ticks.setAttribute('aria-valuenow', String(zone));
       if (zone !== lastZoneRef.current) {
@@ -350,14 +349,21 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
     ticks.appendChild(needle);
 
     // ── fitLines: size each title line to fill the column width ──
+    // Part 20 — non-embedded's title cap drops 72->56 ("slightly smaller than
+    // today's," proportionally matching the mockup's 58->46 today/proposed
+    // ratio): closes over this render's `embedded` prop directly rather than
+    // reading it off the DOM, safe because `embedded` never changes for an
+    // already-mounted instance (this effect only reruns on config.archetype
+    // change, same lifecycle as everything else it sets up).
     function fitLines() {
       const nlines = nlinesRef.current;
       if (!nlines) return;
       const lockW = (nlines.parentElement?.clientWidth ?? 300) - 36;
+      const cap = embedded ? 72 : 56;
       nlines.querySelectorAll<HTMLElement>('.bd-nline').forEach(l => {
         l.style.fontSize = '100px';
         const tw = l.scrollWidth || 1;
-        l.style.fontSize = Math.min(72, Math.max(30, Math.floor(100 * lockW / tw))) + 'px';
+        l.style.fontSize = Math.min(cap, Math.max(30, Math.floor(100 * lockW / tw))) + 'px';
       });
     }
     fitLines();
@@ -494,31 +500,51 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
       <div className="bd-stage">
         {/* Reading column */}
         <div className="bd-reading">
+          {/* Part 20 — Zone 1 (identity). Embedded keeps its original lockup
+              (vertical NO., BLOOM DIAL repeated per-instance) untouched — the
+              redesign only restructures the non-embedded /bloom layout: a
+              horizontal baseline row (YOUR + NO., YOUR omitted for guests)
+              instead of the vertical NO., BLOOM DIAL removed here entirely
+              (added once at the page level instead — see BloomPage.tsx), and
+              a smaller title cap (fitLines below). */}
           <div className="bd-namelock">
-            <div className="bd-your">YOUR</div>
-            <div ref={nlinesRef}>
-              {config.nameLines.map((l, i) => <div key={i} className="bd-nline">{l}</div>)}
-            </div>
-            <div className="bd-bdial">BLOOM&nbsp;DIAL</div>
-            <div className="bd-vno">NO. {config.no}</div>
+            {embedded ? (
+              <>
+                <div className="bd-your">YOUR</div>
+                <div ref={nlinesRef}>
+                  {config.nameLines.map((l, i) => <div key={i} className="bd-nline">{l}</div>)}
+                </div>
+                <div className="bd-bdial">BLOOM&nbsp;DIAL</div>
+                <div className="bd-vno">NO. {config.no}</div>
+              </>
+            ) : (
+              <>
+                <div className="bd-idrow">
+                  {signedIn && <span className="bd-idrow-your">YOUR</span>}
+                  <span className="bd-idrow-no">NO. {config.no}</span>
+                </div>
+                <div ref={nlinesRef}>
+                  {config.nameLines.map((l, i) => <div key={i} className="bd-nline">{l}</div>)}
+                </div>
+              </>
+            )}
           </div>
           <div className="bd-reading-bottom">
-            {/* Non-embedded (Bloom): only the bag lives on the left — THE COFFEE,
-                the coffee name and the tagline now sit on the right by the wheel.
-                Embedded (quiz/profile) keeps its name lockup here. */}
-            {embedded ? (
+            {/* Non-embedded (Bloom): the coffee's name/bag/price/teaser now all
+                live inside Zone 2's card (bottomContent, built by
+                DialArchetypeSection) — nothing of the old bag-mini/duplicate
+                price line stays here. Embedded (quiz/profile) keeps its own
+                compact name lockup, just relabeled ("ON THE DIAL NOW" —
+                Part 20's naming, set in paint() above) to match Zone 2's
+                header wording. */}
+            {embedded && (
               <div className="bd-coffee-head-text">
-                <div className="bd-now" ref={nowRef}>THE COFFEE</div>
+                <div className="bd-now" ref={nowRef}>ON THE DIAL NOW</div>
                 <div className="bd-coffee-name" ref={nameRef}>
                   {config.coffees[clampZone(initialDialSortOrder - 1)].name}
                 </div>
               </div>
-            ) : (
-              <img className="bd-bag-mini" src={config.bag} alt={`${config.archetypeLabel} bag`} draggable={false} />
             )}
-            <div className="bd-coffee-price" ref={priceRef}>
-              12oz · $32.00 &nbsp;/&nbsp; 5lb · $185.00
-            </div>
             {bottomContent ?? (
               <button
                 className="bd-btn"
@@ -650,7 +676,9 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
 const EASE = 'cubic-bezier(0.22,1,0.36,1)';
 const CSS = `
 .bd-section{background:#f2f1ea;}
-.bd-stage{display:grid;grid-template-columns:minmax(300px,27%) 1fr;min-height:0;}
+/* Part 20 — non-embedded column widens 27%->38% (embedded's own 32% override
+   below, unchanged, still wins there via specificity). */
+.bd-stage{display:grid;grid-template-columns:minmax(380px,38%) 1fr;min-height:0;}
 .bd-reading{background:#f2f1ea;text-align:left;display:flex;flex-direction:column;justify-content:center;padding:40px 44px 44px;}
 .bd-reading-bottom{padding-top:22px;}
 .bd-namelock{position:relative;padding-right:36px;}
@@ -658,6 +686,14 @@ const CSS = `
 .bd-nline{font-weight:600;color:#9a2918;line-height:.95;letter-spacing:-.01em;text-transform:uppercase;white-space:nowrap;}
 .bd-bdial{margin-top:12px;font-size:26px;font-weight:600;color:#ee5974;letter-spacing:.02em;}
 .bd-vno{position:absolute;right:0;top:34px;writing-mode:vertical-rl;transform:rotate(180deg);font-size:11px;letter-spacing:.3em;color:#7b7f80;font-weight:500;}
+/* Part 20 — Zone 1's non-embedded identity row: a plain horizontal baseline
+   (YOUR left, NO. right) replacing the vertical .bd-vno treatment above,
+   which stays exactly as-is for embedded. New class names (not a reuse of
+   .bd-your/.bd-vno) specifically so this restyle can't leak onto embedded's
+   untouched lockup. */
+.bd-idrow{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px;}
+.bd-idrow-your{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#7b7f80;}
+.bd-idrow-no{font-size:11px;letter-spacing:.2em;color:#b3b0a6;}
 .bd-instrument{position:relative;user-select:none;background:var(--bd-field);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 40px;}
 .bd-dial-wrap{position:relative;width:400px;height:400px;margin:0 auto;cursor:grab;touch-action:none;}
 .bd-dial-wrap:active{cursor:grabbing;}
@@ -724,11 +760,48 @@ const CSS = `
 .bd-bag-shadow{width:102px;height:10px;margin:-4px auto 0;border-radius:50%;background:radial-gradient(ellipse,rgba(58,60,62,.22),rgba(58,60,62,0) 70%);}
 .bd-now{font-size:9.5px;letter-spacing:.28em;color:#7b7f80;transition:opacity 300ms ${EASE};}
 .bd-coffee-name{margin-top:12px;font-size:32px;min-height:84px;font-weight:500;color:#9a2918;letter-spacing:-0.008em;line-height:1.25;transition:opacity 300ms ${EASE};}
-.bd-coffee-price{margin-top:10px;font-size:12.5px;color:#7b7f80;}
-.bd-bag-mini{width:104px;height:auto;display:block;margin:0 0 26px;-webkit-user-drag:none;filter:drop-shadow(0 10px 16px rgba(58,60,62,.18));}
 .bd-coffee-head-text{min-width:0;}
 .bd-btn{display:block;width:100%;margin-top:26px;background:#9a2918;color:#f2f1ea;font-size:12px;letter-spacing:.16em;font-weight:500;padding:15px 10px;text-align:center;text-decoration:none;cursor:pointer;border:none;font-family:inherit;transition:background 480ms ${EASE};}
 .bd-btn:hover{background:#8a2416;}
+/* Part 20 §2/§3 — the commerce-column redesign's Zone 2 card and Zone 3 quick
+   picks. Consumed by DialArchetypeSection.tsx's bottomContent via className
+   (that component owns none of its own stylesheet — this one, injected once
+   by ensureStyles() above, is the only <style> tag either component has), so
+   these rules live here alongside every other bd-* class rather than as
+   inline styles, matching the step-chip/door-chip precedent (Part 18/19) of
+   "hover state = real CSS, not JS state". Ported from the mockup
+   (commerce-column-redesign.html, Proposed · 38/62 tab) 1:1 on pixel values;
+   brand hex literals only, no new colors. */
+.bd-card{background:#fff;border:1px solid #deded1;border-radius:2px;}
+.bd-card-main{padding:22px 24px 20px;}
+.bd-card-headrow{display:flex;gap:16px;align-items:center;margin-bottom:14px;}
+.bd-card-bag{width:54px;flex:none;display:block;}
+.bd-card-microlabel{font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:#7b7f80;margin:0 0 3px;}
+.bd-card-name{font-size:19px;font-weight:400;color:#45474a;margin:0;}
+.bd-card-teaser{font-size:13.5px;font-weight:300;line-height:1.6;color:#45474a;margin:0 0 16px;}
+.bd-card-status{align-self:flex-start;display:inline-block;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#7b7f80;border:1px solid rgba(123,127,128,.35);border-radius:999px;padding:5px 12px;}
+.bd-card-pricerow{display:flex;align-items:baseline;gap:22px;flex-wrap:wrap;margin-bottom:16px;}
+.bd-card-weight{font-family:inherit;font-size:14px;letter-spacing:.02em;padding:2px 0;border:none;border-bottom:1.5px solid transparent;background:none;cursor:pointer;}
+.bd-card-weight.sel{color:#9a2918;border-bottom-color:#9a2918;font-weight:500;}
+.bd-card-weight.un{color:#7b7f80;font-weight:400;}
+.bd-card-ship{font-size:11px;color:#b3b0a6;font-weight:300;margin-left:auto;}
+.bd-card-atc{display:block;width:100%;background:#9a2918;color:#fff;text-align:center;border:none;font-family:inherit;font-size:12.5px;letter-spacing:.16em;font-weight:500;padding:13px 0;cursor:pointer;margin-bottom:14px;transition:background 480ms ${EASE};}
+.bd-card-atc:hover{background:#8a2416;}
+.bd-card-atc:disabled{opacity:.5;cursor:default;}
+.bd-card-quietrow{display:flex;gap:26px;flex-wrap:wrap;}
+.bd-card-quietrow button{font-family:inherit;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#7b7f80;cursor:pointer;background:none;border:none;padding:0;}
+.bd-card-quietrow button:hover{color:#9a2918;}
+.bd-card-quietrow button:disabled{cursor:default;opacity:.6;}
+.bd-card-saved-link{display:block;margin-top:8px;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#9a2918;opacity:.85;}
+.bd-card-reveal{width:100%;border:none;border-top:1px solid #deded1;background:none;padding:13px 24px;font-family:inherit;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#ee5974;cursor:pointer;display:flex;justify-content:space-between;align-items:center;}
+.bd-card-reveal:hover{background:#fdf8f7;}
+.bd-qp{margin-top:26px;}
+.bd-qp-label{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#7b7f80;margin:0 0 12px;}
+.bd-qp-row{display:flex;width:100%;justify-content:space-between;align-items:baseline;gap:14px;padding:11px 0;border:none;border-top:1px solid #deded1;background:none;cursor:pointer;text-align:left;font-family:inherit;}
+.bd-qp-row:last-child{border-bottom:1px solid #deded1;}
+.bd-qp-what{font-size:13.5px;font-weight:300;color:#45474a;}
+.bd-qp-what em{font-style:normal;color:#7b7f80;font-size:12px;}
+.bd-qp-act{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:#9a2918;white-space:nowrap;flex-shrink:0;}
 @media (max-width:940px){
   .bd-stage{grid-template-columns:1fr;min-height:0;}
   .bd-instrument{order:1;padding:48px 20px 120px;}

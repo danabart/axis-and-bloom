@@ -171,166 +171,116 @@ export function DialArchetypeSection({
 
   const showReveal = currentSlot.coffeeId != null && currentSlot.isActive;
 
+  // Part 20 — Zone 2 (the coffee card) + Zone 3 (quick picks), replacing the
+  // ~12-line stack this column used to be with three real zones (see
+  // PROMPT_commerce_column_redesign.md / commerce-column-redesign.html,
+  // "Proposed · 38/62"). Zone 1 (identity: YOUR/title/NO.) lives one level up,
+  // in BloomDial.tsx's bd-namelock — this component owns everything from the
+  // card down. Compare's visibility mirrors its old gating exactly
+  // (cardData.effectivelyActive only); Save's mirrors its old gating exactly
+  // (signed-in + !isPlaceholder) — unified into one quiet row per the
+  // mockup, but neither button's OWN visibility rule changed.
   const bottomContent = (
-    <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {/* Part 19 §B/§C — directly under the archetype name block (which lives
-          above this whole bottomContent block, in .bd-namelock), above the
-          teaser/price of whatever position happens to be selected right now.
-          Disambiguation from the big ADD TO CART below: that one always acts
-          on the CURRENTLY DISPLAYED position; these two are named, compact,
-          and act on the archetype as a whole regardless of what's on screen. */}
+    <div style={{ marginTop: 18 }}>
+      <div className="bd-card">
+        <div className="bd-card-main">
+          <div className="bd-card-headrow">
+            <img className="bd-card-bag" src={config.bag} alt={`${data.archetypeLabel} bag`} draggable={false} />
+            <div style={{ minWidth: 0 }}>
+              <p className="bd-card-microlabel">On the dial now</p>
+              <p className="bd-card-name">{currentSlot.platformName ?? 'Coming soon'}</p>
+            </div>
+          </div>
+
+          <p className="bd-card-teaser">
+            {(!isPlaceholder && cardData.effectivelyActive && cardData.teaser)
+              ? cardData.teaser
+              : `A ${data.archetypeLabel} coffee for this turn of the dial. Its full tasting notes are arriving soon.`}
+          </p>
+
+          {isPlaceholder ? (
+            <span className="bd-card-status">Coming soon</span>
+          ) : !cardData.effectivelyActive ? (
+            <span className="bd-card-status">{cardData.isUnpriced ? 'Unpriced' : 'Temporarily unavailable'}</span>
+          ) : (
+            <>
+              <div className="bd-card-pricerow">
+                {cardData.availableWeights.length > 1 ? (
+                  cardData.availableWeights.map(p => {
+                    const selected = cardData.selectedWeight === p.weightOz;
+                    return (
+                      <button
+                        key={p.weightOz}
+                        type="button"
+                        className={`bd-card-weight ${selected ? 'sel' : 'un'}`}
+                        onClick={() => cardData.setSelectedWeight(p.weightOz)}
+                      >
+                        {formatWeight(p.weightOz)} · {formatPrice(p.retailPriceCents)}
+                      </button>
+                    );
+                  })
+                ) : cardData.selectedPrice ? (
+                  <span className="bd-card-weight sel" style={{ cursor: 'default' }}>
+                    {formatWeight(cardData.selectedPrice.weightOz)} · {formatPrice(cardData.selectedPrice.retailPriceCents)}
+                  </span>
+                ) : null}
+                <span className="bd-card-ship">shipping included</span>
+              </div>
+
+              <button className="bd-card-atc" type="button" onClick={handleAddToCart} disabled={!cardData.selectedPrice}>
+                ADD TO CART&nbsp;&nbsp;→
+              </button>
+            </>
+          )}
+
+          {!isPlaceholder && (cardData.effectivelyActive || user) && (
+            <div className="bd-card-quietrow">
+              {cardData.effectivelyActive && (
+                <button type="button" onClick={() => onCompare(data.archetype, data.archetypeLabel, currentSlot)}>
+                  ⇄ Compare
+                </button>
+              )}
+              {user && (
+                <button type="button" onClick={handleExplicitSave} disabled={savedKey === currentKey}>
+                  {savedKey === currentKey ? 'Saved ✓' : 'Save to my flavor memory'}
+                </button>
+              )}
+            </div>
+          )}
+          {savedKey === currentKey && (
+            <Link to="/profile?tab=memory" className="bd-card-saved-link">
+              View in your flavor memory →
+            </Link>
+          )}
+        </div>
+
+        {showReveal && (
+          <button type="button" className="bd-card-reveal" onClick={() => onToggleReveal(currentKey)}>
+            <span>{isRevealed ? 'Collapse' : 'Reveal the full profile'}</span>
+            <span>{isRevealed ? '↑' : '↓'}</span>
+          </button>
+        )}
+      </div>
+
+      {/* Zone 3 — quick picks. Naming decision (Dana, 2026-08-08): "The
+          {Archetype} classic" and "The {Archetype} Collection" everywhere,
+          never a bare "classic" or "set". */}
       {(classicAvailable || data.collectionOffer) && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 7, paddingBottom: 10, marginBottom: 2, borderBottom: '1px solid rgba(123,127,128,0.18)' }}>
+        <div className="bd-qp">
+          <p className="bd-qp-label">Quick picks</p>
           {classicAvailable && (
-            <button
-              type="button"
-              onClick={handleClassicAdd}
-              style={{
-                display: 'flex', alignItems: 'baseline', gap: 6, background: 'none', border: 'none', padding: 0,
-                cursor: 'pointer', textAlign: 'left', color: '#9a2918',
-              }}
-            >
-              <span style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
-                The classic — {defaultSlot!.platformName}
-              </span>
-              <span style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 600, flexShrink: 0 }}>
-                · Add to cart →
-              </span>
+            <button type="button" className="bd-qp-row" onClick={handleClassicAdd}>
+              <span className="bd-qp-what">The {data.archetypeLabel} classic — {defaultSlot!.platformName}</span>
+              <span className="bd-qp-act">Add to cart →</span>
             </button>
           )}
           {data.collectionOffer && (
-            <button
-              type="button"
-              onClick={handleCollectionAdd}
-              style={{
-                background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left',
-                fontSize: 11.5, letterSpacing: '0.01em', color: '#7b7f80',
-              }}
-            >
-              Taste the whole {data.archetypeLabel} set — 10% off →
+            <button type="button" className="bd-qp-row" onClick={handleCollectionAdd}>
+              <span className="bd-qp-what">
+                The {data.archetypeLabel} Collection <em>· {data.collectionOffer.memberCount} coffees — 10% off</em>
+              </span>
+              <span className="bd-qp-act">Add the collection →</span>
             </button>
-          )}
-        </div>
-      )}
-
-      {(!isPlaceholder && cardData.effectivelyActive && cardData.teaser) ? (
-        <p style={{ fontSize: 12, letterSpacing: '0.02em', color: '#7b7f80', fontWeight: 400, lineHeight: 1.5, margin: 0 }}>
-          {cardData.teaser}
-        </p>
-      ) : (
-        // Placeholder body so positions without a coffee yet still read like the
-        // active ones (keeps every archetype's left column consistent).
-        <p style={{ fontSize: 12, letterSpacing: '0.02em', color: '#7b7f80', fontWeight: 400, lineHeight: 1.5, margin: 0, opacity: 0.85 }}>
-          A {data.archetypeLabel} coffee for this turn of the dial. Its full tasting notes are arriving soon.
-        </p>
-      )}
-
-      {isPlaceholder ? (
-        <span style={{
-          alignSelf: 'flex-start', fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase',
-          color: '#7b7f80', border: '1px solid rgba(123,127,128,0.35)', borderRadius: 999, padding: '5px 12px',
-        }}>
-          Coming soon
-        </span>
-      ) : !cardData.effectivelyActive ? (
-        <span style={{
-          alignSelf: 'flex-start', fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase',
-          color: '#7b7f80', border: '1px solid rgba(123,127,128,0.35)', borderRadius: 999, padding: '5px 12px',
-        }}>
-          {cardData.isUnpriced ? 'Unpriced' : 'Temporarily unavailable'}
-        </span>
-      ) : (
-        <>
-          {cardData.availableWeights.length > 1 && (
-            <div style={{ display: 'flex', gap: 26, flexWrap: 'wrap' }}>
-              {cardData.availableWeights.map(p => {
-                const selected = cardData.selectedWeight === p.weightOz;
-                return (
-                  <button
-                    key={p.weightOz}
-                    type="button"
-                    onClick={() => cardData.setSelectedWeight(p.weightOz)}
-                    style={{
-                      fontSize: 12.5, letterSpacing: '0.02em', padding: '2px 0',
-                      border: 'none', borderBottom: `1.5px solid ${selected ? '#9a2918' : 'transparent'}`,
-                      background: 'none',
-                      color: selected ? '#9a2918' : '#7b7f80',
-                      fontWeight: selected ? 500 : 400,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {formatWeight(p.weightOz)} · {formatPrice(p.retailPriceCents)}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          {cardData.availableWeights.length === 1 && cardData.selectedPrice && (
-            <span style={{ fontSize: 12.5, color: '#7b7f80' }}>
-              {formatWeight(cardData.selectedPrice.weightOz)} · {formatPrice(cardData.selectedPrice.retailPriceCents)}
-            </span>
-          )}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-            <button
-              className="bd-btn"
-              type="button"
-              style={{ flex: '1 1 auto', margin: 0, minWidth: 160 }}
-              onClick={handleAddToCart}
-              disabled={!cardData.selectedPrice}
-            >
-              ADD TO CART&nbsp;&nbsp;→
-            </button>
-            <button
-              type="button"
-              onClick={() => onCompare(data.archetype, data.archetypeLabel, currentSlot)}
-              style={{
-                fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#7b7f80',
-                background: 'none', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', padding: 0,
-              }}
-            >
-              ⇄ Compare
-            </button>
-          </div>
-          <p style={{ fontSize: 10.5, letterSpacing: '0.05em', color: '#a09880', margin: 0 }}>Price includes shipping</p>
-        </>
-      )}
-
-      {showReveal && (
-        <button
-          type="button"
-          onClick={() => onToggleReveal(currentKey)}
-          style={{
-            fontSize: 10.5, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#ee5974',
-            background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, marginTop: 4,
-          }}
-        >
-          {isRevealed ? 'Collapse ↑' : 'Reveal the full profile ↓'}
-        </button>
-      )}
-
-      {user && !isPlaceholder && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            onClick={handleExplicitSave}
-            disabled={savedKey === currentKey}
-            style={{
-              fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#9a2918',
-              opacity: savedKey === currentKey ? 0.55 : 0.85, background: 'none', border: 'none',
-              cursor: 'pointer', textAlign: 'left', padding: 0,
-            }}
-          >
-            {savedKey === currentKey ? 'Saved ✓' : 'Save to my flavor memory'}
-          </button>
-          {savedKey === currentKey && (
-            <Link
-              to="/profile?tab=memory"
-              style={{
-                fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#9a2918', opacity: 0.85,
-              }}
-            >
-              View in your flavor memory →
-            </Link>
           )}
         </div>
       )}
@@ -363,6 +313,7 @@ export function DialArchetypeSection({
       bottomContent={bottomContent}
       belowStage={belowStage}
       embedded={embedded}
+      signedIn={!!user}
       onDoorClick={onDoorClick ? (edge, target) => onDoorClick(data.archetype, edge, target) : undefined}
     />
   );

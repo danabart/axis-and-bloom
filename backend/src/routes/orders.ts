@@ -86,7 +86,7 @@ router.post('/', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) 
         const offer = await computeCollectionOffer(item.archetype);
         if (!offer) {
           res.status(409).json({
-            error: `${item.archetype} doesn't currently have enough purchasable positions for the collection offer.`,
+            error: `${item.archetype} doesn't currently have enough purchasable positions for the Collection offer.`,
           });
           return;
         }
@@ -98,7 +98,7 @@ router.post('/', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) 
         // amount than the screen showed them.
         if (typeof item.priceCents !== 'number' || item.priceCents !== offer.discountedCents) {
           res.status(409).json({
-            error: `The ${item.archetype} collection's price has changed — expected $${(offer.discountedCents / 100).toFixed(2)}, got ${typeof item.priceCents === 'number' ? `$${(item.priceCents / 100).toFixed(2)}` : 'nothing'}. Refresh your cart and try again.`,
+            error: `The ${item.archetype} Collection's price has changed — expected $${(offer.discountedCents / 100).toFixed(2)}, got ${typeof item.priceCents === 'number' ? `$${(item.priceCents / 100).toFixed(2)}` : 'nothing'}. Refresh your cart and try again.`,
           });
           return;
         }
