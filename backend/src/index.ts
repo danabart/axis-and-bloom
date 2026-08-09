@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { db } from './db/client.js';
 import { getRealClientIp } from './middleware/clientIp.js';
+import { appCheckGate } from './middleware/appCheck.js';
 
 import authRouter from './routes/auth.js';
 import quizRouter from './routes/quiz.js';
@@ -64,6 +65,11 @@ app.use(rateLimit({ windowMs: GLOBAL_RATE_LIMIT_WINDOW_MS, max: GLOBAL_RATE_LIMI
 app.use('/api', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+
+// C6 — App Check verification. Monitoring mode by default (APP_CHECK_ENFORCED
+// unset/false): never blocks, only logs pass/fail. Exempts /api/cron/*,
+// /api/webhooks/*, and /health internally — see middleware/appCheck.ts.
+app.use(appCheckGate);
 
 app.use('/api/auth', authRouter);
 app.use('/api/quiz', quizRouter);
