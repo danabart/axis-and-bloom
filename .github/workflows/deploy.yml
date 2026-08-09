@@ -48,7 +48,7 @@ jobs:
             --allow-unauthenticated \
             --add-cloudsql-instances ${{ env.PROJECT_ID }}:${{ env.REGION }}:axis-bloom-db \
             --set-secrets "DATABASE_URL=DATABASE_URL:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,FIREBASE_PROJECT_ID=FIREBASE_PROJECT_ID:latest,FIREBASE_PRIVATE_KEY=FIREBASE_PRIVATE_KEY:latest,FIREBASE_CLIENT_EMAIL=FIREBASE_CLIENT_EMAIL:latest,SHOPIFY_STORE_DOMAIN=SHOPIFY_STORE_DOMAIN:latest,SHOPIFY_STOREFRONT_TOKEN=SHOPIFY_STOREFRONT_TOKEN:latest,SHOPIFY_ADMIN_TOKEN=SHOPIFY_ADMIN_TOKEN:latest,RESEND_API_KEY=RESEND_API_KEY:latest,MAILCHIMP_API_KEY=MAILCHIMP_API_KEY:latest,MAILCHIMP_LIST_ID=MAILCHIMP_LIST_ID:latest,CRON_SECRET=CRON_SECRET:latest,SMS_PROVIDER_ACCOUNT_SID=SMS_PROVIDER_ACCOUNT_SID:latest,SMS_PROVIDER_AUTH_TOKEN=SMS_PROVIDER_AUTH_TOKEN:latest,SMS_FROM_NUMBER=SMS_FROM_NUMBER:latest" \
-            --set-env-vars "FRONTEND_URL=https://www.axisandbloomcoffee.com,BACKEND_URL=https://axis-bloom-backend-oiub7eumya-uc.a.run.app,GLOBAL_RATE_LIMIT_MAX=2000,CLAUDE_GLOBAL_DAILY_USD=20,CLAUDE_ENABLED=true,APP_CHECK_ENFORCED=false" \
+            --set-env-vars "FRONTEND_URL=https://www.axisandbloomcoffee.com,BACKEND_URL=https://axis-bloom-backend-oiub7eumya-uc.a.run.app,GLOBAL_RATE_LIMIT_MAX=2000,CLAUDE_GLOBAL_DAILY_USD=20,CLAUDE_ENABLED=true,APP_CHECK_ENFORCED=true" \
             --quiet
 
   deploy-frontend:
