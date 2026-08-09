@@ -3790,6 +3790,32 @@ On the frontend, `BloomDial.tsx`'s `paint()` checks — only at `zone===0` (left
 
 ---
 
+### 151. C6 — Firebase App Check wired end-to-end, deployed in monitoring mode (2026-08-08)
+
+**What it is**: a security-hardening task, full detail in `WHAT_WE_BUILT_SECURITY.md` entry 7 — summarized here per this doc's own "all changes" convention. Frontend (`frontend/src/app/lib/firebase.ts`): App Check initialized with `ReCaptchaV3Provider` (new public env `VITE_RECAPTCHA_APPCHECK_SITE_KEY`), local-dev debug token gated on `import.meta.env.DEV`, and — the real design decision — the token is attached via a **global `fetch()` wrapper** rather than a change to `lib/api.ts`'s `getHeaders()`: only ~20 of ~100 real `/api/*` call sites in the app actually go through `api.ts`, the rest call `fetch()` directly from 25+ components, and no `axios`/`XMLHttpRequest` exists anywhere in the frontend (grepped before deciding), so wrapping `fetch()` once gives complete coverage instead of touching every call site. Backend: new `appCheckGate` middleware (`backend/src/middleware/appCheck.ts`) verifies `X-Firebase-AppCheck` via the existing `firebase-admin` app, gated on `APP_CHECK_ENFORCED` (env, default `false` — monitoring: log pass/fail, never block; `true`: 401/403 on missing/invalid), with `/api/cron/*`/`/api/webhooks/*`/`/health` exempted before any verification happens (those routes have no browser/App-Check flow to attest with at all).
+
+**Verified**: backend `tsc --noEmit` + `npm run build` clean. Frontend has no `tsconfig.json` anywhere in the repo (pre-existing, not introduced here) — spot-checked the touched file standalone with Vite's actual resolution settings (clean) and ran the real build gate, `vite build` (clean). Live-verified against real production (not just locally): the deployed Cloud Run revision has `APP_CHECK_ENFORCED=false`; a real request produced the real log line `[app-check] no token (monitoring -- allowing): GET /api/quiz/questions`; a live cron-route request with no header returned `requireCronSecret`'s own `401`, not App Check's, proving the exemption; the live production JS bundle (fetched from `axis-and-bloom-prod.web.app`, bypassing Cloudflare's Bot Fight Mode which blocks the plain custom domain for non-browser requests) contains both the reCAPTCHA site key and the `X-Firebase-AppCheck` header name, confirming the frontend deploy actually shipped the change.
+
+**Not done in this pass**: enforcement itself (`APP_CHECK_ENFORCED=true`) — deliberately deferred; the task's whole point was deploy-then-observe real traffic first. C7 (email-verify gate on Liam) and C8 (signup/reset-password rate limiting) — H2's other two remediation prompts — untouched, still `OPEN`.
+
+**Files**: `frontend/src/app/lib/firebase.ts`, `frontend/.env.example`, `backend/src/middleware/appCheck.ts` (new), `backend/src/index.ts`, `.github/workflows/deploy.yml`. Commit `930afb5`.
+
+---
+
+### 152. C6a — Eliminated the App Check first-load token race in the fetch wrapper (2026-08-09)
+
+**What it is**: a same-day follow-up to #151, found from real monitoring-mode logs — `GET /api/users/profile`, the first backend call of a fresh session, occasionally logged `[app-check] no token` even though the wrapper already awaited `getToken(appCheck)`. Root cause: `getToken()` only resolves once App Check finishes its own async initialization (loading reCAPTCHA v3, exchanging for a first token) — on a cold load, that can still be in flight when the very first `/api/*` call fires, and awaiting it isn't itself the bug, but doing so *unbounded* would risk turning a slow/stuck attestation into a hung request. Harmless today (monitoring never blocks on a missing token), but it would have 401'd real cold-load traffic the moment `APP_CHECK_ENFORCED` ever flips to `true`.
+
+**Fix**: `frontend/src/app/lib/firebase.ts`'s wrapper now calls a new `getAppCheckTokenSafe()` — `Promise.race`s the real `getToken(appCheck, false)` call against a 2.5s timeout, both sides funneled to resolve (never reject) to `undefined` on failure/timeout, so the outer wrapper's existing "`no token` → send without the header" fall-open path is unchanged and this helper itself can never throw or hang a request past the bound. Scoped entirely to this one file — no change to `isBackendApiRequest()`'s URL matching, no change to `api.ts`, no new source of the header.
+
+**Verified**: `tsc --noEmit` (standalone, Vite's real resolution settings) and `vite build` both clean; diff confirmed scoped to exactly `frontend/src/app/lib/firebase.ts` via `git status`.
+
+**Not done in this pass**: no change to the timeout value's tuning (2.5s chosen as "a beat longer than reCAPTCHA v3 normally takes, short enough to never feel like a hang") — revisit if real monitoring logs show it's still too tight or unnecessarily loose.
+
+**Files**: `frontend/src/app/lib/firebase.ts`.
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

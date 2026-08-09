@@ -48,8 +48,9 @@ export const firestore = getFirestore(app, 'axis-bloom-fs');
 // before any component has mounted or fired a request -- so nothing can
 // race past it unwrapped.
 //
-// Monitoring mode means this must never throw or block a request: a
-// missing/expired/unattested token just means the request goes out with no
+// Never throws, and never blocks a request indefinitely (bounded by
+// getAppCheckTokenSafe()'s own timeout below): a missing/expired/
+// unattested/slow-to-arrive token just means the request goes out with no
 // header, and the backend logs-but-allows it while APP_CHECK_ENFORCED=false.
 const KNOWN_BACKEND_ORIGINS = new Set(
   [window.location.origin, import.meta.env.VITE_API_URL]
@@ -77,16 +78,36 @@ function isBackendApiRequest(input: RequestInfo | URL): boolean {
 
 const nativeFetch = window.fetch.bind(window);
 
+// C6a -- cold-load fix. getToken(appCheck) resolves once App Check finishes
+// its own initialization (loading reCAPTCHA v3, exchanging for a first
+// token), which can take a beat after initializeAppCheck() returns --
+// without waiting for it, the very first /api call of a session (e.g. the
+// GET /api/users/profile fired on mount) could go out before a token
+// existed at all, logged server-side as "no token". Harmless today
+// (monitoring mode never blocks on it), but it would 401 on cold loads the
+// moment APP_CHECK_ENFORCED flips to true. So: await it -- but bounded by a
+// short timeout, since this must never turn into a hung/blocked request.
+// Timeout or rejection both resolve to `undefined`, same fall-open outcome
+// as before; this helper itself never throws.
+const APP_CHECK_TOKEN_TIMEOUT_MS = 2500;
+
+async function getAppCheckTokenSafe(): Promise<string | undefined> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), APP_CHECK_TOKEN_TIMEOUT_MS);
+  });
+  const token = getAppCheckToken(appCheck, /* forceRefresh */ false)
+    .then((result) => result.token || undefined)
+    .catch(() => undefined); // not attested yet, offline, no live reCAPTCHA locally, etc.
+  const result = await Promise.race([token, timeout]);
+  clearTimeout(timer!);
+  return result;
+}
+
 window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
   if (!isBackendApiRequest(input)) return nativeFetch(input, init);
 
-  let token: string | undefined;
-  try {
-    token = (await getAppCheckToken(appCheck, /* forceRefresh */ false)).token;
-  } catch {
-    // Not attested yet, offline, no live reCAPTCHA locally, etc. -- fail
-    // open, exactly like the backend does in monitoring mode.
-  }
+  const token = await getAppCheckTokenSafe();
   if (!token) return nativeFetch(input, init);
 
   const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
