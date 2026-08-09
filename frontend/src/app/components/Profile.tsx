@@ -488,6 +488,7 @@ export default function Profile() {
                         hideProfileLink
                         embedded
                         onDoorClick={handleDoorClick}
+                        folded
                       />
                     )}
 

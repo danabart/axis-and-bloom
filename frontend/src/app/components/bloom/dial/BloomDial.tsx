@@ -36,12 +36,52 @@ interface Props {
    * `<BloomDial>` without a handler just doesn't render doors (they only ever
    * appear when both this prop and config.doors are present). */
   onDoorClick?: (edge: 'left' | 'right', target: DoorTarget) => void;
-  /** Part 20 — non-embedded Zone 1 only: whether to show the "YOUR" prefix on
-   * the identity row ("YOUR FRUITY" vs just "FRUITY" for a guest). Embedded's
-   * own identity block is untouched by Part 20 and always shows it, same as
-   * before. Defaults false (omit) since the only real caller always passes it
-   * explicitly from its own auth state. */
-  signedIn?: boolean;
+  /** Part 21 (was Part 20's boolean `signedIn`) — non-embedded Zone 1 only:
+   * the exact kicker text to show on the identity row ("YOUR FRUITY" /
+   * "TO EXPLORE FRUITY"), or null/undefined to omit it (guests, and
+   * folded surfaces, which never show a kicker at all). Embedded's own
+   * identity block is untouched and always shows "YOUR" unconditionally. */
+  kicker?: string | null;
+  /** Part 21 — this instance supports folding: the field collapses to zero
+   * width (desktop) / zero height (phone) via CSS transition instead of the
+   * grid's normal 38/62 (or embedded 32/68) split. False everywhere except
+   * quiz/Profile's folded surfaces — /bloom passes nothing and this whole
+   * mechanism is inert (the original grid rule wins unchanged). */
+  folded?: boolean;
+  /** Part 21 — only meaningful when `folded`: whether the field is currently
+   * revealed. Toggled by the caller's own open/closed state (door band click
+   * / "fold the dial" click) — BloomDial only renders the CSS class, it
+   * doesn't own the state. */
+  dialOpen?: boolean;
+  /** Part 21 — rendered inside `.bd-instrument`, absolutely positioned by the
+   * caller. Used for the "FOLD THE DIAL ↑" control (top-right of the field) —
+   * a slot rather than a dedicated prop so BloomDial stays agnostic of the
+   * fold control's own copy/behavior, matching the bottomContent/belowStage
+   * precedent. */
+  fieldOverlay?: ReactNode;
+  /** Part 21 — the needle-ceremony "YOUR SPOT" tag: which dialSortOrder it
+   * belongs to, its text, and whether the fade-in gate has been lifted yet
+   * (`revealed`). Tracks the needle's own left offset in paint() so it never
+   * needs its own position math; shows only when the CURRENT zone matches
+   * `dialSortOrder` AND `revealed` is true, live on every zone change (turning
+   * back to the spot later re-shows it) — the one-shot "ceremony" part is
+   * purely `revealed`'s own timing, owned by the caller. Null/undefined =
+   * no tag ever (folded surfaces with no personal position skip it entirely). */
+  ceremony?: { dialSortOrder: number; text: string; revealed: boolean } | null;
+  /** Part 21 — true while a folded surface's card is showing the classic
+   * (match mode, before the first unfold). Embedded's own bd-coffee-head-text
+   * label (a duplicate of the card's own header, kept for the "big name"
+   * display /bloom gets for free from its dial field, which embedded has no
+   * room for) needs to agree with the card's wording — "THE {ARCHETYPE}
+   * CLASSIC" instead of "ON THE DIAL NOW" — or the two disagree right next
+   * to each other. No-op for non-embedded (that label doesn't render there
+   * at all) and for non-folded embedded instances (always false). */
+  matchMode?: boolean;
+  /** Part 21 §4.2 — the /bloom-only "why this dial" sentence, rendered above
+   * the "TURN THE WHEEL..." hint. A plain string (not JSX) kept simple since
+   * every consumer just interpolates data into one sentence; null/undefined
+   * omits it (embedded contexts, or an archetype with no dial dimension). */
+  whyLine?: string | null;
 }
 
 const TRAVEL = 120;
@@ -118,7 +158,10 @@ function ensureStyles() {
 }
 
 export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
-  { config, initialDialSortOrder = 2, onZoneChange, onPreOrder, bottomContent, belowStage, embedded = false, onDoorClick, signedIn = false },
+  {
+    config, initialDialSortOrder = 2, onZoneChange, onPreOrder, bottomContent, belowStage, embedded = false, onDoorClick,
+    kicker = null, folded = false, dialOpen = false, fieldOverlay, ceremony = null, whyLine = null, matchMode = false,
+  },
   ref,
 ) {
   // Part 16 §B — this archetype's stop layout (0..1 position per coffee, index
@@ -154,6 +197,10 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
   // does — not just at rest.
   const lessChipRef = useRef<HTMLButtonElement>(null);
   const moreChipRef = useRef<HTMLButtonElement>(null);
+  // Part 21 — the needle-ceremony tag; text/visibility/position set in paint()
+  // (same pattern as everything else here), not via React state, so it stays
+  // correct through the settle animation the same way the coffee name does.
+  const tagRef = useRef<HTMLDivElement>(null);
 
   // Engine state (per instance).
   const cellsRef   = useRef<Cell[] | null>(null);
@@ -171,9 +218,13 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
   const onZoneChangeRef = useRef(onZoneChange);
   const onPreOrderRef   = useRef(onPreOrder);
   const configRef       = useRef(config);
+  const ceremonyRef     = useRef(ceremony);
+  const matchModeRef    = useRef(matchMode);
   onZoneChangeRef.current = onZoneChange;
   onPreOrderRef.current   = onPreOrder;
   configRef.current       = config;
+  ceremonyRef.current     = ceremony;
+  matchModeRef.current    = matchMode;
 
   useImperativeHandle(ref, () => ({
     rotateTo(dialSortOrder: number) {
@@ -247,9 +298,26 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
       needle.style.left = (pos * 100) + '%';
       paintFill(Math.max(0, Math.min(1, (pos - 0.125) / 0.75)));
       const coffee = configRef.current.coffees[zone];
-      if (nowRef.current) nowRef.current.textContent = 'ON THE DIAL NOW';
+      if (nowRef.current) {
+        nowRef.current.textContent = matchModeRef.current
+          ? `THE ${configRef.current.archetypeLabel.toUpperCase()} CLASSIC`
+          : 'ON THE DIAL NOW';
+      }
       if (nameRef.current) nameRef.current.textContent = coffee.name;
       if (fieldNameRef.current) fieldNameRef.current.textContent = nameToLines(coffee.name);
+      // Part 21 — needle-ceremony tag: tracks the needle's own left offset
+      // (so it never needs separate position math), shown live whenever the
+      // CURRENT zone matches the ceremony's target position AND the caller's
+      // fade-in gate (`revealed`) is open. Re-evaluated every paint, so
+      // turning back to the spot later re-shows it — only the FIRST reveal's
+      // timing is a one-shot, and that's the caller's concern, not this.
+      if (tagRef.current) {
+        const cer = ceremonyRef.current;
+        const show = !!cer?.revealed && cer.dialSortOrder - 1 === zone;
+        tagRef.current.style.opacity = show ? '1' : '0';
+        tagRef.current.style.left = needle.style.left;
+        tagRef.current.textContent = cer?.text ?? '';
+      }
       wrap.setAttribute('aria-valuenow', String(zone));
       ticks.setAttribute('aria-valuenow', String(zone));
       if (zone !== lastZoneRef.current) {
@@ -473,6 +541,19 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
     paintRef.current?.(rotRef.current);
   }, [initialDialSortOrder]);
 
+  // Part 21 — repaint on any ceremony prop change (specifically `revealed`
+  // flipping true after the caller's own delay), or on `matchMode` flipping
+  // (the embedded name lockup's "THE {ARCHETYPE} CLASSIC" vs "ON THE DIAL
+  // NOW" label) — paint() is the only place that sets either, and nothing
+  // else calls paint() on a plain prop change that isn't also a zone change
+  // (matchMode can flip false on unfold with NO zone change at all, in the
+  // "no personal position" edge case where the classic IS the selected
+  // position — the label still needs to update even though the dial doesn't
+  // visually move).
+  useEffect(() => {
+    paintRef.current?.(rotRef.current);
+  }, [ceremony?.revealed, ceremony?.dialSortOrder, ceremony?.text, matchMode]);
+
   // Terracotta field text (Balanced & Sweet mustard) vs beige (deep fields) —
   // ruler ticks/labels take matching palette tints.
   const darkFieldText = config.ftext === '#9a2918';
@@ -497,7 +578,7 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
       className={embedded ? 'bd-section bd-embedded' : 'bd-section'}
       style={rootVars}
     >
-      <div className="bd-stage">
+      <div className={folded ? `bd-stage bd-folded${dialOpen ? ' bd-dial-open' : ''}` : 'bd-stage'}>
         {/* Reading column */}
         <div className="bd-reading">
           {/* Part 20 — Zone 1 (identity). Embedded keeps its original lockup
@@ -506,7 +587,10 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
               horizontal baseline row (YOUR + NO., YOUR omitted for guests)
               instead of the vertical NO., BLOOM DIAL removed here entirely
               (added once at the page level instead — see BloomPage.tsx), and
-              a smaller title cap (fitLines below). */}
+              a smaller title cap (fitLines below). Part 21 — `kicker` is null
+              on every folded surface (they never show YOUR/TO EXPLORE, only
+              the band/card speak there), so this whole block still only ever
+              matters for /bloom. */}
           <div className="bd-namelock">
             {embedded ? (
               <>
@@ -520,7 +604,7 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
             ) : (
               <>
                 <div className="bd-idrow">
-                  {signedIn && <span className="bd-idrow-your">YOUR</span>}
+                  {kicker && <span className="bd-idrow-your">{kicker}</span>}
                   <span className="bd-idrow-no">NO. {config.no}</span>
                 </div>
                 <div ref={nlinesRef}>
@@ -539,7 +623,9 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
                 header wording. */}
             {embedded && (
               <div className="bd-coffee-head-text">
-                <div className="bd-now" ref={nowRef}>ON THE DIAL NOW</div>
+                <div className="bd-now" ref={nowRef}>
+                  {matchMode ? `THE ${config.archetypeLabel.toUpperCase()} CLASSIC` : 'ON THE DIAL NOW'}
+                </div>
                 <div className="bd-coffee-name" ref={nameRef}>
                   {config.coffees[clampZone(initialDialSortOrder - 1)].name}
                 </div>
@@ -559,6 +645,12 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
 
         {/* Instrument field */}
         <div className="bd-instrument">
+          {/* Part 21 — the "FOLD THE DIAL ↑" control lives here when supplied:
+              top-right corner of the field, mirroring where "Collapse ↑"
+              already sits for the RevealedPanel below — .bd-instrument is
+              already position:relative, so this just needs its own absolute
+              placement (bd-field-fold, in the CSS below). */}
+          {fieldOverlay}
           <div className="bd-field-inner">
             <div className="bd-wheel-col">
               <div
@@ -580,6 +672,13 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
                   aria-valuemin={0} aria-valuemax={maxZone} aria-valuenow={clampZone(initialDialSortOrder - 1)}
                 >
                   <div className="bd-needle" ref={needleRef} />
+                  {/* Part 21 — needle-ceremony tag ("YOUR SPOT" / "YOUR SPOT ·
+                      FROM YOUR QUIZ"). Shares bd-ruler-ticks' positioning
+                      context with the needle so its `left` (set in paint(),
+                      mirroring needle.style.left exactly) lines up with it
+                      pixel-for-pixel. Starts at opacity:0 — paint() only ever
+                      turns it on when a ceremony prop is actually supplied. */}
+                  <div className="bd-tag" ref={tagRef} />
                 </div>
                 <div className="bd-ruler-ends">
                   <span>{(config.scaleMinLabel ?? 'Delicate').toUpperCase()}</span>
@@ -642,6 +741,10 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
                 </button>
               </div>
 
+              {/* Part 21 §4.2 — /bloom-only "why this dial" sentence, above
+                  the hint. whyLine is null on every embedded/folded surface
+                  (DialArchetypeSection only computes it for /bloom). */}
+              {whyLine && <p className="bd-whyline">{whyLine}</p>}
               <div className="bd-hint">TURN THE WHEEL, OR SLIDE THE BAR</div>
             </div>
 
@@ -722,6 +825,37 @@ const CSS = `
    crowd out the other. */
 .bd-ruler-ends span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:48%;}
 .bd-hint{margin-top:12px;font-size:10.5px;letter-spacing:.14em;color:var(--bd-ftext-mid);}
+/* Part 21 — needle-ceremony tag: shares .bd-ruler-ticks' positioning context
+   with the needle, its left offset mirrored from it exactly in paint(). Uses
+   ftext, not a fixed white, so it reads correctly on Balanced & Sweet's
+   mustard field for free (the same reuse the door band's copy asks for). */
+.bd-tag{position:absolute;top:-24px;left:0;transform:translateX(-50%);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--bd-ftext);white-space:nowrap;opacity:0;transition:opacity 500ms ease;pointer-events:none;}
+/* Part 21 §2.4 — the fold control: top-right of the field, mirroring where
+   "Collapse ↑" sits for the RevealedPanel below (chosen over e.g. bottom-left
+   of the field, which would sit awkwardly close to the step chips/hint
+   stack — the field's top-right corner is otherwise empty at every viewport
+   this component supports). */
+.bd-field-fold{position:absolute;top:18px;right:20px;background:none;border:none;font-family:inherit;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--bd-ftext);opacity:.75;cursor:pointer;padding:4px;z-index:2;}
+.bd-field-fold:hover{opacity:1;}
+/* Part 21 §4.2 — /bloom's data-driven "why this dial" sentence. */
+.bd-whyline{width:360px;max-width:86vw;margin:14px auto 0;font-size:12px;font-weight:300;line-height:1.5;color:var(--bd-ftext);opacity:.85;text-align:center;}
+/* Part 21 §2.2 — the door band (DoorBand.tsx): background/text colors are
+   per-archetype dynamic values (field color, ink-vs-beige ftext) and stay as
+   inline style props on the component; everything static (layout, hover,
+   the narrow-width wrap rule below) lives here, matching the Part 20 card
+   precedent. flex-wrap + a text min-basis (not a fixed breakpoint) is what
+   actually saves this at phone width: below ~480px there's no longer room
+   for glyph + a readable text column + the action pill on one line, so the
+   pill wraps to its own line instead of every word in the sentence getting
+   squeezed onto its own line (the failure mode a fixed three-column flex
+   row hits first). */
+.bd-band{display:flex;align-items:center;flex-wrap:wrap;gap:12px 16px;width:100%;margin-top:14px;border:none;border-radius:2px;cursor:pointer;font-family:inherit;text-align:left;padding:16px 20px;transition:filter 200ms ease;}
+.bd-band:hover{filter:brightness(1.06);}
+.bd-band-glyph{flex:none;}
+.bd-band-text{flex:1 1 180px;min-width:0;}
+.bd-band-micro{display:block;font-size:9px;letter-spacing:.2em;text-transform:uppercase;margin-bottom:4px;}
+.bd-band-line{display:block;font-size:13.5px;font-weight:300;line-height:1.45;}
+.bd-band-act{flex:none;font-size:9.5px;letter-spacing:.15em;text-transform:uppercase;border-radius:999px;padding:7px 13px;white-space:nowrap;}
 /* Part 18 §A — dial-native step chips, replacing Part 16/17's hop-graph chips.
    Same instrument-native styling (transparent, thin field-text border,
    field-text-mid label, small pill) and the same fixed left/right anchoring
@@ -802,6 +936,23 @@ const CSS = `
 .bd-qp-what{font-size:13.5px;font-weight:300;color:#45474a;}
 .bd-qp-what em{font-style:normal;color:#7b7f80;font-size:12px;}
 .bd-qp-act{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:#9a2918;white-space:nowrap;flex-shrink:0;}
+/* Part 21 — folded surfaces (quiz results/returning, Profile): the field
+   collapses to zero width instead of the base rule's grid-driven 38/62
+   split, and the reading column centers at a fixed width rather than
+   stretching to fill the row alone (matching the mockup's card-centered
+   closed state). Unfolding (.bd-dial-open) restores the EXACT same 38/62
+   split /bloom already uses (embedded's 32/68 override sits with the rest
+   of the embedded rules below) — recognition, not a new layout, per the
+   prompt's own framing. flex, not the base rule's grid, specifically
+   because animating a flex child's own width/max-height is reliable
+   cross-browser; animating grid-template-columns is not. Every rule here is
+   scoped under .bd-folded, so /bloom (which never gets that class) is
+   completely unaffected — the original grid rule above wins there untouched. */
+.bd-stage.bd-folded{display:flex;justify-content:center;}
+.bd-stage.bd-folded .bd-reading{width:480px;max-width:100%;flex:none;transition:width 800ms ${EASE};}
+.bd-stage.bd-folded.bd-dial-open .bd-reading{width:38%;}
+.bd-stage.bd-folded .bd-instrument{width:0;padding:0;overflow:hidden;flex:none;transition:width 900ms ${EASE},padding 900ms ${EASE};}
+.bd-stage.bd-folded.bd-dial-open .bd-instrument{width:62%;padding:40px 40px;}
 @media (max-width:940px){
   .bd-stage{grid-template-columns:1fr;min-height:0;}
   .bd-instrument{order:1;padding:48px 20px 120px;}
@@ -810,6 +961,17 @@ const CSS = `
   .bd-reading{order:2;padding:44px 28px;}
   .bd-coffee-name{min-height:0;}
   .bd-dial-wrap{width:320px;height:320px;}
+  /* Part 21 — folded surfaces stack (card above, field below) exactly how
+     /bloom already stacks below this breakpoint, but since folded uses flex
+     not grid (and needs to visually start at zero, not just reordered), swap
+     the width transition for a max-height one — same idea as the mockup's
+     own phone treatment, ported to this component's real dimensions rather
+     than the mockup's placeholder ones. */
+  .bd-stage.bd-folded{flex-direction:column;}
+  .bd-stage.bd-folded .bd-reading{width:100%;max-width:100%;order:1;}
+  .bd-stage.bd-folded.bd-dial-open .bd-reading{width:100%;}
+  .bd-stage.bd-folded .bd-instrument{width:100%;max-height:0;padding:0 20px;order:2;transition:max-height 800ms ${EASE},padding 800ms ${EASE};}
+  .bd-stage.bd-folded.bd-dial-open .bd-instrument{max-height:900px;padding:48px 20px 120px;}
 }
 /* Below ~1100px the wheel + big name no longer fit side by side — stack the
    name under the wheel, centered, and let its box size to content there. */
@@ -833,8 +995,14 @@ const CSS = `
 .bd-embedded .bd-reading-bottom{padding-top:22px;}
 .bd-embedded .bd-field-bag{right:22px;bottom:18px;}
 .bd-embedded .bd-field-bag img{width:92px;}
+/* Part 21 — embedded's own unfolded ratio (32/68, matching its normal grid
+   split above) rather than the base folded rule's 38/62. Every quiz/Profile
+   folded surface is embedded, so this is the ratio that actually ships. */
+.bd-section.bd-embedded .bd-stage.bd-folded.bd-dial-open .bd-reading{width:32%;}
+.bd-section.bd-embedded .bd-stage.bd-folded.bd-dial-open .bd-instrument{width:68%;padding:42px 24px;}
 @media (max-width:940px){
   .bd-embedded .bd-instrument{padding:36px 16px 96px;}
   .bd-embedded .bd-dial-wrap{width:260px;height:260px;}
+  .bd-section.bd-embedded .bd-stage.bd-folded.bd-dial-open .bd-instrument{padding:36px 16px 96px;}
 }
 `;

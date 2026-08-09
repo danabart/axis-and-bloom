@@ -10,6 +10,8 @@ import { PostQuizEmailGate } from './PostQuizEmailGate';
 import { ShareMatchRow } from './ShareMatchRow';
 import { computeDefaultSortOrder } from './bloom/ArchetypeSection';
 import { DialArchetypeSection } from './bloom/DialArchetypeSection';
+import { FloatingCart } from './bloom/FloatingCart';
+import { FAMILY_LINES } from './bloom/matchCopy';
 import { CompareOverlay } from './bloom/CompareOverlay';
 import { useAdjacentArchetype } from './bloom/useAdjacentArchetype';
 import { resolveLandingSortOrder } from './bloom/doorConfig';
@@ -618,7 +620,15 @@ export default function FlavorQuiz() {
   }
 
   const { user } = useAuth();
-  const { addToCart } = useCart();
+  // Part 21 fix (live QA / Dana, 2026-08-09) — the quiz route deliberately
+  // skips PublicLayout ("own minimal chrome, no public nav/footer/cart"),
+  // which meant Add to Cart silently updated the shared CartContext with
+  // zero visible confirmation anywhere on this page — functionally working,
+  // but indistinguishable from broken. Rendering the same FloatingCart used
+  // everywhere else (not a bespoke quiz-only cart UI) restores the
+  // confirmation without reversing the "no persistent nav/footer" decision —
+  // just cart, still keeping the page otherwise as bare as it was.
+  const { addToCart, cart, cartOpen, toggleCartOpen, removeFromCart, checkout, checkoutStatus, checkoutMessage } = useCart();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -1186,6 +1196,8 @@ export default function FlavorQuiz() {
             source="find_my_flavor_returning"
             embedded
             onDoorClick={handleMatchedDoorClick}
+            folded
+            ceremonyTag="YOUR SPOT · FROM YOUR QUIZ"
           />
         )}
 
@@ -1228,6 +1240,16 @@ export default function FlavorQuiz() {
           onClose={() => setCompareState(s => ({ ...s, open: false }))}
           left={compareState.slot ? { archetype: compareState.archetype, archetypeLabel: compareState.archetypeLabel, slot: compareState.slot } : null}
           archetypes={archetypesList}
+        />
+        <FloatingCart
+          items={cart}
+          open={cartOpen}
+          onToggle={toggleCartOpen}
+          onRemove={removeFromCart}
+          onCheckout={checkout}
+          checkoutStatus={checkoutStatus}
+          checkoutMessage={checkoutMessage}
+          isSignedIn={!!user}
         />
       </div>
     );
@@ -1636,21 +1658,41 @@ export default function FlavorQuiz() {
                 guestMaskedEmail={!user && postQuizEmail ? maskEmail(postQuizEmail) : null}
               />
               {resultsArchetypeData && (
-                <DialArchetypeSection
-                  data={resultsArchetypeData}
-                  index={0}
-                  selectedSortOrder={resultsSortOrder ?? computeDefaultSortOrder(resultsArchetypeData)}
-                  revealedKeys={resultsRevealedKeys}
-                  onDialSelect={handleResultsDialSelect}
-                  onToggleReveal={toggleResultsReveal}
-                  onAddToCart={addToCart}
-                  onCompare={openResultsCompare}
-                  userArchetype={matchedArchetypeId}
-                  registerDialRef={registerResultsDialRef}
-                  source="find_my_flavor_results"
-                  embedded
-                  onDoorClick={handleResultsDoorClick}
-                />
+                <>
+                  {/* Part 21 §3.1 — new result header, above the folded block:
+                      micro "Your match" -> archetype name large -> family
+                      line (matchCopy.ts). Distinct from the cinematic
+                      night-scan hero above (that's the reveal moment); this
+                      is the block's own header, bridging into commerce. */}
+                  <div style={{ textAlign: 'center', margin: '0 auto', padding: '0 20px 34px', maxWidth: 680 }}>
+                    <p style={{ fontSize: 11, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#7b7f80', marginBottom: 12 }}>
+                      Your match
+                    </p>
+                    <p style={{ fontSize: 'clamp(40px, 7vw, 60px)', fontWeight: 500, color: '#a02c1c', letterSpacing: '-0.01em', lineHeight: 0.95, margin: 0 }}>
+                      {resultsArchetypeData.archetypeLabel.toUpperCase()}
+                    </p>
+                    <p style={{ fontSize: 15.5, fontWeight: 300, color: '#45474a', marginTop: 14 }}>
+                      {FAMILY_LINES[resultsArchetypeEnum] ?? `That's your family — ${resultsArchetypeData.archetypeLabel.toLowerCase()}, through and through.`}
+                    </p>
+                  </div>
+                  <DialArchetypeSection
+                    data={resultsArchetypeData}
+                    index={0}
+                    selectedSortOrder={resultsSortOrder ?? computeDefaultSortOrder(resultsArchetypeData)}
+                    revealedKeys={resultsRevealedKeys}
+                    onDialSelect={handleResultsDialSelect}
+                    onToggleReveal={toggleResultsReveal}
+                    onAddToCart={addToCart}
+                    onCompare={openResultsCompare}
+                    userArchetype={matchedArchetypeId}
+                    registerDialRef={registerResultsDialRef}
+                    source="find_my_flavor_results"
+                    embedded
+                    onDoorClick={handleResultsDoorClick}
+                    folded
+                    ceremonyTag="YOUR SPOT · FROM YOUR QUIZ"
+                  />
+                </>
               )}
 
               {/* Part 17 §F — same Worth Exploring + adjacent-section mechanism as the
@@ -1730,6 +1772,16 @@ export default function FlavorQuiz() {
         </div>
       )}
 
+      <FloatingCart
+        items={cart}
+        open={cartOpen}
+        onToggle={toggleCartOpen}
+        onRemove={removeFromCart}
+        onCheckout={checkout}
+        checkoutStatus={checkoutStatus}
+        checkoutMessage={checkoutMessage}
+        isSignedIn={!!user}
+      />
     </>
   );
 }

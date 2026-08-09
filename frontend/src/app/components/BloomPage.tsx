@@ -37,6 +37,19 @@ export default function BloomPage() {
   const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
   const dialRefs = useRef<Record<string, BloomDialHandle | null>>({});
 
+  // Part 21 §4.3 — the three-beat strip: shown until the visitor turns any
+  // dial once. `hasTurnedDial` persists the "turned" fact in localStorage
+  // (guests included — this is the ONLY persistence the strip needs for
+  // them); `hasSavedPosition` is a separate signal for signed-in users who
+  // already have a saved position from a previous visit (Phase D's own
+  // fetch below already asks the DB, no separate localStorage check needed
+  // for that case).
+  const [hasTurnedDial, setHasTurnedDial] = useState(() => {
+    try { return localStorage.getItem('axisbloom.hasTurnedDial') === '1'; } catch { return false; }
+  });
+  const [hasSavedPosition, setHasSavedPosition] = useState(false);
+  const showThreeBeatStrip = !hasTurnedDial && !(user && hasSavedPosition);
+
   const [compareState, setCompareState] = useState<{ open: boolean; archetype: string; archetypeLabel: string; slot: Slot | null }>({
     open: false, archetype: '', archetypeLabel: '', slot: null,
   });
@@ -111,6 +124,10 @@ export default function BloomPage() {
           for (const [archetype, sortOrder] of entries) if (sortOrder != null) next[archetype] = sortOrder;
           return next;
         });
+        // Part 21 §4.3 — reuses this same fetch (already asking the DB for
+        // every archetype's saved position) rather than a second round trip
+        // just to answer "does this signed-in user have ANY saved position".
+        if (entries.some(([, sortOrder]) => sortOrder != null)) setHasSavedPosition(true);
       });
   }, [user, archetypes]);
 
@@ -149,6 +166,11 @@ export default function BloomPage() {
   function handleDialSelect(archetype: string, dialSortOrder: number) {
     setSelectedSortOrder(prev => ({ ...prev, [archetype]: dialSortOrder }));
     if (user) setDialPosition(archetype, dialSortOrder).catch(() => {});
+    // Part 21 §4.3 — turning IS the dismissal; no separate close button.
+    if (!hasTurnedDial) {
+      setHasTurnedDial(true);
+      try { localStorage.setItem('axisbloom.hasTurnedDial', '1'); } catch {}
+    }
   }
 
   function toggleReveal(key: string) {
@@ -221,11 +243,31 @@ export default function BloomPage() {
           columns (where each one showed it once, six times over) to appearing
           exactly once, page-level, right above the strip it introduces. */}
       <p style={{
-        padding: '0 clamp(32px, 6vw, 96px)', margin: '0 0 clamp(10px, 1.4vh, 16px)',
+        padding: '0 clamp(32px, 6vw, 96px)', margin: '0 0 6px',
         fontSize: 'clamp(15px, 1.6vw, 20px)', fontWeight: 600, color: '#ee5974', letterSpacing: '0.02em',
       }}>
         BLOOM&nbsp;DIAL
       </p>
+      {/* Part 21 §4.1 — quiet subtitle under the page-level title, once. */}
+      <p style={{
+        padding: '0 clamp(32px, 6vw, 96px)', margin: '0 0 clamp(10px, 1.4vh, 16px)',
+        fontSize: 13, fontWeight: 300, color: '#7b7f80',
+      }}>
+        Every family of taste, four coffees deep.
+      </p>
+
+      {/* Part 21 §4.3 — the three-beat strip: how the quiz, the classic, and
+          the dial relate, shown once until the visitor turns any dial (then
+          "turning IS the dismissal" — no close button needed). */}
+      {showThreeBeatStrip && (
+        <p style={{
+          padding: '0 clamp(32px, 6vw, 96px)', margin: '0 0 clamp(14px, 2vh, 22px)',
+          fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#a09880',
+          lineHeight: 1.7,
+        }}>
+          01 The quiz finds your family &nbsp;·&nbsp; 02 The classic is your match &nbsp;·&nbsp; 03 Want to fine-tune? That's the dial
+        </p>
+      )}
 
       {/* ── Sticky archetype jump-nav ── */}
       <div style={{
