@@ -13,7 +13,7 @@ import {
   OAuthProvider,
   signOut,
 } from 'firebase/auth';
-import { auth } from '../lib/firebase';
+import { auth, getAppCheckTokenSafe } from '../lib/firebase';
 
 interface AuthContextType {
   user: User | null;
@@ -42,6 +42,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Firebase identity so quiz persistence and lifecycle tracking work for
         // guests. This re-triggers onAuthStateChanged with the new anonymous user;
         // let that second call handle isAdmin/setLoading.
+        //
+        // C6b — wait for App Check to have a token ready (bounded, fail-open,
+        // same helper/timeout C6a uses for the backend fetch wrapper) before
+        // firing the sign-in, so the Auth SDK actually has something to
+        // attach to the request. On a cold load this call can otherwise beat
+        // App Check's own async init (reCAPTCHA v3 load + first token
+        // exchange), which is the anonymous-sign-in-specific slice of the
+        // ~12% "unverified" App Check monitoring showed on Auth. Never blocks
+        // sign-in indefinitely — if App Check can't produce a token within
+        // the timeout, this resolves anyway and sign-in proceeds unattested,
+        // exactly like today (Auth is monitoring-only, not enforced).
+        await getAppCheckTokenSafe();
         signInAnonymously(auth).catch((e) => console.error('Anonymous sign-in failed:', e));
         return;
       }

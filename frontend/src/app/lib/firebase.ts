@@ -89,9 +89,13 @@ const nativeFetch = window.fetch.bind(window);
 // short timeout, since this must never turn into a hung/blocked request.
 // Timeout or rejection both resolve to `undefined`, same fall-open outcome
 // as before; this helper itself never throws.
+//
+// C6b also reuses this exact helper in AuthContext.tsx, to await App Check
+// readiness before the anonymous sign-in fires -- same rationale, same
+// bounded/fail-open contract, one shared implementation instead of a copy.
 const APP_CHECK_TOKEN_TIMEOUT_MS = 2500;
 
-async function getAppCheckTokenSafe(): Promise<string | undefined> {
+export async function getAppCheckTokenSafe(): Promise<string | undefined> {
   let timer: ReturnType<typeof setTimeout>;
   const timeout = new Promise<undefined>((resolve) => {
     timer = setTimeout(() => resolve(undefined), APP_CHECK_TOKEN_TIMEOUT_MS);

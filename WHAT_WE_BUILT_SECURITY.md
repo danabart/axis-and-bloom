@@ -184,3 +184,43 @@ Security work started 2026-08-05 with three parallel audit passes (backend authz
 **Not done in this pass:** the 2.5s timeout value itself wasn't tuned against real network telemetry — chosen as "long enough that reCAPTCHA v3 normally finishes well inside it, short enough that a stuck attestation still fails open quickly." Revisit if real Cloud Run `[app-check]` logs, watched under entry 7's still-open "next step," show cold-load requests still frequently landing with no token even with this fix live.
 
 **Files:** `frontend/src/app/lib/firebase.ts`.
+
+---
+
+### 9. C6-enforce Stage 1 — backend App Check enforcement turned on (2026-08-09)
+
+**Context:** entry 7's own "next step," now taken. Monitoring (entry 7) ran clean — 141/141 verified on a cold load, the one real gap (entry 8's first-load token race) already fixed. Time to actually close H2's backend half and C17's residual direct-origin gap (see entry 1) instead of just watching for it.
+
+**The change:** exactly one value, `deploy.yml`'s `--set-env-vars`: `APP_CHECK_ENFORCED=false` → `true`. No code touched — the enforcement branch inside `appCheckGate` (`backend/src/middleware/appCheck.ts`, entry 7) already existed and had already been exercised in entry 7's own local differential tests; this is purely the switch it was built for. `--set-secrets` confirmed byte-identical in the diff — nothing else on that line changed.
+
+**Verified, live, against real production (not locally, not assumed) — all four checks the task called for:**
+- **(a) valid token → `200`.** A genuine App Check token was needed, not just any string — minted server-side via `admin.appCheck().createToken(webAppId)` (Firebase Admin SDK, reusing the backend's existing initialized admin app, same technique Firebase itself documents for testing App Check without a live browser/reCAPTCHA flow) in a throwaway script, deleted immediately after use. `GET /api/quiz/questions` with that token attached as `X-Firebase-AppCheck` → `200`.
+- **(b) no token → `401`.** Same route, no header → `401 {"error":"app_check_failed"}` — enforcement genuinely rejects now, not just logs.
+- **(c) cron/webhooks/health still exempt, even under enforcement.** `GET /api/cron/coffee-content-backfill` with no token and no cron secret → `401 {"error":"Unauthorized"}` — `requireCronSecret`'s own rejection, not App Check's, proving the exemption still bypasses the gate entirely rather than just happening to pass; `POST /api/webhooks/webhooks/sms/inbound` with no token → `200`; `GET /health` with no token → `200`.
+- **(d) `APP_CHECK_ENFORCED=true` confirmed present** on the live-serving Cloud Run revision via `gcloud run services describe` — all 15 `--set-secrets` references also confirmed still present and unchanged.
+
+No rollback needed — every check passed on the first deploy.
+
+**Deliberately left alone:** the Firebase console's own Firestore/Auth App Check enforcement toggles are still **OFF**. Those govern the Firebase client SDKs' own direct calls (Firestore reads/writes, Auth operations) — a materially different, riskier blast radius than this backend's own `/api/*` routes, and out of scope for this stage. Flagged as C6-enforce Stage 2, not attempted here.
+
+**Not done in this pass:** Stage 2 (Auth-toggle) above. C7 (email-verify gate on Liam) and C8 (signup/reset-password rate limiting) — H2's other two remediation prompts — still `OPEN`.
+
+**Files:** `.github/workflows/deploy.yml`. Commit `da06c8f`.
+
+---
+
+### 10. C6b — Hardened anonymous sign-in to await App Check (2026-08-09)
+
+**Context:** the blocker for entry 9's Stage 2 (Auth-toggle). The Firebase Authentication App Check card showed **~88% verified / ~12% unverified** in monitoring — Auth enforcement can't safely turn on until that unverified slice is near-zero, since flipping it while 12% of real Auth traffic has no token would lock out a real, non-trivial slice of visitors the moment it's enabled. Hypothesis going in (Dana's framing, confirmed by code review before touching anything): the anonymous sign-in that fires on first paint (`AuthContext.tsx`'s `signInAnonymously`, triggered from `onAuthStateChanged`'s `u === null` branch) beats App Check's own async initialization on a cold load — the same class of race entry 8 (C6a) fixed for the backend `fetch()` wrapper, but on the Auth SDK path, which C6a never touched.
+
+**Confirmed the surface is exactly as narrow as it looks, before writing the fix:** grepped the whole frontend for `getAuth(`, `onAuthStateChanged(`, `signInAnonymously(`, `onIdTokenChanged(` — `getAuth(app)` appears exactly once (`firebase.ts`), and `onAuthStateChanged`/`signInAnonymously` appear exactly once each, both in `AuthContext.tsx`'s single `useEffect`. No other component calls into Firebase Auth directly, no stray `accounts:lookup`/REST call anywhere else. One call site to fix, not several.
+
+**The fix:** `getAppCheckTokenSafe()` (C6a's own helper — `Promise.race`s a real `getToken(appCheck)` against a 2.5s timeout, both paths resolving, never rejecting, to `undefined` on failure) is now `export`ed from `firebase.ts` and reused as-is — not reimplemented — in `AuthContext.tsx`. Inside the `u === null` branch, immediately before calling `signInAnonymously(auth)`: `await getAppCheckTokenSafe();`. By the time the sign-in call actually fires, App Check has either already obtained a token (the routine case, and the whole point of this fix — the Auth SDK's interop layer then has something to attach) or the bounded wait has elapsed and sign-in proceeds unattested anyway, exactly the same fail-open contract as C6a. Never a hard block on app startup — the task's explicit requirement, since Auth is monitoring-only and an occasional unverified call is tolerable, unlike a startup hang.
+
+**Known residual gap, investigated and flagged rather than silently left implicit:** this fix only covers the *first-visit* anonymous sign-in path. A *returning* visitor with an already-persisted Firebase session (anonymous or real) never reaches the `u === null` branch at all — `getAuth(app)`'s own internal SDK logic automatically validates/refreshes that persisted session, and that internal call fires at module-load time, inside `firebase.ts` itself, before React even mounts — before this fix's `await` (which lives inside a React `useEffect`, necessarily later) gets any chance to run. `initializeAppCheck()` is called before `getAuth()` in `firebase.ts` (correct per Firebase's own guidance, already true before this task), but that only guarantees App Check's provider is *registered* first — it doesn't guarantee App Check's own async reCAPTCHA-load-and-token-exchange has *finished* by the time `getAuth()`'s internal refresh fires moments later. Closing this properly would mean deferring the app's entire Firebase Auth usage until App Check is confirmed ready — a materially bigger, riskier restructuring than this task's scope, and not what was asked. Left open, consistent with the task's own stated bar ("Auth is only in monitoring, so an occasional unverified call is fine — we just want the routine case to attest").
+
+**Verified:** standalone `tsc --noEmit` on both touched files, Vite's actual resolution settings (`--moduleResolution bundler --types vite/client`) — clean. `vite build` (the real build gate) — clean, 2142 modules, only the pre-existing unrelated font-asset warning. `git status` confirmed the diff scoped to exactly two files.
+
+**Not done in this pass:** the returning-visitor residual gap above. Flipping Auth enforcement itself (Stage 2) — still deliberately deferred until the monitoring dashboard is watched with this fix live and settles near-zero-unverified, not assumed clean from this fix alone.
+
+**Files:** `frontend/src/app/lib/firebase.ts`, `frontend/src/app/context/AuthContext.tsx`.
