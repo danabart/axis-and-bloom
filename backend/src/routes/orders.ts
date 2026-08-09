@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth, blockAnonymousAuth, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 import { createOrder } from '../services/shopify.js';
-import { resolveBlendForSlot, resolveCoffeeBlend } from '../services/blendResolver.js';
+import { resolveBlendForSlot, resolveCoffeeBlend, computeCollectionOffer } from '../services/blendResolver.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { getSommelierConfig } from '../services/sommelierConfig.js';
 import { updateOrderOutcomes } from '../services/outcomeTracker.js';
@@ -21,6 +21,11 @@ interface ResolvedItem {
   priceCents?: number;
   resolvedCoffeeName?: string;
   resolvedRoaster?: string;
+  // Part 19 §C — per-unit discount applied to this line (0 for every non-
+  // collection item). order_line_item.discount_amount existed in the schema
+  // already but was never written to before this — see the comment at its
+  // INSERT below for what "extend the orders flow minimally" meant in practice.
+  discountCents?: number;
 }
 
 router.post('/', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
@@ -72,6 +77,54 @@ router.post('/', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) 
           quantity: item.quantity ?? 1,
           priceCents: item.priceCents,
         });
+      } else if (item.collection === true && item.archetype) {
+        // Part 19 §C — server-side enforcement is mandatory: the client never
+        // gets to say which coffees are in the set or what it costs. Both are
+        // re-derived here, fresh, from the exact same computeCollectionOffer()
+        // GET /archetypes uses to show the preview — the only difference is
+        // this call is the one that's actually trusted.
+        const offer = await computeCollectionOffer(item.archetype);
+        if (!offer) {
+          res.status(409).json({
+            error: `${item.archetype} doesn't currently have enough purchasable positions for the collection offer.`,
+          });
+          return;
+        }
+        // Reject outright on any mismatch (including a missing/non-numeric
+        // priceCents) rather than silently substituting the correct number —
+        // a mismatch means the client's cart is stale (prices changed since
+        // it was added) or was tampered with; either way the customer should
+        // see a clear error and re-add, not get silently charged a different
+        // amount than the screen showed them.
+        if (typeof item.priceCents !== 'number' || item.priceCents !== offer.discountedCents) {
+          res.status(409).json({
+            error: `The ${item.archetype} collection's price has changed — expected $${(offer.discountedCents / 100).toFixed(2)}, got ${typeof item.priceCents === 'number' ? `$${(item.priceCents / 100).toFixed(2)}` : 'nothing'}. Refresh your cart and try again.`,
+          });
+          return;
+        }
+
+        const quantity = item.quantity ?? 1;
+        // One order_line_item per member coffee (the schema has no "this row
+        // is part of a bundle" concept — see the interface comment above), each
+        // proportionally discounted so the SUM across all members' charged
+        // prices exactly equals the verified discounted total. Rounding
+        // remainder absorbed by the last member rather than distributed, so
+        // the total is never off by a cent either direction.
+        let runningCharged = 0;
+        offer.members.forEach((member, idx) => {
+          const isLast = idx === offer.members.length - 1;
+          const charged = isLast
+            ? offer.discountedCents - runningCharged
+            : Math.round(member.priceCents * (offer.discountedCents / offer.sumCents));
+          if (!isLast) runningCharged += charged;
+          resolvedItems.push({
+            variantId: member.shopifyVariantId ?? undefined,
+            blendId: member.blendId,
+            quantity,
+            priceCents: charged,
+            discountCents: member.priceCents - charged,
+          });
+        });
       } else {
         resolvedItems.push({
           variantId: item.variantId,
@@ -119,10 +172,18 @@ router.post('/', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) 
     for (const item of resolvedItems) {
       if (!item.blendId) continue;
       const unitPrice = (item.priceCents ?? 0) / 100;
+      // Part 19 §C — discount_amount already existed on this table but had
+      // never been written to before this (every line implicitly charged its
+      // full price). Only a collection's member lines ever populate it now
+      // (item.discountCents is undefined/0 for every other kind); this is the
+      // "extend the orders flow minimally" the spec asked for — no new
+      // columns, no new tables, just finally using the one that was already
+      // there for exactly this purpose.
+      const discountAmount = (item.discountCents ?? 0) / 100;
       await db.query(
-        `INSERT INTO order_line_item (order_id, blend_id, quantity, unit_price_charged)
-         VALUES ($1, $2, $3, $4)`,
-        [orderId, item.blendId, item.quantity, unitPrice]
+        `INSERT INTO order_line_item (order_id, blend_id, quantity, unit_price_charged, discount_amount)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [orderId, item.blendId, item.quantity, unitPrice, discountAmount]
       );
     }
 

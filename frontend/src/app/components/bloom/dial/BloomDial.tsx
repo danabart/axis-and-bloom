@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, type CSSProperties,
 import { getCells, colorizeCells, BEIGE, W, H, type Cell, type RGB } from './fillEngine';
 import { LINEWORK_URI } from './linework';
 import type { DialConfig, DialCoffee } from './archetypeConfig';
+import type { DoorTarget } from '../types';
 
 // The Bloom Dial — reusable component, source of truth on the Bloom page
 // (brief 33). One archetype per mount; the wheel/ruler/bag interaction and the
@@ -28,6 +29,13 @@ interface Props {
   belowStage?: ReactNode;
   /** Compact variant for embedded contexts (quiz screens, Profile). */
   embedded?: boolean;
+  /** Part 19 §A — fired when a door chip (the outward step-chip slot at an
+   * extreme position, showing "leave this dial") is clicked. `edge` is which
+   * side was exited — the caller needs it to resolve the continuity landing
+   * position on the target dial (see doorConfig.ts). Optional so a bare
+   * `<BloomDial>` without a handler just doesn't render doors (they only ever
+   * appear when both this prop and config.doors are present). */
+  onDoorClick?: (edge: 'left' | 'right', target: DoorTarget) => void;
 }
 
 const TRAVEL = 120;
@@ -108,7 +116,7 @@ function ensureStyles() {
 }
 
 export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
-  { config, initialDialSortOrder = 2, onZoneChange, onPreOrder, bottomContent, belowStage, embedded = false },
+  { config, initialDialSortOrder = 2, onZoneChange, onPreOrder, bottomContent, belowStage, embedded = false, onDoorClick },
   ref,
 ) {
   // Part 16 §B — this archetype's stop layout (0..1 position per coffee, index
@@ -260,19 +268,39 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
       // (not display) keeps the hidden chip's flex slot reserved at an
       // extreme, so the remaining chip stays anchored to its own edge instead
       // of the row collapsing to a single centered item.
+      //
+      // Part 19 §A — at an extreme, the slot that used to just go empty now
+      // shows a DOOR chip instead (if config.doors resolved one): visually
+      // distinct (bd-door-chip — filled, not the step chips' transparent
+      // pills) and worded as an exit ("{archetype} →" / "← {archetype}"), not
+      // a step. The click handler (in the JSX below) re-checks zoneRef.current
+      // at click time rather than needing a second ref for "which mode is this
+      // chip in right now" — it's already exactly what determines door-vs-step
+      // here.
       const positions = stopPositionsRef.current;
       const dimName = configRef.current.dimensionName;
+      const doors = configRef.current.doors;
       if (lessChipRef.current) {
-        if (zone > 0) {
+        if (zone === 0 && doors?.left) {
+          lessChipRef.current.textContent = `← ${doors.left.archetypeLabel}`;
+          lessChipRef.current.classList.add('bd-door-chip');
+          lessChipRef.current.style.visibility = 'visible';
+        } else if (zone > 0) {
           lessChipRef.current.textContent = stepChipText('less', dimName, configRef.current.coffees[zone - 1].positionLabel);
+          lessChipRef.current.classList.remove('bd-door-chip');
           lessChipRef.current.style.visibility = 'visible';
         } else {
           lessChipRef.current.style.visibility = 'hidden';
         }
       }
       if (moreChipRef.current) {
-        if (zone < positions.length - 1) {
+        if (zone === positions.length - 1 && doors?.right) {
+          moreChipRef.current.textContent = `${doors.right.archetypeLabel} →`;
+          moreChipRef.current.classList.add('bd-door-chip');
+          moreChipRef.current.style.visibility = 'visible';
+        } else if (zone < positions.length - 1) {
           moreChipRef.current.textContent = stepChipText('more', dimName, configRef.current.coffees[zone + 1].positionLabel);
+          moreChipRef.current.classList.remove('bd-door-chip');
           moreChipRef.current.style.visibility = 'visible';
         } else {
           moreChipRef.current.style.visibility = 'hidden';
@@ -542,27 +570,49 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
                   is a few lines up. Anchored to the ruler's own edges (Part 17 §B's
                   layout, kept); at an extreme the outward chip is invisible but
                   still occupies its flex slot, so the remaining chip stays
-                  anchored to its own edge instead of the row re-centering. */}
+                  anchored to its own edge instead of the row re-centering.
+                  Part 19 §A — at an extreme, that slot is a DOOR chip instead
+                  (an explicit "leave this dial" choice, never automatic) when
+                  onDoorClick is wired up and config.doors resolved a target for
+                  that edge. The click handlers re-check zoneRef.current (not a
+                  value captured at render time) so they're always correct even
+                  mid-drag or after a keyboard step that hasn't re-rendered yet. */}
               <div className="bd-step-chips">
                 <button
                   type="button"
                   ref={lessChipRef}
-                  className="bd-step-chip bd-step-chip-less"
-                  style={{ visibility: clampZone(initialDialSortOrder - 1) > 0 ? 'visible' : 'hidden' }}
-                  onClick={() => stepRef.current?.(-1)}
+                  className={
+                    clampZone(initialDialSortOrder - 1) === 0 && config.doors?.left
+                      ? 'bd-step-chip bd-step-chip-less bd-door-chip'
+                      : 'bd-step-chip bd-step-chip-less'
+                  }
+                  style={{ visibility: clampZone(initialDialSortOrder - 1) > 0 || config.doors?.left ? 'visible' : 'hidden' }}
+                  onClick={() => {
+                    if (zoneRef.current === 0 && config.doors?.left) onDoorClick?.('left', config.doors.left);
+                    else stepRef.current?.(-1);
+                  }}
                 >
-                  {clampZone(initialDialSortOrder - 1) > 0 &&
-                    stepChipText('less', config.dimensionName, config.coffees[clampZone(initialDialSortOrder - 1) - 1].positionLabel)}
+                  {clampZone(initialDialSortOrder - 1) === 0
+                    ? (config.doors?.left ? `← ${config.doors.left.archetypeLabel}` : '')
+                    : stepChipText('less', config.dimensionName, config.coffees[clampZone(initialDialSortOrder - 1) - 1].positionLabel)}
                 </button>
                 <button
                   type="button"
                   ref={moreChipRef}
-                  className="bd-step-chip bd-step-chip-more"
-                  style={{ visibility: clampZone(initialDialSortOrder - 1) < maxZone ? 'visible' : 'hidden' }}
-                  onClick={() => stepRef.current?.(1)}
+                  className={
+                    clampZone(initialDialSortOrder - 1) === maxZone && config.doors?.right
+                      ? 'bd-step-chip bd-step-chip-more bd-door-chip'
+                      : 'bd-step-chip bd-step-chip-more'
+                  }
+                  style={{ visibility: clampZone(initialDialSortOrder - 1) < maxZone || config.doors?.right ? 'visible' : 'hidden' }}
+                  onClick={() => {
+                    if (zoneRef.current === maxZone && config.doors?.right) onDoorClick?.('right', config.doors.right);
+                    else stepRef.current?.(1);
+                  }}
                 >
-                  {clampZone(initialDialSortOrder - 1) < maxZone &&
-                    stepChipText('more', config.dimensionName, config.coffees[clampZone(initialDialSortOrder - 1) + 1].positionLabel)}
+                  {clampZone(initialDialSortOrder - 1) === maxZone
+                    ? (config.doors?.right ? `${config.doors.right.archetypeLabel} →` : '')
+                    : stepChipText('more', config.dimensionName, config.coffees[clampZone(initialDialSortOrder - 1) + 1].positionLabel)}
                 </button>
               </div>
 
@@ -651,6 +701,15 @@ const CSS = `
 .bd-step-chip-less{text-align:left;}
 .bd-step-chip-more{text-align:right;}
 .bd-step-chip:hover{border-color:var(--bd-ftext);color:var(--bd-ftext);}
+/* Part 19 §A — doors: same pill family as the step chips, but visually
+   distinct as "leave this dial" rather than "step this dial" — filled with
+   the field-text color at low opacity (transitioning to the mid tone on
+   hover) instead of the step chips' transparent background, and bolder text.
+   The leading/trailing arrow is baked into the text itself ("→ {archetype}" /
+   "{archetype} ←" via the door text template), not a separate glyph, so it
+   reads correctly with screen readers and the title/full-text-always rule. */
+.bd-door-chip{background:var(--bd-ftext-weak);border-color:transparent;color:var(--bd-ftext);font-weight:500;}
+.bd-door-chip:hover{background:var(--bd-ftext-mid);}
 .bd-field-inner{display:flex;align-items:center;justify-content:center;gap:clamp(28px,4vw,72px);width:100%;}
 .bd-wheel-col{display:flex;flex-direction:column;align-items:center;flex-shrink:0;}
 /* The identity block has a FIXED width (and the name a fixed height) so the row

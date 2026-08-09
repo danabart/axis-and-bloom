@@ -5,7 +5,7 @@
 // dial always shows four coffees). No names are invented in code beyond these
 // approved placeholders from mockup 32 v8 / brief 33.
 
-import type { ArchetypeData } from '../types';
+import type { ArchetypeData, DoorTarget } from '../types';
 import { ARCHETYPE_VISUALS } from '../bloomVisuals';
 
 export interface DialCoffee {
@@ -48,6 +48,9 @@ export interface DialConfig {
    * audit found zero such gaps across all 6 archetypes, but the type stays
    * honest about it being possible). */
   dimensionName: string | null;
+  /** Part 19 §A — this archetype's two edge-door targets, resolved server-side.
+   * Null only if the API's door map failed to resolve (shouldn't happen). */
+  doors: { left: DoorTarget; right: DoorTarget } | null;
 }
 
 // Title stack line breaks (brief 33 §2).
@@ -115,5 +118,6 @@ export function buildDialConfig(data: ArchetypeData): DialConfig | null {
     scaleMinLabel: data.dimensionScaleMinLabel,
     scaleMaxLabel: data.dimensionScaleMaxLabel,
     dimensionName: data.dimensionPlatformName ?? data.dimensionName,
+    doors: data.doors,
   };
 }

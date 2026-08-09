@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db/client.js';
 import { getCoffeeSummary, getCoffeeSurpriseNote, getCoffeeThreeVoiceStory } from '../services/claude.js';
-import { resolveBlendForSlot, resolveCoffeeBlend } from '../services/blendResolver.js';
+import { resolveBlendForSlot, resolveCoffeeBlend, COLLECTION_DISCOUNT, COLLECTION_MIN_MEMBERS } from '../services/blendResolver.js';
 import { generateCoffeeStoryWithRetry, checkStorySpecificityViolations } from '../services/storyLayer.js';
 import { looksLikeRefusal } from '../services/contentGuard.js';
 import { isClaudeGuardBlocked } from '../services/anthropicGuard.js';
@@ -583,6 +583,105 @@ async function buildSlotsForArchetype(
   return slots;
 }
 
+// Part 19 §C — cheap DISPLAY-only version of blendResolver's computeCollectionOffer:
+// reuses the slots array GET /archetypes and GET /experimental already fetched
+// (isActive + prices per position), no extra queries. This is a preview only —
+// order-time verification (orders.ts) always calls the DB-fresh version in
+// blendResolver.ts instead, which independently re-resolves everything; the two
+// are expected to usually agree but are never assumed to, which is the whole
+// point of §C's server-side enforcement requirement. Same COLLECTION_DISCOUNT/
+// COLLECTION_MIN_MEMBERS constants as the authoritative version — imported, not
+// redeclared, so there is exactly one number a discount-rate change would ever
+// need to touch.
+function computeCollectionOfferFromSlots(slots: Array<{ dialSortOrder: number; isActive: boolean; prices: { weightOz: number; retailPriceCents: number }[] }>) {
+  const members: { dialSortOrder: number; weightOz: number; priceCents: number }[] = [];
+  for (const s of slots) {
+    if (!s.isActive || !s.prices.length) continue;
+    const chosen = s.prices.find(p => p.weightOz === 12) ?? s.prices[0];
+    members.push({ dialSortOrder: s.dialSortOrder, weightOz: chosen.weightOz, priceCents: chosen.retailPriceCents });
+  }
+  if (members.length < COLLECTION_MIN_MEMBERS) return null;
+  const sumCents = members.reduce((sum, m) => sum + m.priceCents, 0);
+  const discountedCents = Math.round(sumCents * (1 - COLLECTION_DISCOUNT));
+  return { memberCount: members.length, sumCents, discountedCents };
+}
+
+// Part 19 §A — canonical archetype order: mirrors the frontend's FIXED nav-strip
+// numbering (ARCHETYPE_VISUALS.num in bloomVisuals.ts — 01 Floral through 06
+// Experimental), not the personalized /archetype-order used for page display
+// order. Used only as the door map's fallback when no same-dimension bridge
+// hop exists in a given direction — a stable ordering every customer sees the
+// same way, unlike the personalized one.
+const CANONICAL_ARCHETYPE_ORDER = ['floral', 'fruity', 'balanced_sweet', 'chocolate_nutty', 'earthy', 'experimental'];
+
+export interface DoorTarget { archetype: string; archetypeLabel: string; rule: 'graph' | 'fallback'; }
+
+// Part 19 §A — the door map, computed once, entirely data-driven (no
+// per-archetype hardcoding). For each archetype's two edges:
+//   Primary rule: the archetype most connected via a bridge_archetype hop that
+//   shares THIS archetype's own dial dimension (dial_archetype_config.
+//   dominant_dimension_id — falling back to experimental's vocabulary-derived
+//   dimension, the same resolution GET /experimental already uses for its
+//   ruler labels, since dominant_dimension_id is null there), in the matching
+//   direction (right edge = 'more', left edge = 'less'). Ties (more than one
+//   target archetype with the same hop count) broken by higher average
+//   confidence.
+//   Fallback (no such edge at all): CANONICAL_ARCHETYPE_ORDER, wrapping.
+async function computeDoorMap(): Promise<Record<string, { left: DoorTarget; right: DoorTarget }>> {
+  const dimResult = await db.query(
+    `SELECT archetype, dominant_dimension_id AS dimension_id FROM dial_archetype_config WHERE archetype <> 'experimental'`
+  );
+  const dimByArchetype = new Map<string, number | null>();
+  for (const row of dimResult.rows) dimByArchetype.set(row.archetype, row.dimension_id);
+  const expDimResult = await db.query(
+    `SELECT dimension_id FROM dial_position_vocabulary WHERE archetype = 'experimental' LIMIT 1`
+  );
+  dimByArchetype.set('experimental', expDimResult.rows[0]?.dimension_id ?? null);
+
+  const bridgeResult = await db.query(
+    `SELECT aa_from.archetype AS from_archetype, aa_to.archetype AS to_archetype, dcr.dimension_id, dcr.direction,
+            COUNT(*) AS cnt,
+            AVG(CASE dcr.confidence WHEN 'low' THEN 1 WHEN 'medium' THEN 2 WHEN 'high' THEN 3 END) AS avg_conf
+     FROM dial_coffee_relationships dcr
+     JOIN archetype_assignments aa_from ON aa_from.coffee_id = dcr.from_coffee_id AND aa_from.superseded_at IS NULL
+     JOIN archetype_assignments aa_to   ON aa_to.coffee_id   = dcr.to_coffee_id   AND aa_to.superseded_at   IS NULL
+     WHERE dcr.hop_type = 'bridge_archetype' AND aa_from.archetype <> aa_to.archetype
+     GROUP BY aa_from.archetype, aa_to.archetype, dcr.dimension_id, dcr.direction`
+  );
+
+  function graphTarget(archetype: string, direction: 'more' | 'less'): { archetype: string; cnt: number; avgConf: number } | null {
+    const dimId = dimByArchetype.get(archetype);
+    if (dimId == null) return null;
+    let best: { archetype: string; cnt: number; avgConf: number } | null = null;
+    for (const row of bridgeResult.rows) {
+      if (row.from_archetype !== archetype || row.direction !== direction || row.dimension_id !== dimId) continue;
+      const cnt = Number(row.cnt), avgConf = Number(row.avg_conf);
+      if (!best || cnt > best.cnt || (cnt === best.cnt && avgConf > best.avgConf)) best = { archetype: row.to_archetype, cnt, avgConf };
+    }
+    return best;
+  }
+
+  function fallbackTarget(archetype: string, direction: 'more' | 'less'): string {
+    const idx = CANONICAL_ARCHETYPE_ORDER.indexOf(archetype);
+    const n = CANONICAL_ARCHETYPE_ORDER.length;
+    const delta = direction === 'more' ? 1 : -1;
+    return CANONICAL_ARCHETYPE_ORDER[(idx + delta + n) % n];
+  }
+
+  const doorMap: Record<string, { left: DoorTarget; right: DoorTarget }> = {};
+  for (const archetype of CANONICAL_ARCHETYPE_ORDER) {
+    const rightGraph = graphTarget(archetype, 'more');
+    const leftGraph = graphTarget(archetype, 'less');
+    const rightArchetype = rightGraph?.archetype ?? fallbackTarget(archetype, 'more');
+    const leftArchetype = leftGraph?.archetype ?? fallbackTarget(archetype, 'less');
+    doorMap[archetype] = {
+      right: { archetype: rightArchetype, archetypeLabel: ARCHETYPE_LABEL[rightArchetype] ?? rightArchetype, rule: rightGraph ? 'graph' : 'fallback' },
+      left:  { archetype: leftArchetype,  archetypeLabel: ARCHETYPE_LABEL[leftArchetype]  ?? leftArchetype,  rule: leftGraph  ? 'graph' : 'fallback' },
+    };
+  }
+  return doorMap;
+}
+
 router.get('/archetypes', async (_req, res) => {
   try {
     const [archetypeResult, vocabResult, priceResult, slotAliasResult] = await Promise.all([
@@ -625,6 +724,10 @@ router.get('/archetypes', async (_req, res) => {
       slotAliasMap.set(`${row.archetype}|${row.dial_sort_order}`, row.platform_name);
     }
 
+    // Part 19 §A — computed once up front, not per archetype (it's a single
+    // cross-archetype graph pass, not a per-archetype query).
+    const doorMap = await computeDoorMap();
+
     const archetypes = [];
     for (const { archetype, dimension_name, dimension_platform_name, scale_min_label, scale_max_label } of archetypeResult.rows) {
       const slotsVocab = vocabResult.rows.filter((v: any) => v.archetype === archetype);
@@ -648,6 +751,14 @@ router.get('/archetypes', async (_req, res) => {
         dimensionScaleMinLabel: scale_min_label ?? null,
         dimensionScaleMaxLabel: scale_max_label ?? null,
         slots,
+        // Part 19 §A — the edge-door targets, pre-resolved so the frontend never
+        // has to know about the hop graph/canonical order itself.
+        doors: doorMap[archetype] ?? null,
+        // Part 19 §C — display-only preview (see computeCollectionOfferFromSlots's
+        // own comment); null when fewer than COLLECTION_MIN_MEMBERS positions are
+        // currently purchasable, which is also how the frontend decides whether to
+        // render the collection CTA at all.
+        collectionOffer: computeCollectionOfferFromSlots(slots),
       });
     }
 
@@ -712,6 +823,10 @@ router.get('/experimental', async (_req, res) => {
       console.warn(`[bloom/archetypes] dial dimension '${dimRow.dimension_name}' for 'experimental' is missing scale_min_label/scale_max_label`);
     }
 
+    // Part 19 §A — same door map GET /archetypes computes; experimental is one
+    // of the 6 CANONICAL_ARCHETYPE_ORDER entries, so it's already resolved here.
+    const doorMap = await computeDoorMap();
+
     res.json({
       archetype: 'experimental',
       archetypeLabel: ARCHETYPE_LABEL['experimental'] ?? 'Experimental',
@@ -720,6 +835,8 @@ router.get('/experimental', async (_req, res) => {
       dimensionScaleMinLabel: dimRow?.scale_min_label ?? null,
       dimensionScaleMaxLabel: dimRow?.scale_max_label ?? null,
       slots,
+      doors: doorMap['experimental'] ?? null,
+      collectionOffer: computeCollectionOfferFromSlots(slots),
     });
   } catch (err) {
     console.error('[coffees/experimental]', err);

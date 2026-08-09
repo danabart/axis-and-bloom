@@ -10,8 +10,9 @@ import { DialArchetypeSection } from './bloom/DialArchetypeSection';
 import { CompareOverlay } from './bloom/CompareOverlay';
 import { useArchetypeAdjacency } from './coffee-info/archetypeAdjacency';
 import { useAdjacentArchetype } from './bloom/useAdjacentArchetype';
+import { resolveLandingSortOrder } from './bloom/doorConfig';
 import type { BloomDialHandle } from './BloomDialWidget';
-import type { ArchetypeData, Slot } from './bloom/types';
+import type { ArchetypeData, DoorTarget, Slot } from './bloom/types';
 import FamilyTab from './FamilyTab';
 import OrderFeedbackForm from './OrderFeedbackForm';
 import TastingJournal from './profile/TastingJournal';
@@ -210,9 +211,24 @@ export default function Profile() {
   // point into the adjacent section again.
   const {
     adjacentArchetypeId, adjacentData, adjacentSortOrder, adjacentRevealedKeys, sectionRef: adjacentSectionRef,
-    handleChipClick: handleAdjacentChipClick, handleDialSelect: handleAdjacentDialSelect,
+    handleChipClick: handleAdjacentChipClick, openAtPosition, handleDialSelect: handleAdjacentDialSelect,
     toggleReveal: toggleAdjacentReveal, registerDialRef: registerAdjacentDialRef,
   } = useAdjacentArchetype(archetypesList, experimentalData);
+
+  // Part 19 §A — doors on a single-archetype surface route through the exact
+  // same open-target-section mechanism as the Worth Exploring CTA above
+  // (Dana's own spec for this case). Primary is fixed (the user's actual
+  // match) and never itself becomes a door's target — a door from EITHER the
+  // primary or the adjacent section's own dial always opens/retargets the one
+  // "adjacent" slot, so both instances below share this one handler.
+  function findArchetypeData(archetype: string): ArchetypeData | null {
+    return archetype === 'experimental' ? experimentalData : archetypesList.find(a => a.archetype === archetype) ?? null;
+  }
+  function handleDoorClick(_fromArchetype: string, edge: 'left' | 'right', target: DoorTarget) {
+    const targetData = findArchetypeData(target.archetype);
+    if (!targetData) return;
+    openAtPosition(target.archetype, resolveLandingSortOrder(edge, targetData));
+  }
 
   function openCompare(archetype: string, archetypeLabel: string, slot: Slot) {
     setCompareState({ open: true, archetype, archetypeLabel, slot });
@@ -471,6 +487,7 @@ export default function Profile() {
                         source="profile"
                         hideProfileLink
                         embedded
+                        onDoorClick={handleDoorClick}
                       />
                     )}
 
@@ -521,6 +538,7 @@ export default function Profile() {
                           source="profile"
                           hideProfileLink
                           embedded
+                          onDoorClick={handleDoorClick}
                         />
                       </div>
                     )}

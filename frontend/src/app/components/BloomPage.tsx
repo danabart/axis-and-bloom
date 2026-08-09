@@ -9,8 +9,9 @@ import { computeDefaultSortOrder } from './bloom/ArchetypeSection';
 import { CompareOverlay } from './bloom/CompareOverlay';
 import { OtherCategoryCard } from './bloom/OtherCategoryCard';
 import { DialArchetypeSection } from './bloom/DialArchetypeSection';
+import { resolveLandingSortOrder } from './bloom/doorConfig';
 import type { BloomDialHandle } from './bloom/dial/BloomDial';
-import type { ArchetypeData, OtherCategoryCoffee, Slot } from './bloom/types';
+import type { ArchetypeData, DoorTarget, OtherCategoryCoffee, Slot } from './bloom/types';
 
 // Bloom Dial Base Data Part 3, Phase 6: Decaf/Half-Caf/Flavored group under
 // "Other Categories" (Part 4 keeps this section on Bloom unchanged). Experimental
@@ -177,6 +178,25 @@ export default function BloomPage() {
     document.getElementById(archetype)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  // Part 19 §A — a door always leads to a DIFFERENT archetype, and every
+  // archetype section is already mounted on this page (same reasoning as
+  // handleStripClick above) — so travel is the identical scroll-then-turn
+  // choreography: scroll first, turn (and update selectedSortOrder) only
+  // once settled, 550ms later, landing on the continuity-rule position
+  // (doorConfig.ts — resolveLandingSortOrder honors DOOR_LANDING).
+  function handleDoorClick(_fromArchetype: string, edge: 'left' | 'right', target: DoorTarget) {
+    const targetData = allData.find(a => a.archetype === target.archetype);
+    if (!targetData) return;
+    const landingSortOrder = resolveLandingSortOrder(edge, targetData);
+    requestAnimationFrame(() => {
+      document.getElementById(target.archetype)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setTimeout(() => {
+        dialRefs.current[target.archetype]?.rotateTo(landingSortOrder);
+        setSelectedSortOrder(prev => ({ ...prev, [target.archetype]: landingSortOrder }));
+      }, 550);
+    });
+  }
+
   function openCompare(archetype: string, archetypeLabel: string, slot: Slot) {
     setCompareState({ open: true, archetype, archetypeLabel, slot });
   }
@@ -242,6 +262,7 @@ export default function BloomPage() {
           userArchetype={userArchetype}
           registerDialRef={registerDialRef}
           source="bloom"
+          onDoorClick={handleDoorClick}
         />
       ))}
 

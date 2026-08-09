@@ -123,6 +123,68 @@ export async function resolveBlendForSlot(
   return null;
 }
 
+// Part 19 §C — "the collection" (whole-archetype bundle, 10% off). ONE constant,
+// defined here and nowhere else, so backend verification and (indirectly, via
+// what the API returns) frontend display can never drift apart — the frontend
+// never computes this percentage itself, it only ever displays the cents value
+// this module already discounted (see coffees.ts's computeCollectionOfferFromSlots
+// and GET /archetypes's `collectionOffer` field).
+export const COLLECTION_DISCOUNT = 0.10;
+// A "set" of fewer than this reads wrong (Dana's own framing) — also the floor
+// below which the collection CTA is hidden entirely.
+export const COLLECTION_MIN_MEMBERS = 3;
+const COLLECTION_WEIGHTS_OZ = [12, 80]; // try 12oz first per member, else 5lb — same fallback order as "the classic" (§B).
+
+export interface CollectionMember {
+  dialSortOrder: number;
+  blendId: string;
+  shopifyVariantId: string | null;
+  weightOz: number;
+  priceCents: number;
+}
+export interface CollectionOffer {
+  members: CollectionMember[];
+  sumCents: number;
+  discountedCents: number;
+}
+
+// Part 19 §C — the SOURCE OF TRUTH for a collection's price: re-derived fresh
+// from live DB state (never trusts anything the client sent), used by
+// orders.ts at order-creation time to verify (never just accept) a client's
+// claimed collection price. Independently resolves each of the archetype's
+// positions — via the exact same resolveBlendForSlot() every other purchase
+// path already trusts — trying 12oz first, falling back to 5lb, exactly like
+// "the classic" CTA's own per-item weight fallback (§B). A position that
+// resolves at neither weight, or has no dial_slot_price row, is simply not a
+// member — never guessed at, never included unpriced.
+export async function computeCollectionOffer(archetype: string): Promise<CollectionOffer | null> {
+  const vocabResult = await db.query(
+    `SELECT sort_order FROM dial_position_vocabulary WHERE archetype = $1 ORDER BY sort_order`,
+    [archetype]
+  );
+
+  const members: CollectionMember[] = [];
+  for (const { sort_order } of vocabResult.rows) {
+    for (const weightOz of COLLECTION_WEIGHTS_OZ) {
+      const resolved = await resolveBlendForSlot(archetype, sort_order, weightOz);
+      if (!resolved) continue;
+      const priceResult = await db.query(
+        `SELECT retail_price_cents FROM dial_slot_price WHERE archetype = $1 AND dial_sort_order = $2 AND weight_oz = $3`,
+        [archetype, sort_order, weightOz]
+      );
+      const priceCents = priceResult.rows[0]?.retail_price_cents;
+      if (priceCents == null) continue;
+      members.push({ dialSortOrder: sort_order, blendId: resolved.blend_id, shopifyVariantId: resolved.shopify_variant_id, weightOz, priceCents });
+      break; // 12oz resolved+priced — don't also try 5lb for this position.
+    }
+  }
+
+  if (members.length < COLLECTION_MIN_MEMBERS) return null;
+  const sumCents = members.reduce((sum, m) => sum + m.priceCents, 0);
+  const discountedCents = Math.round(sumCents * (1 - COLLECTION_DISCOUNT));
+  return { members, sumCents, discountedCents };
+}
+
 export interface ResolvedCoffeeBlend {
   blend_id: string;
   roaster_sku: string | null;

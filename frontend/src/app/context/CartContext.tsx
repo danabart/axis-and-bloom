@@ -56,6 +56,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   // Same cart line? A dial item matches on (archetype, dialSortOrder, weightOz);
   // a direct (Bloom Dial Base Data Part 3, Phase 6) item matches on (coffeeId, weightOz).
+  // A collection (Part 19 §C) matches on archetype alone — one collection line
+  // per archetype, qty adjusts the whole set, never splits into individual coffees.
   function isSameLine(a: CartItem, b: CartItem): boolean {
     if (a.kind !== b.kind) return false;
     if (a.kind === 'dial' && b.kind === 'dial') {
@@ -63,6 +65,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
     }
     if (a.kind === 'direct' && b.kind === 'direct') {
       return a.coffeeId === b.coffeeId && a.weightOz === b.weightOz;
+    }
+    if (a.kind === 'collection' && b.kind === 'collection') {
+      return a.archetype === b.archetype;
     }
     return false;
   }
@@ -94,20 +99,37 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setCheckoutMessage(null);
     try {
       const result = await placeOrder({
-        items: cart.map(item => item.kind === 'dial'
-          ? {
+        // Part 19 §C — collection items send { collection: true, archetype,
+        // quantity, priceCents } and NOTHING about which coffees are in the
+        // set — the backend independently re-resolves the current members and
+        // re-verifies priceCents against its own fresh computation, never
+        // trusting what the cart happened to be showing (server-side
+        // enforcement is mandatory per spec; see orders.ts).
+        items: cart.map(item => {
+          if (item.kind === 'dial') {
+            return {
               archetype: item.archetype,
               dialSortOrder: item.dialSortOrder,
               weightOz: item.weightOz,
               quantity: item.qty,
               priceCents: item.retailPriceCents,
-            }
-          : {
-              coffeeId: item.coffeeId,
-              weightOz: item.weightOz,
+            };
+          }
+          if (item.kind === 'collection') {
+            return {
+              collection: true as const,
+              archetype: item.archetype,
               quantity: item.qty,
               priceCents: item.retailPriceCents,
-            }),
+            };
+          }
+          return {
+            coffeeId: item.coffeeId,
+            weightOz: item.weightOz,
+            quantity: item.qty,
+            priceCents: item.retailPriceCents,
+          };
+        }),
         shippingAddress: {
           firstName: customerName?.first || 'Customer',
           lastName: customerName?.last || '',

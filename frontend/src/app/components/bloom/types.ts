@@ -27,6 +27,26 @@ export interface ArchetypeData {
   dimensionScaleMinLabel: string | null;
   dimensionScaleMaxLabel: string | null;
   slots: Slot[];
+  /** Part 19 §A — the edge-door targets, resolved server-side (never hardcoded
+   * per archetype here) — see computeDoorMap in coffees.ts. Null only if the
+   * door map somehow failed to resolve; the fallback rule always produces
+   * something in practice. */
+  doors: { left: DoorTarget; right: DoorTarget } | null;
+  /** Part 19 §C — backend-computed preview of "the collection" (see
+   * computeCollectionOfferFromSlots in coffees.ts); null when fewer than 3
+   * positions are currently purchasable — also the collection CTA's hide
+   * condition. The frontend never computes the discount itself, only displays
+   * this. */
+  collectionOffer: { memberCount: number; sumCents: number; discountedCents: number } | null;
+}
+
+/** Part 19 §A — one edge door's resolved target. `rule` says which rule
+ * produced it: 'graph' (a same-dimension bridge hop) or 'fallback' (the
+ * site's canonical archetype order). */
+export interface DoorTarget {
+  archetype: string;
+  archetypeLabel: string;
+  rule: 'graph' | 'fallback';
 }
 
 export interface HopTarget {
@@ -69,7 +89,26 @@ export interface DirectCartItem {
   qty: number;
 }
 
-export type CartItem = DialCartItem | DirectCartItem;
+/** Part 19 §C — "the collection": all purchasable positions of one archetype,
+ * one cart line, one price, added/removed/qty-adjusted as a whole (never as
+ * individual coffees — that's exactly the "discount leak" the spec calls out).
+ * `retailPriceCents` is the DISCOUNTED total (so FloatingCart's existing
+ * `retailPriceCents * qty` subtotal math needs no special-casing);
+ * `undiscountedPriceCents` is carried only for the optional strikethrough
+ * display. The backend independently re-resolves the actual member coffees
+ * and re-verifies this price at order time — nothing about *which* coffees
+ * are in the set is ever sent from here. */
+export interface CollectionCartItem {
+  kind: 'collection';
+  archetype: string;
+  archetypeLabel: string;
+  memberCount: number;
+  retailPriceCents: number;
+  undiscountedPriceCents: number;
+  qty: number;
+}
+
+export type CartItem = DialCartItem | DirectCartItem | CollectionCartItem;
 
 export interface OtherCategoryPrice {
   weightOz: number;

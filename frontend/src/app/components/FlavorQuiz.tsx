@@ -12,10 +12,11 @@ import { computeDefaultSortOrder } from './bloom/ArchetypeSection';
 import { DialArchetypeSection } from './bloom/DialArchetypeSection';
 import { CompareOverlay } from './bloom/CompareOverlay';
 import { useAdjacentArchetype } from './bloom/useAdjacentArchetype';
+import { resolveLandingSortOrder } from './bloom/doorConfig';
 import { useArchetypeAdjacency } from './coffee-info/archetypeAdjacency';
 import WorthExploring from './profile/WorthExploring';
 import type { BloomDialHandle } from './BloomDialWidget';
-import type { ArchetypeData, Slot } from './bloom/types';
+import type { ArchetypeData, DoorTarget, Slot } from './bloom/types';
 
 const RUST = '#a33726';
 
@@ -598,6 +599,24 @@ export default function FlavorQuiz() {
   const resultsAdjacent = useAdjacentArchetype(archetypesList, experimentalData);
   const adjacency = useArchetypeAdjacency();
 
+  // Part 19 §A — doors route through the same open-target-section mechanism
+  // as Worth Exploring, same as Profile.tsx. Shared lookup (archetypesList/
+  // experimentalData are shared across both screens); one handler per screen
+  // since each has its own adjacent-section hook instance.
+  function findArchetypeData(archetype: string): ArchetypeData | null {
+    return archetype === 'experimental' ? experimentalData : archetypesList.find(a => a.archetype === archetype) ?? null;
+  }
+  function handleMatchedDoorClick(_fromArchetype: string, edge: 'left' | 'right', target: DoorTarget) {
+    const targetData = findArchetypeData(target.archetype);
+    if (!targetData) return;
+    matchedAdjacent.openAtPosition(target.archetype, resolveLandingSortOrder(edge, targetData));
+  }
+  function handleResultsDoorClick(_fromArchetype: string, edge: 'left' | 'right', target: DoorTarget) {
+    const targetData = findArchetypeData(target.archetype);
+    if (!targetData) return;
+    resultsAdjacent.openAtPosition(target.archetype, resolveLandingSortOrder(edge, targetData));
+  }
+
   const { user } = useAuth();
   const { addToCart } = useCart();
   const navigate = useNavigate();
@@ -1166,6 +1185,7 @@ export default function FlavorQuiz() {
             registerDialRef={registerMatchedDialRef}
             source="find_my_flavor_returning"
             embedded
+            onDoorClick={handleMatchedDoorClick}
           />
         )}
 
@@ -1198,6 +1218,7 @@ export default function FlavorQuiz() {
               registerDialRef={matchedAdjacent.registerDialRef}
               source="find_my_flavor_returning"
               embedded
+              onDoorClick={handleMatchedDoorClick}
             />
           </div>
         )}
@@ -1628,6 +1649,7 @@ export default function FlavorQuiz() {
                   registerDialRef={registerResultsDialRef}
                   source="find_my_flavor_results"
                   embedded
+                  onDoorClick={handleResultsDoorClick}
                 />
               )}
 
@@ -1659,6 +1681,7 @@ export default function FlavorQuiz() {
                     registerDialRef={resultsAdjacent.registerDialRef}
                     source="find_my_flavor_results"
                     embedded
+                    onDoorClick={handleResultsDoorClick}
                   />
                 </div>
               )}

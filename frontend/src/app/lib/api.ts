@@ -49,6 +49,10 @@ export async function placeOrder(order: {
     | { archetype: string; dialSortOrder: number; weightOz: number; quantity: number; priceCents?: number }
     // Direct category coffee, no dial position — Bloom Dial Base Data Part 3, Phase 6.
     | { coffeeId: number; weightOz: number; quantity: number; priceCents?: number }
+    // "The collection" (Part 19 §C) — a whole archetype's purchasable positions,
+    // one bundle price. No member/weight details sent — the backend
+    // independently re-resolves and re-verifies everything at order time.
+    | { collection: true; archetype: string; quantity: number; priceCents?: number }
   >;
   shippingAddress: object;
 }) {
