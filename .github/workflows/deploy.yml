@@ -30,6 +30,26 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
+      # C11 — npm-audit CI gate. Gates on high/critical in the PRODUCTION
+      # dependency tree only (--omit=dev): dev-only tooling (vitest's own
+      # vite/esbuild/postcss/nanoid chain) never reaches the deployed
+      # container, so auditing it here would fail the build on noise no
+      # code change here can fix. Runs before the Docker build/push/deploy
+      # steps below, so a real high/critical hit blocks the whole job
+      # before anything touches production.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Backend dependency audit
+        working-directory: backend
+        run: |
+          npm ci
+          npm audit --omit=dev --audit-level=high
+
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
 
@@ -82,11 +102,21 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install & build frontend
+      # C11 — npm-audit CI gate, same --omit=dev/--audit-level=high
+      # rationale as the backend job. A separate step (not folded into the
+      # build step below) so a failure here reads clearly as "dependency
+      # audit failed," not "build failed."
+      - name: Install & audit frontend dependencies
+        working-directory: frontend
+        run: |
+          npm ci
+          npm audit --omit=dev --audit-level=high
+
+      - name: Build frontend
         working-directory: frontend
         env:
           VITE_API_URL: ${{ steps.backend.outputs.url }}
@@ -103,9 +133,7 @@ jobs:
           VITE_PRELAUNCH_MODE: 'true'
           VITE_GA4_ID: 'G-GYC50VYRYN'
           VITE_META_PIXEL_ID: '945138695260153'
-        run: |
-          npm ci
-          npm run build
+        run: npm run build
 
       - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
