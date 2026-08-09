@@ -1,6 +1,8 @@
 # Run order — the execution checklist
 *Tick these top to bottom. "Console" = you, in a dashboard. "Cloudflare" = `CLOUDFLARE_SETUP.md`. "C#" = the prompt in `CLAUDE_CODE_PROMPTS.md` (run in Claude Code, one at a time: branch → diff → tsc/build/test → verify → commit).*
 
+**⚠ One open pending decision needs a console check before launch — see "Pending decisions" below, after Phase 3.**
+
 ## Phase 0 — today, no code (caps the worst case)
 - [ ] **Console — STILL TODO, most important AI-bill cap:** set an **Anthropic monthly spend cap** on Liam's API key (Anthropic console, not GCP — I can't reach it from the GCP/Cloudflare session). This is the real hard cap on the Liam/AI bill.
 - [x] **Console — DONE 2026-08-05:** GCP billing budget "Axis & Bloom monthly budget" on `axis-and-bloom-prod` — **$100/mo**, email alerts to billing admins at **50% / 90% / 100% / 1,000%** ($50/$90/$100/$1,000). Alerts only (GCP budgets email; they do NOT stop services).
@@ -32,6 +34,14 @@
 - [ ] **C16** — throttle anonymous-identity abuse on guest-write endpoints. *(depends on C6's App Check — backend half now enforced)*
 - [ ] **C8** — rate-limit account creation + password reset.
 - [ ] **C7** — email-verified gate on Liam. **DECISION** — only if you accept the small extra step for real users; skip otherwise.
+
+## Pending decisions (read before launch)
+
+- [ ] **PENDING DECISION — Auth App Check enforcement (Door 2).** Backend App Check enforcement is **LIVE** (Door 1 — protects the API/Liam; `C6-enforce Stage 1` above). Firebase Auth App Check is **intentionally left in MONITORING only.**
+  **Before launch:** read the Firebase console → **App Check → APIs → Authentication** card.
+  - If the unverified rate is **near-zero** → flip the Auth enforcement toggle **ON**.
+  - If it stays **meaningfully above zero** — expected, due to the known returning-visitor persisted-session-refresh race at `getAuth()` init that can't be closed without deferring all Firebase Auth behind App Check (a large refactor, see `WHAT_WE_BUILT_SECURITY.md` entry 10's "known residual gap") — **leave Auth in monitoring permanently. That is an acceptable final state, not a stalled task.**
+  **Implication of never enforcing:** mass account creation via the direct Firebase Auth API remains possible → junk-account / Firestore bloat + analytics noise. It does **NOT** enable AI-cost abuse or cross-user harm — backend enforcement (Door 1, already live) blocks that regardless of what Auth's own toggle is set to. Further mitigated by Cloudflare Bot Fight Mode (already live, `CLOUDFLARE_SETUP.md`) + planned signup rate-limiting (**C8**, still `OPEN` above).
 
 ## Phase 4 — hygiene & hardening
 - [ ] **C11** — dependency upgrades (firebase-admin 12→14, react-router, vite, express) + npm-audit CI gate. *(isolate — majors can break the build)*
