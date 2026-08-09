@@ -1,10 +1,10 @@
 # Session history — Security patches (2026-08-07 to 2026-08-08/09)
 
-Summary of a multi-turn Claude Code session that ran the security-hardening backlog end to end (C17, C1–C4, plus two same-day operational follow-ups), for continuity in future sessions. Full per-fix detail lives in `WHAT_WE_BUILT_SECURITY.md` (numbered entries, one per fix) — this doc is the narrative: what was asked, what actually happened in what order, and the hiccups along the way that the entry-per-fix changelog doesn't capture well.
+Summary of a multi-turn Claude Code session that ran the security-hardening backlog end to end (C17, C1–C4, plus two same-day operational follow-ups), for continuity in future sessions. Full per-fix detail lives in `WHAT_WE_BUILT_SECURITY.md` (repo root, numbered entries, one per fix) — this doc is the narrative: what was asked, what actually happened in what order, and the hiccups along the way that the entry-per-fix changelog doesn't capture well.
 
 ## What was asked
 
-A sequence of security-patch tasks against the findings register in `backend/src/features/cyber_security/SECURITY_FINDINGS.md`, run one at a time, each following the same shape: branch/diff → `tsc --noEmit`/build → verify (live, not assumed) → update `SECURITY_FINDINGS.md`/`RUN_ORDER.md`/`WHAT_WE_BUILT_SECURITY.md` → commit → push (autonomous push/deploy authorized for this session up front, given the tasks' own deploy→observe→fix structure — a one-time exception to the repo's normal "wait for explicit go-ahead" rule):
+A sequence of security-patch tasks against the findings register in `SECURITY_FINDINGS.md` (this folder), run one at a time, each following the same shape: branch/diff → `tsc --noEmit`/build → verify (live, not assumed) → update `SECURITY_FINDINGS.md`/`RUN_ORDER.md`/`WHAT_WE_BUILT_SECURITY.md` → commit → push (autonomous push/deploy authorized for this session up front, given the tasks' own deploy→observe→fix structure — a one-time exception to the repo's normal "wait for explicit go-ahead" rule):
 
 1. **C17** — fix per-IP rate limiting behind Cloudflare (finding M11).
 2. **C1** — remove the unauthenticated `/health/db`/`/health/session-cols` schema-leak routes (M1).
@@ -16,7 +16,7 @@ A sequence of security-patch tasks against the findings register in `backend/src
 
 ## Starting state
 
-Git and GCP access confirmed at session start (repo on `main`, up to date; `gcloud` authenticated against `axis-and-bloom-prod`). `backend/src/features/cyber_security/` (the findings register, numbered `C#` fix prompts, Cloudflare runbook, phased run-order checklist) already existed **locally but had never been committed** — the whole security program existed only in the working tree until this session committed it (`c0bf5d0`). No root-level `WHAT_WE_BUILT_SECURITY.md` existed yet; created this session as the security-specific counterpart to `WHAT_WE_BUILT.md`/`WHAT_WE_BUILT_DB.md`/`SOMMELIER_BUILT.md`.
+Git and GCP access confirmed at session start (repo on `main`, up to date; `gcloud` authenticated against `axis-and-bloom-prod`). This whole folder (`backend/src/features/cyber_security/` — the findings register, numbered `C#` fix prompts, Cloudflare runbook, phased run-order checklist) already existed **locally but had never been committed** — the entire security program existed only in the working tree until this session committed it (`c0bf5d0`). No root-level `WHAT_WE_BUILT_SECURITY.md` existed yet; created this session as the security-specific counterpart to `WHAT_WE_BUILT.md`/`WHAT_WE_BUILT_DB.md`/`SOMMELIER_BUILT.md`.
 
 ## What was built
 
@@ -58,10 +58,10 @@ Every fix was verified live against production, not assumed:
 
 ## Documentation updated
 
-- **`WHAT_WE_BUILT_SECURITY.md`** (new this session) — 6 numbered entries, one per fix (C17/C1/C2/C3/C4/global-limiter+deploy.yml), each with context, the fix, verification, and a "not done in this pass" section. Also fixed a stray duplicate `Files:` line left over from an earlier edit.
-- **`backend/src/features/cyber_security/SECURITY_FINDINGS.md`** — M11, M1, H1, M4, M2, H3 all marked DONE with a summary line; a 2026-08-09 follow-up note added under M11 for the limiter loosening. This whole folder was committed to git for the first time this session (`c0bf5d0`) — it had only ever existed locally before.
-- **`backend/src/features/cyber_security/RUN_ORDER.md`** — C17/C1/C2/C3/C4 checked off; the "restrict Cloud Run ingress" line corrected to "NOT VIABLE" (confirmed live in the GCP console) and re-pointed at C6; flagged the still-outstanding Cloud Scheduler setup for the new `coffee-content-backfill` cron.
-- **`WHAT_WE_BUILT.md`** — entry #146 for the 3-fix data correction, matching #145's own table/format convention.
+- **`WHAT_WE_BUILT_SECURITY.md`** (repo root, new this session) — 6 numbered entries, one per fix (C17/C1/C2/C3/C4/global-limiter+deploy.yml), each with context, the fix, verification, and a "not done in this pass" section. Also fixed a stray duplicate `Files:` line left over from an earlier edit.
+- **`SECURITY_FINDINGS.md`** (this folder) — M11, M1, H1, M4, M2, H3 all marked DONE with a summary line; a 2026-08-09 follow-up note added under M11 for the limiter loosening. This whole folder was committed to git for the first time this session (`c0bf5d0`) — it had only ever existed locally before.
+- **`RUN_ORDER.md`** (this folder) — C17/C1/C2/C3/C4 checked off; the "restrict Cloud Run ingress" line corrected to "NOT VIABLE" (confirmed live in the GCP console) and re-pointed at C6; flagged the still-outstanding Cloud Scheduler setup for the new `coffee-content-backfill` cron.
+- **`WHAT_WE_BUILT.md`** (repo root) — entry #146 for the 3-fix data correction, matching #145's own table/format convention.
 
 ## Commits (chronological, this session's own work)
 
