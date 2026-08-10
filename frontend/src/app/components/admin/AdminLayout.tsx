@@ -39,6 +39,12 @@ const NAV_SECTIONS = [
     ],
   },
   {
+    label: 'AI Operations',
+    items: [
+      { to: '/admin/ai-ops', label: 'Spend & Controls' },
+    ],
+  },
+  {
     label: 'Company Gifts',
     items: [
       { to: '/admin/company-gifts', label: 'Company Gifts' },

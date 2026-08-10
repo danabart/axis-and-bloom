@@ -192,7 +192,7 @@ Write only the briefing, including a tone note for Liam at the end (e.g. "Tone: 
 
   let openingContext = `${archetype ?? 'Unknown archetype'} user — ${matchedIntent} intent.`;
   try {
-    const haikuResp = await guardClaudeCall('claude-haiku-4-5-20251001', () =>
+    const haikuResp = await guardClaudeCall('liam_chat', 'claude-haiku-4-5-20251001', () =>
       client.messages.create({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 100,

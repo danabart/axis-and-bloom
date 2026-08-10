@@ -7,10 +7,11 @@ import { getDialSuggestion, recordCuppingSignal, getAvgCuppingScore, getArchetyp
 import { getMarketingConfig, setMarketingConfigValue } from '../features/marketing/reportingConfig.js';
 import { DEFAULT_SOMMELIER_CONFIG } from '../db/seeds/sommelier_config_seed.js';
 import { checkAggregateAnomaly, getMonthlySpendEstimate } from '../services/sommelierGuards.js';
-import { getSommelierConfig } from '../services/sommelierConfig.js';
+import { getSommelierConfig, AI_FEATURES, type AiFeature, type AiControls } from '../services/sommelierConfig.js';
 import { getBrewProfileCounters } from '../services/brewProfile.js';
 import { checkStorySpecificityViolations } from '../services/storyLayer.js';
 import { getOrMintCanonicalUniversalToken } from '../services/qrDoor.js';
+import { getEffectiveAiControls, envCeilingUsd } from '../services/anthropicGuard.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -2009,6 +2010,170 @@ router.post('/sommelier/config-apply', async (req: AuthRequest, res) => {
   } catch (err) {
     console.error('[admin/sommelier/config-apply POST]', err);
     res.status(500).json({ error: 'Failed to apply config' });
+  }
+});
+
+// ── AI Operations admin page (2026-08-10) ─────────────────────────────────────
+// Both endpoints control Claude/AI spend ONLY — the shared gate in
+// anthropicGuard.ts. Never touch the store, quiz flow, checkout, auth, or any
+// non-AI data path (scope guard, see backend/src/features/ai_admin/
+// ai_ops_admin_page.md).
+
+const AI_OPS_FEATURE_DISPLAY_KEYS = [...AI_FEATURES, 'unattributed'];
+
+function zeroByFeatureCents(): Record<string, number> {
+  return Object.fromEntries(AI_OPS_FEATURE_DISPLAY_KEYS.map((k) => [k, 0]));
+}
+
+// ── GET /api/admin/ai-ops ──────────────────────────────────────────────────
+router.get('/ai-ops', async (_req, res) => {
+  try {
+    const TREND_DAYS = 14;
+    const trendCutoffKey = new Date(Date.now() - (TREND_DAYS - 1) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    const spendResult = await db.query<{ date: Date; feature: string; cents: number }>(
+      `SELECT date, feature, cents FROM claude_daily_spend WHERE date >= $1 ORDER BY date ASC`,
+      [trendCutoffKey]
+    );
+
+    const byDateKey = new Map<string, { date: string; totalCents: number; byFeature: Record<string, number> }>();
+    for (const row of spendResult.rows) {
+      const dateKey = row.date.toISOString().slice(0, 10);
+      if (!byDateKey.has(dateKey)) {
+        byDateKey.set(dateKey, { date: dateKey, totalCents: 0, byFeature: zeroByFeatureCents() });
+      }
+      const entry = byDateKey.get(dateKey)!;
+      entry.totalCents += row.cents;
+      // A feature value outside the known 4 (only possible historical case:
+      // pre-migration rows, always 'unattributed') is bucketed under
+      // 'unattributed' rather than dropped — the spec's own "may show that as
+      // a historical row" instruction.
+      const bucket = AI_FEATURES.includes(row.feature as AiFeature) ? row.feature : 'unattributed';
+      entry.byFeature[bucket] = (entry.byFeature[bucket] ?? 0) + row.cents;
+    }
+
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const today = byDateKey.get(todayKey) ?? { date: todayKey, totalCents: 0, byFeature: zeroByFeatureCents() };
+
+    const trend14d = [];
+    for (let i = TREND_DAYS - 1; i >= 0; i--) {
+      const dateKey = new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      trend14d.push(byDateKey.get(dateKey) ?? { date: dateKey, totalCents: 0, byFeature: zeroByFeatureCents() });
+    }
+
+    // Most recent aiControls audit entries — same collection/pattern as
+    // config-apply's audit trail (config/sommelier/audit/{autoId}), filtered
+    // to this endpoint's own changeType so config-apply's unrelated entries
+    // don't show up here. Fetched unfiltered + sliced in JS rather than a
+    // where()+orderBy() Firestore query, to avoid needing a composite index
+    // for a small, low-volume collection.
+    const auditSnap = await firestoreDb.collection('config/sommelier/audit').orderBy('at', 'desc').limit(30).get();
+    const recentAudit = auditSnap.docs
+      .map((d) => d.data())
+      .filter((d) => d.changeType === 'ai_controls')
+      .slice(0, 10)
+      .map((d) => ({
+        uid: d.uid ?? null,
+        email: d.email ?? null,
+        at: d.at?.toDate?.() ?? null,
+        old: d.old ?? null,
+        new: d.new ?? null,
+      }));
+
+    res.json({
+      today,
+      trend14d,
+      controls: getEffectiveAiControls(),
+      envCeilingUsd: envCeilingUsd(),
+      envKilled: (process.env.CLAUDE_ENABLED ?? 'true') === 'false',
+      recentAudit,
+    });
+  } catch (err) {
+    console.error('[admin/ai-ops GET]', err);
+    res.status(500).json({ error: 'Failed to fetch AI ops data' });
+  }
+});
+
+function validateAiControlsBody(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return 'Body must be a JSON object';
+  const b = body as Record<string, unknown>;
+
+  if (typeof b.enabled !== 'boolean') return '"enabled" must be a boolean';
+  if (typeof b.globalDailyUsd !== 'number' || !Number.isFinite(b.globalDailyUsd) || b.globalDailyUsd < 0) {
+    return '"globalDailyUsd" must be a non-negative number';
+  }
+
+  if (!b.features || typeof b.features !== 'object') return '"features" must be an object';
+  const features = b.features as Record<string, unknown>;
+
+  for (const key of Object.keys(features)) {
+    if (!AI_FEATURES.includes(key as AiFeature)) return `Unknown feature key: "${key}"`;
+  }
+  for (const key of AI_FEATURES) {
+    if (!(key in features)) return `Missing feature key: "${key}"`;
+    const f = features[key] as Record<string, unknown>;
+    if (!f || typeof f !== 'object') return `features.${key} must be an object`;
+    if (typeof f.enabled !== 'boolean') return `features.${key}.enabled must be a boolean`;
+    if (f.dailyUsd !== null && (typeof f.dailyUsd !== 'number' || !Number.isFinite(f.dailyUsd) || f.dailyUsd < 0)) {
+      return `features.${key}.dailyUsd must be null or a non-negative number`;
+    }
+  }
+
+  return null;
+}
+
+// ── PUT /api/admin/ai-ops/controls ─────────────────────────────────────────
+// A full validated write of aiControls (not a per-field patch) — the admin UI
+// always fetches current state via GET first, so it always has the full
+// shape to send back. Server-side min() enforcement mirrors the client's own
+// display cap: the working cap can never exceed CLAUDE_GLOBAL_DAILY_USD, full
+// stop — that's the whole point of the layering model (the portal is a
+// brake, never an accelerator; raising the ceiling itself needs a deploy).
+router.put('/ai-ops/controls', async (req: AuthRequest, res) => {
+  const validationError = validateAiControlsBody(req.body);
+  if (validationError) {
+    res.status(400).json({ error: validationError });
+    return;
+  }
+
+  const body = req.body as { enabled: boolean; globalDailyUsd: number; features: Record<AiFeature, { enabled: boolean; dailyUsd: number | null }> };
+
+  const ceilingUsd = envCeilingUsd();
+  if (body.globalDailyUsd > ceilingUsd) {
+    res.status(400).json({
+      error: `globalDailyUsd ($${body.globalDailyUsd}) cannot exceed the deployed ceiling ($${ceilingUsd}). Raising the ceiling itself requires a CLAUDE_GLOBAL_DAILY_USD change + deploy.`,
+    });
+    return;
+  }
+
+  const newControls: AiControls = {
+    enabled: body.enabled,
+    globalDailyUsd: body.globalDailyUsd,
+    features: body.features,
+  };
+
+  try {
+    const configRef = firestoreDb.doc('config/sommelier');
+    const snap = await configRef.get();
+    const oldControls = (snap.exists ? snap.data()?.aiControls : null) ?? null;
+
+    await configRef.set({ aiControls: newControls, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+
+    // config_audit — config/sommelier/audit/{autoId} (4 segments, even — see
+    // house convention #6), same collection config-apply already writes to.
+    await firestoreDb.collection('config/sommelier/audit').add({
+      uid: req.uid ?? null,
+      email: req.email ?? null,
+      changeType: 'ai_controls',
+      old: oldControls,
+      new: newControls,
+      at: FieldValue.serverTimestamp(),
+    });
+
+    res.json({ ok: true, controls: newControls });
+  } catch (err) {
+    console.error('[admin/ai-ops/controls PUT]', err);
+    res.status(500).json({ error: 'Failed to update AI controls' });
   }
 });
 

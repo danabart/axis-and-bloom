@@ -292,7 +292,7 @@ export async function chatWithSommelier(params: {
     messages.push({ role: 'user', content: 'Begin the conversation.' });
   }
 
-  const response = await guardClaudeCall(modelId, () =>
+  const response = await guardClaudeCall('liam_chat', modelId, () =>
     client.messages.create({
       model: modelId,
       max_tokens: maxTokens,
@@ -403,7 +403,7 @@ export async function getRecommendation(
   // C2 Part 2 — public/anon-reachable surface (POST /api/quiz/results is
   // requireAuth-only, reachable by anonymous guest identities too — see M10).
   // Haiku, unconditionally — never content-driven, never escalated.
-  const response = await guardClaudeCall('claude-haiku-4-5-20251001', () =>
+  const response = await guardClaudeCall('quiz_recommendation', 'claude-haiku-4-5-20251001', () =>
     client.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 300,
@@ -441,7 +441,7 @@ Be warm and specific. Name actual flavors and textures. No marketing language. U
 
   // C2 Part 2 — public, unauthenticated surface (GET /api/coffees/:id/content
   // and /:id/ai-summary — see M2). Haiku, unconditionally.
-  const response = await guardClaudeCall('claude-haiku-4-5-20251001', () =>
+  const response = await guardClaudeCall('coffee_content', 'claude-haiku-4-5-20251001', () =>
     client.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 200,
@@ -477,7 +477,7 @@ Top flavor descriptors: ${topDescriptors.length ? topDescriptors.join(', ') : 'n
 Be direct and editorial. Do not start with the coffee name. Do not use marketing language. Under 50 words. If the data above is genuinely insufficient to write this honestly, respond with exactly: INSUFFICIENT_DATA`;
 
   // C2 Part 2 — public, unauthenticated surface (see M2). Haiku, unconditionally.
-  const surpriseResponse = await guardClaudeCall('claude-haiku-4-5-20251001', () =>
+  const surpriseResponse = await guardClaudeCall('coffee_content', 'claude-haiku-4-5-20251001', () =>
     client.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 150,
@@ -512,7 +512,7 @@ ${lines}
 Write this as editorial storytelling — not a list. Name the agreement and divergence naturally. Example style: "Our team kept coming back to blueberry and black tea. The roaster's bag notes said stone fruit and floral — closer than it sounds. Customers have been landing on citrus." Under 80 words. If the data above is genuinely insufficient to write this honestly, respond with exactly: INSUFFICIENT_DATA`;
 
   // C2 Part 2 — public, unauthenticated surface (see M2). Haiku, unconditionally.
-  const storyResponse = await guardClaudeCall('claude-haiku-4-5-20251001', () =>
+  const storyResponse = await guardClaudeCall('coffee_content', 'claude-haiku-4-5-20251001', () =>
     client.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 200,

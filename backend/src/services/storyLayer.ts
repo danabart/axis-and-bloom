@@ -83,7 +83,7 @@ Rules:
 - Warm, specific, editorial voice. No marketing language.
 - 120–200 words.${correction}`;
 
-  const response = await guardClaudeCall('claude-haiku-4-5-20251001', () =>
+  const response = await guardClaudeCall('coffee_content', 'claude-haiku-4-5-20251001', () =>
     client.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 400,
@@ -157,7 +157,7 @@ async function generateOneWarmSentence(
     const correction = correctionNote
       ? `\n\nYour previous attempt was rejected for this reason: ${correctionNote}. Do not repeat this.`
       : '';
-    const response = await guardClaudeCall('claude-haiku-4-5-20251001', () =>
+    const response = await guardClaudeCall('lifecycle', 'claude-haiku-4-5-20251001', () =>
       client.messages.create({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 100,

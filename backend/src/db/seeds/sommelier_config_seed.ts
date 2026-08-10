@@ -30,13 +30,27 @@ export const DEFAULT_SOMMELIER_CONFIG = {
     },
 
     modelRouting: {
-      sonnetKeywords: [
-        'compare', 'difference', 'explain', 'why', 'confused',
-        'not sure', "don't understand", 'what do you mean',
-        'help me understand', 'which is better', 'how does',
-      ],
-      sonnetMinMessageWords: 100,
       expertiseModelOverride: null,
+    },
+
+    // AI Operations admin page (2026-08-10) — the admin-editable half of the
+    // Claude spend gate (backend/src/services/anthropicGuard.ts). Never
+    // applied automatically once config/sommelier already exists (same
+    // seed-vs-live rule as the rest of this file) — the live doc is
+    // canonical; a fresh environment gets these defaults. globalDailyUsd
+    // here is the *working* cap; it can never exceed the env-pinned
+    // CLAUDE_GLOBAL_DAILY_USD ceiling (enforced server-side on write, see
+    // PUT /api/admin/ai-ops/controls) — the admin portal is only ever a
+    // brake, never an accelerator.
+    aiControls: {
+      enabled: true,
+      globalDailyUsd: 20,
+      features: {
+        liam_chat:           { enabled: true, dailyUsd: null },
+        quiz_recommendation: { enabled: true, dailyUsd: null },
+        coffee_content:      { enabled: true, dailyUsd: null },
+        lifecycle:           { enabled: true, dailyUsd: null },
+      },
     },
 
     ragLimits: {

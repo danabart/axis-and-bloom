@@ -15,6 +15,27 @@ export interface TopicConfig {
   mode: 'expertise' | 'matching';
 }
 
+// AI Operations admin page — the 4 feature groups an admin reasons about (one
+// toggle per surface), not the 9 raw Claude call sites. A union type so an
+// unmapped guardClaudeCall() site is a compile error, not a silent gap.
+export type AiFeature = 'liam_chat' | 'quiz_recommendation' | 'coffee_content' | 'lifecycle';
+
+export const AI_FEATURES: AiFeature[] = ['liam_chat', 'quiz_recommendation', 'coffee_content', 'lifecycle'];
+
+export interface AiFeatureControls {
+  enabled: boolean;
+  /** null = no per-feature cap (the global cap still applies). */
+  dailyUsd: number | null;
+}
+
+export interface AiControls {
+  enabled: boolean;
+  /** The admin-portal working cap — never allowed above CLAUDE_GLOBAL_DAILY_USD
+   *  (the env ceiling); see anthropicGuard.ts's effective-cap min(). */
+  globalDailyUsd: number;
+  features: Record<AiFeature, AiFeatureControls>;
+}
+
 // HOME_TASK_4 (§4.5) — the brew-profile field whitelist. `enum`/`array` values
 // are checked against `allowedValues`; `bool` accepts 'true'/'false' strings
 // (marker values arrive as text); `array_freeform` (aversions) accepts any
@@ -52,8 +73,6 @@ export interface SommelierConfig {
     gatingEnabled: boolean;
   };
   modelRouting: {
-    sonnetKeywords: string[];
-    sonnetMinMessageWords: number;
     // HOME_TASK_2 — Fable/other blind-A/B override for expertise-mode turns.
     // null = use the Sonnet default (§4.7's "Sonnet default where a topic is detected").
     expertiseModelOverride?: string | null;
@@ -199,6 +218,15 @@ export interface SommelierConfig {
   qr?: {
     activeBagWindowDays: number;
   };
+  // AI Operations admin page (2026-08-10) — the admin-editable half of the
+  // Claude spend gate. Lives in this same doc/subscription rather than a
+  // separate read path: anthropicGuard.ts's getEffectiveAiControls() reads it
+  // off getSommelierConfig(), which is always the in-memory last-known-good
+  // value from the onSnapshot listener below — a Firestore blip never blocks
+  // a call, it just serves the last value this instance actually received
+  // (or, before the first snapshot ever lands, the hardcoded defaults in
+  // anthropicGuard.ts). See anthropicGuard.ts for the full fail-open story.
+  aiControls?: AiControls;
   updatedAt?: unknown;
 }
 

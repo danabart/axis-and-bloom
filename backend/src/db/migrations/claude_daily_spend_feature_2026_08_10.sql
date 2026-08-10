@@ -1,0 +1,58 @@
+-- claude_daily_spend feature attribution — 2026-08-10 (AI Operations admin page)
+--
+-- STATUS: Step 1 applied to production (axis-and-bloom-prod) on 2026-08-10,
+-- via the Cloud SQL Auth Proxy, well ahead of the code deploy — see below for
+-- why that ordering is safe for Step 1 but not for Step 2. Step 2 is left
+-- commented out deliberately, same convention as
+-- beat_event_respond_token_2026_08_09.sql's Step 3 — run it immediately
+-- before/with the code deploy that ships the new guardClaudeCall() signature
+-- (backend/src/services/anthropicGuard.ts), not before.
+--
+-- guardClaudeCall(model, makeCall) tracked spend in one row per UTC date,
+-- PRIMARY KEY (date). The AI Operations admin page needs spend broken out
+-- per feature group (liam_chat / quiz_recommendation / coffee_content /
+-- lifecycle) so admins can see and cap each independently — the new
+-- guardClaudeCall(feature, model, makeCall) upserts on (date, feature)
+-- instead of (date) alone.
+--
+-- ── STEP 1 — safe to run any time, well before the deploy ──────────────────
+-- Purely additive: a new nullable-by-default column with a literal default
+-- ('unattributed', not per-row entropy like the beat_event token case, so no
+-- separate Node backfill script is needed — every existing row gets the
+-- default automatically). The currently-deployed old code
+-- (`INSERT ... ON CONFLICT (date) DO UPDATE`) doesn't reference this column
+-- at all and is completely unaffected by its presence.
+
+ALTER TABLE claude_daily_spend ADD COLUMN IF NOT EXISTS feature TEXT NOT NULL DEFAULT 'unattributed';
+
+-- ── STEP 2 — run ONLY immediately before/with the code deploy, NOT before ──
+-- This is the step that actually changes behavior for whichever code is
+-- live at the moment it runs. The OLD code's `ON CONFLICT (date) DO UPDATE`
+-- requires a unique constraint on exactly (date) — dropping that PK breaks
+-- it the instant this runs (Postgres error 42P10, "no unique or exclusion
+-- constraint matching the ON CONFLICT specification"). That failure is
+-- soft, not an outage: recordSpendCents() in the pre-deploy anthropicGuard.ts
+-- is called inside a try/catch that only logs on failure — "the call already
+-- succeeded and Anthropic already billed it; a failure to record must not
+-- fail an otherwise-good response" (see the file's own comment). So a
+-- window here would only mean today's spend under-counts until the new code
+-- deploys, not a broken Liam/quiz/coffee-content path. Still: keep the
+-- window as close to zero as possible by running this right before/with the
+-- deploy that ships the new (date, feature) guard, exactly like
+-- beat_event_respond_token_2026_08_09.sql's Step 3 ordering discipline.
+--
+-- Safe to apply once run: every row present after Step 1 already carries a
+-- real (possibly 'unattributed') feature value and was already unique on
+-- date alone, so it is trivially still unique on (date, feature) — no
+-- backfill or dedup needed before this runs.
+
+-- ALTER TABLE claude_daily_spend DROP CONSTRAINT claude_daily_spend_pkey;
+-- ALTER TABLE claude_daily_spend ADD PRIMARY KEY (date, feature);
+-- (left commented out deliberately — uncomment and run only immediately before/with the code deploy)
+
+-- ── Verify (run after Step 2) ───────────────────────────────────────────────
+-- SELECT
+--   COUNT(*) AS total_rows,
+--   COUNT(DISTINCT (date, feature)) AS distinct_date_feature_pairs
+-- FROM claude_daily_spend;
+-- Expect: total_rows = distinct_date_feature_pairs (the composite PK now enforces this anyway).

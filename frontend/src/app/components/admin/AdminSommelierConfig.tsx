@@ -12,7 +12,6 @@ interface SommelierConfig {
   confidenceThresholds: { medium: number; high: number };
   sessionLimits: { maxTurns: number };
   tokenEconomy: { signupBonus: number; orderBonus: number; costPerTurn: number; purchaseEnabled: boolean };
-  modelRouting: { sonnetKeywords: string[]; sonnetMinMessageWords: number };
   ragLimits: { maxCoffees: number };
   timeWindows: Record<string, number>;
   evaluatorRulePriority: string[];
@@ -39,7 +38,6 @@ export default function AdminSommelierConfig() {
   const [recomputeMsg, setRecomputeMsg] = useState('');
   const [toast, setToast] = useState('');
   const [error, setError] = useState('');
-  const [newKeyword, setNewKeyword] = useState('');
   const [drift, setDrift] = useState<ConfigDiff[] | null>(null);
   const [driftLoading, setDriftLoading] = useState(true);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
@@ -162,7 +160,6 @@ export default function AdminSommelierConfig() {
           confidenceThresholds: config.confidenceThresholds,
           sessionLimits: config.sessionLimits,
           tokenEconomy: config.tokenEconomy,
-          modelRouting: config.modelRouting,
           ragLimits: config.ragLimits,
           timeWindows: config.timeWindows,
           evaluatorRulePriority: config.evaluatorRulePriority,
@@ -407,70 +404,6 @@ export default function AdminSommelierConfig() {
               <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${config.tokenEconomy.purchaseEnabled ? 'left-4' : 'left-0.5'}`} />
             </button>
           </div>
-        </div>
-      </section>
-
-      {/* ── Section 4: Model Routing ── */}
-      <section className="mb-8">
-        <h2 className="text-sm font-normal tracking-widest uppercase text-stone-400 mb-4">Model Routing</h2>
-        <div className="border border-stone-200 rounded-lg p-4 space-y-4">
-          <div>
-            <p className="text-xs text-stone-400 mb-2">Sonnet keywords — messages containing any of these trigger Sonnet</p>
-            <div className="flex flex-wrap gap-2 mb-2">
-              {config.modelRouting.sonnetKeywords.map((kw) => (
-                <span key={kw} className="flex items-center gap-1 bg-stone-100 text-stone-700 text-xs px-2 py-1 rounded">
-                  {kw}
-                  <button
-                    onClick={() =>
-                      updateConfig(['modelRouting', 'sonnetKeywords'], config.modelRouting.sonnetKeywords.filter((k) => k !== kw))
-                    }
-                    className="text-stone-400 hover:text-stone-700 leading-none"
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                className="flex-1 border border-stone-200 rounded px-3 py-1.5 text-sm"
-                placeholder="Add keyword…"
-                value={newKeyword}
-                onChange={(e) => setNewKeyword(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && newKeyword.trim()) {
-                    updateConfig(['modelRouting', 'sonnetKeywords'], [...config.modelRouting.sonnetKeywords, newKeyword.trim()]);
-                    setNewKeyword('');
-                  }
-                }}
-              />
-              <button
-                onClick={() => {
-                  if (newKeyword.trim()) {
-                    updateConfig(['modelRouting', 'sonnetKeywords'], [...config.modelRouting.sonnetKeywords, newKeyword.trim()]);
-                    setNewKeyword('');
-                  }
-                }}
-                className="px-3 py-1.5 border border-stone-200 rounded text-sm text-stone-600 hover:bg-stone-50"
-              >
-                Add
-              </button>
-            </div>
-          </div>
-          <label className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm text-stone-700">Sonnet min message words</p>
-              <p className="text-xs text-stone-400">Messages longer than this word count trigger Sonnet</p>
-            </div>
-            <input
-              type="number"
-              min="1"
-              className="w-24 border border-stone-200 rounded px-3 py-1.5 text-sm text-right"
-              value={config.modelRouting.sonnetMinMessageWords}
-              onChange={(e) => updateConfig(['modelRouting', 'sonnetMinMessageWords'], parseInt(e.target.value) || 1)}
-            />
-          </label>
         </div>
       </section>
 

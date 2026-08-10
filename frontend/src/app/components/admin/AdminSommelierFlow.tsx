@@ -7,7 +7,6 @@ interface SommelierConfig {
   confidenceThresholds: { medium: number; high: number };
   sessionLimits: { maxTurns: number };
   tokenEconomy: { signupBonus: number; orderBonus: number; costPerTurn: number };
-  modelRouting: { sonnetKeywords: string[]; sonnetMinMessageWords: number };
   evaluatorRulePriority: string[];
   intents: Record<string, { active: boolean; label: string; ragFocus: string }>;
   confidenceComponents: Record<string, { label: string }>;
@@ -248,14 +247,10 @@ export default function AdminSommelierFlow() {
           <p className={LABEL}>Liam — Coffee Sommelier</p>
           <div className={`${CARD} border-2`} style={{ borderColor: RUST }}>
             <p className="text-sm font-normal text-stone-800 mb-2">Axis & Bloom Coffee Sommelier</p>
-            <div className="grid grid-cols-3 gap-4 text-xs text-stone-500">
+            <div className="grid grid-cols-2 gap-4 text-xs text-stone-500">
               <div>
                 <span className="text-stone-400 block">Default model</span>
-                claude-haiku
-              </div>
-              <div>
-                <span className="text-stone-400 block">Sonnet trigger</span>
-                keywords match OR message &gt;{showValues ? ` ${config.modelRouting.sonnetMinMessageWords}` : ' N'} words
+                claude-sonnet (every turn — see AI Operations for spend/caps)
               </div>
               <div>
                 <span className="text-stone-400 block">Max turns</span>

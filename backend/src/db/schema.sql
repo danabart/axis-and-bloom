@@ -3145,11 +3145,27 @@ ALTER TABLE qr_scan_event ADD COLUMN IF NOT EXISTS token_type qr_token_type_enum
 -- default 20) is the ceiling checked against this table before each call;
 -- CLAUDE_ENABLED (env, default true) is a separate manual kill-switch that
 -- never even reads this table.
+--
+-- AI Operations admin page (2026-08-10) -- gained per-feature attribution
+-- (PK date -> (date, feature)) so the admin page can show/cap spend per
+-- feature group, not just the aggregate. Fresh environments get the new
+-- shape directly below; an already-deployed table needs the composite PK
+-- swap applied as an ordered manual migration first -- see
+-- backend/src/db/migrations/claude_daily_spend_feature_2026_08_10.sql --
+-- the PK change is deliberately NOT in this automatic startup batch (it
+-- must land in lockstep with the code deploy, not before, or the
+-- currently-deployed old code's `ON CONFLICT (date)` stops matching any
+-- unique constraint). The idempotent ADD COLUMN below is safe standalone --
+-- it's what lets a fresh environment's CREATE TABLE and an old deployed
+-- table's ALTER converge on the same shape without either ever failing.
 CREATE TABLE IF NOT EXISTS claude_daily_spend (
-  date       DATE PRIMARY KEY,
+  date       DATE NOT NULL,
+  feature    TEXT NOT NULL DEFAULT 'unattributed',
   cents      INT NOT NULL DEFAULT 0,
-  updated_at TIMESTAMPTZ DEFAULT timezone('utc', now())
+  updated_at TIMESTAMPTZ DEFAULT timezone('utc', now()),
+  PRIMARY KEY (date, feature)
 );
+ALTER TABLE claude_daily_spend ADD COLUMN IF NOT EXISTS feature TEXT NOT NULL DEFAULT 'unattributed';
 ALTER TABLE qr_scan_event ADD COLUMN IF NOT EXISTS source TEXT;
 
 -- C3 -- terminal generation-failure flags (2026-08-08). Distinguishes "never

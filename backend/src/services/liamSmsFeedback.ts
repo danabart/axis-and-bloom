@@ -186,7 +186,7 @@ export async function parseInboundReply(
   let parsedExpectation: 'lighter' | 'as_expected' | 'bolder' | null = null;
 
   try {
-    const response = await guardClaudeCall('claude-haiku-4-5-20251001', () => anthropic.messages.create({
+    const response = await guardClaudeCall('lifecycle', 'claude-haiku-4-5-20251001', () => anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 200,
       messages: [
