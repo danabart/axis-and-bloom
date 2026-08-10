@@ -23,10 +23,22 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      # C14 — keyless CI via Workload Identity Federation. Replaces the
+      # long-lived exported GCP_SA_KEY (H6) with short-lived tokens minted
+      # from this job's own GitHub OIDC identity. The provider itself is
+      # locked to this exact repo (attribute-condition
+      # `assertion.repository == 'danabart/axis-and-bloom'`, set at pool-
+      # provider creation time) and the SA grant below is additionally
+      # scoped to a principalSet for that same repository attribute —
+      # belt-and-suspenders, no other repo can impersonate this SA either
+      # way. GCP_SA_KEY is deliberately NOT removed from GitHub secrets or
+      # deleted in GCP yet — kept as a fallback until this deploy is proven
+      # (see WHAT_WE_BUILT_SECURITY.md / RUN_ORDER.md C14).
       - id: auth
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          workload_identity_provider: 'projects/892123729036/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
+          service_account: 'github-actions-deploy@axis-and-bloom-prod.iam.gserviceaccount.com'
 
       - uses: google-github-actions/setup-gcloud@v2
 
@@ -78,17 +90,21 @@ jobs:
     permissions:
       contents: read
       id-token: write
-      pull-requests: write
 
     steps:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      # C14 — same WIF identity as the backend job (deploy-frontend never
+      # opens/comments on PRs — this workflow only triggers on push to
+      # main — so the L7 `pull-requests: write` scope above was dead
+      # weight, trimmed).
       - id: auth
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          workload_identity_provider: 'projects/892123729036/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
+          service_account: 'github-actions-deploy@axis-and-bloom-prod.iam.gserviceaccount.com'
 
       - name: Get backend URL
         id: backend
@@ -135,10 +151,16 @@ jobs:
           VITE_META_PIXEL_ID: '945138695260153'
         run: npm run build
 
+      # C14 — FirebaseExtended/action-hosting-deploy@v0 only accepts a
+      # `firebaseServiceAccount` key-file input, no WIF/ADC option, so it
+      # can't keep working keyless. Deploys instead via the Firebase CLI
+      # directly, run in this same job after the `auth` step above:
+      # google-github-actions/auth@v2 sets GOOGLE_APPLICATION_CREDENTIALS
+      # to a short-lived WIF-derived credential file for the rest of the
+      # job, and firebase-tools reads that as Application Default
+      # Credentials automatically — no separate `firebase login` needed.
+      # Repo root (default working directory) so `firebase.json` resolves
+      # the same way the old action did; `deploy --only hosting` targets
+      # the live channel by default, matching the old `channelId: live`.
       - name: Deploy to Firebase Hosting
-        uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.GCP_SA_KEY }}
-          projectId: axis-and-bloom-prod
-          channelId: live
+        run: npx firebase-tools@latest deploy --only hosting --project axis-and-bloom-prod --non-interactive
