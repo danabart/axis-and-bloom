@@ -385,7 +385,19 @@ export default function Profile() {
 
   return (
     <div className="w-full min-h-screen bg-[#f2f1ea]">
-      <div className="max-w-[1400px] mx-auto px-8 md:px-16 pt-32 pb-24">
+      {/* Part 22 — one centered content column (~760px), replacing the old
+          1400px-wide shell. Outer padding lives on this full-width wrapper
+          (mockup's .canvas), the column itself (mockup's .col) carries no
+          horizontal padding of its own — so a breakout child of the column
+          can widen past 760px without fighting an inner padding box, and the
+          margin-left:50%/translateX(-50%) breakout trick still centers on
+          the viewport (any number of symmetric mx-auto/padding nestings
+          above it preserve that center — see BloomDial.tsx's own note on
+          this). Every tab (not just Flavor Memory) now renders inside this
+          same column — width change only, per the prompt's own instruction
+          not to redesign their internals. */}
+      <div className="px-6 md:px-10 pt-32 pb-24">
+        <div className="max-w-[760px] mx-auto">
 
         <div className="mb-16">
           <h3 className="text-[10px] uppercase tracking-[0.3em] text-[#a33726]/60 mb-4 font-normal">
@@ -410,21 +422,37 @@ export default function Profile() {
 
             {/* ── Flavor Memory ── */}
             {activeTab === 'memory' && (
-              <motion.div key="memory" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.4 }} className="flex flex-col gap-12 max-w-[1400px]">
+              <motion.div key="memory" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.4 }} className="flex flex-col w-full">
                 {showEmptyState && (
-                  <div className="flex flex-col items-start gap-6 py-8 max-w-2xl">
+                  <div className="flex flex-col items-start gap-6 py-8">
                     <Heart size={32} className="text-[#a33726]/30" strokeWidth={1} />
                     <p className="text-lg text-[#a33726]/70 tracking-wide leading-relaxed">You haven't discovered your flavor archetype yet. Take the quiz to unlock exact matches tailored to your palate.</p>
                     <Link to="/find-my-flavor" className="mt-4 flex items-center gap-3 text-[11px] uppercase tracking-[0.2em] text-[#a33726] border-b border-[#a33726]/30 pb-1 hover:border-[#a33726] hover:text-[#ee5974] transition-colors">Start the Quiz <ArrowRight size={14} /></Link>
                   </div>
                 )}
 
+                {/* Part 22 — the whole tab is now one ~760px column, hairline-
+                    separated (#deded1, ~34px rhythm) rather than a flex gap:
+                    quotes/nudge → archetype block (folded, breakout unfold) →
+                    hr → worth exploring (+ its adjacent-archetype expansion)
+                    → hr → the one two-up row (flavor activity / tasting
+                    journal) → hr → brew cards → hr → what Liam knows → hr →
+                    Liam entry + fallback retake link. Order 1-6 below matches
+                    PROMPT_one_column_pages.md §3 exactly; brew cards / the
+                    pending-feedback nudge / the adjacent-archetype expansion
+                    / the Liam entry link aren't named in that numbered list
+                    (it predates none of them, they're just real content the
+                    prompt's own §5 "nothing removed" requires keeping) — each
+                    slotted into the same hairline rhythm at the most logical
+                    point: the feedback nudge stays beside the quotes it's
+                    contextually paired with, the adjacent section stays right
+                    under the chip that opens it, and brew cards/Liam-entry
+                    round out the tail exactly where the mockup's own "what
+                    Liam knows" slot sits. */}
                 {showFullLayout && (
-                  <div className="flex flex-col gap-2">
-                    {/* Compact intro block — feature list only, no duplicate "Your Archetype:
-                        {name}" heading (ArchetypeSection already renders the archetype name
-                        as its own large heading right below). */}
-                    <div className="max-w-2xl">
+                  <div className="flex flex-col">
+                    {/* 1 — YOUR ARCHETYPE quotes + nudge (existing left-border-accent list). */}
+                    <div>
                       <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/40 mb-6">Your archetype</p>
                       <ul className="flex flex-col gap-5">
                         {(homepageState?.archetype?.features ?? []).map((f: string, i: number) => (
@@ -445,7 +473,7 @@ export default function Profile() {
                         now expands the pending order's form inline in the tasting journal below
                         (the journal supersedes the Past-Orders-tab detour Part 1 used). */}
                     {homepageState?.pendingFeedback && !feedbackNudgeDismissed && (
-                      <div className="max-w-2xl mt-6 p-5 border border-[#a33726]/15 bg-white/40 flex items-center justify-between gap-4 flex-wrap">
+                      <div className="mt-6 p-5 border border-[#a33726]/15 bg-white/40 flex items-center justify-between gap-4 flex-wrap">
                         <p className="text-sm text-[#a33726]">How was {homepageState.pendingFeedback.blendName ?? 'your last coffee'}?</p>
                         <div className="flex items-center gap-4">
                           <button
@@ -468,52 +496,58 @@ export default function Profile() {
                       </div>
                     )}
 
-                    {/* Full-width ArchetypeSection — same dial/position-card/reveal/cart/compare
-                        flow already proven on /bloom and Find My Flavor's returning-user + results
-                        screens. Pops in once matchedData resolves; the intro block above stays
-                        visible in the meantime rather than the tab appearing to jump. */}
+                    {/* 2 — archetype block: name + NO. baseline row (rendered by
+                        DialArchetypeSection itself in breakout mode) + the folded
+                        card/band at column width, breaking out past the column on
+                        unfold. Same dial/position-card/reveal/cart/compare flow
+                        already proven on /bloom and Find My Flavor. */}
                     {matchedData && (
-                      <DialArchetypeSection
-                        data={matchedData}
-                        index={0}
-                        selectedSortOrder={dialSortOrder ?? computeDefaultSortOrder(matchedData)}
-                        revealedKeys={revealedKeys}
-                        onDialSelect={handleDialSelect}
-                        onToggleReveal={toggleReveal}
-                        onAddToCart={addToCart}
-                        onCompare={openCompare}
-                        userArchetype={matchArchetypeId}
-                        registerDialRef={registerDialRef}
-                        source="profile"
-                        hideProfileLink
-                        embedded
-                        onDoorClick={handleDoorClick}
-                        folded
-                      />
-                    )}
-
-                    {/* Horizon layer (Part 3 §1) — directly under ArchetypeSection. Part 6:
-                        chips now expand the adjacent archetype in place (below) rather
-                        than navigating away. */}
-                    {matchArchetypeId && archetypesList.length > 0 && (
-                      <div className="max-w-2xl mt-2">
-                        <WorthExploring
-                          matchArchetypeId={matchArchetypeId}
-                          adjacency={adjacency}
-                          archetypesList={archetypesList}
-                          activeArchetype={adjacentArchetypeId}
-                          onSelect={handleAdjacentChipClick}
+                      <div className="mt-9">
+                        <DialArchetypeSection
+                          data={matchedData}
+                          index={0}
+                          selectedSortOrder={dialSortOrder ?? computeDefaultSortOrder(matchedData)}
+                          revealedKeys={revealedKeys}
+                          onDialSelect={handleDialSelect}
+                          onToggleReveal={toggleReveal}
+                          onAddToCart={addToCart}
+                          onCompare={openCompare}
+                          userArchetype={matchArchetypeId}
+                          registerDialRef={registerDialRef}
+                          source="profile"
+                          hideProfileLink
+                          embedded
+                          onDoorClick={handleDoorClick}
+                          folded
+                          unfoldMode="breakout"
                         />
                       </div>
                     )}
 
+                    <hr className="border-0 border-t border-[#deded1] my-[34px]" />
+
+                    {/* 3 — Worth exploring, one row. Part 6: chips expand the adjacent
+                        archetype in place (below) rather than navigating away. */}
+                    {matchArchetypeId && archetypesList.length > 0 && (
+                      <WorthExploring
+                        matchArchetypeId={matchArchetypeId}
+                        adjacency={adjacency}
+                        archetypesList={archetypesList}
+                        activeArchetype={adjacentArchetypeId}
+                        onSelect={handleAdjacentChipClick}
+                      />
+                    )}
+
                     {/* Adjacent archetype — expanded in place (Part 6, issue C). Its own
                         independent dial/reveal state instance, never the primary section's
-                        above. The Flavor Intelligence deep link is demoted to an escape
-                        hatch here, for users who choose to leave rather than explore in place. */}
+                        above; stays unfolded (inline unfoldMode, unchanged) — opening it at
+                        all is already an explicit choice, so folding it too would be a
+                        redundant extra click (same rule Part 21 already applied). The Flavor
+                        Intelligence deep link is demoted to an escape hatch here, for users
+                        who choose to leave rather than explore in place. */}
                     {adjacentData && (
-                      <div className="flex flex-col gap-3" ref={adjacentSectionRef}>
-                        <div className="flex justify-end max-w-2xl">
+                      <div className="flex flex-col gap-3 mt-6" ref={adjacentSectionRef}>
+                        <div className="flex justify-end">
                           <Link
                             to={
                               adjacentData.slots.length
@@ -544,42 +578,48 @@ export default function Profile() {
                       </div>
                     )}
 
-                    {/* Memory layer (Part 3 §2/§3) — journal ~60% / journey ~40% on desktop,
-                        stacked (journal first) on mobile. Nothing renders here for NEW_NO_QUIZ
-                        (showFullLayout is already false for that stage). */}
+                    <hr className="border-0 border-t border-[#deded1] my-[34px]" />
+
+                    {/* 4 — the only two-up row: flavor activity (left) / tasting journal
+                        (right), 50/50, stacking under ~720px. Both components already
+                        render their own micro-label header + content internally.
+                        Nothing renders here for NEW_NO_QUIZ (showFullLayout is already
+                        false for that stage). */}
                     {flavorMemory && (
-                      <div className="grid grid-cols-1 lg:grid-cols-5 gap-12 mt-6">
-                        <div className="lg:col-span-3">
-                          <TastingJournal
-                            entries={flavorMemory.journal}
-                            contributionCount={flavorMemory.contributionCount}
-                            expandedOrderId={expandedJournalOrderId}
-                            onExpandOrder={setExpandedJournalOrderId}
-                            onFeedbackSubmitted={loadFlavorMemory}
-                          />
-                        </div>
-                        <div className="lg:col-span-2">
-                          <ActivityTimeline entries={flavorMemory.activity} retakeCopy={retakeCopy} onRemoved={loadFlavorMemory} />
-                        </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-11">
+                        <ActivityTimeline entries={flavorMemory.activity} retakeCopy={retakeCopy} onRemoved={loadFlavorMemory} />
+                        <TastingJournal
+                          entries={flavorMemory.journal}
+                          contributionCount={flavorMemory.contributionCount}
+                          expandedOrderId={expandedJournalOrderId}
+                          onExpandOrder={setExpandedJournalOrderId}
+                          onFeedbackSubmitted={loadFlavorMemory}
+                        />
                       </div>
                     )}
 
                     {/* HOME_TASK_6 (§3.2) — brew cards, read-only v1. Renders nothing
-                        (returns null) until flavorMemory has loaded and at least one card exists. */}
+                        (returns null) until flavorMemory has loaded and at least one card
+                        exists — same pre-existing empty-hairline quirk as before this pass
+                        (the hairline shows even when BrewCards itself renders nothing). */}
                     {flavorMemory && (
-                      <div className="border-t border-[#a33726]/10 pt-8 mt-6">
+                      <>
+                        <hr className="border-0 border-t border-[#deded1] my-[34px]" />
                         <BrewCards cards={flavorMemory.brewCards} />
-                      </div>
+                      </>
                     )}
 
-                    {/* HOME_TASK_4 (§4.5 write rule 2) — the brew-profile mirror, day one. */}
-                    <div className="border-t border-[#a33726]/10 pt-8 mt-6">
-                      <BrewProfileMirror />
-                    </div>
+                    <hr className="border-0 border-t border-[#deded1] my-[34px]" />
 
-                    <div className="max-w-2xl flex flex-col gap-6 mt-4">
+                    {/* 5 — HOME_TASK_4 (§4.5 write rule 2): "what Liam knows about your
+                        setup," full column width. */}
+                    <BrewProfileMirror />
+
+                    <hr className="border-0 border-t border-[#deded1] my-[34px]" />
+
+                    <div className="flex flex-col gap-6">
                       {/* Liam entry point — generic across stages, no stage-aware copy (decided). */}
-                      <div className="border-t border-[#a33726]/10 pt-8">
+                      <div>
                         <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/40 mb-3">Coffee Sommelier</p>
                         <Link
                           to="/sommelier?entry=user_initiated"
@@ -898,6 +938,7 @@ export default function Profile() {
             )}
 
           </AnimatePresence>
+        </div>
         </div>
       </div>
     </div>

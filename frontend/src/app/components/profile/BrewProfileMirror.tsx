@@ -124,7 +124,10 @@ export default function BrewProfileMirror() {
   }
 
   return (
-    <div className="flex flex-col gap-4 max-w-2xl">
+    // Part 22 — full column width (was max-w-2xl), per PROMPT_one_column_pages.md
+    // §3 item 6: "full column width." Only consumer is Profile.tsx's ~760px
+    // column, so widening here can't affect anything else.
+    <div className="flex flex-col gap-4 w-full">
       <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/40">What Liam knows about your setup</p>
 
       {capturedFields.length === 0 && (

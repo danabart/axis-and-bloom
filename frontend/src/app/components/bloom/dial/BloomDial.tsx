@@ -82,6 +82,25 @@ interface Props {
    * every consumer just interpolates data into one sentence; null/undefined
    * omits it (embedded contexts, or an archetype with no dial dimension). */
   whyLine?: string | null;
+  /** Part 22 — how a folded surface's unfold widens. `'inline'` (default) is
+   * Part 21's original behavior unchanged: the field grows sideways/beneath
+   * WITHIN whatever width this instance already has (quiz results, and any
+   * future folded surface that doesn't opt in) — every rule below is gated
+   * on `unfoldMode==='breakout'` specifically, so leaving this unset is
+   * provably a no-op. `'breakout'` (Profile + Find My Flavor returning, both
+   * now living in a ~760px centered column) makes the FOLDED block sit at
+   * the column's full width, then breaks past the column edges on unfold —
+   * `min(1060px, viewport-110px)`, centered on the viewport via the classic
+   * `margin-left:50%; transform:translateX(-50%)` trick (works regardless of
+   * the column's own width, only requires the column itself be centered,
+   * which the one-column page layout already is) — see the `.bd-breakout`
+   * CSS block below, ported 1:1 from personal-pages-redesign.html's
+   * `.blockwrap`. In breakout mode the embedded identity duplicate
+   * (bd-namelock / bd-coffee-head-text) is suppressed — the page itself
+   * renders one small archname+NO. header above the block (mockup's
+   * `.archhead`), via DialArchetypeSection — so the two never disagree or
+   * double up. */
+  unfoldMode?: 'inline' | 'breakout';
 }
 
 const TRAVEL = 120;
@@ -161,6 +180,7 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
   {
     config, initialDialSortOrder = 2, onZoneChange, onPreOrder, bottomContent, belowStage, embedded = false, onDoorClick,
     kicker = null, folded = false, dialOpen = false, fieldOverlay, ceremony = null, whyLine = null, matchMode = false,
+    unfoldMode = 'inline',
   },
   ref,
 ) {
@@ -556,6 +576,10 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
 
   // Terracotta field text (Balanced & Sweet mustard) vs beige (deep fields) —
   // ruler ticks/labels take matching palette tints.
+  // Part 22 — breakout is only ever meaningful on a folded surface; a plain
+  // boolean computed once so the JSX below (className + the identity-
+  // suppression checks) don't repeat the two-prop check.
+  const isBreakout = folded && unfoldMode === 'breakout';
   const darkFieldText = config.ftext === '#9a2918';
   const rootVars = {
     '--bd-field': config.color,
@@ -575,7 +599,18 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
     <section
       ref={rootRef}
       id={config.archetype}
-      className={embedded ? 'bd-section bd-embedded' : 'bd-section'}
+      // Part 22 — bd-breakout/bd-dial-open live on the SECTION (not just
+      // bd-stage) specifically so belowStage (the RevealedPanel, a sibling of
+      // bd-stage inside this section) widens along with the block on unfold
+      // too, per the prompt's "opens below the block at the block's current
+      // width" — bd-stage and belowStage are both plain 100%-width children,
+      // so growing the section grows both for free, no separate rule needed.
+      className={[
+        'bd-section',
+        embedded && 'bd-embedded',
+        isBreakout && 'bd-breakout',
+        isBreakout && dialOpen && 'bd-dial-open',
+      ].filter(Boolean).join(' ')}
       style={rootVars}
     >
       <div className={folded ? `bd-stage bd-folded${dialOpen ? ' bd-dial-open' : ''}` : 'bd-stage'}>
@@ -591,28 +626,37 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
               on every folded surface (they never show YOUR/TO EXPLORE, only
               the band/card speak there), so this whole block still only ever
               matters for /bloom. */}
-          <div className="bd-namelock">
-            {embedded ? (
-              <>
-                <div className="bd-your">YOUR</div>
-                <div ref={nlinesRef}>
-                  {config.nameLines.map((l, i) => <div key={i} className="bd-nline">{l}</div>)}
-                </div>
-                <div className="bd-bdial">BLOOM&nbsp;DIAL</div>
-                <div className="bd-vno">NO. {config.no}</div>
-              </>
-            ) : (
-              <>
-                <div className="bd-idrow">
-                  {kicker && <span className="bd-idrow-your">{kicker}</span>}
-                  <span className="bd-idrow-no">NO. {config.no}</span>
-                </div>
-                <div ref={nlinesRef}>
-                  {config.nameLines.map((l, i) => <div key={i} className="bd-nline">{l}</div>)}
-                </div>
-              </>
-            )}
-          </div>
+          {/* Part 22 — breakout mode replaces this whole identity lockup with
+              a single small archname+NO. row rendered by DialArchetypeSection
+              ABOVE this section entirely (mockup's `.archhead`, outside the
+              breakout block so it never moves on unfold) — rendering both
+              would either disagree (this said "THE {ARCHETYPE} CLASSIC"-style
+              match-mode text nowhere, the external one always says the plain
+              archetype name) or just visibly duplicate the same info twice. */}
+          {!isBreakout && (
+            <div className="bd-namelock">
+              {embedded ? (
+                <>
+                  <div className="bd-your">YOUR</div>
+                  <div ref={nlinesRef}>
+                    {config.nameLines.map((l, i) => <div key={i} className="bd-nline">{l}</div>)}
+                  </div>
+                  <div className="bd-bdial">BLOOM&nbsp;DIAL</div>
+                  <div className="bd-vno">NO. {config.no}</div>
+                </>
+              ) : (
+                <>
+                  <div className="bd-idrow">
+                    {kicker && <span className="bd-idrow-your">{kicker}</span>}
+                    <span className="bd-idrow-no">NO. {config.no}</span>
+                  </div>
+                  <div ref={nlinesRef}>
+                    {config.nameLines.map((l, i) => <div key={i} className="bd-nline">{l}</div>)}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           <div className="bd-reading-bottom">
             {/* Non-embedded (Bloom): the coffee's name/bag/price/teaser now all
                 live inside Zone 2's card (bottomContent, built by
@@ -621,8 +665,15 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
                 compact name lockup, just relabeled ("ON THE DIAL NOW" —
                 Part 20's naming, set in paint() above) to match Zone 2's
                 header wording. */}
+            {/* Part 22 — suppressed in breakout mode: the mockup's match card
+                (bottomContent's own bd-card-headrow) is the ONLY name/status
+                display there, matching personal-pages-redesign.html exactly
+                (no second "ON THE DIAL NOW" line above it). nowRef/nameRef
+                still need a live DOM node somewhere for paint() to write
+                into without a null-check special case — kept mounted but
+                visually hidden rather than branching paint() itself. */}
             {embedded && (
-              <div className="bd-coffee-head-text">
+              <div className="bd-coffee-head-text" style={isBreakout ? { display: 'none' } : undefined}>
                 <div className="bd-now" ref={nowRef}>
                   {matchMode ? `THE ${config.archetypeLabel.toUpperCase()} CLASSIC` : 'ON THE DIAL NOW'}
                 </div>
@@ -1005,4 +1056,72 @@ const CSS = `
   .bd-embedded .bd-dial-wrap{width:260px;height:260px;}
   .bd-section.bd-embedded .bd-stage.bd-folded.bd-dial-open .bd-instrument{padding:36px 16px 96px;}
 }
+/* ─────────────────────────────────────────────────────────────────────────
+   Part 22 — the breakout unfold (PROMPT_one_column_pages.md), used only by
+   Profile's primary archetype box and Find My Flavor returning's primary
+   block, both now living in a ~760px centered column. Ported 1:1 from
+   personal-pages-redesign.html's .blockwrap/.cardside/.fieldside mechanism:
+   closed, the block sits at the column's own full width (not a fixed
+   narrow card, unlike every other folded surface above); opening it breaks
+   the whole SECTION — card, band/field, AND the RevealedPanel below it, all
+   three, since belowStage is bd-stage's own sibling inside this section —
+   past the column's edges to min(1060px, viewport-110px), re-centered on
+   the VIEWPORT via the classic margin-left:50%+translateX(-50%) trick. That
+   trick works regardless of the column's own width; it only requires the
+   column itself be centered in the viewport, which the one-column page
+   layout already is — no column-width constant needs threading in here.
+   Scoped entirely under .bd-breakout (only set when folded && unfoldMode
+   ==='breakout' — see isBreakout above), so quiz results (still .bd-folded
+   but never .bd-breakout) and /bloom (neither class) stay completely
+   unaffected — confirmed by grep, only two call sites pass
+   unfoldMode="breakout". .bd-embedded is included in every selector purely
+   for specificity headroom over the embedded 32/68 unfold ratio two blocks
+   up (both are 4 classes deep and would otherwise depend on source order to
+   win the tie) — in practice breakout is only ever used on embedded
+   surfaces, so this costs nothing. */
+.bd-section.bd-breakout{
+  width:100%;
+  transition:width .85s cubic-bezier(.16,1,.3,1), margin-left .85s cubic-bezier(.16,1,.3,1), transform .85s cubic-bezier(.16,1,.3,1);
+}
+.bd-section.bd-breakout.bd-dial-open{
+  width:min(1060px, calc(100vw - 110px));
+  margin-left:50%;
+  transform:translateX(-50%);
+}
+/* Card/field ratio while broken out — 40/60 per the prompt (distinct from
+   /bloom's 38/62 and embedded's normal-unfold 32/68, both of which still
+   apply untouched to every OTHER folded surface). Closed, the reading
+   column fills the section's own width (the page column, ~760px) instead
+   of the base rule's fixed 480px — "the block owns the column width," not
+   a narrow floating card. The reading column's own padding (34/30/38,
+   sized for that old narrow card) collapses to 0 — the match card's own
+   border/padding frames it now, flush with the column edges, exactly like
+   personal-pages-redesign.html (no wrapper padding around .match/.band
+   there either). */
+.bd-section.bd-embedded.bd-breakout .bd-reading{width:100%;padding:0;}
+.bd-section.bd-embedded.bd-breakout .bd-reading-bottom{padding-top:0;}
+.bd-section.bd-embedded.bd-breakout.bd-dial-open .bd-reading{width:40%;}
+.bd-section.bd-embedded.bd-breakout.bd-dial-open .bd-instrument{width:60%;}
+@media (max-width:1000px){
+  /* Below ~1000px: no breakout — same click slides the field in beneath
+     the card instead (the existing embedded folded phone pattern, just at
+     this mode's own ~1000px threshold rather than the base rule's 940px,
+     per the prompt's own "below ~1000px, no breakout" wording). The
+     section stops growing/recentering; bd-stage stacks the same way the
+     base 940px rule already does for every other folded surface — spelled
+     out again here rather than relying on that block, since the gap
+     between 941px and 1000px is otherwise covered by neither. */
+  .bd-section.bd-breakout.bd-dial-open{width:100%;margin-left:0;transform:none;}
+  .bd-section.bd-breakout .bd-stage{flex-direction:column;}
+  .bd-section.bd-embedded.bd-breakout .bd-reading{width:100%;order:1;}
+  .bd-section.bd-embedded.bd-breakout.bd-dial-open .bd-reading{width:100%;}
+  .bd-section.bd-embedded.bd-breakout .bd-instrument{width:100%;max-height:0;padding:0 20px;order:2;transition:max-height .8s cubic-bezier(.16,1,.3,1), padding .8s cubic-bezier(.16,1,.3,1);}
+  .bd-section.bd-embedded.bd-breakout.bd-dial-open .bd-instrument{max-height:900px;padding:36px 16px 96px;}
+}
+/* The external archname+NO. header DialArchetypeSection renders above this
+   section in breakout mode (mockup's .archhead) — plain, small, never part
+   of the breakout width transition (it stays at column width always). */
+.bd-breakout-archhead{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:16px;}
+.bd-breakout-archname{font-size:34px;font-weight:500;color:#a02c1c;letter-spacing:-0.01em;line-height:1;}
+.bd-breakout-archno{font-size:10.5px;letter-spacing:.2em;color:#b3b0a6;}
 `;

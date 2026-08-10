@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { saveQuizResult, getUserProfile, getDialPosition, setDialPosition, logQuizFunnelEvent, subscribeNewsletter } from '../lib/api';
@@ -1088,152 +1087,153 @@ export default function FlavorQuiz() {
       ? new Date(userProfile.lastQuizDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
       : null;
 
+    // Part 22 §4 — the "More you can do" link row, one quiet uppercase row
+    // (wrapping), replacing the old stranded nav column. Labels match the
+    // prompt's own §4 item 4 list verbatim (previously longer/differently
+    // worded — "Talk to our coffee sommelier" -> "Talk to Liam", etc.); hrefs/
+    // actions unchanged from before this pass.
     const navItems = [
-      { label: 'Retake the quiz',              action: () => { handleRetake(); setUserName(firstName); setHasStarted(true); } },
-      { label: 'Talk to our coffee sommelier', href: '/sommelier?entry=user_initiated' },
-      { label: 'View my profile',              href: '/profile' },
-      { label: 'Explore flavor intelligence',  href: '/flavor-intelligence' },
-      { label: 'Create a household party',     href: '/profile?tab=family' },
+      { label: 'Retake the quiz',      action: () => { handleRetake(); setUserName(firstName); setHasStarted(true); } },
+      { label: 'Talk to Liam',         href: '/sommelier?entry=user_initiated' },
+      { label: 'Your flavor profile',  href: '/profile' },
+      { label: 'Flavor intelligence',  href: '/flavor-intelligence' },
+      { label: 'Create a household party', href: '/profile?tab=family' },
     ];
 
     return (
       <div className="relative w-full min-h-screen bg-[#f2f1ea]">
         <QuizHeader />
-        {/* Header row — profile text + nav, side by side (roughly the old two-column
-            layout). Deliberately does NOT also contain ArchetypeSection: that component's
-            photo/dial/bag/card row needs the full page width to render its collapsed
-            PositionCard header (title + "Reveal the full profile" affordance) without the
-            two colliding — measured this directly: at a 50/50 split (720px) the card
-            column shrank to ~108px; even giving the nav a fixed narrow width and the rest
-            to this column (1100px available) the card's commerce area was still only
-            ~140px of usable content width, and "Reveal the full profile ↓" (a non-wrapping
-            ~121px span) alone consumed nearly all of it, leaving the title just ~4px to
-            wrap into — letter-by-letter, reading as overlapping garbled text. Since
-            PositionCard/ArchetypeSection are out of scope to edit (see the prerequisite
-            doc), the fix is structural: keep the nav beside the profile text (which never
-            needed much width), and let ArchetypeSection render at full width below, same
-            as it does on /bloom. */}
-        <div className="flex flex-col lg:flex-row lg:items-start">
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.7 }}
-            className="w-full lg:w-1/2 px-8 pt-16 pb-8 md:px-12 lg:pl-20 lg:pr-12 max-w-[520px] mx-auto lg:mx-0"
-          >
-            <p className="text-[10px] uppercase tracking-[0.3em] mb-10 text-[#a33726]/30">
-              Your coffee profile
-            </p>
-            <p className="text-[0.85rem] font-light tracking-wide text-[#a33726]/50 mb-2">
-              Your primary profile is
-            </p>
-            <h1
-              className="text-[3rem] lg:text-[3.5rem] leading-[1.05] font-normal tracking-tight mb-5"
-              style={{ color: archetypeColor }}
-            >
-              {existingArchetype?.name ?? '—'}
-            </h1>
-            {existingArchetype?.description && (
-              <p className="text-base font-light leading-relaxed text-[#a33726]/60 mb-10">
-                {existingArchetype.description}
+        {/* Part 22 — one ~760px centered column (PROMPT_one_column_pages.md
+            §4), replacing the old two-column header + three stranded
+            columns below it. Same outer-padding/no-inner-padding split as
+            Profile.tsx's column (see that file's own note on why — the
+            breakout unfold needs the column itself un-padded). */}
+        <div className="px-6 md:px-10 pt-28 pb-20">
+          <div className="max-w-[760px] mx-auto">
+
+            {/* 1 — compact header: micro welcome line, then "Your primary
+                profile is {name}" (left) / "Last quiz · {date}" (right,
+                quiet) on one baseline row. existingArchetype.description is
+                no longer shown here — this header is now a compact welcome,
+                not a mini archetype write-up; the match card just below
+                (its teaser line) is where that kind of copy lives now. */}
+            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="mb-9">
+              <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/30 mb-5">
+                Welcome back, {firstName}
               </p>
+              <div className="flex items-end justify-between gap-6 flex-wrap">
+                <div>
+                  <p className="text-[13px] font-light tracking-wide text-[#a33726]/50 mb-1">Your primary profile is</p>
+                  <h1 className="text-[2.4rem] lg:text-[2.8rem] leading-[1.05] font-normal tracking-tight" style={{ color: archetypeColor }}>
+                    {existingArchetype?.name ?? '—'}
+                  </h1>
+                </div>
+                {lastQuizDate && (
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/30 whitespace-nowrap pb-1">
+                    Last quiz · {lastQuizDate}
+                  </p>
+                )}
+              </div>
+              {/* Part 22 §5 "no content removed" — the archetype description
+                  previously anchored the old two-column header; the compact
+                  header above is deliberately just the baseline row the
+                  prompt asks for, but the copy itself stays, as a quiet line
+                  underneath rather than gone. */}
+              {existingArchetype?.description && (
+                <p className="mt-4 text-[13px] font-light leading-relaxed text-[#a33726]/50 max-w-[560px]">
+                  {existingArchetype.description}
+                </p>
+              )}
+            </motion.div>
+
+            {/* 2 — the folded block, breaking out past the column on unfold. */}
+            {matchedData && (
+              <DialArchetypeSection
+                data={matchedData}
+                index={0}
+                selectedSortOrder={matchedSortOrder ?? computeDefaultSortOrder(matchedData)}
+                revealedKeys={revealedKeys}
+                onDialSelect={handleMatchedDialSelect}
+                onToggleReveal={toggleMatchedReveal}
+                onAddToCart={addToCart}
+                onCompare={openMatchedCompare}
+                userArchetype={matchedArchetypeId}
+                registerDialRef={registerMatchedDialRef}
+                source="find_my_flavor_returning"
+                embedded
+                onDoorClick={handleMatchedDoorClick}
+                folded
+                unfoldMode="breakout"
+                showBreakoutHeader={false}
+                ceremonyTag="YOUR SPOT · FROM YOUR QUIZ"
+              />
             )}
-            {lastQuizDate && (
-              <div className="border-t border-[#a33726]/10 pt-8 flex flex-col gap-1">
-                <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/30">Last quiz taken</p>
-                <p className="text-[0.95rem] font-light text-[#a33726]/60">{lastQuizDate}</p>
+
+            <hr className="border-0 border-t border-[#deded1] my-[34px]" />
+
+            {/* 3 — Worth Exploring + adjacent-archetype section (Part 17 §F),
+                same mechanism as Profile.tsx: cross-archetype hop chips on
+                this screen have somewhere to land instead of doing nothing.
+                Stays unfolded (inline unfoldMode) — opening it is already an
+                explicit choice. */}
+            {matchedArchetypeId && archetypesList.length > 0 && (
+              <WorthExploring
+                matchArchetypeId={matchedArchetypeId}
+                adjacency={adjacency}
+                archetypesList={archetypesList}
+                activeArchetype={matchedAdjacent.adjacentArchetypeId}
+                onSelect={matchedAdjacent.handleChipClick}
+              />
+            )}
+            {matchedAdjacent.adjacentData && (
+              <div ref={matchedAdjacent.sectionRef} className="mt-6">
+                <DialArchetypeSection
+                  data={matchedAdjacent.adjacentData}
+                  index={1}
+                  selectedSortOrder={matchedAdjacent.adjacentSortOrder ?? computeDefaultSortOrder(matchedAdjacent.adjacentData)}
+                  revealedKeys={matchedAdjacent.adjacentRevealedKeys}
+                  onDialSelect={matchedAdjacent.handleDialSelect}
+                  onToggleReveal={matchedAdjacent.toggleReveal}
+                  onAddToCart={addToCart}
+                  onCompare={openMatchedCompare}
+                  userArchetype={matchedArchetypeId}
+                  registerDialRef={matchedAdjacent.registerDialRef}
+                  source="find_my_flavor_returning"
+                  embedded
+                  onDoorClick={handleMatchedDoorClick}
+                />
               </div>
             )}
-          </motion.div>
 
-          {/* Nav — restyled off-photo, dark-on-cream to match the profile text beside it. */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.7, delay: 0.15 }}
-            className="w-full lg:w-1/2 px-8 py-12 md:px-12 lg:pl-12 lg:pr-20"
-          >
-            <p className="text-[10px] uppercase tracking-[0.3em] mb-8 font-normal text-[#a33726]/30">
-              Welcome back, {firstName}
-            </p>
-            <div className="flex flex-col w-full max-w-[360px]">
+            <hr className="border-0 border-t border-[#deded1] my-[34px]" />
+
+            {/* 4 — "More you can do": one quiet uppercase link row, wrapping. */}
+            <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 mb-4">More you can do</p>
+            <div className="flex flex-wrap gap-x-8 gap-y-3">
               {navItems.map(item =>
                 item.href ? (
                   <Link
                     key={item.label}
                     to={item.href}
-                    className="flex items-center justify-between group text-[0.95rem] font-light tracking-wide py-4 border-b border-[#a33726]/10 hover:border-[#a33726]/30 text-[#a33726]/60 hover:text-[#a33726] transition-all duration-300"
+                    className="text-[10px] uppercase tracking-[0.2em] text-[#a33726] opacity-85 hover:opacity-100 transition-opacity"
                   >
-                    <span>{item.label}</span>
-                    <ArrowRight size={14} className="opacity-30 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                    {item.label} →
                   </Link>
                 ) : (
                   <button
                     key={item.label}
+                    type="button"
                     onClick={item.action}
-                    className="flex items-center justify-between group text-[0.95rem] font-light tracking-wide py-4 border-b border-[#a33726]/10 hover:border-[#a33726]/30 text-[#a33726]/60 hover:text-[#a33726] transition-all duration-300 w-full text-left"
+                    className="text-[10px] uppercase tracking-[0.2em] text-[#a33726] opacity-85 hover:opacity-100 transition-opacity"
                   >
-                    <span>{item.label}</span>
-                    <ArrowRight size={14} className="opacity-30 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                    {item.label} →
                   </button>
                 )
               )}
             </div>
-          </motion.div>
+
+          </div>
         </div>
-
-        {matchedData && (
-          <DialArchetypeSection
-            data={matchedData}
-            index={0}
-            selectedSortOrder={matchedSortOrder ?? computeDefaultSortOrder(matchedData)}
-            revealedKeys={revealedKeys}
-            onDialSelect={handleMatchedDialSelect}
-            onToggleReveal={toggleMatchedReveal}
-            onAddToCart={addToCart}
-            onCompare={openMatchedCompare}
-            userArchetype={matchedArchetypeId}
-            registerDialRef={registerMatchedDialRef}
-            source="find_my_flavor_returning"
-            embedded
-            onDoorClick={handleMatchedDoorClick}
-            folded
-            ceremonyTag="YOUR SPOT · FROM YOUR QUIZ"
-          />
-        )}
-
-        {/* Part 17 §F — Worth Exploring + adjacent-archetype section, same
-            mechanism as Profile.tsx: cross-archetype hop chips on this screen
-            now have somewhere to land instead of doing nothing. */}
-        {matchedArchetypeId && archetypesList.length > 0 && (
-          <div className="max-w-2xl mx-auto px-6 mt-2">
-            <WorthExploring
-              matchArchetypeId={matchedArchetypeId}
-              adjacency={adjacency}
-              archetypesList={archetypesList}
-              activeArchetype={matchedAdjacent.adjacentArchetypeId}
-              onSelect={matchedAdjacent.handleChipClick}
-            />
-          </div>
-        )}
-        {matchedAdjacent.adjacentData && (
-          <div ref={matchedAdjacent.sectionRef}>
-            <DialArchetypeSection
-              data={matchedAdjacent.adjacentData}
-              index={1}
-              selectedSortOrder={matchedAdjacent.adjacentSortOrder ?? computeDefaultSortOrder(matchedAdjacent.adjacentData)}
-              revealedKeys={matchedAdjacent.adjacentRevealedKeys}
-              onDialSelect={matchedAdjacent.handleDialSelect}
-              onToggleReveal={matchedAdjacent.toggleReveal}
-              onAddToCart={addToCart}
-              onCompare={openMatchedCompare}
-              userArchetype={matchedArchetypeId}
-              registerDialRef={matchedAdjacent.registerDialRef}
-              source="find_my_flavor_returning"
-              embedded
-              onDoorClick={handleMatchedDoorClick}
-            />
-          </div>
-        )}
 
         <CompareOverlay
           open={compareState.open}

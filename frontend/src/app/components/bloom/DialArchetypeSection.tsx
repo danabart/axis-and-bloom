@@ -32,7 +32,7 @@ function numberWord(n: number): string {
 export function DialArchetypeSection({
   data, selectedSortOrder, revealedKeys, onDialSelect, onToggleReveal, onAddToCart, onCompare,
   userArchetype, registerDialRef, source = null, hideProfileLink = false, embedded = false, onDoorClick,
-  folded = false, ceremonyTag = 'YOUR SPOT',
+  folded = false, ceremonyTag = 'YOUR SPOT', unfoldMode = 'inline', showBreakoutHeader = true,
 }: {
   data: ArchetypeData;
   index: number;
@@ -67,6 +67,21 @@ export function DialArchetypeSection({
    * ("no personal position, nothing to celebrate"). Quiz surfaces pass
    * "YOUR SPOT · FROM YOUR QUIZ"; Profile keeps the default "YOUR SPOT". */
   ceremonyTag?: string;
+  /** Part 22 — passed straight through to BloomDial's own `unfoldMode` (see
+   * that prop's own doc for the full mechanism). `'inline'` (default,
+   * Part 21's original behavior) for every existing folded surface (quiz
+   * results/returning kept theirs unchanged per the prompt's own scope);
+   * `'breakout'` for Profile's primary block and Find My Flavor returning's
+   * primary block, both now living in a one-column page layout. */
+  unfoldMode?: 'inline' | 'breakout';
+  /** Part 22 — only meaningful with unfoldMode="breakout": whether to render
+   * the archname+NO. row above the block (mockup's `.archhead`). Profile's
+   * compact intro has no archetype-name display of its own, so the block
+   * needs to supply one (default true). Find My Flavor returning's own
+   * compact header (§4 item 1) ALREADY shows the archetype name prominently
+   * — a second one right above the block would duplicate it — so that call
+   * site passes `false`. */
+  showBreakoutHeader?: boolean;
 }) {
   const { user } = useAuth();
   const config = buildDialConfig(data);
@@ -426,23 +441,41 @@ export function DialArchetypeSection({
     </div>
   );
 
+  // Part 22 — breakout's external archname+NO. header (mockup's .archhead),
+  // rendered ABOVE the section entirely so it never participates in the
+  // breakout width transition — it stays at column width whether the block
+  // below it is folded or broken out. Only ever shown alongside `folded`
+  // (unfoldMode is meaningless otherwise); BloomDial itself suppresses its
+  // own internal identity lockup in this same mode, so the two never
+  // duplicate or disagree (see BloomDial.tsx's `isBreakout`).
+  const renderBreakoutHeader = folded && unfoldMode === 'breakout' && showBreakoutHeader;
+
   return (
-    <BloomDial
-      ref={h => { dialRef.current = h; registerDialRef(data.archetype, h); }}
-      config={config}
-      initialDialSortOrder={dialInitialSortOrder}
-      onZoneChange={n => onDialSelect(data.archetype, n)}
-      bottomContent={bottomContent}
-      belowStage={belowStage}
-      embedded={embedded}
-      kicker={kicker}
-      folded={folded}
-      matchMode={matchMode}
-      dialOpen={isOpen}
-      fieldOverlay={fieldOverlay}
-      ceremony={ceremony}
-      whyLine={whyLine}
-      onDoorClick={onDoorClick ? (edge, target) => onDoorClick(data.archetype, edge, target) : undefined}
-    />
+    <>
+      {renderBreakoutHeader && (
+        <div className="bd-breakout-archhead">
+          <span className="bd-breakout-archname">{data.archetypeLabel}</span>
+          <span className="bd-breakout-archno">NO. {config.no}</span>
+        </div>
+      )}
+      <BloomDial
+        ref={h => { dialRef.current = h; registerDialRef(data.archetype, h); }}
+        config={config}
+        initialDialSortOrder={dialInitialSortOrder}
+        onZoneChange={n => onDialSelect(data.archetype, n)}
+        bottomContent={bottomContent}
+        belowStage={belowStage}
+        embedded={embedded}
+        kicker={kicker}
+        folded={folded}
+        matchMode={matchMode}
+        dialOpen={isOpen}
+        fieldOverlay={fieldOverlay}
+        ceremony={ceremony}
+        whyLine={whyLine}
+        unfoldMode={unfoldMode}
+        onDoorClick={onDoorClick ? (edge, target) => onDoorClick(data.archetype, edge, target) : undefined}
+      />
+    </>
   );
 }
