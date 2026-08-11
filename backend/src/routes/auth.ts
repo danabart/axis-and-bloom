@@ -4,6 +4,8 @@ import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import admin from '../services/firebase-admin.js';
 import { db } from '../db/client.js';
 import { getSommelierConfig } from '../services/sommelierConfig.js';
+import { saveQuizSession } from '../services/quizSession.js';
+import { refreshLifecycleState } from '../services/userLifecycle.js';
 
 const router = Router();
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -32,6 +34,54 @@ router.post('/sync', requireAuth, async (req: AuthRequest, res) => {
          ON CONFLICT (email_address) DO NOTHING`,
         [profileId, req.email]
       );
+    }
+
+    // Pre-Launch Reveal-in-Inbox — cross-device match claim. Same-browser
+    // guest→real-account conversion already carries a quiz result forward for
+    // free (anonymous-uid linking keeps firebase_uid unchanged, #119); this
+    // closes the cross-device gap, where the match was submitted at the
+    // quiz's email gate on one device/browser and the account gets created on
+    // another. No email/template changes — this only attaches data that
+    // already exists (newsletter_subscriber.archetype) to the new account,
+    // through the same quiz_session persistence /profile and
+    // /homepage-state already read from.
+    //
+    // Idempotent + non-destructive: skips entirely (no subscriber lookup at
+    // all) the moment ANY quiz_session row exists for this account, so this
+    // is safe to run on every /sync call (sign-up, every Google/Apple
+    // sign-in, anonymous-linking), not just the first — an existing result is
+    // never touched, and running twice with no existing result just finds
+    // the same subscriber row again and no-ops the second time too, since by
+    // then the first call already created the session.
+    if (req.email) {
+      try {
+        const existing = await db.query(
+          `SELECT 1 FROM quiz_session WHERE user_id = $1 LIMIT 1`,
+          [profileId]
+        );
+        if (existing.rowCount === 0) {
+          const subscriber = await db.query(
+            `SELECT archetype, experimental, confidence, quiz_session_key
+             FROM newsletter_subscriber
+             WHERE email = LOWER(TRIM($1)) AND archetype IS NOT NULL`,
+            [req.email]
+          );
+          const match = subscriber.rows[0];
+          if (match) {
+            await saveQuizSession(profileId, match.archetype, {
+              archetype: match.archetype,
+              experimental: match.experimental ?? false,
+              foodSignalAlignment: match.confidence ?? 'high',
+              quizSessionKey: match.quiz_session_key ?? null,
+              claimedFrom: 'newsletter_subscriber',
+            });
+            refreshLifecycleState(req.uid!).catch(err => console.error('[auth/sync-match-claim-lifecycle]', err));
+          }
+        }
+      } catch (err) {
+        // A match-claim failure must never break account creation itself.
+        console.error('[auth/sync-match-claim]', err);
+      }
     }
 
     // Token initialization — award signup bonus to new users only (idempotent).

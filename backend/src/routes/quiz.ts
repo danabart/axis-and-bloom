@@ -11,6 +11,7 @@ import { Timestamp } from 'firebase-admin/firestore';
 import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
 import { refreshLifecycleState } from '../services/userLifecycle.js';
 import { logFunnelEvent } from '../features/marketing/funnelEvents.js';
+import { saveQuizSession } from '../services/quizSession.js';
 
 const router = Router();
 
@@ -222,22 +223,13 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
     );
     const profileId = profileResult.rows[0].id;
 
-    // Resolve archetype UUID from name (set by frontend after quiz)
-    const archetypeResult = await db.query(
-      `SELECT id FROM archetype WHERE name = $1`,
-      [archetype]
-    );
-    const archetypeId = archetypeResult.rows[0]?.id ?? null;
-
-    // Save session with real FK
-    const sessionResult = await db.query(
-      `INSERT INTO quiz_session (user_id, resulting_archetype_id, context_data)
-       VALUES ($1, $2, $3)
-       RETURNING id`,
-      [profileId, archetypeId, JSON.stringify({ archetype, scores, answers, decaf: decaf ?? false, experimental: experimental ?? false, secondaryArchetype: secondaryArchetype ?? null, foodSignal: foodSignal ?? null, foodSignalAlignment: foodSignalAlignment ?? 'high', recommendationMode: recommendationMode ?? 'primary_only' })]
-    );
-
-    const sessionId = sessionResult.rows[0].id;
+    // Resolve archetype UUID + save session with real FK — shared with the
+    // Pre-Launch Reveal-in-Inbox match-claim path, see services/quizSession.ts.
+    const { sessionId } = await saveQuizSession(profileId, archetype, {
+      archetype, scores, answers, decaf: decaf ?? false, experimental: experimental ?? false,
+      secondaryArchetype: secondaryArchetype ?? null, foodSignal: foodSignal ?? null,
+      foodSignalAlignment: foodSignalAlignment ?? 'high', recommendationMode: recommendationMode ?? 'primary_only',
+    });
 
     // Sync to Firestore — non-blocking, Cloud SQL is source of truth
     firestoreDb.doc(`users/${req.uid}`).set({

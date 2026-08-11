@@ -13,9 +13,15 @@ interface Props {
   confidence?: string;
   sessionKey: string;
   onSuccess: (email: string) => void;
+  /** Pre-Launch Reveal-in-Inbox — sealed-flow copy: before Oct 1 the match
+   * isn't shown on screen at all, so the ask is framed around inbox delivery
+   * rather than "see why this is you." Default false (today's copy, byte-
+   * identical). Doesn't change `archetypeColor`'s own behavior — the caller
+   * passes a neutral color while sealed (see FlavorQuiz.tsx). */
+  sealed?: boolean;
 }
 
-export function PostQuizEmailGate({ archetypeName, archetypeColor, experimental, confidence, sessionKey, onSuccess }: Props) {
+export function PostQuizEmailGate({ archetypeName, archetypeColor, experimental, confidence, sessionKey, onSuccess, sealed = false }: Props) {
   const [email, setEmail]       = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]       = useState(false);
@@ -48,13 +54,15 @@ export function PostQuizEmailGate({ archetypeName, archetypeColor, experimental,
         color: BRAND, lineHeight: 1.2,
         margin: '0 0 14px', letterSpacing: '-0.01em',
       }}>
-        Where should we send your match?
+        {sealed ? 'Your match is in. Where should we send it?' : 'Where should we send your match?'}
       </h2>
       <p style={{
         fontSize: 15, color: INK, opacity: 0.65, lineHeight: 1.65,
         maxWidth: 480, margin: '0 0 40px',
       }}>
-        See why this is you — and meet the coffees chosen for your taste. Then make it entirely yours with the Bloom Dial. First access when doors open October 1.
+        {sealed
+          ? 'Your archetype, the why behind it, and your matched coffees — plus first access October 1.'
+          : 'See why this is you — and meet the coffees chosen for your taste. Then make it entirely yours with the Bloom Dial. First access when doors open October 1.'}
       </p>
 
       {/* Parcel address block */}
@@ -105,7 +113,7 @@ export function PostQuizEmailGate({ archetypeName, archetypeColor, experimental,
               fontFamily: 'inherit',
             }}
           >
-            {submitting ? 'Sending…' : 'SHOW ME WHY →'}
+            {submitting ? 'Sending…' : sealed ? 'SEND MY MATCH →' : 'SHOW ME WHY →'}
           </button>
 
           {error && (

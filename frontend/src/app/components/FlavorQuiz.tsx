@@ -799,6 +799,16 @@ export default function FlavorQuiz() {
   const signedInSubscribeFiredRef = useRef<string | null>(null); // last archetype synced
   const recognizedGuestSyncedRef = useRef<string | null>(null); // last archetype synced, avoids re-firing every render
   const [showSignedInConsentNote, setShowSignedInConsentNote] = useState(false);
+  // Pre-Launch Reveal-in-Inbox — true only for the render(s) right after a
+  // LIVE submit this mount (not one loaded from localStorage on mount/reload),
+  // so the sealed confirmation shows the address unmasked exactly once, then
+  // masked on any later reload — same distinction acceptance criteria 2 vs 3 draw.
+  const [sealedJustSubmitted, setSealedJustSubmitted] = useState(false);
+  // Signed-in real accounts always show their own (already-known) address
+  // unmasked — masking is only for the guest reload case, per spec §2.
+  const sealedEmail = (user && !user.isAnonymous)
+    ? (userProfile?.email ?? user.email ?? '')
+    : (postQuizEmail ? (sealedJustSubmitted ? postQuizEmail : maskEmail(postQuizEmail)) : '');
 
   function maskEmail(raw: string): string {
     const [userPart, domain] = raw.split('@');
@@ -1088,6 +1098,42 @@ export default function FlavorQuiz() {
 
     const existingArchetype = userProfile?.archetype;
     const firstName = userProfile?.firstName ?? user.displayName?.split(' ')[0] ?? 'there';
+
+    // Pre-Launch Reveal-in-Inbox §2 — a returning visitor reloading this
+    // screen would otherwise see "Your primary profile is [archetype]" and
+    // the full folded dial block, breaking the inbox-only seal for anyone
+    // who already finished. Confirmation-style state instead; retake stays
+    // (same handler the full screen's own "Retake the quiz" item uses below).
+    if (prelaunchGated) {
+      return (
+        <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center">
+          <QuizHeader />
+          <div className="max-w-[480px] mx-auto text-center px-6">
+            <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/30 mb-5">
+              Welcome back, {firstName}
+            </p>
+            <h2 className="text-[28px] md:text-[34px] font-normal leading-tight" style={{ color: '#a33726' }}>
+              Your match is waiting.
+            </h2>
+            <p className="text-[15px] mt-4" style={{ color: '#1a1a1a', opacity: 0.65 }}>
+              Check the inbox you signed up with, or find it any time on your profile.
+            </p>
+            <div className="flex flex-col items-center gap-3 mt-9">
+              <button
+                onClick={() => { handleRetake(); setUserName(firstName); setHasStarted(true); }}
+                className="text-[10px] uppercase tracking-[0.2em] text-[#a33726] opacity-85 hover:opacity-100 transition-opacity"
+              >
+                Retake the quiz
+              </button>
+              <Link to="/profile" className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/50 hover:text-[#a33726] transition-opacity">
+                Your flavor profile →
+              </Link>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     const archetypeColor = existingArchetype?.color ?? '#a33726';
     const lastQuizDate = userProfile?.lastQuizDate
       ? new Date(userProfile.lastQuizDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
@@ -1615,157 +1661,189 @@ export default function FlavorQuiz() {
         <div>
           <QuizHeader />
 
-          {/* Hero — night-scan photo, naming staggers in as papers part */}
-          <section style={{ position: 'relative', height: '100dvh', background: '#141110' }}>
-            <div style={{
-              position: 'absolute', inset: 0,
-              backgroundImage: `url(${nightScanSrc})`,
-              backgroundSize: 'cover', backgroundPosition: 'center',
-            }} />
-            <div style={{
-              position: 'absolute', inset: 0,
-              background: 'linear-gradient(180deg, rgba(16,12,10,.15) 30%, rgba(16,12,10,.72) 100%)',
-            }} />
-            <div style={{ position: 'absolute', left: 0, right: 0, bottom: '11vh', textAlign: 'center', zIndex: 2 }}>
-              <p style={{ fontSize: 13, letterSpacing: '.26em', textTransform: 'uppercase', color: 'rgba(242,241,234,.92)', marginBottom: 18, ...stagger('.2s') }}>
-                {userName ? `${userName} —` : 'Your profile —'}
-              </p>
-              <p style={{ fontSize: 11, letterSpacing: '.3em', textTransform: 'uppercase', color: 'rgba(242,241,234,.6)', marginBottom: 16, ...stagger('.35s') }}>
-                Your coffee archetype
-              </p>
-              <div
-                aria-hidden="true"
-                style={{
-                  width: 56, height: 3, margin: '0 auto 20px',
-                  background: `color-mix(in srgb, ${archetype.color} 82%, #f2f1ea)`,
-                  opacity: resultHeroShown ? 1 : 0,
-                  transform: resultHeroShown ? 'scaleX(1)' : 'scaleX(.3)',
-                  transition: 'opacity 0.7s ease 0.45s, transform 0.7s cubic-bezier(.22,1,.36,1) 0.45s',
-                }}
-              />
-              <h1
-                ref={heroHeadingRef}
-                tabIndex={-1}
-                style={{
-                  fontSize: 'clamp(36px,7.5vw,104px)', fontWeight: 400, lineHeight: 1.05,
-                  color: '#f2f1ea', margin: '0 0 26px', outline: 'none',
-                  ...stagger('.55s'),
-                }}
-              >
-                {archetype.name}.
-              </h1>
-              <p style={{ maxWidth: 560, margin: '0 auto', fontSize: 15.5, lineHeight: 1.7, color: 'rgba(242,241,234,.88)', padding: '0 clamp(20px,5vw,32px)', ...stagger('.7s') }}>
-                {archetype.shortDescription}
-              </p>
-            </div>
-            {/* Scroll cue */}
-            <div aria-hidden="true" style={{
-              position: 'absolute', bottom: 26, left: '50%', transform: 'translateX(-50%)',
-              width: 1, height: 26, zIndex: 2,
-              background: `color-mix(in srgb, ${archetype.color} 70%, #f2f1ea)`,
-            }} />
-          </section>
-
-          {/* Share row — available before gate unlock, hidden for Experimental (no share page) */}
-          <ShareMatchRow archetypeName={archetype.name} shareSlug={shareSlug} />
-
-          {/* Gate / post-hero */}
-          {emailGateUnlocked ? (
+          {prelaunchGated ? (
+            /* Pre-Launch Reveal-in-Inbox — sealed ending. No Section 1 reveal
+               (no archetype name/wallpaper/color), no Sections 2-3: the email
+               card (or, once unlocked, a confirmation) IS the entire screen.
+               Reused verbatim once the flag flips off / under ?preview=true —
+               see the unchanged branch below. */
+            <section style={{ background: '#f2f1ea', minHeight: 'calc(100dvh - 52px)', display: 'flex', alignItems: 'center', padding: 'clamp(72px,10vh,120px) clamp(20px,5vw,40px) 90px' }}>
+              {emailGateUnlocked ? (
+                <div style={{ maxWidth: 480, margin: '0 auto', textAlign: 'left' }}>
+                  <h2 style={{ fontSize: 'clamp(28px,3vw,42px)', fontWeight: 400, color: RUST, lineHeight: 1.25, margin: '0 0 14px', letterSpacing: '-0.01em' }}>
+                    It's on its way to {sealedEmail}. Open it to meet your match.
+                  </h2>
+                  <p style={{ fontSize: 13, color: 'rgba(26,26,26,0.45)', letterSpacing: '.06em', margin: 0 }}>
+                    You're on the first-access list for October 1.
+                  </p>
+                </div>
+              ) : (
+                <PostQuizEmailGate
+                  archetypeName={archetype.name}
+                  archetypeColor={RUST}
+                  experimental={archetypeKey === 'experimental'}
+                  confidence={scoreData?.foodSignalAlignment}
+                  sessionKey={sessionKeyRef.current!}
+                  onSuccess={email => { setSealedJustSubmitted(true); handleGateSuccess(email); }}
+                  sealed
+                />
+              )}
+            </section>
+          ) : (
             <>
-              <GateStatusNote
-                showSignedInConsentNote={showSignedInConsentNote}
-                guestMaskedEmail={!user && postQuizEmail ? maskEmail(postQuizEmail) : null}
-              />
-              {resultsArchetypeData && (
+              {/* Hero — night-scan photo, naming staggers in as papers part */}
+              <section style={{ position: 'relative', height: '100dvh', background: '#141110' }}>
+                <div style={{
+                  position: 'absolute', inset: 0,
+                  backgroundImage: `url(${nightScanSrc})`,
+                  backgroundSize: 'cover', backgroundPosition: 'center',
+                }} />
+                <div style={{
+                  position: 'absolute', inset: 0,
+                  background: 'linear-gradient(180deg, rgba(16,12,10,.15) 30%, rgba(16,12,10,.72) 100%)',
+                }} />
+                <div style={{ position: 'absolute', left: 0, right: 0, bottom: '11vh', textAlign: 'center', zIndex: 2 }}>
+                  <p style={{ fontSize: 13, letterSpacing: '.26em', textTransform: 'uppercase', color: 'rgba(242,241,234,.92)', marginBottom: 18, ...stagger('.2s') }}>
+                    {userName ? `${userName} —` : 'Your profile —'}
+                  </p>
+                  <p style={{ fontSize: 11, letterSpacing: '.3em', textTransform: 'uppercase', color: 'rgba(242,241,234,.6)', marginBottom: 16, ...stagger('.35s') }}>
+                    Your coffee archetype
+                  </p>
+                  <div
+                    aria-hidden="true"
+                    style={{
+                      width: 56, height: 3, margin: '0 auto 20px',
+                      background: `color-mix(in srgb, ${archetype.color} 82%, #f2f1ea)`,
+                      opacity: resultHeroShown ? 1 : 0,
+                      transform: resultHeroShown ? 'scaleX(1)' : 'scaleX(.3)',
+                      transition: 'opacity 0.7s ease 0.45s, transform 0.7s cubic-bezier(.22,1,.36,1) 0.45s',
+                    }}
+                  />
+                  <h1
+                    ref={heroHeadingRef}
+                    tabIndex={-1}
+                    style={{
+                      fontSize: 'clamp(36px,7.5vw,104px)', fontWeight: 400, lineHeight: 1.05,
+                      color: '#f2f1ea', margin: '0 0 26px', outline: 'none',
+                      ...stagger('.55s'),
+                    }}
+                  >
+                    {archetype.name}.
+                  </h1>
+                  <p style={{ maxWidth: 560, margin: '0 auto', fontSize: 15.5, lineHeight: 1.7, color: 'rgba(242,241,234,.88)', padding: '0 clamp(20px,5vw,32px)', ...stagger('.7s') }}>
+                    {archetype.shortDescription}
+                  </p>
+                </div>
+                {/* Scroll cue */}
+                <div aria-hidden="true" style={{
+                  position: 'absolute', bottom: 26, left: '50%', transform: 'translateX(-50%)',
+                  width: 1, height: 26, zIndex: 2,
+                  background: `color-mix(in srgb, ${archetype.color} 70%, #f2f1ea)`,
+                }} />
+              </section>
+
+              {/* Share row — available before gate unlock, hidden for Experimental (no share page) */}
+              <ShareMatchRow archetypeName={archetype.name} shareSlug={shareSlug} />
+
+              {/* Gate / post-hero */}
+              {emailGateUnlocked ? (
                 <>
-                  {/* Part 21 §3.1 — new result header, above the folded block:
-                      micro "Your match" -> archetype name large -> family
-                      line (matchCopy.ts). Distinct from the cinematic
-                      night-scan hero above (that's the reveal moment); this
-                      is the block's own header, bridging into commerce. */}
-                  <div style={{ textAlign: 'center', margin: '0 auto', padding: '0 20px 34px', maxWidth: 680 }}>
-                    <p style={{ fontSize: 11, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#7b7f80', marginBottom: 12 }}>
-                      Your match
-                    </p>
-                    <p style={{ fontSize: 'clamp(40px, 7vw, 60px)', fontWeight: 500, color: '#a02c1c', letterSpacing: '-0.01em', lineHeight: 0.95, margin: 0 }}>
-                      {resultsArchetypeData.archetypeLabel.toUpperCase()}
-                    </p>
-                    <p style={{ fontSize: 15.5, fontWeight: 300, color: '#45474a', marginTop: 14 }}>
-                      {FAMILY_LINES[resultsArchetypeEnum] ?? `That's your family — ${resultsArchetypeData.archetypeLabel.toLowerCase()}, through and through.`}
-                    </p>
-                  </div>
-                  <DialArchetypeSection
-                    data={resultsArchetypeData}
-                    index={0}
-                    selectedSortOrder={resultsSortOrder ?? computeDefaultSortOrder(resultsArchetypeData)}
-                    revealedKeys={resultsRevealedKeys}
-                    onDialSelect={handleResultsDialSelect}
-                    onToggleReveal={toggleResultsReveal}
-                    onAddToCart={addToCart}
-                    onCompare={openResultsCompare}
-                    userArchetype={matchedArchetypeId}
-                    registerDialRef={registerResultsDialRef}
-                    source="find_my_flavor_results"
-                    embedded
-                    onDoorClick={handleResultsDoorClick}
-                    folded
-                    ceremonyTag="YOUR SPOT · FROM YOUR QUIZ"
-                    prelaunch={prelaunchGated}
+                  <GateStatusNote
+                    showSignedInConsentNote={showSignedInConsentNote}
+                    guestMaskedEmail={!user && postQuizEmail ? maskEmail(postQuizEmail) : null}
+                  />
+                  {resultsArchetypeData && (
+                    <>
+                      {/* Part 21 §3.1 — new result header, above the folded block:
+                          micro "Your match" -> archetype name large -> family
+                          line (matchCopy.ts). Distinct from the cinematic
+                          night-scan hero above (that's the reveal moment); this
+                          is the block's own header, bridging into commerce. */}
+                      <div style={{ textAlign: 'center', margin: '0 auto', padding: '0 20px 34px', maxWidth: 680 }}>
+                        <p style={{ fontSize: 11, letterSpacing: '0.22em', textTransform: 'uppercase', color: '#7b7f80', marginBottom: 12 }}>
+                          Your match
+                        </p>
+                        <p style={{ fontSize: 'clamp(40px, 7vw, 60px)', fontWeight: 500, color: '#a02c1c', letterSpacing: '-0.01em', lineHeight: 0.95, margin: 0 }}>
+                          {resultsArchetypeData.archetypeLabel.toUpperCase()}
+                        </p>
+                        <p style={{ fontSize: 15.5, fontWeight: 300, color: '#45474a', marginTop: 14 }}>
+                          {FAMILY_LINES[resultsArchetypeEnum] ?? `That's your family — ${resultsArchetypeData.archetypeLabel.toLowerCase()}, through and through.`}
+                        </p>
+                      </div>
+                      <DialArchetypeSection
+                        data={resultsArchetypeData}
+                        index={0}
+                        selectedSortOrder={resultsSortOrder ?? computeDefaultSortOrder(resultsArchetypeData)}
+                        revealedKeys={resultsRevealedKeys}
+                        onDialSelect={handleResultsDialSelect}
+                        onToggleReveal={toggleResultsReveal}
+                        onAddToCart={addToCart}
+                        onCompare={openResultsCompare}
+                        userArchetype={matchedArchetypeId}
+                        registerDialRef={registerResultsDialRef}
+                        source="find_my_flavor_results"
+                        embedded
+                        onDoorClick={handleResultsDoorClick}
+                        folded
+                        ceremonyTag="YOUR SPOT · FROM YOUR QUIZ"
+                        prelaunch={prelaunchGated}
+                      />
+                    </>
+                  )}
+
+                  {/* Part 17 §F — same Worth Exploring + adjacent-section mechanism as the
+                      returning-user screen above and Profile.tsx. */}
+                  {resultsArchetypeEnum && archetypesList.length > 0 && (
+                    <div className="max-w-2xl mx-auto px-6 mt-2">
+                      <WorthExploring
+                        matchArchetypeId={resultsArchetypeEnum}
+                        adjacency={adjacency}
+                        archetypesList={archetypesList}
+                        activeArchetype={resultsAdjacent.adjacentArchetypeId}
+                        onSelect={resultsAdjacent.handleChipClick}
+                      />
+                    </div>
+                  )}
+                  {resultsAdjacent.adjacentData && (
+                    <div ref={resultsAdjacent.sectionRef}>
+                      <DialArchetypeSection
+                        data={resultsAdjacent.adjacentData}
+                        index={1}
+                        selectedSortOrder={resultsAdjacent.adjacentSortOrder ?? computeDefaultSortOrder(resultsAdjacent.adjacentData)}
+                        revealedKeys={resultsAdjacent.adjacentRevealedKeys}
+                        onDialSelect={resultsAdjacent.handleDialSelect}
+                        onToggleReveal={resultsAdjacent.toggleReveal}
+                        onAddToCart={addToCart}
+                        onCompare={openResultsCompare}
+                        userArchetype={matchedArchetypeId}
+                        registerDialRef={resultsAdjacent.registerDialRef}
+                        source="find_my_flavor_results"
+                        embedded
+                        onDoorClick={handleResultsDoorClick}
+                        prelaunch={prelaunchGated}
+                      />
+                    </div>
+                  )}
+                  <CompareOverlay
+                    open={resultsCompareState.open}
+                    onClose={() => setResultsCompareState(s => ({ ...s, open: false }))}
+                    left={resultsCompareState.slot ? { archetype: resultsCompareState.archetype, archetypeLabel: resultsCompareState.archetypeLabel, slot: resultsCompareState.slot } : null}
+                    archetypes={archetypesList}
                   />
                 </>
-              )}
-
-              {/* Part 17 §F — same Worth Exploring + adjacent-section mechanism as the
-                  returning-user screen above and Profile.tsx. */}
-              {resultsArchetypeEnum && archetypesList.length > 0 && (
-                <div className="max-w-2xl mx-auto px-6 mt-2">
-                  <WorthExploring
-                    matchArchetypeId={resultsArchetypeEnum}
-                    adjacency={adjacency}
-                    archetypesList={archetypesList}
-                    activeArchetype={resultsAdjacent.adjacentArchetypeId}
-                    onSelect={resultsAdjacent.handleChipClick}
+              ) : (
+                <section style={{ background: '#f2f1ea', padding: 'clamp(72px,10vh,120px) clamp(20px,5vw,40px) 90px' }}>
+                  <PostQuizEmailGate
+                    archetypeName={archetype.name}
+                    archetypeColor={archetype.color}
+                    experimental={archetypeKey === 'experimental'}
+                    confidence={scoreData?.foodSignalAlignment}
+                    sessionKey={sessionKeyRef.current!}
+                    onSuccess={handleGateSuccess}
                   />
-                </div>
+                </section>
               )}
-              {resultsAdjacent.adjacentData && (
-                <div ref={resultsAdjacent.sectionRef}>
-                  <DialArchetypeSection
-                    data={resultsAdjacent.adjacentData}
-                    index={1}
-                    selectedSortOrder={resultsAdjacent.adjacentSortOrder ?? computeDefaultSortOrder(resultsAdjacent.adjacentData)}
-                    revealedKeys={resultsAdjacent.adjacentRevealedKeys}
-                    onDialSelect={resultsAdjacent.handleDialSelect}
-                    onToggleReveal={resultsAdjacent.toggleReveal}
-                    onAddToCart={addToCart}
-                    onCompare={openResultsCompare}
-                    userArchetype={matchedArchetypeId}
-                    registerDialRef={resultsAdjacent.registerDialRef}
-                    source="find_my_flavor_results"
-                    embedded
-                    onDoorClick={handleResultsDoorClick}
-                    prelaunch={prelaunchGated}
-                  />
-                </div>
-              )}
-              <CompareOverlay
-                open={resultsCompareState.open}
-                onClose={() => setResultsCompareState(s => ({ ...s, open: false }))}
-                left={resultsCompareState.slot ? { archetype: resultsCompareState.archetype, archetypeLabel: resultsCompareState.archetypeLabel, slot: resultsCompareState.slot } : null}
-                archetypes={archetypesList}
-              />
             </>
-          ) : (
-            <section style={{ background: '#f2f1ea', padding: 'clamp(72px,10vh,120px) clamp(20px,5vw,40px) 90px' }}>
-              <PostQuizEmailGate
-                archetypeName={archetype.name}
-                archetypeColor={archetype.color}
-                experimental={archetypeKey === 'experimental'}
-                confidence={scoreData?.foodSignalAlignment}
-                sessionKey={sessionKeyRef.current!}
-                onSuccess={handleGateSuccess}
-              />
-            </section>
           )}
         </div>
       )}
