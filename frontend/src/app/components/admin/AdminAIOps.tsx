@@ -300,7 +300,7 @@ export default function AdminAIOps() {
                       {' · '}
                       {entry.old.enabled !== entry.new.enabled && `global ${entry.new.enabled ? 'on' : 'off'} · `}
                       {entry.old.globalDailyUsd !== entry.new.globalDailyUsd && `cap $${entry.old.globalDailyUsd}→$${entry.new.globalDailyUsd} · `}
-                      {AI_FEATURES.filter((k) => entry.old![k].enabled !== entry.new![k].enabled).map((k) => `${FEATURE_LABELS[k]} ${entry.new![k].enabled ? 'on' : 'off'}`).join(', ')}
+                      {AI_FEATURES.filter((k) => entry.old!.features[k].enabled !== entry.new!.features[k].enabled).map((k) => `${FEATURE_LABELS[k]} ${entry.new!.features[k].enabled ? 'on' : 'off'}`).join(', ')}
                     </span>
                   )}
                 </div>
