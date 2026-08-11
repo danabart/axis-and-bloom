@@ -35,11 +35,22 @@ const PORT = process.env.PORT ?? 4000;
 
 app.set('trust proxy', 1);
 app.use(helmet());
-const allowedOrigins = [
-  process.env.FRONTEND_URL ?? 'http://localhost:5173',
+// C12 (L5) — prod domains hardcoded explicitly, not only present via the
+// FRONTEND_URL env var (which could be unset and silently fall through to
+// the localhost default below even in production). NODE_ENV=production is
+// set in the Dockerfile's runner stage, so production never sees the
+// localhost fallback at all; dev/local keeps it (plus whatever
+// FRONTEND_URL is set to) for local testing against the real prod origins
+// too.
+const prodOrigins = [
+  'https://www.axisandbloomcoffee.com',
+  'https://axisandbloomcoffee.com',
   'https://axis-and-bloom-prod.web.app',
   'https://axis-and-bloom-prod.firebaseapp.com',
 ];
+const allowedOrigins = process.env.NODE_ENV === 'production'
+  ? prodOrigins
+  : [...prodOrigins, process.env.FRONTEND_URL ?? 'http://localhost:5173'];
 app.use(cors({ origin: allowedOrigins, credentials: true }));
 app.use(express.json());
 // C17 — keyed on the real visitor IP (see middleware/clientIp.ts), not
