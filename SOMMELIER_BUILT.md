@@ -1545,3 +1545,24 @@ Both rose, exactly as expected. `v_archetype_adjacency`'s raw Floral row confirm
 **Docs**: `GAPS.md`'s two closed flagged items moved to a new "Closed since S88" section with this entry's own reference, rather than deleted — a future reader following S88's own flagged-item list shouldn't have to guess whether item 1/2 were fixed, dropped, or just forgotten. `OPEN_TASKS.md` gained the indexes-deploy documentation next to OT-5. `WHAT_WE_BUILT_DB.md` gained the table-deprecation note and the indexes-as-code entry.
 
 **Out of scope, per the task's own explicit list, untouched**: the voice-pass soft case (stays with the monthly transcript read); E5 wording (email workstream); OT-6/Resend-domain-verification/OT-15 (human setup, tracked in `GAPS.md`, unchanged by this pass). No prompt changes. No new features.
+
+### Quiz Scoring Fix — the frontend finally sends what `userSignals.ts` has been waiting to read (2026-08-11)
+
+#### S90. Removed the per-quiz Claude call; fixed the frontend dropping 5 of the fields the evaluator's feature vector depends on
+
+**Context**: `backend/src/features/quizes/CLAUDE_CODE_PROMPT_QUIZ_REMOVE_AI_CALL.md`. Primarily a cost/latency fix (`WHAT_WE_BUILT.md` #159 has the full detail) — `POST /api/quiz/results`'s per-completion `getRecommendation()` Claude call is gone, `getRecommendation()` itself left intact and unreferenced per the spec. The half that belongs in this doc: `saveQuizResult()` had only ever sent `{ archetype, scores, answers, decaf }` to the backend, even though `POST /api/quiz/score` computes and returns `secondaryArchetype`, `foodSignal`, `foodSignalAlignment`, `recommendationMode`, and `experimental` too. The backend route and `userSignals.ts` were already written to read all of them out of `quiz_session.context_data` — they just never received anything but the `??` fallback.
+
+**Direct Liam impact — three previously-inert pieces of the evaluator came alive**:
+- **`DISCOVERY_SEEKER` fires for the first time.** It's the *first* rule in `evaluatorRulePriority`, gated on `experimental === true` — every user who picked Q3-C ("Interesting… what flavors am I getting here?") should have routed here since this evaluator shipped. None ever did, because `experimental` was always `false` on read.
+- **`PROFILE_AMBIGUOUS` gains its other two legs.** Its condition is `flags.quizTie || recommendationMode === 'ai_agent' || foodSignalAlignment === 'low'` — only `quizTie` was ever reachable; `recommendationMode` was always the `'primary_only'` fallback and `foodSignalAlignment` was always `'high'`.
+- **3 of the evaluator's 13 feature-vector dimensions un-zero.** `experimental ? 1 : 0`, `foodSignal === archetype`, and `foodSignal === secondaryArchetype` had been evaluating against `null`/`false` on every single call — real signal now flows into whatever downstream scoring/logging consumes that vector, including the `userStateSnapshot` written to the evaluator audit log, which had been recording five fabricated values per session.
+
+No prompt, routing rule, or evaluator logic changed — this is purely the frontend finally supplying the inputs those already-written rules were designed around.
+
+**Also fixed in the same pass**: `answerIds` (the raw `quiz_answer` UUIDs `/score` was called with) is now persisted on `quiz_session.context_data` and the Firestore mirror — previously only the positional `answers` (question-index → answer-index) map was saved, which is only interpretable against the exact answer ordering (`ORDER BY a.id`) active at completion time and breaks silently across a re-seed. Makes a session replayable for any future re-scoring/backfill work.
+
+**Verified**: `tsc --noEmit` clean (backend); frontend has no committed `tsconfig.json` (documented gap, see #118/#152) — standalone `tsc --noEmit` on the two changed files clean, `vite build` clean. `npx vitest run` — same 17 pre-existing failures with and without this diff applied (`git stash` A/B comparison), none in a file this change touched; `quizScoring.test.ts`'s 6 are the spec's own documented pre-existing tie-break drift, unrelated to this fix. Full grep/import verification in `WHAT_WE_BUILT.md` #159.
+
+**Not verified live this pass** (needs a deployed environment, listed back to Dana in #159): an actual Q3-C completion routing to `DISCOVERY_SEEKER` in a real Liam session, and a branch-quiz completion's `context_data` showing the reclassified archetype alongside the *original* secondary/foodSignal/recommendationMode (not defaults, not re-derived from the branch answer).
+
+**Files**: `backend/src/routes/quiz.ts`, `frontend/src/app/lib/api.ts`, `frontend/src/app/components/FlavorQuiz.tsx`. No prompt files, no Firestore index, no schema change.

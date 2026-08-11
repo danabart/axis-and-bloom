@@ -548,6 +548,11 @@ export default function FlavorQuiz() {
   if (!sessionKeyRef.current) sessionKeyRef.current = crypto.randomUUID();
   const quizStartFiredRef = useRef(false);
 
+  // Quiz Remove AI Call (Change 2a-bis) — the six main-quiz answer UUIDs POSTed
+  // to /api/quiz/score, held here so all four saveQuizResult call sites (not
+  // just handleNext, where they're computed) can reach the same value.
+  const answerIdsRef = useRef<string[]>([]);
+
   const [hasStarted, setHasStarted]       = useState(() => isPreview);
   const [userName, setUserName]           = useState('');
   const [currentStep, setCurrentStep]     = useState(0);
@@ -906,6 +911,25 @@ export default function FlavorQuiz() {
 
   const archetype = ARCHETYPES[archetypeKey];
 
+  // The scoring result carries the full picture (secondary archetype, food signal,
+  // recommendation mode, experimental flag). Every save path must send all of it —
+  // the backend stores it in quiz_session.context_data and the Firestore mirror, and
+  // previously fell through to defaults because the frontend only sent four fields.
+  function buildQuizResultPayload(score: ScoreResult, finalArchetype: string) {
+    return {
+      archetype:           finalArchetype,
+      scores:              score.scores,
+      answers,
+      answerIds:           answerIdsRef.current, // raw quiz_answer UUIDs — makes the session replayable
+      decaf:               false,
+      secondaryArchetype:  score.secondaryArchetype,
+      foodSignal:          score.foodSignal,
+      foodSignalAlignment: score.foodSignalAlignment,
+      recommendationMode:  score.recommendationMode,
+      experimental:        score.experimental,
+    };
+  }
+
   const handleNext = async () => {
     if (currentStep < questions.length - 1) {
       setCurrentStep(p => p + 1);
@@ -916,6 +940,7 @@ export default function FlavorQuiz() {
     setScoreError(false);
     try {
       const answerIds = Object.values(selectedIds);
+      answerIdsRef.current = answerIds;
 
       const scoreRes = await fetch('/api/quiz/score', {
         method: 'POST',
@@ -951,7 +976,7 @@ export default function FlavorQuiz() {
       }
 
       if (user) {
-        saveQuizResult({ archetype: score.archetype, scores: score.scores, answers, decaf: false })
+        saveQuizResult(buildQuizResultPayload(score, score.archetype))
           .then(refreshUserProfile)
           .catch(console.error);
       }
@@ -973,7 +998,7 @@ export default function FlavorQuiz() {
     setArchetypeKey(newKey);
 
     if (user) {
-      saveQuizResult({ archetype: finalArchetypeName, scores: scoreData.scores, answers, decaf: false })
+      saveQuizResult(buildQuizResultPayload(scoreData, finalArchetypeName))
         .then(refreshUserProfile)
         .catch(console.error);
     }
@@ -1000,6 +1025,7 @@ export default function FlavorQuiz() {
     setArchetypeKey('balanced');
     sessionKeyRef.current = crypto.randomUUID();
     quizStartFiredRef.current = false;
+    answerIdsRef.current = [];
   };
 
   // ── Auto-advance: always hold the latest handleNext in a ref so the 750ms
@@ -1030,7 +1056,7 @@ export default function FlavorQuiz() {
       const newKey = ARCHETYPE_NAME_TO_KEY[finalArchetypeName] ?? archetypeKey;
       setArchetypeKey(newKey);
       if (user) {
-        saveQuizResult({ archetype: finalArchetypeName, scores: scoreData.scores, answers, decaf: false })
+        saveQuizResult(buildQuizResultPayload(scoreData, finalArchetypeName))
           .then(refreshUserProfile)
           .catch(console.error);
       }
@@ -1642,7 +1668,7 @@ export default function FlavorQuiz() {
                 onClick={() => {
                   setShowTieInterstitial(false);
                   if (user) {
-                    saveQuizResult({ archetype: scoreData!.archetype, scores: scoreData!.scores, answers, decaf: false })
+                    saveQuizResult(buildQuizResultPayload(scoreData!, scoreData!.archetype))
                       .then(refreshUserProfile).catch(console.error);
                   }
                   setIsWrapping(true);

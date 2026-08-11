@@ -3,8 +3,6 @@ import rateLimit from 'express-rate-limit';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { getRealClientIp } from '../middleware/clientIp.js';
 import { db } from '../db/client.js';
-import { getRecommendation } from '../services/claude.js';
-import { isClaudeGuardBlocked } from '../services/anthropicGuard.js';
 import { rankScores, findWinner, findSecondary, isSecondaryClose, computeConfidenceAndMode } from '../services/quizScoring.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { Timestamp } from 'firebase-admin/firestore';
@@ -206,7 +204,7 @@ router.post('/event', funnelEventLimiter, async (req, res) => {
 // ─── POST /api/quiz/results ──────────────────────────────────────────────────
 // Saves a completed quiz session, linking the real archetype FK from the DB.
 router.post('/results', requireAuth, async (req: AuthRequest, res) => {
-  const { archetype, scores, answers, decaf, experimental, secondaryArchetype, foodSignal, foodSignalAlignment, recommendationMode } = req.body;
+  const { archetype, scores, answers, decaf, experimental, secondaryArchetype, foodSignal, foodSignalAlignment, recommendationMode, answerIds } = req.body;
   if (!archetype || !scores || !answers) {
     res.status(400).json({ error: 'archetype, scores, and answers required' });
     return;
@@ -229,6 +227,7 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
       archetype, scores, answers, decaf: decaf ?? false, experimental: experimental ?? false,
       secondaryArchetype: secondaryArchetype ?? null, foodSignal: foodSignal ?? null,
       foodSignalAlignment: foodSignalAlignment ?? 'high', recommendationMode: recommendationMode ?? 'primary_only',
+      answerIds: answerIds ?? null,
     });
 
     // Sync to Firestore — non-blocking, Cloud SQL is source of truth
@@ -246,28 +245,12 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
       foodSignalAlignment: foodSignalAlignment ?? 'high',
       recommendationMode:  recommendationMode ?? 'primary_only',
       experimental:        experimental ?? false,
+      answerIds:           answerIds ?? null,
       scores,
       completedAt:         FieldValue.serverTimestamp(),
     }).catch((err: unknown) => console.error('[quiz/firestore-session]', err));
 
-    // Get AI recommendation. C2 Part 1 — the quiz session above is already
-    // durably saved (Cloud SQL + Firestore) by this point; a guard block
-    // (kill-switch / daily ceiling) must not turn an already-successful save
-    // into a 500 — fall back to a graceful placeholder and still return 200.
-    let recommendation: string;
-    try {
-      recommendation = await getRecommendation(archetype, decaf ?? false, {
-        secondaryArchetype: secondaryArchetype ?? null,
-        confidence: foodSignalAlignment ?? 'high',
-        recommendationMode,
-        experimental: experimental ?? false,
-      });
-    } catch (err) {
-      if (!isClaudeGuardBlocked(err)) console.error('[quiz/results] recommendation generation failed:', err);
-      recommendation = 'Your results are saved — check back shortly for your personalized coffee recommendation.';
-    }
-
-    res.json({ id: sessionId, recommendation });
+    res.json({ id: sessionId });
 
     // Fire-and-forget: compute behavioral confidence, then write taste_journey.
     // Always after the quiz session is saved so the new quiz counts in the computation.

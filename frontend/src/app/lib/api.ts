@@ -15,6 +15,12 @@ export async function saveQuizResult(payload: {
   scores: Record<string, number>;
   answers: Record<number, number>;
   decaf: boolean;
+  answerIds?: string[];
+  secondaryArchetype?: string | null;
+  foodSignal?: string | null;
+  foodSignalAlignment?: string;
+  recommendationMode?: string;
+  experimental?: boolean;
 }) {
   const res = await fetch(`${BASE}/quiz/results`, {
     method: 'POST',
