@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ArrowRight, Package, Heart, LogOut, X } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
+import { usePrelaunchGated } from '../lib/prelaunch';
 import { getUserProfile, getHomepageState, getDialPosition, setDialPosition, getFlavorMemory, type FlavorMemoryData } from '../lib/api';
 import { computeDefaultSortOrder } from './bloom/ArchetypeSection';
 import { DialArchetypeSection } from './bloom/DialArchetypeSection';
@@ -75,6 +76,9 @@ export default function Profile() {
   const { user, logout, loading: authLoading } = useAuth();
   const { addToCart }                     = useCart();
   const navigate                          = useNavigate();
+  // Pre-Launch Gate — hides Add to Cart/Liam/flavor-intelligence on this
+  // page's ArchetypeSection surfaces until launch.
+  const prelaunchGated                    = usePrelaunchGated();
 
   // Settings form state
   const [firstName, setFirstName]         = useState('');
@@ -520,6 +524,7 @@ export default function Profile() {
                           onDoorClick={handleDoorClick}
                           folded
                           unfoldMode="breakout"
+                          prelaunch={prelaunchGated}
                         />
                       </div>
                     )}
@@ -547,18 +552,22 @@ export default function Profile() {
                         who choose to leave rather than explore in place. */}
                     {adjacentData && (
                       <div className="flex flex-col gap-3 mt-6" ref={adjacentSectionRef}>
-                        <div className="flex justify-end">
-                          <Link
-                            to={
-                              adjacentData.slots.length
-                                ? `/flavor-intelligence?archetype=${adjacentData.archetype}&slot=${computeDefaultSortOrder(adjacentData)}`
-                                : `/flavor-intelligence?archetype=${adjacentData.archetype}`
-                            }
-                            className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 border-b border-[#a33726]/20 pb-1 hover:text-[#a33726] hover:border-[#a33726]/40 transition-colors w-fit"
-                          >
-                            See in Flavor Intelligence →
-                          </Link>
-                        </div>
+                        {/* Flavor Intelligence is a hidden route while gated — the
+                            escape hatch disappears with it, same rule as the trimmed nav. */}
+                        {!prelaunchGated && (
+                          <div className="flex justify-end">
+                            <Link
+                              to={
+                                adjacentData.slots.length
+                                  ? `/flavor-intelligence?archetype=${adjacentData.archetype}&slot=${computeDefaultSortOrder(adjacentData)}`
+                                  : `/flavor-intelligence?archetype=${adjacentData.archetype}`
+                              }
+                              className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 border-b border-[#a33726]/20 pb-1 hover:text-[#a33726] hover:border-[#a33726]/40 transition-colors w-fit"
+                            >
+                              See in Flavor Intelligence →
+                            </Link>
+                          </div>
+                        )}
                         <DialArchetypeSection
                           data={adjacentData}
                           index={1}
@@ -574,6 +583,7 @@ export default function Profile() {
                           hideProfileLink
                           embedded
                           onDoorClick={handleDoorClick}
+                          prelaunch={prelaunchGated}
                         />
                       </div>
                     )}
@@ -618,16 +628,19 @@ export default function Profile() {
                     <hr className="border-0 border-t border-[#deded1] my-[34px]" />
 
                     <div className="flex flex-col gap-6">
-                      {/* Liam entry point — generic across stages, no stage-aware copy (decided). */}
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/40 mb-3">Coffee Sommelier</p>
-                        <Link
-                          to="/sommelier?entry=user_initiated"
-                          className="flex items-center gap-3 text-[11px] uppercase tracking-[0.2em] text-[#a33726] border-b border-[#a33726]/30 pb-1 hover:border-[#a33726] transition-colors w-fit"
-                        >
-                          Talk to Liam <ArrowRight size={14} />
-                        </Link>
-                      </div>
+                      {/* Liam entry point — generic across stages, no stage-aware copy (decided).
+                          /sommelier is a hidden route while gated — omitted, same rule as everywhere else. */}
+                      {!prelaunchGated && (
+                        <div>
+                          <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/40 mb-3">Coffee Sommelier</p>
+                          <Link
+                            to="/sommelier?entry=user_initiated"
+                            className="flex items-center gap-3 text-[11px] uppercase tracking-[0.2em] text-[#a33726] border-b border-[#a33726]/30 pb-1 hover:border-[#a33726] transition-colors w-fit"
+                          >
+                            Talk to Liam <ArrowRight size={14} />
+                          </Link>
+                        </div>
+                      )}
 
                       {/* Fallback retake link while flavorMemory hasn't loaded yet — once it
                           has, ActivityTimeline above owns this link (Part 3 §3, superseded by Part 7 Task 4). */}
@@ -659,7 +672,10 @@ export default function Profile() {
                   <div className="flex flex-col items-start gap-6 py-8">
                     <Package size={32} className="text-[#a33726]/30" strokeWidth={1} />
                     <p className="text-lg text-[#a33726]/70 tracking-wide leading-relaxed">You haven't placed any orders yet.</p>
-                    <Link to="/shop" className="mt-4 flex items-center gap-3 text-[11px] uppercase tracking-[0.2em] text-[#a33726] border-b border-[#a33726]/30 pb-1 hover:border-[#a33726] hover:text-[#ee5974] transition-colors">Explore the Shop <ArrowRight size={14} /></Link>
+                    {/* /shop is a hidden route while gated — omitted rather than shown. */}
+                    {!prelaunchGated && (
+                      <Link to="/shop" className="mt-4 flex items-center gap-3 text-[11px] uppercase tracking-[0.2em] text-[#a33726] border-b border-[#a33726]/30 pb-1 hover:border-[#a33726] hover:text-[#ee5974] transition-colors">Explore the Shop <ArrowRight size={14} /></Link>
+                    )}
                   </div>
                 ) : (
                   <div className="flex flex-col gap-8">

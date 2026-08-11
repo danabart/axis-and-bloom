@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
+import { usePrelaunchGated } from '../lib/prelaunch';
 import { saveQuizResult, getUserProfile, getDialPosition, setDialPosition, logQuizFunnelEvent, subscribeNewsletter } from '../lib/api';
 import { trackEvent, trackLead } from '../lib/analytics';
 import { PostQuizEmailGate } from './PostQuizEmailGate';
@@ -535,6 +536,11 @@ export default function FlavorQuiz() {
   const _previewParam  = searchParams.get('result') ?? '';
   const isPreview      = _previewParam in ARCHETYPES;
   const previewKey     = isPreview ? (_previewParam as ArchetypeKey) : null;
+
+  // Pre-Launch Gate — /find-my-flavor is itself always open, but the results
+  // and returning-user screens' ArchetypeSection surfaces (Add to Cart, Liam/
+  // flavor-intelligence links, floating cart) stay hidden until launch.
+  const prelaunchGated = usePrelaunchGated();
 
   // Step 02 (B1): per-quiz-session key for first-party funnel logging
   // (quiz_start / quiz_complete), in-memory only — new on every mount/retake.
@@ -1092,11 +1098,14 @@ export default function FlavorQuiz() {
     // prompt's own §4 item 4 list verbatim (previously longer/differently
     // worded — "Talk to our coffee sommelier" -> "Talk to Liam", etc.); hrefs/
     // actions unchanged from before this pass.
+    // Pre-Launch Gate: "Talk to Liam" and "Flavor intelligence" both point at
+    // hidden routes while gated — omitted rather than shown, same rule as the
+    // trimmed nav ("never show a door we won't open").
     const navItems = [
       { label: 'Retake the quiz',      action: () => { handleRetake(); setUserName(firstName); setHasStarted(true); } },
-      { label: 'Talk to Liam',         href: '/sommelier?entry=user_initiated' },
+      ...(prelaunchGated ? [] : [{ label: 'Talk to Liam',         href: '/sommelier?entry=user_initiated' }]),
       { label: 'Your flavor profile',  href: '/profile' },
-      { label: 'Flavor intelligence',  href: '/flavor-intelligence' },
+      ...(prelaunchGated ? [] : [{ label: 'Flavor intelligence',  href: '/flavor-intelligence' }]),
       { label: 'Create a household party', href: '/profile?tab=family' },
     ];
 
@@ -1166,6 +1175,7 @@ export default function FlavorQuiz() {
                 unfoldMode="breakout"
                 showBreakoutHeader={false}
                 ceremonyTag="YOUR SPOT · FROM YOUR QUIZ"
+                prelaunch={prelaunchGated}
               />
             )}
 
@@ -1201,6 +1211,7 @@ export default function FlavorQuiz() {
                   source="find_my_flavor_returning"
                   embedded
                   onDoorClick={handleMatchedDoorClick}
+                  prelaunch={prelaunchGated}
                 />
               </div>
             )}
@@ -1241,16 +1252,18 @@ export default function FlavorQuiz() {
           left={compareState.slot ? { archetype: compareState.archetype, archetypeLabel: compareState.archetypeLabel, slot: compareState.slot } : null}
           archetypes={archetypesList}
         />
-        <FloatingCart
-          items={cart}
-          open={cartOpen}
-          onToggle={toggleCartOpen}
-          onRemove={removeFromCart}
-          onCheckout={checkout}
-          checkoutStatus={checkoutStatus}
-          checkoutMessage={checkoutMessage}
-          isSignedIn={!!user}
-        />
+        {!prelaunchGated && (
+          <FloatingCart
+            items={cart}
+            open={cartOpen}
+            onToggle={toggleCartOpen}
+            onRemove={removeFromCart}
+            onCheckout={checkout}
+            checkoutStatus={checkoutStatus}
+            checkoutMessage={checkoutMessage}
+            isSignedIn={!!user}
+          />
+        )}
       </div>
     );
   }
@@ -1562,17 +1575,23 @@ export default function FlavorQuiz() {
                   : tiedNames.join(' · ')}
               </h2>
               <p className="text-stone-500 mt-4 text-sm leading-relaxed">
-                Your palate sits at the edge of two worlds. Liam, our coffee sommelier, can help you find exactly where you land.
+                {prelaunchGated
+                  ? 'Your palate sits at the edge of two worlds.'
+                  : 'Your palate sits at the edge of two worlds. Liam, our coffee sommelier, can help you find exactly where you land.'}
               </p>
             </div>
             <div className="flex flex-col gap-3">
-              <button
-                onClick={() => { window.location.href = `/sommelier?entry=quiz_tie&tied=${encodeURIComponent(tiedParam)}`; }}
-                className="w-full py-3 rounded-lg text-white text-sm tracking-wide"
-                style={{ backgroundColor: RUST }}
-              >
-                Talk to Liam →
-              </button>
+              {/* /sommelier is a hidden route while gated — omitted, same rule
+                  as every other Liam entry point. */}
+              {!prelaunchGated && (
+                <button
+                  onClick={() => { window.location.href = `/sommelier?entry=quiz_tie&tied=${encodeURIComponent(tiedParam)}`; }}
+                  className="w-full py-3 rounded-lg text-white text-sm tracking-wide"
+                  style={{ backgroundColor: RUST }}
+                >
+                  Talk to Liam →
+                </button>
+              )}
               <button
                 onClick={() => {
                   setShowTieInterstitial(false);
@@ -1691,6 +1710,7 @@ export default function FlavorQuiz() {
                     onDoorClick={handleResultsDoorClick}
                     folded
                     ceremonyTag="YOUR SPOT · FROM YOUR QUIZ"
+                    prelaunch={prelaunchGated}
                   />
                 </>
               )}
@@ -1724,6 +1744,7 @@ export default function FlavorQuiz() {
                     source="find_my_flavor_results"
                     embedded
                     onDoorClick={handleResultsDoorClick}
+                    prelaunch={prelaunchGated}
                   />
                 </div>
               )}
@@ -1772,16 +1793,18 @@ export default function FlavorQuiz() {
         </div>
       )}
 
-      <FloatingCart
-        items={cart}
-        open={cartOpen}
-        onToggle={toggleCartOpen}
-        onRemove={removeFromCart}
-        onCheckout={checkout}
-        checkoutStatus={checkoutStatus}
-        checkoutMessage={checkoutMessage}
-        isSignedIn={!!user}
-      />
+      {!prelaunchGated && (
+        <FloatingCart
+          items={cart}
+          open={cartOpen}
+          onToggle={toggleCartOpen}
+          onRemove={removeFromCart}
+          onCheckout={checkout}
+          checkoutStatus={checkoutStatus}
+          checkoutMessage={checkoutMessage}
+          isSignedIn={!!user}
+        />
+      )}
     </>
   );
 }

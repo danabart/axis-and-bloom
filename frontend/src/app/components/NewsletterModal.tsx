@@ -7,12 +7,18 @@ import { logQuizFunnelEvent } from '../lib/api';
 
 const CoffeePic15 = lifestyleAssets.coffee15Vertical.src;
 
+// Disabled site-wide for now (Dana, 2026-08-10) — unrelated to the pre-launch
+// gate work happening alongside this. Flip back to `false` to re-enable the
+// auto-open popup; nothing else in this file needs to change.
+const DISABLED = true;
+
 export default function NewsletterModal() {
   const [isOpen, setIsOpen] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [email, setEmail] = useState('');
 
   useEffect(() => {
+    if (DISABLED) return;
     const timer = setTimeout(() => {
       const hasSeenModal = sessionStorage.getItem('axisBloomNewsletterSeen');
       if (!hasSeenModal) setIsOpen(true);

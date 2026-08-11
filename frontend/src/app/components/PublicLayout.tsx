@@ -1,27 +1,21 @@
-import { Outlet, useLocation, useSearchParams } from 'react-router';
+import { Outlet, useLocation } from 'react-router';
 import Navigation from './Navigation';
 import Footer from './Footer';
 import NewsletterModal from './NewsletterModal';
 import { FloatingCart } from './bloom/FloatingCart';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
-
-const PRELAUNCH = import.meta.env.VITE_PRELAUNCH_MODE === 'true';
+import { usePrelaunchGated } from '../lib/prelaunch';
 
 export default function PublicLayout() {
   const { pathname } = useLocation();
-  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const { cart, cartOpen, toggleCartOpen, removeFromCart, checkout, checkoutStatus, checkoutMessage } = useCart();
-
-  // Mirror the preview-bypass logic from HomeOrPrelaunch
-  const fromUrl = searchParams.get('preview') === 'true';
-  if (fromUrl) sessionStorage.setItem('abPreview', 'true');
-  const bypassed = fromUrl || sessionStorage.getItem('abPreview') === 'true';
+  const gated = usePrelaunchGated();
 
   // When the pre-launch page is active, suppress nav and footer entirely
   // so nothing is visible beneath the fixed full-screen overlay
-  const isPreLaunchPage = PRELAUNCH && pathname === '/' && !bypassed;
+  const isPreLaunchPage = gated && pathname === '/';
 
   // These pages render Footer inside TasteFinderSection (behind the curtain reveal)
   const footerInPage = pathname === '/' || pathname === '/about';
@@ -42,17 +36,21 @@ export default function PublicLayout() {
       {!noFooter && <Footer />}
       <NewsletterModal />
       {/* Layout-level so any page wrapped here shares one cart UI automatically
-          (The Bloom Part 10, Phase B) instead of each page rendering its own. */}
-      <FloatingCart
-        items={cart}
-        open={cartOpen}
-        onToggle={toggleCartOpen}
-        onRemove={removeFromCart}
-        onCheckout={checkout}
-        checkoutStatus={checkoutStatus}
-        checkoutMessage={checkoutMessage}
-        isSignedIn={!!user}
-      />
+          (The Bloom Part 10, Phase B) instead of each page rendering its own.
+          Hidden while gated — there's no checkout behind it before launch,
+          and Add to Cart is hidden everywhere the same flag applies. */}
+      {!gated && (
+        <FloatingCart
+          items={cart}
+          open={cartOpen}
+          onToggle={toggleCartOpen}
+          onRemove={removeFromCart}
+          onCheckout={checkout}
+          checkoutStatus={checkoutStatus}
+          checkoutMessage={checkoutMessage}
+          isSignedIn={!!user}
+        />
+      )}
     </div>
   );
 }

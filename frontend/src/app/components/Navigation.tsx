@@ -2,14 +2,35 @@ import { useEffect, useRef, useState } from 'react';
 import { ShoppingCart, User, Menu, X } from 'lucide-react';
 import { Link, useNavigate, useLocation } from 'react-router';
 import { useAuth } from '../context/AuthContext';
+import { usePrelaunchGated } from '../lib/prelaunch';
 import { brandAssets } from '../../design/assets';
 
 const logoMark = brandAssets.logoQuarter1;
+
+// While gated, only Find My Flavor survives — Bloom/Coffees/Shop/How It
+// Works/Flavor Intelligence/Liam disappear entirely (never grayed out —
+// "never show a door we won't open"). Same set feeds both the desktop row
+// and the mobile panel below, so they can never drift out of sync.
+// Note: the written spec also kept "About" and "The Axis" open/trimmed-in
+// here — Dana closed both live during execution (/about is an old,
+// admin-linked-only page not part of the live site; /the-axis was a
+// separate live call), so both are omitted from GATED_LINKS, not just gated.
+const FULL_LINKS = [
+  { to: '/the-axis', label: 'THE AXIS' },
+  { to: '/bloom', label: 'THE BLOOM' },
+  { to: '/find-my-flavor', label: 'FIND MY FLAVOR' },
+  { to: '/flavor-intelligence', label: 'FLAVOR INTELLIGENCE' },
+];
+const GATED_LINKS = [
+  { to: '/find-my-flavor', label: 'FIND MY FLAVOR' },
+];
 
 export default function Navigation() {
   const { user, isAdmin, isGuest, logout } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const gated = usePrelaunchGated();
+  const navLinks = gated ? GATED_LINKS : [...FULL_LINKS, ...(isAdmin ? [{ to: '/admin', label: 'ADMIN' }] : [])];
   const handleSignOut = async () => { await logout(); navigate('/'); setMobileOpen(false); };
 
   // true = hero section is visible = transparent nav
@@ -113,11 +134,9 @@ export default function Navigation() {
       </Link>
 
       <div className="hidden md:flex" style={{ alignItems: 'center', gap: 'clamp(14px, 2vw, 28px)' }}>
-        <Link to="/the-axis"             style={LINK} className="hover:opacity-50">THE AXIS</Link>
-        <Link to="/bloom"                style={LINK} className="hover:opacity-50">THE BLOOM</Link>
-        <Link to="/find-my-flavor"       style={LINK} className="hover:opacity-50">FIND MY FLAVOR</Link>
-        <Link to="/flavor-intelligence"  style={LINK} className="hover:opacity-50">FLAVOR INTELLIGENCE</Link>
-        {isAdmin && <Link to="/admin" style={LINK} className="hover:opacity-50">ADMIN</Link>}
+        {navLinks.map(item => (
+          <Link key={item.to} to={item.to} style={LINK} className="hover:opacity-50">{item.label}</Link>
+        ))}
       </div>
 
       {/* Icons */}
@@ -182,13 +201,7 @@ export default function Navigation() {
             padding: 'clamp(16px,4vw,24px) clamp(24px,5vw,64px) 24px',
           }}
         >
-          {[
-            { to: '/the-axis', label: 'THE AXIS' },
-            { to: '/bloom', label: 'THE BLOOM' },
-            { to: '/find-my-flavor', label: 'FIND MY FLAVOR' },
-            { to: '/flavor-intelligence', label: 'FLAVOR INTELLIGENCE' },
-            ...(isAdmin ? [{ to: '/admin', label: 'ADMIN' }] : []),
-          ].map(item => (
+          {navLinks.map(item => (
             <Link
               key={item.to}
               to={item.to}

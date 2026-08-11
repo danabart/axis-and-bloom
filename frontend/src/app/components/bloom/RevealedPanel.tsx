@@ -18,6 +18,13 @@ interface RevealedPanelProps {
    * Additive, default false (shown) — every existing consumer keeps the link;
    * only the Profile page itself passes true, since a self-link there is noise. */
   hideProfileLink?: boolean;
+  /** Pre-Launch Gate: hides "Explore the full breakdown →" (flavor-intelligence
+   * is a hidden route while gated) and "Talk to Liam →" (/sommelier, also
+   * hidden). "Your flavor profile →" is unaffected by this prop — /profile
+   * stays open throughout the gate, per hideProfileLink above. Default false,
+   * derived by DialArchetypeSection from the same lib/prelaunch.ts source of
+   * truth as the route guard. */
+  prelaunch?: boolean;
 }
 
 const RULE_STYLE: CSSProperties = { border: 'none', borderTop: '1px solid #deded1', margin: '32px 0' };
@@ -48,7 +55,7 @@ const QUIET_LINK_CLASS = 'text-[10.5px] uppercase tracking-[.14em] text-[#9a2918
  * every breakpoint and every evidence-presence combination without a
  * JS-computed template per case.
  */
-export function RevealedPanel({ isRevealed, archetype, dialSortOrder, content, dimensions, wheelRows, userArchetype, hideProfileLink = false }: RevealedPanelProps) {
+export function RevealedPanel({ isRevealed, archetype, dialSortOrder, content, dimensions, wheelRows, userArchetype, hideProfileLink = false, prelaunch = false }: RevealedPanelProps) {
   const { compat, dimCompText } = useCompatibility(archetype, userArchetype, dimensions);
   const exploreLink = archetype && dialSortOrder != null ? `/flavor-intelligence?archetype=${archetype}&slot=${dialSortOrder}` : '/flavor-intelligence';
   const hasDimensions = dimensions.length > 0;
@@ -125,8 +132,8 @@ export function RevealedPanel({ isRevealed, archetype, dialSortOrder, content, d
 
             {/* ── Row 4 · Footer: actions ── */}
             <div className="flex flex-wrap gap-x-9 gap-y-3">
-              <Link to={exploreLink} className={QUIET_LINK_CLASS}>Explore the full breakdown →</Link>
-              <Link to="/sommelier" className={QUIET_LINK_CLASS}>Talk to Liam →</Link>
+              {!prelaunch && <Link to={exploreLink} className={QUIET_LINK_CLASS}>Explore the full breakdown →</Link>}
+              {!prelaunch && <Link to="/sommelier" className={QUIET_LINK_CLASS}>Talk to Liam →</Link>}
               {!hideProfileLink && <Link to="/profile" className={QUIET_LINK_CLASS}>Your flavor profile →</Link>}
             </div>
           </div>

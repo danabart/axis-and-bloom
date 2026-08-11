@@ -1,9 +1,18 @@
 import { Link } from 'react-router';
 import { brandAssets } from '../../design/assets'
+import { usePrelaunchGated } from '../lib/prelaunch';
 
 const logoMark = brandAssets.logoQuarter1
 
 export default function Footer() {
+  const gated = usePrelaunchGated();
+  // Flavor Intelligence is a hidden route while gated — omit the link
+  // entirely rather than leaving it live ("never show a door we won't open").
+  const exploreLinks = [
+    { to: '/find-my-flavor', label: 'Find my flavor' },
+    ...(gated ? [] : [{ to: '/flavor-intelligence', label: 'Flavor Intelligence' }]),
+  ];
+
   return (
     <footer style={{ backgroundColor: '#f2f1ea', borderTop: '1px solid rgba(154,41,24,0.1)' }}>
       <div style={{ padding: 'clamp(28px, 3.5vw, 44px) clamp(24px, 5vw, 64px) clamp(16px, 2vw, 24px)', maxWidth: 1200, margin: '0 auto' }}>
@@ -26,10 +35,7 @@ export default function Footer() {
           <div>
             <p style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.65rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: '#9a2918', margin: '0 0 16px', opacity: 0.6 }}>Explore</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {[
-                { to: '/find-my-flavor', label: 'Find my flavor' },
-                { to: '/flavor-intelligence', label: 'Flavor Intelligence' },
-              ].map(l => (
+              {exploreLinks.map(l => (
                 <Link key={l.to} to={l.to} style={{ fontFamily: "'Lato', Arial, sans-serif", fontSize: '0.875rem', color: '#9a2918', textDecoration: 'none', opacity: 0.75 }} className="hover:opacity-100 transition-opacity">
                   {l.label}
                 </Link>

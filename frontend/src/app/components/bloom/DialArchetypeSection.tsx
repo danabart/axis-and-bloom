@@ -32,7 +32,7 @@ function numberWord(n: number): string {
 export function DialArchetypeSection({
   data, selectedSortOrder, revealedKeys, onDialSelect, onToggleReveal, onAddToCart, onCompare,
   userArchetype, registerDialRef, source = null, hideProfileLink = false, embedded = false, onDoorClick,
-  folded = false, ceremonyTag = 'YOUR SPOT', unfoldMode = 'inline', showBreakoutHeader = true,
+  folded = false, ceremonyTag = 'YOUR SPOT', unfoldMode = 'inline', showBreakoutHeader = true, prelaunch = false,
 }: {
   data: ArchetypeData;
   index: number;
@@ -82,6 +82,14 @@ export function DialArchetypeSection({
    * — a second one right above the block would duplicate it — so that call
    * site passes `false`. */
   showBreakoutHeader?: boolean;
+  /** Pre-Launch Gate — hides Add to Cart (main button + Quick Picks), and
+   * threads through to RevealedPanel to hide the Liam/flavor-intelligence
+   * footer links. Dial, position card, and reveal panel content all stay —
+   * only commerce and doors into hidden routes are removed. Default false;
+   * every call site derives this from lib/prelaunch.ts's usePrelaunchGated(),
+   * the same source of truth the route guard uses, so `?preview=true`
+   * restores the full component for the team. */
+  prelaunch?: boolean;
 }) {
   const { user } = useAuth();
   const config = buildDialConfig(data);
@@ -331,9 +339,11 @@ export function DialArchetypeSection({
                 <span className="bd-card-ship">shipping included</span>
               </div>
 
-              <button className="bd-card-atc" type="button" onClick={handleAddToCart} disabled={!cardData.selectedPrice}>
-                ADD TO CART&nbsp;&nbsp;→
-              </button>
+              {!prelaunch && (
+                <button className="bd-card-atc" type="button" onClick={handleAddToCart} disabled={!cardData.selectedPrice}>
+                  ADD TO CART&nbsp;&nbsp;→
+                </button>
+              )}
             </>
           )}
 
@@ -377,8 +387,10 @@ export function DialArchetypeSection({
         /* Zone 3 — quick picks. Naming decision (Dana, 2026-08-08): "The
            {Archetype} classic" and "The {Archetype} Collection" everywhere,
            never a bare "classic" or "set". Shown once unfolded too, same as
-           /bloom — folding doesn't remove commerce options, only the field. */
-        (classicAvailable || data.collectionOffer) && (
+           /bloom — folding doesn't remove commerce options, only the field.
+           Pre-Launch Gate: both rows are Add to Cart variants, so the whole
+           block is hidden while gated, same as the main ATC button above. */
+        !prelaunch && (classicAvailable || data.collectionOffer) && (
           <div className="bd-qp">
             <p className="bd-qp-label">Quick picks</p>
             {classicAvailable && (
@@ -437,6 +449,7 @@ export function DialArchetypeSection({
         wheelRows={cardData.wheelRows}
         userArchetype={userArchetype}
         hideProfileLink={hideProfileLink}
+        prelaunch={prelaunch}
       />
     </div>
   );

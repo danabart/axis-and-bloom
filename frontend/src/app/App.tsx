@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, useSearchParams, useLocation } from 'react-router';
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router';
 import { trackPageView } from './lib/analytics';
 import { AuthProvider } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
@@ -37,11 +37,11 @@ import JoinHousehold from './components/JoinHousehold';
 import TheAxis from './components/TheAxis';
 import Sommelier from './components/Sommelier';
 import RequireAuth from './components/RequireAuth';
+import PrelaunchGate from './components/PrelaunchGate';
 import Privacy from './components/Privacy';
 import Terms from './components/Terms';
 import ConsentBanner from './components/ConsentBanner';
-
-const PRELAUNCH = import.meta.env.VITE_PRELAUNCH_MODE === 'true';
+import { usePrelaunchGated } from './lib/prelaunch';
 
 // GA4/Pixel config disables automatic page views (this is an SPA) — fire one on every
 // route change instead, including the initial load, from inside the Router.
@@ -54,11 +54,8 @@ function AnalyticsRouteTracker() {
 }
 
 function HomeOrPrelaunch() {
-  const [searchParams] = useSearchParams();
-  const fromUrl = searchParams.get('preview') === 'true';
-  if (fromUrl) sessionStorage.setItem('abPreview', 'true');
-  const bypassed = fromUrl || sessionStorage.getItem('abPreview') === 'true';
-  if (PRELAUNCH && !bypassed) return <PreLaunch />;
+  const gated = usePrelaunchGated();
+  if (gated) return <PreLaunch />;
   return <Home />;
 }
 
@@ -98,12 +95,18 @@ export default function App() {
             {/* ── Quiz — own minimal chrome, no public nav/footer/cart ── */}
             <Route path="/find-my-flavor" element={<FlavorQuiz />} />
 
-            {/* ── Public site — shared nav + footer ── */}
+            {/* ── Public site — shared nav + footer. Routes not in
+                 lib/prelaunch.ts's PRELAUNCH_OPEN_ROUTES are wrapped in
+                 <PrelaunchGate>, which redirects to the curtain at "/" while
+                 VITE_PRELAUNCH_MODE is on and the session hasn't bypassed it. ── */}
             <Route element={<PublicLayout />}>
               <Route path="/" element={<HomeOrPrelaunch />} />
-              <Route path="/how-it-works" element={<HowItWorks />} />
-              <Route path="/about" element={<About />} />
-              <Route path="/shop" element={<Shop />} />
+              <Route path="/how-it-works" element={<PrelaunchGate><HowItWorks /></PrelaunchGate>} />
+              {/* Live deviation from the original spec (Dana, mid-execution): /about
+                  is an old, admin-only-linked page not used on the live site — closed
+                  like everything else, not kept open as the written prompt listed it. */}
+              <Route path="/about" element={<PrelaunchGate><About /></PrelaunchGate>} />
+              <Route path="/shop" element={<PrelaunchGate><Shop /></PrelaunchGate>} />
               <Route path="/sign-in" element={<SignIn />} />
               <Route
                 path="/profile"
@@ -113,21 +116,25 @@ export default function App() {
                   </RequireAuth>
                 }
               />
-              <Route path="/flavor-intelligence" element={<FlavorIntelligencePage />} />
-              <Route path="/coffees" element={<CoffeesRedirect />} />
-              <Route path="/bloom" element={<BloomPage />} />
-              <Route path="/coffee/:id/story" element={<CoffeeStoryPage />} />
+              <Route path="/flavor-intelligence" element={<PrelaunchGate><FlavorIntelligencePage /></PrelaunchGate>} />
+              <Route path="/coffees" element={<PrelaunchGate><CoffeesRedirect /></PrelaunchGate>} />
+              <Route path="/bloom" element={<PrelaunchGate><BloomPage /></PrelaunchGate>} />
+              <Route path="/coffee/:id/story" element={<PrelaunchGate><CoffeeStoryPage /></PrelaunchGate>} />
               <Route path="/b/:token" element={<QrDoor />} />
               <Route
                 path="/sommelier"
                 element={
-                  <RequireAuth>
-                    <Sommelier />
-                  </RequireAuth>
+                  <PrelaunchGate>
+                    <RequireAuth>
+                      <Sommelier />
+                    </RequireAuth>
+                  </PrelaunchGate>
                 }
               />
-              <Route path="/join-household" element={<JoinHousehold />} />
-              <Route path="/the-axis" element={<TheAxis />} />
+              <Route path="/join-household" element={<PrelaunchGate><JoinHousehold /></PrelaunchGate>} />
+              {/* Live deviation from the original spec (Dana, mid-execution): /the-axis
+                  is closed too, not kept open as the written prompt listed it. */}
+              <Route path="/the-axis" element={<PrelaunchGate><TheAxis /></PrelaunchGate>} />
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/terms" element={<Terms />} />
             </Route>
