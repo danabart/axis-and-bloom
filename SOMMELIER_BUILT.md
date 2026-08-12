@@ -1566,3 +1566,25 @@ No prompt, routing rule, or evaluator logic changed — this is purely the front
 **Not verified live this pass** (needs a deployed environment, listed back to Dana in #159): an actual Q3-C completion routing to `DISCOVERY_SEEKER` in a real Liam session, and a branch-quiz completion's `context_data` showing the reclassified archetype alongside the *original* secondary/foodSignal/recommendationMode (not defaults, not re-derived from the branch answer).
 
 **Files**: `backend/src/routes/quiz.ts`, `frontend/src/app/lib/api.ts`, `frontend/src/app/components/FlavorQuiz.tsx`. No prompt files, no Firestore index, no schema change.
+
+### Quiz Branched From — the branch parent becomes the secondary archetype on a real reclassification (2026-08-11)
+
+#### S91. `branchedFrom` given to the evaluator — "Floral, refined out of Fruity" replaces an unexplained Floral with an unrelated runner-up
+
+**Context**: `backend/src/features/quizes/CLAUDE_CODE_PROMPT_QUIZ_BRANCHED_FROM.md` (v2 — supersedes a same-day v1; the v2 change, decided by Dana, is that a real branch switch now overwrites `secondaryArchetype` with the branch parent rather than parking it in a side field only). Sequenced after S90 — depends on `buildQuizResultPayload()`. Full mechanism detail in `WHAT_WE_BUILT.md` #160; this entry is the evaluator-facing half.
+
+**The gap this closes**: the quiz only scores three archetypes (Chocolate & Nutty, Balanced & Sweet, Fruity); Floral and Earthy exist only as branch outcomes. `secondaryArchetype` was always computed pre-branch, so a Floral user's recorded runner-up was Balanced & Sweet or Chocolate & Nutty — the two profiles *furthest* from them — while Fruity (their actual highest score, and the direct parent archetype) was thrown away. `userStateSnapshot` and `getUserSignals()` inherited this same blind spot.
+
+**Fix, evaluator side**: `branchedFrom: string | null` added to `UserSignals` (`userSignals.ts`) and `UserStateSnapshot` (`sommelierEvaluator.ts`), read off `latestCtx.branchedFrom` the same way as its neighbours, populated into the `userStateSnapshot` object written to every evaluation's Firestore audit log. On a real switch, `secondaryArchetype` in that same snapshot is now the branch parent (set by the frontend at save time, per #160) — so a future evaluation log entry reads as "Floral, secondary Fruity, branchedFrom Fruity" instead of "Floral, secondary Balanced & Sweet" with no explanation of where that number came from.
+
+**`featureVector` deliberately untouched** — still exactly 13 dimensions, same order, verified by direct read. A comment now sits above the `foodSignal === secondaryArchetype` dimension noting that on a branch-switched session `secondaryArchetype` means "branch parent" as of this change — but the dimension is structurally 0 either way for those sessions, since Q6's food signal can only ever be Chocolate & Nutty, Balanced & Sweet, or Fruity, never Floral or Earthy. Whether `branchedFrom` deserves its own vector dimension is left as an explicit future/versioned decision for Dana, per the spec's own constraint — not decided here.
+
+**`computeConfidenceAndMode()`/`findSecondary()` confirmed untouched** — the promotion lives entirely in the frontend payload at save time (#160), so `/api/quiz/score`'s response (which `computeConfidenceAndMode` still runs against, pre-branch, with the scored secondary) is unaffected. Recomputing either post-branch was considered and explicitly rejected in the spec: `foodSignal` can never equal a Floral/Earthy winner, so doing so would collapse every branched user to `ai_agent`/low confidence.
+
+**Verified**: `tsc --noEmit` clean (backend); frontend standalone `tsc --noEmit` on the two changed files clean (same no-`tsconfig.json` gap as S90); `featureVector` length/order re-read directly post-edit (13, unchanged); `computeConfidenceAndMode` grepped to confirm its only call site is still `POST /score`; `quizScoring.ts` confirmed untouched by this diff. `npx vitest run` — identical 17 pre-existing failures to S90's baseline, nothing new. Full detail: `WHAT_WE_BUILT.md` #160.
+
+**Not verified live this pass** (needs a deployed environment, listed back to Dana in #160): a real Fruity→Floral branch completion's evaluator log actually showing `branchedFrom: 'Fruity'` / `secondaryArchetype: 'Fruity'` together in a live `sommelier_evaluations` doc.
+
+**Out of scope, per the spec's own explicit constraints**: no historical backfill of `branchedFrom` on existing sessions; no `scoredRunnerUp`/`tertiaryArchetype` field added anywhere.
+
+**Files**: `backend/src/services/userSignals.ts`, `backend/src/services/sommelierEvaluator.ts` (plus `backend/src/routes/quiz.ts`, `frontend/src/app/lib/api.ts`, `frontend/src/app/components/FlavorQuiz.tsx` — shared with #160). No new Firestore index, no schema change.

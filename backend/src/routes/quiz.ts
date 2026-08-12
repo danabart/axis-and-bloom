@@ -204,7 +204,7 @@ router.post('/event', funnelEventLimiter, async (req, res) => {
 // ─── POST /api/quiz/results ──────────────────────────────────────────────────
 // Saves a completed quiz session, linking the real archetype FK from the DB.
 router.post('/results', requireAuth, async (req: AuthRequest, res) => {
-  const { archetype, scores, answers, decaf, experimental, secondaryArchetype, foodSignal, foodSignalAlignment, recommendationMode, answerIds } = req.body;
+  const { archetype, scores, answers, decaf, experimental, secondaryArchetype, foodSignal, foodSignalAlignment, recommendationMode, answerIds, branchedFrom } = req.body;
   if (!archetype || !scores || !answers) {
     res.status(400).json({ error: 'archetype, scores, and answers required' });
     return;
@@ -227,7 +227,7 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
       archetype, scores, answers, decaf: decaf ?? false, experimental: experimental ?? false,
       secondaryArchetype: secondaryArchetype ?? null, foodSignal: foodSignal ?? null,
       foodSignalAlignment: foodSignalAlignment ?? 'high', recommendationMode: recommendationMode ?? 'primary_only',
-      answerIds: answerIds ?? null,
+      answerIds: answerIds ?? null, branchedFrom: branchedFrom ?? null,
     });
 
     // Sync to Firestore — non-blocking, Cloud SQL is source of truth
@@ -246,6 +246,7 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
       recommendationMode:  recommendationMode ?? 'primary_only',
       experimental:        experimental ?? false,
       answerIds:           answerIds ?? null,
+      branchedFrom:        branchedFrom ?? null,
       scores,
       completedAt:         FieldValue.serverTimestamp(),
     }).catch((err: unknown) => console.error('[quiz/firestore-session]', err));

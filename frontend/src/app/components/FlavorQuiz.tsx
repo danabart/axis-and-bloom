@@ -915,14 +915,24 @@ export default function FlavorQuiz() {
   // recommendation mode, experimental flag). Every save path must send all of it —
   // the backend stores it in quiz_session.context_data and the Firestore mirror, and
   // previously fell through to defaults because the frontend only sent four fields.
-  function buildQuizResultPayload(score: ScoreResult, finalArchetype: string) {
+  function buildQuizResultPayload(
+    score: ScoreResult,
+    finalArchetype: string,
+    branchedFrom: string | null = null,
+  ) {
     return {
       archetype:           finalArchetype,
       scores:              score.scores,
       answers,
       answerIds:           answerIdsRef.current, // raw quiz_answer UUIDs — makes the session replayable
       decaf:               false,
-      secondaryArchetype:  score.secondaryArchetype,
+      branchedFrom,
+      // On a real reclassification (branchedFrom non-null) the branch parent is the
+      // user's most relevant second flavor — it was their single highest scorer and
+      // the archetype they refined away from. The scored runner-up is intentionally
+      // demoted; it stays derivable from `scores`, which is persisted in full.
+      // Decided 2026-08-11 — do not "fix" this back to score.secondaryArchetype.
+      secondaryArchetype:  branchedFrom ?? score.secondaryArchetype,
       foodSignal:          score.foodSignal,
       foodSignalAlignment: score.foodSignalAlignment,
       recommendationMode:  score.recommendationMode,
@@ -998,7 +1008,8 @@ export default function FlavorQuiz() {
     setArchetypeKey(newKey);
 
     if (user) {
-      saveQuizResult(buildQuizResultPayload(scoreData, finalArchetypeName))
+      const branchedFrom = finalArchetypeName !== scoreData.archetype ? scoreData.archetype : null;
+      saveQuizResult(buildQuizResultPayload(scoreData, finalArchetypeName, branchedFrom))
         .then(refreshUserProfile)
         .catch(console.error);
     }
@@ -1056,7 +1067,8 @@ export default function FlavorQuiz() {
       const newKey = ARCHETYPE_NAME_TO_KEY[finalArchetypeName] ?? archetypeKey;
       setArchetypeKey(newKey);
       if (user) {
-        saveQuizResult(buildQuizResultPayload(scoreData, finalArchetypeName))
+        const branchedFrom = finalArchetypeName !== scoreData.archetype ? scoreData.archetype : null;
+        saveQuizResult(buildQuizResultPayload(scoreData, finalArchetypeName, branchedFrom))
           .then(refreshUserProfile)
           .catch(console.error);
       }

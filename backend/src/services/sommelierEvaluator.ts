@@ -35,6 +35,7 @@ export interface EvaluatorFlags {
 interface UserStateSnapshot {
   archetype: string | null;
   secondaryArchetype: string | null;
+  branchedFrom: string | null;
   experimental: boolean;
   foodSignalAlignment: string;
   recommendationMode: string;
@@ -72,7 +73,7 @@ export async function evaluateSommelier(
   // ── Stage 1: Collect data ────────────────────────────────────────────────
   const signals = await getUserSignals(uid);
   const {
-    archetype, secondaryArchetype, foodSignal, experimental, foodSignalAlignment, recommendationMode,
+    archetype, secondaryArchetype, branchedFrom, foodSignal, experimental, foodSignalAlignment, recommendationMode,
     quizCount, archetypeChangeCount, archetypeChangedLastTwoQuizzes, daysSinceLastQuiz,
     totalOrders, behavioralScore, behavioralLevel, behavioralComponents: bcComponents,
     hasRecentNegativeFeedback, age, generation, householdType,
@@ -92,12 +93,19 @@ export async function evaluateSommelier(
     flags.quizTie ? 1 : 0,
     hasRecentNegativeFeedback ? 1 : 0,
     foodSignal && archetype && foodSignal === archetype ? 1 : 0,
+    // Quiz Branched From (2026-08-11, semantics versioned): on a branch-switched
+    // session, `secondaryArchetype` is the branch parent (e.g. Fruity for a Floral
+    // result), not the scored runner-up — see WHAT_WE_BUILT.md's Branched From
+    // entry. Floral/Earthy can never be a food signal (Q6 only maps to the three
+    // scored archetypes), so this dimension is structurally 0 for every
+    // branch-switched user regardless; unchanged behavior, just documented here.
     foodSignal && secondaryArchetype && foodSignal === secondaryArchetype ? 1 : 0,
   ];
 
   const userStateSnapshot: UserStateSnapshot = {
     archetype,
     secondaryArchetype,
+    branchedFrom,
     experimental,
     foodSignalAlignment,
     recommendationMode,

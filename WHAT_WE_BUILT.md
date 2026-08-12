@@ -3994,6 +3994,37 @@ On the frontend, `BloomDial.tsx`'s `paint()` checks — only at `zone===0` (left
 
 ---
 
+### 160. Branch reclassification — `branchedFrom` recorded, and promoted to `secondaryArchetype` on a real branch switch (2026-08-11, v2)
+
+**Context**: spec: `backend/src/features/quizes/CLAUDE_CODE_PROMPT_QUIZ_BRANCHED_FROM.md` (v2, supersedes a same-day v1 — the v1→v2 change, decided by Dana, is that a real branch switch now *overwrites* `secondaryArchetype` with the branch parent instead of leaving it in a side field). Sequenced after and depends on #159 (`buildQuizResultPayload()`). The quiz only scores three archetypes (Chocolate & Nutty, Balanced & Sweet, Fruity — Q1–Q5's weighted rows); Floral and Earthy have zero scoring rows and are reachable only as branch outcomes (Fruity→Floral, Chocolate & Nutty→Earthy). Because `secondaryArchetype` was computed pre-branch as the second-highest *scored* archetype, a branch-switched user's recorded runner-up was always one of the two archetypes furthest from their actual palate — Fruity (their single highest score, and the direct parent of the archetype they landed on) was discarded entirely the moment it became most informative.
+
+**The fix — three rules, all decided explicitly by Dana on 2026-08-11**:
+1. **`branchedFrom`** (new field) captures the archetype reclassified *away from* — non-null only when the branch answer actually changed the archetype. Both branch questions have a "stay" answer (Fruity branch → Fruity; Earthy branch → Chocolate & Nutty) — picking those records `null`.
+2. **On an actual switch, the branch parent becomes the secondary.** `buildQuizResultPayload()` (`FlavorQuiz.tsx`) now takes a third `branchedFrom` argument; `secondaryArchetype` sent to `POST /results` is `branchedFrom ?? score.secondaryArchetype` — the branch parent when one exists, the scored runner-up otherwise (including the "stay" case, where the user *rejected* the branch option, so it must not become their secondary). The test is a value comparison (`finalArchetypeName !== scoreData.archetype`), not "did a branch question appear" — applied at both branch call sites (`handleBranchContinue`, `handleBranchAnswerSelect`'s auto-advance); the two non-branching call sites (`handleNext`'s no-branch path, the tie interstitial) omit the argument, defaulting to `null`.
+3. **No new field for the demoted scored runner-up.** The full `scores` map is already persisted with every session, so it stays fully derivable by re-ranking — deliberately not adding a `scoredRunnerUp`/`tertiaryArchetype` field anywhere (payload, `context_data`, Firestore, signals).
+
+`branchedFrom` is not redundant with rule 2 — it is the audit-trail bit distinguishing "secondary because branch" (`branchedFrom` non-null, `secondaryArchetype === branchedFrom`) from "secondary because score" (`branchedFrom` null).
+
+**Backend** (`quiz.ts`): `branchedFrom` added to the `POST /results` body destructure, threaded into `saveQuizSession()`'s `context_data` and the Firestore `quiz_sessions/{id}` doc. No change to `POST /score`, `findSecondary()`, or `computeConfidenceAndMode()` — the promotion happens entirely in the frontend payload at save time, so `/score`'s response (used pre-branch for mode/confidence) stays untouched. This is deliberate, not an oversight: `computeConfidenceAndMode()` compares `foodSignal` against the winner/secondary, and `foodSignal` (Q6) can only ever be Chocolate & Nutty, Balanced & Sweet, or Fruity — recomputing post-branch with `winner = 'Floral'` would make `foodSignal === winner` structurally impossible and collapse every branched user to `ai_agent`/low confidence.
+
+**Liam surfacing** (`userSignals.ts`, `sommelierEvaluator.ts`): `branchedFrom: string | null` added to `UserSignals` and `UserStateSnapshot`, read from `latestCtx` in the same style as its neighbours, populated in the evaluator's `userStateSnapshot` — gives Liam's evaluator log the real relationship ("Floral, refined out of Fruity") instead of an unexplained Floral with an unrelated runner-up. `featureVector`'s 13 dimensions are unchanged in length and order (verified) — this is a versioned decision left for later, not part of this change; a comment was added above the `foodSignal === secondaryArchetype` entry noting that on branch-switched sessions this dimension's `secondaryArchetype` now means "branch parent," though it's structurally always 0 there regardless (Floral/Earthy can never be a food signal).
+
+**Verified**:
+- `cd backend && npx tsc --noEmit` — clean.
+- `cd frontend && npx tsc --noEmit` — no committed `tsconfig.json` (same documented gap as #159/#118/#152); standalone `tsc --noEmit` on the two changed frontend files (`api.ts`, `FlavorQuiz.tsx`) — zero errors in either, only the same pre-existing unrelated noise (`ArchetypeSection.tsx`'s `hops` prop, `import.meta.env` typing) already documented in #159.
+- `featureVector` confirmed still exactly 13 entries, same order (read directly, not just claimed).
+- `computeConfidenceAndMode` confirmed called only from `POST /score` (grepped every call site).
+- `findSecondary()` confirmed unchanged (`quizScoring.ts` untouched by this diff).
+- `npx vitest run` — same 17 pre-existing failures as #159's baseline (6 `quizScoring.test.ts` tie-break drift + dist duplicates + `admin.lookups.test.ts`/`coffees.test.ts`, all in files this change never touched), nothing new.
+
+**Not done, per the spec's own explicit constraints**: no historical backfill (`branchedFrom` is `null`-means-unknown on pre-existing rows, not "did not branch" — re-scoring off the persisted `answerIds` is separate future work); no `scoredRunnerUp` field.
+
+**Post-deploy checks for Dana** (not attempted — needs a deployed environment): Fruity → tea-like branch answer → confirm `context_data` shows `archetype: 'Floral'`, `branchedFrom: 'Fruity'`, `secondaryArchetype: 'Fruity'`, scored runner-up still visible inside `scores`. Same flow but the branch's stay answer → confirm `archetype: 'Fruity'`, `branchedFrom: null`, secondary = scored runner-up. A non-branching result (Balanced & Sweet) → confirm `branchedFrom: null`, unchanged secondary behavior.
+
+**Files**: `backend/src/routes/quiz.ts`, `backend/src/services/userSignals.ts`, `backend/src/services/sommelierEvaluator.ts`, `frontend/src/app/lib/api.ts`, `frontend/src/app/components/FlavorQuiz.tsx`.
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

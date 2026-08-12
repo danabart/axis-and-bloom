@@ -16,6 +16,7 @@ export async function saveQuizResult(payload: {
   answers: Record<number, number>;
   decaf: boolean;
   answerIds?: string[];
+  branchedFrom?: string | null;
   secondaryArchetype?: string | null;
   foodSignal?: string | null;
   foodSignalAlignment?: string;

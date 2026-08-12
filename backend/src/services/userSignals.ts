@@ -23,6 +23,7 @@ export interface UserSignals {
   // Quiz
   archetype: string | null;
   secondaryArchetype: string | null;
+  branchedFrom: string | null;
   foodSignal: string | null;
   experimental: boolean;
   foodSignalAlignment: string;
@@ -114,6 +115,7 @@ export async function getUserSignals(uid: string): Promise<UserSignals> {
   const latestCtx = latestQuiz?.context_data ?? {};
   const archetype = latestQuiz?.archetype_name ?? null;
   const secondaryArchetype = latestCtx.secondaryArchetype ?? null;
+  const branchedFrom = latestCtx.branchedFrom ?? null;
   const foodSignal = latestCtx.foodSignal ?? null;
   const experimental = latestCtx.experimental ?? false;
   const foodSignalAlignment = latestCtx.foodSignalAlignment ?? 'high';
@@ -283,6 +285,7 @@ export async function getUserSignals(uid: string): Promise<UserSignals> {
     firebaseUid: uid,
     archetype,
     secondaryArchetype,
+    branchedFrom,
     foodSignal,
     experimental,
     foodSignalAlignment,
