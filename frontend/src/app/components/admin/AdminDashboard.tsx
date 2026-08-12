@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import AdminQuizIntegrity from './AdminQuizIntegrity';
 
 interface Stats {
   coffees: string;
@@ -124,7 +125,7 @@ export default function AdminDashboard() {
       <p className="text-xs font-normal tracking-widest uppercase mb-2" style={{ color: '#b05642' }}>
         Cupping & Catalogue
       </p>
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
         {CARDS.map(({ key, label }) => (
           <div key={key} className="border border-stone-200 rounded-lg p-5">
             <p className="text-3xl font-normal text-stone-800">
@@ -134,6 +135,8 @@ export default function AdminDashboard() {
           </div>
         ))}
       </div>
+
+      <AdminQuizIntegrity />
     </div>
   );
 }

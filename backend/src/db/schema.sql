@@ -2467,7 +2467,27 @@ END $v4$;
 --           Bitterness · Food signal (moved to last, weight 0)
 -- Branch questions: Floral (trigger: Fruity) and Earthy (trigger: Chocolate & Nutty)
 -- Veto cascade: Q5 → Q4 → Q2 → Q1  |  Experimental gate: Q3-C
+--
+-- Drift prevention (Quiz Content Drift Prevention, 2026-08-11): quiz_answer
+-- carries a stable, version-scoped answer_code (v7_q1_a, v7_branch_fruity_stay,
+-- etc.) so scoring survives a copy edit. The block below is a re-asserting
+-- upsert, not a one-time seed — it runs on every application of this file
+-- (every boot, see index.ts's start()) and converges DB content to this
+-- file's content every time, keyed on answer_code. It never deletes and
+-- reinserts quiz_answer rows — answer UUIDs are load-bearing (referenced by
+-- quiz_answer_archetype_score and, as of the AI-call-removal change, by
+-- persisted session answerIds) — only UPDATEs existing rows in place.
+-- Retired quiz versions (v5/v6) are untouched: every write below is scoped to
+-- the v7 quiz tree, either by explicit quiz_id or by answer_code.
 -- ─────────────────────────────────────────────
+
+-- Change 1 — stable answer_code. Only the active v7 quiz and its two branch
+-- quizzes ever get one; retired v5/v6 rows keep answer_code IS NULL, which
+-- this partial unique index tolerates (many nulls, no conflict).
+ALTER TABLE quiz_answer ADD COLUMN IF NOT EXISTS answer_code TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS quiz_answer_code_unique
+  ON quiz_answer (answer_code) WHERE answer_code IS NOT NULL;
+
 DO $v7$
 DECLARE
   v_main_type_id   UUID;
@@ -2484,13 +2504,11 @@ DECLARE
   v_earthy_bq_id   UUID;   -- Earthy branch quiz id
   v_fbq1_id        UUID;   -- Floral branch question id
   v_ebq1_id        UUID;   -- Earthy branch question id
+  v_answer_id      UUID;   -- loop working var
+  v_question_id    UUID;   -- loop working var
+  v_archetype_id   UUID;   -- loop working var
+  rec              RECORD; -- loop working var
 BEGIN
-  -- Skip if v7 main quiz already exists (seeded by migration or prior schema run)
-  IF EXISTS (SELECT 1 FROM quiz WHERE version = 'v7') THEN RETURN; END IF;
-
-  -- Delete old V7 if it exists (re-seed with normalised branch quiz structure)
-  DELETE FROM quiz WHERE version IN ('v7', 'v7-branch-floral', 'v7-branch-earthy');
-
   SELECT id INTO v_main_type_id   FROM quiz_type WHERE name = 'main';
   SELECT id INTO v_branch_type_id FROM quiz_type WHERE name = 'branch';
 
@@ -2500,130 +2518,251 @@ BEGIN
   SELECT id INTO v_floral_id FROM archetype WHERE name = 'Floral';
   SELECT id INTO v_earthy_id FROM archetype WHERE name = 'Earthy';
 
-  -- Deactivate all main quizzes
-  UPDATE quiz SET is_active = FALSE WHERE quiz_type_id = v_main_type_id OR quiz_type_id IS NULL;
+  -- ── Quiz rows — create only if absent (as before); always re-assert
+  -- content on every run, INCLUDING is_active. ─────────────────────────────
+  SELECT id INTO v_quiz_id FROM quiz WHERE version = 'v7';
+  IF v_quiz_id IS NULL THEN
+    -- First-ever creation only — make sure no stale main quiz is left active.
+    UPDATE quiz SET is_active = FALSE WHERE (quiz_type_id = v_main_type_id OR quiz_type_id IS NULL) AND parent_quiz_id IS NULL;
+    INSERT INTO quiz (version, description, is_active, quiz_type_id)
+      VALUES ('v7', 'Axis & Bloom Flavor Finder — V7', true, v_main_type_id)
+      RETURNING id INTO v_quiz_id;
+  ELSE
+    UPDATE quiz SET description = 'Axis & Bloom Flavor Finder — V7', is_active = true, quiz_type_id = v_main_type_id
+    WHERE id = v_quiz_id;
+  END IF;
 
-  -- ── Main quiz ─────────────────────────────────────────────────────────────────
-  INSERT INTO quiz (version, description, is_active, quiz_type_id)
-    VALUES ('v7', 'Axis & Bloom Flavor Finder — V7', true, v_main_type_id)
-    RETURNING id INTO v_quiz_id;
+  -- Branch quizzes — corrected 2026-08-11 (Dana): is_active = TRUE is correct.
+  -- The branches are in service; "not the main quiz" is already expressed by
+  -- parent_quiz_id (the main-quiz selector filters parent_quiz_id IS NULL;
+  -- GET /api/quiz/branch never reads is_active at all). Do not flip this back
+  -- to false — production already has both rows active and that is correct.
+  SELECT id INTO v_floral_bq_id FROM quiz WHERE version = 'v7-branch-floral';
+  IF v_floral_bq_id IS NULL THEN
+    INSERT INTO quiz (version, description, is_active, quiz_type_id, trigger_archetype_id, parent_quiz_id)
+      VALUES ('v7-branch-floral', 'V7 branch — Fruity → Floral', true, v_branch_type_id, v_fruit_id, v_quiz_id)
+      RETURNING id INTO v_floral_bq_id;
+  ELSE
+    UPDATE quiz SET description = 'V7 branch — Fruity → Floral', is_active = true, quiz_type_id = v_branch_type_id,
+      trigger_archetype_id = v_fruit_id, parent_quiz_id = v_quiz_id
+    WHERE id = v_floral_bq_id;
+  END IF;
 
-  -- Q1 (weight 1 — identity)
-  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
-    VALUES (v_quiz_id, 1, 'How would you describe your relationship with coffee?', 1)
-    RETURNING id INTO v_q1_id;
-  INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
-    (v_q1_id, 'It''s a daily ritual. I''m particular about it.',                v_choc_id),
-    (v_q1_id, 'It''s a reliable habit. I just like having it.',                 v_bal_id),
-    (v_q1_id, 'It''s something I''m still discovering. I''m curious about it.', v_fruit_id);
+  SELECT id INTO v_earthy_bq_id FROM quiz WHERE version = 'v7-branch-earthy';
+  IF v_earthy_bq_id IS NULL THEN
+    INSERT INTO quiz (version, description, is_active, quiz_type_id, trigger_archetype_id, parent_quiz_id)
+      VALUES ('v7-branch-earthy', 'V7 branch — Chocolate & Nutty → Earthy', true, v_branch_type_id, v_choc_id, v_quiz_id)
+      RETURNING id INTO v_earthy_bq_id;
+  ELSE
+    UPDATE quiz SET description = 'V7 branch — Chocolate & Nutty → Earthy', is_active = true, quiz_type_id = v_branch_type_id,
+      trigger_archetype_id = v_choc_id, parent_quiz_id = v_quiz_id
+    WHERE id = v_earthy_bq_id;
+  END IF;
 
-  -- Q2 (weight 2 — perfect cup)
-  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
-    VALUES (v_quiz_id, 2, 'When you finish a really good cup of coffee, what made it good?', 2)
-    RETURNING id INTO v_q2_id;
-  INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
-    (v_q2_id, 'It was strong and satisfying — I felt it.',                              v_choc_id),
-    (v_q2_id, 'It was smooth and easy the whole way through — nothing got in the way.', v_bal_id),
-    (v_q2_id, 'It felt alive — bright and changing. Every sip was a little different.', v_fruit_id);
+  -- ── Question rows — create if absent; always re-assert q_text/weight,
+  -- keyed on (quiz_id, q_number). ───────────────────────────────────────────
+  SELECT id INTO v_q1_id FROM quiz_question WHERE quiz_id = v_quiz_id AND q_number = 1;
+  IF v_q1_id IS NULL THEN
+    INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
+      VALUES (v_quiz_id, 1, 'How would you describe your relationship with coffee?', 1)
+      RETURNING id INTO v_q1_id;
+  ELSE
+    UPDATE quiz_question SET q_text = 'How would you describe your relationship with coffee?', weight = 1 WHERE id = v_q1_id;
+  END IF;
 
-  -- Q3 (weight 1 — black coffee; C is experimental gate)
-  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
-    VALUES (v_quiz_id, 3, 'You try a new coffee black. What''s your first reaction?', 1)
-    RETURNING id INTO v_q3_id;
-  INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
-    (v_q3_id, 'It feels complete. I''d drink it as is, or add milk to make it even richer.', v_choc_id),
-    (v_q3_id, 'It''s fine, easy to drink. I might add something to smooth it out.',           v_bal_id);
-  INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id, is_experimental_gate) VALUES
-    (v_q3_id, 'Interesting… what flavors am I getting here?', v_fruit_id, TRUE);
+  SELECT id INTO v_q2_id FROM quiz_question WHERE quiz_id = v_quiz_id AND q_number = 2;
+  IF v_q2_id IS NULL THEN
+    INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
+      VALUES (v_quiz_id, 2, 'When you finish a really good cup of coffee, what made it good?', 2)
+      RETURNING id INTO v_q2_id;
+  ELSE
+    UPDATE quiz_question SET q_text = 'When you finish a really good cup of coffee, what made it good?', weight = 2 WHERE id = v_q2_id;
+  END IF;
 
-  -- Q4 (weight 2 — disappointment)
-  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
-    VALUES (v_quiz_id, 4, 'Which of these would bother you most about a cup of coffee?', 2)
-    RETURNING id INTO v_q4_id;
-  INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
-    (v_q4_id, 'It has no bitterness or intensity.', v_choc_id),
-    (v_q4_id, 'It''s too bitter or too intense.',   v_bal_id),
-    (v_q4_id, 'Every sip tastes exactly the same.', v_fruit_id);
+  SELECT id INTO v_q3_id FROM quiz_question WHERE quiz_id = v_quiz_id AND q_number = 3;
+  IF v_q3_id IS NULL THEN
+    INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
+      VALUES (v_quiz_id, 3, 'You try a new coffee black. What''s your first reaction?', 1)
+      RETURNING id INTO v_q3_id;
+  ELSE
+    UPDATE quiz_question SET q_text = 'You try a new coffee black. What''s your first reaction?', weight = 1 WHERE id = v_q3_id;
+  END IF;
 
-  -- Q5 (weight 3 — bitterness; highest weight; veto cascade anchor)
-  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
-    VALUES (v_quiz_id, 5, 'Someone hands you a coffee that''s a little more bitter than expected. What''s your honest reaction?', 3)
-    RETURNING id INTO v_q5_id;
-  INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
-    (v_q5_id, 'I don''t mind. Actually I kind of like it. It tastes serious.',           v_choc_id),
-    (v_q5_id, 'I''d rather have something gentler and smoother.',                        v_bal_id),
-    (v_q5_id, 'It feels burnt to me. I''d rather have something fresher or more alive.', v_fruit_id);
+  SELECT id INTO v_q4_id FROM quiz_question WHERE quiz_id = v_quiz_id AND q_number = 4;
+  IF v_q4_id IS NULL THEN
+    INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
+      VALUES (v_quiz_id, 4, 'Which of these would bother you most about a cup of coffee?', 2)
+      RETURNING id INTO v_q4_id;
+  ELSE
+    UPDATE quiz_question SET q_text = 'Which of these would bother you most about a cup of coffee?', weight = 2 WHERE id = v_q4_id;
+  END IF;
 
-  -- Q6 (weight 0 — food signal; secondary signal only; no scoring rows)
-  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
-    VALUES (v_quiz_id, 6, 'Someone places a small treat next to your coffee. Without thinking, which do you grab?', 0)
-    RETURNING id INTO v_q6_id;
-  INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
-    (v_q6_id, 'Something rich and comforting. Dark chocolate, roasted nuts, a warm brownie.', v_choc_id),
-    (v_q6_id, 'Something soft and sweet. A ripe peach, a vanilla biscuit, caramel.',          v_bal_id),
-    (v_q6_id, 'Something fresh and lively. A green apple, fresh berries, citrus.',            v_fruit_id);
+  SELECT id INTO v_q5_id FROM quiz_question WHERE quiz_id = v_quiz_id AND q_number = 5;
+  IF v_q5_id IS NULL THEN
+    INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
+      VALUES (v_quiz_id, 5, 'Someone hands you a coffee that''s a little more bitter than expected. What''s your honest reaction?', 3)
+      RETURNING id INTO v_q5_id;
+  ELSE
+    UPDATE quiz_question SET q_text = 'Someone hands you a coffee that''s a little more bitter than expected. What''s your honest reaction?', weight = 3 WHERE id = v_q5_id;
+  END IF;
 
-  -- quiz_answer_archetype_score — Q1–Q5 only (Q6 weight 0, excluded from scoring)
-  INSERT INTO quiz_answer_archetype_score (answer_id, question_id, archetype_id, score)
-  SELECT a.id, q.id, ar.id, data.score
+  SELECT id INTO v_q6_id FROM quiz_question WHERE quiz_id = v_quiz_id AND q_number = 6;
+  IF v_q6_id IS NULL THEN
+    INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
+      VALUES (v_quiz_id, 6, 'Someone places a small treat next to your coffee. Without thinking, which do you grab?', 0)
+      RETURNING id INTO v_q6_id;
+  ELSE
+    UPDATE quiz_question SET q_text = 'Someone places a small treat next to your coffee. Without thinking, which do you grab?', weight = 0 WHERE id = v_q6_id;
+  END IF;
+
+  SELECT id INTO v_fbq1_id FROM quiz_question WHERE quiz_id = v_floral_bq_id AND q_number = 1;
+  IF v_fbq1_id IS NULL THEN
+    INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
+      VALUES (v_floral_bq_id, 1, 'One last thing. When coffee is really at its best for you, which is closer?', 1)
+      RETURNING id INTO v_fbq1_id;
+  ELSE
+    UPDATE quiz_question SET q_text = 'One last thing. When coffee is really at its best for you, which is closer?', weight = 1 WHERE id = v_fbq1_id;
+  END IF;
+
+  SELECT id INTO v_ebq1_id FROM quiz_question WHERE quiz_id = v_earthy_bq_id AND q_number = 1;
+  IF v_ebq1_id IS NULL THEN
+    INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
+      VALUES (v_earthy_bq_id, 1, 'Your profile is rich and bold. How do you like to take it?', 1)
+      RETURNING id INTO v_ebq1_id;
+  ELSE
+    UPDATE quiz_question SET q_text = 'Your profile is rich and bold. How do you like to take it?', weight = 1 WHERE id = v_ebq1_id;
+  END IF;
+
+  -- ── Change 2 — backfill: adopt the code onto an existing row that matches
+  -- by exact (question_id, answer_text) and doesn't have one yet. Runs before
+  -- the content-sync loop below, exactly once per row (no-op once coded). If
+  -- an active-quiz answer's copy was hand-edited in prod and matches no known
+  -- text here, it is NOT guessed by position (ORDER BY a.id on UUIDs is
+  -- meaningless) — it is simply left uncoded, and integrity check #0 flags it
+  -- by name for a human to resolve. Per the 2026-08-11 audit, every live v7
+  -- answer's text already matches this file exactly, so this is expected to
+  -- match all 22 rows on first run.
+  UPDATE quiz_answer a
+  SET answer_code = coded.answer_code
   FROM (VALUES
-    (1, 'It''s a daily ritual. I''m particular about it.',                              'Chocolate & Nutty', 1::numeric),
-    (1, 'It''s a reliable habit. I just like having it.',                               'Balanced & Sweet',  1::numeric),
-    (1, 'It''s something I''m still discovering. I''m curious about it.',               'Fruity',            1::numeric),
-    (2, 'It was strong and satisfying — I felt it.',                                    'Chocolate & Nutty', 2::numeric),
-    (2, 'It was smooth and easy the whole way through — nothing got in the way.',       'Balanced & Sweet',  2::numeric),
-    (2, 'It felt alive — bright and changing. Every sip was a little different.',       'Fruity',            2::numeric),
-    (3, 'It feels complete. I''d drink it as is, or add milk to make it even richer.',  'Chocolate & Nutty', 1::numeric),
-    (3, 'It''s fine, easy to drink. I might add something to smooth it out.',           'Balanced & Sweet',  1::numeric),
-    (3, 'Interesting… what flavors am I getting here?',                                 'Fruity',            1::numeric),
-    (4, 'It has no bitterness or intensity.',                                            'Chocolate & Nutty', 2::numeric),
-    (4, 'It''s too bitter or too intense.',                                              'Balanced & Sweet',  2::numeric),
-    (4, 'Every sip tastes exactly the same.',                                            'Fruity',            2::numeric),
-    (5, 'I don''t mind. Actually I kind of like it. It tastes serious.',                'Chocolate & Nutty', 3::numeric),
-    (5, 'I''d rather have something gentler and smoother.',                              'Balanced & Sweet',  3::numeric),
-    (5, 'It feels burnt to me. I''d rather have something fresher or more alive.',      'Fruity',            3::numeric)
-  ) AS data(q_number, answer_text, archetype_name, score)
-  JOIN quiz_question q ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
-  JOIN quiz_answer a  ON a.question_id = q.id  AND a.answer_text = data.answer_text
-  JOIN archetype   ar ON ar.name = data.archetype_name
-  ON CONFLICT (answer_id, archetype_id) DO NOTHING;
+    ('v7_q1_a', v_q1_id, 'It''s a daily ritual. I''m particular about it.'),
+    ('v7_q1_b', v_q1_id, 'It''s a reliable habit. I just like having it.'),
+    ('v7_q1_c', v_q1_id, 'It''s something I''m still discovering. I''m curious about it.'),
+    ('v7_q2_a', v_q2_id, 'It was strong and satisfying — I felt it.'),
+    ('v7_q2_b', v_q2_id, 'It was smooth and easy the whole way through — nothing got in the way.'),
+    ('v7_q2_c', v_q2_id, 'It felt alive — bright and changing. Every sip was a little different.'),
+    ('v7_q3_a', v_q3_id, 'It feels complete. I''d drink it as is, or add milk to make it even richer.'),
+    ('v7_q3_b', v_q3_id, 'It''s fine, easy to drink. I might add something to smooth it out.'),
+    ('v7_q3_c', v_q3_id, 'Interesting… what flavors am I getting here?'),
+    ('v7_q4_a', v_q4_id, 'It has no bitterness or intensity.'),
+    ('v7_q4_b', v_q4_id, 'It''s too bitter or too intense.'),
+    ('v7_q4_c', v_q4_id, 'Every sip tastes exactly the same.'),
+    ('v7_q5_a', v_q5_id, 'I don''t mind. Actually I kind of like it. It tastes serious.'),
+    ('v7_q5_b', v_q5_id, 'I''d rather have something gentler and smoother.'),
+    ('v7_q5_c', v_q5_id, 'It feels burnt to me. I''d rather have something fresher or more alive.'),
+    ('v7_q6_a', v_q6_id, 'Something rich and comforting. Dark chocolate, roasted nuts, a warm brownie.'),
+    ('v7_q6_b', v_q6_id, 'Something soft and sweet. A ripe peach, a vanilla biscuit, caramel.'),
+    ('v7_q6_c', v_q6_id, 'Something fresh and lively. A green apple, fresh berries, citrus.'),
+    ('v7_branch_fruity_stay',   v_fbq1_id, 'It''s complex and alive. A lot happening — I want to explore every sip.'),
+    ('v7_branch_fruity_floral', v_fbq1_id, 'It''s so light and delicate it barely feels like coffee. Almost like drinking tea.'),
+    ('v7_branch_cn_stay',       v_ebq1_id, 'Rich and comforting. Coffee that feels like a reward at the end of the day.'),
+    ('v7_branch_cn_earthy',     v_ebq1_id, 'Deep and intense. Complex, almost challenging. The more serious the better.')
+  ) AS coded(answer_code, question_id, answer_text)
+  WHERE a.question_id = coded.question_id
+    AND a.answer_text = coded.answer_text
+    AND a.answer_code IS NULL;
 
-  -- ── Branch quiz: Fruity → Floral ──────────────────────────────────────────────
-  INSERT INTO quiz (version, description, is_active, quiz_type_id, trigger_archetype_id, parent_quiz_id)
-    VALUES ('v7-branch-floral', 'V7 branch — Fruity → Floral', false, v_branch_type_id, v_fruit_id, v_quiz_id)
-    RETURNING id INTO v_floral_bq_id;
+  -- ── Change 3 — content sync, keyed on answer_code. UPDATE in place if the
+  -- code already exists (via backfill above or a prior run); INSERT a new row
+  -- only if the code has no row at all anywhere (Change 3.4 — genuinely new
+  -- content, not yet in the DB). Never delete-and-reinsert — this is the hard
+  -- rule the whole prompt is built around.
+  FOR rec IN
+    SELECT * FROM (VALUES
+      ('v7_q1_a', v_q1_id, 'It''s a daily ritual. I''m particular about it.',                v_choc_id,  FALSE),
+      ('v7_q1_b', v_q1_id, 'It''s a reliable habit. I just like having it.',                 v_bal_id,   FALSE),
+      ('v7_q1_c', v_q1_id, 'It''s something I''m still discovering. I''m curious about it.', v_fruit_id, FALSE),
+      ('v7_q2_a', v_q2_id, 'It was strong and satisfying — I felt it.',                              v_choc_id,  FALSE),
+      ('v7_q2_b', v_q2_id, 'It was smooth and easy the whole way through — nothing got in the way.', v_bal_id,   FALSE),
+      ('v7_q2_c', v_q2_id, 'It felt alive — bright and changing. Every sip was a little different.', v_fruit_id, FALSE),
+      ('v7_q3_a', v_q3_id, 'It feels complete. I''d drink it as is, or add milk to make it even richer.', v_choc_id,  FALSE),
+      ('v7_q3_b', v_q3_id, 'It''s fine, easy to drink. I might add something to smooth it out.',          v_bal_id,   FALSE),
+      ('v7_q3_c', v_q3_id, 'Interesting… what flavors am I getting here?',                                v_fruit_id, TRUE),
+      ('v7_q4_a', v_q4_id, 'It has no bitterness or intensity.', v_choc_id,  FALSE),
+      ('v7_q4_b', v_q4_id, 'It''s too bitter or too intense.',   v_bal_id,   FALSE),
+      ('v7_q4_c', v_q4_id, 'Every sip tastes exactly the same.', v_fruit_id, FALSE),
+      ('v7_q5_a', v_q5_id, 'I don''t mind. Actually I kind of like it. It tastes serious.',           v_choc_id,  FALSE),
+      ('v7_q5_b', v_q5_id, 'I''d rather have something gentler and smoother.',                         v_bal_id,   FALSE),
+      ('v7_q5_c', v_q5_id, 'It feels burnt to me. I''d rather have something fresher or more alive.', v_fruit_id, FALSE),
+      ('v7_q6_a', v_q6_id, 'Something rich and comforting. Dark chocolate, roasted nuts, a warm brownie.', v_choc_id,  FALSE),
+      ('v7_q6_b', v_q6_id, 'Something soft and sweet. A ripe peach, a vanilla biscuit, caramel.',          v_bal_id,   FALSE),
+      ('v7_q6_c', v_q6_id, 'Something fresh and lively. A green apple, fresh berries, citrus.',            v_fruit_id, FALSE),
+      ('v7_branch_fruity_stay',   v_fbq1_id, 'It''s complex and alive. A lot happening — I want to explore every sip.',          v_fruit_id,  FALSE),
+      ('v7_branch_fruity_floral', v_fbq1_id, 'It''s so light and delicate it barely feels like coffee. Almost like drinking tea.', v_floral_id, FALSE),
+      ('v7_branch_cn_stay',       v_ebq1_id, 'Rich and comforting. Coffee that feels like a reward at the end of the day.',        v_choc_id,   FALSE),
+      ('v7_branch_cn_earthy',     v_ebq1_id, 'Deep and intense. Complex, almost challenging. The more serious the better.',        v_earthy_id, FALSE)
+    ) AS t(answer_code, question_id, answer_text, resulting_archetype_id, is_experimental_gate)
+  LOOP
+    IF EXISTS (SELECT 1 FROM quiz_answer WHERE answer_code = rec.answer_code) THEN
+      UPDATE quiz_answer
+      SET answer_text = rec.answer_text,
+          resulting_archetype_id = rec.resulting_archetype_id,
+          is_experimental_gate = rec.is_experimental_gate
+      WHERE answer_code = rec.answer_code;
+    ELSE
+      INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id, is_experimental_gate, answer_code)
+      VALUES (rec.question_id, rec.answer_text, rec.resulting_archetype_id, rec.is_experimental_gate, rec.answer_code);
+    END IF;
+  END LOOP;
 
-  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
-    VALUES (v_floral_bq_id, 1,
-      'One last thing. When coffee is really at its best for you, which is closer?', 1)
-    RETURNING id INTO v_fbq1_id;
+  -- ── Score rows — Q1–Q5 only, one per answer, upserted on the existing
+  -- UNIQUE (answer_id, archetype_id) constraint, keyed via answer_code rather
+  -- than answer_text so an in-place copy edit never orphans a score again.
+  -- Any OTHER score row the file doesn't list for that answer is deleted —
+  -- this is what makes the sync self-healing against a stray hand-added row.
+  FOR rec IN
+    SELECT * FROM (VALUES
+      ('v7_q1_a', 'Chocolate & Nutty', 1::numeric),
+      ('v7_q1_b', 'Balanced & Sweet',  1::numeric),
+      ('v7_q1_c', 'Fruity',            1::numeric),
+      ('v7_q2_a', 'Chocolate & Nutty', 2::numeric),
+      ('v7_q2_b', 'Balanced & Sweet',  2::numeric),
+      ('v7_q2_c', 'Fruity',            2::numeric),
+      ('v7_q3_a', 'Chocolate & Nutty', 1::numeric),
+      ('v7_q3_b', 'Balanced & Sweet',  1::numeric),
+      ('v7_q3_c', 'Fruity',            1::numeric),
+      ('v7_q4_a', 'Chocolate & Nutty', 2::numeric),
+      ('v7_q4_b', 'Balanced & Sweet',  2::numeric),
+      ('v7_q4_c', 'Fruity',            2::numeric),
+      ('v7_q5_a', 'Chocolate & Nutty', 3::numeric),
+      ('v7_q5_b', 'Balanced & Sweet',  3::numeric),
+      ('v7_q5_c', 'Fruity',            3::numeric)
+    ) AS t(answer_code, archetype_name, score)
+  LOOP
+    SELECT a.id, a.question_id INTO v_answer_id, v_question_id FROM quiz_answer a WHERE a.answer_code = rec.answer_code;
+    IF v_answer_id IS NULL THEN CONTINUE; END IF; -- defensive — content loop above should have set this
 
-  INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
-    (v_fbq1_id,
-     'It''s complex and alive. A lot happening — I want to explore every sip.',
-     v_fruit_id),
-    (v_fbq1_id,
-     'It''s so light and delicate it barely feels like coffee. Almost like drinking tea.',
-     v_floral_id);
+    SELECT id INTO v_archetype_id FROM archetype WHERE name = rec.archetype_name;
 
-  -- ── Branch quiz: Chocolate & Nutty → Earthy ───────────────────────────────────
-  INSERT INTO quiz (version, description, is_active, quiz_type_id, trigger_archetype_id, parent_quiz_id)
-    VALUES ('v7-branch-earthy', 'V7 branch — Chocolate & Nutty → Earthy', false, v_branch_type_id, v_choc_id, v_quiz_id)
-    RETURNING id INTO v_earthy_bq_id;
+    INSERT INTO quiz_answer_archetype_score (answer_id, question_id, archetype_id, score)
+    VALUES (v_answer_id, v_question_id, v_archetype_id, rec.score)
+    ON CONFLICT (answer_id, archetype_id) DO UPDATE SET score = EXCLUDED.score;
 
-  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
-    VALUES (v_earthy_bq_id, 1,
-      'Your profile is rich and bold. How do you like to take it?', 1)
-    RETURNING id INTO v_ebq1_id;
+    DELETE FROM quiz_answer_archetype_score
+    WHERE answer_id = v_answer_id AND archetype_id IS DISTINCT FROM v_archetype_id;
+  END LOOP;
 
-  INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id) VALUES
-    (v_ebq1_id,
-     'Rich and comforting. Coffee that feels like a reward at the end of the day.',
-     v_choc_id),
-    (v_ebq1_id,
-     'Deep and intense. Complex, almost challenging. The more serious the better.',
-     v_earthy_id);
-
+  -- Q6 and branch answers are never scored (Q6 is weight 0 — food signal
+  -- only; branch answers only ever change archetype, not score). The file
+  -- lists zero score rows for any of them, so remove any that exist —
+  -- defensive, also catches a hand-added row that shouldn't be there.
+  DELETE FROM quiz_answer_archetype_score
+  WHERE answer_id IN (
+    SELECT id FROM quiz_answer
+    WHERE answer_code IN ('v7_q6_a', 'v7_q6_b', 'v7_q6_c',
+                           'v7_branch_fruity_stay', 'v7_branch_fruity_floral',
+                           'v7_branch_cn_stay', 'v7_branch_cn_earthy')
+  );
 
 END $v7$;
 

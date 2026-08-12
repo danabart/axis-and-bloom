@@ -12,6 +12,7 @@ import { getBrewProfileCounters } from '../services/brewProfile.js';
 import { checkStorySpecificityViolations } from '../services/storyLayer.js';
 import { getOrMintCanonicalUniversalToken } from '../services/qrDoor.js';
 import { getEffectiveAiControls, envCeilingUsd } from '../services/anthropicGuard.js';
+import { runQuizIntegrityChecks } from '../services/quizIntegrity.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -2528,6 +2529,20 @@ router.get('/qr/universal-tokens', async (_req, res) => {
   } catch (err) {
     console.error('[admin/qr/universal-tokens]', err);
     res.status(500).json({ error: 'Failed to fetch universal QR token' });
+  }
+});
+
+// ── GET /api/admin/quiz/integrity — Quiz Content Drift Prevention ────────────
+// Read-only: runs the same checks the re-asserting seed (schema.sql's V7
+// block) is meant to keep passing on every deploy. No auto-fix here —
+// anything it can't resolve itself (check #0) is a deliberate human decision.
+router.get('/quiz/integrity', async (_req, res) => {
+  try {
+    const report = await runQuizIntegrityChecks();
+    res.json(report);
+  } catch (err) {
+    console.error('[admin/quiz/integrity]', err);
+    res.status(500).json({ error: 'Failed to run quiz integrity checks' });
   }
 });
 

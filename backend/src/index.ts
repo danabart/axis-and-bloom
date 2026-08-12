@@ -29,6 +29,7 @@ import companiesAdminRouter from './routes/companiesAdmin.js';
 import qrRouter from './routes/qr.js';
 import beatsRouter from './routes/beats.js';
 import { initSommelierConfig } from './services/sommelierConfig.js';
+import { runQuizIntegrityChecks } from './services/quizIntegrity.js';
 
 const app = express();
 const PORT = process.env.PORT ?? 4000;
@@ -116,6 +117,21 @@ async function start() {
     await initSommelierConfig();
   } catch (err) {
     console.error('Sommelier config init error (non-fatal):', err);
+  }
+
+  // Quiz Content Drift Prevention — fire-and-log only. A degraded quiz beats
+  // a down site: never throws, never blocks startup, just surfaces failing
+  // checks in the deploy logs so they're visible without anyone having to
+  // remember to open the admin page.
+  try {
+    const report = await runQuizIntegrityChecks();
+    if (!report.allPass) {
+      for (const check of report.checks.filter(c => !c.pass)) {
+        console.warn(`[quiz-integrity] check #${check.id} failed — ${check.name}: expected ${check.expected}, got ${check.actual}`);
+      }
+    }
+  } catch (err) {
+    console.error('Quiz integrity check error (non-fatal):', err);
   }
 
   app.listen(PORT, () => console.log(`Axis & Bloom API running on port ${PORT}`));
