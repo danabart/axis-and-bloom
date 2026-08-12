@@ -1,6 +1,21 @@
 import type { ArchetypeData } from './types';
 
 /**
+ * Part 23 §A — temporary, reversible kill switch for the cross-archetype edge
+ * doors. The Part 19 door chips turned out to be live in production with a
+ * known-broken door map (Dana's call: hide the doors everywhere until the
+ * separate door-chain thread fixes the map, don't rip the mechanism out).
+ * Flip to `true` to restore doors with zero other changes — every render
+ * site (BloomDial.tsx's imperative step-chip paint AND its JSX fallback) and
+ * the onDoorClick wiring all key off `DialConfig.doors`, which this flag
+ * gates at its single source, `buildDialConfig()` in dial/archetypeConfig.ts.
+ * At an extreme position with doors off, the outward slot is simply empty
+ * again (Part 18 behavior) — nothing else about step chips/snapping/
+ * classic/collection CTAs changes.
+ */
+export const DOORS_ENABLED = false;
+
+/**
  * Part 19 §A — the door-landing continuity rule (Dana's spec).
  *
  * 'continuity' (shipped): exiting through the RIGHT edge lands on the target

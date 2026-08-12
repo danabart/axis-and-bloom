@@ -632,8 +632,21 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
               breakout block so it never moves on unfold) — rendering both
               would either disagree (this said "THE {ARCHETYPE} CLASSIC"-style
               match-mode text nowhere, the external one always says the plain
-              archetype name) or just visibly duplicate the same info twice. */}
-          {!isBreakout && (
+              archetype name) or just visibly duplicate the same info twice.
+              Part 23 §C — this old embedded lockup (hardcoded "YOUR"/"BLOOM
+              DIAL", regardless of whose archetype it is or what `kicker`
+              actually resolved to) is ALSO stale on any *inline*-folded
+              surface, not just breakout ones: Part 21's card+band already
+              owns identity display for every folded surface. Gating on the
+              broader `folded` (not just `isBreakout`, its breakout-only
+              subset) is what actually implements "one way an archetype
+              section renders" — previously an inline-folded surface (e.g.
+              the quiz results screen's primary block, and any Worth
+              Exploring/adjacent section once §B gives it `folded` too) fell
+              through to this block once unfolded, showing the pre-Part-21
+              lockup and a hardcoded "YOUR" alongside the card's own,
+              correct identity — this was the actual root cause of C1/C2. */}
+          {!folded && (
             <div className="bd-namelock">
               {embedded ? (
                 <>
@@ -671,9 +684,15 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
                 (no second "ON THE DIAL NOW" line above it). nowRef/nameRef
                 still need a live DOM node somewhere for paint() to write
                 into without a null-check special case — kept mounted but
-                visually hidden rather than branching paint() itself. */}
+                visually hidden rather than branching paint() itself.
+                Part 23 §C3 — same broadening as the identity lockup above:
+                gated on `folded` (not just `isBreakout`), since ANY folded
+                surface's card already shows this exact name/status via its
+                own bd-card-headrow — this was C3's duplicated-heading bug
+                on inline-folded surfaces (results screen primary, and any
+                Worth Exploring section once §B folds it too). */}
             {embedded && (
-              <div className="bd-coffee-head-text" style={isBreakout ? { display: 'none' } : undefined}>
+              <div className="bd-coffee-head-text" style={folded ? { display: 'none' } : undefined}>
                 <div className="bd-now" ref={nowRef}>
                   {matchMode ? `THE ${config.archetypeLabel.toUpperCase()} CLASSIC` : 'ON THE DIAL NOW'}
                 </div>
@@ -958,7 +977,22 @@ const CSS = `
    (commerce-column-redesign.html, Proposed · 38/62 tab) 1:1 on pixel values;
    brand hex literals only, no new colors. */
 .bd-card{background:#fff;border:1px solid #deded1;border-radius:2px;}
-.bd-card-main{padding:22px 24px 20px;}
+/* Part 23 §F — height reservation: stepping between dial positions (chips or
+   wheel) swaps teaser length, and swaps the price-row+ATC block for a single
+   status line (placeholder/unpriced/unavailable states) — both change this
+   area's natural height, shifting everything below it and yanking scroll
+   position on every step. min-height sized to the tallest common state,
+   measured live: 364-451px on /bloom (6 archetypes' default priced card,
+   ~317px wide) and up to 460px on an inline (non-breakout) Worth Exploring
+   section on Profile's narrower ~418px column with the longest teaser in
+   the catalogue — 460px covers every measured case with a small margin.
+   Short states (unpriced/placeholder/unavailable, ~272px natural height)
+   just leave quiet internal whitespace instead of collapsing the block and
+   yanking everything below it up. Content itself still swaps instantly (no
+   crossfade machinery added — out of scope beyond stopping the reflow).
+   Verified zero scroll jump stepping through all 4 positions on multiple
+   archetypes on both /bloom and Profile's Worth Exploring path. */
+.bd-card-main{padding:22px 24px 20px;min-height:460px;}
 .bd-card-headrow{display:flex;gap:16px;align-items:center;margin-bottom:14px;}
 .bd-card-bag{width:54px;flex:none;display:block;}
 .bd-card-microlabel{font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:#7b7f80;margin:0 0 3px;}

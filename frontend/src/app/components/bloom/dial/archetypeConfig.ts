@@ -7,6 +7,7 @@
 
 import type { ArchetypeData, DoorTarget } from '../types';
 import { ARCHETYPE_VISUALS } from '../bloomVisuals';
+import { DOORS_ENABLED } from '../doorConfig';
 
 export interface DialCoffee {
   dialSortOrder: number;      // 1..4
@@ -118,6 +119,8 @@ export function buildDialConfig(data: ArchetypeData): DialConfig | null {
     scaleMinLabel: data.dimensionScaleMinLabel,
     scaleMaxLabel: data.dimensionScaleMaxLabel,
     dimensionName: data.dimensionPlatformName ?? data.dimensionName,
-    doors: data.doors,
+    // Part 23 §A — single choke point for hiding doors everywhere; see
+    // DOORS_ENABLED's own doc comment in doorConfig.ts.
+    doors: DOORS_ENABLED ? data.doors : null,
   };
 }

@@ -1296,6 +1296,7 @@ export default function FlavorQuiz() {
                   embedded
                   onDoorClick={handleMatchedDoorClick}
                   prelaunch={prelaunchGated}
+                  folded
                 />
               </div>
             )}
@@ -1859,6 +1860,7 @@ export default function FlavorQuiz() {
                         embedded
                         onDoorClick={handleResultsDoorClick}
                         prelaunch={prelaunchGated}
+                        folded
                       />
                     </div>
                   )}

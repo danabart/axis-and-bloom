@@ -584,6 +584,7 @@ export default function Profile() {
                           embedded
                           onDoorClick={handleDoorClick}
                           prelaunch={prelaunchGated}
+                          folded
                         />
                       </div>
                     )}

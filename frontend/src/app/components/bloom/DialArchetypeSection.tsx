@@ -368,9 +368,17 @@ export function DialArchetypeSection({
           )}
         </div>
 
+        {/* Part 23 §E — the toggle already closed the panel on click
+            (onToggleReveal always flips isRevealed); the only real gap was
+            the label reading the bare "Collapse" instead of the full
+            "Collapse the profile" counterpart to "Reveal the full profile"
+            — same row, same style, one shared component, so this one
+            label change covers every surface (Profile, quiz screens,
+            /find-my-flavor, and /bloom, which shares this exact code
+            path) at once. */}
         {showReveal && (
           <button type="button" className="bd-card-reveal" onClick={() => onToggleReveal(currentKey)}>
-            <span>{isRevealed ? 'Collapse' : 'Reveal the full profile'}</span>
+            <span>{isRevealed ? 'Collapse the profile' : 'Reveal the full profile'}</span>
             <span>{isRevealed ? '↑' : '↓'}</span>
           </button>
         )}
