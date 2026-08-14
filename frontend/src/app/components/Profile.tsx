@@ -111,6 +111,9 @@ export default function Profile() {
   const [experimentalData, setExperimentalData] = useState<ArchetypeData | null>(null);
   const [dialSortOrder, setDialSortOrderState]  = useState<number | null>(null);
   const [revealedKeys, setRevealedKeys]         = useState<Set<string>>(new Set());
+  // Part 24 — accordion: at most one of the primary/adjacent archetype
+  // blocks unfolded at a time. 'primary' | 'adjacent' | null (both folded).
+  const [openBlock, setOpenBlock] = useState<'primary' | 'adjacent' | null>(null);
   const dialRef = useRef<BloomDialHandle | null>(null);
   const [compareState, setCompareState] = useState<{ open: boolean; archetype: string; archetypeLabel: string; slot: Slot | null }>({
     open: false, archetype: '', archetypeLabel: '', slot: null,
@@ -525,6 +528,8 @@ export default function Profile() {
                           folded
                           unfoldMode="breakout"
                           prelaunch={prelaunchGated}
+                          onOpenChange={open => setOpenBlock(prev => open ? 'primary' : (prev === 'primary' ? null : prev))}
+                          forceFold={openBlock === 'adjacent'}
                         />
                       </div>
                     )}
@@ -545,11 +550,12 @@ export default function Profile() {
 
                     {/* Adjacent archetype — expanded in place (Part 6, issue C). Its own
                         independent dial/reveal state instance, never the primary section's
-                        above; stays unfolded (inline unfoldMode, unchanged) — opening it at
-                        all is already an explicit choice, so folding it too would be a
-                        redundant extra click (same rule Part 21 already applied). The Flavor
-                        Intelligence deep link is demoted to an escape hatch here, for users
-                        who choose to leave rather than explore in place. */}
+                        above. Part 24: now folded + breakout, same geometry as the primary
+                        block ("one block, one geometry") instead of the old inline unfold,
+                        and wired into the openBlock accordion above so opening this one
+                        folds the primary automatically. The Flavor Intelligence deep link is
+                        demoted to an escape hatch here, for users who choose to leave rather
+                        than explore in place. */}
                     {adjacentData && (
                       <div className="flex flex-col gap-3 mt-6" ref={adjacentSectionRef}>
                         {/* Flavor Intelligence is a hidden route while gated — the
@@ -585,6 +591,9 @@ export default function Profile() {
                           onDoorClick={handleDoorClick}
                           prelaunch={prelaunchGated}
                           folded
+                          unfoldMode="breakout"
+                          onOpenChange={open => setOpenBlock(prev => open ? 'adjacent' : (prev === 'adjacent' ? null : prev))}
+                          forceFold={openBlock === 'primary'}
                         />
                       </div>
                     )}

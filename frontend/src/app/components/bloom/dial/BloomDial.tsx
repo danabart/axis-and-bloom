@@ -961,6 +961,16 @@ const CSS = `
 .bd-field-tagline{font-size:12.5px;line-height:1.5;color:var(--bd-ftext);opacity:.72;margin:16px 0 0;}
 .bd-field-bag{position:absolute;right:54px;bottom:42px;text-align:center;pointer-events:none;}
 .bd-field-bag img{width:146px;height:auto;display:block;-webkit-user-drag:none;}
+/* Part 24 — breakout's open state (below) is the first time this element's
+   own right/bottom/width actually change at runtime (every other embedded
+   override is static, since embedded-non-breakout surfaces never toggle
+   .bd-dial-open on the bag's own geometry). Without a transition, the bag
+   snapped straight to its full size/position the instant .bd-dial-open
+   landed while the section around it kept animating its width for another
+   850ms — the bag visibly jumping/sliding against the still-resizing band.
+   Matches the section's own .85s cubic-bezier so both move together. */
+.bd-field-bag{transition:right .85s cubic-bezier(.16,1,.3,1), bottom .85s cubic-bezier(.16,1,.3,1);}
+.bd-field-bag img{transition:width .85s cubic-bezier(.16,1,.3,1);}
 .bd-bag-shadow{width:102px;height:10px;margin:-4px auto 0;border-radius:50%;background:radial-gradient(ellipse,rgba(58,60,62,.22),rgba(58,60,62,0) 70%);}
 .bd-now{font-size:9.5px;letter-spacing:.28em;color:#7b7f80;transition:opacity 300ms ${EASE};}
 .bd-coffee-name{margin-top:12px;font-size:32px;min-height:84px;font-weight:500;color:#9a2918;letter-spacing:-0.008em;line-height:1.25;transition:opacity 300ms ${EASE};}
@@ -1082,9 +1092,17 @@ const CSS = `
 .bd-embedded .bd-field-bag img{width:92px;}
 /* Part 21 — embedded's own unfolded ratio (32/68, matching its normal grid
    split above) rather than the base folded rule's 38/62. Every quiz/Profile
-   folded surface is embedded, so this is the ratio that actually ships. */
-.bd-section.bd-embedded .bd-stage.bd-folded.bd-dial-open .bd-reading{width:32%;}
-.bd-section.bd-embedded .bd-stage.bd-folded.bd-dial-open .bd-instrument{width:68%;padding:42px 24px;}
+   folded surface used to be embedded-non-breakout, so this was the ratio
+   that shipped. Part 24 — scoped off .bd-breakout: at 6 classes deep this
+   pair is MORE specific than every breakout ratio rule below (5 classes),
+   so left unscoped it silently overrides breakout's 40/60 (and its
+   ≤1000px 100% stacked fallback) at every viewport — the actual root
+   cause of Part 24's "squeezed portrait" bug, not the source-order tie
+   the old comment here used to claim. Still applies untouched to every
+   inline (non-breakout) embedded surface, i.e. nothing outside /bloom
+   passes unfoldMode="breakout" yet. */
+.bd-section.bd-embedded:not(.bd-breakout) .bd-stage.bd-folded.bd-dial-open .bd-reading{width:32%;}
+.bd-section.bd-embedded:not(.bd-breakout) .bd-stage.bd-folded.bd-dial-open .bd-instrument{width:68%;padding:42px 24px;}
 @media (max-width:940px){
   .bd-embedded .bd-instrument{padding:36px 16px 96px;}
   .bd-embedded .bd-dial-wrap{width:260px;height:260px;}
@@ -1107,20 +1125,27 @@ const CSS = `
    Scoped entirely under .bd-breakout (only set when folded && unfoldMode
    ==='breakout' — see isBreakout above), so quiz results (still .bd-folded
    but never .bd-breakout) and /bloom (neither class) stay completely
-   unaffected — confirmed by grep, only two call sites pass
-   unfoldMode="breakout". .bd-embedded is included in every selector purely
-   for specificity headroom over the embedded 32/68 unfold ratio two blocks
-   up (both are 4 classes deep and would otherwise depend on source order to
-   win the tie) — in practice breakout is only ever used on embedded
-   surfaces, so this costs nothing. */
+   unaffected. .bd-embedded is included in every selector purely for
+   specificity headroom over the embedded rules two blocks up — Part 24
+   additionally scoped those embedded rules with :not(.bd-breakout), since
+   they were 6 classes deep (not 4 as this comment used to claim) and
+   silently won over these 5-class breakout rules at every viewport,
+   regardless of source order. */
 .bd-section.bd-breakout{
   width:100%;
   transition:width .85s cubic-bezier(.16,1,.3,1), margin-left .85s cubic-bezier(.16,1,.3,1), transform .85s cubic-bezier(.16,1,.3,1);
 }
 .bd-section.bd-breakout.bd-dial-open{
+  /* Part 24 — was margin-left:50% (parent reference frame) paired with
+     transform:translateX(-50%) (element's own post-layout box reference
+     frame). Mathematically that cancels out IF the parent is perfectly
+     centered in the viewport, but it measured ~7px off-center live on a
+     wide monitor — two ruled instruments, only one of which is exactly
+     trustworthy at every width. Single calc() below: margin-left is 50%
+     of the parent minus half of THIS SAME width expression, so width and
+     centering are one reference frame, one number, no transform. */
   width:min(1060px, calc(100vw - 110px));
-  margin-left:50%;
-  transform:translateX(-50%);
+  margin-left:calc(50% - (min(1060px, calc(100vw - 110px)) / 2));
 }
 /* Card/field ratio while broken out — 40/60 per the prompt (distinct from
    /bloom's 38/62 and embedded's normal-unfold 32/68, both of which still
@@ -1136,6 +1161,39 @@ const CSS = `
 .bd-section.bd-embedded.bd-breakout .bd-reading-bottom{padding-top:0;}
 .bd-section.bd-embedded.bd-breakout.bd-dial-open .bd-reading{width:40%;}
 .bd-section.bd-embedded.bd-breakout.bd-dial-open .bd-instrument{width:60%;}
+/* Part 24 — the instrument's own compact-quiz sizing (dial wheel, ruler,
+   step chips, field bag) is set by the .bd-embedded rules a few blocks up,
+   which stay in effect here too since breakout is still .bd-embedded. That
+   was fine for the old 32/68 portrait split but leaves the dial visibly
+   undersized inside breakout's wide 60% field column. Restored to /bloom's
+   full-size instrument specifically above the ~1000px breakout threshold
+   (below it, breakout collapses to the same stacked phone layout embedded
+   already handles, where the compact sizing is still exactly right and
+   must NOT be overridden — hence the min-width guard, not a blanket
+   .bd-breakout override). This is the "distinct layout variant" split:
+   .bd-embedded keeps gating quiz/profile-vs-/bloom concerns and the
+   mobile-safe compact caps; .bd-embedded.bd-breakout above 1000px now
+   independently gates full-size-instrument concerns instead of inheriting
+   the compact ones by accident.
+   Every selector below also requires .bd-dial-open — without it, the
+   padding rule alone (padding:40px 40px on a width:0 CLOSED instrument)
+   drew a visible 80px padding band even while folded, since padding still
+   paints inside overflow:hidden's clip even when width is 0. Caught live:
+   the dial was visibly peeking past the closed card's edge. */
+@media (min-width:1001px){
+  .bd-section.bd-embedded.bd-breakout.bd-dial-open .bd-instrument{padding:40px 40px;}
+  .bd-section.bd-embedded.bd-breakout.bd-dial-open .bd-dial-wrap{width:400px;height:400px;}
+  .bd-section.bd-embedded.bd-breakout.bd-dial-open .bd-ruler{width:360px;margin-top:26px;}
+  .bd-section.bd-embedded.bd-breakout.bd-dial-open .bd-step-chips{width:360px;}
+  .bd-section.bd-embedded.bd-breakout.bd-dial-open .bd-step-chip{max-width:172px;}
+  .bd-section.bd-embedded.bd-breakout.bd-dial-open .bd-bdial{font-size:26px;margin-top:12px;}
+  .bd-section.bd-embedded.bd-breakout.bd-dial-open .bd-coffee-name{font-size:32px;min-height:84px;margin-top:12px;}
+  /* Dana, live review (Part 24) — the bag image reads wrong at breakout's
+     wider field size no matter where it sits in the corner; removed for
+     this mode specifically rather than restyled. /bloom's own bag stays
+     completely untouched (out of scope, different — narrower — field). */
+  .bd-section.bd-embedded.bd-breakout.bd-dial-open .bd-field-bag{display:none;}
+}
 @media (max-width:1000px){
   /* Below ~1000px: no breakout — same click slides the field in beneath
      the card instead (the existing embedded folded phone pattern, just at

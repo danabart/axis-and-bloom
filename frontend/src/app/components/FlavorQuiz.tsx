@@ -594,6 +594,9 @@ export default function FlavorQuiz() {
   // same mechanism as Profile.tsx's. Independent hook instance from the results
   // screen's below, matching this file's existing per-screen state isolation.
   const matchedAdjacent = useAdjacentArchetype(archetypesList, experimentalData);
+  // Part 24 — accordion: at most one of the primary/adjacent blocks unfolded
+  // at a time on this screen. Independent from the results screen's below.
+  const [matchedOpenBlock, setMatchedOpenBlock] = useState<'primary' | 'adjacent' | null>(null);
 
   // Just-scored results screen — separate ArchetypeSection instance/state from the
   // returning-user screen above (Find My Flavor Part 2). Kept independent per the
@@ -609,6 +612,8 @@ export default function FlavorQuiz() {
   // Part 17 §F — same idea as matchedAdjacent above, independent instance for
   // this screen.
   const resultsAdjacent = useAdjacentArchetype(archetypesList, experimentalData);
+  // Part 24 — accordion for the results screen, independent from matchedOpenBlock above.
+  const [resultsOpenBlock, setResultsOpenBlock] = useState<'primary' | 'adjacent' | null>(null);
   const adjacency = useArchetypeAdjacency();
 
   // Part 19 §A — doors route through the same open-target-section mechanism
@@ -1260,6 +1265,8 @@ export default function FlavorQuiz() {
                 showBreakoutHeader={false}
                 ceremonyTag="YOUR SPOT · FROM YOUR QUIZ"
                 prelaunch={prelaunchGated}
+                onOpenChange={open => setMatchedOpenBlock(prev => open ? 'primary' : (prev === 'primary' ? null : prev))}
+                forceFold={matchedOpenBlock === 'adjacent'}
               />
             )}
 
@@ -1268,8 +1275,8 @@ export default function FlavorQuiz() {
             {/* 3 — Worth Exploring + adjacent-archetype section (Part 17 §F),
                 same mechanism as Profile.tsx: cross-archetype hop chips on
                 this screen have somewhere to land instead of doing nothing.
-                Stays unfolded (inline unfoldMode) — opening it is already an
-                explicit choice. */}
+                Part 24: folded + breakout like the primary block above, and
+                accordion-linked to it via matchedOpenBlock. */}
             {matchedArchetypeId && archetypesList.length > 0 && (
               <WorthExploring
                 matchArchetypeId={matchedArchetypeId}
@@ -1297,6 +1304,9 @@ export default function FlavorQuiz() {
                   onDoorClick={handleMatchedDoorClick}
                   prelaunch={prelaunchGated}
                   folded
+                  unfoldMode="breakout"
+                  onOpenChange={open => setMatchedOpenBlock(prev => open ? 'adjacent' : (prev === 'adjacent' ? null : prev))}
+                  forceFold={matchedOpenBlock === 'primary'}
                 />
               </div>
             )}
@@ -1784,9 +1794,19 @@ export default function FlavorQuiz() {
               {/* Share row — available before gate unlock, hidden for Experimental (no share page) */}
               <ShareMatchRow archetypeName={archetype.name} shareSlug={shareSlug} />
 
-              {/* Gate / post-hero */}
+              {/* Gate / post-hero. Part 24 — the archetype block(s) below now unfold
+                  in breakout mode, whose 40/60 + centering math assumes a plain,
+                  unpadded ~760px column (Part 22's own column, same pattern as
+                  Find My Flavor returning's px-6/max-w-[760px] split above). This
+                  screen never had that wrapper — its DialArchetypeSection mounts
+                  rendered at the full page width, which the old inline unfold
+                  papered over (fixed 480px card, self-centered via flexbox) but
+                  breakout's width:100% reading column does not: caught live as a
+                  match card stretched edge-to-edge across a wide monitor. */}
               {emailGateUnlocked ? (
                 <>
+                <div className="px-6 md:px-10 pb-20">
+                <div className="max-w-[760px] mx-auto">
                   <GateStatusNote
                     showSignedInConsentNote={showSignedInConsentNote}
                     guestMaskedEmail={!user && postQuizEmail ? maskEmail(postQuizEmail) : null}
@@ -1824,8 +1844,12 @@ export default function FlavorQuiz() {
                         embedded
                         onDoorClick={handleResultsDoorClick}
                         folded
+                        unfoldMode="breakout"
+                        showBreakoutHeader={false}
                         ceremonyTag="YOUR SPOT · FROM YOUR QUIZ"
                         prelaunch={prelaunchGated}
+                        onOpenChange={open => setResultsOpenBlock(prev => open ? 'primary' : (prev === 'primary' ? null : prev))}
+                        forceFold={resultsOpenBlock === 'adjacent'}
                       />
                     </>
                   )}
@@ -1861,15 +1885,20 @@ export default function FlavorQuiz() {
                         onDoorClick={handleResultsDoorClick}
                         prelaunch={prelaunchGated}
                         folded
+                        unfoldMode="breakout"
+                        onOpenChange={open => setResultsOpenBlock(prev => open ? 'adjacent' : (prev === 'adjacent' ? null : prev))}
+                        forceFold={resultsOpenBlock === 'primary'}
                       />
                     </div>
                   )}
-                  <CompareOverlay
-                    open={resultsCompareState.open}
-                    onClose={() => setResultsCompareState(s => ({ ...s, open: false }))}
-                    left={resultsCompareState.slot ? { archetype: resultsCompareState.archetype, archetypeLabel: resultsCompareState.archetypeLabel, slot: resultsCompareState.slot } : null}
-                    archetypes={archetypesList}
-                  />
+                </div>
+                </div>
+                <CompareOverlay
+                  open={resultsCompareState.open}
+                  onClose={() => setResultsCompareState(s => ({ ...s, open: false }))}
+                  left={resultsCompareState.slot ? { archetype: resultsCompareState.archetype, archetypeLabel: resultsCompareState.archetypeLabel, slot: resultsCompareState.slot } : null}
+                  archetypes={archetypesList}
+                />
                 </>
               ) : (
                 <section style={{ background: '#f2f1ea', padding: 'clamp(72px,10vh,120px) clamp(20px,5vw,40px) 90px' }}>

@@ -33,6 +33,7 @@ export function DialArchetypeSection({
   data, selectedSortOrder, revealedKeys, onDialSelect, onToggleReveal, onAddToCart, onCompare,
   userArchetype, registerDialRef, source = null, hideProfileLink = false, embedded = false, onDoorClick,
   folded = false, ceremonyTag = 'YOUR SPOT', unfoldMode = 'inline', showBreakoutHeader = true, prelaunch = false,
+  onOpenChange, forceFold = false,
 }: {
   data: ArchetypeData;
   index: number;
@@ -90,6 +91,18 @@ export function DialArchetypeSection({
    * the same source of truth the route guard uses, so `?preview=true`
    * restores the full component for the team. */
   prelaunch?: boolean;
+  /** Part 24 — accordion. Fired whenever this section's own open/closed
+   * state changes (both the position-card click and the "Fold the dial"
+   * button), so a parent hosting more than one folded block on the same
+   * page (Profile, Find My Flavor) can track which one is open. Only
+   * meaningful alongside `forceFold` below; /bloom passes neither. */
+  onOpenChange?: (open: boolean) => void;
+  /** Part 24 — accordion. When flipped true while this section is open, it
+   * folds itself (same as the user clicking "Fold the dial"), then the
+   * parent flips it back false. Doesn't block re-opening — it's a one-shot
+   * "someone else just opened" nudge, not a persistent lock, so this
+   * section can still be opened again later in the normal accordion flow. */
+  forceFold?: boolean;
 }) {
   const { user } = useAuth();
   const config = buildDialConfig(data);
@@ -130,6 +143,24 @@ export function DialArchetypeSection({
   const [isOpen, setIsOpen] = useState(!folded);
   const [everOpened, setEverOpened] = useState(!folded);
   const [showCeremonyTag, setShowCeremonyTag] = useState(false);
+
+  // Part 24 — accordion. `openSelf`/`closeSelf` replace the two direct
+  // setIsOpen(true/false) call sites below; both funnel through here so
+  // onOpenChange fires every time regardless of which control triggered
+  // the change. forceFold is a nudge from the parent ("something else just
+  // opened, fold yourself"), not a lock — it only acts while actually open.
+  function openSelf() {
+    setIsOpen(true);
+    onOpenChange?.(true);
+  }
+  function closeSelf() {
+    setIsOpen(false);
+    onOpenChange?.(false);
+  }
+  useEffect(() => {
+    if (forceFold && isOpen) closeSelf();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forceFold]);
 
   // Part 21 — the needle ceremony. Fires once, on the FIRST isOpen:false->true
   // transition (guarded by `everOpened`). A short delay lets the field's own
@@ -389,7 +420,7 @@ export function DialArchetypeSection({
           archetypeLabel={data.archetypeLabel}
           color={config.color}
           ftext={config.ftext}
-          onClick={() => setIsOpen(true)}
+          onClick={openSelf}
         />
       ) : (
         /* Zone 3 — quick picks. Naming decision (Dana, 2026-08-08): "The
@@ -424,7 +455,7 @@ export function DialArchetypeSection({
   // Part 21 §2.4 — the fold-back control, only present once open. Rendered
   // via BloomDial's fieldOverlay slot (top-right of the field).
   const fieldOverlay = folded && isOpen ? (
-    <button type="button" className="bd-field-fold" onClick={() => setIsOpen(false)}>
+    <button type="button" className="bd-field-fold" onClick={closeSelf}>
       Fold the dial&nbsp;↑
     </button>
   ) : undefined;
