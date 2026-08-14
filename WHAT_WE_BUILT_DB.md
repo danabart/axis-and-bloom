@@ -8,9 +8,11 @@ Seed files (run manually): `backend/src/db/seeds/`
 
 ---
 
-## Database Schema (69 Tables)
+## Database Schema (70 Tables)
 
 The schema runs automatically on every backend startup (`CREATE TABLE IF NOT EXISTS` — fully idempotent, safe to run repeatedly).
+
+> **As of 2026-08-13**: 70 tables. `api_event` added (#163, capture-first API event log) — see Intelligence, below.
 
 > **As of 2026-06-29**: 60 tables. Path Coffee Roasters (13 coffees) + Temecula Coffee Roasters (16 coffees) fully seeded via Tasks 1–6. Run seed files from `backend/src/db/seeds/` in order via Cloud SQL Studio.
 
@@ -75,6 +77,7 @@ No enforced sequence between stages — a user can land on any stage directly fr
 - `notification_log` — email/SMS notifications sent
 - `user_feedback_event` — ratings, repurchases, skips used to tune recommendations
 - `user_recommendation_log` — AI recommendation audit trail
+- `api_event` — **added 2026-08-13** (`WHAT_WE_BUILT.md` #163, `backend/src/features/api_event_log/`). Capture-first API event log: every mutating (`POST`/`PUT`/`PATCH`/`DELETE`) request's raw payload, written *before* the handler runs, via a single app-level middleware (`backend/src/middleware/apiEventLog.ts`) mounted once in `index.ts` — zero per-route work, every current and future route is covered automatically. `id UUID`, `occurred_at`, `call_type TEXT` (route-pattern-derived, e.g. `POST /api/orders/:id/cancel`, stable across ids), `method`, `path`, `firebase_uid`/`is_anonymous` (nullable, filled at request-finish once the route's own auth middleware has run), `request_body JSONB` (recursively redacts any key matching `/password|passwd|secret|token|authorization|apikey|api_key|card|cvv|cvc/i`, truncates over 64 KB), `body_truncated BOOLEAN`, `response_status INTEGER` (`NULL` = request captured but never finished — crash/abort, itself a signal), `response_error JSONB` (body when status ≥ 400, same redaction, capped 2 KB), `duration_ms`. Indexed on `(call_type, occurred_at DESC)`, `(occurred_at)`, and a partial index on `firebase_uid` where not null. No request headers ever stored. Purged by age via `GET /api/cron/purge-api-events` (`API_EVENT_RETENTION_DAYS`, default 90 — payloads carry emails/names, real data hygiene not just disk space). Manual replay only, by design — see `backend/src/features/api_event_log/REPLAY.md`.
 
 **Chat & newsletter**
 - `chat_message` — Claude AI chat history per user

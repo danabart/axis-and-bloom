@@ -9,6 +9,7 @@ import { dirname, join } from 'path';
 import { db } from './db/client.js';
 import { getRealClientIp } from './middleware/clientIp.js';
 import { appCheckGate } from './middleware/appCheck.js';
+import { apiEventLog } from './middleware/apiEventLog.js';
 
 import authRouter from './routes/auth.js';
 import quizRouter from './routes/quiz.js';
@@ -82,6 +83,12 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 // unset/false): never blocks, only logs pass/fail. Exempts /api/cron/*,
 // /api/webhooks/*, and /health internally — see middleware/appCheck.ts.
 app.use(appCheckGate);
+
+// api_event_log -- capture-first API event log (2026-08-13). Mounted once,
+// here, so every current and future /api router is captured with zero
+// per-route work. See middleware/apiEventLog.ts and
+// backend/src/features/api_event_log/CLAUDE_CODE_PROMPT_API_EVENT_LOG.md.
+app.use(apiEventLog);
 
 app.use('/api/auth', authRouter);
 app.use('/api/quiz', quizRouter);

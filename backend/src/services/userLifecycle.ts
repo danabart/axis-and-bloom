@@ -148,7 +148,7 @@ export async function refreshLifecycleState(uid: string): Promise<LifecycleRefre
     await client.query('COMMIT');
     return { stageCode, transitioned };
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch(rollbackErr => console.error('[userLifecycle/refreshLifecycleState-rollback]', rollbackErr));
     console.error('[userLifecycle] refreshLifecycleState error:', err);
     return null;
   } finally {

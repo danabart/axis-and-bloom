@@ -262,10 +262,10 @@ router.post('/', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) 
             firestoreDb.doc(`users/${req.uid}`).set(
               { tokenBalance: tokenRow.rows[0].balance },
               { merge: true }
-            ).catch(() => {});
+            ).catch(err => console.error('[orders/token-balance-sync]', err));
           }
         } catch (err) {
-          await client.query('ROLLBACK').catch(() => {});
+          await client.query('ROLLBACK').catch(rollbackErr => console.error('[orders/token-bonus-rollback]', rollbackErr));
           throw err;
         } finally {
           client.release();
@@ -459,7 +459,7 @@ router.post('/:orderId/feedback', requireAuth, blockAnonymousAuth, async (req: A
       ...(sentiment === 'negative'
         ? { negativeFeedbackBlendId: blendId, negativeFeedbackDetectedAt: FieldValue.serverTimestamp(), negativeFeedbackSource: 'onsite' }
         : {}),
-    }, { merge: true }).catch(() => {});
+    }, { merge: true }).catch(err => console.error('[orders/feedback-confidence-profile]', err));
 
     const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]);
     const profileId = profileResult.rows[0]?.id;

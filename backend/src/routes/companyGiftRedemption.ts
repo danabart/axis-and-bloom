@@ -114,7 +114,7 @@ router.post('/:code/redeem', requireAuth, blockAnonymousAuth, async (req: AuthRe
     await client.query('COMMIT');
     res.json({ ok: true, sponsoredExpiresAt: subResult.rows[0].sponsored_expires_at });
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch(rollbackErr => console.error('[company-gift-redemption/redeem-rollback]', rollbackErr));
     console.error('[company-gift-redemption/redeem]', err);
     res.status(500).json({ error: 'Failed to redeem code' });
   } finally {

@@ -197,6 +197,7 @@ router.post('/event', funnelEventLimiter, async (req, res) => {
     await logFunnelEvent(sessionKey, event, archetype);
     res.json({ ok: true });
   } catch (err: any) {
+    console.error('[quiz/event]', err);
     res.status(400).json({ error: err.message ?? 'Invalid funnel event' });
   }
 });

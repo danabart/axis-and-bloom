@@ -185,6 +185,7 @@ router.patch('/marketing/config', async (req, res) => {
     const { key, value } = req.body;
     res.json(await setMarketingConfigValue(key, value));
   } catch (err) {
+    console.error('[admin/marketing/config PATCH]', err);
     const message = err instanceof Error ? err.message : 'Failed to update marketing config';
     res.status(400).json({ error: message });
   }

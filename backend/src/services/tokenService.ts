@@ -38,10 +38,10 @@ export async function spendToken(
     );
     await client.query('COMMIT');
     const newBalance = balance - costPerTurn;
-    firestoreDb.doc(`users/${uid}`).set({ tokenBalance: newBalance }, { merge: true }).catch(() => {});
+    firestoreDb.doc(`users/${uid}`).set({ tokenBalance: newBalance }, { merge: true }).catch(err => console.error('[tokenService/spendToken] firestore sync failed:', err));
     return { success: true, newBalance };
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch(rollbackErr => console.error('[tokenService/spendToken-rollback]', rollbackErr));
     throw err;
   } finally {
     client.release();
@@ -85,10 +85,10 @@ export async function grantTokens(
     await client.query('COMMIT');
     const row = await db.query('SELECT balance FROM user_tokens WHERE uid = $1', [uid]);
     const newBalance = row.rows.length ? Number(row.rows[0].balance) : 0;
-    firestoreDb.doc(`users/${uid}`).set({ tokenBalance: newBalance }, { merge: true }).catch(() => {});
+    firestoreDb.doc(`users/${uid}`).set({ tokenBalance: newBalance }, { merge: true }).catch(err => console.error('[tokenService/grantTokens] firestore sync failed:', err));
     return newBalance;
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch(rollbackErr => console.error('[tokenService/grantTokens-rollback]', rollbackErr));
     throw err;
   } finally {
     client.release();

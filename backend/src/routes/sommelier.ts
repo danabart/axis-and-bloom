@@ -642,7 +642,7 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
         .update({ sessionStarted: true, sessionId: newSessionId, startedAt: new Date() })
         .catch((err: unknown) => console.error('[sommelier/start] eval update:', err));
 
-      checkReturnedToSommelier(req.uid!, evaluationId).catch(() => {});
+      checkReturnedToSommelier(req.uid!, evaluationId).catch(err => console.error('[sommelier/start] checkReturnedToSommelier failed:', err));
     }
 
     // Spend 1 token for the opening turn — only when gating is on. Ungated,
@@ -711,8 +711,8 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
     }
 
     if (!gatingEnabled) {
-      logUsage(req.uid!, String(newSessionId), modelUsed).catch(() => {});
-      checkMonthlySpendAndAlert(req.uid!).catch(() => {});
+      logUsage(req.uid!, String(newSessionId), modelUsed).catch(err => console.error('[sommelier/start] logUsage failed:', err));
+      checkMonthlySpendAndAlert(req.uid!).catch(err => console.error('[sommelier/start] checkMonthlySpendAndAlert failed:', err));
     }
     // The prompt instructs Liam never to use a marker on the opening turn, but
     // resolve defensively anyway rather than assuming the instruction always holds.
@@ -984,8 +984,8 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
     await resolveCard(cardMarker, req.uid!, entryCoffeeId, entryMethod, brewProfile, message);
 
     if (!gatingEnabled) {
-      logUsage(req.uid!, String(sessionId), modelUsed).catch(() => {});
-      checkMonthlySpendAndAlert(req.uid!).catch(() => {});
+      logUsage(req.uid!, String(sessionId), modelUsed).catch(err => console.error('[sommelier/message] logUsage failed:', err));
+      checkMonthlySpendAndAlert(req.uid!).catch(err => console.error('[sommelier/message] checkMonthlySpendAndAlert failed:', err));
     }
 
     const newTurnCount = session.turn_count + 1;
@@ -1036,7 +1036,7 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
         sessionCompleted: true,
         turnsUsed: newTurnCount,
         tokensSpent,
-      }).catch(() => {});
+      }).catch(err => console.error('[sommelier/message] writeOutcome failed:', err));
     }
 
     res.json({
@@ -1155,7 +1155,7 @@ router.post('/:sessionId/close', requireAuth, blockAnonymousAuth, async (req: Au
       writeOutcome(req.uid!, ctx.evaluationId, {
         sessionCompleted: false,
         turnsUsed: session.turn_count,
-      }).catch(() => {});
+      }).catch(err => console.error('[sommelier/close] writeOutcome failed:', err));
     }
 
     res.json({ closed: true });

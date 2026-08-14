@@ -127,7 +127,7 @@ router.post('/', async (req: AuthRequest, res) => {
     await client.query('COMMIT');
     res.json({ companyGift: gift, codes });
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch(rollbackErr => console.error('[admin/company-gifts/create-rollback]', rollbackErr));
     console.error('[admin/company-gifts/create]', err);
     res.status(500).json({ error: 'Failed to create company gift' });
   } finally {

@@ -3322,4 +3322,34 @@ ALTER TABLE qr_scan_event ADD COLUMN IF NOT EXISTS source TEXT;
 ALTER TABLE coffees ADD COLUMN IF NOT EXISTS ai_summary_generation_failed BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE coffees ADD COLUMN IF NOT EXISTS surprise_note_generation_failed BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE coffees ADD COLUMN IF NOT EXISTS three_voice_story_generation_failed BOOLEAN NOT NULL DEFAULT false;
+
+-- api_event -- capture-first API event log (2026-08-13). Every mutating
+-- (POST/PUT/PATCH/DELETE) API request's raw payload is written here *before*
+-- the handler runs, via a single app-level middleware
+-- (backend/src/middleware/apiEventLog.ts) mounted once in index.ts -- no
+-- route or router opts in individually. If a processing bug silently drops
+-- data downstream, the raw request survives here and can be replayed
+-- manually (see backend/src/features/api_event_log/REPLAY.md). A row with
+-- response_status IS NULL means the request was captured but never
+-- finished (crash/abort) -- that is itself a signal worth querying for.
+-- Retention: purged by age via GET /api/cron/purge-api-events (see
+-- routes/cron.ts), default 90 days -- payloads can contain emails/names, so
+-- this is data hygiene, not just disk space.
+CREATE TABLE IF NOT EXISTS api_event (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  occurred_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  call_type     TEXT NOT NULL,          -- e.g. 'POST /api/quiz/results'
+  method        TEXT NOT NULL,
+  path          TEXT NOT NULL,          -- originalUrl without query string
+  firebase_uid  TEXT,                   -- null until auth middleware ran; filled at finish
+  is_anonymous  BOOLEAN,                -- req.isAnonymous at finish, null if unknown
+  request_body  JSONB,                  -- redacted + truncated, see apiEventLog.ts
+  body_truncated BOOLEAN NOT NULL DEFAULT false,
+  response_status INTEGER,              -- null = request never finished (crash/abort)
+  response_error JSONB,                 -- response body when status >= 400, truncated
+  duration_ms   INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_api_event_call_type_time ON api_event (call_type, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_api_event_time ON api_event (occurred_at);
+CREATE INDEX IF NOT EXISTS idx_api_event_uid ON api_event (firebase_uid) WHERE firebase_uid IS NOT NULL;
 ALTER TABLE coffees ADD COLUMN IF NOT EXISTS story_generation_failed BOOLEAN NOT NULL DEFAULT false;
