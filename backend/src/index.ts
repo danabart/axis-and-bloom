@@ -166,6 +166,28 @@ async function start() {
     console.error('Quiz integrity check error (non-fatal):', err);
   }
 
+  // 2026-08-15 CRON_SECRET incident hardening — every version of the secret
+  // silently carried a leading UTF-8 BOM (3 raw bytes, EF BB BF) from
+  // whatever tool first wrote it, which decodes to a single U+FEFF char
+  // once loaded into process.env. That char is invisible in consoles/paste
+  // targets, isn't stripped by naive `tr -d '\r\n '`-style cleanup, and is
+  // NOT what an HTTP header value round-trips to byte-for-byte — so
+  // requireCronSecret's exact-string compare (backend/src/routes/cron.ts)
+  // silently failed 401 no matter what value got pasted into Cloud
+  // Scheduler's header. This would have surfaced in one log line at boot.
+  // Deliberately does NOT auto-trim in requireCronSecret's own comparison
+  // — masking config drift there is how this stayed hidden for weeks;
+  // we want it loud instead. Lengths only, never the value itself.
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    log.warn('[cron/secret-config]', 'CRON_SECRET is unset — every /api/cron/* route will 401', {});
+  } else if (cronSecret !== cronSecret.trim()) {
+    log.warn('[cron/secret-config]', 'CRON_SECRET has leading/trailing whitespace or a BOM — exact-match comparisons will fail', {
+      rawLength: cronSecret.length,
+      trimmedLength: cronSecret.trim().length,
+    });
+  }
+
   app.listen(PORT, () => console.log(`Axis & Bloom API running on port ${PORT}`));
 }
 

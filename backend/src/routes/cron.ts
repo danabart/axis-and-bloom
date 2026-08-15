@@ -17,6 +17,22 @@ const router = Router();
 // Validate x-cron-secret header against CRON_SECRET env var (set via GCP Secret Manager).
 // Cloud Scheduler job: daily 9:00 AM UTC → GET /api/cron/liam-sms-send
 // with header x-cron-secret: [secret value from Secret Manager CRON_SECRET].
+//
+// 2026-08-15 incident: both cron scheduler jobs 401'd on every run (one had
+// never once succeeded since 2026-07-29). Root cause, confirmed by hashing
+// every secret version's raw bytes: CRON_SECRET's value had carried a
+// leading 3-byte UTF-8 BOM (EF BB BF) since it was first created — not
+// ASCII whitespace, so `tr -d '\r\n '`-style cleanup never touched it, and
+// no amount of re-pasting the value into the Cloud Scheduler header could
+// ever produce a byte-for-byte match against this exact-string compare.
+// Separately (and enough on its own to cause the same symptom), the
+// scheduler jobs' x-cron-secret header was entirely absent at the time —
+// an earlier `gcloud scheduler jobs update ... --update-headers` never
+// actually landed. Fixed by rotating to a clean `openssl rand -hex 32`-
+// style value (see the startup check in index.ts, which now logs a
+// WARNING if this ever regresses) and re-setting both jobs' headers,
+// verified byte-for-byte via sha256 before deploying. See WHAT_WE_BUILT.md
+// for full diagnosis detail.
 function requireCronSecret(req: Request, res: Response, next: NextFunction): void {
   const secret = process.env.CRON_SECRET;
   if (!secret || req.headers['x-cron-secret'] !== secret) {
