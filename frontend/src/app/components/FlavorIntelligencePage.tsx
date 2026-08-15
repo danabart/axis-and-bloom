@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { getHomepageState } from '../lib/api';
+import { reportError } from '../lib/errorReporter';
 import { ARCHETYPE_LABEL, ARCHETYPE_COLOR, useCompatibility, CompatibilityBadge } from './coffee-info/useCompatibility';
 import { useArchetypeAdjacency } from './coffee-info/archetypeAdjacency';
 import { DimensionBars, type DimensionRow } from './coffee-info/DimensionBars';
@@ -140,7 +141,7 @@ export default function FlavorIntelligencePage() {
     fetch('/api/coffees/archetypes')
       .then(r => r.json())
       .then((data: ArchetypeData[]) => { setArchetypes(data); setArchetypesLoaded(true); })
-      .catch(() => { setError('Failed to load coffees'); setArchetypesLoaded(true); });
+      .catch(err => { reportError('[FlavorIntelligencePage/archetypes]', err); setError('Failed to load coffees'); setArchetypesLoaded(true); });
 
     // Bloom Dial Base Data Part 4, §C1: Experimental gets its own archetype-style
     // box here too (same data/component as The Bloom's — see BloomPage.tsx),
@@ -149,12 +150,12 @@ export default function FlavorIntelligencePage() {
     fetch('/api/coffees/experimental')
       .then(r => r.json())
       .then((data: ArchetypeData) => setExperimentalData(data))
-      .catch(() => {});
+      .catch(err => reportError('[FlavorIntelligencePage/experimental]', err));
 
     fetch('/api/coffees/other-categories')
       .then(r => r.json())
       .then((data: OtherCategoryCoffee[]) => setOtherCategories(data))
-      .catch(() => {});
+      .catch(err => reportError('[FlavorIntelligencePage/other-categories]', err));
   }, []);
 
   // Bloom Dial Base Data Part 4, §B2/C1: the 5 real archetypes plus Experimental,
@@ -178,7 +179,7 @@ export default function FlavorIntelligencePage() {
     setHomepageStateLoaded(false);
     getHomepageState()
       .then(setHomepageState)
-      .catch(() => setHomepageState(null))
+      .catch(err => { reportError('[FlavorIntelligencePage/homepage-state]', err); setHomepageState(null); })
       .finally(() => setHomepageStateLoaded(true));
   }, [user, authLoading]);
 
@@ -244,7 +245,7 @@ export default function FlavorIntelligencePage() {
             defaultSelect();
           }
         })
-        .catch(() => defaultSelect());
+        .catch(err => { reportError('[FlavorIntelligencePage/legacy-slot]', err); defaultSelect(); });
       return;
     }
 
@@ -291,9 +292,9 @@ export default function FlavorIntelligencePage() {
       fetch(`/api/coffees/${selectedCoffeeId}/content`)
         .then(r => r.json())
         .then((data: CoffeeContent) => setContent(data))
-        .catch(() => {})
+        .catch(err => reportError('[FlavorIntelligencePage/coffee-content]', err))
         .finally(() => setContentLoading(false));
-    }).catch(() => { setError('Failed to load coffee data'); setLoading(false); setContentLoading(false); });
+    }).catch(err => { reportError('[FlavorIntelligencePage/coffee-data]', err); setError('Failed to load coffee data'); setLoading(false); setContentLoading(false); });
   }, [selectedCoffeeId]);
 
   const { compat, dimCompText } = useCompatibility(selectedArchData?.archetype ?? directCoffee?.archetype ?? null, matchArchetypeId, dimensions);
@@ -322,7 +323,7 @@ export default function FlavorIntelligencePage() {
       setCompareWheelRows(wheel);
       setCompareDimensions(dimData.dimensions ?? []);
       setCompareContent(cContent);
-    }).catch(() => {}).finally(() => setCompareLoading(false));
+    }).catch(err => reportError('[FlavorIntelligencePage/compare]', err)).finally(() => setCompareLoading(false));
   }, [compareMode, compareCoffeeId]);
 
   function toggleCompareMode() {

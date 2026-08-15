@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import { lookupCompanyGiftCode, redeemCompanyGiftCode } from '../lib/api';
+import { reportError } from '../lib/errorReporter';
 
 const ERROR_COPY: Record<string, string> = {
   'not found': "That code doesn't match anything — double check it and try again.",
@@ -56,7 +57,8 @@ export default function CompanyGiftRedemption({ onRedeemed }: Props) {
       }
       setSuccess({ sponsorshipMonths: lookup.sponsorshipMonths });
       onRedeemed?.();
-    } catch {
+    } catch (err) {
+      reportError('[CompanyGiftRedemption/redeem]', err);
       setError('Something went wrong — try again.');
     } finally {
       setSubmitting(false);

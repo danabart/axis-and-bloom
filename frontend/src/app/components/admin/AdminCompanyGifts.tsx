@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { reportError } from '../../lib/errorReporter';
 
 interface CompanyGiftSummary {
   id: string;
@@ -120,6 +121,7 @@ function NewGiftForm({ onCreated, onCancel, getToken }: {
       if (!res.ok) throw new Error(data.error ?? 'Failed to create company gift');
       onCreated(data.companyGift.id);
     } catch (err) {
+      reportError('[AdminCompanyGifts/create]', err);
       setError(err instanceof Error ? err.message : 'Failed to create company gift');
     } finally {
       setSaving(false);
@@ -287,6 +289,7 @@ function GiftDetail({ giftId, getToken, onBack }: {
       setTemplate(data.template);
       setIsCustomTemplate(data.isCustom);
     } catch (err) {
+      reportError('[AdminCompanyGifts/save-template]', err);
       setTemplateError(err instanceof Error ? err.message : 'Failed to save template');
     } finally {
       setSavingTemplate(false);
@@ -307,6 +310,7 @@ function GiftDetail({ giftId, getToken, onBack }: {
       setTemplate(data.template);
       setIsCustomTemplate(data.isCustom);
     } catch (err) {
+      reportError('[AdminCompanyGifts/reset-template]', err);
       setTemplateError(err instanceof Error ? err.message : 'Failed to reset template');
     } finally {
       setSavingTemplate(false);
@@ -428,7 +432,8 @@ export default function AdminCompanyGifts() {
       const data = await res.json();
       if (!Array.isArray(data)) { setError(data?.error ?? 'Failed to load company gifts'); setGifts([]); }
       else { setGifts(data); setError(''); }
-    } catch {
+    } catch (err) {
+      reportError('[AdminCompanyGifts/load]', err);
       setError('Failed to load company gifts');
     } finally {
       setLoading(false);

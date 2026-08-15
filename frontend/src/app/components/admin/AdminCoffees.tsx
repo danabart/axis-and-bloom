@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useAdminLookups } from '../../hooks/useAdminLookups';
+import { reportError } from '../../lib/errorReporter';
 
 interface HopConflict {
   conflicting_coffee: string;
@@ -181,6 +182,7 @@ function LookupSelect({ category, value, onChange, lookups, apiFetch, onAdded }:
       onChange(slug);
       setAdding(false); setNewLabel('');
     } catch (e: unknown) {
+      reportError('[AdminCoffees/add-lookup-value]', e);
       setErr(e instanceof Error ? e.message : 'Failed to add value');
     } finally { setSaving(false); }
   }
@@ -342,7 +344,7 @@ export default function AdminCoffees() {
       setCoffeeCategories(await coffeeCategoryRes.json());
       setArchetypeOptions(await archetypeRes.json());
       setSlotPrices(await slotPriceRes.json());
-    } catch { setError('Failed to load coffees'); }
+    } catch (err) { reportError('[AdminCoffees/load]', err); setError('Failed to load coffees'); }
   }
 
   useEffect(() => { if (user) load(); }, [user]);
@@ -384,6 +386,7 @@ export default function AdminCoffees() {
       if (!res.ok) throw new Error((await res.json()).error ?? 'Unknown error');
       setForm(EMPTY_FORM); setShowForm(false); await load();
     } catch (err: unknown) {
+      reportError('[AdminCoffees/save]', err);
       setSaveError(err instanceof Error ? err.message : 'Failed to save');
     } finally { setSaving(false); }
   }
@@ -408,6 +411,7 @@ export default function AdminCoffees() {
       if (!res.ok) throw new Error((await res.json()).error ?? 'Unknown error');
       setAssigningId(null); setArchForm(EMPTY_ARCH); await load();
     } catch (err: unknown) {
+      reportError('[AdminCoffees/assign-archetype]', err);
       setArchError(err instanceof Error ? err.message : 'Failed to assign');
     } finally { setArchSaving(false); }
   }
@@ -416,29 +420,41 @@ export default function AdminCoffees() {
     if (!coffee.dial_position_id) return;
     setMovingId(coffee.id);
     try {
-      await apiFetch(`/api/admin/dial/positions/${coffee.dial_position_id}`, {
+      const res = await apiFetch(`/api/admin/dial/positions/${coffee.dial_position_id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ vocabulary_id: vocabId }),
       });
+      // Fake-success fix (Observability Foundation Part D) — apiFetch never
+      // checks res.ok itself, so a failed PATCH used to fall straight
+      // through to load() with no error shown.
+      if (!res.ok) { const body = await res.json().catch(() => ({})); alert(body.error ?? 'Failed to move position'); return; }
       await load();
-    } catch { /* non-critical */ } finally { setMovingId(null); }
+    } catch (err) { reportError('[AdminCoffees/move-position]', err); } finally { setMovingId(null); }
   }
 
   async function handleDelete(coffeeId: number, name: string) {
     if (!confirm(`Remove "${name}" from the catalogue? This also removes its archetype assignment, dial position, and aliases.`)) return;
     setDeletingId(coffeeId);
     try {
-      await apiFetch(`/api/admin/coffees/${coffeeId}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/admin/coffees/${coffeeId}`, { method: 'DELETE' });
+      // Fake-success fix (Observability Foundation Part D) — same gap as
+      // handleMovePosition above.
+      if (!res.ok) { const body = await res.json().catch(() => ({})); alert(body.error ?? 'Failed to delete coffee'); return; }
       setAssigningId(null);
       await load();
-    } catch { /* non-critical */ } finally { setDeletingId(null); }
+    } catch (err) { reportError('[AdminCoffees/delete]', err); } finally { setDeletingId(null); }
   }
 
   async function handleRefreshContent(coffeeId: number) {
     setRefreshingId(coffeeId);
-    try { await apiFetch(`/api/admin/coffees/${coffeeId}/refresh-content`, { method: 'POST' }); await load(); }
-    catch { /* non-critical */ } finally { setRefreshingId(null); }
+    try {
+      const res = await apiFetch(`/api/admin/coffees/${coffeeId}/refresh-content`, { method: 'POST' });
+      // Fake-success fix (Observability Foundation Part D).
+      if (!res.ok) { const body = await res.json().catch(() => ({})); alert(body.error ?? 'Failed to refresh content'); return; }
+      await load();
+    }
+    catch (err) { reportError('[AdminCoffees/refresh-content]', err); } finally { setRefreshingId(null); }
   }
 
   // HOME_TASK_5 (§4.4) — story edit-in-place. "Regenerate" reuses the same
@@ -469,6 +485,7 @@ export default function AdminCoffees() {
       setStoryDraft('');
       await load();
     } catch (err: unknown) {
+      reportError('[AdminCoffees/save-story]', err);
       setStoryViolations([err instanceof Error ? err.message : 'Failed to save']);
     } finally {
       setStorySaving(false);
@@ -488,6 +505,7 @@ export default function AdminCoffees() {
       if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
       setRankAliasId(null); await load();
     } catch (err: unknown) {
+      reportError('[AdminCoffees/rank-alias]', err);
       setRankErr(err instanceof Error ? err.message : 'Failed');
     } finally { setRankSaving(false); }
   }
@@ -513,6 +531,7 @@ export default function AdminCoffees() {
       if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
       setCreatingAliasFor(null); setNewAliasName(''); setNewAliasPriority('1'); await load();
     } catch (err: unknown) {
+      reportError('[AdminCoffees/create-alias]', err);
       setAliasCreateErr(err instanceof Error ? err.message : 'Failed');
     } finally { setAliasCreateSaving(false); }
   }
@@ -529,6 +548,7 @@ export default function AdminCoffees() {
       if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
       setNameEditAliasId(null); await load();
     } catch (err: unknown) {
+      reportError('[AdminCoffees/rename-alias]', err);
       setNameErr(err instanceof Error ? err.message : 'Failed');
     } finally { setNameSaving(false); }
   }
@@ -536,13 +556,15 @@ export default function AdminCoffees() {
   async function handleAliasToggleActive(alias: AliasRow) {
     setTogglingAliasId(alias.id);
     try {
-      await apiFetch(`/api/admin/coffee-alias/${alias.id}`, {
+      const res = await apiFetch(`/api/admin/coffee-alias/${alias.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_active: !alias.is_active }),
       });
+      // Fake-success fix (Observability Foundation Part D).
+      if (!res.ok) { const body = await res.json().catch(() => ({})); alert(body.error ?? 'Failed to update alias'); return; }
       await load();
-    } catch { /* non-critical */ } finally { setTogglingAliasId(null); }
+    } catch (err) { reportError('[AdminCoffees/toggle-alias-active]', err); } finally { setTogglingAliasId(null); }
   }
 
   async function handleSlotNameSave(archetype: string, sortOrder: number) {
@@ -561,6 +583,7 @@ export default function AdminCoffees() {
       if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
       setEditingSlotKey(null); await load();
     } catch (err: unknown) {
+      reportError('[AdminCoffees/rename-slot]', err);
       setSlotNameErr(err instanceof Error ? err.message : 'Failed');
     } finally { setSlotNameSaving(false); }
   }
@@ -590,6 +613,7 @@ export default function AdminCoffees() {
       }
       setEditingPriceKey(null); await load();
     } catch (err: unknown) {
+      reportError('[AdminCoffees/save-price]', err);
       setPriceErr(err instanceof Error ? err.message : 'Failed');
     } finally { setPriceSaving(false); }
   }
@@ -606,6 +630,7 @@ export default function AdminCoffees() {
       if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
       setEditingVocabLabelId(null); await load();
     } catch (err: unknown) {
+      reportError('[AdminCoffees/save-vocab-label]', err);
       setVocabLabelErr(err instanceof Error ? err.message : 'Failed');
     } finally { setVocabLabelSaving(false); }
   }
@@ -624,6 +649,7 @@ export default function AdminCoffees() {
       if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
       setNewCategoryLabel(''); await load();
     } catch (err: unknown) {
+      reportError('[AdminCoffees/create-category]', err);
       setCategoryCreateErr(err instanceof Error ? err.message : 'Failed');
     } finally { setCategoryCreateSaving(false); }
   }
@@ -631,13 +657,15 @@ export default function AdminCoffees() {
   async function handleToggleCategoryActive(cat: CategoryOption) {
     setTogglingCategoryId(cat.id);
     try {
-      await apiFetch(`/api/admin/categories/${cat.id}`, {
+      const res = await apiFetch(`/api/admin/categories/${cat.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_active: !cat.is_active }),
       });
+      // Fake-success fix (Observability Foundation Part D).
+      if (!res.ok) { const body = await res.json().catch(() => ({})); alert(body.error ?? 'Failed to update category'); return; }
       await load();
-    } catch { /* non-critical */ } finally { setTogglingCategoryId(null); }
+    } catch (err) { reportError('[AdminCoffees/toggle-category-active]', err); } finally { setTogglingCategoryId(null); }
   }
 
   async function handleDeleteCategory(cat: CategoryOption) {
@@ -647,7 +675,7 @@ export default function AdminCoffees() {
       const res = await apiFetch(`/api/admin/categories/${cat.id}`, { method: 'DELETE' });
       if (!res.ok) { const body = await res.json(); alert(body.error ?? 'Failed to delete category'); return; }
       await load();
-    } catch { /* non-critical */ } finally { setCategoryDeletingId(null); }
+    } catch (err) { reportError('[AdminCoffees/delete-category]', err); } finally { setCategoryDeletingId(null); }
   }
 
   async function handleToggleCoffeeCategory(coffeeId: number, categoryId: number) {
@@ -655,17 +683,17 @@ export default function AdminCoffees() {
     const existing = coffeeCategories.find(cc => cc.coffee_id === coffeeId && cc.category_id === categoryId);
     setTogglingCoffeeCategoryKey(key);
     try {
-      if (existing) {
-        await apiFetch(`/api/admin/coffee-categories/${existing.id}`, { method: 'DELETE' });
-      } else {
-        await apiFetch('/api/admin/coffee-categories', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ coffee_id: coffeeId, category_id: categoryId }),
-        });
-      }
+      const res = existing
+        ? await apiFetch(`/api/admin/coffee-categories/${existing.id}`, { method: 'DELETE' })
+        : await apiFetch('/api/admin/coffee-categories', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ coffee_id: coffeeId, category_id: categoryId }),
+          });
+      // Fake-success fix (Observability Foundation Part D).
+      if (!res.ok) { const body = await res.json().catch(() => ({})); alert(body.error ?? 'Failed to update category tag'); return; }
       await load();
-    } catch { /* non-critical */ } finally { setTogglingCoffeeCategoryKey(null); }
+    } catch (err) { reportError('[AdminCoffees/toggle-coffee-category]', err); } finally { setTogglingCoffeeCategoryKey(null); }
   }
 
   function openAssign(coffee: Coffee) {
@@ -701,6 +729,7 @@ export default function AdminCoffees() {
       if (!res.ok) throw new Error((await res.json()).error ?? 'Failed to save');
       await load();
     } catch (err: unknown) {
+      reportError('[AdminCoffees/save-meta]', err);
       setMetaError(err instanceof Error ? err.message : 'Failed to save');
     } finally { setMetaSaving(false); }
   }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
 import { setDialPosition } from '../../lib/api';
+import { reportError } from '../../lib/errorReporter';
 import { BloomDial, type BloomDialHandle } from './dial/BloomDial';
 import { buildDialConfig } from './dial/archetypeConfig';
 import { computeDefaultSortOrder } from './ArchetypeSection';
@@ -230,7 +231,7 @@ export function DialArchetypeSection({
       trigger: 'explicit_save', source, coffeeId: currentSlot.coffeeId, platformName: currentSlot.platformName,
     })
       .then(() => setSavedKey(currentKey))
-      .catch(() => {});
+      .catch(err => reportError('[DialArchetypeSection/explicit-save]', err));
   }
 
   function handleAddToCart() {
@@ -249,7 +250,7 @@ export function DialArchetypeSection({
     if (user) {
       setDialPosition(data.archetype, currentSlot.dialSortOrder, {
         trigger: 'add_to_cart', source, coffeeId: currentSlot.coffeeId,
-      }).catch(() => {});
+      }).catch(err => reportError('[DialArchetypeSection/add-to-cart-dial-sync]', err));
     }
   }
 
@@ -274,7 +275,7 @@ export function DialArchetypeSection({
     if (user) {
       setDialPosition(data.archetype, defaultSlot.dialSortOrder, {
         trigger: 'add_to_cart', source, coffeeId: defaultSlot.coffeeId,
-      }).catch(() => {});
+      }).catch(err => reportError('[DialArchetypeSection/add-to-cart-dial-sync]', err));
     }
   }
 

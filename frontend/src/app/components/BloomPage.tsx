@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { getUserProfile, getDialPosition, setDialPosition } from '../lib/api';
+import { reportError } from '../lib/errorReporter';
 import { ARCHETYPE_VISUALS } from './bloom/bloomVisuals';
 import { Link, useSearchParams } from 'react-router';
 import { computeDefaultSortOrder } from './bloom/ArchetypeSection';
@@ -45,6 +46,8 @@ export default function BloomPage() {
   // fetch below already asks the DB, no separate localStorage check needed
   // for that case).
   const [hasTurnedDial, setHasTurnedDial] = useState(() => {
+    // localStorage unavailable (private/incognito browsing, blocked storage) —
+    // not an error, just means the dial's one-time nudge won't be remembered.
     try { return localStorage.getItem('axisbloom.hasTurnedDial') === '1'; } catch { return false; }
   });
   const [hasSavedPosition, setHasSavedPosition] = useState(false);
@@ -65,7 +68,7 @@ export default function BloomPage() {
           return next;
         });
       })
-      .catch(() => setError('Failed to load coffees'));
+      .catch(err => { reportError('[BloomPage/archetypes]', err); setError('Failed to load coffees'); });
 
     const experimentalFetch = fetch('/api/coffees/experimental')
       .then(r => r.json())
@@ -73,12 +76,12 @@ export default function BloomPage() {
         setExperimentalData(data);
         setSelectedSortOrder(prev => (data.archetype in prev) ? prev : { ...prev, [data.archetype]: computeDefaultSortOrder(data) });
       })
-      .catch(() => {});
+      .catch(err => reportError('[BloomPage/experimental]', err));
 
     fetch('/api/coffees/other-categories')
       .then(r => r.json())
       .then((data: OtherCategoryCoffee[]) => setOtherCategories(data))
-      .catch(() => {});
+      .catch(err => reportError('[BloomPage/other-categories]', err));
 
     // Liam action links, Phase A: the deep-link effect below needs to know when
     // the catalogue is *settled*, not just non-empty — experimentalData alone can
@@ -92,7 +95,7 @@ export default function BloomPage() {
     setUserArchetypeLoaded(false);
     getUserProfile()
       .then(p => setUserArchetype(p?.archetype?.id ?? null))
-      .catch(() => setUserArchetype(null))
+      .catch(err => { reportError('[BloomPage/user-archetype]', err); setUserArchetype(null); })
       .finally(() => setUserArchetypeLoaded(true));
   }, [user]);
 
@@ -106,7 +109,7 @@ export default function BloomPage() {
     fetch(`/api/coffees/archetype-order${qs}`)
       .then(r => r.json())
       .then((data: { order: string[] }) => setArchetypeOrder(data.order))
-      .catch(() => setArchetypeOrder(null));
+      .catch(err => { reportError('[BloomPage/archetype-order]', err); setArchetypeOrder(null); });
   }, [userArchetype, userArchetypeLoaded]);
 
   const orderedArchetypes = useMemo(() => {
@@ -117,7 +120,7 @@ export default function BloomPage() {
   // Phase D — pre-set each archetype's dial to the signed-in user's saved position.
   useEffect(() => {
     if (!user || !archetypes.length) return;
-    Promise.all(archetypes.map(a => getDialPosition(a.archetype).then(r => [a.archetype, r.dialSortOrder] as const).catch(() => [a.archetype, null] as const)))
+    Promise.all(archetypes.map(a => getDialPosition(a.archetype).then(r => [a.archetype, r.dialSortOrder] as const).catch(err => { reportError('[BloomPage/dial-position-read]', err); return [a.archetype, null] as const; })))
       .then(entries => {
         setSelectedSortOrder(prev => {
           const next = { ...prev };
@@ -165,10 +168,11 @@ export default function BloomPage() {
   // Silent auto-save on every settled turn (signed-in only; anonymous falls through).
   function handleDialSelect(archetype: string, dialSortOrder: number) {
     setSelectedSortOrder(prev => ({ ...prev, [archetype]: dialSortOrder }));
-    if (user) setDialPosition(archetype, dialSortOrder).catch(() => {});
+    if (user) setDialPosition(archetype, dialSortOrder).catch(err => reportError('[BloomPage/dial-position-write]', err));
     // Part 21 §4.3 — turning IS the dismissal; no separate close button.
     if (!hasTurnedDial) {
       setHasTurnedDial(true);
+      // localStorage unavailable — not an error, the nudge just reappears next visit.
       try { localStorage.setItem('axisbloom.hasTurnedDial', '1'); } catch {}
     }
   }

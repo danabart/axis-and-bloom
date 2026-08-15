@@ -3,6 +3,7 @@ import { Link, useSearchParams, useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { reportError } from '../lib/errorReporter';
 
 export default function SignIn() {
   const [activeTab, setActiveTab] = useState<'create' | 'signin'>('create');
@@ -32,6 +33,7 @@ export default function SignIn() {
       }
       navigate(redirectTo);
     } catch (err: any) {
+      reportError('[SignIn/submit]', err);
       setError(friendlyError(err.message ?? 'Authentication failed'));
     } finally {
       setIsLoading(false);
@@ -50,6 +52,7 @@ export default function SignIn() {
       setResetSent(true);
       setError('');
     } catch (err: any) {
+      reportError('[SignIn/reset-password]', err);
       setError(err.message ?? 'Could not send reset email.');
     }
   };
@@ -72,6 +75,7 @@ export default function SignIn() {
       await signInWithGoogle();
       navigate(redirectTo);
     } catch (err: any) {
+      reportError('[SignIn/google]', err);
       setError(err.message ?? 'Google sign-in failed');
     }
   };
@@ -81,6 +85,7 @@ export default function SignIn() {
       await signInWithApple();
       navigate(redirectTo);
     } catch (err: any) {
+      reportError('[SignIn/apple]', err);
       setError(err.message ?? 'Apple sign-in failed');
     }
   };

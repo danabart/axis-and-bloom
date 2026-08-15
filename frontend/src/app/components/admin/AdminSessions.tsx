@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
 import { useAdminLookups } from '../../hooks/useAdminLookups';
+import { reportError } from '../../lib/errorReporter';
 
 interface Session {
   id: number;
@@ -73,6 +74,7 @@ export default function AdminSessions() {
       setSessions(await res.json());
       setError('');
     } catch (err: unknown) {
+      reportError('[AdminSessions/load]', err);
       setError(err instanceof Error ? err.message : 'Failed to load sessions');
     }
   }
@@ -82,7 +84,7 @@ export default function AdminSessions() {
     try {
       const res = await apiFetch('/api/admin/coffees');
       if (res.ok) setAllCoffees(await res.json());
-    } catch { /* non-critical */ }
+    } catch (err) { reportError('[AdminSessions/load-all-coffees]', err); }
   }
 
   async function loadRoasters() {
@@ -92,7 +94,7 @@ export default function AdminSessions() {
       if (!res.ok) return;
       const data = await res.json();
       if (Array.isArray(data)) setRoasterOptions(data.filter((r: { is_active: boolean }) => r.is_active));
-    } catch { /* non-critical */ }
+    } catch (err) { reportError('[AdminSessions/load-roaster-options]', err); }
   }
 
   async function loadSessionCoffees(sessionId: number) {
@@ -100,7 +102,7 @@ export default function AdminSessions() {
       const res = await apiFetch(`/api/admin/sessions/${sessionId}/coffees`);
       if (res.ok) setSessionCoffees(await res.json());
       else setSessionCoffees([]);
-    } catch { setSessionCoffees([]); }
+    } catch (err) { reportError('[AdminSessions/load-session-coffees]', err); setSessionCoffees([]); }
   }
 
   useEffect(() => { load(); }, [user]);
@@ -138,13 +140,16 @@ export default function AdminSessions() {
       if (!res.ok) throw new Error((await res.json()).error ?? 'Failed to create session');
       const session = await res.json();
 
-      // 2. Link pre-selected coffees
+      // 2. Link pre-selected coffees. Best-effort per item, matching the
+      // existing behavior (a partial-link failure doesn't roll back the
+      // session already created above) — previously entirely unrecorded.
       for (const c of pendingCoffees) {
-        await apiFetch(`/api/admin/sessions/${session.id}/coffees`, {
+        const linkRes = await apiFetch(`/api/admin/sessions/${session.id}/coffees`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ coffee_id: c.id }),
         });
+        if (!linkRes.ok) reportError('[AdminSessions/link-pending-coffee]', new Error(`HTTP ${linkRes.status}`), { coffeeId: c.id });
       }
 
       // 3. Reset + auto-expand the new session
@@ -154,6 +159,7 @@ export default function AdminSessions() {
       setExpandedId(session.id);
       await Promise.all([loadSessionCoffees(session.id), loadAllCoffees()]);
     } catch (err: unknown) {
+      reportError('[AdminSessions/save]', err);
       setSaveError(err instanceof Error ? err.message : 'Failed to save');
     } finally { setSaving(false); }
   }
@@ -162,23 +168,30 @@ export default function AdminSessions() {
     if (!addingCoffeeId || !expandedId) return;
     setLinking(true);
     try {
-      await apiFetch(`/api/admin/sessions/${expandedId}/coffees`, {
+      const res = await apiFetch(`/api/admin/sessions/${expandedId}/coffees`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ coffee_id: Number(addingCoffeeId) }),
       });
+      // Fake-success fix (Observability Foundation Part D) — apiFetch
+      // never checks res.ok itself, so a failed link used to refresh the
+      // list (showing nothing added) with no error.
+      if (!res.ok) { setError((await res.json().catch(() => ({}))).error ?? 'Failed to add coffee'); return; }
       setAddingCoffeeId('');
       await Promise.all([loadSessionCoffees(expandedId), load()]);
-    } catch { setError('Failed to add coffee'); }
+    } catch (err) { reportError('[AdminSessions/add-coffee]', err); setError('Failed to add coffee'); }
     finally { setLinking(false); }
   }
 
   async function handleRemoveCoffee(scId: number, sessionId: number) {
     setRemoving(scId);
     try {
-      await apiFetch(`/api/admin/sessions/${sessionId}/coffees/${scId}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/admin/sessions/${sessionId}/coffees/${scId}`, { method: 'DELETE' });
+      // Fake-success fix (Observability Foundation Part D) — same gap as
+      // handleAddCoffee above.
+      if (!res.ok) { setError((await res.json().catch(() => ({}))).error ?? 'Failed to remove coffee'); return; }
       await Promise.all([loadSessionCoffees(sessionId), load()]);
-    } catch { setError('Failed to remove coffee'); }
+    } catch (err) { reportError('[AdminSessions/remove-coffee]', err); setError('Failed to remove coffee'); }
     finally { setRemoving(null); }
   }
 

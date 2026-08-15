@@ -18,6 +18,7 @@ export default function FilmModal({ src, open, onClose }: Props) {
     videoRef.current?.focus();
     return () => {
       document.removeEventListener('keydown', onKey);
+      // Browser autoplay policy can reject play() until a user gesture — not an error.
       bgVideos.forEach(v => { v.play().catch(() => {}); });
     };
   }, [open, onClose]);

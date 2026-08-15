@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { subscribeNewsletter } from '../lib/api';
+import { reportError } from '../lib/errorReporter';
 
 const BRAND = '#a33726';
 const ACCENT = '#ee5974';
@@ -41,7 +42,8 @@ export function PostQuizEmailGate({ archetypeName, archetypeColor, experimental,
         quizSessionKey: sessionKey,
       });
       onSuccess(email);
-    } catch {
+    } catch (err) {
+      reportError('[PostQuizEmailGate/subscribe]', err);
       setError(true);
       setSubmitting(false);
     }

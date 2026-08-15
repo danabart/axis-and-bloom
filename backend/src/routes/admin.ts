@@ -2547,4 +2547,62 @@ router.get('/quiz/integrity', async (_req, res) => {
   }
 });
 
+// ── GET /api/admin/system-health — Observability Foundation Part E ──────────
+// Read-only aggregate view of the api_event log (see
+// backend/src/features/observability/CLAUDE_CODE_PROMPT_OBSERVABILITY_FOUNDATION.md).
+// No configuration here by policy -- alert thresholds/routing live in GCP
+// Cloud Logging, not this portal. Reuses the AdminAIOps card pattern (plain
+// SQL, no new tables) rather than inventing a new one.
+router.get('/system-health', async (_req, res) => {
+  try {
+    const [callTypeResult, clientErrorResult, retentionResult] = await Promise.all([
+      db.query<{ call_type: string; total: string; failed: string; never_finished: string }>(
+        `SELECT call_type,
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE response_status >= 400) AS failed,
+                COUNT(*) FILTER (WHERE response_status IS NULL) AS never_finished
+         FROM api_event
+         WHERE occurred_at >= now() - interval '7 days'
+         GROUP BY call_type
+         ORDER BY total DESC`
+      ),
+      db.query<{ signature: string | null; count: string; last_seen: Date }>(
+        `SELECT request_body->>'signature' AS signature,
+                COUNT(*) AS count,
+                MAX(occurred_at) AS last_seen
+         FROM api_event
+         WHERE call_type = 'POST /api/client-errors'
+           AND occurred_at >= now() - interval '7 days'
+         GROUP BY request_body->>'signature'
+         ORDER BY count DESC
+         LIMIT 20`
+      ),
+      db.query<{ total_rows: string; oldest_row_at: Date | null }>(
+        `SELECT COUNT(*) AS total_rows, MIN(occurred_at) AS oldest_row_at FROM api_event`
+      ),
+    ]);
+
+    res.json({
+      callTypes: callTypeResult.rows.map(r => ({
+        callType: r.call_type,
+        total: Number(r.total),
+        failed: Number(r.failed),
+        neverFinished: Number(r.never_finished),
+      })),
+      clientErrorSignatures: clientErrorResult.rows.map(r => ({
+        signature: r.signature,
+        count: Number(r.count),
+        lastSeen: r.last_seen,
+      })),
+      retention: {
+        totalRows: Number(retentionResult.rows[0]?.total_rows ?? 0),
+        oldestRowAt: retentionResult.rows[0]?.oldest_row_at ?? null,
+      },
+    });
+  } catch (err) {
+    console.error('[admin/system-health]', err);
+    res.status(500).json({ error: 'Failed to fetch system health data' });
+  }
+});
+
 export default router;

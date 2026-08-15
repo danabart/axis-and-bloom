@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
+import { reportError } from '../lib/errorReporter';
 
 const RUST = '#a33726';
 
@@ -142,7 +143,8 @@ export default function Sommelier() {
       });
       if (!res.ok) throw new Error('save failed');
       setRecipeSaveStatus(prev => ({ ...prev, [index]: 'saved' }));
-    } catch {
+    } catch (err) {
+      reportError('[Sommelier/save-recipe]', err);
       setRecipeSaveStatus(prev => { const next = { ...prev }; delete next[index]; return next; });
     }
   }
@@ -151,7 +153,7 @@ export default function Sommelier() {
     try {
       const res = await doFetch('/api/sommelier/sessions');
       if (res.ok) setPastSessions(await res.json());
-    } catch { /* non-blocking */ }
+    } catch (err) { reportError('[Sommelier/load-past-sessions]', err); }
   }, []);
 
   const loadSessionById = useCallback(async (sid: number, past: PastSession) => {
@@ -166,7 +168,8 @@ export default function Sommelier() {
       setCoffeeNames(data.coffeeNames ?? []);
       setMessages(data.messages ?? []);
       setSessionClosed(past.is_closed);
-    } catch {
+    } catch (err) {
+      reportError('[Sommelier/load-session]', err);
       setMessages([]);
     }
     setPhase('chat');
@@ -174,7 +177,7 @@ export default function Sommelier() {
 
   const openSession = useCallback(async (ev: EvalResult, forceNew = false, closeSessionId?: number) => {
     if (forceNew && closeSessionId) {
-      await doFetch(`/api/sommelier/${closeSessionId}/close`, { method: 'POST' }).catch(() => {});
+      await doFetch(`/api/sommelier/${closeSessionId}/close`, { method: 'POST' }).catch(err => reportError('[Sommelier/close-session]', err));
     }
 
     const startRes = await doFetch('/api/sommelier/start', {
@@ -191,6 +194,8 @@ export default function Sommelier() {
     if (startRes.status === 402 || startRes.status === 429) {
       // Rollback-only paths (gatingEnabled flipped back on, or the invisible
       // daily cap) — neither is ever framed to the customer as a token/limit.
+      // .catch(() => ({})) below: the error response isn't guaranteed valid
+      // JSON — falls back to the generic message just below either way.
       const j = await startRes.json().catch(() => ({}));
       setErrorMsg(j.message ?? 'Something went wrong. Please try again shortly.');
       setPhase('error');
@@ -245,6 +250,7 @@ export default function Sommelier() {
         setEvalResult(resolvedEval);
         await openSession(resolvedEval);
       } catch (err) {
+        reportError('[Sommelier/open]', err);
         setErrorMsg(`Something went wrong. (${err instanceof Error ? err.message : 'unknown'})`);
         setPhase('error');
       }
@@ -278,7 +284,8 @@ export default function Sommelier() {
       setMessages(prev => [...prev, { role: 'assistant', content: data.reply, actions: data.actions }]);
       setTurnCount(data.turnCount);
       if (data.sessionClosed) setSessionClosed(true);
-    } catch {
+    } catch (err) {
+      reportError('[Sommelier/send-message]', err);
       setMessages(prev => [...prev, { role: 'assistant', content: 'Something went wrong. Please try again.' }]);
     } finally {
       setSending(false);
@@ -301,7 +308,8 @@ export default function Sommelier() {
           ? data.messages
           : [{ role: 'assistant', content: 'Welcome back — continuing where you left off.', synthetic: true }]
       );
-    } catch {
+    } catch (err) {
+      reportError('[Sommelier/resume-session]', err);
       setMessages([{ role: 'assistant', content: 'Welcome back — continuing where you left off.', synthetic: true }]);
     }
     setPhase('chat');
@@ -315,7 +323,8 @@ export default function Sommelier() {
     try {
       await openSession(evalResult, true, resumable.sessionId);
       await loadPastSessions();
-    } catch {
+    } catch (err) {
+      reportError('[Sommelier/resume-fresh]', err);
       setErrorMsg('Failed to start a new session.');
       setPhase('error');
     }
@@ -330,7 +339,8 @@ export default function Sommelier() {
     try {
       await openSession(evalResult, true, sessionId ?? undefined);
       await loadPastSessions();
-    } catch {
+    } catch (err) {
+      reportError('[Sommelier/restart]', err);
       setErrorMsg('Failed to start a new session.');
       setPhase('error');
     }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { reportError } from '../../lib/errorReporter';
 
 interface DialHop {
   id: number;
@@ -114,7 +115,8 @@ export default function AdminDial() {
       setAdjacency(await adjRes.json());
       setHopSuggestions(await suggRes.json());
       setDimensionConfig(await dimConfigRes.json());
-    } catch {
+    } catch (err) {
+      reportError('[AdminDial/load]', err);
       setError('Failed to load navigation hops');
     }
   }
@@ -149,6 +151,7 @@ export default function AdminDial() {
       if (body.warning) setHopWarning(body.warning);
       await loadAll();
     } catch (err: unknown) {
+      reportError('[AdminDial/save-hop]', err);
       setHopError(err instanceof Error ? err.message : 'Failed to save');
     } finally { setHopSaving(false); }
   }
@@ -158,7 +161,11 @@ export default function AdminDial() {
     try {
       await apiFetch(`/api/admin/dial/relationships/${id}`, { method: 'DELETE' });
       await loadAll();
-    } catch { /* non-critical */ }
+    } catch (err) {
+      // Genuinely silent before this — a failed delete left the hop still in
+      // the list (loadAll() is skipped), but nothing told the admin why.
+      reportError('[AdminDial/delete-hop]', err);
+    }
   }
 
   async function handleAcceptSuggestion(s: HopSuggestion) {
@@ -182,7 +189,9 @@ export default function AdminDial() {
       if (!res.ok) throw new Error(body.error ?? 'Unknown error');
       if (body.warning) setHopWarning(body.warning);
       await loadAll();
-    } catch { /* non-critical */ } finally { setAcceptingKey(null); }
+    } catch (err) {
+      reportError('[AdminDial/accept-hop-suggestion]', err);
+    } finally { setAcceptingKey(null); }
   }
 
   return (

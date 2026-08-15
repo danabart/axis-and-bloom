@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { reportError } from '../../lib/errorReporter';
 
 type AdjacencyMap = Record<string, string[]>;
 
@@ -18,7 +19,7 @@ async function loadAdjacency(): Promise<AdjacencyMap> {
         cache = data.adjacency ?? {};
         return cache;
       })
-      .catch(() => { cache = {}; return cache; });
+      .catch(err => { reportError('[archetypeAdjacency/load]', err); cache = {}; return cache; });
   }
   return inflight;
 }

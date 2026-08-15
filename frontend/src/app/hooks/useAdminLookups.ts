@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { reportError } from '../lib/errorReporter';
 
 export interface LookupOption {
   value: string;
@@ -21,8 +22,9 @@ export function useAdminLookups() {
         headers: { Authorization: `Bearer ${token}` },
       });
       setLookups(await res.json());
-    } catch {
+    } catch (err) {
       // leave whatever was already loaded — forms will show no/stale options rather than crash
+      reportError('[useAdminLookups/load]', err);
     } finally {
       setLoading(false);
     }

@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { ArrowRight } from 'lucide-react';
 import { ARCHETYPE_COLOR } from '../coffee-info/archetypeConstants';
 import { removeFlavorMemoryEntry, type FlavorMemoryActivityEntry } from '../../lib/api';
+import { reportError } from '../../lib/errorReporter';
 import { deriveReadingLine } from '../../lib/deriveReadingLine';
 
 interface Props {
@@ -61,7 +62,11 @@ export default function ActivityTimeline({ entries, retakeCopy, onRemoved }: Pro
     try {
       await removeFlavorMemoryEntry(entry.type === 'recipe' ? 'recipe' : 'saved', entry.id);
       onRemoved();
-    } catch {
+    } catch (err) {
+      // Not fake success — onRemoved() above is inside the try, so it never
+      // fires unless removeFlavorMemoryEntry actually succeeded. Previously
+      // just reset the spinner with no explanation of why nothing changed.
+      reportError('[ActivityTimeline/remove]', err);
       setRemovingId(null);
     }
   }

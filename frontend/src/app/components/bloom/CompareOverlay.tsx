@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { reportError } from '../../lib/errorReporter';
 import type { ArchetypeData, Slot } from './types';
 import { slotKey } from './types';
 import { DimensionBars, type DimensionRow } from '../coffee-info/DimensionBars';
@@ -40,7 +41,7 @@ export function CompareOverlay({ open, onClose, left, archetypes }: CompareOverl
     Promise.all([
       fetch(`/api/coffees/${left.slot.coffeeId}/dimensions`).then(r => r.json()),
       fetch(`/api/coffees/${left.slot.coffeeId}/flavor-wheel`).then(r => r.json()),
-    ]).then(([dimData, wheel]) => { setLeftDims(dimData.dimensions ?? []); setLeftWheel(wheel); }).catch(() => {});
+    ]).then(([dimData, wheel]) => { setLeftDims(dimData.dimensions ?? []); setLeftWheel(wheel); }).catch(err => reportError('[CompareOverlay/left]', err));
   }, [open, left?.slot.coffeeId]);
 
   useEffect(() => {
@@ -48,7 +49,7 @@ export function CompareOverlay({ open, onClose, left, archetypes }: CompareOverl
     Promise.all([
       fetch(`/api/coffees/${right.slot.coffeeId}/dimensions`).then(r => r.json()),
       fetch(`/api/coffees/${right.slot.coffeeId}/flavor-wheel`).then(r => r.json()),
-    ]).then(([dimData, wheel]) => { setRightDims(dimData.dimensions ?? []); setRightWheel(wheel); }).catch(() => {});
+    ]).then(([dimData, wheel]) => { setRightDims(dimData.dimensions ?? []); setRightWheel(wheel); }).catch(err => reportError('[CompareOverlay/right]', err));
   }, [right?.slot.coffeeId]);
 
   if (!left) return null;

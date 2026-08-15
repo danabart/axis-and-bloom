@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { reportError } from '../../lib/errorReporter';
 
 interface UniversalTokenRow {
   source: string;
@@ -38,7 +39,7 @@ export default function AdminQrDoor() {
     try {
       const res = await apiFetch('/api/admin/qr/universal-tokens');
       setRow(await res.json());
-    } catch { setError('Failed to load the QR code'); }
+    } catch (err) { reportError('[AdminQrDoor/load]', err); setError('Failed to load the QR code'); }
   }
 
   useEffect(() => { if (user) load(); }, [user]);

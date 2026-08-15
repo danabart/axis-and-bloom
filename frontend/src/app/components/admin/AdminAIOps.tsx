@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { reportError } from '../../lib/errorReporter';
 
 type AiFeature = 'liam_chat' | 'quiz_recommendation' | 'coffee_content' | 'lifecycle';
 
@@ -103,7 +104,8 @@ export default function AdminAIOps() {
       const j = (await res.json()) as AiOpsData;
       setData(j);
       setDraft(j.controls);
-    } catch {
+    } catch (err) {
+      reportError('[AdminAIOps/load]', err);
       setError('Failed to load AI Operations data');
     } finally {
       setLoading(false);
@@ -146,6 +148,7 @@ export default function AdminAIOps() {
       setTimeout(() => setToast(''), 4000);
       await loadData();
     } catch (e: unknown) {
+      reportError('[AdminAIOps/save]', e);
       setError(e instanceof Error ? e.message : 'Save failed');
     } finally {
       setSaving(false);

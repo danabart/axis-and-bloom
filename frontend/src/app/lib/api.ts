@@ -1,4 +1,5 @@
 import { auth } from './firebase';
+import { reportError } from './errorReporter';
 
 const BASE = '/api';
 
@@ -245,6 +246,9 @@ export async function setBrewProfileField(field: string, value: string | boolean
     body: JSON.stringify({ field, value }),
   });
   if (!res.ok) {
+    // Error responses aren't guaranteed to be valid JSON (e.g. a raw 500
+    // from an intermediary) — fall back to a generic message rather than
+    // letting a parse failure mask the real error being thrown below.
     const j = await res.json().catch(() => ({}));
     throw new Error(j.error ?? 'Failed to save field');
   }
@@ -351,7 +355,8 @@ export async function resolveQrToken(token: string): Promise<QrResolveResult> {
     if (res.status === 429) return { status: 'rate_limited' };
     if (!res.ok) return { status: 'error' };
     return res.json();
-  } catch {
+  } catch (err) {
+    reportError('[api/resolveQrToken]', err);
     return { status: 'error' };
   }
 }

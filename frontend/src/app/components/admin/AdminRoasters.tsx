@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { reportError } from '../../lib/errorReporter';
 
 interface Roaster {
   id: string;
@@ -42,7 +43,7 @@ function RoasterForm({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setSaveError('');
     try { await onSave(form); }
-    catch (err: unknown) { setSaveError(err instanceof Error ? err.message : 'Failed to save'); }
+    catch (err: unknown) { reportError('[AdminRoasters/form-save]', err); setSaveError(err instanceof Error ? err.message : 'Failed to save'); }
     finally { setSaving(false); }
   }
 
@@ -144,7 +145,8 @@ export default function AdminRoasters() {
         setRoasters(data);
         setError('');
       }
-    } catch {
+    } catch (err) {
+      reportError('[AdminRoasters/load]', err);
       setError('Failed to load roasteries');
     } finally {
       setLoading(false);
@@ -176,11 +178,14 @@ export default function AdminRoasters() {
   async function toggleActive(id: string) {
     setToggling(id);
     try {
-      await fetch(`/api/admin/roasters/${id}/toggle`, {
+      const res = await fetch(`/api/admin/roasters/${id}/toggle`, {
         method: 'PATCH', headers: { Authorization: `Bearer ${await getToken()}` },
       });
+      // Fake-success fix (Observability Foundation Part D) — a failed
+      // toggle used to refresh the list (showing it unchanged) with no error.
+      if (!res.ok) { setError((await res.json().catch(() => ({}))).error ?? 'Failed to update'); return; }
       await load();
-    } catch { setError('Failed to update'); }
+    } catch (err) { reportError('[AdminRoasters/toggle]', err); setError('Failed to update'); }
     finally { setToggling(null); }
   }
 

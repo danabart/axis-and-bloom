@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import { lifestyleAssets } from '../../design/assets';
 import { trackEvent, trackLead } from '../lib/analytics';
 import { logQuizFunnelEvent } from '../lib/api';
+import { reportError } from '../lib/errorReporter';
 
 const CoffeePic15 = lifestyleAssets.coffee15Vertical.src;
 
@@ -16,6 +17,7 @@ export default function NewsletterModal() {
   const [isOpen, setIsOpen] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [email, setEmail] = useState('');
+  const [submitError, setSubmitError] = useState('');
 
   useEffect(() => {
     if (DISABLED) return;
@@ -33,20 +35,28 @@ export default function NewsletterModal() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError('');
     try {
       const res = await fetch('/api/newsletter/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, source: 'newsletter' }),
       });
-      if (res.ok) {
-        trackEvent('EmailSubmitted', { source: 'newsletter_modal' });
-        trackLead({ source: 'newsletter_modal' });
-        logQuizFunnelEvent(crypto.randomUUID(), 'email_submitted').catch(() => {});
-      }
-    } catch {}
-    setHasSubmitted(true);
-    setTimeout(handleClose, 2000);
+      if (!res.ok) throw new Error('Failed to subscribe');
+      trackEvent('EmailSubmitted', { source: 'newsletter_modal' });
+      trackLead({ source: 'newsletter_modal' });
+      logQuizFunnelEvent(crypto.randomUUID(), 'email_submitted').catch(err => reportError('[NewsletterModal/funnel-event]', err));
+      setHasSubmitted(true);
+      setTimeout(handleClose, 2000);
+    } catch (err) {
+      // Fake-success fix (Observability Foundation Part D) — this used to
+      // show "Check your inbox" regardless of whether the subscribe call
+      // actually succeeded. Component is currently disabled site-wide
+      // (DISABLED = true above) so has no live traffic today, but fixed
+      // for correctness in case it's re-enabled.
+      reportError('[NewsletterModal/subscribe]', err);
+      setSubmitError("We couldn't sign you up just now — please try again.");
+    }
   };
 
   return (
@@ -101,6 +111,7 @@ export default function NewsletterModal() {
                     <button type="submit" className="w-full bg-[#a33726] text-[#f2f1ea] py-4 text-xs uppercase tracking-[0.2em] hover:bg-[#8e2e1f] transition-colors mt-4">
                       Subscribe & Save
                     </button>
+                    {submitError && <p className="text-xs text-red-600">{submitError}</p>}
                     <p className="text-xs text-[#a33726] opacity-55" style={{ lineHeight: 1.5 }}>
                       We'll email your match and early access — unsubscribe anytime.
                     </p>

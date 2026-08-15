@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { submitOrderFeedback } from '../lib/api';
+import { reportError } from '../lib/errorReporter';
 
 interface Props {
   orderId: string;
@@ -60,7 +61,7 @@ export default function OrderFeedbackForm({
         }
         setChipNotes([...seen].map(([id, descriptor]) => ({ id, descriptor })));
       })
-      .catch(() => setChipNotes([]));
+      .catch(err => { reportError('[OrderFeedbackForm/chip-notes]', err); setChipNotes([]); });
   }, [coffeeId]);
 
   function toggleNote(id: string) {
@@ -83,7 +84,8 @@ export default function OrderFeedbackForm({
       });
       setSubmitted(true);
       onSubmitted?.();
-    } catch {
+    } catch (err) {
+      reportError('[OrderFeedbackForm/submit]', err);
       setError('Something went wrong — try again.');
     } finally {
       setSubmitting(false);

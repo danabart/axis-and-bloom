@@ -6,6 +6,7 @@ import { useCart } from '../context/CartContext';
 import { usePrelaunchGated } from '../lib/prelaunch';
 import { saveQuizResult, getUserProfile, getDialPosition, setDialPosition, logQuizFunnelEvent, subscribeNewsletter } from '../lib/api';
 import { trackEvent, trackLead } from '../lib/analytics';
+import { reportError } from '../lib/errorReporter';
 import { PostQuizEmailGate } from './PostQuizEmailGate';
 import { ShareMatchRow } from './ShareMatchRow';
 import { computeDefaultSortOrder } from './bloom/ArchetypeSection';
@@ -653,7 +654,7 @@ export default function FlavorQuiz() {
         if (data.questions?.length) setQuestions(data.questions);
         else setLoadError(true);
       })
-      .catch(() => setLoadError(true))
+      .catch(err => { reportError('[FlavorQuiz/questions]', err); setLoadError(true); })
       .finally(() => setLoading(false));
   }, []);
 
@@ -676,7 +677,7 @@ export default function FlavorQuiz() {
           setHasStarted(true);
         }
       })
-      .catch(() => {})
+      .catch(err => reportError('[FlavorQuiz/prefill-profile]', err))
       .finally(() => { setProfileLoading(false); setProfileFetchDone(true); });
   }, [user]);
 
@@ -692,7 +693,7 @@ export default function FlavorQuiz() {
   // backend race, since the reload immediately showed the correct badge).
   function refreshUserProfile() {
     if (!user) return;
-    getUserProfile().then(setUserProfile).catch(() => {});
+    getUserProfile().then(setUserProfile).catch(err => reportError('[FlavorQuiz/refresh-profile]', err));
   }
 
   // Archetype catalogue for the embedded ArchetypeSection — used by the returning-user
@@ -703,7 +704,7 @@ export default function FlavorQuiz() {
     fetch('/api/coffees/archetypes')
       .then(r => r.json())
       .then((data: ArchetypeData[]) => setArchetypesList(data))
-      .catch(() => {});
+      .catch(err => reportError('[FlavorQuiz/archetypes]', err));
 
     // Experimental is excluded from GET /archetypes (it's a category, not one of the
     // 5 real archetypes — see coffees.ts) and presented via its own endpoint, same as
@@ -711,7 +712,7 @@ export default function FlavorQuiz() {
     fetch('/api/coffees/experimental')
       .then(r => r.json())
       .then((data: ArchetypeData) => setExperimentalData(data))
-      .catch(() => {});
+      .catch(err => reportError('[FlavorQuiz/experimental]', err));
   }, []);
 
   const matchedArchetypeId = userProfile?.archetype?.id ?? null;
@@ -738,12 +739,14 @@ export default function FlavorQuiz() {
     if (!user || !matchedData) return;
     getDialPosition(matchedData.archetype)
       .then(r => { if (r?.dialSortOrder != null) setMatchedSortOrder(r.dialSortOrder); })
-      .catch(() => {});
+      .catch(err => reportError('[FlavorQuiz/dial-position-read]', err));
   }, [user, matchedData?.archetype]);
 
   function handleMatchedDialSelect(archetype: string, dialSortOrder: number) {
     setMatchedSortOrder(dialSortOrder);
-    if (user) setDialPosition(archetype, dialSortOrder).catch(() => {});
+    // Fire-and-forget by design, same as Profile.tsx's dial handler — the
+    // dial already moved optimistically via local state above.
+    if (user) setDialPosition(archetype, dialSortOrder).catch(err => reportError('[FlavorQuiz/dial-position-write]', err));
   }
 
   function toggleMatchedReveal(key: string) {
@@ -768,12 +771,12 @@ export default function FlavorQuiz() {
     if (!user || !resultsArchetypeData) return;
     getDialPosition(resultsArchetypeData.archetype)
       .then(r => { if (r?.dialSortOrder != null) setResultsSortOrder(r.dialSortOrder); })
-      .catch(() => {});
+      .catch(err => reportError('[FlavorQuiz/dial-position-read]', err));
   }, [user, resultsArchetypeData?.archetype]);
 
   function handleResultsDialSelect(archetype: string, dialSortOrder: number) {
     setResultsSortOrder(dialSortOrder);
-    if (user) setDialPosition(archetype, dialSortOrder).catch(() => {});
+    if (user) setDialPosition(archetype, dialSortOrder).catch(err => reportError('[FlavorQuiz/dial-position-write]', err));
   }
 
   function toggleResultsReveal(key: string) {
@@ -803,6 +806,8 @@ export default function FlavorQuiz() {
   // exactly once per browser, with no skip link and no bypass.
   const POST_QUIZ_EMAIL_KEY = 'axisbloom.postQuizEmail';
   const [postQuizEmail, setPostQuizEmail] = useState<string | null>(() => {
+    // localStorage unavailable (private/incognito browsing, blocked storage) — not
+    // an error, just means this browser never remembers a recognized guest.
     try { return localStorage.getItem(POST_QUIZ_EMAIL_KEY); } catch { return null; }
   });
   const emailGateUnlocked = (!!user && !user.isAnonymous) || !!postQuizEmail;
@@ -831,12 +836,14 @@ export default function FlavorQuiz() {
 
   // First-time guest submits the card.
   function handleGateSuccess(submittedEmail: string) {
+    // localStorage unavailable (private/incognito browsing, blocked storage) — not
+    // an error; the guest just won't be recognized as returning next time.
     try { localStorage.setItem(POST_QUIZ_EMAIL_KEY, submittedEmail); } catch {}
     setPostQuizEmail(submittedEmail);
     const name = ARCHETYPES[archetypeKey].name;
     trackEvent('EmailSubmitted', { archetype: name });
     trackLead({ archetype: name });
-    logQuizFunnelEvent(sessionKeyRef.current!, 'email_submitted', name).catch(() => {});
+    logQuizFunnelEvent(sessionKeyRef.current!, 'email_submitted', name).catch(err => reportError('[FlavorQuiz/funnel-event]', err));
   }
 
   // Recognized guest (local flag from a previous submit) or a retake in the same
@@ -854,7 +861,7 @@ export default function FlavorQuiz() {
       experimental: archetypeKey === 'experimental',
       confidence: scoreData?.foodSignalAlignment,
       quizSessionKey: sessionKeyRef.current,
-    }).catch(() => {});
+    }).catch(err => reportError('[FlavorQuiz/resync-guest-subscriber]', err));
   }, [user, postQuizEmail, resultsArchetypeData, archetypeKey]);
 
   // Signed-in users: never see the card. Auto-subscribe (source post_quiz) with a
@@ -878,10 +885,10 @@ export default function FlavorQuiz() {
       if (!wasAlreadySubscribed) {
         trackEvent('EmailSubmitted', { archetype: name });
         trackLead({ archetype: name });
-        logQuizFunnelEvent(sessionKeyRef.current!, 'email_submitted', name).catch(() => {});
+        logQuizFunnelEvent(sessionKeyRef.current!, 'email_submitted', name).catch(err => reportError('[FlavorQuiz/funnel-event]', err));
         setShowSignedInConsentNote(true);
       }
-    }).catch(() => {});
+    }).catch(err => reportError('[FlavorQuiz/signed-in-subscribe]', err));
   }, [user, userProfile, profileFetchDone, resultsArchetypeData, archetypeKey]);
 
   // Bug fix (Find My Flavor Part 2, Bug 1): preload the scored archetype's wallpaper
@@ -967,7 +974,7 @@ export default function FlavorQuiz() {
       setScoreData(score);
 
       trackEvent('QuizComplete', { archetype: score.archetype });
-      logQuizFunnelEvent(sessionKeyRef.current!, 'quiz_complete', score.archetype).catch(() => {});
+      logQuizFunnelEvent(sessionKeyRef.current!, 'quiz_complete', score.archetype).catch(err => reportError('[FlavorQuiz/funnel-event]', err));
 
       const key = ARCHETYPE_NAME_TO_KEY[score.archetype] ?? 'balanced';
       setArchetypeKey(key);
@@ -993,11 +1000,19 @@ export default function FlavorQuiz() {
       if (user) {
         saveQuizResult(buildQuizResultPayload(score, score.archetype))
           .then(refreshUserProfile)
-          .catch(console.error);
+          // Fire-and-forget: the results screen already shows the real,
+          // independently-computed archetype match regardless of whether
+          // this persistence call succeeds — no "saved" claim is made here
+          // for this to falsify. Upgraded from console.error (invisible in
+          // prod) to reportError so a real save failure actually reaches
+          // Cloud Logging instead of only a browser devtools panel no one
+          // is watching.
+          .catch(err => reportError('[FlavorQuiz/save-quiz-result]', err));
       }
       setIsWrapping(true);
     } catch (err) {
       console.error('[quiz/score]', err);
+      reportError('[FlavorQuiz/score]', err);
       setScoreError(true);
     } finally {
       setIsScoring(false);
@@ -1016,7 +1031,7 @@ export default function FlavorQuiz() {
       const branchedFrom = finalArchetypeName !== scoreData.archetype ? scoreData.archetype : null;
       saveQuizResult(buildQuizResultPayload(scoreData, finalArchetypeName, branchedFrom))
         .then(refreshUserProfile)
-        .catch(console.error);
+        .catch(err => reportError('[FlavorQuiz/save-quiz-result]', err));
     }
 
     setShowBranch(false);
@@ -1054,7 +1069,7 @@ export default function FlavorQuiz() {
     if (currentStep === 0 && !quizStartFiredRef.current) {
       quizStartFiredRef.current = true;
       trackEvent('QuizStart');
-      logQuizFunnelEvent(sessionKeyRef.current!, 'quiz_start').catch(() => {});
+      logQuizFunnelEvent(sessionKeyRef.current!, 'quiz_start').catch(err => reportError('[FlavorQuiz/funnel-event]', err));
     }
     setAnswers(prev => ({ ...prev, [currentStep]: answerIdx }));
     setSelectedIds(prev => ({ ...prev, [currentStep]: answerId }));
@@ -1075,7 +1090,14 @@ export default function FlavorQuiz() {
         const branchedFrom = finalArchetypeName !== scoreData.archetype ? scoreData.archetype : null;
         saveQuizResult(buildQuizResultPayload(scoreData, finalArchetypeName, branchedFrom))
           .then(refreshUserProfile)
-          .catch(console.error);
+          // Fire-and-forget: the results screen already shows the real,
+          // independently-computed archetype match regardless of whether
+          // this persistence call succeeds — no "saved" claim is made here
+          // for this to falsify. Upgraded from console.error (invisible in
+          // prod) to reportError so a real save failure actually reaches
+          // Cloud Logging instead of only a browser devtools panel no one
+          // is watching.
+          .catch(err => reportError('[FlavorQuiz/save-quiz-result]', err));
       }
       setShowBranch(false);
       setIsWrapping(true);
@@ -1692,7 +1714,7 @@ export default function FlavorQuiz() {
                   setShowTieInterstitial(false);
                   if (user) {
                     saveQuizResult(buildQuizResultPayload(scoreData!, scoreData!.archetype))
-                      .then(refreshUserProfile).catch(console.error);
+                      .then(refreshUserProfile).catch(err => reportError('[FlavorQuiz/save-quiz-result]', err));
                   }
                   setIsWrapping(true);
                 }}

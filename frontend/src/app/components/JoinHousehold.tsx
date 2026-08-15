@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate, Link } from 'react-router';
 import { useAuth } from '../context/AuthContext';
+import { reportError } from '../lib/errorReporter';
 
 interface InviteInfo {
   invitedEmail: string;
@@ -32,7 +33,7 @@ export default function JoinHousehold() {
         if (!r.ok) setFetchError(data.error ?? 'Invitation not found or expired.');
         else setInvite(data);
       })
-      .catch(() => setFetchError('Could not load invitation.'))
+      .catch(err => { reportError('[JoinHousehold/load-invite]', err); setFetchError('Could not load invitation.'); })
       .finally(() => setLoading(false));
   }, [token]);
 
@@ -48,7 +49,8 @@ export default function JoinHousehold() {
       });
       if (!r.ok) { setJoinError((await r.json()).error ?? 'Failed to join'); return; }
       navigate('/profile');
-    } catch {
+    } catch (err) {
+      reportError('[JoinHousehold/join]', err);
       setJoinError('Something went wrong.');
     } finally {
       setJoining(false);

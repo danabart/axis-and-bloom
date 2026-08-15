@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ARCHETYPE_LABEL } from './archetypeConstants';
+import { reportError } from '../../lib/errorReporter';
 
 type VectorMap = Record<string, Partial<Record<string, [number, number]>>>;
 
@@ -31,7 +32,7 @@ async function loadVectors(): Promise<VectorMap> {
         cache = map;
         return map;
       })
-      .catch(() => { cache = {}; return cache; });
+      .catch(err => { reportError('[archetypeVectors/load]', err); cache = {}; return cache; });
   }
   return inflight;
 }

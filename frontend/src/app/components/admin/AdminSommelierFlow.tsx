@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
+import { reportError } from '../../lib/errorReporter';
 
 interface SommelierConfig {
   confidenceWeights: Record<string, number>;
@@ -67,7 +68,8 @@ export default function AdminSommelierFlow() {
       const [cfgData, statsData] = await Promise.all([cfgRes.json(), statsRes.json()]);
       setConfig(cfgData);
       setStats(statsData);
-    } catch {
+    } catch (err) {
+      reportError('[AdminSommelierFlow/load]', err);
       setError('Failed to load data');
     } finally {
       setLoading(false);

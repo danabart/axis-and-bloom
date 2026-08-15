@@ -50,6 +50,12 @@ const NAV_SECTIONS = [
       { to: '/admin/company-gifts', label: 'Company Gifts' },
     ],
   },
+  {
+    label: 'Observability',
+    items: [
+      { to: '/admin/system-health', label: 'System Health' },
+    ],
+  },
 ];
 
 export default function AdminLayout() {

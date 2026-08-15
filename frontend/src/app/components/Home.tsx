@@ -8,6 +8,7 @@ import OrderFeedbackForm from './OrderFeedbackForm';
 import CompanyGiftRedemption from './CompanyGiftRedemption';
 import { useAuth } from '../context/AuthContext';
 import { getHomepageState } from '../lib/api';
+import { reportError } from '../lib/errorReporter';
 
 // Mirrors FEEDBACK_NAG_SUPPRESS_DAYS in backend/src/services/userLifecycle.ts —
 // how long the feedback nudge stays hidden after a user dismisses it.
@@ -122,7 +123,7 @@ export default function Home() {
     setHomepageStateLoading(true);
     getHomepageState()
       .then(setHomepageState)
-      .catch(() => setHomepageState(null))
+      .catch(err => { reportError('[Home/homepage-state]', err); setHomepageState(null); })
       .finally(() => setHomepageStateLoading(false));
   };
 
@@ -171,6 +172,8 @@ export default function Home() {
       const v = ref.current;
       if (!v) return () => {};
       const io = new IntersectionObserver(
+        // .catch(() => {}): browser autoplay policy can reject play() until
+        // a user gesture, or the element can be unmounted mid-call — not an error.
         ([e]) => { e.isIntersecting ? v.play().catch(() => {}) : v.pause(); },
         { threshold: 0.05 }
       );

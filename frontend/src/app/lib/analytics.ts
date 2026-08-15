@@ -21,6 +21,8 @@ declare global {
 }
 
 function readStoredConsent(): boolean {
+  // localStorage unavailable (private browsing, blocked storage) — not an
+  // error, just treated as "no consent granted."
   try {
     return localStorage.getItem(CONSENT_STORAGE_KEY) === 'true';
   } catch {
@@ -30,6 +32,7 @@ function readStoredConsent(): boolean {
 
 /** Has the visitor already made a choice? Drives whether ConsentBanner renders itself. */
 export function hasStoredConsentChoice(): boolean {
+  // localStorage unavailable — not an error, just treated as "no choice made yet."
   try {
     return localStorage.getItem(CONSENT_STORAGE_KEY) !== null;
   } catch {

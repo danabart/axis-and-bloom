@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { reportError } from '../../lib/errorReporter';
 
 interface Coffee {
   id: number;
@@ -48,7 +49,8 @@ export default function AdminFlavorWheel() {
         const data: Coffee[] = await res.json();
         setCoffees(data);
         if (data.length > 0) setSelectedId(String(data[0].id));
-      } catch {
+      } catch (err) {
+        reportError('[AdminFlavorWheel/load-coffees]', err);
         setError('Failed to load coffees');
       }
     })();
@@ -66,7 +68,8 @@ export default function AdminFlavorWheel() {
           headers: { Authorization: `Bearer ${token}` },
         });
         setRows(await res.json());
-      } catch {
+      } catch (err) {
+        reportError('[AdminFlavorWheel/load-wheel]', err);
         setError('Failed to load flavor wheel');
       } finally {
         setLoading(false);

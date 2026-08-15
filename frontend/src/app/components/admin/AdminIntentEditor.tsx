@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { reportError } from '../../lib/errorReporter';
 
 const INTENT_KEYS = [
   'DISCOVERY_SEEKER',
@@ -58,7 +59,8 @@ export default function AdminIntentEditor() {
         if (!res.ok) throw new Error();
         const cfg = await res.json();
         setIntents(cfg.intents ?? {});
-      } catch {
+      } catch (err) {
+        reportError('[AdminIntentEditor/load]', err);
         setGlobalError('Failed to load intent config');
       } finally {
         setLoading(false);
@@ -89,6 +91,7 @@ export default function AdminIntentEditor() {
       setToasts((t) => ({ ...t, [key]: 'Saved' }));
       setTimeout(() => setToasts((t) => ({ ...t, [key]: '' })), 3000);
     } catch (e: unknown) {
+      reportError('[AdminIntentEditor/save]', e);
       setErrors((prev) => ({ ...prev, [key]: e instanceof Error ? e.message : 'Save failed' }));
     } finally {
       setSaving(null);

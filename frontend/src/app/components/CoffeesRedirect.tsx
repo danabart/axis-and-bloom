@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
+import { reportError } from '../lib/errorReporter';
 
 /**
  * Legacy `/coffees` route (Flavor Intelligence Part 1 Decision #5). Bare
@@ -25,7 +26,7 @@ export default function CoffeesRedirect() {
           { replace: true }
         );
       })
-      .catch(() => navigate('/flavor-intelligence', { replace: true }));
+      .catch(err => { reportError('[CoffeesRedirect/legacy-slot]', err); navigate('/flavor-intelligence', { replace: true }); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

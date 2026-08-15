@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { usePrelaunchGated } from '../lib/prelaunch';
 import { getUserProfile, getHomepageState, getDialPosition, setDialPosition, getFlavorMemory, type FlavorMemoryData } from '../lib/api';
+import { reportError } from '../lib/errorReporter';
 import { computeDefaultSortOrder } from './bloom/ArchetypeSection';
 import { DialArchetypeSection } from './bloom/DialArchetypeSection';
 import { CompareOverlay } from './bloom/CompareOverlay';
@@ -86,10 +87,12 @@ export default function Profile() {
   const [dateOfBirth, setDateOfBirth]     = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileSaved, setProfileSaved]   = useState(false);
+  const [profileError, setProfileError]   = useState('');
 
   // SMS opt-in state
   const [smsOptIn, setSmsOptIn]               = useState(false);
   const [savingSms, setSavingSms]             = useState(false);
+  const [smsError, setSmsError]               = useState('');
 
   // Phone number state (Profile Part 4)
   const [editingPhone, setEditingPhone]       = useState(false);
@@ -102,6 +105,7 @@ export default function Profile() {
   const [addressForm, setAddressForm]         = useState(EMPTY_ADDRESS);
   const [savingAddress, setSavingAddress]     = useState(false);
   const [addressError, setAddressError]       = useState('');
+  const [addressActionError, setAddressActionError] = useState('');
   const [sameAsShipping, setSameAsShipping]   = useState(false);
 
   // ── Lifecycle-driven Flavor Memory tab (Profile Part 1) ─────────────────────
@@ -126,7 +130,7 @@ export default function Profile() {
   const [expandedJournalOrderId, setExpandedJournalOrderId] = useState<string | null>(null);
 
   function loadFlavorMemory() {
-    getFlavorMemory().then(setFlavorMemory).catch(() => setFlavorMemory(null));
+    getFlavorMemory().then(setFlavorMemory).catch(err => { reportError('[Profile/flavor-memory]', err); setFlavorMemory(null); });
   }
 
   useEffect(() => {
@@ -145,7 +149,7 @@ export default function Profile() {
         setDateOfBirth(data.dateOfBirth ? data.dateOfBirth.slice(0, 10) : '');
         setSmsOptIn(data.smsOptIn ?? false);
       })
-      .catch(() => setProfile(null))
+      .catch(err => { reportError('[Profile/load-profile]', err); setProfile(null); })
       .finally(() => setLoading(false));
   }, [user, authLoading]);
 
@@ -153,7 +157,7 @@ export default function Profile() {
     if (authLoading || !user) return;
     getHomepageState()
       .then(setHomepageState)
-      .catch(() => setHomepageState(null))
+      .catch(err => { reportError('[Profile/homepage-state]', err); setHomepageState(null); })
       .finally(() => setHomepageStateLoaded(true));
   }, [user, authLoading]);
 
@@ -173,11 +177,11 @@ export default function Profile() {
     fetch('/api/coffees/archetypes')
       .then(r => r.json())
       .then((data: ArchetypeData[]) => setArchetypesList(data))
-      .catch(() => {});
+      .catch(err => reportError('[Profile/archetypes]', err));
     fetch('/api/coffees/experimental')
       .then(r => r.json())
       .then((data: ArchetypeData) => setExperimentalData(data))
-      .catch(() => {});
+      .catch(err => reportError('[Profile/experimental]', err));
   }, []);
 
   const matchArchetypeId = homepageState?.archetype?.id ?? null;
@@ -192,12 +196,16 @@ export default function Profile() {
     if (!matchArchetypeId) return;
     getDialPosition(matchArchetypeId)
       .then(r => { if (r?.dialSortOrder != null) setDialSortOrderState(r.dialSortOrder); })
-      .catch(() => {});
+      .catch(err => reportError('[Profile/dial-position-read]', err));
   }, [matchArchetypeId]);
 
   function handleDialSelect(archetype: string, sortOrder: number) {
     setDialSortOrderState(sortOrder);
-    setDialPosition(archetype, sortOrder).catch(() => {});
+    // Fire-and-forget by design — the dial already moved optimistically via
+    // local state above; this just persists it. No user-facing save/error
+    // state exists for this control (dial rotation has never shown one),
+    // so recording is the only change here, per Tier 3.
+    setDialPosition(archetype, sortOrder).catch(err => reportError('[Profile/dial-position-write]', err));
   }
 
   function toggleReveal(key: string) {
@@ -260,32 +268,47 @@ export default function Profile() {
     e.preventDefault();
     setSavingProfile(true);
     setProfileSaved(false);
+    setProfileError('');
     try {
       const token = await user!.getIdToken();
-      await fetch('/api/users/profile', {
+      const res = await fetch('/api/users/profile', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ firstName: firstName || null, lastName: lastName || null, dateOfBirth: dateOfBirth || null }),
       });
+      if (!res.ok) throw new Error('Failed to save profile');
       setProfile(p => p ? { ...p, firstName, lastName, dateOfBirth: dateOfBirth || null } : p);
       setProfileSaved(true);
       setTimeout(() => setProfileSaved(false), 3000);
-    } catch { /* silent */ } finally { setSavingProfile(false); }
+    } catch (err) {
+      // Fake-success fix (Observability Foundation Part D) — fetch doesn't
+      // throw on a non-2xx response, so this previously reported success
+      // regardless of what the server actually did.
+      reportError('[Profile/save-profile]', err);
+      setProfileError("We couldn't save that just now — please try again.");
+    } finally { setSavingProfile(false); }
   }
 
   async function handleSmsToggle(value: boolean) {
     if (!profile?.hasPhone) return;
     setSavingSms(true);
+    setSmsError('');
     try {
       const token = await user!.getIdToken();
-      await fetch('/api/users/profile', {
+      const res = await fetch('/api/users/profile', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ smsOptIn: value }),
       });
+      if (!res.ok) throw new Error('Failed to save SMS preference');
       setSmsOptIn(value);
       setProfile(p => p ? { ...p, smsOptIn: value } : p);
-    } catch { /* silent */ } finally { setSavingSms(false); }
+    } catch (err) {
+      // Fake-success fix (Observability Foundation Part D) — the toggle
+      // used to flip visually even when the server rejected the save.
+      reportError('[Profile/sms-toggle]', err);
+      setSmsError("We couldn't save that just now — please try again.");
+    } finally { setSavingSms(false); }
   }
 
   async function handleSavePhone(e: React.FormEvent) {
@@ -306,6 +329,7 @@ export default function Profile() {
       setEditingPhone(false);
       setPhoneInput('');
     } catch (err: any) {
+      reportError('[Profile/save-phone]', err);
       setPhoneError(err.message ?? 'Failed to save phone number');
     } finally {
       setSavingPhone(false);
@@ -328,35 +352,50 @@ export default function Profile() {
       setAddressForm(EMPTY_ADDRESS);
       setShowAddressForm(false);
     } catch (err: any) {
+      reportError('[Profile/add-address]', err);
       setAddressError(err.message ?? 'Failed to save address');
     } finally { setSavingAddress(false); }
   }
 
   async function handleSetDefault(id: string, type: string) {
+    setAddressActionError('');
     try {
       const token = await user!.getIdToken();
-      await fetch(`/api/users/addresses/${id}/default`, {
+      const res = await fetch(`/api/users/addresses/${id}/default`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (!res.ok) throw new Error('Failed to update default address');
       setProfile(p => p ? {
         ...p,
         addresses: p.addresses.map(a =>
           a.address_type === type ? { ...a, is_default: a.id === id } : a
         ),
       } : p);
-    } catch { /* silent */ }
+    } catch (err) {
+      // Fake-success fix (Observability Foundation Part D) — the address
+      // list used to re-flag "default" locally even on a failed save.
+      reportError('[Profile/set-default-address]', err);
+      setAddressActionError("We couldn't update that just now — please try again.");
+    }
   }
 
   async function handleDeleteAddress(id: string) {
+    setAddressActionError('');
     try {
       const token = await user!.getIdToken();
-      await fetch(`/api/users/addresses/${id}`, {
+      const res = await fetch(`/api/users/addresses/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (!res.ok) throw new Error('Failed to remove address');
       setProfile(p => p ? { ...p, addresses: p.addresses.filter(a => a.id !== id) } : p);
-    } catch { /* silent */ }
+    } catch (err) {
+      // Fake-success fix (Observability Foundation Part D) — the address
+      // used to disappear from the list even when the delete failed server-side.
+      reportError('[Profile/delete-address]', err);
+      setAddressActionError("We couldn't remove that just now — please try again.");
+    }
   }
 
   if (loading) {
@@ -773,6 +812,7 @@ export default function Profile() {
                       {savingProfile ? 'Saving…' : 'Save Changes'}
                     </button>
                     {profileSaved && <span className="text-[10px] uppercase tracking-[0.2em] text-green-700">Saved</span>}
+                    {profileError && <span className="text-[10px] text-red-600">{profileError}</span>}
                   </div>
                 </form>
 
@@ -817,6 +857,7 @@ export default function Profile() {
                           </div>
                         </div>
                       ))}
+                      {addressActionError && <p className="text-xs text-red-600">{addressActionError}</p>}
 
                       {!isThisFormOpen ? (
                         <button
@@ -919,6 +960,7 @@ export default function Profile() {
                       <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${smsOptIn ? 'translate-x-4' : 'translate-x-0'}`} />
                     </button>
                   </div>
+                  {smsError && <p className="text-[10px] text-red-600 mt-1">{smsError}</p>}
 
                   {editingPhone ? (
                     <form onSubmit={handleSavePhone} className="flex flex-col gap-2 mt-1">

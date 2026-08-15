@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { reportError } from '../../lib/errorReporter';
 
 interface ConfigDiff {
   path: string;
@@ -58,7 +59,8 @@ export default function AdminSommelierConfig() {
       const j = await res.json();
       setDrift(j.diffs);
       setSelectedPaths(new Set((j.diffs as ConfigDiff[]).map((d) => d.path)));
-    } catch {
+    } catch (err) {
+      reportError('[AdminSommelierConfig/load-drift]', err);
       setDrift(null);
     } finally {
       setDriftLoading(false);
@@ -73,7 +75,8 @@ export default function AdminSommelierConfig() {
         });
         if (!res.ok) throw new Error();
         setConfig(await res.json());
-      } catch {
+      } catch (err) {
+        reportError('[AdminSommelierConfig/load-config]', err);
         setError('Failed to load sommelier config');
       } finally {
         setLoading(false);
@@ -118,6 +121,7 @@ export default function AdminSommelierConfig() {
       });
       if (cfgRes.ok) setConfig(await cfgRes.json());
     } catch (e: unknown) {
+      reportError('[AdminSommelierConfig/apply-drift]', e);
       setApplyMsg(e instanceof Error ? e.message : 'Apply failed');
     } finally {
       setApplying(false);
@@ -173,6 +177,7 @@ export default function AdminSommelierConfig() {
       setToast('Config saved');
       setTimeout(() => setToast(''), 3000);
     } catch (e: unknown) {
+      reportError('[AdminSommelierConfig/save]', e);
       setError(e instanceof Error ? e.message : 'Save failed');
     } finally {
       setSaving(false);
@@ -192,6 +197,7 @@ export default function AdminSommelierConfig() {
       const total = Object.values(j.intentCounts as Record<string, number>).reduce((s, v) => s + v, 0);
       setRecomputeMsg(`Centroids updated — ${total} evaluations processed`);
     } catch (e: unknown) {
+      reportError('[AdminSommelierConfig/recompute]', e);
       setRecomputeMsg(e instanceof Error ? e.message : 'Failed');
     } finally {
       setRecomputing(false);

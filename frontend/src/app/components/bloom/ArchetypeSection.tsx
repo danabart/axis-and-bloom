@@ -7,6 +7,7 @@ import { usePositionCardData } from './usePositionCardData';
 import { BloomDialWidget, type BloomDialHandle, type DialPosition } from '../BloomDialWidget';
 import { useAuth } from '../../context/AuthContext';
 import { setDialPosition } from '../../lib/api';
+import { reportError } from '../../lib/errorReporter';
 import type { ArchetypeData, CartItem, Slot } from './types';
 import { slotKey } from './types';
 
@@ -90,7 +91,7 @@ export function ArchetypeSection({
     if (!user) return;
     setDialPosition(data.archetype, currentSlot.dialSortOrder, { trigger: 'explicit_save', source })
       .then(() => setSavedKey(currentKey))
-      .catch(() => {});
+      .catch(err => reportError('[ArchetypeSection/explicit-save]', err));
   }
 
   function handleAddToCart(item: CartItem) {
@@ -98,7 +99,7 @@ export function ArchetypeSection({
     if (user) {
       setDialPosition(data.archetype, currentSlot.dialSortOrder, {
         trigger: 'add_to_cart', source, coffeeId: currentSlot.coffeeId,
-      }).catch(() => {});
+      }).catch(err => reportError('[ArchetypeSection/add-to-cart-dial-sync]', err));
     }
   }
 

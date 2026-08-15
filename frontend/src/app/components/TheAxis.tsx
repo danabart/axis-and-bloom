@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { Link, useSearchParams } from 'react-router';
 import AxisMap, { type ArchetypeKey, type AxisMapStats } from './axis/AxisMap';
+import { reportError } from '../lib/errorReporter';
 
 // ── The Axis V2 — "Watch the data work" ──────────────────────────────────────
 // Copy is verbatim from backend/src/features/the_axis_page/THE_AXIS_PAGE_COPY_V2.md.
@@ -39,6 +40,7 @@ const calloutCard: React.CSSProperties = {
 
 function formatDate(iso: string | null | undefined) {
   if (!iso) return '—';
+  // Malformed date string — not an error, just falls back to the placeholder dash.
   try {
     return new Date(iso).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   } catch {
@@ -117,7 +119,7 @@ export default function TheAxis() {
     fetch('/api/axis/stats')
       .then(r => r.json())
       .then(data => { if (!cancelled) setStats(data); })
-      .catch(() => { if (!cancelled) setStatsError(true); });
+      .catch(err => { if (!cancelled) { reportError('[TheAxis/stats]', err); setStatsError(true); } });
     return () => { cancelled = true; };
   }, []);
 

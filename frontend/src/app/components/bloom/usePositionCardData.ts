@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { reportError } from '../../lib/errorReporter';
 import type { Slot, Hop } from './types';
 import type { ContentData } from '../coffee-info/TastingNotes';
 import type { DimensionRow } from '../coffee-info/DimensionBars';
@@ -28,8 +29,8 @@ export function usePositionCardData(slot: Slot, archetype: string, isRevealed: b
   // cached in state exactly as before — just triggered earlier.
   useEffect(() => {
     if (!slot.isActive || !slot.coffeeId) return;
-    fetch(`/api/coffees/${slot.coffeeId}/content`).then(r => r.json()).then(setContent).catch(() => {});
-    fetch(`/api/coffees/${slot.coffeeId}/hops`).then(r => r.json()).then(setHops).catch(() => {});
+    fetch(`/api/coffees/${slot.coffeeId}/content`).then(r => r.json()).then(setContent).catch(err => reportError('[usePositionCardData/content]', err));
+    fetch(`/api/coffees/${slot.coffeeId}/hops`).then(r => r.json()).then(setHops).catch(err => reportError('[usePositionCardData/hops]', err));
 
     Promise.all(
       slot.prices.map(p =>
@@ -42,7 +43,7 @@ export function usePositionCardData(slot: Slot, archetype: string, isRevealed: b
       setAvailability(map);
       const firstAvailable = slot.prices.find(p => map[p.weightOz])?.weightOz ?? null;
       setSelectedWeight(firstAvailable);
-    }).catch(() => setAvailability({}));
+    }).catch(err => { reportError('[usePositionCardData/availability]', err); setAvailability({}); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slot.coffeeId, slot.isActive]);
 
@@ -57,7 +58,7 @@ export function usePositionCardData(slot: Slot, archetype: string, isRevealed: b
     ]).then(([dimData, wheel]) => {
       setDimensions(dimData.dimensions ?? []);
       setWheelRows(wheel);
-    }).catch(() => {});
+    }).catch(err => reportError('[usePositionCardData/dimensions-wheel]', err));
   }, [isRevealed, detailLoaded, slot.coffeeId]);
 
   const availableWeights = slot.prices.filter(p => availability?.[p.weightOz]);

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { reportError } from '../../lib/errorReporter';
 
 // Quiz Content Drift Prevention — a card on the admin dashboard for
 // GET /api/admin/quiz/integrity. Reuses AdminAIOps.tsx's card conventions
@@ -40,7 +41,8 @@ export default function AdminQuizIntegrity() {
       const res = await fetch('/api/admin/quiz/integrity', { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error();
       setReport((await res.json()) as QuizIntegrityReport);
-    } catch {
+    } catch (err) {
+      reportError('[AdminQuizIntegrity/load]', err);
       setError('Failed to load quiz integrity report');
     } finally {
       setLoading(false);

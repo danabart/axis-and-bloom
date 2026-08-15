@@ -26,6 +26,7 @@ import AdminSommelierConfig from './components/admin/AdminSommelierConfig';
 import AdminIntentEditor from './components/admin/AdminIntentEditor';
 import AdminSommelierFlow from './components/admin/AdminSommelierFlow';
 import AdminAIOps from './components/admin/AdminAIOps';
+import AdminSystemHealth from './components/admin/AdminSystemHealth';
 import AdminCompanyGifts from './components/admin/AdminCompanyGifts';
 import AdminQrDoor from './components/admin/AdminQrDoor';
 import FlavorIntelligencePage from './components/FlavorIntelligencePage';
@@ -89,6 +90,7 @@ export default function App() {
               <Route path="sommelier/intents" element={<AdminIntentEditor />} />
               <Route path="sommelier/flow"    element={<AdminSommelierFlow />} />
               <Route path="ai-ops" element={<AdminAIOps />} />
+              <Route path="system-health" element={<AdminSystemHealth />} />
               <Route path="company-gifts" element={<AdminCompanyGifts />} />
             </Route>
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getBrewProfile, setBrewProfileField, deleteBrewProfileField, type BrewProfileData } from '../../lib/api';
+import { reportError } from '../../lib/errorReporter';
 
 const BREW_METHOD_OPTIONS = [
   { value: 'v60', label: 'V60' },
@@ -63,7 +64,7 @@ export default function BrewProfileMirror() {
   const [error, setError] = useState('');
 
   function load() {
-    getBrewProfile().then(setProfile).catch(() => setProfile({}));
+    getBrewProfile().then(setProfile).catch(err => { reportError('[BrewProfileMirror/load]', err); setProfile({}); });
   }
   useEffect(() => { load(); }, []);
 
@@ -104,6 +105,7 @@ export default function BrewProfileMirror() {
       setEditingField(null);
       load();
     } catch (e: unknown) {
+      reportError('[BrewProfileMirror/save-field]', e);
       setError(e instanceof Error ? e.message : 'Failed to save');
     } finally {
       setSaving(false);
@@ -116,7 +118,8 @@ export default function BrewProfileMirror() {
     try {
       await deleteBrewProfileField(field);
       load();
-    } catch {
+    } catch (err) {
+      reportError('[BrewProfileMirror/delete-field]', err);
       setError('Failed to remove field');
     } finally {
       setSaving(false);

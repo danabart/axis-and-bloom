@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { reportError } from '../../lib/errorReporter';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -91,7 +92,7 @@ export default function AdminInventory() {
       setAliases(await aRes.json());
       setBlends(await bRes.json());
       setCoffees(await cRes.json());
-    } catch { setError('Failed to load data'); }
+    } catch (err) { reportError('[AdminInventory/load]', err); setError('Failed to load data'); }
   }
 
   useEffect(() => { if (user) load(); }, [user]);
@@ -145,13 +146,17 @@ export default function AdminInventory() {
   async function handleToggle(b: Blend) {
     setTogglingId(b.id);
     try {
-      await apiFetch(`/api/admin/inventory/${b.id}`, {
+      const res = await apiFetch(`/api/admin/inventory/${b.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_active: !b.is_active }),
       });
+      // Fake-success fix (Observability Foundation Part D) — apiFetch never
+      // checks res.ok itself, so a failed PATCH used to fall straight
+      // through to load() with no error shown, same gap as AdminCoffees.tsx.
+      if (!res.ok) { const body = await res.json().catch(() => ({})); alert(body.error ?? 'Failed to update blend'); return; }
       await load();
-    } catch { } finally { setTogglingId(null); }
+    } catch (err) { reportError('[AdminInventory/toggle]', err); } finally { setTogglingId(null); }
   }
 
   async function handleEditSave(blendId: string, coffeeId: number | null) {
@@ -170,6 +175,7 @@ export default function AdminInventory() {
       if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
       setEditBlendId(null); await load();
     } catch (err: unknown) {
+      reportError('[AdminInventory/save-edit]', err);
       setEditErr(err instanceof Error ? err.message : 'Failed');
     } finally { setEditSaving(false); }
   }

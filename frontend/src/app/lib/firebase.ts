@@ -56,6 +56,8 @@ const KNOWN_BACKEND_ORIGINS = new Set(
   [window.location.origin, import.meta.env.VITE_API_URL]
     .filter((value): value is string => Boolean(value))
     .map((value) => {
+      // A malformed VITE_API_URL (build-time misconfiguration) — not a
+      // runtime error, just drops that origin from the known-backend set.
       try { return new URL(value).origin; } catch { return null; }
     })
     .filter((value): value is string => Boolean(value)),
@@ -72,6 +74,7 @@ function isBackendApiRequest(input: RequestInfo | URL): boolean {
     // have an `/api/` path.
     return KNOWN_BACKEND_ORIGINS.has(url.origin) && url.pathname.startsWith('/api/');
   } catch {
+    // `input` wasn't a parseable URL at all — safely not a backend API request.
     return false;
   }
 }

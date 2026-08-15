@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getDialPosition, setDialPosition } from '../../lib/api';
+import { reportError } from '../../lib/errorReporter';
 import { computeDefaultSortOrder } from './ArchetypeSection';
 import type { BloomDialHandle } from './dial/BloomDial';
 import type { ArchetypeData } from './types';
@@ -47,7 +48,7 @@ export function useAdjacentArchetype(archetypesList: ArchetypeData[], experiment
     if (pendingLandingRef.current != null) { setAdjacentSortOrderState(pendingLandingRef.current); return; }
     getDialPosition(adjacentArchetypeId)
       .then(r => { if (r?.dialSortOrder != null) setAdjacentSortOrderState(r.dialSortOrder); })
-      .catch(() => {});
+      .catch(err => reportError('[useAdjacentArchetype/dial-position-read]', err));
   }, [adjacentArchetypeId]);
 
   // Scrolls to `el` once its position has stopped moving for 2 consecutive
@@ -112,7 +113,7 @@ export function useAdjacentArchetype(archetypesList: ArchetypeData[], experiment
 
   function handleDialSelect(archetype: string, dialSortOrder: number) {
     setAdjacentSortOrderState(dialSortOrder);
-    setDialPosition(archetype, dialSortOrder).catch(() => {});
+    setDialPosition(archetype, dialSortOrder).catch(err => reportError('[useAdjacentArchetype/dial-position-write]', err));
   }
 
   function toggleReveal(key: string) {

@@ -10,6 +10,8 @@ import { db } from './db/client.js';
 import { getRealClientIp } from './middleware/clientIp.js';
 import { appCheckGate } from './middleware/appCheck.js';
 import { apiEventLog } from './middleware/apiEventLog.js';
+import { log } from './lib/logger.js';
+import type { AuthRequest } from './middleware/auth.js';
 
 import authRouter from './routes/auth.js';
 import quizRouter from './routes/quiz.js';
@@ -29,6 +31,7 @@ import companyGiftRedemptionRouter from './routes/companyGiftRedemption.js';
 import companiesAdminRouter from './routes/companiesAdmin.js';
 import qrRouter from './routes/qr.js';
 import beatsRouter from './routes/beats.js';
+import clientErrorsRouter from './routes/clientErrors.js';
 import { initSommelierConfig } from './services/sommelierConfig.js';
 import { runQuizIntegrityChecks } from './services/quizIntegrity.js';
 
@@ -109,6 +112,28 @@ app.use('/api/company-gift-redemption', companyGiftRedemptionRouter);
 app.use('/api/admin/companies', companiesAdminRouter);
 app.use('/api/qr', qrRouter);
 app.use('/api/beats', beatsRouter);
+app.use('/api/client-errors', clientErrorsRouter);
+
+// Observability Foundation Part B -- central boundary handler, mounted AFTER
+// every router so it only sees what Express itself routes here: a
+// synchronous throw anywhere in the chain, or an error next()'d explicitly
+// (route handlers still next(err) rather than throw for async paths --
+// nothing here changes that). We run Express 4 (see backend/package.json):
+// an async route handler's rejected promise does NOT reach this middleware
+// automatically, so every route's own try/catch remains the primary net
+// (already the case everywhere in this codebase) -- this middleware is the
+// backstop for sync throws and body-parser errors (express.json() throws a
+// SyntaxError with status 400 on malformed JSON, which lands here too).
+// See OBSERVABILITY_POLICY.md's Express-version note.
+app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const uid = (req as AuthRequest).uid ?? null;
+  log.error('[unhandled/' + req.path + ']', err instanceof Error ? err.message : String(err), {
+    uid,
+    stack: err instanceof Error ? err.stack : undefined,
+  });
+  const isBodyParseError = err?.type === 'entity.parse.failed' || err?.status === 400 || err instanceof SyntaxError;
+  res.status(isBodyParseError ? 400 : 500).json({ error: 'Something went wrong' });
+});
 
 async function start() {
   try {

@@ -14,6 +14,7 @@ import {
   signOut,
 } from 'firebase/auth';
 import { auth, getAppCheckTokenSafe } from '../lib/firebase';
+import { reportError } from '../lib/errorReporter';
 
 interface AuthContextType {
   user: User | null;
@@ -54,7 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // the timeout, this resolves anyway and sign-in proceeds unattested,
         // exactly like today (Auth is monitoring-only, not enforced).
         await getAppCheckTokenSafe();
-        signInAnonymously(auth).catch((e) => console.error('Anonymous sign-in failed:', e));
+        signInAnonymously(auth).catch((e) => { console.error('Anonymous sign-in failed:', e); reportError('[AuthContext/anonymous-sign-in]', e); });
         return;
       }
       if (!u.isAnonymous) {
@@ -65,7 +66,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           });
           const data = await res.json();
           setIsAdmin(data.isAdmin === true);
-        } catch {
+        } catch (err) {
+          // Fails closed by design (never grants admin on an error) — still
+          // worth recording, since a real failure here silently drops every
+          // admin's access to /admin for their whole session.
+          reportError('[AuthContext/check-admin]', err);
           setIsAdmin(false);
         }
       } else {
@@ -80,13 +85,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const token = await auth.currentUser?.getIdToken();
     if (!token) return;
     try {
-      await fetch('/api/auth/sync', {
+      const res = await fetch('/api/auth/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ firstName, lastName }),
       });
+      // Previously unchecked — a non-2xx response was discarded entirely,
+      // invisible even to the console.error below. Sign-in itself already
+      // genuinely succeeded (real Firebase Auth) by the time this runs, so
+      // a failure here doesn't get honest UI feedback in the sign-in flow
+      // (blocking/erroring a real successful sign-in over a secondary
+      // profile-sync failure would be worse UX) — but it must be recorded,
+      // since a silent failure here is exactly the class of bug this
+      // policy exists to catch.
+      if (!res.ok) throw new Error(`sync failed with status ${res.status}`);
     } catch (e) {
       console.error('Failed to sync user:', e);
+      reportError('[AuthContext/sync-user]', e);
     }
   }
 

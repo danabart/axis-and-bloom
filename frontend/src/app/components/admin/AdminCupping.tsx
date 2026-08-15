@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
+import { reportError } from '../../lib/errorReporter';
 
 interface Session { id: number; session_date: string; location: string | null; }
 interface SessionCoffee { session_coffee_id: number; coffee_id: number; name: string; roaster: string | null; }
@@ -89,6 +90,7 @@ export default function AdminCupping() {
         setDimensions(await dimRes.json());
         setCuppingNotes(await notesRes.json());
       } catch (err: unknown) {
+        reportError('[AdminCupping/load-page-data]', err);
         setLoadError(err instanceof Error ? err.message : 'Failed to load page data');
       }
     })();
@@ -104,6 +106,7 @@ export default function AdminCupping() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         setScCoffees(await res.json());
       } catch (err: unknown) {
+        reportError('[AdminCupping/load-coffees]', err);
         setError(err instanceof Error ? err.message : 'Failed to load coffees');
       }
     })();
@@ -176,6 +179,7 @@ export default function AdminCupping() {
           activateTaster(data.scores[0].id, data.scores, data.values ?? [], data.descriptors ?? []);
         }
       } catch (err: unknown) {
+        reportError('[AdminCupping/load-scores]', err);
         setError(err instanceof Error ? err.message : 'Failed to load scores');
       }
     })();
@@ -210,6 +214,7 @@ export default function AdminCupping() {
 
       setSaveMsg('Saved ✓');
     } catch (err: unknown) {
+      reportError('[AdminCupping/save]', err);
       setError(err instanceof Error ? err.message : 'Failed to save');
     } finally { setSaving(false); }
   }

@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from './AuthContext';
 import { getUserProfile, placeOrder } from '../lib/api';
+import { reportError } from '../lib/errorReporter';
 import type { CartItem } from '../components/bloom/types';
 
 interface Address {
@@ -47,7 +48,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         const addr = (p?.addresses ?? []).find((a: any) => a.address_type === 'shipping') ?? p?.addresses?.[0] ?? null;
         setDefaultAddress(addr ?? null);
       })
-      .catch(() => {});
+      .catch(err => reportError('[CartContext/prefill-checkout]', err));
   }, [user]);
 
   function toggleCartOpen() {
@@ -147,7 +148,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
       // is null in either case) — never a blank confirmation.
       setCheckoutMessage(result.orderPlacedLine ?? 'Order placed!');
       setCart([]);
-    } catch {
+    } catch (err) {
+      reportError('[CartContext/checkout]', err);
       setCheckoutStatus('error');
       setCheckoutMessage("Checkout isn't live yet — online ordering opens soon. Everything up to this point worked.");
     }

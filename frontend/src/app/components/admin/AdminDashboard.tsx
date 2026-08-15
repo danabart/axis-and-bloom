@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { reportError } from '../../lib/errorReporter';
 import AdminQuizIntegrity from './AdminQuizIntegrity';
 
 interface Stats {
@@ -47,7 +48,8 @@ export default function AdminDashboard() {
         ]);
         setStats(await statsRes.json());
         setMarketing(await marketingRes.json());
-      } catch {
+      } catch (err) {
+        reportError('[AdminDashboard/load]', err);
         setError('Failed to load stats');
       }
     })();

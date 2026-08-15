@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Users, LogOut } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { reportError } from '../lib/errorReporter';
 
 interface Member {
   id: string;
@@ -70,7 +71,7 @@ export default function FamilyTab() {
       });
       if (!r.ok) { setCreateError((await r.json()).error ?? 'Failed to create'); return; }
       await refresh();
-    } catch { setCreateError('Failed to create household'); }
+    } catch (err) { reportError('[FamilyTab/create]', err); setCreateError('Failed to create household'); }
     finally { setCreating(false); }
   }
 
@@ -90,7 +91,7 @@ export default function FamilyTab() {
       setInviteSuccess(`Invitation sent to ${inviteEmail}`);
       setInviteEmail('');
       await refresh();
-    } catch { setInviteError('Failed to send invitation'); }
+    } catch (err) { reportError('[FamilyTab/invite]', err); setInviteError('Failed to send invitation'); }
     finally { setInviting(false); }
   }
 
@@ -104,19 +105,23 @@ export default function FamilyTab() {
       });
       if (!r.ok) { setActionError((await r.json()).error ?? 'Failed'); return; }
       await refresh();
-    } catch { setActionError('Failed to remove member'); }
+    } catch (err) { reportError('[FamilyTab/remove-member]', err); setActionError('Failed to remove member'); }
   }
 
   async function handleCancelInvite(inviteId: string) {
     setActionError('');
     try {
       const token = await user!.getIdToken();
-      await fetch(`/api/household/invitations/${inviteId}`, {
+      const r = await fetch(`/api/household/invitations/${inviteId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
+      // Fake-success fix (Observability Foundation Part D) — the only
+      // handler in this file missing a res.ok check; a failed delete used
+      // to refresh the list (showing the invite unchanged) with no error.
+      if (!r.ok) { setActionError((await r.json().catch(() => ({}))).error ?? 'Failed to cancel invite'); return; }
       await refresh();
-    } catch { setActionError('Failed to cancel invite'); }
+    } catch (err) { reportError('[FamilyTab/cancel-invite]', err); setActionError('Failed to cancel invite'); }
   }
 
   async function handleLeave() {
@@ -134,7 +139,7 @@ export default function FamilyTab() {
       });
       if (!r.ok) { setActionError((await r.json()).error ?? 'Failed'); return; }
       await refresh();
-    } catch { setActionError('Failed to leave household'); }
+    } catch (err) { reportError('[FamilyTab/leave]', err); setActionError('Failed to leave household'); }
   }
 
   if (loading) {

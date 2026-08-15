@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router';
 import { ArrowRight } from 'lucide-react';
 import { ARCHETYPE_COLOR } from './coffee-info/archetypeConstants';
+import { reportError } from '../lib/errorReporter';
 
 const RUST = '#a33726';
 
@@ -40,7 +41,7 @@ export default function CoffeeStoryPage() {
     fetch(`/api/coffees/${id}/story`)
       .then(r => { if (!r.ok) throw new Error(); return r.json(); })
       .then((j: StoryData) => { setData(j); setPhase('ready'); })
-      .catch(() => setPhase('error'));
+      .catch(err => { reportError('[CoffeeStoryPage/load]', err); setPhase('error'); });
   }, [id]);
 
   if (phase === 'loading') {
