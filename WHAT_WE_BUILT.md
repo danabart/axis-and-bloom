@@ -4206,7 +4206,9 @@ Executed `backend/src/features/observability/CLAUDE_CODE_PROMPT_CRON_SECRET_FIX.
 
 **Cleanup**: normalized both jobs to `0 9 * * *` / **UTC** (`purge-stale-anonymous-guests` had drifted to `America/Detroit` during Dana's console edit this morning — silently shifts with DST; `purge-api-events` was already effectively UTC via `Africa/Abidjan`, now explicit). Disabled (not destroyed) secret versions 1–4, leaving only 5 (current `latest`) enabled. Deleted the local scratchpad temp files that held raw secret bytes during diagnosis.
 
-**Files**: `backend/src/index.ts`, `backend/src/routes/cron.ts` (comment only — logic unchanged), this doc entry. **Not committed/pushed** — per this task's explicit instruction and the standing project rule, awaiting Dana's go-ahead. No prod schema changes; no user-visible behavior change (the hardening log line is server-side only).
+**Files**: `backend/src/index.ts`, `backend/src/routes/cron.ts` (comment only — logic unchanged), this doc entry. No prod schema changes; no user-visible behavior change (the hardening log line is server-side only).
+
+**Pushed and deployed same session, with go-ahead**: commit `2a0d00f`, GitHub Actions `Deploy` run `31883472387` succeeded (~3.5 min), new revision `axis-bloom-backend-00638-ddt` serving 100% traffic. Post-deploy re-verification against the real deployed code (not just the pre-deploy infra fix): `/health` → 200; bisect curl → 200 again on the new revision; both scheduler jobs force-run once more → `AttemptFinished`/INFO/no error, Cloud Run request logs confirm 200 for both cron paths; explicitly checked for the new `[cron/secret-config]` WARNING on the new revision's boot and confirmed it correctly stayed silent (secret is clean) — no false positive; zero WARNING/ERROR-severity log lines on the new revision at all.
 
 ---
 
