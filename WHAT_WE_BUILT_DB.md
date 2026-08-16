@@ -12,6 +12,8 @@ Seed files (run manually): `backend/src/db/seeds/`
 
 The schema runs automatically on every backend startup (`CREATE TABLE IF NOT EXISTS` — fully idempotent, safe to run repeatedly).
 
+> **As of 2026-08-15**: still 70 tables — no schema change. `CRON_SECRET` (GCP Secret Manager, not a table — see `deploy.yml --set-secrets`, same secret this doc already references at line ~164 in the beat-engine section) was rotated after every version of its value turned out to carry a leading UTF-8 BOM, silently breaking both Cloud Scheduler cron jobs' auth since one was created. Full diagnosis in `WHAT_WE_BUILT.md` #166, Sommelier-side continuity note in `SOMMELIER_BUILT.md` S92 (S17's original CRON_SECRET decision).
+
 > **As of 2026-08-13**: 70 tables. `api_event` added (#163, capture-first API event log) — see Intelligence, below.
 
 > **As of 2026-06-29**: 60 tables. Path Coffee Roasters (13 coffees) + Temecula Coffee Roasters (16 coffees) fully seeded via Tasks 1–6. Run seed files from `backend/src/db/seeds/` in order via Cloud SQL Studio.

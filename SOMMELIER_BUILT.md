@@ -357,6 +357,8 @@ Apply this in Firebase Console → Firestore → Rules before shipping Liam to p
 #### S17. CRON_SECRET — shared secret for cron endpoint auth
 **Decision**: `GET /api/cron/liam-sms-send` checks `x-cron-secret` header against `process.env.CRON_SECRET` (loaded from GCP Secret Manager via Cloud Run). Returns 401 if missing or wrong. Cloud Scheduler must be configured with this header. The secret must be created manually in GCP Secret Manager and added to `deploy.yml` `--set-secrets`. See README for Cloud Scheduler setup steps.
 
+**Incident, 2026-08-15 (`WHAT_WE_BUILT.md` #166)** — the value this decision assumed would be a plain shared string had in fact carried a leading UTF-8 BOM since it was first created, breaking `requireCronSecret`'s exact-string compare for every cron job that has ever consumed it (by this point `liam-sms-send`, `brew-card-arrival-send`, `beat-dial-in-send`, `coffee-content-backfill`, `expire-company-gift-codes`, `sponsored-subscription-check`, `purge-stale-anonymous-guests`, `purge-api-events` — all share the one env var). Rotated to a clean machine-generated value; `backend/src/index.ts` now warns at boot (`[cron/secret-config]`) if `CRON_SECRET` is unset or `!== .trim()`, which also catches a stray BOM. This S17 decision's comparison mechanism itself is unchanged — only the secret's own hygiene and a boot-time check were added.
+
 #### S18. Webhook always returns 200
 **Decision**: `POST /api/webhooks/sms/inbound` returns HTTP 200 in all cases — unknown number, DB error, everything. SMS providers (Twilio) retry on non-200 responses, which would cause duplicate processing. Errors are logged but do not surface to the provider.
 
@@ -1586,5 +1588,11 @@ No prompt, routing rule, or evaluator logic changed — this is purely the front
 **Not verified live this pass** (needs a deployed environment, listed back to Dana in #160): a real Fruity→Floral branch completion's evaluator log actually showing `branchedFrom: 'Fruity'` / `secondaryArchetype: 'Fruity'` together in a live `sommelier_evaluations` doc.
 
 **Out of scope, per the spec's own explicit constraints**: no historical backfill of `branchedFrom` on existing sessions; no `scoredRunnerUp`/`tertiaryArchetype` field added anywhere.
+
+### Cron Secret Incident (2026-08-15)
+
+#### S92. CRON_SECRET rotated after a UTF-8 BOM made it unmatchable — every cron job that shares it affected, including this feature's own S17/S19
+
+Full diagnosis, evidence, and verification in `WHAT_WE_BUILT.md` #166; the S17 decision entry above now carries the same pointer. No Sommelier logic, prompt, evaluator, or schema changed — this is a continuity note only, recorded here because `liam-sms-send` (S17-S20) is one of the cron jobs that shares `CRON_SECRET`, and because `[cron/secret-config]`, the new boot-time hygiene check added to `backend/src/index.ts`, now covers every consumer of this decision's shared secret, not just the two jobs the incident happened to surface on. No `sommelier_sms_feedback`/`feedback_events` behavior changed; `processPendingMessages()` itself was never observed failing from this, but only because `liam-sms-send` has no Cloud Scheduler job configured in prod yet at all — same "still needs manual setup" gap S79/S80/S81 each flagged for their own cron routes (`gcloud scheduler jobs list` confirms only `purge-stale-anonymous-guests`/`purge-api-events` exist as jobs today) — it shares the identical `requireCronSecret` comparison and would have hit the exact same wall the moment a job for it was ever created with the old, BOM-carrying secret.
 
 **Files**: `backend/src/services/userSignals.ts`, `backend/src/services/sommelierEvaluator.ts` (plus `backend/src/routes/quiz.ts`, `frontend/src/app/lib/api.ts`, `frontend/src/app/components/FlavorQuiz.tsx` — shared with #160). No new Firestore index, no schema change.
