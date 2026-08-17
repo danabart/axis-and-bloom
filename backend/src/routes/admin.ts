@@ -3,7 +3,7 @@ import { requireAdmin, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 import { generateAndStoreSummary, generateAndStoreAllContent } from './coffees.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
-import { getDialSuggestion, recordCuppingSignal, getAvgCuppingScore, getArchetypeBucketWidth } from '../services/dialSuggestion.js';
+import { getDialSuggestion, recordCuppingSignal, getAvgCuppingScore, getArchetypeBucketWidth, getAvgCuppingScoresBatch } from '../services/dialSuggestion.js';
 import { getMarketingConfig, setMarketingConfigValue } from '../features/marketing/reportingConfig.js';
 import { DEFAULT_SOMMELIER_CONFIG } from '../db/seeds/sommelier_config_seed.js';
 import { checkAggregateAnomaly, getMonthlySpendEstimate } from '../services/sommelierGuards.js';
@@ -1341,6 +1341,127 @@ router.patch('/coffees/:id/story', async (req: AuthRequest, res) => {
 // ── BLOOM DIAL ────────────────────────────────────────────────────────────────
 
 // GET /api/admin/dial/positions — all dial positions with coffee + vocabulary detail
+// GET /api/admin/dial/graph — one call powers the whole Map & Journey admin page
+// (backend/src/features/dial_map_journey/CLAUDE_CODE_PROMPT_DIAL_MAP_JOURNEY.md, Part A).
+// Every value is read live from the tables the rest of the admin surfaces already write —
+// no archetype/vocabulary/coffee/roaster/dimension list is hardcoded here. This does not
+// replace any of the granular dial endpoints above/below; AdminCoffees' matrix keeps using
+// those directly.
+router.get('/dial/graph', async (_req, res) => {
+  try {
+    // dimensions: derived — the distinct dominant dimensions configured per archetype,
+    // unioned with every dimension actually used by a hop. Never a literal id list.
+    const dimensionsResult = await db.query(`
+      SELECT cd.id, cd.name, COALESCE(cd.platform_name, cd.name) AS "platformAxis"
+      FROM coffee_dimensions cd
+      WHERE cd.id IN (
+        SELECT dominant_dimension_id FROM dial_archetype_config WHERE dominant_dimension_id IS NOT NULL
+        UNION
+        SELECT dimension_id FROM dial_coffee_relationships
+      )
+      ORDER BY cd.id
+    `);
+
+    // archetypes: real flavor families only (is_archetype = true) — same
+    // dac.archetype → archetype.name mapping GET /api/admin/archetypes already uses.
+    // ORDER BY dac.archetype sorts by the archetype_enum's own declaration order
+    // (Postgres enum semantics) — the frontend's lane-ordering tie-break reuses this
+    // same stable, data-derived order rather than inventing a separate one.
+    const archetypesResult = await db.query(`
+      SELECT dac.archetype, a.name AS label, dac.dominant_dimension_id AS "dominantDimensionId"
+      FROM dial_archetype_config dac
+      LEFT JOIN archetype a ON a.name = CASE dac.archetype
+        WHEN 'chocolate_nutty' THEN 'Chocolate & Nutty'
+        WHEN 'balanced_sweet'  THEN 'Balanced & Sweet'
+        WHEN 'fruity'          THEN 'Fruity'
+        WHEN 'earthy'          THEN 'Earthy'
+        WHEN 'floral'          THEN 'Floral'
+        WHEN 'experimental'    THEN 'Experimental'
+      END
+      WHERE dac.is_archetype = true
+      ORDER BY dac.archetype
+    `);
+    const vocabResult = await db.query(`
+      SELECT id, archetype, sort_order AS "sortOrder", label
+      FROM dial_position_vocabulary
+      ORDER BY archetype, sort_order
+    `);
+    const archetypes = archetypesResult.rows.map(a => ({
+      archetype: a.archetype,
+      label: a.label ?? a.archetype,
+      dominantDimensionId: a.dominantDimensionId,
+      vocabulary: vocabResult.rows.filter(v => v.archetype === a.archetype)
+        .map(v => ({ id: v.id, sortOrder: v.sortOrder, label: v.label })),
+    }));
+
+    // positions: every home + guest slot, with the coffee and vocabulary it resolves to.
+    const positionsResult = await db.query(`
+      SELECT dap.id, dap.coffee_id AS "coffeeId", c.name AS "coffeeName", c.roaster,
+             dap.archetype, dap.vocabulary_id AS "vocabularyId", dpv.sort_order AS "sortOrder",
+             dap.is_default AS "isDefault", dap.is_guest AS "isGuest"
+      FROM dial_archetype_positions dap
+      JOIN coffees c                    ON c.id  = dap.coffee_id
+      JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
+      ORDER BY dap.archetype, dpv.sort_order, dap.is_guest, c.name
+    `);
+
+    // relationships: coffee↔coffee and coffee↔category hops alike (category_hop rows have
+    // toCoffeeId null / toCategoryId set — the UI renders those read-only). from/toAvgScore
+    // come from one batched cupping query (getAvgCuppingScoresBatch), the same score
+    // definition getAvgCuppingScore uses everywhere else, not a forked calculation.
+    // Both sides of a category_hop row can be the category endpoint (schema's
+    // chk_from_endpoint/chk_to_endpoint each require exactly one of {coffee, category} —
+    // either side, not just "to") — every join here is LEFT so neither direction's row
+    // gets silently dropped.
+    const relationshipsResult = await db.query(`
+      SELECT dcr.id, dcr.from_coffee_id AS "fromCoffeeId", fc.name AS "fromCoffeeName",
+             dcr.from_category_id AS "fromCategoryId", fcatg.label AS "fromCategoryLabel",
+             dcr.to_coffee_id AS "toCoffeeId", tc.name AS "toCoffeeName",
+             dcr.to_category_id AS "toCategoryId", tcatg.label AS "toCategoryLabel",
+             dcr.dimension_id AS "dimensionId", dcr.direction, dcr.delta,
+             dcr.hop_type AS "hopType", dcr.is_recommended AS "isRecommended",
+             dcr.confidence, dcr.notes
+      FROM dial_coffee_relationships dcr
+      LEFT JOIN coffees fc              ON fc.id = dcr.from_coffee_id
+      LEFT JOIN coffees tc              ON tc.id = dcr.to_coffee_id
+      LEFT JOIN coffee_category fcatg   ON fcatg.id = dcr.from_category_id
+      LEFT JOIN coffee_category tcatg   ON tcatg.id = dcr.to_category_id
+      ORDER BY dcr.id
+    `);
+    const avgScores = await getAvgCuppingScoresBatch();
+    const relationships = relationshipsResult.rows.map(r => ({
+      ...r,
+      fromAvgScore: r.fromCoffeeId ? (avgScores.get(`${r.fromCoffeeId}-${r.dimensionId}`)?.avg_score ?? null) : null,
+      toAvgScore: r.toCoffeeId ? (avgScores.get(`${r.toCoffeeId}-${r.dimensionId}`)?.avg_score ?? null) : null,
+    }));
+
+    // unplaced: coffees with a live archetype match but no home dial position yet, plus
+    // whichever category tag (if any) explains why — same "off-dial" shelf as the mockup.
+    const unplacedResult = await db.query(`
+      SELECT c.id AS "coffeeId", c.name, c.roaster, aa.archetype AS "proposedArchetype",
+             (SELECT cc.label FROM coffee_category_assignment cca
+              JOIN coffee_category cc ON cc.id = cca.category_id
+              WHERE cca.coffee_id = c.id ORDER BY cc.sort_order LIMIT 1) AS category
+      FROM coffees c
+      JOIN archetype_assignments aa ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
+      LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = c.id AND dap.is_guest = false
+      WHERE dap.id IS NULL
+      ORDER BY c.name
+    `);
+
+    res.json({
+      dimensions: dimensionsResult.rows,
+      archetypes,
+      positions: positionsResult.rows,
+      relationships,
+      unplaced: unplacedResult.rows,
+    });
+  } catch (err) {
+    console.error('[admin/dial/graph GET]', err);
+    res.status(500).json({ error: 'Failed to fetch dial graph' });
+  }
+});
+
 router.get('/dial/positions', async (_req, res) => {
   try {
     const result = await db.query(`

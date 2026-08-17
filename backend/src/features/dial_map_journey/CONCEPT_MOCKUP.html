@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bloom Dial — Map &amp; Journey (concept)</title>
+<style>
+  :root{
+    color-scheme: light;
+    --page:#f9f9f7; --surface:#fcfcfb;
+    --ink:#0b0b0b; --ink-2:#52514e; --muted:#898781;
+    --grid:#e1e0d9; --baseline:#c3c2b7; --ring:rgba(11,11,11,0.10);
+    --dim-acidity:#2a78d6; --dim-body:#eb6834; --dim-bitterness:#1baf7a; --dim-savory:#4a3aa7;
+    --gap:#ec835a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{background:var(--page); color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif; font-size:14px;}
+  .wrap{max-width:1220px; margin:0 auto; padding:20px 24px 60px;}
+
+  /* ── header ── */
+  header{display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; margin-bottom:6px;}
+  header h1{font-size:19px; font-weight:650; letter-spacing:-.01em;}
+  .concept-tag{font-size:11px; color:var(--muted); border:1px solid var(--grid); border-radius:99px; padding:2px 9px;}
+  .lens-tabs{margin-left:auto; display:flex; border:1px solid var(--grid); border-radius:9px; overflow:hidden; background:var(--surface);}
+  .lens-tabs button{border:0; background:transparent; padding:7px 18px; font-size:13px; color:var(--ink-2); cursor:pointer; font-family:inherit;}
+  .lens-tabs button.on{background:var(--ink); color:#fff;}
+  .sub{color:var(--ink-2); font-size:12.5px; margin-bottom:14px;}
+
+  details.howto{margin:0 0 14px; font-size:12.5px; color:var(--ink-2); max-width:860px;}
+  details.howto summary{cursor:pointer; color:var(--ink); font-weight:600; font-size:12.5px;}
+  details.howto p{margin:6px 0 0; line-height:1.5;}
+
+  /* ── filter row ── */
+  .filters{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px;}
+  .chip{display:inline-flex; align-items:center; gap:6px; border:1px solid var(--grid); background:var(--surface);
+    border-radius:99px; padding:5px 12px; font-size:12.5px; color:var(--ink-2); cursor:pointer; user-select:none; font-family:inherit;}
+  .chip .dot{width:9px; height:9px; border-radius:50%; flex:none;}
+  .chip.on{border-color:var(--ink); color:var(--ink); box-shadow:inset 0 0 0 1px var(--ink);}
+  .filters .sep{width:1px; height:20px; background:var(--grid); margin:0 4px;}
+  .edge-legend{margin-left:auto; display:flex; gap:14px; font-size:11.5px; color:var(--muted); align-items:center;}
+  .edge-legend svg{vertical-align:-2px;}
+
+  /* ── board ── */
+  #board{position:relative; background:var(--surface); border:1px solid var(--ring); border-radius:14px; padding:18px 22px 8px; overflow-x:auto;}
+  #board-inner{position:relative; min-width:1040px;}
+  #arcs{position:absolute; inset:0; width:100%; height:100%; pointer-events:none; overflow:visible; z-index:1;}
+  #arcs path{pointer-events:stroke; cursor:pointer;}
+  .lane{display:grid; grid-template-columns:190px repeat(4,1fr); gap:0 14px; padding:10px 0 46px; position:relative;}
+  .lane + .lane{border-top:1px solid var(--grid);}
+  .lane-head{padding-top:8px;}
+  .lane-head .aname{font-weight:650; font-size:14.5px;}
+  .lane-head .axis{display:flex; align-items:center; gap:6px; margin-top:5px; font-size:11.5px; color:var(--ink-2);}
+  .lane-head .axis .dot{width:9px; height:9px; border-radius:50%;}
+  .socket{position:relative; border:1px dashed var(--grid); border-radius:11px; min-height:78px; padding:7px 8px 20px; display:flex; flex-direction:column; gap:5px; background:transparent;}
+  .socket .slot-label{position:absolute; bottom:4px; left:0; right:0; text-align:center; font-size:10.5px; color:var(--muted); letter-spacing:.02em;}
+  .socket.open-slot{border-color:var(--gap); border-style:dashed; background:rgba(236,131,90,.05);}
+  .socket.open-slot .openmark{font-size:10.5px; color:var(--gap); text-align:center; margin:auto; font-weight:600;}
+  .socket.pulse{animation:pulse 1.2s ease-in-out 3;}
+  @keyframes pulse{50%{box-shadow:0 0 0 4px rgba(236,131,90,.25);}}
+
+  .pill{position:relative; z-index:2; display:flex; align-items:center; gap:6px; background:#fff; border:1px solid var(--baseline);
+    border-radius:8px; padding:4px 8px; font-size:12px; cursor:pointer; line-height:1.25; transition:box-shadow .12s, opacity .15s;}
+  .pill:hover{box-shadow:0 1px 6px rgba(11,11,11,.18);}
+  .pill .rtag{flex:none; width:16px; height:16px; border-radius:5px; font-size:9.5px; font-weight:700; display:flex; align-items:center; justify-content:center;}
+  .pill .rtag.P{background:#0b0b0b; color:#fff;}
+  .pill .rtag.T{background:#fff; color:#0b0b0b; border:1.5px solid #0b0b0b;}
+  .pill .star{color:var(--ink); font-size:11px;}
+  .pill.guest{border-style:dashed; color:var(--ink-2); background:transparent;}
+  .pill.guest .gtag{font-size:9.5px; color:var(--muted); border:1px solid var(--grid); border-radius:4px; padding:0 4px;}
+  .pill.dimmed{opacity:.22;}
+  .pill.focus{box-shadow:0 0 0 2px var(--ink);}
+  path.dimmed{opacity:.10 !important;}
+  path.lit{filter:drop-shadow(0 0 1.5px rgba(11,11,11,.25));}
+
+  /* off-dial shelf */
+  .shelf{display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:14px 4px 10px; border-top:1px solid var(--grid); position:relative;}
+  .shelf .shelf-label{font-size:11.5px; color:var(--muted); margin-right:6px; width:178px;}
+  .pill.off{background:transparent; border-color:var(--grid); color:var(--ink-2); cursor:default;}
+  .pill.off .cat{font-size:9.5px; color:var(--muted); border:1px solid var(--grid); border-radius:4px; padding:0 4px;}
+  .pill.exp{border:1.5px dashed var(--dim-savory); color:var(--ink); cursor:default;}
+
+  /* ── audit strip ── */
+  #audit{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:10px; margin-top:14px;}
+  .audit-card{background:var(--surface); border:1px solid var(--ring); border-radius:11px; padding:11px 13px; cursor:pointer;}
+  .audit-card:hover{border-color:var(--baseline);}
+  .audit-card .n{font-size:19px; font-weight:650;}
+  .audit-card .t{font-size:12px; font-weight:600; margin-top:1px;}
+  .audit-card .d{font-size:11.5px; color:var(--ink-2); margin-top:3px; line-height:1.45;}
+
+  /* ── journey ── */
+  #journey{display:none;}
+  .trail{display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:10px; font-size:12.5px;}
+  .trail button.back{border:1px solid var(--grid); background:var(--surface); border-radius:8px; padding:5px 12px; cursor:pointer; font-family:inherit; font-size:12.5px; color:var(--ink);}
+  .trail .crumb{color:var(--ink-2); cursor:pointer;}
+  .trail .crumb:hover{color:var(--ink); text-decoration:underline;}
+  .trail .crumb.here{color:var(--ink); font-weight:650; cursor:default; text-decoration:none;}
+  .trail .arrow{color:var(--muted);}
+  #compass-wrap{position:relative; background:var(--surface); border:1px solid var(--ring); border-radius:14px; height:620px; overflow:hidden;}
+  #compass-svg{position:absolute; inset:0; width:100%; height:100%;}
+  .axis-label{position:absolute; transform:translate(-50%,-50%); font-size:11px; color:var(--muted); display:flex; gap:5px; align-items:center; white-space:nowrap; background:var(--surface); padding:1px 4px; border-radius:4px;}
+  .axis-label .dot{width:8px; height:8px; border-radius:50%;}
+  #ego-card{position:absolute; transform:translate(-50%,-50%); width:196px; background:#fff; border:1.5px solid var(--ink);
+    border-radius:13px; padding:12px 14px; text-align:center; z-index:3; box-shadow:0 2px 14px rgba(11,11,11,.10);}
+  #ego-card .nm{font-weight:650; font-size:14.5px; line-height:1.2;}
+  #ego-card .meta{font-size:11.5px; color:var(--ink-2); margin-top:5px; line-height:1.5;}
+  #ego-card .archchip{display:inline-flex; align-items:center; gap:5px; font-size:11px; border:1px solid var(--grid); border-radius:99px; padding:1px 8px; margin-top:6px; color:var(--ink-2);}
+  .jchip{position:absolute; transform:translate(-50%,-50%); max-width:158px; background:#fff; border:1px solid var(--baseline); border-radius:9px;
+    padding:5px 9px; font-size:11.5px; line-height:1.3; cursor:pointer; z-index:2; text-align:center; transition:box-shadow .12s;}
+  .jchip:hover{box-shadow:0 0 0 2px var(--ink);}
+  .jchip .sub2{display:block; font-size:9.5px; color:var(--muted); margin-top:1px;}
+  .jchip.expchip{border:1.5px dashed var(--dim-savory); cursor:default;}
+  .deadend{position:absolute; transform:translate(-50%,-50%); width:13px; height:13px; border:1.5px dashed var(--baseline); border-radius:50%; z-index:1;}
+  #arrivals{font-size:12px; color:var(--ink-2); margin-top:10px;}
+  #horizon{margin-top:14px;}
+  #horizon .hz-controls{display:flex; gap:8px; align-items:center; margin-bottom:8px; font-size:12.5px; color:var(--ink-2);}
+  .ring-row{display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; margin-top:8px;}
+  .ring-row .rl{font-size:11.5px; color:var(--muted); width:130px; flex:none;}
+  .rchip{border:1px solid var(--grid); background:var(--surface); border-radius:99px; padding:3px 11px; font-size:12px; cursor:pointer; color:var(--ink);}
+  .rchip:hover{border-color:var(--ink);}
+
+  /* tooltip */
+  #tip{position:fixed; z-index:50; pointer-events:none; background:#0b0b0b; color:#fff; border-radius:8px; padding:7px 10px;
+    font-size:11.5px; line-height:1.45; max-width:270px; opacity:0; transition:opacity .08s;}
+  #tip .tl{color:#c3c2b7;}
+  footer{margin-top:18px; font-size:11px; color:var(--muted); line-height:1.5;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Bloom Dial — Map &amp; Journey</h1>
+    <span class="concept-tag">concept mockup · Base Data v2 (pre-cupping)</span>
+    <div class="lens-tabs">
+      <button id="tab-map" class="on">Map</button>
+      <button id="tab-journey">Journey</button>
+    </div>
+  </header>
+  <div class="sub">One graph, two lenses. The <b>Map</b> is the world: every coffee in its slot, every hop, every seam. Click any coffee to stand on it — the <b>Journey</b> lens shows the world from there.</div>
+
+  <!-- ══════════ MAP LENS ══════════ -->
+  <section id="map">
+    <details class="howto">
+      <summary>How to read the map</summary>
+      <p>Each row is an archetype's dial: four labeled slots, gentle on the left, bold on the right. Solid pills are coffees in their home slot (★&nbsp;=&nbsp;default; black square&nbsp;=&nbsp;Path, outlined&nbsp;=&nbsp;Temecula). Dashed pills are <b>guests</b> — coffees whose home is another dial, welding two families at a touching edge. Curved lines are hops, colored by the dimension you travel on; hops between rows are the <b>seams</b>. Empty slots with an amber tint are open range — positions with no coffee yet. Use the dimension chips to see what travels on a single flavor knob.</p>
+    </details>
+    <div class="filters" id="filters">
+      <button class="chip dimf on" data-dim="all">All dimensions</button>
+      <button class="chip dimf" data-dim="acidity"><span class="dot" style="background:var(--dim-acidity)"></span>Acidity</button>
+      <button class="chip dimf" data-dim="body"><span class="dot" style="background:var(--dim-body)"></span>Body</button>
+      <button class="chip dimf" data-dim="bitterness"><span class="dot" style="background:var(--dim-bitterness)"></span>Bitterness</button>
+      <button class="chip dimf" data-dim="savory"><span class="dot" style="background:var(--dim-savory)"></span>Savory / Depth</button>
+      <span class="sep"></span>
+      <button class="chip tglf on" data-t="within">Dial turns</button>
+      <button class="chip tglf on" data-t="bridge">Bridges</button>
+      <button class="chip tglf on" data-t="guest">Guests</button>
+      <div class="edge-legend">
+        <span><svg width="26" height="6"><line x1="0" y1="3" x2="26" y2="3" stroke="#898781" stroke-width="2"/></svg> primary</span>
+        <span><svg width="26" height="6"><line x1="0" y1="3" x2="26" y2="3" stroke="#898781" stroke-width="2" stroke-dasharray="5 4"/></svg> secondary</span>
+        <span><svg width="26" height="6"><line x1="0" y1="3" x2="26" y2="3" stroke="#898781" stroke-width="2" stroke-dasharray="2 4"/></svg> weak</span>
+      </div>
+    </div>
+    <div id="board"><div id="board-inner">
+      <svg id="arcs"></svg>
+      <div id="lanes"></div>
+      <div class="shelf" id="shelf"></div>
+    </div></div>
+    <div id="audit"></div>
+  </section>
+
+  <!-- ══════════ JOURNEY LENS ══════════ -->
+  <section id="journey">
+    <details class="howto">
+      <summary>How to read the journey</summary>
+      <p>You are standing on the coffee in the center. The four flavor dimensions are the compass: each spoke is one move — <i>more</i> one way, <i>less</i> the other. Nearby chips are one hop away; distance shows the size of the jump (Δ). A dashed empty circle at the end of a spoke means <b>no move exists in that direction</b> — a dead end, deliberate or missing. Click any chip to travel there; your trail is recorded above. The horizon rows below show everything reachable in two or three turns.</p>
+    </details>
+    <div class="trail" id="trail"></div>
+    <div id="compass-wrap">
+      <svg id="compass-svg" viewBox="0 0 1160 620" preserveAspectRatio="xMidYMid meet"></svg>
+      <div id="compass-overlay"></div>
+    </div>
+    <div id="arrivals"></div>
+    <div id="horizon">
+      <div class="hz-controls">Horizon:
+        <button class="chip hzf on" data-h="1">1 turn</button>
+        <button class="chip hzf" data-h="2">2 turns</button>
+        <button class="chip hzf" data-h="3">3 turns</button>
+      </div>
+      <div id="rings"></div>
+    </div>
+  </section>
+
+  <footer>Data: Bloom_Dial_Base_Data.xlsx (v2, spread-for-connectivity, pre-cupping) — 23 placed coffees, 3 seam guests, 26 dial turns, 24 bridge hops. Positions and hops are provisional until cupped; Session-001 coffees are fixed.</footer>
+</div>
+<div id="tip"></div>
+
+<script>
+/* ═══════════════ DATA (from Bloom_Dial_Base_Data.xlsx) ═══════════════ */
+const DIMS = {
+  acidity:    {name:'Acidity',        axis:'Brightness',  color:'#2a78d6'},
+  body:       {name:'Body',           axis:'Intensity',   color:'#eb6834'},
+  bitterness: {name:'Bitterness',     axis:'Boldness',    color:'#1baf7a'},
+  savory:     {name:'Savory / Depth', axis:'Complexity',  color:'#4a3aa7'},
+};
+const ARCH = [ // lane order mirrors seam adjacency: delicacy → brightness → spine
+  {key:'floral',          label:'Floral',            dim:'savory',     slots:['Delicate','Balanced','Complex','Layered']},
+  {key:'fruity',          label:'Fruity',            dim:'acidity',    slots:['Mellow','Balanced','Bright','Vibrant']},
+  {key:'balanced_sweet',  label:'Balanced & Sweet',  dim:'acidity',    slots:['Smooth','Balanced','Bright','Lively']},
+  {key:'chocolate_nutty', label:'Chocolate & Nutty', dim:'body',       slots:['Lighter','Classic','Richer','Full']},
+  {key:'earthy',          label:'Earthy',            dim:'bitterness', slots:['Gentle','Earthy','Bold','Intense']},
+];
+const COFFEES = [
+  {id:'crosshatch', name:'Crosshatch',            r:'P', arch:'balanced_sweet', slot:3, cupped:true},
+  {id:'ethiopiaP',  name:'Ethiopia',              r:'P', arch:'fruity',         slot:4, def:true, cupped:true},
+  {id:'feather',    name:'Feather In Cap',        r:'P', arch:'balanced_sweet', slot:2, def:true, cupped:true, flag:'Archetype conflict (balanced_sweet vs chocolate_nutty) — confirm at cupping'},
+  {id:'colombiaP',  name:'Colombia',              r:'P', arch:'balanced_sweet', slot:1},
+  {id:'noam',       name:'Noam Blend',            r:'P', arch:'chocolate_nutty',slot:2, def:true},
+  {id:'nocturnal',  name:'Nocturnal Dark Roast',  r:'P', arch:'earthy',         slot:2, def:true},
+  {id:'vantablack', name:'Vantablack Ultra-Dark', r:'P', arch:'earthy',         slot:4, moved:true},
+  {id:'honduras',   name:'Honduras',              r:'P', arch:'floral',         slot:2, def:true},
+  {id:'breakfast',  name:'Breakfast Blend',       r:'T', arch:'balanced_sweet', slot:1},
+  {id:'blonde',     name:'Blonde Blend',          r:'T', arch:'balanced_sweet', slot:3, moved:true},
+  {id:'guatemala',  name:'Guatemala',             r:'T', arch:'balanced_sweet', slot:2, def:true, guest:{arch:'chocolate_nutty', slot:1}},
+  {id:'colombiaT',  name:'Colombia',              r:'T', arch:'balanced_sweet', slot:4, moved:true, guest:{arch:'fruity', slot:3}},
+  {id:'brazil',     name:'Brazil Santos',         r:'T', arch:'chocolate_nutty',slot:2, def:true},
+  {id:'african',    name:'African Espresso Blend',r:'T', arch:'chocolate_nutty',slot:3},
+  {id:'sixbean',    name:'6-Bean Espresso Blend', r:'T', arch:'chocolate_nutty',slot:4, moved:true, guest:{arch:'earthy', slot:1}},
+  {id:'sumatra',    name:'Sumatra',               r:'T', arch:'earthy',         slot:2, def:true},
+  {id:'bali',       name:'Bali Blue',             r:'T', arch:'earthy',         slot:3},
+  {id:'uganda',     name:'Uganda',                r:'T', arch:'earthy',         slot:4, moved:true},
+  {id:'png',        name:'Papua New Guinea',      r:'T', arch:'floral',         slot:1},
+  {id:'ethnat',     name:'Ethiopia Natural',      r:'T', arch:'floral',         slot:2, def:true},
+  {id:'costarica',  name:'Costa Rica',            r:'T', arch:'fruity',         slot:1},
+  {id:'tanzania',   name:'Tanzania',              r:'T', arch:'fruity',         slot:2, def:true},
+  {id:'kenya',      name:'Kenya',                 r:'T', arch:'fruity',         slot:4},
+];
+const OFFDIAL = [
+  {name:'Kopi Safari',         r:'T', cat:'Experimental', prop:'earthy'},
+  {name:'Sleepwalker Half-Caf',r:'P', cat:'Half-Caf',     prop:'chocolate_nutty'},
+  {name:'Decaf',               r:'P', cat:'Decaf',        prop:'chocolate_nutty'},
+  {name:'Vanilla',             r:'P', cat:'Flavored',     prop:'balanced_sweet'},
+  {name:'Hazelnut',            r:'P', cat:'Flavored',     prop:'chocolate_nutty'},
+  {name:'Chocolate',           r:'P', cat:'Flavored',     prop:'chocolate_nutty'},
+];
+/* Canonical hops (workbook rows in their 'more'-labeled direction unless dir given).
+   Each has an implied reciprocal (dir flipped). kind: primary|secondary|weak. */
+const HOPS = [
+  // ── dial turns (within_archetype) ──
+  {f:'colombiaP', t:'feather',    dim:'acidity',    d:1, type:'within', note:'Smooth → Balanced'},
+  {f:'feather',   t:'crosshatch', dim:'acidity',    d:1, type:'within', note:'Balanced → Bright'},
+  {f:'breakfast', t:'guatemala',  dim:'acidity',    d:1, type:'within', note:'Smooth → Balanced'},
+  {f:'guatemala', t:'blonde',     dim:'acidity',    d:1, type:'within', note:'Balanced → Bright'},
+  {f:'blonde',    t:'colombiaT',  dim:'acidity',    d:1, type:'within', note:'Bright → Lively'},
+  {f:'brazil',    t:'african',    dim:'body',       d:1, type:'within', note:'Classic → Richer'},
+  {f:'african',   t:'sixbean',    dim:'body',       d:1, type:'within', note:'Richer → Full'},
+  {f:'nocturnal', t:'vantablack', dim:'bitterness', d:2, type:'within', note:'Earthy → Intense (crosses the open Bold slot)'},
+  {f:'sumatra',   t:'bali',       dim:'bitterness', d:1, type:'within', note:'Earthy → Bold'},
+  {f:'bali',      t:'uganda',     dim:'bitterness', d:1, type:'within', note:'Bold → Intense'},
+  {f:'png',       t:'ethnat',     dim:'savory',     d:1, type:'within', note:'Delicate → Balanced'},
+  {f:'costarica', t:'tanzania',   dim:'acidity',    d:1, type:'within', note:'Mellow → Balanced'},
+  {f:'tanzania',  t:'kenya',      dim:'acidity',    d:2, type:'within', note:'Balanced → Vibrant (crosses the guest-held Bright slot)'},
+  // ── bridges (cross-archetype seams) ──
+  {f:'crosshatch',t:'ethiopiaP',  dim:'acidity',    d:1, type:'bridge', conf:'high',  note:'Brightness path: Balanced & Sweet → Fruity'},
+  {f:'colombiaT', t:'tanzania',   dim:'acidity',    d:1, type:'bridge',               note:'Bright / lively → the fruity family'},
+  {f:'feather',   t:'noam',       dim:'body',       d:1, type:'bridge',               note:'More body → Chocolate & Nutty (Path default-to-default)'},
+  {f:'guatemala', t:'brazil',     dim:'body',       d:1, type:'bridge',               note:'More body → Chocolate & Nutty (TCR default-to-default)'},
+  {f:'sixbean',   t:'sumatra',    dim:'bitterness', d:1, type:'bridge',               note:'Intensity spine: more bitterness → Earthy'},
+  {f:'sixbean',   t:'sumatra',    dim:'savory',     d:1, type:'bridge', kind:'secondary', conf:'low', rec:false, note:'Same seam, secondary edge: deeper, more serious'},
+  {f:'noam',      t:'nocturnal',  dim:'bitterness', d:1, type:'bridge',               note:'Path intensity-spine bridge into Earthy'},
+  {f:'costarica', t:'ethnat',     dim:'savory',     d:1, type:'bridge',               note:'Delicacy branch: more aromatic depth → Floral'},
+  {f:'tanzania',  t:'png',        dim:'body',       d:1, type:'bridge', dir:'less', kind:'secondary', conf:'low', rec:false, note:'Same seam, secondary edge: lighter — “barely feels like coffee, like tea”'},
+  {f:'ethiopiaP', t:'ethnat',     dim:'savory',     d:1, type:'bridge',               note:'Ethiopian-to-Ethiopian bridge along the delicacy branch'},
+  {f:'guatemala', t:'honduras',   dim:'savory',     d:1, type:'bridge', kind:'weak', conf:'low', rec:false, note:'Weak link via the mild center'},
+  {f:'bali',      t:'EXP',        dim:'savory',     d:1, type:'category', conf:'low', note:'Discovery hop: bold earthy → the Experimental category'},
+];
+HOPS.forEach(h=>{ h.dir=h.dir||'more'; h.kind=h.kind||'primary'; h.conf=h.conf||'medium'; if(h.rec===undefined) h.rec=true; });
+// expanded directed edge list (each canonical hop + its reciprocal)
+const EDGES = [];
+HOPS.forEach((h,i)=>{
+  EDGES.push({...h, canon:i, rev:false});
+  EDGES.push({...h, canon:i, rev:true, f:h.t, t:h.f, dir:h.dir==='more'?'less':'more'});
+});
+const byId = Object.fromEntries(COFFEES.map(c=>[c.id,c]));
+const archBy = Object.fromEntries(ARCH.map(a=>[a.key,a]));
+const cname = id => id==='EXP' ? 'Experimental (category)' : byId[id].name + (byId[id].r==='P'?' · Path':' · TCR');
+
+/* ═══════════════ SHARED ═══════════════ */
+const tip = document.getElementById('tip');
+function showTip(html, x, y){ tip.innerHTML=html; tip.style.opacity=1;
+  const w=tip.offsetWidth; tip.style.left=Math.min(x+14, innerWidth-w-12)+'px'; tip.style.top=(y+16)+'px'; }
+function hideTip(){ tip.style.opacity=0; }
+
+const state = { dim:'all', within:true, bridge:true, guest:true, horizon:1 };
+let trail = [];
+
+/* ═══════════════ MAP LENS ═══════════════ */
+const lanesEl = document.getElementById('lanes');
+const shelfEl = document.getElementById('shelf');
+const svg = document.getElementById('arcs');
+
+function buildBoard(){
+  lanesEl.innerHTML='';
+  ARCH.forEach(a=>{
+    const lane=document.createElement('div'); lane.className='lane'; lane.dataset.arch=a.key;
+    const head=document.createElement('div'); head.className='lane-head';
+    head.innerHTML=`<div class="aname">${a.label}</div>
+      <div class="axis"><span class="dot" style="background:${DIMS[a.dim].color}"></span>${DIMS[a.dim].name} · ${DIMS[a.dim].axis}</div>`;
+    lane.appendChild(head);
+    for(let s=1;s<=4;s++){
+      const sock=document.createElement('div'); sock.className='socket'; sock.dataset.arch=a.key; sock.dataset.slot=s;
+      const homes=COFFEES.filter(c=>c.arch===a.key&&c.slot===s);
+      const guests=COFFEES.filter(c=>c.guest&&c.guest.arch===a.key&&c.guest.slot===s);
+      homes.forEach(c=>sock.appendChild(makePill(c,false)));
+      guests.forEach(c=>sock.appendChild(makePill(c,true)));
+      if(!homes.length&&!guests.length){
+        sock.classList.add('open-slot');
+        const om=document.createElement('div'); om.className='openmark'; om.textContent='open';
+        sock.appendChild(om);
+        sock.addEventListener('mousemove',e=>showTip(`<b>${a.label} · ${a.slots[s-1]} (${s})</b><br><span class="tl">Open range — no coffee holds this position yet.</span>`,e.clientX,e.clientY));
+        sock.addEventListener('mouseleave',hideTip);
+      }
+      const lbl=document.createElement('div'); lbl.className='slot-label'; lbl.textContent=`${s} · ${a.slots[s-1]}`;
+      sock.appendChild(lbl);
+      lane.appendChild(sock);
+    }
+    lanesEl.appendChild(lane);
+  });
+  // off-dial shelf
+  shelfEl.innerHTML='<div class="shelf-label">Off-dial (uncupped)</div>';
+  OFFDIAL.forEach(c=>{
+    const p=document.createElement('div'); p.className='pill off';
+    p.innerHTML=`<span class="rtag ${c.r}">${c.r}</span>${c.name}<span class="cat">${c.cat}</span>`;
+    p.addEventListener('mousemove',e=>showTip(`<b>${c.name}</b><br><span class="tl">Proposed archetype: ${archBy[c.prop].label} (low confidence). Off-dial until cupped.</span>`,e.clientX,e.clientY));
+    p.addEventListener('mouseleave',hideTip);
+    shelfEl.appendChild(p);
+  });
+  const ex=document.createElement('div'); ex.className='pill exp'; ex.id='exp-node'; ex.textContent='Experimental (category)';
+  ex.addEventListener('mousemove',e=>showTip(`<b>Experimental</b><br><span class="tl">A category, not a dial — the discovery door. Bali Blue hops here (category_hop).</span>`,e.clientX,e.clientY));
+  ex.addEventListener('mouseleave',hideTip);
+  shelfEl.appendChild(ex);
+}
+function makePill(c, isGuest){
+  const p=document.createElement('div'); p.className='pill'+(isGuest?' guest':''); p.dataset.cid=c.id; p.dataset.guest=isGuest?'1':'0';
+  p.innerHTML=`<span class="rtag ${c.r}">${c.r}</span><span>${c.name}</span>`+
+    (c.def&&!isGuest?'<span class="star">★</span>':'')+(isGuest?'<span class="gtag">guest</span>':'');
+  p.addEventListener('mousemove',e=>{
+    const a=archBy[c.arch]; const deg=EDGES.filter(x=>x.f===c.id).length;
+    let h=`<b>${c.name}</b> · ${c.r==='P'?'Path':'Temecula'}<br>`+
+      `${a.label} — ${a.slots[c.slot-1]} (${c.slot})${c.def?' · ★ default':''}${c.cupped?' · cupped':''}<br>`;
+    if(isGuest) h+=`<span class="tl">Guest here at ${archBy[c.guest.arch].label} · ${archBy[c.guest.arch].slots[c.guest.slot-1]} — home is ${a.label}.</span><br>`;
+    else if(c.guest) h+=`<span class="tl">Also guests at ${archBy[c.guest.arch].label} · ${archBy[c.guest.arch].slots[c.guest.slot-1]}.</span><br>`;
+    if(c.flag) h+=`<span class="tl">⚑ ${c.flag}</span><br>`;
+    h+=`<span class="tl">${deg} moves out · click to stand here</span>`;
+    showTip(h,e.clientX,e.clientY);
+    focusCoffee(c.id);
+  });
+  p.addEventListener('mouseleave',()=>{hideTip(); unfocus();});
+  p.addEventListener('click',()=>{ trail=[c.id]; openJourney(c.id); });
+  return p;
+}
+function focusCoffee(id){
+  document.querySelectorAll('#lanes .pill').forEach(p=>{
+    p.classList.toggle('dimmed', p.dataset.cid!==id && !isNeighbor(id,p.dataset.cid));
+    p.classList.toggle('focus', p.dataset.cid===id);
+  });
+  svg.querySelectorAll('path.hop').forEach(p=>{
+    const touches=p.dataset.f===id||p.dataset.t===id;
+    p.classList.toggle('dimmed',!touches); p.classList.toggle('lit',touches);
+  });
+}
+function isNeighbor(id,other){ return EDGES.some(e=>e.f===id&&e.t===other); }
+function unfocus(){
+  document.querySelectorAll('#lanes .pill').forEach(p=>{p.classList.remove('dimmed','focus');});
+  svg.querySelectorAll('path.hop').forEach(p=>p.classList.remove('dimmed','lit'));
+}
+
+function anchor(el, edge){ // edge: 'top'|'bottom'|'left'
+  const b=document.getElementById('board-inner').getBoundingClientRect();
+  const r=el.getBoundingClientRect();
+  if(edge==='top')return{x:r.left+r.width/2-b.left,y:r.top-b.top};
+  if(edge==='left')return{x:r.left-b.left,y:r.top+r.height/2-b.top};
+  return{x:r.left+r.width/2-b.left,y:r.bottom-b.top};
+}
+function pillEl(id, preferGuestFor){ // choose home pill; for bridge to a lane where the coffee guests we still use home pill
+  return document.querySelector(`#lanes .pill[data-cid="${id}"][data-guest="0"]`);
+}
+function laneIndex(archKey){ return ARCH.findIndex(a=>a.key===archKey); }
+
+function drawArcs(){
+  const inner=document.getElementById('board-inner');
+  svg.setAttribute('width',inner.scrollWidth); svg.setAttribute('height',inner.scrollHeight);
+  svg.innerHTML='';
+  const defs=document.createElementNS('http://www.w3.org/2000/svg','defs');
+  Object.entries(DIMS).forEach(([k,d])=>{
+    defs.innerHTML+=`<marker id="ar-${k}" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="${d.color}"/></marker>`;
+  });
+  svg.appendChild(defs);
+  HOPS.forEach((h,i)=>{
+    if(state.dim!=='all'&&h.dim!==state.dim)return;
+    if(h.type==='within'&&!state.within)return;
+    if((h.type==='bridge'||h.type==='category')&&!state.bridge)return;
+    const c=DIMS[h.dim].color;
+    let d='';
+    if(h.type==='within'){
+      const A=anchor(pillEl(h.f),'bottom'), B=anchor(pillEl(h.t),'bottom');
+      const depth=26+(h.d===2?16:0);
+      d=`M${A.x},${A.y} C${A.x},${A.y+depth} ${B.x},${B.y+depth} ${B.x},${B.y}`;
+    } else if(h.t==='EXP'){
+      const A=anchor(pillEl(h.f),'bottom'), B=anchor(document.getElementById('exp-node'),'top');
+      d=`M${A.x},${A.y} C${A.x},${A.y+40} ${B.x},${B.y-40} ${B.x},${B.y}`;
+    } else {
+      const la=laneIndex(byId[h.f].arch), lb=laneIndex(byId[h.t].arch);
+      if(Math.abs(la-lb)<=1){
+        const top=la<lb?h.f:h.t, bot=la<lb?h.t:h.f;
+        const A=anchor(pillEl(top),'bottom'), B=anchor(pillEl(bot),'top');
+        d=`M${A.x},${A.y} C${A.x},${A.y+46} ${B.x},${B.y-46} ${B.x},${B.y}`;
+      } else { // long link (weak BS↔floral): route around the left margin
+        const A=anchor(pillEl(h.f),'left'), B=anchor(pillEl(h.t),'left');
+        d=`M${A.x},${A.y} C${A.x-260},${A.y} ${B.x-260},${B.y} ${B.x},${B.y}`;
+      }
+    }
+    const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('d',d); p.setAttribute('fill','none'); p.setAttribute('stroke',c);
+    p.setAttribute('stroke-width', h.kind==='primary'?2:1.6);
+    p.setAttribute('opacity', h.conf==='high'?0.95 : h.conf==='medium'?0.75 : 0.5);
+    if(h.kind==='secondary')p.setAttribute('stroke-dasharray','6 5');
+    if(h.kind==='weak')p.setAttribute('stroke-dasharray','2 5');
+    if(h.type==='category')p.setAttribute('stroke-dasharray','8 3 2 3');
+    p.setAttribute('marker-end',`url(#ar-${h.dim})`); p.setAttribute('marker-start',`url(#ar-${h.dim})`);
+    p.classList.add('hop'); p.dataset.f=h.f; p.dataset.t=h.t;
+    p.addEventListener('mousemove',e=>{
+      showTip(`<b>${cname(h.f).split(' · ')[0]} ⇄ ${cname(h.t).split(' · ')[0]}</b><br>`+
+        `${DIMS[h.dim].name} · ${h.dir} toward ${cname(h.t).split(' · ')[0]} · Δ${h.d}<br>`+
+        `<span class="tl">${h.type==='within'?'dial turn':h.type==='category'?'category hop':'bridge'} · ${h.kind} · ${h.conf} confidence${h.rec?'':' · not recommended'}</span>`+
+        (h.note?`<br><span class="tl">${h.note}</span>`:''),e.clientX,e.clientY);
+      p.classList.add('lit');
+    });
+    p.addEventListener('mouseleave',()=>{hideTip();p.classList.remove('lit');});
+    svg.appendChild(p);
+  });
+  // guest pill visibility
+  document.querySelectorAll('#lanes .pill[data-guest="1"]').forEach(p=>{p.style.display=state.guest?'':'none';});
+}
+
+/* ── audits (computed, not asserted) ── */
+function buildAudit(){
+  const el=document.getElementById('audit'); el.innerHTML='';
+  // open slots
+  const open=[], covered=[];
+  ARCH.forEach(a=>{for(let s=1;s<=4;s++){
+    const home=COFFEES.some(c=>c.arch===a.key&&c.slot===s);
+    const guest=COFFEES.some(c=>c.guest&&c.guest.arch===a.key&&c.guest.slot===s);
+    if(!home&&!guest)open.push(`${a.label} · ${a.slots[s-1]}`);
+    else if(!home&&guest)covered.push(`${a.label} · ${a.slots[s-1]}`);
+  }});
+  // one-way doors: directed edge with no reverse on same dim
+  const key=e=>`${e.f}|${e.t}|${e.dim}`;
+  const set=new Set(EDGES.map(key));
+  const oneway=HOPS.filter(h=>!set.has(`${h.t}|${h.f}|${h.dim}`));
+  // coffees whose every hop is weak/secondary
+  const fragile=COFFEES.filter(c=>{
+    const es=EDGES.filter(e=>e.f===c.id);
+    return es.length&&es.every(e=>e.kind!=='primary');
+  }).map(c=>c.name);
+  const isolated=COFFEES.filter(c=>!EDGES.some(e=>e.f===c.id)).map(c=>c.name);
+  // archetype pairs with no bridge
+  const bridged=new Set();
+  HOPS.filter(h=>h.type==='bridge').forEach(h=>{
+    const pair=[byId[h.f].arch,byId[h.t].arch].sort().join('↔'); bridged.add(pair);
+  });
+  const unbridged=[];
+  for(let i=0;i<ARCH.length;i++)for(let j=i+1;j<ARCH.length;j++){
+    const pair=[ARCH[i].key,ARCH[j].key].sort().join('↔');
+    if(!bridged.has(pair))unbridged.push(`${ARCH[i].label} ↔ ${ARCH[j].label}`);
+  }
+  const cards=[
+    {n:open.length,t:'Open range',d:open.length?open.join(' · ')+' — positions with no coffee, the clearest picture of what to source next.':'Every slot holds a coffee.',hl:'open'},
+    {n:covered.length,t:'Guest-held slots',d:covered.length?covered.join(' · ')+' — welded by a guest until a coffee of its own arrives.':'—'},
+    {n:oneway.length,t:'One-way doors',d:oneway.length?oneway.map(h=>`${cname(h.f)} → ${cname(h.t)}`).join(' · '):'None — every hop out has a matching hop back.'},
+    {n:fragile.length+isolated.length,t:'Thin connections',d:(isolated.length?`No hops at all: ${isolated.join(', ')}. `:'')+(fragile.length?`Only weak/secondary hops: ${fragile.join(', ')} — one fragile thread ties it to everything else.`:'Every placed coffee has at least one primary hop.')},
+    {n:unbridged.length,t:'Unbridged archetype pairs',d:unbridged.join(' · ')+' — by design, travel flows through the spine; direct doors between these would be new seams.'},
+  ];
+  cards.forEach(c=>{
+    const d=document.createElement('div'); d.className='audit-card';
+    d.innerHTML=`<div class="n">${c.n}</div><div class="t">${c.t}</div><div class="d">${c.d}</div>`;
+    if(c.hl==='open')d.addEventListener('click',()=>{
+      document.querySelectorAll('.socket.open-slot').forEach(s=>{s.classList.remove('pulse');void s.offsetWidth;s.classList.add('pulse');});
+    });
+    el.appendChild(d);
+  });
+}
+
+/* ═══════════════ JOURNEY LENS ═══════════════ */
+const SPOKE_ANGLE = { 'acidity:more':0,'acidity:less':180,'body:more':90,'body:less':270,
+  'bitterness:more':45,'bitterness:less':225,'savory:more':315,'savory:less':135 };
+const CX=580, CY=305, R1=205, R2=280;
+function axisR(ang){ if(ang%180===0)return 345; if(ang%90===0)return 288; return 312; }
+function pol(a,r){const t=a*Math.PI/180;return{x:CX+r*Math.cos(t),y:CY+r*Math.sin(t)};}
+
+function openJourney(id){
+  document.getElementById('map').style.display='none';
+  document.getElementById('journey').style.display='block';
+  document.getElementById('tab-map').classList.remove('on');
+  document.getElementById('tab-journey').classList.add('on');
+  renderJourney(id);
+  window.scrollTo({top:0});
+}
+function backToMap(){
+  document.getElementById('journey').style.display='none';
+  document.getElementById('map').style.display='block';
+  document.getElementById('tab-journey').classList.remove('on');
+  document.getElementById('tab-map').classList.add('on');
+  requestAnimationFrame(drawArcs);
+}
+function renderJourney(id){
+  const c=byId[id], a=archBy[c.arch];
+  // trail
+  const tr=document.getElementById('trail'); tr.innerHTML='';
+  const back=document.createElement('button'); back.className='back'; back.textContent='← Map'; back.onclick=backToMap;
+  tr.appendChild(back);
+  trail.forEach((tid,i)=>{
+    if(i>0){const s=document.createElement('span');s.className='arrow';s.textContent='→';tr.appendChild(s);}
+    const cr=document.createElement('span'); cr.className='crumb'+(i===trail.length-1?' here':'');
+    cr.textContent=byId[tid].name;
+    if(i<trail.length-1)cr.onclick=()=>{trail=trail.slice(0,i+1);renderJourney(tid);};
+    tr.appendChild(cr);
+  });
+  // svg rails + connectors
+  const s=document.getElementById('compass-svg'); s.innerHTML='';
+  let defs=`<defs>`;
+  Object.entries(DIMS).forEach(([k,d])=>{
+    defs+=`<marker id="jar-${k}" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="${d.color}"/></marker>`;
+  });
+  s.innerHTML=defs+'</defs>';
+  // faint rings
+  [R1,R2].forEach((r,i)=>{
+    s.innerHTML+=`<circle cx="${CX}" cy="${CY}" r="${r}" fill="none" stroke="#e1e0d9" stroke-width="1" stroke-dasharray="3 5"/>`+
+      `<text x="${CX+8}" y="${CY-r+14}" font-size="10" fill="#898781">Δ${i+1}</text>`;
+  });
+  // axis rails
+  Object.entries(SPOKE_ANGLE).forEach(([sk,ang])=>{
+    const P=pol(ang,axisR(ang)-16);
+    s.innerHTML+=`<line x1="${CX}" y1="${CY}" x2="${P.x}" y2="${P.y}" stroke="#e1e0d9" stroke-width="1"/>`;
+  });
+  const ov=document.getElementById('compass-overlay'); ov.innerHTML='';
+  const wrap=document.getElementById('compass-wrap');
+  const place=(x,y)=>{ // viewBox → CSS px
+    const r=wrap.getBoundingClientRect(); const sc=Math.min(r.width/1160,r.height/620);
+    const ox=(r.width-1160*sc)/2, oy=(r.height-620*sc)/2;
+    return {left:(x*sc+ox)+'px', top:(y*sc+oy)+'px'};
+  };
+  // axis end labels
+  Object.entries(SPOKE_ANGLE).forEach(([sk,ang])=>{
+    const [dim,dir]=sk.split(':'); const P=pol(ang,axisR(ang));
+    const el=document.createElement('div'); el.className='axis-label';
+    el.innerHTML=`<span class="dot" style="background:${DIMS[dim].color}"></span>${dir} ${DIMS[dim].name.toLowerCase()}`;
+    Object.assign(el.style,place(P.x,P.y)); ov.appendChild(el);
+  });
+  // outbound edges grouped by spoke
+  const out=EDGES.filter(e=>e.f===id);
+  const bySpoke={};
+  out.forEach(e=>{(bySpoke[`${e.dim}:${e.dir}`]=bySpoke[`${e.dim}:${e.dir}`]||[]).push(e);});
+  Object.entries(SPOKE_ANGLE).forEach(([sk,ang])=>{
+    const list=bySpoke[sk]||[];
+    if(!list.length){ // dead end marker
+      const P=pol(ang,152);
+      const de=document.createElement('div'); de.className='deadend'; Object.assign(de.style,place(P.x,P.y));
+      de.addEventListener('mousemove',e=>{const [dim,dir]=sk.split(':');
+        showTip(`<span class="tl">No hop toward <b>${dir} ${DIMS[dim].name.toLowerCase()}</b> from here — dead end. Deliberate, or a hop worth adding?</span>`,e.clientX,e.clientY);});
+      de.addEventListener('mouseleave',hideTip);
+      ov.appendChild(de); return;
+    }
+    list.forEach((e,i)=>{
+      const r=e.d===2?R2:R1;
+      const off=(i-(list.length-1)/2)*34; // perpendicular offset if several on one spoke
+      const t=ang*Math.PI/180, px=Math.cos(t+Math.PI/2)*off, py=Math.sin(t+Math.PI/2)*off;
+      const P={x:pol(ang,r).x+px, y:pol(ang,r).y+py};
+      const S=pol(ang,72);
+      const E=pol(ang, r-46); const Ex=E.x+px, Ey=E.y+py;
+      const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('d',`M${S.x},${S.y} L${Ex},${Ey}`);
+      path.setAttribute('stroke',DIMS[e.dim].color); path.setAttribute('fill','none');
+      path.setAttribute('stroke-width',e.kind==='primary'?2.2:1.7);
+      path.setAttribute('opacity',e.conf==='high'?0.95:e.conf==='medium'?0.8:0.5);
+      if(e.kind==='secondary')path.setAttribute('stroke-dasharray','6 5');
+      if(e.kind==='weak')path.setAttribute('stroke-dasharray','2 5');
+      if(e.type==='category')path.setAttribute('stroke-dasharray','8 3 2 3');
+      path.setAttribute('marker-end',`url(#jar-${e.dim})`);
+      // reciprocal? draw start marker too
+      if(EDGES.some(x=>x.f===e.t&&x.t===e.f&&x.dim===e.dim))path.setAttribute('marker-start',`url(#jar-${e.dim})`);
+      s.appendChild(path);
+      const chip=document.createElement('div'); chip.className='jchip'+(e.t==='EXP'?' expchip':'');
+      chip.innerHTML=(e.t==='EXP'?'Experimental':byId[e.t].name)+
+        `<span class="sub2">${e.t==='EXP'?'category door':archBy[byId[e.t].arch].label+' · '+archBy[byId[e.t].arch].slots[byId[e.t].slot-1]}</span>`;
+      Object.assign(chip.style,place(P.x,P.y));
+      chip.addEventListener('mousemove',ev=>{
+        showTip(`<b>${cname(e.t)}</b><br>${e.dir} ${DIMS[e.dim].name} · Δ${e.d} · ${e.type==='within'?'dial turn':e.type==='category'?'category hop':'bridge'}<br>`+
+          `<span class="tl">${e.kind} · ${e.conf} confidence${e.rec?'':' · not recommended'}${e.note?'<br>'+e.note:''}</span>`,ev.clientX,ev.clientY);});
+      chip.addEventListener('mouseleave',hideTip);
+      if(e.t!=='EXP')chip.addEventListener('click',()=>{trail.push(e.t);renderJourney(e.t);});
+      ov.appendChild(chip);
+    });
+  });
+  // ego card
+  const ego=document.createElement('div'); ego.id='ego-card'; Object.assign(ego.style,place(CX,CY));
+  ego.innerHTML=`<div class="nm">${c.name}</div>
+    <div class="meta">${c.r==='P'?'Path Coffee Roasters':'Temecula Coffee Roasters'}${c.def?' · ★ default':''}${c.cupped?' · cupped':''}</div>
+    <div class="archchip"><span class="dot" style="width:8px;height:8px;border-radius:50%;background:${DIMS[a.dim].color}"></span>${a.label} — ${a.slots[c.slot-1]} (${c.slot} of 4)</div>`+
+    (c.guest?`<div class="meta">guests at ${archBy[c.guest.arch].label} · ${archBy[c.guest.arch].slots[c.guest.slot-1]}</div>`:'');
+  ov.appendChild(ego);
+  // arrivals note
+  const inb=EDGES.filter(e=>e.t===id);
+  const noReturn=inb.filter(e=>!EDGES.some(x=>x.f===id&&x.t===e.f&&x.dim===e.dim));
+  document.getElementById('arrivals').innerHTML =
+    `<b>${inb.length}</b> arrivals land here from ${new Set(inb.map(e=>e.f)).size} coffees — `+
+    (noReturn.length?`⚠ ${noReturn.length} without a return hop: ${noReturn.map(e=>cname(e.f)).join(', ')}.`:
+     `every arrival has a matching departure (no one-way doors at this coffee).`);
+  renderHorizon(id);
+}
+function renderHorizon(id){
+  const el=document.getElementById('rings'); el.innerHTML='';
+  if(state.horizon<2){el.innerHTML='<div class="ring-row"><span class="rl">Showing direct moves only.</span></div>';return;}
+  // BFS with path tracking
+  const dist={[id]:0}, parent={}, q=[id];
+  while(q.length){
+    const u=q.shift();
+    if(dist[u]>=state.horizon)continue;
+    EDGES.filter(e=>e.f===u&&e.t!=='EXP').forEach(e=>{
+      if(dist[e.t]===undefined){dist[e.t]=dist[u]+1;parent[e.t]=u;q.push(e.t);}
+    });
+  }
+  for(let ring=2;ring<=state.horizon;ring++){
+    const nodes=Object.keys(dist).filter(k=>dist[k]===ring);
+    const row=document.createElement('div'); row.className='ring-row';
+    row.innerHTML=`<span class="rl">Reachable in ${ring} turns (${nodes.length})</span>`;
+    nodes.forEach(n=>{
+      const ch=document.createElement('button'); ch.className='rchip'; ch.textContent=byId[n].name+(byId[n].r==='P'?' (P)':' (T)');
+      let path=[n],u=n; while(parent[u]!==undefined){u=parent[u];path.unshift(u);}
+      ch.addEventListener('mousemove',e=>showTip(`<span class="tl">One route:</span> ${path.map(p=>byId[p].name).join(' → ')}`,e.clientX,e.clientY));
+      ch.addEventListener('mouseleave',hideTip);
+      ch.addEventListener('click',()=>{trail=trail.concat(path.slice(1));renderJourney(n);});
+      row.appendChild(ch);
+    });
+    el.appendChild(row);
+  }
+  const unreached=COFFEES.filter(c=>dist[c.id]===undefined).map(c=>c.name);
+  if(state.horizon>=3&&unreached.length){
+    const row=document.createElement('div'); row.className='ring-row';
+    row.innerHTML=`<span class="rl">Beyond ${state.horizon} turns</span><span style="font-size:12px;color:var(--ink-2)">${unreached.join(' · ')}</span>`;
+    el.appendChild(row);
+  }
+}
+
+/* ═══════════════ WIRING ═══════════════ */
+document.querySelectorAll('.dimf').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.dimf').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on'); state.dim=b.dataset.dim; drawArcs();
+}));
+document.querySelectorAll('.tglf').forEach(b=>b.addEventListener('click',()=>{
+  b.classList.toggle('on'); state[b.dataset.t]=b.classList.contains('on'); drawArcs();
+}));
+document.querySelectorAll('.hzf').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.hzf').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on'); state.horizon=+b.dataset.h;
+  if(trail.length)renderHorizon(trail[trail.length-1]);
+}));
+document.getElementById('tab-map').addEventListener('click',backToMap);
+document.getElementById('tab-journey').addEventListener('click',()=>{
+  if(trail.length)openJourney(trail[trail.length-1]);
+  else{const g=byId['guatemala'];trail=['guatemala'];openJourney('guatemala');}
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.getElementById('journey').style.display==='block')backToMap();});
+window.addEventListener('resize',()=>{
+  if(document.getElementById('map').style.display!=='none')drawArcs();
+  else if(trail.length)renderJourney(trail[trail.length-1]);
+});
+
+buildBoard(); buildAudit();
+requestAnimationFrame(drawArcs);
+</script>
+</body>
+</html>

@@ -73,6 +73,31 @@ export async function getAvgCuppingScore(coffeeId: number, dimensionId: number):
   return { avg_score: Number(avgScore), session_count: Number(result.rows[0].session_count) };
 }
 
+// Batched counterpart to getAvgCuppingScore — identical AVG/join shape (same score
+// definition, not a fork), computed for every (coffee, dimension) pair with merged
+// cupping data in one query instead of N+1 per-pair calls. Used by the dial graph
+// endpoint (GET /api/admin/dial/graph) to annotate every hop's from/to cupping
+// average without a query per relationship.
+export async function getAvgCuppingScoresBatch(): Promise<Map<string, AvgCuppingScore>> {
+  const result = await db.query(
+    `SELECT scc.coffee_id, csv.dimension_id,
+            ROUND(AVG((csv.value_min + csv.value_max) / 2.0), 2) AS avg_score,
+            COUNT(DISTINCT cs.session_coffee_id) AS session_count
+     FROM cupping_score_values csv
+     JOIN cupping_scores cs ON cs.id = csv.cupping_score_id AND cs.is_merged = true
+     JOIN cupping_session_coffees scc ON scc.id = cs.session_coffee_id
+     GROUP BY scc.coffee_id, csv.dimension_id`
+  );
+  const map = new Map<string, AvgCuppingScore>();
+  for (const row of result.rows) {
+    map.set(`${row.coffee_id}-${row.dimension_id}`, {
+      avg_score: Number(row.avg_score),
+      session_count: Number(row.session_count),
+    });
+  }
+  return map;
+}
+
 // Dial Turn (within_archetype) hops make an ordering claim — direction 'more' means
 // to_coffee has more of dimension_id than from_coffee — that the cupping-based
 // suggestion also makes a claim about. Cross-checks the two, informational only.
