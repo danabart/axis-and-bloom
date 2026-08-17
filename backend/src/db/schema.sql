@@ -2582,10 +2582,10 @@ BEGIN
   SELECT id INTO v_q3_id FROM quiz_question WHERE quiz_id = v_quiz_id AND q_number = 3;
   IF v_q3_id IS NULL THEN
     INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
-      VALUES (v_quiz_id, 3, 'You try a new coffee black. What''s your first reaction?', 1)
+      VALUES (v_quiz_id, 3, 'When someone gives you a cup of black coffee, what might be your first reaction?', 1)
       RETURNING id INTO v_q3_id;
   ELSE
-    UPDATE quiz_question SET q_text = 'You try a new coffee black. What''s your first reaction?', weight = 1 WHERE id = v_q3_id;
+    UPDATE quiz_question SET q_text = 'When someone gives you a cup of black coffee, what might be your first reaction?', weight = 1 WHERE id = v_q3_id;
   END IF;
 
   SELECT id INTO v_q4_id FROM quiz_question WHERE quiz_id = v_quiz_id AND q_number = 4;
@@ -2651,6 +2651,9 @@ BEGIN
     ('v7_q2_a', v_q2_id, 'It was strong and satisfying — I felt it.'),
     ('v7_q2_b', v_q2_id, 'It was smooth and easy the whole way through — nothing got in the way.'),
     ('v7_q2_c', v_q2_id, 'It felt alive — bright and changing. Every sip was a little different.'),
+    -- NOTE: these three carry the pre-2026-08-15 copy on purpose. This list matches
+    -- historical text to adopt a code onto an uncoded row; the current copy lives in
+    -- the content-sync list below.
     ('v7_q3_a', v_q3_id, 'It feels complete. I''d drink it as is, or add milk to make it even richer.'),
     ('v7_q3_b', v_q3_id, 'It''s fine, easy to drink. I might add something to smooth it out.'),
     ('v7_q3_c', v_q3_id, 'Interesting… what flavors am I getting here?'),
@@ -2685,8 +2688,8 @@ BEGIN
       ('v7_q2_a', v_q2_id, 'It was strong and satisfying — I felt it.',                              v_choc_id,  FALSE),
       ('v7_q2_b', v_q2_id, 'It was smooth and easy the whole way through — nothing got in the way.', v_bal_id,   FALSE),
       ('v7_q2_c', v_q2_id, 'It felt alive — bright and changing. Every sip was a little different.', v_fruit_id, FALSE),
-      ('v7_q3_a', v_q3_id, 'It feels complete. I''d drink it as is, or add milk to make it even richer.', v_choc_id,  FALSE),
-      ('v7_q3_b', v_q3_id, 'It''s fine, easy to drink. I might add something to smooth it out.',          v_bal_id,   FALSE),
+      ('v7_q3_a', v_q3_id, 'I''d take a sip first, then decide if I want to add anything to make it even richer.', v_choc_id,  FALSE),
+      ('v7_q3_b', v_q3_id, 'I''d probably add milk or something to smooth it before trying it.',          v_bal_id,   FALSE),
       ('v7_q3_c', v_q3_id, 'Interesting… what flavors am I getting here?',                                v_fruit_id, TRUE),
       ('v7_q4_a', v_q4_id, 'It has no bitterness or intensity.', v_choc_id,  FALSE),
       ('v7_q4_b', v_q4_id, 'It''s too bitter or too intense.',   v_bal_id,   FALSE),
@@ -2695,7 +2698,7 @@ BEGIN
       ('v7_q5_b', v_q5_id, 'I''d rather have something gentler and smoother.',                         v_bal_id,   FALSE),
       ('v7_q5_c', v_q5_id, 'It feels burnt to me. I''d rather have something fresher or more alive.', v_fruit_id, FALSE),
       ('v7_q6_a', v_q6_id, 'Something rich and comforting. Dark chocolate, roasted nuts, a warm brownie.', v_choc_id,  FALSE),
-      ('v7_q6_b', v_q6_id, 'Something soft and sweet. A ripe peach, a vanilla biscuit, caramel.',          v_bal_id,   FALSE),
+      ('v7_q6_b', v_q6_id, 'Something soft and sweet. A vanilla or a caramel biscuit.',          v_bal_id,   FALSE),
       ('v7_q6_c', v_q6_id, 'Something fresh and lively. A green apple, fresh berries, citrus.',            v_fruit_id, FALSE),
       ('v7_branch_fruity_stay',   v_fbq1_id, 'It''s complex and alive. A lot happening — I want to explore every sip.',          v_fruit_id,  FALSE),
       ('v7_branch_fruity_floral', v_fbq1_id, 'It''s so light and delicate it barely feels like coffee. Almost like drinking tea.', v_floral_id, FALSE),

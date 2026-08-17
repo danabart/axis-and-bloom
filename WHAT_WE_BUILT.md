@@ -4212,6 +4212,26 @@ Executed `backend/src/features/observability/CLAUDE_CODE_PROMPT_CRON_SECRET_FIX.
 
 ---
 
+### 167. V7 Quiz Copy Update — Q3 stem + Q3 a/b, Q6 b (2026-08-16)
+
+Executed `backend/src/features/quizes/CLAUDE_CODE_PROMPT_QUIZ_COPY_UPDATE_2026-08-15.md` exactly as written — a copy-only pass on the re-asserting V7 seed in `backend/src/db/schema.sql`. Four string edits, applied in place on v7 (not cut as v8) because no answer changes which archetype it signals and no score changes value: Q3 a still reads Chocolate & Nutty, Q3 b still reads Balanced & Sweet, Q6 b still reads Balanced & Sweet, weights/points untouched throughout.
+
+**Change 1 — Q3 question text**: both the `INSERT` and `UPDATE` arms of the v7 `DO $v7$` block changed from `"You try a new coffee black. What's your first reaction?"` to `"When someone gives you a cup of black coffee, what might be your first reaction?"`. **Change 2 — Q3 answers a/b**: in the Change-3 content-sync `VALUES` list, `v7_q3_a` → `"I'd take a sip first, then decide if I want to add anything to make it even richer."`, `v7_q3_b` → `"I'd probably add milk or something to smooth it before trying it."`. `v7_q3_c` (the sole experimental gate) untouched. **Change 3 — Q6 answer b**: same content-sync list, `v7_q6_b` → `"Something soft and sweet. A vanilla or a caramel biscuit."`. **Change 4 (deliberate no-op)**: the Change-2 backfill `VALUES` list (matches historical text to adopt an `answer_code` onto a pre-code row, fires only `WHERE answer_code IS NULL`) was left holding the *old* copy for these same three answers, per the prompt's explicit instruction — added a `NOTE` comment above those three tuples so a future reader doesn't "fix" them.
+
+Left alone, confirmed by direct grep before editing: the identical old Q3 stem string still appears at lines 1866/2024/2407 (retired v5/v6 seed blocks, `answer_code IS NULL`, ignored by the integrity checks) and a superficially-similar-but-actually-different string ("Something soft and sweet. A ripe peach...", for the retired v4 block's *Q2*, not Q6) at line 2393 — neither touched.
+
+This was mechanically safe because of the drift-prevention work (`c05e433`): every v7 answer carries a stable `answer_code`, and `quiz_answer_archetype_score` rows key off that code rather than `answer_text`, so an in-place copy edit can't orphan a score row. Confirmed the sync loop is `UPDATE quiz_answer ... WHERE answer_code = ...` (never delete+insert) — `quiz_answer.id` for `v7_q3_a`/`v7_q3_b`/`v7_q6_b` is guaranteed unchanged by construction, not just by observation.
+
+**Verified against production Cloud SQL**, read-only throughout, no Auth Proxy opened or restarted — reused the already-running persistent proxy (`:5433`) and the already-running local dev backend (`:4000`) per the prompt's explicit guardrail. `npx tsx src/db/migrate.ts` (with `dotenv/config` preloaded — `npm run db:migrate` assumes a compiled `dist/`, not present in this checkout) run twice: first pass applied cleanly, second pass was a true no-op, confirming idempotency. Direct SQL confirmed Q3's `q_text`/`weight` and all four changed strings landed correctly, `quiz_answer.id` for the three answer_codes unchanged, and scores intact (`v7_q3_a` → Chocolate & Nutty 1, `v7_q3_b` → Balanced & Sweet 1, `v7_q6_b` → no score row, as expected for unscored Q6). Called `runQuizIntegrityChecks()` directly (same logic the admin-authed `GET /api/admin/quiz/integrity` endpoint runs, without needing an admin session) — all 9 checks pass. Hit the public `GET /api/quiz/questions` live and confirmed Q3/Q6 render the new copy with every answer resolving a non-null `archetype_name`. Frontend: confirmed by code read (not changed) that `Q_HIGHLIGHTS[3] = 'reaction'` in `frontend/src/app/components/FlavorQuiz.tsx` still matches the new Q3 stem ("...your first reaction?"), so the pink-highlight behavior is unaffected — per the prompt's own instruction to verify rather than assume this.
+
+**Not done in this pass, per the prompt's explicit scope**: no `quiz_answer_archetype_score` row added/removed/revalued; `backend/src/services/quizIntegrity.ts` untouched (its checks are structural, none assert on literal copy); `backend/src/features/quizes/quiz_v7_content_audit.sql` left as the 2026-08-11 record; no `DELETE`+re-`INSERT` of any `quiz_answer` row; no frontend file changed.
+
+**Files**: `backend/src/db/schema.sql` only (8 insertions, 5 deletions).
+
+**Not pushed** — held for Dana's explicit go-ahead per the standing rule (see `feedback_axis_and_bloom_task_execution` in memory). `main` == `origin/main` at `c79d888` throughout this pass.
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.
