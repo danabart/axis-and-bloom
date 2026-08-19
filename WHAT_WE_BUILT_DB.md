@@ -8,10 +8,12 @@ Seed files (run manually): `backend/src/db/seeds/`
 
 ---
 
-## Database Schema (70 Tables)
+## Database Schema (71 Tables)
 
 The schema runs automatically on every backend startup (`CREATE TABLE IF NOT EXISTS` — fully idempotent, safe to run repeatedly).
 
+> **As of 2026-08-18**: 71 tables. `transactional_email_log` added (`WHAT_WE_BUILT.md` #169, Step 07/C3 — quiz-complete email moves to Resend) — at-most-once guard for backend-originated transactional sends, `PRIMARY KEY (email, template)`. Narrative migration: `backend/src/db/migrations/transactional_email_log_2026_08_18.sql` (purely additive, no backfill).
+>
 > **As of 2026-08-16**: still 70 tables — no schema change. New read-only aggregate endpoint `GET /api/admin/dial/graph` (`WHAT_WE_BUILT.md` #168, Bloom Dial admin Map & Journey rebuild) reads the existing `dial_*` table family (below) plus `cupping_score_values`/`cupping_scores`/`cupping_session_coffees` for a new batched cupping-average helper (`getAvgCuppingScoresBatch()` in `dialSuggestion.ts`) — no new tables, no new columns.
 
 > **As of 2026-08-15**: still 70 tables — no schema change. `CRON_SECRET` (GCP Secret Manager, not a table — see `deploy.yml --set-secrets`, same secret this doc already references at line ~164 in the beat-engine section) was rotated after every version of its value turned out to carry a leading UTF-8 BOM, silently breaking both Cloud Scheduler cron jobs' auth since one was created. Full diagnosis in `WHAT_WE_BUILT.md` #166, Sommelier-side continuity note in `SOMMELIER_BUILT.md` S92 (S17's original CRON_SECRET decision).
@@ -88,6 +90,7 @@ No enforced sequence between stages — a user can land on any stage directly fr
 - `subscriber_source` — normalised reference table for signup origins; 4 seeded rows: `pre_launch` (Pre-Launch Popup), `newsletter` (Newsletter Modal), `post_quiz` (Post-Quiz Signup), `footer` (Footer Widget)
 - `newsletter_subscriber` — `email` PK; `first_name TEXT`; `source_id` FK → `subscriber_source`; `user_id` FK → `user_profile` (optional, now populated by `POST /api/newsletter/subscribe` via `optionalAuth` when the caller is signed in — was always nullable but never actually set before this); `subscribed BOOLEAN`; `created_at`. **Extended 2026-07-20/21** (`WHAT_WE_BUILT.md` #110, launch/10_quiz-and-archetypes Step 04): `archetype TEXT`, `experimental BOOLEAN`, `confidence TEXT`, `quiz_session_key TEXT` — all nullable, populated when the signup originates from the post-quiz firm email gate (`COALESCE(new, existing)` on conflict, so a later non-quiz signup never wipes a captured quiz result, but a quiz retake's new archetype does overwrite the old one). Feeds Step 05's Mailchimp personalization without a second lookup.
 - `quiz_funnel_event` — **added 2026-07-20** (`WHAT_WE_BUILT.md` #109, launch/20_analytics-and-tracking Step 02). First-party quiz funnel logging, source of truth over GA4/Pixel since `POST /api/quiz/score` is public and guests dominate. `session_key TEXT` (client-generated `crypto.randomUUID()`, not a FK — most rows are guests), `event TEXT` CHECK'd to `quiz_start`/`quiz_complete`/`email_submitted`, `archetype TEXT` (nullable, populated on `quiz_complete`), `created_at`. Indexed on `session_key` and `created_at`. Written via `POST /api/quiz/event` (rate-limited, handler in `backend/src/features/marketing/funnelEvents.ts`).
+- `transactional_email_log` — **added 2026-08-18** (`WHAT_WE_BUILT.md` #169, Step 07/C3). At-most-once guard for backend-originated transactional email (Resend), separate from Mailchimp's tag/journey-driven sends. `email TEXT`, `template TEXT`, `sent_at TIMESTAMPTZ DEFAULT timezone('utc', now())`, `PRIMARY KEY (email, template)`. First consumer: the quiz-complete "Your archetype card is here" email, template key `quiz_complete_v2` — an `INSERT ... ON CONFLICT DO NOTHING` claims the send before it goes out; a failed Resend call deletes the claim so the next quiz completion can retry.
 
 **Cupping tool** *(added May 2026 — SERIAL PKs, standalone from the main schema)*
 - `coffees` — coffee catalogue (name, roaster, origin, process, roast level/shade, roaster flavor descriptors). `origin_region_id INTEGER REFERENCES lookup_value(id)` added 2026-07-12, nullable — broad geographic bucket for the exact `origin` string (which stays server-side only, never in a public API response). Backfilled by hand for all 29 current coffees; not auto-derived from `origin` (ambiguous free text). **Re-verified 2026-07-13** (Flavor Intelligence Part 9, prompted by a report that every coffee showed "Multi-Origin / Blend"): queried directly against production — distribution is real and varied (13 Multi-Origin/Blend, 6 East Africa, 4 South America, 4 Central America, 3 Southeast Asia & Pacific), matching the original backfill. Per-coffee data was never actually broken. **Root cause found 2026-07-13**: `chocolate_nutty` is the first archetype in `/api/coffees/archetypes`' response order, and its default-selected slot (no coffee there currently carries a working `isDefault: true` — see the known `is_default` data mismatch noted under Sommelier/Bloom Dial work) falls back to whichever active slot sorts first, which resolves to Noam Blend ("Classic Chocolate") — a coffee whose ambiguous `origin` ("Central") had been classified `Multi-Origin / Blend` in the original backfill. Every guest landed on this exact coffee on first page load, every time, regardless of the (correct, varied) data everywhere else. **Fixed**: reclassified Noam Blend to `Central America` — the alternative Part 1's own backfill notes had already flagged as equally defensible ("the roastery's own label says 'Central,' not 'multi-region'"). Verified directly against the live production API. This was the one coffee among the original ambiguous judgment calls (Noam Blend / Crosshatch / Feather In Cap) with a genuinely defensible non-blend alternative; the other two legitimately span two disparate regions and correctly remain `Multi-Origin / Blend`.
@@ -523,6 +526,15 @@ SELECT source, COUNT(*) AS signups
 FROM v_newsletter_subscribers
 GROUP BY source
 ORDER BY signups DESC;
+```
+
+### Transactional email sends (Resend)
+```sql
+-- All quiz-complete sends
+SELECT email, sent_at FROM transactional_email_log WHERE template = 'quiz_complete_v2' ORDER BY sent_at DESC;
+
+-- Has this address already gotten the quiz-complete email?
+SELECT 1 FROM transactional_email_log WHERE email = 'someone@example.com' AND template = 'quiz_complete_v2';
 ```
 
 ### Admin user management

@@ -1,9 +1,41 @@
 import { Router } from 'express';
 import { db } from '../db/client.js';
 import { optionalAuth, type AuthRequest } from '../middleware/auth.js';
-import { syncMailchimpMember } from '../features/marketing/mailchimp.js';
+import { syncMailchimpMember, toArchetypeSlug } from '../features/marketing/mailchimp.js';
+import { sendResendEmail } from '../features/marketing/resendEmail.js';
+import { renderQuizCompleteEmail } from '../features/marketing/templates/quizCompleteEmail.js';
 
 const router = Router();
+
+// Step 07 (C3): quiz-complete email — sent at most once per (email, template), see
+// transactional_email_log. Bump this key to re-enable one send of a future redesign.
+const QUIZ_COMPLETE_TEMPLATE = 'quiz_complete_v2';
+
+// Fire-and-forget the quiz-complete Resend send, guarded by an atomic DB claim so
+// concurrent requests for the same email can't double-send. The claim is written
+// immediately (sent_at = NOW()); a failed send rolls the claim back so the next
+// quiz completion can retry — a Resend failure must never permanently block the
+// email the way a real "already sent" would.
+async function sendQuizCompleteEmailOnce(email: string, firstName: string, archetype: string | undefined) {
+  const claim = await db.query(
+    `INSERT INTO transactional_email_log (email, template)
+     VALUES ($1, $2)
+     ON CONFLICT (email, template) DO NOTHING
+     RETURNING email`,
+    [email, QUIZ_COMPLETE_TEMPLATE],
+  );
+  if (claim.rowCount === 0) return; // already sent
+
+  const archetypeSlug = archetype ? toArchetypeSlug(archetype) : null;
+  const { subject, html, text } = renderQuizCompleteEmail(firstName || null, archetypeSlug);
+  const sent = await sendResendEmail({ to: email, subject, html, text });
+  if (!sent) {
+    await db.query(
+      `DELETE FROM transactional_email_log WHERE email = $1 AND template = $2`,
+      [email, QUIZ_COMPLETE_TEMPLATE],
+    );
+  }
+}
 
 // ── Shared subscribe logic ────────────────────────────────────────────────────
 // Step 04 (A2): extended to carry the quiz result along with the signup (archetype/
@@ -65,6 +97,14 @@ async function handleSubscribe(
   syncMailchimpMember(clean, cleanName, { source: sourceName, archetype: extra.archetype, experimental: extra.experimental }).catch(err =>
     console.error('[newsletter] mailchimp error:', err)
   );
+
+  // Step 07 (C3): quiz-complete email — transactional send from our own backend,
+  // replacing the Mailchimp automation flow. Fire-and-forget, same as Mailchimp above.
+  if (sourceName === 'post_quiz') {
+    sendQuizCompleteEmailOnce(clean, cleanName, extra.archetype).catch(err =>
+      console.error('[newsletter] resend error:', err)
+    );
+  }
 
   res.json({ ok: true });
 }

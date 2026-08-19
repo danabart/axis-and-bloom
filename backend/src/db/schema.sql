@@ -985,6 +985,16 @@ ALTER TABLE newsletter_subscriber ADD COLUMN IF NOT EXISTS experimental BOOLEAN;
 ALTER TABLE newsletter_subscriber ADD COLUMN IF NOT EXISTS confidence TEXT;
 ALTER TABLE newsletter_subscriber ADD COLUMN IF NOT EXISTS quiz_session_key TEXT;
 
+-- Step 07 (C3): at-most-once guard for transactional sends (Resend), keyed by
+-- template so a future redesign can re-enable one send of a new version by
+-- bumping the template key. Not used for Mailchimp — that stays tag/journey-driven.
+CREATE TABLE IF NOT EXISTS transactional_email_log (
+  email      TEXT NOT NULL,
+  template   TEXT NOT NULL,
+  sent_at    TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+  PRIMARY KEY (email, template)
+);
+
 -- ─────────────────────────────────────────────
 -- CUPPING TOOL
 -- Separate from the main schema's cupping_session (singular).

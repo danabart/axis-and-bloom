@@ -1602,3 +1602,9 @@ Full diagnosis, evidence, and verification in `WHAT_WE_BUILT.md` #166; the S17 d
 `WHAT_WE_BUILT.md` #168 rebuilt `/admin/dial` and added a new read-only `GET /api/admin/dial/graph` endpoint. Checked, not assumed: Liam's own dial reads are `sommelierRag.ts`'s queries against `v_dial_navigation` and the `dial_slot_alias`/`coffee_alias` joins (`getAliases()`) — neither was touched. The new endpoint and the rebuilt admin page are additive reads over the same `dial_*` tables plus a new batched cupping-average helper (`getAvgCuppingScoresBatch()` in `dialSuggestion.ts`); no existing query, view, or write path Liam depends on was changed. Same standing pattern as S43/S45 for the earlier Bloom Dial base-data work: confirmed by reading the actual consumer code, not by assuming a dial-adjacent change is dial-adjacent-safe.
 
 **Files**: none (confirmation only — see `WHAT_WE_BUILT.md` #168 for the actual change).
+
+#### S94. Quiz-complete email moves to Resend — confirmed no Liam impact
+
+`WHAT_WE_BUILT.md` #169 (Step 07/C3) moved the "Your archetype card is here" email from a Mailchimp journey to a direct transactional send from `backend/src/routes/newsletter.ts`'s `handleSubscribe`, plus a new `transactional_email_log` table. Checked, not assumed: Liam's own quiz-completion path is `saveQuizSession()` / `sommelierEvaluator.ts` / `userSignals.ts`, all reading and writing `quiz_session`, `sommelier_sessions`, `sommelier_messages` — none of those tables, nor `newsletter_subscriber`'s existing columns, were touched. `toArchetypeSlug()` (already used identically by the pre-existing Mailchimp sync) is now also imported by `newsletter.ts` and exported unchanged from `mailchimp.ts` — same function, same behavior, one more caller. No Firestore path, prompt, evaluator, or RAG query changed.
+
+**Files**: none (confirmation only — see `WHAT_WE_BUILT.md` #169 for the actual change).
