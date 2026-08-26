@@ -1,4 +1,4 @@
-// Step 07 (C3): quiz-complete "Your archetype card is here" email — ported 1:1 from
+// Step 07 (C3): quiz-complete "Your coffee archetype card is here" email — ported 1:1 from
 // the Mailchimp source (`launch/40_email-marketing/resend/quiz-complete-source.html`,
 // Camila's copy, locked) for a direct Resend send. Same markup, same inline styles,
 // same images, same spacing, same six archetype variants + fallback — the only
@@ -91,7 +91,7 @@ const PREHEADER_PADDING =
 
 function renderPreheaderHtml(variant: ArchetypeVariant | null): string {
   const label = variant ? escapeHtml(variant.displayName) : 'Your archetype';
-  return `${label}, explained. Doors open October 1.${PREHEADER_PADDING}`;
+  return `${label}, explained. Doors open this fall.${PREHEADER_PADDING}`;
 }
 
 // ── the big variant block: full-bleed card, colorline, word set, why, promise ───
@@ -131,7 +131,7 @@ function renderVariantHtml(variant: ArchetypeVariant): string {
             <tr><td height="38" style="font-size:0;line-height:0;">&nbsp;</td></tr>
             <tr>
               <td align="center" style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:10.5px;letter-spacing:4.5px;color:#9a2918;font-weight:bold;">
-                DOORS&nbsp;OPEN&nbsp;OCTOBER&nbsp;1
+                DOORS&nbsp;OPEN&nbsp;THIS&nbsp;FALL
               </td>
             </tr>
             <tr><td height="14" style="font-size:0;line-height:0;">&nbsp;</td></tr>
@@ -153,7 +153,7 @@ function renderFallbackHtml(): string {
           <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="max-width:432px;">
             <tr>
               <td align="center" style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:16px;line-height:28px;color:#45474a;">
-                Your match is ready and your archetype card is waiting. Your card is only the beginning, and when we open on October 1 your match will only get more personal.
+                Your match is ready and your archetype card is waiting. Your card is only the beginning, and when we open this fall, your match will only get more personal.
               </td>
             </tr>
           </table>
@@ -177,7 +177,7 @@ function renderHtml(firstName: string | null, archetypeSlug: string | null): str
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-<title>Your archetype card is here</title>
+<title>Your coffee archetype card is here</title>
 <style type="text/css">
   html, body { margin:0 !important; padding:0 !important; height:100% !important; width:100% !important; }
   * { -ms-text-size-adjust:100%; -webkit-text-size-adjust:100%; }
@@ -279,7 +279,7 @@ function renderHtml(firstName: string | null, archetypeSlug: string | null): str
                 <tr><td height="12" style="font-size:0;line-height:0;">&nbsp;</td></tr>
                 <tr>
                   <td align="center" style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:10.5px;line-height:19px;color:#7b7f80;">
-                    Axis &amp; Bloom Coffee &middot; 159 19th Street &middot; Union City, NJ 07087 &middot; USA<br />
+                    Axis &amp; Bloom &middot; Creative Box LLC &middot; Union City, NJ 07087<br />
                     <a href="mailto:hello@axisandbloomcoffee.com?subject=Unsubscribe" style="color:#7b7f80;text-decoration:underline;">Unsubscribe</a>
                   </td>
                 </tr>
@@ -308,11 +308,11 @@ function renderText(firstName: string | null, archetypeSlug: string | null): str
         '',
         variant.why,
         '',
-        'DOORS OPEN OCTOBER 1',
+        'DOORS OPEN THIS FALL',
         '',
         `Your card is only the beginning. When we open, you will tune exactly how ${variant.displayName} comes through in your cup, softer or deeper, until the match is unmistakably yours.`,
       ].join('\n')
-    : 'Your match is ready and your archetype card is waiting. Your card is only the beginning, and when we open on October 1 your match will only get more personal.';
+    : 'Your match is ready and your archetype card is waiting. Your card is only the beginning, and when we open this fall, your match will only get more personal.';
 
   return [
     'AXIS & BLOOM',
@@ -327,7 +327,7 @@ function renderText(firstName: string | null, archetypeSlug: string | null): str
     'STAY TUNED.',
     '',
     `FROM: AXIS & BLOOM — TO: ${footerTo}`,
-    'Axis & Bloom Coffee · 159 19th Street · Union City, NJ 07087 · USA',
+    'Axis & Bloom · Creative Box LLC · Union City, NJ 07087',
     'Unsubscribe: mailto:hello@axisandbloomcoffee.com?subject=Unsubscribe',
   ].join('\n');
 }
@@ -345,7 +345,7 @@ export interface RenderedEmail {
  */
 export function renderQuizCompleteEmail(firstName: string | null, archetypeSlug: string | null): RenderedEmail {
   return {
-    subject: 'Your archetype card is here',
+    subject: 'Your coffee archetype card is here',
     html: renderHtml(firstName, archetypeSlug),
     text: renderText(firstName, archetypeSlug),
   };

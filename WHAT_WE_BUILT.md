@@ -4388,6 +4388,22 @@ Same batch also sent to `camilamarchon@gmail.com` (Dana's request, for her own r
 
 ---
 
+### 172. Quiz-complete email — three copy changes (2026-08-26)
+
+**Context**: Same-day follow-up, applied to the #169 Resend template. Three copy edits, kept in sync across both `backend/src/features/marketing/templates/quizCompleteEmail.ts` (the live renderer, HTML + text) and `launch/40_email-marketing/resend/quiz-complete-source.html` (the archived Mailchimp source Camila's copy was ported from):
+
+1. Footer address `Axis & Bloom Coffee · 159 19th Street · Union City, NJ 07087 · USA` → `Axis & Bloom · Creative Box LLC · Union City, NJ 07087`, in the live renderer's HTML and text footers. **Not changed in the source file** — its address line is Mailchimp's own `*|LIST:ADDRESSLINE|*` merge tag, not literal text, so there was nothing to replace there without turning a live merge tag into hardcoded copy (out of scope, not asked for).
+2. All October 1 references → "this fall": the six letter-spaced "DOORS OPEN OCTOBER 1" caps lines (both files), the seven preheader "Doors open October 1." branches (both files), and the fallback paragraph's "when we open on October 1 your match will only get more personal" (both files) — all non-breaking-space formatting preserved.
+3. Subject/title "Your archetype card is here" → "Your coffee archetype card is here" — the renderer's `subject` value and a stale file-header comment referencing the old subject in `quizCompleteEmail.ts`; the `<title>` tag in the source HTML.
+
+**Verified**: `grep -n "October\|OCTOBER\|19th\|Your archetype card is here"` across both files returns zero matches. `npx tsc --noEmit` clean. Rendered `renderQuizCompleteEmail()` locally for a real variant (Floral) and the fallback path and confirmed the actual output strings match exactly (subject, title, preheader, DOORS line, fallback paragraph, footer address) — not just grepped for absence of the old copy.
+
+**Files**: `backend/src/features/marketing/templates/quizCompleteEmail.ts`, `launch/40_email-marketing/resend/quiz-complete-source.html`.
+
+**Pushed** with Dana's go-ahead. `main` == `origin/main` throughout; the pre-existing uncommitted `OPEN_TASKS.md` and `launch/60_commerce-and-fulfillment/12_G1_payment_capture_PLACEHOLDER.md` changes were left completely untouched.
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.
