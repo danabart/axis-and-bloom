@@ -37,8 +37,10 @@ export interface ResolvedBlend {
 export async function resolveBlendForSlot(
   archetype: string,
   dialSortOrder: number,
-  weightOz: number
+  weightOz: number,
+  opts: { excludeCoffeeIds?: number[] } = {}
 ): Promise<ResolvedBlend | null> {
+  const excludeCoffeeIds = opts.excludeCoffeeIds ?? [];
   const candidatesResult = await db.query(
     `SELECT ca.coffee_id, ca.priority, c.name AS coffee_name, c.roaster
      FROM coffee_alias ca
@@ -62,6 +64,14 @@ export async function resolveBlendForSlot(
      WHERE COALESCE(dap.archetype, aa.archetype, ca.archetype) = $1
        AND COALESCE(dpv.sort_order, ca.dial_sort_order) = $2
        AND ca.is_active = true
+       -- Roastery lifecycle (2026-08-25): a coffee_alias row can independently
+       -- stay active while its coffee is now inactive (roastery deactivation
+       -- cascades to coffee_alias.is_active too, but this guards the general
+       -- case regardless of ordering) — the two flags are trusted independently,
+       -- never assumed in sync. excludeCoffeeIds lets the deactivation preview
+       -- ask "what would resolve if these coffees were gone" without a write.
+       AND c.is_active = true
+       AND c.id != ALL($3::int[])
        -- Bloom Dial Base Data Part 3: a coffee tagged Decaf/Half-Caf/Flavored
        -- never fills a flavor-dial slot, even via the legacy coffee_alias.archetype/
        -- dial_sort_order fallback columns — giving these coffees a real
@@ -85,7 +95,7 @@ export async function resolveBlendForSlot(
          WHERE cca2.coffee_id = ca.coffee_id AND cc2.code = 'experimental'
        ))
      ORDER BY ca.priority ASC`,
-    [archetype, dialSortOrder]
+    [archetype, dialSortOrder, excludeCoffeeIds]
   );
 
   const skipped: SkippedCandidate[] = [];
@@ -199,9 +209,10 @@ export interface ResolvedCoffeeBlend {
 // resolveBlendForSlot — quantity_available is never checked (drop-ship model).
 export async function resolveCoffeeBlend(coffeeId: number, weightOz: number): Promise<ResolvedCoffeeBlend | null> {
   const result = await db.query(
-    `SELECT id AS blend_id, roaster_sku, shopify_variant_id
-     FROM roaster_blend
-     WHERE coffee_id = $1 AND weight_oz = $2 AND is_active = true`,
+    `SELECT rb.id AS blend_id, rb.roaster_sku, rb.shopify_variant_id
+     FROM roaster_blend rb
+     JOIN coffees c ON c.id = rb.coffee_id
+     WHERE rb.coffee_id = $1 AND rb.weight_oz = $2 AND rb.is_active = true AND c.is_active = true`,
     [coffeeId, weightOz]
   );
   return result.rows[0] ?? null;

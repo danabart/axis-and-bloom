@@ -24,7 +24,7 @@ interface SessionCoffee {
   roast_level: string | null;
 }
 
-interface Coffee { id: number; name: string; roaster: string | null; }
+interface Coffee { id: number; name: string; roaster: string | null; is_active?: boolean; }
 interface RoasterOption { id: string; name: string; }
 
 const EMPTY_FORM = { session_date: '', brew_method: '', location: '', session_notes: '' };
@@ -46,6 +46,12 @@ export default function AdminSessions() {
 
   // Roaster dropdown for session form
   const [roasterOptions, setRoasterOptions] = useState<RoasterOption[]>([]);
+
+  // Roastery lifecycle (2026-08-25) — "Show inactive" toggle for the coffee
+  // picker (an admin may want to cup/prep an inactive coffee before
+  // reactivating). Component state only, same pattern as every other admin
+  // list this task touches.
+  const [showInactive, setShowInactive] = useState(false);
 
   // Expand panel state
   const [expandedId, setExpandedId]     = useState<number | null>(null);
@@ -79,12 +85,25 @@ export default function AdminSessions() {
     }
   }
 
-  async function loadAllCoffees() {
-    if (allCoffees.length > 0) return;
+  async function loadAllCoffees(force = false) {
+    if (allCoffees.length > 0 && !force) return;
     try {
-      const res = await apiFetch('/api/admin/coffees');
+      const res = await apiFetch(`/api/admin/coffees${showInactive ? '?include_inactive=true' : ''}`);
       if (res.ok) setAllCoffees(await res.json());
     } catch (err) { reportError('[AdminSessions/load-all-coffees]', err); }
+  }
+
+  // The toggle only ever matters once the picker's been opened at least once
+  // (loadAllCoffees is otherwise lazy) — force a re-fetch on flip rather than
+  // eagerly loading coffees before the admin has opened any picker.
+  function handleShowInactiveChange(next: boolean) {
+    setShowInactive(next);
+    if (allCoffees.length > 0) {
+      apiFetch(`/api/admin/coffees${next ? '?include_inactive=true' : ''}`)
+        .then(res => res.ok && res.json())
+        .then(data => data && setAllCoffees(data))
+        .catch(err => reportError('[AdminSessions/load-all-coffees]', err));
+    }
   }
 
   async function loadRoasters() {
@@ -227,6 +246,11 @@ export default function AdminSessions() {
           </button>
         </div>
         <div className="flex items-center gap-3">
+          <label className="flex items-center gap-1.5 text-sm text-stone-500">
+            <input type="checkbox" checked={showInactive} onChange={e => handleShowInactiveChange(e.target.checked)}
+              className="accent-stone-700" />
+            Show inactive
+          </label>
           <Link to="/admin/cupping"
             className="px-4 py-2 rounded text-sm font-normal text-stone-600 border border-stone-200 hover:bg-stone-50">
             Score Entry →
@@ -294,7 +318,7 @@ export default function AdminSessions() {
                 className="border border-stone-300 rounded px-3 py-1.5 text-sm flex-1 max-w-xs">
                 <option value="">— pick a coffee —</option>
                 {availableForPending.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}{c.roaster ? ` · ${c.roaster}` : ''}</option>
+                  <option key={c.id} value={c.id}>{c.name}{c.roaster ? ` · ${c.roaster}` : ''}{c.is_active === false ? ' (inactive)' : ''}</option>
                 ))}
               </select>
               <button type="button" onClick={addPendingCoffee} disabled={!pendingCoffeeId}
@@ -387,7 +411,7 @@ export default function AdminSessions() {
                           className="border border-stone-300 rounded px-3 py-1.5 text-sm flex-1 max-w-xs">
                           <option value="">— add a coffee —</option>
                           {availableForSession.map(c => (
-                            <option key={c.id} value={c.id}>{c.name}{c.roaster ? ` · ${c.roaster}` : ''}</option>
+                            <option key={c.id} value={c.id}>{c.name}{c.roaster ? ` · ${c.roaster}` : ''}{c.is_active === false ? ' (inactive)' : ''}</option>
                           ))}
                         </select>
                         <button onClick={handleAddCoffee} disabled={!addingCoffeeId || linking}

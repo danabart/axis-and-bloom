@@ -208,17 +208,21 @@ export async function hasAnyOrderOrSponsorship(profileId: string): Promise<boole
   return result.rows.length > 0;
 }
 
-// "Retired/inactive" has no dedicated column on coffees (checked — none
-// exists). Closest real signal: a coffee is fulfillable only through an
-// active roaster_blend row, so "no active roaster_blend" is treated as
-// retired. This is an inferred convention, not a documented one — recorded
-// as a decision in the build log, not assumed silently.
+// Roastery lifecycle (2026-08-25) — "Retired/inactive" now HAS a dedicated
+// column: coffees.is_active. Primary signal is that; "no active roaster_blend"
+// is kept as a secondary signal (a coffee can go unfulfillable — e.g. every
+// weight discontinued — without its roastery ever being deactivated), so
+// either one marks a coffee retired for QR purposes.
 export async function isCoffeeRetired(coffeeId: number): Promise<boolean> {
   const result = await db.query(
-    `SELECT 1 FROM roaster_blend WHERE coffee_id = $1 AND is_active = true LIMIT 1`,
+    `SELECT c.is_active,
+            EXISTS (SELECT 1 FROM roaster_blend WHERE coffee_id = $1 AND is_active = true) AS has_active_blend
+     FROM coffees c WHERE c.id = $1`,
     [coffeeId]
   );
-  return result.rows.length === 0;
+  const row = result.rows[0];
+  if (!row) return true; // no such coffee — treat as retired, never as live
+  return row.is_active === false || row.has_active_blend === false;
 }
 
 // Nearest recommended hop, for a retired coffee's "this one's moved on —
@@ -238,12 +242,19 @@ export async function isCoffeeRetired(coffeeId: number): Promise<boolean> {
 // Querying the base table's columns, which I verified directly against
 // schema.sql byte-for-byte, sidesteps the drift entirely. Flagged in the
 // build log for whoever next touches the Bloom Dial views.
+// Roastery lifecycle (2026-08-25) — the "moved on — here's its closest
+// relative" destination must itself be a coffee a customer can still land
+// on, so this only ever picks an active target (joins coffees, filters
+// tc.is_active = true) — a hop into another now-inactive coffee is never
+// surfaced here.
 export async function getNearestHopCoffeeId(coffeeId: number): Promise<number | null> {
   const result = await db.query(
-    `SELECT to_coffee_id AS id
-     FROM dial_coffee_relationships
-     WHERE from_coffee_id = $1 AND to_coffee_id IS NOT NULL AND is_recommended = true
-     ORDER BY CASE confidence WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END
+    `SELECT dcr.to_coffee_id AS id
+     FROM dial_coffee_relationships dcr
+     JOIN coffees tc ON tc.id = dcr.to_coffee_id
+     WHERE dcr.from_coffee_id = $1 AND dcr.to_coffee_id IS NOT NULL
+       AND dcr.is_recommended = true AND tc.is_active = true
+     ORDER BY CASE dcr.confidence WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END
      LIMIT 1`,
     [coffeeId]
   );

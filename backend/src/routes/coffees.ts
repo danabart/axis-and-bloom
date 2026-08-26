@@ -442,10 +442,13 @@ export interface ContentBackfillResult {
 export async function backfillCoffeeContent(): Promise<ContentBackfillResult> {
   const candidates = await db.query<{ id: number }>(
     `SELECT id FROM coffees
-     WHERE (ai_summary IS NULL AND NOT ai_summary_generation_failed)
+     WHERE is_active = true
+       AND (
+            (ai_summary IS NULL AND NOT ai_summary_generation_failed)
         OR (surprise_note IS NULL AND NOT surprise_note_generation_failed)
         OR (three_voice_story IS NULL AND NOT three_voice_story_generation_failed)
         OR (story IS NULL AND NOT story_admin_edited AND NOT story_generation_failed)
+       )
      ORDER BY id`
   );
 
@@ -932,6 +935,7 @@ router.get('/other-categories', async (_req, res) => {
       LEFT JOIN archetype_assignments aa ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
       LEFT JOIN coffee_alias ca ON ca.coffee_id = c.id AND ca.is_active = true
       WHERE cc.code IN ('decaf', 'half_caf', 'flavored', 'experimental')
+        AND c.is_active = true
       ORDER BY cc.sort_order, c.name
     `);
 
@@ -1039,9 +1043,10 @@ router.get('/:id/legacy-slot', async (req, res) => {
     const result = await db.query(
       `SELECT aa.archetype, dpv.sort_order AS dial_sort_order
        FROM archetype_assignments aa
+       JOIN coffees c ON c.id = aa.coffee_id
        JOIN dial_archetype_positions dap ON dap.coffee_id = aa.coffee_id AND dap.archetype = aa.archetype
        JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
-       WHERE aa.coffee_id = $1 AND aa.superseded_at IS NULL
+       WHERE aa.coffee_id = $1 AND aa.superseded_at IS NULL AND c.is_active = true
        LIMIT 1`,
       [id]
     );
@@ -1076,6 +1081,13 @@ router.get('/:coffeeId/hops', async (req, res) => {
               dpv.label      AS target_position_label
        FROM dial_coffee_relationships dcr
        JOIN coffee_dimensions cd ON cd.id = dcr.dimension_id
+       -- Roastery lifecycle (2026-08-25): filter the hop's own to_coffee_id to
+       -- active coffees here, before the 3-hop cap below — resolveBlendForSlot's
+       -- own is_active check further down would still catch a dead slot, but
+       -- doing it here too means an inactive to_coffee_id never even reaches
+       -- (and consumes) that check via some other coffee's fallback occupying
+       -- the same slot.
+       JOIN coffees tc ON tc.id = dcr.to_coffee_id AND tc.is_active = true
        LEFT JOIN archetype_assignments aa
          ON aa.coffee_id = dcr.to_coffee_id AND aa.superseded_at IS NULL
        LEFT JOIN dial_archetype_positions dap

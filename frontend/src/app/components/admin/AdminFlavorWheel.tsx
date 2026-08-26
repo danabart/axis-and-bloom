@@ -6,6 +6,7 @@ interface Coffee {
   id: number;
   name: string;
   roaster: string | null;
+  is_active?: boolean; // Roastery lifecycle (2026-08-25) — present when ?include_inactive=true
 }
 
 interface WheelRow {
@@ -37,13 +38,16 @@ export default function AdminFlavorWheel() {
   const [rows, setRows]             = useState<WheelRow[]>([]);
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState('');
+  // Roastery lifecycle (2026-08-25) — "Show inactive" toggle, component state
+  // only, same pattern as every other admin list this task touches.
+  const [showInactive, setShowInactive] = useState(false);
 
   // Load coffee list for selector
   useEffect(() => {
     (async () => {
       try {
         const token = await user!.getIdToken();
-        const res   = await fetch('/api/admin/coffees', {
+        const res   = await fetch(`/api/admin/coffees${showInactive ? '?include_inactive=true' : ''}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data: Coffee[] = await res.json();
@@ -54,7 +58,7 @@ export default function AdminFlavorWheel() {
         setError('Failed to load coffees');
       }
     })();
-  }, [user]);
+  }, [user, showInactive]);
 
   // Load wheel data when coffee changes
   useEffect(() => {
@@ -97,11 +101,16 @@ export default function AdminFlavorWheel() {
           >
             {coffees.map(c => (
               <option key={c.id} value={c.id}>
-                {c.name}{c.roaster ? ` — ${c.roaster}` : ''}
+                {c.name}{c.roaster ? ` — ${c.roaster}` : ''}{c.is_active === false ? ' (inactive)' : ''}
               </option>
             ))}
           </select>
         )}
+        <label className="flex items-center gap-1.5 text-sm text-stone-500">
+          <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)}
+            className="accent-stone-700" />
+          Show inactive
+        </label>
       </div>
 
       {error && <p className="text-red-500 text-sm mb-4">{error}</p>}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
 import { useAdminLookups } from '../../hooks/useAdminLookups';
 import { reportError } from '../../lib/errorReporter';
@@ -43,6 +44,12 @@ interface Coffee {
   dial_position_sort: number | null;
   dial_label: string | null;
   dial_suggestion: DialSuggestion | null;
+  // Roastery lifecycle (2026-08-25)
+  is_active: boolean;
+  deactivated_at: string | null;
+  deactivation_reason: string | null;
+  roaster_id: string | null;
+  roaster_name: string | null;
 }
 
 interface VocabOption {
@@ -321,10 +328,15 @@ export default function AdminCoffees() {
     });
   }
 
+  // Roastery lifecycle (2026-08-25) — "Show inactive" toggle, component state
+  // only (no storage), same pattern used across every admin list this task
+  // touches.
+  const [showInactive, setShowInactive] = useState(false);
+
   async function load() {
     try {
       const [coffeeRes, vocabRes, aliasRes, slotAliasRes, roasterRes, categoryRes, coffeeCategoryRes, archetypeRes, slotPriceRes] = await Promise.all([
-        apiFetch('/api/admin/coffees'),
+        apiFetch(`/api/admin/coffees${showInactive ? '?include_inactive=true' : ''}`),
         apiFetch('/api/admin/dial/vocabulary'),
         apiFetch('/api/admin/coffee-alias'),
         apiFetch('/api/admin/dial/slot-aliases'),
@@ -347,7 +359,7 @@ export default function AdminCoffees() {
     } catch (err) { reportError('[AdminCoffees/load]', err); setError('Failed to load coffees'); }
   }
 
-  useEffect(() => { if (user) load(); }, [user]);
+  useEffect(() => { if (user) load(); }, [user, showInactive]);
 
   // ── alias lookup: `archetype_sortorder` → platform_name ───────────────────
   // Bloom Dial Base Data Part 4 (§A): sourced from dial_slot_alias directly (every
@@ -749,21 +761,30 @@ export default function AdminCoffees() {
     const isEditing  = assigningId === coffee.id;
     const alias      = aliases.find(a => a.coffee_id === coffee.id);
     const coffeeCats = coffeeCategories.filter(cc => cc.coffee_id === coffee.id);
+    const isInactive = coffee.is_active === false;
 
     return (
-      <div className={`flex items-center gap-1 group py-0.5 ${isEditing ? 'opacity-60' : ''}`}>
+      <div className={`flex items-center gap-1 group py-0.5 ${isEditing ? 'opacity-60' : ''} ${isInactive ? 'opacity-50' : ''}`}>
         <button
-          onClick={() => prevVocab && !isMoving && handleMovePosition(coffee, prevVocab.id)}
-          disabled={!prevVocab || isMoving}
+          onClick={() => !isInactive && prevVocab && !isMoving && handleMovePosition(coffee, prevVocab.id)}
+          disabled={isInactive || !prevVocab || isMoving}
           className="text-stone-200 hover:text-stone-500 disabled:opacity-0 group-hover:opacity-100 transition-all text-xs px-0.5"
           title={prevVocab ? `Move to ${prevVocab.label}` : undefined}
         >←</button>
         <button
-          onClick={() => isEditing ? setAssigningId(null) : openAssign(coffee)}
-          className="text-sm text-stone-700 hover:text-stone-900 hover:underline text-left"
+          onClick={() => !isInactive && (isEditing ? setAssigningId(null) : openAssign(coffee))}
+          disabled={isInactive}
+          className="text-sm text-stone-700 hover:text-stone-900 hover:underline text-left disabled:no-underline disabled:cursor-default"
         >
           {coffee.name}
         </button>
+        {isInactive && (
+          <Link to="/admin/roasters"
+            className="px-1.5 py-0.5 rounded text-xs border border-stone-200 text-stone-400 bg-stone-50 leading-none hover:text-stone-600 hover:underline"
+            title="Reactivate this coffee's roastery">
+            Inactive · {coffee.roaster_name ?? coffee.roaster ?? 'unlinked roastery'}
+          </Link>
+        )}
         {coffeeCats.map(cc => (
           <span key={cc.id} className="px-1.5 py-0.5 rounded text-xs border border-stone-200 text-stone-400 bg-stone-50 leading-none">
             {cc.category_label}
@@ -1294,11 +1315,18 @@ export default function AdminCoffees() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-normal text-stone-800">Coffees</h1>
-        <button onClick={() => setShowForm(v => !v)}
-          className="px-4 py-2 rounded text-sm font-normal text-white hover:opacity-80"
-          style={{ backgroundColor: '#b05642' }}>
-          {showForm ? 'Cancel' : '+ Add Coffee'}
-        </button>
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-1.5 text-sm text-stone-500">
+            <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)}
+              className="accent-stone-700" />
+            Show inactive
+          </label>
+          <button onClick={() => setShowForm(v => !v)}
+            className="px-4 py-2 rounded text-sm font-normal text-white hover:opacity-80"
+            style={{ backgroundColor: '#b05642' }}>
+            {showForm ? 'Cancel' : '+ Add Coffee'}
+          </button>
+        </div>
       </div>
 
       {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
@@ -1399,7 +1427,12 @@ export default function AdminCoffees() {
                               ))}
                             </div>
                           </td>
-                          <td className="py-2.5 px-4 text-stone-500 text-xs">{c.roaster ?? '—'}</td>
+                          <td className="py-2.5 px-4 text-stone-500 text-xs">
+                            {c.roaster ?? '—'}
+                            {!c.roaster_id && (
+                              <span className="ml-1 text-amber-500" title="No roastery linked — coffees.roaster_id is null for this coffee">⚠</span>
+                            )}
+                          </td>
                           <td className="py-2.5 px-4 text-stone-500 text-xs">{c.origin ?? '—'}</td>
                           <td className="py-2.5 px-4 text-stone-500 text-xs">{processLabel} · {roastLabel}</td>
                           <td className="py-2.5 px-4">

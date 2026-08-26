@@ -14,6 +14,9 @@ interface AliasRow {
   is_active: boolean;
   coffee_name: string;
   roaster: string;
+  // Roastery lifecycle (2026-08-25)
+  coffee_is_active?: boolean;
+  coffee_deactivation_reason?: string | null;
 }
 
 interface Blend {
@@ -26,9 +29,13 @@ interface Blend {
   roaster_sku: string | null;
   shopify_variant_id: string | null;
   is_active: boolean;
+  // Roastery lifecycle (2026-08-25)
+  deactivation_reason?: string | null;
+  coffee_is_active?: boolean;
+  coffee_deactivation_reason?: string | null;
 }
 
-interface CoffeeLookup { id: number; name: string; roaster: string | null; }
+interface CoffeeLookup { id: number; name: string; roaster: string | null; is_active?: boolean; }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -73,6 +80,9 @@ export default function AdminInventory() {
   const [editSaving, setEditSaving]       = useState(false);
   const [editErr, setEditErr]             = useState('');
   const [togglingId, setTogglingId]       = useState<string | null>(null);
+  // Roastery lifecycle (2026-08-25) — "Show inactive" toggle, component state
+  // only, same pattern as every other admin list this task touches.
+  const [showInactive, setShowInactive]   = useState(false);
 
   async function apiFetch(url: string, options: RequestInit = {}) {
     const token = await user!.getIdToken();
@@ -84,10 +94,11 @@ export default function AdminInventory() {
 
   async function load() {
     try {
+      const qs = showInactive ? '?include_inactive=true' : '';
       const [aRes, bRes, cRes] = await Promise.all([
-        apiFetch('/api/admin/coffee-alias'),
-        apiFetch('/api/admin/inventory'),
-        apiFetch('/api/admin/inventory/coffees-lookup'),
+        apiFetch(`/api/admin/coffee-alias${qs}`),
+        apiFetch(`/api/admin/inventory${qs}`),
+        apiFetch(`/api/admin/inventory/coffees-lookup${qs}`),
       ]);
       setAliases(await aRes.json());
       setBlends(await bRes.json());
@@ -95,7 +106,7 @@ export default function AdminInventory() {
     } catch (err) { reportError('[AdminInventory/load]', err); setError('Failed to load data'); }
   }
 
-  useEffect(() => { if (user) load(); }, [user]);
+  useEffect(() => { if (user) load(); }, [user, showInactive]);
 
   // ── Derived data ─────────────────────────────────────────────────────────────
 
@@ -193,29 +204,40 @@ export default function AdminInventory() {
   function BlendRow({ b, unlinked = false }: { b: Blend; unlinked?: boolean }) {
     const isEditing  = editBlendId === b.id;
     const isToggling = togglingId === b.id;
+    // Roastery lifecycle (2026-08-25) — a blend whose coffee's roastery went
+    // inactive comes back only via Reactivate on the Roasteries page, not
+    // this row's own toggle.
+    const coffeeInactive = b.coffee_is_active === false;
     return (
       <>
-        <tr className="border-b border-stone-50 hover:bg-stone-50/60">
+        <tr className={`border-b border-stone-50 hover:bg-stone-50/60 ${coffeeInactive ? 'opacity-50' : ''}`}>
           <td className="py-2 pl-10 pr-3 text-stone-500 text-xs">{b.weight_oz} oz</td>
           <td className="py-2 px-3 text-stone-400 text-xs font-mono">{b.roaster_sku ?? <span className="text-stone-200">—</span>}</td>
           <td className="py-2 px-3 text-stone-400 text-xs font-mono">{b.shopify_variant_id ?? <span className="text-stone-200">—</span>}</td>
           <td className="py-2 px-3">
-            <button
-              onClick={() => handleToggle(b)}
-              disabled={isToggling}
-              className={`px-2 py-0.5 rounded border text-xs transition-colors disabled:opacity-40 ${
-                b.is_active
-                  ? 'bg-green-50 text-green-700 border-green-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200'
-                  : 'bg-stone-100 text-stone-400 border-stone-200 hover:bg-green-50 hover:text-green-700 hover:border-green-200'
-              }`}
-            >
-              {isToggling ? '…' : b.is_active ? 'Active' : 'Inactive'}
-            </button>
+            {coffeeInactive ? (
+              <span className="px-2 py-0.5 rounded text-xs bg-stone-100 text-stone-400 border border-stone-200">
+                Inactive · {b.roaster}
+              </span>
+            ) : (
+              <button
+                onClick={() => handleToggle(b)}
+                disabled={isToggling}
+                className={`px-2 py-0.5 rounded border text-xs transition-colors disabled:opacity-40 ${
+                  b.is_active
+                    ? 'bg-green-50 text-green-700 border-green-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200'
+                    : 'bg-stone-100 text-stone-400 border-stone-200 hover:bg-green-50 hover:text-green-700 hover:border-green-200'
+                }`}
+              >
+                {isToggling ? '…' : b.is_active ? 'Active' : 'Inactive'}
+              </button>
+            )}
           </td>
           <td className="py-2 px-3">
             <button
               onClick={() => isEditing ? setEditBlendId(null) : openEdit(b)}
-              className="text-xs px-2 py-0.5 rounded border border-stone-200 text-stone-400 hover:text-stone-700 hover:border-stone-300"
+              disabled={coffeeInactive}
+              className="text-xs px-2 py-0.5 rounded border border-stone-200 text-stone-400 hover:text-stone-700 hover:border-stone-300 disabled:opacity-40 disabled:hover:text-stone-400 disabled:hover:border-stone-200"
             >
               {isEditing ? 'Cancel' : 'Edit'}
             </button>
@@ -277,6 +299,11 @@ export default function AdminInventory() {
     <div>
       <div className="flex items-center justify-between mb-2">
         <h1 className="text-xl font-normal text-stone-800">Blends &amp; SKUs</h1>
+        <label className="flex items-center gap-1.5 text-sm text-stone-500">
+          <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)}
+            className="accent-stone-700" />
+          Show inactive
+        </label>
       </div>
       <p className="text-xs text-stone-400 mb-6">
         Organized by archetype → dial position → alias slot. Each slot lists its fulfillment choices in order — 1st is tried first, 2nd is the fallback. Choices, rank, and dial position are set on the Coffees page; this page reflects roastery fulfillment status only (SKU, Shopify variant, active/inactive). Drop-ship model; no inventory quantities tracked.
@@ -322,7 +349,7 @@ export default function AdminInventory() {
                           return (
                             <>
                               {/* Coffee entry row */}
-                              <tr key={`alias-${aliasRow.id}`} className="border-b border-stone-100 bg-stone-50/30">
+                              <tr key={`alias-${aliasRow.id}`} className={`border-b border-stone-100 bg-stone-50/30 ${aliasRow.coffee_is_active === false ? 'opacity-50' : ''}`}>
                                 <td className="py-2 px-4" colSpan={5}>
                                   <div className="flex items-center gap-3">
                                     {/* Rank badge — read-only; set on the Coffees page */}
@@ -338,7 +365,14 @@ export default function AdminInventory() {
                                     </span>
                                     <span className="text-sm text-stone-700">{aliasRow.coffee_name}</span>
                                     <span className="text-xs text-stone-400">{aliasRow.roaster}</span>
-                                    {!aliasRow.is_active && (
+                                    {/* Roastery lifecycle (2026-08-25) — the coffee's own inactive state
+                                        (its roastery deactivated) takes precedence over the alias row's
+                                        own toggle, which the cascade also flips but for a different reason. */}
+                                    {aliasRow.coffee_is_active === false ? (
+                                      <span className="px-2 py-0.5 rounded text-xs bg-stone-100 text-stone-400 border border-stone-200">
+                                        Inactive · {aliasRow.roaster}
+                                      </span>
+                                    ) : !aliasRow.is_active && (
                                       <span className="px-2 py-0.5 rounded text-xs bg-stone-100 text-stone-400 border border-stone-200">
                                         Inactive
                                       </span>

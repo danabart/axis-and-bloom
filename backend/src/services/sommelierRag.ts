@@ -34,6 +34,10 @@ function toEnum(name: string): string {
   return map[name] ?? name.toLowerCase().replace(/ & /g, '_').replace(/ /g, '_');
 }
 
+// Roastery lifecycle (2026-08-25) — c.is_active = true baked into every
+// caller's candidate pool. Liam must never *recommend* an inactive coffee
+// (see services/activeCatalog.ts); every WHERE below that follows this
+// constant starts with AND, not WHERE.
 const BASE_COFFEE_SQL = `
   SELECT DISTINCT ON (c.id)
     c.id,
@@ -43,6 +47,7 @@ const BASE_COFFEE_SQL = `
     c.surprise_note
   FROM coffees c
   JOIN archetype_assignments aa ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
+  WHERE c.is_active = true
 `;
 
 async function getDescriptors(coffeeIds: number[]): Promise<Map<number, string[]>> {
@@ -100,6 +105,30 @@ export async function getAliases(coffeeIds: number[]): Promise<Map<number, strin
   );
   const map = new Map<number, string>();
   for (const row of result.rows) map.set(row.coffee_id, row.platform_name);
+
+  // Roastery lifecycle (2026-08-25) — deactivating a roastery cascades to
+  // coffee_alias.is_active = false too (Part B4), so the query above returns
+  // nothing for a coffee that's now inactive. That's correct for browse/
+  // recommend, but Liam must still be able to name a customer's OWN Temecula
+  // coffee (my_coffee, brew card, SMS turns) by its house alias — never leak
+  // coffees.name or the roaster name. dial_archetype_positions is untouched
+  // by the cascade (Decision 3), so resolve the slot name straight off it,
+  // independent of coffee_alias.is_active entirely.
+  const unresolved = coffeeIds.filter((id) => !map.has(id));
+  if (unresolved.length) {
+    const fallback = await db.query(
+      `SELECT DISTINCT ON (dap.coffee_id) dap.coffee_id, dsa.platform_name
+       FROM dial_archetype_positions dap
+       JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
+       JOIN dial_slot_alias dsa
+         ON dsa.archetype = dap.archetype AND dsa.dial_sort_order = dpv.sort_order
+       WHERE dap.coffee_id = ANY($1::int[]) AND dap.is_guest = false
+       ORDER BY dap.coffee_id`,
+      [unresolved]
+    );
+    for (const row of fallback.rows) map.set(row.coffee_id, row.platform_name);
+  }
+
   return map;
 }
 
@@ -161,7 +190,7 @@ async function getAdjacentArchetypes(archetypeName: string): Promise<string[]> {
 async function fetchCoffeesByArchetypes(enumValues: string[], limit: number): Promise<CoffeeRow[]> {
   const result = await db.query(
     `${BASE_COFFEE_SQL}
-     WHERE aa.archetype = ANY($1::archetype_enum[])
+     AND aa.archetype = ANY($1::archetype_enum[])
      ORDER BY c.id, aa.archetype
      LIMIT $2`,
     [enumValues, limit]
@@ -215,7 +244,7 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
                ROW_NUMBER() OVER (PARTITION BY aa.archetype ORDER BY c.id) AS rn
              FROM coffees c
              JOIN archetype_assignments aa ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
-             WHERE aa.archetype = ANY($1::archetype_enum[])
+             WHERE aa.archetype = ANY($1::archetype_enum[]) AND c.is_active = true
            ) sub
            WHERE rn <= 2
            LIMIT $2`,
@@ -236,6 +265,7 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
                WHERE superseded_at IS NULL
                GROUP BY archetype ORDER BY COUNT(*) DESC LIMIT 3
              )
+             AND c.is_active = true
            ) sub WHERE rn <= 2 LIMIT $1`,
           [maxCoffees]
         );
@@ -278,7 +308,7 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
       const excludeAll = [...excludeCoffeeIds, ...dialAlternativeIds];
       const result = await db.query(
         `${BASE_COFFEE_SQL}
-         WHERE aa.archetype = ANY($1::archetype_enum[])
+         AND aa.archetype = ANY($1::archetype_enum[])
            AND c.id != ALL($2::int[])
          ORDER BY c.id
          LIMIT $3`,
@@ -289,7 +319,7 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
       if (dialAlternativeIds.length > 0) {
         const dialResult = await db.query(
           `${BASE_COFFEE_SQL}
-           WHERE c.id = ANY($1::int[])
+           AND c.id = ANY($1::int[])
            ORDER BY c.id`,
           [dialAlternativeIds]
         );
@@ -311,7 +341,7 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
              ROW_NUMBER() OVER (PARTITION BY aa.archetype ORDER BY c.id) AS rn
            FROM coffees c
            JOIN archetype_assignments aa ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
-           WHERE aa.archetype = ANY($1::archetype_enum[])
+           WHERE aa.archetype = ANY($1::archetype_enum[]) AND c.is_active = true
          ) sub WHERE rn <= 3 LIMIT $2`,
         [enums, maxCoffees]
       );
@@ -327,7 +357,7 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
       // not just the (also-broken, separately fixed) bridge-hop supplement.
       const expResult = await db.query(
         `${BASE_COFFEE_SQL}
-         WHERE aa.archetype = 'experimental'::archetype_enum
+         AND aa.archetype = 'experimental'::archetype_enum
          ORDER BY c.id, c.ai_summary IS NOT NULL DESC
          LIMIT $1`,
         [Math.floor(maxCoffees / 2)]
@@ -339,7 +369,7 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
         try {
           const currentCoffees = await db.query(
             `${BASE_COFFEE_SQL}
-             WHERE aa.archetype = $1::archetype_enum
+             AND aa.archetype = $1::archetype_enum
              ORDER BY c.id LIMIT 5`,
             [userEnum]
           );
@@ -364,7 +394,7 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
               const bridgeIds = dialResult.rows.map((r: { id: number }) => r.id);
               const bridgeCoffees = await db.query(
                 `${BASE_COFFEE_SQL}
-                 WHERE c.id = ANY($1::int[])
+                 AND c.id = ANY($1::int[])
                  ORDER BY c.id`,
                 [bridgeIds]
               );
@@ -387,6 +417,7 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
            JOIN archetype_assignments aa ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
            WHERE aa.archetype != 'experimental'::archetype_enum
              AND c.id != ALL($1::int[])
+             AND c.is_active = true
          ) sub WHERE rn <= 1 LIMIT $2`,
         [existingIds.length ? existingIds : [0], maxCoffees - coffees.length]
       );
@@ -398,7 +429,7 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
       // always thrown here too (42P10), returning zero coffees.
       const result = await db.query(
         `${BASE_COFFEE_SQL}
-         WHERE aa.archetype = $1::archetype_enum
+         AND aa.archetype = $1::archetype_enum
          ORDER BY c.id, (c.ai_summary IS NOT NULL) DESC, (c.surprise_note IS NOT NULL) DESC
          LIMIT 5`,
         [userEnum ?? 'balanced_sweet']
@@ -413,6 +444,7 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
            c.ai_summary, c.surprise_note
          FROM coffees c
          JOIN archetype_assignments aa ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
+         WHERE c.is_active = true
          ORDER BY aa.archetype,
            (c.ai_summary IS NOT NULL)::int +
            (c.surprise_note IS NOT NULL)::int DESC,

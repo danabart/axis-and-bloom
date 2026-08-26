@@ -392,12 +392,31 @@ CREATE TABLE IF NOT EXISTS roaster_blend (
 ALTER TABLE roaster_blend ADD COLUMN IF NOT EXISTS coffee_id INTEGER REFERENCES coffees(id);
 ALTER TABLE roaster_blend ADD COLUMN IF NOT EXISTS last_restocked_at TIMESTAMPTZ;
 
--- Backfill coffee_id by name match (only touches rows still NULL — safe to re-run)
+-- Roastery lifecycle (2026-08-25/26, CTO review round) — coffees.roaster_id is
+-- added here, ahead of its own full ALTER/backfill block further down in this
+-- file (search "ROASTERY LIFECYCLE"), purely so the name-match backfill
+-- immediately below can reference it. The column existing is all this needs;
+-- it doesn't need to be populated yet — on the very first boot that
+-- introduces it, the AND below simply matches nothing new (self-heals within
+-- one boot, once the later block's own two-pass backfill populates it), and
+-- coffees already matched from a prior boot are untouched either way (the
+-- WHERE rb.coffee_id IS NULL guard below is unaffected by this).
+ALTER TABLE coffees ADD COLUMN IF NOT EXISTS roaster_id UUID REFERENCES roaster(id);
+
+-- Backfill coffee_id by name match (only touches rows still NULL — safe to re-run).
+-- CTO review round (2026-08-26): tightened to also require the same
+-- roaster_id — found live, not theorized: two coffees both named "Colombia"
+-- (one per roaster) meant this join was ambiguous, and an unqualified
+-- multi-match UPDATE...FROM just picks one arbitrary row. Real prod damage:
+-- Temecula's two Colombia roaster_blend rows landed on Path's Colombia
+-- coffee (id 7) instead of Temecula's own (id 20) — see the coffees_active_
+-- natural_key section below and the pending data-fix SQL that repoints them.
 UPDATE roaster_blend rb
 SET coffee_id = c.id
 FROM coffees c
 WHERE rb.coffee_id IS NULL
-  AND lower(trim(rb.blend_name)) = lower(trim(c.name));
+  AND lower(trim(rb.blend_name)) = lower(trim(c.name))
+  AND rb.roaster_id = c.roaster_id;
 
 CREATE TABLE IF NOT EXISTS roastery_blend_vector (
   blend_id     UUID NOT NULL REFERENCES roaster_blend(id) ON DELETE CASCADE,
@@ -1088,6 +1107,118 @@ ALTER TABLE coffees ADD COLUMN IF NOT EXISTS story_draft TEXT;
 ALTER TABLE coffees ADD COLUMN IF NOT EXISTS story_published BOOLEAN DEFAULT false;
 ALTER TABLE coffees ADD COLUMN IF NOT EXISTS story_admin_edited BOOLEAN DEFAULT false;
 ALTER TABLE coffees ADD COLUMN IF NOT EXISTS story_generated_at TIMESTAMPTZ;
+
+-- ─────────────────────────────────────────────
+-- ROASTERY LIFECYCLE — soft deactivation (2026-08-25)
+-- Lets Dana deactivate a partner roastery from /admin/roasters in one cascade
+-- that marks the roastery and every one of its coffees, blends and slot
+-- aliases inactive, with a stamped reason so reactivation restores exactly
+-- what the cascade touched and nothing that was manually retired earlier.
+-- Nothing is ever deleted. See backend/src/features/roastery_lifecycle/
+-- CLAUDE_CODE_PROMPT_ROASTERY_SOFT_DEACTIVATION.md for the full decisions log.
+-- `roaster.is_active` already existed but had zero readers outside the admin
+-- roaster routes — flipping it was cosmetic until this. `coffees` had no
+-- active column at all; `roaster_blend`/`coffee_alias` had per-row is_active
+-- but no roaster-level cascade and no reason stamp.
+-- ─────────────────────────────────────────────
+
+-- coffees.roaster_id itself is added earlier in this file (right before the
+-- roaster_blend.coffee_id name-match backfill, ~L404) — not repeated here.
+ALTER TABLE coffees ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE coffees ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ;
+ALTER TABLE coffees ADD COLUMN IF NOT EXISTS deactivation_reason TEXT;   -- 'roaster' | 'manual' | NULL
+
+ALTER TABLE roaster_blend ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ;
+ALTER TABLE roaster_blend ADD COLUMN IF NOT EXISTS deactivation_reason TEXT;
+ALTER TABLE coffee_alias  ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ;
+ALTER TABLE coffee_alias  ADD COLUMN IF NOT EXISTS deactivation_reason TEXT;
+
+ALTER TABLE roaster ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ;
+ALTER TABLE roaster ADD COLUMN IF NOT EXISTS deactivation_note TEXT;     -- free text Dana types in the confirm dialog
+
+CREATE INDEX IF NOT EXISTS coffees_roaster_id_idx ON coffees(roaster_id);
+CREATE INDEX IF NOT EXISTS coffees_is_active_idx  ON coffees(is_active);
+
+DO $$ BEGIN
+  ALTER TABLE coffees ADD CONSTRAINT chk_coffees_deactivation_reason
+    CHECK (deactivation_reason IS NULL OR deactivation_reason IN ('roaster', 'manual'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE roaster_blend ADD CONSTRAINT chk_roaster_blend_deactivation_reason
+    CHECK (deactivation_reason IS NULL OR deactivation_reason IN ('roaster', 'manual'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE coffee_alias ADD CONSTRAINT chk_coffee_alias_deactivation_reason
+    CHECK (deactivation_reason IS NULL OR deactivation_reason IN ('roaster', 'manual'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Backfill coffees.roaster_id — runs on every deploy, only touches rows still
+-- NULL (safe to re-run), same pattern as roaster_blend's own coffee_id backfill
+-- above. Two passes, in order:
+-- (1) from roaster_blend, only when a coffee's linked blends agree on exactly
+--     one roaster_id — a coffee with zero or with more than one distinct
+--     linked roaster is a data problem to surface, not silently resolve, so
+--     it's left NULL here and picked up (or not) by pass 2.
+UPDATE coffees c
+SET roaster_id = sub.roaster_id
+FROM (
+  SELECT coffee_id, MIN(roaster_id::text)::uuid AS roaster_id
+  FROM roaster_blend
+  WHERE roaster_id IS NOT NULL
+  GROUP BY coffee_id
+  HAVING COUNT(DISTINCT roaster_id) = 1
+) sub
+WHERE c.id = sub.coffee_id AND c.roaster_id IS NULL;
+
+-- (2) by name, case/whitespace-insensitive, for coffees with no (or an
+--     ambiguous) roaster_blend link — coffees.roaster is free text.
+UPDATE coffees c
+SET roaster_id = r.id
+FROM roaster r
+WHERE c.roaster_id IS NULL
+  AND lower(trim(c.roaster)) = lower(trim(r.name));
+
+-- coffees.roaster (text) stays as-is after this — still read by content
+-- generation and the story specificity check. Never removed/rewritten here.
+-- Any coffee still roaster_id IS NULL after both passes is logged at startup
+-- (index.ts, same [bloom/archetypes]-style console.warn convention), never
+-- guessed at here.
+
+-- coffees_active_natural_key (CTO review round, 2026-08-26) — coffee identity
+-- is (roastery, coffee), not name alone: two active coffees from the same
+-- roastery must never share a (trimmed, case-insensitive) name. Found live,
+-- not theorized, by the multi-roaster check in Task 0: coffee 7 "Colombia"
+-- had roaster_blend rows from BOTH roasters landing on it (the untightened
+-- backfill above was the root cause, now fixed) and coffees 19/33 "Guatemala"
+-- (both Temecula) were a genuine duplicate row, 33 an empty stub. Neither of
+-- those was blocked by anything — this index is what would have caught it.
+--
+-- DEPLOY ORDER — this will fail to create on the deploy that introduces it,
+-- until the pending data-fix SQL (repoint Temecula's two Colombia
+-- roaster_blend rows from coffee 7 to coffee 20; mark coffee 33
+-- is_active=false, deactivation_reason='manual', deactivated_at=now() — see
+-- the session writeup, awaiting Dana's approval, never auto-run) has been
+-- applied to prod. Wrapped in DO/EXCEPTION rather than a bare CREATE UNIQUE
+-- INDEX specifically so that a still-live conflict doesn't abort this whole
+-- multi-statement script — schema.sql runs as one implicit transaction (no
+-- explicit BEGIN/COMMIT in this file), so an uncaught failure here would roll
+-- back everything else this same boot applied, including the roaster_id
+-- backfill above. A PL/pgSQL EXCEPTION block is its own subtransaction
+-- (SAVEPOINT), so catching unique_violation here only skips the index, never
+-- the rest of the file. Self-healing: once the data-fix SQL has run, the very
+-- next boot's schema.sql application creates the index cleanly with no
+-- further action needed.
+DO $$ BEGIN
+  CREATE UNIQUE INDEX IF NOT EXISTS coffees_active_natural_key
+    ON coffees (roaster_id, lower(trim(name))) WHERE is_active = true;
+EXCEPTION WHEN unique_violation THEN
+  RAISE WARNING '[roastery-lifecycle] coffees_active_natural_key NOT created — a live (roaster_id, name) duplicate still exists among active coffees; run the pending Colombia/Guatemala data-fix SQL, then this will succeed on the next boot';
+END $$;
 
 ALTER TABLE user_profile ADD COLUMN IF NOT EXISTS first_name TEXT;
 ALTER TABLE user_profile ADD COLUMN IF NOT EXISTS last_name TEXT;
@@ -2812,7 +2943,7 @@ SELECT
   av.ideal_score                                                  AS target_ideal,
   av.max_score                                                    AS target_max,
   ROUND(AVG((csv.value_min + csv.value_max) / 2.0), 2)           AS avg_actual,
-  COUNT(DISTINCT aa.coffee_id)                                    AS coffee_count
+  COUNT(DISTINCT c.id)                                            AS coffee_count
 FROM archetype_vector av
 JOIN archetype  a ON a.id = av.archetype_id
 JOIN coffee_dimensions d ON md5(d.name)::uuid = av.dimension_id
@@ -2826,7 +2957,13 @@ LEFT JOIN archetype_assignments aa
         WHEN 'floral'          THEN 'Floral'
         WHEN 'experimental'    THEN 'Experimental'
       END = a.name
-LEFT JOIN cupping_session_coffees      sc  ON sc.coffee_id = aa.coffee_id
+-- Roastery lifecycle (2026-08-25): this view feeds the public archetype-stats
+-- browse surface (GET /api/coffees/archetype-stats) — an inactive coffee's
+-- cupping data must not move avg_actual/coffee_count for a customer browsing
+-- an archetype. LEFT JOIN kept (not INNER) so a NULL aa.coffee_id — no
+-- archetype match at all yet — still passes the AND cleanly.
+LEFT JOIN coffees c ON c.id = aa.coffee_id AND c.is_active = true
+LEFT JOIN cupping_session_coffees      sc  ON sc.coffee_id = c.id
 LEFT JOIN cupping_scores       cs  ON cs.session_coffee_id = sc.id
 LEFT JOIN cupping_score_values csv ON csv.cupping_score_id = cs.id
                                    AND csv.dimension_id = d.id
@@ -2842,6 +2979,7 @@ SELECT
   c.name               AS coffee,
   c.roaster,
   c.origin,
+  c.is_active          AS coffee_is_active,
   cd.name              AS dimension,
   dpv.sort_order       AS position_sort,
   dpv.label            AS dial_label,
@@ -2890,7 +3028,9 @@ DROP VIEW IF EXISTS v_dial_navigation;
 CREATE VIEW v_dial_navigation AS
 SELECT
   fc.name              AS from_coffee,
+  fc.is_active         AS from_coffee_is_active,
   tc.name              AS to_coffee,
+  tc.is_active         AS to_coffee_is_active,
   cd.name              AS dimension,
   dcr.direction,
   dcr.hop_type,

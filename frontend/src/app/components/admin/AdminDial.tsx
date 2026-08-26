@@ -24,6 +24,7 @@ interface Position {
   id: number; coffeeId: number; coffeeName: string; roaster: string;
   archetype: string; vocabularyId: number; sortOrder: number;
   isDefault: boolean; isGuest: boolean;
+  isActive?: boolean; // Roastery lifecycle (2026-08-25) — present when ?include_inactive=true
 }
 type HopType = 'within_archetype' | 'bridge_archetype' | 'category_hop';
 type Direction = 'more' | 'less';
@@ -37,9 +38,12 @@ interface Relationship {
   dimensionId: number; direction: Direction; delta: number | null;
   hopType: HopType; isRecommended: boolean; confidence: Confidence; notes: string | null;
   fromAvgScore: number | null; toAvgScore: number | null;
+  // Roastery lifecycle (2026-08-25) — present when ?include_inactive=true
+  fromCoffeeIsActive?: boolean | null; toCoffeeIsActive?: boolean | null;
 }
 interface UnplacedCoffee {
   coffeeId: number; name: string; roaster: string; proposedArchetype: string; category: string | null;
+  isActive?: boolean;
 }
 interface Graph {
   dimensions: DimensionInfo[];
@@ -253,6 +257,9 @@ export default function AdminDial() {
   const [showDialTurns, setShowDialTurns] = useState(true);
   const [showBridges, setShowBridges] = useState(true);
   const [showGuests, setShowGuests] = useState(true);
+  // Roastery lifecycle (2026-08-25) — "Show inactive" toggle, component state
+  // only, same pattern as every other admin list this task touches.
+  const [showInactive, setShowInactive] = useState(false);
   const [roasterFilter, setRoasterFilter] = useState<string | 'all'>('all');
   const [editMode, setEditMode] = useState(false);
   const [hoveredCoffeeId, setHoveredCoffeeId] = useState<number | null>(null);
@@ -276,8 +283,11 @@ export default function AdminDial() {
   const loadGraph = useCallback(async () => {
     try {
       const [graphRes, adjRes, coffeesRes] = await Promise.all([
-        apiFetch('/api/admin/dial/graph'),
+        apiFetch(`/api/admin/dial/graph${showInactive ? '?include_inactive=true' : ''}`),
         apiFetch('/api/axis/adjacency'),
+        // Deliberately NOT include_inactive here — this feeds the add-position/
+        // add-hop pickers, which must only ever offer live coffees (matches the
+        // backend's own 409 guard on those writes).
         apiFetch('/api/admin/coffees'),
       ]);
       if (!graphRes.ok) throw new Error('Failed to fetch dial graph');
@@ -294,7 +304,7 @@ export default function AdminDial() {
     } finally {
       setLoading(false);
     }
-  }, [apiFetch]);
+  }, [apiFetch, showInactive]);
 
   useEffect(() => { loadGraph(); }, [loadGraph]);
 
@@ -555,6 +565,12 @@ export default function AdminDial() {
             The Map is every coffee in its slot, every hop, every seam. Click any coffee to stand on it — the Journey lens shows the world from there.
           </p>
         </div>
+        <div className="flex items-center gap-4 shrink-0">
+        <label className="flex items-center gap-1.5 text-sm text-stone-500">
+          <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)}
+            className="accent-stone-700" />
+          Show inactive
+        </label>
         <div className="flex rounded-lg border border-stone-200 overflow-hidden shrink-0">
           <button onClick={() => setLens('map')}
             className={`px-4 py-1.5 text-sm ${lens === 'map' ? 'text-white' : 'text-stone-500 hover:bg-stone-50'}`}
@@ -563,6 +579,7 @@ export default function AdminDial() {
             disabled={journeyCoffeeId == null}
             className={`px-4 py-1.5 text-sm disabled:opacity-40 ${lens === 'journey' ? 'text-white' : 'text-stone-500 hover:bg-stone-50'}`}
             style={lens === 'journey' ? { backgroundColor: '#1c1c1c' } : {}}>Journey</button>
+        </div>
         </div>
       </div>
 
@@ -709,6 +726,10 @@ function MapLens(props: {
     return { x: (g.x1 + g.x2) / 2, y: (g.y1 + g.y2) / 2 };
   }
   function strokeDash(a: Arc): string | undefined {
+    // Roastery lifecycle (2026-08-25) — a hop touching an inactive coffee
+    // (only visible at all with "Show inactive" on) always renders dashed,
+    // regardless of its recommended/confidence state.
+    if (a.primary.fromCoffeeIsActive === false || a.primary.toCoffeeIsActive === false) return '3,3';
     if (a.primary.isRecommended) return undefined;
     if (a.primary.confidence === 'low') return '1,4';
     return '6,4';
@@ -839,7 +860,8 @@ function MapLens(props: {
             <div className="flex flex-wrap gap-2 items-center">
               {graph.unplaced.map(u => (
                 <div key={u.coffeeId} ref={registerAnchor(`coffee:${u.coffeeId}`)}
-                  className="px-2.5 py-1 rounded border border-dashed border-stone-300 text-xs text-stone-500 bg-stone-50">
+                  className={`px-2.5 py-1 rounded border border-dashed border-stone-300 text-xs text-stone-500 bg-stone-50 ${u.isActive === false ? 'opacity-40' : ''}`}
+                  title={u.isActive === false ? `${u.name} — inactive (roastery deactivated)` : undefined}>
                   {u.name} <span className="text-stone-300">{u.category ?? ''}</span>
                 </div>
               ))}
@@ -987,10 +1009,15 @@ function Pill(props: {
     armedAsSource, editMode, vocab, onMove, onToggleDefault, onRemove, sortedDimensions } = props;
   const idx = vocab.findIndex(v => v.id === pos.vocabularyId);
   const prev = vocab[idx - 1], next = vocab[idx + 1];
+  // Roastery lifecycle (2026-08-25) — an inactive coffee (only present at all
+  // when the page's "Show inactive" toggle is on) renders desaturated and
+  // dashed, same visual language as a guest position.
+  const inactive = pos.isActive === false;
   return (
     <div ref={registerAnchor(`coffee:${pos.coffeeId}`)}
-      className={`flex items-center gap-1 text-xs py-0.5 group ${pos.isGuest ? 'border border-dashed border-stone-300 rounded px-1' : ''}`}
-      style={{ opacity: dimmed ? 0.2 : (filtered ? 0.3 : 1) }}
+      className={`flex items-center gap-1 text-xs py-0.5 group ${(pos.isGuest || inactive) ? 'border border-dashed border-stone-300 rounded px-1' : ''} ${inactive ? 'grayscale' : ''}`}
+      style={{ opacity: inactive ? 0.35 : dimmed ? 0.2 : (filtered ? 0.3 : 1) }}
+      title={inactive ? `${pos.coffeeName} — inactive (roastery deactivated)` : undefined}
       onMouseEnter={onHoverEnter} onMouseLeave={onHoverLeave}>
       {editMode && !pos.isGuest && (
         <button onClick={() => prev && onMove(pos, prev.id)} disabled={!prev}

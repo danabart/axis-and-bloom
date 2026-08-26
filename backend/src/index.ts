@@ -145,6 +145,43 @@ async function start() {
     console.error('DB migration error (non-fatal):', err);
   }
 
+  // Roastery lifecycle (2026-08-25) — schema.sql's roaster_id backfill just ran
+  // above; surface any coffee it couldn't resolve (no roaster_blend link, and
+  // no case/whitespace-insensitive match on coffees.roaster) rather than
+  // silently leaving it unlinked. Never guesses — an admin has to link it.
+  try {
+    const unresolved = await db.query(
+      `SELECT id, name, roaster FROM coffees WHERE roaster_id IS NULL ORDER BY id`
+    );
+    for (const row of unresolved.rows) {
+      console.warn(`[roastery-lifecycle] coffee ${row.id} (${row.name}) still has no roaster_id — roaster text is ${row.roaster ?? '(null)'}`);
+    }
+  } catch (err) {
+    console.error('Roastery lifecycle roaster_id check error (non-fatal):', err);
+  }
+
+  // Roastery lifecycle (CTO review round, 2026-08-26) — a roaster_blend row
+  // whose roaster_id disagrees with its own coffee's roaster_id is exactly
+  // the class of bug the tightened name-match backfill (schema.sql, ~L404)
+  // now prevents going forward; this surfaces any such mismatch already in
+  // prod (e.g. from before the tightening) rather than assuming it can't
+  // happen. Never auto-fixed — an admin has to repoint it.
+  try {
+    const mismatched = await db.query(
+      `SELECT rb.id AS blend_id, rb.blend_name, rb.coffee_id, rb.roaster_id AS blend_roaster_id,
+              c.roaster_id AS coffee_roaster_id, c.name AS coffee_name
+       FROM roaster_blend rb
+       JOIN coffees c ON c.id = rb.coffee_id
+       WHERE rb.roaster_id IS NOT NULL AND c.roaster_id IS NOT NULL AND rb.roaster_id <> c.roaster_id
+       ORDER BY rb.id`
+    );
+    for (const row of mismatched.rows) {
+      console.warn(`[roastery-lifecycle] roaster_blend ${row.blend_id} (${row.blend_name}) has roaster_id ${row.blend_roaster_id} but its coffee ${row.coffee_id} (${row.coffee_name}) has roaster_id ${row.coffee_roaster_id} — mismatched roastery, needs manual repoint`);
+    }
+  } catch (err) {
+    console.error('Roastery lifecycle roaster_blend/coffee roaster_id mismatch check error (non-fatal):', err);
+  }
+
   try {
     await initSommelierConfig();
   } catch (err) {

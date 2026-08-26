@@ -13,6 +13,7 @@ import { checkStorySpecificityViolations } from '../services/storyLayer.js';
 import { getOrMintCanonicalUniversalToken } from '../services/qrDoor.js';
 import { getEffectiveAiControls, envCeilingUsd } from '../services/anthropicGuard.js';
 import { runQuizIntegrityChecks } from '../services/quizIntegrity.js';
+import { resolveBlendForSlot } from '../services/blendResolver.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -21,6 +22,23 @@ function computeInventoryStatus(quantity: number, buffer: number): string {
   if (quantity <= 0) return 'out_of_stock';
   if (quantity <= buffer) return 'low_stock';
   return 'in_stock';
+}
+
+// Roastery lifecycle (2026-08-25) — shared guard for every dial-editing write
+// that targets a single coffee (POST/PATCH /dial/positions[/guest],
+// POST /dial/relationships, POST /coffees/:id/archetype): never let an
+// inactive coffee be (re-)assigned an archetype, moved, defaulted, or given a
+// new hop. Returns true and has already sent the 404/409 response when the
+// caller should stop; returns false when the coffee is active and the caller
+// should proceed.
+async function rejectIfCoffeeInactive(coffeeId: number | string, res: import('express').Response): Promise<boolean> {
+  const result = await db.query(`SELECT is_active FROM coffees WHERE id = $1`, [coffeeId]);
+  if (result.rowCount === 0) { res.status(404).json({ error: 'Coffee not found' }); return true; }
+  if (result.rows[0].is_active === false) {
+    res.status(409).json({ error: 'This coffee is currently inactive — reactivate its roastery on the Roasteries page first' });
+    return true;
+  }
+  return false;
 }
 
 // ── GET /api/admin/archetypes — every archetype_enum value with its human label ─
@@ -192,13 +210,22 @@ router.patch('/marketing/config', async (req, res) => {
 });
 
 // ── GET /api/admin/coffees ────────────────────────────────────────────────────
-router.get('/coffees', async (_req, res) => {
+// Roastery lifecycle (2026-08-25) — defaults to active coffees only;
+// ?include_inactive=true also returns inactive rows (greyed on every admin
+// list that shows them) carrying is_active/deactivated_at/deactivation_reason
+// plus the roaster_id FK and its resolved name, so a coffee with no linked
+// roastery (roaster_id NULL — a Task-0 backfill leftover) is visible in the
+// UI, not just server startup logs.
+router.get('/coffees', async (req, res) => {
+  const includeInactive = req.query.include_inactive === 'true';
   try {
     const result = await db.query(`
       SELECT c.id, c.name, c.roaster, c.origin, c.blend_or_single,
              c.process, c.roast_level, c.flavor_descriptors_roaster,
              c.origin_region_id, lv.label AS origin_region_label, lv.value AS origin_region_value,
              c.story, c.story_draft, c.story_published, c.story_admin_edited,
+             c.is_active, c.deactivated_at, c.deactivation_reason,
+             c.roaster_id, r.name AS roaster_name,
              aa.archetype, aa.confidence,
              dap.id       AS dial_position_id,
              dap.vocabulary_id AS dial_vocab_id,
@@ -208,12 +235,15 @@ router.get('/coffees', async (_req, res) => {
       FROM coffees c
       LEFT JOIN lookup_value lv
         ON lv.id = c.origin_region_id
+      LEFT JOIN roaster r
+        ON r.id = c.roaster_id
       LEFT JOIN archetype_assignments aa
         ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
       LEFT JOIN dial_archetype_positions dap
         ON dap.coffee_id = c.id AND dap.archetype = aa.archetype
       LEFT JOIN dial_position_vocabulary dpv
         ON dpv.id = dap.vocabulary_id
+      ${includeInactive ? '' : 'WHERE c.is_active = true'}
       ORDER BY c.id DESC
     `);
     // Per-coffee suggestion lookups are fine at this catalogue size (~30 coffees).
@@ -358,13 +388,30 @@ router.get('/flavor-wheel/:coffeeId', async (req, res) => {
 });
 
 // ── GET /api/admin/roasters ───────────────────────────────────────────────────
+// Always lists every roastery (active and inactive alike — this page is the
+// one place that never hides inactive rows, per Decision 4). Roastery
+// lifecycle (2026-08-25) adds deactivated_at/deactivation_note and, per
+// roaster, real coffee/blend counts split active vs. total.
 router.get('/roasters', async (_req, res) => {
   try {
     const result = await db.query(
-      `SELECT id, name, api_endpoint, is_active, avg_fulfillment_hours, roaster_notes,
-              address, email, phone, contact_person, website, created_at
-       FROM roaster
-       ORDER BY name`
+      `SELECT r.id, r.name, r.api_endpoint, r.is_active, r.avg_fulfillment_hours, r.roaster_notes,
+              r.address, r.email, r.phone, r.contact_person, r.website, r.created_at,
+              r.deactivated_at, r.deactivation_note,
+              COALESCE(cc.coffees, 0)        AS coffees,
+              COALESCE(cc.active_coffees, 0) AS active_coffees,
+              COALESCE(bc.blends, 0)         AS blends,
+              COALESCE(bc.active_blends, 0)  AS active_blends
+       FROM roaster r
+       LEFT JOIN (
+         SELECT roaster_id, COUNT(*) AS coffees, COUNT(*) FILTER (WHERE is_active) AS active_coffees
+         FROM coffees WHERE roaster_id IS NOT NULL GROUP BY roaster_id
+       ) cc ON cc.roaster_id = r.id
+       LEFT JOIN (
+         SELECT roaster_id, COUNT(*) AS blends, COUNT(*) FILTER (WHERE is_active) AS active_blends
+         FROM roaster_blend WHERE roaster_id IS NOT NULL GROUP BY roaster_id
+       ) bc ON bc.roaster_id = r.id
+       ORDER BY r.name`
     );
     res.json(result.rows);
   } catch (err) {
@@ -422,20 +469,319 @@ router.patch('/roasters/:id', async (req, res) => {
   }
 });
 
-// ── PATCH /api/admin/roasters/:id/toggle ─────────────────────────────────────
-router.patch('/roasters/:id/toggle', async (req, res) => {
+// ─────────────────────────────────────────────
+// ROASTERY LIFECYCLE — soft deactivation (2026-08-25)
+// The bare PATCH /roasters/:id/toggle above is gone on purpose — a roaster
+// flip with no cascade is the bug this section exists to close; see
+// backend/src/features/roastery_lifecycle/CLAUDE_CODE_PROMPT_ROASTERY_SOFT_DEACTIVATION.md
+// for the full decisions log. coffee_alias and roaster_blend keep their own
+// per-row toggles (PATCH /coffee-alias/:id, PATCH /inventory/:id) — those now
+// stamp deactivation_reason='manual'.
+// ─────────────────────────────────────────────
+
+const PREVIEW_WEIGHT_OZ = 12; // 12oz first, same convention as every other Bloom weight-fallback in this codebase (blendResolver.ts, coffees.ts).
+
+// Shared by GET .../deactivation-preview (direction=deactivate, the default)
+// and POST .../deactivate (computed once, read-only, before the cascade runs,
+// so the applied counts and the "what would happen" numbers describe the same
+// moment). excludeCoffeeIds is this roastery's own coffee ids — slotsGoingEmpty
+// asks resolveBlendForSlot "what would resolve if these coffees were gone"
+// without writing anything.
+async function buildDeactivationPreview(roasterId: string) {
+  const roasterResult = await db.query(
+    `SELECT id, name, is_active FROM roaster WHERE id = $1`, [roasterId]
+  );
+  if (roasterResult.rowCount === 0) return null;
+  const roaster = roasterResult.rows[0];
+
+  const coffeesResult = await db.query(
+    `SELECT c.id, c.name, c.is_active, homeDap.archetype AS home_archetype, homeDap.is_default AS is_default,
+            (SELECT COUNT(*) FROM dial_archetype_positions g WHERE g.coffee_id = c.id AND g.is_guest = true) AS guest_positions
+     FROM coffees c
+     LEFT JOIN dial_archetype_positions homeDap ON homeDap.coffee_id = c.id AND homeDap.is_guest = false
+     WHERE c.roaster_id = $1
+     ORDER BY c.name`,
+    [roasterId]
+  );
+  const coffeeIds: number[] = coffeesResult.rows.map((r) => r.id);
+
+  const blendsResult = await db.query(
+    `SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE is_active) AS active FROM roaster_blend WHERE roaster_id = $1`,
+    [roasterId]
+  );
+  const aliasesResult = await db.query(
+    `SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE ca.is_active) AS active
+     FROM coffee_alias ca JOIN coffees c ON c.id = ca.coffee_id WHERE c.roaster_id = $1`,
+    [roasterId]
+  );
+
+  // slotsGoingEmpty — actually call resolveBlendForSlot, before and with this
+  // roastery's coffees excluded, over every slot the public dial has
+  // (dial_position_vocabulary already covers is_archetype=true archetypes
+  // plus 'experimental' — the same set GET /archetypes + /experimental
+  // present). Only a slot that resolves TODAY and would stop resolving
+  // counts — an already-empty slot isn't "going" empty because of this
+  // roastery.
+  const vocabResult = await db.query(
+    `SELECT archetype, sort_order, label FROM dial_position_vocabulary ORDER BY archetype, sort_order`
+  );
+  const slotAliasResult = await db.query(`SELECT archetype, dial_sort_order, platform_name FROM dial_slot_alias`);
+  const slotAliasMap = new Map<string, string>();
+  for (const row of slotAliasResult.rows) slotAliasMap.set(`${row.archetype}|${row.dial_sort_order}`, row.platform_name);
+
+  const slotsGoingEmpty: Array<{ archetype: string; dialSortOrder: number; platformName: string }> = [];
+  for (const v of vocabResult.rows) {
+    const before = await resolveBlendForSlot(v.archetype, v.sort_order, PREVIEW_WEIGHT_OZ);
+    if (!before) continue; // already empty — not this roastery's doing
+    const after = await resolveBlendForSlot(v.archetype, v.sort_order, PREVIEW_WEIGHT_OZ, { excludeCoffeeIds: coffeeIds });
+    if (after) continue; // another coffee still fills it
+    slotsGoingEmpty.push({
+      archetype: v.archetype,
+      dialSortOrder: v.sort_order,
+      platformName: slotAliasMap.get(`${v.archetype}|${v.sort_order}`) ?? v.label,
+    });
+  }
+
+  // archetypesLosingDefault — every current is_default (non-guest) row for an
+  // archetype belongs to this roastery, so none survives the cascade.
+  const defaultResult = await db.query(
+    `SELECT dap.archetype
+     FROM dial_archetype_positions dap
+     JOIN coffees c ON c.id = dap.coffee_id
+     WHERE dap.is_default = true AND dap.is_guest = false
+     GROUP BY dap.archetype
+     HAVING bool_and(c.roaster_id = $1)`,
+    [roasterId]
+  );
+
+  const hopsResult = await db.query(
+    `SELECT COUNT(*) AS count FROM dial_coffee_relationships
+     WHERE from_coffee_id = ANY($1::int[]) OR to_coffee_id = ANY($1::int[])`,
+    [coffeeIds.length ? coffeeIds : [0]]
+  );
+
+  // openOrderLines — "not yet fulfilled" per order.fulfillment_status (no
+  // fixed enum in schema.sql beyond the 'pending' default; 'delivered' and
+  // 'cancelled' are the two closed states used elsewhere in this codebase —
+  // see users.ts homepage-state). Real orders don't happen yet in this
+  // pre-launch app (Shopify stubbed), so this is expected to read 0.
+  const openOrdersResult = await db.query(
+    `SELECT COUNT(*) AS count FROM order_line_item oli
+     JOIN roaster_blend rb ON rb.id = oli.blend_id
+     JOIN "order" o ON o.id = oli.order_id
+     WHERE rb.roaster_id = $1 AND o.fulfillment_status NOT IN ('delivered', 'cancelled')`,
+    [roasterId]
+  );
+
+  // activeSubscribersOnTheseSlots — approximate, per the prompt's own
+  // allowance: an active subscriber's most recent order's blend belongs to
+  // this roastery. subscription carries no direct slot/coffee reference, so
+  // this is inferred from order history rather than computed exactly.
+  const subscribersResult = await db.query(
+    `SELECT COUNT(DISTINCT s.user_id) AS count
+     FROM subscription s
+     JOIN LATERAL (
+       SELECT oli.blend_id
+       FROM order_line_item oli
+       JOIN "order" o ON o.id = oli.order_id
+       WHERE o.user_id = s.user_id
+       ORDER BY o.created_at DESC
+       LIMIT 1
+     ) last_line ON true
+     JOIN roaster_blend rb ON rb.id = last_line.blend_id
+     WHERE s.status = 'active' AND rb.roaster_id = $1`,
+    [roasterId]
+  );
+
+  // alreadyManuallyInactive — rows this cascade's own "AND is_active = true"
+  // guard will skip, regardless of their stamped reason (a row already
+  // inactive keeps whatever reason it already carries).
+  const alreadyInactiveCoffees = coffeesResult.rows.filter((r) => r.is_active === false).length;
+  const alreadyInactiveBlends = Number(blendsResult.rows[0].total) - Number(blendsResult.rows[0].active);
+  const alreadyInactiveAliases = Number(aliasesResult.rows[0].total) - Number(aliasesResult.rows[0].active);
+
+  return {
+    roaster: { id: roaster.id, name: roaster.name, isActive: roaster.is_active },
+    coffees: coffeesResult.rows.map((r) => ({
+      id: r.id, name: r.name, isActive: r.is_active,
+      homeArchetype: r.home_archetype, isDefault: r.is_default ?? false, guestPositions: Number(r.guest_positions),
+    })),
+    blends: { total: Number(blendsResult.rows[0].total), active: Number(blendsResult.rows[0].active) },
+    aliases: { total: Number(aliasesResult.rows[0].total), active: Number(aliasesResult.rows[0].active) },
+    slotsGoingEmpty,
+    archetypesLosingDefault: defaultResult.rows.map((r) => r.archetype),
+    hopsGoingDark: Number(hopsResult.rows[0].count),
+    openOrderLines: Number(openOrdersResult.rows[0].count),
+    activeSubscribersOnTheseSlots: Number(subscribersResult.rows[0].count),
+    alreadyManuallyInactive: { coffees: alreadyInactiveCoffees, blends: alreadyInactiveBlends, aliases: alreadyInactiveAliases },
+  };
+}
+
+// Reactivation preview — what would be restored: rows stamped
+// deactivation_reason='roaster' at/after the roastery's own deactivated_at.
+// A coffee retired manually before, or deliberately re-retired manually
+// after, the roastery went inactive is excluded on purpose (its reason isn't
+// 'roaster', or its deactivated_at predates the roastery's own).
+async function buildReactivationPreview(roasterId: string) {
+  const roasterResult = await db.query(
+    `SELECT id, name, is_active, deactivated_at FROM roaster WHERE id = $1`, [roasterId]
+  );
+  if (roasterResult.rowCount === 0) return null;
+  const roaster = roasterResult.rows[0];
+
+  if (!roaster.deactivated_at) {
+    return {
+      roaster: { id: roaster.id, name: roaster.name, isActive: roaster.is_active },
+      coffees: [], blends: { toRestore: 0 }, aliases: { toRestore: 0 },
+    };
+  }
+
+  const coffeesResult = await db.query(
+    `SELECT id, name FROM coffees
+     WHERE roaster_id = $1 AND deactivation_reason = 'roaster' AND deactivated_at >= $2
+     ORDER BY name`,
+    [roasterId, roaster.deactivated_at]
+  );
+  const blendsResult = await db.query(
+    `SELECT COUNT(*) AS count FROM roaster_blend
+     WHERE roaster_id = $1 AND deactivation_reason = 'roaster' AND deactivated_at >= $2`,
+    [roasterId, roaster.deactivated_at]
+  );
+  const aliasesResult = await db.query(
+    `SELECT COUNT(*) AS count FROM coffee_alias ca JOIN coffees c ON c.id = ca.coffee_id
+     WHERE c.roaster_id = $1 AND ca.deactivation_reason = 'roaster' AND ca.deactivated_at >= $2`,
+    [roasterId, roaster.deactivated_at]
+  );
+
+  return {
+    roaster: { id: roaster.id, name: roaster.name, isActive: roaster.is_active },
+    coffees: coffeesResult.rows,
+    blends: { toRestore: Number(blendsResult.rows[0].count) },
+    aliases: { toRestore: Number(aliasesResult.rows[0].count) },
+  };
+}
+
+// ── GET /api/admin/roasters/:id/deactivation-preview ─────────────────────────
+// Read-only, no side effects. ?direction=reactivate switches to "what would
+// be restored" for the Reactivate dialog (C1); default is the deactivate
+// preview.
+router.get('/roasters/:id/deactivation-preview', async (req, res) => {
   const { id } = req.params;
   try {
-    const result = await db.query(
-      `UPDATE roaster SET is_active = NOT is_active, updated_at = now()
+    const preview = req.query.direction === 'reactivate'
+      ? await buildReactivationPreview(id)
+      : await buildDeactivationPreview(id);
+    if (!preview) { res.status(404).json({ error: 'Roaster not found' }); return; }
+    res.json(preview);
+  } catch (err) {
+    console.error('[admin/roasters/deactivation-preview]', err);
+    res.status(500).json({ error: 'Failed to compute deactivation preview' });
+  }
+});
+
+// ── POST /api/admin/roasters/:id/deactivate ───────────────────────────────────
+router.post('/roasters/:id/deactivate', async (req: AuthRequest, res) => {
+  const { id } = req.params;
+  const note: string | null = typeof req.body?.note === 'string' ? req.body.note : null;
+
+  const preview = await buildDeactivationPreview(id);
+  if (!preview) { res.status(404).json({ error: 'Roaster not found' }); return; }
+  if (!preview.roaster.isActive) { res.status(409).json({ error: 'This roastery is already inactive' }); return; }
+
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+
+    const roasterUpdate = await client.query(
+      `UPDATE roaster SET is_active = false, deactivated_at = now(), deactivation_note = $2, updated_at = now()
+       WHERE id = $1 AND is_active = true RETURNING id`,
+      [id, note]
+    );
+    if (roasterUpdate.rowCount === 0) {
+      await client.query('ROLLBACK');
+      res.status(409).json({ error: 'This roastery is already inactive' });
+      return;
+    }
+
+    const coffeesUpdate = await client.query(
+      `UPDATE coffees SET is_active = false, deactivated_at = now(), deactivation_reason = 'roaster'
+       WHERE roaster_id = $1 AND is_active = true RETURNING id`,
+      [id]
+    );
+    const blendsUpdate = await client.query(
+      `UPDATE roaster_blend SET is_active = false, deactivated_at = now(), deactivation_reason = 'roaster', updated_at = now()
+       WHERE roaster_id = $1 AND is_active = true RETURNING id`,
+      [id]
+    );
+    const aliasesUpdate = await client.query(
+      `UPDATE coffee_alias SET is_active = false, deactivated_at = now(), deactivation_reason = 'roaster'
+       WHERE coffee_id IN (SELECT id FROM coffees WHERE roaster_id = $1) AND is_active = true RETURNING id`,
+      [id]
+    );
+
+    await client.query('COMMIT');
+
+    const applied = { coffees: coffeesUpdate.rowCount ?? 0, blends: blendsUpdate.rowCount ?? 0, aliases: aliasesUpdate.rowCount ?? 0 };
+    console.info('[admin/roasters deactivate]', { roasterId: id, roasterName: preview.roaster.name, applied, uid: req.uid ?? null });
+    res.json({ ...preview, applied });
+  } catch (err) {
+    await client.query('ROLLBACK').catch((rollbackErr) => console.error('[admin/roasters deactivate-rollback]', rollbackErr));
+    console.error('[admin/roasters deactivate]', err);
+    res.status(500).json({ error: 'Failed to deactivate roastery' });
+  } finally {
+    client.release();
+  }
+});
+
+// ── POST /api/admin/roasters/:id/reactivate ───────────────────────────────────
+// The exact inverse of deactivate — restores only rows stamped
+// deactivation_reason='roaster' at/after the roastery's own deactivated_at.
+router.post('/roasters/:id/reactivate', async (req: AuthRequest, res) => {
+  const { id } = req.params;
+
+  const roasterResult = await db.query(`SELECT id, name, is_active, deactivated_at FROM roaster WHERE id = $1`, [id]);
+  if (roasterResult.rowCount === 0) { res.status(404).json({ error: 'Roaster not found' }); return; }
+  const roaster = roasterResult.rows[0];
+  if (roaster.is_active) { res.status(409).json({ error: 'This roastery is already active' }); return; }
+
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+
+    const cutoff = roaster.deactivated_at;
+    const coffeesUpdate = await client.query(
+      `UPDATE coffees SET is_active = true, deactivated_at = NULL, deactivation_reason = NULL
+       WHERE roaster_id = $1 AND deactivation_reason = 'roaster' AND deactivated_at >= $2 RETURNING id`,
+      [id, cutoff]
+    );
+    const blendsUpdate = await client.query(
+      `UPDATE roaster_blend SET is_active = true, deactivated_at = NULL, deactivation_reason = NULL, updated_at = now()
+       WHERE roaster_id = $1 AND deactivation_reason = 'roaster' AND deactivated_at >= $2 RETURNING id`,
+      [id, cutoff]
+    );
+    const aliasesUpdate = await client.query(
+      `UPDATE coffee_alias SET is_active = true, deactivated_at = NULL, deactivation_reason = NULL
+       WHERE coffee_id IN (SELECT id FROM coffees WHERE roaster_id = $1)
+         AND deactivation_reason = 'roaster' AND deactivated_at >= $2 RETURNING id`,
+      [id, cutoff]
+    );
+    const roasterUpdate = await client.query(
+      `UPDATE roaster SET is_active = true, deactivated_at = NULL, deactivation_note = NULL, updated_at = now()
        WHERE id = $1 RETURNING id, name, is_active`,
       [id]
     );
-    if (result.rowCount === 0) { res.status(404).json({ error: 'Roaster not found' }); return; }
-    res.json(result.rows[0]);
+
+    await client.query('COMMIT');
+
+    const restored = { coffees: coffeesUpdate.rowCount ?? 0, blends: blendsUpdate.rowCount ?? 0, aliases: aliasesUpdate.rowCount ?? 0 };
+    console.info('[admin/roasters reactivate]', { roasterId: id, roasterName: roaster.name, restored, uid: req.uid ?? null });
+    res.json({ roaster: roasterUpdate.rows[0], restored });
   } catch (err) {
-    console.error('[admin/roasters PATCH]', err);
-    res.status(500).json({ error: 'Failed to toggle roaster' });
+    await client.query('ROLLBACK').catch((rollbackErr) => console.error('[admin/roasters reactivate-rollback]', rollbackErr));
+    console.error('[admin/roasters reactivate]', err);
+    res.status(500).json({ error: 'Failed to reactivate roastery' });
+  } finally {
+    client.release();
   }
 });
 
@@ -469,6 +815,8 @@ router.post('/coffees/:id/archetype', async (req, res) => {
   // Coffees page. So assignment stays allowed here, deliberately, until that table gets
   // its own non-archetype placement mechanism — see BLOOM_DIAL_ALLOCATION_SPEC.md §6.
   try {
+    if (await rejectIfCoffeeInactive(id, res)) return;
+
     await db.query('BEGIN');
 
     await db.query(
@@ -527,6 +875,10 @@ router.post('/coffees/:id/archetype', async (req, res) => {
 });
 
 // ── DELETE /api/admin/coffees/:id ────────────────────────────────────────────
+// Pre-existing hard delete — left as-is, out of scope for roastery lifecycle
+// (2026-08-25). The soft path for taking a coffee out of circulation without
+// losing its history is POST /roasters/:id/deactivate (whole roastery) or
+// PATCH /coffee-alias/:id { is_active: false } (single coffee, manual reason).
 router.delete('/coffees/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -622,14 +974,22 @@ router.get('/dial/slot-aliases', async (_req, res) => {
 // platform_name (Bloom Dial Base Data Part 3) comes from dial_slot_alias, keyed
 // by the same live (archetype, dial_sort_order) — a slot property, not a
 // per-coffee one. coffee_alias.platform_name is legacy/unread here.
-router.get('/coffee-alias', async (_req, res) => {
+// Roastery lifecycle (2026-08-25) — defaults to only aliases for active
+// coffees; ?include_inactive=true also returns aliases for inactive coffees,
+// carrying c.is_active/c.deactivated_at/c.deactivation_reason so the UI can
+// grey them.
+router.get('/coffee-alias', async (req, res) => {
+  const includeInactive = req.query.include_inactive === 'true';
   try {
     const result = await db.query(`
       SELECT ca.id, dsa.platform_name,
              COALESCE(aa.archetype, ca.archetype)   AS archetype,
              COALESCE(dpv.sort_order, ca.dial_sort_order) AS dial_sort_order,
              ca.coffee_id, ca.priority, ca.is_active,
-             c.name AS coffee_name, c.roaster
+             ca.deactivated_at, ca.deactivation_reason,
+             c.name AS coffee_name, c.roaster,
+             c.is_active AS coffee_is_active, c.deactivated_at AS coffee_deactivated_at,
+             c.deactivation_reason AS coffee_deactivation_reason
       FROM coffee_alias ca
       JOIN coffees c ON c.id = ca.coffee_id
       LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id AND dap.is_guest = false
@@ -639,6 +999,7 @@ router.get('/coffee-alias', async (_req, res) => {
       LEFT JOIN dial_slot_alias dsa
         ON dsa.archetype = COALESCE(aa.archetype, ca.archetype)
         AND dsa.dial_sort_order = COALESCE(dpv.sort_order, ca.dial_sort_order)
+      ${includeInactive ? '' : 'WHERE c.is_active = true'}
       ORDER BY COALESCE(aa.archetype, ca.archetype) NULLS LAST,
                COALESCE(dpv.sort_order, ca.dial_sort_order), ca.priority
     `);
@@ -785,7 +1146,17 @@ router.patch('/coffee-alias/:id', async (req, res) => {
     }
 
     if (is_active !== undefined) {
-      await db.query(`UPDATE coffee_alias SET is_active = $1 WHERE id = $2`, [is_active, id]);
+      // Roastery lifecycle (2026-08-25) — this is the existing per-row active
+      // toggle; stamp deactivation_reason='manual' on a manual flip to
+      // inactive, clear both stamp columns on a flip back to active.
+      await db.query(
+        `UPDATE coffee_alias
+         SET is_active = $1,
+             deactivated_at = CASE WHEN $1 THEN NULL ELSE now() END,
+             deactivation_reason = CASE WHEN $1 THEN NULL ELSE 'manual' END
+         WHERE id = $2`,
+        [is_active, id]
+      );
     }
 
     // Bloom Dial Base Data Part 3: renaming an alias renames its SLOT (dial_slot_alias),
@@ -825,7 +1196,7 @@ router.patch('/coffee-alias/:id', async (req, res) => {
       `SELECT ca.id, dsa.platform_name, ca.priority,
               COALESCE(aa.archetype, ca.archetype)          AS archetype,
               COALESCE(dpv.sort_order, ca.dial_sort_order)  AS dial_sort_order,
-              ca.coffee_id, ca.is_active
+              ca.coffee_id, ca.is_active, ca.deactivated_at, ca.deactivation_reason
        FROM coffee_alias ca
        LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id AND dap.is_guest = false
        LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
@@ -893,10 +1264,19 @@ router.patch('/slot-prices', async (req, res) => {
 // coffees (no dial slot to key a price off of) — Bloom Dial Base Data Part 3, Phase 6.
 // Same "only returns rows that actually exist" contract; unset coffees fall back to
 // the $32.00/12oz, $185.00/5lb defaults applied at GET /api/coffees/other-categories.
-router.get('/coffee-prices', async (_req, res) => {
+// Roastery lifecycle (2026-08-25) — defaults to prices for active coffees
+// only; ?include_inactive=true also returns rows for inactive ones. The
+// frontend already joins this against its own (separately active-filtered)
+// coffee list, but filtering here too keeps every admin list consistent.
+router.get('/coffee-prices', async (req, res) => {
+  const includeInactive = req.query.include_inactive === 'true';
   try {
     const result = await db.query(
-      `SELECT coffee_id, weight_oz, retail_price_cents FROM coffee_retail_price ORDER BY coffee_id, weight_oz`
+      `SELECT crp.coffee_id, crp.weight_oz, crp.retail_price_cents
+       FROM coffee_retail_price crp
+       JOIN coffees c ON c.id = crp.coffee_id
+       ${includeInactive ? '' : 'WHERE c.is_active = true'}
+       ORDER BY crp.coffee_id, crp.weight_oz`
     );
     res.json(result.rows);
   } catch (err) {
@@ -1347,7 +1727,14 @@ router.patch('/coffees/:id/story', async (req: AuthRequest, res) => {
 // no archetype/vocabulary/coffee/roaster/dimension list is hardcoded here. This does not
 // replace any of the granular dial endpoints above/below; AdminCoffees' matrix keeps using
 // those directly.
-router.get('/dial/graph', async (_req, res) => {
+// Roastery lifecycle (2026-08-25) — positions/relationships/unplaced default
+// to active coffees only; ?include_inactive=true also returns inactive rows,
+// each carrying isActive so the Map/Journey UI can render them dashed/grey
+// instead of omitting them outright. Deliberately NOT filtered inside the
+// underlying views/tables — filtering stays the query's job here so this
+// toggle keeps working.
+router.get('/dial/graph', async (req, res) => {
+  const includeInactive = req.query.include_inactive === 'true';
   try {
     // dimensions: derived — the distinct dominant dimensions configured per archetype,
     // unioned with every dimension actually used by a hop. Never a literal id list.
@@ -1397,11 +1784,13 @@ router.get('/dial/graph', async (_req, res) => {
     // positions: every home + guest slot, with the coffee and vocabulary it resolves to.
     const positionsResult = await db.query(`
       SELECT dap.id, dap.coffee_id AS "coffeeId", c.name AS "coffeeName", c.roaster,
+             c.is_active AS "isActive",
              dap.archetype, dap.vocabulary_id AS "vocabularyId", dpv.sort_order AS "sortOrder",
              dap.is_default AS "isDefault", dap.is_guest AS "isGuest"
       FROM dial_archetype_positions dap
       JOIN coffees c                    ON c.id  = dap.coffee_id
       JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
+      ${includeInactive ? '' : 'WHERE c.is_active = true'}
       ORDER BY dap.archetype, dpv.sort_order, dap.is_guest, c.name
     `);
 
@@ -1415,8 +1804,10 @@ router.get('/dial/graph', async (_req, res) => {
     // gets silently dropped.
     const relationshipsResult = await db.query(`
       SELECT dcr.id, dcr.from_coffee_id AS "fromCoffeeId", fc.name AS "fromCoffeeName",
+             fc.is_active AS "fromCoffeeIsActive",
              dcr.from_category_id AS "fromCategoryId", fcatg.label AS "fromCategoryLabel",
              dcr.to_coffee_id AS "toCoffeeId", tc.name AS "toCoffeeName",
+             tc.is_active AS "toCoffeeIsActive",
              dcr.to_category_id AS "toCategoryId", tcatg.label AS "toCategoryLabel",
              dcr.dimension_id AS "dimensionId", dcr.direction, dcr.delta,
              dcr.hop_type AS "hopType", dcr.is_recommended AS "isRecommended",
@@ -1426,6 +1817,9 @@ router.get('/dial/graph', async (_req, res) => {
       LEFT JOIN coffees tc              ON tc.id = dcr.to_coffee_id
       LEFT JOIN coffee_category fcatg   ON fcatg.id = dcr.from_category_id
       LEFT JOIN coffee_category tcatg   ON tcatg.id = dcr.to_category_id
+      -- A category endpoint (fc/tc NULL on that side) never disqualifies a hop —
+      -- only an explicit is_active = false on a real coffee endpoint does.
+      ${includeInactive ? '' : "WHERE COALESCE(fc.is_active, true) = true AND COALESCE(tc.is_active, true) = true"}
       ORDER BY dcr.id
     `);
     const avgScores = await getAvgCuppingScoresBatch();
@@ -1438,7 +1832,7 @@ router.get('/dial/graph', async (_req, res) => {
     // unplaced: coffees with a live archetype match but no home dial position yet, plus
     // whichever category tag (if any) explains why — same "off-dial" shelf as the mockup.
     const unplacedResult = await db.query(`
-      SELECT c.id AS "coffeeId", c.name, c.roaster, aa.archetype AS "proposedArchetype",
+      SELECT c.id AS "coffeeId", c.name, c.roaster, c.is_active AS "isActive", aa.archetype AS "proposedArchetype",
              (SELECT cc.label FROM coffee_category_assignment cca
               JOIN coffee_category cc ON cc.id = cca.category_id
               WHERE cca.coffee_id = c.id ORDER BY cc.sort_order LIMIT 1) AS category
@@ -1446,6 +1840,7 @@ router.get('/dial/graph', async (_req, res) => {
       JOIN archetype_assignments aa ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
       LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = c.id AND dap.is_guest = false
       WHERE dap.id IS NULL
+      ${includeInactive ? '' : 'AND c.is_active = true'}
       ORDER BY c.name
     `);
 
@@ -1462,10 +1857,13 @@ router.get('/dial/graph', async (_req, res) => {
   }
 });
 
-router.get('/dial/positions', async (_req, res) => {
+// Roastery lifecycle (2026-08-25) — defaults to active coffees only;
+// ?include_inactive=true also returns inactive ones, carrying is_active.
+router.get('/dial/positions', async (req, res) => {
+  const includeInactive = req.query.include_inactive === 'true';
   try {
     const result = await db.query(`
-      SELECT dap.id, dap.archetype, dap.coffee_id, c.name AS coffee,
+      SELECT dap.id, dap.archetype, dap.coffee_id, c.name AS coffee, c.is_active,
              cd.name AS dimension, dpv.id AS vocabulary_id,
              dpv.sort_order AS position_sort, dpv.label AS dial_label,
              dap.is_default, dap.is_computed
@@ -1473,6 +1871,7 @@ router.get('/dial/positions', async (_req, res) => {
       JOIN coffees                  c   ON c.id   = dap.coffee_id
       JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
       JOIN coffee_dimensions        cd  ON cd.id  = dpv.dimension_id
+      ${includeInactive ? '' : 'WHERE c.is_active = true'}
       ORDER BY dap.archetype, dpv.sort_order, c.name
     `);
     res.json(result.rows);
@@ -1522,11 +1921,14 @@ router.get('/dial/dimension-config', async (_req, res) => {
 });
 
 // GET /api/admin/dial/navigation — full hop graph with coffee names
-router.get('/dial/navigation', async (_req, res) => {
+// Roastery lifecycle (2026-08-25) — defaults to both endpoints active;
+// ?include_inactive=true also returns hops touching an inactive coffee.
+router.get('/dial/navigation', async (req, res) => {
+  const includeInactive = req.query.include_inactive === 'true';
   try {
     const result = await db.query(`
-      SELECT dcr.id, dcr.from_coffee_id, fc.name AS from_coffee,
-             dcr.to_coffee_id, tc.name AS to_coffee,
+      SELECT dcr.id, dcr.from_coffee_id, fc.name AS from_coffee, fc.is_active AS from_coffee_is_active,
+             dcr.to_coffee_id, tc.name AS to_coffee, tc.is_active AS to_coffee_is_active,
              dcr.dimension_id, cd.name AS dimension,
              dcr.direction, dcr.hop_type, dcr.delta,
              dcr.is_recommended, dcr.confidence, dcr.notes
@@ -1534,6 +1936,7 @@ router.get('/dial/navigation', async (_req, res) => {
       JOIN coffees           fc ON fc.id  = dcr.from_coffee_id
       JOIN coffees           tc ON tc.id  = dcr.to_coffee_id
       JOIN coffee_dimensions cd ON cd.id  = dcr.dimension_id
+      ${includeInactive ? '' : 'WHERE fc.is_active = true AND tc.is_active = true'}
       ORDER BY fc.name, cd.name, dcr.direction
     `);
     res.json(result.rows);
@@ -1568,11 +1971,14 @@ router.get('/dial/hop-suggestions', async (_req, res) => {
       const bucketWidth = await getArchetypeBucketWidth(archetype, dimensionId);
       if (!bucketWidth) continue;
 
+      // Roastery lifecycle (2026-08-25) — never suggest a hop that would
+      // touch an inactive coffee; there's no toggle here, this tool only
+      // ever proposes hops between live coffees.
       const coffeesResult = await db.query(
         `SELECT aa.coffee_id, c.name
          FROM archetype_assignments aa
          JOIN coffees c ON c.id = aa.coffee_id
-         WHERE aa.archetype = $1 AND aa.superseded_at IS NULL`,
+         WHERE aa.archetype = $1 AND aa.superseded_at IS NULL AND c.is_active = true`,
         [archetype]
       );
 
@@ -1688,6 +2094,8 @@ router.post('/dial/positions', async (req, res) => {
     res.status(400).json({ error: 'archetype, coffee_id, and vocabulary_id are required' }); return;
   }
   try {
+    if (await rejectIfCoffeeInactive(coffee_id, res)) return;
+
     const result = await db.query(
       `INSERT INTO dial_archetype_positions (archetype, coffee_id, vocabulary_id, is_default)
        VALUES ($1, $2, $3, $4)
@@ -1711,6 +2119,10 @@ router.patch('/dial/positions/:id', async (req, res) => {
     res.status(400).json({ error: 'is_default or vocabulary_id required' }); return;
   }
   try {
+    const targetResult = await db.query(`SELECT coffee_id FROM dial_archetype_positions WHERE id = $1`, [id]);
+    if (targetResult.rowCount === 0) { res.status(404).json({ error: 'Position not found' }); return; }
+    if (await rejectIfCoffeeInactive(targetResult.rows[0].coffee_id, res)) return;
+
     if (typeof is_default === 'boolean') {
       if (is_default) {
         // Clear existing default for same archetype + same roaster before promoting new one
@@ -1804,6 +2216,8 @@ router.post('/dial/positions/guest', async (req, res) => {
     res.status(400).json({ error: 'coffee_id, archetype, and vocabulary_id are required' }); return;
   }
   try {
+    if (await rejectIfCoffeeInactive(coffee_id, res)) return;
+
     const homeResult = await db.query(
       `SELECT archetype FROM archetype_assignments WHERE coffee_id = $1 AND superseded_at IS NULL`,
       [coffee_id]
@@ -1860,6 +2274,9 @@ router.post('/dial/relationships', async (req, res) => {
     res.status(400).json({ error: 'category_hop creation is not supported here — category-endpoint hops (e.g. a coffee to the Experimental category) are SQL-seed only.' }); return;
   }
   try {
+    if (await rejectIfCoffeeInactive(from_coffee_id, res)) return;
+    if (await rejectIfCoffeeInactive(to_coffee_id, res)) return;
+
     const archResult = await db.query(
       `SELECT coffee_id, archetype FROM archetype_assignments
        WHERE coffee_id IN ($1, $2) AND superseded_at IS NULL`,
@@ -2501,9 +2918,17 @@ router.post('/sommelier/recompute-centroids', async (_req, res) => {
 // ── INVENTORY ─────────────────────────────────────────────────────────────────
 
 // Must be declared before /:id routes so Express doesn't swallow 'coffees-lookup' as an ID.
-router.get('/inventory/coffees-lookup', async (_req, res) => {
+// Roastery lifecycle (2026-08-25) — this feeds the "assign an unmatched blend
+// to a coffee" lookup; defaults to active coffees only (there's nothing useful
+// to link an inactive coffee's inventory row to).
+router.get('/inventory/coffees-lookup', async (req, res) => {
+  const includeInactive = req.query.include_inactive === 'true';
   try {
-    const result = await db.query(`SELECT id, name, roaster FROM coffees ORDER BY name`);
+    const result = await db.query(
+      `SELECT id, name, roaster, is_active FROM coffees
+       ${includeInactive ? '' : 'WHERE is_active = true'}
+       ORDER BY name`
+    );
     res.json(result.rows);
   } catch (err) {
     console.error('[admin/inventory coffees-lookup]', err);
@@ -2511,12 +2936,21 @@ router.get('/inventory/coffees-lookup', async (_req, res) => {
   }
 });
 
-router.get('/inventory', async (_req, res) => {
+// Roastery lifecycle (2026-08-25) — defaults to rb.is_active = true AND
+// c.is_active = true; ?include_inactive=true also returns inactive rows
+// (both flags trusted independently, never assumed in sync — same rule
+// blendResolver.ts follows) carrying is_active/deactivated_at/
+// deactivation_reason for both the blend and the coffee.
+router.get('/inventory', async (req, res) => {
+  const includeInactive = req.query.include_inactive === 'true';
   try {
     const result = await db.query(`
       SELECT
         rb.id, rb.blend_name, rb.coffee_id, c.name AS coffee_name, c.roaster,
         rb.weight_oz, rb.roaster_sku, rb.shopify_variant_id, rb.is_active,
+        rb.deactivated_at, rb.deactivation_reason,
+        c.is_active AS coffee_is_active, c.deactivated_at AS coffee_deactivated_at,
+        c.deactivation_reason AS coffee_deactivation_reason,
         rb.quantity_available, rb.safety_stock_buffer,
         rb.inventory_status, rb.inventory_last_synced_at, rb.last_restocked_at,
         ca.id         AS alias_id,
@@ -2546,6 +2980,7 @@ router.get('/inventory', async (_req, res) => {
           JOIN coffee_category cc ON cc.id = cca.category_id
           WHERE cca.coffee_id = rb.coffee_id AND cc.code IN ('decaf', 'half_caf', 'flavored', 'experimental')
         )
+      ${includeInactive ? '' : 'WHERE rb.is_active = true AND (c.id IS NULL OR c.is_active = true)'}
       ORDER BY
         (rb.coffee_id IS NULL) DESC,
         CASE
@@ -2575,6 +3010,14 @@ router.patch('/inventory/:id', async (req, res) => {
     const nextBuffer = safety_stock_buffer ?? current.rows[0].safety_stock_buffer;
     const status     = computeInventoryStatus(nextQty, nextBuffer);
 
+    // Roastery lifecycle (2026-08-25) — this is the existing per-row active
+    // toggle; stamp deactivation_reason='manual' when it flips a row to
+    // inactive here, clear both stamp columns when it flips back active. Only
+    // touches the stamp when is_active was actually part of this request —
+    // every other field this route also patches (quantity, coffee_id, SKU…)
+    // must never silently clear an existing 'roaster' reason.
+    const isActiveProvided = typeof is_active === 'boolean';
+
     const result = await db.query(
       `UPDATE roaster_blend
        SET quantity_available   = $1,
@@ -2583,12 +3026,15 @@ router.patch('/inventory/:id', async (req, res) => {
            inventory_status     = $4,
            is_active            = COALESCE($5, is_active),
            shopify_variant_id   = COALESCE($6, shopify_variant_id),
-           roaster_sku          = COALESCE($7, roaster_sku)
+           roaster_sku          = COALESCE($7, roaster_sku),
+           deactivated_at       = CASE WHEN $9::boolean THEN (CASE WHEN $5 THEN NULL ELSE now() END) ELSE deactivated_at END,
+           deactivation_reason  = CASE WHEN $9::boolean THEN (CASE WHEN $5 THEN NULL ELSE 'manual' END) ELSE deactivation_reason END
        WHERE id = $8
        RETURNING id, blend_name, coffee_id, quantity_available, safety_stock_buffer,
-                 inventory_status, is_active, shopify_variant_id, roaster_sku, last_restocked_at`,
+                 inventory_status, is_active, deactivated_at, deactivation_reason,
+                 shopify_variant_id, roaster_sku, last_restocked_at`,
       [nextQty, nextBuffer, coffee_id ?? null, status,
-       is_active ?? null, shopify_variant_id ?? null, roaster_sku ?? null, id]
+       is_active ?? null, shopify_variant_id ?? null, roaster_sku ?? null, id, isActiveProvided]
     );
     res.json(result.rows[0]);
   } catch (err) {

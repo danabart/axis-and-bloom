@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { db } from '../db/client.js';
+import { ACTIVE_COFFEE_SQL } from '../services/activeCatalog.js';
 
 const router = Router();
 
@@ -43,9 +44,31 @@ router.get('/vectors', async (_req, res) => {
 // archetype_enum-keyed and symmetric-safe (LEAST/GREATEST pair), so both
 // directions are added to the result map. No fallback — sparse/empty is the
 // honest current state for a pair with no bridge hop authored yet, not an error.
+// Roastery lifecycle (CTO review round, 2026-08-26) — v_archetype_adjacency
+// itself is shared (sommelierRag.ts's getAdjacentArchetypes, the Bloom Dial
+// admin page) and deliberately left unfiltered so those consumers keep their
+// own behavior unchanged; this route recomputes the same shape directly
+// against dial_coffee_relationships, with both hop endpoints required to be
+// active coffees, scoped to this public/roaster-blind stats surface only.
 router.get('/adjacency', async (_req, res) => {
   try {
-    const result = await db.query(`SELECT archetype_a, archetype_b FROM v_archetype_adjacency`);
+    const result = await db.query(`
+      SELECT
+        LEAST(aa_from.archetype, aa_to.archetype)    AS archetype_a,
+        GREATEST(aa_from.archetype, aa_to.archetype) AS archetype_b
+      FROM dial_coffee_relationships dcr
+      JOIN coffees fc ON fc.id = dcr.from_coffee_id AND ${ACTIVE_COFFEE_SQL('fc')}
+      JOIN coffees tc ON tc.id = dcr.to_coffee_id   AND ${ACTIVE_COFFEE_SQL('tc')}
+      JOIN archetype_assignments aa_from ON aa_from.coffee_id = dcr.from_coffee_id AND aa_from.superseded_at IS NULL
+      JOIN archetype_assignments aa_to   ON aa_to.coffee_id   = dcr.to_coffee_id   AND aa_to.superseded_at IS NULL
+      JOIN dial_archetype_config  dac_from ON dac_from.archetype = aa_from.archetype
+      JOIN dial_archetype_config  dac_to   ON dac_to.archetype   = aa_to.archetype
+      WHERE dcr.hop_type = 'bridge_archetype'
+        AND dac_from.is_archetype = true
+        AND dac_to.is_archetype   = true
+        AND aa_from.archetype <> aa_to.archetype
+      GROUP BY LEAST(aa_from.archetype, aa_to.archetype), GREATEST(aa_from.archetype, aa_to.archetype)
+    `);
 
     const adjacency: Record<string, string[]> = {};
     for (const row of result.rows) {
@@ -97,23 +120,53 @@ router.get('/stats', async (_req, res) => {
       positionsRefinedResult,
       lastTightenedResult,
     ] = await Promise.all([
-      db.query(`SELECT COUNT(DISTINCT coffee_id) AS count FROM archetype_assignments WHERE superseded_at IS NULL`),
+      // Roastery lifecycle (CTO review round, 2026-08-26) — every coffee-identity
+      // count below now requires an active coffee. See the /adjacency route
+      // above for why this is a direct query rather than v_archetype_adjacency
+      // (that view stays unfiltered for its other, non-stats consumers).
+      db.query(`
+        SELECT COUNT(DISTINCT aa.coffee_id) AS count
+        FROM archetype_assignments aa
+        JOIN coffees c ON c.id = aa.coffee_id AND ${ACTIVE_COFFEE_SQL('c')}
+        WHERE aa.superseded_at IS NULL
+      `),
       db.query(`
         SELECT aa.archetype, COUNT(DISTINCT aa.coffee_id) AS coffee_count
         FROM archetype_assignments aa
         JOIN dial_archetype_config dac ON dac.archetype = aa.archetype
+        JOIN coffees c ON c.id = aa.coffee_id AND ${ACTIVE_COFFEE_SQL('c')}
         WHERE aa.superseded_at IS NULL AND dac.is_archetype = true
         GROUP BY aa.archetype
       `),
       db.query(`
-        SELECT COUNT(DISTINCT LEAST(from_coffee_id, to_coffee_id) || ':' || GREATEST(from_coffee_id, to_coffee_id)) AS count
-        FROM dial_coffee_relationships
+        SELECT COUNT(DISTINCT LEAST(dcr.from_coffee_id, dcr.to_coffee_id) || ':' || GREATEST(dcr.from_coffee_id, dcr.to_coffee_id)) AS count
+        FROM dial_coffee_relationships dcr
+        JOIN coffees fc ON fc.id = dcr.from_coffee_id AND ${ACTIVE_COFFEE_SQL('fc')}
+        JOIN coffees tc ON tc.id = dcr.to_coffee_id   AND ${ACTIVE_COFFEE_SQL('tc')}
       `),
-      db.query(`SELECT archetype_a, archetype_b, hop_count FROM v_archetype_adjacency`),
+      db.query(`
+        SELECT
+          LEAST(aa_from.archetype, aa_to.archetype)    AS archetype_a,
+          GREATEST(aa_from.archetype, aa_to.archetype) AS archetype_b,
+          COUNT(*) AS hop_count
+        FROM dial_coffee_relationships dcr
+        JOIN coffees fc ON fc.id = dcr.from_coffee_id AND ${ACTIVE_COFFEE_SQL('fc')}
+        JOIN coffees tc ON tc.id = dcr.to_coffee_id   AND ${ACTIVE_COFFEE_SQL('tc')}
+        JOIN archetype_assignments aa_from ON aa_from.coffee_id = dcr.from_coffee_id AND aa_from.superseded_at IS NULL
+        JOIN archetype_assignments aa_to   ON aa_to.coffee_id   = dcr.to_coffee_id   AND aa_to.superseded_at IS NULL
+        JOIN dial_archetype_config  dac_from ON dac_from.archetype = aa_from.archetype
+        JOIN dial_archetype_config  dac_to   ON dac_to.archetype   = aa_to.archetype
+        WHERE dcr.hop_type = 'bridge_archetype'
+          AND dac_from.is_archetype = true
+          AND dac_to.is_archetype   = true
+          AND aa_from.archetype <> aa_to.archetype
+        GROUP BY LEAST(aa_from.archetype, aa_to.archetype), GREATEST(aa_from.archetype, aa_to.archetype)
+      `),
       db.query(`
         SELECT COUNT(DISTINCT cca.coffee_id) AS count
         FROM coffee_category_assignment cca
         JOIN coffee_category cc ON cc.id = cca.category_id
+        JOIN coffees c ON c.id = cca.coffee_id AND ${ACTIVE_COFFEE_SQL('c')}
         WHERE cc.code = 'experimental'
       `),
       db.query(`SELECT COUNT(*) AS count FROM user_flavor_feedback WHERE created_at >= date_trunc('month', now())`),

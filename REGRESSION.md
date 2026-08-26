@@ -54,6 +54,16 @@ Living checklist of behaviors that must keep working across future changes. Crea
 - [ ] Up to `brewProfile.maxMarkersPerTurn` (seed 2) markers collected per turn; excess is dropped from collection but still stripped from the visible reply.
 - [ ] A write is visible in the Firestore doc within the same turn (read-back test).
 
+## Roastery lifecycle (2026-08-25) — see `WHAT_WE_BUILT.md` #170
+
+- [ ] Deactivating a roastery (`POST /api/admin/roasters/:id/deactivate`) cascades `is_active=false` to exactly that roastery's `coffees`/`roaster_blend`/`coffee_alias` rows, stamps `deactivation_reason='roaster'`, and skips (never overwrites) any row already inactive with `reason='manual'`.
+- [ ] After deactivation: the public dial (`GET /archetypes`, `/experimental`), Liam's RAG candidate pool, `GET /:coffeeId/hops` targets, and every admin list (`GET /coffees`, `/inventory`, `/coffee-alias`, `/dial/graph`, `/dial/positions`, `/dial/navigation`) drop the roastery's coffees by default — `?include_inactive=true` (admin only) brings them back greyed.
+- [ ] Owned-bag surfaces keep working for an inactive coffee: `/coffee/:id/story`, QR resolve (per-coffee and the universal token) for a customer who already has that coffee, Liam turns about a coffee the customer already owns (`getAliases()`'s `dial_slot_alias` fallback must still resolve a name), order history, brew cards.
+- [ ] Reactivating (`POST .../reactivate`) restores exactly the rows stamped `reason='roaster'` at/after the roastery's own `deactivated_at` — a coffee manually retired before or after stays retired, dial positions/defaults come back exactly as they were (the cascade never touches `is_default` or `dial_archetype_positions`).
+- [ ] `PATCH /api/admin/roasters/:id/toggle` no longer exists (404) — the only way to change a roastery's active state is the deactivate/reactivate cascade.
+- [ ] `coffees_active_natural_key` rejects two active coffees sharing the same `(roaster_id, lower(trim(name)))` — same name across two different roasters, or the same name with one side inactive, must both still succeed. The `roaster_blend.coffee_id` name-match backfill requires `rb.roaster_id = c.roaster_id`, never an unqualified name-only match.
+- [ ] `GET /api/axis/stats` and `/adjacency` exclude an inactive coffee from every count/pair (`coffeesMapped`, per-archetype `coffeeCount`, `connectionCount`, `regionAdjacency`/`adjacency`) — confirm without assuming `v_archetype_adjacency` itself changed (it's deliberately still unfiltered for Liam's RAG and the Bloom Dial admin page).
+
 ## Known-fragile spots (regression-test these first after any related change)
 
 - Any new Firestore query combining an equality filter with a range filter or an `orderBy` on a different field **will silently return nothing if its composite index doesn't exist** — the query throws, and every call site in this codebase catches broadly. Check `gcloud firestore indexes composite list` after adding one, don't assume it "just works" because `tsc` and a happy-path unit test pass.

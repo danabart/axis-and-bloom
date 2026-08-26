@@ -8,6 +8,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
 import type { Server } from 'http';
 import coffeesRouter, { computeDoorMap, assertDoorMapInvariants } from './coffees.js';
+import { db } from '../db/client.js';
 
 let server: Server;
 let baseUrl: string;
@@ -179,4 +180,143 @@ describe('GET /api/coffees/:id/content', () => {
     const serialized = JSON.stringify(body);
     expect(serialized).not.toMatch(/Path Coffee Roasters|Temecula Coffee Roasters/);
   }, 30000); // may trigger AI content generation on first call
+});
+
+// Roastery lifecycle (2026-08-25) — every fixture below is created and
+// deleted by the test itself; none of this touches a real Path/Temecula row.
+// Requires the roastery-lifecycle schema applied (coffees.is_active and the
+// matching roaster_blend/coffee_alias columns) — cannot run against a
+// pre-migration database.
+describe('GET /api/coffees/archetypes — inactive coffees', () => {
+  it('an inactive coffee never fills a slot, even one it would otherwise occupy alone', async () => {
+    // A genuinely open slot — no active coffee_alias row and no home
+    // dial_archetype_positions row for it — so seeding it with exactly one
+    // fixture coffee makes that fixture the only possible occupant.
+    const openSlot = (await db.query(`
+      SELECT dpv.archetype, dpv.sort_order
+      FROM dial_position_vocabulary dpv
+      LEFT JOIN coffee_alias ca ON ca.archetype = dpv.archetype AND ca.dial_sort_order = dpv.sort_order AND ca.is_active = true
+      LEFT JOIN dial_archetype_positions dap ON dap.archetype = dpv.archetype AND dap.vocabulary_id = dpv.id AND dap.is_guest = false
+      WHERE ca.id IS NULL AND dap.id IS NULL
+      LIMIT 1
+    `)).rows[0];
+    if (!openSlot) return; // every slot currently occupied — nothing to seed safely, skip rather than risk a real slot
+
+    const coffee = (await db.query(
+      `INSERT INTO coffees (name, roaster, is_active) VALUES ('Vitest Open-Slot Coffee', 'Vitest Roastery', true) RETURNING id`
+    )).rows[0];
+    const alias = (await db.query(
+      `INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
+       VALUES ('Vitest Open-Slot Alias', $1, $2, $3, 1, true) RETURNING id`,
+      [openSlot.archetype, openSlot.sort_order, coffee.id]
+    )).rows[0];
+    const blend = (await db.query(
+      `INSERT INTO roaster_blend (blend_name, coffee_id, weight_oz, is_active) VALUES ('Vitest Open-Slot Blend', $1, 12, true) RETURNING id`,
+      [coffee.id]
+    )).rows[0];
+
+    try {
+      const findSlot = async () => {
+        const res = await fetch(`${baseUrl}/archetypes`);
+        const archetypes = await res.json();
+        const arch = archetypes.find((a: any) => a.archetype === openSlot.archetype);
+        return arch?.slots?.find((s: any) => s.dialSortOrder === openSlot.sort_order);
+      };
+
+      const whileActive = await findSlot();
+      expect(whileActive?.isActive).toBe(true);
+
+      await db.query('UPDATE coffees SET is_active = false WHERE id = $1', [coffee.id]);
+
+      const whileInactive = await findSlot();
+      expect(whileInactive?.isActive).toBe(false);
+    } finally {
+      await db.query('DELETE FROM roaster_blend WHERE id = $1', [blend.id]);
+      await db.query('DELETE FROM coffee_alias WHERE id = $1', [alias.id]);
+      await db.query('DELETE FROM coffees WHERE id = $1', [coffee.id]);
+    }
+  }, 20000);
+});
+
+describe('GET /api/coffees/:id/story — inactive coffees stay reachable (Decision 5)', () => {
+  it('still serves a story for an inactive coffee — only browse/recommend surfaces drop it, never an id-addressed read', async () => {
+    const coffee = (await db.query(
+      `INSERT INTO coffees (name, roaster, is_active, story, story_published)
+       VALUES ('Vitest Story Coffee', 'Vitest Roastery', false, 'A vitest-only story.', true) RETURNING id`
+    )).rows[0];
+    try {
+      const res = await fetch(`${baseUrl}/${coffee.id}/story`);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.story).toBe('A vitest-only story.');
+    } finally {
+      await db.query('DELETE FROM coffees WHERE id = $1', [coffee.id]);
+    }
+  });
+});
+
+describe('GET /api/coffees/:coffeeId/hops — inactive targets', () => {
+  it('never returns an inactive target, and still returns up to 3 active ones when available', async () => {
+    const dimension = (await db.query(`SELECT id FROM coffee_dimensions LIMIT 1`)).rows[0];
+    const source = (await db.query(
+      `INSERT INTO coffees (name, roaster, is_active) VALUES ('Vitest Hop Source', 'Vitest Roastery', true) RETURNING id`
+    )).rows[0];
+
+    // A genuinely open slot to seed each target coffee into, same reasoning
+    // as the /archetypes test above — one open slot per target, so each
+    // target actually resolves via resolveBlendForSlot.
+    const openSlots = (await db.query(`
+      SELECT dpv.archetype, dpv.sort_order
+      FROM dial_position_vocabulary dpv
+      LEFT JOIN coffee_alias ca ON ca.archetype = dpv.archetype AND ca.dial_sort_order = dpv.sort_order AND ca.is_active = true
+      LEFT JOIN dial_archetype_positions dap ON dap.archetype = dpv.archetype AND dap.vocabulary_id = dpv.id AND dap.is_guest = false
+      WHERE ca.id IS NULL AND dap.id IS NULL
+      LIMIT 4
+    `)).rows;
+    if (openSlots.length < 4) { await db.query('DELETE FROM coffees WHERE id = $1', [source.id]); return; } // not enough open slots to seed 4 targets safely — skip
+
+    const targets: Array<{ coffeeId: number; aliasId: number; blendId: string; hopId: number }> = [];
+    try {
+      for (const slot of openSlots) {
+        const target = (await db.query(
+          `INSERT INTO coffees (name, roaster, is_active) VALUES ('Vitest Hop Target', 'Vitest Roastery', true) RETURNING id`
+        )).rows[0];
+        const alias = (await db.query(
+          `INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
+           VALUES ('Vitest Hop Target Alias', $1, $2, $3, 1, true) RETURNING id`,
+          [slot.archetype, slot.sort_order, target.id]
+        )).rows[0];
+        const blend = (await db.query(
+          `INSERT INTO roaster_blend (blend_name, coffee_id, weight_oz, is_active) VALUES ('Vitest Hop Target Blend', $1, 12, true) RETURNING id`,
+          [target.id]
+        )).rows[0];
+        const hop = (await db.query(
+          `INSERT INTO dial_coffee_relationships (from_coffee_id, to_coffee_id, dimension_id, direction, hop_type, is_recommended, confidence)
+           VALUES ($1, $2, $3, 'more', 'bridge_archetype', true, 'high') RETURNING id`,
+          [source.id, target.id, dimension.id]
+        )).rows[0];
+        targets.push({ coffeeId: target.id, aliasId: alias.id, blendId: blend.id, hopId: hop.id });
+      }
+
+      // Deactivate one target — it must never appear, and the other three
+      // (still >= 3 active) must still fill all 3 slots the endpoint caps at.
+      await db.query('UPDATE coffees SET is_active = false WHERE id = $1', [targets[0].coffeeId]);
+
+      const res = await fetch(`${baseUrl}/${source.id}/hops`);
+      expect(res.status).toBe(200);
+      const hops = await res.json();
+      expect(hops.length).toBe(3);
+      // The inactive target's own (archetype, dialSortOrder) must not appear among the returned hops.
+      const inactiveKey = `${openSlots[0].archetype}|${openSlots[0].sort_order}`;
+      expect(hops.some((h: any) => `${h.target.archetype}|${h.target.dialSortOrder}` === inactiveKey)).toBe(false);
+    } finally {
+      for (const t of targets) {
+        await db.query('DELETE FROM dial_coffee_relationships WHERE id = $1', [t.hopId]);
+        await db.query('DELETE FROM roaster_blend WHERE id = $1', [t.blendId]);
+        await db.query('DELETE FROM coffee_alias WHERE id = $1', [t.aliasId]);
+        await db.query('DELETE FROM coffees WHERE id = $1', [t.coffeeId]);
+      }
+      await db.query('DELETE FROM coffees WHERE id = $1', [source.id]);
+    }
+  }, 20000);
 });
