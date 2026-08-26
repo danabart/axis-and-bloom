@@ -4360,6 +4360,16 @@ Same batch also sent to `camilamarchon@gmail.com` (Dana's request, for her own r
 
 ---
 
+**CTO review round, fourth pass (2026-08-26)** — the third pass's own two fixes turned out incomplete once retested after deploy: `admin.roasters.test.ts` gained a `20000` timeout on the cascade test but not on its sibling `GET .../deactivation-preview > is side-effect free` test, which makes the same ~28-round-trip `resolveBlendForSlot` calls building `slotsGoingEmpty` and also blew past Vitest's 5000ms default. And `coffees.test.ts`'s hops fixture fix (adding an `archetype_assignments` row) was only half the join's requirement — `/hops`'s query needs a **real `dial_archetype_positions` row** too (`dap.coffee_id = dcr.to_coffee_id AND dap.archetype = aa.archetype`); `coffee_alias`'s legacy `archetype`/`dial_sort_order` fallback columns never satisfy that join. Both fixed: the same `20000` override on the preview test, and the fixture now inserts a `dial_archetype_positions` row (the `openSlots` query was widened to also select `dpv.id AS vocabulary_id` so the insert has one to use).
+
+**Confirmed stable** — two identical `npm test` runs post-fix: `14 failed | 100 passed (114)`, same 14 test names both times — the 12-test quizScoring baseline and the 2-test parked isDefault-per-archetype item (both described in the third pass above), each doubled by the pre-existing stale-`dist/`-copy artifact. Neither test touched this pass appears in that list anymore. Vitest orphan-fixture check (all four `'Vitest%'`-scoped tables) came back 0 rows.
+
+**The feature is live in production, and has processed a real deactivation.** Once this pass's fix deployed cleanly (`axis-bloom-backend-00649-mhc`), Dana deactivated Temecula Coffee Roasters for real through the actual `/admin/roasters` UI (`deactivation_note: 'pausing for now'`) — not a test or a preview. Verified read-only against prod: `roaster.is_active = false`, cascade applied to exactly 16 coffees / 32 blends / 16 aliases, correctly skipping the one already-manually-inactive coffee (33, from the CTO review round's Colombia/Guatemala data fix) rather than overwriting its `deactivation_reason`. This is the real-world confirmation the original Part E preview-and-stop was withheld pending — the cascade, the skip-already-manual behavior, and the predicate changes across every browse/recommend/resolve surface all did exactly what #170 and its addenda describe, against real data, on the first real use.
+
+**Files this pass**: `backend/src/routes/admin.roasters.test.ts`, `backend/src/routes/coffees.test.ts`, this entry.
+
+---
+
 ### 171. First-name field on the post-quiz email card (2026-08-26)
 
 **Context**: `backend/src/features/pre_launch_reveal_in_inbox/CLAUDE_CODE_PROMPT_QUIZ_CARD_FIRST_NAME.md`. Since #169, the quiz-complete match email is a transactional Resend send whose template already greets by first name — but the post-quiz email card only ever collected an email address, so `firstName` arrived empty on every submit and every match email fell back to the nameless greeting. Frontend-only, as scoped: `handleSubscribe` already threaded an optional `firstName` into both the Resend send and the Mailchimp sync.
