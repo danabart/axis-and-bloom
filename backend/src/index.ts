@@ -182,6 +182,26 @@ async function start() {
     console.error('Roastery lifecycle roaster_blend/coffee roaster_id mismatch check error (non-fatal):', err);
   }
 
+  // Roastery lifecycle (CTO review round, 2026-08-26, second pass) — schema.sql's
+  // coffees_active_natural_key index create is wrapped in DO/EXCEPTION so a
+  // still-live (roaster_id, name) duplicate can't abort the rest of the
+  // schema apply above; this is the actual "was it created" check. Originally
+  // a RAISE WARNING inside that same DO block, but a PL/pgSQL RAISE WARNING
+  // is a Postgres NOTICE-level protocol message — db.ts's pg.Pool has no
+  // `.on('notice', ...)` listener, so it was silently dropped by
+  // node-postgres and never reached this console or Cloud Logging at all.
+  // A real JS query, same as the two checks above.
+  try {
+    const naturalKeyIndex = await db.query(
+      `SELECT 1 FROM pg_indexes WHERE indexname = 'coffees_active_natural_key'`
+    );
+    if (naturalKeyIndex.rows.length === 0) {
+      console.warn('[roastery-lifecycle] coffees_active_natural_key NOT created — a live (roaster_id, name) duplicate still exists among active coffees; run the pending Colombia/Guatemala data-fix SQL, then this will succeed on the next boot');
+    }
+  } catch (err) {
+    console.error('Roastery lifecycle coffees_active_natural_key check error (non-fatal):', err);
+  }
+
   try {
     await initSommelierConfig();
   } catch (err) {

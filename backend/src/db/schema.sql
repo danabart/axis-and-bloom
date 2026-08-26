@@ -1213,11 +1213,21 @@ WHERE c.roaster_id IS NULL
 -- the rest of the file. Self-healing: once the data-fix SQL has run, the very
 -- next boot's schema.sql application creates the index cleanly with no
 -- further action needed.
+--
+-- CTO review round (2026-08-26, second pass) — this block used to also RAISE
+-- WARNING here on the exception path, matching the [roastery-lifecycle]
+-- console.warn convention. Dropped: a PL/pgSQL RAISE WARNING is a Postgres
+-- NOTICE-level protocol message, and db/client.ts's pg.Pool has no
+-- `.on('notice', ...)` listener — with nothing attached, node-postgres just
+-- drops it, so it never reached Node's console or Cloud Logging at all. The
+-- DO/EXCEPTION wrapper itself stays (it's still what protects the rest of
+-- this file from the unique_violation); the actual "was the index created"
+-- check now lives in index.ts as a real JS query, next to the other two
+-- roastery-lifecycle startup warnings.
 DO $$ BEGIN
   CREATE UNIQUE INDEX IF NOT EXISTS coffees_active_natural_key
     ON coffees (roaster_id, lower(trim(name))) WHERE is_active = true;
-EXCEPTION WHEN unique_violation THEN
-  RAISE WARNING '[roastery-lifecycle] coffees_active_natural_key NOT created — a live (roaster_id, name) duplicate still exists among active coffees; run the pending Colombia/Guatemala data-fix SQL, then this will succeed on the next boot';
+EXCEPTION WHEN unique_violation THEN NULL;
 END $$;
 
 ALTER TABLE user_profile ADD COLUMN IF NOT EXISTS first_name TEXT;
