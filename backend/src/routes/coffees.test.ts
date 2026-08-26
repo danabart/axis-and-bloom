@@ -266,7 +266,7 @@ describe('GET /api/coffees/:coffeeId/hops — inactive targets', () => {
     // as the /archetypes test above — one open slot per target, so each
     // target actually resolves via resolveBlendForSlot.
     const openSlots = (await db.query(`
-      SELECT dpv.archetype, dpv.sort_order
+      SELECT dpv.id AS vocabulary_id, dpv.archetype, dpv.sort_order
       FROM dial_position_vocabulary dpv
       LEFT JOIN coffee_alias ca ON ca.archetype = dpv.archetype AND ca.dial_sort_order = dpv.sort_order AND ca.is_active = true
       LEFT JOIN dial_archetype_positions dap ON dap.archetype = dpv.archetype AND dap.vocabulary_id = dpv.id AND dap.is_guest = false
@@ -281,16 +281,24 @@ describe('GET /api/coffees/:coffeeId/hops — inactive targets', () => {
         const target = (await db.query(
           `INSERT INTO coffees (name, roaster, is_active) VALUES ('Vitest Hop Target', 'Vitest Roastery', true) RETURNING id`
         )).rows[0];
-        // The /hops route's dap join is `dap.archetype = aa.archetype` — without
-        // a live archetype_assignments row, that join never matches, target_archetype
-        // comes back NULL, and the route's own `if (!row.target_archetype) continue`
-        // silently skips every hop (found live: this fixture originally omitted it,
-        // and the test failed with 0 hops instead of 3 — a fixture bug, not a route bug).
-        // ON DELETE CASCADE from coffees cleans this up with the target row, no
-        // separate delete needed.
+        // The /hops route's dap join is `dial_archetype_positions dap ON
+        // dap.coffee_id = dcr.to_coffee_id AND dap.archetype = aa.archetype`
+        // — it needs BOTH a live archetype_assignments row (for aa.archetype)
+        // AND a real dial_archetype_positions row (coffee_alias's own legacy
+        // archetype/dial_sort_order fallback columns don't satisfy this join
+        // at all). Missing either one leaves target_archetype/target_sort_order
+        // NULL, and the route's own `if (!row.target_archetype) continue`
+        // silently skips every hop — found live: this fixture originally had
+        // neither, and the test failed with 0 hops instead of 3. A fixture
+        // bug, not a route bug. ON DELETE CASCADE from coffees cleans both
+        // rows up with the target row, no separate delete needed.
         await db.query(
           `INSERT INTO archetype_assignments (coffee_id, archetype, confidence) VALUES ($1, $2, 'high')`,
           [target.id, slot.archetype]
+        );
+        await db.query(
+          `INSERT INTO dial_archetype_positions (archetype, coffee_id, vocabulary_id, is_default, is_guest) VALUES ($1, $2, $3, false, false)`,
+          [slot.archetype, target.id, slot.vocabulary_id]
         );
         const alias = (await db.query(
           `INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)

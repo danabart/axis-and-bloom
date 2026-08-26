@@ -109,7 +109,7 @@ describe('GET /api/admin/roasters/:id/deactivation-preview', () => {
       const stillActiveRoaster = await db.query('SELECT is_active FROM roaster WHERE id = $1', [fixture.roaster.id]);
       expect(stillActiveRoaster.rows[0].is_active).toBe(true);
     } finally { if (fixture) await cleanup(fixture); }
-  });
+  }, 20000); // the preview computes slotsGoingEmpty by calling resolveBlendForSlot twice per dial_position_vocabulary row (~28 rows) — same Cloud-SQL-proxy-round-trip-count reasoning as the cascade test below
 });
 
 describe('POST /api/admin/roasters/:id/deactivate + reactivate', () => {
