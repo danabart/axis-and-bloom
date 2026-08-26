@@ -81,57 +81,49 @@ export function PostQuizEmailGate({ archetypeName, archetypeColor, experimental,
         </p>
 
         <form onSubmit={handleSubmit}>
-          <div style={{ marginBottom: 20 }}>
-            <label htmlFor="postQuizFirstName" style={{
-              display: 'block',
-              fontSize: 13, letterSpacing: '.22em', textTransform: 'uppercase',
-              color: GRAY, margin: '0 0 10px', fontWeight: 400,
-            }}>
-              First name
-            </label>
-            <input
-              id="postQuizFirstName"
-              type="text"
-              value={firstName}
-              onChange={e => setFirstName(e.target.value)}
-              placeholder="Your first name"
-              required
-              autoComplete="given-name"
-              disabled={submitting}
-              style={{
-                width: '100%', border: 'none', borderBottom: `2px solid ${archetypeColor}`,
-                background: 'transparent',
-                padding: '6px 4px 8px',
-                fontSize: 'clamp(18px,1.8vw,24px)',
-                color: INK, outline: 'none', fontFamily: 'inherit',
-              }}
-            />
-          </div>
-
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 28 }}>
             <span style={{
-              fontSize: 'clamp(22px,2.2vw,30px)', letterSpacing: '.18em',
+              fontSize: 15, letterSpacing: '.14em',
               textTransform: 'uppercase', color: INK, flexShrink: 0,
               fontWeight: 400,
             }}>
               TO:
             </span>
-            <input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="your@email.com"
-              required
-              autoComplete="email"
-              disabled={submitting}
-              style={{
-                flex: 1, border: 'none', borderBottom: `2px solid ${archetypeColor}`,
-                background: 'transparent',
-                padding: '6px 4px 8px',
-                fontSize: 'clamp(18px,1.8vw,24px)',
-                color: INK, outline: 'none', fontFamily: 'inherit',
-              }}
-            />
+            <div style={{ flex: 1 }}>
+              <input
+                type="text"
+                value={firstName}
+                onChange={e => setFirstName(e.target.value)}
+                placeholder="Your first name"
+                required
+                autoComplete="given-name"
+                disabled={submitting}
+                style={{
+                  width: '100%', border: 'none', borderBottom: `2px solid ${archetypeColor}`,
+                  background: 'transparent',
+                  padding: '6px 4px 8px',
+                  fontSize: 'clamp(18px,1.8vw,24px)',
+                  color: INK, outline: 'none', fontFamily: 'inherit',
+                  marginBottom: 14,
+                }}
+              />
+              <input
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="your@email.com"
+                required
+                autoComplete="email"
+                disabled={submitting}
+                style={{
+                  width: '100%', border: 'none', borderBottom: `2px solid ${archetypeColor}`,
+                  background: 'transparent',
+                  padding: '6px 4px 8px',
+                  fontSize: 'clamp(18px,1.8vw,24px)',
+                  color: INK, outline: 'none', fontFamily: 'inherit',
+                }}
+              />
+            </div>
           </div>
 
           <button

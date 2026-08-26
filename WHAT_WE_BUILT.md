@@ -4382,7 +4382,9 @@ Same batch also sent to `camilamarchon@gmail.com` (Dana's request, for her own r
 
 **Files**: `frontend/src/app/components/PostQuizEmailGate.tsx`.
 
-**Not pushed** — held for Dana's explicit go-ahead, per the standing rule (`feedback_axis_and_bloom_task_execution`). `main` == `origin/main` at `d884d8f` throughout; the pre-existing uncommitted `OPEN_TASKS.md` and `launch/60_commerce-and-fulfillment/12_G1_payment_capture_PLACEHOLDER.md` changes were left completely untouched.
+**Pushed** (`51ab240`, with Dana's go-ahead) — first CI run failed at "Build & push image" (Artifact Registry `Unauthenticated request`), a one-off Workload Identity Federation token-exchange glitch that landed at the same moment as an unrelated credential rotation/reconnect Dana was doing; GCP-side config (pool/provider/IAM bindings) all checked out fine on inspection, and a plain re-run of the same job succeeded (`run_attempt=2`) — `/health` reconfirmed 200 post-deploy. The pre-existing uncommitted `OPEN_TASKS.md` and `launch/60_commerce-and-fulfillment/12_G1_payment_capture_PLACEHOLDER.md` changes were left completely untouched throughout.
+
+**Same-day follow-up (layout)**: Dana asked for an envelope-style layout instead — dropped the "First name" caption entirely, moved the "TO:" prefix up to the first-name line (email input now sits directly below it, unprefixed, same width, aligned under the name field), then shrank "TO:" itself (it had inherited the old single-line layout's large `clamp(22px,2.2vw,30px)` size, which read oversized once it was just a label next to two stacked inputs — now a flat `15px`). No behavior change — same fields/validation/submit/confirmation, re-verified live in both the sealed card and the `?preview=true` gate. `npx tsc --noEmit`/`vite build` clean, same pre-existing unrelated errors. Pushed with Dana's go-ahead, same-file diff only.
 
 ---
 
