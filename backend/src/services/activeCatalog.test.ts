@@ -6,9 +6,20 @@
 // — every assertion here reads coffees.is_active, so this file cannot run
 // against a pre-migration database.
 import 'dotenv/config';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import { db } from '../db/client.js';
 import { ACTIVE_COFFEE_SQL, isCoffeeActive, getActiveCoffeeIds } from './activeCatalog.js';
+
+// This file creates no fixtures today (every test here only reads), but
+// carries the same 'Vitest%' sweep as every other new test file in this
+// feature (2026-08-26 hardening round) as cheap insurance against a future
+// test added here that does.
+afterAll(async () => {
+  await db.query(`DELETE FROM coffee_alias WHERE platform_name LIKE 'Vitest%'`);
+  await db.query(`DELETE FROM roaster_blend WHERE blend_name LIKE 'Vitest%'`);
+  await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
+  await db.query(`DELETE FROM roaster WHERE name LIKE 'Vitest%'`);
+});
 
 describe('ACTIVE_COFFEE_SQL', () => {
   it('defaults to alias c, and accepts a custom alias', () => {

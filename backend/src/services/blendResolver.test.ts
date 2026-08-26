@@ -11,11 +11,21 @@
 // is deleted in a finally block; a real archetype/dial_sort_order pair is
 // read (never written) to stay a valid archetype_enum value.
 import 'dotenv/config';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import { db } from '../db/client.js';
 import { resolveBlendForSlot, resolveCoffeeBlend } from './blendResolver.js';
 
 const FIXTURE_WEIGHT_OZ = 13;
+
+// 2026-08-26 hardening round — the real safety net for a fixture whose
+// creation itself fails partway (the per-test try/finally below can't reach
+// it, since the fixture variable was never assigned in that case).
+afterAll(async () => {
+  await db.query(`DELETE FROM coffee_alias WHERE platform_name LIKE 'Vitest%'`);
+  await db.query(`DELETE FROM roaster_blend WHERE blend_name LIKE 'Vitest%'`);
+  await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
+  await db.query(`DELETE FROM roaster WHERE name LIKE 'Vitest%'`);
+});
 
 async function makeSlotFixture() {
   const slot = (await db.query(
@@ -36,7 +46,9 @@ async function makeSlotFixture() {
   return { archetype: slot.archetype, sortOrder: slot.sort_order, coffee, alias, blend };
 }
 
-async function cleanupSlotFixture(fixture: Awaited<ReturnType<typeof makeSlotFixture>>) {
+type SlotFixture = Awaited<ReturnType<typeof makeSlotFixture>>;
+
+async function cleanupSlotFixture(fixture: SlotFixture) {
   await db.query('DELETE FROM roaster_blend WHERE id = $1', [fixture.blend.id]);
   await db.query('DELETE FROM coffee_alias WHERE id = $1', [fixture.alias.id]);
   await db.query('DELETE FROM coffees WHERE id = $1', [fixture.coffee.id]);
@@ -44,8 +56,9 @@ async function cleanupSlotFixture(fixture: Awaited<ReturnType<typeof makeSlotFix
 
 describe('resolveBlendForSlot — coffees.is_active', () => {
   it('resolves the fixture coffee while active, and skips it once inactive even though its roaster_blend row stays active', async () => {
-    const fixture = await makeSlotFixture();
+    let fixture: SlotFixture | undefined;
     try {
+      fixture = await makeSlotFixture();
       const whileActive = await resolveBlendForSlot(fixture.archetype, fixture.sortOrder, FIXTURE_WEIGHT_OZ);
       expect(whileActive?.coffee_id).toBe(fixture.coffee.id);
 
@@ -56,42 +69,48 @@ describe('resolveBlendForSlot — coffees.is_active', () => {
       const whileInactive = await resolveBlendForSlot(fixture.archetype, fixture.sortOrder, FIXTURE_WEIGHT_OZ);
       expect(whileInactive).toBeNull();
     } finally {
-      await db.query('UPDATE coffees SET is_active = true WHERE id = $1', [fixture.coffee.id]);
-      await cleanupSlotFixture(fixture);
+      if (fixture) {
+        await db.query('UPDATE coffees SET is_active = true WHERE id = $1', [fixture.coffee.id]);
+        await cleanupSlotFixture(fixture);
+      }
     }
   });
 
   it('excludeCoffeeIds simulates a roastery going away without writing anything', async () => {
-    const fixture = await makeSlotFixture();
+    let fixture: SlotFixture | undefined;
     try {
+      fixture = await makeSlotFixture();
       const excluded = await resolveBlendForSlot(fixture.archetype, fixture.sortOrder, FIXTURE_WEIGHT_OZ, { excludeCoffeeIds: [fixture.coffee.id] });
       expect(excluded).toBeNull();
 
       const stillActive = await db.query('SELECT is_active FROM coffees WHERE id = $1', [fixture.coffee.id]);
       expect(stillActive.rows[0].is_active).toBe(true); // excludeCoffeeIds never writes
-    } finally { await cleanupSlotFixture(fixture); }
+    } finally { if (fixture) await cleanupSlotFixture(fixture); }
   });
 });
 
 describe('resolveCoffeeBlend — coffees.is_active', () => {
   it('returns null once the coffee is inactive, even with an active roaster_blend row', async () => {
-    const coffee = (await db.query(
-      `INSERT INTO coffees (name, roaster, is_active) VALUES ('Vitest Category Coffee', 'Vitest Roastery', true) RETURNING id`
-    )).rows[0];
-    const blend = (await db.query(
-      `INSERT INTO roaster_blend (blend_name, coffee_id, weight_oz, is_active) VALUES ('Vitest Category Blend', $1, $2, true) RETURNING id`,
-      [coffee.id, FIXTURE_WEIGHT_OZ]
-    )).rows[0];
+    let coffee: { id: number } | undefined;
+    let blend: { id: string } | undefined;
     try {
-      const whileActive = await resolveCoffeeBlend(coffee.id, FIXTURE_WEIGHT_OZ);
-      expect(whileActive?.blend_id).toBe(blend.id);
+      coffee = (await db.query(
+        `INSERT INTO coffees (name, roaster, is_active) VALUES ('Vitest Category Coffee', 'Vitest Roastery', true) RETURNING id`
+      )).rows[0];
+      blend = (await db.query(
+        `INSERT INTO roaster_blend (blend_name, coffee_id, weight_oz, is_active) VALUES ('Vitest Category Blend', $1, $2, true) RETURNING id`,
+        [coffee!.id, FIXTURE_WEIGHT_OZ]
+      )).rows[0];
 
-      await db.query('UPDATE coffees SET is_active = false WHERE id = $1', [coffee.id]);
-      const whileInactive = await resolveCoffeeBlend(coffee.id, FIXTURE_WEIGHT_OZ);
+      const whileActive = await resolveCoffeeBlend(coffee!.id, FIXTURE_WEIGHT_OZ);
+      expect(whileActive?.blend_id).toBe(blend!.id);
+
+      await db.query('UPDATE coffees SET is_active = false WHERE id = $1', [coffee!.id]);
+      const whileInactive = await resolveCoffeeBlend(coffee!.id, FIXTURE_WEIGHT_OZ);
       expect(whileInactive).toBeNull();
     } finally {
-      await db.query('DELETE FROM roaster_blend WHERE id = $1', [blend.id]);
-      await db.query('DELETE FROM coffees WHERE id = $1', [coffee.id]);
+      if (blend) await db.query('DELETE FROM roaster_blend WHERE id = $1', [blend.id]);
+      if (coffee) await db.query('DELETE FROM coffees WHERE id = $1', [coffee.id]);
     }
   });
 });

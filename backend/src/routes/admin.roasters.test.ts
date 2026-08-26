@@ -39,6 +39,16 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // Fixture-leak backstop (2026-08-26 hardening round) — a fixture whose
+  // creation itself fails partway (e.g. against a pre-migration database)
+  // leaves the per-test try/finally below unable to reach it, since the
+  // `fixture` variable was never assigned. This sweep is the real safety
+  // net; moving creation inside try (below) only covers a failure in the
+  // test body itself. Order matters — children before parents.
+  await db.query(`DELETE FROM coffee_alias WHERE platform_name LIKE 'Vitest%'`);
+  await db.query(`DELETE FROM roaster_blend WHERE blend_name LIKE 'Vitest%'`);
+  await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
+  await db.query(`DELETE FROM roaster WHERE name LIKE 'Vitest%'`);
   await new Promise<void>(resolve => server.close(() => resolve()));
 });
 
@@ -81,8 +91,9 @@ async function cleanup(fixture: Fixture) {
 
 describe('GET /api/admin/roasters/:id/deactivation-preview', () => {
   it('is side-effect free', async () => {
-    const fixture = await makeFixture();
+    let fixture: Fixture | undefined;
     try {
+      fixture = await makeFixture();
       const res = await fetch(`${baseUrl}/roasters/${fixture.roaster.id}/deactivation-preview`);
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -97,21 +108,24 @@ describe('GET /api/admin/roasters/:id/deactivation-preview', () => {
       expect(stillActive.rows[0].is_active).toBe(true);
       const stillActiveRoaster = await db.query('SELECT is_active FROM roaster WHERE id = $1', [fixture.roaster.id]);
       expect(stillActiveRoaster.rows[0].is_active).toBe(true);
-    } finally { await cleanup(fixture); }
+    } finally { if (fixture) await cleanup(fixture); }
   });
 });
 
 describe('POST /api/admin/roasters/:id/deactivate + reactivate', () => {
   it('cascades exactly the roastery\'s rows, skips an already-manually-inactive row, 409s on a second deactivate, and reactivate restores only the reason=roaster row', async () => {
-    const fixture = await makeFixture();
-    // A second coffee, manually retired BEFORE the roastery deactivates —
-    // must stay untouched by both the deactivate cascade and reactivate.
-    const manualCoffee = (await db.query(
-      `INSERT INTO coffees (name, roaster, roaster_id, is_active, deactivated_at, deactivation_reason)
-       VALUES ('Vitest Manual Coffee', $1, $2, false, now(), 'manual') RETURNING id`,
-      [fixture.roaster.name, fixture.roaster.id]
-    )).rows[0];
+    let fixture: Fixture | undefined;
+    let manualCoffee: { id: number } | undefined;
     try {
+      fixture = await makeFixture();
+      // A second coffee, manually retired BEFORE the roastery deactivates —
+      // must stay untouched by both the deactivate cascade and reactivate.
+      manualCoffee = (await db.query(
+        `INSERT INTO coffees (name, roaster, roaster_id, is_active, deactivated_at, deactivation_reason)
+         VALUES ('Vitest Manual Coffee', $1, $2, false, now(), 'manual') RETURNING id`,
+        [fixture.roaster.name, fixture.roaster.id]
+      )).rows[0];
+
       const deactivateRes = await fetch(`${baseUrl}/roasters/${fixture.roaster.id}/deactivate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -140,7 +154,7 @@ describe('POST /api/admin/roasters/:id/deactivate + reactivate', () => {
       expect(aliasRow.deactivation_reason).toBe('roaster');
 
       const manualRow = (await db.query(
-        'SELECT is_active, deactivation_reason FROM coffees WHERE id = $1', [manualCoffee.id]
+        'SELECT is_active, deactivation_reason FROM coffees WHERE id = $1', [manualCoffee!.id]
       )).rows[0];
       expect(manualRow.is_active).toBe(false);
       expect(manualRow.deactivation_reason).toBe('manual'); // untouched — already inactive before the cascade ran
@@ -165,7 +179,7 @@ describe('POST /api/admin/roasters/:id/deactivate + reactivate', () => {
       expect(restoredCoffee.deactivation_reason).toBeNull();
 
       const stillManual = (await db.query(
-        'SELECT is_active, deactivation_reason FROM coffees WHERE id = $1', [manualCoffee.id]
+        'SELECT is_active, deactivation_reason FROM coffees WHERE id = $1', [manualCoffee!.id]
       )).rows[0];
       expect(stillManual.is_active).toBe(false);
       expect(stillManual.deactivation_reason).toBe('manual'); // stays retired — reactivate never touches manual rows
@@ -174,8 +188,8 @@ describe('POST /api/admin/roasters/:id/deactivate + reactivate', () => {
       const secondReactivateRes = await fetch(`${baseUrl}/roasters/${fixture.roaster.id}/reactivate`, { method: 'POST' });
       expect(secondReactivateRes.status).toBe(409);
     } finally {
-      await db.query('DELETE FROM coffees WHERE id = $1', [manualCoffee.id]);
-      await cleanup(fixture);
+      if (manualCoffee) await db.query('DELETE FROM coffees WHERE id = $1', [manualCoffee.id]);
+      if (fixture) await cleanup(fixture);
     }
   });
 
@@ -187,10 +201,11 @@ describe('POST /api/admin/roasters/:id/deactivate + reactivate', () => {
 
 describe('PATCH /api/admin/roasters/:id/toggle', () => {
   it('is gone — the bare toggle route no longer exists (404)', async () => {
-    const fixture = await makeFixture();
+    let fixture: Fixture | undefined;
     try {
+      fixture = await makeFixture();
       const res = await fetch(`${baseUrl}/roasters/${fixture.roaster.id}/toggle`, { method: 'PATCH' });
       expect(res.status).toBe(404);
-    } finally { await cleanup(fixture); }
+    } finally { if (fixture) await cleanup(fixture); }
   });
 });

@@ -30,6 +30,14 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // Fixture-leak backstop (2026-08-26 hardening round) — the real safety net
+  // if makeBridgeHopFixture() itself fails partway; dial_coffee_relationships
+  // and archetype_assignments both cascade from coffees, so deleting the
+  // coffees rows alone cleans those up too.
+  await db.query(`DELETE FROM coffee_alias WHERE platform_name LIKE 'Vitest%'`);
+  await db.query(`DELETE FROM roaster_blend WHERE blend_name LIKE 'Vitest%'`);
+  await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
+  await db.query(`DELETE FROM roaster WHERE name LIKE 'Vitest%'`);
   await new Promise<void>(resolve => server.close(() => resolve()));
 });
 
@@ -65,8 +73,9 @@ async function cleanup(f: Awaited<ReturnType<typeof makeBridgeHopFixture>>) {
 
 describe('GET /api/axis/adjacency — excludes inactive coffees', () => {
   it('the floral/fruity pair appears while both coffees are active, and disappears once one goes inactive', async () => {
-    const f = await makeBridgeHopFixture();
+    let f: Awaited<ReturnType<typeof makeBridgeHopFixture>> | undefined;
     try {
+      f = await makeBridgeHopFixture();
       const before = await (await fetch(`${baseUrl}/adjacency`)).json();
       expect(before.adjacency.floral ?? []).toContain('fruity');
 
@@ -79,16 +88,19 @@ describe('GET /api/axis/adjacency — excludes inactive coffees', () => {
       // exposes hop_count directly.
       expect(after.adjacency).toBeTruthy();
     } finally {
-      await db.query('UPDATE coffees SET is_active = true WHERE id = $1', [f.fruity.id]);
-      await cleanup(f);
+      if (f) {
+        await db.query('UPDATE coffees SET is_active = true WHERE id = $1', [f.fruity.id]);
+        await cleanup(f);
+      }
     }
   }, 20000);
 });
 
 describe('GET /api/axis/stats — excludes inactive coffees from every count', () => {
   it('coffeesMapped, the floral archetype coffeeCount, and connectionCount all drop when a fixture coffee goes inactive', async () => {
-    const f = await makeBridgeHopFixture();
+    let f: Awaited<ReturnType<typeof makeBridgeHopFixture>> | undefined;
     try {
+      f = await makeBridgeHopFixture();
       const before = await (await fetch(`${baseUrl}/stats`)).json();
       const floralBefore = before.archetypes.find((a: any) => a.key === 'floral')?.coffeeCount ?? 0;
 
@@ -101,8 +113,10 @@ describe('GET /api/axis/stats — excludes inactive coffees from every count', (
       expect(floralAfter).toBe(floralBefore - 1);
       expect(after.connectionCount).toBe(before.connectionCount - 1); // the fixture's own bridge hop no longer counts
     } finally {
-      await db.query('UPDATE coffees SET is_active = true WHERE id = $1', [f.floral.id]);
-      await cleanup(f);
+      if (f) {
+        await db.query('UPDATE coffees SET is_active = true WHERE id = $1', [f.floral.id]);
+        await cleanup(f);
+      }
     }
   }, 20000);
 });
