@@ -191,7 +191,7 @@ describe('POST /api/admin/roasters/:id/deactivate + reactivate', () => {
       if (manualCoffee) await db.query('DELETE FROM coffees WHERE id = $1', [manualCoffee.id]);
       if (fixture) await cleanup(fixture);
     }
-  });
+  }, 20000); // ~6 sequential HTTP calls + DB round trips over the Cloud SQL proxy tunnel — same timeout convention as coffees.test.ts's slow tests, vitest's 5000ms default isn't enough
 
   it('deactivate 404s for a nonexistent roaster', async () => {
     const res = await fetch(`${baseUrl}/roasters/00000000-0000-0000-0000-000000000000/deactivate`, { method: 'POST' });

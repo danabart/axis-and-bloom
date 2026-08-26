@@ -281,6 +281,17 @@ describe('GET /api/coffees/:coffeeId/hops — inactive targets', () => {
         const target = (await db.query(
           `INSERT INTO coffees (name, roaster, is_active) VALUES ('Vitest Hop Target', 'Vitest Roastery', true) RETURNING id`
         )).rows[0];
+        // The /hops route's dap join is `dap.archetype = aa.archetype` — without
+        // a live archetype_assignments row, that join never matches, target_archetype
+        // comes back NULL, and the route's own `if (!row.target_archetype) continue`
+        // silently skips every hop (found live: this fixture originally omitted it,
+        // and the test failed with 0 hops instead of 3 — a fixture bug, not a route bug).
+        // ON DELETE CASCADE from coffees cleans this up with the target row, no
+        // separate delete needed.
+        await db.query(
+          `INSERT INTO archetype_assignments (coffee_id, archetype, confidence) VALUES ($1, $2, 'high')`,
+          [target.id, slot.archetype]
+        );
         const alias = (await db.query(
           `INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
            VALUES ('Vitest Hop Target Alias', $1, $2, $3, 1, true) RETURNING id`,
