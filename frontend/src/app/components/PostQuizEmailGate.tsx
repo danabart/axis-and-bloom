@@ -23,18 +23,22 @@ interface Props {
 }
 
 export function PostQuizEmailGate({ archetypeName, archetypeColor, experimental, confidence, sessionKey, onSuccess, sealed = false }: Props) {
+  const [firstName, setFirstName] = useState('');
   const [email, setEmail]       = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]       = useState(false);
 
+  const trimmedFirstName = firstName.trim();
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || submitting) return;
+    if (!email || !trimmedFirstName || submitting) return;
     setSubmitting(true);
     setError(false);
     try {
       await subscribeNewsletter({
         email,
+        firstName: trimmedFirstName,
         source: 'post_quiz',
         archetype: archetypeName,
         experimental,
@@ -77,6 +81,33 @@ export function PostQuizEmailGate({ archetypeName, archetypeColor, experimental,
         </p>
 
         <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: 20 }}>
+            <label htmlFor="postQuizFirstName" style={{
+              display: 'block',
+              fontSize: 13, letterSpacing: '.22em', textTransform: 'uppercase',
+              color: GRAY, margin: '0 0 10px', fontWeight: 400,
+            }}>
+              First name
+            </label>
+            <input
+              id="postQuizFirstName"
+              type="text"
+              value={firstName}
+              onChange={e => setFirstName(e.target.value)}
+              placeholder="Your first name"
+              required
+              autoComplete="given-name"
+              disabled={submitting}
+              style={{
+                width: '100%', border: 'none', borderBottom: `2px solid ${archetypeColor}`,
+                background: 'transparent',
+                padding: '6px 4px 8px',
+                fontSize: 'clamp(18px,1.8vw,24px)',
+                color: INK, outline: 'none', fontFamily: 'inherit',
+              }}
+            />
+          </div>
+
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 28 }}>
             <span style={{
               fontSize: 'clamp(22px,2.2vw,30px)', letterSpacing: '.18em',
