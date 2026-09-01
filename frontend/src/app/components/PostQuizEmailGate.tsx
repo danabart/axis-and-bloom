@@ -21,10 +21,13 @@ interface Props {
    * identical). Doesn't change `archetypeColor`'s own behavior — the caller
    * passes a neutral color while sealed (see FlavorQuiz.tsx). */
   sealed?: boolean;
+  /** Hoboken Crawl Part 2 — when a crawler already typed their name on `/crawl`,
+   * prefill it here (still editable, still required, submit logic unchanged). */
+  initialFirstName?: string;
 }
 
-export function PostQuizEmailGate({ archetypeName, archetypeColor, experimental, confidence, sessionKey, onSuccess, sealed = false }: Props) {
-  const [firstName, setFirstName] = useState('');
+export function PostQuizEmailGate({ archetypeName, archetypeColor, experimental, confidence, sessionKey, onSuccess, sealed = false, initialFirstName = '' }: Props) {
+  const [firstName, setFirstName] = useState(initialFirstName);
   const [email, setEmail]       = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]       = useState(false);

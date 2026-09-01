@@ -1,54 +1,68 @@
-import { useEffect } from 'react';
-import { Link } from 'react-router';
-import { brandAssets } from '../../design/assets';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router';
+import { campaignAssets } from '../../design/assets';
 import { trackEvent } from '../lib/analytics';
 import { rememberCampaign } from '../lib/campaign';
 import { logCampaignLanding } from '../lib/api';
-import { ARCHETYPE_VISUALS } from './bloom/bloomVisuals';
 import { reportError } from '../lib/errorReporter';
 
 const CAMPAIGN_SLUG = 'hoboken-crawl-2026';
+const photoBand = campaignAssets.hobokenCrawl2026.photoBand;
 
-// Same brand mark PreLaunch.tsx uses (raw SVG from the bucket) — no new image assets.
-const logoMark = brandAssets.logoQuarter1;
-const TERRA = '#9a2918';
-const FONT = "'Lato', Arial, sans-serif";
-
-// Copy in one block, positive register, matches the printed card's voice. Camila may
-// polish wording later — keep every user-facing string here, nowhere else in the file.
-const COPY = {
-  kicker: 'HOBOKEN COFFEE CRAWL · SEPTEMBER 20',
-  h1: "What's your coffee archetype?",
-  body: "You know you love coffee. Today you'll taste your way across Hoboken, and somewhere in those cups is a pattern: your family of taste. Three minutes, no jargon. Find it.",
-  ctaLabel: 'Take the quiz →',
-  ctaMicro: 'Free · three minutes · your match lands in your inbox',
-  fieldGuideHeading: 'A field guide for today',
-  fieldGuideSub: 'As you taste your way through Hoboken, notice which words keep coming back.',
-  fieldGuideClosing: 'The words that keep returning are your axis. Take the quiz and see if you were right.',
-  offerKicker: 'FOR CRAWLERS ONLY',
-  offerBody: 'Find your archetype today and your first order ships free. Five of you will receive your first match free, drawn when the doors open.',
-  footDoors: 'Doors open this fall · axisandbloomcoffee.com',
-  footSocial: 'Follow @axisandbloom',
-  footSignature: 'FROM: AXIS & BLOOM — TO: HOBOKEN',
-} as const;
-
-// Same six archetypes, same order, as the printed card back. num + color come from
-// bloomVisuals.ts's ARCHETYPE_VISUALS — the one shared source of truth for these six
-// hex values (see PreLaunch.tsx's ARCHETYPE_SWATCHES for the other consumer).
-const FIELD_GUIDE = [
-  { key: 'floral', name: 'Floral', words: 'Fragrant · Bright · Delicate · Clean' },
-  { key: 'fruity', name: 'Fruity', words: 'Sweet · Vibrant · Expressive · Lively' },
-  { key: 'balanced_sweet', name: 'Balanced & Sweet', words: 'Smooth · Sweet · Harmonious · Easy' },
-  { key: 'chocolate_nutty', name: 'Chocolate & Nutty', words: 'Rich · Grounded · Full · Comforting' },
-  { key: 'earthy', name: 'Earthy', words: 'Warm · Deep · Bold · Lasting' },
-  { key: 'experimental', name: 'Experimental', words: 'Wild · Unique · Surprising' },
-] as const;
-
-function fireCtaClick() {
-  trackEvent('CampaignCTA', { campaign: CAMPAIGN_SLUG });
+// Camila's approved mockup (42-crawl-landing-mockup-v9.html) uses a different quarter-
+// round mark than brandAssets.logoQuarter1 (different viewBox, different path data/
+// palette — confirmed by diffing both SVGs, not assumed) — inlined here verbatim rather
+// than through the bucket registry, same as the mockup itself does.
+function LogoMark() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 154.2804 155.8073" height={24} width="auto" aria-hidden="true">
+      <path d="M125.3727,142.3929L14.71,89.89c8.2847-17.553,19.7762-33.2925,33.7246-46.4617l86.8586,86.6848c-4.2533,3.1809-7.6794,7.4016-9.9205,12.2797Z" fill="#c24526"/>
+      <path d="M77.227,58.5206c21.1485-16.7981,47.9002-26.8439,77.0062-26.8439v22.0518c-22.99.0421-44.2201,7.7177-61.2927,20.6192l-15.7135-15.8272Z" fill="#e8c3a7"/>
+      <path d="M123.2306,104.8575c9.0398-5.5476,19.648-8.7748,31.0025-8.8101v27.4337c-3.7511,0-7.3497.6481-10.6964,1.8295l-20.3061-20.4531Z" fill="#c24526"/>
+      <path d="M120.6661,84.9454c4.4534-2.0896,9.0584-3.7597,13.8627-4.8199,5.0093-1.1056,10.1493-1.7349,15.2624-2.1097,1.4129-.1032,3.0741-.1753,4.4892-.2351l-.2465-77.7807h.2393c-36.186,0-69.7299,12.3681-96.142,33.1073l-3.166,3.0396,55.2338,55.5323c3.2131-2.6406,6.7045-4.9682,10.4671-6.7338Z" fill="#e9526f"/>
+      <path d="M80.0742,135.4081c.501-1.3251,1.0311-2.6387,1.5725-3.9476L10.5988,98.4424C4.422,111.4823,0,136.3962,0,155.8073h76.5024c.2091-1.4608-1.2581-4.2187-.9385-5.6666,1.1055-5.0093,2.6982-9.9367,4.5103-14.7325Z" fill="#868787"/>
+      <path d="M98.4218,79.8687c15.6351-11.5445,34.9377-18.3939,55.8114-18.4352v35.6194c-13.4765.0376-19.9289,1.4416-30.4644,8.3041l-25.347-25.4883Z" fill="#c24526"/>
+      <path d="M122.4776,150.753c-.2421,1.5856-.376,3.2065-.376,4.8601h-47.4305c.0625-8.8526,1.583-17.3609,4.315-25.3124l43.4915,20.4523Z" fill="#c24526"/>
+    </svg>
+  );
 }
 
+// Copy in one block, character for character from the handoff (§3). House rule: no em
+// dashes except the FROM/TO lockup, which uses one as a graphic element. No Genova/
+// Gotham glyph rule with Lato — Lato's own & and ? are used as-is (Dana + Camila,
+// 2026-09-01 revision: no web license for Genova/Gotham before launch).
+const COPY = {
+  wordmark: 'AXIS & BLOOM',
+  kicker: 'HOBOKEN COFFEE CRAWL · SEPTEMBER 20 · WITH THE HOBOKEN HISTORICAL MUSEUM',
+  h1Line1: 'Hey,',
+  h1Line2: 'Hoboken',
+  lede: 'Today the whole city is tasting. Somewhere between those cups is a pattern, and it’s yours: your family of taste. Three minutes, no jargon.',
+  photoAlt: 'A cup of Axis & Bloom beans on the Hoboken waterfront',
+  gamePrefix: 'Been noticing which words keep coming back?',
+  gameGood: 'Good.',
+  gameSuffix: 'The quiz will tell you if you were right.',
+  palatePrefix: 'Whose',
+  palateWord: 'palate',
+  palateSuffix: 'are we profiling today?',
+  fieldPlaceholder: 'Enter your name',
+  // Two non-breaking spaces before the arrow, per the handoff — a plain double space
+  // collapses to one in HTML, which would lose the intended gap at this letter-spacing.
+  buttonLabel: 'START THE QUIZ  →',
+  perkLead: 'FOR CRAWLERS ONLY',
+  perkBody1: 'Finish the quiz today and your first order',
+  perkHot1: 'ships free',
+  perkBody2: '. Five of you will receive your',
+  perkHot2: 'first match free',
+  perkBody3: ', drawn when the doors open this fall.',
+} as const;
+
 export default function CrawlLanding() {
+  const navigate = useNavigate();
+  const [name, setName] = useState('');
+
+  // Part 1 behavior, kept verbatim: stamp the campaign, fire the landing beacon
+  // (fire-and-forget, never blocks rendering), never forward UTMs anywhere else —
+  // the localStorage stamp + visitor key is the whole attribution mechanism.
   useEffect(() => {
     document.title = 'Hoboken Coffee Crawl · Axis & Bloom';
 
@@ -66,216 +80,247 @@ export default function CrawlLanding() {
     }).catch(err => reportError('[CrawlLanding/logCampaignLanding]', err));
   }, []);
 
+  const trimmedName = name.trim();
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!trimmedName) return;
+    // Reuse the existing Home.tsx -> FlavorQuiz.tsx name handoff verbatim — no new
+    // key, no router state, no query param (handoff §7/Part 2 decision 3).
+    try { sessionStorage.setItem('axisBloomCustomerName', trimmedName); } catch {}
+    trackEvent('CampaignCTA', { campaign: CAMPAIGN_SLUG });
+    navigate('/find-my-flavor');
+  }
+
   return (
     <>
       <style>{`
         .crawl-page {
-          font-family: ${FONT};
           background: #f2f1ea;
+          font-family: 'Lato', sans-serif;
           color: #45474a;
-          line-height: 1.6;
+          -webkit-font-smoothing: antialiased;
+          min-height: 100vh;
+          display: flex;
+          flex-direction: column;
         }
         .crawl-wrap {
-          max-width: 640px;
+          width: 100%;
+          max-width: 560px;
           margin: 0 auto;
-          padding: 28px clamp(20px, 5vw, 40px) 60px;
+          padding: 0 30px;
+          text-align: center;
         }
+        .crawl-header { padding: 34px 0 0; }
         .crawl-wordmark {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          font-size: 13px;
-          letter-spacing: .18em;
-          color: ${TERRA};
-          font-weight: 500;
-          margin-bottom: 32px;
+          font-size: 10.5px;
+          letter-spacing: .3em;
+          color: #9a2918;
+          font-weight: 400;
+          margin-top: 9px;
         }
         .crawl-kicker {
-          font-size: 11px;
-          letter-spacing: .22em;
-          text-transform: uppercase;
-          color: ${TERRA};
-          display: block;
-          margin-bottom: 16px;
+          font-size: 10px;
+          letter-spacing: .26em;
+          color: #7b7f80;
+          font-weight: 400;
+          margin-top: 34px;
         }
         .crawl-h1 {
-          font-size: clamp(30px, 6vw, 44px);
-          font-weight: 400;
-          line-height: 1.14;
-          color: #45474a;
-          margin: 0 0 18px;
+          font-size: 54px;
+          font-weight: 500;
+          letter-spacing: .02em;
+          line-height: 1.16;
+          margin-top: 18px;
+          text-transform: uppercase;
         }
-        .crawl-body {
-          font-size: 16px;
+        .crawl-h1-pink { color: #ee5974; }
+        .crawl-h1-terra { color: #9a2918; }
+        .crawl-lede {
+          font-size: 15.5px;
+          font-weight: 300;
           line-height: 1.7;
           color: #45474a;
-          margin: 0 0 28px;
+          margin: 20px auto 0;
+          max-width: 400px;
         }
-        .crawl-cta {
-          display: inline-block;
-          background: ${TERRA};
-          color: #f2f1ea;
-          padding: 16px 30px;
-          font-size: 13px;
-          letter-spacing: .14em;
-          text-transform: uppercase;
-          text-decoration: none;
-          min-height: 44px;
-          box-sizing: border-box;
-          transition: background 0.2s;
+        .crawl-photo {
+          margin-top: 34px;
+          height: 178px;
+          position: relative;
+          overflow: hidden;
         }
-        .crawl-cta:hover { background: #a94936; }
-        .crawl-cta-micro {
-          margin: 12px 0 0;
-          font-size: 12px;
-          letter-spacing: .04em;
-          color: #7b7f80;
+        .crawl-photo img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          object-position: 48% 60%;
+          display: block;
         }
-        .crawl-section {
-          margin-top: 52px;
+        .crawl-game {
+          font-size: 14px;
+          font-weight: 300;
+          line-height: 1.7;
+          color: #9a2918;
+          margin: 34px auto 0;
+          max-width: 380px;
         }
-        .crawl-section-h2 {
-          font-size: clamp(22px, 4vw, 28px);
+        .crawl-good {
+          font-weight: 900;
+          background: #f8b3bd;
+          color: #9a2918;
+          padding: .06em .24em .1em;
+          border-radius: 1px;
+        }
+        .crawl-palate {
+          font-size: 29px;
           font-weight: 400;
+          color: #9a2918;
+          letter-spacing: .01em;
+          line-height: 1.32;
+          margin: 30px auto 0;
+          max-width: 420px;
+        }
+        .crawl-palate-pink { color: #ee5974; }
+        .crawl-form { margin-top: 26px; }
+        .crawl-field {
+          display: block;
+          width: 100%;
+          max-width: 340px;
+          margin: 0 auto;
+          background: none;
+          border: none;
+          border-bottom: 1px solid #c5c7c8;
+          font-family: 'Lato', sans-serif;
+          font-size: 19px;
+          font-weight: 300;
           color: #45474a;
-          margin: 0 0 8px;
+          padding: 10px 2px;
+          text-align: center;
+          outline: none;
         }
-        .crawl-section-sub {
-          font-size: 14px;
-          color: #7b7f80;
-          margin: 0 0 24px;
-          max-width: 480px;
-        }
-        .crawl-grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 10px;
-        }
-        .crawl-tile {
-          padding: 18px 14px;
+        .crawl-field::placeholder { color: #7b7f80; opacity: .8; }
+        .crawl-field:focus { border-bottom-color: #ee5974; }
+        .crawl-btn {
+          display: inline-block;
+          background: #9a2918;
           color: #f2f1ea;
-        }
-        .crawl-tile-num {
-          display: block;
-          font-size: 11px;
-          letter-spacing: .1em;
-          opacity: 0.85;
-          margin-bottom: 8px;
-        }
-        .crawl-tile-name {
-          display: block;
-          font-size: 15px;
-          font-weight: 500;
-          margin-bottom: 6px;
-        }
-        .crawl-tile-words {
-          display: block;
-          font-size: 11.5px;
-          line-height: 1.5;
-          opacity: 0.92;
-        }
-        .crawl-closing {
-          margin-top: 28px;
-          font-size: 14px;
-          color: #45474a;
-          max-width: 480px;
-        }
-        .crawl-closing a {
-          color: ${TERRA};
-          font-weight: 500;
+          font-size: 12.5px;
+          letter-spacing: .24em;
+          font-weight: 900;
+          padding: 17px 42px;
           text-decoration: none;
+          border: none;
+          cursor: pointer;
+          font-family: 'Lato', sans-serif;
+          margin-top: 30px;
+          transition: background .3s;
         }
-        .crawl-offer {
-          margin-top: 52px;
-          padding: 24px;
-          background: #e8e5d8;
-        }
-        .crawl-offer-kicker {
+        .crawl-btn:hover:not(:disabled) { background: #8a2416; }
+        .crawl-btn:focus-visible { outline: 2px solid #ee5974; outline-offset: 2px; }
+        .crawl-btn:disabled { opacity: .3; cursor: not-allowed; }
+        .crawl-perk {
           font-size: 11px;
-          letter-spacing: .22em;
-          text-transform: uppercase;
-          color: ${TERRA};
-          display: block;
-          margin-bottom: 10px;
-        }
-        .crawl-offer-body {
-          font-size: 14.5px;
+          font-weight: 400;
           line-height: 1.65;
           color: #45474a;
-          margin: 0;
+          margin: 26px auto 0;
+          max-width: 360px;
         }
-        .crawl-foot {
-          margin-top: 52px;
-          border-top: 1px solid #c5c7c8;
-          padding-top: 16px;
-          font-size: 12px;
+        .crawl-perk-lead {
+          font-weight: 900;
+          font-size: 10px;
+          letter-spacing: .06em;
+          color: #ee5974;
+        }
+        .crawl-hot { color: #9a2918; font-weight: 900; }
+        .crawl-footer { margin-top: auto; padding-top: 44px; }
+        .crawl-fromto {
+          font-size: 9.5px;
+          letter-spacing: .2em;
           color: #7b7f80;
-          letter-spacing: .04em;
+          margin-bottom: 16px;
+          font-weight: 400;
         }
-        .crawl-foot p { margin: 0 0 6px; }
-        .crawl-foot-sig {
-          margin-top: 14px;
-          font-size: 11px;
-          letter-spacing: .1em;
-          text-transform: uppercase;
-          color: #7b7f80;
-        }
+        .crawl-band { display: flex; height: 10px; }
+        .crawl-band div { flex: 1; }
 
-        @media (max-width: 640px) {
-          .crawl-grid { grid-template-columns: repeat(2, 1fr); }
+        @media (min-width: 900px) {
+          .crawl-h1 { font-size: 84px; }
+          .crawl-palate { font-size: 38px; max-width: 560px; }
+          .crawl-wrap { max-width: 720px; }
+          .crawl-lede { font-size: 17px; max-width: 470px; }
+          .crawl-photo { height: 480px; }
+          .crawl-photo img { object-position: 48% 52%; }
         }
       `}</style>
 
       <div className="crawl-page">
-        <div className="crawl-wrap">
-          <div className="crawl-wordmark">
-            <img src={logoMark} alt="Axis & Bloom" style={{ height: 18, width: 'auto' }} />
-            AXIS &amp; BLOOM
-          </div>
+        <header className="crawl-wrap crawl-header">
+          <LogoMark />
+          <div className="crawl-wordmark">{COPY.wordmark}</div>
 
-          <span className="crawl-kicker">{COPY.kicker}</span>
-          <h1 className="crawl-h1">{COPY.h1}</h1>
-          <p className="crawl-body">{COPY.body}</p>
+          <div className="crawl-kicker">{COPY.kicker}</div>
+          <h1 className="crawl-h1">
+            <span className="crawl-h1-pink">{COPY.h1Line1}</span><br />
+            <span className="crawl-h1-terra">{COPY.h1Line2}</span>
+          </h1>
+          <p className="crawl-lede">{COPY.lede}</p>
+        </header>
 
-          <Link className="crawl-cta" to="/find-my-flavor" onClick={fireCtaClick}>
-            {COPY.ctaLabel}
-          </Link>
-          <p className="crawl-cta-micro">{COPY.ctaMicro}</p>
-
-          <div className="crawl-section">
-            <h2 className="crawl-section-h2">{COPY.fieldGuideHeading}</h2>
-            <p className="crawl-section-sub">{COPY.fieldGuideSub}</p>
-
-            <div className="crawl-grid">
-              {FIELD_GUIDE.map(item => {
-                const visual = ARCHETYPE_VISUALS[item.key];
-                return (
-                  <div key={item.key} className="crawl-tile" style={{ background: visual.color }}>
-                    <span className="crawl-tile-num">{visual.num}</span>
-                    <span className="crawl-tile-name">{item.name}</span>
-                    <span className="crawl-tile-words">{item.words}</span>
-                  </div>
-                );
-              })}
-            </div>
-
-            <p className="crawl-closing">
-              {COPY.fieldGuideClosing}{' '}
-              <Link to="/find-my-flavor" onClick={fireCtaClick}>Take the quiz →</Link>
-            </p>
-          </div>
-
-          <div className="crawl-offer">
-            <span className="crawl-offer-kicker">{COPY.offerKicker}</span>
-            <p className="crawl-offer-body">{COPY.offerBody}</p>
-          </div>
-
-          <div className="crawl-foot">
-            <p>{COPY.footDoors}</p>
-            <p>{COPY.footSocial}</p>
-            <div className="crawl-foot-sig">{COPY.footSignature}</div>
-          </div>
+        <div className="crawl-photo">
+          <img
+            src={photoBand.src}
+            srcSet={`${photoBand.mobileSrc} 900w, ${photoBand.src} 1800w`}
+            sizes="100vw"
+            alt={COPY.photoAlt}
+            loading="eager"
+            decoding="async"
+            onError={e => { e.currentTarget.style.display = 'none'; }}
+          />
         </div>
+
+        <div className="crawl-wrap">
+          <p className="crawl-game">
+            {COPY.gamePrefix} <b className="crawl-good">{COPY.gameGood}</b> {COPY.gameSuffix}
+          </p>
+
+          <p className="crawl-palate">
+            {COPY.palatePrefix} <span className="crawl-palate-pink">{COPY.palateWord}</span> {COPY.palateSuffix}
+          </p>
+
+          <form className="crawl-form" onSubmit={handleSubmit}>
+            <input
+              className="crawl-field"
+              type="text"
+              placeholder={COPY.fieldPlaceholder}
+              autoComplete="given-name"
+              value={name}
+              onChange={e => setName(e.target.value)}
+            />
+            <br />
+            <button className="crawl-btn" type="submit" disabled={!trimmedName}>
+              {COPY.buttonLabel}
+            </button>
+          </form>
+
+          <p className="crawl-perk">
+            <b className="crawl-perk-lead">{COPY.perkLead}</b>{' '}{COPY.perkBody1}{' '}
+            <span className="crawl-hot">{COPY.perkHot1}</span>{COPY.perkBody2} <span className="crawl-hot">{COPY.perkHot2}</span>{COPY.perkBody3}
+          </p>
+        </div>
+
+        <footer className="crawl-wrap crawl-footer">
+          <div className="crawl-fromto">FROM: AXIS & BLOOM {'—'} TO: HOBOKEN</div>
+          <div className="crawl-band">
+            <div style={{ background: '#a34b78' }} />
+            <div style={{ background: '#ca445f' }} />
+            <div style={{ background: '#d1ac11' }} />
+            <div style={{ background: '#a54c2d' }} />
+            <div style={{ background: '#912f2f' }} />
+            <div style={{ background: '#056c7a' }} />
+          </div>
+        </footer>
       </div>
     </>
   );

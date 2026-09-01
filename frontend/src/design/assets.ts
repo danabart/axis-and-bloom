@@ -149,6 +149,15 @@ export const brandAssets = {
   logoLines: raw('brand/logo-lines.svg'),
 };
 
+// Event landing pages (e.g. /crawl). One sub-object per event, role-based key
+// names within it (`photoBand`, not the specific photo's content) so a reshoot
+// swap is a bucket file replacement, no code change.
+export const campaignAssets = {
+  hobokenCrawl2026: {
+    photoBand: optimized('campaigns/hoboken-crawl-2026/photo-band'),
+  },
+};
+
 export const videoAssets = {
   aboutHero: raw('video/about-hero.mp4'),
   aboutSecondary: raw('video/about-secondary.mp4'),

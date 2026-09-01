@@ -98,6 +98,14 @@ export default function App() {
             {/* ── Quiz — own minimal chrome, no public nav/footer/cart ── */}
             <Route path="/find-my-flavor" element={<FlavorQuiz />} />
 
+            {/* ── Hoboken Coffee Crawl (Sep 20 2026) — Camila's approved page has its
+                 own logo/wordmark and its own footer (FROM/TO lockup + archetype
+                 band); stacking the site's Navigation/Footer around it would double
+                 up both. Own minimal chrome, same pattern as /find-my-flavor above —
+                 not wrapped in <PrelaunchGate> (see PRELAUNCH_OPEN_ROUTES); reached by
+                 QR/URL only, deliberately not in Navigation/Footer's link sets. ── */}
+            <Route path="/crawl" element={<CrawlLanding />} />
+
             {/* ── Public site — shared nav + footer. Routes not in
                  lib/prelaunch.ts's PRELAUNCH_OPEN_ROUTES are wrapped in
                  <PrelaunchGate>, which redirects to the curtain at "/" while
@@ -140,10 +148,6 @@ export default function App() {
               <Route path="/the-axis" element={<PrelaunchGate><TheAxis /></PrelaunchGate>} />
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/terms" element={<Terms />} />
-              {/* Hoboken Coffee Crawl (Sep 20 2026) — real landing page, not a redirect.
-                  Not wrapped in <PrelaunchGate> (see PRELAUNCH_OPEN_ROUTES); reached by
-                  QR/URL only, deliberately not in Navigation/Footer's link sets. */}
-              <Route path="/crawl" element={<CrawlLanding />} />
             </Route>
           </Routes>
         </BrowserRouter>

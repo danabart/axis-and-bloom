@@ -1765,6 +1765,7 @@ export default function FlavorQuiz() {
                   sessionKey={sessionKeyRef.current!}
                   onSuccess={email => { setSealedJustSubmitted(true); handleGateSuccess(email); }}
                   sealed
+                  initialFirstName={userName}
                 />
               )}
             </section>
@@ -1939,6 +1940,7 @@ export default function FlavorQuiz() {
                     confidence={scoreData?.foodSignalAlignment}
                     sessionKey={sessionKeyRef.current!}
                     onSuccess={handleGateSuccess}
+                    initialFirstName={userName}
                   />
                 </section>
               )}
