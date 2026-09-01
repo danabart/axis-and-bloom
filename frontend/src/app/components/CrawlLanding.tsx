@@ -5,6 +5,7 @@ import { trackEvent } from '../lib/analytics';
 import { rememberCampaign } from '../lib/campaign';
 import { logCampaignLanding } from '../lib/api';
 import { reportError } from '../lib/errorReporter';
+import { usePrelaunchBypass } from '../lib/prelaunch';
 
 const CAMPAIGN_SLUG = 'hoboken-crawl-2026';
 const photoBand = campaignAssets.hobokenCrawl2026.photoBand;
@@ -59,6 +60,14 @@ const COPY = {
 export default function CrawlLanding() {
   const navigate = useNavigate();
   const [name, setName] = useState('');
+
+  // /crawl is always open regardless of the prelaunch gate (return value unused here),
+  // but calling this is what actually writes the sessionStorage bypass flag when
+  // ?preview=true is present. Every other open route gets this as a side effect of
+  // rendering <Navigation>/<PrelaunchGate> inside <PublicLayout>; /crawl deliberately
+  // renders neither (Camila's page has its own header/footer), so without this call
+  // ?preview=true here would stamp nothing and the rest of the site would stay gated.
+  usePrelaunchBypass();
 
   // Part 1 behavior, kept verbatim: stamp the campaign, fire the landing beacon
   // (fire-and-forget, never blocks rendering), never forward UTMs anywhere else —
