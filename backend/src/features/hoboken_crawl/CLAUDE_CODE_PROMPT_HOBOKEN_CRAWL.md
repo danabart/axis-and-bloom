@@ -1,7 +1,7 @@
 # Feature: Hoboken Coffee Crawl — `/crawl` landing page + campaign attribution
 
 > Folder: `backend/src/features/hoboken_crawl/` · Decided: 2026-08-31 (Dana) · Model: Sonnet is fine (small, contained; one new page, one new nullable column, one new tag)
-> Status: ⏳ not executed
+> Status: ✅ executed 2026-08-31 (WHAT_WE_BUILT.md #173)
 > Depends on: pre-launch gate (#156) executed; reveal-in-inbox executed; #169 (match email via Resend) executed; first-name field (#171) executed.
 > Hard date: the event is **Saturday, September 20, 2026**. Everything below must be live and smoke-tested on production well before that day.
 
