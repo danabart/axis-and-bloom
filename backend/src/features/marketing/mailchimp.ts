@@ -1,7 +1,7 @@
 // Step 05 (C1): Mailchimp sync — member upsert (FNAME + ARCHETYPE merge fields) plus
-// tag assignment (source/archetype/quiz-completed/experimental). Kept non-blocking and
-// MC_ENABLED-guarded throughout, matching the existing subscribe flow's contract: a
-// Mailchimp failure must never fail the signup request.
+// tag assignment (source/archetype/quiz-completed/experimental/campaign). Kept
+// non-blocking and MC_ENABLED-guarded throughout, matching the existing subscribe
+// flow's contract: a Mailchimp failure must never fail the signup request.
 
 import crypto from 'crypto';
 
@@ -26,6 +26,7 @@ export interface MailchimpTagInputs {
   source?: string | null;
   archetype?: string | null;
   experimental?: boolean | null;
+  campaign?: string | null;
 }
 
 // Step 06 (C2): the DB/quiz gate send archetype DISPLAY NAMES ("Balanced & Sweet"), but
@@ -56,12 +57,13 @@ export function toArchetypeSlug(name: string): string {
   return name;
 }
 
-export function buildTags({ source, archetype, experimental }: MailchimpTagInputs): string[] {
+export function buildTags({ source, archetype, experimental, campaign }: MailchimpTagInputs): string[] {
   const tags: string[] = [];
   if (source) tags.push(`source:${source}`);
   if (archetype) tags.push(`archetype:${toArchetypeSlug(archetype)}`);
   if (source === 'post_quiz') tags.push('quiz-completed');
   if (experimental) tags.push('experimental');
+  if (campaign) tags.push(`campaign:${campaign}`);
   return tags;
 }
 

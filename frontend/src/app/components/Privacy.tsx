@@ -83,6 +83,12 @@ export default function Privacy() {
             submitted) to our own database, regardless of your cookie choice — this is how we measure our own
             funnel and isn't shared with any outside company.
           </p>
+          <p style={p}>
+            If you arrive from an event landing page (like a QR code at a partner event), we store a
+            randomly-generated, anonymous visitor key on your device to connect that visit to a later quiz
+            completion or signup, along with basic landing details (referring page, campaign). It isn't tied to
+            your name or email unless you separately give us those.
+          </p>
         </div>
 
         <div style={section}>

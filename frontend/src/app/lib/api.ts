@@ -86,6 +86,8 @@ export async function subscribeNewsletter(payload: {
   experimental?: boolean;
   confidence?: string;
   quizSessionKey?: string;
+  campaign?: string;
+  campaignVid?: string;
 }) {
   const res = await fetch(`${BASE}/newsletter/subscribe`, {
     method: 'POST',
@@ -102,13 +104,38 @@ export async function logQuizFunnelEvent(
   sessionKey: string,
   event: 'quiz_start' | 'quiz_complete' | 'email_submitted',
   archetype?: string,
+  attribution?: { campaign: string; vid: string },
 ) {
   const res = await fetch(`${BASE}/quiz/event`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionKey, event, archetype }),
+    body: JSON.stringify({
+      sessionKey,
+      event,
+      archetype,
+      campaign: attribution?.campaign,
+      campaignVid: attribution?.vid,
+    }),
   });
   if (!res.ok) throw new Error('Failed to log funnel event');
+}
+
+// Hoboken Coffee Crawl (2026-08-31) — fire-and-forget landing beacon from
+// CrawlLanding.tsx. Never blocks rendering; callers should .catch() and swallow.
+export async function logCampaignLanding(payload: {
+  campaign: string;
+  vid: string;
+  utmSource?: string | null;
+  utmMedium?: string | null;
+  utmCampaign?: string | null;
+  referrer?: string | null;
+}) {
+  const res = await fetch(`${BASE}/campaign/landing`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error('Failed to log campaign landing');
 }
 
 export async function getUserProfile() {

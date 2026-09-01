@@ -192,9 +192,9 @@ router.post('/score', async (req, res) => {
 // alone collapses behind Cloudflare -> Firebase Hosting -> Cloud Run.
 const funnelEventLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, keyGenerator: getRealClientIp });
 router.post('/event', funnelEventLimiter, async (req, res) => {
-  const { sessionKey, event, archetype } = req.body ?? {};
+  const { sessionKey, event, archetype, campaign, campaignVid } = req.body ?? {};
   try {
-    await logFunnelEvent(sessionKey, event, archetype);
+    await logFunnelEvent(sessionKey, event, archetype, campaign, campaignVid);
     res.json({ ok: true });
   } catch (err: any) {
     console.error('[quiz/event]', err);

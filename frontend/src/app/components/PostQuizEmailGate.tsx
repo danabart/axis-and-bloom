@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { subscribeNewsletter } from '../lib/api';
 import { reportError } from '../lib/errorReporter';
+import { getActiveCampaign } from '../lib/campaign';
 
 const BRAND = '#a33726';
 const ACCENT = '#ee5974';
@@ -36,6 +37,7 @@ export function PostQuizEmailGate({ archetypeName, archetypeColor, experimental,
     setSubmitting(true);
     setError(false);
     try {
+      const activeCampaign = getActiveCampaign();
       await subscribeNewsletter({
         email,
         firstName: trimmedFirstName,
@@ -44,6 +46,7 @@ export function PostQuizEmailGate({ archetypeName, archetypeColor, experimental,
         experimental,
         confidence,
         quizSessionKey: sessionKey,
+        ...(activeCampaign ? { campaign: activeCampaign.slug, campaignVid: activeCampaign.vid } : {}),
       });
       onSuccess(email);
     } catch (err) {

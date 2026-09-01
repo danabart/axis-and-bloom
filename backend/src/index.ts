@@ -32,6 +32,7 @@ import companiesAdminRouter from './routes/companiesAdmin.js';
 import qrRouter from './routes/qr.js';
 import beatsRouter from './routes/beats.js';
 import clientErrorsRouter from './routes/clientErrors.js';
+import campaignRouter from './routes/campaign.js';
 import { initSommelierConfig } from './services/sommelierConfig.js';
 import { runQuizIntegrityChecks } from './services/quizIntegrity.js';
 
@@ -113,6 +114,7 @@ app.use('/api/admin/companies', companiesAdminRouter);
 app.use('/api/qr', qrRouter);
 app.use('/api/beats', beatsRouter);
 app.use('/api/client-errors', clientErrorsRouter);
+app.use('/api/campaign', campaignRouter);
 
 // Observability Foundation Part B -- central boundary handler, mounted AFTER
 // every router so it only sees what Express itself routes here: a

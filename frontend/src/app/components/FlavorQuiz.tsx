@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { usePrelaunchGated } from '../lib/prelaunch';
 import { saveQuizResult, getUserProfile, getDialPosition, setDialPosition, logQuizFunnelEvent, subscribeNewsletter } from '../lib/api';
+import { getActiveCampaign } from '../lib/campaign';
 import { trackEvent, trackLead } from '../lib/analytics';
 import { reportError } from '../lib/errorReporter';
 import { PostQuizEmailGate } from './PostQuizEmailGate';
@@ -843,7 +844,8 @@ export default function FlavorQuiz() {
     const name = ARCHETYPES[archetypeKey].name;
     trackEvent('EmailSubmitted', { archetype: name });
     trackLead({ archetype: name });
-    logQuizFunnelEvent(sessionKeyRef.current!, 'email_submitted', name).catch(err => reportError('[FlavorQuiz/funnel-event]', err));
+    const activeCampaign = getActiveCampaign();
+    logQuizFunnelEvent(sessionKeyRef.current!, 'email_submitted', name, activeCampaign ? { campaign: activeCampaign.slug, vid: activeCampaign.vid } : undefined).catch(err => reportError('[FlavorQuiz/funnel-event]', err));
   }
 
   // Recognized guest (local flag from a previous submit) or a retake in the same
@@ -854,6 +856,7 @@ export default function FlavorQuiz() {
     const name = ARCHETYPES[archetypeKey].name;
     if (recognizedGuestSyncedRef.current === name) return;
     recognizedGuestSyncedRef.current = name;
+    const activeCampaignResync = getActiveCampaign();
     subscribeNewsletter({
       email: postQuizEmail,
       source: 'post_quiz',
@@ -861,6 +864,7 @@ export default function FlavorQuiz() {
       experimental: archetypeKey === 'experimental',
       confidence: scoreData?.foodSignalAlignment,
       quizSessionKey: sessionKeyRef.current,
+      ...(activeCampaignResync ? { campaign: activeCampaignResync.slug, campaignVid: activeCampaignResync.vid } : {}),
     }).catch(err => reportError('[FlavorQuiz/resync-guest-subscriber]', err));
   }, [user, postQuizEmail, resultsArchetypeData, archetypeKey]);
 
@@ -873,6 +877,7 @@ export default function FlavorQuiz() {
     if (signedInSubscribeFiredRef.current === name) return;
     signedInSubscribeFiredRef.current = name;
     const wasAlreadySubscribed = userProfile.isNewsletterSubscriber === true;
+    const activeCampaignSignedIn = getActiveCampaign();
     subscribeNewsletter({
       email: userProfile.email ?? user.email ?? '',
       firstName: userProfile.firstName ?? undefined,
@@ -881,11 +886,12 @@ export default function FlavorQuiz() {
       experimental: archetypeKey === 'experimental',
       confidence: scoreData?.foodSignalAlignment,
       quizSessionKey: sessionKeyRef.current,
+      ...(activeCampaignSignedIn ? { campaign: activeCampaignSignedIn.slug, campaignVid: activeCampaignSignedIn.vid } : {}),
     }).then(() => {
       if (!wasAlreadySubscribed) {
         trackEvent('EmailSubmitted', { archetype: name });
         trackLead({ archetype: name });
-        logQuizFunnelEvent(sessionKeyRef.current!, 'email_submitted', name).catch(err => reportError('[FlavorQuiz/funnel-event]', err));
+        logQuizFunnelEvent(sessionKeyRef.current!, 'email_submitted', name, activeCampaignSignedIn ? { campaign: activeCampaignSignedIn.slug, vid: activeCampaignSignedIn.vid } : undefined).catch(err => reportError('[FlavorQuiz/funnel-event]', err));
         setShowSignedInConsentNote(true);
       }
     }).catch(err => reportError('[FlavorQuiz/signed-in-subscribe]', err));
@@ -974,7 +980,8 @@ export default function FlavorQuiz() {
       setScoreData(score);
 
       trackEvent('QuizComplete', { archetype: score.archetype });
-      logQuizFunnelEvent(sessionKeyRef.current!, 'quiz_complete', score.archetype).catch(err => reportError('[FlavorQuiz/funnel-event]', err));
+      const activeCampaignComplete = getActiveCampaign();
+      logQuizFunnelEvent(sessionKeyRef.current!, 'quiz_complete', score.archetype, activeCampaignComplete ? { campaign: activeCampaignComplete.slug, vid: activeCampaignComplete.vid } : undefined).catch(err => reportError('[FlavorQuiz/funnel-event]', err));
 
       const key = ARCHETYPE_NAME_TO_KEY[score.archetype] ?? 'balanced';
       setArchetypeKey(key);
@@ -1069,7 +1076,8 @@ export default function FlavorQuiz() {
     if (currentStep === 0 && !quizStartFiredRef.current) {
       quizStartFiredRef.current = true;
       trackEvent('QuizStart');
-      logQuizFunnelEvent(sessionKeyRef.current!, 'quiz_start').catch(err => reportError('[FlavorQuiz/funnel-event]', err));
+      const activeCampaignStart = getActiveCampaign();
+      logQuizFunnelEvent(sessionKeyRef.current!, 'quiz_start', undefined, activeCampaignStart ? { campaign: activeCampaignStart.slug, vid: activeCampaignStart.vid } : undefined).catch(err => reportError('[FlavorQuiz/funnel-event]', err));
     }
     setAnswers(prev => ({ ...prev, [currentStep]: answerIdx }));
     setSelectedIds(prev => ({ ...prev, [currentStep]: answerId }));

@@ -41,6 +41,7 @@ import RequireAuth from './components/RequireAuth';
 import PrelaunchGate from './components/PrelaunchGate';
 import Privacy from './components/Privacy';
 import Terms from './components/Terms';
+import CrawlLanding from './components/CrawlLanding';
 import ConsentBanner from './components/ConsentBanner';
 import { usePrelaunchGated } from './lib/prelaunch';
 
@@ -139,6 +140,10 @@ export default function App() {
               <Route path="/the-axis" element={<PrelaunchGate><TheAxis /></PrelaunchGate>} />
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/terms" element={<Terms />} />
+              {/* Hoboken Coffee Crawl (Sep 20 2026) — real landing page, not a redirect.
+                  Not wrapped in <PrelaunchGate> (see PRELAUNCH_OPEN_ROUTES); reached by
+                  QR/URL only, deliberately not in Navigation/Footer's link sets. */}
+              <Route path="/crawl" element={<CrawlLanding />} />
             </Route>
           </Routes>
         </BrowserRouter>

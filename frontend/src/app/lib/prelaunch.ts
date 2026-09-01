@@ -37,6 +37,7 @@ export const PRELAUNCH_OPEN_ROUTES = [
   '/privacy',
   '/admin',
   '/b/:token',
+  '/crawl', // Hoboken Coffee Crawl event page (Sep 20 2026) — reached by QR/URL only.
 ] as const;
 
 const BYPASS_KEY = 'abPreview';

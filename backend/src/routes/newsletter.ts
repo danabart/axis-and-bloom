@@ -4,6 +4,7 @@ import { optionalAuth, type AuthRequest } from '../middleware/auth.js';
 import { syncMailchimpMember, toArchetypeSlug } from '../features/marketing/mailchimp.js';
 import { sendResendEmail } from '../features/marketing/resendEmail.js';
 import { renderQuizCompleteEmail } from '../features/marketing/templates/quizCompleteEmail.js';
+import { normalizeCampaign, normalizeVid } from '../features/marketing/campaigns.js';
 
 const router = Router();
 
@@ -51,6 +52,8 @@ interface SubscribeExtras {
   confidence?: string;
   quizSessionKey?: string;
   firebaseUid?: string;
+  campaign?: string | null;
+  campaignVid?: string | null;
 }
 
 async function handleSubscribe(
@@ -78,23 +81,32 @@ async function handleSubscribe(
     userId = profileResult.rows[0]?.id ?? null;
   }
 
+  // Hoboken Coffee Crawl (2026-08-31): campaign is a second, orthogonal dimension
+  // from source — never write an unknown client-supplied campaign, and if campaign
+  // doesn't normalize, drop vid too (no attribution timestamp without a real campaign).
+  const cleanCampaign = normalizeCampaign(extra.campaign);
+  const cleanCampaignVid = cleanCampaign ? normalizeVid(extra.campaignVid) : null;
+
   await db.query(
-    `INSERT INTO newsletter_subscriber (email, first_name, source_id, user_id, archetype, experimental, confidence, quiz_session_key)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO newsletter_subscriber (email, first_name, source_id, user_id, archetype, experimental, confidence, quiz_session_key, campaign, campaign_vid, campaign_attributed_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $9::text IS NOT NULL THEN now() END)
      ON CONFLICT (email) DO UPDATE
-       SET subscribed       = TRUE,
-           first_name       = COALESCE(EXCLUDED.first_name, newsletter_subscriber.first_name),
-           source_id        = COALESCE(newsletter_subscriber.source_id, EXCLUDED.source_id),
-           user_id          = COALESCE(newsletter_subscriber.user_id, EXCLUDED.user_id),
-           archetype        = COALESCE(EXCLUDED.archetype, newsletter_subscriber.archetype),
-           experimental     = COALESCE(EXCLUDED.experimental, newsletter_subscriber.experimental),
-           confidence       = COALESCE(EXCLUDED.confidence, newsletter_subscriber.confidence),
-           quiz_session_key = COALESCE(EXCLUDED.quiz_session_key, newsletter_subscriber.quiz_session_key)`,
-    [clean, cleanName || null, sourceId, userId, extra.archetype ?? null, extra.experimental ?? null, extra.confidence ?? null, extra.quizSessionKey ?? null],
+       SET subscribed             = TRUE,
+           first_name             = COALESCE(EXCLUDED.first_name, newsletter_subscriber.first_name),
+           source_id              = COALESCE(newsletter_subscriber.source_id, EXCLUDED.source_id),
+           user_id                = COALESCE(newsletter_subscriber.user_id, EXCLUDED.user_id),
+           archetype              = COALESCE(EXCLUDED.archetype, newsletter_subscriber.archetype),
+           experimental           = COALESCE(EXCLUDED.experimental, newsletter_subscriber.experimental),
+           confidence             = COALESCE(EXCLUDED.confidence, newsletter_subscriber.confidence),
+           quiz_session_key       = COALESCE(EXCLUDED.quiz_session_key, newsletter_subscriber.quiz_session_key),
+           campaign               = COALESCE(newsletter_subscriber.campaign, EXCLUDED.campaign),
+           campaign_vid           = COALESCE(newsletter_subscriber.campaign_vid, EXCLUDED.campaign_vid),
+           campaign_attributed_at = COALESCE(newsletter_subscriber.campaign_attributed_at, CASE WHEN EXCLUDED.campaign IS NOT NULL THEN now() END)`,
+    [clean, cleanName || null, sourceId, userId, extra.archetype ?? null, extra.experimental ?? null, extra.confidence ?? null, extra.quizSessionKey ?? null, cleanCampaign, cleanCampaignVid],
   );
 
   // Forward to Mailchimp — non-blocking, never fails the request
-  syncMailchimpMember(clean, cleanName, { source: sourceName, archetype: extra.archetype, experimental: extra.experimental }).catch(err =>
+  syncMailchimpMember(clean, cleanName, { source: sourceName, archetype: extra.archetype, experimental: extra.experimental, campaign: cleanCampaign }).catch(err =>
     console.error('[newsletter] mailchimp error:', err)
   );
 
@@ -114,16 +126,17 @@ async function handleSubscribe(
 // optionalAuth: public (guests must be able to subscribe), but links user_id when
 // the caller is signed in.
 router.post('/subscribe', optionalAuth, async (req: AuthRequest, res) => {
-  const { email, firstName = '', source = 'newsletter', archetype, experimental, confidence, quizSessionKey } = req.body as {
+  const { email, firstName = '', source = 'newsletter', archetype, experimental, confidence, quizSessionKey, campaign, campaignVid } = req.body as {
     email?: string; firstName?: string; source?: string;
     archetype?: string; experimental?: boolean; confidence?: string; quizSessionKey?: string;
+    campaign?: string; campaignVid?: string;
   };
   if (!email || typeof email !== 'string') {
     res.status(400).json({ error: 'email required' });
     return;
   }
   try {
-    await handleSubscribe(email, source, firstName, { archetype, experimental, confidence, quizSessionKey, firebaseUid: req.uid }, res);
+    await handleSubscribe(email, source, firstName, { archetype, experimental, confidence, quizSessionKey, campaign, campaignVid, firebaseUid: req.uid }, res);
   } catch (err) {
     console.error('[newsletter/subscribe]', err);
     res.status(500).json({ error: 'Failed to subscribe' });
@@ -133,16 +146,17 @@ router.post('/subscribe', optionalAuth, async (req: AuthRequest, res) => {
 // ── POST /api/newsletter ──────────────────────────────────────────────────────
 // Backward-compat alias — NewsletterModal currently calls this path.
 router.post('/', optionalAuth, async (req: AuthRequest, res) => {
-  const { email, firstName = '', source = 'newsletter', archetype, experimental, confidence, quizSessionKey } = req.body as {
+  const { email, firstName = '', source = 'newsletter', archetype, experimental, confidence, quizSessionKey, campaign, campaignVid } = req.body as {
     email?: string; firstName?: string; source?: string;
     archetype?: string; experimental?: boolean; confidence?: string; quizSessionKey?: string;
+    campaign?: string; campaignVid?: string;
   };
   if (!email || typeof email !== 'string') {
     res.status(400).json({ error: 'email required' });
     return;
   }
   try {
-    await handleSubscribe(email, source, firstName, { archetype, experimental, confidence, quizSessionKey, firebaseUid: req.uid }, res);
+    await handleSubscribe(email, source, firstName, { archetype, experimental, confidence, quizSessionKey, campaign, campaignVid, firebaseUid: req.uid }, res);
   } catch (err) {
     console.error('[newsletter]', err);
     res.status(500).json({ error: 'Failed to subscribe' });
