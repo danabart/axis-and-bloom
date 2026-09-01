@@ -3,7 +3,7 @@
 > **REVISION 2026-09-01 (later the same day):** Task A is now **Lato**, not Genova. Dana and Camila decided not to take on font licensing before launch; Lato is SIL OFL (free for web/desktop/email). Every "Genova" in Task A below has been rewritten; Task B builds the page in Lato using Camila's sizes, colors, spacing and copy unchanged. If you already started Task A with Genova: discard that work (`git checkout -- .` on the affected files, delete `frontend/src/design/FONT/genova/` and `.../montserrat/`), then do Task A as written here.
 
 > Folder: `backend/src/features/hoboken_crawl/` · Decided: 2026-09-01 (Dana) · Model: Sonnet is fine (two contained tasks; the second is a faithful port of an approved mockup)
-> Status: ⏳ not executed
+> Status: ✅ executed 2026-09-01 (WHAT_WE_BUILT.md #174)
 > Depends on: Part 1 executed (WHAT_WE_BUILT.md #173, commits a08bbc3 + d79dc1f): `/crawl` route, `lib/campaign.ts`, `POST /api/campaign/landing`, campaign columns + views. **Keep all of that; this part changes how the page looks and how the name reaches the quiz, not attribution.**
 > Hard date: event is **Sunday, September 20, 2026**.
 
