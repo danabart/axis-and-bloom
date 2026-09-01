@@ -111,6 +111,10 @@
   html {
     font-size: var(--font-size);
     font-family: 'Lato', Arial, ui-sans-serif, system-ui, sans-serif;
+    /* Real weight files at 300/400/500/700/900 now cover every Tailwind weight
+       used on this site (fonts.css); this guards against the browser ever
+       fake-bolding a weight that somehow misses. */
+    font-synthesis: none;
   }
 
   body {

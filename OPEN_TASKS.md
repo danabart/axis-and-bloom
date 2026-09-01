@@ -171,8 +171,8 @@ Firebase Auth provider configured for Email/Password and Google but not Apple. R
 ### OT-10: Video placeholders
 The hero and cinematic sections use placeholder `<source src>` values. Swap when real brand videos are ready. Files: `Home.tsx` — look for `<source src` near video elements.
 
-### OT-11: Font cleanup
-`font-light` (weight 300) appears in ~40 places on unredesigned pages. The Genova font only has weights 100/400/900 — the browser silently falls back to Thin (100). Clean up per-page during redesign passes. Not a visible bug on most screens but technically incorrect.
+### OT-11: Font cleanup — ✅ Resolved 2026-09-01 (Hoboken Crawl Part 2, Task A)
+`font-light` (weight 300) appears in ~40 places on unredesigned pages. Turned out to be one layer deeper than described here: the font actually rendering site-wide since 2026-07-05 was Arial, not Genova at all — `cab3716` switched every reference to `'Lato', Arial, ...`, but the referenced `Lato-Regular.ttf` was never committed, so the `@font-face` silently failed and every page fell through to Arial (see `backend/src/features/hoboken_crawl/CLAUDE_CODE_PROMPT_HOBOKEN_CRAWL_PART2_GENOVA_AND_PAGE.md`'s "Why two tasks in one brief" for the full history). Fixed by installing real Lato weight files (Light/Regular/Medium/Bold/Black, SIL OFL) with `font-weight` **ranges** in `fonts.css` (e.g. Light spans 100–300), so `font-light` now resolves to the real Light face instead of silently collapsing to a hairline weight or, before that, Arial's own default. `font-synthesis: none` added too, so no weight/style the browser can't find gets faked.
 
 ---
 
@@ -199,6 +199,15 @@ Everything already tracked elsewhere, gathered here so SMS day is one checklist:
 
 ---
 
+### OT-18: Camila's review — Arial → Lato font-metrics cosmetic list (2026-09-01)
+Every open page site-wide (previously silently rendering in Arial — see OT-11) now renders in the real Lato weight files. Visual pass at 390px/1280px over `/`, `/find-my-flavor` (entry/question/sealed/confirmation), `/sign-in`, `/privacy`, `/terms`, and (`?preview=true`) `/bloom`, `/flavor-intelligence`, `/how-it-works`. No overflow or clipping caused by the font swap — only cosmetic metric differences, listed here for Camila to judge, not changed:
+
+- **`/find-my-flavor` entry screen** — "Whose palate are we profiling today?" now wraps to 3 lines at 390px (`Whose palate are` / `we` / `profiling today?`), leaving "we" alone on its own line. Same fixed max-width container as before; Lato's slightly wider average character width pushed the break point. Not clipped, just a less even wrap than Arial gave it.
+- General note: Lato reads narrower/more compact than Arial at the same tracked letter-spacing values across headers and kickers site-wide — nothing broke, but any tracked headline Camila wants re-tuned for Lato's specific metrics (vs. the generic Arial fallback everything was actually designed against for the last two months) is a legitimate follow-up, not a bug.
+- **Unrelated, found during this pass, not fixed here (out of scope for a font migration):** `/bloom`'s dial (`.bd-dial-wrap`, `BloomDial.tsx`) is a fixed 400×400px element inside 40px of padding — inherently wider than a 390px mobile viewport regardless of font. Confirmed via the CSS itself (fixed pixel dimensions, not text-driven) that this is pre-existing and font-independent, not a regression from this task.
+
+---
+
 ## 📋 Log
 
 | Date | Task | Status |
@@ -219,9 +228,10 @@ Everything already tracked elsewhere, gathered here so SMS day is one checklist:
 | — | OT-8: Apple Sign-In | ⏳ Pending |
 | — | OT-9: Token purchase (Stripe) | ⏳ Pending |
 | — | OT-10: Video placeholders | ⏳ Pending (needs brand videos) |
-| — | OT-11: Font-light cleanup | ⏳ Pending |
+| 2026-09-01 | OT-11: Font-light cleanup — real Lato weight files installed, `font-light` now resolves correctly | ✅ Done |
 | 2026-07-13 | OT-12: Cupping sessions not capturing descriptor intensity | ⏳ Pending (data-entry habit, not code) |
 | 2026-07-12 | Company Gift Subscriptions — spec committed + Phase 1 (schema: `company_gift`, `company_gift_code`) + Phase 2 (admin + redemption backend routes) | ✅ Done |
 | 2026-07-13 | Company Gift Subscriptions — Phase 3 (lifecycle stages + cron + emails) + Phase 4/5 (homepage widget + admin dashboard + email template) + full test-matrix verification (incl. concurrent-redemption race, cross-employee visibility audit) | ✅ Done |
 | — | OT-13: Cloud Scheduler jobs for Company Gift crons | ⏳ Pending (needs OT-1's secret, already done) |
 | — | OT-14: Company Gift emails — swap `/profile` placeholder for real checkout | ⏳ Pending (needs OT-6) |
+| 2026-09-01 | OT-18: Camila's review of the Arial → Lato cosmetic list | ⏳ Pending (Camila to review) |
