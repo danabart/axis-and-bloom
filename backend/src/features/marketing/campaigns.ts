@@ -4,7 +4,7 @@
 // /subscribe or /campaign/landing, so an allowlist keeps stray client-supplied values
 // out of the DB and out of Mailchimp tags.
 
-export const KNOWN_CAMPAIGNS = new Set(['hoboken-crawl-2026']);
+export const KNOWN_CAMPAIGNS = new Set(['hoboken-crawl-2026', 'instagram', 'facebook']);
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const UTM_RE = /^[a-z0-9_-]+$/;

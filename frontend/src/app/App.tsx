@@ -43,6 +43,7 @@ import Privacy from './components/Privacy';
 import Terms from './components/Terms';
 import CrawlLanding from './components/CrawlLanding';
 import ConsentBanner from './components/ConsentBanner';
+import CampaignQueryReader from './components/CampaignQueryReader';
 import { usePrelaunchGated } from './lib/prelaunch';
 
 // GA4/Pixel config disables automatic page views (this is an SPA) — fire one on every
@@ -67,6 +68,7 @@ export default function App() {
       <CartProvider>
         <BrowserRouter>
           <AnalyticsRouteTracker />
+          <CampaignQueryReader />
           <ConsentBanner />
           <Routes>
             {/* ── Admin portal — own layout, no public nav/footer ── */}

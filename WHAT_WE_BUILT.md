@@ -4480,6 +4480,31 @@ https://axisandbloomcoffee.com/crawl?utm_source=hoboken-crawl&utm_medium=print&u
 
 ---
 
+### 175. Social campaign links — instagram + facebook slugs, generic `?campaign=` reader (2026-09-10)
+
+**Context**: `backend/src/features/hoboken_crawl/CLAUDE_CODE_PROMPT_SOCIAL_CAMPAIGNS.md`. Small extension of the Hoboken Crawl attribution mechanism (#173/#174) to Instagram/Facebook bio links — no new landing page, no schema change, reuses the stamp/beacon/COALESCE/Mailchimp-tag/view machinery as-is. Task 0 verification: all 5 CONTEXT claims checked directly against the tree (exact line numbers in `CrawlLanding.tsx`, `App.tsx`'s mount order, `getActiveCampaign()` call sites, the two views' `GROUP BY campaign`) — zero drift.
+
+**Built**: `campaign.ts`'s `CAMPAIGNS` map gained `instagram`/`facebook` entries; `campaigns.ts`'s `KNOWN_CAMPAIGNS` allowlist gained the same two slugs (the entire backend change — `/api/campaign/landing`, subscribe, and funnel logging all already accept any allowlisted slug generically, verified rather than assumed). New `frontend/src/app/components/CampaignQueryReader.tsx`, mounted once in `App.tsx` next to `<AnalyticsRouteTracker />`: on every location change, reads `?campaign=`, and — only for a known slug, at most once per slug per page load (a ref guard) — does exactly what `CrawlLanding.tsx`'s mount effect does (`rememberCampaign`, `trackEvent('CampaignLanding', ...)`, fire-and-forget `logCampaignLanding` with UTMs/referrer). Deliberately duplicated rather than extracted into a shared helper, per the brief's own CONSTRAINTS — small, and keeps the live `/crawl` page untouched two weeks before its event. Never strips the `campaign` param from the URL (GA4 reads it natively). `CrawlLanding.tsx` itself untouched, as specified — its printed URL carries no `campaign` param, so it keeps its own hardcoded stamp.
+
+**Verified**: `npx tsc --noEmit` clean (same 12 pre-existing errors, zero new). `vite build` clean — note: bare `npx vite build` resolved to a stray globally-cached `vite v8.2.2` this session (`rolldown`/`UNRESOLVED_ENTRY` errors, unrelated to this change) instead of the project's pinned `6.4.3`; built via `./node_modules/.bin/vite build` instead, clean.
+
+**Acceptance — all 7 items verified live** (backend run locally against real prod Cloud SQL via the Auth Proxy, real UI click-through via a disposable Playwright/Chromium install — the public site remains Cloudflare-bot-challenged for non-browser traffic, same as #173/#174):
+1. `?campaign=instagram&utm_source=...` on `/find-my-flavor`: quiz entry renders normally, `localStorage.ab_campaign` stamps `instagram`, `campaign_landing_event` row lands with the UTMs.
+2. Quiz completed end-to-end through the real UI, sealed card submitted → `newsletter_subscriber`/`quiz_funnel_event` rows carry `campaign = 'instagram'` and the stamped vid, read back from the real rows. Mailchimp tag verified via `buildTags()` directly (`{source:'post_quiz', archetype:'Fruity', campaign:'instagram'}` → `campaign:instagram` present, exact match) — `mailchimp.ts` itself is untouched by this task, and `buildTags` already appends `campaign:<slug>` generically for any value, so this follows by construction; a live Mailchimp member round-trip wasn't attempted (the `@example.com` test addresses this repo's convention uses are rejected by Mailchimp's own validation before a member exists, same finding as #173).
+3. `facebook`: same stamp + landing-row check, confirmed.
+4. `?campaign=twitter` (unknown): nothing stored, no beacon fired, no console error. No `campaign` param: entry renders identically, no stamp created.
+5. First-wins verified by reading the row, not reasoning about it: two direct `/subscribe` calls for the same email, `campaign=instagram` first then `campaign=hoboken-crawl-2026` second — the row kept `instagram`, confirming the existing `COALESCE` rule holds unmodified for the new slugs.
+6. `/crawl` regression: the scan-URL flow still lands a `hoboken-crawl-2026` row with the right UTMs. One local-only wrinkle found and explained, not hidden: `main.tsx`'s `<StrictMode>` double-invokes mount effects in `vite dev` (confirmed directly — two rows land ~85ms apart with identical data), which is a React dev-mode-only diagnostic behavior, absent from the actual production build already live. The regression check itself (does a correct row land) holds either way.
+7. `SELECT * FROM campaign_funnel_v;` now shows one row each for `instagram`, `facebook`, and `hoboken-crawl-2026`.
+
+**Also found, not touched**: mid-cleanup, a `hoboken-crawl-2026` landing vid with rows dated 2026-09-01 through 2026-09-05 (days after #174 shipped, days before this session) turned out to be real accumulated production activity, not test residue — left completely alone, same discipline as #174's handling of Dana's own live-tested rows.
+
+**Files**: `frontend/src/app/lib/campaign.ts`, `frontend/src/app/components/CampaignQueryReader.tsx` (new), `frontend/src/app/App.tsx`, `backend/src/features/marketing/campaigns.ts`.
+
+**Pushed** (one commit, with Dana's go-ahead) — deploy green, backend startup log clean (`DB schema verified`, no errors, no schema change as expected). `main` == `origin/main` throughout; the pre-existing uncommitted `OPEN_TASKS.md` and `launch/60_commerce-and-fulfillment/12_G1_payment_capture_PLACEHOLDER.md` changes were left completely untouched.
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

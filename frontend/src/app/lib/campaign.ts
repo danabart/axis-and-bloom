@@ -6,7 +6,11 @@
 // localStorage, not sessionStorage: a crawler scans in the morning and may finish the
 // quiz that evening on the same phone — the stamp has to survive a closed tab.
 
-export const CAMPAIGNS = { 'hoboken-crawl-2026': { label: 'Hoboken Coffee Crawl 2026' } } as const;
+export const CAMPAIGNS = {
+  'hoboken-crawl-2026': { label: 'Hoboken Coffee Crawl 2026' },
+  instagram: { label: 'Instagram' },
+  facebook: { label: 'Facebook' },
+} as const;
 export type CampaignSlug = keyof typeof CAMPAIGNS;
 
 const STORAGE_KEY = 'ab_campaign';
