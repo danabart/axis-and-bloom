@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { usePrelaunchGated } from '../lib/prelaunch';
 import { saveQuizResult, getUserProfile, getDialPosition, setDialPosition, logQuizFunnelEvent, subscribeNewsletter } from '../lib/api';
-import { getActiveCampaign } from '../lib/campaign';
+import { getActiveCampaign, CAMPAIGNS } from '../lib/campaign';
 import { trackEvent, trackLead } from '../lib/analytics';
 import { reportError } from '../lib/errorReporter';
 import { PostQuizEmailGate } from './PostQuizEmailGate';
@@ -916,6 +916,29 @@ export default function FlavorQuiz() {
       sessionStorage.removeItem('axisBloomCustomerName');
     }
   }, []);
+
+  // Campaign fast-start (2026-09-10) — a direct campaign-link arrival
+  // (?campaign=<key of CAMPAIGNS>, e.g. an Instagram/Facebook bio link) skips the
+  // anonymous entry screen straight to question 1, same state transition as the
+  // axisBloomCustomerName effect above (setHasStarted(true), name left '' — collected
+  // at the end on the email card instead, via its existing initialFirstName prop).
+  // Never touches userName itself, so if the sessionStorage effect above also fires
+  // (arrives with both a stored name AND a campaign param — not expected in practice,
+  // /crawl's own URL never carries ?campaign=), its real name naturally wins either way.
+  // Recognized returning users must still see "Welcome back" (Decision 2) — waits for
+  // profileFetchDone before deciding for a signed-in visitor, same pattern as the
+  // ?retake=1 handler below; a guest is decided immediately.
+  const campaignFastStartHandledRef = useRef(false);
+  useEffect(() => {
+    if (campaignFastStartHandledRef.current) return;
+    const campaignParam = searchParams.get('campaign');
+    if (!campaignParam || !(campaignParam in CAMPAIGNS)) return; // no/unknown campaign — today's entry screen renders normally
+    if (user && !profileFetchDone) return; // signed-in — wait for the profile fetch to actually resolve
+
+    campaignFastStartHandledRef.current = true;
+    if (user && userProfile?.archetype) return; // recognized returning user — let "Welcome back" render instead
+    setHasStarted(true);
+  }, [searchParams, user, profileFetchDone, userProfile]);
 
   // Scroll to top when result becomes visible (e.g. ?result= preview shortcut)
   useEffect(() => {

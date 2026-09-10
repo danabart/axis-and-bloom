@@ -4505,6 +4505,32 @@ https://axisandbloomcoffee.com/crawl?utm_source=hoboken-crawl&utm_medium=print&u
 
 ---
 
+### 176. Campaign fast-start — social-link arrivals skip the quiz entry screen (2026-09-10)
+
+**Context**: `backend/src/features/hoboken_crawl/CLAUDE_CODE_PROMPT_CAMPAIGN_QUIZ_FASTSTART.md`. Builds directly on #175 (instagram/facebook slugs): a visitor arriving on `/find-my-flavor?campaign=instagram...` from a bio link now lands on question 1 immediately instead of the anonymous name screen — the name is collected at the end, on the post-quiz email card's existing required First name field, since these arrivals have no landing page (unlike `/crawl`, untouched, which still collects the name itself and hands it over via `sessionStorage`). Frontend-only, no backend/schema change. Task 0: all 3 CONTEXT claims checked directly against the tree (`hasStarted`'s lazy initializer, the exact `axisBloomCustomerName` effect, `handleAnswerSelect`'s `quizStartFiredRef` + `getActiveCampaign()` read, the returning-user branch's exact condition, the `{userName} —` fallback line, `WrapOverlay`'s `name` prop) — zero drift.
+
+**Built**: a new effect in `FlavorQuiz.tsx`, placed immediately after the existing `axisBloomCustomerName` sessionStorage effect, using the identical state transition (`setHasStarted(true)`, `userName` left `''`). Imports `CAMPAIGNS` from `campaign.ts` rather than duplicating the slug check. Guarded with a one-time ref (mirrors the existing `?retake=1` handler's exact pattern just below it): a guest is decided immediately; a signed-in visitor waits for `profileFetchDone` before deciding, and bails without starting if `userProfile?.archetype` is set — leaving the pre-existing, unmodified returning-user branch (`!isPreview && user && !hasStarted && (profileLoading || userProfile?.archetype)`) free to render "Welcome back" for anyone with an existing result. Never touches `userName`, so if `/crawl`'s sessionStorage path is somehow also present, its real name wins regardless of which effect happens to run first.
+
+**Empty-name audit (item 2)** — every `userName` reference in the file found and checked; **no fixes were needed**, all were already safe: `WrapOverlay` already ternary-guards (`name ? ... : 'Wrapping your coffee…'`), the `{userName} —` profile line already ternary-guards (`'Your profile —'` fallback), and `initialFirstName={userName}` passed to `PostQuizEmailGate` is simply `''` — literally that prop's own existing default, not a new case to handle. Verified live end-to-end with a real empty-name run through the actual quiz to the sealed card and a real submit, not just by reading the code.
+
+**Verified**: `npx tsc --noEmit` clean (same 12 pre-existing errors, zero new). `vite build` clean — note: bare `npx vite build` again resolved to a stray globally-cached version this session (as in #175); built via the project's own `node_modules/.bin/vite` instead.
+
+**Acceptance — 7 of 8 items verified live** (local gated dev server against real prod Cloud SQL via the Auth Proxy + a disposable Playwright/Chromium install, same pattern as #173–#175 — the public site remains Cloudflare-bot-challenged for non-browser traffic):
+1. `?campaign=instagram&utm_source=...`: question 1 renders immediately (no name screen), stamp present, landing beacon row confirmed.
+2. Full quiz completed with no name until the end, through the real UI: no broken/dangling text found anywhere on the results screen (checked programmatically, not just eyeballed); email card's First name field confirmed empty and required; real submit → `newsletter_subscriber` row has the typed name, `campaign='instagram'`, the stamped vid.
+3. `/find-my-flavor` with no param: today's entry screen, confirmed unchanged.
+4. `/crawl` regression (#174 acceptance 6–7): typed a name on Camila's page → quiz started on question 1 **with** the name, email card prefilled — confirmed live, unaffected by this change.
+5. **Not live-browser-verified** — verified by code inspection instead: the fast-start effect's `userProfile?.archetype` guard sits directly beside the pre-existing, unmodified returning-user branch checking the identical condition, so a recognized returning user's "Welcome back" path is structurally untouched. Creating a real signed-in test account with a saved archetype result was judged disproportionate for this small a change; flagged here rather than silently claimed as fully live-tested.
+6. `?campaign=twitter` (unknown): entry screen renders normally, confirmed.
+7. `quiz_start`/`quiz_complete`/`email_submitted` funnel rows all read back with `campaign='instagram'` and the same vid.
+8. Cleanup: all marked test rows (1 subscriber, 3 landing, 9 funnel) identified individually and deleted, re-queried at 0 residue. No Mailchimp member created for the `@example.com` test address (same finding as #173/#175 — Mailchimp's own validation rejects it before a member exists).
+
+**Files**: `frontend/src/app/components/FlavorQuiz.tsx`.
+
+**Pushed** (one commit, with Dana's go-ahead) — deploy green, backend startup log clean (`DB schema verified`, no errors, no schema change as expected). `main` == `origin/main` throughout; the pre-existing uncommitted `OPEN_TASKS.md` and `launch/60_commerce-and-fulfillment/12_G1_payment_capture_PLACEHOLDER.md` changes were left completely untouched.
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.
