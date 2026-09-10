@@ -4531,6 +4531,29 @@ https://axisandbloomcoffee.com/crawl?utm_source=hoboken-crawl&utm_medium=print&u
 
 ---
 
+### 177. Social short links — `/ig` and `/fb` (2026-09-10)
+
+**Context**: `backend/src/features/hoboken_crawl/CLAUDE_CODE_PROMPT_SOCIAL_SHORTLINKS.md`. Instagram-bio-friendly short URLs that pure-client-side-forward to the existing canonical long campaign links (#175) — no logic of their own, so every downstream mechanism (stamp, landing beacon, funnel columns, Mailchimp tag, GA4 UTMs, views) fires exactly as if the long URL had been clicked directly. Task 0: confirmed `/ig`/`/fb` didn't already exist anywhere in `App.tsx` or `PRELAUNCH_OPEN_ROUTES`, and that `/crawl`/`/find-my-flavor` are registered as standalone routes outside `PublicLayout` (the pattern this task's two new routes also follow) — no drift, clean slate to build on.
+
+**Built**: `App.tsx` gained a `SHORTLINKS` constants map (`/ig` → the instagram long URL, `/fb` → the facebook one, plain strings per the brief — not built from `CAMPAIGNS` dynamically, to stay greppable and match what marketing actually distributes) and a small `ShortLink` component rendering `<Navigate replace>` to the target, registered as two standalone routes right next to `/crawl`. `replace` so Back never re-enters the short path. `ShortLink` merges the *incoming* URL's query params onto the target (so `?preview=true` isn't silently dropped) with the target's own `campaign`/`utm_*` values taking precedence — the one piece of real logic in this task, needed because a bare hardcoded `<Navigate to="...">` would have thrown away anything the visitor's own URL carried. `/ig` and `/fb` added to `PRELAUNCH_OPEN_ROUTES` (documentation completeness, same as `/admin`/`/b/:token`/`/crawl` before them — neither route is actually gated, since standalone routes outside `PublicLayout` never pass through `<PrelaunchGate>`) and confirmed absent from Navigation/Footer.
+
+**A design question resolved by reading the code, not assumed**: whether `?preview=true` on a short link would actually unlock the rest of the site required checking whether the redirect target (`/find-my-flavor`, itself a standalone route) calls the bypass hook at all — it does, via `FlavorQuiz.tsx`'s existing `usePrelaunchGated()` call, so once `preview=true` survives the forward (which `ShortLink`'s param merge guarantees), the sessionStorage flag gets written as a side effect of landing on the quiz, exactly like every other open route. No extra code needed beyond the merge itself.
+
+**Verified**: `npx tsc --noEmit` clean (same 12 pre-existing errors, zero new). `vite build` clean via the project's own `node_modules/.bin/vite` (bare `npx vite build` has resolved to a stray cached version in this environment the last two sessions running — worked around the same way each time, noted again for the pattern).
+
+**Acceptance — all 5 items verified live**, on a local gated dev server against real prod Cloud SQL via the Auth Proxy plus a disposable Playwright/Chromium install (the public site remains Cloudflare-bot-challenged for non-browser traffic, same as every session in this series):
+1. `/ig` and `/fb` both land with the full canonical URL in the address bar, `localStorage.ab_campaign` stamped with the right slug, one `campaign_landing_event` row each with the UTMs.
+2. **Fast-start (#176) was live in the codebase during this test** (committed in the immediately preceding session, never reverted) — confirmed both `/ig` and `/fb` land directly on question 1, no entry screen, consistent with #176's own behavior for any `?campaign=` arrival.
+3. `/ig?preview=true`: the `preview` param survives the forward alongside `campaign`/`utm_*`, the sessionStorage bypass flag gets written, and a subsequent visit to a previously-gated route (`/shop`) confirmed reachable rather than bounced to the curtain — the full end-to-end chain, not just the param surviving.
+4. Back button after landing on the quiz via `/ig` returns to whatever preceded it (confirmed `/`), never bounces back through `/ig` — `replace` keeping the short path out of history, confirmed live.
+5. Cleanup: both test landing rows (no funnel/subscriber rows were created this pass — testing stopped at the landing stamp per the acceptance criteria's own scope) deleted and re-verified at 0 residue.
+
+**Files**: `frontend/src/app/App.tsx`, `frontend/src/app/lib/prelaunch.ts`.
+
+**Pushed** (one commit, with Dana's go-ahead) — deploy green, backend startup log clean (`DB schema verified`, no errors, no schema change as expected). `main` == `origin/main` throughout; the pre-existing uncommitted `OPEN_TASKS.md` and `launch/60_commerce-and-fulfillment/12_G1_payment_capture_PLACEHOLDER.md` changes were left completely untouched. No `WHAT_WE_BUILT_DB.md` or `SOMMELIER_BUILT.md` entry — this task touched no schema, Firestore, or Sommelier/Liam surface.
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

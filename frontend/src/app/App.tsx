@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, useLocation } from 'react-router';
+import { BrowserRouter, Routes, Route, useLocation, useSearchParams, Navigate } from 'react-router';
 import { trackPageView } from './lib/analytics';
 import { AuthProvider } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
@@ -62,6 +62,26 @@ function HomeOrPrelaunch() {
   return <Home />;
 }
 
+// Social short links (2026-09-10, backend/src/features/hoboken_crawl/
+// CLAUDE_CODE_PROMPT_SOCIAL_SHORTLINKS.md) — pure client-side forwards to the
+// canonical long URL; no logic lives here. A future channel is one more line.
+const SHORTLINKS = {
+  '/ig': '/find-my-flavor?campaign=instagram&utm_source=instagram&utm_medium=social&utm_campaign=launch-2026',
+  '/fb': '/find-my-flavor?campaign=facebook&utm_source=facebook&utm_medium=social&utm_campaign=launch-2026',
+} as const;
+
+// Carries any incoming query params (e.g. ?preview=true) through to the target,
+// with the target's own campaign/utm_* values taking precedence — otherwise a bare
+// <Navigate to="..."> would silently drop whatever the visitor's URL carried.
+function ShortLink({ to }: { to: string }) {
+  const [incomingParams] = useSearchParams();
+  const [path, targetQuery] = to.split('?');
+  const merged = new URLSearchParams(incomingParams);
+  new URLSearchParams(targetQuery).forEach((value, key) => merged.set(key, value));
+  const qs = merged.toString();
+  return <Navigate replace to={qs ? `${path}?${qs}` : path} />;
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -107,6 +127,10 @@ export default function App() {
                  not wrapped in <PrelaunchGate> (see PRELAUNCH_OPEN_ROUTES); reached by
                  QR/URL only, deliberately not in Navigation/Footer's link sets. ── */}
             <Route path="/crawl" element={<CrawlLanding />} />
+
+            {/* ── Social short links — pure forwards, no logic (see SHORTLINKS above). ── */}
+            <Route path="/ig" element={<ShortLink to={SHORTLINKS['/ig']} />} />
+            <Route path="/fb" element={<ShortLink to={SHORTLINKS['/fb']} />} />
 
             {/* ── Public site — shared nav + footer. Routes not in
                  lib/prelaunch.ts's PRELAUNCH_OPEN_ROUTES are wrapped in
