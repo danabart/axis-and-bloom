@@ -16,3 +16,4 @@ serviceAccountKey.json
 github-actions-sa-key.json
 set-gh-secrets*.mjs
 set-gh-secrets*.cjs
+.claude/settings.local.json

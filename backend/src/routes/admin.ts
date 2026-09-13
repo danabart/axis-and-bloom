@@ -13,6 +13,7 @@ import { checkStorySpecificityViolations } from '../services/storyLayer.js';
 import { getOrMintCanonicalUniversalToken } from '../services/qrDoor.js';
 import { getEffectiveAiControls, envCeilingUsd } from '../services/anthropicGuard.js';
 import { runQuizIntegrityChecks } from '../services/quizIntegrity.js';
+import { runCatalogIntegrityChecks } from '../services/catalogIntegrity.js';
 import { resolveBlendForSlot } from '../services/blendResolver.js';
 
 const router = Router();
@@ -3111,6 +3112,18 @@ router.get('/quiz/integrity', async (_req, res) => {
   } catch (err) {
     console.error('[admin/quiz/integrity]', err);
     res.status(500).json({ error: 'Failed to run quiz integrity checks' });
+  }
+});
+
+// ── GET /api/admin/catalog/integrity — Catalog Blueprint brief 1 ────────────
+// Read-only: see backend/src/services/catalogIntegrity.ts for the 13 checks.
+router.get('/catalog/integrity', async (_req, res) => {
+  try {
+    const report = await runCatalogIntegrityChecks();
+    res.json(report);
+  } catch (err) {
+    console.error('[admin/catalog/integrity]', err);
+    res.status(500).json({ error: 'Failed to run catalog integrity checks' });
   }
 });
 

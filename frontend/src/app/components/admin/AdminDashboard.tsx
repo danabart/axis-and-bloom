@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { reportError } from '../../lib/errorReporter';
 import AdminQuizIntegrity from './AdminQuizIntegrity';
+import AdminCatalogIntegrity from './AdminCatalogIntegrity';
 
 interface Stats {
   coffees: string;
@@ -139,6 +140,7 @@ export default function AdminDashboard() {
       </div>
 
       <AdminQuizIntegrity />
+      <AdminCatalogIntegrity />
     </div>
   );
 }

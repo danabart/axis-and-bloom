@@ -35,6 +35,7 @@ import clientErrorsRouter from './routes/clientErrors.js';
 import campaignRouter from './routes/campaign.js';
 import { initSommelierConfig } from './services/sommelierConfig.js';
 import { runQuizIntegrityChecks } from './services/quizIntegrity.js';
+import { runCatalogIntegrityChecks } from './services/catalogIntegrity.js';
 
 const app = express();
 const PORT = process.env.PORT ?? 4000;
@@ -223,6 +224,21 @@ async function start() {
     }
   } catch (err) {
     console.error('Quiz integrity check error (non-fatal):', err);
+  }
+
+  // Catalog Blueprint · brief 1 — same fire-and-log convention as quiz
+  // integrity above: non-fatal, just surfaces failing checks in deploy logs.
+  try {
+    const report = await runCatalogIntegrityChecks();
+    for (const check of report.checks.filter(c => !c.pass)) {
+      console.warn(`[catalog-integrity] check #${check.id} failed — ${check.name}: expected ${check.expected}, got ${check.actual}`);
+    }
+    const nullCodeCount = await db.query(`SELECT COUNT(*) AS count FROM archetype WHERE code IS NULL`);
+    if (Number(nullCodeCount.rows[0].count) > 0) {
+      console.warn(`[catalog-integrity] ${nullCodeCount.rows[0].count} archetype row(s) still have code IS NULL`);
+    }
+  } catch (err) {
+    console.error('Catalog integrity check error (non-fatal):', err);
   }
 
   // 2026-08-15 CRON_SECRET incident hardening — every version of the secret

@@ -1,0 +1,21 @@
+# Catalog Blueprint — brief series
+
+Target architecture for coffees, archetypes, slots and the single write/read path. Reference docs: the **Catalog Blueprint** artifact (rev 1.1, 2026-09-13) and the earlier **Slot Truth Map** (rev 3, 2026-09-10). Decisions D1–D6 (Slot Truth Map) and N1–N7 (Blueprint) are settled; briefs implement them and do not re-open them.
+
+Situation this series was written for: both roasteries deactivated, zero active coffees, repo at `745418a`. Because the catalog is empty, the plan is a **clean cut**: build the target model directly, move every reader in one reviewed brief, drop the old tables. No dual-write, no parity harness, no placement backfill.
+
+Run in order. Each brief is deployable on its own and leaves the system working.
+
+| # | Brief | Scope | Est. | Status |
+|---|-------|-------|------|--------|
+| 1 | `CLAUDE_CODE_PROMPT_CATALOG_1_SCHEMA_VIEWS_INTEGRITY.md` | `withTransaction()`; `archetype.code` as the one identity; `coffee_dial_slot` + `coffee_slot_assignment` with every constraint; `v_coffee_archetype`, `v_coffee`, `v_coffee_slot`, `v_coffee_sellable_slot`, `v_coffee_hop`; `catalogIntegrity.ts` at boot + `/admin/catalog/integrity` + admin panel + vitest. Additive only. | 2–3 d | EXECUTED (2026-09-13, incl. CTO review round's check #10 rescope — see `WHAT_WE_BUILT.md` #178; schema.sql applied to prod; committed as "catalog: brief 1 — schema, views, integrity (Catalog Blueprint)", see `git log`) |
+| 2 | `CLAUDE_CODE_PROMPT_CATALOG_2_SERVICE_ROUTES_IMPORT.md` | `catalogService.ts` (one function per verb, each in `withTransaction`, three-layer movement guardrail, returns integrity report); admin endpoints become thin wrappers; raw `POST /dial/positions` upsert + alias endpoints retired; roastery activate/deactivate moved in; `catalogImport.ts` with dry-run; seed files + in-schema Kopi Safari seed deleted. | 3–4 d | not written |
+| 3 | `CLAUDE_CODE_PROMPT_CATALOG_3_READERS_ONTO_VIEWS.md` | Every reader onto the views: resolver, Bloom endpoints, hops/legacy links, dial graph + suggestions, `getAliases()`, `fetchSommelierCoffees()` → `v_coffee_sellable_slot` (D2), Axis page / QR door / brew card / beats / cron → `v_coffee`; every enum→label map → `v_coffee_archetype`; Liam session snapshot keyed on `catalog_version`; CI greps for the three banned patterns. **The one careful review.** | 2–3 d | not written |
+| 4 | `CLAUDE_CODE_PROMPT_CATALOG_4_ADMIN_PLACE_FLOW.md` | Coffees page: single "Place a coffee" form + blast-radius confirm; Dial page gestures call `moveCoffee` / `addGuest`; Inventory page SKU-only; slot spec editing; integrity page gains "placed, not yet sellable" + catalog changes feed from `api_event`. | 2–3 d | not written |
+| 5 | `CLAUDE_CODE_PROMPT_CATALOG_5_DROP_LEGACY.md` | Drop `dial_archetype_positions`, `coffee_alias`, `dial_slot_alias`, `dial_position_vocabulary`, `dial_archetype_config`, stored `hop_type`, `roaster_blend.archetype_id`, composite columns on `dial_slot_price` / `user_bloom_dial_current_position`; `coffees.roaster_id` + `roaster_blend.coffee_id` NOT NULL; legacy tables renamed to the `coffee_` convention; check 13 becomes a failure; WHAT_WE_BUILT_DB ownership table finalised. Then the first roastery enters via the import. | 1 d | not written |
+
+Superseded by this series (do not execute): `features/coffee_assignment_integrity/CLAUDE_CODE_PROMPT_ASSIGNMENT_DOOR_PART1_ONE_WRITE_PATH.md` and `…PART2_IMPACT_AND_VISIBILITY.md` (2026-08-27). Absorbed: slot–instance Task A (spec + certification) from `features/slot_instance_model/SLOT_INSTANCE_STRATEGY_V1.md`.
+
+**Naming convention (Dana, 2026-09-13):** every catalog table, enum and view starts with `coffee_` (views `v_coffee_…`) so the catalog groups together in SQL listings. New objects follow it from brief 1; surviving legacy tables are renamed in brief 5: `archetype` → `coffee_archetype`, `archetype_assignments` → `coffee_archetype_assignment`, `roaster_blend` → `coffee_sku`, `dial_coffee_relationships` → `coffee_hop`, `dial_slot_price` → `coffee_slot_price`. `coffees` itself stays `coffees`.
+
+House rules that apply to every brief here: one writer per fact, via a named service function; derivations used by two or more readers are SQL views; constraints, not comments; integrity green is part of done; every brief updates the ownership table in `WHAT_WE_BUILT_DB.md`.
