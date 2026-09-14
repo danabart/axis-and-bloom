@@ -62,6 +62,15 @@ jobs:
           npm ci
           npm audit --omit=dev --audit-level=high
 
+      # Catalog Blueprint brief 3, Part D — greps for raw catalog-table DML,
+      # dormant legacy-table reads, and hardcoded archetype labels outside
+      # their allow-lists. Runs before the Docker build (which is where
+      # `npm run build` actually happens for this service) so a violation
+      # fails the deploy, not just a local `npm test`.
+      - name: Lint catalog
+        working-directory: backend
+        run: npm run lint:catalog
+
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
 

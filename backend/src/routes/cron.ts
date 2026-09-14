@@ -5,6 +5,7 @@ import { processPendingMessages, parseInboundReply } from '../services/liamSmsFe
 import { refreshLifecycleState } from '../services/userLifecycle.js';
 import { purgeStaleAnonymousGuests } from '../services/staleGuestCleanup.js';
 import { getAliases } from '../services/sommelierRag.js';
+import { getCoffee } from '../services/catalogReads.js';
 import { generateBrewNoteSentence } from '../services/storyLayer.js';
 import { getBagNumberForCoffee, getArrivalNoteConfig, getMostRecentCard, type BrewCardParams } from '../services/brewCard.js';
 import { buildDialInSmsBody, respondToDialInBeat } from '../services/beatEngine.js';
@@ -288,12 +289,10 @@ export async function processArrivalNotes(): Promise<{ processed: number; sent: 
 
       let warmSentence: string | null = null;
       if (isFirstBag) {
-        const [archResult, rawResult, descriptorResult] = await Promise.all([
-          db.query(
-            `SELECT aa.archetype::text AS archetype FROM archetype_assignments aa
-             WHERE aa.coffee_id = $1 AND aa.superseded_at IS NULL LIMIT 1`,
-            [row.coffee_id]
-          ),
+        // Catalog Blueprint brief 3: archetype now read via getCoffee().match_archetype
+        // (D1's flavor identity) instead of a raw archetype_assignments query.
+        const [coffee, rawResult, descriptorResult] = await Promise.all([
+          getCoffee(row.coffee_id),
           db.query(`SELECT name, roaster FROM coffees WHERE id = $1`, [row.coffee_id]),
           db.query(
             `SELECT descriptor FROM v_collaborative_flavor_wheel WHERE coffee_id = $1
@@ -305,7 +304,7 @@ export async function processArrivalNotes(): Promise<{ processed: number; sent: 
         // content-pipeline hook; later bags skip it (isFirstBag false), same
         // "shorter note" rule the length itself already implements below.
         warmSentence = await generateBrewNoteSentence(
-          { displayName: alias, archetype: archResult.rows[0]?.archetype ?? null, topDescriptors: descriptorResult.rows.map((r: { descriptor: string }) => r.descriptor) },
+          { displayName: alias, archetype: coffee?.match_archetype ?? null, topDescriptors: descriptorResult.rows.map((r: { descriptor: string }) => r.descriptor) },
           { rawCoffeeName: rawResult.rows[0]?.name ?? null, roasterNames: rawResult.rows[0]?.roaster ? [rawResult.rows[0].roaster] : [] }
         );
       }

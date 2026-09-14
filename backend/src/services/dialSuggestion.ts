@@ -1,35 +1,29 @@
 import { db, withTransaction } from '../db/client.js';
+import { archetypeLabel, getArchetypes, getSlots, getCoffee } from './catalogReads.js';
 
-const ARCHETYPE_LABEL: Record<string, string> = {
-  chocolate_nutty: 'Chocolate & Nutty',
-  balanced_sweet:  'Balanced & Sweet',
-  fruity:          'Fruity',
-  earthy:          'Earthy',
-  floral:          'Floral',
-  experimental:    'Experimental',
-};
-
-// Archetype's dominant-dimension bucket width — (target_max - target_min) / N vocabulary
+// Archetype's dominant-dimension bucket width — (target_max - target_min) / N dial
 // slots. Shared meaningfulness threshold used by getDialSuggestion and the Phase 5
 // hop-suggestion endpoint (a delta smaller than one bucket isn't a distinguishable
 // difference on that archetype's own scale). Returns null if any lookup misses.
+//
+// Catalog Blueprint brief 3: N was the dial_position_vocabulary row count for
+// (archetype, dimension); the vocabulary rows have a 1:1 correspondence with
+// this archetype's dial slots (coffee_dial_slot), so N is now getSlots(archetype).length.
+// v_archetype_dimension_comparison is still keyed by the display label, so the
+// hand-typed ARCHETYPE_LABEL map is replaced with archetypeLabel().
 export async function getArchetypeBucketWidth(archetype: string, dimensionId: number): Promise<number | null> {
   const rangeResult = await db.query(
     `SELECT vc.target_min, vc.target_max
      FROM v_archetype_dimension_comparison vc
      JOIN coffee_dimensions cd ON cd.name = vc.dimension
      WHERE vc.archetype = $1 AND cd.id = $2`,
-    [ARCHETYPE_LABEL[archetype], dimensionId]
+    [await archetypeLabel(archetype), dimensionId]
   );
   if (rangeResult.rowCount === 0) return null;
   const { target_min: targetMin, target_max: targetMax } = rangeResult.rows[0];
   if (targetMin === null || targetMax === null) return null;
 
-  const vocabCountResult = await db.query(
-    `SELECT COUNT(*) AS n FROM dial_position_vocabulary WHERE archetype = $1 AND dimension_id = $2`,
-    [archetype, dimensionId]
-  );
-  const n = Number(vocabCountResult.rows[0]?.n ?? 0);
+  const n = (await getSlots(archetype)).length;
   if (n === 0) return null;
 
   return (Number(targetMax) - Number(targetMin)) / n;
@@ -42,6 +36,10 @@ export interface HopConflict {
 
 export interface DialSuggestion {
   suggested_vocabulary_id: number;
+  // Catalog Blueprint brief 3 addition — the coffee_dial_slot id at the
+  // suggested position, alongside the legacy vocabulary id (still written to
+  // dial_position_signal.suggested_vocabulary_id until brief 5 re-keys it).
+  suggested_slot_id: number;
   suggested_label: string;
   suggested_sort_order: number;
   avg_score: number;
@@ -161,23 +159,19 @@ async function findHopConflict(
 // Computed live, never persisted or auto-applied. Every step that can fail to
 // find a row returns null rather than guessing — see BLOOM_DIAL_ALLOCATION_SPEC.md §3.
 export async function getDialSuggestion(coffeeId: number): Promise<DialSuggestion | null> {
-  const archResult = await db.query(
-    `SELECT archetype FROM archetype_assignments WHERE coffee_id = $1 AND superseded_at IS NULL`,
-    [coffeeId]
-  );
-  if (archResult.rowCount === 0) return null;
-  const archetype: string = archResult.rows[0].archetype;
+  // Catalog Blueprint brief 3: archetype via getCoffee().match_archetype (D1)
+  // instead of a raw archetype_assignments query; dominant dimension +
+  // is_archetype via getArchetypes() (v_coffee_archetype) instead of a raw
+  // dial_archetype_config query.
+  const coffee = await getCoffee(coffeeId);
+  const archetype = coffee?.match_archetype ?? undefined;
+  if (!archetype) return null;
 
-  const configResult = await db.query(
-    `SELECT dac.dominant_dimension_id, dac.is_archetype, cd.name AS dimension_name
-     FROM dial_archetype_config dac
-     LEFT JOIN coffee_dimensions cd ON cd.id = dac.dominant_dimension_id
-     WHERE dac.archetype = $1`,
-    [archetype]
-  );
-  if (configResult.rowCount === 0 || !configResult.rows[0].is_archetype) return null;
-  const { dominant_dimension_id: dimensionId, dimension_name: dimensionName } = configResult.rows[0];
-  if (!dimensionId) return null;
+  const archetypeRow = (await getArchetypes()).find((a) => a.code === archetype);
+  if (!archetypeRow || !archetypeRow.is_archetype) return null;
+  const dimensionId = archetypeRow.dominant_dimension_id;
+  const dimensionName = archetypeRow.dominant_dimension_name;
+  if (!dimensionId || !dimensionName) return null;
 
   const score = await getAvgCuppingScore(coffeeId, dimensionId);
   if (!score) return null;
@@ -188,20 +182,17 @@ export async function getDialSuggestion(coffeeId: number): Promise<DialSuggestio
      FROM v_archetype_dimension_comparison vc
      JOIN coffee_dimensions cd ON cd.name = vc.dimension
      WHERE vc.archetype = $1 AND cd.id = $2`,
-    [ARCHETYPE_LABEL[archetype], dimensionId]
+    [await archetypeLabel(archetype), dimensionId]
   );
   if (rangeResult.rowCount === 0) return null;
   const { target_min: targetMin, target_max: targetMax } = rangeResult.rows[0];
   if (targetMin === null || targetMax === null) return null;
 
-  const vocabResult = await db.query(
-    `SELECT id, sort_order, label
-     FROM dial_position_vocabulary
-     WHERE archetype = $1 AND dimension_id = $2
-     ORDER BY sort_order`,
-    [archetype, dimensionId]
-  );
-  const n = vocabResult.rowCount ?? 0;
+  // Slot count/labels now come from this archetype's dial slots
+  // (coffee_dial_slot, via getSlots) rather than dial_position_vocabulary —
+  // the two have a 1:1 correspondence, one dial position per slot.
+  const slots = await getSlots(archetype);
+  const n = slots.length;
   if (n === 0) return null;
 
   const bucketWidth = (Number(targetMax) - Number(targetMin)) / n;
@@ -209,14 +200,25 @@ export async function getDialSuggestion(coffeeId: number): Promise<DialSuggestio
   const suggestedSortOrder = Math.min(Math.max(rawBucket, 1), n);
   const isOutlier = rawBucket < 1 || rawBucket > n;
 
-  const vocabRow = vocabResult.rows.find(v => v.sort_order === suggestedSortOrder);
-  if (!vocabRow) return null;
+  const suggestedSlot = slots.find((s) => s.sort_order === suggestedSortOrder);
+  if (!suggestedSlot) return null;
+
+  // Last remaining legacy read (allow-listed, expires brief 5): the id
+  // mapping needed to write dial_position_signal.suggested_vocabulary_id,
+  // which isn't re-keyed to slot_id until brief 5.
+  const vocabIdResult = await db.query(
+    `SELECT id FROM dial_position_vocabulary WHERE archetype = $1 AND sort_order = $2`,
+    [archetype, suggestedSortOrder]
+  );
+  const vocabularyId: number | undefined = vocabIdResult.rows[0]?.id;
+  if (vocabularyId === undefined) return null;
 
   const hopConflict = await findHopConflict(coffeeId, archetype, dimensionId, Number(avgScore));
 
   return {
-    suggested_vocabulary_id: vocabRow.id,
-    suggested_label: vocabRow.label,
+    suggested_vocabulary_id: vocabularyId,
+    suggested_slot_id: suggestedSlot.id,
+    suggested_label: suggestedSlot.position_label,
     suggested_sort_order: suggestedSortOrder,
     avg_score: Number(avgScore),
     session_count: score.session_count,
@@ -235,18 +237,14 @@ export async function recordCuppingSignal(coffeeId: number): Promise<void> {
   const suggestion = await getDialSuggestion(coffeeId);
   if (!suggestion) return;
 
-  const archResult = await db.query(
-    `SELECT archetype FROM archetype_assignments WHERE coffee_id = $1 AND superseded_at IS NULL`,
-    [coffeeId]
-  );
-  const archetype: string | undefined = archResult.rows[0]?.archetype;
+  // Catalog Blueprint brief 3: same getCoffee/getArchetypes resolution
+  // getDialSuggestion above already used, instead of raw archetype_assignments
+  // / dial_archetype_config queries.
+  const coffee = await getCoffee(coffeeId);
+  const archetype = coffee?.match_archetype ?? undefined;
   if (!archetype) return;
 
-  const configResult = await db.query(
-    `SELECT dominant_dimension_id FROM dial_archetype_config WHERE archetype = $1`,
-    [archetype]
-  );
-  const dimensionId: number | undefined = configResult.rows[0]?.dominant_dimension_id;
+  const dimensionId = (await getArchetypes()).find((a) => a.code === archetype)?.dominant_dimension_id ?? undefined;
   if (!dimensionId) return;
 
   // Catalog Blueprint brief 2 (2026-09-14) — last pool-level BEGIN/COMMIT in

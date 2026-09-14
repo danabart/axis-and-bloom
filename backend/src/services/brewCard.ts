@@ -1,5 +1,6 @@
 import { db } from '../db/client.js';
 import { getSommelierConfig, type SommelierConfig } from './sommelierConfig.js';
+import { getCoffee } from './catalogReads.js';
 import type { BrewProfileDoc } from './brewProfile.js';
 
 // HOME_TASK_6 (§3.2, §3.1) — "Your Uganda · V60 · 1:16 · medium-coarse · 94°C —
@@ -163,12 +164,10 @@ export async function resolveDefaultMethod(coffeeId: number, brewProfile: BrewPr
   if (Array.isArray(profileMethods) && typeof profileMethods[0] === 'string') {
     return profileMethods[0];
   }
-  const archResult = await db.query(
-    `SELECT aa.archetype::text AS archetype FROM archetype_assignments aa
-     WHERE aa.coffee_id = $1 AND aa.superseded_at IS NULL LIMIT 1`,
-    [coffeeId]
-  );
-  const archetype = archResult.rows[0]?.archetype as string | undefined;
+  // Catalog Blueprint brief 3: archetype now read via getCoffee().match_archetype
+  // (D1's flavor identity) instead of a raw archetype_assignments query.
+  const coffee = await getCoffee(coffeeId);
+  const archetype = coffee?.match_archetype ?? undefined;
   const defaults = getBrewDefaults();
   return (archetype && defaults.archetypeDefaultMethod[archetype]) || 'other';
 }

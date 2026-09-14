@@ -2,6 +2,7 @@ import { randomBytes } from 'crypto';
 import { db } from '../db/client.js';
 import { getSommelierConfig, type SommelierConfig } from './sommelierConfig.js';
 import { getAliases } from './sommelierRag.js';
+import { getCoffee } from './catalogReads.js';
 import { generateOrderPlacedLine } from './storyLayer.js';
 import { createArrivalCard, getBagNumberForCoffee, getMostRecentCard, adjustCard } from './brewCard.js';
 import { writeDialPositionSignal } from './dialPositionSignal.js';
@@ -144,15 +145,17 @@ export async function dispatchOrderPlacedBeat(userId: string, orderId: string, c
   if (!active || !inserted.rows.length) return null;
 
   try {
-    const [aliasMap, archResult, descriptorResult, rawResult] = await Promise.all([
+    // Catalog Blueprint brief 3: archetype now read via getCoffee().match_archetype
+    // (D1's flavor identity) instead of a raw archetype_assignments query.
+    const [aliasMap, coffee, descriptorResult, rawResult] = await Promise.all([
       getAliases([coffeeId]),
-      db.query(`SELECT aa.archetype::text AS archetype FROM archetype_assignments aa WHERE aa.coffee_id = $1 AND aa.superseded_at IS NULL LIMIT 1`, [coffeeId]),
+      getCoffee(coffeeId),
       db.query(`SELECT descriptor FROM v_collaborative_flavor_wheel WHERE coffee_id = $1 GROUP BY descriptor ORDER BY COUNT(*) DESC LIMIT 4`, [coffeeId]),
       db.query(`SELECT name, roaster FROM coffees WHERE id = $1`, [coffeeId]),
     ]);
     const alias = aliasMap.get(coffeeId) ?? 'This coffee';
     return await generateOrderPlacedLine(
-      { displayName: alias, archetype: archResult.rows[0]?.archetype ?? null, topDescriptors: descriptorResult.rows.map((r: { descriptor: string }) => r.descriptor) },
+      { displayName: alias, archetype: coffee?.match_archetype ?? null, topDescriptors: descriptorResult.rows.map((r: { descriptor: string }) => r.descriptor) },
       { rawCoffeeName: rawResult.rows[0]?.name ?? null, roasterNames: rawResult.rows[0]?.roaster ? [rawResult.rows[0].roaster] : [] }
     );
   } catch (err) {

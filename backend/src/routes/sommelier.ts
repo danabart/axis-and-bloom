@@ -7,6 +7,7 @@ import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
 import { evaluateSommelier } from '../services/sommelierEvaluator.js';
 import { fetchSommelierCoffees, getAliases } from '../services/sommelierRag.js';
+import { getCoffees, archetypeLabel, archetypeCode, getCatalogVersion } from '../services/catalogReads.js';
 import { getTokenBalance, spendToken, logUsage } from '../services/tokenService.js';
 import { checkDailyCap, checkMonthlySpendAndAlert } from '../services/sommelierGuards.js';
 import { writeOutcome, checkReturnedToSommelier } from '../services/outcomeTracker.js';
@@ -79,18 +80,11 @@ function getGeneration(dateOfBirth: string | Date | null | undefined): string {
   return 'Boomer';
 }
 
-// Matches users.ts's ARCHETYPE_NAME_TO_KEY — quiz/session data carries the display
-// name (`archetype.name`), but action links and the dial-position table both key
-// off archetype_enum. Duplicated locally per this codebase's existing per-route
-// lookup-map convention (see users.ts's own ARCHETYPES/ARCHETYPE_NAME_TO_KEY).
-const ARCHETYPE_NAME_TO_KEY: Record<string, string> = {
-  'Chocolate & Nutty': 'chocolate_nutty',
-  'Balanced & Sweet':  'balanced_sweet',
-  'Fruity':            'fruity',
-  'Earthy':            'earthy',
-  'Floral':            'floral',
-  'Experimental':      'experimental',
-};
+// Was a hand-typed label→enum-key map (ARCHETYPE_NAME_TO_KEY), matching
+// users.ts's own copy. Catalog Blueprint brief 3: quiz/session data still
+// carries the display name (`archetype.name`), but the key lookup itself now
+// goes through catalogReads.archetypeCode() (backed by v_coffee_archetype),
+// the one place this mapping lives.
 
 // HOME_TASK_5b (Defect 1 fix) — a session's RAG-selected coffees, each
 // carrying the S44-correct alias display name alongside its published story
@@ -98,7 +92,7 @@ const ARCHETYPE_NAME_TO_KEY: Record<string, string> = {
 // against the customer's own message possible; `story: null` is a distinct,
 // meaningful state from "no candidate at all" — a coffee can be a legitimate
 // match target (Liam knows it's on the strip) without having story content.
-interface StoryCandidate {
+export interface StoryCandidate {
   coffeeId: number;
   alias: string;
   story: string | null;
@@ -126,6 +120,60 @@ export function resolveStoryForMessage(
   return best;
 }
 
+// Catalog Blueprint brief 3 (2026-09-14) — catalogText/storyCandidates were
+// only ever built once, at session start (assembly-time only, no re-query —
+// see the /start handler's own comment); a placement change mid-session (a
+// coffee retired, a slot re-priced) never reached an already-open
+// conversation. getCatalogVersion() is cheap (five MAX() reads); a mismatch
+// rebuilds both via the exact same functions/inputs session start used
+// (persisted alongside catalogText for this reason), then writes the
+// refreshed snapshot back so this only happens once per actual catalog
+// change, not once per turn. Mutates `ctx` in place so every read downstream
+// (storyCandidates, chatWithSommelier's catalogContext, and
+// updatedContextData's `...ctx` spread) picks it up with no other change
+// needed. Extracted out of the per-turn handler (rather than inlined) so this
+// branch is unit-testable on its own, mocking fetchSommelierCoffees/getAliases
+// without a live DB.
+export async function refreshCatalogSnapshotIfStale(
+  ctx: {
+    catalogVersion?: string; ragFocus?: string; archetype?: string | null;
+    previousArchetypeForRag?: string | null; excludeCoffeeIds?: number[];
+    catalogText?: string; coffeeIds?: number[]; storyCandidates?: StoryCandidate[];
+  },
+  sessionId: number
+): Promise<void> {
+  try {
+    const currentCatalogVersion = await getCatalogVersion();
+    if (ctx.catalogVersion === currentCatalogVersion) return;
+
+    const refreshed = await fetchSommelierCoffees({
+      ragFocus: ctx.ragFocus ?? 'curated_mix',
+      userArchetype: ctx.archetype ?? null,
+      previousArchetype: ctx.previousArchetypeForRag ?? null,
+      excludeCoffeeIds: ctx.excludeCoffeeIds ?? [],
+    });
+    let refreshedStoryCandidates: StoryCandidate[] = [];
+    if (refreshed.coffeeIds.length) {
+      const [storyResult, aliasMap] = await Promise.all([
+        db.query(`SELECT id, story, story_published FROM coffees WHERE id = ANY($1::int[])`, [refreshed.coffeeIds]),
+        getAliases(refreshed.coffeeIds),
+      ]);
+      refreshedStoryCandidates = storyResult.rows.map((r: { id: number; story: string | null; story_published: boolean }) => ({
+        coffeeId: r.id,
+        alias: aliasMap.get(r.id) ?? '',
+        story: r.story_published ? r.story : null,
+      }));
+    }
+    console.log('[sommelier] catalog snapshot refreshed', { sessionId, from: ctx.catalogVersion ?? null, to: currentCatalogVersion });
+    ctx.catalogText = refreshed.catalogText;
+    ctx.coffeeIds = refreshed.coffeeIds;
+    ctx.storyCandidates = refreshedStoryCandidates;
+    ctx.catalogVersion = currentCatalogVersion;
+  } catch (err) {
+    console.error('[sommelier] catalog snapshot refresh failed — using the stale snapshot for this turn:', err);
+  }
+}
+
 // HOME_TASK_5c — the coffee-strip display names shown above the first message
 // (`/start` and `/:sessionId/messages`, both below) previously selected
 // coffees.name directly — the raw internal name, the same S38/S44 violation
@@ -138,22 +186,16 @@ export function resolveStoryForMessage(
 // session's strip heals itself on next load with no data migration.
 async function resolveCoffeeDisplayNames(coffeeIds: number[]): Promise<string[]> {
   if (!coffeeIds.length) return [];
-  const [aliasMap, archetypeResult] = await Promise.all([
+  const [aliasMap, coffees] = await Promise.all([
     getAliases(coffeeIds),
-    db.query(
-      `SELECT c.id, aa.archetype::text AS archetype
-       FROM coffees c
-       JOIN archetype_assignments aa ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
-       WHERE c.id = ANY($1::int[])`,
-      [coffeeIds]
-    ),
+    getCoffees({ ids: coffeeIds }),
   ]);
-  const archetypeLabel = new Map<number, string>();
-  for (const row of archetypeResult.rows as { id: number; archetype: string }[]) {
-    archetypeLabel.set(row.id, row.archetype.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase()));
+  const archetypeLabelMap = new Map<number, string>();
+  for (const c of coffees) {
+    if (c.match_archetype) archetypeLabelMap.set(c.id, await archetypeLabel(c.match_archetype));
   }
   return coffeeIds
-    .map((id) => aliasMap.get(id) || archetypeLabel.get(id) || 'Coffee')
+    .map((id) => aliasMap.get(id) || archetypeLabelMap.get(id) || 'Coffee')
     .sort((a, b) => a.localeCompare(b));
 }
 
@@ -496,7 +538,7 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
     const prevQuiz = quizResult.rows[1];
     const userArchetype = latestQuiz?.archetype_name ?? null;
     const previousArchetype = prevQuiz?.archetype_name ?? null;
-    const archetypeKey = userArchetype ? (ARCHETYPE_NAME_TO_KEY[userArchetype] ?? null) : null;
+    const archetypeKey = userArchetype ? await archetypeCode(userArchetype) : null;
 
     const generation = getGeneration(latestQuiz?.date_of_birth ?? null);
     let enrichedOpeningContext = (openingContext ?? '') +
@@ -540,12 +582,18 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
     }
 
     const ragFocus = config?.intents?.[intent]?.ragFocus ?? 'curated_mix';
+    // Catalog Blueprint brief 3 — resolved once here and persisted below
+    // (previousArchetypeForRag, excludeCoffeeIds) so the snapshot-refresh
+    // check on later turns can call fetchSommelierCoffees with the exact
+    // same inputs, not just the same ragFocus/archetype.
+    const previousArchetypeForRag = intent === 'TASTE_EVOLUTION' ? previousArchetype : null;
     const ragResult = await fetchSommelierCoffees({
       ragFocus,
       userArchetype,
-      previousArchetype: intent === 'TASTE_EVOLUTION' ? previousArchetype : null,
+      previousArchetype: previousArchetypeForRag,
       excludeCoffeeIds,
     });
+    const catalogVersion = await getCatalogVersion();
 
     // Brew profile (§4.5, §3.5) — moved ahead of its original spot (just
     // before the opening chatWithSommelier call) so HOME_TASK_6's entry-coffee
@@ -624,8 +672,11 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
           tiedArchetypes: tiedArchetypes ?? [],
           openingContext: enrichedOpeningContext,
           ragFocus,
+          previousArchetypeForRag,
+          excludeCoffeeIds,
           coffeeIds: ragResult.coffeeIds,
           catalogText: ragResult.catalogText,
+          catalogVersion,
           storyCandidates,
           evaluationId: evaluationId ?? null,
           entryCoffeeId,
@@ -883,6 +934,8 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
 
     // Generate reply
     const ctx = session.context_data ?? {};
+
+    await refreshCatalogSnapshotIfStale(ctx, sessionId);
 
     // Turn-level topic routing (§4.1, HOME_TASK_2) — classifies this message,
     // carrying the previous turn's topic forward (stickiness) until it decays.

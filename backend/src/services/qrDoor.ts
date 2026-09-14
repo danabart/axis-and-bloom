@@ -1,6 +1,7 @@
 import { randomBytes } from 'crypto';
 import { db } from '../db/client.js';
 import { getAliases } from './sommelierRag.js';
+import { getCoffee, archetypeLabel } from './catalogReads.js';
 import { getMostRecentCard, generateCard, resolveDefaultMethod, type BrewCardRow } from './brewCard.js';
 import type { BrewProfileDoc } from './brewProfile.js';
 
@@ -268,19 +269,18 @@ export async function getNearestHopCoffeeId(coffeeId: number): Promise<number | 
 // "keep your own inline copy" precedent for resolveProfileId, S79) — this is
 // the single-coffee equivalent for the QR resolve response.
 export async function resolveQrDisplayName(coffeeId: number): Promise<string> {
-  const [aliasMap, archetypeResult] = await Promise.all([
+  // Catalog Blueprint brief 3: archetype now read via getCoffee().match_archetype
+  // (D1's flavor identity) instead of a raw archetype_assignments query; the
+  // fallback label comes from the real v_coffee_archetype label (via
+  // archetypeLabel()) rather than a humanized code, so it matches the
+  // business name shown everywhere else (e.g. "Balanced & Sweet", not
+  // "Balanced Sweet").
+  const [aliasMap, coffee] = await Promise.all([
     getAliases([coffeeId]),
-    db.query(
-      `SELECT aa.archetype::text AS archetype FROM archetype_assignments aa
-       WHERE aa.coffee_id = $1 AND aa.superseded_at IS NULL LIMIT 1`,
-      [coffeeId]
-    ),
+    getCoffee(coffeeId),
   ]);
-  const archetype = archetypeResult.rows[0]?.archetype as string | undefined;
-  const archetypeLabel = archetype
-    ? archetype.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())
-    : null;
-  return aliasMap.get(coffeeId) ?? archetypeLabel ?? 'This coffee';
+  const archetypeLabelText = coffee?.match_archetype ? await archetypeLabel(coffee.match_archetype) : null;
+  return aliasMap.get(coffeeId) ?? archetypeLabelText ?? 'This coffee';
 }
 
 async function resolveProfileId(uid: string): Promise<string | null> {

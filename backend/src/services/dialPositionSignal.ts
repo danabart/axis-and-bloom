@@ -1,4 +1,5 @@
 import { db } from '../db/client.js';
+import { getCoffee, getArchetypes } from './catalogReads.js';
 
 /**
  * Coffee → archetype → dominant-dimension resolution + dial_position_signal
@@ -17,18 +18,16 @@ export async function writeDialPositionSignal(params: {
   const { coffeeId, expectation, source, notes } = params;
   if (expectation !== 'lighter' && expectation !== 'bolder') return;
 
-  const archResult = await db.query(
-    `SELECT archetype FROM archetype_assignments WHERE coffee_id = $1 AND superseded_at IS NULL`,
-    [coffeeId]
-  );
-  const archetype: string | undefined = archResult.rows[0]?.archetype;
+  // Catalog Blueprint brief 3: archetype via getCoffee().match_archetype (D1's
+  // flavor identity) instead of a raw archetype_assignments query; dominant
+  // dimension via getArchetypes() (v_coffee_archetype), which already joins it,
+  // instead of a raw dial_archetype_config query.
+  const coffee = await getCoffee(coffeeId);
+  const archetype = coffee?.match_archetype ?? undefined;
   if (!archetype) return;
 
-  const configResult = await db.query(
-    `SELECT dominant_dimension_id FROM dial_archetype_config WHERE archetype = $1`,
-    [archetype]
-  );
-  const dimensionId: number | undefined = configResult.rows[0]?.dominant_dimension_id;
+  const archetypes = await getArchetypes();
+  const dimensionId = archetypes.find((a) => a.code === archetype)?.dominant_dimension_id ?? undefined;
   if (!dimensionId) return;
 
   await db.query(

@@ -11,37 +11,36 @@ import {
 } from '../services/brewProfile.js';
 import { getUserBrewCards } from '../services/brewCard.js';
 import { getAliases } from '../services/sommelierRag.js';
+import { archetypeCode, archetypeLabel as catalogArchetypeLabel, getCoffees } from '../services/catalogReads.js';
 
 const router = Router();
 
 // Keyed by archetype_enum (schema.sql) — matches the archetype key format used everywhere
 // else (dial_archetype_config, /api/coffees/archetypes' `archetype` field, etc.), NOT a
 // shorthand of the display name. Previously keyed by shorthand ('chocolate', 'balanced',
-// 'spicy') while lookups below derive the key via `archetype.name.toLowerCase()` — for
+// 'spicy') while lookups below derived the key via `archetype.name.toLowerCase()` — for
 // 'Chocolate & Nutty' / 'Balanced & Sweet' / 'Earthy' that produces 'chocolate & nutty' /
 // 'balanced & sweet' / 'earthy', none of which matched the old shorthand keys (only
 // 'floral' / 'fruity' / 'experimental' happened to survive .toLowerCase() unscathed).
 // Those three silently fell through to the generic-rust-color/no-features fallback below,
 // and worse, the mangled `.id` that shape produced didn't match archetype_enum, breaking
 // BloomPage.tsx's "your matched archetype" personalization for those users too. Fixed by
-// normalizing this map's keys to archetype_enum and deriving the lookup key from an
-// explicit name→enum-key table (below) instead of a blind .toLowerCase().
-const ARCHETYPES: Record<string, { name: string; features: string[]; color: string }> = {
-  floral:          { name: 'Floral',            color: '#a34b78', features: ['You prefer delicate aromatics over heavy roasts', 'You enjoy a light, tea-like body', 'You appreciate a bright, clean finish'] },
-  fruity:          { name: 'Fruity',            color: '#ca445f', features: ['You prefer juicy acidity and bright notes', 'You enjoy vibrant fruit-forward flavors', 'You appreciate a crisp, clean finish'] },
-  balanced_sweet:  { name: 'Balanced & Sweet',  color: '#d1ac11', features: ['You prefer lower acidity and round body', 'You enjoy caramelized and nutty sweetness', 'You are less sensitive to roast intensity'] },
-  chocolate_nutty: { name: 'Chocolate & Nutty', color: '#a54c2d', features: ['You prefer a bold and comforting cup', 'You enjoy deep cocoa and roasted nut flavors', 'You appreciate a heavy, satisfying body'] },
-  earthy:          { name: 'Earthy',            color: '#912f2f', features: ['You prefer a complex, savory depth', 'You enjoy warming spices and earthy notes', 'You appreciate a thick, structured finish'] },
-  experimental:    { name: 'Experimental',      color: '#056c7a', features: ['You prefer unique, unexpected flavor profiles', 'You enjoy wild fermentation and intense fruit', 'You appreciate complex, lively acidity'] },
-};
-
-const ARCHETYPE_NAME_TO_KEY: Record<string, string> = {
-  'Chocolate & Nutty': 'chocolate_nutty',
-  'Balanced & Sweet':  'balanced_sweet',
-  'Fruity':            'fruity',
-  'Earthy':            'earthy',
-  'Floral':            'floral',
-  'Experimental':      'experimental',
+// normalizing this map's keys to archetype_enum and deriving the lookup key from
+// catalogReads.archetypeCode() (below) instead of a blind .toLowerCase().
+//
+// Catalog Blueprint brief 3: this map no longer carries a `name` field —
+// hardcoded archetype display-label literals outside admin.ts/tests are a lint
+// violation (lint rule 4). `features`/`color` are genuinely quiz-personality
+// content with no catalog source, so they stay here; the label itself is
+// always resolved live via archetypeLabel() at each of this file's two
+// response-construction sites instead.
+const ARCHETYPES: Record<string, { features: string[]; color: string }> = {
+  floral:          { color: '#a34b78', features: ['You prefer delicate aromatics over heavy roasts', 'You enjoy a light, tea-like body', 'You appreciate a bright, clean finish'] },
+  fruity:          { color: '#ca445f', features: ['You prefer juicy acidity and bright notes', 'You enjoy vibrant fruit-forward flavors', 'You appreciate a crisp, clean finish'] },
+  balanced_sweet:  { color: '#d1ac11', features: ['You prefer lower acidity and round body', 'You enjoy caramelized and nutty sweetness', 'You are less sensitive to roast intensity'] },
+  chocolate_nutty: { color: '#a54c2d', features: ['You prefer a bold and comforting cup', 'You enjoy deep cocoa and roasted nut flavors', 'You appreciate a heavy, satisfying body'] },
+  earthy:          { color: '#912f2f', features: ['You prefer a complex, savory depth', 'You enjoy warming spices and earthy notes', 'You appreciate a thick, structured finish'] },
+  experimental:    { color: '#056c7a', features: ['You prefer unique, unexpected flavor profiles', 'You enjoy wild fermentation and intense fruit', 'You appreciate complex, lively acidity'] },
 };
 
 // ── GET /api/users/profile ────────────────────────────────────────────────────
@@ -133,8 +132,12 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
     }
 
     const quiz = quizResult.rows[0];
-    const archetypeKey = quiz?.archetype_name ? (ARCHETYPE_NAME_TO_KEY[quiz.archetype_name] ?? quiz.archetype_name.toLowerCase()) : null;
-    const archetypeData = archetypeKey ? (ARCHETYPES[archetypeKey] ?? { name: quiz.archetype_name, features: [], color: '#a33726' }) : null;
+    const archetypeKey = quiz?.archetype_name ? ((await archetypeCode(quiz.archetype_name)) ?? quiz.archetype_name.toLowerCase()) : null;
+    // Label comes from archetypeLabel() (v_coffee_archetype) for a recognized
+    // key; an unrecognized key falls back to the raw quiz label, same as before.
+    const archetypeMeta = archetypeKey ? (ARCHETYPES[archetypeKey] ?? { features: [], color: '#a33726' }) : null;
+    const archetypeName = archetypeKey && ARCHETYPES[archetypeKey] ? await catalogArchetypeLabel(archetypeKey) : (quiz?.archetype_name ?? null);
+    const archetypeData = archetypeMeta ? { name: archetypeName, ...archetypeMeta } : null;
 
     // Which orders already have a feedback_events doc (any source/channel) —
     // drives the "Leave feedback" affordance in Profile.tsx order history.
@@ -317,8 +320,10 @@ router.get('/homepage-state', requireAuth, async (req: AuthRequest, res) => {
       refreshLifecycleState(req.uid!).catch(err => console.error('[users/homepage-state/refresh]', err));
     }
 
-    const archetypeKey = signals.archetype ? (ARCHETYPE_NAME_TO_KEY[signals.archetype] ?? signals.archetype.toLowerCase()) : null;
-    const archetypeData = archetypeKey ? (ARCHETYPES[archetypeKey] ?? { name: signals.archetype!, features: [], color: '#a33726' }) : null;
+    const archetypeKey = signals.archetype ? ((await archetypeCode(signals.archetype)) ?? signals.archetype.toLowerCase()) : null;
+    const archetypeMeta = archetypeKey ? (ARCHETYPES[archetypeKey] ?? { features: [], color: '#a33726' }) : null;
+    const archetypeName = archetypeKey && ARCHETYPES[archetypeKey] ? await catalogArchetypeLabel(archetypeKey) : (signals.archetype ?? null);
+    const archetypeData = archetypeMeta ? { name: archetypeName, ...archetypeMeta } : null;
 
     let pendingFeedback: { orderId: string; blendName: string | null; coffeeId: number | null } | null = null;
     let usualBlend: { id: string; name: string } | null = null;
@@ -575,12 +580,10 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
       db.query(
         `SELECT o.id, o.created_at,
                 (ARRAY_AGG(rb.blend_name))[1] AS blend_name,
-                (ARRAY_AGG(rb.coffee_id))[1]  AS coffee_id,
-                (ARRAY_AGG(aa.archetype))[1]  AS archetype
+                (ARRAY_AGG(rb.coffee_id))[1]  AS coffee_id
          FROM "order" o
          LEFT JOIN order_line_item li ON li.order_id = o.id
          LEFT JOIN roaster_blend rb ON rb.id = li.blend_id
-         LEFT JOIN archetype_assignments aa ON aa.coffee_id = rb.coffee_id AND aa.superseded_at IS NULL
          WHERE o.user_id = $1
          GROUP BY o.id ORDER BY o.created_at DESC`,
         [profileId]
@@ -600,6 +603,19 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
       // HOME_TASK_6 — brew cards, read-only v1 display.
       getUserBrewCards(profileId).catch((err: unknown) => { console.error('[/api/users/flavor-memory] brew cards read failed:', err); return []; }),
     ]);
+
+    // Task 6's derived-reading-line signal (orderedActivity, below) needs each
+    // order's archetype. Was a raw archetype_assignments join in the query
+    // above; Catalog Blueprint brief 3 resolves it through catalogReads
+    // instead (D1 — this is match_archetype, the coffee's flavor identity,
+    // not a placement read), batched once for every distinct coffee_id in
+    // this user's orders.
+    const orderCoffeeIds = [...new Set(
+      ordersResult.rows.map((o) => o.coffee_id).filter((id: number | null): id is number => id != null)
+    )];
+    const orderArchetypeMap = orderCoffeeIds.length
+      ? new Map((await getCoffees({ ids: orderCoffeeIds })).map((c) => [c.id, c.match_archetype]))
+      : new Map<number, string | null>();
 
     // Alias only — never coffees.name/roaster, same S44/S77 discipline as
     // every other customer-facing render path.
@@ -685,7 +701,7 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
     // to a valid 4-segment doc reference alongside quiz.ts — see the comment
     // there). archetype here is stored as the human-readable name (quiz.ts
     // writes `archetype` from the request body verbatim), so it's mapped to the
-    // enum key the rest of this route already uses via ARCHETYPE_NAME_TO_KEY,
+    // enum key the rest of this route already uses via archetypeCode(),
     // same as archetypeKey above.
     // Profile Part 6: the synthetic single-entry fallback below must only
     // trigger for a genuinely-missing doc, not for a read that threw (a real
@@ -700,12 +716,12 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
       journeyDocMissing = !journeySnap.exists;
       const journeyData = journeySnap.exists ? journeySnap.data() : null;
       const history: any[] = journeyData?.archetypeHistory ?? [];
-      journey = history.map(h => ({
-        archetype:      ARCHETYPE_NAME_TO_KEY[h.archetype] ?? String(h.archetype ?? '').toLowerCase(),
+      journey = await Promise.all(history.map(async (h) => ({
+        archetype:      (await archetypeCode(h.archetype)) ?? String(h.archetype ?? '').toLowerCase(),
         archetypeLabel: h.archetype,
         at:             h.date?.toDate ? h.date.toDate().toISOString() : (h.date ?? null),
         trigger:        h.trigger === 'first_quiz' ? 'first_quiz' : 'retake',
-      }));
+      })));
     } catch (err) {
       console.error('[/api/users/flavor-memory] taste_journey read failed:', err);
       journeyReadFailed = true;
@@ -733,7 +749,7 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
       const quiz = quizResult.rows[0];
       if (quiz?.archetype_name) {
         journey = [{
-          archetype:      ARCHETYPE_NAME_TO_KEY[quiz.archetype_name] ?? quiz.archetype_name.toLowerCase(),
+          archetype:      (await archetypeCode(quiz.archetype_name)) ?? quiz.archetype_name.toLowerCase(),
           archetypeLabel: quiz.archetype_name,
           at:             quiz.completed_at,
           trigger:        'first_quiz',
@@ -758,39 +774,42 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
     }));
 
     // Task 6's derived-reading-line signal needs an archetype per order too —
-    // resolved via the same archetype_assignments join used everywhere else
-    // in this file, current assignment only (superseded_at IS NULL). Kept out
-    // of `journal` itself so that response shape (and its existing consumers)
-    // stays untouched.
-    const orderedActivity = ordersResult.rows.map(o => ({
-      id: o.id,
-      type: 'ordered' as const,
-      at: new Date(o.created_at).toISOString(),
-      archetype: o.archetype ?? null,
-      archetypeLabel: o.archetype ? (ARCHETYPES[o.archetype]?.name ?? null) : null,
-      coffeeName: o.blend_name ?? null,
-      removable: false,
+    // resolved via orderArchetypeMap above (D1's match_archetype, batched via
+    // catalogReads.getCoffees, not a raw archetype_assignments join). Kept
+    // out of `journal` itself so that response shape (and its existing
+    // consumers) stays untouched.
+    const orderedActivity = await Promise.all(ordersResult.rows.map(async (o) => {
+      const archetype = o.coffee_id != null ? (orderArchetypeMap.get(o.coffee_id) ?? null) : null;
+      return {
+        id: o.id,
+        type: 'ordered' as const,
+        at: new Date(o.created_at).toISOString(),
+        archetype,
+        archetypeLabel: archetype ? await catalogArchetypeLabel(archetype) : null,
+        coffeeName: o.blend_name ?? null,
+        removable: false,
+      };
     }));
 
     // 'saved' — explicit_save dial_events, tombstones filtered here (not in the
     // Firestore query, see the read above). Legacy pre-Task-1 events (no
     // coffeeId/platformName) render honestly as position-only — never resolved
     // at read time (drift + roaster-blind, same reasoning as journal above).
-    const savedActivity = (savedEventsSnap?.docs ?? [])
+    const savedActivity = await Promise.all((savedEventsSnap?.docs ?? [])
       .filter(doc => !doc.data().removedAt)
-      .map(doc => {
+      .map(async (doc) => {
         const d = doc.data();
         return {
           id: doc.id,
           type: 'saved' as const,
           at: d.createdAt?.toDate ? d.createdAt.toDate().toISOString() : null,
           archetype: d.archetype ?? null,
-          archetypeLabel: d.archetype ? (ARCHETYPES[d.archetype]?.name ?? null) : null,
+          archetypeLabel: d.archetype ? await catalogArchetypeLabel(d.archetype) : null,
           dialSortOrder: typeof d.dialSortOrder === 'number' ? d.dialSortOrder : null,
           coffeeName: d.platformName ?? null,
           removable: true,
         };
-      });
+      }));
 
     // 'recipe' — Task 5's liam_saves, tombstones filtered the same way.
     const recipeActivity = (recipeSnap?.docs ?? [])

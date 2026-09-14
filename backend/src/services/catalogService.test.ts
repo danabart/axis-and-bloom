@@ -12,7 +12,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { db } from '../db/client.js';
 import {
   CatalogError, createCoffee, placeCoffee, moveCoffee, addGuest, setPriority, setMatchArchetype,
-  retireCoffee, restoreCoffee, deactivateRoastery, reactivateRoastery, setHop, upsertSku,
+  retireCoffee, restoreCoffee, deactivateRoastery, reactivateRoastery, setHop, upsertSku, setSlotPrice,
 } from './catalogService.js';
 
 afterAll(async () => {
@@ -128,11 +128,23 @@ describe('placeCoffee / moveCoffee (D5)', () => {
     let roaster: { id: string } | undefined;
     let homeCoffeeId: number | undefined;
     let guestCoffeeId: number | undefined;
+    let chocolate2: number | undefined;
+    // v_coffee_sellable_slot requires blend AND price (both since brief 1) —
+    // chocolate_nutty/2 isn't guaranteed to already have a real 12oz price
+    // (dial_slot_price is real, pre-existing business config, same "capture
+    // and restore" hazard as blendResolver.test.ts's own no-price test), so
+    // this test sets one and restores whatever was there before.
+    let existingPriceCents: number | undefined;
     try {
       roaster = await makeRoaster('Vitest Guest Roastery');
       homeCoffeeId = (await makeCoffee('Vitest Guest Home Coffee', roaster.id)).id;
       guestCoffeeId = (await makeCoffee('Vitest Guest Guest Coffee', roaster.id)).id;
-      const chocolate2 = await slotId('chocolate_nutty', 2);
+      chocolate2 = await slotId('chocolate_nutty', 2);
+      const existing = (await db.query<{ retail_price_cents: number }>(
+        `SELECT retail_price_cents FROM dial_slot_price WHERE slot_id = $1 AND weight_oz = 12`, [chocolate2]
+      )).rows[0];
+      existingPriceCents = existing?.retail_price_cents;
+      await setSlotPrice({ slotId: chocolate2, weightOz: 12, retailPriceCents: existingPriceCents ?? 1700 }, ACTOR);
 
       await placeCoffee({ coffeeId: homeCoffeeId, slotId: chocolate2, role: 'home' }, ACTOR);
       await expect(placeCoffee({ coffeeId: homeCoffeeId, slotId: chocolate2, role: 'guest' }, ACTOR)).rejects.toMatchObject({ status: 409, code: 'ALREADY_ASSIGNED' });
@@ -152,6 +164,9 @@ describe('placeCoffee / moveCoffee (D5)', () => {
       expect(sellable.length).toBe(1);
       expect(sellable[0].coffee_id).toBe(guestCoffeeId);
     } finally {
+      if (chocolate2 !== undefined && existingPriceCents === undefined) {
+        await db.query(`DELETE FROM dial_slot_price WHERE slot_id = $1 AND weight_oz = 12`, [chocolate2]);
+      }
       await cleanupRoasterAndCoffees(roaster, [homeCoffeeId, guestCoffeeId].filter((x): x is number => x != null));
     }
   });

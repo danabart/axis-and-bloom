@@ -3169,32 +3169,11 @@ JOIN coffee_dimensions        cd  ON cd.id  = dpv.dimension_id
 JOIN dial_archetype_config    dac ON dac.archetype = dap.archetype
 ORDER BY dap.archetype, dpv.sort_order, c.name;
 
--- Cross-archetype bridge-hop adjacency, derived live from dial_coffee_relationships.
--- One row per unordered archetype pair with at least one bridge_archetype hop between
--- coffees currently tagged with those archetypes. Filters out 'experimental' (and any
--- future non-archetype category) via dial_archetype_config.is_archetype — a hop touching
--- a non-true-archetype coffee isn't "archetype adjacency" the way a real pair is.
--- confidence_enum mapped low/medium/high → 1/2/3 to average.
-DROP VIEW IF EXISTS v_archetype_adjacency;
-CREATE VIEW v_archetype_adjacency AS
-SELECT
-  LEAST(aa_from.archetype, aa_to.archetype)                                            AS archetype_a,
-  GREATEST(aa_from.archetype, aa_to.archetype)                                         AS archetype_b,
-  COUNT(*)                                                                              AS hop_count,
-  COUNT(*) FILTER (WHERE dcr.direction = 'more')                                        AS more_count,
-  COUNT(*) FILTER (WHERE dcr.direction = 'less')                                        AS less_count,
-  ROUND(AVG(CASE dcr.confidence WHEN 'low' THEN 1 WHEN 'medium' THEN 2 WHEN 'high' THEN 3 END), 2) AS avg_confidence
-FROM dial_coffee_relationships dcr
-JOIN archetype_assignments aa_from ON aa_from.coffee_id = dcr.from_coffee_id AND aa_from.superseded_at IS NULL
-JOIN archetype_assignments aa_to   ON aa_to.coffee_id   = dcr.to_coffee_id   AND aa_to.superseded_at IS NULL
-JOIN dial_archetype_config  dac_from ON dac_from.archetype = aa_from.archetype
-JOIN dial_archetype_config  dac_to   ON dac_to.archetype   = aa_to.archetype
-WHERE dcr.hop_type = 'bridge_archetype'
-  AND dac_from.is_archetype = true
-  AND dac_to.is_archetype   = true
-  AND aa_from.archetype <> aa_to.archetype
-GROUP BY LEAST(aa_from.archetype, aa_to.archetype), GREATEST(aa_from.archetype, aa_to.archetype)
-ORDER BY hop_count DESC;
+-- v_archetype_adjacency moved below, after v_coffee_hop's own definition
+-- (Catalog Blueprint brief 3, 2026-09-14) — it's now derived from
+-- v_coffee_hop, which is defined later in this file (the Catalog Blueprint
+-- views block), so its CREATE VIEW has to run after v_coffee_hop's. Search
+-- "v_archetype_adjacency redefined" near the end of this file.
 
 -- Bloom Dial: directional hop graph between coffees.
 DROP VIEW IF EXISTS v_dial_navigation;
@@ -3740,11 +3719,15 @@ ALTER TABLE coffees ADD COLUMN IF NOT EXISTS story_generation_failed BOOLEAN NOT
 -- ─────────────────────────────────────────────
 
 -- Drop in reverse dependency order first (v_coffee_slot/v_coffee_sellable_slot/
--- v_coffee_hop all read v_coffee) — same fix as v_archetype_dimension_comparison/
+-- v_coffee_hop all read v_coffee; v_coffee_sellable_slot reads
+-- v_coffee_sellable_candidate; v_archetype_adjacency reads v_coffee_hop —
+-- all as of brief 3) — same fix as v_archetype_dimension_comparison/
 -- v_archetype_vectors above: a bare DROP VIEW IF EXISTS v_coffee on a second
 -- boot fails with "other objects depend on it" once the dependents exist.
+DROP VIEW IF EXISTS v_archetype_adjacency;
 DROP VIEW IF EXISTS v_coffee_hop;
 DROP VIEW IF EXISTS v_coffee_sellable_slot;
+DROP VIEW IF EXISTS v_coffee_sellable_candidate;
 DROP VIEW IF EXISTS v_coffee_slot;
 DROP VIEW IF EXISTS v_coffee;
 DROP VIEW IF EXISTS v_coffee_archetype;
@@ -3830,52 +3813,68 @@ FROM coffee_slot_assignment csa
 JOIN coffee_dial_slot cds ON cds.id = csa.slot_id
 JOIN v_coffee         vc  ON vc.id  = csa.coffee_id;
 
--- One row per (slot, weight_oz) a customer can actually buy right now.
--- Candidate order: active coffee_slot_assignment rows on an active, named
--- slot, on an active coffee, ordered role='home' first then priority (D5) —
--- so a guest only resolves once every home candidate is gone. A candidate
--- only counts if roaster_blend has an active row at that weight_oz, and
--- category exclusions from blendResolver.ts (decaf/half_caf/flavored never
--- fill a flavor slot; experimental-tagged coffees only fill the experimental
--- dial) are enforced here too, against v_coffee.category_codes, so the rule
--- lives in exactly one place. Price is present only when dial_slot_price has
--- a row for that (slot, weight) — no row means "not sellable yet", not $0.
+-- Catalog Blueprint brief 3 (2026-09-14) — the pre-DISTINCT-ON candidate list
+-- v_coffee_sellable_slot picks its winner from, exposed on its own so the
+-- resolver (blendResolver.ts) can report *why* a losing candidate didn't
+-- resolve (no blend at that weight vs. no price) and honour excludeCoffeeIds
+-- by filtering this view's rows in application code, instead of re-deriving
+-- the candidate list itself. One row per (active slot, active assignment,
+-- active coffee, weight in BLOOM_WEIGHTS_OZ = 12/80 — routes/coffees.ts's own
+-- constant; hardcoded here the same way dial_slot_price's own $32/12oz,
+-- $185/80oz fallback defaults are, elsewhere in this file) — unlike the old
+-- inline subquery, a weight with no active blend still gets a row (blend_id
+-- NULL), so "skipped, no blend at that weight" is visible, not silently
+-- absent. Category exclusions (decaf/half_caf/flavored never fill a flavor
+-- slot; experimental-tagged coffees only fill the experimental dial) applied
+-- here, same as before — the one place that rule lives.
+CREATE VIEW v_coffee_sellable_candidate AS
+SELECT
+  cds.id             AS slot_id,
+  cds.archetype,
+  cds.sort_order,
+  cds.name           AS slot_name,
+  cds.position_label,
+  cds.is_landing_default,
+  w.weight_oz,
+  vc.id              AS coffee_id,
+  vc.name            AS coffee_name,
+  vc.roaster_id,
+  vc.roaster_name,
+  csa.id             AS assignment_id,
+  csa.role,
+  csa.priority,
+  rb.id              AS blend_id,
+  rb.roaster_sku,
+  rb.shopify_variant_id,
+  dsp.retail_price_cents,
+  (rb.id IS NOT NULL AND dsp.retail_price_cents IS NOT NULL) AS is_sellable,
+  ROW_NUMBER() OVER (
+    PARTITION BY cds.id, w.weight_oz
+    ORDER BY (csa.role = 'home') DESC, csa.priority
+  ) AS rank
+FROM coffee_dial_slot cds
+JOIN coffee_slot_assignment csa       ON csa.slot_id = cds.id AND csa.is_active = true
+JOIN v_coffee vc                      ON vc.id = csa.coffee_id AND vc.is_active = true
+CROSS JOIN (VALUES (12::numeric), (80::numeric)) AS w(weight_oz)
+LEFT JOIN roaster_blend rb            ON rb.coffee_id = vc.id AND rb.is_active = true AND rb.weight_oz = w.weight_oz
+LEFT JOIN dial_slot_price dsp         ON dsp.slot_id = cds.id AND dsp.weight_oz = w.weight_oz
+WHERE cds.is_active = true AND cds.name IS NOT NULL
+  AND NOT (vc.category_codes && ARRAY['decaf','half_caf','flavored'])
+  AND (cds.archetype = 'experimental' OR NOT (vc.category_codes && ARRAY['experimental']));
+
+-- One row per (slot, weight_oz) a customer can actually buy right now — the
+-- winning candidate (role='home' first, then priority, D5) among
+-- v_coffee_sellable_candidate's is_sellable rows. Same output columns as
+-- brief 1 (brief 1's own tests assert this unchanged).
 CREATE VIEW v_coffee_sellable_slot AS
 SELECT DISTINCT ON (cand.slot_id, cand.weight_oz)
   cand.slot_id, cand.archetype, cand.sort_order, cand.slot_name, cand.position_label,
   cand.is_landing_default, cand.weight_oz, cand.coffee_id, cand.coffee_name, cand.roaster_id,
   cand.role, cand.priority, cand.blend_id, cand.roaster_sku, cand.shopify_variant_id,
-  dsp.retail_price_cents
-FROM (
-  SELECT
-    cds.id             AS slot_id,
-    cds.archetype,
-    cds.sort_order,
-    cds.name           AS slot_name,
-    cds.position_label,
-    cds.is_landing_default,
-    rb.weight_oz,
-    vc.id              AS coffee_id,
-    vc.name            AS coffee_name,
-    vc.roaster_id,
-    csa.role,
-    csa.priority,
-    rb.id              AS blend_id,
-    rb.roaster_sku,
-    rb.shopify_variant_id
-  FROM coffee_dial_slot cds
-  JOIN coffee_slot_assignment csa ON csa.slot_id = cds.id AND csa.is_active = true
-  JOIN v_coffee vc                ON vc.id = csa.coffee_id AND vc.is_active = true
-  JOIN roaster_blend rb           ON rb.coffee_id = vc.id AND rb.is_active = true
-  WHERE cds.is_active = true AND cds.name IS NOT NULL
-    -- category exclusions (blendResolver.ts): decaf/half_caf/flavored never fill a
-    -- flavor slot; experimental-tagged coffees only ever fill the experimental dial.
-    AND NOT (vc.category_codes && ARRAY['decaf','half_caf','flavored'])
-    AND (cds.archetype = 'experimental' OR NOT (vc.category_codes && ARRAY['experimental']))
-) cand
-LEFT JOIN dial_slot_price dsp ON dsp.slot_id = cand.slot_id AND dsp.weight_oz = cand.weight_oz
-WHERE dsp.retail_price_cents IS NOT NULL
-ORDER BY cand.slot_id, cand.weight_oz, (cand.role = 'home') DESC, cand.priority;
+  cand.retail_price_cents
+FROM v_coffee_sellable_candidate cand
+WHERE cand.is_sellable
+ORDER BY cand.slot_id, cand.weight_oz, cand.rank;
 
 -- One row per dial_coffee_relationships row. hop_type_derived is computed
 -- fresh from each endpoint's current active HOME assignment (D3 — hop_type
@@ -3915,3 +3914,30 @@ LEFT JOIN (
   JOIN coffee_dial_slot cds ON cds.id = csa.slot_id
   WHERE csa.role = 'home' AND csa.is_active = true
 ) ts ON ts.coffee_id = dcr.to_coffee_id;
+
+-- v_archetype_adjacency redefined (Catalog Blueprint brief 3, 2026-09-14) on
+-- v_coffee_hop instead of dial_coffee_relationships + archetype_assignments
+-- directly — same output columns as before. Archetype here is each hop
+-- endpoint's current PLACEMENT (home slot) archetype, not match archetype:
+-- this view describes dial-physical adjacency (which slots are bridged),
+-- the same thing hop_type_derived itself is about (D3), not flavor-identity
+-- reasoning (D1). Kept under its old name until brief 5 renames it
+-- v_coffee_archetype_adjacency (naming convention, README.md).
+DROP VIEW IF EXISTS v_archetype_adjacency;
+CREATE VIEW v_archetype_adjacency AS
+SELECT
+  LEAST(vch.from_archetype, vch.to_archetype)                                           AS archetype_a,
+  GREATEST(vch.from_archetype, vch.to_archetype)                                        AS archetype_b,
+  COUNT(*)                                                                               AS hop_count,
+  COUNT(*) FILTER (WHERE vch.direction = 'more')                                         AS more_count,
+  COUNT(*) FILTER (WHERE vch.direction = 'less')                                         AS less_count,
+  ROUND(AVG(CASE vch.confidence WHEN 'low' THEN 1 WHEN 'medium' THEN 2 WHEN 'high' THEN 3 END), 2) AS avg_confidence
+FROM v_coffee_hop vch
+JOIN v_coffee_archetype vca_from ON vca_from.code = vch.from_archetype
+JOIN v_coffee_archetype vca_to   ON vca_to.code   = vch.to_archetype
+WHERE vch.hop_type_derived = 'bridge_archetype'
+  AND vch.from_coffee_is_active = true AND vch.to_coffee_is_active = true
+  AND vca_from.is_archetype = true AND vca_to.is_archetype = true
+  AND vch.from_archetype <> vch.to_archetype
+GROUP BY LEAST(vch.from_archetype, vch.to_archetype), GREATEST(vch.from_archetype, vch.to_archetype)
+ORDER BY hop_count DESC;

@@ -1,83 +1,143 @@
-// Roastery lifecycle (2026-08-25) — Liam must never *recommend* an inactive
-// coffee, but must still be able to name a customer's own inactive coffee by
-// its house alias (my_coffee/brew-card/SMS turns). Requires DATABASE_URL
-// pointed at a reachable Postgres instance with the roastery-lifecycle schema
-// applied — cannot run against a pre-migration database.
+// Catalog Blueprint · brief 3 (2026-09-14) — rewritten against fixtures built
+// through catalogService (createCoffee -> setMatchArchetype -> upsertSku ->
+// placeCoffee -> setSlotPrice), same convention as catalogService.test.ts and
+// the rewritten blendResolver.test.ts: `Vitest`-prefixed names, cleanup in
+// `finally` and `afterAll` (dependency order: coffee_slot_assignment ->
+// archetype_assignments -> roaster_blend -> coffees -> roaster).
 //
-// The candidate-pool test temporarily deactivates and restores a REAL coffee
-// (whichever curated_mix happens to return first) — same pattern
-// admin.lookups.test.ts already uses on real rows, always inside a
-// try/finally; not a 'Vitest%'-named fixture, so it's outside the sweep
-// below by design (the sweep is for leaked TEST rows, not a stuck toggle on
-// a real row — and this test's own UPDATE is already the first statement
-// inside its try, minimizing that window). Everything in the alias-fallback
-// test is a disposable fixture, deleted at the end.
+// getCandidatePool() (sommelierRag.ts) draws from v_coffee_sellable_slot at
+// 12oz (D2) — a coffee only ever enters Liam's pool once it's home/guest on
+// a slot AND has a priced 12oz SKU there, exactly the same fixture chain
+// blendResolver.test.ts uses.
 import 'dotenv/config';
 import { describe, it, expect, afterAll } from 'vitest';
 import { db } from '../db/client.js';
+import { createCoffee, setMatchArchetype, upsertSku, placeCoffee, setSlotPrice, retireCoffee } from './catalogService.js';
 import { fetchSommelierCoffees, getAliases } from './sommelierRag.js';
 
-// 2026-08-26 hardening round — the real safety net for the alias-fallback
-// fixture below, if its own creation fails partway.
+const ACTOR = { actor: 'vitest' };
+const WEIGHT_OZ = 12;
+
 afterAll(async () => {
-  await db.query(`DELETE FROM coffee_alias WHERE platform_name LIKE 'Vitest%'`);
-  await db.query(`DELETE FROM roaster_blend WHERE blend_name LIKE 'Vitest%'`);
+  await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
+  await db.query(`DELETE FROM archetype_assignments WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
+  await db.query(`DELETE FROM roaster_blend WHERE blend_name LIKE 'Vitest%' OR coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
   await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM roaster WHERE name LIKE 'Vitest%'`);
 });
 
-describe('fetchSommelierCoffees — candidate pool excludes inactive coffees', () => {
-  it('drops a coffee from the pool the moment it goes inactive, and returns once reactivated', async () => {
-    const before = await fetchSommelierCoffees({ ragFocus: 'curated_mix', userArchetype: null });
-    expect(before.coffeeIds.length).toBeGreaterThan(0);
-    const targetId = before.coffeeIds[0];
-    const original = (await db.query('SELECT is_active FROM coffees WHERE id = $1', [targetId])).rows[0].is_active;
+async function makeRoaster(name: string) {
+  return (await db.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ($1, true) RETURNING id`, [name])).rows[0];
+}
+async function slotId(archetype: string, sortOrder: number): Promise<number> {
+  return (await db.query<{ id: number }>(`SELECT id FROM coffee_dial_slot WHERE archetype = $1 AND sort_order = $2`, [archetype, sortOrder])).rows[0].id;
+}
+async function cleanup(roaster: { id: string } | undefined, coffeeIds: number[], slotIds: number[] = []) {
+  if (coffeeIds.length) {
+    await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
+    await db.query(`DELETE FROM archetype_assignments WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
+    await db.query(`DELETE FROM roaster_blend WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
+    await db.query(`DELETE FROM coffees WHERE id = ANY($1::int[])`, [coffeeIds]);
+  }
+  if (slotIds.length) await db.query(`DELETE FROM dial_slot_price WHERE slot_id = ANY($1::int[]) AND weight_oz = $2`, [slotIds, WEIGHT_OZ]);
+  if (roaster) await db.query(`DELETE FROM roaster WHERE id = $1`, [roaster.id]);
+}
+
+describe('fetchSommelierCoffees — candidate pool is v_coffee_sellable_slot at 12oz (D2)', () => {
+  it('includes a fixture once it is home + priced, and drops it once retired', async () => {
+    let roaster: { id: string } | undefined;
+    let coffeeId: number | undefined;
+    let slot: number | undefined;
     try {
-      await db.query('UPDATE coffees SET is_active = false WHERE id = $1', [targetId]);
+      roaster = await makeRoaster('Vitest Rag Roastery');
+      const { result: created } = await createCoffee({ roasterId: roaster.id, name: 'Vitest Rag Coffee' }, ACTOR);
+      coffeeId = created.coffeeId;
+      await setMatchArchetype({ coffeeId, archetype: 'chocolate_nutty', confidence: 'high', source: 'manual' }, ACTOR);
+      slot = await slotId('chocolate_nutty', 1);
+      await upsertSku({ coffeeId, weightOz: WEIGHT_OZ, blendName: 'Vitest Rag Blend', isActive: true }, ACTOR);
+      await placeCoffee({ coffeeId, slotId: slot, role: 'home' }, ACTOR);
+      await setSlotPrice({ slotId: slot, weightOz: WEIGHT_OZ, retailPriceCents: 1600 }, ACTOR);
+
+      const before = await fetchSommelierCoffees({ ragFocus: 'curated_mix', userArchetype: null });
+      expect(before.coffeeIds).toContain(coffeeId);
+      expect(before.catalogText).toContain('YOUR CURRENT CATALOG');
+
+      await retireCoffee({ coffeeId, reason: 'manual' }, ACTOR);
       const after = await fetchSommelierCoffees({ ragFocus: 'curated_mix', userArchetype: null });
-      expect(after.coffeeIds).not.toContain(targetId);
+      expect(after.coffeeIds).not.toContain(coffeeId);
     } finally {
-      await db.query('UPDATE coffees SET is_active = $1 WHERE id = $2', [original, targetId]);
+      await cleanup(roaster, coffeeId ? [coffeeId] : [], slot ? [slot] : []);
+    }
+  }, 20000);
+
+  it('exact_match narrows the pool to the requested archetype only', async () => {
+    let roaster: { id: string } | undefined;
+    const coffeeIds: number[] = [];
+    const slotIds: number[] = [];
+    try {
+      roaster = await makeRoaster('Vitest Rag Exact Roastery');
+      const targetArchetype = 'earthy';
+      const otherArchetype = 'floral';
+      const target = await createCoffee({ roasterId: roaster.id, name: 'Vitest Rag Exact Target' }, ACTOR);
+      coffeeIds.push(target.result.coffeeId);
+      await setMatchArchetype({ coffeeId: target.result.coffeeId, archetype: targetArchetype, confidence: 'high', source: 'manual' }, ACTOR);
+      const targetSlot = await slotId(targetArchetype, 2);
+      slotIds.push(targetSlot);
+      await upsertSku({ coffeeId: target.result.coffeeId, weightOz: WEIGHT_OZ, blendName: 'Vitest Rag Exact Target Blend', isActive: true }, ACTOR);
+      await placeCoffee({ coffeeId: target.result.coffeeId, slotId: targetSlot, role: 'home' }, ACTOR);
+      await setSlotPrice({ slotId: targetSlot, weightOz: WEIGHT_OZ, retailPriceCents: 1700 }, ACTOR);
+
+      const other = await createCoffee({ roasterId: roaster.id, name: 'Vitest Rag Exact Other' }, ACTOR);
+      coffeeIds.push(other.result.coffeeId);
+      await setMatchArchetype({ coffeeId: other.result.coffeeId, archetype: otherArchetype, confidence: 'high', source: 'manual' }, ACTOR);
+      const otherSlot = await slotId(otherArchetype, 2);
+      slotIds.push(otherSlot);
+      await upsertSku({ coffeeId: other.result.coffeeId, weightOz: WEIGHT_OZ, blendName: 'Vitest Rag Exact Other Blend', isActive: true }, ACTOR);
+      await placeCoffee({ coffeeId: other.result.coffeeId, slotId: otherSlot, role: 'home' }, ACTOR);
+      await setSlotPrice({ slotId: otherSlot, weightOz: WEIGHT_OZ, retailPriceCents: 1700 }, ACTOR);
+
+      const result = await fetchSommelierCoffees({ ragFocus: 'exact_match', userArchetype: targetArchetype });
+      expect(result.coffeeIds).toContain(target.result.coffeeId);
+      expect(result.coffeeIds).not.toContain(other.result.coffeeId);
+    } finally {
+      await cleanup(roaster, coffeeIds, slotIds);
     }
   }, 20000);
 });
 
-describe('getAliases — owned-bag fallback for an inactive coffee', () => {
-  it('still resolves a house/slot name via dial_archetype_positions when coffee_alias.is_active is false (the cascade\'s own post-deactivation state)', async () => {
-    let coffee: { id: number } | undefined;
-    let position: { id: number } | undefined;
-    let alias: { id: number } | undefined;
+describe('getAliases', () => {
+  it('resolves the fixture coffee\'s home slot name (never the raw coffee/roaster name)', async () => {
+    let roaster: { id: string } | undefined;
+    let coffeeId: number | undefined;
+    let slot: number | undefined;
     try {
-      const vocab = (await db.query(`
-        SELECT dpv.id AS vocabulary_id, dpv.archetype, dpv.sort_order, dsa.platform_name
-        FROM dial_position_vocabulary dpv
-        JOIN dial_slot_alias dsa ON dsa.archetype = dpv.archetype AND dsa.dial_sort_order = dpv.sort_order
-        LIMIT 1
-      `)).rows[0];
-      expect(vocab).toBeTruthy();
+      roaster = await makeRoaster('Vitest Rag Alias Roastery');
+      const { result: created } = await createCoffee({ roasterId: roaster.id, name: 'Vitest Rag Alias Raw Name' }, ACTOR);
+      coffeeId = created.coffeeId;
+      slot = await slotId('balanced_sweet', 1);
+      await placeCoffee({ coffeeId, slotId: slot, role: 'home' }, ACTOR);
+      const slotName = (await db.query<{ name: string | null }>(`SELECT name FROM coffee_dial_slot WHERE id = $1`, [slot])).rows[0].name;
 
-      coffee = (await db.query(
-        `INSERT INTO coffees (name, roaster, is_active) VALUES ('Vitest Alias Fallback Coffee', 'Vitest Roastery', false) RETURNING id`
-      )).rows[0];
-      position = (await db.query(
-        `INSERT INTO dial_archetype_positions (archetype, coffee_id, vocabulary_id, is_default, is_guest)
-         VALUES ($1, $2, $3, false, false) RETURNING id`,
-        [vocab.archetype, coffee!.id, vocab.vocabulary_id]
-      )).rows[0];
-      // is_active=false + deactivation_reason='roaster' — exactly the cascade's
-      // own shape for an alias row belonging to a deactivated roastery.
-      alias = (await db.query(
-        `INSERT INTO coffee_alias (platform_name, coffee_id, is_active, deactivation_reason)
-         VALUES ('Vitest Alias Fallback Alias', $1, false, 'roaster') RETURNING id`,
-        [coffee!.id]
-      )).rows[0];
-
-      const aliases = await getAliases([coffee!.id]);
-      expect(aliases.get(coffee!.id)).toBe(vocab.platform_name);
+      const aliases = await getAliases([coffeeId]);
+      expect(aliases.get(coffeeId)).toBe(slotName);
+      expect(aliases.get(coffeeId)).not.toBe('Vitest Rag Alias Raw Name');
     } finally {
-      if (alias) await db.query('DELETE FROM coffee_alias WHERE id = $1', [alias.id]);
-      if (position) await db.query('DELETE FROM dial_archetype_positions WHERE id = $1', [position.id]);
-      if (coffee) await db.query('DELETE FROM coffees WHERE id = $1', [coffee.id]);
+      await cleanup(roaster, coffeeId ? [coffeeId] : []);
     }
-  });
+  }, 20000);
+
+  it('falls back to the coffee\'s own name when it has no slot at all', async () => {
+    let roaster: { id: string } | undefined;
+    let coffeeId: number | undefined;
+    try {
+      roaster = await makeRoaster('Vitest Rag Alias Fallback Roastery');
+      const { result: created } = await createCoffee({ roasterId: roaster.id, name: 'Vitest Rag Alias Fallback Coffee' }, ACTOR);
+      coffeeId = created.coffeeId;
+
+      const aliases = await getAliases([coffeeId]);
+      expect(aliases.get(coffeeId)).toBe('Vitest Rag Alias Fallback Coffee');
+    } finally {
+      await cleanup(roaster, coffeeId ? [coffeeId] : []);
+    }
+  }, 20000);
 });

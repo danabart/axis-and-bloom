@@ -9,9 +9,20 @@ import express from 'express';
 import type { Server } from 'http';
 import coffeesRouter, { computeDoorMap, assertDoorMapInvariants } from './coffees.js';
 import { db } from '../db/client.js';
+import { createCoffee, setMatchArchetype, upsertSku, placeCoffee, setSlotPrice, setHop } from '../services/catalogService.js';
 
 let server: Server;
 let baseUrl: string;
+
+const CATALOG_ACTOR = { actor: 'vitest' };
+const CATALOG_WEIGHT_OZ = 12;
+
+// Catalog Blueprint brief 3 — a single shared "active slot" fixture (built
+// through catalogService, not the retired coffee_alias/dial_archetype_positions
+// tables) for the /legacy-slot and /content tests below, which each just need
+// *some* real active slot to exist (N3: the catalog starts empty, so nothing
+// is active until a test places something).
+let sharedFixture: { roasterId: string; coffeeId: number; slotId: number; archetype: string; sortOrder: number };
 
 beforeAll(async () => {
   const app = express();
@@ -23,9 +34,24 @@ beforeAll(async () => {
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
   baseUrl = `http://127.0.0.1:${port}/api/coffees`;
-});
+
+  const roaster = (await db.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Coffees Shared Roastery', true) RETURNING id`)).rows[0];
+  const { result: created } = await createCoffee({ roasterId: roaster.id, name: 'Vitest Coffees Shared Coffee' }, CATALOG_ACTOR);
+  await setMatchArchetype({ coffeeId: created.coffeeId, archetype: 'floral', confidence: 'high', source: 'manual' }, CATALOG_ACTOR);
+  const slot = (await db.query<{ id: number }>(`SELECT id FROM coffee_dial_slot WHERE archetype = 'floral' AND sort_order = 1`)).rows[0];
+  await upsertSku({ coffeeId: created.coffeeId, weightOz: CATALOG_WEIGHT_OZ, blendName: 'Vitest Coffees Shared Blend', isActive: true }, CATALOG_ACTOR);
+  await placeCoffee({ coffeeId: created.coffeeId, slotId: slot.id, role: 'home' }, CATALOG_ACTOR);
+  await setSlotPrice({ slotId: slot.id, weightOz: CATALOG_WEIGHT_OZ, retailPriceCents: 1800 }, CATALOG_ACTOR);
+  sharedFixture = { roasterId: roaster.id, coffeeId: created.coffeeId, slotId: slot.id, archetype: 'floral', sortOrder: 1 };
+}, 20000);
 
 afterAll(async () => {
+  await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
+  await db.query(`DELETE FROM archetype_assignments WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
+  await db.query(`DELETE FROM roaster_blend WHERE blend_name LIKE 'Vitest%' OR coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
+  await db.query(`DELETE FROM dial_slot_price WHERE slot_id = $1 AND weight_oz = $2`, [sharedFixture.slotId, CATALOG_WEIGHT_OZ]);
+  await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
+  await db.query(`DELETE FROM roaster WHERE name LIKE 'Vitest%'`);
   await new Promise<void>(resolve => server.close(() => resolve()));
 });
 
@@ -146,16 +172,11 @@ describe('GET /api/coffees/archetype-stats', () => {
 
 describe('GET /api/coffees/:id/legacy-slot', () => {
   it('resolves a real, currently-assigned coffeeId to its archetype + dialSortOrder', async () => {
-    const archRes = await fetch(`${baseUrl}/archetypes`);
-    const archetypes = await archRes.json();
-    const activeSlot = archetypes.flatMap((a: any) => a.slots).find((s: any) => s.isActive);
-    expect(activeSlot).toBeTruthy();
-
-    const res = await fetch(`${baseUrl}/${activeSlot.coffeeId}/legacy-slot`);
+    const res = await fetch(`${baseUrl}/${sharedFixture.coffeeId}/legacy-slot`);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toHaveProperty('archetype');
-    expect(body.dialSortOrder).toBe(activeSlot.dialSortOrder);
+    expect(body.archetype).toBe(sharedFixture.archetype);
+    expect(body.dialSortOrder).toBe(sharedFixture.sortOrder);
   }, 20000);
 
   it('404s for a coffeeId with no live archetype assignment', async () => {
@@ -166,19 +187,14 @@ describe('GET /api/coffees/:id/legacy-slot', () => {
 
 describe('GET /api/coffees/:id/content', () => {
   it('includes process/roastLevel/originRegion, never roaster/name/exact origin', async () => {
-    const archRes = await fetch(`${baseUrl}/archetypes`);
-    const archetypes = await archRes.json();
-    const activeSlot = archetypes.flatMap((a: any) => a.slots).find((s: any) => s.isActive);
-    expect(activeSlot).toBeTruthy();
-
-    const res = await fetch(`${baseUrl}/${activeSlot.coffeeId}/content`);
+    const res = await fetch(`${baseUrl}/${sharedFixture.coffeeId}/content`);
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toHaveProperty('process');
     expect(body).toHaveProperty('roastLevel');
     expect(body).toHaveProperty('originRegion');
     const serialized = JSON.stringify(body);
-    expect(serialized).not.toMatch(/Path Coffee Roasters|Temecula Coffee Roasters/);
+    expect(serialized).not.toMatch(/Path Coffee Roasters|Temecula Coffee Roasters|Vitest Coffees Shared Roastery|Vitest Coffees Shared Coffee/);
   }, 30000); // may trigger AI content generation on first call
 });
 
@@ -189,51 +205,45 @@ describe('GET /api/coffees/:id/content', () => {
 // pre-migration database.
 describe('GET /api/coffees/archetypes — inactive coffees', () => {
   it('an inactive coffee never fills a slot, even one it would otherwise occupy alone', async () => {
-    // A genuinely open slot — no active coffee_alias row and no home
-    // dial_archetype_positions row for it — so seeding it with exactly one
-    // fixture coffee makes that fixture the only possible occupant.
-    const openSlot = (await db.query(`
-      SELECT dpv.archetype, dpv.sort_order
-      FROM dial_position_vocabulary dpv
-      LEFT JOIN coffee_alias ca ON ca.archetype = dpv.archetype AND ca.dial_sort_order = dpv.sort_order AND ca.is_active = true
-      LEFT JOIN dial_archetype_positions dap ON dap.archetype = dpv.archetype AND dap.vocabulary_id = dpv.id AND dap.is_guest = false
-      WHERE ca.id IS NULL AND dap.id IS NULL
-      LIMIT 1
-    `)).rows[0];
-    if (!openSlot) return; // every slot currently occupied — nothing to seed safely, skip rather than risk a real slot
-
-    const coffee = (await db.query(
-      `INSERT INTO coffees (name, roaster, is_active) VALUES ('Vitest Open-Slot Coffee', 'Vitest Roastery', true) RETURNING id`
-    )).rows[0];
-    const alias = (await db.query(
-      `INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
-       VALUES ('Vitest Open-Slot Alias', $1, $2, $3, 1, true) RETURNING id`,
-      [openSlot.archetype, openSlot.sort_order, coffee.id]
-    )).rows[0];
-    const blend = (await db.query(
-      `INSERT INTO roaster_blend (blend_name, coffee_id, weight_oz, is_active) VALUES ('Vitest Open-Slot Blend', $1, 12, true) RETURNING id`,
-      [coffee.id]
-    )).rows[0];
-
+    // Catalog Blueprint brief 3 — placed through catalogService onto a slot
+    // of its own (earthy/2, distinct from sharedFixture's floral/1), not the
+    // retired coffee_alias/dial_archetype_positions tables.
+    let roaster: { id: string } | undefined;
+    let coffeeId: number | undefined;
+    let slot: { id: number } | undefined;
     try {
+      roaster = (await db.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Open-Slot Roastery', true) RETURNING id`)).rows[0];
+      const { result: created } = await createCoffee({ roasterId: roaster.id, name: 'Vitest Open-Slot Coffee' }, CATALOG_ACTOR);
+      coffeeId = created.coffeeId;
+      await setMatchArchetype({ coffeeId, archetype: 'earthy', confidence: 'high', source: 'manual' }, CATALOG_ACTOR);
+      slot = (await db.query<{ id: number }>(`SELECT id FROM coffee_dial_slot WHERE archetype = 'earthy' AND sort_order = 2`)).rows[0];
+      await upsertSku({ coffeeId, weightOz: CATALOG_WEIGHT_OZ, blendName: 'Vitest Open-Slot Blend', isActive: true }, CATALOG_ACTOR);
+      await placeCoffee({ coffeeId, slotId: slot.id, role: 'home' }, CATALOG_ACTOR);
+      await setSlotPrice({ slotId: slot.id, weightOz: CATALOG_WEIGHT_OZ, retailPriceCents: 1800 }, CATALOG_ACTOR);
+
       const findSlot = async () => {
         const res = await fetch(`${baseUrl}/archetypes`);
         const archetypes = await res.json();
-        const arch = archetypes.find((a: any) => a.archetype === openSlot.archetype);
-        return arch?.slots?.find((s: any) => s.dialSortOrder === openSlot.sort_order);
+        const arch = archetypes.find((a: any) => a.archetype === 'earthy');
+        return arch?.slots?.find((s: any) => s.dialSortOrder === 2);
       };
 
       const whileActive = await findSlot();
       expect(whileActive?.isActive).toBe(true);
 
-      await db.query('UPDATE coffees SET is_active = false WHERE id = $1', [coffee.id]);
+      await db.query('UPDATE coffees SET is_active = false WHERE id = $1', [coffeeId]);
 
       const whileInactive = await findSlot();
       expect(whileInactive?.isActive).toBe(false);
     } finally {
-      await db.query('DELETE FROM roaster_blend WHERE id = $1', [blend.id]);
-      await db.query('DELETE FROM coffee_alias WHERE id = $1', [alias.id]);
-      await db.query('DELETE FROM coffees WHERE id = $1', [coffee.id]);
+      if (coffeeId) {
+        await db.query('DELETE FROM coffee_slot_assignment WHERE coffee_id = $1', [coffeeId]);
+        await db.query('DELETE FROM archetype_assignments WHERE coffee_id = $1', [coffeeId]);
+        await db.query('DELETE FROM roaster_blend WHERE coffee_id = $1', [coffeeId]);
+        await db.query('DELETE FROM coffees WHERE id = $1', [coffeeId]);
+      }
+      if (slot) await db.query('DELETE FROM dial_slot_price WHERE slot_id = $1 AND weight_oz = $2', [slot.id, CATALOG_WEIGHT_OZ]);
+      if (roaster) await db.query('DELETE FROM roaster WHERE id = $1', [roaster.id]);
     }
   }, 20000);
 });
@@ -257,85 +267,58 @@ describe('GET /api/coffees/:id/story — inactive coffees stay reachable (Decisi
 
 describe('GET /api/coffees/:coffeeId/hops — inactive targets', () => {
   it('never returns an inactive target, and still returns up to 3 active ones when available', async () => {
-    const dimension = (await db.query(`SELECT id FROM coffee_dimensions LIMIT 1`)).rows[0];
-    const source = (await db.query(
-      `INSERT INTO coffees (name, roaster, is_active) VALUES ('Vitest Hop Source', 'Vitest Roastery', true) RETURNING id`
-    )).rows[0];
-
-    // A genuinely open slot to seed each target coffee into, same reasoning
-    // as the /archetypes test above — one open slot per target, so each
-    // target actually resolves via resolveBlendForSlot.
-    const openSlots = (await db.query(`
-      SELECT dpv.id AS vocabulary_id, dpv.archetype, dpv.sort_order
-      FROM dial_position_vocabulary dpv
-      LEFT JOIN coffee_alias ca ON ca.archetype = dpv.archetype AND ca.dial_sort_order = dpv.sort_order AND ca.is_active = true
-      LEFT JOIN dial_archetype_positions dap ON dap.archetype = dpv.archetype AND dap.vocabulary_id = dpv.id AND dap.is_guest = false
-      WHERE ca.id IS NULL AND dap.id IS NULL
-      LIMIT 4
-    `)).rows;
-    if (openSlots.length < 4) { await db.query('DELETE FROM coffees WHERE id = $1', [source.id]); return; } // not enough open slots to seed 4 targets safely — skip
-
-    const targets: Array<{ coffeeId: number; aliasId: number; blendId: string; hopId: number }> = [];
+    // Catalog Blueprint brief 3 — source and each target placed+priced through
+    // catalogService (v_coffee_hop/getHops, not dial_coffee_relationships
+    // directly; a target must be home + sellable at 12oz to surface at all —
+    // D2). Four targets across four distinct fruity slots so each resolves
+    // its own home placement.
+    let roaster: { id: string } | undefined;
+    let sourceId: number | undefined;
+    const targets: Array<{ coffeeId: number; slotId: number; hopId: number; sortOrder: number }> = [];
     try {
-      for (const slot of openSlots) {
-        const target = (await db.query(
-          `INSERT INTO coffees (name, roaster, is_active) VALUES ('Vitest Hop Target', 'Vitest Roastery', true) RETURNING id`
-        )).rows[0];
-        // The /hops route's dap join is `dial_archetype_positions dap ON
-        // dap.coffee_id = dcr.to_coffee_id AND dap.archetype = aa.archetype`
-        // — it needs BOTH a live archetype_assignments row (for aa.archetype)
-        // AND a real dial_archetype_positions row (coffee_alias's own legacy
-        // archetype/dial_sort_order fallback columns don't satisfy this join
-        // at all). Missing either one leaves target_archetype/target_sort_order
-        // NULL, and the route's own `if (!row.target_archetype) continue`
-        // silently skips every hop — found live: this fixture originally had
-        // neither, and the test failed with 0 hops instead of 3. A fixture
-        // bug, not a route bug. ON DELETE CASCADE from coffees cleans both
-        // rows up with the target row, no separate delete needed.
-        await db.query(
-          `INSERT INTO archetype_assignments (coffee_id, archetype, confidence) VALUES ($1, $2, 'high')`,
-          [target.id, slot.archetype]
+      const dimension = (await db.query<{ id: number }>(`SELECT id FROM coffee_dimensions LIMIT 1`)).rows[0];
+      roaster = (await db.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Hop Roastery', true) RETURNING id`)).rows[0];
+
+      const { result: sourceCreated } = await createCoffee({ roasterId: roaster.id, name: 'Vitest Hop Source' }, CATALOG_ACTOR);
+      sourceId = sourceCreated.coffeeId;
+
+      for (let sortOrder = 1; sortOrder <= 4; sortOrder++) {
+        const { result: targetCreated } = await createCoffee({ roasterId: roaster.id, name: `Vitest Hop Target ${sortOrder}` }, CATALOG_ACTOR);
+        await setMatchArchetype({ coffeeId: targetCreated.coffeeId, archetype: 'fruity', confidence: 'high', source: 'manual' }, CATALOG_ACTOR);
+        const slot = (await db.query<{ id: number }>(`SELECT id FROM coffee_dial_slot WHERE archetype = 'fruity' AND sort_order = $1`, [sortOrder])).rows[0];
+        await upsertSku({ coffeeId: targetCreated.coffeeId, weightOz: CATALOG_WEIGHT_OZ, blendName: `Vitest Hop Target ${sortOrder} Blend`, isActive: true }, CATALOG_ACTOR);
+        await placeCoffee({ coffeeId: targetCreated.coffeeId, slotId: slot.id, role: 'home' }, CATALOG_ACTOR);
+        await setSlotPrice({ slotId: slot.id, weightOz: CATALOG_WEIGHT_OZ, retailPriceCents: 1600 }, CATALOG_ACTOR);
+        const { result: hopCreated } = await setHop(
+          { fromCoffeeId: sourceId, toCoffeeId: targetCreated.coffeeId, dimensionId: dimension.id, direction: 'more', isRecommended: true, confidence: 'high' },
+          CATALOG_ACTOR
         );
-        await db.query(
-          `INSERT INTO dial_archetype_positions (archetype, coffee_id, vocabulary_id, is_default, is_guest) VALUES ($1, $2, $3, false, false)`,
-          [slot.archetype, target.id, slot.vocabulary_id]
-        );
-        const alias = (await db.query(
-          `INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority, is_active)
-           VALUES ('Vitest Hop Target Alias', $1, $2, $3, 1, true) RETURNING id`,
-          [slot.archetype, slot.sort_order, target.id]
-        )).rows[0];
-        const blend = (await db.query(
-          `INSERT INTO roaster_blend (blend_name, coffee_id, weight_oz, is_active) VALUES ('Vitest Hop Target Blend', $1, 12, true) RETURNING id`,
-          [target.id]
-        )).rows[0];
-        const hop = (await db.query(
-          `INSERT INTO dial_coffee_relationships (from_coffee_id, to_coffee_id, dimension_id, direction, hop_type, is_recommended, confidence)
-           VALUES ($1, $2, $3, 'more', 'bridge_archetype', true, 'high') RETURNING id`,
-          [source.id, target.id, dimension.id]
-        )).rows[0];
-        targets.push({ coffeeId: target.id, aliasId: alias.id, blendId: blend.id, hopId: hop.id });
+        targets.push({ coffeeId: targetCreated.coffeeId, slotId: slot.id, hopId: hopCreated.hopId, sortOrder });
       }
 
       // Deactivate one target — it must never appear, and the other three
       // (still >= 3 active) must still fill all 3 slots the endpoint caps at.
       await db.query('UPDATE coffees SET is_active = false WHERE id = $1', [targets[0].coffeeId]);
 
-      const res = await fetch(`${baseUrl}/${source.id}/hops`);
+      const res = await fetch(`${baseUrl}/${sourceId}/hops`);
       expect(res.status).toBe(200);
       const hops = await res.json();
       expect(hops.length).toBe(3);
       // The inactive target's own (archetype, dialSortOrder) must not appear among the returned hops.
-      const inactiveKey = `${openSlots[0].archetype}|${openSlots[0].sort_order}`;
-      expect(hops.some((h: any) => `${h.target.archetype}|${h.target.dialSortOrder}` === inactiveKey)).toBe(false);
+      expect(hops.some((h: any) => h.target.archetype === 'fruity' && h.target.dialSortOrder === targets[0].sortOrder)).toBe(false);
     } finally {
-      for (const t of targets) {
-        await db.query('DELETE FROM dial_coffee_relationships WHERE id = $1', [t.hopId]);
-        await db.query('DELETE FROM roaster_blend WHERE id = $1', [t.blendId]);
-        await db.query('DELETE FROM coffee_alias WHERE id = $1', [t.aliasId]);
-        await db.query('DELETE FROM coffees WHERE id = $1', [t.coffeeId]);
+      const targetIds = targets.map(t => t.coffeeId);
+      const slotIds = targets.map(t => t.slotId);
+      await db.query(`DELETE FROM dial_coffee_relationships WHERE from_coffee_id = $1 OR to_coffee_id = ANY($2::int[])`, [sourceId ?? 0, targetIds]);
+      if (targetIds.length) {
+        await db.query('DELETE FROM coffee_slot_assignment WHERE coffee_id = ANY($1::int[])', [targetIds]);
+        await db.query('DELETE FROM archetype_assignments WHERE coffee_id = ANY($1::int[])', [targetIds]);
+        await db.query('DELETE FROM roaster_blend WHERE coffee_id = ANY($1::int[])', [targetIds]);
       }
-      await db.query('DELETE FROM coffees WHERE id = $1', [source.id]);
+      if (slotIds.length) await db.query('DELETE FROM dial_slot_price WHERE slot_id = ANY($1::int[]) AND weight_oz = $2', [slotIds, CATALOG_WEIGHT_OZ]);
+      if (sourceId) await db.query('DELETE FROM coffees WHERE id = $1', [sourceId]);
+      if (targetIds.length) await db.query('DELETE FROM coffees WHERE id = ANY($1::int[])', [targetIds]);
+      if (roaster) await db.query('DELETE FROM roaster WHERE id = $1', [roaster.id]);
     }
-  }, 20000);
+  }, 30000);
 });

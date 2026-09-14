@@ -1,6 +1,7 @@
 import { db } from '../db/client.js';
 import { firestoreDb } from './firebase-admin.js';
 import { getSommelierConfig } from './sommelierConfig.js';
+import { archetypeCode } from './catalogReads.js';
 
 export interface BehavioralConfidenceResult {
   score: number;
@@ -57,19 +58,25 @@ export async function computeBehavioralConfidence(uid: string): Promise<Behavior
   const currentArchetype: string | null = quizRows.rows[0]?.archetype_name ?? null;
 
   // ── 2. SQL: orders (check archetype match via blend assignment) ──────────────
+  // Catalog Blueprint brief 3: archetype match now via v_coffee.match_archetype
+  // (D1) reached through roaster_blend.coffee_id, instead of the never-written
+  // roaster_blend.archetype_id column. match_archetype is a code, so
+  // currentArchetype (a display label from the quiz's `archetype` table) is
+  // resolved to a code once via archetypeCode() before the comparison.
   let totalOrders = 0;
   let matchedOrders = 0;
   try {
+    const currentArchetypeCode = currentArchetype ? await archetypeCode(currentArchetype) : null;
     const orderRows = await db.query(
       `SELECT COUNT(DISTINCT o.id) AS total,
-              COUNT(DISTINCT CASE WHEN a.name = $2 THEN o.id END) AS matched
+              COUNT(DISTINCT CASE WHEN vc.match_archetype = $2 THEN o.id END) AS matched
        FROM "order" o
        JOIN user_profile up ON up.id = o.user_id
        LEFT JOIN order_line_item oli ON oli.order_id = o.id
        LEFT JOIN roaster_blend rb ON rb.id = oli.blend_id
-       LEFT JOIN archetype a ON a.id = rb.archetype_id
+       LEFT JOIN v_coffee vc ON vc.id = rb.coffee_id
        WHERE up.firebase_uid = $1`,
-      [uid, currentArchetype]
+      [uid, currentArchetypeCode]
     );
     totalOrders   = parseInt(orderRows.rows[0]?.total ?? '0', 10);
     matchedOrders = parseInt(orderRows.rows[0]?.matched ?? '0', 10);
