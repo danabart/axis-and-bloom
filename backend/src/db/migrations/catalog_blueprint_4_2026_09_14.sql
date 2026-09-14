@@ -1,0 +1,21 @@
+-- Catalog Blueprint · brief 4 — the admin gets one door (2026-09-14)
+--
+-- STATUS: not run as a standalone step — the statement below is also in
+-- schema.sql (idempotent: ADD COLUMN IF NOT EXISTS), which runs automatically
+-- on every backend startup. This file exists only as the narrative record,
+-- same convention as catalog_blueprint_1/3's own migration files.
+--
+-- See backend/src/features/catalog_blueprint/README.md and this brief's own
+-- CLAUDE_CODE_PROMPT_CATALOG_4_ADMIN_PLACE_FLOW.md, Part A, for full context.
+--
+-- One column, no drops or renames (Don'ts §1 — those are brief 5's job).
+--
+--   * archetype.descriptor_families_seeded_at (new, nullable TIMESTAMPTZ) —
+--     guards schema.sql's descriptor_families seed so it runs exactly once.
+--     Before this brief, the seed's WHERE clause was `descriptor_families =
+--     '{}'`, which would silently re-seed an archetype every boot if an
+--     admin edit (this brief's new setArchetypeDescriptorFamilies verb) ever
+--     left it at '{}' again (true of 'experimental' by design). The seed now
+--     runs `WHERE descriptor_families_seeded_at IS NULL` and stamps it.
+
+ALTER TABLE archetype ADD COLUMN IF NOT EXISTS descriptor_families_seeded_at TIMESTAMPTZ;

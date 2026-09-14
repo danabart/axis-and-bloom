@@ -6,14 +6,31 @@ import { reportError } from '../../lib/errorReporter';
 // Bloom Dial admin — Map & Journey (backend/src/features/dial_map_journey/
 // CLAUDE_CODE_PROMPT_DIAL_MAP_JOURNEY.md). Everything rendered here — archetypes,
 // vocabulary labels, coffee names, roasters, dimensions, hops — comes from
-// GET /api/admin/dial/graph (or the adjacency endpoint for lane order). The only
-// literals in this file are presentation tokens: the dimension→color map and the
-// compass axis-angle formula, both keyed/derived from whatever `dimensions` the
-// API returns, never assumed to be a fixed set. This page renders correctly
-// (empty lanes, empty shelf, no arcs) against an empty database.
+// GET /api/admin/catalog/graph (or the adjacency endpoint for lane order). The
+// only literals in this file are presentation tokens: the dimension→color map
+// and the compass axis-angle formula, both keyed/derived from whatever
+// `dimensions` the API returns, never assumed to be a fixed set. This page
+// renders correctly (empty lanes, empty shelf, no arcs) against an empty
+// database.
+//
+// Catalog Blueprint brief 4 (2026-09-14) — adapted in place per the reuse rule
+// (Dana: never re-implement dial/card/reveal logic; import it). Every type
+// below, and every renderer from MapLens onward, is UNCHANGED from before this
+// brief — only the data layer (toGraph() below, loadGraph, and the write
+// actions) was swapped onto GET /api/admin/catalog/graph and
+// POST/DELETE /api/admin/catalog/coffees/:id/placements|move,
+// /api/admin/catalog/slots/:id/landing-default, /api/admin/catalog/hops.
+// "Vocabulary" is now this archetype's dial slots (coffee_dial_slot) — same
+// {id, sortOrder, label} shape, so the Map/Journey renderers below never
+// needed to change. Category hops don't exist in the new model (v_coffee_hop
+// is coffee-to-coffee only) — the category-hop fields/rendering stay in place
+// (dead code paths, never populated) rather than stripped, to keep this diff
+// data-layer-only. The old "Show inactive" toggle is gone — GET
+// /api/admin/catalog/graph only ever returns active placements/hops (Part A's
+// own spec), a deliberate brief-4 simplification, not a bug.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ── Types (mirror GET /api/admin/dial/graph) ──────────────────────────────────
+// ── Types (mirror GET /api/admin/catalog/graph, reshaped by toGraph() below) ──
 
 interface DimensionInfo { id: number; name: string; platformAxis: string; }
 interface VocabSlot { id: number; sortOrder: number; label: string; }
@@ -235,6 +252,86 @@ function arcTooltip(a: Arc, dims: DimensionInfo[]): string {
   return lines.join('\n');
 }
 
+// ── Data layer — GET /api/admin/catalog/graph + /catalog/coffees, reshaped
+//    into the Graph/Position/ArchetypeInfo/Relationship shapes every renderer
+//    below already expects (Catalog Blueprint brief 4) ───────────────────────
+
+interface RawSlot {
+  id: number; archetype: string; sort_order: number; name: string | null; position_label: string;
+  is_landing_default: boolean;
+  occupants: Array<{
+    assignment_id: number; coffee_id: number; coffee_name: string; roaster_name: string | null;
+    slot_id: number; placement_archetype: string; sort_order: number; role: 'home' | 'guest';
+    coffee_is_active: boolean;
+  }>;
+}
+interface RawHop {
+  id: number; from_coffee_id: number; from_coffee_name: string | null; from_coffee_is_active: boolean | null;
+  to_coffee_id: number; to_coffee_name: string | null; to_coffee_is_active: boolean | null;
+  dimension_id: number; direction: Direction; delta: number | null;
+  is_recommended: boolean; confidence: Confidence; notes: string | null;
+  hop_type_derived: 'within_archetype' | 'bridge_archetype' | null;
+  fromAvgScore: number | null; toAvgScore: number | null;
+}
+interface RawGraph {
+  dimensions: DimensionInfo[];
+  archetypes: Array<{ archetype: string; label: string; dominantDimensionId: number | null }>;
+  slots: RawSlot[];
+  hops: RawHop[];
+}
+interface RawCoffee {
+  id: number; name: string; roaster_name: string | null; match_archetype: string | null;
+  is_active: boolean; category_codes: string[];
+}
+
+// A hop between two active coffees can still have a null hop_type_derived
+// (D3) when one endpoint has no active home yet — not renderable as an arc
+// with a defined shape (within-archetype dip vs. bridge curve), so it's left
+// out of the map, same as the old system's hop_type NOT NULL guarantee.
+function toGraph(raw: RawGraph, coffees: RawCoffee[]): Graph {
+  const archetypes: ArchetypeInfo[] = raw.archetypes.map(a => ({
+    archetype: a.archetype, label: a.label, dominantDimensionId: a.dominantDimensionId,
+    vocabulary: raw.slots
+      .filter(s => s.archetype === a.archetype)
+      .sort((x, y) => x.sort_order - y.sort_order)
+      .map(s => ({ id: s.id, sortOrder: s.sort_order, label: s.position_label })),
+  }));
+
+  const positions: Position[] = raw.slots.flatMap(s => s.occupants.map(o => ({
+    id: o.assignment_id, coffeeId: o.coffee_id, coffeeName: o.coffee_name,
+    roaster: o.roaster_name ?? '—',
+    archetype: o.placement_archetype, vocabularyId: o.slot_id, sortOrder: o.sort_order,
+    isDefault: s.is_landing_default, isGuest: o.role === 'guest',
+    isActive: o.coffee_is_active,
+  })));
+
+  const relationships: Relationship[] = raw.hops
+    .filter(h => h.hop_type_derived != null)
+    .map(h => ({
+      id: h.id,
+      fromCoffeeId: h.from_coffee_id, fromCoffeeName: h.from_coffee_name,
+      fromCategoryId: null, fromCategoryLabel: null,
+      toCoffeeId: h.to_coffee_id, toCoffeeName: h.to_coffee_name,
+      toCategoryId: null, toCategoryLabel: null,
+      dimensionId: h.dimension_id, direction: h.direction, delta: h.delta,
+      hopType: h.hop_type_derived as HopType,
+      isRecommended: h.is_recommended, confidence: h.confidence, notes: h.notes,
+      fromAvgScore: h.fromAvgScore, toAvgScore: h.toAvgScore,
+      fromCoffeeIsActive: h.from_coffee_is_active, toCoffeeIsActive: h.to_coffee_is_active,
+    }));
+
+  const homeCoffeeIds = new Set(positions.filter(p => !p.isGuest).map(p => p.coffeeId));
+  const unplaced: UnplacedCoffee[] = coffees
+    .filter(c => c.match_archetype && !homeCoffeeIds.has(c.id))
+    .map(c => ({
+      coffeeId: c.id, name: c.name, roaster: c.roaster_name ?? '—',
+      proposedArchetype: c.match_archetype as string,
+      category: c.category_codes?.[0] ?? null, isActive: c.is_active,
+    }));
+
+  return { dimensions: raw.dimensions, archetypes, positions, relationships, unplaced };
+}
+
 // ── Main component ─────────────────────────────────────────────────────────────
 
 type Lens = 'map' | 'journey';
@@ -257,9 +354,6 @@ export default function AdminDial() {
   const [showDialTurns, setShowDialTurns] = useState(true);
   const [showBridges, setShowBridges] = useState(true);
   const [showGuests, setShowGuests] = useState(true);
-  // Roastery lifecycle (2026-08-25) — "Show inactive" toggle, component state
-  // only, same pattern as every other admin list this task touches.
-  const [showInactive, setShowInactive] = useState(false);
   const [roasterFilter, setRoasterFilter] = useState<string | 'all'>('all');
   const [editMode, setEditMode] = useState(false);
   const [hoveredCoffeeId, setHoveredCoffeeId] = useState<number | null>(null);
@@ -283,20 +377,22 @@ export default function AdminDial() {
   const loadGraph = useCallback(async () => {
     try {
       const [graphRes, adjRes, coffeesRes] = await Promise.all([
-        apiFetch(`/api/admin/dial/graph${showInactive ? '?include_inactive=true' : ''}`),
+        apiFetch('/api/admin/catalog/graph'),
         apiFetch('/api/axis/adjacency'),
         // Deliberately NOT include_inactive here — this feeds the add-position/
         // add-hop pickers, which must only ever offer live coffees (matches the
-        // backend's own 409 guard on those writes).
-        apiFetch('/api/admin/coffees'),
+        // backend's own 409 guard on those writes), and toGraph()'s own
+        // "unplaced" derivation (an inactive coffee was never really unplaced,
+        // it's just gone).
+        apiFetch('/api/admin/catalog/coffees'),
       ]);
-      if (!graphRes.ok) throw new Error('Failed to fetch dial graph');
-      const graphData: Graph = await graphRes.json();
+      if (!graphRes.ok) throw new Error('Failed to fetch catalog graph');
+      const rawGraph: RawGraph = await graphRes.json();
       const adjData = await adjRes.json().catch(() => ({ adjacency: {} }));
-      const coffeesData = await coffeesRes.json().catch(() => []);
-      setGraph(graphData);
+      const rawCoffees: RawCoffee[] = await coffeesRes.json().catch(() => []);
+      setGraph(toGraph(rawGraph, rawCoffees));
       setAdjacency(adjData.adjacency ?? {});
-      setCoffeeOptions((coffeesData as any[]).map(c => ({ id: c.id, name: c.name, roaster: c.roaster, archetype: c.archetype ?? null })));
+      setCoffeeOptions(rawCoffees.map(c => ({ id: c.id, name: c.name, roaster: c.roaster_name ?? '—', archetype: c.match_archetype })));
       setError('');
     } catch (err) {
       reportError('[AdminDial/load]', err);
@@ -304,7 +400,7 @@ export default function AdminDial() {
     } finally {
       setLoading(false);
     }
-  }, [apiFetch, showInactive]);
+  }, [apiFetch]);
 
   useEffect(() => { loadGraph(); }, [loadGraph]);
 
@@ -416,26 +512,60 @@ export default function AdminDial() {
     return () => window.removeEventListener('resize', onResize);
   }, [recomputeGeometry]);
 
-  // ── writes (all reuse existing endpoints; every success refetches graph) ──────
+  // ── writes (Catalog Blueprint brief 4 — catalogService verbs via
+  //    /api/admin/catalog/*; every success refetches graph) ────────────────────
 
   async function refetch() { await loadGraph(); }
 
-  async function movePosition(pos: Position, vocabularyId: number) {
+  // D6 — the placement form runs a preview before confirming and shows the
+  // warnings; an out-of-spec placement demands a note. Same rule for every
+  // placement write in this file, not just the dedicated Place-a-coffee form
+  // (AdminCatalog.tsx) — collected here as one small helper rather than a
+  // full dialog, since these are quick in-map actions (←/→ reorder, +place),
+  // not the guided multi-step form.
+  async function previewAndConfirm(coffeeId: number, slotId: number, role: 'home' | 'guest'): Promise<{ ok: true; placementNote?: string } | { ok: false }> {
     try {
-      const res = await apiFetch(`/api/admin/dial/positions/${pos.id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ vocabulary_id: vocabularyId }),
+      const res = await apiFetch(`/api/admin/catalog/placement-preview?coffeeId=${coffeeId}&slotId=${slotId}&role=${role}`);
+      const preview = await res.json();
+      const warnings: Array<{ kind: string }> = preview.warnings ?? [];
+      const blocking = warnings.some(w => w.kind === 'band_out_of_spec' || w.kind === 'descriptor_off_family');
+      if (warnings.length) {
+        const summary = warnings.map(w => w.kind).join(', ');
+        if (!confirm(`This placement has warnings: ${summary}. Continue?`)) return { ok: false };
+      }
+      if (blocking) {
+        const note = prompt('This placement is out of the slot\'s spec — a note is required to continue:');
+        if (!note || !note.trim()) return { ok: false };
+        return { ok: true, placementNote: note.trim() };
+      }
+      return { ok: true };
+    } catch (err) {
+      reportError('[AdminDial/preview]', err);
+      setToast('Failed to compute placement preview');
+      return { ok: false };
+    }
+  }
+
+  async function movePosition(pos: Position, vocabularyId: number) {
+    const decision = await previewAndConfirm(pos.coffeeId, vocabularyId, pos.isGuest ? 'guest' : 'home');
+    if (!decision.ok) return;
+    try {
+      const res = await apiFetch(`/api/admin/catalog/coffees/${pos.coffeeId}/move`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ toSlotId: vocabularyId, placementNote: decision.placementNote }),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? 'Move failed');
       await refetch();
     } catch (err) { reportError('[AdminDial/move]', err); setToast(err instanceof Error ? err.message : 'Move failed'); }
   }
+  // Landing default is a slot property now (coffee_dial_slot.is_landing_default,
+  // D1) — the star sets THIS slot as the archetype's default; there's no
+  // "unset" without picking a replacement slot, so a click on an already-
+  // default slot is a no-op.
   async function toggleDefault(pos: Position) {
+    if (pos.isDefault) return;
     try {
-      const res = await apiFetch(`/api/admin/dial/positions/${pos.id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_default: !pos.isDefault }),
-      });
+      const res = await apiFetch(`/api/admin/catalog/slots/${pos.vocabularyId}/landing-default`, { method: 'POST' });
       if (!res.ok) throw new Error((await res.json()).error ?? 'Update failed');
       await refetch();
     } catch (err) { reportError('[AdminDial/default]', err); setToast(err instanceof Error ? err.message : 'Update failed'); }
@@ -445,20 +575,20 @@ export default function AdminDial() {
     const slot = arch?.vocabulary.find(v => v.id === pos.vocabularyId);
     if (!confirm(`Remove ${pos.coffeeName} from ${arch?.label ?? pos.archetype} — ${slot?.label ?? '?'}?`)) return;
     try {
-      const url = pos.isGuest ? `/api/admin/dial/positions/guest/${pos.id}` : `/api/admin/dial/positions/${pos.id}`;
-      const res = await apiFetch(url, { method: 'DELETE' });
+      const res = await apiFetch(`/api/admin/catalog/coffees/${pos.coffeeId}/placements/${pos.vocabularyId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error((await res.json()).error ?? 'Remove failed');
       await refetch();
     } catch (err) { reportError('[AdminDial/remove]', err); setToast(err instanceof Error ? err.message : 'Remove failed'); }
   }
   async function addPosition(coffee: CoffeeOption, archetype: string, vocabularyId: number) {
     const isHome = coffee.archetype === archetype;
+    const role = isHome ? 'home' : 'guest';
+    const decision = await previewAndConfirm(coffee.id, vocabularyId, role);
+    if (!decision.ok) return;
     try {
-      const res = await apiFetch(isHome ? '/api/admin/dial/positions' : '/api/admin/dial/positions/guest', {
+      const res = await apiFetch(`/api/admin/catalog/coffees/${coffee.id}/placements`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(isHome
-          ? { archetype, coffee_id: coffee.id, vocabulary_id: vocabularyId }
-          : { coffee_id: coffee.id, archetype, vocabulary_id: vocabularyId }),
+        body: JSON.stringify({ slotId: vocabularyId, role, placementNote: decision.placementNote }),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? 'Add failed');
       setAddPositionSocket(null); setAddPositionSearch('');
@@ -485,37 +615,39 @@ export default function AdminDial() {
   async function saveHop() {
     if (!hopDialog || !hopForm.dimensionId) { setHopError('Dimension is required'); return; }
     setHopSaving(true); setHopError('');
-    const hopType = hopTypeFor(hopDialog.from, hopDialog.to);
     try {
-      const res = await apiFetch('/api/admin/dial/relationships', {
+      // hop_type is server-derived now (D3, from each endpoint's current home
+      // placement) — never accepted as client input.
+      const res = await apiFetch('/api/admin/catalog/hops', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          from_coffee_id: hopDialog.from, to_coffee_id: hopDialog.to,
-          dimension_id: Number(hopForm.dimensionId), direction: hopForm.direction, hop_type: hopType,
-          delta: hopForm.delta ? Number(hopForm.delta) : null,
-          is_recommended: hopForm.isRecommended, confidence: hopForm.confidence, notes: hopForm.notes || null,
+          fromCoffeeId: hopDialog.from, toCoffeeId: hopDialog.to,
+          dimensionId: Number(hopForm.dimensionId), direction: hopForm.direction,
+          delta: hopForm.delta ? Number(hopForm.delta) : undefined,
+          isRecommended: hopForm.isRecommended, confidence: hopForm.confidence, notes: hopForm.notes || undefined,
         }),
       });
       const body = await res.json();
       if (!res.ok) {
-        setHopError(res.status === 409 ? 'This hop already exists.' : (body.error ?? 'Failed to save hop'));
+        setHopError(res.status === 409 ? 'This hop already exists.' : (body.message ?? body.error ?? 'Failed to save hop'));
         setHopSaving(false); return;
       }
+      const warnings: Array<{ kind: string }> = body.warnings ?? [];
       if (hopForm.mirror) {
-        const mirrorRes = await apiFetch('/api/admin/dial/relationships', {
+        const mirrorRes = await apiFetch('/api/admin/catalog/hops', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            from_coffee_id: hopDialog.to, to_coffee_id: hopDialog.from,
-            dimension_id: Number(hopForm.dimensionId),
-            direction: hopForm.direction === 'more' ? 'less' : 'more', hop_type: hopType,
-            delta: hopForm.delta ? Number(hopForm.delta) : null,
-            is_recommended: hopForm.isRecommended, confidence: hopForm.confidence,
-            notes: hopForm.notes ? `${hopForm.notes} (reverse)` : null,
+            fromCoffeeId: hopDialog.to, toCoffeeId: hopDialog.from,
+            dimensionId: Number(hopForm.dimensionId),
+            direction: hopForm.direction === 'more' ? 'less' : 'more',
+            delta: hopForm.delta ? Number(hopForm.delta) : undefined,
+            isRecommended: hopForm.isRecommended, confidence: hopForm.confidence,
+            notes: hopForm.notes ? `${hopForm.notes} (reverse)` : undefined,
           }),
         });
         void mirrorRes;
       }
-      if (body.warning) setToast(body.warning);
+      if (warnings.length) setToast(`Hop saved with warnings: ${warnings.map(w => w.kind).join(', ')}`);
       setHopDialog(null); setAddHopArmed(false); setAddHopSource(null);
       await refetch();
     } catch (err) {
@@ -525,7 +657,7 @@ export default function AdminDial() {
   }
   async function deleteHopRow(id: number) {
     try {
-      const res = await apiFetch(`/api/admin/dial/relationships/${id}`, { method: 'DELETE' });
+      const res = await apiFetch(`/api/admin/catalog/hops/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error((await res.json()).error ?? 'Delete failed');
       setArcDetail(null);
       await refetch();
@@ -566,11 +698,6 @@ export default function AdminDial() {
           </p>
         </div>
         <div className="flex items-center gap-4 shrink-0">
-        <label className="flex items-center gap-1.5 text-sm text-stone-500">
-          <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)}
-            className="accent-stone-700" />
-          Show inactive
-        </label>
         <div className="flex rounded-lg border border-stone-200 overflow-hidden shrink-0">
           <button onClick={() => setLens('map')}
             className={`px-4 py-1.5 text-sm ${lens === 'map' ? 'text-white' : 'text-stone-500 hover:bg-stone-50'}`}

@@ -3,7 +3,7 @@ import { requireAdmin, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 import { generateAndStoreSummary, generateAndStoreAllContent } from './coffees.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
-import { getDialSuggestion, recordCuppingSignal, getAvgCuppingScore, getArchetypeBucketWidth, getAvgCuppingScoresBatch } from '../services/dialSuggestion.js';
+import { recordCuppingSignal, getAvgCuppingScore, getArchetypeBucketWidth, getAvgCuppingScoresBatch } from '../services/dialSuggestion.js';
 import { getMarketingConfig, setMarketingConfigValue } from '../features/marketing/reportingConfig.js';
 import { DEFAULT_SOMMELIER_CONFIG } from '../db/seeds/sommelier_config_seed.js';
 import { checkAggregateAnomaly, getMonthlySpendEstimate } from '../services/sommelierGuards.js';
@@ -15,14 +15,15 @@ import { getEffectiveAiControls, envCeilingUsd } from '../services/anthropicGuar
 import { runQuizIntegrityChecks } from '../services/quizIntegrity.js';
 import { runCatalogIntegrityChecks } from '../services/catalogIntegrity.js';
 import {
-  CatalogError, type Ctx,
+  CatalogError, type Ctx, type ArchetypeCode,
   createCoffee, updateCoffee, retireCoffee, restoreCoffee,
   setMatchArchetype, placeCoffee, moveCoffee, removeFromSlot, certifyPlacement, previewPlacement, setPriority,
-  renameSlot, setSlotSpec, setSlotPrice, setLandingDefault,
+  renameSlot, setSlotSpec, setSlotPrice, setLandingDefault, setArchetypeDescriptorFamilies,
   upsertSku, restockSku, setHop, removeHop,
   deactivateRoastery, reactivateRoastery, buildDeactivationPreview, buildReactivationPreview,
 } from '../services/catalogService.js';
 import { importCatalog } from '../services/catalogImport.js';
+import { getArchetypes, getSlots, getCoffee, getCoffees, getSlotsForCoffee, getHops, getNotSellable, getChanges } from '../services/catalogReads.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -38,32 +39,11 @@ function handleCatalogError(err: unknown, res: import('express').Response): bool
   return false;
 }
 
-// ── GET /api/admin/archetypes — every archetype_enum value with its human label ─
-// and dial_archetype_config.is_archetype flag, driven from the DB rather than a
-// hardcoded frontend list. `is_archetype = false` (currently only 'experimental')
-// marks it as a legacy category, not a true assignable archetype — frontend
-// consumers filter on this to keep it out of new-assignment dropdowns while still
-// showing legacy-tagged coffees (e.g. Kopi Safari) in matrix display.
-router.get('/archetypes', async (_req, res) => {
-  try {
-    const result = await db.query(`
-      SELECT dac.archetype AS value, a.name AS label, dac.is_archetype, dac.has_bloom_dial
-      FROM dial_archetype_config dac
-      LEFT JOIN archetype a ON a.name = CASE dac.archetype
-        WHEN 'chocolate_nutty' THEN 'Chocolate & Nutty'
-        WHEN 'balanced_sweet'  THEN 'Balanced & Sweet'
-        WHEN 'fruity'          THEN 'Fruity'
-        WHEN 'earthy'          THEN 'Earthy'
-        WHEN 'floral'          THEN 'Floral'
-        WHEN 'experimental'    THEN 'Experimental'
-      END
-      ORDER BY dac.archetype
-    `);
-    res.json(result.rows);
-  } catch (err) {
-    console.error('[admin/archetypes GET]', err);
-    res.status(500).json({ error: 'Failed to fetch archetypes' });
-  }
+// ── GET /api/admin/archetypes — RETIRED (Catalog Blueprint brief 4) ──────────
+// Replaced by GET /api/admin/catalog/archetypes (v_coffee_archetype) — same
+// data, one source, no more hand-typed name<->code CASE map.
+router.get('/archetypes', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/archetypes (Catalog Blueprint brief 4)' });
 });
 
 // ── GET /api/admin/lookups ────────────────────────────────────────────────────
@@ -206,55 +186,11 @@ router.patch('/marketing/config', async (req, res) => {
   }
 });
 
-// ── GET /api/admin/coffees ────────────────────────────────────────────────────
-// Roastery lifecycle (2026-08-25) — defaults to active coffees only;
-// ?include_inactive=true also returns inactive rows (greyed on every admin
-// list that shows them) carrying is_active/deactivated_at/deactivation_reason
-// plus the roaster_id FK and its resolved name, so a coffee with no linked
-// roastery (roaster_id NULL — a Task-0 backfill leftover) is visible in the
-// UI, not just server startup logs.
-router.get('/coffees', async (req, res) => {
-  const includeInactive = req.query.include_inactive === 'true';
-  try {
-    const result = await db.query(`
-      SELECT c.id, c.name, c.roaster, c.origin, c.blend_or_single,
-             c.process, c.roast_level, c.flavor_descriptors_roaster,
-             c.origin_region_id, lv.label AS origin_region_label, lv.value AS origin_region_value,
-             c.story, c.story_draft, c.story_published, c.story_admin_edited,
-             c.is_active, c.deactivated_at, c.deactivation_reason,
-             c.roaster_id, r.name AS roaster_name,
-             aa.archetype, aa.confidence,
-             dap.id       AS dial_position_id,
-             dap.vocabulary_id AS dial_vocab_id,
-             dap.is_default    AS dial_is_default,
-             dpv.sort_order    AS dial_position_sort,
-             dpv.label         AS dial_label
-      FROM coffees c
-      LEFT JOIN lookup_value lv
-        ON lv.id = c.origin_region_id
-      LEFT JOIN roaster r
-        ON r.id = c.roaster_id
-      LEFT JOIN archetype_assignments aa
-        ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
-      LEFT JOIN dial_archetype_positions dap
-        ON dap.coffee_id = c.id AND dap.archetype = aa.archetype
-      LEFT JOIN dial_position_vocabulary dpv
-        ON dpv.id = dap.vocabulary_id
-      ${includeInactive ? '' : 'WHERE c.is_active = true'}
-      ORDER BY c.id DESC
-    `);
-    // Per-coffee suggestion lookups are fine at this catalogue size (~30 coffees).
-    const coffeesWithSuggestions = await Promise.all(
-      result.rows.map(async (coffee) => ({
-        ...coffee,
-        dial_suggestion: await getDialSuggestion(coffee.id),
-      }))
-    );
-    res.json(coffeesWithSuggestions);
-  } catch (err) {
-    console.error('[admin/coffees]', err);
-    res.status(500).json({ error: 'Failed to fetch coffees' });
-  }
+// ── GET /api/admin/coffees — RETIRED (Catalog Blueprint brief 4) ─────────────
+// Replaced by GET /api/admin/catalog/coffees (v_coffee + placements + skus +
+// category_codes + story flags) — AdminCatalog.tsx's data source now.
+router.get('/coffees', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/coffees (Catalog Blueprint brief 4)' });
 });
 
 // ── POST /api/admin/coffees ───────────────────────────────────────────────────
@@ -571,66 +507,18 @@ router.delete('/sessions/:sessionId/coffees/:scId', async (req, res) => {
   }
 });
 
-// ── GET /api/admin/dial/slot-aliases ──────────────────────────────────────────
-// Every dial_slot_alias row (24: 20 flavor + 4 experimental) — unlike GET
-// /coffee-alias below, this is not derived through a coffee, so an unoccupied
-// slot still has a name (Bloom Dial Base Data Part 4, §A — the admin matrix
-// used to show a blank Slot Name for any slot with no coffee mapped).
-router.get('/dial/slot-aliases', async (_req, res) => {
-  try {
-    const result = await db.query(
-      `SELECT archetype, dial_sort_order, platform_name FROM dial_slot_alias ORDER BY archetype, dial_sort_order`
-    );
-    res.json(result.rows);
-  } catch (err) {
-    console.error('[admin/dial/slot-aliases GET]', err);
-    res.status(500).json({ error: 'Failed to fetch slot aliases' });
-  }
+// ── GET /api/admin/dial/slot-aliases — RETIRED (Catalog Blueprint brief 4) ───
+// Replaced by GET /api/admin/catalog/slots (coffee_dial_slot.name is the slot
+// name now, no separate alias table).
+router.get('/dial/slot-aliases', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/slots (Catalog Blueprint brief 4)' });
 });
 
 // ── GET /api/admin/dimensions ─────────────────────────────────────────────────
-// ── GET /api/admin/coffee-alias ──────────────────────────────────────────────
-// dial_sort_order/archetype are derived live from dial_archetype_positions /
-// archetype_assignments (the single sources of truth — see schema.sql comment
-// above coffee_alias) and only fall back to the stored coffee_alias columns
-// when a coffee has no live position (e.g. Half-Caf/Decaf, archetype = NULL by design).
-// platform_name (Bloom Dial Base Data Part 3) comes from dial_slot_alias, keyed
-// by the same live (archetype, dial_sort_order) — a slot property, not a
-// per-coffee one. coffee_alias.platform_name is legacy/unread here.
-// Roastery lifecycle (2026-08-25) — defaults to only aliases for active
-// coffees; ?include_inactive=true also returns aliases for inactive coffees,
-// carrying c.is_active/c.deactivated_at/c.deactivation_reason so the UI can
-// grey them.
-router.get('/coffee-alias', async (req, res) => {
-  const includeInactive = req.query.include_inactive === 'true';
-  try {
-    const result = await db.query(`
-      SELECT ca.id, dsa.platform_name,
-             COALESCE(aa.archetype, ca.archetype)   AS archetype,
-             COALESCE(dpv.sort_order, ca.dial_sort_order) AS dial_sort_order,
-             ca.coffee_id, ca.priority, ca.is_active,
-             ca.deactivated_at, ca.deactivation_reason,
-             c.name AS coffee_name, c.roaster,
-             c.is_active AS coffee_is_active, c.deactivated_at AS coffee_deactivated_at,
-             c.deactivation_reason AS coffee_deactivation_reason
-      FROM coffee_alias ca
-      JOIN coffees c ON c.id = ca.coffee_id
-      LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id AND dap.is_guest = false
-      LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
-      LEFT JOIN archetype_assignments aa
-        ON aa.coffee_id = ca.coffee_id AND aa.superseded_at IS NULL
-      LEFT JOIN dial_slot_alias dsa
-        ON dsa.archetype = COALESCE(aa.archetype, ca.archetype)
-        AND dsa.dial_sort_order = COALESCE(dpv.sort_order, ca.dial_sort_order)
-      ${includeInactive ? '' : 'WHERE c.is_active = true'}
-      ORDER BY COALESCE(aa.archetype, ca.archetype) NULLS LAST,
-               COALESCE(dpv.sort_order, ca.dial_sort_order), ca.priority
-    `);
-    res.json(result.rows);
-  } catch (err) {
-    console.error('[admin/coffee-alias]', err);
-    res.status(500).json({ error: 'Failed to fetch coffee aliases' });
-  }
+// ── GET /api/admin/coffee-alias — RETIRED (Catalog Blueprint brief 4) ────────
+// Replaced by GET /api/admin/catalog/coffees (placements[] from v_coffee_slot).
+router.get('/coffee-alias', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/coffees (Catalog Blueprint brief 4)' });
 });
 
 // ── POST /api/admin/coffee-alias — create a new alias row ────────────────────
@@ -665,23 +553,10 @@ router.patch('/coffee-alias/:id', (_req, res) => {
   res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/* (Catalog Blueprint brief 2)' });
 });
 
-// ── GET /api/admin/slot-prices ────────────────────────────────────────────────
-// All explicitly-set slot prices. Slots with no row here fall back to the
-// $32.00/12oz, $185.00/5lb defaults applied client-side (AdminCoffees.tsx) and
-// at the public-read query level (GET /api/coffees/archetypes) — this endpoint
-// only returns rows that actually exist in dial_slot_price.
-router.get('/slot-prices', async (_req, res) => {
-  try {
-    const result = await db.query(
-      `SELECT archetype, dial_sort_order, weight_oz, retail_price_cents
-       FROM dial_slot_price
-       ORDER BY archetype, dial_sort_order, weight_oz`
-    );
-    res.json(result.rows);
-  } catch (err) {
-    console.error('[admin/slot-prices GET]', err);
-    res.status(500).json({ error: 'Failed to fetch slot prices' });
-  }
+// ── GET /api/admin/slot-prices — RETIRED (Catalog Blueprint brief 4) ─────────
+// Replaced by GET /api/admin/catalog/slots (prices[] per slot).
+router.get('/slot-prices', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/slots (Catalog Blueprint brief 4)' });
 });
 
 // ── PATCH /api/admin/slot-prices — upsert one slot+weight price ──────────────
@@ -1170,316 +1045,48 @@ router.patch('/coffees/:id/story', async (req: AuthRequest, res) => {
 
 // ── BLOOM DIAL ────────────────────────────────────────────────────────────────
 
-// GET /api/admin/dial/positions — all dial positions with coffee + vocabulary detail
-// GET /api/admin/dial/graph — one call powers the whole Map & Journey admin page
-// (backend/src/features/dial_map_journey/CLAUDE_CODE_PROMPT_DIAL_MAP_JOURNEY.md, Part A).
-// Every value is read live from the tables the rest of the admin surfaces already write —
-// no archetype/vocabulary/coffee/roaster/dimension list is hardcoded here. This does not
-// replace any of the granular dial endpoints above/below; AdminCoffees' matrix keeps using
-// those directly.
-// Roastery lifecycle (2026-08-25) — positions/relationships/unplaced default
-// to active coffees only; ?include_inactive=true also returns inactive rows,
-// each carrying isActive so the Map/Journey UI can render them dashed/grey
-// instead of omitting them outright. Deliberately NOT filtered inside the
-// underlying views/tables — filtering stays the query's job here so this
-// toggle keeps working.
-router.get('/dial/graph', async (req, res) => {
-  const includeInactive = req.query.include_inactive === 'true';
-  try {
-    // dimensions: derived — the distinct dominant dimensions configured per archetype,
-    // unioned with every dimension actually used by a hop. Never a literal id list.
-    const dimensionsResult = await db.query(`
-      SELECT cd.id, cd.name, COALESCE(cd.platform_name, cd.name) AS "platformAxis"
-      FROM coffee_dimensions cd
-      WHERE cd.id IN (
-        SELECT dominant_dimension_id FROM dial_archetype_config WHERE dominant_dimension_id IS NOT NULL
-        UNION
-        SELECT dimension_id FROM dial_coffee_relationships
-      )
-      ORDER BY cd.id
-    `);
-
-    // archetypes: real flavor families only (is_archetype = true) — same
-    // dac.archetype → archetype.name mapping GET /api/admin/archetypes already uses.
-    // ORDER BY dac.archetype sorts by the archetype_enum's own declaration order
-    // (Postgres enum semantics) — the frontend's lane-ordering tie-break reuses this
-    // same stable, data-derived order rather than inventing a separate one.
-    const archetypesResult = await db.query(`
-      SELECT dac.archetype, a.name AS label, dac.dominant_dimension_id AS "dominantDimensionId"
-      FROM dial_archetype_config dac
-      LEFT JOIN archetype a ON a.name = CASE dac.archetype
-        WHEN 'chocolate_nutty' THEN 'Chocolate & Nutty'
-        WHEN 'balanced_sweet'  THEN 'Balanced & Sweet'
-        WHEN 'fruity'          THEN 'Fruity'
-        WHEN 'earthy'          THEN 'Earthy'
-        WHEN 'floral'          THEN 'Floral'
-        WHEN 'experimental'    THEN 'Experimental'
-      END
-      WHERE dac.is_archetype = true
-      ORDER BY dac.archetype
-    `);
-    const vocabResult = await db.query(`
-      SELECT id, archetype, sort_order AS "sortOrder", label
-      FROM dial_position_vocabulary
-      ORDER BY archetype, sort_order
-    `);
-    const archetypes = archetypesResult.rows.map(a => ({
-      archetype: a.archetype,
-      label: a.label ?? a.archetype,
-      dominantDimensionId: a.dominantDimensionId,
-      vocabulary: vocabResult.rows.filter(v => v.archetype === a.archetype)
-        .map(v => ({ id: v.id, sortOrder: v.sortOrder, label: v.label })),
-    }));
-
-    // positions: every home + guest slot, with the coffee and vocabulary it resolves to.
-    const positionsResult = await db.query(`
-      SELECT dap.id, dap.coffee_id AS "coffeeId", c.name AS "coffeeName", c.roaster,
-             c.is_active AS "isActive",
-             dap.archetype, dap.vocabulary_id AS "vocabularyId", dpv.sort_order AS "sortOrder",
-             dap.is_default AS "isDefault", dap.is_guest AS "isGuest"
-      FROM dial_archetype_positions dap
-      JOIN coffees c                    ON c.id  = dap.coffee_id
-      JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
-      ${includeInactive ? '' : 'WHERE c.is_active = true'}
-      ORDER BY dap.archetype, dpv.sort_order, dap.is_guest, c.name
-    `);
-
-    // relationships: coffee↔coffee and coffee↔category hops alike (category_hop rows have
-    // toCoffeeId null / toCategoryId set — the UI renders those read-only). from/toAvgScore
-    // come from one batched cupping query (getAvgCuppingScoresBatch), the same score
-    // definition getAvgCuppingScore uses everywhere else, not a forked calculation.
-    // Both sides of a category_hop row can be the category endpoint (schema's
-    // chk_from_endpoint/chk_to_endpoint each require exactly one of {coffee, category} —
-    // either side, not just "to") — every join here is LEFT so neither direction's row
-    // gets silently dropped.
-    const relationshipsResult = await db.query(`
-      SELECT dcr.id, dcr.from_coffee_id AS "fromCoffeeId", fc.name AS "fromCoffeeName",
-             fc.is_active AS "fromCoffeeIsActive",
-             dcr.from_category_id AS "fromCategoryId", fcatg.label AS "fromCategoryLabel",
-             dcr.to_coffee_id AS "toCoffeeId", tc.name AS "toCoffeeName",
-             tc.is_active AS "toCoffeeIsActive",
-             dcr.to_category_id AS "toCategoryId", tcatg.label AS "toCategoryLabel",
-             dcr.dimension_id AS "dimensionId", dcr.direction, dcr.delta,
-             dcr.hop_type AS "hopType", dcr.is_recommended AS "isRecommended",
-             dcr.confidence, dcr.notes
-      FROM dial_coffee_relationships dcr
-      LEFT JOIN coffees fc              ON fc.id = dcr.from_coffee_id
-      LEFT JOIN coffees tc              ON tc.id = dcr.to_coffee_id
-      LEFT JOIN coffee_category fcatg   ON fcatg.id = dcr.from_category_id
-      LEFT JOIN coffee_category tcatg   ON tcatg.id = dcr.to_category_id
-      -- A category endpoint (fc/tc NULL on that side) never disqualifies a hop —
-      -- only an explicit is_active = false on a real coffee endpoint does.
-      ${includeInactive ? '' : "WHERE COALESCE(fc.is_active, true) = true AND COALESCE(tc.is_active, true) = true"}
-      ORDER BY dcr.id
-    `);
-    const avgScores = await getAvgCuppingScoresBatch();
-    const relationships = relationshipsResult.rows.map(r => ({
-      ...r,
-      fromAvgScore: r.fromCoffeeId ? (avgScores.get(`${r.fromCoffeeId}-${r.dimensionId}`)?.avg_score ?? null) : null,
-      toAvgScore: r.toCoffeeId ? (avgScores.get(`${r.toCoffeeId}-${r.dimensionId}`)?.avg_score ?? null) : null,
-    }));
-
-    // unplaced: coffees with a live archetype match but no home dial position yet, plus
-    // whichever category tag (if any) explains why — same "off-dial" shelf as the mockup.
-    const unplacedResult = await db.query(`
-      SELECT c.id AS "coffeeId", c.name, c.roaster, c.is_active AS "isActive", aa.archetype AS "proposedArchetype",
-             (SELECT cc.label FROM coffee_category_assignment cca
-              JOIN coffee_category cc ON cc.id = cca.category_id
-              WHERE cca.coffee_id = c.id ORDER BY cc.sort_order LIMIT 1) AS category
-      FROM coffees c
-      JOIN archetype_assignments aa ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
-      LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = c.id AND dap.is_guest = false
-      WHERE dap.id IS NULL
-      ${includeInactive ? '' : 'AND c.is_active = true'}
-      ORDER BY c.name
-    `);
-
-    res.json({
-      dimensions: dimensionsResult.rows,
-      archetypes,
-      positions: positionsResult.rows,
-      relationships,
-      unplaced: unplacedResult.rows,
-    });
-  } catch (err) {
-    console.error('[admin/dial/graph GET]', err);
-    res.status(500).json({ error: 'Failed to fetch dial graph' });
-  }
+// ── GET /api/admin/dial/graph — RETIRED (Catalog Blueprint brief 4) ──────────
+// Replaced by GET /api/admin/catalog/graph (below the catalogRouter section) —
+// one payload replacing this endpoint plus /dial/positions and /dial/navigation.
+router.get('/dial/graph', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/graph (Catalog Blueprint brief 4)' });
 });
 
-// Roastery lifecycle (2026-08-25) — defaults to active coffees only;
-// ?include_inactive=true also returns inactive ones, carrying is_active.
-router.get('/dial/positions', async (req, res) => {
-  const includeInactive = req.query.include_inactive === 'true';
-  try {
-    const result = await db.query(`
-      SELECT dap.id, dap.archetype, dap.coffee_id, c.name AS coffee, c.is_active,
-             cd.name AS dimension, dpv.id AS vocabulary_id,
-             dpv.sort_order AS position_sort, dpv.label AS dial_label,
-             dap.is_default, dap.is_computed
-      FROM dial_archetype_positions dap
-      JOIN coffees                  c   ON c.id   = dap.coffee_id
-      JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
-      JOIN coffee_dimensions        cd  ON cd.id  = dpv.dimension_id
-      ${includeInactive ? '' : 'WHERE c.is_active = true'}
-      ORDER BY dap.archetype, dpv.sort_order, c.name
-    `);
-    res.json(result.rows);
-  } catch (err) {
-    console.error('[admin/dial/positions GET]', err);
-    res.status(500).json({ error: 'Failed to fetch dial positions' });
-  }
+// ── GET /api/admin/dial/positions — RETIRED (Catalog Blueprint brief 4) ──────
+// Replaced by GET /api/admin/catalog/graph.
+router.get('/dial/positions', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/graph (Catalog Blueprint brief 4)' });
 });
 
-// GET /api/admin/dial/dimension-config — Part 14: per-archetype dial dimension +
-// its ruler scale labels (same coffee_dimensions row GET /api/coffees/archetypes
-// reads for the customer-facing dial), so a missing dimension or missing scale
-// labels — currently only visible in server logs (a console.warn in coffees.ts) —
-// is also visible somewhere Dana actually looks. Read-only: there is no admin UI
-// yet to edit dominant_dimension_id or coffee_dimensions.scale_*_label (same
-// "direct-SQL-only for now" state as coffee_dimensions.platform_name); this
-// endpoint only surfaces the gap, it doesn't let you fix it.
-router.get('/dial/dimension-config', async (_req, res) => {
-  try {
-    const result = await db.query(`
-      SELECT dac.archetype, cd.name AS dimension_name,
-             COALESCE(cd.platform_name, cd.name) AS dimension_platform_name,
-             cd.scale_min_label, cd.scale_max_label
-      FROM dial_archetype_config dac
-      LEFT JOIN coffee_dimensions cd ON cd.id = dac.dominant_dimension_id
-      WHERE dac.is_archetype = true
-      ORDER BY dac.archetype
-    `);
-    const experimentalResult = await db.query(`
-      SELECT cd.name AS dimension_name,
-             COALESCE(cd.platform_name, cd.name) AS dimension_platform_name,
-             cd.scale_min_label, cd.scale_max_label
-      FROM dial_position_vocabulary dpv
-      JOIN coffee_dimensions cd ON cd.id = dpv.dimension_id
-      WHERE dpv.archetype = 'experimental'
-      LIMIT 1
-    `);
-    const rows = [
-      ...result.rows,
-      { archetype: 'experimental', ...(experimentalResult.rows[0] ?? { dimension_name: null, dimension_platform_name: null, scale_min_label: null, scale_max_label: null }) },
-    ];
-    res.json(rows);
-  } catch (err) {
-    console.error('[admin/dial/dimension-config GET]', err);
-    res.status(500).json({ error: 'Failed to fetch dial dimension config' });
-  }
+// ── GET /api/admin/dial/dimension-config — RETIRED (Catalog Blueprint brief 4) ─
+// dial_archetype_config-keyed diagnostic; the dimension name it surfaced is
+// now on GET /api/admin/catalog/archetypes (dominant_dimension_name).
+router.get('/dial/dimension-config', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Dimension name moved to /api/admin/catalog/archetypes (Catalog Blueprint brief 4)' });
 });
 
-// GET /api/admin/dial/navigation — full hop graph with coffee names
-// Roastery lifecycle (2026-08-25) — defaults to both endpoints active;
-// ?include_inactive=true also returns hops touching an inactive coffee.
-router.get('/dial/navigation', async (req, res) => {
-  const includeInactive = req.query.include_inactive === 'true';
-  try {
-    const result = await db.query(`
-      SELECT dcr.id, dcr.from_coffee_id, fc.name AS from_coffee, fc.is_active AS from_coffee_is_active,
-             dcr.to_coffee_id, tc.name AS to_coffee, tc.is_active AS to_coffee_is_active,
-             dcr.dimension_id, cd.name AS dimension,
-             dcr.direction, dcr.hop_type, dcr.delta,
-             dcr.is_recommended, dcr.confidence, dcr.notes
-      FROM dial_coffee_relationships dcr
-      JOIN coffees           fc ON fc.id  = dcr.from_coffee_id
-      JOIN coffees           tc ON tc.id  = dcr.to_coffee_id
-      JOIN coffee_dimensions cd ON cd.id  = dcr.dimension_id
-      ${includeInactive ? '' : 'WHERE fc.is_active = true AND tc.is_active = true'}
-      ORDER BY fc.name, cd.name, dcr.direction
-    `);
-    res.json(result.rows);
-  } catch (err) {
-    console.error('[admin/dial/navigation GET]', err);
-    res.status(500).json({ error: 'Failed to fetch dial navigation' });
-  }
+// ── GET /api/admin/dial/navigation — RETIRED (Catalog Blueprint brief 4) ─────
+// Replaced by GET /api/admin/catalog/graph (hops from v_coffee_hop).
+router.get('/dial/navigation', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/graph (Catalog Blueprint brief 4)' });
 });
 
-// GET /api/admin/dial/hop-suggestions — within-archetype Dial Turn hops computed
-// from cupping score deltas between coffee pairs sharing an archetype. Never
-// auto-creates a hop — an explicit "Add" click on the frontend does that via the
-// existing POST /dial/relationships (same as every other suggestion in this system).
-// Cross-archetype (bridge) suggestions are out of scope — see followup prompt.
-router.get('/dial/hop-suggestions', async (_req, res) => {
-  try {
-    const archetypesResult = await db.query(
-      `SELECT dac.archetype, dac.dominant_dimension_id, cd.name AS dimension_name
-       FROM dial_archetype_config dac
-       JOIN coffee_dimensions cd ON cd.id = dac.dominant_dimension_id
-       WHERE dac.is_archetype = true`
-    );
-
-    const suggestions: Array<{
-      from_coffee_id: number; from_coffee_name: string;
-      to_coffee_id: number; to_coffee_name: string;
-      dimension_id: number; dimension_name: string;
-      direction: 'more'; delta: number; archetype: string;
-    }> = [];
-
-    for (const { archetype, dominant_dimension_id: dimensionId, dimension_name: dimensionName } of archetypesResult.rows) {
-      const bucketWidth = await getArchetypeBucketWidth(archetype, dimensionId);
-      if (!bucketWidth) continue;
-
-      // Roastery lifecycle (2026-08-25) — never suggest a hop that would
-      // touch an inactive coffee; there's no toggle here, this tool only
-      // ever proposes hops between live coffees.
-      const coffeesResult = await db.query(
-        `SELECT aa.coffee_id, c.name
-         FROM archetype_assignments aa
-         JOIN coffees c ON c.id = aa.coffee_id
-         WHERE aa.archetype = $1 AND aa.superseded_at IS NULL AND c.is_active = true`,
-        [archetype]
-      );
-
-      const scored: Array<{ id: number; name: string; avg_score: number }> = [];
-      for (const c of coffeesResult.rows) {
-        const score = await getAvgCuppingScore(c.coffee_id, dimensionId);
-        if (score) scored.push({ id: c.coffee_id, name: c.name, avg_score: score.avg_score });
-      }
-
-      for (let i = 0; i < scored.length; i++) {
-        for (let j = i + 1; j < scored.length; j++) {
-          const delta = Math.abs(scored[j].avg_score - scored[i].avg_score);
-          if (delta < bucketWidth) continue;
-
-          const lower = scored[i].avg_score <= scored[j].avg_score ? scored[i] : scored[j];
-          const higher = scored[i].avg_score <= scored[j].avg_score ? scored[j] : scored[i];
-
-          const existingResult = await db.query(
-            `SELECT 1 FROM dial_coffee_relationships
-             WHERE hop_type = 'within_archetype' AND dimension_id = $1
-               AND ((from_coffee_id = $2 AND to_coffee_id = $3) OR (from_coffee_id = $3 AND to_coffee_id = $2))`,
-            [dimensionId, lower.id, higher.id]
-          );
-          if ((existingResult.rowCount ?? 0) > 0) continue;
-
-          suggestions.push({
-            from_coffee_id: lower.id, from_coffee_name: lower.name,
-            to_coffee_id: higher.id, to_coffee_name: higher.name,
-            dimension_id: dimensionId, dimension_name: dimensionName,
-            direction: 'more', delta: Math.round(delta * 100) / 100, archetype,
-          });
-        }
-      }
-    }
-
-    res.json(suggestions);
-  } catch (err) {
-    console.error('[admin/dial/hop-suggestions GET]', err);
-    res.status(500).json({ error: 'Failed to compute hop suggestions' });
-  }
+// ── GET /api/admin/dial/hop-suggestions — RETIRED (Catalog Blueprint brief 4) ─
+// Moved to GET /api/admin/catalog/hop-suggestions (same logic, now reading
+// getArchetypes/getCoffees instead of dial_archetype_config/archetype_assignments
+// directly — Task 0 found this route hadn't actually been moved onto the views
+// in brief 3 despite that brief's own claim; fixed here per this brief's own
+// "grep the kept routes" instruction).
+router.get('/dial/hop-suggestions', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/hop-suggestions (Catalog Blueprint brief 4)' });
 });
 
-// GET /api/admin/dial/archetype-adjacency — cross-archetype bridge-hop summary
-router.get('/dial/archetype-adjacency', async (_req, res) => {
-  try {
-    const result = await db.query(`SELECT * FROM v_archetype_adjacency`);
-    res.json(result.rows);
-  } catch (err) {
-    console.error('[admin/dial/archetype-adjacency GET]', err);
-    res.status(500).json({ error: 'Failed to fetch archetype adjacency' });
-  }
+// ── GET /api/admin/dial/archetype-adjacency — RETIRED (Catalog Blueprint brief 4) ─
+// Was already view-backed (v_archetype_adjacency) but duplicated the public
+// GET /api/axis/adjacency; retired per this brief's explicit list rather than
+// kept as a second reader of the same view for no reason.
+router.get('/dial/archetype-adjacency', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Use GET /api/axis/adjacency (Catalog Blueprint brief 4)' });
 });
 
 // GET /api/admin/dial/consensus/:coffeeId — weighted multi-source consensus (Phase 5, dormant).
@@ -1499,21 +1106,10 @@ router.get('/dial/consensus/:coffeeId', async (req, res) => {
   }
 });
 
-// GET /api/admin/dial/vocabulary — all vocabulary options with dimension name
-router.get('/dial/vocabulary', async (_req, res) => {
-  try {
-    const result = await db.query(`
-      SELECT dpv.id, dpv.archetype, dpv.sort_order, dpv.label, dpv.dimension_id,
-             cd.name AS dimension
-      FROM dial_position_vocabulary dpv
-      JOIN coffee_dimensions cd ON cd.id = dpv.dimension_id
-      ORDER BY dpv.archetype, dpv.sort_order
-    `);
-    res.json(result.rows);
-  } catch (err) {
-    console.error('[admin/dial/vocabulary GET]', err);
-    res.status(500).json({ error: 'Failed to fetch dial vocabulary' });
-  }
+// ── GET /api/admin/dial/vocabulary — RETIRED (Catalog Blueprint brief 4) ─────
+// Replaced by GET /api/admin/catalog/slots (name/position_label per slot).
+router.get('/dial/vocabulary', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/slots (Catalog Blueprint brief 4)' });
 });
 
 // PATCH /api/admin/dial/vocabulary/:id — rename a dial position's label
@@ -2110,84 +1706,19 @@ router.post('/sommelier/recompute-centroids', async (_req, res) => {
 
 // ── INVENTORY ─────────────────────────────────────────────────────────────────
 
-// Must be declared before /:id routes so Express doesn't swallow 'coffees-lookup' as an ID.
-// Roastery lifecycle (2026-08-25) — this feeds the "assign an unmatched blend
-// to a coffee" lookup; defaults to active coffees only (there's nothing useful
-// to link an inactive coffee's inventory row to).
-router.get('/inventory/coffees-lookup', async (req, res) => {
-  const includeInactive = req.query.include_inactive === 'true';
-  try {
-    const result = await db.query(
-      `SELECT id, name, roaster, is_active FROM coffees
-       ${includeInactive ? '' : 'WHERE is_active = true'}
-       ORDER BY name`
-    );
-    res.json(result.rows);
-  } catch (err) {
-    console.error('[admin/inventory coffees-lookup]', err);
-    res.status(500).json({ error: 'Failed to fetch coffees' });
-  }
+// ── GET /api/admin/inventory/coffees-lookup — RETIRED (Catalog Blueprint brief 4) ─
+// Replaced by GET /api/admin/catalog/coffees (a SKU is created from the coffee
+// now — Place-a-coffee or "Manage SKUs" — never a standalone lookup to link
+// an orphaned blend to).
+router.get('/inventory/coffees-lookup', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/coffees (Catalog Blueprint brief 4)' });
 });
 
-// Roastery lifecycle (2026-08-25) — defaults to rb.is_active = true AND
-// c.is_active = true; ?include_inactive=true also returns inactive rows
-// (both flags trusted independently, never assumed in sync — same rule
-// blendResolver.ts follows) carrying is_active/deactivated_at/
-// deactivation_reason for both the blend and the coffee.
-router.get('/inventory', async (req, res) => {
-  const includeInactive = req.query.include_inactive === 'true';
-  try {
-    const result = await db.query(`
-      SELECT
-        rb.id, rb.blend_name, rb.coffee_id, c.name AS coffee_name, c.roaster,
-        rb.weight_oz, rb.roaster_sku, rb.shopify_variant_id, rb.is_active,
-        rb.deactivated_at, rb.deactivation_reason,
-        c.is_active AS coffee_is_active, c.deactivated_at AS coffee_deactivated_at,
-        c.deactivation_reason AS coffee_deactivation_reason,
-        rb.quantity_available, rb.safety_stock_buffer,
-        rb.inventory_status, rb.inventory_last_synced_at, rb.last_restocked_at,
-        ca.id         AS alias_id,
-        COALESCE(dsa.platform_name, ca.platform_name) AS alias_name,
-        ca.priority   AS alias_rank
-      FROM roaster_blend rb
-      LEFT JOIN coffees c ON c.id = rb.coffee_id
-      LEFT JOIN LATERAL (
-        SELECT id, platform_name, priority, archetype, dial_sort_order
-        FROM coffee_alias
-        WHERE coffee_id = rb.coffee_id AND is_active = true
-        ORDER BY priority
-        LIMIT 1
-      ) ca ON true
-      -- Bloom Dial Base Data Part 3: same live-slot-name derivation as everywhere
-      -- else (GET /coffee-alias, sommelierRag.ts) — a dial coffee's inventory row
-      -- should show its current slot name, not the possibly-stale/duplicate
-      -- per-row coffee_alias.platform_name (found during the #94/#95 audit).
-      LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = rb.coffee_id AND dap.is_guest = false
-      LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
-      LEFT JOIN archetype_assignments aa ON aa.coffee_id = rb.coffee_id AND aa.superseded_at IS NULL
-      LEFT JOIN dial_slot_alias dsa
-        ON dsa.archetype = COALESCE(aa.archetype, ca.archetype)
-        AND dsa.dial_sort_order = COALESCE(dpv.sort_order, ca.dial_sort_order)
-        AND NOT EXISTS (
-          SELECT 1 FROM coffee_category_assignment cca
-          JOIN coffee_category cc ON cc.id = cca.category_id
-          WHERE cca.coffee_id = rb.coffee_id AND cc.code IN ('decaf', 'half_caf', 'flavored', 'experimental')
-        )
-      ${includeInactive ? '' : 'WHERE rb.is_active = true AND (c.id IS NULL OR c.is_active = true)'}
-      ORDER BY
-        (rb.coffee_id IS NULL) DESC,
-        CASE
-          WHEN rb.quantity_available <= 0 THEN 0
-          WHEN rb.quantity_available <= rb.safety_stock_buffer THEN 1
-          ELSE 2
-        END,
-        COALESCE(c.name, rb.blend_name), rb.weight_oz
-    `);
-    res.json(result.rows);
-  } catch (err) {
-    console.error('[admin/inventory]', err);
-    res.status(500).json({ error: 'Failed to fetch inventory' });
-  }
+// ── GET /api/admin/inventory — RETIRED (Catalog Blueprint brief 4) ───────────
+// Replaced by GET /api/admin/catalog/coffees, flattened to SKUs client-side
+// (AdminInventory.tsx) — the alias/coffee_alias columns are gone with it.
+router.get('/inventory', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/coffees (Catalog Blueprint brief 4)' });
 });
 
 router.patch('/inventory/:id', (_req, res) => {
@@ -2602,32 +2133,49 @@ catalogRouter.post('/import', async (req: AuthRequest, res) => {
   }
 });
 
-// The four GETs below exist so brief 4 has something to read — view-only selects.
+// ── Catalog Blueprint brief 4, Part A — admin reads, all view-backed ─────────
+
 catalogRouter.get('/archetypes', async (_req, res) => {
   try {
-    const result = await db.query(`SELECT * FROM v_coffee_archetype`);
-    res.json(result.rows);
+    res.json(await getArchetypes());
   } catch (err) {
     console.error('[admin/catalog/archetypes]', err);
     res.status(500).json({ error: 'Failed to fetch archetypes' });
   }
 });
 
-catalogRouter.get('/slots', async (_req, res) => {
+catalogRouter.get('/slots', async (req, res) => {
+  const archetype = typeof req.query.archetype === 'string' ? req.query.archetype : undefined;
   try {
-    const slotsResult = await db.query(`SELECT * FROM coffee_dial_slot ORDER BY archetype, sort_order`);
-    const occupantsResult = await db.query(`SELECT * FROM v_coffee_slot WHERE assignment_is_active = true`);
-    const sellableResult = await db.query(`SELECT DISTINCT slot_id FROM v_coffee_sellable_slot WHERE weight_oz = 12`);
-    const sellableSlotIds = new Set(sellableResult.rows.map(r => r.slot_id));
+    const slots = await getSlots(archetype);
+    const slotIds = slots.map(s => s.id);
+    const [occupantsResult, sellableResult, pricesResult] = await Promise.all([
+      db.query(`
+        SELECT vcs.*, r.name AS roaster_name
+        FROM v_coffee_slot vcs
+        LEFT JOIN roaster r ON r.id = vcs.roaster_id
+        WHERE vcs.assignment_is_active = true AND vcs.slot_id = ANY($1::int[])
+      `, [slotIds]),
+      db.query(`SELECT DISTINCT ON (slot_id) slot_id, coffee_id FROM v_coffee_sellable_slot WHERE weight_oz = 12 AND slot_id = ANY($1::int[])`, [slotIds]),
+      db.query(`SELECT slot_id, weight_oz, retail_price_cents FROM dial_slot_price WHERE slot_id = ANY($1::int[]) ORDER BY slot_id, weight_oz`, [slotIds]),
+    ]);
     const occupantsBySlot = new Map<number, unknown[]>();
     for (const row of occupantsResult.rows) {
       if (!occupantsBySlot.has(row.slot_id)) occupantsBySlot.set(row.slot_id, []);
       occupantsBySlot.get(row.slot_id)!.push(row);
     }
-    res.json(slotsResult.rows.map(slot => ({
+    const sellableBySlot = new Map<number, number>(sellableResult.rows.map((r: { slot_id: number; coffee_id: number }) => [r.slot_id, r.coffee_id]));
+    const pricesBySlot = new Map<number, unknown[]>();
+    for (const row of pricesResult.rows) {
+      if (!pricesBySlot.has(row.slot_id)) pricesBySlot.set(row.slot_id, []);
+      pricesBySlot.get(row.slot_id)!.push({ weight_oz: row.weight_oz, retail_price_cents: row.retail_price_cents });
+    }
+    res.json(slots.map(slot => ({
       ...slot,
       occupants: occupantsBySlot.get(slot.id) ?? [],
-      sellableAt12oz: sellableSlotIds.has(slot.id),
+      sellable_12oz: sellableBySlot.has(slot.id),
+      sellable_12oz_coffee_id: sellableBySlot.get(slot.id) ?? null,
+      prices: pricesBySlot.get(slot.id) ?? [],
     })));
   } catch (err) {
     console.error('[admin/catalog/slots]', err);
@@ -2637,17 +2185,38 @@ catalogRouter.get('/slots', async (_req, res) => {
 
 catalogRouter.get('/coffees', async (req, res) => {
   const includeInactive = req.query.include_inactive === 'true';
+  const roasterId = typeof req.query.roaster_id === 'string' ? req.query.roaster_id : undefined;
+  const matchArchetype = typeof req.query.match_archetype === 'string' ? req.query.match_archetype : undefined;
+  const q = typeof req.query.q === 'string' ? req.query.q.trim() : undefined;
   try {
-    const coffeesResult = includeInactive
-      ? await db.query(`SELECT * FROM v_coffee ORDER BY name`)
-      : await db.query(`SELECT * FROM v_coffee WHERE is_active = true ORDER BY name`);
-    const placementsResult = await db.query(`SELECT * FROM v_coffee_slot WHERE assignment_is_active = true`);
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    if (!includeInactive) clauses.push('is_active = true');
+    if (roasterId) { params.push(roasterId); clauses.push(`roaster_id = $${params.length}`); }
+    if (matchArchetype) { params.push(matchArchetype); clauses.push(`match_archetype = $${params.length}`); }
+    if (q) { params.push(`%${q}%`); clauses.push(`name ILIKE $${params.length}`); }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const coffeesResult = await db.query(`SELECT * FROM v_coffee ${where} ORDER BY name`, params);
+    const coffeeIds: number[] = coffeesResult.rows.map((c: { id: number }) => c.id);
+    const [placementsResult, skusResult] = await Promise.all([
+      db.query(`SELECT * FROM v_coffee_slot WHERE assignment_is_active = true AND coffee_id = ANY($1::int[])`, [coffeeIds]),
+      db.query(`SELECT * FROM roaster_blend WHERE coffee_id = ANY($1::int[]) ORDER BY coffee_id, weight_oz`, [coffeeIds]),
+    ]);
     const placementsByCoffee = new Map<number, unknown[]>();
     for (const row of placementsResult.rows) {
       if (!placementsByCoffee.has(row.coffee_id)) placementsByCoffee.set(row.coffee_id, []);
       placementsByCoffee.get(row.coffee_id)!.push(row);
     }
-    res.json(coffeesResult.rows.map(c => ({ ...c, placements: placementsByCoffee.get(c.id) ?? [] })));
+    const skusByCoffee = new Map<number, unknown[]>();
+    for (const row of skusResult.rows) {
+      if (!skusByCoffee.has(row.coffee_id)) skusByCoffee.set(row.coffee_id, []);
+      skusByCoffee.get(row.coffee_id)!.push(row);
+    }
+    res.json(coffeesResult.rows.map((c: { id: number }) => ({
+      ...c,
+      placements: placementsByCoffee.get(c.id) ?? [],
+      skus: skusByCoffee.get(c.id) ?? [],
+    })));
   } catch (err) {
     console.error('[admin/catalog/coffees GET]', err);
     res.status(500).json({ error: 'Failed to fetch coffees' });
@@ -2655,18 +2224,207 @@ catalogRouter.get('/coffees', async (req, res) => {
 });
 
 catalogRouter.get('/coffees/:id', async (req, res) => {
+  const coffeeId = Number(req.params.id);
   try {
-    const coffeeResult = await db.query(`SELECT * FROM v_coffee WHERE id = $1`, [req.params.id]);
-    if (coffeeResult.rowCount === 0) { res.status(404).json({ error: 'COFFEE_NOT_FOUND' }); return; }
-    const [placements, skus, hops] = await Promise.all([
-      db.query(`SELECT * FROM v_coffee_slot WHERE coffee_id = $1`, [req.params.id]),
-      db.query(`SELECT * FROM roaster_blend WHERE coffee_id = $1 ORDER BY weight_oz`, [req.params.id]),
-      db.query(`SELECT * FROM v_coffee_hop WHERE from_coffee_id = $1 OR to_coffee_id = $1`, [req.params.id]),
+    const coffee = await getCoffee(coffeeId);
+    if (!coffee) { res.status(404).json({ error: 'COFFEE_NOT_FOUND' }); return; }
+
+    // Cupping summary — the coffee's match archetype's own dominant dimension,
+    // same score definition getAvgCuppingScore/getDialSuggestion use everywhere.
+    let cupping: { dimension_id: number; dimension_name: string; avg_score: number; session_count: number } | null = null;
+    if (coffee.match_archetype) {
+      const archetypeRow = (await getArchetypes()).find(a => a.code === coffee.match_archetype);
+      if (archetypeRow?.dominant_dimension_id) {
+        const score = await getAvgCuppingScore(coffeeId, archetypeRow.dominant_dimension_id);
+        if (score) {
+          cupping = {
+            dimension_id: archetypeRow.dominant_dimension_id,
+            dimension_name: archetypeRow.dominant_dimension_name ?? '',
+            avg_score: score.avg_score, session_count: score.session_count,
+          };
+        }
+      }
+    }
+
+    const [placements, skus, hops, recentChanges] = await Promise.all([
+      getSlotsForCoffee(coffeeId),
+      db.query(`SELECT * FROM roaster_blend WHERE coffee_id = $1 ORDER BY weight_oz`, [coffeeId]),
+      getHops({ coffeeId }),
+      getChanges({ limit: 20, coffeeId }),
     ]);
-    res.json({ ...coffeeResult.rows[0], placements: placements.rows, skus: skus.rows, hops: hops.rows });
+    res.json({ ...coffee, placements, skus: skus.rows, hops, cupping, recentChanges });
   } catch (err) {
     console.error('[admin/catalog/coffees/:id]', err);
     res.status(500).json({ error: 'Failed to fetch coffee' });
+  }
+});
+
+// GET /api/admin/catalog/graph — what AdminDial needs in one payload: every
+// slot (all archetypes) with its active occupants, plus every hop between two
+// active coffees (v_coffee_hop) with a batched avg cupping score per endpoint
+// (same score definition getAvgCuppingScoresBatch uses on the old /dial/graph).
+// Replaces /dial/graph + /dial/positions + /dial/navigation together.
+catalogRouter.get('/graph', async (_req, res) => {
+  try {
+    const [archetypes, slots, allOccupants, hops, avgScores] = await Promise.all([
+      getArchetypes(),
+      getSlots(),
+      // v_coffee_slot exposes roaster_id, not a name — joined here rather
+      // than added to the view (Don'ts: no schema changes beyond Part A).
+      db.query(`
+        SELECT vcs.*, r.name AS roaster_name
+        FROM v_coffee_slot vcs
+        LEFT JOIN roaster r ON r.id = vcs.roaster_id
+        WHERE vcs.assignment_is_active = true
+      `),
+      getHops(),
+      getAvgCuppingScoresBatch(),
+    ]);
+    const realArchetypes = archetypes.filter(a => a.is_archetype);
+
+    // dimensions: every dominant dimension configured on a real archetype,
+    // unioned with every dimension actually used by a hop — never a literal
+    // id list. platform_name (coffee_dimensions) is the real display name
+    // (e.g. "Brightness" for "Acidity") the old /dial/graph also preferred.
+    const dimensionIds = new Set<number>();
+    for (const a of realArchetypes) if (a.dominant_dimension_id) dimensionIds.add(a.dominant_dimension_id);
+    for (const h of hops) dimensionIds.add(h.dimension_id);
+    const dimensionsResult = dimensionIds.size
+      ? await db.query<{ id: number; name: string; platform_name: string | null }>(
+          `SELECT id, name, platform_name FROM coffee_dimensions WHERE id = ANY($1::int[]) ORDER BY id`,
+          [[...dimensionIds]]
+        )
+      : { rows: [] as { id: number; name: string; platform_name: string | null }[] };
+    const dimensions = dimensionsResult.rows.map(d => ({ id: d.id, name: d.name, platformAxis: d.platform_name ?? d.name }));
+
+    const occupantsBySlot = new Map<number, unknown[]>();
+    for (const row of allOccupants.rows) {
+      if (!occupantsBySlot.has(row.slot_id)) occupantsBySlot.set(row.slot_id, []);
+      occupantsBySlot.get(row.slot_id)!.push(row);
+    }
+    const slotsWithOccupants = slots.map(slot => ({ ...slot, occupants: occupantsBySlot.get(slot.id) ?? [] }));
+    const hopsBetweenActive = hops
+      .filter(h => h.from_coffee_is_active && h.to_coffee_is_active)
+      .map(h => ({
+        ...h,
+        fromAvgScore: avgScores.get(`${h.from_coffee_id}-${h.dimension_id}`)?.avg_score ?? null,
+        toAvgScore: avgScores.get(`${h.to_coffee_id}-${h.dimension_id}`)?.avg_score ?? null,
+      }));
+    res.json({
+      dimensions,
+      archetypes: realArchetypes.map(a => ({ archetype: a.code, label: a.label, dominantDimensionId: a.dominant_dimension_id })),
+      slots: slotsWithOccupants,
+      hops: hopsBetweenActive,
+    });
+  } catch (err) {
+    console.error('[admin/catalog/graph]', err);
+    res.status(500).json({ error: 'Failed to fetch catalog graph' });
+  }
+});
+
+// GET /api/admin/catalog/hop-suggestions — moved from /dial/hop-suggestions
+// (Task 0 found it hadn't actually moved onto the views in brief 3 despite
+// that brief's own claim to the contrary — fixed here). Same within-archetype
+// Dial Turn logic: cupping score deltas between coffee pairs sharing an
+// archetype, never auto-creating a hop.
+catalogRouter.get('/hop-suggestions', async (_req, res) => {
+  try {
+    const archetypes = (await getArchetypes()).filter(a => a.is_archetype && a.dominant_dimension_id);
+
+    const suggestions: Array<{
+      from_coffee_id: number; from_coffee_name: string;
+      to_coffee_id: number; to_coffee_name: string;
+      dimension_id: number; dimension_name: string;
+      direction: 'more'; delta: number; archetype: string;
+    }> = [];
+
+    for (const a of archetypes) {
+      const dimensionId = a.dominant_dimension_id!;
+      const bucketWidth = await getArchetypeBucketWidth(a.code, dimensionId);
+      if (!bucketWidth) continue;
+
+      // Roastery lifecycle — never suggest a hop touching an inactive coffee.
+      const coffees = await getCoffees({ matchArchetype: a.code, active: true });
+
+      const scored: Array<{ id: number; name: string; avg_score: number }> = [];
+      for (const c of coffees) {
+        const score = await getAvgCuppingScore(c.id, dimensionId);
+        if (score) scored.push({ id: c.id, name: c.name, avg_score: score.avg_score });
+      }
+
+      for (let i = 0; i < scored.length; i++) {
+        for (let j = i + 1; j < scored.length; j++) {
+          const delta = Math.abs(scored[j].avg_score - scored[i].avg_score);
+          if (delta < bucketWidth) continue;
+
+          const lower = scored[i].avg_score <= scored[j].avg_score ? scored[i] : scored[j];
+          const higher = scored[i].avg_score <= scored[j].avg_score ? scored[j] : scored[i];
+
+          const existingResult = await db.query(
+            `SELECT 1 FROM dial_coffee_relationships
+             WHERE hop_type = 'within_archetype' AND dimension_id = $1
+               AND ((from_coffee_id = $2 AND to_coffee_id = $3) OR (from_coffee_id = $3 AND to_coffee_id = $2))`,
+            [dimensionId, lower.id, higher.id]
+          );
+          if ((existingResult.rowCount ?? 0) > 0) continue;
+
+          suggestions.push({
+            from_coffee_id: lower.id, from_coffee_name: lower.name,
+            to_coffee_id: higher.id, to_coffee_name: higher.name,
+            dimension_id: dimensionId, dimension_name: a.dominant_dimension_name ?? '',
+            direction: 'more', delta: Math.round(delta * 100) / 100, archetype: a.code,
+          });
+        }
+      }
+    }
+
+    res.json(suggestions);
+  } catch (err) {
+    console.error('[admin/catalog/hop-suggestions]', err);
+    res.status(500).json({ error: 'Failed to compute hop suggestions' });
+  }
+});
+
+// GET /api/admin/catalog/not-sellable — Part D.
+catalogRouter.get('/not-sellable', async (_req, res) => {
+  try {
+    res.json(await getNotSellable());
+  } catch (err) {
+    console.error('[admin/catalog/not-sellable]', err);
+    res.status(500).json({ error: 'Failed to fetch not-sellable slots' });
+  }
+});
+
+// GET /api/admin/catalog/changes — Part D.
+catalogRouter.get('/changes', async (req, res) => {
+  const limit = Number(req.query.limit) || 100;
+  const coffeeId = req.query.coffee_id !== undefined ? Number(req.query.coffee_id) : undefined;
+  const slotId = req.query.slot_id !== undefined ? Number(req.query.slot_id) : undefined;
+  try {
+    res.json(await getChanges({ limit, coffeeId, slotId }));
+  } catch (err) {
+    console.error('[admin/catalog/changes]', err);
+    res.status(500).json({ error: 'Failed to fetch catalog changes' });
+  }
+});
+
+// PUT /api/admin/catalog/archetypes/:code/descriptor-families — the one new
+// write verb this brief adds (Don'ts §3).
+catalogRouter.put('/archetypes/:code/descriptor-families', async (req: AuthRequest, res) => {
+  const { families } = req.body;
+  if (!Array.isArray(families) || !families.every((f) => typeof f === 'string')) {
+    res.status(400).json({ error: 'INVALID_INPUT', message: 'families must be an array of strings' }); return;
+  }
+  try {
+    const { result } = await setArchetypeDescriptorFamilies(
+      { code: req.params.code as ArchetypeCode, families },
+      { actor: req.uid ?? 'unknown' }
+    );
+    res.json(result);
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/archetypes descriptor-families]', err);
+    res.status(500).json({ error: 'Failed to set descriptor families' });
   }
 });
 

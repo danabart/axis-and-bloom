@@ -15,7 +15,7 @@ import Profile from './components/Profile';
 import AdminRoute from './components/admin/AdminRoute';
 import AdminLayout from './components/admin/AdminLayout';
 import AdminDashboard from './components/admin/AdminDashboard';
-import AdminCoffees from './components/admin/AdminCoffees';
+import AdminCatalog from './components/admin/AdminCatalog';
 import AdminSessions from './components/admin/AdminSessions';
 import AdminFlavorWheel from './components/admin/AdminFlavorWheel';
 import AdminRoasters from './components/admin/AdminRoasters';
@@ -101,7 +101,7 @@ export default function App() {
               }
             >
               <Route index element={<AdminDashboard />} />
-              <Route path="coffees"    element={<AdminCoffees />} />
+              <Route path="coffees"    element={<AdminCatalog />} />
               <Route path="inventory" element={<AdminInventory />} />
               <Route path="sessions" element={<AdminSessions />} />
               <Route path="flavor-wheel" element={<AdminFlavorWheel />} />

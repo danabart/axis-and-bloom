@@ -101,8 +101,12 @@ describe('GET /api/admin/roasters/:id/deactivation-preview', () => {
       expect(body.coffees).toHaveLength(1);
       expect(body.coffees[0].id).toBe(fixture.coffee.id);
       expect(body.blends).toEqual({ total: 1, active: 1 });
-      expect(body.aliases).toEqual({ total: 1, active: 1 });
-      expect(body.alreadyManuallyInactive).toEqual({ coffees: 0, blends: 0, aliases: 0 });
+      // Catalog Blueprint brief 4 (2026-09-14): buildDeactivationPreview's
+      // aliases: {total, active} became placements: {total, active, homes,
+      // guests} (coffee_slot_assignment, D1) — 0 here since this fixture is
+      // deliberately not linked into any dial slot (see makeFixture's comment).
+      expect(body.placements).toEqual({ total: 0, active: 0, homes: 0, guests: 0 });
+      expect(body.alreadyManuallyInactive).toEqual({ coffees: 0, blends: 0, placements: 0 });
 
       const stillActive = await db.query('SELECT is_active FROM coffees WHERE id = $1', [fixture.coffee.id]);
       expect(stillActive.rows[0].is_active).toBe(true);

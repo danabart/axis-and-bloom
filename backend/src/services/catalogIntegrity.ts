@@ -1,5 +1,6 @@
 import { db } from '../db/client.js';
 import type { Tx } from '../db/client.js';
+import { getNotSellable } from './catalogReads.js';
 
 // ── Catalog Blueprint · brief 1 — integrity check service ────────────────────
 // Clone of quizIntegrity.ts's shape. Read-only — this service never writes or
@@ -222,35 +223,25 @@ export async function checkPlacementDivergence(scope: CheckScope = {}): Promise<
 }
 
 // ── 8. Placed but not sellable at 12 oz — informational ───────────────────
+// Catalog Blueprint brief 4, Part D — extracted into catalogReads.getNotSellable()
+// so GET /api/admin/catalog/not-sellable and this check share one query and
+// can never drift apart. Reason strings kept human-readable here; the
+// endpoint returns the same underlying reason codes as a machine-readable array.
 export async function checkPlacedNotSellable(scope: CheckScope = {}): Promise<CatalogIntegrityCheck> {
   const runner = scope.tx ?? db;
-  const placedNotSellableResult = await runner.query<{ slot_id: number; slot_name: string; reason: string }>(
-    `SELECT DISTINCT s.id AS slot_id, s.name AS slot_name,
-       CASE
-         WHEN s.name IS NULL THEN 'no name'
-         WHEN NOT EXISTS (
-           SELECT 1 FROM coffee_slot_assignment csa2
-           JOIN coffees c2 ON c2.id = csa2.coffee_id AND c2.is_active = true
-           JOIN roaster_blend rb ON rb.coffee_id = c2.id AND rb.is_active = true AND rb.weight_oz = 12
-           WHERE csa2.slot_id = s.id AND csa2.is_active = true
-         ) THEN 'no active 12 oz SKU'
-         ELSE 'no price'
-       END AS reason
-     FROM coffee_dial_slot s
-     JOIN coffee_slot_assignment csa ON csa.slot_id = s.id AND csa.is_active = true
-     WHERE s.is_active = true
-       AND ($1::int IS NULL OR s.id = $1)
-       AND NOT EXISTS (SELECT 1 FROM v_coffee_sellable_slot vs WHERE vs.slot_id = s.id AND vs.weight_oz = 12)`,
-    [scope.slotId ?? null]
-  );
+  const notSellable = await getNotSellable({ slotId: scope.slotId }, runner);
+  const REASON_TEXT: Record<string, string> = {
+    coffee_inactive: 'coffee inactive', category_excluded: 'category excluded',
+    no_active_12oz_sku: 'no active 12 oz SKU', no_price_12oz: 'no price',
+  };
   return {
     id: 8,
     name: 'Placed but not sellable at 12 oz (informational)',
     pass: true,
     expected: 'n/a — listed so Dana can see what still needs a SKU/price',
-    actual: `${placedNotSellableResult.rows.length} slot(s) placed but not sellable at 12 oz`,
-    details: placedNotSellableResult.rows.length
-      ? placedNotSellableResult.rows.map(r => `slot ${r.slot_id} "${r.slot_name}": ${r.reason}`)
+    actual: `${notSellable.length} slot(s) placed but not sellable at 12 oz`,
+    details: notSellable.length
+      ? notSellable.map(r => `slot ${r.slot_id} "${r.slot_name}" (${r.coffee_name}): ${r.reasons.map(reason => REASON_TEXT[reason]).join(', ')}`)
       : undefined,
     severity: 'info',
   };

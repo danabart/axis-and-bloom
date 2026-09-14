@@ -277,6 +277,141 @@ export async function getHops(
   return result.rows;
 }
 
+// ── Not sellable (admin diagnostic) ───────────────────────────────────────────
+
+export interface NotSellableRow {
+  slot_id: number;
+  archetype: ArchetypeCode;
+  sort_order: number;
+  slot_name: string | null;
+  coffee_id: number;
+  coffee_name: string;
+  reasons: Array<'no_active_12oz_sku' | 'no_price_12oz' | 'coffee_inactive' | 'category_excluded'>;
+}
+
+const NOT_SELLABLE_WEIGHT_OZ = 12;
+
+// Catalog Blueprint brief 4, Part D — active slots with at least one active
+// assignment but no v_coffee_sellable_slot row at 12oz. The reported
+// coffee_id/coffee_name is the slot's top-ranked occupant (home first, then
+// priority — same rank v_coffee_sellable_candidate itself uses), since
+// that's "the" coffee stuck there from an admin's point of view.
+// catalogIntegrity.ts's check 8 reuses this (extracted from its own query,
+// same shape it already reported) so the boot check and this endpoint never
+// drift apart.
+export async function getNotSellable(filter: { slotId?: number } = {}, runner: Runner = db): Promise<NotSellableRow[]> {
+  const result = await runner.query<{
+    slot_id: number; archetype: ArchetypeCode; sort_order: number; slot_name: string | null;
+    coffee_id: number; coffee_name: string; coffee_is_active: boolean; category_codes: string[];
+    has_active_12oz_sku: boolean; has_12oz_price: boolean;
+  }>(
+    `SELECT
+       s.id AS slot_id, s.archetype, s.sort_order, s.name AS slot_name,
+       top.coffee_id, top.coffee_name, top.coffee_is_active, top.category_codes,
+       EXISTS (
+         SELECT 1 FROM roaster_blend rb WHERE rb.coffee_id = top.coffee_id AND rb.is_active = true AND rb.weight_oz = $1
+       ) AS has_active_12oz_sku,
+       EXISTS (
+         SELECT 1 FROM dial_slot_price dsp WHERE dsp.slot_id = s.id AND dsp.weight_oz = $1
+       ) AS has_12oz_price
+     FROM coffee_dial_slot s
+     JOIN LATERAL (
+       SELECT csa.coffee_id, vc.name AS coffee_name, vc.is_active AS coffee_is_active, vc.category_codes
+       FROM coffee_slot_assignment csa
+       JOIN v_coffee vc ON vc.id = csa.coffee_id
+       WHERE csa.slot_id = s.id AND csa.is_active = true
+       ORDER BY (csa.role = 'home') DESC, csa.priority
+       LIMIT 1
+     ) top ON true
+     WHERE s.is_active = true
+       AND ($2::int IS NULL OR s.id = $2)
+       AND NOT EXISTS (SELECT 1 FROM v_coffee_sellable_slot vs WHERE vs.slot_id = s.id AND vs.weight_oz = $1)
+     ORDER BY s.archetype, s.sort_order`,
+    [NOT_SELLABLE_WEIGHT_OZ, filter.slotId ?? null]
+  );
+
+  return result.rows.map((r) => {
+    const reasons: NotSellableRow['reasons'] = [];
+    if (!r.coffee_is_active) reasons.push('coffee_inactive');
+    const categories = r.category_codes ?? [];
+    const categoryExcluded = categories.some((c) => c === 'decaf' || c === 'half_caf' || c === 'flavored')
+      || (r.archetype !== 'experimental' && categories.includes('experimental'));
+    if (categoryExcluded) reasons.push('category_excluded');
+    if (!r.has_active_12oz_sku) reasons.push('no_active_12oz_sku');
+    else if (!r.has_12oz_price) reasons.push('no_price_12oz');
+    return {
+      slot_id: r.slot_id, archetype: r.archetype, sort_order: r.sort_order, slot_name: r.slot_name,
+      coffee_id: r.coffee_id, coffee_name: r.coffee_name, reasons,
+    };
+  });
+}
+
+// ── Catalog changes feed (admin diagnostic) ───────────────────────────────────
+
+export interface ChangeRow {
+  at: string;
+  actor: string | null;
+  verb: string;
+  method: string;
+  path: string;
+  status: number | null;
+  coffee_id: number | null;
+  slot_id: number | null;
+  error: unknown;
+}
+
+// api_event rows never carry a coffee_id/slot_id column (Part D: "nothing new
+// is stored") — parsed from the route path (…/coffees/:id/…, …/slots/:id/…)
+// and, as a fallback, the request body's own coffeeId/slotId/toSlotId fields
+// (placements/move send the target as a body field, not a path segment).
+function parsePathId(path: string, segment: string): number | null {
+  const match = path.match(new RegExp(`/${segment}/(\\d+)`));
+  return match ? Number(match[1]) : null;
+}
+
+const CHANGES_FETCH_CAP = 500;
+
+// Catalog Blueprint brief 4, Part D — every mutating call under
+// /api/admin/catalog/*, newest first. No new storage: api_event already
+// captures every mutating request (middleware/apiEventLog.ts); this just
+// reads and reshapes it.
+export async function getChanges(
+  filter: { limit?: number; coffeeId?: number; slotId?: number } = {},
+  runner: Runner = db
+): Promise<ChangeRow[]> {
+  const limit = filter.limit ?? 100;
+  const result = await runner.query<{
+    occurred_at: string; call_type: string; method: string; path: string;
+    firebase_uid: string | null; response_status: number | null;
+    response_error: unknown; request_body: Record<string, unknown> | null;
+  }>(
+    `SELECT occurred_at, call_type, method, path, firebase_uid, response_status, response_error, request_body
+     FROM api_event
+     WHERE path LIKE '/api/admin/catalog/%' AND method <> 'GET'
+     ORDER BY occurred_at DESC
+     LIMIT $1`,
+    [CHANGES_FETCH_CAP]
+  );
+
+  const rows = result.rows.map((r): ChangeRow => {
+    const body = r.request_body ?? {};
+    const coffeeId = parsePathId(r.path, 'coffees')
+      ?? (typeof body.coffeeId === 'number' ? body.coffeeId : null);
+    const slotId = parsePathId(r.path, 'slots')
+      ?? (typeof body.slotId === 'number' ? body.slotId : typeof body.toSlotId === 'number' ? body.toSlotId : null);
+    return {
+      at: r.occurred_at, actor: r.firebase_uid, verb: r.call_type, method: r.method, path: r.path,
+      status: r.response_status, coffee_id: coffeeId, slot_id: slotId, error: r.response_error,
+    };
+  });
+
+  const filtered = rows.filter((r) =>
+    (filter.coffeeId === undefined || r.coffee_id === filter.coffeeId)
+    && (filter.slotId === undefined || r.slot_id === filter.slotId)
+  );
+  return filtered.slice(0, limit);
+}
+
 // ── Catalog version — the Liam snapshot key ───────────────────────────────────
 // GREATEST(updated_at) across the tables a placement/price/SKU/slot change
 // touches. `coffees` itself has no updated_at column (Don'ts: no schema

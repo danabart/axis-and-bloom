@@ -647,6 +647,38 @@ export async function setMatchArchetype(input: SetMatchArchetypeInput, ctx: Ctx)
   });
 }
 
+// Catalog Blueprint brief 4 — the only new write verb this brief adds
+// (Don'ts §3). Validates every requested family against the real,
+// currently-seeded DISTINCT wheel_category values in cupping_note (D6's own
+// vocabulary, never a hardcoded list) — an unrecognized family is a 400, not
+// a silently-accepted typo. schema.sql's own descriptor_families seed is
+// guarded by descriptor_families_seeded_at (Part A) so this write survives
+// the next boot instead of being silently reset back to the seed default.
+export async function setArchetypeDescriptorFamilies(
+  input: { code: ArchetypeCode; families: string[] },
+  ctx: Ctx
+): Promise<CatalogWriteResult<{ code: ArchetypeCode; families: string[] }>> {
+  return withTransaction(async (tx) => {
+    const wheelResult = await tx.query<{ wheel_category: string }>(
+      `SELECT DISTINCT wheel_category FROM cupping_note WHERE wheel_category IS NOT NULL`
+    );
+    const validFamilies = new Set(wheelResult.rows.map((r) => r.wheel_category));
+    const unknown = input.families.filter((f) => !validFamilies.has(f));
+    if (unknown.length) {
+      throw new CatalogError(400, 'INVALID_INPUT', `Unknown descriptor family/families: ${unknown.join(', ')}`, { validFamilies: [...validFamilies] });
+    }
+    const updateResult = await tx.query<{ code: string }>(
+      `UPDATE archetype SET descriptor_families = $2, descriptor_families_seeded_at = now() WHERE code = $1 RETURNING code`,
+      [input.code, input.families]
+    );
+    // ArchetypeCode is a closed, statically-known enum — this is unreachable
+    // in practice, but every verb in this file guards its lookup the same way.
+    if (updateResult.rowCount === 0) throw new CatalogError(400, 'INVALID_INPUT', `Unknown archetype code ${input.code}`);
+    console.info('[catalog] setArchetypeDescriptorFamilies', { actor: ctx.actor, code: input.code, families: input.families });
+    return { result: { code: input.code, families: input.families }, warnings: [], integrity: [] };
+  });
+}
+
 // ── SKUs ───────────────────────────────────────────────────────────────────
 
 export interface UpsertSkuInput {
@@ -922,11 +954,21 @@ export async function buildDeactivationPreview(roasterId: string) {
   if (roasterResult.rowCount === 0) return null;
   const roaster = roasterResult.rows[0];
 
+  // Catalog Blueprint brief 4 — home archetype + guest count via
+  // coffee_slot_assignment/coffee_dial_slot (placement, D1) instead of
+  // dial_archetype_positions. is_default is now the slot's own
+  // is_landing_default (whether this coffee's home happens to sit on the
+  // archetype's landing-default slot), not a per-coffee flag.
   const coffeesResult = await db.query(
-    `SELECT c.id, c.name, c.is_active, homeDap.archetype AS home_archetype, homeDap.is_default AS is_default,
-            (SELECT COUNT(*) FROM dial_archetype_positions g WHERE g.coffee_id = c.id AND g.is_guest = true) AS guest_positions
+    `SELECT c.id, c.name, c.is_active, homeSlot.archetype AS home_archetype, homeSlot.is_landing_default AS is_default,
+            (SELECT COUNT(*) FROM coffee_slot_assignment g WHERE g.coffee_id = c.id AND g.role = 'guest' AND g.is_active = true) AS guest_positions
      FROM coffees c
-     LEFT JOIN dial_archetype_positions homeDap ON homeDap.coffee_id = c.id AND homeDap.is_guest = false
+     LEFT JOIN (
+       SELECT csa.coffee_id, cds.archetype, cds.is_landing_default
+       FROM coffee_slot_assignment csa
+       JOIN coffee_dial_slot cds ON cds.id = csa.slot_id
+       WHERE csa.role = 'home' AND csa.is_active = true
+     ) homeSlot ON homeSlot.coffee_id = c.id
      WHERE c.roaster_id = $1
      ORDER BY c.name`,
     [roasterId]
@@ -936,9 +978,17 @@ export async function buildDeactivationPreview(roasterId: string) {
     `SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE is_active) AS active FROM roaster_blend WHERE roaster_id = $1`,
     [roasterId]
   );
-  const aliasesResult = await db.query(
-    `SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE ca.is_active) AS active
-     FROM coffee_alias ca JOIN coffees c ON c.id = ca.coffee_id WHERE c.roaster_id = $1`,
+  // Replaces the old aliasesResult (coffee_alias) — placements, not aliases,
+  // are the placement fact now (D1).
+  const placementsResult = await db.query(
+    `SELECT
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE csa.is_active) AS active,
+       COUNT(*) FILTER (WHERE csa.is_active AND csa.role = 'home') AS homes,
+       COUNT(*) FILTER (WHERE csa.is_active AND csa.role = 'guest') AS guests
+     FROM coffee_slot_assignment csa
+     JOIN coffees c ON c.id = csa.coffee_id
+     WHERE c.roaster_id = $1`,
     [roasterId]
   );
 
@@ -957,13 +1007,17 @@ export async function buildDeactivationPreview(roasterId: string) {
     if (!staysSellable) slotsGoingEmpty.push({ archetype: row.archetype, dialSortOrder: row.sort_order, platformName: row.slot_name });
   }
 
+  // archetypesLosingDefault — Catalog Blueprint brief 4: landing default is a
+  // slot property (coffee_dial_slot.is_landing_default), so "loses its
+  // default" now means "this archetype's landing-default slot's current
+  // sellable occupant belongs to this roastery" — v_coffee_sellable_slot
+  // already resolves to exactly one winner per (slot, weight), no HAVING
+  // bool_and grouping trick needed like the old per-coffee is_default did.
   const defaultResult = await db.query(
-    `SELECT dap.archetype
-     FROM dial_archetype_positions dap
-     JOIN coffees c ON c.id = dap.coffee_id
-     WHERE dap.is_default = true AND dap.is_guest = false
-     GROUP BY dap.archetype
-     HAVING bool_and(c.roaster_id = $1)`,
+    `SELECT cds.archetype
+     FROM coffee_dial_slot cds
+     JOIN v_coffee_sellable_slot vcs ON vcs.slot_id = cds.id AND vcs.weight_oz = ${PREVIEW_WEIGHT_OZ}
+     WHERE cds.is_landing_default = true AND vcs.roaster_id = $1`,
     [roasterId]
   );
 
@@ -1000,7 +1054,7 @@ export async function buildDeactivationPreview(roasterId: string) {
 
   const alreadyInactiveCoffees = coffeesResult.rows.filter((r) => r.is_active === false).length;
   const alreadyInactiveBlends = Number(blendsResult.rows[0].total) - Number(blendsResult.rows[0].active);
-  const alreadyInactiveAliases = Number(aliasesResult.rows[0].total) - Number(aliasesResult.rows[0].active);
+  const alreadyInactivePlacements = Number(placementsResult.rows[0].total) - Number(placementsResult.rows[0].active);
 
   return {
     roaster: { id: roaster.id, name: roaster.name, isActive: roaster.is_active },
@@ -1009,13 +1063,16 @@ export async function buildDeactivationPreview(roasterId: string) {
       homeArchetype: r.home_archetype, isDefault: r.is_default ?? false, guestPositions: Number(r.guest_positions),
     })),
     blends: { total: Number(blendsResult.rows[0].total), active: Number(blendsResult.rows[0].active) },
-    aliases: { total: Number(aliasesResult.rows[0].total), active: Number(aliasesResult.rows[0].active) },
+    placements: {
+      total: Number(placementsResult.rows[0].total), active: Number(placementsResult.rows[0].active),
+      homes: Number(placementsResult.rows[0].homes), guests: Number(placementsResult.rows[0].guests),
+    },
     slotsGoingEmpty,
     archetypesLosingDefault: defaultResult.rows.map((r) => r.archetype),
     hopsGoingDark: Number(hopsResult.rows[0].count),
     openOrderLines: Number(openOrdersResult.rows[0].count),
     activeSubscribersOnTheseSlots: Number(subscribersResult.rows[0].count),
-    alreadyManuallyInactive: { coffees: alreadyInactiveCoffees, blends: alreadyInactiveBlends, aliases: alreadyInactiveAliases },
+    alreadyManuallyInactive: { coffees: alreadyInactiveCoffees, blends: alreadyInactiveBlends, placements: alreadyInactivePlacements },
   };
 }
 
@@ -1027,7 +1084,7 @@ export async function buildReactivationPreview(roasterId: string) {
   if (!roaster.deactivated_at) {
     return {
       roaster: { id: roaster.id, name: roaster.name, isActive: roaster.is_active },
-      coffees: [], blends: { toRestore: 0 }, aliases: { toRestore: 0 },
+      coffees: [], blends: { toRestore: 0 },
     };
   }
 
@@ -1039,17 +1096,15 @@ export async function buildReactivationPreview(roasterId: string) {
     `SELECT COUNT(*) AS count FROM roaster_blend WHERE roaster_id = $1 AND deactivation_reason = 'roaster' AND deactivated_at >= $2`,
     [roasterId, roaster.deactivated_at]
   );
-  const aliasesResult = await db.query(
-    `SELECT COUNT(*) AS count FROM coffee_alias ca JOIN coffees c ON c.id = ca.coffee_id
-     WHERE c.roaster_id = $1 AND ca.deactivation_reason = 'roaster' AND ca.deactivated_at >= $2`,
-    [roasterId, roaster.deactivated_at]
-  );
-
+  // Catalog Blueprint brief 4 — no coffee_alias read here any more. There is
+  // no placements equivalent to count: coffee_slot_assignment is deliberately
+  // never restored on reactivation (N3, unchanged this brief) — placements
+  // are re-created deliberately through placeCoffee/the importer, so this
+  // preview has nothing to report for them.
   return {
     roaster: { id: roaster.id, name: roaster.name, isActive: roaster.is_active },
     coffees: coffeesResult.rows,
     blends: { toRestore: Number(blendsResult.rows[0].count) },
-    aliases: { toRestore: Number(aliasesResult.rows[0].count) },
   };
 }
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
 import { reportError } from '../../lib/errorReporter';
+import { useArchetypes } from './useArchetypes';
 
 interface Roaster {
   id: string;
@@ -29,29 +30,33 @@ interface Roaster {
 // GET /api/admin/roasters/:id/deactivation-preview (both directions) and the
 // POST .../deactivate / .../reactivate confirm actions.
 interface ArchetypeLabelable { archetype: string; dialSortOrder: number; platformName: string }
+// Catalog Blueprint brief 4 (2026-09-14) — buildDeactivationPreview's
+// aliases: {total, active} became placements: {total, active, homes, guests}
+// (coffee_slot_assignment, D1); alreadyManuallyInactive.aliases likewise
+// became .placements.
 interface DeactivationPreview {
   roaster: { id: string; name: string; isActive: boolean };
   coffees: Array<{ id: number; name: string; isActive: boolean; homeArchetype: string | null; isDefault: boolean; guestPositions: number }>;
   blends: { total: number; active: number };
-  aliases: { total: number; active: number };
+  placements: { total: number; active: number; homes: number; guests: number };
   slotsGoingEmpty: ArchetypeLabelable[];
   archetypesLosingDefault: string[];
   hopsGoingDark: number;
   openOrderLines: number;
   activeSubscribersOnTheseSlots: number;
-  alreadyManuallyInactive: { coffees: number; blends: number; aliases: number };
-  applied?: { coffees: number; blends: number; aliases: number };
+  alreadyManuallyInactive: { coffees: number; blends: number; placements: number };
+  applied?: { coffees: number; blends: number; aliases: number; assignments: number };
 }
+// Catalog Blueprint brief 4 — no more aliases: {toRestore} on the preview:
+// coffee_slot_assignment is deliberately never restored on reactivation (N3)
+// — placements are re-created deliberately through placeCoffee/the importer.
+// reactivateRoastery's own write result (`restored`) is unrelated to this
+// preview and still carries `aliases` — that cascade wasn't touched this brief.
 interface ReactivationPreview {
   roaster: { id: string; name: string; isActive: boolean };
   coffees: Array<{ id: number; name: string }>;
   blends: { toRestore: number };
-  aliases: { toRestore: number };
   restored?: { coffees: number; blends: number; aliases: number };
-}
-
-function archetypeLabel(archetype: string): string {
-  return archetype.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
 type RoasterFormData = {
@@ -176,6 +181,8 @@ function RoasterLifecycleDialog({
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const { archetypes } = useArchetypes();
+  const archetypeLabel = (code: string) => archetypes.find(a => a.code === code)?.label ?? code;
 
   useEffect(() => {
     let cancelled = false;
@@ -232,7 +239,7 @@ function RoasterLifecycleDialog({
           <li>
             {(preview as DeactivationPreview).coffees.filter(c => c.isActive).length} coffee(s),{' '}
             {(preview as DeactivationPreview).blends.active} blend(s), and{' '}
-            {(preview as DeactivationPreview).aliases.active} slot alias(es) will be marked inactive.
+            {(preview as DeactivationPreview).placements.active} placement(s) will be marked inactive.
           </li>
           {(preview as DeactivationPreview).slotsGoingEmpty.length > 0 && (
             <li>
@@ -257,11 +264,11 @@ function RoasterLifecycleDialog({
           )}
           {((preview as DeactivationPreview).alreadyManuallyInactive.coffees > 0
             || (preview as DeactivationPreview).alreadyManuallyInactive.blends > 0
-            || (preview as DeactivationPreview).alreadyManuallyInactive.aliases > 0) && (
+            || (preview as DeactivationPreview).alreadyManuallyInactive.placements > 0) && (
             <li className="text-stone-400">
               Already inactive (left as-is): {(preview as DeactivationPreview).alreadyManuallyInactive.coffees} coffee(s),{' '}
               {(preview as DeactivationPreview).alreadyManuallyInactive.blends} blend(s),{' '}
-              {(preview as DeactivationPreview).alreadyManuallyInactive.aliases} alias(es).
+              {(preview as DeactivationPreview).alreadyManuallyInactive.placements} placement(s).
             </li>
           )}
         </ul>
@@ -270,10 +277,12 @@ function RoasterLifecycleDialog({
       {!loading && preview && direction === 'reactivate' && (
         <ul className="text-sm text-stone-600 space-y-1 list-disc list-inside">
           <li>
-            {(preview as ReactivationPreview).coffees.length} coffee(s),{' '}
-            {(preview as ReactivationPreview).blends.toRestore} blend(s), and{' '}
-            {(preview as ReactivationPreview).aliases.toRestore} slot alias(es) will be restored.
+            {(preview as ReactivationPreview).coffees.length} coffee(s) and{' '}
+            {(preview as ReactivationPreview).blends.toRestore} blend(s) (SKUs) will be restored.
           </li>
+          {/* Catalog Blueprint brief 4 — placements are never restored (N3):
+              positive register, say what happens, not what's missing. */}
+          <li className="text-stone-400">Placements are not restored — place these coffees again from the Coffees page.</li>
           {(preview as ReactivationPreview).coffees.length > 0 && (
             <li className="text-stone-400">{(preview as ReactivationPreview).coffees.map(c => c.name).join(', ')}</li>
           )}

@@ -2395,6 +2395,14 @@ ALTER TABLE archetype ADD COLUMN IF NOT EXISTS is_archetype BOOLEAN NOT NULL DEF
 ALTER TABLE archetype ADD COLUMN IF NOT EXISTS dominant_dimension_id INT REFERENCES coffee_dimensions(id);
 -- wheel_category values from cupping_note that count as "on family" for D6; brief 2 reads it.
 ALTER TABLE archetype ADD COLUMN IF NOT EXISTS descriptor_families TEXT[] NOT NULL DEFAULT '{}';
+-- Catalog Blueprint brief 4 — guards the one-time seed below so a real admin
+-- edit (catalogService.setArchetypeDescriptorFamilies) is never silently
+-- reset back to the seed default on the next boot. Brief 1/2/3's own boots
+-- all ran the unguarded `WHERE descriptor_families = '{}'` version — a
+-- coffee could deliberately clear 'experimental's family back to '{}'
+-- (it's the seed default) and the next boot would re-seed it as if nothing
+-- had happened; this column makes that a one-time seed instead.
+ALTER TABLE archetype ADD COLUMN IF NOT EXISTS descriptor_families_seeded_at TIMESTAMPTZ;
 
 -- One-time backfill of code from name (the only place the name<->code map is ever written down again):
 UPDATE archetype SET code = CASE name
@@ -2431,8 +2439,9 @@ UPDATE archetype SET descriptor_families = CASE code
   WHEN 'floral'          THEN ARRAY['Floral','Fruity']
   WHEN 'earthy'          THEN ARRAY['Green / Vegetative','Spices','Roasted']
   WHEN 'experimental'    THEN ARRAY[]::TEXT[]
-  END
-WHERE descriptor_families = '{}';
+  END,
+  descriptor_families_seeded_at = now()
+WHERE descriptor_families_seeded_at IS NULL;
 
 -- B2. coffee_dial_slot — the promise (N4/D6): the slot's own name, position
 -- label and (later, admin-set) spec band + descriptor families, independent

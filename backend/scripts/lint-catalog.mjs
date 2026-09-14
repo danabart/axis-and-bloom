@@ -15,6 +15,10 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SRC_ROOT = path.resolve(__dirname, '..', 'src');
+// Catalog Blueprint brief 4, Part A — rule 4 (hardcoded archetype labels) now
+// also covers the admin frontend, since admin components must fetch labels
+// from GET /api/admin/catalog/archetypes instead of a hardcoded map.
+const FRONTEND_ADMIN_ROOT = path.resolve(__dirname, '..', '..', 'frontend', 'src', 'app', 'components', 'admin');
 
 // ── File discovery ──────────────────────────────────────────────────────────
 
@@ -25,28 +29,33 @@ function toPosix(p) {
 }
 
 function isExcluded(relPath) {
-  if (relPath.endsWith('.test.ts')) return true;
+  if (relPath.endsWith('.test.ts') || relPath.endsWith('.test.tsx')) return true;
   for (const seg of EXCLUDED_DIR_SEGMENTS) {
     if (relPath.includes(seg)) return true;
   }
   return false;
 }
 
-function walk(dir, out) {
+// root -> relative posix path, so every violation prints unambiguously
+// regardless of which root (backend src, frontend admin) it came from.
+const fileRoots = new Map();
+
+function walk(root, dir, extensions, out) {
   for (const entry of readdirSync(dir)) {
     const full = path.join(dir, entry);
     const stat = statSync(full);
     if (stat.isDirectory()) {
-      walk(full, out);
-    } else if (entry.endsWith('.ts')) {
-      const relPath = toPosix(path.relative(SRC_ROOT, full));
-      if (!isExcluded(relPath)) out.push(relPath);
+      walk(root, full, extensions, out);
+    } else if (extensions.some((ext) => entry.endsWith(ext))) {
+      const relPath = toPosix(path.relative(root, full));
+      if (!isExcluded(relPath)) { fileRoots.set(relPath, root); out.push(relPath); }
     }
   }
   return out;
 }
 
-const files = walk(SRC_ROOT, []);
+const files = walk(SRC_ROOT, SRC_ROOT, ['.ts'], []);
+const frontendAdminFiles = walk(FRONTEND_ADMIN_ROOT, FRONTEND_ADMIN_ROOT, ['.ts', '.tsx'], []);
 
 /** @type {{file: string, line: number, message: string}[]} */
 const violations = [];
@@ -78,7 +87,8 @@ const fileLineCache = new Map();
 
 function fileLines(relPath) {
   if (fileLineCache.has(relPath)) return fileLineCache.get(relPath);
-  const raw = readFileSync(path.join(SRC_ROOT, relPath), 'utf8');
+  const root = fileRoots.get(relPath) ?? SRC_ROOT;
+  const raw = readFileSync(path.join(root, relPath), 'utf8');
   const lines = stripBlockComments(raw).split('\n');
   fileLineCache.set(relPath, lines);
   return lines;
@@ -160,8 +170,9 @@ const RESTRICTED_REFS = [
   'v_dial_positions', 'v_dial_navigation',
 ];
 // file → allowed patterns (subset of RESTRICTED_REFS), each with its expiry.
+// Catalog Blueprint brief 4, Part A — routes/admin.ts's own allow-list entry
+// removed now that admin.ts itself moves onto the views.
 const RULE3_ALLOWLIST = {
-  'routes/admin.ts': { patterns: RESTRICTED_REFS, note: 'expires brief 4' },
   'services/dialSuggestion.ts': { patterns: ['dial_position_vocabulary'], note: 'vocabulary-id mapping only, expires brief 5' },
   // catalogService.ts's roastery-lifecycle cascade still touches the
   // pre-blueprint coffee_alias/dial_archetype_positions rows directly (brief
@@ -190,19 +201,22 @@ for (const relPath of files) {
 // ── Rule 4: hardcoded archetype display-label literals ─────────────────────
 const LABELS = ['Chocolate & Nutty', 'Balanced & Sweet', 'Fruity', 'Earthy', 'Floral', 'Experimental'];
 const RULE4_SCOPE_DIRS = ['routes/', 'services/'];
-// routes/admin.ts is allow-listed wholesale (expires brief 4, same CASE
-// expressions Task 0 flagged). Two pre-existing quiz-subsystem files are
-// allow-listed too — discovered during implementation, not in Task 0's
-// inventory: quizScoring.findWinner's tie-break default and
-// quizIntegrity.ts check 8 both predate the Catalog Blueprint, belong to the
-// quiz subsystem (not catalog placement), and asserting/returning a literal
-// archetype name is their actual job (integrity check 8 IS the spelling
-// check; findWinner's default is a scoring tie-break, not a "label lookup").
-// Rewriting either into the async catalogReads API would ripple through the
-// quiz subsystem's unrelated call graph — out of this brief's scope, same
-// "another thread" boundary the brief itself draws around the Balanced rename.
+// Catalog Blueprint brief 4, Part A — routes/admin.ts's own allow-list entry
+// removed now that admin.ts fetches labels from GET /catalog/archetypes too;
+// the scope also grows to frontend/src/app/components/admin/** (scanned
+// separately below, frontendAdminFiles) — an admin component must fetch
+// labels via useArchetypes(), not import archetypeConstants.ts. Two
+// pre-existing quiz-subsystem files stay allow-listed — discovered during
+// brief 3's implementation, not in that brief's Task 0 inventory:
+// quizScoring.findWinner's tie-break default and quizIntegrity.ts check 8
+// both predate the Catalog Blueprint, belong to the quiz subsystem (not
+// catalog placement), and asserting/returning a literal archetype name is
+// their actual job (integrity check 8 IS the spelling check; findWinner's
+// default is a scoring tie-break, not a "label lookup"). Rewriting either
+// into the async catalogReads API would ripple through the quiz subsystem's
+// unrelated call graph — out of this brief's scope too, same "another
+// thread" boundary the brief itself draws around the Balanced rename.
 const RULE4_ALLOWLIST_FILES = new Set([
-  'routes/admin.ts',
   'services/quizScoring.ts',
   'services/quizIntegrity.ts',
 ]);
@@ -212,9 +226,8 @@ function buildLabelPattern(label) {
   return new RegExp(`['"]${escaped}['"]`);
 }
 
-for (const relPath of files) {
-  if (RULE4_ALLOWLIST_FILES.has(relPath)) continue;
-  if (!RULE4_SCOPE_DIRS.some((d) => relPath.startsWith(d))) continue;
+function checkRule4(relPath) {
+  if (RULE4_ALLOWLIST_FILES.has(relPath)) return;
   const lines = fileLines(relPath);
   lines.forEach((line, i) => {
     const stripped = stripLineComment(line);
@@ -226,12 +239,20 @@ for (const relPath of files) {
   });
 }
 
+for (const relPath of files) {
+  if (RULE4_SCOPE_DIRS.some((d) => relPath.startsWith(d))) checkRule4(relPath);
+}
+for (const relPath of frontendAdminFiles) {
+  checkRule4(relPath);
+}
+
 // ── Report ───────────────────────────────────────────────────────────────────
 
 if (violations.length) {
   console.error(`lint:catalog — ${violations.length} violation(s):\n`);
   for (const v of violations) {
-    console.error(`  src/${v.file}:${v.line}  ${v.message}`);
+    const prefix = fileRoots.get(v.file) === FRONTEND_ADMIN_ROOT ? 'frontend/src/app/components/admin' : 'backend/src';
+    console.error(`  ${prefix}/${v.file}:${v.line}  ${v.message}`);
   }
   process.exit(1);
 }
