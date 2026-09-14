@@ -14,29 +14,25 @@ import { getOrMintCanonicalUniversalToken } from '../services/qrDoor.js';
 import { getEffectiveAiControls, envCeilingUsd } from '../services/anthropicGuard.js';
 import { runQuizIntegrityChecks } from '../services/quizIntegrity.js';
 import { runCatalogIntegrityChecks } from '../services/catalogIntegrity.js';
-import { resolveBlendForSlot } from '../services/blendResolver.js';
+import {
+  CatalogError, type Ctx,
+  createCoffee, updateCoffee, retireCoffee, restoreCoffee,
+  setMatchArchetype, placeCoffee, moveCoffee, removeFromSlot, certifyPlacement, previewPlacement, setPriority,
+  renameSlot, setSlotSpec, setSlotPrice, setLandingDefault,
+  upsertSku, restockSku, setHop, removeHop,
+  deactivateRoastery, reactivateRoastery, buildDeactivationPreview, buildReactivationPreview,
+} from '../services/catalogService.js';
+import { importCatalog } from '../services/catalogImport.js';
 
 const router = Router();
 router.use(requireAdmin);
 
-function computeInventoryStatus(quantity: number, buffer: number): string {
-  if (quantity <= 0) return 'out_of_stock';
-  if (quantity <= buffer) return 'low_stock';
-  return 'in_stock';
-}
-
-// Roastery lifecycle (2026-08-25) — shared guard for every dial-editing write
-// that targets a single coffee (POST/PATCH /dial/positions[/guest],
-// POST /dial/relationships, POST /coffees/:id/archetype): never let an
-// inactive coffee be (re-)assigned an archetype, moved, defaulted, or given a
-// new hop. Returns true and has already sent the 404/409 response when the
-// caller should stop; returns false when the coffee is active and the caller
-// should proceed.
-async function rejectIfCoffeeInactive(coffeeId: number | string, res: import('express').Response): Promise<boolean> {
-  const result = await db.query(`SELECT is_active FROM coffees WHERE id = $1`, [coffeeId]);
-  if (result.rowCount === 0) { res.status(404).json({ error: 'Coffee not found' }); return true; }
-  if (result.rows[0].is_active === false) {
-    res.status(409).json({ error: 'This coffee is currently inactive — reactivate its roastery on the Roasteries page first' });
+// Catalog Blueprint brief 2 (2026-09-14) — every /catalog/* route below maps a
+// CatalogError to its status/code 1:1; this is the one place that happens so
+// every thin route handler can just `catch (err) { handleCatalogError(err, res); }`.
+function handleCatalogError(err: unknown, res: import('express').Response): boolean {
+  if (err instanceof CatalogError) {
+    res.status(err.status).json({ error: err.code, message: err.message, detail: err.detail });
     return true;
   }
   return false;
@@ -262,23 +258,8 @@ router.get('/coffees', async (req, res) => {
 });
 
 // ── POST /api/admin/coffees ───────────────────────────────────────────────────
-router.post('/coffees', async (req, res) => {
-  const { name, roaster, origin, blend_or_single, process, roast_level, flavor_descriptors_roaster } = req.body;
-  if (!name) { res.status(400).json({ error: 'name is required' }); return; }
-  try {
-    const result = await db.query(
-      `INSERT INTO coffees (name, roaster, origin, blend_or_single, process, roast_level, flavor_descriptors_roaster)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING *`,
-      [name, roaster ?? null, origin ?? null, blend_or_single ?? null,
-       process ?? null, roast_level ?? null,
-       flavor_descriptors_roaster ? flavor_descriptors_roaster.split(',').map((s: string) => s.trim()) : null]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (err) {
-    console.error('[admin/coffees POST]', err);
-    res.status(500).json({ error: 'Failed to add coffee' });
-  }
+router.post('/coffees', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/* (Catalog Blueprint brief 2)' });
 });
 
 // ── PATCH /api/admin/coffees/:id ──────────────────────────────────────────────
@@ -288,30 +269,8 @@ router.post('/coffees', async (req, res) => {
 // omit a field to leave it untouched. origin_region takes the lookup_value.value
 // slug (not the numeric id — that's what LookupSelect options carry) and is
 // resolved to origin_region_id here; pass null/omit to clear it.
-router.patch('/coffees/:id', async (req, res) => {
-  const { id } = req.params;
-  const { process, roast_level, origin_region } = req.body;
-  if (process === undefined && roast_level === undefined && origin_region === undefined) {
-    res.status(400).json({ error: 'process, roast_level, or origin_region is required' }); return;
-  }
-  try {
-    const result = await db.query(
-      `UPDATE coffees
-       SET process = COALESCE($1, process),
-           roast_level = COALESCE($2, roast_level),
-           origin_region_id = CASE WHEN $3::boolean
-             THEN (SELECT id FROM lookup_value WHERE category = 'origin_region' AND value = $4)
-             ELSE origin_region_id END
-       WHERE id = $5
-       RETURNING id, process, roast_level, origin_region_id`,
-      [process ?? null, roast_level ?? null, origin_region !== undefined, origin_region ?? null, id]
-    );
-    if (result.rowCount === 0) { res.status(404).json({ error: 'Coffee not found' }); return; }
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error('[admin/coffees PATCH]', err);
-    res.status(500).json({ error: 'Failed to update coffee' });
-  }
+router.patch('/coffees/:id', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/* (Catalog Blueprint brief 2)' });
 });
 
 // ── GET /api/admin/sessions ───────────────────────────────────────────────────
@@ -478,194 +437,15 @@ router.patch('/roasters/:id', async (req, res) => {
 // for the full decisions log. coffee_alias and roaster_blend keep their own
 // per-row toggles (PATCH /coffee-alias/:id, PATCH /inventory/:id) — those now
 // stamp deactivation_reason='manual'.
+// Catalog Blueprint brief 2 (2026-09-14): buildDeactivationPreview/
+// buildReactivationPreview/deactivateRoastery/reactivateRoastery all moved to
+// catalogService.ts verbatim in semantics (plus deactivateRoastery now also
+// cascades coffee_slot_assignment) — these three routes are thin wrappers.
 // ─────────────────────────────────────────────
-
-const PREVIEW_WEIGHT_OZ = 12; // 12oz first, same convention as every other Bloom weight-fallback in this codebase (blendResolver.ts, coffees.ts).
-
-// Shared by GET .../deactivation-preview (direction=deactivate, the default)
-// and POST .../deactivate (computed once, read-only, before the cascade runs,
-// so the applied counts and the "what would happen" numbers describe the same
-// moment). excludeCoffeeIds is this roastery's own coffee ids — slotsGoingEmpty
-// asks resolveBlendForSlot "what would resolve if these coffees were gone"
-// without writing anything.
-async function buildDeactivationPreview(roasterId: string) {
-  const roasterResult = await db.query(
-    `SELECT id, name, is_active FROM roaster WHERE id = $1`, [roasterId]
-  );
-  if (roasterResult.rowCount === 0) return null;
-  const roaster = roasterResult.rows[0];
-
-  const coffeesResult = await db.query(
-    `SELECT c.id, c.name, c.is_active, homeDap.archetype AS home_archetype, homeDap.is_default AS is_default,
-            (SELECT COUNT(*) FROM dial_archetype_positions g WHERE g.coffee_id = c.id AND g.is_guest = true) AS guest_positions
-     FROM coffees c
-     LEFT JOIN dial_archetype_positions homeDap ON homeDap.coffee_id = c.id AND homeDap.is_guest = false
-     WHERE c.roaster_id = $1
-     ORDER BY c.name`,
-    [roasterId]
-  );
-  const coffeeIds: number[] = coffeesResult.rows.map((r) => r.id);
-
-  const blendsResult = await db.query(
-    `SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE is_active) AS active FROM roaster_blend WHERE roaster_id = $1`,
-    [roasterId]
-  );
-  const aliasesResult = await db.query(
-    `SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE ca.is_active) AS active
-     FROM coffee_alias ca JOIN coffees c ON c.id = ca.coffee_id WHERE c.roaster_id = $1`,
-    [roasterId]
-  );
-
-  // slotsGoingEmpty — actually call resolveBlendForSlot, before and with this
-  // roastery's coffees excluded, over every slot the public dial has
-  // (dial_position_vocabulary already covers is_archetype=true archetypes
-  // plus 'experimental' — the same set GET /archetypes + /experimental
-  // present). Only a slot that resolves TODAY and would stop resolving
-  // counts — an already-empty slot isn't "going" empty because of this
-  // roastery.
-  const vocabResult = await db.query(
-    `SELECT archetype, sort_order, label FROM dial_position_vocabulary ORDER BY archetype, sort_order`
-  );
-  const slotAliasResult = await db.query(`SELECT archetype, dial_sort_order, platform_name FROM dial_slot_alias`);
-  const slotAliasMap = new Map<string, string>();
-  for (const row of slotAliasResult.rows) slotAliasMap.set(`${row.archetype}|${row.dial_sort_order}`, row.platform_name);
-
-  const slotsGoingEmpty: Array<{ archetype: string; dialSortOrder: number; platformName: string }> = [];
-  for (const v of vocabResult.rows) {
-    const before = await resolveBlendForSlot(v.archetype, v.sort_order, PREVIEW_WEIGHT_OZ);
-    if (!before) continue; // already empty — not this roastery's doing
-    const after = await resolveBlendForSlot(v.archetype, v.sort_order, PREVIEW_WEIGHT_OZ, { excludeCoffeeIds: coffeeIds });
-    if (after) continue; // another coffee still fills it
-    slotsGoingEmpty.push({
-      archetype: v.archetype,
-      dialSortOrder: v.sort_order,
-      platformName: slotAliasMap.get(`${v.archetype}|${v.sort_order}`) ?? v.label,
-    });
-  }
-
-  // archetypesLosingDefault — every current is_default (non-guest) row for an
-  // archetype belongs to this roastery, so none survives the cascade.
-  const defaultResult = await db.query(
-    `SELECT dap.archetype
-     FROM dial_archetype_positions dap
-     JOIN coffees c ON c.id = dap.coffee_id
-     WHERE dap.is_default = true AND dap.is_guest = false
-     GROUP BY dap.archetype
-     HAVING bool_and(c.roaster_id = $1)`,
-    [roasterId]
-  );
-
-  const hopsResult = await db.query(
-    `SELECT COUNT(*) AS count FROM dial_coffee_relationships
-     WHERE from_coffee_id = ANY($1::int[]) OR to_coffee_id = ANY($1::int[])`,
-    [coffeeIds.length ? coffeeIds : [0]]
-  );
-
-  // openOrderLines — "not yet fulfilled" per order.fulfillment_status (no
-  // fixed enum in schema.sql beyond the 'pending' default; 'delivered' and
-  // 'cancelled' are the two closed states used elsewhere in this codebase —
-  // see users.ts homepage-state). Real orders don't happen yet in this
-  // pre-launch app (Shopify stubbed), so this is expected to read 0.
-  const openOrdersResult = await db.query(
-    `SELECT COUNT(*) AS count FROM order_line_item oli
-     JOIN roaster_blend rb ON rb.id = oli.blend_id
-     JOIN "order" o ON o.id = oli.order_id
-     WHERE rb.roaster_id = $1 AND o.fulfillment_status NOT IN ('delivered', 'cancelled')`,
-    [roasterId]
-  );
-
-  // activeSubscribersOnTheseSlots — approximate, per the prompt's own
-  // allowance: an active subscriber's most recent order's blend belongs to
-  // this roastery. subscription carries no direct slot/coffee reference, so
-  // this is inferred from order history rather than computed exactly.
-  const subscribersResult = await db.query(
-    `SELECT COUNT(DISTINCT s.user_id) AS count
-     FROM subscription s
-     JOIN LATERAL (
-       SELECT oli.blend_id
-       FROM order_line_item oli
-       JOIN "order" o ON o.id = oli.order_id
-       WHERE o.user_id = s.user_id
-       ORDER BY o.created_at DESC
-       LIMIT 1
-     ) last_line ON true
-     JOIN roaster_blend rb ON rb.id = last_line.blend_id
-     WHERE s.status = 'active' AND rb.roaster_id = $1`,
-    [roasterId]
-  );
-
-  // alreadyManuallyInactive — rows this cascade's own "AND is_active = true"
-  // guard will skip, regardless of their stamped reason (a row already
-  // inactive keeps whatever reason it already carries).
-  const alreadyInactiveCoffees = coffeesResult.rows.filter((r) => r.is_active === false).length;
-  const alreadyInactiveBlends = Number(blendsResult.rows[0].total) - Number(blendsResult.rows[0].active);
-  const alreadyInactiveAliases = Number(aliasesResult.rows[0].total) - Number(aliasesResult.rows[0].active);
-
-  return {
-    roaster: { id: roaster.id, name: roaster.name, isActive: roaster.is_active },
-    coffees: coffeesResult.rows.map((r) => ({
-      id: r.id, name: r.name, isActive: r.is_active,
-      homeArchetype: r.home_archetype, isDefault: r.is_default ?? false, guestPositions: Number(r.guest_positions),
-    })),
-    blends: { total: Number(blendsResult.rows[0].total), active: Number(blendsResult.rows[0].active) },
-    aliases: { total: Number(aliasesResult.rows[0].total), active: Number(aliasesResult.rows[0].active) },
-    slotsGoingEmpty,
-    archetypesLosingDefault: defaultResult.rows.map((r) => r.archetype),
-    hopsGoingDark: Number(hopsResult.rows[0].count),
-    openOrderLines: Number(openOrdersResult.rows[0].count),
-    activeSubscribersOnTheseSlots: Number(subscribersResult.rows[0].count),
-    alreadyManuallyInactive: { coffees: alreadyInactiveCoffees, blends: alreadyInactiveBlends, aliases: alreadyInactiveAliases },
-  };
-}
-
-// Reactivation preview — what would be restored: rows stamped
-// deactivation_reason='roaster' at/after the roastery's own deactivated_at.
-// A coffee retired manually before, or deliberately re-retired manually
-// after, the roastery went inactive is excluded on purpose (its reason isn't
-// 'roaster', or its deactivated_at predates the roastery's own).
-async function buildReactivationPreview(roasterId: string) {
-  const roasterResult = await db.query(
-    `SELECT id, name, is_active, deactivated_at FROM roaster WHERE id = $1`, [roasterId]
-  );
-  if (roasterResult.rowCount === 0) return null;
-  const roaster = roasterResult.rows[0];
-
-  if (!roaster.deactivated_at) {
-    return {
-      roaster: { id: roaster.id, name: roaster.name, isActive: roaster.is_active },
-      coffees: [], blends: { toRestore: 0 }, aliases: { toRestore: 0 },
-    };
-  }
-
-  const coffeesResult = await db.query(
-    `SELECT id, name FROM coffees
-     WHERE roaster_id = $1 AND deactivation_reason = 'roaster' AND deactivated_at >= $2
-     ORDER BY name`,
-    [roasterId, roaster.deactivated_at]
-  );
-  const blendsResult = await db.query(
-    `SELECT COUNT(*) AS count FROM roaster_blend
-     WHERE roaster_id = $1 AND deactivation_reason = 'roaster' AND deactivated_at >= $2`,
-    [roasterId, roaster.deactivated_at]
-  );
-  const aliasesResult = await db.query(
-    `SELECT COUNT(*) AS count FROM coffee_alias ca JOIN coffees c ON c.id = ca.coffee_id
-     WHERE c.roaster_id = $1 AND ca.deactivation_reason = 'roaster' AND ca.deactivated_at >= $2`,
-    [roasterId, roaster.deactivated_at]
-  );
-
-  return {
-    roaster: { id: roaster.id, name: roaster.name, isActive: roaster.is_active },
-    coffees: coffeesResult.rows,
-    blends: { toRestore: Number(blendsResult.rows[0].count) },
-    aliases: { toRestore: Number(aliasesResult.rows[0].count) },
-  };
-}
 
 // ── GET /api/admin/roasters/:id/deactivation-preview ─────────────────────────
 // Read-only, no side effects. ?direction=reactivate switches to "what would
-// be restored" for the Reactivate dialog (C1); default is the deactivate
-// preview.
+// be restored" for the Reactivate dialog; default is the deactivate preview.
 router.get('/roasters/:id/deactivation-preview', async (req, res) => {
   const { id } = req.params;
   try {
@@ -683,106 +463,27 @@ router.get('/roasters/:id/deactivation-preview', async (req, res) => {
 // ── POST /api/admin/roasters/:id/deactivate ───────────────────────────────────
 router.post('/roasters/:id/deactivate', async (req: AuthRequest, res) => {
   const { id } = req.params;
-  const note: string | null = typeof req.body?.note === 'string' ? req.body.note : null;
-
-  const preview = await buildDeactivationPreview(id);
-  if (!preview) { res.status(404).json({ error: 'Roaster not found' }); return; }
-  if (!preview.roaster.isActive) { res.status(409).json({ error: 'This roastery is already inactive' }); return; }
-
-  const client = await db.connect();
+  const note: string | undefined = typeof req.body?.note === 'string' ? req.body.note : undefined;
   try {
-    await client.query('BEGIN');
-
-    const roasterUpdate = await client.query(
-      `UPDATE roaster SET is_active = false, deactivated_at = now(), deactivation_note = $2, updated_at = now()
-       WHERE id = $1 AND is_active = true RETURNING id`,
-      [id, note]
-    );
-    if (roasterUpdate.rowCount === 0) {
-      await client.query('ROLLBACK');
-      res.status(409).json({ error: 'This roastery is already inactive' });
-      return;
-    }
-
-    const coffeesUpdate = await client.query(
-      `UPDATE coffees SET is_active = false, deactivated_at = now(), deactivation_reason = 'roaster'
-       WHERE roaster_id = $1 AND is_active = true RETURNING id`,
-      [id]
-    );
-    const blendsUpdate = await client.query(
-      `UPDATE roaster_blend SET is_active = false, deactivated_at = now(), deactivation_reason = 'roaster', updated_at = now()
-       WHERE roaster_id = $1 AND is_active = true RETURNING id`,
-      [id]
-    );
-    const aliasesUpdate = await client.query(
-      `UPDATE coffee_alias SET is_active = false, deactivated_at = now(), deactivation_reason = 'roaster'
-       WHERE coffee_id IN (SELECT id FROM coffees WHERE roaster_id = $1) AND is_active = true RETURNING id`,
-      [id]
-    );
-
-    await client.query('COMMIT');
-
-    const applied = { coffees: coffeesUpdate.rowCount ?? 0, blends: blendsUpdate.rowCount ?? 0, aliases: aliasesUpdate.rowCount ?? 0 };
-    console.info('[admin/roasters deactivate]', { roasterId: id, roasterName: preview.roaster.name, applied, uid: req.uid ?? null });
-    res.json({ ...preview, applied });
+    const { result } = await deactivateRoastery({ roasterId: id, note }, { actor: req.uid ?? 'unknown' });
+    res.json(result);
   } catch (err) {
-    await client.query('ROLLBACK').catch((rollbackErr) => console.error('[admin/roasters deactivate-rollback]', rollbackErr));
+    if (handleCatalogError(err, res)) return;
     console.error('[admin/roasters deactivate]', err);
     res.status(500).json({ error: 'Failed to deactivate roastery' });
-  } finally {
-    client.release();
   }
 });
 
 // ── POST /api/admin/roasters/:id/reactivate ───────────────────────────────────
-// The exact inverse of deactivate — restores only rows stamped
-// deactivation_reason='roaster' at/after the roastery's own deactivated_at.
 router.post('/roasters/:id/reactivate', async (req: AuthRequest, res) => {
   const { id } = req.params;
-
-  const roasterResult = await db.query(`SELECT id, name, is_active, deactivated_at FROM roaster WHERE id = $1`, [id]);
-  if (roasterResult.rowCount === 0) { res.status(404).json({ error: 'Roaster not found' }); return; }
-  const roaster = roasterResult.rows[0];
-  if (roaster.is_active) { res.status(409).json({ error: 'This roastery is already active' }); return; }
-
-  const client = await db.connect();
   try {
-    await client.query('BEGIN');
-
-    const cutoff = roaster.deactivated_at;
-    const coffeesUpdate = await client.query(
-      `UPDATE coffees SET is_active = true, deactivated_at = NULL, deactivation_reason = NULL
-       WHERE roaster_id = $1 AND deactivation_reason = 'roaster' AND deactivated_at >= $2 RETURNING id`,
-      [id, cutoff]
-    );
-    const blendsUpdate = await client.query(
-      `UPDATE roaster_blend SET is_active = true, deactivated_at = NULL, deactivation_reason = NULL, updated_at = now()
-       WHERE roaster_id = $1 AND deactivation_reason = 'roaster' AND deactivated_at >= $2 RETURNING id`,
-      [id, cutoff]
-    );
-    const aliasesUpdate = await client.query(
-      `UPDATE coffee_alias SET is_active = true, deactivated_at = NULL, deactivation_reason = NULL
-       WHERE coffee_id IN (SELECT id FROM coffees WHERE roaster_id = $1)
-         AND deactivation_reason = 'roaster' AND deactivated_at >= $2 RETURNING id`,
-      [id, cutoff]
-    );
-    const roasterUpdate = await client.query(
-      `UPDATE roaster SET is_active = true, deactivated_at = NULL, deactivation_note = NULL, updated_at = now()
-       WHERE id = $1 RETURNING id, name, is_active`,
-      [id]
-    );
-
-    await client.query('COMMIT');
-
-    const restored = { coffees: coffeesUpdate.rowCount ?? 0, blends: blendsUpdate.rowCount ?? 0, aliases: aliasesUpdate.rowCount ?? 0 };
-    console.info('[admin/roasters reactivate]', { roasterId: id, roasterName: roaster.name, restored, uid: req.uid ?? null });
-    res.json({ roaster: roasterUpdate.rows[0], restored });
+    const { result } = await reactivateRoastery({ roasterId: id }, { actor: req.uid ?? 'unknown' });
+    res.json(result);
   } catch (err) {
-    await client.query('ROLLBACK').catch((rollbackErr) => console.error('[admin/roasters reactivate-rollback]', rollbackErr));
+    if (handleCatalogError(err, res)) return;
     console.error('[admin/roasters reactivate]', err);
     res.status(500).json({ error: 'Failed to reactivate roastery' });
-  } finally {
-    client.release();
   }
 });
 
@@ -803,76 +504,8 @@ router.get('/cupping-notes', async (_req, res) => {
 });
 
 // ── POST /api/admin/coffees/:id/archetype ────────────────────────────────────
-router.post('/coffees/:id/archetype', async (req, res) => {
-  const { id } = req.params;
-  const { archetype, confidence, notes, assigned_from_session_id, vocabulary_id, dial_is_default } = req.body;
-  if (!archetype || !confidence) {
-    res.status(400).json({ error: 'archetype and confidence are required' }); return;
-  }
-  // 'experimental' is a category (#78), not a true peer archetype — but it still owns its
-  // own dial_position_vocabulary/dial_archetype_positions/coffee_alias data (legacy
-  // scaffolding from before the categories decoupling), and that's still the only
-  // mechanism that places a coffee into the "Experimental" table under Categories on the
-  // Coffees page. So assignment stays allowed here, deliberately, until that table gets
-  // its own non-archetype placement mechanism — see BLOOM_DIAL_ALLOCATION_SPEC.md §6.
-  try {
-    if (await rejectIfCoffeeInactive(id, res)) return;
-
-    await db.query('BEGIN');
-
-    await db.query(
-      `UPDATE archetype_assignments SET superseded_at = now()
-       WHERE coffee_id = $1 AND superseded_at IS NULL`,
-      [id]
-    );
-    const result = await db.query(
-      `INSERT INTO archetype_assignments (coffee_id, archetype, confidence, notes, assigned_from_session_id)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [id, archetype, confidence, notes ?? null, assigned_from_session_id ?? null]
-    );
-
-    if (vocabulary_id) {
-      // Remove only this coffee's existing HOME row (handles archetype change) — guest
-      // (is_guest=true) rows belong to the seam path (POST/DELETE /dial/positions/guest)
-      // and must survive an archetype re-tag untouched.
-      await db.query(`DELETE FROM dial_archetype_positions WHERE coffee_id = $1 AND is_guest = false`, [id]);
-
-      if (dial_is_default) {
-        // Clear previous default for same archetype + same roaster (home rows only —
-        // a guest row can never be is_default per the dap_guest_not_default CHECK, but
-        // is_guest = false here keeps that explicit rather than relying on the CHECK).
-        await db.query(`
-          UPDATE dial_archetype_positions
-          SET is_default = false
-          WHERE archetype = $1
-            AND is_default = true
-            AND is_guest = false
-            AND coffee_id IN (
-              SELECT c.id FROM coffees c
-              WHERE c.roaster = (SELECT roaster FROM coffees WHERE id = $2)
-            )
-        `, [archetype, id]);
-      }
-
-      // ON CONFLICT handles the edge case where the coffee's new home archetype equals
-      // an archetype it currently guests on — promotes that row to home (is_guest=false)
-      // instead of colliding with the UNIQUE(archetype, coffee_id) key.
-      await db.query(
-        `INSERT INTO dial_archetype_positions (coffee_id, archetype, vocabulary_id, is_default, is_guest)
-         VALUES ($1, $2, $3, $4, false)
-         ON CONFLICT (archetype, coffee_id) DO UPDATE
-           SET vocabulary_id = EXCLUDED.vocabulary_id, is_default = EXCLUDED.is_default, is_guest = false`,
-        [id, archetype, vocabulary_id, dial_is_default ?? false]
-      );
-    }
-
-    await db.query('COMMIT');
-    res.status(201).json(result.rows[0]);
-  } catch (err) {
-    await db.query('ROLLBACK');
-    console.error('[admin/coffees archetype]', err);
-    res.status(500).json({ error: 'Failed to assign archetype' });
-  }
+router.post('/coffees/:id/archetype', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/* (Catalog Blueprint brief 2)' });
 });
 
 // ── DELETE /api/admin/coffees/:id ────────────────────────────────────────────
@@ -880,19 +513,8 @@ router.post('/coffees/:id/archetype', async (req, res) => {
 // (2026-08-25). The soft path for taking a coffee out of circulation without
 // losing its history is POST /roasters/:id/deactivate (whole roastery) or
 // PATCH /coffee-alias/:id { is_active: false } (single coffee, manual reason).
-router.delete('/coffees/:id', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const result = await db.query(
-      `DELETE FROM coffees WHERE id = $1 RETURNING id, name`,
-      [id]
-    );
-    if (result.rowCount === 0) { res.status(404).json({ error: 'Coffee not found' }); return; }
-    res.json({ ok: true, deleted: result.rows[0] });
-  } catch (err) {
-    console.error('[admin/coffees DELETE]', err);
-    res.status(500).json({ error: 'Failed to delete coffee' });
-  }
+router.delete('/coffees/:id', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/* (Catalog Blueprint brief 2)' });
 });
 
 // ── GET /api/admin/sessions/:id/coffees ──────────────────────────────────────
@@ -1019,33 +641,8 @@ router.get('/coffee-alias', async (req, res) => {
 // as of Bloom Dial Base Data Part 3 — the slot this row resolves to already has
 // a name in dial_slot_alias (every real slot is pre-seeded), so this value is
 // stored but never read; renaming the slot afterward uses PATCH .../slot or .../:id.
-router.post('/coffee-alias', async (req, res) => {
-  const { platform_name, archetype, coffee_id, priority } = req.body;
-  if (!platform_name || !archetype || !coffee_id) {
-    res.status(400).json({ error: 'platform_name, archetype, and coffee_id are required' }); return;
-  }
-  try {
-    const posResult = await db.query(
-      `SELECT dpv.sort_order
-       FROM dial_archetype_positions dap
-       JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
-       WHERE dap.coffee_id = $1 AND dap.archetype = $2 AND dap.is_guest = false`,
-      [coffee_id, archetype]
-    );
-    if (posResult.rowCount === 0) {
-      res.status(400).json({ error: 'Coffee has no home dial position for this archetype yet' }); return;
-    }
-    const result = await db.query(
-      `INSERT INTO coffee_alias (platform_name, archetype, dial_sort_order, coffee_id, priority)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, platform_name, archetype, dial_sort_order, coffee_id, priority, is_active`,
-      [platform_name, archetype, posResult.rows[0].sort_order, coffee_id, priority ?? 1]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (err) {
-    console.error('[admin/coffee-alias POST]', err);
-    res.status(500).json({ error: 'Failed to create alias' });
-  }
+router.post('/coffee-alias', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/* (Catalog Blueprint brief 2)' });
 });
 
 // ── PATCH /api/admin/coffee-alias/slot — rename a slot's alias ────────────────
@@ -1056,165 +653,16 @@ router.post('/coffee-alias', async (req, res) => {
 // to it — that per-row fan-out was the source of the duplicate-name/desync
 // regression this replaces. Works even for a currently-empty slot (a slot's
 // name exists independent of any coffee occupying it).
-router.patch('/coffee-alias/slot', async (req, res) => {
-  const { archetype, dial_sort_order, platform_name } = req.body;
-  if (!archetype || dial_sort_order === undefined || dial_sort_order === null) {
-    res.status(400).json({ error: 'archetype and dial_sort_order are required' }); return;
-  }
-  if (typeof platform_name !== 'string' || !platform_name.trim()) {
-    res.status(400).json({ error: 'platform_name is required' }); return;
-  }
-  try {
-    const result = await db.query(
-      `INSERT INTO dial_slot_alias (archetype, dial_sort_order, platform_name)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (archetype, dial_sort_order) DO UPDATE SET platform_name = EXCLUDED.platform_name
-       RETURNING id, archetype, dial_sort_order, platform_name`,
-      [archetype, dial_sort_order, platform_name.trim()]
-    );
-    res.json({ ok: true, updated: result.rows[0] });
-  } catch (err: any) {
-    if (err?.code === '23505') { res.status(409).json({ error: 'That name is already used by another slot — slot names must be unique.' }); return; }
-    console.error('[admin/coffee-alias slot PATCH]', err);
-    res.status(500).json({ error: 'Failed to rename slot' });
-  }
+router.patch('/coffee-alias/slot', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/* (Catalog Blueprint brief 2)' });
 });
 
 // ── PATCH /api/admin/coffee-alias/:id — update rank, rename, or toggle active ──
 // Priority swap uses the same live derivation as GET /coffee-alias (derived
 // archetype/position, not the possibly-stale stored coffee_alias columns) to
 // find whichever alias currently occupies the target rank within the same slot.
-router.patch('/coffee-alias/:id', async (req, res) => {
-  const { id } = req.params;
-  const { priority, platform_name, is_active } = req.body;
-
-  if (priority !== undefined && (!Number.isInteger(priority) || priority < 1)) {
-    res.status(400).json({ error: 'priority must be a positive integer' }); return;
-  }
-  if (platform_name !== undefined && typeof platform_name !== 'string') {
-    res.status(400).json({ error: 'platform_name must be a string' }); return;
-  }
-  if (is_active !== undefined && typeof is_active !== 'boolean') {
-    res.status(400).json({ error: 'is_active must be a boolean' }); return;
-  }
-  if (priority === undefined && platform_name === undefined && is_active === undefined) {
-    res.status(400).json({ error: 'priority, platform_name, or is_active is required' }); return;
-  }
-
-  try {
-    if (typeof priority === 'number') {
-      const moverResult = await db.query(
-        `SELECT COALESCE(aa.archetype, ca.archetype)         AS live_archetype,
-                COALESCE(dpv.sort_order, ca.dial_sort_order)  AS live_sort_order,
-                ca.priority                                   AS old_priority
-         FROM coffee_alias ca
-         LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id AND dap.is_guest = false
-         LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
-         LEFT JOIN archetype_assignments aa
-           ON aa.coffee_id = ca.coffee_id AND aa.superseded_at IS NULL
-         WHERE ca.id = $1`,
-        [id]
-      );
-      if (moverResult.rowCount === 0) { res.status(404).json({ error: 'Alias not found' }); return; }
-      const { live_archetype: liveArchetype, live_sort_order: liveSortOrder, old_priority: oldPriority } = moverResult.rows[0];
-
-      // Same slot (live archetype + live position) already holding the target priority? Swap instead of overwrite.
-      const occupantResult = await db.query(
-        `SELECT ca2.id
-         FROM coffee_alias ca2
-         LEFT JOIN dial_archetype_positions dap2 ON dap2.coffee_id = ca2.coffee_id AND dap2.is_guest = false
-         LEFT JOIN dial_position_vocabulary dpv2 ON dpv2.id = dap2.vocabulary_id
-         LEFT JOIN archetype_assignments aa2
-           ON aa2.coffee_id = ca2.coffee_id AND aa2.superseded_at IS NULL
-         WHERE ca2.id <> $1
-           AND COALESCE(aa2.archetype, ca2.archetype) IS NOT DISTINCT FROM $2
-           AND COALESCE(dpv2.sort_order, ca2.dial_sort_order) IS NOT DISTINCT FROM $3
-           AND ca2.priority = $4`,
-        [id, liveArchetype, liveSortOrder, priority]
-      );
-
-      await db.query('BEGIN');
-      try {
-        await db.query(`UPDATE coffee_alias SET priority = $1 WHERE id = $2`, [priority, id]);
-        if ((occupantResult.rowCount ?? 0) > 0) {
-          await db.query(`UPDATE coffee_alias SET priority = $1 WHERE id = $2`, [oldPriority, occupantResult.rows[0].id]);
-        }
-        await db.query('COMMIT');
-      } catch (txErr) {
-        await db.query('ROLLBACK');
-        throw txErr;
-      }
-    }
-
-    if (is_active !== undefined) {
-      // Roastery lifecycle (2026-08-25) — this is the existing per-row active
-      // toggle; stamp deactivation_reason='manual' on a manual flip to
-      // inactive, clear both stamp columns on a flip back to active.
-      await db.query(
-        `UPDATE coffee_alias
-         SET is_active = $1,
-             deactivated_at = CASE WHEN $1 THEN NULL ELSE now() END,
-             deactivation_reason = CASE WHEN $1 THEN NULL ELSE 'manual' END
-         WHERE id = $2`,
-        [is_active, id]
-      );
-    }
-
-    // Bloom Dial Base Data Part 3: renaming an alias renames its SLOT (dial_slot_alias),
-    // same target as PATCH /coffee-alias/slot — a name is never a per-row property.
-    if (typeof platform_name === 'string') {
-      const liveResult = await db.query(
-        `SELECT COALESCE(aa.archetype, ca.archetype)        AS live_archetype,
-                COALESCE(dpv.sort_order, ca.dial_sort_order) AS live_sort_order
-         FROM coffee_alias ca
-         LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id AND dap.is_guest = false
-         LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
-         LEFT JOIN archetype_assignments aa
-           ON aa.coffee_id = ca.coffee_id AND aa.superseded_at IS NULL
-         WHERE ca.id = $1`,
-        [id]
-      );
-      if (liveResult.rowCount === 0) { res.status(404).json({ error: 'Alias not found' }); return; }
-      const { live_archetype: liveArchetype, live_sort_order: liveSortOrder } = liveResult.rows[0];
-      if (liveArchetype && liveSortOrder != null) {
-        try {
-          await db.query(
-            `INSERT INTO dial_slot_alias (archetype, dial_sort_order, platform_name)
-             VALUES ($1, $2, $3)
-             ON CONFLICT (archetype, dial_sort_order) DO UPDATE SET platform_name = EXCLUDED.platform_name`,
-            [liveArchetype, liveSortOrder, platform_name.trim()]
-          );
-        } catch (renameErr: any) {
-          if (renameErr?.code === '23505') { res.status(409).json({ error: 'That name is already used by another slot — slot names must be unique.' }); return; }
-          throw renameErr;
-        }
-      }
-      // else: this coffee has no live (archetype, position) slot (e.g. a category
-      // coffee with a legacy alias row) — nothing to rename, silently no-op.
-    }
-
-    const result = await db.query(
-      `SELECT ca.id, dsa.platform_name, ca.priority,
-              COALESCE(aa.archetype, ca.archetype)          AS archetype,
-              COALESCE(dpv.sort_order, ca.dial_sort_order)  AS dial_sort_order,
-              ca.coffee_id, ca.is_active, ca.deactivated_at, ca.deactivation_reason
-       FROM coffee_alias ca
-       LEFT JOIN dial_archetype_positions dap ON dap.coffee_id = ca.coffee_id AND dap.is_guest = false
-       LEFT JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
-       LEFT JOIN archetype_assignments aa
-         ON aa.coffee_id = ca.coffee_id AND aa.superseded_at IS NULL
-       LEFT JOIN dial_slot_alias dsa
-         ON dsa.archetype = COALESCE(aa.archetype, ca.archetype)
-         AND dsa.dial_sort_order = COALESCE(dpv.sort_order, ca.dial_sort_order)
-       WHERE ca.id = $1`,
-      [id]
-    );
-    if (result.rowCount === 0) { res.status(404).json({ error: 'Alias not found' }); return; }
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error('[admin/coffee-alias PATCH]', err);
-    res.status(500).json({ error: 'Failed to update alias' });
-  }
+router.patch('/coffee-alias/:id', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/* (Catalog Blueprint brief 2)' });
 });
 
 // ── GET /api/admin/slot-prices ────────────────────────────────────────────────
@@ -1237,27 +685,8 @@ router.get('/slot-prices', async (_req, res) => {
 });
 
 // ── PATCH /api/admin/slot-prices — upsert one slot+weight price ──────────────
-router.patch('/slot-prices', async (req, res) => {
-  const { archetype, dialSortOrder, weightOz, retailPriceCents } = req.body;
-  if (!archetype || !Number.isInteger(dialSortOrder) || !Number.isFinite(weightOz)
-    || !Number.isInteger(retailPriceCents) || retailPriceCents < 0) {
-    res.status(400).json({ error: 'archetype, dialSortOrder, weightOz, and a non-negative integer retailPriceCents are required' });
-    return;
-  }
-  try {
-    const result = await db.query(
-      `INSERT INTO dial_slot_price (archetype, dial_sort_order, weight_oz, retail_price_cents, updated_at)
-       VALUES ($1, $2, $3, $4, NOW())
-       ON CONFLICT (archetype, dial_sort_order, weight_oz)
-       DO UPDATE SET retail_price_cents = $4, updated_at = NOW()
-       RETURNING archetype, dial_sort_order, weight_oz, retail_price_cents`,
-      [archetype, dialSortOrder, weightOz, retailPriceCents]
-    );
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error('[admin/slot-prices PATCH]', err);
-    res.status(500).json({ error: 'Failed to update slot price' });
-  }
+router.patch('/slot-prices', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/* (Catalog Blueprint brief 2)' });
 });
 
 // ── GET /api/admin/coffee-prices ──────────────────────────────────────────────
@@ -1421,40 +850,60 @@ router.get('/coffee-categories', async (_req, res) => {
   }
 });
 
-// POST /api/admin/coffee-categories — tag a coffee with a category
-router.post('/coffee-categories', async (req, res) => {
+// POST /api/admin/coffee-categories — tag a coffee with a category. Keeps its
+// path (AdminCoffees.tsx uses it for tagging, which isn't being redesigned)
+// but now goes through updateCoffee({ categoryCodes }) semantics (Catalog
+// Blueprint brief 2, Part C) — computes the coffee's current full set of
+// codes via v_coffee, adds this one, and lets updateCoffee's full-set
+// upsert (insert missing / delete removed) do the actual write.
+router.post('/coffee-categories', async (req: AuthRequest, res) => {
   const { coffee_id, category_id } = req.body;
   if (!coffee_id || !category_id) {
     res.status(400).json({ error: 'coffee_id and category_id are required' }); return;
   }
   try {
-    const result = await db.query(
-      `INSERT INTO coffee_category_assignment (coffee_id, category_id)
-       VALUES ($1, $2)
-       ON CONFLICT (coffee_id, category_id) DO NOTHING
-       RETURNING id, coffee_id, category_id`,
+    const catResult = await db.query(`SELECT code FROM coffee_category WHERE id = $1`, [category_id]);
+    if (catResult.rowCount === 0) { res.status(404).json({ error: 'Category not found' }); return; }
+    const code = catResult.rows[0].code;
+
+    const currentResult = await db.query<{ category_codes: string[] }>(`SELECT category_codes FROM v_coffee WHERE id = $1`, [coffee_id]);
+    if (currentResult.rowCount === 0) { res.status(404).json({ error: 'Coffee not found' }); return; }
+    const current = currentResult.rows[0].category_codes ?? [];
+    if (current.includes(code)) { res.status(409).json({ error: 'Coffee already tagged with this category' }); return; }
+
+    await updateCoffee({ coffeeId: Number(coffee_id), categoryCodes: [...current, code] }, { actor: req.uid ?? 'unknown' });
+    const assignmentResult = await db.query(
+      `SELECT id, coffee_id, category_id FROM coffee_category_assignment WHERE coffee_id = $1 AND category_id = $2`,
       [coffee_id, category_id]
     );
-    if (result.rowCount === 0) {
-      res.status(409).json({ error: 'Coffee already tagged with this category' }); return;
-    }
-    res.status(201).json(result.rows[0]);
+    res.status(201).json(assignmentResult.rows[0]);
   } catch (err) {
+    if (handleCatalogError(err, res)) return;
     console.error('[admin/coffee-categories POST]', err);
     res.status(500).json({ error: 'Failed to tag coffee' });
   }
 });
 
-// DELETE /api/admin/coffee-categories/:id — remove one category assignment
-router.delete('/coffee-categories/:id', async (req, res) => {
+// DELETE /api/admin/coffee-categories/:id — remove one category assignment.
+// Same updateCoffee({ categoryCodes }) semantics as the POST above, minus the code.
+router.delete('/coffee-categories/:id', async (req: AuthRequest, res) => {
   const { id } = req.params;
   try {
-    const result = await db.query(
-      `DELETE FROM coffee_category_assignment WHERE id = $1 RETURNING id`, [id]
+    const assignmentResult = await db.query<{ coffee_id: number; category_id: number }>(
+      `SELECT coffee_id, category_id FROM coffee_category_assignment WHERE id = $1`, [id]
     );
-    if (result.rowCount === 0) { res.status(404).json({ error: 'Assignment not found' }); return; }
+    if (assignmentResult.rowCount === 0) { res.status(404).json({ error: 'Assignment not found' }); return; }
+    const { coffee_id: coffeeId, category_id: categoryId } = assignmentResult.rows[0];
+
+    const catResult = await db.query<{ code: string }>(`SELECT code FROM coffee_category WHERE id = $1`, [categoryId]);
+    const code = catResult.rows[0]?.code;
+    const currentResult = await db.query<{ category_codes: string[] }>(`SELECT category_codes FROM v_coffee WHERE id = $1`, [coffeeId]);
+    const current = currentResult.rows[0]?.category_codes ?? [];
+
+    await updateCoffee({ coffeeId, categoryCodes: current.filter((c) => c !== code) }, { actor: req.uid ?? 'unknown' });
     res.json({ ok: true });
   } catch (err) {
+    if (handleCatalogError(err, res)) return;
     console.error('[admin/coffee-categories DELETE]', err);
     res.status(500).json({ error: 'Failed to remove category tag' });
   }
@@ -2068,194 +1517,36 @@ router.get('/dial/vocabulary', async (_req, res) => {
 });
 
 // PATCH /api/admin/dial/vocabulary/:id — rename a dial position's label
-router.patch('/dial/vocabulary/:id', async (req, res) => {
-  const { id } = req.params;
-  const { label } = req.body;
-  if (typeof label !== 'string' || !label.trim()) {
-    res.status(400).json({ error: 'label must be a non-empty string' }); return;
-  }
-  try {
-    const result = await db.query(
-      `UPDATE dial_position_vocabulary SET label = $1 WHERE id = $2
-       RETURNING id, archetype, sort_order, label, dimension_id`,
-      [label.trim(), id]
-    );
-    if (result.rowCount === 0) { res.status(404).json({ error: 'Vocabulary entry not found' }); return; }
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error('[admin/dial/vocabulary PATCH]', err);
-    res.status(500).json({ error: 'Failed to update vocabulary entry' });
-  }
+router.patch('/dial/vocabulary/:id', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/* (Catalog Blueprint brief 2)' });
 });
 
 // POST /api/admin/dial/positions — add or update a coffee's position on the dial
-router.post('/dial/positions', async (req, res) => {
-  const { archetype, coffee_id, vocabulary_id, is_default } = req.body;
-  if (!archetype || !coffee_id || !vocabulary_id) {
-    res.status(400).json({ error: 'archetype, coffee_id, and vocabulary_id are required' }); return;
-  }
-  try {
-    if (await rejectIfCoffeeInactive(coffee_id, res)) return;
-
-    const result = await db.query(
-      `INSERT INTO dial_archetype_positions (archetype, coffee_id, vocabulary_id, is_default)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (archetype, coffee_id) DO UPDATE
-         SET vocabulary_id = EXCLUDED.vocabulary_id, is_default = EXCLUDED.is_default
-       RETURNING id`,
-      [archetype, coffee_id, vocabulary_id, is_default ?? false]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (err) {
-    console.error('[admin/dial/positions POST]', err);
-    res.status(500).json({ error: 'Failed to save dial position' });
-  }
+router.post('/dial/positions', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/* (Catalog Blueprint brief 2)' });
 });
 
 // PATCH /api/admin/dial/positions/:id — update is_default or vocabulary_id (move left/right)
-router.patch('/dial/positions/:id', async (req, res) => {
-  const { id } = req.params;
-  const { is_default, vocabulary_id } = req.body;
-  if (is_default === undefined && vocabulary_id === undefined) {
-    res.status(400).json({ error: 'is_default or vocabulary_id required' }); return;
-  }
-  try {
-    const targetResult = await db.query(`SELECT coffee_id FROM dial_archetype_positions WHERE id = $1`, [id]);
-    if (targetResult.rowCount === 0) { res.status(404).json({ error: 'Position not found' }); return; }
-    if (await rejectIfCoffeeInactive(targetResult.rows[0].coffee_id, res)) return;
-
-    if (typeof is_default === 'boolean') {
-      if (is_default) {
-        // Clear existing default for same archetype + same roaster before promoting new one
-        await db.query(`
-          UPDATE dial_archetype_positions
-          SET is_default = false
-          WHERE archetype = (SELECT archetype FROM dial_archetype_positions WHERE id = $1)
-            AND is_default = true
-            AND coffee_id IN (
-              SELECT c.id FROM coffees c
-              WHERE c.roaster = (
-                SELECT c2.roaster FROM coffees c2
-                JOIN dial_archetype_positions dap ON dap.coffee_id = c2.id
-                WHERE dap.id = $1
-              )
-            )
-        `, [id]);
-      }
-      const result = await db.query(
-        `UPDATE dial_archetype_positions SET is_default = $1 WHERE id = $2 RETURNING id`,
-        [is_default, id]
-      );
-      if (result.rowCount === 0) { res.status(404).json({ error: 'Position not found' }); return; }
-    }
-    if (typeof vocabulary_id === 'number') {
-      const moverResult = await db.query(
-        `SELECT dap.archetype, dap.vocabulary_id AS old_vocabulary_id, c.roaster
-         FROM dial_archetype_positions dap
-         JOIN coffees c ON c.id = dap.coffee_id
-         WHERE dap.id = $1`,
-        [id]
-      );
-      if (moverResult.rowCount === 0) { res.status(404).json({ error: 'Position not found' }); return; }
-      const { archetype, old_vocabulary_id, roaster } = moverResult.rows[0];
-
-      // Same archetype + same roaster already occupies the target slot? Swap instead of overwrite.
-      const occupantResult = await db.query(
-        `SELECT dap.id
-         FROM dial_archetype_positions dap
-         JOIN coffees c ON c.id = dap.coffee_id
-         WHERE dap.archetype = $1 AND dap.vocabulary_id = $2 AND c.roaster = $3 AND dap.id <> $4`,
-        [archetype, vocabulary_id, roaster, id]
-      );
-
-      await db.query('BEGIN');
-      try {
-        await db.query(
-          `UPDATE dial_archetype_positions SET vocabulary_id = $1 WHERE id = $2`,
-          [vocabulary_id, id]
-        );
-        if ((occupantResult.rowCount ?? 0) > 0) {
-          await db.query(
-            `UPDATE dial_archetype_positions SET vocabulary_id = $1 WHERE id = $2`,
-            [old_vocabulary_id, occupantResult.rows[0].id]
-          );
-        }
-        await db.query('COMMIT');
-      } catch (txErr) {
-        await db.query('ROLLBACK');
-        throw txErr;
-      }
-    }
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('[admin/dial/positions PATCH]', err);
-    res.status(500).json({ error: 'Failed to update position' });
-  }
+router.patch('/dial/positions/:id', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/* (Catalog Blueprint brief 2)' });
 });
 
 // DELETE /api/admin/dial/positions/:id — remove a coffee from the dial
-router.delete('/dial/positions/:id', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const result = await db.query(
-      `DELETE FROM dial_archetype_positions WHERE id = $1 RETURNING id`, [id]
-    );
-    if (result.rowCount === 0) { res.status(404).json({ error: 'Position not found' }); return; }
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('[admin/dial/positions DELETE]', err);
-    res.status(500).json({ error: 'Failed to delete position' });
-  }
+router.delete('/dial/positions/:id', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/* (Catalog Blueprint brief 2)' });
 });
 
 // POST /api/admin/dial/positions/guest — seam: add a coffee to an adjacent
 // archetype's dial without touching its home position. Guest rows never carry
 // is_default (dap_guest_not_default CHECK) and never get a separate SKU.
-router.post('/dial/positions/guest', async (req, res) => {
-  const { coffee_id, archetype, vocabulary_id } = req.body;
-  if (!coffee_id || !archetype || !vocabulary_id) {
-    res.status(400).json({ error: 'coffee_id, archetype, and vocabulary_id are required' }); return;
-  }
-  try {
-    if (await rejectIfCoffeeInactive(coffee_id, res)) return;
-
-    const homeResult = await db.query(
-      `SELECT archetype FROM archetype_assignments WHERE coffee_id = $1 AND superseded_at IS NULL`,
-      [coffee_id]
-    );
-    const homeArchetype: string | undefined = homeResult.rows[0]?.archetype;
-    if (homeArchetype === archetype) {
-      res.status(400).json({ error: 'That archetype is this coffee\'s home archetype — use the archetype/position editor for a home move, not a seam.' }); return;
-    }
-
-    const result = await db.query(
-      `INSERT INTO dial_archetype_positions (archetype, coffee_id, vocabulary_id, is_default, is_guest)
-       VALUES ($1, $2, $3, false, true)
-       RETURNING id`,
-      [archetype, coffee_id, vocabulary_id]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (err: any) {
-    if (err?.code === '23505') { res.status(409).json({ error: 'This coffee already has a position on that archetype\'s dial' }); return; }
-    console.error('[admin/dial/positions/guest POST]', err);
-    res.status(500).json({ error: 'Failed to add guest position' });
-  }
+router.post('/dial/positions/guest', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/* (Catalog Blueprint brief 2)' });
 });
 
 // DELETE /api/admin/dial/positions/guest/:id — remove a seam position. Refuses to
 // delete a home row through this path — use DELETE /dial/positions/:id for that.
-router.delete('/dial/positions/guest/:id', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const result = await db.query(
-      `DELETE FROM dial_archetype_positions WHERE id = $1 AND is_guest = true RETURNING id`, [id]
-    );
-    if (result.rowCount === 0) { res.status(404).json({ error: 'Guest position not found' }); return; }
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('[admin/dial/positions/guest DELETE]', err);
-    res.status(500).json({ error: 'Failed to delete guest position' });
-  }
+router.delete('/dial/positions/guest/:id', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/* (Catalog Blueprint brief 2)' });
 });
 
 // POST /api/admin/dial/relationships — add a hop between two coffees
@@ -2263,112 +1554,13 @@ router.delete('/dial/positions/guest/:id', async (req, res) => {
 // vs. archetype mismatch) before insert. Soft-validates the claimed direction against
 // real cupping data when both coffees have it — returns a warning but still saves,
 // since cupping data can be sparse or simply not the full picture yet.
-router.post('/dial/relationships', async (req, res) => {
-  const { from_coffee_id, to_coffee_id, dimension_id, direction, hop_type, delta, is_recommended, confidence, notes } = req.body;
-  if (!from_coffee_id || !to_coffee_id || !dimension_id || !direction || !hop_type) {
-    res.status(400).json({ error: 'from_coffee_id, to_coffee_id, dimension_id, direction, and hop_type are required' }); return;
-  }
-  if (from_coffee_id === to_coffee_id) {
-    res.status(400).json({ error: 'A hop needs two different coffees.' }); return;
-  }
-  if (hop_type === 'category_hop') {
-    res.status(400).json({ error: 'category_hop creation is not supported here — category-endpoint hops (e.g. a coffee to the Experimental category) are SQL-seed only.' }); return;
-  }
-  try {
-    if (await rejectIfCoffeeInactive(from_coffee_id, res)) return;
-    if (await rejectIfCoffeeInactive(to_coffee_id, res)) return;
-
-    const archResult = await db.query(
-      `SELECT coffee_id, archetype FROM archetype_assignments
-       WHERE coffee_id IN ($1, $2) AND superseded_at IS NULL`,
-      [from_coffee_id, to_coffee_id]
-    );
-    const fromArchetype: string | undefined = archResult.rows.find(r => r.coffee_id === from_coffee_id)?.archetype;
-    const toArchetype: string | undefined = archResult.rows.find(r => r.coffee_id === to_coffee_id)?.archetype;
-
-    if (!fromArchetype || !toArchetype) {
-      res.status(400).json({ error: 'Both coffees need an archetype assigned before a hop can be added.' }); return;
-    }
-    if (hop_type === 'within_archetype' && fromArchetype !== toArchetype) {
-      res.status(400).json({
-        error: `Dial Turn hops must connect two coffees in the same archetype — these are tagged ${fromArchetype} and ${toArchetype}.`,
-      }); return;
-    }
-    if (hop_type === 'bridge_archetype' && fromArchetype === toArchetype) {
-      res.status(400).json({
-        error: `Hop relationships must connect two different archetypes — both these coffees are tagged ${fromArchetype}.`,
-      }); return;
-    }
-
-    const result = await db.query(
-      `INSERT INTO dial_coffee_relationships
-         (from_coffee_id, to_coffee_id, dimension_id, direction, delta, hop_type, is_recommended, confidence, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       ON CONFLICT (from_coffee_id, to_coffee_id, dimension_id, direction) DO NOTHING
-       RETURNING id`,
-      [from_coffee_id, to_coffee_id, dimension_id,
-       direction, delta ?? null, hop_type,
-       is_recommended ?? false, confidence ?? 'medium', notes ?? null]
-    );
-    if (result.rowCount === 0) {
-      res.status(409).json({ error: 'A relationship with this from/to/dimension/direction already exists' }); return;
-    }
-
-    // Soft validation — direction vs. real cupping data, and vs. an existing opposite-direction
-    // hop between the same pair. Neither blocks the save; both are independent checks.
-    const warnings: string[] = [];
-
-    const [fromScore, toScore] = await Promise.all([
-      getAvgCuppingScore(from_coffee_id, dimension_id),
-      getAvgCuppingScore(to_coffee_id, dimension_id),
-    ]);
-    if (fromScore && toScore) {
-      const toIsMore = toScore.avg_score > fromScore.avg_score;
-      const claimedToIsMore = direction === 'more';
-      if (toIsMore !== claimedToIsMore) {
-        const namesResult = await db.query(
-          `SELECT id, name FROM coffees WHERE id IN ($1, $2)`,
-          [from_coffee_id, to_coffee_id]
-        );
-        const fromName = namesResult.rows.find(r => r.id === from_coffee_id)?.name ?? `coffee #${from_coffee_id}`;
-        const toName = namesResult.rows.find(r => r.id === to_coffee_id)?.name ?? `coffee #${to_coffee_id}`;
-        const dimResult = await db.query(`SELECT name FROM coffee_dimensions WHERE id = $1`, [dimension_id]);
-        const dimensionName = dimResult.rows[0]?.name ?? `dimension #${dimension_id}`;
-        warnings.push(`Cupping data suggests this is backwards — ${toName} currently scores ${toIsMore ? 'higher' : 'lower'} than ${fromName} on ${dimensionName} per existing sessions.`);
-      }
-    }
-
-    // Existing opposite-direction hop between the same pair + dimension — warn, don't block
-    // (the exact duplicate case is already caught by the unique constraint / 409 above).
-    const oppositeResult = await db.query(
-      `SELECT id FROM dial_coffee_relationships
-       WHERE from_coffee_id = $1 AND to_coffee_id = $2 AND dimension_id = $3 AND direction <> $4`,
-      [from_coffee_id, to_coffee_id, dimension_id, direction]
-    );
-    if ((oppositeResult.rowCount ?? 0) > 0) {
-      warnings.push('A hop already exists between these two coffees on this dimension with the opposite direction.');
-    }
-
-    res.status(201).json({ ...result.rows[0], ...(warnings.length ? { warning: warnings.join(' ') } : {}) });
-  } catch (err) {
-    console.error('[admin/dial/relationships POST]', err);
-    res.status(500).json({ error: 'Failed to save relationship' });
-  }
+router.post('/dial/relationships', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/* (Catalog Blueprint brief 2)' });
 });
 
 // DELETE /api/admin/dial/relationships/:id — remove a hop
-router.delete('/dial/relationships/:id', async (req, res) => {
-  const { id } = req.params;
-  try {
-    const result = await db.query(
-      `DELETE FROM dial_coffee_relationships WHERE id = $1 RETURNING id`, [id]
-    );
-    if (result.rowCount === 0) { res.status(404).json({ error: 'Relationship not found' }); return; }
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('[admin/dial/relationships DELETE]', err);
-    res.status(500).json({ error: 'Failed to delete relationship' });
-  }
+router.delete('/dial/relationships/:id', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/* (Catalog Blueprint brief 2)' });
 });
 
 // ── GET /api/admin/sommelier/config ──────────────────────────────────────────
@@ -2998,76 +2190,12 @@ router.get('/inventory', async (req, res) => {
   }
 });
 
-router.patch('/inventory/:id', async (req, res) => {
-  const { id } = req.params;
-  const { quantity_available, safety_stock_buffer, coffee_id, is_active, shopify_variant_id, roaster_sku } = req.body;
-  try {
-    const current = await db.query(
-      `SELECT quantity_available, safety_stock_buffer FROM roaster_blend WHERE id = $1`, [id]
-    );
-    if (current.rows.length === 0) { res.status(404).json({ error: 'Blend not found' }); return; }
-
-    const nextQty    = quantity_available  ?? current.rows[0].quantity_available;
-    const nextBuffer = safety_stock_buffer ?? current.rows[0].safety_stock_buffer;
-    const status     = computeInventoryStatus(nextQty, nextBuffer);
-
-    // Roastery lifecycle (2026-08-25) — this is the existing per-row active
-    // toggle; stamp deactivation_reason='manual' when it flips a row to
-    // inactive here, clear both stamp columns when it flips back active. Only
-    // touches the stamp when is_active was actually part of this request —
-    // every other field this route also patches (quantity, coffee_id, SKU…)
-    // must never silently clear an existing 'roaster' reason.
-    const isActiveProvided = typeof is_active === 'boolean';
-
-    const result = await db.query(
-      `UPDATE roaster_blend
-       SET quantity_available   = $1,
-           safety_stock_buffer  = $2,
-           coffee_id            = COALESCE($3, coffee_id),
-           inventory_status     = $4,
-           is_active            = COALESCE($5, is_active),
-           shopify_variant_id   = COALESCE($6, shopify_variant_id),
-           roaster_sku          = COALESCE($7, roaster_sku),
-           deactivated_at       = CASE WHEN $9::boolean THEN (CASE WHEN $5 THEN NULL ELSE now() END) ELSE deactivated_at END,
-           deactivation_reason  = CASE WHEN $9::boolean THEN (CASE WHEN $5 THEN NULL ELSE 'manual' END) ELSE deactivation_reason END
-       WHERE id = $8
-       RETURNING id, blend_name, coffee_id, quantity_available, safety_stock_buffer,
-                 inventory_status, is_active, deactivated_at, deactivation_reason,
-                 shopify_variant_id, roaster_sku, last_restocked_at`,
-      [nextQty, nextBuffer, coffee_id ?? null, status,
-       is_active ?? null, shopify_variant_id ?? null, roaster_sku ?? null, id, isActiveProvided]
-    );
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error('[admin/inventory PATCH]', err);
-    res.status(500).json({ error: 'Failed to update inventory' });
-  }
+router.patch('/inventory/:id', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/* (Catalog Blueprint brief 2)' });
 });
 
-router.post('/inventory/:id/restock', async (req, res) => {
-  const { id } = req.params;
-  const amt = Number(req.body.amount);
-  if (!Number.isFinite(amt) || amt <= 0) { res.status(400).json({ error: 'amount must be a positive number' }); return; }
-  try {
-    const current = await db.query(`SELECT quantity_available, safety_stock_buffer FROM roaster_blend WHERE id = $1`, [id]);
-    if (current.rows.length === 0) { res.status(404).json({ error: 'Blend not found' }); return; }
-    const nextQty = current.rows[0].quantity_available + amt;
-    const status  = computeInventoryStatus(nextQty, current.rows[0].safety_stock_buffer);
-
-    const result = await db.query(
-      `UPDATE roaster_blend
-       SET quantity_available = $1,
-           inventory_status   = $2,
-           last_restocked_at  = timezone('utc', now())
-       WHERE id = $3
-       RETURNING id, blend_name, coffee_id, quantity_available, safety_stock_buffer, inventory_status, last_restocked_at`,
-      [nextQty, status, id]
-    );
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error('[admin/inventory restock]', err);
-    res.status(500).json({ error: 'Failed to restock' });
-  }
+router.post('/inventory/:id/restock', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/* (Catalog Blueprint brief 2)' });
 });
 
 // ── HOME_TASK_7E — the QR door's admin surface, simplified (2026-08-04,
@@ -3184,5 +2312,364 @@ router.get('/system-health', async (_req, res) => {
     res.status(500).json({ error: 'Failed to fetch system health data' });
   }
 });
+
+// ─────────────────────────────────────────────
+// CATALOG BLUEPRINT · brief 2 (2026-09-14) — /api/admin/catalog/*
+// Every handler below is thin: validate -> call the service -> map
+// CatalogError -> res.json(result). No SQL on a catalog table lives here —
+// see backend/src/services/catalogService.ts. Behind the router-wide
+// requireAdmin above, same as every other /api/admin/* route.
+// ─────────────────────────────────────────────
+
+const catalogRouter = Router();
+
+catalogRouter.post('/coffees', async (req: AuthRequest, res) => {
+  const { roasterId, name, origin, blendOrSingle, process, roastLevel, roastShade, flavorDescriptorsRoaster, categoryCodes } = req.body;
+  try {
+    const { result } = await createCoffee(
+      { roasterId, name, origin, blendOrSingle, process, roastLevel, roastShade, flavorDescriptorsRoaster, categoryCodes },
+      { actor: req.uid ?? 'unknown' }
+    );
+    res.status(201).json(result);
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/coffees POST]', err);
+    res.status(500).json({ error: 'Failed to create coffee' });
+  }
+});
+
+catalogRouter.patch('/coffees/:id', async (req: AuthRequest, res) => {
+  const { name, origin, blendOrSingle, process, roastLevel, roastShade, flavorDescriptorsRoaster, categoryCodes, originRegion } = req.body;
+  try {
+    const { result } = await updateCoffee(
+      { coffeeId: Number(req.params.id), name, origin, blendOrSingle, process, roastLevel, roastShade, flavorDescriptorsRoaster, categoryCodes, originRegion },
+      { actor: req.uid ?? 'unknown' }
+    );
+    // origin_region_id included for callers resolving the slug (Flavor
+    // Intelligence Part 1 Decision #9) — cheap enough to always include.
+    const row = await db.query(`SELECT origin_region_id FROM coffees WHERE id = $1`, [req.params.id]);
+    res.json({ ...result, origin_region_id: row.rows[0]?.origin_region_id ?? null });
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/coffees PATCH]', err);
+    res.status(500).json({ error: 'Failed to update coffee' });
+  }
+});
+
+catalogRouter.post('/coffees/:id/retire', async (req: AuthRequest, res) => {
+  try {
+    const { result } = await retireCoffee({ coffeeId: Number(req.params.id), reason: 'manual' }, { actor: req.uid ?? 'unknown' });
+    res.json(result);
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/coffees retire]', err);
+    res.status(500).json({ error: 'Failed to retire coffee' });
+  }
+});
+
+catalogRouter.post('/coffees/:id/restore', async (req: AuthRequest, res) => {
+  try {
+    const { result } = await restoreCoffee({ coffeeId: Number(req.params.id) }, { actor: req.uid ?? 'unknown' });
+    res.json(result);
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/coffees restore]', err);
+    res.status(500).json({ error: 'Failed to restore coffee' });
+  }
+});
+
+catalogRouter.put('/coffees/:id/match', async (req: AuthRequest, res) => {
+  const { archetype, confidence, source, sessionId, notes } = req.body;
+  if (!archetype || !confidence || !source) { res.status(400).json({ error: 'INVALID_INPUT', message: 'archetype, confidence, and source are required' }); return; }
+  try {
+    const { result, warnings } = await setMatchArchetype(
+      { coffeeId: Number(req.params.id), archetype, confidence, source, sessionId, notes },
+      { actor: req.uid ?? 'unknown' }
+    );
+    res.json({ ...result, warnings });
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/coffees match]', err);
+    res.status(500).json({ error: 'Failed to set match archetype' });
+  }
+});
+
+catalogRouter.post('/coffees/:id/placements', async (req: AuthRequest, res) => {
+  const { slotId, role, priority, placementNote, certify } = req.body;
+  if (!slotId || (role !== 'home' && role !== 'guest')) { res.status(400).json({ error: 'INVALID_INPUT', message: 'slotId and role (home|guest) are required' }); return; }
+  try {
+    const { result, warnings } = await placeCoffee(
+      { coffeeId: Number(req.params.id), slotId, role, priority, placementNote, certify },
+      { actor: req.uid ?? 'unknown' }
+    );
+    res.status(201).json({ ...result, warnings });
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/coffees placements POST]', err);
+    res.status(500).json({ error: 'Failed to place coffee' });
+  }
+});
+
+catalogRouter.post('/coffees/:id/move', async (req: AuthRequest, res) => {
+  const { toSlotId, priority, placementNote, certify } = req.body;
+  if (!toSlotId) { res.status(400).json({ error: 'INVALID_INPUT', message: 'toSlotId is required' }); return; }
+  try {
+    const { result, warnings } = await moveCoffee(
+      { coffeeId: Number(req.params.id), toSlotId, priority, placementNote, certify },
+      { actor: req.uid ?? 'unknown' }
+    );
+    res.json({ ...result, warnings });
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/coffees move]', err);
+    res.status(500).json({ error: 'Failed to move coffee' });
+  }
+});
+
+catalogRouter.delete('/coffees/:id/placements/:slotId', async (req: AuthRequest, res) => {
+  const reason = req.query.reason === 'moved' ? 'moved' : 'manual';
+  try {
+    const { result } = await removeFromSlot(
+      { coffeeId: Number(req.params.id), slotId: Number(req.params.slotId), reason },
+      { actor: req.uid ?? 'unknown' }
+    );
+    res.json(result);
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/coffees placements DELETE]', err);
+    res.status(500).json({ error: 'Failed to remove placement' });
+  }
+});
+
+catalogRouter.post('/coffees/:id/placements/:slotId/certify', async (req: AuthRequest, res) => {
+  const { by, note } = req.body;
+  if (!by) { res.status(400).json({ error: 'INVALID_INPUT', message: 'by is required' }); return; }
+  try {
+    const { result } = await certifyPlacement(
+      { coffeeId: Number(req.params.id), slotId: Number(req.params.slotId), by, note },
+      { actor: req.uid ?? 'unknown' }
+    );
+    res.json(result);
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/coffees certify]', err);
+    res.status(500).json({ error: 'Failed to certify placement' });
+  }
+});
+
+catalogRouter.get('/placement-preview', async (req, res) => {
+  const coffeeId = Number(req.query.coffeeId);
+  const slotId = Number(req.query.slotId);
+  const role = req.query.role === 'guest' ? 'guest' : 'home';
+  if (!coffeeId || !slotId) { res.status(400).json({ error: 'INVALID_INPUT', message: 'coffeeId and slotId are required' }); return; }
+  try {
+    const preview = await previewPlacement({ coffeeId, slotId, role });
+    res.json(preview);
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/placement-preview]', err);
+    res.status(500).json({ error: 'Failed to compute placement preview' });
+  }
+});
+
+catalogRouter.put('/slots/:slotId/priorities', async (req: AuthRequest, res) => {
+  const { ordered } = req.body;
+  if (!Array.isArray(ordered)) { res.status(400).json({ error: 'INVALID_INPUT', message: 'ordered must be an array of coffee ids' }); return; }
+  try {
+    const { result } = await setPriority({ slotId: Number(req.params.slotId), ordered }, { actor: req.uid ?? 'unknown' });
+    res.json(result);
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/slots priorities]', err);
+    res.status(500).json({ error: 'Failed to set priorities' });
+  }
+});
+
+catalogRouter.patch('/slots/:slotId', async (req: AuthRequest, res) => {
+  const { name, positionLabel, positionDescription } = req.body;
+  try {
+    const { result } = await renameSlot({ slotId: Number(req.params.slotId), name, positionLabel, positionDescription }, { actor: req.uid ?? 'unknown' });
+    res.json(result);
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/slots PATCH]', err);
+    res.status(500).json({ error: 'Failed to rename slot' });
+  }
+});
+
+catalogRouter.put('/slots/:slotId/spec', async (req: AuthRequest, res) => {
+  const { bandLo, bandHi, descriptorFamilies } = req.body;
+  try {
+    const { result } = await setSlotSpec({ slotId: Number(req.params.slotId), bandLo, bandHi, descriptorFamilies }, { actor: req.uid ?? 'unknown' });
+    res.json(result);
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/slots spec]', err);
+    res.status(500).json({ error: 'Failed to set slot spec' });
+  }
+});
+
+catalogRouter.put('/slots/:slotId/prices', async (req: AuthRequest, res) => {
+  const { weightOz, retailPriceCents } = req.body;
+  try {
+    const { result } = await setSlotPrice({ slotId: Number(req.params.slotId), weightOz, retailPriceCents }, { actor: req.uid ?? 'unknown' });
+    res.json(result);
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/slots prices]', err);
+    res.status(500).json({ error: 'Failed to set slot price' });
+  }
+});
+
+catalogRouter.post('/slots/:slotId/landing-default', async (req: AuthRequest, res) => {
+  try {
+    const { result } = await setLandingDefault({ slotId: Number(req.params.slotId) }, { actor: req.uid ?? 'unknown' });
+    res.json(result);
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/slots landing-default]', err);
+    res.status(500).json({ error: 'Failed to set landing default' });
+  }
+});
+
+catalogRouter.put('/coffees/:id/skus', async (req: AuthRequest, res) => {
+  const { weightOz, blendName, roasterSku, shopifyVariantId, costToUs, quantityAvailable, safetyStockBuffer, isActive } = req.body;
+  if (!weightOz) { res.status(400).json({ error: 'INVALID_INPUT', message: 'weightOz is required' }); return; }
+  try {
+    const { result } = await upsertSku(
+      { coffeeId: Number(req.params.id), weightOz, blendName, roasterSku, shopifyVariantId, costToUs, quantityAvailable, safetyStockBuffer, isActive },
+      { actor: req.uid ?? 'unknown' }
+    );
+    res.json(result);
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/coffees skus]', err);
+    res.status(500).json({ error: 'Failed to upsert SKU' });
+  }
+});
+
+catalogRouter.post('/skus/:blendId/restock', async (req: AuthRequest, res) => {
+  const quantity = Number(req.body.quantity);
+  try {
+    const { result } = await restockSku({ blendId: req.params.blendId, quantity }, { actor: req.uid ?? 'unknown' });
+    res.json(result);
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/skus restock]', err);
+    res.status(500).json({ error: 'Failed to restock SKU' });
+  }
+});
+
+catalogRouter.post('/hops', async (req: AuthRequest, res) => {
+  const { fromCoffeeId, toCoffeeId, dimensionId, direction, delta, isRecommended, confidence, notes } = req.body;
+  if (!fromCoffeeId || !toCoffeeId || !dimensionId || !direction) {
+    res.status(400).json({ error: 'INVALID_INPUT', message: 'fromCoffeeId, toCoffeeId, dimensionId, and direction are required' }); return;
+  }
+  try {
+    const { result, warnings } = await setHop(
+      { fromCoffeeId, toCoffeeId, dimensionId, direction, delta, isRecommended, confidence, notes },
+      { actor: req.uid ?? 'unknown' }
+    );
+    res.status(201).json({ ...result, warnings });
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/hops POST]', err);
+    res.status(500).json({ error: 'Failed to save hop' });
+  }
+});
+
+catalogRouter.delete('/hops/:id', async (req: AuthRequest, res) => {
+  try {
+    const { result } = await removeHop({ hopId: Number(req.params.id) }, { actor: req.uid ?? 'unknown' });
+    res.json(result);
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/hops DELETE]', err);
+    res.status(500).json({ error: 'Failed to remove hop' });
+  }
+});
+
+catalogRouter.post('/import', async (req: AuthRequest, res) => {
+  const apply = req.query.apply === 'true';
+  const mode = req.body?.mode === 'skip_existing' ? 'skip_existing' : undefined;
+  try {
+    const report = await importCatalog(req.body, { dryRun: !apply, actor: req.uid ?? 'unknown', mode });
+    res.json(report);
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
+    console.error('[admin/catalog/import]', err);
+    res.status(500).json({ error: 'Import failed' });
+  }
+});
+
+// The four GETs below exist so brief 4 has something to read — view-only selects.
+catalogRouter.get('/archetypes', async (_req, res) => {
+  try {
+    const result = await db.query(`SELECT * FROM v_coffee_archetype`);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[admin/catalog/archetypes]', err);
+    res.status(500).json({ error: 'Failed to fetch archetypes' });
+  }
+});
+
+catalogRouter.get('/slots', async (_req, res) => {
+  try {
+    const slotsResult = await db.query(`SELECT * FROM coffee_dial_slot ORDER BY archetype, sort_order`);
+    const occupantsResult = await db.query(`SELECT * FROM v_coffee_slot WHERE assignment_is_active = true`);
+    const sellableResult = await db.query(`SELECT DISTINCT slot_id FROM v_coffee_sellable_slot WHERE weight_oz = 12`);
+    const sellableSlotIds = new Set(sellableResult.rows.map(r => r.slot_id));
+    const occupantsBySlot = new Map<number, unknown[]>();
+    for (const row of occupantsResult.rows) {
+      if (!occupantsBySlot.has(row.slot_id)) occupantsBySlot.set(row.slot_id, []);
+      occupantsBySlot.get(row.slot_id)!.push(row);
+    }
+    res.json(slotsResult.rows.map(slot => ({
+      ...slot,
+      occupants: occupantsBySlot.get(slot.id) ?? [],
+      sellableAt12oz: sellableSlotIds.has(slot.id),
+    })));
+  } catch (err) {
+    console.error('[admin/catalog/slots]', err);
+    res.status(500).json({ error: 'Failed to fetch slots' });
+  }
+});
+
+catalogRouter.get('/coffees', async (req, res) => {
+  const includeInactive = req.query.include_inactive === 'true';
+  try {
+    const coffeesResult = includeInactive
+      ? await db.query(`SELECT * FROM v_coffee ORDER BY name`)
+      : await db.query(`SELECT * FROM v_coffee WHERE is_active = true ORDER BY name`);
+    const placementsResult = await db.query(`SELECT * FROM v_coffee_slot WHERE assignment_is_active = true`);
+    const placementsByCoffee = new Map<number, unknown[]>();
+    for (const row of placementsResult.rows) {
+      if (!placementsByCoffee.has(row.coffee_id)) placementsByCoffee.set(row.coffee_id, []);
+      placementsByCoffee.get(row.coffee_id)!.push(row);
+    }
+    res.json(coffeesResult.rows.map(c => ({ ...c, placements: placementsByCoffee.get(c.id) ?? [] })));
+  } catch (err) {
+    console.error('[admin/catalog/coffees GET]', err);
+    res.status(500).json({ error: 'Failed to fetch coffees' });
+  }
+});
+
+catalogRouter.get('/coffees/:id', async (req, res) => {
+  try {
+    const coffeeResult = await db.query(`SELECT * FROM v_coffee WHERE id = $1`, [req.params.id]);
+    if (coffeeResult.rowCount === 0) { res.status(404).json({ error: 'COFFEE_NOT_FOUND' }); return; }
+    const [placements, skus, hops] = await Promise.all([
+      db.query(`SELECT * FROM v_coffee_slot WHERE coffee_id = $1`, [req.params.id]),
+      db.query(`SELECT * FROM roaster_blend WHERE coffee_id = $1 ORDER BY weight_oz`, [req.params.id]),
+      db.query(`SELECT * FROM v_coffee_hop WHERE from_coffee_id = $1 OR to_coffee_id = $1`, [req.params.id]),
+    ]);
+    res.json({ ...coffeeResult.rows[0], placements: placements.rows, skus: skus.rows, hops: hops.rows });
+  } catch (err) {
+    console.error('[admin/catalog/coffees/:id]', err);
+    res.status(500).json({ error: 'Failed to fetch coffee' });
+  }
+});
+
+router.use('/catalog', catalogRouter);
 
 export default router;

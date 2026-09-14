@@ -1,0 +1,46 @@
+{
+  "_comment": "Catalog Blueprint brief 2, Part B — documentation + the fixture for services/catalogImport.test.ts. NOT run against prod: the roaster below (\"Vitest Import Roastery\") does not exist there, so a prod dry-run correctly stops with ROASTER_NOT_FOUND (Definition of Done). The 'Vitest' prefix is deliberate — the test creates and tears down this exact roaster/coffee rows.",
+  "roaster": { "name": "Vitest Import Roastery" },
+  "coffees": [
+    {
+      "name": "Vitest Import Ethiopia Guji",
+      "origin": "Ethiopia",
+      "process": "washed",
+      "roastLevel": "light",
+      "blendOrSingle": "single",
+      "flavorDescriptorsRoaster": ["jasmine", "bergamot"],
+      "categoryCodes": [],
+      "match": { "archetype": "floral", "confidence": "medium", "source": "import" },
+      "home": { "slot": "floral/2", "priority": 1, "placementNote": "spread for connectivity" },
+      "guests": [ { "slot": "fruity/1", "priority": 2 } ],
+      "skus": [
+        { "weightOz": 12, "roasterSku": "VITEST-GUJI-12", "costToUs": 11.5 },
+        { "weightOz": 80 }
+      ],
+      "certify": { "by": "dana", "note": "cupped 2026-09-20" }
+    },
+    {
+      "name": "Vitest Import Earthy Reserve",
+      "origin": "Sumatra",
+      "process": "wet-hulled",
+      "roastLevel": "dark",
+      "blendOrSingle": "single",
+      "flavorDescriptorsRoaster": ["cedar", "tobacco"],
+      "categoryCodes": [],
+      "match": { "archetype": "earthy", "confidence": "low", "source": "import" },
+      "home": {
+        "slot": "earthy/3",
+        "priority": 1,
+        "placementNote": "no cupping data yet — placing on the roastery's own tasting notes pending our own session; revisit once cupped"
+      },
+      "skus": [
+        { "weightOz": 12, "roasterSku": "VITEST-EARTHY-12" },
+        { "weightOz": 80 }
+      ]
+    }
+  ],
+  "slotPrices": [
+    { "slot": "floral/3", "weightOz": 12, "retailPriceCents": 3200 },
+    { "slot": "floral/4", "weightOz": 12, "retailPriceCents": 3600 }
+  ]
+}

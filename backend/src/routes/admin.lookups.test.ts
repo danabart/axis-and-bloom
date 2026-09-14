@@ -98,10 +98,14 @@ describe('PATCH /api/admin/coffees/:id — origin_region', () => {
   it('resolves the origin_region slug to origin_region_id, and null clears it', async () => {
     const coffeeRow = (await db.query('SELECT id, origin_region_id FROM coffees ORDER BY id LIMIT 1')).rows[0];
     try {
-      const res = await fetch(`${baseUrl}/coffees/${coffeeRow.id}`, {
+      // Catalog Blueprint brief 2 (2026-09-14) retired PATCH /api/admin/coffees/:id
+      // (410 now) — this behavior moved to PATCH /api/admin/catalog/coffees/:id's
+      // updateCoffee({ originRegion }), camelCase like every other field on that
+      // verb. See UpdateCoffeeInput's originRegion comment in catalogService.ts.
+      const res = await fetch(`${baseUrl}/catalog/coffees/${coffeeRow.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ origin_region: 'east_africa' }),
+        body: JSON.stringify({ originRegion: 'east_africa' }),
       });
       expect(res.status).toBe(200);
       const body = await res.json();
@@ -110,10 +114,10 @@ describe('PATCH /api/admin/coffees/:id — origin_region', () => {
       )).rows[0];
       expect(body.origin_region_id).toBe(eastAfrica.id);
 
-      const cleared = await fetch(`${baseUrl}/coffees/${coffeeRow.id}`, {
+      const cleared = await fetch(`${baseUrl}/catalog/coffees/${coffeeRow.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ origin_region: null }),
+        body: JSON.stringify({ originRegion: null }),
       });
       expect(cleared.status).toBe(200);
       expect((await cleared.json()).origin_region_id).toBeNull();

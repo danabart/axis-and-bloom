@@ -1,4 +1,4 @@
-import { db } from '../db/client.js';
+import { db, withTransaction } from '../db/client.js';
 
 const ARCHETYPE_LABEL: Record<string, string> = {
   chocolate_nutty: 'Chocolate & Nutty',
@@ -249,24 +249,22 @@ export async function recordCuppingSignal(coffeeId: number): Promise<void> {
   const dimensionId: number | undefined = configResult.rows[0]?.dominant_dimension_id;
   if (!dimensionId) return;
 
-  await db.query('BEGIN');
-  try {
-    await db.query(
+  // Catalog Blueprint brief 2 (2026-09-14) — last pool-level BEGIN/COMMIT in
+  // the codebase, moved onto withTransaction (backend/src/db/client.ts,
+  // brief 1) once the retired admin.ts handlers stopped using the pattern.
+  await withTransaction(async (tx) => {
+    await tx.query(
       `UPDATE dial_position_signal
        SET superseded_at = now()
        WHERE coffee_id = $1 AND archetype = $2 AND dimension_id = $3
          AND source = 'cupping' AND superseded_at IS NULL`,
       [coffeeId, archetype, dimensionId]
     );
-    await db.query(
+    await tx.query(
       `INSERT INTO dial_position_signal
          (coffee_id, archetype, dimension_id, source, suggested_vocabulary_id, raw_value, sample_size)
        VALUES ($1, $2, $3, 'cupping', $4, $5, $6)`,
       [coffeeId, archetype, dimensionId, suggestion.suggested_vocabulary_id, suggestion.avg_score, suggestion.session_count]
     );
-    await db.query('COMMIT');
-  } catch (err) {
-    await db.query('ROLLBACK');
-    throw err;
-  }
+  });
 }

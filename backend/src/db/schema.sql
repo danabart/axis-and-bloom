@@ -1968,20 +1968,12 @@ INSERT INTO dial_position_vocabulary (archetype, dimension_id, sort_order, label
   ('experimental',    9, 4, 'Untamed')
 ON CONFLICT (archetype, dimension_id, sort_order) DO NOTHING;
 
--- Seed Kopi Safari dial position (experimental default — idempotent)
-INSERT INTO dial_archetype_positions (archetype, coffee_id, vocabulary_id, is_default)
-SELECT
-  'experimental',
-  (SELECT MIN(id) FROM coffees WHERE name = 'Kopi Safari' AND roaster = 'Temecula Coffee Roasters'),
-  (SELECT id FROM dial_position_vocabulary WHERE archetype = 'experimental' AND sort_order = 2),
-  true
-WHERE
-  (SELECT MIN(id) FROM coffees WHERE name = 'Kopi Safari' AND roaster = 'Temecula Coffee Roasters') IS NOT NULL
-  AND NOT EXISTS (
-    SELECT 1 FROM dial_archetype_positions
-    WHERE archetype = 'experimental'
-      AND coffee_id = (SELECT MIN(id) FROM coffees WHERE name = 'Kopi Safari' AND roaster = 'Temecula Coffee Roasters')
-  );
+-- The boot-time Kopi Safari dial_archetype_positions seed that used to live
+-- here was removed by Catalog Blueprint brief 2 (2026-09-14, Part D) — it
+-- wrote a legacy table by free-text roaster/name match on every boot, and
+-- catalog data now enters through catalogImport only (N7). The row it once
+-- wrote is untouched (dormant-data discipline, same as the retired seed
+-- files in db/seeds/_retired/) — this just stops re-asserting it forever.
 
 -- 2. Quiz v2 + questions + answers (only inserts if v2 doesn't exist yet)
 DO $seed$

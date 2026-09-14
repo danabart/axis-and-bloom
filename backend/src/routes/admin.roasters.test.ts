@@ -133,7 +133,10 @@ describe('POST /api/admin/roasters/:id/deactivate + reactivate', () => {
       });
       expect(deactivateRes.status).toBe(200);
       const deactivateBody = await deactivateRes.json();
-      expect(deactivateBody.applied).toEqual({ coffees: 1, blends: 1, aliases: 1 });
+      // Catalog Blueprint brief 2 (2026-09-14): deactivateRoastery now also
+      // cascades coffee_slot_assignment — 0 here since this fixture is
+      // deliberately not linked into any dial slot (see makeFixture's comment).
+      expect(deactivateBody.applied).toEqual({ coffees: 1, blends: 1, aliases: 1, assignments: 0 });
 
       const coffeeRow = (await db.query(
         'SELECT is_active, deactivation_reason FROM coffees WHERE id = $1', [fixture.coffee.id]
