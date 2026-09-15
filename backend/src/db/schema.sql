@@ -2473,8 +2473,16 @@ EXCEPTION WHEN unique_violation THEN NULL; END $$;
 -- dial_slot_price: re-key onto the slot. The archetype/dial_sort_order-based
 -- backfill below only matters for an existing prod table that still has
 -- those columns (guarded — a fresh database's CREATE TABLE never declares
--- them, Catalog Blueprint brief 5a); the columns themselves, and the partial
--- index keyed on slot_id alone, are dropped right after.
+-- them, Catalog Blueprint brief 5a). The old UNIQUE (archetype,
+-- dial_sort_order, weight_oz) constraint was declared inline with no
+-- explicit name, so it (and its backing index) drop for free as soon as
+-- either of its columns is dropped, below — no separate DROP INDEX needed.
+-- (An earlier version of this block DID add a stray
+-- `DROP INDEX IF EXISTS dial_slot_price_slot_weight_key` here — a no-op on
+-- the first boot since nothing had that name yet, but a 2BP01 on every
+-- boot after, once it collided with this block's own ADD CONSTRAINT of
+-- that same name further down. Caught live — see WHAT_WE_BUILT.md #182's
+-- closing report.)
 ALTER TABLE dial_slot_price ADD COLUMN IF NOT EXISTS slot_id INT REFERENCES coffee_dial_slot(id);
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'dial_slot_price' AND column_name = 'archetype') THEN
@@ -2482,15 +2490,20 @@ DO $$ BEGIN
      WHERE p.slot_id IS NULL AND s.archetype = p.archetype AND s.sort_order = p.dial_sort_order;
   END IF;
 END $$;
-DROP INDEX IF EXISTS dial_slot_price_slot_weight_key;
 ALTER TABLE dial_slot_price DROP COLUMN IF EXISTS archetype;
 ALTER TABLE dial_slot_price DROP COLUMN IF EXISTS dial_sort_order;
 DO $$ BEGIN
   ALTER TABLE dial_slot_price ALTER COLUMN slot_id SET NOT NULL;
 EXCEPTION WHEN others THEN NULL; END $$;
-DO $$ BEGIN
-  ALTER TABLE dial_slot_price ADD CONSTRAINT dial_slot_price_slot_weight_key UNIQUE (slot_id, weight_oz);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+-- CREATE UNIQUE INDEX IF NOT EXISTS, not ALTER TABLE ADD CONSTRAINT ...
+-- UNIQUE: a named UNIQUE constraint's backing index collides with itself
+-- on a re-run and raises 42P07 (duplicate_table), not 42710
+-- (duplicate_object) — the DO/EXCEPTION guard used for CHECK constraints
+-- elsewhere in this file doesn't catch it. IF NOT EXISTS is idempotent
+-- outright, and ON CONFLICT (slot_id, weight_oz) infers against any
+-- unique index, named constraint or not (caught live — see
+-- WHAT_WE_BUILT.md #182's closing report).
+CREATE UNIQUE INDEX IF NOT EXISTS dial_slot_price_slot_weight_key ON dial_slot_price(slot_id, weight_oz);
 
 -- user_bloom_dial_current_position: same re-key. dial_sort_order's backfill
 -- below is likewise guarded for the same reason.
