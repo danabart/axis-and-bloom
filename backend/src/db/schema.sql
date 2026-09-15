@@ -1073,11 +1073,12 @@ END $$;
 -- read the old 'category_hop' stored value itself (confirmed zero TS refs
 -- during brief 5a's Task 0).
 
--- Coffee catalogue
+-- Coffee catalogue. roaster (free text) dropped by Catalog Blueprint brief
+-- 5a (see the ALTER TABLE coffees DROP COLUMN further down) — never declared
+-- here so a fresh database never creates it in the first place.
 CREATE TABLE IF NOT EXISTS coffees (
   id                         SERIAL PRIMARY KEY,
   name                       TEXT NOT NULL,
-  roaster                    TEXT,
   origin                     TEXT,
   blend_or_single            TEXT,
   process                    TEXT,
@@ -1465,29 +1466,31 @@ CREATE TABLE IF NOT EXISTS coffee_category_assignment (
 -- Mechanical category-tag backfill for coffees we already know by name — not a cupping
 -- judgment. Their actual archetype (a real tasting decision) is a separate, un-scripted
 -- to-do; these rows only tag the category, they don't touch archetype_assignments.
+-- Matched by roaster_id (via a join to roaster) rather than the free-text
+-- coffees.roaster column, which Catalog Blueprint brief 5a drops.
 INSERT INTO coffee_category_assignment (coffee_id, category_id)
-SELECT (SELECT MIN(id) FROM coffees WHERE name = 'Kopi Safari' AND roaster = 'Temecula Coffee Roasters'),
+SELECT (SELECT MIN(c.id) FROM coffees c JOIN roaster r ON r.id = c.roaster_id WHERE c.name = 'Kopi Safari' AND r.name = 'Temecula Coffee Roasters'),
        (SELECT id FROM coffee_category WHERE code = 'experimental')
-WHERE (SELECT MIN(id) FROM coffees WHERE name = 'Kopi Safari' AND roaster = 'Temecula Coffee Roasters') IS NOT NULL
+WHERE (SELECT MIN(c.id) FROM coffees c JOIN roaster r ON r.id = c.roaster_id WHERE c.name = 'Kopi Safari' AND r.name = 'Temecula Coffee Roasters') IS NOT NULL
 ON CONFLICT (coffee_id, category_id) DO NOTHING;
 
 INSERT INTO coffee_category_assignment (coffee_id, category_id)
-SELECT (SELECT MIN(id) FROM coffees WHERE name = 'Decaf' AND roaster = 'Path Coffee Roasters'),
+SELECT (SELECT MIN(c.id) FROM coffees c JOIN roaster r ON r.id = c.roaster_id WHERE c.name = 'Decaf' AND r.name = 'Path Coffee Roasters'),
        (SELECT id FROM coffee_category WHERE code = 'decaf')
-WHERE (SELECT MIN(id) FROM coffees WHERE name = 'Decaf' AND roaster = 'Path Coffee Roasters') IS NOT NULL
+WHERE (SELECT MIN(c.id) FROM coffees c JOIN roaster r ON r.id = c.roaster_id WHERE c.name = 'Decaf' AND r.name = 'Path Coffee Roasters') IS NOT NULL
 ON CONFLICT (coffee_id, category_id) DO NOTHING;
 
 INSERT INTO coffee_category_assignment (coffee_id, category_id)
-SELECT (SELECT MIN(id) FROM coffees WHERE name = 'Sleepwalker Half-Caf' AND roaster = 'Path Coffee Roasters'),
+SELECT (SELECT MIN(c.id) FROM coffees c JOIN roaster r ON r.id = c.roaster_id WHERE c.name = 'Sleepwalker Half-Caf' AND r.name = 'Path Coffee Roasters'),
        (SELECT id FROM coffee_category WHERE code = 'half_caf')
-WHERE (SELECT MIN(id) FROM coffees WHERE name = 'Sleepwalker Half-Caf' AND roaster = 'Path Coffee Roasters') IS NOT NULL
+WHERE (SELECT MIN(c.id) FROM coffees c JOIN roaster r ON r.id = c.roaster_id WHERE c.name = 'Sleepwalker Half-Caf' AND r.name = 'Path Coffee Roasters') IS NOT NULL
 ON CONFLICT (coffee_id, category_id) DO NOTHING;
 
 INSERT INTO coffee_category_assignment (coffee_id, category_id)
-SELECT (SELECT MIN(id) FROM coffees WHERE name = v.coffee_name AND roaster = 'Path Coffee Roasters'),
+SELECT (SELECT MIN(c.id) FROM coffees c JOIN roaster r ON r.id = c.roaster_id WHERE c.name = v.coffee_name AND r.name = 'Path Coffee Roasters'),
        (SELECT id FROM coffee_category WHERE code = 'flavored')
 FROM (VALUES ('Vanilla'), ('Hazelnut'), ('Chocolate')) AS v(coffee_name)
-WHERE (SELECT MIN(id) FROM coffees WHERE name = v.coffee_name AND roaster = 'Path Coffee Roasters') IS NOT NULL
+WHERE (SELECT MIN(c.id) FROM coffees c JOIN roaster r ON r.id = c.roaster_id WHERE c.name = v.coffee_name AND r.name = 'Path Coffee Roasters') IS NOT NULL
 ON CONFLICT (coffee_id, category_id) DO NOTHING;
 
 -- Category-endpoint hops: from_category_id/to_category_id let either side of a
