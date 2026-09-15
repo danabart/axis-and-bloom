@@ -1748,14 +1748,29 @@ ON CONFLICT (category, value) DO UPDATE
   SET label = EXCLUDED.label, sort_order = EXCLUDED.sort_order;
 
 -- 1. Archetypes (name is UNIQUE — safe to re-run)
-INSERT INTO archetype (name, description) VALUES
+--
+-- Guarded with WHERE NOT EXISTS rather than ON CONFLICT (name) DO NOTHING:
+-- Catalog Blueprint brief 5a made archetype.code NOT NULL, and Postgres
+-- checks NOT NULL on a candidate row *before* it ever consults the unique
+-- index for an ON CONFLICT match — so on every boot after the first,
+-- ON CONFLICT DO NOTHING here would still construct a (name, description)
+-- row with code implicitly NULL and fail 23502, even though the row was
+-- always going to be skipped as a duplicate (caught live — see
+-- WHAT_WE_BUILT.md #182's closing report). WHERE NOT EXISTS never
+-- constructs a row for a name that's already present, so the NOT NULL
+-- check never fires for it. Can't add code directly to this INSERT
+-- instead: the column doesn't exist yet at this point in the file on a
+-- fresh database (added by ALTER TABLE further down, then backfilled).
+INSERT INTO archetype (name, description)
+SELECT v.name, v.description FROM (VALUES
   ('Chocolate & Nutty', 'A rich, bold, and comforting profile. You know exactly what you like and you like it satisfying.'),
   ('Balanced & Sweet',  'A smooth, round, and approachable profile. You want coffee that''s easy, pleasant, and never surprising.'),
   ('Fruity',            'A vibrant, curious, and layered profile. You''re here for the experience, not just the caffeine.'),
   ('Earthy',            'A deep, complex, and grounded profile. You''re drawn to coffees with weight, structure, and earthy depth.'),
   ('Floral',            'A delicate, aromatic, and tea-like profile. You''re drawn to brightness and floral complexity over body and bitterness.'),
   ('Experimental',      'A boundary-pushing, discovery-first profile. You seek the unexpected — unusual processing, exotic origins, unconventional flavors.')
-ON CONFLICT (name) DO NOTHING;
+) AS v(name, description)
+WHERE NOT EXISTS (SELECT 1 FROM archetype a WHERE a.name = v.name);
 
 -- Rename 'Fruity & Complex' → 'Fruity' in existing DBs (idempotent)
 UPDATE archetype SET name = 'Fruity', updated_at = NOW() WHERE name = 'Fruity & Complex';
