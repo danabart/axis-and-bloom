@@ -2367,7 +2367,12 @@ DO $$ BEGIN
     WHERE s.suggested_slot_id IS NULL AND s.suggested_vocabulary_id = v.id;
   END IF;
 END $$;
-ALTER TABLE dial_position_signal DROP COLUMN IF EXISTS suggested_vocabulary_id;
+-- CASCADE: the old v_dial_position_consensus (dropped/redefined as
+-- v_coffee_dial_position_consensus further down, in the VIEWS section) still
+-- depends on this column at this point in the script — without CASCADE this
+-- errors 2BP01 and rolls back the whole boot's schema apply. Safe: the view
+-- is unconditionally recreated later in this same file regardless.
+ALTER TABLE dial_position_signal DROP COLUMN IF EXISTS suggested_vocabulary_id CASCADE;
 
 -- Catalog Blueprint brief 5a, A2 — drop the five legacy placement tables and
 -- their two dependent views (v_dial_position_consensus, rebuilt below rather
@@ -2484,10 +2489,19 @@ ALTER TABLE user_bloom_dial_current_position DROP COLUMN IF EXISTS dial_sort_ord
 -- Preconditions checked against prod before writing this (Task 0 of the
 -- brief): zero rows with coffees.roaster_id IS NULL, roaster_blend.coffee_id
 -- IS NULL, archetype.code IS NULL, or dial_slot_price.slot_id IS NULL.
+-- pg_depend checked against prod for every column below (Task 0):
+-- roaster_blend.archetype_id has zero dependents, safe as a plain drop.
+-- dial_coffee_relationships.hop_type and coffees.roaster each have a still-
+-- live view depending on them at this exact point in the script
+-- (v_coffee_hop; v_coffee and v_cupping_scores_readable respectively) — each
+-- is unconditionally redefined later in this file (VIEWS section) without
+-- referencing the dropped column, so CASCADE there is safe; omitting it
+-- fails the whole boot's schema apply with 2BP01 (caught live once, fixed
+-- here — see WHAT_WE_BUILT.md #182's closing report).
 ALTER TABLE roaster_blend DROP COLUMN IF EXISTS archetype_id;
-ALTER TABLE dial_coffee_relationships DROP COLUMN IF EXISTS hop_type;
+ALTER TABLE dial_coffee_relationships DROP COLUMN IF EXISTS hop_type CASCADE;
 DROP TYPE IF EXISTS hop_type_enum;
-ALTER TABLE coffees DROP COLUMN IF EXISTS roaster;
+ALTER TABLE coffees DROP COLUMN IF EXISTS roaster CASCADE;
 
 -- Each NOT NULL is wrapped in DO/EXCEPTION so an unmet precondition (a NULL
 -- slipping in between this brief's Task 0 check and this boot) can't abort
