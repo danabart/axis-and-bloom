@@ -372,7 +372,6 @@ CREATE TABLE IF NOT EXISTS user_coffee_profile (
 CREATE TABLE IF NOT EXISTS roaster_blend (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   roaster_id            UUID REFERENCES roaster(id),
-  archetype_id          UUID REFERENCES archetype(id),
   blend_name            TEXT NOT NULL,
   shopify_variant_id    TEXT,
   roaster_sku           TEXT,
@@ -1063,16 +1062,16 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
-DO $$ BEGIN
-  CREATE TYPE hop_type_enum AS ENUM ('within_archetype', 'bridge_archetype');
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
-
--- category_hop: a hop where one or both endpoints is a coffee_category rather than a
--- specific coffee (e.g. "try something Experimental"). Fuzzier signal than a coffee-to-
--- coffee hop — a category has no single dimension score — so it's excluded from the
--- within_archetype/bridge_archetype archetype-consistency logic built for real coffees.
-ALTER TYPE hop_type_enum ADD VALUE IF NOT EXISTS 'category_hop';
+-- hop_type_enum ('within_archetype' | 'bridge_archetype' | 'category_hop') and
+-- dial_coffee_relationships.hop_type, the column it typed, were dropped by
+-- Catalog Blueprint brief 5a (D3) — v_coffee_hop.hop_type_derived (computed
+-- fresh from each endpoint's current home placement) is the only hop type
+-- now. A category-endpoint hop (from_category_id/to_category_id set instead
+-- of a coffee id — always derives NULL, same as a coffee-endpoint hop whose
+-- coffee currently lacks a home) is still distinguishable by
+-- from_category_id/to_category_id being non-null; nothing in this codebase
+-- read the old 'category_hop' stored value itself (confirmed zero TS refs
+-- during brief 5a's Task 0).
 
 -- Coffee catalogue
 CREATE TABLE IF NOT EXISTS coffees (
@@ -1130,8 +1129,8 @@ ALTER TABLE coffees ADD COLUMN IF NOT EXISTS deactivation_reason TEXT;   -- 'roa
 
 ALTER TABLE roaster_blend ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ;
 ALTER TABLE roaster_blend ADD COLUMN IF NOT EXISTS deactivation_reason TEXT;
-ALTER TABLE coffee_alias  ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ;
-ALTER TABLE coffee_alias  ADD COLUMN IF NOT EXISTS deactivation_reason TEXT;
+-- coffee_alias's own deactivated_at/deactivation_reason columns and check
+-- constraint were dropped along with the table (Catalog Blueprint brief 5a).
 
 ALTER TABLE roaster ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ;
 ALTER TABLE roaster ADD COLUMN IF NOT EXISTS deactivation_note TEXT;     -- free text Dana types in the confirm dialog
@@ -1151,43 +1150,16 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
-DO $$ BEGIN
-  ALTER TABLE coffee_alias ADD CONSTRAINT chk_coffee_alias_deactivation_reason
-    CHECK (deactivation_reason IS NULL OR deactivation_reason IN ('roaster', 'manual'));
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
+-- coffee_alias's own chk_coffee_alias_deactivation_reason constraint was
+-- dropped along with the table (Catalog Blueprint brief 5a).
 
--- Backfill coffees.roaster_id — runs on every deploy, only touches rows still
--- NULL (safe to re-run), same pattern as roaster_blend's own coffee_id backfill
--- above. Two passes, in order:
--- (1) from roaster_blend, only when a coffee's linked blends agree on exactly
---     one roaster_id — a coffee with zero or with more than one distinct
---     linked roaster is a data problem to surface, not silently resolve, so
---     it's left NULL here and picked up (or not) by pass 2.
-UPDATE coffees c
-SET roaster_id = sub.roaster_id
-FROM (
-  SELECT coffee_id, MIN(roaster_id::text)::uuid AS roaster_id
-  FROM roaster_blend
-  WHERE roaster_id IS NOT NULL
-  GROUP BY coffee_id
-  HAVING COUNT(DISTINCT roaster_id) = 1
-) sub
-WHERE c.id = sub.coffee_id AND c.roaster_id IS NULL;
-
--- (2) by name, case/whitespace-insensitive, for coffees with no (or an
---     ambiguous) roaster_blend link — coffees.roaster is free text.
-UPDATE coffees c
-SET roaster_id = r.id
-FROM roaster r
-WHERE c.roaster_id IS NULL
-  AND lower(trim(c.roaster)) = lower(trim(r.name));
-
--- coffees.roaster (text) stays as-is after this — still read by content
--- generation and the story specificity check. Never removed/rewritten here.
--- Any coffee still roaster_id IS NULL after both passes is logged at startup
--- (index.ts, same [bloom/archetypes]-style console.warn convention), never
--- guessed at here.
+-- coffees.roaster_id's two-pass backfill (from roaster_blend, then by
+-- case/whitespace-insensitive name match against the free-text coffees.roaster
+-- column) ran here through brief 4. Catalog Blueprint brief 5a confirmed zero
+-- rows with roaster_id IS NULL in prod, dropped coffees.roaster (below), and
+-- added the NOT NULL constraint on roaster_id (see the DO/EXCEPTION block
+-- further down) — both passes are now permanently moot and removed rather
+-- than left as dead code referencing a dropped column.
 
 -- coffees_active_natural_key (CTO review round, 2026-08-26) — coffee identity
 -- is (roastery, coffee), not name alone: two active coffees from the same
@@ -1428,57 +1400,15 @@ CREATE TABLE IF NOT EXISTS archetype_assignments (
   created_at               TIMESTAMPTZ DEFAULT now()
 );
 
--- Dominant dimension and Bloom Dial flag per archetype
-CREATE TABLE IF NOT EXISTS dial_archetype_config (
-  archetype              archetype_enum PRIMARY KEY,
-  dominant_dimension_id  INT REFERENCES coffee_dimensions(id),
-  has_bloom_dial         BOOLEAN DEFAULT TRUE,
-  created_at             TIMESTAMPTZ DEFAULT NOW()
-);
-
--- is_archetype: true for the 5 real flavor families, false for 'experimental'
--- (a cross-cutting category, not a peer flavor family — see BLOOM_DIAL_ALLOCATION_SPEC.md §3).
--- Suggestion/adjacency logic must check this flag rather than assuming every
--- archetype_enum value is a true archetype.
-ALTER TABLE dial_archetype_config ADD COLUMN IF NOT EXISTS is_archetype BOOLEAN NOT NULL DEFAULT true;
-
--- Archetype+dimension-specific label vocabulary for the Bloom Dial (seeded)
-CREATE TABLE IF NOT EXISTS dial_position_vocabulary (
-  id            SERIAL PRIMARY KEY,
-  archetype     archetype_enum NOT NULL,
-  dimension_id  INT REFERENCES coffee_dimensions(id) NOT NULL,
-  sort_order    INT NOT NULL,
-  label         TEXT NOT NULL,
-  description   TEXT,
-  UNIQUE(archetype, dimension_id, sort_order)
-);
-
--- Maps coffees to their position on the Bloom Dial per archetype
-CREATE TABLE IF NOT EXISTS dial_archetype_positions (
-  id                  SERIAL PRIMARY KEY,
-  archetype           archetype_enum NOT NULL,
-  coffee_id           INT REFERENCES coffees(id) ON DELETE CASCADE,
-  vocabulary_id       INT REFERENCES dial_position_vocabulary(id) NOT NULL,
-  is_default          BOOLEAN DEFAULT FALSE,
-  delta_from_default  NUMERIC,
-  is_computed         BOOLEAN DEFAULT FALSE,
-  last_computed_at    TIMESTAMPTZ,
-  created_at          TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(archetype, coffee_id)
-);
-
--- Seam (guest) positions (Bloom Dial Base Data Part 2): a coffee's is_guest=false
--- row is its one home position (owned exclusively by POST /coffees/:id/archetype);
--- every other row for that coffee is a guest, welding it onto an adjacent
--- archetype's dial without becoming a default or getting a separate SKU.
-ALTER TABLE dial_archetype_positions
-  ADD COLUMN IF NOT EXISTS is_guest BOOLEAN NOT NULL DEFAULT false;
-
-DO $$ BEGIN
-  ALTER TABLE dial_archetype_positions ADD CONSTRAINT dap_guest_not_default
-    CHECK (NOT (is_guest AND is_default));
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
+-- dial_archetype_config, dial_position_vocabulary and dial_archetype_positions
+-- (dominant dimension/Bloom Dial flag per archetype; archetype+dimension label
+-- vocabulary; coffee-to-Bloom-Dial-position mapping, with its is_guest column
+-- and dap_guest_not_default constraint) were dropped by Catalog Blueprint
+-- brief 5a — superseded by archetype.{has_bloom_dial,is_archetype,
+-- dominant_dimension_id} (brief 1) and coffee_dial_slot/coffee_slot_assignment
+-- (brief 1/2) respectively. See A1/A2 in
+-- features/catalog_blueprint/CLAUDE_CODE_PROMPT_CATALOG_5_DROP_LEGACY.md and
+-- migrations/catalog_blueprint_5a_2026-09-15.sql for the exact drop statements.
 
 -- Directional dimensional hop graph between coffees
 CREATE TABLE IF NOT EXISTS dial_coffee_relationships (
@@ -1488,7 +1418,6 @@ CREATE TABLE IF NOT EXISTS dial_coffee_relationships (
   dimension_id     INT REFERENCES coffee_dimensions(id) NOT NULL,
   direction        hop_direction_enum NOT NULL,
   delta            NUMERIC,
-  hop_type         hop_type_enum NOT NULL,
   is_recommended   BOOLEAN DEFAULT FALSE,
   confidence       confidence_enum DEFAULT 'medium',
   notes            TEXT,
@@ -1502,7 +1431,7 @@ CREATE TABLE IF NOT EXISTS dial_coffee_relationships (
 -- is_hoppable: whether a coffee tagged with this category can be a hop endpoint. Only
 -- 'experimental' is hoppable today — Decaf/Half-Caf/Flavored are format constraints, not
 -- flavor destinations, so "try this next" doesn't apply to them. Same pattern as
--- dial_archetype_config.is_archetype — a flag on the data, not a hardcoded string check.
+-- archetype.is_archetype — a flag on the data, not a hardcoded string check.
 CREATE TABLE IF NOT EXISTS coffee_category (
   id          SERIAL PRIMARY KEY,
   code        TEXT UNIQUE NOT NULL,
@@ -1583,87 +1512,23 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- Maps Axis & Bloom platform slot names to the coffees that fill them.
--- Multiple coffees (from different roasters) can share a platform_name slot.
--- priority=1 is preferred; priority=2 is fallback if priority=1 is out of stock.
--- dial_sort_order/archetype below are superseded by dial_archetype_positions /
--- archetype_assignments as the live source of truth (GET /api/admin/coffee-alias
--- derives them from those tables) — kept here only as a fallback for rows with
--- no matching position (e.g. Half-Caf/Decaf, which never get a dial position).
-CREATE TABLE IF NOT EXISTS coffee_alias (
-  id              SERIAL PRIMARY KEY,
-  platform_name   TEXT NOT NULL,
-  archetype       archetype_enum,   -- NULL for Half-Caf / Decaf (no enum value)
-  dial_sort_order INT,              -- matches dial_position_vocabulary.sort_order
-  coffee_id       INT REFERENCES coffees(id) ON DELETE CASCADE,
-  is_active       BOOLEAN DEFAULT TRUE,
-  priority        INT DEFAULT 1,
-  created_at      TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE (archetype, dial_sort_order, coffee_id)
-);
-
--- Bloom Dial Base Data Part 3: an alias is a SLOT (archetype, dial_sort_order),
--- not a per-coffee property — coffee_alias.platform_name above is per-row, which
--- let two coffees at different positions share a name and let a coffee's stored
--- name go stale when it moved slots (both regressions surfaced deploying Parts
--- 1-2). This table is the single source of truth for a slot's display name;
--- coffee_alias keeps its fulfilment role (coffee<->slot mapping, priority,
--- is_active) but platform_name there is legacy/unread going forward.
-CREATE TABLE IF NOT EXISTS dial_slot_alias (
-  id              SERIAL PRIMARY KEY,
-  archetype       archetype_enum NOT NULL,
-  dial_sort_order INT NOT NULL,
-  platform_name   TEXT NOT NULL,
-  UNIQUE (archetype, dial_sort_order),
-  UNIQUE (platform_name)
-);
-
-INSERT INTO dial_slot_alias (archetype, dial_sort_order, platform_name) VALUES
-  ('balanced_sweet',  1, 'Soft & Smooth'),
-  ('balanced_sweet',  2, 'Classic Balanced'),
-  ('balanced_sweet',  3, 'Bright & Balanced'),
-  ('balanced_sweet',  4, 'Lively & Vivid'),
-  ('chocolate_nutty', 1, 'Soft Cocoa'),
-  ('chocolate_nutty', 2, 'Classic Chocolate'),
-  ('chocolate_nutty', 3, 'Deep Cocoa'),
-  ('chocolate_nutty', 4, 'Full Cocoa'),
-  ('earthy',          1, 'Gentle Earth'),
-  ('earthy',          2, 'Grounded & Earthy'),
-  ('earthy',          3, 'Dark Grounded'),
-  ('earthy',          4, 'Intense & Dark'),
-  ('floral',          1, 'Light Floral Edge'),
-  ('floral',          2, 'Perfumed & Expressive'),
-  ('floral',          3, 'Complex Bloom'),
-  ('floral',          4, 'Layered Bouquet'),
-  ('fruity',          1, 'Clean Fruit'),
-  ('fruity',          2, 'Bright & Tart'),
-  ('fruity',          3, 'Vivid Fruit'),
-  ('fruity',          4, 'Jammy & Aromatic'),
-  ('experimental',    2, 'The Unexpected')
-ON CONFLICT (archetype, dial_sort_order) DO NOTHING;
-
--- Bloom Dial Base Data Part 4 (§A): the experimental dial only had a name for
--- slot 2 — the other 3 slots showed blank in the admin matrix. Rounds it out
--- to 24 total dial_slot_alias rows (20 flavor + 4 experimental).
-INSERT INTO dial_slot_alias (archetype, dial_sort_order, platform_name) VALUES
-  ('experimental', 1, 'Curious Start'),
-  ('experimental', 3, 'Daring Edge'),
-  ('experimental', 4, 'The Wild Card')
-ON CONFLICT (archetype, dial_sort_order) DO NOTHING;
+-- coffee_alias and dial_slot_alias (platform slot-name-to-coffee mapping and
+-- its 24-row seed) were dropped by Catalog Blueprint brief 5a — superseded by
+-- coffee_dial_slot.name (brief 1) and coffee_slot_assignment (brief 2).
 
 -- A signed-in user's remembered dial position per archetype (The Bloom Part 3,
 -- Phase D). Deliberately its own table, not a repurposing of user_archetype_tuning/
 -- archetype_tunable_variable — those are reserved for a computed, feedback-derived
 -- confidence/offset signal (a different kind of data, owned by a different future
 -- feature), even though the (user, archetype, dimension) key shape coincidentally
--- matches. Uses archetype_enum directly to match the rest of the dial_* family
--- (dial_archetype_positions, coffee_alias, dial_slot_price all key off the enum).
+-- matches. Uses archetype_enum directly to match the rest of the dial_* family.
 -- Renamed from user_bloom_dial_position (Liam Dial Event Log Phase A0) — see the
 -- table comment below for the current-setting/history split this name encodes.
+-- dial_sort_order dropped (Catalog Blueprint brief 5a) — slot_id (added below)
+-- is the only position reference now; PK stays (user_id, archetype).
 CREATE TABLE IF NOT EXISTS user_bloom_dial_current_position (
   user_id          UUID NOT NULL REFERENCES user_profile(id) ON DELETE CASCADE,
   archetype        archetype_enum NOT NULL,
-  dial_sort_order  INT NOT NULL,
   updated_at       TIMESTAMPTZ DEFAULT now(),
   PRIMARY KEY (user_id, archetype)
 );
@@ -1671,21 +1536,21 @@ CREATE TABLE IF NOT EXISTS user_bloom_dial_current_position (
 COMMENT ON TABLE user_bloom_dial_current_position IS
   'Current dial setting per user+archetype, overwritten in place on every dial turn (silent, no history). Movement history — explicit saves and cart-anchored positions only — lives in Firestore users/{uid}/dial_events.';
 
--- Retail price for a Bloom Dial slot (archetype + position), per weight. Not on
--- coffee_alias (no weight dimension there) or roaster_blend (would let two roasters
--- fulfilling the same slot show two different prices for the same weight, breaking
--- the "customer buys a slot, not a roaster's coffee" abstraction) — see The Bloom
--- Part 1 Phase 0. Named to group with the existing dial_* table family. Defaults
--- applied at the query level, not here: $32.00/12oz, $185.00/5lb (80oz) when no row
--- exists yet for that (archetype, dial_sort_order, weight_oz).
+-- Retail price for a Bloom Dial slot, per weight. Not on roaster_blend (would
+-- let two roasters fulfilling the same slot show two different prices for the
+-- same weight, breaking the "customer buys a slot, not a roaster's coffee"
+-- abstraction) — see The Bloom Part 1 Phase 0. Named to group with the
+-- existing dial_* table family. Defaults applied at the query level, not
+-- here: $32.00/12oz, $185.00/5lb (80oz) when no row exists yet for that
+-- (slot_id, weight_oz). slot_id (the only key since Catalog Blueprint brief
+-- 5a dropped the composite archetype/dial_sort_order columns) is added below,
+-- after coffee_dial_slot exists — this CREATE runs too early in the file to
+-- reference it directly.
 CREATE TABLE IF NOT EXISTS dial_slot_price (
   id                  SERIAL PRIMARY KEY,
-  archetype           archetype_enum NOT NULL,
-  dial_sort_order     INT NOT NULL,
   weight_oz           NUMERIC NOT NULL,
   retail_price_cents  INTEGER NOT NULL,
-  updated_at          TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE (archetype, dial_sort_order, weight_oz)
+  updated_at          TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Retail price for a coffee with no Bloom Dial position — the coffee-keyed
@@ -1709,8 +1574,12 @@ CREATE TABLE IF NOT EXISTS coffee_retail_price (
 -- DIAL POSITION SIGNAL INFRASTRUCTURE (Phase 5 — dormant by default)
 -- Plumbing for future multi-source dial-position signals (cupping, flavor-wheel,
 -- feedback). Only 'cupping' is populated (via recordCuppingSignal, called from
--- POST /api/admin/scores) — nothing here auto-writes to dial_archetype_positions.
--- See BLOOM_DIAL_ALLOCATION_SPEC.md §3 Stage 2.
+-- POST /api/admin/scores) — nothing here auto-writes to coffee_slot_assignment.
+-- See BLOOM_DIAL_ALLOCATION_SPEC.md §3 Stage 2. suggested_vocabulary_id (this
+-- table's only reference to the now-dropped dial_position_vocabulary) was
+-- re-keyed to suggested_slot_id by Catalog Blueprint brief 5a — added once
+-- coffee_dial_slot exists later in this file, since this CREATE runs too
+-- early to reference it directly; see the backfill+drop block there.
 -- ─────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS dial_position_signal (
@@ -1719,7 +1588,6 @@ CREATE TABLE IF NOT EXISTS dial_position_signal (
   archetype              archetype_enum NOT NULL,
   dimension_id           INT REFERENCES coffee_dimensions(id) NOT NULL,
   source                 TEXT NOT NULL CHECK (source IN ('cupping','roastery_wheel','client_wheel','sms_feedback','onsite_feedback')),
-  suggested_vocabulary_id INT REFERENCES dial_position_vocabulary(id),
   direction              TEXT CHECK (direction IN ('more','less')),
   raw_value              NUMERIC,
   sample_size            INT NOT NULL DEFAULT 1,
@@ -1924,49 +1792,11 @@ UPDATE coffee_dimensions SET platform_name = 'Intensity'   WHERE name = 'Body'  
 UPDATE coffee_dimensions SET platform_name = 'Complexity'  WHERE name = 'Savory / Depth' AND platform_name IS NULL;
 UPDATE coffee_dimensions SET platform_name = 'Finish'      WHERE name = 'Finish Length'  AND platform_name IS NULL;
 
--- Seed dial_archetype_config (idempotent)
-INSERT INTO dial_archetype_config (archetype, dominant_dimension_id, has_bloom_dial) VALUES
-  ('chocolate_nutty', 7, true),
-  ('balanced_sweet',  5, true),
-  ('fruity',          5, true),
-  ('floral',          9, true),
-  ('earthy',          6, true)
-ON CONFLICT (archetype) DO NOTHING;
-
--- 'experimental' is a cross-cutting category, not a true flavor archetype (has_bloom_dial
--- stays true — it has real vocabulary + Kopi Safari positioned on it — but is_archetype
--- = false excludes it from suggestion/adjacency logic that assumes a real dominant dimension).
-INSERT INTO dial_archetype_config (archetype, dominant_dimension_id, has_bloom_dial, is_archetype)
-VALUES ('experimental', NULL, true, false)
-ON CONFLICT (archetype) DO UPDATE SET is_archetype = EXCLUDED.is_archetype;
-
--- Seed dial_position_vocabulary (idempotent)
-INSERT INTO dial_position_vocabulary (archetype, dimension_id, sort_order, label) VALUES
-  ('chocolate_nutty', 7, 1, 'Lighter'),
-  ('chocolate_nutty', 7, 2, 'Classic'),
-  ('chocolate_nutty', 7, 3, 'Richer'),
-  ('chocolate_nutty', 7, 4, 'Full'),
-  ('balanced_sweet',  5, 1, 'Smooth'),
-  ('balanced_sweet',  5, 2, 'Balanced'),
-  ('balanced_sweet',  5, 3, 'Bright'),
-  ('balanced_sweet',  5, 4, 'Lively'),
-  ('fruity',          5, 1, 'Mellow'),
-  ('fruity',          5, 2, 'Balanced'),
-  ('fruity',          5, 3, 'Bright'),
-  ('fruity',          5, 4, 'Vibrant'),
-  ('floral',          9, 1, 'Delicate'),
-  ('floral',          9, 2, 'Balanced'),
-  ('floral',          9, 3, 'Complex'),
-  ('floral',          9, 4, 'Layered'),
-  ('earthy',          6, 1, 'Gentle'),
-  ('earthy',          6, 2, 'Earthy'),
-  ('earthy',          6, 3, 'Bold'),
-  ('earthy',          6, 4, 'Intense'),
-  ('experimental',    9, 1, 'Curious'),
-  ('experimental',    9, 2, 'Adventurous'),
-  ('experimental',    9, 3, 'Daring'),
-  ('experimental',    9, 4, 'Untamed')
-ON CONFLICT (archetype, dimension_id, sort_order) DO NOTHING;
+-- dial_archetype_config and dial_position_vocabulary's own seed INSERTs were
+-- removed by Catalog Blueprint brief 5a along with the tables — see the
+-- archetype dial-config seed (above the archetype_code_key index, further
+-- down this file) and coffee_dial_slot's static 24-row seed for their
+-- replacements.
 
 -- The boot-time Kopi Safari dial_archetype_positions seed that used to live
 -- here was removed by Catalog Blueprint brief 2 (2026-09-14, Part D) — it
@@ -2345,7 +2175,6 @@ CREATE INDEX IF NOT EXISTS idx_order_line_item_order   ON order_line_item(order_
 CREATE INDEX IF NOT EXISTS idx_roastery_shipment_order  ON roastery_shipment_details(order_id);
 CREATE INDEX IF NOT EXISTS idx_feedback_user           ON user_feedback_event(user_id);
 CREATE INDEX IF NOT EXISTS idx_chat_message_user       ON chat_message(user_id);
-CREATE INDEX IF NOT EXISTS idx_roaster_blend_archetype      ON roaster_blend(archetype_id);
 CREATE INDEX IF NOT EXISTS idx_user_coffee_profile_user     ON user_coffee_profile(user_id);
 
 -- Cupping tool indexes
@@ -2411,11 +2240,22 @@ UPDATE archetype SET code = CASE name
   WHEN 'Experimental' THEN 'experimental' END::archetype_enum
 WHERE code IS NULL;
 
--- Copy dial config across (dial_archetype_config stays until brief 5; from now on archetype is the owner):
-UPDATE archetype a SET
-  has_bloom_dial = dac.has_bloom_dial, is_archetype = dac.is_archetype,
-  dominant_dimension_id = dac.dominant_dimension_id
-FROM dial_archetype_config dac WHERE dac.archetype = a.code;
+-- Dial config seed (Catalog Blueprint brief 5a) — archetype is the sole owner
+-- of has_bloom_dial/is_archetype/dominant_dimension_id now that
+-- dial_archetype_config is dropped; this replaces the old "copy dial config
+-- across" UPDATE...FROM. Static values match dial_archetype_config's own
+-- seed (verified against prod before the drop). Applied only once: the WHERE
+-- guard uses is_archetype's CURRENT (pre-update) value, which every row
+-- starts at its column default of true — after the first boot,
+-- 'experimental' is false and every other row has dominant_dimension_id set,
+-- so the guard never matches again.
+UPDATE archetype SET
+  has_bloom_dial = true,
+  is_archetype = (code <> 'experimental'),
+  dominant_dimension_id = CASE code
+    WHEN 'chocolate_nutty' THEN 7 WHEN 'balanced_sweet' THEN 5 WHEN 'fruity' THEN 5
+    WHEN 'floral' THEN 9 WHEN 'earthy' THEN 6 WHEN 'experimental' THEN NULL END
+WHERE dominant_dimension_id IS NULL AND is_archetype;
 
 UPDATE archetype SET sort_order = CASE code
   WHEN 'floral' THEN 1 WHEN 'fruity' THEN 2 WHEN 'balanced_sweet' THEN 3
@@ -2445,10 +2285,12 @@ WHERE descriptor_families_seeded_at IS NULL;
 
 -- B2. coffee_dial_slot — the promise (N4/D6): the slot's own name, position
 -- label and (later, admin-set) spec band + descriptor families, independent
--- of which coffee currently fulfils it. Replaces dial_slot_alias +
--- dial_position_vocabulary as the read path (brief 3); both stay as-is until
--- brief 5. The archetype(code) FK needs archetype_code_key above to exist
--- first — this table is created after it in this same file for that reason.
+-- of which coffee currently fulfils it. Replaced dial_slot_alias +
+-- dial_position_vocabulary as the read path (brief 3); both tables were
+-- dropped in brief 5a, at which point this table's backfill (below) switched
+-- from joining them to a static seed of their own last known values. The
+-- archetype(code) FK needs archetype_code_key above to exist first — this
+-- table is created after it in this same file for that reason.
 CREATE TABLE IF NOT EXISTS coffee_dial_slot (
   id                       SERIAL PRIMARY KEY,
   archetype                archetype_enum NOT NULL REFERENCES archetype(code),
@@ -2473,18 +2315,80 @@ DO $$ BEGIN
     ON coffee_dial_slot(archetype) WHERE is_landing_default = true;
 EXCEPTION WHEN unique_violation THEN NULL; END $$;
 
--- Backfill from the legacy slot-naming pair (expect exactly 24 rows: 5 archetypes x 4
--- + experimental x 4). is_landing_default: sort_order = 2 on every archetype, only
--- when that archetype has no landing default yet — replaces the per-coffee
--- dial_archetype_positions.is_default, which was keyed on free-text roaster and
--- produced duplicate defaults (Slot Truth Map F7). Spec bands stay NULL; Dana sets
--- them from the admin page in brief 4.
-INSERT INTO coffee_dial_slot (archetype, sort_order, name, position_label, position_description, dimension_id, is_landing_default)
-SELECT dsa.archetype, dsa.dial_sort_order, dsa.platform_name, dpv.label, dpv.description, dpv.dimension_id,
-       (dsa.dial_sort_order = 2)
-FROM dial_slot_alias dsa
-JOIN dial_position_vocabulary dpv ON dpv.archetype = dsa.archetype AND dpv.sort_order = dsa.dial_sort_order
+-- Static seed of the 24 slots (5 archetypes x 4 + experimental x 4), values
+-- frozen from prod's actual coffee_dial_slot rows just before Catalog
+-- Blueprint brief 5a dropped dial_slot_alias/dial_position_vocabulary —
+-- deliberately NOT the two tables' own original seed values, since 4 of the
+-- chocolate_nutty slots had since been renamed live via the Slots & pricing
+-- admin page (brief 4) and a fresh/dev database must bootstrap the real
+-- current names, not stale defaults. ON CONFLICT DO NOTHING makes this a
+-- no-op against prod's already-populated table; it only matters for a fresh
+-- database. Spec columns are never seeded (Dana sets them from the admin
+-- page). is_landing_default matches each archetype's actual current default.
+INSERT INTO coffee_dial_slot (archetype, sort_order, name, position_label, position_description, dimension_id, is_landing_default) VALUES
+  ('chocolate_nutty', 1, 'Quieta Non Movere',          'Lighter', '',   7, false),
+  ('chocolate_nutty', 2, 'Coado',                       'Classic', NULL, 7, true),
+  ('chocolate_nutty', 3, 'There''s No Place Like Home', 'Richer',  NULL, 7, false),
+  ('chocolate_nutty', 4, 'Working Late Hours',          'Full',    NULL, 7, false),
+  ('balanced_sweet',  1, 'Soft & Smooth',       'Smooth',  NULL, 5, false),
+  ('balanced_sweet',  2, 'Classic Balanced',    'Balanced', NULL, 5, true),
+  ('balanced_sweet',  3, 'Bright & Balanced',   'Bright',  NULL, 5, false),
+  ('balanced_sweet',  4, 'Lively & Vivid',      'Lively',  NULL, 5, false),
+  ('fruity',          1, 'Clean Fruit',         'Mellow',  NULL, 5, false),
+  ('fruity',          2, 'Bright & Tart',       'Balanced', NULL, 5, true),
+  ('fruity',          3, 'Vivid Fruit',         'Bright',  NULL, 5, false),
+  ('fruity',          4, 'Jammy & Aromatic',    'Vibrant', NULL, 5, false),
+  ('earthy',          1, 'Gentle Earth',        'Gentle',  NULL, 6, false),
+  ('earthy',          2, 'Grounded & Earthy',   'Earthy',  NULL, 6, true),
+  ('earthy',          3, 'Dark Grounded',       'Bold',    NULL, 6, false),
+  ('earthy',          4, 'Intense & Dark',      'Intense', NULL, 6, false),
+  ('floral',          1, 'Light Floral Edge',       'Delicate', NULL, 9, false),
+  ('floral',          2, 'Perfumed & Expressive',   'Balanced', NULL, 9, true),
+  ('floral',          3, 'Complex Bloom',           'Complex',  NULL, 9, false),
+  ('floral',          4, 'Layered Bouquet',         'Layered',  NULL, 9, false),
+  ('experimental',    1, 'Curious Start',   'Curious',     NULL, 9, false),
+  ('experimental',    2, 'The Unexpected',  'Adventurous', NULL, 9, true),
+  ('experimental',    3, 'Daring Edge',     'Daring',      NULL, 9, false),
+  ('experimental',    4, 'The Wild Card',   'Untamed',     NULL, 9, false)
 ON CONFLICT (archetype, sort_order) DO NOTHING;
+
+-- Catalog Blueprint brief 5a, A1 — re-key dial_position_signal off the slot
+-- instead of the about-to-be-dropped dial_position_vocabulary, before it's
+-- dropped below. Must run here, after coffee_dial_slot exists and is seeded,
+-- and before the DROP TABLE dial_position_vocabulary further down. Guarded on
+-- dial_position_vocabulary still existing — on a fresh database it never
+-- does (its CREATE TABLE is gone as of this brief), there's nothing to
+-- backfill from, and the JOIN below would otherwise fail to even parse.
+ALTER TABLE dial_position_signal ADD COLUMN IF NOT EXISTS suggested_slot_id INT REFERENCES coffee_dial_slot(id);
+DO $$ BEGIN
+  IF to_regclass('public.dial_position_vocabulary') IS NOT NULL THEN
+    UPDATE dial_position_signal s SET suggested_slot_id = cds.id
+    FROM dial_position_vocabulary v JOIN coffee_dial_slot cds ON cds.archetype = v.archetype AND cds.sort_order = v.sort_order
+    WHERE s.suggested_slot_id IS NULL AND s.suggested_vocabulary_id = v.id;
+  END IF;
+END $$;
+ALTER TABLE dial_position_signal DROP COLUMN IF EXISTS suggested_vocabulary_id;
+
+-- Catalog Blueprint brief 5a, A2 — drop the five legacy placement tables and
+-- their two dependent views (v_dial_position_consensus, rebuilt below rather
+-- than dropped, is the one dependent that survives). pg_depend was checked
+-- against prod before writing this (Task 0 of the brief): the only real
+-- dependents found were v_dial_positions (on dial_archetype_positions,
+-- dial_position_vocabulary and dial_archetype_config) and the two FKs already
+-- neutralised above (dial_archetype_positions.vocabulary_id, dropped with the
+-- table itself; dial_position_signal.suggested_vocabulary_id, dropped just
+-- above). v_dial_navigation and v_dial_position_consensus, despite being
+-- named in the same breath in the brief's own narrative, turned out to have
+-- no actual pg_depend dependency on any of these five tables — v_dial_navigation
+-- is dropped anyway (zero readers, brief 3 Task 0); v_dial_position_consensus
+-- is kept and rebuilt (below) since GET /dial/consensus/:coffeeId reads it.
+DROP VIEW IF EXISTS v_dial_positions;
+DROP VIEW IF EXISTS v_dial_navigation;
+DROP TABLE IF EXISTS dial_archetype_positions CASCADE;
+DROP TABLE IF EXISTS coffee_alias CASCADE;
+DROP TABLE IF EXISTS dial_slot_alias CASCADE;
+DROP TABLE IF EXISTS dial_position_vocabulary CASCADE;
+DROP TABLE IF EXISTS dial_archetype_config CASCADE;
 
 -- B3. coffee_slot_assignment — placement and fulfilment as one fact (D1/D5).
 -- No backfill (N3) — the catalog is empty (both roasteries deactivated), so
@@ -2543,18 +2447,61 @@ DO $$ BEGIN
     ON roaster_blend(coffee_id, weight_oz) WHERE is_active = true AND coffee_id IS NOT NULL;
 EXCEPTION WHEN unique_violation THEN NULL; END $$;
 
--- dial_slot_price: re-key onto the slot (composite columns stay until brief 5)
+-- dial_slot_price: re-key onto the slot. The archetype/dial_sort_order-based
+-- backfill below only matters for an existing prod table that still has
+-- those columns (guarded — a fresh database's CREATE TABLE never declares
+-- them, Catalog Blueprint brief 5a); the columns themselves, and the partial
+-- index keyed on slot_id alone, are dropped right after.
 ALTER TABLE dial_slot_price ADD COLUMN IF NOT EXISTS slot_id INT REFERENCES coffee_dial_slot(id);
-UPDATE dial_slot_price p SET slot_id = s.id FROM coffee_dial_slot s
- WHERE p.slot_id IS NULL AND s.archetype = p.archetype AND s.sort_order = p.dial_sort_order;
 DO $$ BEGIN
-  CREATE UNIQUE INDEX IF NOT EXISTS dial_slot_price_slot_weight_key ON dial_slot_price(slot_id, weight_oz) WHERE slot_id IS NOT NULL;
-EXCEPTION WHEN unique_violation THEN NULL; END $$;
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'dial_slot_price' AND column_name = 'archetype') THEN
+    UPDATE dial_slot_price p SET slot_id = s.id FROM coffee_dial_slot s
+     WHERE p.slot_id IS NULL AND s.archetype = p.archetype AND s.sort_order = p.dial_sort_order;
+  END IF;
+END $$;
+DROP INDEX IF EXISTS dial_slot_price_slot_weight_key;
+ALTER TABLE dial_slot_price DROP COLUMN IF EXISTS archetype;
+ALTER TABLE dial_slot_price DROP COLUMN IF EXISTS dial_sort_order;
+DO $$ BEGIN
+  ALTER TABLE dial_slot_price ALTER COLUMN slot_id SET NOT NULL;
+EXCEPTION WHEN others THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE dial_slot_price ADD CONSTRAINT dial_slot_price_slot_weight_key UNIQUE (slot_id, weight_oz);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
--- user_bloom_dial_current_position: same, additive
+-- user_bloom_dial_current_position: same re-key. dial_sort_order's backfill
+-- below is likewise guarded for the same reason.
 ALTER TABLE user_bloom_dial_current_position ADD COLUMN IF NOT EXISTS slot_id INT REFERENCES coffee_dial_slot(id);
-UPDATE user_bloom_dial_current_position u SET slot_id = s.id FROM coffee_dial_slot s
- WHERE u.slot_id IS NULL AND s.archetype = u.archetype AND s.sort_order = u.dial_sort_order;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'user_bloom_dial_current_position' AND column_name = 'dial_sort_order') THEN
+    UPDATE user_bloom_dial_current_position u SET slot_id = s.id FROM coffee_dial_slot s
+     WHERE u.slot_id IS NULL AND s.archetype = u.archetype AND s.sort_order = u.dial_sort_order;
+  END IF;
+END $$;
+ALTER TABLE user_bloom_dial_current_position DROP COLUMN IF EXISTS dial_sort_order;
+
+-- Catalog Blueprint brief 5a, A3 — dead columns dropped, NOT NULLs added.
+-- Preconditions checked against prod before writing this (Task 0 of the
+-- brief): zero rows with coffees.roaster_id IS NULL, roaster_blend.coffee_id
+-- IS NULL, archetype.code IS NULL, or dial_slot_price.slot_id IS NULL.
+ALTER TABLE roaster_blend DROP COLUMN IF EXISTS archetype_id;
+ALTER TABLE dial_coffee_relationships DROP COLUMN IF EXISTS hop_type;
+DROP TYPE IF EXISTS hop_type_enum;
+ALTER TABLE coffees DROP COLUMN IF EXISTS roaster;
+
+-- Each NOT NULL is wrapped in DO/EXCEPTION so an unmet precondition (a NULL
+-- slipping in between this brief's Task 0 check and this boot) can't abort
+-- the rest of the schema apply — index.ts checks whether each one actually
+-- took and warns if not, same self-healing pattern as coffees_active_natural_key.
+DO $$ BEGIN
+  ALTER TABLE coffees ALTER COLUMN roaster_id SET NOT NULL;
+EXCEPTION WHEN others THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE roaster_blend ALTER COLUMN coffee_id SET NOT NULL;
+EXCEPTION WHEN others THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE archetype ALTER COLUMN code SET NOT NULL;
+EXCEPTION WHEN others THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────
 -- VIEWS
@@ -2568,7 +2515,10 @@ UPDATE user_bloom_dial_current_position u SET slot_id = s.id FROM coffee_dial_sl
 -- not a stale view definition; see S83 for the full finding.)
 
 -- Readable cupping scores — one row per score × dimension, with session + coffee context.
--- brew_method comes from cupping_sessions (TEXT after migration).
+-- brew_method comes from cupping_sessions (TEXT after migration). `roaster`
+-- was c.roaster (free text) through brief 4; Catalog Blueprint brief 5a
+-- dropped that column, so this now joins the real roaster table instead —
+-- same output column name, no known TS consumer of this view either way.
 DROP VIEW IF EXISTS v_cupping_scores_readable;
 CREATE VIEW v_cupping_scores_readable AS
   SELECT
@@ -2576,7 +2526,7 @@ CREATE VIEW v_cupping_scores_readable AS
     cs_sess.brew_method,
     cs_sess.location,
     c.name               AS coffee,
-    c.roaster,
+    r.name               AS roaster,
     c.origin,
     c.blend_or_single,
     c.roast_level,
@@ -2602,6 +2552,7 @@ CREATE VIEW v_cupping_scores_readable AS
   JOIN cupping_sessions       cs_sess ON cs_sess.id = sc.session_id
   JOIN coffees                c       ON c.id       = sc.coffee_id
   JOIN coffee_dimensions            d       ON d.id       = csv.dimension_id
+  LEFT JOIN roaster r ON r.id = c.roaster_id
   LEFT JOIN archetype_assignments aa  ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
   ORDER BY cs_sess.session_date, sc.display_order, cs.taster_name, d.display_order;
 
@@ -3153,30 +3104,14 @@ GROUP BY a.name, d.name, d.display_order,
          av.min_score, av.ideal_score, av.max_score
 ORDER BY a.name, d.display_order;
 
--- Bloom Dial: coffee positions on each archetype's dial.
-DROP VIEW IF EXISTS v_dial_positions;
-CREATE VIEW v_dial_positions AS
-SELECT
-  dap.archetype,
-  c.name               AS coffee,
-  c.roaster,
-  c.origin,
-  c.is_active          AS coffee_is_active,
-  cd.name              AS dimension,
-  dpv.sort_order       AS position_sort,
-  dpv.label            AS dial_label,
-  dac.has_bloom_dial,
-  dap.is_default,
-  dap.is_guest,
-  dap.delta_from_default,
-  dap.is_computed,
-  dap.last_computed_at
-FROM dial_archetype_positions dap
-JOIN coffees                  c   ON c.id   = dap.coffee_id
-JOIN dial_position_vocabulary dpv ON dpv.id = dap.vocabulary_id
-JOIN coffee_dimensions        cd  ON cd.id  = dpv.dimension_id
-JOIN dial_archetype_config    dac ON dac.archetype = dap.archetype
-ORDER BY dap.archetype, dpv.sort_order, c.name;
+-- v_dial_positions (coffee positions on each archetype's dial, keyed on
+-- dial_archetype_positions/dial_position_vocabulary/dial_archetype_config)
+-- and v_dial_navigation (directional hop graph, exposing the stored
+-- dcr.hop_type) were dropped by Catalog Blueprint brief 5a — zero TS readers
+-- of either as of brief 3's Task 0, and all three dropped tables plus the
+-- dropped hop_type column would have broken these definitions outright.
+-- coffee_dial_slot/coffee_slot_assignment (positions) and v_coffee_hop
+-- (hop graph, hop_type_derived) are the live replacements.
 
 -- v_archetype_adjacency moved below, after v_coffee_hop's own definition
 -- (Catalog Blueprint brief 3, 2026-09-14) — it's now derived from
@@ -3184,34 +3119,19 @@ ORDER BY dap.archetype, dpv.sort_order, c.name;
 -- views block), so its CREATE VIEW has to run after v_coffee_hop's. Search
 -- "v_archetype_adjacency redefined" near the end of this file.
 
--- Bloom Dial: directional hop graph between coffees.
-DROP VIEW IF EXISTS v_dial_navigation;
-CREATE VIEW v_dial_navigation AS
-SELECT
-  fc.name              AS from_coffee,
-  fc.is_active         AS from_coffee_is_active,
-  tc.name              AS to_coffee,
-  tc.is_active         AS to_coffee_is_active,
-  cd.name              AS dimension,
-  dcr.direction,
-  dcr.hop_type,
-  dcr.delta,
-  dcr.is_recommended,
-  dcr.confidence,
-  dcr.notes
-FROM dial_coffee_relationships dcr
-JOIN coffees           fc ON fc.id  = dcr.from_coffee_id
-JOIN coffees           tc ON tc.id  = dcr.to_coffee_id
-JOIN coffee_dimensions cd ON cd.id  = dcr.dimension_id
-ORDER BY fc.name, cd.name, dcr.direction;
-
 -- Dial position consensus (Phase 5 — dormant): weighted rollup of current
 -- (non-superseded) dial_position_signal rows per (coffee_id, archetype).
 -- With only 'cupping' weighted above zero today, this mirrors Phase 3's live
 -- suggestion — becomes meaningfully different once other sources gain weight.
--- No auto-write to dial_archetype_positions from this — read-only advisory.
+-- No auto-write to coffee_slot_assignment from this — read-only advisory.
+-- Renamed from v_dial_position_consensus and re-keyed onto
+-- dial_position_signal.suggested_slot_id (Catalog Blueprint brief 5a, A1) —
+-- it is catalog-side. Output column kept as consensus_vocabulary_id (same
+-- output columns, per the brief) even though the value is now a slot id;
+-- nothing outside this file reads the field name (Phase 5 is dormant).
 DROP VIEW IF EXISTS v_dial_position_consensus;
-CREATE VIEW v_dial_position_consensus AS
+DROP VIEW IF EXISTS v_coffee_dial_position_consensus;
+CREATE VIEW v_coffee_dial_position_consensus AS
 WITH current_signals AS (
   SELECT dps.*, dsw.reliability_weight
   FROM dial_position_signal dps
@@ -3219,12 +3139,12 @@ WITH current_signals AS (
   WHERE dps.superseded_at IS NULL
 ),
 vocab_weights AS (
-  SELECT coffee_id, archetype, suggested_vocabulary_id,
+  SELECT coffee_id, archetype, suggested_slot_id,
          SUM(reliability_weight) AS weight_sum,
          MAX(reliability_weight) AS max_single_weight
   FROM current_signals
-  WHERE suggested_vocabulary_id IS NOT NULL
-  GROUP BY coffee_id, archetype, suggested_vocabulary_id
+  WHERE suggested_slot_id IS NOT NULL
+  GROUP BY coffee_id, archetype, suggested_slot_id
 ),
 ranked AS (
   SELECT *, ROW_NUMBER() OVER (
@@ -3243,7 +3163,7 @@ totals AS (
 SELECT
   t.coffee_id,
   t.archetype,
-  r.suggested_vocabulary_id AS consensus_vocabulary_id,
+  r.suggested_slot_id AS consensus_vocabulary_id,
   t.total_sample_size,
   t.weighted_sample_size
 FROM totals t
@@ -3762,21 +3682,21 @@ FROM archetype a
 LEFT JOIN coffee_dimensions d ON d.id = a.dominant_dimension_id
 ORDER BY a.sort_order;
 
--- One row per coffee, active or not. `roaster_name` prefers the real FK
--- (roaster_id); falls back to the legacy free-text `coffees.roaster` column
--- only when roaster_id is NULL, flagged via roaster_name_is_fallback so the
--- integrity check (#11) can count them. `match_archetype`/`match_confidence`
--- is the coffee's current (non-superseded) archetype_assignments row — its
--- flavor identity (D1) — never to be confused with placement; see
--- v_coffee_slot below for that.
+-- One row per coffee, active or not. `roaster_name` is always the real FK
+-- (roaster_id, NOT NULL as of Catalog Blueprint brief 5a) — the legacy
+-- free-text `coffees.roaster` fallback and its roaster_name_is_fallback flag
+-- are gone with the column (integrity check #11 now just asserts roaster_id
+-- IS NOT NULL, guaranteed by the constraint, kept as a cheap assertion).
+-- `match_archetype`/`match_confidence` is the coffee's current
+-- (non-superseded) archetype_assignments row — its flavor identity (D1) —
+-- never to be confused with placement; see v_coffee_slot below for that.
 CREATE VIEW v_coffee AS
 SELECT
   c.id, c.name, c.origin, c.blend_or_single, c.process, c.roast_level, c.roast_shade,
   c.flavor_descriptors_roaster, c.ai_summary, c.surprise_note, c.three_voice_story,
   c.story, c.story_draft, c.story_published, c.story_admin_edited, c.story_generated_at,
   c.roaster_id,
-  COALESCE(r.name, c.roaster)     AS roaster_name,
-  (r.name IS NULL)                AS roaster_name_is_fallback,
+  r.name                          AS roaster_name,
   aa.archetype                    AS match_archetype,
   aa.confidence                   AS match_confidence,
   aa.source                       AS match_source,
@@ -3887,9 +3807,8 @@ ORDER BY cand.slot_id, cand.weight_oz, cand.rank;
 
 -- One row per dial_coffee_relationships row. hop_type_derived is computed
 -- fresh from each endpoint's current active HOME assignment (D3 — hop_type
--- is never stored going forward; the stored column is exposed as
--- hop_type_stored only so the integrity check (#10) can diff the two until
--- brief 5 drops the column).
+-- is never stored; Catalog Blueprint brief 5a dropped the stored column and
+-- hop_type_enum entirely, so this is now the only hop type, plain TEXT).
 CREATE VIEW v_coffee_hop AS
 SELECT
   dcr.id, dcr.from_coffee_id, dcr.to_coffee_id, dcr.dimension_id, dcr.direction, dcr.delta,
@@ -3906,8 +3825,7 @@ SELECT
     WHEN fs.archetype IS NULL OR ts.archetype IS NULL THEN NULL
     WHEN fs.archetype = ts.archetype THEN 'within_archetype'
     ELSE 'bridge_archetype'
-  END::hop_type_enum   AS hop_type_derived,
-  dcr.hop_type         AS hop_type_stored
+  END                  AS hop_type_derived
 FROM dial_coffee_relationships dcr
 LEFT JOIN coffees fc ON fc.id = dcr.from_coffee_id
 LEFT JOIN coffees tc ON tc.id = dcr.to_coffee_id

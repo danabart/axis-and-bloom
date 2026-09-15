@@ -265,44 +265,48 @@ export async function checkSellableCounts(scope: CheckScope = {}): Promise<Catal
   };
 }
 
-// ── 10. v_coffee_hop: stored vs. derived hop_type disagree, or a stale hop —
-// scoped to hops between active coffees only (CTO review round, 2026-09-13).
-// A hop whose endpoint coffee is inactive is inert history (N3 keeps
-// Path/Temecula coffees as inactive rows, not something to flag), not a
-// stale hop — only a hop between two currently-active coffees missing a
-// home assignment is a real gap worth failing on. ─────────────────────────
+// ── 10. v_coffee_hop: a stale hop — scoped to hops between active coffees
+// only (CTO review round, 2026-09-13). A hop whose endpoint coffee is
+// inactive is inert history (N3 keeps Path/Temecula coffees as inactive
+// rows, not something to flag), not a stale hop — only a hop between two
+// currently-active coffees missing a home assignment is a real gap worth
+// failing on. Catalog Blueprint brief 5a dropped the stored-vs-derived
+// hop_type half of this check along with the stored column itself (D3) —
+// hop_type_derived is the only hop type now, nothing to diff it against. ──
 export async function checkHopConsistency(scope: CheckScope = {}): Promise<CatalogIntegrityCheck> {
   const runner = scope.tx ?? db;
   const badHopResult = await runner.query<{ id: number }>(
     `SELECT id FROM v_coffee_hop
      WHERE from_coffee_is_active = true AND to_coffee_is_active = true
-       AND (hop_type_stored IS DISTINCT FROM hop_type_derived
-            OR from_slot_id IS NULL OR to_slot_id IS NULL)`
+       AND (from_slot_id IS NULL OR to_slot_id IS NULL)`
   );
   const details = badHopResult.rows.map(r => `hop ${r.id}`);
   return {
     id: 10,
-    name: 'v_coffee_hop: among hops between active coffees, hop_type_stored matches hop_type_derived and both ends have an active home',
+    name: 'v_coffee_hop: among hops between active coffees, both ends have an active home',
     pass: details.length === 0,
-    expected: 'zero mismatched or stale hops among hops between active coffees',
-    actual: details.length === 0 ? 'all hops between active coffees are current' : `${details.length} mismatched/stale hop(s) among hops between active coffees`,
+    expected: 'zero stale hops among hops between active coffees',
+    actual: details.length === 0 ? 'all hops between active coffees are current' : `${details.length} stale hop(s) among hops between active coffees`,
     details: details.length ? details : undefined,
   };
 }
 
-// ── 11. Active coffees whose roaster_name falls back to the free-text column ──
+// ── 11. Active coffees without a roaster_id — guaranteed by the NOT NULL
+// constraint (Catalog Blueprint brief 5a) but kept as a cheap assertion; the
+// free-text roaster_name fallback and roaster_name_is_fallback flag this
+// check used to count are gone along with coffees.roaster itself. ──────────
 export async function checkRoasterFallback(scope: CheckScope = {}): Promise<CatalogIntegrityCheck> {
   const runner = scope.tx ?? db;
   const fallbackResult = await runner.query<{ id: number; name: string }>(
-    `SELECT id, name FROM v_coffee WHERE is_active = true AND roaster_name_is_fallback = true`
+    `SELECT id, name FROM v_coffee WHERE is_active = true AND roaster_id IS NULL`
   );
   const details = fallbackResult.rows.map(r => `coffee ${r.id} "${r.name}"`);
   return {
     id: 11,
-    name: 'No active coffee falls back to the free-text roaster column',
+    name: 'Every active coffee has a roaster_id',
     pass: details.length === 0,
-    expected: 'zero active coffees with roaster_name_is_fallback = true',
-    actual: details.length === 0 ? 'all active coffees have roaster_id' : `${details.length} coffee(s) on the fallback`,
+    expected: 'zero active coffees with roaster_id IS NULL',
+    actual: details.length === 0 ? 'all active coffees have roaster_id' : `${details.length} coffee(s) missing roaster_id`,
     details: details.length ? details : undefined,
   };
 }
@@ -327,31 +331,32 @@ export async function checkSlotIdBackfill(scope: CheckScope = {}): Promise<Catal
   };
 }
 
-// ── 13. Legacy placement tables still populated for ACTIVE coffees ────────
-// Informational until brief 3 (readers still use these tables); becomes a
-// real failure in brief 5 once nothing reads them anymore.
+// ── 13. No legacy placement objects exist ──────────────────────────────────
+// Was "legacy placement tables still populated for active coffees"
+// (informational, since brief 3's readers no longer used them but the tables
+// still existed). Catalog Blueprint brief 5a dropped all seven objects
+// outright, so the check flips to asserting none of them exist at all — a
+// real failure (not informational) if any comes back, since that would mean
+// a rollback or a stray recreation.
+const LEGACY_PLACEMENT_OBJECTS = [
+  'dial_archetype_positions', 'coffee_alias', 'dial_slot_alias',
+  'dial_position_vocabulary', 'dial_archetype_config', 'v_dial_positions', 'v_dial_navigation',
+];
 export async function checkLegacyRowsForActiveCoffees(scope: CheckScope = {}): Promise<CatalogIntegrityCheck> {
   const runner = scope.tx ?? db;
-  const legacyPositionsResult = await runner.query<{ id: number; coffee_id: number }>(
-    `SELECT dap.id, dap.coffee_id FROM dial_archetype_positions dap
-     JOIN coffees c ON c.id = dap.coffee_id WHERE c.is_active = true`
+  const existsResult = await runner.query<{ name: string }>(
+    `SELECT name FROM unnest($1::text[]) AS name WHERE to_regclass('public.' || name) IS NOT NULL`,
+    [LEGACY_PLACEMENT_OBJECTS]
   );
-  const legacyAliasResult = await runner.query<{ id: number; coffee_id: number }>(
-    `SELECT ca.id, ca.coffee_id FROM coffee_alias ca
-     JOIN coffees c ON c.id = ca.coffee_id WHERE c.is_active = true`
-  );
-  const details = [
-    ...legacyPositionsResult.rows.map(r => `dial_archetype_positions ${r.id} (coffee ${r.coffee_id})`),
-    ...legacyAliasResult.rows.map(r => `coffee_alias ${r.id} (coffee ${r.coffee_id})`),
-  ];
+  const details = existsResult.rows.map(r => `${r.name} still exists`);
   return {
     id: 13,
-    name: 'Legacy placement tables (dial_archetype_positions, coffee_alias) have no rows for active coffees',
+    name: 'No legacy placement objects exist',
     pass: details.length === 0,
-    expected: 'zero legacy rows for active coffees (informational until brief 3; a real failure from brief 5)',
-    actual: details.length === 0 ? 'none found' : `${details.length} legacy row(s) for active coffees`,
+    expected: 'none of the seven legacy placement tables/views exist',
+    actual: details.length === 0 ? 'none found' : `${details.length} legacy object(s) still exist`,
     details: details.length ? details : undefined,
-    severity: 'info',
+    severity: 'fail',
   };
 }
 

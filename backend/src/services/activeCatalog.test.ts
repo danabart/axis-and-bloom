@@ -15,7 +15,6 @@ import { ACTIVE_COFFEE_SQL, isCoffeeActive, getActiveCoffeeIds } from './activeC
 // feature (2026-08-26 hardening round) as cheap insurance against a future
 // test added here that does.
 afterAll(async () => {
-  await db.query(`DELETE FROM coffee_alias WHERE platform_name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM roaster_blend WHERE blend_name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM roaster WHERE name LIKE 'Vitest%'`);

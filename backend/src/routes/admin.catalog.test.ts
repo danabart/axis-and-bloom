@@ -142,7 +142,7 @@ describe('Catalog Blueprint brief 4 — new admin reads', () => {
       await upsertSku({ coffeeId, weightOz: WEIGHT_OZ, blendName: 'Vitest Catalog GET Blend', isActive: true }, ACTOR);
       await placeCoffee({ coffeeId, slotId: slot, role: 'home' }, ACTOR);
       await db.query(
-        `INSERT INTO dial_slot_price (archetype, dial_sort_order, weight_oz, retail_price_cents, slot_id) VALUES ('earthy', 1, $2, 1800, $1)`,
+        `INSERT INTO dial_slot_price (slot_id, weight_oz, retail_price_cents) VALUES ($1, $2, 1800)`,
         [slot, WEIGHT_OZ]
       );
 
@@ -230,8 +230,7 @@ describe('Catalog Blueprint brief 4 — new admin reads', () => {
       expect(row.reasons).toContain('no_price_12oz');
 
       if (existing) await db.query(
-        `INSERT INTO dial_slot_price (archetype, dial_sort_order, weight_oz, retail_price_cents, slot_id)
-         SELECT archetype, sort_order, $2, $3, id FROM coffee_dial_slot WHERE id = $1 ON CONFLICT DO NOTHING`,
+        `INSERT INTO dial_slot_price (slot_id, weight_oz, retail_price_cents) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
         [slot, WEIGHT_OZ, existing.retail_price_cents]
       );
     } finally {

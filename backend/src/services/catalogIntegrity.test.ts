@@ -27,7 +27,7 @@ describe('runCatalogIntegrityChecks', () => {
     try {
       roaster = (await db.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Integrity Roastery', true) RETURNING id`)).rows[0];
       coffee = (await db.query<{ id: number }>(
-        `INSERT INTO coffees (name, roaster, roaster_id, is_active) VALUES ('Vitest Integrity Coffee', 'Vitest Integrity Roastery', $1, true) RETURNING id`,
+        `INSERT INTO coffees (name, roaster_id, is_active) VALUES ('Vitest Integrity Coffee', $1, true) RETURNING id`,
         [roaster!.id]
       )).rows[0];
       const slot = (await db.query<{ id: number }>(`SELECT id FROM coffee_dial_slot WHERE archetype = 'earthy' AND sort_order = 1`)).rows[0];
@@ -59,19 +59,19 @@ describe('runCatalogIntegrityChecks', () => {
     try {
       roaster = (await db.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Check10 Roastery', false) RETURNING id`)).rows[0];
       coffeeA = (await db.query<{ id: number }>(
-        `INSERT INTO coffees (name, roaster, roaster_id, is_active) VALUES ('Vitest Check10 Coffee A', 'Vitest Check10 Roastery', $1, false) RETURNING id`,
+        `INSERT INTO coffees (name, roaster_id, is_active) VALUES ('Vitest Check10 Coffee A', $1, false) RETURNING id`,
         [roaster!.id]
       )).rows[0];
       coffeeB = (await db.query<{ id: number }>(
-        `INSERT INTO coffees (name, roaster, roaster_id, is_active) VALUES ('Vitest Check10 Coffee B', 'Vitest Check10 Roastery', $1, false) RETURNING id`,
+        `INSERT INTO coffees (name, roaster_id, is_active) VALUES ('Vitest Check10 Coffee B', $1, false) RETURNING id`,
         [roaster!.id]
       )).rows[0];
       // Neither coffee has any coffee_slot_assignment (no home), so if check
       // 10 evaluated this hop it would look "stale" (from_slot_id/to_slot_id
       // both NULL) — it must not, since both endpoints are inactive.
       hop = (await db.query<{ id: number }>(
-        `INSERT INTO dial_coffee_relationships (from_coffee_id, to_coffee_id, dimension_id, direction, hop_type)
-         VALUES ($1, $2, 9, 'more', 'bridge_archetype') RETURNING id`,
+        `INSERT INTO dial_coffee_relationships (from_coffee_id, to_coffee_id, dimension_id, direction)
+         VALUES ($1, $2, 9, 'more') RETURNING id`,
         [coffeeA!.id, coffeeB!.id]
       )).rows[0];
 
@@ -84,5 +84,15 @@ describe('runCatalogIntegrityChecks', () => {
       if (coffeeIds.length) await db.query(`DELETE FROM coffees WHERE id = ANY($1::int[])`, [coffeeIds]);
       if (roaster) await db.query(`DELETE FROM roaster WHERE id = $1`, [roaster.id]);
     }
+  });
+
+  // Catalog Blueprint brief 5a — check 13 flips from informational (brief 3:
+  // the seven legacy objects still existed, but nothing read them any more)
+  // to a real failing-type check (the objects are now dropped outright).
+  it('check 13 passes and is severity: fail', async () => {
+    const report = await runCatalogIntegrityChecks();
+    const check13 = report.checks.find(c => c.id === 13)!;
+    expect(check13.pass).toBe(true);
+    expect(check13.severity).toBe('fail');
   });
 });

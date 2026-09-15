@@ -171,16 +171,25 @@ const RESTRICTED_REFS = [
 ];
 // file → allowed patterns (subset of RESTRICTED_REFS), each with its expiry.
 // Catalog Blueprint brief 4, Part A — routes/admin.ts's own allow-list entry
-// removed now that admin.ts itself moves onto the views.
+// removed now that admin.ts itself moves onto the views. Catalog Blueprint
+// brief 5a (2026-09-15) dropped all seven RESTRICTED_REFS objects outright —
+// dialSuggestion.ts's vocabulary-id mapping and catalogService.ts's
+// roastery-lifecycle-cascade read (two of the three entries this allow-list
+// used to carry) no longer exist. The third — catalogIntegrity.ts's check 13
+// — turns out to need a PERMANENT exception instead of disappearing: the
+// check's entire job, now that the objects are dropped, is asserting none of
+// them exist (`to_regclass('public.' || name) IS NOT NULL`), which requires
+// literally naming all seven as data (a JS string array passed as a query
+// parameter, not a live SQL reference) — this rule's regex can't distinguish
+// that from a real reference. Discovered running `npm run lint:catalog`
+// against this brief's own check-13 rewrite, not anticipated by the brief
+// text (which called for an empty allow-list). Scoped to check 13's own
+// array literal only, not the whole file.
 const RULE3_ALLOWLIST = {
-  'services/dialSuggestion.ts': { patterns: ['dial_position_vocabulary'], note: 'vocabulary-id mapping only, expires brief 5' },
-  // catalogService.ts's roastery-lifecycle cascade still touches the
-  // pre-blueprint coffee_alias/dial_archetype_positions rows directly (brief
-  // 1/2 territory, not re-touched by this brief) — brief text calls out
-  // "coffee_alias cascade" but the same cascade also reads
-  // dial_archetype_positions (guest/home position counts); both expire brief 5.
-  'services/catalogService.ts': { patterns: ['coffee_alias', 'dial_archetype_positions'], note: 'roastery lifecycle cascade, expires brief 5' },
-  'services/catalogIntegrity.ts': { patterns: ['dial_archetype_positions', 'coffee_alias'], note: 'check 13, expires brief 5' },
+  'services/catalogIntegrity.ts': {
+    patterns: [...RESTRICTED_REFS],
+    note: 'check 13 names all seven as data, to assert none exist — permanent, does not expire',
+  },
 };
 
 for (const relPath of files) {

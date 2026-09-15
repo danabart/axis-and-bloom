@@ -147,16 +147,17 @@ export async function dispatchOrderPlacedBeat(userId: string, orderId: string, c
   try {
     // Catalog Blueprint brief 3: archetype now read via getCoffee().match_archetype
     // (D1's flavor identity) instead of a raw archetype_assignments query.
-    const [aliasMap, coffee, descriptorResult, rawResult] = await Promise.all([
+    // Brief 5a: the separate raw name/roaster query is gone too — getCoffee()
+    // (v_coffee) already carries name and roaster_name.
+    const [aliasMap, coffee, descriptorResult] = await Promise.all([
       getAliases([coffeeId]),
       getCoffee(coffeeId),
       db.query(`SELECT descriptor FROM v_collaborative_flavor_wheel WHERE coffee_id = $1 GROUP BY descriptor ORDER BY COUNT(*) DESC LIMIT 4`, [coffeeId]),
-      db.query(`SELECT name, roaster FROM coffees WHERE id = $1`, [coffeeId]),
     ]);
     const alias = aliasMap.get(coffeeId) ?? 'This coffee';
     return await generateOrderPlacedLine(
       { displayName: alias, archetype: coffee?.match_archetype ?? null, topDescriptors: descriptorResult.rows.map((r: { descriptor: string }) => r.descriptor) },
-      { rawCoffeeName: rawResult.rows[0]?.name ?? null, roasterNames: rawResult.rows[0]?.roaster ? [rawResult.rows[0].roaster] : [] }
+      { rawCoffeeName: coffee?.name ?? null, roasterNames: coffee?.roaster_name ? [coffee.roaster_name] : [] }
     );
   } catch (err) {
     console.error('[beatEngine] order_placed line generation failed:', err);

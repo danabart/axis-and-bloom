@@ -33,7 +33,9 @@ interface ArchetypeLabelable { archetype: string; dialSortOrder: number; platfor
 // Catalog Blueprint brief 4 (2026-09-14) — buildDeactivationPreview's
 // aliases: {total, active} became placements: {total, active, homes, guests}
 // (coffee_slot_assignment, D1); alreadyManuallyInactive.aliases likewise
-// became .placements.
+// became .placements. Brief 5a (2026-09-15) dropped the coffee_alias cascade
+// (and the table itself) from deactivateRoastery/reactivateRoastery
+// entirely — applied.aliases/restored.aliases below are gone with it.
 interface DeactivationPreview {
   roaster: { id: string; name: string; isActive: boolean };
   coffees: Array<{ id: number; name: string; isActive: boolean; homeArchetype: string | null; isDefault: boolean; guestPositions: number }>;
@@ -45,18 +47,16 @@ interface DeactivationPreview {
   openOrderLines: number;
   activeSubscribersOnTheseSlots: number;
   alreadyManuallyInactive: { coffees: number; blends: number; placements: number };
-  applied?: { coffees: number; blends: number; aliases: number; assignments: number };
+  applied?: { coffees: number; blends: number; assignments: number };
 }
 // Catalog Blueprint brief 4 — no more aliases: {toRestore} on the preview:
 // coffee_slot_assignment is deliberately never restored on reactivation (N3)
 // — placements are re-created deliberately through placeCoffee/the importer.
-// reactivateRoastery's own write result (`restored`) is unrelated to this
-// preview and still carries `aliases` — that cascade wasn't touched this brief.
 interface ReactivationPreview {
   roaster: { id: string; name: string; isActive: boolean };
   coffees: Array<{ id: number; name: string }>;
   blends: { toRestore: number };
-  restored?: { coffees: number; blends: number; aliases: number };
+  restored?: { coffees: number; blends: number };
 }
 
 type RoasterFormData = {

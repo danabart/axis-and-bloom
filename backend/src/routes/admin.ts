@@ -459,9 +459,10 @@ router.get('/sessions/:id/coffees', async (req, res) => {
   try {
     const result = await db.query(
       `SELECT sc.id AS session_coffee_id, sc.display_order,
-              c.id AS coffee_id, c.name, c.roaster, c.origin, c.process, c.roast_level
+              c.id AS coffee_id, c.name, r.name AS roaster, c.origin, c.process, c.roast_level
        FROM cupping_session_coffees sc
        JOIN coffees c ON c.id = sc.coffee_id
+       LEFT JOIN roaster r ON r.id = c.roaster_id
        WHERE sc.session_id = $1
        ORDER BY sc.display_order NULLS LAST, c.name`,
       [id]
@@ -1013,7 +1014,10 @@ router.patch('/coffees/:id/story', async (req: AuthRequest, res) => {
     return;
   }
   try {
-    const coffeeResult = await db.query(`SELECT name, roaster FROM coffees WHERE id = $1`, [id]);
+    const coffeeResult = await db.query(
+      `SELECT c.name, r.name AS roaster FROM coffees c LEFT JOIN roaster r ON r.id = c.roaster_id WHERE c.id = $1`,
+      [id]
+    );
     if (!coffeeResult.rows.length) { res.status(404).json({ error: 'Coffee not found' }); return; }
     const roasterBlendResult = await db.query(
       `SELECT DISTINCT r.name FROM roaster_blend rb JOIN roaster r ON r.id = rb.roaster_id WHERE rb.coffee_id = $1`,
@@ -1091,12 +1095,14 @@ router.get('/dial/archetype-adjacency', (_req, res) => {
 
 // GET /api/admin/dial/consensus/:coffeeId — weighted multi-source consensus (Phase 5, dormant).
 // Read-only; not wired into any frontend page. With only 'cupping' weighted above zero
-// today this mirrors Phase 3's live suggestion.
+// today this mirrors Phase 3's live suggestion. View renamed to
+// v_coffee_dial_position_consensus and re-keyed onto suggested_slot_id by
+// Catalog Blueprint brief 5a (A1) — same output columns.
 router.get('/dial/consensus/:coffeeId', async (req, res) => {
   const { coffeeId } = req.params;
   try {
     const result = await db.query(
-      `SELECT * FROM v_dial_position_consensus WHERE coffee_id = $1`,
+      `SELECT * FROM v_coffee_dial_position_consensus WHERE coffee_id = $1`,
       [coffeeId]
     );
     res.json(result.rows);
@@ -2360,9 +2366,13 @@ catalogRouter.get('/hop-suggestions', async (_req, res) => {
           const lower = scored[i].avg_score <= scored[j].avg_score ? scored[i] : scored[j];
           const higher = scored[i].avg_score <= scored[j].avg_score ? scored[j] : scored[i];
 
+          // hop_type (stored) dropped by Catalog Blueprint brief 5a (D3) —
+          // v_coffee_hop.hop_type_derived replaces it; both coffees here
+          // already come from the same matchArchetype pool, so a hop between
+          // them is inherently within-archetype by current placement too.
           const existingResult = await db.query(
-            `SELECT 1 FROM dial_coffee_relationships
-             WHERE hop_type = 'within_archetype' AND dimension_id = $1
+            `SELECT 1 FROM v_coffee_hop
+             WHERE hop_type_derived = 'within_archetype' AND dimension_id = $1
                AND ((from_coffee_id = $2 AND to_coffee_id = $3) OR (from_coffee_id = $3 AND to_coffee_id = $2))`,
             [dimensionId, lower.id, higher.id]
           );

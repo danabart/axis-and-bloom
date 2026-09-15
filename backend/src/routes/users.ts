@@ -493,8 +493,14 @@ router.get('/dial-position', requireAuth, async (req: AuthRequest, res) => {
     const profileId = profileResult.rows[0]?.id;
     if (!profileId) { res.status(404).json({ error: 'Profile not found' }); return; }
 
+    // Catalog Blueprint brief 5a dropped dial_sort_order from this table —
+    // slot_id (the sole position reference now) is joined back to
+    // coffee_dial_slot for its sort_order. API field name unchanged.
     const result = await db.query(
-      `SELECT dial_sort_order FROM user_bloom_dial_current_position WHERE user_id = $1 AND archetype = $2`,
+      `SELECT cds.sort_order AS dial_sort_order
+       FROM user_bloom_dial_current_position u
+       JOIN coffee_dial_slot cds ON cds.id = u.slot_id
+       WHERE u.user_id = $1 AND u.archetype = $2`,
       [profileId, archetype]
     );
     res.json({ dialSortOrder: result.rows[0]?.dial_sort_order ?? null });
@@ -529,12 +535,22 @@ router.patch('/dial-position', requireAuth, async (req: AuthRequest, res) => {
     const profileId = profileResult.rows[0]?.id;
     if (!profileId) { res.status(404).json({ error: 'Profile not found' }); return; }
 
+    // Catalog Blueprint brief 5a dropped dial_sort_order from this table —
+    // resolve (archetype, dialSortOrder) to the real slot_id before writing.
+    // Request/response body fields (archetype, dialSortOrder) unchanged.
+    const slotResult = await db.query(
+      `SELECT id FROM coffee_dial_slot WHERE archetype = $1 AND sort_order = $2`,
+      [archetype, dialSortOrder]
+    );
+    const slotId = slotResult.rows[0]?.id;
+    if (!slotId) { res.status(400).json({ error: 'Unknown archetype/dialSortOrder combination' }); return; }
+
     await db.query(
-      `INSERT INTO user_bloom_dial_current_position (user_id, archetype, dial_sort_order, updated_at)
+      `INSERT INTO user_bloom_dial_current_position (user_id, archetype, slot_id, updated_at)
        VALUES ($1, $2, $3, NOW())
        ON CONFLICT (user_id, archetype)
-       DO UPDATE SET dial_sort_order = $3, updated_at = NOW()`,
-      [profileId, archetype, dialSortOrder]
+       DO UPDATE SET slot_id = $3, updated_at = NOW()`,
+      [profileId, archetype, slotId]
     );
 
     if (trigger) {

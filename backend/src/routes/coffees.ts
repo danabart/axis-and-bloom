@@ -937,7 +937,10 @@ router.get('/:id/legacy-slot', async (req, res) => {
 // Public, roaster-blind wrapper over v_coffee_hop — The Bloom Part 1 Phase 1e.
 // Derives the target's LIVE home slot (v_coffee_hop.to_slot_id/to_archetype —
 // its current position may have moved since the hop was recorded; D3: hop type
-// is always hop_type_derived, the stored column is never read). Only
+// is always hop_type_derived — the stored column this comment used to say was
+// "never read" as a fallback was in fact still read below until Catalog
+// Blueprint brief 5a dropped it; the fallback below now matches the comment's
+// original intent). Only
 // is_recommended hops; drops any hop whose target has no active home, or whose
 // target slot isn't currently sellable at the canonical weight (a dead end
 // otherwise); ordered by confidence high→medium→low; capped at 3. Never
@@ -974,7 +977,13 @@ router.get('/:coffeeId/hops', async (req, res) => {
       hops.push({
         dimensionName: dim?.platform_name ?? dim?.name ?? '',
         direction: h.direction,
-        hopType: h.hop_type_derived ?? h.hop_type_stored,
+        // hop_type_derived is null only when the FROM coffee (this route's
+        // own coffeeId) currently lacks an active home — in practice this
+        // route is only ever called for a coffee a customer is looking at,
+        // which is placed by definition; 'within_archetype' is the same
+        // least-committal default setHop's own provisional case used before
+        // brief 5a removed the stored column outright.
+        hopType: h.hop_type_derived ?? 'within_archetype',
         confidence: h.confidence,
         target: {
           archetype: h.to_archetype,

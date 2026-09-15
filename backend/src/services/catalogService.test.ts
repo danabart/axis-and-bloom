@@ -37,8 +37,8 @@ async function makeRoaster(name: string) {
 }
 async function makeCoffee(name: string, roasterId: string) {
   return (await db.query<{ id: number }>(
-    `INSERT INTO coffees (name, roaster, roaster_id, is_active) VALUES ($1, $2, $3, true) RETURNING id`,
-    [name, name, roasterId]
+    `INSERT INTO coffees (name, roaster_id, is_active) VALUES ($1, $2, true) RETURNING id`,
+    [name, roasterId]
   )).rows[0];
 }
 async function slotId(archetype: string, sortOrder: number): Promise<number> {
@@ -55,16 +55,15 @@ async function cleanupRoasterAndCoffees(roaster: { id: string } | undefined, cof
 }
 
 describe('createCoffee', () => {
-  it('sets roaster_id and the text roaster column', async () => {
+  it('sets roaster_id (coffees.roaster text column dropped by Catalog Blueprint brief 5a)', async () => {
     let roaster: { id: string } | undefined;
     let coffeeId: number | undefined;
     try {
       roaster = await makeRoaster('Vitest CS Roastery');
       const { result } = await createCoffee({ roasterId: roaster.id, name: 'Vitest CS Coffee' }, ACTOR);
       coffeeId = result.coffeeId;
-      const row = (await db.query<{ roaster_id: string; roaster: string }>(`SELECT roaster_id, roaster FROM coffees WHERE id = $1`, [coffeeId])).rows[0];
+      const row = (await db.query<{ roaster_id: string }>(`SELECT roaster_id FROM coffees WHERE id = $1`, [coffeeId])).rows[0];
       expect(row.roaster_id).toBe(roaster.id);
-      expect(row.roaster).toBe('Vitest CS Roastery');
     } finally {
       await cleanupRoasterAndCoffees(roaster, coffeeId ? [coffeeId] : []);
     }
@@ -354,7 +353,7 @@ describe('deactivateRoastery / reactivateRoastery', () => {
 });
 
 describe('setHop', () => {
-  it('writes hop_type matching v_coffee_hop.hop_type_derived when both homes exist', async () => {
+  it('hop_type_derived reflects both homes\' placement archetype (Catalog Blueprint brief 5a dropped the stored column)', async () => {
     let roaster: { id: string } | undefined;
     let coffeeA: number | undefined;
     let coffeeB: number | undefined;
@@ -371,8 +370,7 @@ describe('setHop', () => {
       const { result } = await setHop({ fromCoffeeId: coffeeA, toCoffeeId: coffeeB, dimensionId: 9, direction: 'more' }, ACTOR);
       hopId = result.hopId;
 
-      const row = (await db.query<{ hop_type_stored: string; hop_type_derived: string }>(`SELECT hop_type_stored, hop_type_derived FROM v_coffee_hop WHERE id = $1`, [hopId])).rows[0];
-      expect(row.hop_type_stored).toBe(row.hop_type_derived);
+      const row = (await db.query<{ hop_type_derived: string }>(`SELECT hop_type_derived FROM v_coffee_hop WHERE id = $1`, [hopId])).rows[0];
       expect(row.hop_type_derived).toBe('bridge_archetype');
     } finally {
       if (hopId) await db.query(`DELETE FROM dial_coffee_relationships WHERE id = $1`, [hopId]);

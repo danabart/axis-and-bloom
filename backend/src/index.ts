@@ -148,20 +148,10 @@ async function start() {
     console.error('DB migration error (non-fatal):', err);
   }
 
-  // Roastery lifecycle (2026-08-25) — schema.sql's roaster_id backfill just ran
-  // above; surface any coffee it couldn't resolve (no roaster_blend link, and
-  // no case/whitespace-insensitive match on coffees.roaster) rather than
-  // silently leaving it unlinked. Never guesses — an admin has to link it.
-  try {
-    const unresolved = await db.query(
-      `SELECT id, name, roaster FROM coffees WHERE roaster_id IS NULL ORDER BY id`
-    );
-    for (const row of unresolved.rows) {
-      console.warn(`[roastery-lifecycle] coffee ${row.id} (${row.name}) still has no roaster_id — roaster text is ${row.roaster ?? '(null)'}`);
-    }
-  } catch (err) {
-    console.error('Roastery lifecycle roaster_id check error (non-fatal):', err);
-  }
+  // The roaster_id-IS-NULL boot warning that used to live here (printing the
+  // free-text coffees.roaster column) was removed by Catalog Blueprint
+  // brief 5a — coffees.roaster is dropped and roaster_id is now NOT NULL, so
+  // this can no longer happen; see the self-healing NOT NULL check below.
 
   // Roastery lifecycle (CTO review round, 2026-08-26) — a roaster_blend row
   // whose roaster_id disagrees with its own coffee's roaster_id is exactly
@@ -203,6 +193,31 @@ async function start() {
     }
   } catch (err) {
     console.error('Roastery lifecycle coffees_active_natural_key check error (non-fatal):', err);
+  }
+
+  // Catalog Blueprint brief 5a — each of these four NOT NULL constraints is
+  // wrapped in schema.sql in its own DO/EXCEPTION block so an unmet
+  // precondition can't abort the rest of the schema apply; this is the
+  // actual "did it take" check, same self-healing pattern as
+  // coffees_active_natural_key above.
+  try {
+    const notNullTargets = [
+      { table: 'coffees', column: 'roaster_id' },
+      { table: 'roaster_blend', column: 'coffee_id' },
+      { table: 'archetype', column: 'code' },
+      { table: 'dial_slot_price', column: 'slot_id' },
+    ];
+    for (const { table, column } of notNullTargets) {
+      const result = await db.query(
+        `SELECT is_nullable FROM information_schema.columns WHERE table_name = $1 AND column_name = $2`,
+        [table, column]
+      );
+      if (result.rows[0]?.is_nullable === 'YES') {
+        console.warn(`[catalog-integrity] ${table}.${column} NOT NULL not yet applied — a precondition row still exists; fix the data, then this will succeed on the next boot`);
+      }
+    }
+  } catch (err) {
+    console.error('Catalog Blueprint brief 5a NOT NULL check error (non-fatal):', err);
   }
 
   try {

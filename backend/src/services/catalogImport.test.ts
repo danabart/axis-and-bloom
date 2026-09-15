@@ -25,7 +25,7 @@ afterAll(async () => {
   await db.query(`DELETE FROM roaster_blend WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
   await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM roaster WHERE name = $1`, [ROASTER_NAME]);
-  await db.query(`DELETE FROM dial_slot_price WHERE archetype = 'floral' AND dial_sort_order IN (3, 4)`);
+  await db.query(`DELETE FROM dial_slot_price WHERE slot_id IN (SELECT id FROM coffee_dial_slot WHERE archetype = 'floral' AND sort_order IN (3, 4))`);
 });
 
 async function countManifestRows() {

@@ -18,7 +18,8 @@ import { db } from './client.js';
 // creation itself fails partway (every test below creates 2+ rows before
 // its try/finally can reach any of them).
 afterAll(async () => {
-  await db.query(`DELETE FROM coffee_alias WHERE platform_name LIKE 'Vitest%'`);
+  // coffee_alias's own cleanup line was dropped along with the table
+  // (Catalog Blueprint brief 5a).
   await db.query(`DELETE FROM roaster_blend WHERE blend_name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM roaster WHERE name LIKE 'Vitest%'`);
@@ -33,13 +34,15 @@ describe('coffees_active_natural_key', () => {
         `INSERT INTO roaster (name, is_active) VALUES ('Vitest Natural Key Roastery', true) RETURNING id`
       )).rows[0];
       first = (await db.query(
-        `INSERT INTO coffees (name, roaster, roaster_id, is_active) VALUES ('Vitest Duplicate', 'Vitest Natural Key Roastery', $1, true) RETURNING id`,
+        `INSERT INTO coffees (name, roaster_id, is_active)
+         VALUES ('Vitest Duplicate', $1, true) RETURNING id`,
         [roaster!.id]
       )).rows[0];
 
       await expect(
         db.query(
-          `INSERT INTO coffees (name, roaster, roaster_id, is_active) VALUES ('  vitest duplicate  ', 'Vitest Natural Key Roastery', $1, true)`,
+          `INSERT INTO coffees (name, roaster_id, is_active)
+         VALUES ('  vitest duplicate  ', $1, true)`,
           [roaster!.id]
         )
       ).rejects.toThrow(/duplicate key value violates unique constraint "coffees_active_natural_key"/);
@@ -58,12 +61,13 @@ describe('coffees_active_natural_key', () => {
         `INSERT INTO roaster (name, is_active) VALUES ('Vitest Natural Key Roastery 2', true) RETURNING id`
       )).rows[0];
       active = (await db.query(
-        `INSERT INTO coffees (name, roaster, roaster_id, is_active) VALUES ('Vitest Same Name', 'Vitest Natural Key Roastery 2', $1, true) RETURNING id`,
+        `INSERT INTO coffees (name, roaster_id, is_active)
+         VALUES ('Vitest Same Name', $1, true) RETURNING id`,
         [roaster!.id]
       )).rows[0];
       inactive = (await db.query(
-        `INSERT INTO coffees (name, roaster, roaster_id, is_active, deactivation_reason, deactivated_at)
-         VALUES ('Vitest Same Name', 'Vitest Natural Key Roastery 2', $1, false, 'manual', now()) RETURNING id`,
+        `INSERT INTO coffees (name, roaster_id, is_active, deactivation_reason, deactivated_at)
+         VALUES ('Vitest Same Name', $1, false, 'manual', now()) RETURNING id`,
         [roaster!.id]
       )).rows[0];
 
@@ -84,11 +88,13 @@ describe('coffees_active_natural_key', () => {
       roasterA = (await db.query(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Roastery A', true) RETURNING id`)).rows[0];
       roasterB = (await db.query(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Roastery B', true) RETURNING id`)).rows[0];
       coffeeA = (await db.query(
-        `INSERT INTO coffees (name, roaster, roaster_id, is_active) VALUES ('Vitest Shared Name', 'Vitest Roastery A', $1, true) RETURNING id`,
+        `INSERT INTO coffees (name, roaster_id, is_active)
+         VALUES ('Vitest Shared Name', $1, true) RETURNING id`,
         [roasterA!.id]
       )).rows[0];
       coffeeB = (await db.query(
-        `INSERT INTO coffees (name, roaster, roaster_id, is_active) VALUES ('Vitest Shared Name', 'Vitest Roastery B', $1, true) RETURNING id`,
+        `INSERT INTO coffees (name, roaster_id, is_active)
+         VALUES ('Vitest Shared Name', $1, true) RETURNING id`,
         [roasterB!.id]
       )).rows[0];
 
@@ -116,11 +122,13 @@ describe('roaster_blend.coffee_id name-match backfill — tightened to require m
       roasterA = (await db.query(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Backfill Roastery A', true) RETURNING id`)).rows[0];
       roasterB = (await db.query(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Backfill Roastery B', true) RETURNING id`)).rows[0];
       coffeeA = (await db.query(
-        `INSERT INTO coffees (name, roaster, roaster_id, is_active) VALUES ('Vitest Backfill Coffee', 'Vitest Backfill Roastery A', $1, true) RETURNING id`,
+        `INSERT INTO coffees (name, roaster_id, is_active)
+         VALUES ('Vitest Backfill Coffee', $1, true) RETURNING id`,
         [roasterA!.id]
       )).rows[0];
       coffeeB = (await db.query(
-        `INSERT INTO coffees (name, roaster, roaster_id, is_active) VALUES ('Vitest Backfill Coffee', 'Vitest Backfill Roastery B', $1, true) RETURNING id`,
+        `INSERT INTO coffees (name, roaster_id, is_active)
+         VALUES ('Vitest Backfill Coffee', $1, true) RETURNING id`,
         [roasterB!.id]
       )).rows[0];
       blendA = (await db.query(

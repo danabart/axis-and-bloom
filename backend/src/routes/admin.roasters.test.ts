@@ -6,11 +6,12 @@
 //
 // Requires DATABASE_URL pointed at a reachable Postgres instance with the
 // roastery-lifecycle schema applied (coffees.is_active/roaster_id/
-// deactivated_at/deactivation_reason, same on roaster_blend/coffee_alias,
+// deactivated_at/deactivation_reason, same on roaster_blend,
 // roaster.deactivated_at/deactivation_note) — cannot run against a
 // pre-migration database. Every fixture here is a disposable roaster/coffee/
-// blend/alias created and deleted by the test itself, never a real roastery
-// — this file never touches Path or Temecula's real rows.
+// blend created and deleted by the test itself, never a real roastery — this
+// file never touches Path or Temecula's real rows. coffee_alias (and its own
+// fixture row here) was dropped by Catalog Blueprint brief 5a.
 import 'dotenv/config';
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import express from 'express';
@@ -45,7 +46,6 @@ afterAll(async () => {
   // `fixture` variable was never assigned. This sweep is the real safety
   // net; moving creation inside try (below) only covers a failure in the
   // test body itself. Order matters — children before parents.
-  await db.query(`DELETE FROM coffee_alias WHERE platform_name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM roaster_blend WHERE blend_name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM roaster WHERE name LIKE 'Vitest%'`);
@@ -56,34 +56,28 @@ interface Fixture {
   roaster: { id: string; name: string };
   coffee: { id: number };
   blend: { id: string };
-  alias: { id: number };
 }
 
-// Disposable roaster + coffee + blend + alias, deleted by the caller's
-// finally block. Deliberately NOT linked into any dial slot (no
-// archetype_assignments/dial_archetype_positions row), so it never affects
-// slotsGoingEmpty/archetypesLosingDefault for any real archetype.
+// Disposable roaster + coffee + blend, deleted by the caller's finally block.
+// Deliberately NOT linked into any dial slot (no archetype_assignments/
+// coffee_slot_assignment row), so it never affects slotsGoingEmpty/
+// archetypesLosingDefault for any real archetype.
 async function makeFixture(): Promise<Fixture> {
   const roaster = (await db.query(
     `INSERT INTO roaster (name, is_active) VALUES ('Vitest Roastery', true) RETURNING id, name`
   )).rows[0];
   const coffee = (await db.query(
-    `INSERT INTO coffees (name, roaster, roaster_id, is_active) VALUES ('Vitest Coffee', $1, $2, true) RETURNING id`,
-    [roaster.name, roaster.id]
+    `INSERT INTO coffees (name, roaster_id, is_active) VALUES ('Vitest Coffee', $1, true) RETURNING id`,
+    [roaster.id]
   )).rows[0];
   const blend = (await db.query(
     `INSERT INTO roaster_blend (roaster_id, blend_name, coffee_id, is_active) VALUES ($1, 'Vitest Blend', $2, true) RETURNING id`,
     [roaster.id, coffee.id]
   )).rows[0];
-  const alias = (await db.query(
-    `INSERT INTO coffee_alias (platform_name, coffee_id, is_active) VALUES ('Vitest Alias', $1, true) RETURNING id`,
-    [coffee.id]
-  )).rows[0];
-  return { roaster, coffee, blend, alias };
+  return { roaster, coffee, blend };
 }
 
 async function cleanup(fixture: Fixture) {
-  await db.query('DELETE FROM coffee_alias WHERE id = $1', [fixture.alias.id]);
   await db.query('DELETE FROM roaster_blend WHERE id = $1', [fixture.blend.id]);
   await db.query('DELETE FROM coffees WHERE id = $1', [fixture.coffee.id]);
   await db.query('DELETE FROM roaster WHERE id = $1', [fixture.roaster.id]);
@@ -113,7 +107,7 @@ describe('GET /api/admin/roasters/:id/deactivation-preview', () => {
       const stillActiveRoaster = await db.query('SELECT is_active FROM roaster WHERE id = $1', [fixture.roaster.id]);
       expect(stillActiveRoaster.rows[0].is_active).toBe(true);
     } finally { if (fixture) await cleanup(fixture); }
-  }, 20000); // the preview computes slotsGoingEmpty by calling resolveBlendForSlot twice per dial_position_vocabulary row (~28 rows) — same Cloud-SQL-proxy-round-trip-count reasoning as the cascade test below
+  }, 20000); // the preview computes slotsGoingEmpty by calling resolveBlendForSlot twice per coffee_dial_slot row (24 rows) — same Cloud-SQL-proxy-round-trip-count reasoning as the cascade test below
 });
 
 describe('POST /api/admin/roasters/:id/deactivate + reactivate', () => {
@@ -125,9 +119,9 @@ describe('POST /api/admin/roasters/:id/deactivate + reactivate', () => {
       // A second coffee, manually retired BEFORE the roastery deactivates —
       // must stay untouched by both the deactivate cascade and reactivate.
       manualCoffee = (await db.query(
-        `INSERT INTO coffees (name, roaster, roaster_id, is_active, deactivated_at, deactivation_reason)
-         VALUES ('Vitest Manual Coffee', $1, $2, false, now(), 'manual') RETURNING id`,
-        [fixture.roaster.name, fixture.roaster.id]
+        `INSERT INTO coffees (name, roaster_id, is_active, deactivated_at, deactivation_reason)
+         VALUES ('Vitest Manual Coffee', $1, false, now(), 'manual') RETURNING id`,
+        [fixture.roaster.id]
       )).rows[0];
 
       const deactivateRes = await fetch(`${baseUrl}/roasters/${fixture.roaster.id}/deactivate`, {
@@ -140,7 +134,9 @@ describe('POST /api/admin/roasters/:id/deactivate + reactivate', () => {
       // Catalog Blueprint brief 2 (2026-09-14): deactivateRoastery now also
       // cascades coffee_slot_assignment — 0 here since this fixture is
       // deliberately not linked into any dial slot (see makeFixture's comment).
-      expect(deactivateBody.applied).toEqual({ coffees: 1, blends: 1, aliases: 1, assignments: 0 });
+      // Brief 5a (2026-09-15): the coffee_alias cascade (and its `aliases`
+      // field) is gone along with the table.
+      expect(deactivateBody.applied).toEqual({ coffees: 1, blends: 1, assignments: 0 });
 
       const coffeeRow = (await db.query(
         'SELECT is_active, deactivation_reason FROM coffees WHERE id = $1', [fixture.coffee.id]
@@ -153,12 +149,6 @@ describe('POST /api/admin/roasters/:id/deactivate + reactivate', () => {
       )).rows[0];
       expect(blendRow.is_active).toBe(false);
       expect(blendRow.deactivation_reason).toBe('roaster');
-
-      const aliasRow = (await db.query(
-        'SELECT is_active, deactivation_reason FROM coffee_alias WHERE id = $1', [fixture.alias.id]
-      )).rows[0];
-      expect(aliasRow.is_active).toBe(false);
-      expect(aliasRow.deactivation_reason).toBe('roaster');
 
       const manualRow = (await db.query(
         'SELECT is_active, deactivation_reason FROM coffees WHERE id = $1', [manualCoffee!.id]
@@ -177,7 +167,7 @@ describe('POST /api/admin/roasters/:id/deactivate + reactivate', () => {
       const reactivateRes = await fetch(`${baseUrl}/roasters/${fixture.roaster.id}/reactivate`, { method: 'POST' });
       expect(reactivateRes.status).toBe(200);
       const reactivateBody = await reactivateRes.json();
-      expect(reactivateBody.restored).toEqual({ coffees: 1, blends: 1, aliases: 1 });
+      expect(reactivateBody.restored).toEqual({ coffees: 1, blends: 1 });
 
       const restoredCoffee = (await db.query(
         'SELECT is_active, deactivation_reason FROM coffees WHERE id = $1', [fixture.coffee.id]

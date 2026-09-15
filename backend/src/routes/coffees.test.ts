@@ -250,9 +250,15 @@ describe('GET /api/coffees/archetypes — inactive coffees', () => {
 
 describe('GET /api/coffees/:id/story — inactive coffees stay reachable (Decision 5)', () => {
   it('still serves a story for an inactive coffee — only browse/recommend surfaces drop it, never an id-addressed read', async () => {
+    // coffees.roaster (free text) dropped by Catalog Blueprint brief 5a —
+    // roaster_id (NOT NULL) needs a real roaster row now.
+    const roaster = (await db.query<{ id: string }>(
+      `INSERT INTO roaster (name, is_active) VALUES ('Vitest Story Roastery', true) RETURNING id`
+    )).rows[0];
     const coffee = (await db.query(
-      `INSERT INTO coffees (name, roaster, is_active, story, story_published)
-       VALUES ('Vitest Story Coffee', 'Vitest Roastery', false, 'A vitest-only story.', true) RETURNING id`
+      `INSERT INTO coffees (name, roaster_id, is_active, story, story_published)
+       VALUES ('Vitest Story Coffee', $1, false, 'A vitest-only story.', true) RETURNING id`,
+      [roaster.id]
     )).rows[0];
     try {
       const res = await fetch(`${baseUrl}/${coffee.id}/story`);
@@ -261,6 +267,7 @@ describe('GET /api/coffees/:id/story — inactive coffees stay reachable (Decisi
       expect(body.story).toBe('A vitest-only story.');
     } finally {
       await db.query('DELETE FROM coffees WHERE id = $1', [coffee.id]);
+      await db.query('DELETE FROM roaster WHERE id = $1', [roaster.id]);
     }
   });
 });

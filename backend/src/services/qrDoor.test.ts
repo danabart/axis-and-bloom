@@ -17,17 +17,18 @@ import { isCoffeeRetired, resolveUniversalToken, hasAnyOrderOrSponsorship, getOr
 // 2026-08-26 hardening round — the real safety net for a fixture whose
 // creation itself fails partway. This file's own fixture also creates
 // order/order_line_item/user_profile rows beyond the roaster/coffees/
-// roaster_blend/coffee_alias set every other file's sweep covers — deleted
-// first here, in FK order, since order_line_item.blend_id has no ON DELETE
-// CASCADE from roaster_blend (a leftover order_line_item would otherwise
-// make the roaster_blend delete below throw a foreign key violation).
+// roaster_blend set every other file's sweep covers — deleted first here, in
+// FK order, since order_line_item.blend_id has no ON DELETE CASCADE from
+// roaster_blend (a leftover order_line_item would otherwise make the
+// roaster_blend delete below throw a foreign key violation).
 afterAll(async () => {
   await db.query(`
     DELETE FROM order_line_item WHERE blend_id IN (SELECT id FROM roaster_blend WHERE blend_name LIKE 'Vitest%')
   `);
   await db.query(`DELETE FROM "order" WHERE user_id IN (SELECT id FROM user_profile WHERE firebase_uid LIKE 'vitest-%')`);
   await db.query(`DELETE FROM user_profile WHERE firebase_uid LIKE 'vitest-%'`);
-  await db.query(`DELETE FROM coffee_alias WHERE platform_name LIKE 'Vitest%'`);
+  // coffee_alias's own cleanup line was dropped along with the table
+  // (Catalog Blueprint brief 5a).
   await db.query(`DELETE FROM roaster_blend WHERE blend_name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM roaster WHERE name LIKE 'Vitest%'`);
@@ -35,11 +36,18 @@ afterAll(async () => {
 
 describe('isCoffeeRetired', () => {
   it('is true once a coffee is inactive, even with an active roaster_blend row', async () => {
+    let roaster: { id: string } | undefined;
     let coffee: { id: number } | undefined;
     let blend: { id: string } | undefined;
     try {
+      // coffees.roaster (free text) dropped by Catalog Blueprint brief 5a —
+      // roaster_id (NOT NULL) needs a real roaster row now.
+      roaster = (await db.query<{ id: string }>(
+        `INSERT INTO roaster (name, is_active) VALUES ('Vitest QR Roastery', true) RETURNING id`
+      )).rows[0];
       coffee = (await db.query(
-        `INSERT INTO coffees (name, roaster, is_active) VALUES ('Vitest Retired Coffee', 'Vitest Roastery', true) RETURNING id`
+        `INSERT INTO coffees (name, roaster_id, is_active) VALUES ('Vitest Retired Coffee', $1, true) RETURNING id`,
+        [roaster.id]
       )).rows[0];
       blend = (await db.query(
         `INSERT INTO roaster_blend (blend_name, coffee_id, weight_oz, is_active) VALUES ('Vitest Retired Blend', $1, 12, true) RETURNING id`,
@@ -52,24 +60,32 @@ describe('isCoffeeRetired', () => {
     } finally {
       if (blend) await db.query('DELETE FROM roaster_blend WHERE id = $1', [blend.id]);
       if (coffee) await db.query('DELETE FROM coffees WHERE id = $1', [coffee.id]);
+      if (roaster) await db.query('DELETE FROM roaster WHERE id = $1', [roaster.id]);
     }
   });
 
   it('is also true (secondary signal) for an active coffee with no active roaster_blend row at all', async () => {
+    let roaster: { id: string } | undefined;
     let coffee: { id: number } | undefined;
     try {
+      roaster = (await db.query<{ id: string }>(
+        `INSERT INTO roaster (name, is_active) VALUES ('Vitest QR Roastery 2', true) RETURNING id`
+      )).rows[0];
       coffee = (await db.query(
-        `INSERT INTO coffees (name, roaster, is_active) VALUES ('Vitest No-Blend Coffee', 'Vitest Roastery', true) RETURNING id`
+        `INSERT INTO coffees (name, roaster_id, is_active) VALUES ('Vitest No-Blend Coffee', $1, true) RETURNING id`,
+        [roaster.id]
       )).rows[0];
       expect(await isCoffeeRetired(coffee!.id)).toBe(true);
     } finally {
       if (coffee) await db.query('DELETE FROM coffees WHERE id = $1', [coffee.id]);
+      if (roaster) await db.query('DELETE FROM roaster WHERE id = $1', [roaster.id]);
     }
   });
 });
 
 describe('Universal QR resolve path stays independent of roastery/coffee active state (Decision 5)', () => {
   it('resolveUniversalToken resolves the canonical token, and hasAnyOrderOrSponsorship still sees a profile whose only order line is for an inactive coffee', async () => {
+    let roaster: { id: string } | undefined;
     let coffee: { id: number } | undefined;
     let blend: { id: string } | undefined;
     let profile: { id: string } | undefined;
@@ -79,8 +95,12 @@ describe('Universal QR resolve path stays independent of roastery/coffee active 
       const canonical = await getOrMintCanonicalUniversalToken();
       expect(await resolveUniversalToken(canonical.token)).toBe('path');
 
+      roaster = (await db.query<{ id: string }>(
+        `INSERT INTO roaster (name, is_active) VALUES ('Vitest QR Roastery 3', true) RETURNING id`
+      )).rows[0];
       coffee = (await db.query(
-        `INSERT INTO coffees (name, roaster, is_active) VALUES ('Vitest QR Fixture Coffee', 'Vitest Roastery', false) RETURNING id`
+        `INSERT INTO coffees (name, roaster_id, is_active) VALUES ('Vitest QR Fixture Coffee', $1, false) RETURNING id`,
+        [roaster.id]
       )).rows[0];
       blend = (await db.query(
         `INSERT INTO roaster_blend (blend_name, coffee_id, weight_oz, is_active) VALUES ('Vitest QR Fixture Blend', $1, 12, false) RETURNING id`,
@@ -105,6 +125,7 @@ describe('Universal QR resolve path stays independent of roastery/coffee active 
       if (profile) await db.query('DELETE FROM user_profile WHERE id = $1', [profile.id]);
       if (blend) await db.query('DELETE FROM roaster_blend WHERE id = $1', [blend.id]);
       if (coffee) await db.query('DELETE FROM coffees WHERE id = $1', [coffee.id]);
+      if (roaster) await db.query('DELETE FROM roaster WHERE id = $1', [roaster.id]);
     }
   });
 });

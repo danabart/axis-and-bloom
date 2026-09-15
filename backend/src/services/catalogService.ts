@@ -48,10 +48,11 @@ export type PlacementWarning =
   | { kind: 'band_no_spec' }
   | { kind: 'descriptor_off_family'; families: string[]; coffeeTop: string[] }
   | { kind: 'placement_diverges_from_match'; match: string; placement: string }
-  // setHop-only warnings (Part A1) — not part of the placement guardrail's own
+  // setHop-only warning (Part A1) — not part of the placement guardrail's own
   // vocabulary above, but the same PlacementWarning union per the brief's
-  // CatalogWriteResult<T>.warnings shape.
-  | { kind: 'hop_type_provisional' }
+  // CatalogWriteResult<T>.warnings shape. hop_type_provisional (the other
+  // setHop-only warning) was dropped by Catalog Blueprint brief 5a along with
+  // hop_type itself (D3) — there's no stored value left to be provisional about.
   | { kind: 'hop_direction_contradicts_cupping'; fromName: string; toName: string; dimension: string; toIsMore: boolean };
 
 export interface CatalogWriteResult<T = unknown> {
@@ -504,10 +505,11 @@ export async function createCoffeeInTx(tx: Tx, input: CreateCoffeeInput): Promis
     throw new CatalogError(409, 'INVALID_INPUT', `A coffee named "${input.name}" already exists for ${roaster.name}`);
   }
 
+  // coffees.roaster (free text) dropped by Catalog Blueprint brief 5a — roasterId is the only identity now.
   const insertResult = await tx.query<{ id: number }>(
-    `INSERT INTO coffees (name, roaster, roaster_id, origin, blend_or_single, process, roast_level, roast_shade, flavor_descriptors_roaster, is_active)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true) RETURNING id`,
-    [input.name, roaster.name, input.roasterId, input.origin ?? null, input.blendOrSingle ?? null,
+    `INSERT INTO coffees (name, roaster_id, origin, blend_or_single, process, roast_level, roast_shade, flavor_descriptors_roaster, is_active)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true) RETURNING id`,
+    [input.name, input.roasterId, input.origin ?? null, input.blendOrSingle ?? null,
      input.process ?? null, input.roastLevel ?? null, input.roastShade ?? null, input.flavorDescriptorsRoaster ?? null]
   );
   const coffeeId = insertResult.rows[0].id;
@@ -815,14 +817,14 @@ export async function setSlotPriceInTx(tx: Tx, input: { slotId: number; weightOz
   if (!Number.isFinite(input.weightOz) || input.weightOz <= 0 || !Number.isInteger(input.retailPriceCents) || input.retailPriceCents < 0) {
     throw new CatalogError(400, 'INVALID_INPUT', 'weightOz and a non-negative integer retailPriceCents are required');
   }
-  const slot = await fetchSlotRow(tx, input.slotId);
-  // Also writes the legacy archetype/dial_sort_order columns from the slot row
-  // (brief 2, Part A1) so old readers keep working until brief 3.
+  await fetchSlotRow(tx, input.slotId); // validates the slot exists
+  // Catalog Blueprint brief 5a dropped dial_slot_price's legacy archetype/
+  // dial_sort_order columns — slot_id is the only key now.
   await tx.query(
-    `INSERT INTO dial_slot_price (archetype, dial_sort_order, weight_oz, retail_price_cents, slot_id)
-     VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (archetype, dial_sort_order, weight_oz) DO UPDATE SET retail_price_cents = EXCLUDED.retail_price_cents, slot_id = EXCLUDED.slot_id, updated_at = now()`,
-    [slot.archetype, slot.sort_order, input.weightOz, input.retailPriceCents, input.slotId]
+    `INSERT INTO dial_slot_price (slot_id, weight_oz, retail_price_cents)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (slot_id, weight_oz) DO UPDATE SET retail_price_cents = EXCLUDED.retail_price_cents, updated_at = now()`,
+    [input.slotId, input.weightOz, input.retailPriceCents]
   );
   return { slotId: input.slotId, weightOz: input.weightOz };
 }
@@ -859,36 +861,21 @@ export async function setHop(input: SetHopInput, ctx: Ctx): Promise<CatalogWrite
     await fetchCoffeeRow(tx, input.fromCoffeeId);
     await fetchCoffeeRow(tx, input.toCoffeeId);
 
-    const homesResult = await tx.query<{ coffee_id: number; archetype: string }>(
-      `SELECT csa.coffee_id, cds.archetype FROM coffee_slot_assignment csa JOIN coffee_dial_slot cds ON cds.id = csa.slot_id
-       WHERE csa.coffee_id = ANY($1::int[]) AND csa.role = 'home' AND csa.is_active = true`,
-      [[input.fromCoffeeId, input.toCoffeeId]]
-    );
-    const fromArchetype = homesResult.rows.find(r => r.coffee_id === input.fromCoffeeId)?.archetype;
-    const toArchetype = homesResult.rows.find(r => r.coffee_id === input.toCoffeeId)?.archetype;
-
     const warnings: PlacementWarning[] = [];
-    let hopType: 'within_archetype' | 'bridge_archetype';
-    if (fromArchetype && toArchetype) {
-      hopType = fromArchetype === toArchetype ? 'within_archetype' : 'bridge_archetype';
-    } else {
-      // Until brief 5 drops the NOT NULL stored column, a hop with a
-      // not-yet-homed endpoint still needs a value — 'within_archetype' is
-      // the least-committal placeholder, flagged so nobody mistakes it for
-      // a real derivation (D3: hop_type is otherwise never stored/trusted).
-      hopType = 'within_archetype';
-      warnings.push({ kind: 'hop_type_provisional' });
-    }
 
+    // Catalog Blueprint brief 5a (D3) dropped the stored hop_type column
+    // entirely — v_coffee_hop.hop_type_derived (computed live from each
+    // endpoint's current home placement) is the only hop type now, so this
+    // no longer needs to compute or write one.
     const upsertResult = await tx.query<{ id: number }>(
-      `INSERT INTO dial_coffee_relationships (from_coffee_id, to_coffee_id, dimension_id, direction, delta, hop_type, is_recommended, confidence, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO dial_coffee_relationships (from_coffee_id, to_coffee_id, dimension_id, direction, delta, is_recommended, confidence, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (from_coffee_id, to_coffee_id, dimension_id, direction) DO UPDATE SET
-         delta = EXCLUDED.delta, hop_type = EXCLUDED.hop_type, is_recommended = EXCLUDED.is_recommended,
+         delta = EXCLUDED.delta, is_recommended = EXCLUDED.is_recommended,
          confidence = EXCLUDED.confidence, notes = EXCLUDED.notes
        RETURNING id`,
       [input.fromCoffeeId, input.toCoffeeId, input.dimensionId, input.direction, input.delta ?? null,
-       hopType, input.isRecommended ?? false, input.confidence ?? 'medium', input.notes ?? null]
+       input.isRecommended ?? false, input.confidence ?? 'medium', input.notes ?? null]
     );
     const hopId = upsertResult.rows[0].id;
 
@@ -1131,15 +1118,8 @@ export async function deactivateRoastery(input: { roasterId: string; note?: stri
        WHERE roaster_id = $1 AND is_active = true RETURNING id`,
       [input.roasterId]
     );
-    // Legacy coffee_alias cascade — kept in step until brief 5 drops the
-    // table; documented exception to "the service never writes legacy
-    // tables" (Part A4).
-    const aliasesUpdate = await tx.query(
-      `UPDATE coffee_alias SET is_active = false, deactivated_at = now(), deactivation_reason = 'roaster'
-       WHERE coffee_id IN (SELECT id FROM coffees WHERE roaster_id = $1) AND is_active = true RETURNING id`,
-      [input.roasterId]
-    );
-    // New this brief: cascade coffee_slot_assignment too.
+    // coffee_alias cascade removed — the table itself was dropped by Catalog
+    // Blueprint brief 5a.
     const assignmentsUpdate = await tx.query(
       `UPDATE coffee_slot_assignment SET is_active = false, deactivated_at = now(), deactivation_reason = 'roaster', updated_at = now()
        WHERE coffee_id IN (SELECT id FROM coffees WHERE roaster_id = $1) AND is_active = true RETURNING id`,
@@ -1148,7 +1128,7 @@ export async function deactivateRoastery(input: { roasterId: string; note?: stri
 
     const applied = {
       coffees: coffeesUpdate.rowCount ?? 0, blends: blendsUpdate.rowCount ?? 0,
-      aliases: aliasesUpdate.rowCount ?? 0, assignments: assignmentsUpdate.rowCount ?? 0,
+      assignments: assignmentsUpdate.rowCount ?? 0,
     };
     console.info('[catalog] deactivateRoastery', { actor: ctx.actor, roasterId: input.roasterId, applied });
     return { result: { ...preview, applied }, warnings: [], integrity: [] };
@@ -1173,19 +1153,16 @@ export async function reactivateRoastery(input: { roasterId: string }, ctx: Ctx)
        WHERE roaster_id = $1 AND deactivation_reason = 'roaster' AND deactivated_at >= $2 RETURNING id`,
       [input.roasterId, cutoff]
     );
-    const aliasesUpdate = await tx.query(
-      `UPDATE coffee_alias SET is_active = true, deactivated_at = NULL, deactivation_reason = NULL
-       WHERE coffee_id IN (SELECT id FROM coffees WHERE roaster_id = $1) AND deactivation_reason = 'roaster' AND deactivated_at >= $2 RETURNING id`,
-      [input.roasterId, cutoff]
-    );
-    // coffee_slot_assignment is deliberately NOT restored (N3) — placements
-    // are re-created deliberately through placeCoffee/the importer.
+    // coffee_alias cascade removed — the table itself was dropped by Catalog
+    // Blueprint brief 5a. coffee_slot_assignment is deliberately NOT restored
+    // (N3) — placements are re-created deliberately through placeCoffee/the
+    // importer.
     const roasterUpdate = await tx.query(
       `UPDATE roaster SET is_active = true, deactivated_at = NULL, deactivation_note = NULL, updated_at = now() WHERE id = $1 RETURNING id, name, is_active`,
       [input.roasterId]
     );
 
-    const restored = { coffees: coffeesUpdate.rowCount ?? 0, blends: blendsUpdate.rowCount ?? 0, aliases: aliasesUpdate.rowCount ?? 0 };
+    const restored = { coffees: coffeesUpdate.rowCount ?? 0, blends: blendsUpdate.rowCount ?? 0 };
     console.info('[catalog] reactivateRoastery', { actor: ctx.actor, roasterId: input.roasterId, restored });
     return { result: { roaster: roasterUpdate.rows[0], restored }, warnings: [], integrity: [] };
   });

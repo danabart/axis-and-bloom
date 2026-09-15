@@ -185,9 +185,7 @@ describe('resolveBlendForSlot', () => {
     } finally {
       if (slot !== undefined && existingPriceCents !== undefined) {
         await db.query(
-          `INSERT INTO dial_slot_price (archetype, dial_sort_order, weight_oz, retail_price_cents, slot_id)
-           SELECT archetype, sort_order, $2, $3, id FROM coffee_dial_slot WHERE id = $1
-           ON CONFLICT DO NOTHING`,
+          `INSERT INTO dial_slot_price (slot_id, weight_oz, retail_price_cents) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
           [slot, WEIGHT_OZ, existingPriceCents]
         );
       }

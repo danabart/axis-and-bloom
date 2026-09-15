@@ -83,7 +83,7 @@ describe('coffee_slot_assignment (D1/D5)', () => {
     const coffees: { id: number }[] = [];
     for (let i = 0; i < count; i++) {
       coffees.push((await db.query<{ id: number }>(
-        `INSERT INTO coffees (name, roaster, roaster_id, is_active) VALUES ($1, 'Vitest CSA Roastery', $2, true) RETURNING id`,
+        `INSERT INTO coffees (name, roaster_id, is_active) VALUES ($1, $2, true) RETURNING id`,
         [`Vitest CSA Coffee ${i}`, roaster.id]
       )).rows[0]);
     }
@@ -168,7 +168,7 @@ describe('archetype_assignments (Slot Truth Map F4)', () => {
     try {
       roaster = (await db.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ('Vitest AA Roastery', true) RETURNING id`)).rows[0];
       coffee = (await db.query<{ id: number }>(
-        `INSERT INTO coffees (name, roaster, roaster_id, is_active) VALUES ('Vitest AA Coffee', 'Vitest AA Roastery', $1, true) RETURNING id`,
+        `INSERT INTO coffees (name, roaster_id, is_active) VALUES ('Vitest AA Coffee', $1, true) RETURNING id`,
         [roaster.id]
       )).rows[0];
       await db.query(`INSERT INTO archetype_assignments (coffee_id, archetype, confidence) VALUES ($1, 'floral', 'high')`, [coffee.id]);
@@ -193,16 +193,17 @@ describe('v_coffee_sellable_slot (D5)', () => {
     let homeBlend: { id: string } | undefined;
     let guestBlend: { id: string } | undefined;
     let createdPriceRow = false;
+    let slot: { id: number } | undefined;
     const slotArchetype = 'floral';
     const slotSortOrder = 2;
     try {
-      const slot = (await db.query<{ id: number }>(
+      slot = (await db.query<{ id: number }>(
         `SELECT id FROM coffee_dial_slot WHERE archetype = $1 AND sort_order = $2`, [slotArchetype, slotSortOrder]
       )).rows[0];
 
       roaster = (await db.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Sellable Roastery', true) RETURNING id`)).rows[0];
       homeCoffee = (await db.query<{ id: number }>(
-        `INSERT INTO coffees (name, roaster, roaster_id, is_active) VALUES ('Vitest Sellable Home Coffee', 'Vitest Sellable Roastery', $1, true) RETURNING id`,
+        `INSERT INTO coffees (name, roaster_id, is_active) VALUES ('Vitest Sellable Home Coffee', $1, true) RETURNING id`,
         [roaster.id]
       )).rows[0];
       await db.query(`INSERT INTO archetype_assignments (coffee_id, archetype, confidence) VALUES ($1, $2, 'high')`, [homeCoffee.id, slotArchetype]);
@@ -214,12 +215,13 @@ describe('v_coffee_sellable_slot (D5)', () => {
 
       // dial_slot_price already has real admin-set rows for many slots (verified
       // live before writing this test) — reuse whatever is there rather than
-      // risk colliding with the pre-existing UNIQUE (archetype, dial_sort_order, weight_oz).
+      // risk colliding with the UNIQUE (slot_id, weight_oz) constraint
+      // (Catalog Blueprint brief 5a — slot_id is the only key now).
       const priceInsert = await db.query(
-        `INSERT INTO dial_slot_price (archetype, dial_sort_order, weight_oz, retail_price_cents, slot_id)
-         VALUES ($1, $2, 12, 3200, $3)
-         ON CONFLICT (archetype, dial_sort_order, weight_oz) DO NOTHING`,
-        [slotArchetype, slotSortOrder, slot.id]
+        `INSERT INTO dial_slot_price (slot_id, weight_oz, retail_price_cents)
+         VALUES ($1, 12, 3200)
+         ON CONFLICT (slot_id, weight_oz) DO NOTHING`,
+        [slot.id]
       );
       createdPriceRow = (priceInsert.rowCount ?? 0) > 0;
 
@@ -236,7 +238,7 @@ describe('v_coffee_sellable_slot (D5)', () => {
 
       // Add a guest with its own SKU, then deactivate the home coffee entirely -> guest resolves (D5).
       guestCoffee = (await db.query<{ id: number }>(
-        `INSERT INTO coffees (name, roaster, roaster_id, is_active) VALUES ('Vitest Sellable Guest Coffee', 'Vitest Sellable Roastery', $1, true) RETURNING id`,
+        `INSERT INTO coffees (name, roaster_id, is_active) VALUES ('Vitest Sellable Guest Coffee', $1, true) RETURNING id`,
         [roaster.id]
       )).rows[0];
       await db.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role, priority) VALUES ($1, $2, 'guest', 2)`, [slot.id, guestCoffee.id]);
@@ -266,7 +268,7 @@ describe('v_coffee_sellable_slot (D5)', () => {
       if (blendIds.length) await db.query(`DELETE FROM roaster_blend WHERE id = ANY($1::uuid[])`, [blendIds]);
       if (coffeeIds.length) await db.query(`DELETE FROM coffees WHERE id = ANY($1::int[])`, [coffeeIds]);
       if (roaster) await db.query(`DELETE FROM roaster WHERE id = $1`, [roaster.id]);
-      if (createdPriceRow) await db.query(`DELETE FROM dial_slot_price WHERE archetype = $1 AND dial_sort_order = $2 AND weight_oz = 12`, [slotArchetype, slotSortOrder]);
+      if (createdPriceRow && slot) await db.query(`DELETE FROM dial_slot_price WHERE slot_id = $1 AND weight_oz = 12`, [slot.id]);
     }
   });
 });
@@ -280,11 +282,11 @@ describe('v_coffee_hop (D3)', () => {
     try {
       roaster = (await db.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Hop Roastery', true) RETURNING id`)).rows[0];
       coffeeA = (await db.query<{ id: number }>(
-        `INSERT INTO coffees (name, roaster, roaster_id, is_active) VALUES ('Vitest Hop Coffee A', 'Vitest Hop Roastery', $1, true) RETURNING id`,
+        `INSERT INTO coffees (name, roaster_id, is_active) VALUES ('Vitest Hop Coffee A', $1, true) RETURNING id`,
         [roaster.id]
       )).rows[0];
       coffeeB = (await db.query<{ id: number }>(
-        `INSERT INTO coffees (name, roaster, roaster_id, is_active) VALUES ('Vitest Hop Coffee B', 'Vitest Hop Roastery', $1, true) RETURNING id`,
+        `INSERT INTO coffees (name, roaster_id, is_active) VALUES ('Vitest Hop Coffee B', $1, true) RETURNING id`,
         [roaster.id]
       )).rows[0];
 
@@ -296,8 +298,8 @@ describe('v_coffee_hop (D3)', () => {
       await db.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role) VALUES ($1, $2, 'home')`, [fruity3.id, coffeeB.id]);
 
       hop = (await db.query<{ id: number }>(
-        `INSERT INTO dial_coffee_relationships (from_coffee_id, to_coffee_id, dimension_id, direction, hop_type)
-         VALUES ($1, $2, 9, 'more', 'bridge_archetype') RETURNING id`,
+        `INSERT INTO dial_coffee_relationships (from_coffee_id, to_coffee_id, dimension_id, direction)
+         VALUES ($1, $2, 9, 'more') RETURNING id`,
         [coffeeA.id, coffeeB.id]
       )).rows[0];
 
@@ -333,5 +335,43 @@ describe('withTransaction (Part A — see also client.test.ts)', () => {
     ).rejects.toThrow('Vitest deliberate rollback');
     const { rows } = await db.query(`SELECT id FROM roaster WHERE name = $1`, [name]);
     expect(rows.length).toBe(0);
+  });
+});
+
+describe('Catalog Blueprint brief 5a — legacy dropped', () => {
+  const LEGACY_OBJECTS = [
+    'dial_archetype_positions', 'coffee_alias', 'dial_slot_alias',
+    'dial_position_vocabulary', 'dial_archetype_config', 'v_dial_positions', 'v_dial_navigation',
+  ];
+
+  it('none of the seven legacy placement objects exist', async () => {
+    const { rows } = await db.query<{ name: string }>(
+      `SELECT name FROM unnest($1::text[]) AS name WHERE to_regclass('public.' || name) IS NOT NULL`,
+      [LEGACY_OBJECTS]
+    );
+    expect(rows).toEqual([]);
+  });
+
+  it('coffees.roaster column does not exist', async () => {
+    const { rows } = await db.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'coffees' AND column_name = 'roaster'`
+    );
+    expect(rows.length).toBe(0);
+  });
+
+  it('coffees.roaster_id NOT NULL rejects an insert without it', async () => {
+    await expect(
+      db.query(`INSERT INTO coffees (name, is_active) VALUES ('Vitest No Roaster Coffee', true)`)
+    ).rejects.toThrow(/null value in column "roaster_id"/);
+  });
+
+  it('dial_position_signal.suggested_slot_id is populated for every pre-existing row that had a suggestion', async () => {
+    // suggested_vocabulary_id no longer exists (re-keyed to suggested_slot_id
+    // by A1) — a row that once had a suggestion is one with raw_value set
+    // (recordCuppingSignal always writes both together).
+    const { rows } = await db.query(
+      `SELECT COUNT(*) AS count FROM dial_position_signal WHERE raw_value IS NOT NULL AND suggested_slot_id IS NULL`
+    );
+    expect(Number(rows[0].count)).toBe(0);
   });
 });

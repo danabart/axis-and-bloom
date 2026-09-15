@@ -305,8 +305,13 @@ async function resolveActions(
         const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [uid]);
         const profileId = profileResult.rows[0]?.id;
         if (profileId) {
+          // Catalog Blueprint brief 5a dropped dial_sort_order from this
+          // table — slot_id is joined back to coffee_dial_slot for its sort_order.
           const posResult = await db.query(
-            `SELECT dial_sort_order FROM user_bloom_dial_current_position WHERE user_id = $1 AND archetype = $2`,
+            `SELECT cds.sort_order AS dial_sort_order
+             FROM user_bloom_dial_current_position u
+             JOIN coffee_dial_slot cds ON cds.id = u.slot_id
+             WHERE u.user_id = $1 AND u.archetype = $2`,
             [profileId, archetypeKey]
           );
           slot = posResult.rows[0]?.dial_sort_order ?? undefined;

@@ -33,3 +33,9 @@ record of exactly how that history was built, even though re-running them
 would be wrong (duplicate inserts, `dial_archetype_positions`/`coffee_alias`
 writes to tables the new model treats as legacy-only, no `roaster_id`/
 `archetype.code` awareness).
+
+**Catalog Blueprint brief 5a (2026-09-15):** the tables these seeded no
+longer exist — `dial_archetype_positions` and `coffee_alias` were dropped
+outright (along with `dial_slot_alias` and `dial_position_vocabulary`, seeded
+elsewhere in `schema.sql`, not by these files). These scripts could never be
+re-run even in principle now; they stay here as history only.

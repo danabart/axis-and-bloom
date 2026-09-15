@@ -45,7 +45,6 @@ export interface CoffeeRow {
   story_generated_at: string | null;
   roaster_id: string | null;
   roaster_name: string | null;
-  roaster_name_is_fallback: boolean;
   match_archetype: ArchetypeCode | null;
   match_confidence: string | null;
   match_source: string | null;
@@ -139,7 +138,6 @@ export interface HopRow {
   to_slot_id: number | null;
   to_archetype: ArchetypeCode | null;
   hop_type_derived: 'within_archetype' | 'bridge_archetype' | null;
-  hop_type_stored: 'within_archetype' | 'bridge_archetype';
 }
 
 // ── Archetypes (in-process cache, 60s — labels change once a quarter) ────────

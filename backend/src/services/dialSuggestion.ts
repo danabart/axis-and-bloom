@@ -35,10 +35,10 @@ export interface HopConflict {
 }
 
 export interface DialSuggestion {
-  suggested_vocabulary_id: number;
-  // Catalog Blueprint brief 3 addition — the coffee_dial_slot id at the
-  // suggested position, alongside the legacy vocabulary id (still written to
-  // dial_position_signal.suggested_vocabulary_id until brief 5 re-keys it).
+  // Catalog Blueprint brief 3 added this alongside the legacy vocabulary id;
+  // brief 5a dropped the vocabulary id (dial_position_vocabulary no longer
+  // exists) — this is the only suggested-position id now, and the only thing
+  // dial_position_signal.suggested_slot_id is written from.
   suggested_slot_id: number;
   suggested_label: string;
   suggested_sort_order: number;
@@ -106,15 +106,18 @@ async function findHopConflict(
   dimensionId: number,
   thisAvgScore: number
 ): Promise<HopConflict | undefined> {
+  // hop_type (stored) dropped by Catalog Blueprint brief 5a (D3) — v_coffee_hop's
+  // hop_type_derived (computed live from each endpoint's current home
+  // placement) replaces it here, same 'within_archetype' filter.
   const hopsResult = await db.query(
     `SELECT
-       CASE WHEN dcr.from_coffee_id = $1 THEN dcr.to_coffee_id ELSE dcr.from_coffee_id END AS other_coffee_id,
-       CASE WHEN dcr.from_coffee_id = $1 THEN 'from' ELSE 'to' END AS this_side,
-       dcr.direction
-     FROM dial_coffee_relationships dcr
-     WHERE dcr.hop_type = 'within_archetype'
-       AND dcr.dimension_id = $2
-       AND (dcr.from_coffee_id = $1 OR dcr.to_coffee_id = $1)`,
+       CASE WHEN vch.from_coffee_id = $1 THEN vch.to_coffee_id ELSE vch.from_coffee_id END AS other_coffee_id,
+       CASE WHEN vch.from_coffee_id = $1 THEN 'from' ELSE 'to' END AS this_side,
+       vch.direction
+     FROM v_coffee_hop vch
+     WHERE vch.hop_type_derived = 'within_archetype'
+       AND vch.dimension_id = $2
+       AND (vch.from_coffee_id = $1 OR vch.to_coffee_id = $1)`,
     [coffeeId, dimensionId]
   );
 
@@ -203,20 +206,9 @@ export async function getDialSuggestion(coffeeId: number): Promise<DialSuggestio
   const suggestedSlot = slots.find((s) => s.sort_order === suggestedSortOrder);
   if (!suggestedSlot) return null;
 
-  // Last remaining legacy read (allow-listed, expires brief 5): the id
-  // mapping needed to write dial_position_signal.suggested_vocabulary_id,
-  // which isn't re-keyed to slot_id until brief 5.
-  const vocabIdResult = await db.query(
-    `SELECT id FROM dial_position_vocabulary WHERE archetype = $1 AND sort_order = $2`,
-    [archetype, suggestedSortOrder]
-  );
-  const vocabularyId: number | undefined = vocabIdResult.rows[0]?.id;
-  if (vocabularyId === undefined) return null;
-
   const hopConflict = await findHopConflict(coffeeId, archetype, dimensionId, Number(avgScore));
 
   return {
-    suggested_vocabulary_id: vocabularyId,
     suggested_slot_id: suggestedSlot.id,
     suggested_label: suggestedSlot.position_label,
     suggested_sort_order: suggestedSortOrder,
@@ -230,9 +222,9 @@ export async function getDialSuggestion(coffeeId: number): Promise<DialSuggestio
 
 // Phase 5 (dormant infra): records the cupping source's opinion into
 // dial_position_signal so it accumulates history as new sessions get merged.
-// Never writes to dial_archetype_positions — reuses getDialSuggestion so all
+// Never writes to coffee_slot_assignment — reuses getDialSuggestion so all
 // of its null-guards (no archetype, is_archetype = false, no cupping data,
-// no archetype_vector coverage, no vocabulary rows) apply here as no-ops too.
+// no archetype_vector coverage, no slot found) apply here as no-ops too.
 export async function recordCuppingSignal(coffeeId: number): Promise<void> {
   const suggestion = await getDialSuggestion(coffeeId);
   if (!suggestion) return;
@@ -260,9 +252,9 @@ export async function recordCuppingSignal(coffeeId: number): Promise<void> {
     );
     await tx.query(
       `INSERT INTO dial_position_signal
-         (coffee_id, archetype, dimension_id, source, suggested_vocabulary_id, raw_value, sample_size)
+         (coffee_id, archetype, dimension_id, source, suggested_slot_id, raw_value, sample_size)
        VALUES ($1, $2, $3, 'cupping', $4, $5, $6)`,
-      [coffeeId, archetype, dimensionId, suggestion.suggested_vocabulary_id, suggestion.avg_score, suggestion.session_count]
+      [coffeeId, archetype, dimensionId, suggestion.suggested_slot_id, suggestion.avg_score, suggestion.session_count]
     );
   });
 }

@@ -291,9 +291,10 @@ export async function processArrivalNotes(): Promise<{ processed: number; sent: 
       if (isFirstBag) {
         // Catalog Blueprint brief 3: archetype now read via getCoffee().match_archetype
         // (D1's flavor identity) instead of a raw archetype_assignments query.
-        const [coffee, rawResult, descriptorResult] = await Promise.all([
+        // Brief 5a: the separate raw name/roaster query is gone too — getCoffee()
+        // (v_coffee) already carries name and roaster_name.
+        const [coffee, descriptorResult] = await Promise.all([
           getCoffee(row.coffee_id),
-          db.query(`SELECT name, roaster FROM coffees WHERE id = $1`, [row.coffee_id]),
           db.query(
             `SELECT descriptor FROM v_collaborative_flavor_wheel WHERE coffee_id = $1
              GROUP BY descriptor ORDER BY COUNT(*) DESC LIMIT 4`,
@@ -305,7 +306,7 @@ export async function processArrivalNotes(): Promise<{ processed: number; sent: 
         // "shorter note" rule the length itself already implements below.
         warmSentence = await generateBrewNoteSentence(
           { displayName: alias, archetype: coffee?.match_archetype ?? null, topDescriptors: descriptorResult.rows.map((r: { descriptor: string }) => r.descriptor) },
-          { rawCoffeeName: rawResult.rows[0]?.name ?? null, roasterNames: rawResult.rows[0]?.roaster ? [rawResult.rows[0].roaster] : [] }
+          { rawCoffeeName: coffee?.name ?? null, roasterNames: coffee?.roaster_name ? [coffee.roaster_name] : [] }
         );
       }
 
