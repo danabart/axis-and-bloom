@@ -503,7 +503,7 @@ function SetMatchModal({ coffee, archetypes, apiFetch, onClose, onSaved }: {
   onSaved: (warnings: WarningLike[]) => void;
 }) {
   const [archetype, setArchetype] = useState(coffee.match_archetype ?? '');
-  const [confidence, setConfidence] = useState(coffee.match_confidence ?? 'manual');
+  const [confidence, setConfidence] = useState(coffee.match_confidence ?? 'medium');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
@@ -730,7 +730,7 @@ function PlaceACoffee(props: {
   const [roasterName, setRoasterName] = useState('');
   const [coffeeForm, setCoffeeForm] = useState({ name: '', origin: '', process: '', roastLevel: '' });
   const [archetype, setArchetype] = useState('');
-  const [confidence, setConfidence] = useState('manual');
+  const [confidence, setConfidence] = useState('medium');
   const [homeSlot, setHomeSlot] = useState('');
   const [homeWeightOz, setHomeWeightOz] = useState('12');
   const [homeSku, setHomeSku] = useState({ roasterSku: '', costToUs: '' });
