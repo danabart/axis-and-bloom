@@ -44,12 +44,17 @@ DROP TABLE IF EXISTS dial_archetype_config CASCADE;
 
 -- ── A3. Dead columns dropped, NOT NULLs added ──────────────────────────────
 ALTER TABLE roaster_blend DROP COLUMN IF EXISTS archetype_id;
-ALTER TABLE dial_coffee_relationships DROP COLUMN IF EXISTS hop_type;
+-- CASCADE: v_coffee_hop (hop_type below) and v_coffee/v_cupping_scores_readable
+-- (roaster below) each still depend on the column at this exact point in
+-- schema.sql's linear execution — both unconditionally redefined later in the
+-- same file without referencing the dropped column, so the cascade is safe;
+-- caught live on the first deploy attempt (2BP01) — see the closing report.
+ALTER TABLE dial_coffee_relationships DROP COLUMN IF EXISTS hop_type CASCADE;
 DROP TYPE IF EXISTS hop_type_enum;
 ALTER TABLE dial_slot_price DROP COLUMN IF EXISTS archetype;
 ALTER TABLE dial_slot_price DROP COLUMN IF EXISTS dial_sort_order;
 ALTER TABLE user_bloom_dial_current_position DROP COLUMN IF EXISTS dial_sort_order;
-ALTER TABLE coffees DROP COLUMN IF EXISTS roaster;
+ALTER TABLE coffees DROP COLUMN IF EXISTS roaster CASCADE;
 
 -- Each wrapped in its own DO/EXCEPTION in schema.sql so an unmet precondition
 -- can't abort the rest of the apply (index.ts checks whether each took):
@@ -57,7 +62,11 @@ ALTER TABLE coffees ALTER COLUMN roaster_id SET NOT NULL;
 ALTER TABLE roaster_blend ALTER COLUMN coffee_id SET NOT NULL;
 ALTER TABLE archetype ALTER COLUMN code SET NOT NULL;
 ALTER TABLE dial_slot_price ALTER COLUMN slot_id SET NOT NULL;
-ALTER TABLE dial_slot_price ADD CONSTRAINT dial_slot_price_slot_weight_key UNIQUE (slot_id, weight_oz);
+-- CREATE UNIQUE INDEX IF NOT EXISTS, not ALTER TABLE ADD CONSTRAINT ... UNIQUE
+-- (a hotfix, see the closing report: a named UNIQUE constraint's backing index
+-- collides with itself on a re-run, raising 42P07 rather than the 42710 an
+-- EXCEPTION WHEN duplicate_object guard catches):
+CREATE UNIQUE INDEX IF NOT EXISTS dial_slot_price_slot_weight_key ON dial_slot_price(slot_id, weight_oz);
 
 -- v_coffee.roaster_name loses its coffees.roaster fallback and
 -- roaster_name_is_fallback column; v_coffee_hop.hop_type_stored is gone,
