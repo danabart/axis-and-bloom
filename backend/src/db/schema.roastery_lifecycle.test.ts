@@ -108,63 +108,30 @@ describe('coffees_active_natural_key', () => {
   });
 });
 
-describe('roaster_blend.coffee_id name-match backfill — tightened to require matching roaster_id', () => {
-  it('matches each blend to the coffee from its OWN roaster, not an arbitrary same-named one', async () => {
-    let roasterA: { id: string } | undefined;
-    let roasterB: { id: string } | undefined;
-    let coffeeA: { id: number } | undefined;
-    let coffeeB: { id: number } | undefined;
-    let blendA: { id: string } | undefined;
-    let blendB: { id: string } | undefined;
+describe('roaster_blend.coffee_id — NOT NULL supersedes the name-match backfill', () => {
+  // The tightened backfill this describe block used to exercise (matching
+  // rb.coffee_id by (blend_name, roaster_id) for rows where it was NULL) is
+  // still in schema.sql for the one-time transition of legacy data, but
+  // Catalog Blueprint brief 5a made roaster_blend.coffee_id NOT NULL — no
+  // roaster_blend row can be constructed with coffee_id NULL anymore, on
+  // this table or any future one, so that backfill's WHERE rb.coffee_id IS
+  // NULL clause can never match again. NOT NULL is a strictly stronger
+  // guarantee against the original bug class (Temecula's two Colombia blend
+  // rows landing on Path's Colombia coffee, 2026-08-26) than the backfill's
+  // own join ever was: it doesn't just match correctly, it makes the
+  // unmatched state impossible to create in the first place. Coverage
+  // updated to assert that invariant directly instead of a JOIN that can no
+  // longer run.
+  it('rejects a roaster_blend row with no coffee_id', async () => {
+    let roaster: { id: string } | undefined;
     try {
-      // Reproduces the exact real-world shape: two coffees named identically,
-      // one per roaster, and one unmatched blend row per roaster for that name.
-      roasterA = (await db.query(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Backfill Roastery A', true) RETURNING id`)).rows[0];
-      roasterB = (await db.query(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Backfill Roastery B', true) RETURNING id`)).rows[0];
-      coffeeA = (await db.query(
-        `INSERT INTO coffees (name, roaster_id, is_active)
-         VALUES ('Vitest Backfill Coffee', $1, true) RETURNING id`,
-        [roasterA!.id]
-      )).rows[0];
-      coffeeB = (await db.query(
-        `INSERT INTO coffees (name, roaster_id, is_active)
-         VALUES ('Vitest Backfill Coffee', $1, true) RETURNING id`,
-        [roasterB!.id]
-      )).rows[0];
-      blendA = (await db.query(
-        `INSERT INTO roaster_blend (roaster_id, blend_name, weight_oz, is_active) VALUES ($1, 'Vitest Backfill Coffee', 12, true) RETURNING id`,
-        [roasterA!.id]
-      )).rows[0];
-      blendB = (await db.query(
-        `INSERT INTO roaster_blend (roaster_id, blend_name, weight_oz, is_active) VALUES ($1, 'Vitest Backfill Coffee', 12, true) RETURNING id`,
-        [roasterB!.id]
-      )).rows[0];
-
-      // The exact tightened statement from schema.sql (~L404-419).
-      await db.query(`
-        UPDATE roaster_blend rb
-        SET coffee_id = c.id
-        FROM coffees c
-        WHERE rb.coffee_id IS NULL
-          AND lower(trim(rb.blend_name)) = lower(trim(c.name))
-          AND rb.roaster_id = c.roaster_id
-          AND rb.id = ANY($1::uuid[])
-      `, [[blendA!.id, blendB!.id]]);
-
-      const linked = (await db.query(
-        `SELECT id, coffee_id FROM roaster_blend WHERE id = ANY($1::uuid[]) ORDER BY id`,
-        [[blendA!.id, blendB!.id]]
-      )).rows;
-      const blendARow = linked.find(r => r.id === blendA!.id);
-      const blendBRow = linked.find(r => r.id === blendB!.id);
-      expect(blendARow.coffee_id).toBe(coffeeA!.id);
-      expect(blendBRow.coffee_id).toBe(coffeeB!.id);
+      roaster = (await db.query(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Backfill Roastery A', true) RETURNING id`)).rows[0];
+      await expect(db.query(
+        `INSERT INTO roaster_blend (roaster_id, blend_name, weight_oz, is_active) VALUES ($1, 'Vitest Backfill Coffee', 12, true)`,
+        [roaster!.id]
+      )).rejects.toThrow(/null value in column "coffee_id"/);
     } finally {
-      const blendIds = [blendA?.id, blendB?.id].filter((id): id is string => id != null);
-      if (blendIds.length) await db.query('DELETE FROM roaster_blend WHERE id = ANY($1::uuid[])', [blendIds]);
-      const coffeeIds = [coffeeA?.id, coffeeB?.id].filter((id): id is number => id != null);
-      if (coffeeIds.length) await db.query('DELETE FROM coffees WHERE id = ANY($1::int[])', [coffeeIds]);
-      const roasterIds = [roasterA?.id, roasterB?.id].filter((id): id is string => id != null);
+      const roasterIds = [roaster?.id].filter((id): id is string => id != null);
       if (roasterIds.length) await db.query('DELETE FROM roaster WHERE id = ANY($1::uuid[])', [roasterIds]);
     }
   });
