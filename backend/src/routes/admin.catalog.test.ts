@@ -2,7 +2,6 @@
 // with the new admin GET reads (Part A/D) and the newly-retired legacy GETs.
 // Same pattern as admin.roasters.test.ts: requireAdmin mocked to a
 // passthrough, a real HTTP server wrapping the real router, real DB.
-// Requires DATABASE_URL.
 import 'dotenv/config';
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import express from 'express';

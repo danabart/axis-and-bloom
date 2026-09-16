@@ -1,4 +1,4 @@
-// Catalog Blueprint · brief 2 (2026-09-14). Requires DATABASE_URL. Uses the
+// Catalog Blueprint · brief 2 (2026-09-14). Uses the
 // EXAMPLE_manifest.json fixture directly (its roaster and both coffees are
 // 'Vitest'-prefixed by design — see the manifest's own _comment) against a
 // real Vitest roaster this test creates and tears down.
