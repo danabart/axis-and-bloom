@@ -217,7 +217,7 @@ export async function hasAnyOrderOrSponsorship(profileId: string): Promise<boole
 export async function isCoffeeRetired(coffeeId: number): Promise<boolean> {
   const result = await db.query(
     `SELECT c.is_active,
-            EXISTS (SELECT 1 FROM roaster_blend WHERE coffee_id = $1 AND is_active = true) AS has_active_blend
+            EXISTS (SELECT 1 FROM coffee_sku WHERE coffee_id = $1 AND is_active = true) AS has_active_blend
      FROM coffees c WHERE c.id = $1`,
     [coffeeId]
   );
@@ -251,7 +251,7 @@ export async function isCoffeeRetired(coffeeId: number): Promise<boolean> {
 export async function getNearestHopCoffeeId(coffeeId: number): Promise<number | null> {
   const result = await db.query(
     `SELECT dcr.to_coffee_id AS id
-     FROM dial_coffee_relationships dcr
+     FROM coffee_hop dcr
      JOIN coffees tc ON tc.id = dcr.to_coffee_id
      WHERE dcr.from_coffee_id = $1 AND dcr.to_coffee_id IS NOT NULL
        AND dcr.is_recommended = true AND tc.is_active = true
@@ -297,7 +297,7 @@ export async function checkPersonalOrderOwnership(profileId: string, coffeeId: n
   const result = await db.query(
     `SELECT 1 FROM order_line_item li
      JOIN "order" o ON o.id = li.order_id
-     JOIN roaster_blend rb ON rb.id = li.blend_id
+     JOIN coffee_sku rb ON rb.id = li.blend_id
      WHERE o.user_id = $1 AND rb.coffee_id = $2
      LIMIT 1`,
     [profileId, coffeeId]
@@ -339,7 +339,7 @@ export async function checkSponsorshipOwnership(profileId: string, coffeeId: num
   // resolving real scans — no code change needed here when that day comes.
   const result = await db.query(
     `SELECT 1 FROM order_line_item li
-     JOIN roaster_blend rb ON rb.id = li.blend_id
+     JOIN coffee_sku rb ON rb.id = li.blend_id
      WHERE li.intended_for_user_id = $1 AND rb.coffee_id = $2
      LIMIT 1`,
     [profileId, coffeeId]

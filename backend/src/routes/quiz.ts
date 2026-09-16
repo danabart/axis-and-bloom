@@ -45,7 +45,7 @@ router.get('/questions', async (_req, res) => {
          ) AS answers
        FROM quiz_question q
        JOIN quiz_answer a ON a.question_id = q.id
-       LEFT JOIN archetype ar ON ar.id = a.resulting_archetype_id
+       LEFT JOIN coffee_archetype ar ON ar.id = a.resulting_archetype_id
        WHERE q.quiz_id = $1
        GROUP BY q.id, q.q_number, q.q_text
        ORDER BY q.q_number`,
@@ -81,7 +81,7 @@ router.post('/score', async (req, res) => {
     const scoreResult = await db.query(
       `SELECT ar.name AS archetype_name, SUM(aas.score)::numeric AS total
        FROM quiz_answer_archetype_score aas
-       JOIN archetype ar ON ar.id = aas.archetype_id
+       JOIN coffee_archetype ar ON ar.id = aas.archetype_id
        WHERE aas.answer_id = ANY($1::uuid[])
        GROUP BY ar.name`,
       [answerIds]
@@ -113,8 +113,8 @@ router.post('/score', async (req, res) => {
        JOIN quiz_question q ON q.id = a.question_id
        LEFT JOIN quiz_answer_archetype_score aas
              ON aas.answer_id = a.id AND aas.score > 0
-       LEFT JOIN archetype ar_score  ON ar_score.id  = aas.archetype_id
-       LEFT JOIN archetype ar_result ON ar_result.id = a.resulting_archetype_id
+       LEFT JOIN coffee_archetype ar_score  ON ar_score.id  = aas.archetype_id
+       LEFT JOIN coffee_archetype ar_result ON ar_result.id = a.resulting_archetype_id
        WHERE a.id = ANY($1::uuid[])`,
       [answerIds]
     );
@@ -160,7 +160,7 @@ router.post('/score', async (req, res) => {
 
     // 9. Archetype UUID for winner.
     const archetypeResult = await db.query(
-      `SELECT id FROM archetype WHERE name = $1`,
+      `SELECT id FROM coffee_archetype WHERE name = $1`,
       [winnerName]
     );
 
@@ -350,7 +350,7 @@ router.get('/branch', async (req, res) => {
        FROM quiz         bq
        JOIN quiz_question  q  ON q.quiz_id = bq.id
        JOIN quiz_answer   a  ON a.question_id = q.id
-       LEFT JOIN archetype ar ON ar.id = a.resulting_archetype_id
+       LEFT JOIN coffee_archetype ar ON ar.id = a.resulting_archetype_id
        WHERE bq.parent_quiz_id = $1
          AND bq.trigger_archetype_id = $2
        GROUP BY q.id, q.q_text`,
@@ -383,7 +383,7 @@ router.get('/results/latest', requireAuth, async (req: AuthRequest, res) => {
       `SELECT qs.*, ar.name AS archetype_name
        FROM quiz_session qs
        JOIN user_profile up ON up.id = qs.user_id
-       LEFT JOIN archetype ar ON ar.id = qs.resulting_archetype_id
+       LEFT JOIN coffee_archetype ar ON ar.id = qs.resulting_archetype_id
        WHERE up.firebase_uid = $1
        ORDER BY qs.completed_at DESC
        LIMIT 1`,

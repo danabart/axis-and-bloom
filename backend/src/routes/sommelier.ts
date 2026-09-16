@@ -534,7 +534,7 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
       `SELECT qs.context_data, ar.name AS archetype_name, up.date_of_birth
        FROM quiz_session qs
        JOIN user_profile up ON up.id = qs.user_id
-       LEFT JOIN archetype ar ON ar.id = qs.resulting_archetype_id
+       LEFT JOIN coffee_archetype ar ON ar.id = qs.resulting_archetype_id
        WHERE up.firebase_uid = $1
        ORDER BY qs.completed_at DESC LIMIT 2`,
       [req.uid]

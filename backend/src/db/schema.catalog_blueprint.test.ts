@@ -18,17 +18,17 @@ import { db, withTransaction } from './client.js';
 
 afterAll(async () => {
   await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
-  await db.query(`DELETE FROM dial_coffee_relationships WHERE from_coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%') OR to_coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
+  await db.query(`DELETE FROM coffee_hop WHERE from_coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%') OR to_coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
   await db.query(`DELETE FROM coffee_category_assignment WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
-  await db.query(`DELETE FROM archetype_assignments WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
-  await db.query(`DELETE FROM roaster_blend WHERE blend_name LIKE 'Vitest%'`);
+  await db.query(`DELETE FROM coffee_archetype_assignment WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
+  await db.query(`DELETE FROM coffee_sku WHERE blend_name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM roaster WHERE name LIKE 'Vitest%'`);
 });
 
 describe('archetype identity (N2)', () => {
   it('code is populated for all six rows and unique', async () => {
-    const { rows } = await db.query<{ name: string; code: string | null }>(`SELECT name, code FROM archetype`);
+    const { rows } = await db.query<{ name: string; code: string | null }>(`SELECT name, code FROM coffee_archetype`);
     expect(rows.length).toBe(6);
     for (const row of rows) expect(row.code, `${row.name} has no code`).not.toBeNull();
     const codes = rows.map(r => r.code);
@@ -171,13 +171,13 @@ describe('archetype_assignments (Slot Truth Map F4)', () => {
         `INSERT INTO coffees (name, roaster_id, is_active) VALUES ('Vitest AA Coffee', $1, true) RETURNING id`,
         [roaster.id]
       )).rows[0];
-      await db.query(`INSERT INTO archetype_assignments (coffee_id, archetype, confidence) VALUES ($1, 'floral', 'high')`, [coffee.id]);
+      await db.query(`INSERT INTO coffee_archetype_assignment (coffee_id, archetype, confidence) VALUES ($1, 'floral', 'high')`, [coffee.id]);
       await expect(
-        db.query(`INSERT INTO archetype_assignments (coffee_id, archetype, confidence) VALUES ($1, 'fruity', 'medium')`, [coffee.id])
-      ).rejects.toThrow(/duplicate key value violates unique constraint "archetype_assignments_one_current"/);
+        db.query(`INSERT INTO coffee_archetype_assignment (coffee_id, archetype, confidence) VALUES ($1, 'fruity', 'medium')`, [coffee.id])
+      ).rejects.toThrow(/duplicate key value violates unique constraint "coffee_archetype_assignment_one_current"/);
     } finally {
       if (coffee) {
-        await db.query(`DELETE FROM archetype_assignments WHERE coffee_id = $1`, [coffee.id]);
+        await db.query(`DELETE FROM coffee_archetype_assignment WHERE coffee_id = $1`, [coffee.id]);
         await db.query(`DELETE FROM coffees WHERE id = $1`, [coffee.id]);
       }
       if (roaster) await db.query(`DELETE FROM roaster WHERE id = $1`, [roaster.id]);
@@ -206,10 +206,10 @@ describe('v_coffee_sellable_slot (D5)', () => {
         `INSERT INTO coffees (name, roaster_id, is_active) VALUES ('Vitest Sellable Home Coffee', $1, true) RETURNING id`,
         [roaster.id]
       )).rows[0];
-      await db.query(`INSERT INTO archetype_assignments (coffee_id, archetype, confidence) VALUES ($1, $2, 'high')`, [homeCoffee.id, slotArchetype]);
+      await db.query(`INSERT INTO coffee_archetype_assignment (coffee_id, archetype, confidence) VALUES ($1, $2, 'high')`, [homeCoffee.id, slotArchetype]);
       await db.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role, priority) VALUES ($1, $2, 'home', 1)`, [slot.id, homeCoffee.id]);
       homeBlend = (await db.query<{ id: string }>(
-        `INSERT INTO roaster_blend (roaster_id, coffee_id, blend_name, weight_oz, is_active) VALUES ($1, $2, 'Vitest Sellable Home Blend', 12, true) RETURNING id`,
+        `INSERT INTO coffee_sku (roaster_id, coffee_id, blend_name, weight_oz, is_active) VALUES ($1, $2, 'Vitest Sellable Home Blend', 12, true) RETURNING id`,
         [roaster.id, homeCoffee.id]
       )).rows[0];
 
@@ -218,7 +218,7 @@ describe('v_coffee_sellable_slot (D5)', () => {
       // risk colliding with the UNIQUE (slot_id, weight_oz) constraint
       // (Catalog Blueprint brief 5a — slot_id is the only key now).
       const priceInsert = await db.query(
-        `INSERT INTO dial_slot_price (slot_id, weight_oz, retail_price_cents)
+        `INSERT INTO coffee_slot_price (slot_id, weight_oz, retail_price_cents)
          VALUES ($1, 12, 3200)
          ON CONFLICT (slot_id, weight_oz) DO NOTHING`,
         [slot.id]
@@ -232,7 +232,7 @@ describe('v_coffee_sellable_slot (D5)', () => {
       expect(sellable.rows[0].blend_id).toBe(homeBlend.id);
 
       // Deactivate the home blend -> no active 12oz SKU -> slot drops out entirely.
-      await db.query(`UPDATE roaster_blend SET is_active = false WHERE id = $1`, [homeBlend.id]);
+      await db.query(`UPDATE coffee_sku SET is_active = false WHERE id = $1`, [homeBlend.id]);
       sellable = await db.query(`SELECT blend_id FROM v_coffee_sellable_slot WHERE slot_id = $1 AND weight_oz = 12`, [slot.id]);
       expect(sellable.rows.length).toBe(0);
 
@@ -243,7 +243,7 @@ describe('v_coffee_sellable_slot (D5)', () => {
       )).rows[0];
       await db.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role, priority) VALUES ($1, $2, 'guest', 2)`, [slot.id, guestCoffee.id]);
       guestBlend = (await db.query<{ id: string }>(
-        `INSERT INTO roaster_blend (roaster_id, coffee_id, blend_name, weight_oz, is_active) VALUES ($1, $2, 'Vitest Sellable Guest Blend', 12, true) RETURNING id`,
+        `INSERT INTO coffee_sku (roaster_id, coffee_id, blend_name, weight_oz, is_active) VALUES ($1, $2, 'Vitest Sellable Guest Blend', 12, true) RETURNING id`,
         [roaster.id, guestCoffee.id]
       )).rows[0];
       await db.query(`UPDATE coffees SET is_active = false WHERE id = $1`, [homeCoffee.id]);
@@ -262,13 +262,13 @@ describe('v_coffee_sellable_slot (D5)', () => {
       if (coffeeIds.length) {
         await db.query(`DELETE FROM coffee_category_assignment WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
         await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
-        await db.query(`DELETE FROM archetype_assignments WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
+        await db.query(`DELETE FROM coffee_archetype_assignment WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
       }
       const blendIds = [homeBlend?.id, guestBlend?.id].filter((id): id is string => id != null);
-      if (blendIds.length) await db.query(`DELETE FROM roaster_blend WHERE id = ANY($1::uuid[])`, [blendIds]);
+      if (blendIds.length) await db.query(`DELETE FROM coffee_sku WHERE id = ANY($1::uuid[])`, [blendIds]);
       if (coffeeIds.length) await db.query(`DELETE FROM coffees WHERE id = ANY($1::int[])`, [coffeeIds]);
       if (roaster) await db.query(`DELETE FROM roaster WHERE id = $1`, [roaster.id]);
-      if (createdPriceRow && slot) await db.query(`DELETE FROM dial_slot_price WHERE slot_id = $1 AND weight_oz = 12`, [slot.id]);
+      if (createdPriceRow && slot) await db.query(`DELETE FROM coffee_slot_price WHERE slot_id = $1 AND weight_oz = 12`, [slot.id]);
     }
   });
 });
@@ -298,7 +298,7 @@ describe('v_coffee_hop (D3)', () => {
       await db.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role) VALUES ($1, $2, 'home')`, [fruity3.id, coffeeB.id]);
 
       hop = (await db.query<{ id: number }>(
-        `INSERT INTO dial_coffee_relationships (from_coffee_id, to_coffee_id, dimension_id, direction)
+        `INSERT INTO coffee_hop (from_coffee_id, to_coffee_id, dimension_id, direction)
          VALUES ($1, $2, 9, 'more') RETURNING id`,
         [coffeeA.id, coffeeB.id]
       )).rows[0];
@@ -313,7 +313,7 @@ describe('v_coffee_hop (D3)', () => {
       derived = (await db.query<{ hop_type_derived: string }>(`SELECT hop_type_derived FROM v_coffee_hop WHERE id = $1`, [hop.id])).rows[0];
       expect(derived.hop_type_derived).toBe('within_archetype');
     } finally {
-      if (hop) await db.query(`DELETE FROM dial_coffee_relationships WHERE id = $1`, [hop.id]);
+      if (hop) await db.query(`DELETE FROM coffee_hop WHERE id = $1`, [hop.id]);
       const coffeeIds = [coffeeA?.id, coffeeB?.id].filter((id): id is number => id != null);
       if (coffeeIds.length) {
         await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
@@ -373,5 +373,33 @@ describe('Catalog Blueprint brief 5a — legacy dropped', () => {
       `SELECT COUNT(*) AS count FROM dial_position_signal WHERE raw_value IS NOT NULL AND suggested_slot_id IS NULL`
     );
     expect(Number(rows[0].count)).toBe(0);
+  });
+});
+
+describe('Catalog Blueprint brief 5b — renamed to the coffee_ convention', () => {
+  const NEW_NAMES = ['coffee_archetype', 'coffee_archetype_assignment', 'coffee_sku', 'coffee_hop', 'coffee_slot_price'];
+  const OLD_NAMES = ['archetype', 'archetype_assignments', 'roaster_blend', 'dial_coffee_relationships', 'dial_slot_price'];
+
+  it('all five renamed tables exist under their new coffee_ names', async () => {
+    const { rows } = await db.query<{ name: string }>(
+      `SELECT name FROM unnest($1::text[]) AS name WHERE to_regclass('public.' || name) IS NULL`,
+      [NEW_NAMES]
+    );
+    expect(rows).toEqual([]);
+  });
+
+  it('none of the five old table names resolve to anything', async () => {
+    const { rows } = await db.query<{ name: string }>(
+      `SELECT name FROM unnest($1::text[]) AS name WHERE to_regclass('public.' || name) IS NOT NULL`,
+      [OLD_NAMES]
+    );
+    expect(rows).toEqual([]);
+  });
+
+  it('v_coffee_archetype_adjacency exists; v_archetype_adjacency does not', async () => {
+    const newView = await db.query(`SELECT to_regclass('public.v_coffee_archetype_adjacency') AS reg`);
+    const oldView = await db.query(`SELECT to_regclass('public.v_archetype_adjacency') AS reg`);
+    expect(newView.rows[0].reg).not.toBeNull();
+    expect(oldView.rows[0].reg).toBeNull();
   });
 });

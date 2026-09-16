@@ -103,7 +103,7 @@ export async function fetchCoffeeDataForContent(coffeeId: string | number) {
       [coffeeId]
     ),
     db.query(
-      `SELECT DISTINCT r.name FROM roaster_blend rb
+      `SELECT DISTINCT r.name FROM coffee_sku rb
        JOIN roaster r ON r.id = rb.roaster_id
        WHERE rb.coffee_id = $1 AND r.name IS NOT NULL`,
       [coffeeId]

@@ -19,7 +19,33 @@ CREATE TABLE IF NOT EXISTS quiz_type (
 );
 
 
-CREATE TABLE IF NOT EXISTS archetype (
+-- Catalog Blueprint brief 5b — rename archetype -> coffee_archetype.
+DO $$ BEGIN
+  IF to_regclass('public.archetype') IS NOT NULL AND to_regclass('public.coffee_archetype') IS NULL THEN
+    ALTER TABLE archetype RENAME TO coffee_archetype;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'archetype_pkey') AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coffee_archetype_pkey') THEN
+    ALTER TABLE coffee_archetype RENAME CONSTRAINT archetype_pkey TO coffee_archetype_pkey;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'archetype_name_key') AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coffee_archetype_name_key') THEN
+    ALTER TABLE coffee_archetype RENAME CONSTRAINT archetype_name_key TO coffee_archetype_name_key;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'archetype_dominant_dimension_id_fkey') AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coffee_archetype_dominant_dimension_id_fkey') THEN
+    ALTER TABLE coffee_archetype RENAME CONSTRAINT archetype_dominant_dimension_id_fkey TO coffee_archetype_dominant_dimension_id_fkey;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'archetype_code_key') AND NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'coffee_archetype_code_key') THEN
+    ALTER INDEX archetype_code_key RENAME TO coffee_archetype_code_key;
+  END IF;
+END $$;
+CREATE TABLE IF NOT EXISTS coffee_archetype (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name        TEXT NOT NULL UNIQUE,
   description TEXT,
@@ -63,13 +89,13 @@ CREATE TABLE IF NOT EXISTS quiz (
   is_active            BOOLEAN DEFAULT true,
   created_at           TIMESTAMPTZ DEFAULT timezone('utc', now()),
   quiz_type_id         UUID REFERENCES quiz_type(id),
-  trigger_archetype_id UUID REFERENCES archetype(id),  -- branch quizzes only: which primary archetype triggers this
+  trigger_archetype_id UUID REFERENCES coffee_archetype(id),  -- branch quizzes only: which primary archetype triggers this
   parent_quiz_id       UUID REFERENCES quiz(id)        -- branch quizzes only: the main quiz this belongs to
 );
 
 -- Idempotent column additions for existing DBs
 ALTER TABLE quiz ADD COLUMN IF NOT EXISTS quiz_type_id         UUID REFERENCES quiz_type(id);
-ALTER TABLE quiz ADD COLUMN IF NOT EXISTS trigger_archetype_id UUID REFERENCES archetype(id);
+ALTER TABLE quiz ADD COLUMN IF NOT EXISTS trigger_archetype_id UUID REFERENCES coffee_archetype(id);
 ALTER TABLE quiz ADD COLUMN IF NOT EXISTS parent_quiz_id       UUID REFERENCES quiz(id);
 
 -- Backfill existing main quizzes (idempotent — WHERE quiz_type_id IS NULL)
@@ -299,7 +325,7 @@ ALTER TABLE token_events ADD COLUMN IF NOT EXISTS model TEXT;
 -- ─────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS archetype_vector (
-  archetype_id UUID NOT NULL REFERENCES archetype(id) ON DELETE CASCADE,
+  archetype_id UUID NOT NULL REFERENCES coffee_archetype(id) ON DELETE CASCADE,
   dimension_id UUID NOT NULL,
   ideal_score  NUMERIC NOT NULL,
   min_score    NUMERIC,
@@ -308,17 +334,17 @@ CREATE TABLE IF NOT EXISTS archetype_vector (
   PRIMARY KEY (archetype_id, dimension_id)
 );
 
--- DEPRECATED, superseded by v_archetype_adjacency / Bloom Dial (2026-08-04);
+-- DEPRECATED, superseded by v_coffee_archetype_adjacency / Bloom Dial (2026-08-04);
 -- last consumer (sommelierRag.ts's getAdjacentArchetypes()) migrated in S89.
 -- 0 rows in production, confirmed dead (S88/HOME_TASK_9B) — never populated,
 -- superseded by the real, actively-curated dial_coffee_relationships hop
 -- graph before it ever needed to be. Left in place, not dropped (dormant
 -- data discipline, same as the per-coffee QR tokens after HOME_TASK_7E) —
--- do not add a new consumer of this table; use v_archetype_adjacency instead.
+-- do not add a new consumer of this table; use v_coffee_archetype_adjacency instead.
 CREATE TABLE IF NOT EXISTS archetype_relationship (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  from_archetype_id UUID REFERENCES archetype(id) ON DELETE CASCADE,
-  to_archetype_id   UUID REFERENCES archetype(id) ON DELETE CASCADE,
+  from_archetype_id UUID REFERENCES coffee_archetype(id) ON DELETE CASCADE,
+  to_archetype_id   UUID REFERENCES coffee_archetype(id) ON DELETE CASCADE,
   dimension_id      UUID,
   direction         TEXT,
   strength_delta    NUMERIC,
@@ -327,7 +353,7 @@ CREATE TABLE IF NOT EXISTS archetype_relationship (
 
 CREATE TABLE IF NOT EXISTS archetype_tunable_variable (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  archetype_id UUID REFERENCES archetype(id) ON DELETE CASCADE,
+  archetype_id UUID REFERENCES coffee_archetype(id) ON DELETE CASCADE,
   dimension_id UUID,
   display_name TEXT,
   min_offset   NUMERIC DEFAULT -2.0,
@@ -348,7 +374,7 @@ CREATE TABLE IF NOT EXISTS user_vector_state (
 
 CREATE TABLE IF NOT EXISTS user_archetype_tuning (
   user_id              UUID NOT NULL REFERENCES user_profile(id) ON DELETE CASCADE,
-  archetype_id         UUID NOT NULL REFERENCES archetype(id) ON DELETE CASCADE,
+  archetype_id         UUID NOT NULL REFERENCES coffee_archetype(id) ON DELETE CASCADE,
   dimension_id         UUID NOT NULL,
   user_selected_offset NUMERIC,
   updated_at           TIMESTAMPTZ DEFAULT now(),
@@ -358,7 +384,7 @@ CREATE TABLE IF NOT EXISTS user_archetype_tuning (
 CREATE TABLE IF NOT EXISTS user_coffee_profile (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id          UUID REFERENCES user_profile(id) ON DELETE CASCADE,
-  archetype_id     UUID REFERENCES archetype(id),
+  archetype_id     UUID REFERENCES coffee_archetype(id),
   match_rank       INTEGER NOT NULL,
   match_confidence NUMERIC,
   is_active        BOOLEAN DEFAULT true,
@@ -369,7 +395,28 @@ CREATE TABLE IF NOT EXISTS user_coffee_profile (
 -- BLENDS & ROASTERY
 -- ─────────────────────────────────────────────
 
-CREATE TABLE IF NOT EXISTS roaster_blend (
+-- Catalog Blueprint brief 5b — rename roaster_blend -> coffee_sku.
+DO $$ BEGIN
+  IF to_regclass('public.roaster_blend') IS NOT NULL AND to_regclass('public.coffee_sku') IS NULL THEN
+    ALTER TABLE roaster_blend RENAME TO coffee_sku;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'roaster_blend_coffee_id_fkey') AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coffee_sku_coffee_id_fkey') THEN
+    ALTER TABLE coffee_sku RENAME CONSTRAINT roaster_blend_coffee_id_fkey TO coffee_sku_coffee_id_fkey;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_roaster_blend_deactivation_reason') AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_coffee_sku_deactivation_reason') THEN
+    ALTER TABLE coffee_sku RENAME CONSTRAINT chk_roaster_blend_deactivation_reason TO chk_coffee_sku_deactivation_reason;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'roaster_blend_one_active_per_weight') AND NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'coffee_sku_one_active_per_weight') THEN
+    ALTER INDEX roaster_blend_one_active_per_weight RENAME TO coffee_sku_one_active_per_weight;
+  END IF;
+END $$;
+CREATE TABLE IF NOT EXISTS coffee_sku (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   roaster_id            UUID REFERENCES roaster(id),
   blend_name            TEXT NOT NULL,
@@ -388,8 +435,8 @@ CREATE TABLE IF NOT EXISTS roaster_blend (
 );
 
 -- Link roaster_blend → coffees (idempotent)
-ALTER TABLE roaster_blend ADD COLUMN IF NOT EXISTS coffee_id INTEGER REFERENCES coffees(id);
-ALTER TABLE roaster_blend ADD COLUMN IF NOT EXISTS last_restocked_at TIMESTAMPTZ;
+ALTER TABLE coffee_sku ADD COLUMN IF NOT EXISTS coffee_id INTEGER REFERENCES coffees(id);
+ALTER TABLE coffee_sku ADD COLUMN IF NOT EXISTS last_restocked_at TIMESTAMPTZ;
 
 -- Roastery lifecycle (2026-08-25/26, CTO review round) — coffees.roaster_id is
 -- added here, ahead of its own full ALTER/backfill block further down in this
@@ -410,7 +457,7 @@ ALTER TABLE coffees ADD COLUMN IF NOT EXISTS roaster_id UUID REFERENCES roaster(
 -- Temecula's two Colombia roaster_blend rows landed on Path's Colombia
 -- coffee (id 7) instead of Temecula's own (id 20) — see the coffees_active_
 -- natural_key section below and the pending data-fix SQL that repoints them.
-UPDATE roaster_blend rb
+UPDATE coffee_sku rb
 SET coffee_id = c.id
 FROM coffees c
 WHERE rb.coffee_id IS NULL
@@ -418,7 +465,7 @@ WHERE rb.coffee_id IS NULL
   AND rb.roaster_id = c.roaster_id;
 
 CREATE TABLE IF NOT EXISTS roastery_blend_vector (
-  blend_id     UUID NOT NULL REFERENCES roaster_blend(id) ON DELETE CASCADE,
+  blend_id     UUID NOT NULL REFERENCES coffee_sku(id) ON DELETE CASCADE,
   dimension_id UUID NOT NULL,
   score        NUMERIC NOT NULL,
   PRIMARY KEY (blend_id, dimension_id)
@@ -566,14 +613,14 @@ CREATE TABLE IF NOT EXISTS quiz_answer (
   question_id            UUID REFERENCES question(id) ON DELETE CASCADE,
   answer_text            TEXT NOT NULL,
   next_question_id       UUID REFERENCES question(id),
-  resulting_archetype_id UUID REFERENCES archetype(id),
+  resulting_archetype_id UUID REFERENCES coffee_archetype(id),
   vector_impact          JSONB
 );
 
 CREATE TABLE IF NOT EXISTS quiz_session (
   id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id              UUID REFERENCES user_profile(id) ON DELETE CASCADE,
-  resulting_archetype_id UUID REFERENCES archetype(id),
+  resulting_archetype_id UUID REFERENCES coffee_archetype(id),
   context_data         JSONB,
   completed_at         TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
@@ -609,7 +656,7 @@ CREATE TABLE IF NOT EXISTS quiz_answer_archetype_score (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   answer_id    UUID NOT NULL REFERENCES quiz_answer(id) ON DELETE CASCADE,
   question_id  UUID NOT NULL REFERENCES question(id) ON DELETE CASCADE,
-  archetype_id UUID REFERENCES archetype(id) ON DELETE SET NULL,
+  archetype_id UUID REFERENCES coffee_archetype(id) ON DELETE SET NULL,
   score        NUMERIC NOT NULL DEFAULT 0,
   UNIQUE (answer_id, archetype_id)
 );
@@ -682,7 +729,7 @@ CREATE TABLE IF NOT EXISTS roastery_shipment_details (
 CREATE TABLE IF NOT EXISTS order_line_item (
   id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   order_id             UUID REFERENCES "order"(id) ON DELETE CASCADE,
-  blend_id             UUID REFERENCES roaster_blend(id),
+  blend_id             UUID REFERENCES coffee_sku(id),
   intended_for_user_id UUID REFERENCES user_profile(id),
   shipment_id          UUID REFERENCES roastery_shipment_details(id),
   quantity             INTEGER NOT NULL DEFAULT 1,
@@ -781,7 +828,7 @@ CREATE TABLE IF NOT EXISTS sommelier_sms_feedback (
   id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id                   UUID REFERENCES user_profile(id) ON DELETE CASCADE,
   order_id                  UUID REFERENCES "order"(id),
-  blend_id                  UUID REFERENCES roaster_blend(id),
+  blend_id                  UUID REFERENCES coffee_sku(id),
   phone_number              TEXT NOT NULL,
   direction                 TEXT NOT NULL CHECK (direction IN ('outbound', 'inbound')),
   body                      TEXT NOT NULL,
@@ -804,7 +851,7 @@ CREATE TABLE IF NOT EXISTS user_feedback_event (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id      UUID REFERENCES user_profile(id),
   order_id     UUID REFERENCES "order"(id),
-  blend_id     UUID REFERENCES roaster_blend(id),
+  blend_id     UUID REFERENCES coffee_sku(id),
   signal_type  TEXT NOT NULL,
   rating       INTEGER,
   s_value      NUMERIC,
@@ -816,7 +863,7 @@ CREATE TABLE IF NOT EXISTS user_recommendation_log (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id         UUID REFERENCES user_profile(id),
   candidates_shown JSONB NOT NULL,
-  chosen_blend_id  UUID REFERENCES roaster_blend(id),
+  chosen_blend_id  UUID REFERENCES coffee_sku(id),
   created_at       TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
 
@@ -1128,8 +1175,8 @@ ALTER TABLE coffees ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT 
 ALTER TABLE coffees ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ;
 ALTER TABLE coffees ADD COLUMN IF NOT EXISTS deactivation_reason TEXT;   -- 'roaster' | 'manual' | NULL
 
-ALTER TABLE roaster_blend ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ;
-ALTER TABLE roaster_blend ADD COLUMN IF NOT EXISTS deactivation_reason TEXT;
+ALTER TABLE coffee_sku ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ;
+ALTER TABLE coffee_sku ADD COLUMN IF NOT EXISTS deactivation_reason TEXT;
 -- coffee_alias's own deactivated_at/deactivation_reason columns and check
 -- constraint were dropped along with the table (Catalog Blueprint brief 5a).
 
@@ -1146,7 +1193,7 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE roaster_blend ADD CONSTRAINT chk_roaster_blend_deactivation_reason
+  ALTER TABLE coffee_sku ADD CONSTRAINT chk_coffee_sku_deactivation_reason
     CHECK (deactivation_reason IS NULL OR deactivation_reason IN ('roaster', 'manual'));
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
@@ -1390,7 +1437,43 @@ CREATE TABLE IF NOT EXISTS user_flavor_feedback (
 
 -- Archetype assignments per coffee, with history.
 -- superseded_at = NULL → current assignment; populated when a newer one replaces it.
-CREATE TABLE IF NOT EXISTS archetype_assignments (
+-- Catalog Blueprint brief 5b — rename archetype_assignments -> coffee_archetype_assignment.
+DO $$ BEGIN
+  IF to_regclass('public.archetype_assignments') IS NOT NULL AND to_regclass('public.coffee_archetype_assignment') IS NULL THEN
+    ALTER TABLE archetype_assignments RENAME TO coffee_archetype_assignment;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'archetype_assignments_pkey') AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coffee_archetype_assignment_pkey') THEN
+    ALTER TABLE coffee_archetype_assignment RENAME CONSTRAINT archetype_assignments_pkey TO coffee_archetype_assignment_pkey;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'archetype_assignments_assigned_from_session_id_fkey') AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coffee_archetype_assignment_assigned_from_session_id_fkey') THEN
+    ALTER TABLE coffee_archetype_assignment RENAME CONSTRAINT archetype_assignments_assigned_from_session_id_fkey TO coffee_archetype_assignment_assigned_from_session_id_fkey;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'archetype_assignments_coffee_id_fkey') AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coffee_archetype_assignment_coffee_id_fkey') THEN
+    ALTER TABLE coffee_archetype_assignment RENAME CONSTRAINT archetype_assignments_coffee_id_fkey TO coffee_archetype_assignment_coffee_id_fkey;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'archetype_assignments_one_current') AND NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'coffee_archetype_assignment_one_current') THEN
+    ALTER INDEX archetype_assignments_one_current RENAME TO coffee_archetype_assignment_one_current;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_archetype_assign_coffee') AND NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_coffee_archetype_assign_coffee') THEN
+    ALTER INDEX idx_archetype_assign_coffee RENAME TO idx_coffee_archetype_assign_coffee;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_archetype_assign_session') AND NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_coffee_archetype_assign_session') THEN
+    ALTER INDEX idx_archetype_assign_session RENAME TO idx_coffee_archetype_assign_session;
+  END IF;
+END $$;
+CREATE TABLE IF NOT EXISTS coffee_archetype_assignment (
   id                       SERIAL PRIMARY KEY,
   coffee_id                INTEGER NOT NULL REFERENCES coffees(id) ON DELETE CASCADE,
   archetype                archetype_enum NOT NULL,
@@ -1412,7 +1495,48 @@ CREATE TABLE IF NOT EXISTS archetype_assignments (
 -- migrations/catalog_blueprint_5a_2026-09-15.sql for the exact drop statements.
 
 -- Directional dimensional hop graph between coffees
-CREATE TABLE IF NOT EXISTS dial_coffee_relationships (
+-- Catalog Blueprint brief 5b — rename dial_coffee_relationships -> coffee_hop.
+DO $$ BEGIN
+  IF to_regclass('public.dial_coffee_relationships') IS NOT NULL AND to_regclass('public.coffee_hop') IS NULL THEN
+    ALTER TABLE dial_coffee_relationships RENAME TO coffee_hop;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'dial_coffee_relationships_pkey') AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coffee_hop_pkey') THEN
+    ALTER TABLE coffee_hop RENAME CONSTRAINT dial_coffee_relationships_pkey TO coffee_hop_pkey;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'dial_coffee_relationships_dimension_id_fkey') AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coffee_hop_dimension_id_fkey') THEN
+    ALTER TABLE coffee_hop RENAME CONSTRAINT dial_coffee_relationships_dimension_id_fkey TO coffee_hop_dimension_id_fkey;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'dial_coffee_relationships_from_category_id_fkey') AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coffee_hop_from_category_id_fkey') THEN
+    ALTER TABLE coffee_hop RENAME CONSTRAINT dial_coffee_relationships_from_category_id_fkey TO coffee_hop_from_category_id_fkey;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'dial_coffee_relationships_from_coffee_id_fkey') AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coffee_hop_from_coffee_id_fkey') THEN
+    ALTER TABLE coffee_hop RENAME CONSTRAINT dial_coffee_relationships_from_coffee_id_fkey TO coffee_hop_from_coffee_id_fkey;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'dial_coffee_relationships_from_coffee_id_to_coffee_id_dimen_key') AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coffee_hop_from_coffee_id_to_coffee_id_dimen_key') THEN
+    ALTER TABLE coffee_hop RENAME CONSTRAINT dial_coffee_relationships_from_coffee_id_to_coffee_id_dimen_key TO coffee_hop_from_coffee_id_to_coffee_id_dimen_key;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'dial_coffee_relationships_to_category_id_fkey') AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coffee_hop_to_category_id_fkey') THEN
+    ALTER TABLE coffee_hop RENAME CONSTRAINT dial_coffee_relationships_to_category_id_fkey TO coffee_hop_to_category_id_fkey;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'dial_coffee_relationships_to_coffee_id_fkey') AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coffee_hop_to_coffee_id_fkey') THEN
+    ALTER TABLE coffee_hop RENAME CONSTRAINT dial_coffee_relationships_to_coffee_id_fkey TO coffee_hop_to_coffee_id_fkey;
+  END IF;
+END $$;
+CREATE TABLE IF NOT EXISTS coffee_hop (
   id               SERIAL PRIMARY KEY,
   from_coffee_id   INT REFERENCES coffees(id) ON DELETE CASCADE,
   to_coffee_id     INT REFERENCES coffees(id) ON DELETE CASCADE,
@@ -1500,17 +1624,17 @@ ON CONFLICT (coffee_id, category_id) DO NOTHING;
 -- The dial_coffee_relationships UNIQUE constraint won't meaningfully dedupe
 -- category-endpoint hops (NULL <> NULL in Postgres uniqueness — same caveat already
 -- true of coffee_alias's NULL-archetype rows); acceptable for now.
-ALTER TABLE dial_coffee_relationships ADD COLUMN IF NOT EXISTS from_category_id INT REFERENCES coffee_category(id);
-ALTER TABLE dial_coffee_relationships ADD COLUMN IF NOT EXISTS to_category_id   INT REFERENCES coffee_category(id);
+ALTER TABLE coffee_hop ADD COLUMN IF NOT EXISTS from_category_id INT REFERENCES coffee_category(id);
+ALTER TABLE coffee_hop ADD COLUMN IF NOT EXISTS to_category_id   INT REFERENCES coffee_category(id);
 
 DO $$ BEGIN
-  ALTER TABLE dial_coffee_relationships ADD CONSTRAINT chk_from_endpoint
+  ALTER TABLE coffee_hop ADD CONSTRAINT chk_from_endpoint
     CHECK ((from_coffee_id IS NOT NULL) <> (from_category_id IS NOT NULL));
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
-  ALTER TABLE dial_coffee_relationships ADD CONSTRAINT chk_to_endpoint
+  ALTER TABLE coffee_hop ADD CONSTRAINT chk_to_endpoint
     CHECK ((to_coffee_id IS NOT NULL) <> (to_category_id IS NOT NULL));
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
@@ -1549,7 +1673,28 @@ COMMENT ON TABLE user_bloom_dial_current_position IS
 -- 5a dropped the composite archetype/dial_sort_order columns) is added below,
 -- after coffee_dial_slot exists — this CREATE runs too early in the file to
 -- reference it directly.
-CREATE TABLE IF NOT EXISTS dial_slot_price (
+-- Catalog Blueprint brief 5b — rename dial_slot_price -> coffee_slot_price.
+DO $$ BEGIN
+  IF to_regclass('public.dial_slot_price') IS NOT NULL AND to_regclass('public.coffee_slot_price') IS NULL THEN
+    ALTER TABLE dial_slot_price RENAME TO coffee_slot_price;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'dial_slot_price_pkey') AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coffee_slot_price_pkey') THEN
+    ALTER TABLE coffee_slot_price RENAME CONSTRAINT dial_slot_price_pkey TO coffee_slot_price_pkey;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'dial_slot_price_slot_id_fkey') AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coffee_slot_price_slot_id_fkey') THEN
+    ALTER TABLE coffee_slot_price RENAME CONSTRAINT dial_slot_price_slot_id_fkey TO coffee_slot_price_slot_id_fkey;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'dial_slot_price_slot_weight_key') AND NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'coffee_slot_price_slot_weight_key') THEN
+    ALTER INDEX dial_slot_price_slot_weight_key RENAME TO coffee_slot_price_slot_weight_key;
+  END IF;
+END $$;
+CREATE TABLE IF NOT EXISTS coffee_slot_price (
   id                  SERIAL PRIMARY KEY,
   weight_oz           NUMERIC NOT NULL,
   retail_price_cents  INTEGER NOT NULL,
@@ -1761,7 +1906,7 @@ ON CONFLICT (category, value) DO UPDATE
 -- check never fires for it. Can't add code directly to this INSERT
 -- instead: the column doesn't exist yet at this point in the file on a
 -- fresh database (added by ALTER TABLE further down, then backfilled).
-INSERT INTO archetype (name, description)
+INSERT INTO coffee_archetype (name, description)
 SELECT v.name, v.description FROM (VALUES
   ('Chocolate & Nutty', 'A rich, bold, and comforting profile. You know exactly what you like and you like it satisfying.'),
   ('Balanced & Sweet',  'A smooth, round, and approachable profile. You want coffee that''s easy, pleasant, and never surprising.'),
@@ -1770,10 +1915,10 @@ SELECT v.name, v.description FROM (VALUES
   ('Floral',            'A delicate, aromatic, and tea-like profile. You''re drawn to brightness and floral complexity over body and bitterness.'),
   ('Experimental',      'A boundary-pushing, discovery-first profile. You seek the unexpected — unusual processing, exotic origins, unconventional flavors.')
 ) AS v(name, description)
-WHERE NOT EXISTS (SELECT 1 FROM archetype a WHERE a.name = v.name);
+WHERE NOT EXISTS (SELECT 1 FROM coffee_archetype a WHERE a.name = v.name);
 
 -- Rename 'Fruity & Complex' → 'Fruity' in existing DBs (idempotent)
-UPDATE archetype SET name = 'Fruity', updated_at = NOW() WHERE name = 'Fruity & Complex';
+UPDATE coffee_archetype SET name = 'Fruity', updated_at = NOW() WHERE name = 'Fruity & Complex';
 
 -- 2. Cupping dimensions (OVERRIDING SYSTEM VALUE lets us set explicit SERIAL IDs)
 INSERT INTO coffee_dimensions (id, name, description, scale_min_label, scale_max_label, scale_min, scale_max, is_numeric, display_order)
@@ -1812,7 +1957,7 @@ UPDATE coffee_dimensions SET platform_name = 'Finish'      WHERE name = 'Finish 
 
 -- dial_archetype_config and dial_position_vocabulary's own seed INSERTs were
 -- removed by Catalog Blueprint brief 5a along with the tables — see the
--- archetype dial-config seed (above the archetype_code_key index, further
+-- archetype dial-config seed (above the coffee_archetype_code_key index, further
 -- down this file) and coffee_dial_slot's static 24-row seed for their
 -- replacements.
 
@@ -1837,9 +1982,9 @@ DECLARE
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM quiz LIMIT 1) THEN
 
-    SELECT id INTO v_choc_id  FROM archetype WHERE name = 'Chocolate & Nutty';
-    SELECT id INTO v_bal_id   FROM archetype WHERE name = 'Balanced & Sweet';
-    SELECT id INTO v_fruit_id FROM archetype WHERE name = 'Fruity';
+    SELECT id INTO v_choc_id  FROM coffee_archetype WHERE name = 'Chocolate & Nutty';
+    SELECT id INTO v_bal_id   FROM coffee_archetype WHERE name = 'Balanced & Sweet';
+    SELECT id INTO v_fruit_id FROM coffee_archetype WHERE name = 'Fruity';
 
     INSERT INTO quiz (version, description, is_active)
       VALUES ('v2', 'Axis & Bloom Flavor Finder — 4 questions', true)
@@ -1899,9 +2044,9 @@ BEGIN
   IF v_quiz_id IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM quiz_question WHERE quiz_id = v_quiz_id AND q_number = 5
   ) THEN
-    SELECT id INTO v_choc_id  FROM archetype WHERE name = 'Chocolate & Nutty';
-    SELECT id INTO v_bal_id   FROM archetype WHERE name = 'Balanced & Sweet';
-    SELECT id INTO v_fruit_id FROM archetype WHERE name = 'Fruity';
+    SELECT id INTO v_choc_id  FROM coffee_archetype WHERE name = 'Chocolate & Nutty';
+    SELECT id INTO v_bal_id   FROM coffee_archetype WHERE name = 'Balanced & Sweet';
+    SELECT id INTO v_fruit_id FROM coffee_archetype WHERE name = 'Fruity';
 
     INSERT INTO quiz_question (quiz_id, q_number, q_text)
       VALUES (v_quiz_id, 5, 'You''re handed an espresso — straight, no milk, no sugar. How does it land?')
@@ -1951,7 +2096,7 @@ BEGIN
     ) AS data(q_number, answer_text, archetype_name, score)
     JOIN quiz_question q ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
     JOIN quiz_answer  a ON a.question_id = q.id AND a.answer_text = data.answer_text
-    JOIN archetype ar ON ar.name = data.archetype_name
+    JOIN coffee_archetype ar ON ar.name = data.archetype_name
     ON CONFLICT (answer_id, archetype_id) DO NOTHING;
   END IF;
 END $scoring$;
@@ -1980,9 +2125,9 @@ DECLARE
 BEGIN
   IF EXISTS (SELECT 1 FROM quiz LIMIT 1) THEN RETURN; END IF;
 
-  SELECT id INTO v_choc_id  FROM archetype WHERE name = 'Chocolate & Nutty';
-  SELECT id INTO v_bal_id   FROM archetype WHERE name = 'Balanced & Sweet';
-  SELECT id INTO v_fruit_id FROM archetype WHERE name = 'Fruity';
+  SELECT id INTO v_choc_id  FROM coffee_archetype WHERE name = 'Chocolate & Nutty';
+  SELECT id INTO v_bal_id   FROM coffee_archetype WHERE name = 'Balanced & Sweet';
+  SELECT id INTO v_fruit_id FROM coffee_archetype WHERE name = 'Fruity';
 
   -- Deactivate V2 (and any other active quiz)
   UPDATE quiz SET is_active = FALSE;
@@ -2083,7 +2228,7 @@ BEGIN
   ) AS data(q_number, answer_text, archetype_name, score)
   JOIN quiz_question q ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
   JOIN quiz_answer    a  ON a.question_id = q.id  AND a.answer_text = data.answer_text
-  JOIN archetype ar ON ar.name = data.archetype_name
+  JOIN coffee_archetype ar ON ar.name = data.archetype_name
   ON CONFLICT (answer_id, archetype_id) DO NOTHING;
 END $v3_scoring$;
 
@@ -2210,8 +2355,8 @@ CREATE INDEX IF NOT EXISTS idx_roastery_desc_note           ON roastery_coffee_d
 CREATE INDEX IF NOT EXISTS idx_client_feedback_user         ON user_flavor_feedback(user_id);
 CREATE INDEX IF NOT EXISTS idx_client_feedback_coffee       ON user_flavor_feedback(coffee_id);
 CREATE INDEX IF NOT EXISTS idx_client_feedback_order        ON user_flavor_feedback(order_id);
-CREATE INDEX IF NOT EXISTS idx_archetype_assign_coffee      ON archetype_assignments(coffee_id);
-CREATE INDEX IF NOT EXISTS idx_archetype_assign_session     ON archetype_assignments(assigned_from_session_id);
+CREATE INDEX IF NOT EXISTS idx_coffee_archetype_assign_coffee      ON coffee_archetype_assignment(coffee_id);
+CREATE INDEX IF NOT EXISTS idx_coffee_archetype_assign_session     ON coffee_archetype_assignment(assigned_from_session_id);
 
 -- Sommelier SMS feedback indexes
 CREATE INDEX IF NOT EXISTS idx_sommelier_sms_user      ON sommelier_sms_feedback(user_id);
@@ -2235,13 +2380,13 @@ CREATE INDEX IF NOT EXISTS idx_answer_arch_score_archetype  ON quiz_answer_arche
 -- database seeds `archetype` by name first, and the backfill below runs
 -- later in this same boot to fill it — see Part D's boot check for a NULL
 -- warning instead.
-ALTER TABLE archetype ADD COLUMN IF NOT EXISTS code archetype_enum;
-ALTER TABLE archetype ADD COLUMN IF NOT EXISTS sort_order INT;
-ALTER TABLE archetype ADD COLUMN IF NOT EXISTS has_bloom_dial BOOLEAN NOT NULL DEFAULT true;
-ALTER TABLE archetype ADD COLUMN IF NOT EXISTS is_archetype BOOLEAN NOT NULL DEFAULT true;
-ALTER TABLE archetype ADD COLUMN IF NOT EXISTS dominant_dimension_id INT REFERENCES coffee_dimensions(id);
+ALTER TABLE coffee_archetype ADD COLUMN IF NOT EXISTS code archetype_enum;
+ALTER TABLE coffee_archetype ADD COLUMN IF NOT EXISTS sort_order INT;
+ALTER TABLE coffee_archetype ADD COLUMN IF NOT EXISTS has_bloom_dial BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE coffee_archetype ADD COLUMN IF NOT EXISTS is_archetype BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE coffee_archetype ADD COLUMN IF NOT EXISTS dominant_dimension_id INT REFERENCES coffee_dimensions(id);
 -- wheel_category values from cupping_note that count as "on family" for D6; brief 2 reads it.
-ALTER TABLE archetype ADD COLUMN IF NOT EXISTS descriptor_families TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE coffee_archetype ADD COLUMN IF NOT EXISTS descriptor_families TEXT[] NOT NULL DEFAULT '{}';
 -- Catalog Blueprint brief 4 — guards the one-time seed below so a real admin
 -- edit (catalogService.setArchetypeDescriptorFamilies) is never silently
 -- reset back to the seed default on the next boot. Brief 1/2/3's own boots
@@ -2249,10 +2394,10 @@ ALTER TABLE archetype ADD COLUMN IF NOT EXISTS descriptor_families TEXT[] NOT NU
 -- coffee could deliberately clear 'experimental's family back to '{}'
 -- (it's the seed default) and the next boot would re-seed it as if nothing
 -- had happened; this column makes that a one-time seed instead.
-ALTER TABLE archetype ADD COLUMN IF NOT EXISTS descriptor_families_seeded_at TIMESTAMPTZ;
+ALTER TABLE coffee_archetype ADD COLUMN IF NOT EXISTS descriptor_families_seeded_at TIMESTAMPTZ;
 
 -- One-time backfill of code from name (the only place the name<->code map is ever written down again):
-UPDATE archetype SET code = CASE name
+UPDATE coffee_archetype SET code = CASE name
   WHEN 'Chocolate & Nutty' THEN 'chocolate_nutty' WHEN 'Balanced & Sweet' THEN 'balanced_sweet'
   WHEN 'Fruity' THEN 'fruity' WHEN 'Earthy' THEN 'earthy' WHEN 'Floral' THEN 'floral'
   WHEN 'Experimental' THEN 'experimental' END::archetype_enum
@@ -2267,7 +2412,7 @@ WHERE code IS NULL;
 -- starts at its column default of true — after the first boot,
 -- 'experimental' is false and every other row has dominant_dimension_id set,
 -- so the guard never matches again.
-UPDATE archetype SET
+UPDATE coffee_archetype SET
   has_bloom_dial = true,
   is_archetype = (code <> 'experimental'),
   dominant_dimension_id = CASE code
@@ -2275,13 +2420,13 @@ UPDATE archetype SET
     WHEN 'floral' THEN 9 WHEN 'earthy' THEN 6 WHEN 'experimental' THEN NULL END
 WHERE dominant_dimension_id IS NULL AND is_archetype;
 
-UPDATE archetype SET sort_order = CASE code
+UPDATE coffee_archetype SET sort_order = CASE code
   WHEN 'floral' THEN 1 WHEN 'fruity' THEN 2 WHEN 'balanced_sweet' THEN 3
   WHEN 'chocolate_nutty' THEN 4 WHEN 'earthy' THEN 5 WHEN 'experimental' THEN 6 END
 WHERE sort_order IS NULL;   -- CANONICAL_ARCHETYPE_ORDER from coffees.ts L617
 
 DO $$ BEGIN
-  CREATE UNIQUE INDEX IF NOT EXISTS archetype_code_key ON archetype(code);
+  CREATE UNIQUE INDEX IF NOT EXISTS coffee_archetype_code_key ON coffee_archetype(code);
 EXCEPTION WHEN unique_violation THEN NULL; END $$;
 
 -- descriptor_families seed — real DISTINCT wheel_category strings from cupping_note
@@ -2290,7 +2435,7 @@ EXCEPTION WHEN unique_violation THEN NULL; END $$;
 -- Roasted, Spices, Nutty / Cocoa, Sweet — note the spaces around "/", unlike a
 -- naive guess). 'Other' deliberately excluded from every archetype's family (it
 -- covers Papery/Musty/Chemical off-notes, not a flavor identity).
-UPDATE archetype SET descriptor_families = CASE code
+UPDATE coffee_archetype SET descriptor_families = CASE code
   WHEN 'chocolate_nutty' THEN ARRAY['Nutty / Cocoa','Sweet']
   WHEN 'balanced_sweet'  THEN ARRAY['Sweet','Nutty / Cocoa','Fruity']
   WHEN 'fruity'          THEN ARRAY['Fruity','Sour / Fermented']
@@ -2307,11 +2452,11 @@ WHERE descriptor_families_seeded_at IS NULL;
 -- dial_position_vocabulary as the read path (brief 3); both tables were
 -- dropped in brief 5a, at which point this table's backfill (below) switched
 -- from joining them to a static seed of their own last known values. The
--- archetype(code) FK needs archetype_code_key above to exist first — this
--- table is created after it in this same file for that reason.
+-- coffee_archetype(code) FK needs coffee_archetype_code_key above to exist
+-- first — this table is created after it in this same file for that reason.
 CREATE TABLE IF NOT EXISTS coffee_dial_slot (
   id                       SERIAL PRIMARY KEY,
-  archetype                archetype_enum NOT NULL REFERENCES archetype(code),
+  archetype                archetype_enum NOT NULL REFERENCES coffee_archetype(code),
   sort_order               INT NOT NULL CHECK (sort_order BETWEEN 1 AND 4),
   name                     TEXT NOT NULL,          -- customer-facing, was dial_slot_alias.platform_name
   position_label           TEXT NOT NULL,          -- was dial_position_vocabulary.label
@@ -2455,19 +2600,19 @@ CREATE INDEX IF NOT EXISTS coffee_slot_assignment_slot_active_idx ON coffee_slot
 
 -- archetype_assignments: one current row per coffee (Slot Truth Map F4)
 DO $$ BEGIN
-  CREATE UNIQUE INDEX IF NOT EXISTS archetype_assignments_one_current
-    ON archetype_assignments(coffee_id) WHERE superseded_at IS NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS coffee_archetype_assignment_one_current
+    ON coffee_archetype_assignment(coffee_id) WHERE superseded_at IS NULL;
 EXCEPTION WHEN unique_violation THEN NULL; END $$;
 DO $$ BEGIN
   CREATE TYPE assignment_source_enum AS ENUM ('cupping', 'manual', 'import');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
-ALTER TABLE archetype_assignments ADD COLUMN IF NOT EXISTS source assignment_source_enum;
-UPDATE archetype_assignments SET source = CASE WHEN assigned_from_session_id IS NOT NULL THEN 'cupping' ELSE 'manual' END::assignment_source_enum WHERE source IS NULL;
+ALTER TABLE coffee_archetype_assignment ADD COLUMN IF NOT EXISTS source assignment_source_enum;
+UPDATE coffee_archetype_assignment SET source = CASE WHEN assigned_from_session_id IS NOT NULL THEN 'cupping' ELSE 'manual' END::assignment_source_enum WHERE source IS NULL;
 
 -- roaster_blend: one active SKU per (coffee, weight)
 DO $$ BEGIN
-  CREATE UNIQUE INDEX IF NOT EXISTS roaster_blend_one_active_per_weight
-    ON roaster_blend(coffee_id, weight_oz) WHERE is_active = true AND coffee_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS coffee_sku_one_active_per_weight
+    ON coffee_sku(coffee_id, weight_oz) WHERE is_active = true AND coffee_id IS NOT NULL;
 EXCEPTION WHEN unique_violation THEN NULL; END $$;
 
 -- dial_slot_price: re-key onto the slot. The archetype/dial_sort_order-based
@@ -2478,22 +2623,22 @@ EXCEPTION WHEN unique_violation THEN NULL; END $$;
 -- explicit name, so it (and its backing index) drop for free as soon as
 -- either of its columns is dropped, below — no separate DROP INDEX needed.
 -- (An earlier version of this block DID add a stray
--- `DROP INDEX IF EXISTS dial_slot_price_slot_weight_key` here — a no-op on
+-- `DROP INDEX IF EXISTS coffee_slot_price_slot_weight_key` here — a no-op on
 -- the first boot since nothing had that name yet, but a 2BP01 on every
 -- boot after, once it collided with this block's own ADD CONSTRAINT of
 -- that same name further down. Caught live — see WHAT_WE_BUILT.md #182's
 -- closing report.)
-ALTER TABLE dial_slot_price ADD COLUMN IF NOT EXISTS slot_id INT REFERENCES coffee_dial_slot(id);
+ALTER TABLE coffee_slot_price ADD COLUMN IF NOT EXISTS slot_id INT REFERENCES coffee_dial_slot(id);
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'dial_slot_price' AND column_name = 'archetype') THEN
-    UPDATE dial_slot_price p SET slot_id = s.id FROM coffee_dial_slot s
+    UPDATE coffee_slot_price p SET slot_id = s.id FROM coffee_dial_slot s
      WHERE p.slot_id IS NULL AND s.archetype = p.archetype AND s.sort_order = p.dial_sort_order;
   END IF;
 END $$;
-ALTER TABLE dial_slot_price DROP COLUMN IF EXISTS archetype;
-ALTER TABLE dial_slot_price DROP COLUMN IF EXISTS dial_sort_order;
+ALTER TABLE coffee_slot_price DROP COLUMN IF EXISTS archetype;
+ALTER TABLE coffee_slot_price DROP COLUMN IF EXISTS dial_sort_order;
 DO $$ BEGIN
-  ALTER TABLE dial_slot_price ALTER COLUMN slot_id SET NOT NULL;
+  ALTER TABLE coffee_slot_price ALTER COLUMN slot_id SET NOT NULL;
 EXCEPTION WHEN others THEN NULL; END $$;
 -- CREATE UNIQUE INDEX IF NOT EXISTS, not ALTER TABLE ADD CONSTRAINT ...
 -- UNIQUE: a named UNIQUE constraint's backing index collides with itself
@@ -2503,7 +2648,7 @@ EXCEPTION WHEN others THEN NULL; END $$;
 -- outright, and ON CONFLICT (slot_id, weight_oz) infers against any
 -- unique index, named constraint or not (caught live — see
 -- WHAT_WE_BUILT.md #182's closing report).
-CREATE UNIQUE INDEX IF NOT EXISTS dial_slot_price_slot_weight_key ON dial_slot_price(slot_id, weight_oz);
+CREATE UNIQUE INDEX IF NOT EXISTS coffee_slot_price_slot_weight_key ON coffee_slot_price(slot_id, weight_oz);
 
 -- user_bloom_dial_current_position: same re-key. dial_sort_order's backfill
 -- below is likewise guarded for the same reason.
@@ -2529,8 +2674,8 @@ ALTER TABLE user_bloom_dial_current_position DROP COLUMN IF EXISTS dial_sort_ord
 -- referencing the dropped column, so CASCADE there is safe; omitting it
 -- fails the whole boot's schema apply with 2BP01 (caught live once, fixed
 -- here — see WHAT_WE_BUILT.md #182's closing report).
-ALTER TABLE roaster_blend DROP COLUMN IF EXISTS archetype_id;
-ALTER TABLE dial_coffee_relationships DROP COLUMN IF EXISTS hop_type CASCADE;
+ALTER TABLE coffee_sku DROP COLUMN IF EXISTS archetype_id;
+ALTER TABLE coffee_hop DROP COLUMN IF EXISTS hop_type CASCADE;
 DROP TYPE IF EXISTS hop_type_enum;
 ALTER TABLE coffees DROP COLUMN IF EXISTS roaster CASCADE;
 
@@ -2542,10 +2687,10 @@ DO $$ BEGIN
   ALTER TABLE coffees ALTER COLUMN roaster_id SET NOT NULL;
 EXCEPTION WHEN others THEN NULL; END $$;
 DO $$ BEGIN
-  ALTER TABLE roaster_blend ALTER COLUMN coffee_id SET NOT NULL;
+  ALTER TABLE coffee_sku ALTER COLUMN coffee_id SET NOT NULL;
 EXCEPTION WHEN others THEN NULL; END $$;
 DO $$ BEGIN
-  ALTER TABLE archetype ALTER COLUMN code SET NOT NULL;
+  ALTER TABLE coffee_archetype ALTER COLUMN code SET NOT NULL;
 EXCEPTION WHEN others THEN NULL; END $$;
 
 -- ─────────────────────────────────────────────
@@ -2598,7 +2743,7 @@ CREATE VIEW v_cupping_scores_readable AS
   JOIN coffees                c       ON c.id       = sc.coffee_id
   JOIN coffee_dimensions            d       ON d.id       = csv.dimension_id
   LEFT JOIN roaster r ON r.id = c.roaster_id
-  LEFT JOIN archetype_assignments aa  ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
+  LEFT JOIN coffee_archetype_assignment aa  ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
   ORDER BY cs_sess.session_date, sc.display_order, cs.taster_name, d.display_order;
 
 -- Collaborative flavor wheel — all descriptor observations per coffee, with source label.
@@ -2667,9 +2812,9 @@ FROM quiz_answer a
 JOIN quiz_question q    ON q.id  = a.question_id
 JOIN quiz      qz      ON qz.id = q.quiz_id
 LEFT JOIN quiz_type qt ON qt.id = qz.quiz_type_id
-LEFT JOIN archetype ar_ans   ON ar_ans.id = a.resulting_archetype_id
+LEFT JOIN coffee_archetype ar_ans   ON ar_ans.id = a.resulting_archetype_id
 LEFT JOIN quiz_answer_archetype_score aas ON aas.answer_id = a.id
-LEFT JOIN archetype ar_score ON ar_score.id = aas.archetype_id
+LEFT JOIN coffee_archetype ar_score ON ar_score.id = aas.archetype_id
 ORDER BY quiz_version, q_number, a_number, ans_score DESC NULLS LAST;
 
 -- QUIZ V4 — "Instinct" edition (6 questions, weighted scoring, veto cascade)
@@ -2686,9 +2831,9 @@ BEGIN
 
   UPDATE quiz SET is_active = FALSE;
 
-  SELECT id INTO v_choc_id  FROM archetype WHERE name = 'Chocolate & Nutty';
-  SELECT id INTO v_bal_id   FROM archetype WHERE name = 'Balanced & Sweet';
-  SELECT id INTO v_fruit_id FROM archetype WHERE name = 'Fruity';
+  SELECT id INTO v_choc_id  FROM coffee_archetype WHERE name = 'Chocolate & Nutty';
+  SELECT id INTO v_bal_id   FROM coffee_archetype WHERE name = 'Balanced & Sweet';
+  SELECT id INTO v_fruit_id FROM coffee_archetype WHERE name = 'Fruity';
 
   INSERT INTO quiz (version, description, is_active)
     VALUES ('v4', 'Axis & Bloom Flavor Finder — 6 questions', true)
@@ -2776,7 +2921,7 @@ BEGIN
   ) AS data(q_number, answer_text, archetype_name, score)
   JOIN quiz_question q ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
   JOIN quiz_answer a  ON a.question_id = q.id  AND a.answer_text = data.answer_text
-  JOIN archetype   ar ON ar.name = data.archetype_name
+  JOIN coffee_archetype   ar ON ar.name = data.archetype_name
   ON CONFLICT (answer_id, archetype_id) DO NOTHING;
 
 END $v4$;
@@ -2831,11 +2976,11 @@ BEGIN
   SELECT id INTO v_main_type_id   FROM quiz_type WHERE name = 'main';
   SELECT id INTO v_branch_type_id FROM quiz_type WHERE name = 'branch';
 
-  SELECT id INTO v_choc_id   FROM archetype WHERE name = 'Chocolate & Nutty';
-  SELECT id INTO v_bal_id    FROM archetype WHERE name = 'Balanced & Sweet';
-  SELECT id INTO v_fruit_id  FROM archetype WHERE name = 'Fruity';
-  SELECT id INTO v_floral_id FROM archetype WHERE name = 'Floral';
-  SELECT id INTO v_earthy_id FROM archetype WHERE name = 'Earthy';
+  SELECT id INTO v_choc_id   FROM coffee_archetype WHERE name = 'Chocolate & Nutty';
+  SELECT id INTO v_bal_id    FROM coffee_archetype WHERE name = 'Balanced & Sweet';
+  SELECT id INTO v_fruit_id  FROM coffee_archetype WHERE name = 'Fruity';
+  SELECT id INTO v_floral_id FROM coffee_archetype WHERE name = 'Floral';
+  SELECT id INTO v_earthy_id FROM coffee_archetype WHERE name = 'Earthy';
 
   -- ── Quiz rows — create only if absent (as before); always re-assert
   -- content on every run, INCLUDING is_active. ─────────────────────────────
@@ -3064,7 +3209,7 @@ BEGIN
     SELECT a.id, a.question_id INTO v_answer_id, v_question_id FROM quiz_answer a WHERE a.answer_code = rec.answer_code;
     IF v_answer_id IS NULL THEN CONTINUE; END IF; -- defensive — content loop above should have set this
 
-    SELECT id INTO v_archetype_id FROM archetype WHERE name = rec.archetype_name;
+    SELECT id INTO v_archetype_id FROM coffee_archetype WHERE name = rec.archetype_name;
 
     INSERT INTO quiz_answer_archetype_score (answer_id, question_id, archetype_id, score)
     VALUES (v_answer_id, v_question_id, v_archetype_id, rec.score)
@@ -3102,7 +3247,7 @@ SELECT
   av.ideal_score,
   av.max_score
 FROM archetype_vector av
-JOIN archetype  a ON a.id = av.archetype_id
+JOIN coffee_archetype  a ON a.id = av.archetype_id
 JOIN coffee_dimensions d ON md5(d.name)::uuid = av.dimension_id
 ORDER BY a.name, d.display_order;
 
@@ -3123,9 +3268,9 @@ SELECT
   ROUND(AVG((csv.value_min + csv.value_max) / 2.0), 2)           AS avg_actual,
   COUNT(DISTINCT c.id)                                            AS coffee_count
 FROM archetype_vector av
-JOIN archetype  a ON a.id = av.archetype_id
+JOIN coffee_archetype  a ON a.id = av.archetype_id
 JOIN coffee_dimensions d ON md5(d.name)::uuid = av.dimension_id
-LEFT JOIN archetype_assignments aa
+LEFT JOIN coffee_archetype_assignment aa
   ON aa.superseded_at IS NULL
   AND CASE aa.archetype
         WHEN 'chocolate_nutty' THEN 'Chocolate & Nutty'
@@ -3158,11 +3303,11 @@ ORDER BY a.name, d.display_order;
 -- coffee_dial_slot/coffee_slot_assignment (positions) and v_coffee_hop
 -- (hop graph, hop_type_derived) are the live replacements.
 
--- v_archetype_adjacency moved below, after v_coffee_hop's own definition
+-- v_coffee_archetype_adjacency moved below, after v_coffee_hop's own definition
 -- (Catalog Blueprint brief 3, 2026-09-14) — it's now derived from
 -- v_coffee_hop, which is defined later in this file (the Catalog Blueprint
 -- views block), so its CREATE VIEW has to run after v_coffee_hop's. Search
--- "v_archetype_adjacency redefined" near the end of this file.
+-- "v_coffee_archetype_adjacency redefined" near the end of this file.
 
 -- Dial position consensus (Phase 5 — dormant): weighted rollup of current
 -- (non-superseded) dial_position_signal rows per (coffee_id, archetype).
@@ -3694,11 +3839,12 @@ ALTER TABLE coffees ADD COLUMN IF NOT EXISTS story_generation_failed BOOLEAN NOT
 
 -- Drop in reverse dependency order first (v_coffee_slot/v_coffee_sellable_slot/
 -- v_coffee_hop all read v_coffee; v_coffee_sellable_slot reads
--- v_coffee_sellable_candidate; v_archetype_adjacency reads v_coffee_hop —
+-- v_coffee_sellable_candidate; v_coffee_archetype_adjacency reads v_coffee_hop —
 -- all as of brief 3) — same fix as v_archetype_dimension_comparison/
 -- v_archetype_vectors above: a bare DROP VIEW IF EXISTS v_coffee on a second
 -- boot fails with "other objects depend on it" once the dependents exist.
 DROP VIEW IF EXISTS v_archetype_adjacency;
+DROP VIEW IF EXISTS v_coffee_archetype_adjacency;
 DROP VIEW IF EXISTS v_coffee_hop;
 DROP VIEW IF EXISTS v_coffee_sellable_slot;
 DROP VIEW IF EXISTS v_coffee_sellable_candidate;
@@ -3723,7 +3869,7 @@ SELECT
   d.name                    AS dominant_dimension_name,
   a.descriptor_families,
   a.id                      AS uuid
-FROM archetype a
+FROM coffee_archetype a
 LEFT JOIN coffee_dimensions d ON d.id = a.dominant_dimension_id
 ORDER BY a.sort_order;
 
@@ -3751,7 +3897,7 @@ SELECT
   c.is_active, c.deactivated_at, c.deactivation_reason
 FROM coffees c
 LEFT JOIN roaster r              ON r.id = c.roaster_id
-LEFT JOIN archetype_assignments aa ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
+LEFT JOIN coffee_archetype_assignment aa ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
 LEFT JOIN (
   SELECT cca.coffee_id, ARRAY_AGG(cc.code ORDER BY cc.code) AS category_codes
   FROM coffee_category_assignment cca
@@ -3830,8 +3976,8 @@ FROM coffee_dial_slot cds
 JOIN coffee_slot_assignment csa       ON csa.slot_id = cds.id AND csa.is_active = true
 JOIN v_coffee vc                      ON vc.id = csa.coffee_id AND vc.is_active = true
 CROSS JOIN (VALUES (12::numeric), (80::numeric)) AS w(weight_oz)
-LEFT JOIN roaster_blend rb            ON rb.coffee_id = vc.id AND rb.is_active = true AND rb.weight_oz = w.weight_oz
-LEFT JOIN dial_slot_price dsp         ON dsp.slot_id = cds.id AND dsp.weight_oz = w.weight_oz
+LEFT JOIN coffee_sku rb            ON rb.coffee_id = vc.id AND rb.is_active = true AND rb.weight_oz = w.weight_oz
+LEFT JOIN coffee_slot_price dsp         ON dsp.slot_id = cds.id AND dsp.weight_oz = w.weight_oz
 WHERE cds.is_active = true AND cds.name IS NOT NULL
   AND NOT (vc.category_codes && ARRAY['decaf','half_caf','flavored'])
   AND (cds.archetype = 'experimental' OR NOT (vc.category_codes && ARRAY['experimental']));
@@ -3871,7 +4017,7 @@ SELECT
     WHEN fs.archetype = ts.archetype THEN 'within_archetype'
     ELSE 'bridge_archetype'
   END                  AS hop_type_derived
-FROM dial_coffee_relationships dcr
+FROM coffee_hop dcr
 LEFT JOIN coffees fc ON fc.id = dcr.from_coffee_id
 LEFT JOIN coffees tc ON tc.id = dcr.to_coffee_id
 LEFT JOIN (
@@ -3893,10 +4039,11 @@ LEFT JOIN (
 -- endpoint's current PLACEMENT (home slot) archetype, not match archetype:
 -- this view describes dial-physical adjacency (which slots are bridged),
 -- the same thing hop_type_derived itself is about (D3), not flavor-identity
--- reasoning (D1). Kept under its old name until brief 5 renames it
--- v_coffee_archetype_adjacency (naming convention, README.md).
+-- reasoning (D1). Renamed v_coffee_archetype_adjacency by brief 5b (naming
+-- convention, README.md).
 DROP VIEW IF EXISTS v_archetype_adjacency;
-CREATE VIEW v_archetype_adjacency AS
+DROP VIEW IF EXISTS v_coffee_archetype_adjacency;
+CREATE VIEW v_coffee_archetype_adjacency AS
 SELECT
   LEAST(vch.from_archetype, vch.to_archetype)                                           AS archetype_a,
   GREATEST(vch.from_archetype, vch.to_archetype)                                        AS archetype_b,

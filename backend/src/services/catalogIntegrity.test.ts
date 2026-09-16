@@ -70,7 +70,7 @@ describe('runCatalogIntegrityChecks', () => {
       // 10 evaluated this hop it would look "stale" (from_slot_id/to_slot_id
       // both NULL) — it must not, since both endpoints are inactive.
       hop = (await db.query<{ id: number }>(
-        `INSERT INTO dial_coffee_relationships (from_coffee_id, to_coffee_id, dimension_id, direction)
+        `INSERT INTO coffee_hop (from_coffee_id, to_coffee_id, dimension_id, direction)
          VALUES ($1, $2, 9, 'more') RETURNING id`,
         [coffeeA!.id, coffeeB!.id]
       )).rows[0];
@@ -79,7 +79,7 @@ describe('runCatalogIntegrityChecks', () => {
       const check10 = report.checks.find(c => c.id === 10)!;
       expect(check10.details?.some(d => d.includes(`hop ${hop!.id}`))).toBeFalsy();
     } finally {
-      if (hop) await db.query(`DELETE FROM dial_coffee_relationships WHERE id = $1`, [hop.id]);
+      if (hop) await db.query(`DELETE FROM coffee_hop WHERE id = $1`, [hop.id]);
       const coffeeIds = [coffeeA?.id, coffeeB?.id].filter((id): id is number => id != null);
       if (coffeeIds.length) await db.query(`DELETE FROM coffees WHERE id = ANY($1::int[])`, [coffeeIds]);
       if (roaster) await db.query(`DELETE FROM roaster WHERE id = $1`, [roaster.id]);

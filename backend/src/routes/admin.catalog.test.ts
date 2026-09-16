@@ -47,14 +47,14 @@ async function slotId(archetype: string, sortOrder: number): Promise<number> {
   return (await db.query<{ id: number }>(`SELECT id FROM coffee_dial_slot WHERE archetype = $1 AND sort_order = $2`, [archetype, sortOrder])).rows[0].id;
 }
 async function cleanup(roaster: { id: string } | undefined, coffeeIds: number[], slotIds: number[] = []) {
-  await db.query(`DELETE FROM dial_coffee_relationships WHERE from_coffee_id = ANY($1::int[]) OR to_coffee_id = ANY($1::int[])`, [coffeeIds]);
+  await db.query(`DELETE FROM coffee_hop WHERE from_coffee_id = ANY($1::int[]) OR to_coffee_id = ANY($1::int[])`, [coffeeIds]);
   if (coffeeIds.length) {
     await db.query('DELETE FROM coffee_slot_assignment WHERE coffee_id = ANY($1::int[])', [coffeeIds]);
-    await db.query('DELETE FROM archetype_assignments WHERE coffee_id = ANY($1::int[])', [coffeeIds]);
-    await db.query('DELETE FROM roaster_blend WHERE coffee_id = ANY($1::int[])', [coffeeIds]);
+    await db.query('DELETE FROM coffee_archetype_assignment WHERE coffee_id = ANY($1::int[])', [coffeeIds]);
+    await db.query('DELETE FROM coffee_sku WHERE coffee_id = ANY($1::int[])', [coffeeIds]);
     await db.query('DELETE FROM coffees WHERE id = ANY($1::int[])', [coffeeIds]);
   }
-  if (slotIds.length) await db.query('DELETE FROM dial_slot_price WHERE slot_id = ANY($1::int[]) AND weight_oz = $2', [slotIds, WEIGHT_OZ]);
+  if (slotIds.length) await db.query('DELETE FROM coffee_slot_price WHERE slot_id = ANY($1::int[]) AND weight_oz = $2', [slotIds, WEIGHT_OZ]);
   if (roaster) await db.query('DELETE FROM roaster WHERE id = $1', [roaster.id]);
 }
 
@@ -142,7 +142,7 @@ describe('Catalog Blueprint brief 4 — new admin reads', () => {
       await upsertSku({ coffeeId, weightOz: WEIGHT_OZ, blendName: 'Vitest Catalog GET Blend', isActive: true }, ACTOR);
       await placeCoffee({ coffeeId, slotId: slot, role: 'home' }, ACTOR);
       await db.query(
-        `INSERT INTO dial_slot_price (slot_id, weight_oz, retail_price_cents) VALUES ($1, $2, 1800)`,
+        `INSERT INTO coffee_slot_price (slot_id, weight_oz, retail_price_cents) VALUES ($1, $2, 1800)`,
         [slot, WEIGHT_OZ]
       );
 
@@ -199,7 +199,7 @@ describe('Catalog Blueprint brief 4 — new admin reads', () => {
       expect(fromSlotRow.occupants.some((o: { coffee_id: number }) => o.coffee_id === fromId)).toBe(true);
       expect(graph.hops.some((h: { id: number }) => h.id === hopId)).toBe(true);
     } finally {
-      if (hopId) await db.query('DELETE FROM dial_coffee_relationships WHERE id = $1', [hopId]);
+      if (hopId) await db.query('DELETE FROM coffee_hop WHERE id = $1', [hopId]);
       await cleanup(roaster, [fromId, toId].filter((id): id is number => id != null), slotIds);
     }
   }, 20000);
@@ -216,8 +216,8 @@ describe('Catalog Blueprint brief 4 — new admin reads', () => {
       slot = await slotId('earthy', 4);
       // Capture/clear/restore whatever real price already exists — dial_slot_price
       // is real pre-existing business config, same hazard brief 3's tests hit.
-      const existing = (await db.query<{ retail_price_cents: number }>(`SELECT retail_price_cents FROM dial_slot_price WHERE slot_id = $1 AND weight_oz = $2`, [slot, WEIGHT_OZ])).rows[0];
-      if (existing) await db.query('DELETE FROM dial_slot_price WHERE slot_id = $1 AND weight_oz = $2', [slot, WEIGHT_OZ]);
+      const existing = (await db.query<{ retail_price_cents: number }>(`SELECT retail_price_cents FROM coffee_slot_price WHERE slot_id = $1 AND weight_oz = $2`, [slot, WEIGHT_OZ])).rows[0];
+      if (existing) await db.query('DELETE FROM coffee_slot_price WHERE slot_id = $1 AND weight_oz = $2', [slot, WEIGHT_OZ]);
       await upsertSku({ coffeeId, weightOz: WEIGHT_OZ, blendName: 'Vitest NotSellable Blend', isActive: true }, ACTOR);
       await placeCoffee({ coffeeId, slotId: slot, role: 'home' }, ACTOR);
 
@@ -230,7 +230,7 @@ describe('Catalog Blueprint brief 4 — new admin reads', () => {
       expect(row.reasons).toContain('no_price_12oz');
 
       if (existing) await db.query(
-        `INSERT INTO dial_slot_price (slot_id, weight_oz, retail_price_cents) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+        `INSERT INTO coffee_slot_price (slot_id, weight_oz, retail_price_cents) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
         [slot, WEIGHT_OZ, existing.retail_price_cents]
       );
     } finally {
@@ -287,7 +287,7 @@ describe('Catalog Blueprint brief 4 — new admin reads', () => {
 
     // Round-trip a real edit, then restore floral's original families —
     // this is real, shared archetype config, not a disposable fixture.
-    const before = (await db.query<{ descriptor_families: string[] }>(`SELECT descriptor_families FROM archetype WHERE code = 'floral'`)).rows[0].descriptor_families;
+    const before = (await db.query<{ descriptor_families: string[] }>(`SELECT descriptor_families FROM coffee_archetype WHERE code = 'floral'`)).rows[0].descriptor_families;
     try {
       const goodRes = await fetch(`${baseUrl}/catalog/archetypes/floral/descriptor-families`, {
         method: 'PUT',
@@ -295,10 +295,10 @@ describe('Catalog Blueprint brief 4 — new admin reads', () => {
         body: JSON.stringify({ families: ['Floral'] }),
       });
       expect(goodRes.status).toBe(200);
-      const updated = (await db.query<{ descriptor_families: string[] }>(`SELECT descriptor_families FROM archetype WHERE code = 'floral'`)).rows[0].descriptor_families;
+      const updated = (await db.query<{ descriptor_families: string[] }>(`SELECT descriptor_families FROM coffee_archetype WHERE code = 'floral'`)).rows[0].descriptor_families;
       expect(updated).toEqual(['Floral']);
     } finally {
-      await db.query(`UPDATE archetype SET descriptor_families = $1 WHERE code = 'floral'`, [before]);
+      await db.query(`UPDATE coffee_archetype SET descriptor_families = $1 WHERE code = 'floral'`, [before]);
     }
   });
 });

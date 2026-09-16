@@ -1,0 +1,63 @@
+-- Catalog Blueprint · brief 5b — rename to the coffee_ convention (2026-09-16)
+--
+-- STATUS: not run as a standalone step — every statement below is also in
+-- schema.sql, which runs automatically on every backend startup. This file
+-- exists only as the narrative record, same convention as every other brief
+-- in this series.
+--
+-- Renames (naming convention, Dana 2026-09-13 + N8 2026-09-15 — every
+-- catalog table/enum/view starts with coffee_):
+--   archetype                  -> coffee_archetype
+--   archetype_assignments      -> coffee_archetype_assignment
+--   roaster_blend               -> coffee_sku
+--   dial_coffee_relationships   -> coffee_hop
+--   dial_slot_price              -> coffee_slot_price
+--   v_archetype_adjacency        -> v_coffee_archetype_adjacency
+-- coffees stays coffees; archetype_enum (a type, not a table) is unchanged.
+--
+-- Mechanics, per table, in dependency order (coffee_archetype first): a
+-- guarded `IF to_regclass(old) IS NOT NULL AND to_regclass(new) IS NULL THEN
+-- ALTER TABLE old RENAME TO new` runs before that table's own (renamed)
+-- CREATE TABLE IF NOT EXISTS statement in schema.sql, followed by guarded
+-- renames of every index/constraint that carries the old table name (pg_
+-- constraint/pg_indexes existence checks, so a partial prior application is
+-- idempotent). Every other CREATE/ALTER/INSERT/UPDATE/REFERENCES/FROM/JOIN
+-- site in schema.sql was rewritten to the new name via a scripted regex
+-- sweep, then reviewed line by line (see closing report for exact counts).
+--
+-- The view is DROP+CREATE, not ALTER RENAME (the file's existing idiom for
+-- changing a view): both the old and new name are dropped at each of the
+-- two existing drop points (the early "reverse dependency order" sweep
+-- before v_coffee_hop's own drop, and the final definition site) so a real
+-- prod database — still holding the view under its old name at the moment
+-- this boot's schema.sql runs — gets the orphan cleaned up, while every
+-- boot after finds nothing under the old name and no-ops there instead.
+--
+-- Index/constraint identifiers renamed (verified against prod's actual
+-- pg_indexes/pg_constraint before writing this, not assumed):
+--   archetype_pkey, archetype_name_key, archetype_dominant_dimension_id_fkey,
+--     archetype_code_key
+--   archetype_assignments_pkey, archetype_assignments_assigned_from_session_id_fkey,
+--     archetype_assignments_coffee_id_fkey, archetype_assignments_one_current,
+--     idx_archetype_assign_coffee, idx_archetype_assign_session
+--   roaster_blend_coffee_id_fkey, chk_roaster_blend_deactivation_reason,
+--     roaster_blend_one_active_per_weight
+--   dial_coffee_relationships_pkey, dial_coffee_relationships_dimension_id_fkey,
+--     dial_coffee_relationships_from_category_id_fkey,
+--     dial_coffee_relationships_from_coffee_id_fkey,
+--     dial_coffee_relationships_from_coffee_id_to_coffee_id_dimen_key,
+--     dial_coffee_relationships_to_category_id_fkey,
+--     dial_coffee_relationships_to_coffee_id_fkey
+--   dial_slot_price_pkey, dial_slot_price_slot_id_fkey, dial_slot_price_slot_weight_key
+-- Deliberately NOT renamed — they carry a different, older short alias, not
+-- one of the five table names, and the brief's own examples never named
+-- them: blend_pkey, blend_roaster_id_fkey (roaster_blend), chk_from_endpoint,
+-- chk_to_endpoint (dial_coffee_relationships).
+--
+-- See backend/src/features/catalog_blueprint/README.md and this brief's own
+-- CLAUDE_CODE_PROMPT_CATALOG_5_DROP_LEGACY.md for full context, and
+-- WHAT_WE_BUILT.md's brief 5b entry for the per-pattern rewrite counts, the
+-- lint-catalog.mjs update, and the Task-0 deviation on `archetype` (the
+-- table) deliberately NOT being added to the lint script's bare-word
+-- legacy-reference ban, unlike the other four — it collides with the live,
+-- permanent COLUMN name `archetype` used across many other tables.

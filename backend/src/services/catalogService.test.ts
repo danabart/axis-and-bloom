@@ -16,11 +16,11 @@ import {
 } from './catalogService.js';
 
 afterAll(async () => {
-  await db.query(`DELETE FROM dial_coffee_relationships WHERE from_coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%') OR to_coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
+  await db.query(`DELETE FROM coffee_hop WHERE from_coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%') OR to_coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
   await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
   await db.query(`DELETE FROM roastery_coffee_descriptors WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
-  await db.query(`DELETE FROM archetype_assignments WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
-  await db.query(`DELETE FROM roaster_blend WHERE blend_name LIKE 'Vitest%' OR coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
+  await db.query(`DELETE FROM coffee_archetype_assignment WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
+  await db.query(`DELETE FROM coffee_sku WHERE blend_name LIKE 'Vitest%' OR coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
   await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM roaster WHERE name LIKE 'Vitest%'`);
   // Cupping fixtures for the D6 band test (dependency order: values -> scores -> session_coffees -> sessions).
@@ -47,8 +47,8 @@ async function slotId(archetype: string, sortOrder: number): Promise<number> {
 async function cleanupRoasterAndCoffees(roaster: { id: string } | undefined, coffeeIds: number[]) {
   if (coffeeIds.length) {
     await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
-    await db.query(`DELETE FROM archetype_assignments WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
-    await db.query(`DELETE FROM roaster_blend WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
+    await db.query(`DELETE FROM coffee_archetype_assignment WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
+    await db.query(`DELETE FROM coffee_sku WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
     await db.query(`DELETE FROM coffees WHERE id = ANY($1::int[])`, [coffeeIds]);
   }
   if (roaster) await db.query(`DELETE FROM roaster WHERE id = $1`, [roaster.id]);
@@ -140,7 +140,7 @@ describe('placeCoffee / moveCoffee (D5)', () => {
       guestCoffeeId = (await makeCoffee('Vitest Guest Guest Coffee', roaster.id)).id;
       chocolate2 = await slotId('chocolate_nutty', 2);
       const existing = (await db.query<{ retail_price_cents: number }>(
-        `SELECT retail_price_cents FROM dial_slot_price WHERE slot_id = $1 AND weight_oz = 12`, [chocolate2]
+        `SELECT retail_price_cents FROM coffee_slot_price WHERE slot_id = $1 AND weight_oz = 12`, [chocolate2]
       )).rows[0];
       existingPriceCents = existing?.retail_price_cents;
       await setSlotPrice({ slotId: chocolate2, weightOz: 12, retailPriceCents: existingPriceCents ?? 1700 }, ACTOR);
@@ -164,7 +164,7 @@ describe('placeCoffee / moveCoffee (D5)', () => {
       expect(sellable[0].coffee_id).toBe(guestCoffeeId);
     } finally {
       if (chocolate2 !== undefined && existingPriceCents === undefined) {
-        await db.query(`DELETE FROM dial_slot_price WHERE slot_id = $1 AND weight_oz = 12`, [chocolate2]);
+        await db.query(`DELETE FROM coffee_slot_price WHERE slot_id = $1 AND weight_oz = 12`, [chocolate2]);
       }
       await cleanupRoasterAndCoffees(roaster, [homeCoffeeId, guestCoffeeId].filter((x): x is number => x != null));
     }
@@ -282,7 +282,7 @@ describe('setMatchArchetype (D1)', () => {
 
       await setMatchArchetype({ coffeeId, archetype: 'floral', confidence: 'medium', source: 'manual' }, ACTOR);
       await setMatchArchetype({ coffeeId, archetype: 'fruity', confidence: 'high', source: 'manual' }, ACTOR);
-      const currentRows = (await db.query(`SELECT archetype FROM archetype_assignments WHERE coffee_id = $1 AND superseded_at IS NULL`, [coffeeId])).rows;
+      const currentRows = (await db.query(`SELECT archetype FROM coffee_archetype_assignment WHERE coffee_id = $1 AND superseded_at IS NULL`, [coffeeId])).rows;
       expect(currentRows.length).toBe(1);
       expect(currentRows[0].archetype).toBe('fruity');
 
@@ -316,7 +316,7 @@ describe('retireCoffee / restoreCoffee', () => {
       await restoreCoffee({ coffeeId }, ACTOR);
       const restoredCoffee = (await db.query(`SELECT is_active FROM coffees WHERE id = $1`, [coffeeId])).rows[0];
       expect(restoredCoffee.is_active).toBe(true);
-      const restoredBlend = (await db.query(`SELECT is_active FROM roaster_blend WHERE coffee_id = $1`, [coffeeId])).rows[0];
+      const restoredBlend = (await db.query(`SELECT is_active FROM coffee_sku WHERE coffee_id = $1`, [coffeeId])).rows[0];
       expect(restoredBlend.is_active).toBe(true);
       const assignmentRow = (await db.query(`SELECT is_active FROM coffee_slot_assignment WHERE coffee_id = $1 AND slot_id = $2`, [coffeeId, fruity4])).rows[0];
       expect(assignmentRow.is_active).toBe(false); // N3 — placements are not restored
@@ -373,7 +373,7 @@ describe('setHop', () => {
       const row = (await db.query<{ hop_type_derived: string }>(`SELECT hop_type_derived FROM v_coffee_hop WHERE id = $1`, [hopId])).rows[0];
       expect(row.hop_type_derived).toBe('bridge_archetype');
     } finally {
-      if (hopId) await db.query(`DELETE FROM dial_coffee_relationships WHERE id = $1`, [hopId]);
+      if (hopId) await db.query(`DELETE FROM coffee_hop WHERE id = $1`, [hopId]);
       await cleanupRoasterAndCoffees(roaster, [coffeeA, coffeeB].filter((x): x is number => x != null));
     }
   });

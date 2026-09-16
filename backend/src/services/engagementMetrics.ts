@@ -56,7 +56,7 @@ export async function getEngagedVsUnengagedReorderRate() {
       SELECT o.user_id, oli.blend_id, rb.coffee_id, COUNT(*) AS order_count
       FROM "order" o
       JOIN order_line_item oli ON oli.order_id = o.id
-      JOIN roaster_blend rb ON rb.id = oli.blend_id
+      JOIN coffee_sku rb ON rb.id = oli.blend_id
       GROUP BY o.user_id, oli.blend_id, rb.coffee_id
     )
     SELECT

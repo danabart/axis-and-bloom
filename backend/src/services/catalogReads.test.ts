@@ -10,7 +10,7 @@ const ACTOR = { actor: 'vitest' };
 
 afterAll(async () => {
   await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
-  await db.query(`DELETE FROM archetype_assignments WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
+  await db.query(`DELETE FROM coffee_archetype_assignment WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
   await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM roaster WHERE name LIKE 'Vitest%'`);
 });
@@ -49,7 +49,7 @@ describe('getCatalogVersion', () => {
     } finally {
       if (coffeeId) {
         await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id = $1`, [coffeeId]);
-        await db.query(`DELETE FROM archetype_assignments WHERE coffee_id = $1`, [coffeeId]);
+        await db.query(`DELETE FROM coffee_archetype_assignment WHERE coffee_id = $1`, [coffeeId]);
         await db.query(`DELETE FROM coffees WHERE id = $1`, [coffeeId]);
       }
       if (roaster) await db.query(`DELETE FROM roaster WHERE id = $1`, [roaster.id]);

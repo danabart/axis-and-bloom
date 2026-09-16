@@ -144,7 +144,7 @@ export interface ResolvedCoffeeBlend {
 export async function resolveCoffeeBlend(coffeeId: number, weightOz: number): Promise<ResolvedCoffeeBlend | null> {
   const result = await db.query(
     `SELECT rb.id AS blend_id, rb.roaster_sku, rb.shopify_variant_id
-     FROM roaster_blend rb
+     FROM coffee_sku rb
      JOIN coffees c ON c.id = rb.coffee_id
      WHERE rb.coffee_id = $1 AND rb.weight_oz = $2 AND rb.is_active = true AND c.is_active = true`,
     [coffeeId, weightOz]

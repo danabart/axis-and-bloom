@@ -120,16 +120,20 @@ for (const relPath of files) {
 }
 
 // ── Rule 2: DML on catalog tables outside services/catalogService.ts ───────
+// Catalog Blueprint brief 5b — table names updated to the coffee_ convention
+// (archetype_assignments -> coffee_archetype_assignment, dial_slot_price ->
+// coffee_slot_price, dial_coffee_relationships -> coffee_hop, roaster_blend ->
+// coffee_sku, archetype -> coffee_archetype).
 const DML_TABLES = [
-  'coffee_slot_assignment', 'coffee_dial_slot', 'archetype_assignments',
-  'dial_slot_price', 'dial_coffee_relationships', 'coffee_category_assignment',
-  'roaster_blend', 'archetype', 'coffees',
+  'coffee_slot_assignment', 'coffee_dial_slot', 'coffee_archetype_assignment',
+  'coffee_slot_price', 'coffee_hop', 'coffee_category_assignment',
+  'coffee_sku', 'coffee_archetype', 'coffees',
 ];
 const DML_VERBS = ['INSERT INTO', 'UPDATE', 'DELETE FROM'];
 const RULE2_WRITER = 'services/catalogService.ts';
 // {file, table, verb} — each an explicit, permanent-or-expiring exception.
 const RULE2_ALLOWLIST = [
-  { file: 'routes/orders.ts', table: 'roaster_blend', verb: 'UPDATE', note: 'commerce stock decrement, permanent' },
+  { file: 'routes/orders.ts', table: 'coffee_sku', verb: 'UPDATE', note: 'commerce stock decrement, permanent' },
   { file: 'routes/admin.ts', table: 'coffees', verb: 'UPDATE', note: 'content columns, permanent' },
   { file: 'routes/coffees.ts', table: 'coffees', verb: 'UPDATE', note: 'content columns, permanent' },
   { file: 'services/qrDoor.ts', table: 'coffees', verb: 'UPDATE', note: 'content columns (qr_token), permanent' },
@@ -164,10 +168,24 @@ for (const relPath of files) {
 }
 
 // ── Rule 3: references to dormant/legacy catalog tables & views ────────────
+// Catalog Blueprint brief 5b added the four old table names below,
+// permanently, so they can never silently come back post-rename — but NOT
+// bare `archetype` (the fifth Stage B rename target). Unlike the other four,
+// `archetype` is also a live, permanent COLUMN name across many tables
+// (coffee_dial_slot.archetype, coffee_archetype_assignment.archetype,
+// dial_position_signal.archetype, newsletter_subscriber.archetype, ~490
+// occurrences per Task 0's own count) — this rule's regex is a bare
+// \bword\b check with no table-vs-column context, so banning "archetype"
+// here would flag essentially every legitimate query touching that column
+// forever. Confirmed the other four have zero such collision (grepped for
+// any non-table-context reference before adding them). Deliberate deviation
+// from the brief's literal "old names added to the banned list" — reported,
+// not silently done — since the brief doesn't anticipate this collision.
 const RESTRICTED_REFS = [
   'dial_archetype_positions', 'coffee_alias', 'dial_slot_alias',
   'dial_position_vocabulary', 'dial_archetype_config',
   'v_dial_positions', 'v_dial_navigation',
+  'archetype_assignments', 'roaster_blend', 'dial_coffee_relationships', 'dial_slot_price',
 ];
 // file → allowed patterns (subset of RESTRICTED_REFS), each with its expiry.
 // Catalog Blueprint brief 4, Part A — routes/admin.ts's own allow-list entry

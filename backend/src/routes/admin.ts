@@ -305,7 +305,7 @@ router.get('/roasters', async (_req, res) => {
        ) cc ON cc.roaster_id = r.id
        LEFT JOIN (
          SELECT roaster_id, COUNT(*) AS blends, COUNT(*) FILTER (WHERE is_active) AS active_blends
-         FROM roaster_blend WHERE roaster_id IS NOT NULL GROUP BY roaster_id
+         FROM coffee_sku WHERE roaster_id IS NOT NULL GROUP BY roaster_id
        ) bc ON bc.roaster_id = r.id
        ORDER BY r.name`
     );
@@ -1020,7 +1020,7 @@ router.patch('/coffees/:id/story', async (req: AuthRequest, res) => {
     );
     if (!coffeeResult.rows.length) { res.status(404).json({ error: 'Coffee not found' }); return; }
     const roasterBlendResult = await db.query(
-      `SELECT DISTINCT r.name FROM roaster_blend rb JOIN roaster r ON r.id = rb.roaster_id WHERE rb.coffee_id = $1`,
+      `SELECT DISTINCT r.name FROM coffee_sku rb JOIN roaster r ON r.id = rb.roaster_id WHERE rb.coffee_id = $1`,
       [id]
     );
     const roasterNames = [
@@ -1086,7 +1086,7 @@ router.get('/dial/hop-suggestions', (_req, res) => {
 });
 
 // ── GET /api/admin/dial/archetype-adjacency — RETIRED (Catalog Blueprint brief 4) ─
-// Was already view-backed (v_archetype_adjacency) but duplicated the public
+// Was already view-backed (v_coffee_archetype_adjacency) but duplicated the public
 // GET /api/axis/adjacency; retired per this brief's explicit list rather than
 // kept as a second reader of the same view for no reason.
 router.get('/dial/archetype-adjacency', (_req, res) => {
@@ -2163,7 +2163,7 @@ catalogRouter.get('/slots', async (req, res) => {
         WHERE vcs.assignment_is_active = true AND vcs.slot_id = ANY($1::int[])
       `, [slotIds]),
       db.query(`SELECT DISTINCT ON (slot_id) slot_id, coffee_id FROM v_coffee_sellable_slot WHERE weight_oz = 12 AND slot_id = ANY($1::int[])`, [slotIds]),
-      db.query(`SELECT slot_id, weight_oz, retail_price_cents FROM dial_slot_price WHERE slot_id = ANY($1::int[]) ORDER BY slot_id, weight_oz`, [slotIds]),
+      db.query(`SELECT slot_id, weight_oz, retail_price_cents FROM coffee_slot_price WHERE slot_id = ANY($1::int[]) ORDER BY slot_id, weight_oz`, [slotIds]),
     ]);
     const occupantsBySlot = new Map<number, unknown[]>();
     for (const row of occupantsResult.rows) {
@@ -2206,7 +2206,7 @@ catalogRouter.get('/coffees', async (req, res) => {
     const coffeeIds: number[] = coffeesResult.rows.map((c: { id: number }) => c.id);
     const [placementsResult, skusResult] = await Promise.all([
       db.query(`SELECT * FROM v_coffee_slot WHERE assignment_is_active = true AND coffee_id = ANY($1::int[])`, [coffeeIds]),
-      db.query(`SELECT * FROM roaster_blend WHERE coffee_id = ANY($1::int[]) ORDER BY coffee_id, weight_oz`, [coffeeIds]),
+      db.query(`SELECT * FROM coffee_sku WHERE coffee_id = ANY($1::int[]) ORDER BY coffee_id, weight_oz`, [coffeeIds]),
     ]);
     const placementsByCoffee = new Map<number, unknown[]>();
     for (const row of placementsResult.rows) {
@@ -2254,7 +2254,7 @@ catalogRouter.get('/coffees/:id', async (req, res) => {
 
     const [placements, skus, hops, recentChanges] = await Promise.all([
       getSlotsForCoffee(coffeeId),
-      db.query(`SELECT * FROM roaster_blend WHERE coffee_id = $1 ORDER BY weight_oz`, [coffeeId]),
+      db.query(`SELECT * FROM coffee_sku WHERE coffee_id = $1 ORDER BY weight_oz`, [coffeeId]),
       getHops({ coffeeId }),
       getChanges({ limit: 20, coffeeId }),
     ]);

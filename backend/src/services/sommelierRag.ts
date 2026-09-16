@@ -86,7 +86,7 @@ const FALLBACK_ADJACENCY: Record<string, string[]> = {
   experimental: ['floral', 'earthy'],
 };
 
-// HOME_TASK_9B (S89) — reads v_archetype_adjacency, the same real,
+// HOME_TASK_9B (S89) — reads v_coffee_archetype_adjacency, the same real,
 // actively-curated hop-derived view GET /api/axis/adjacency and the admin
 // Bloom Dial page already read (brief 3: now derived from v_coffee_hop —
 // see schema.sql). Already archetype_enum-keyed, so no toEnum round-trip is
@@ -96,7 +96,7 @@ async function getAdjacentArchetypes(archetypeCodeValue: string): Promise<string
     const result = await db.query(
       `SELECT
          CASE WHEN archetype_a = $1 THEN archetype_b ELSE archetype_a END AS adjacent
-       FROM v_archetype_adjacency
+       FROM v_coffee_archetype_adjacency
        WHERE archetype_a = $1 OR archetype_b = $1
        ORDER BY hop_count DESC
        LIMIT 5`,
@@ -109,10 +109,10 @@ async function getAdjacentArchetypes(archetypeCodeValue: string): Promise<string
     // the pre-fix code only fell back on a throw. Unmissable-log-tag pattern
     // from 7d/S85: a distinct, greppable tag with real context attached, not
     // a warn nobody reads.
-    console.error('[sommelierRag:ADJACENCY_EMPTY_FALLBACK] v_archetype_adjacency returned zero rows for', archetypeCodeValue, '— using hardcoded fallback adjacency');
+    console.error('[sommelierRag:ADJACENCY_EMPTY_FALLBACK] v_coffee_archetype_adjacency returned zero rows for', archetypeCodeValue, '— using hardcoded fallback adjacency');
     return FALLBACK_ADJACENCY[archetypeCodeValue] ?? [];
   } catch (err) {
-    console.error('[sommelierRag:ADJACENCY_QUERY_FAILED] v_archetype_adjacency query failed for', archetypeCodeValue, '— using hardcoded fallback adjacency', err);
+    console.error('[sommelierRag:ADJACENCY_QUERY_FAILED] v_coffee_archetype_adjacency query failed for', archetypeCodeValue, '— using hardcoded fallback adjacency', err);
     return FALLBACK_ADJACENCY[archetypeCodeValue] ?? [];
   }
 }

@@ -202,7 +202,7 @@ export async function runQuizIntegrityChecks(): Promise<QuizIntegrityReport> {
       `SELECT a.answer_text, ar.name AS archetype_name
        FROM quiz_answer a
        JOIN quiz_question qq ON qq.id = a.question_id
-       LEFT JOIN archetype ar ON ar.id = a.resulting_archetype_id
+       LEFT JOIN coffee_archetype ar ON ar.id = a.resulting_archetype_id
        WHERE qq.quiz_id = $1 AND qq.q_number = 6`,
       [activeMainId]
     );
@@ -230,7 +230,7 @@ export async function runQuizIntegrityChecks(): Promise<QuizIntegrityReport> {
      FROM quiz bq
      JOIN quiz_question qq ON qq.quiz_id = bq.id
      JOIN quiz_answer a    ON a.question_id = qq.id
-     LEFT JOIN archetype ar ON ar.id = a.resulting_archetype_id
+     LEFT JOIN coffee_archetype ar ON ar.id = a.resulting_archetype_id
      WHERE bq.parent_quiz_id IS NOT NULL`
   );
   const branchAnswerRows = branchAnswerResult.rows;
@@ -252,7 +252,7 @@ export async function runQuizIntegrityChecks(): Promise<QuizIntegrityReport> {
   // Existence check ONLY — the Experimental archetype row is intentional
   // (treated archetype-like elsewhere in the product even though it is never
   // a quiz outcome) and must never be flagged or asserted away here. ───────
-  const archetypeResult = await db.query<{ name: string }>(`SELECT name FROM archetype`);
+  const archetypeResult = await db.query<{ name: string }>(`SELECT name FROM coffee_archetype`);
   const archetypeNames = new Set(archetypeResult.rows.map(r => r.name));
   const check8Details: string[] = [];
   for (const required of ['Floral', 'Earthy']) {

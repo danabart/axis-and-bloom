@@ -125,7 +125,7 @@ async function findHopConflict(
     const otherCoffeeId: number = hop.other_coffee_id;
 
     const otherArchResult = await db.query(
-      `SELECT 1 FROM archetype_assignments aa
+      `SELECT 1 FROM coffee_archetype_assignment aa
        JOIN coffees c ON c.id = aa.coffee_id
        WHERE aa.coffee_id = $1 AND aa.archetype = $2 AND aa.superseded_at IS NULL AND c.is_active = true`,
       [otherCoffeeId, archetype]

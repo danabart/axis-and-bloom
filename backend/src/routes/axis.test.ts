@@ -3,7 +3,7 @@
 // exclude inactive coffees from every coffee-identity count (coffeesMapped,
 // per-archetype coffeeCount, connectionCount, regionAdjacency/adjacency) —
 // now derived from v_coffee (match_archetype) and v_coffee_hop/
-// v_archetype_adjacency (home placement, D1/D3), so a fixture needs a real
+// v_coffee_archetype_adjacency (home placement, D1/D3), so a fixture needs a real
 // home placement, not just an archetype_assignments row — see routes/axis.ts's
 // own comments.
 //
@@ -42,10 +42,10 @@ beforeAll(async () => {
 afterAll(async () => {
   // Fixture-leak backstop (2026-08-26 hardening round) — the real safety net
   // if makeBridgeHopFixture() itself fails partway.
-  await db.query(`DELETE FROM dial_coffee_relationships WHERE from_coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%') OR to_coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
+  await db.query(`DELETE FROM coffee_hop WHERE from_coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%') OR to_coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
   await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
-  await db.query(`DELETE FROM archetype_assignments WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
-  await db.query(`DELETE FROM roaster_blend WHERE blend_name LIKE 'Vitest%' OR coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
+  await db.query(`DELETE FROM coffee_archetype_assignment WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
+  await db.query(`DELETE FROM coffee_sku WHERE blend_name LIKE 'Vitest%' OR coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
   await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM roaster WHERE name LIKE 'Vitest%'`);
   await new Promise<void>(resolve => server.close(() => resolve()));
@@ -57,7 +57,7 @@ async function slotId(archetype: string, sortOrder: number): Promise<number> {
 
 // A bridge hop (floral -> fruity) between two home-placed, sellable coffees —
 // the real requirement for both v_coffee_hop.hop_type_derived and
-// v_archetype_adjacency now that both are placement-derived (D1/D3).
+// v_coffee_archetype_adjacency now that both are placement-derived (D1/D3).
 async function makeBridgeHopFixture() {
   const roaster = (await db.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Axis Roastery', true) RETURNING id`)).rows[0];
   const dimension = (await db.query<{ id: number }>(`SELECT id FROM coffee_dimensions LIMIT 1`)).rows[0];
@@ -83,10 +83,10 @@ async function makeBridgeHopFixture() {
 }
 
 async function cleanup(f: Awaited<ReturnType<typeof makeBridgeHopFixture>>) {
-  await db.query('DELETE FROM dial_coffee_relationships WHERE id = $1', [f.hopId]);
+  await db.query('DELETE FROM coffee_hop WHERE id = $1', [f.hopId]);
   await db.query('DELETE FROM coffee_slot_assignment WHERE coffee_id = ANY($1::int[])', [[f.floral, f.fruity]]);
-  await db.query('DELETE FROM archetype_assignments WHERE coffee_id = ANY($1::int[])', [[f.floral, f.fruity]]);
-  await db.query('DELETE FROM roaster_blend WHERE coffee_id = ANY($1::int[])', [[f.floral, f.fruity]]);
+  await db.query('DELETE FROM coffee_archetype_assignment WHERE coffee_id = ANY($1::int[])', [[f.floral, f.fruity]]);
+  await db.query('DELETE FROM coffee_sku WHERE coffee_id = ANY($1::int[])', [[f.floral, f.fruity]]);
   await db.query('DELETE FROM coffees WHERE id = ANY($1::int[])', [[f.floral, f.fruity]]);
   await db.query('DELETE FROM roaster WHERE id = $1', [f.roaster.id]);
 }

@@ -60,7 +60,7 @@ export async function schedulePostDeliveryMessage(
     let coffeeName = 'your latest coffee';
     if (blendId) {
       const blendResult = await db.query(
-        `SELECT blend_name FROM roaster_blend WHERE id = $1`,
+        `SELECT blend_name FROM coffee_sku WHERE id = $1`,
         [blendId]
       );
       if (blendResult.rows.length) coffeeName = blendResult.rows[0].blend_name as string;
@@ -173,7 +173,7 @@ export async function parseInboundReply(
   let coffeeName = 'the coffee';
   if (outboundRow.blend_id) {
     const blendResult = await db.query(
-      `SELECT blend_name FROM roaster_blend WHERE id = $1`,
+      `SELECT blend_name FROM coffee_sku WHERE id = $1`,
       [outboundRow.blend_id]
     );
     if (blendResult.rows.length) coffeeName = blendResult.rows[0].blend_name as string;
@@ -268,7 +268,7 @@ Respond with JSON only, no explanation: { "sentiment": "...", "rating": N, "desc
   if (outboundRow.blend_id) {
     try {
       const blendResult = await db.query(
-        `SELECT coffee_id FROM roaster_blend WHERE id = $1`,
+        `SELECT coffee_id FROM coffee_sku WHERE id = $1`,
         [outboundRow.blend_id]
       );
       const coffeeId: number | undefined = blendResult.rows[0]?.coffee_id;

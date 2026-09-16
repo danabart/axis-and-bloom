@@ -91,7 +91,7 @@ export async function getUserSignals(uid: string): Promise<UserSignals> {
       `SELECT ar.name AS archetype_name, qs.completed_at, qs.context_data
        FROM quiz_session qs
        JOIN user_profile up ON up.id = qs.user_id
-       LEFT JOIN archetype ar ON ar.id = qs.resulting_archetype_id
+       LEFT JOIN coffee_archetype ar ON ar.id = qs.resulting_archetype_id
        WHERE up.firebase_uid = $1
        ORDER BY qs.completed_at ASC`,
       [uid]

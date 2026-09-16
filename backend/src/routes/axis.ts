@@ -37,7 +37,7 @@ router.get('/vectors', async (_req, res) => {
 
 // GET /api/axis/adjacency — which archetypes count as "adjacent" for the
 // compatibility badge's "Worth exploring" tier. Catalog Blueprint brief 3:
-// v_archetype_adjacency is now derived from v_coffee_hop (both coffees
+// v_coffee_archetype_adjacency is now derived from v_coffee_hop (both coffees
 // active home-placement archetypes, both is_archetype) — this route is now a
 // one-line SELECT rather than re-deriving the same join itself. No
 // fallback — sparse/empty is the honest current state for a pair with no
@@ -45,7 +45,7 @@ router.get('/vectors', async (_req, res) => {
 router.get('/adjacency', async (_req, res) => {
   try {
     const result = await db.query<{ archetype_a: string; archetype_b: string }>(
-      `SELECT archetype_a, archetype_b FROM v_archetype_adjacency`
+      `SELECT archetype_a, archetype_b FROM v_coffee_archetype_adjacency`
     );
 
     const adjacency: Record<string, string[]> = {};
@@ -117,14 +117,14 @@ router.get('/stats', async (_req, res) => {
         FROM v_coffee_hop
         WHERE from_coffee_is_active = true AND to_coffee_is_active = true
       `),
-      db.query(`SELECT archetype_a, archetype_b, hop_count FROM v_archetype_adjacency`),
+      db.query(`SELECT archetype_a, archetype_b, hop_count FROM v_coffee_archetype_adjacency`),
       db.query(`SELECT COUNT(*) AS count FROM v_coffee WHERE is_active = true AND category_codes && ARRAY['experimental']`),
       db.query(`SELECT COUNT(*) AS count FROM user_flavor_feedback WHERE created_at >= date_trunc('month', now())`),
       db.query(`SELECT COUNT(DISTINCT coffee_id) AS count FROM dial_position_signal WHERE computed_at >= date_trunc('quarter', now())`),
       db.query(`
         SELECT GREATEST(
-          (SELECT MAX(created_at) FROM dial_coffee_relationships),
-          (SELECT MAX(created_at) FROM archetype_assignments WHERE superseded_at IS NULL),
+          (SELECT MAX(created_at) FROM coffee_hop),
+          (SELECT MAX(created_at) FROM coffee_archetype_assignment WHERE superseded_at IS NULL),
           (SELECT MAX(computed_at) FROM dial_position_signal)
         ) AS last_tightened
       `),

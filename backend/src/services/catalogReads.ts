@@ -307,10 +307,10 @@ export async function getNotSellable(filter: { slotId?: number } = {}, runner: R
        s.id AS slot_id, s.archetype, s.sort_order, s.name AS slot_name,
        top.coffee_id, top.coffee_name, top.coffee_is_active, top.category_codes,
        EXISTS (
-         SELECT 1 FROM roaster_blend rb WHERE rb.coffee_id = top.coffee_id AND rb.is_active = true AND rb.weight_oz = $1
+         SELECT 1 FROM coffee_sku rb WHERE rb.coffee_id = top.coffee_id AND rb.is_active = true AND rb.weight_oz = $1
        ) AS has_active_12oz_sku,
        EXISTS (
-         SELECT 1 FROM dial_slot_price dsp WHERE dsp.slot_id = s.id AND dsp.weight_oz = $1
+         SELECT 1 FROM coffee_slot_price dsp WHERE dsp.slot_id = s.id AND dsp.weight_oz = $1
        ) AS has_12oz_price
      FROM coffee_dial_slot s
      JOIN LATERAL (
@@ -424,8 +424,8 @@ export async function getCatalogVersion(runner: Runner = db): Promise<string> {
       (SELECT COALESCE(MAX(updated_at), '-infinity') FROM coffee_dial_slot),
       (SELECT COALESCE(MAX(created_at), '-infinity') FROM coffees),
       (SELECT COALESCE(MAX(deactivated_at), '-infinity') FROM coffees),
-      (SELECT COALESCE(MAX(updated_at), '-infinity') FROM roaster_blend),
-      (SELECT COALESCE(MAX(updated_at), '-infinity') FROM dial_slot_price)
+      (SELECT COALESCE(MAX(updated_at), '-infinity') FROM coffee_sku),
+      (SELECT COALESCE(MAX(updated_at), '-infinity') FROM coffee_slot_price)
     )::text AS version
   `);
   return new Date(result.rows[0].version).toISOString();

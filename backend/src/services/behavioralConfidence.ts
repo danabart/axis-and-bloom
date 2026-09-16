@@ -37,7 +37,7 @@ export async function computeBehavioralConfidence(uid: string): Promise<Behavior
       `SELECT qs.id, ar.name AS archetype_name, qs.completed_at
        FROM quiz_session qs
        JOIN user_profile up ON up.id = qs.user_id
-       LEFT JOIN archetype ar ON ar.id = qs.resulting_archetype_id
+       LEFT JOIN coffee_archetype ar ON ar.id = qs.resulting_archetype_id
        WHERE up.firebase_uid = $1
        ORDER BY qs.completed_at DESC`,
       [uid]
@@ -73,7 +73,7 @@ export async function computeBehavioralConfidence(uid: string): Promise<Behavior
        FROM "order" o
        JOIN user_profile up ON up.id = o.user_id
        LEFT JOIN order_line_item oli ON oli.order_id = o.id
-       LEFT JOIN roaster_blend rb ON rb.id = oli.blend_id
+       LEFT JOIN coffee_sku rb ON rb.id = oli.blend_id
        LEFT JOIN v_coffee vc ON vc.id = rb.coffee_id
        WHERE up.firebase_uid = $1`,
       [uid, currentArchetypeCode]

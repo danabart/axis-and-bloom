@@ -193,7 +193,7 @@ router.post('/', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) 
       if (!item.blendId) continue;
       try {
         await db.query(
-          `UPDATE roaster_blend
+          `UPDATE coffee_sku
            SET quantity_available = GREATEST(quantity_available - $1, 0),
                inventory_status = CASE
                  WHEN GREATEST(quantity_available - $1, 0) <= 0 THEN 'out_of_stock'
@@ -218,7 +218,7 @@ router.post('/', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) 
     let primaryCoffeeId: number | null = null;
     let orderPlacedLine: string | null = null;
     if (primaryBlendId) {
-      const blendResult = await db.query(`SELECT coffee_id FROM roaster_blend WHERE id = $1`, [primaryBlendId]);
+      const blendResult = await db.query(`SELECT coffee_id FROM coffee_sku WHERE id = $1`, [primaryBlendId]);
       primaryCoffeeId = blendResult.rows[0]?.coffee_id ?? null;
       if (primaryCoffeeId) {
         orderPlacedLine = await dispatchOrderPlacedBeat(userId, orderId, primaryCoffeeId).catch(err => {
@@ -385,7 +385,7 @@ router.post('/:orderId/feedback', requireAuth, blockAnonymousAuth, async (req: A
     const lineResult = await db.query(
       `SELECT li.blend_id, rb.coffee_id
        FROM order_line_item li
-       JOIN roaster_blend rb ON rb.id = li.blend_id
+       JOIN coffee_sku rb ON rb.id = li.blend_id
        WHERE li.order_id = $1 LIMIT 1`,
       [orderId]
     );

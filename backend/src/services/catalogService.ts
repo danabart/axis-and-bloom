@@ -133,7 +133,7 @@ export async function evaluatePlacement(runner: Tx | typeof db, coffeeId: number
   }>(
     `SELECT s.archetype, s.dimension_id, s.spec_band_lo, s.spec_band_hi, s.spec_descriptor_families,
             a.dominant_dimension_id, a.descriptor_families
-     FROM coffee_dial_slot s JOIN archetype a ON a.code = s.archetype
+     FROM coffee_dial_slot s JOIN coffee_archetype a ON a.code = s.archetype
      WHERE s.id = $1`,
     [slotId]
   );
@@ -178,7 +178,7 @@ export async function evaluatePlacement(runner: Tx | typeof db, coffeeId: number
 
   // Divergence (D1)
   const matchResult = await runner.query<{ archetype: string }>(
-    `SELECT archetype FROM archetype_assignments WHERE coffee_id = $1 AND superseded_at IS NULL`, [coffeeId]
+    `SELECT archetype FROM coffee_archetype_assignment WHERE coffee_id = $1 AND superseded_at IS NULL`, [coffeeId]
   );
   const matchArchetype = matchResult.rows[0]?.archetype;
   if (matchArchetype && matchArchetype !== slot.archetype) {
@@ -455,8 +455,8 @@ export async function previewPlacement(input: { coffeeId: number; slotId: number
   for (const sid of slotIdsToCount) userPositionCounts[sid] = 0;
   for (const row of userPosResult.rows) userPositionCounts[row.slot_id] = Number(row.c);
 
-  const priceRow = await db.query(`SELECT 1 FROM dial_slot_price WHERE slot_id = $1 AND weight_oz = 12`, [input.slotId]);
-  const skuRow = await db.query(`SELECT 1 FROM roaster_blend WHERE coffee_id = $1 AND weight_oz = 12 AND is_active = true`, [input.coffeeId]);
+  const priceRow = await db.query(`SELECT 1 FROM coffee_slot_price WHERE slot_id = $1 AND weight_oz = 12`, [input.slotId]);
+  const skuRow = await db.query(`SELECT 1 FROM coffee_sku WHERE coffee_id = $1 AND weight_oz = 12 AND is_active = true`, [input.coffeeId]);
 
   const occupantsResult = await db.query<{ coffee_id: number; coffee_name: string; role: string; priority: number }>(
     `SELECT coffee_id, coffee_name, role, priority FROM v_coffee_slot
@@ -575,7 +575,7 @@ export async function retireCoffee(input: { coffeeId: number; reason: 'manual' }
       [input.coffeeId]
     );
     const blendsResult = await tx.query(
-      `UPDATE roaster_blend SET is_active = false, deactivated_at = now(), deactivation_reason = 'manual', updated_at = now()
+      `UPDATE coffee_sku SET is_active = false, deactivated_at = now(), deactivation_reason = 'manual', updated_at = now()
        WHERE coffee_id = $1 AND is_active = true RETURNING id`,
       [input.coffeeId]
     );
@@ -595,7 +595,7 @@ export async function restoreCoffee(input: { coffeeId: number }, ctx: Ctx): Prom
     if (!coffeeResult.rowCount) throw new CatalogError(404, 'COFFEE_NOT_FOUND', `No manually-retired coffee ${input.coffeeId} found`);
     // Placements are NOT restored (N3) — re-place deliberately through placeCoffee/the importer.
     const blendsResult = await tx.query(
-      `UPDATE roaster_blend SET is_active = true, deactivated_at = NULL, deactivation_reason = NULL, updated_at = now()
+      `UPDATE coffee_sku SET is_active = true, deactivated_at = NULL, deactivation_reason = NULL, updated_at = now()
        WHERE coffee_id = $1 AND deactivation_reason = 'manual' RETURNING id`,
       [input.coffeeId]
     );
@@ -614,15 +614,15 @@ export interface SetMatchArchetypeInput {
 export async function setMatchArchetypeInTx(tx: Tx, input: SetMatchArchetypeInput): Promise<{ coffeeId: number; warnings: PlacementWarning[] }> {
   await fetchCoffeeRow(tx, input.coffeeId);
   const currentResult = await tx.query<{ id: number; archetype: string; confidence: string }>(
-    `SELECT id, archetype, confidence FROM archetype_assignments WHERE coffee_id = $1 AND superseded_at IS NULL`,
+    `SELECT id, archetype, confidence FROM coffee_archetype_assignment WHERE coffee_id = $1 AND superseded_at IS NULL`,
     [input.coffeeId]
   );
   const current = currentResult.rows[0];
   const isNoOp = current && current.archetype === input.archetype && current.confidence === input.confidence;
   if (!isNoOp) {
-    if (current) await tx.query(`UPDATE archetype_assignments SET superseded_at = now() WHERE id = $1`, [current.id]);
+    if (current) await tx.query(`UPDATE coffee_archetype_assignment SET superseded_at = now() WHERE id = $1`, [current.id]);
     await tx.query(
-      `INSERT INTO archetype_assignments (coffee_id, archetype, confidence, source, assigned_from_session_id, notes)
+      `INSERT INTO coffee_archetype_assignment (coffee_id, archetype, confidence, source, assigned_from_session_id, notes)
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [input.coffeeId, input.archetype, input.confidence, input.source, input.sessionId ?? null, input.notes ?? null]
     );
@@ -670,7 +670,7 @@ export async function setArchetypeDescriptorFamilies(
       throw new CatalogError(400, 'INVALID_INPUT', `Unknown descriptor family/families: ${unknown.join(', ')}`, { validFamilies: [...validFamilies] });
     }
     const updateResult = await tx.query<{ code: string }>(
-      `UPDATE archetype SET descriptor_families = $2, descriptor_families_seeded_at = now() WHERE code = $1 RETURNING code`,
+      `UPDATE coffee_archetype SET descriptor_families = $2, descriptor_families_seeded_at = now() WHERE code = $1 RETURNING code`,
       [input.code, input.families]
     );
     // ArchetypeCode is a closed, statically-known enum — this is unreachable
@@ -693,7 +693,7 @@ export async function upsertSkuInTx(tx: Tx, input: UpsertSkuInput): Promise<{ bl
     if (!Number.isFinite(input.weightOz) || input.weightOz <= 0) throw new CatalogError(400, 'INVALID_INPUT', 'weightOz must be a positive number');
 
     const existingResult = await tx.query<{ id: string; quantity_available: number; safety_stock_buffer: number }>(
-      `SELECT id, quantity_available, safety_stock_buffer FROM roaster_blend WHERE coffee_id = $1 AND weight_oz = $2 AND is_active = true`,
+      `SELECT id, quantity_available, safety_stock_buffer FROM coffee_sku WHERE coffee_id = $1 AND weight_oz = $2 AND is_active = true`,
       [input.coffeeId, input.weightOz]
     );
     let blendId: string;
@@ -702,7 +702,7 @@ export async function upsertSkuInTx(tx: Tx, input: UpsertSkuInput): Promise<{ bl
       const qty = input.quantityAvailable ?? existing.quantity_available;
       const buffer = input.safetyStockBuffer ?? existing.safety_stock_buffer;
       const updateResult = await tx.query<{ id: string }>(
-        `UPDATE roaster_blend SET
+        `UPDATE coffee_sku SET
            blend_name = COALESCE($1, blend_name), roaster_sku = COALESCE($2, roaster_sku),
            shopify_variant_id = COALESCE($3, shopify_variant_id), cost_to_us = COALESCE($4, cost_to_us),
            quantity_available = $5, safety_stock_buffer = $6, inventory_status = $7,
@@ -716,7 +716,7 @@ export async function upsertSkuInTx(tx: Tx, input: UpsertSkuInput): Promise<{ bl
       const qty = input.quantityAvailable ?? 0;
       const buffer = input.safetyStockBuffer ?? 2;
       const insertResult = await tx.query<{ id: string }>(
-        `INSERT INTO roaster_blend (roaster_id, coffee_id, blend_name, weight_oz, roaster_sku, shopify_variant_id, cost_to_us, quantity_available, safety_stock_buffer, inventory_status, is_active)
+        `INSERT INTO coffee_sku (roaster_id, coffee_id, blend_name, weight_oz, roaster_sku, shopify_variant_id, cost_to_us, quantity_available, safety_stock_buffer, inventory_status, is_active)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
         [coffee.roaster_id, input.coffeeId, input.blendName ?? coffee.name, input.weightOz, input.roasterSku ?? null,
          input.shopifyVariantId ?? null, input.costToUs ?? null, qty, buffer, computeInventoryStatus(qty, buffer), input.isActive ?? true]
@@ -739,13 +739,13 @@ export async function restockSku(input: { blendId: string; quantity: number }, c
   return withTransaction(async (tx) => {
     if (!Number.isFinite(input.quantity) || input.quantity <= 0) throw new CatalogError(400, 'INVALID_INPUT', 'quantity must be a positive number');
     const current = await tx.query<{ quantity_available: number; safety_stock_buffer: number }>(
-      `SELECT quantity_available, safety_stock_buffer FROM roaster_blend WHERE id = $1`, [input.blendId]
+      `SELECT quantity_available, safety_stock_buffer FROM coffee_sku WHERE id = $1`, [input.blendId]
     );
     if (!current.rowCount) throw new CatalogError(404, 'INVALID_INPUT', `SKU ${input.blendId} not found`);
     const nextQty = Number(current.rows[0].quantity_available) + input.quantity;
     const status = computeInventoryStatus(nextQty, current.rows[0].safety_stock_buffer);
     await tx.query(
-      `UPDATE roaster_blend SET quantity_available = $1, inventory_status = $2, last_restocked_at = timezone('utc', now()), updated_at = now() WHERE id = $3`,
+      `UPDATE coffee_sku SET quantity_available = $1, inventory_status = $2, last_restocked_at = timezone('utc', now()), updated_at = now() WHERE id = $3`,
       [nextQty, status, input.blendId]
     );
     console.info('[catalog] restockSku', { actor: ctx.actor, blendId: input.blendId, quantity: input.quantity });
@@ -821,7 +821,7 @@ export async function setSlotPriceInTx(tx: Tx, input: { slotId: number; weightOz
   // Catalog Blueprint brief 5a dropped dial_slot_price's legacy archetype/
   // dial_sort_order columns — slot_id is the only key now.
   await tx.query(
-    `INSERT INTO dial_slot_price (slot_id, weight_oz, retail_price_cents)
+    `INSERT INTO coffee_slot_price (slot_id, weight_oz, retail_price_cents)
      VALUES ($1, $2, $3)
      ON CONFLICT (slot_id, weight_oz) DO UPDATE SET retail_price_cents = EXCLUDED.retail_price_cents, updated_at = now()`,
     [input.slotId, input.weightOz, input.retailPriceCents]
@@ -868,7 +868,7 @@ export async function setHop(input: SetHopInput, ctx: Ctx): Promise<CatalogWrite
     // endpoint's current home placement) is the only hop type now, so this
     // no longer needs to compute or write one.
     const upsertResult = await tx.query<{ id: number }>(
-      `INSERT INTO dial_coffee_relationships (from_coffee_id, to_coffee_id, dimension_id, direction, delta, is_recommended, confidence, notes)
+      `INSERT INTO coffee_hop (from_coffee_id, to_coffee_id, dimension_id, direction, delta, is_recommended, confidence, notes)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (from_coffee_id, to_coffee_id, dimension_id, direction) DO UPDATE SET
          delta = EXCLUDED.delta, is_recommended = EXCLUDED.is_recommended,
@@ -905,7 +905,7 @@ export async function setHop(input: SetHopInput, ctx: Ctx): Promise<CatalogWrite
 
 export async function removeHop(input: { hopId: number }, ctx: Ctx): Promise<CatalogWriteResult<{ hopId: number }>> {
   return withTransaction(async (tx) => {
-    const result = await tx.query<{ id: number }>(`DELETE FROM dial_coffee_relationships WHERE id = $1 RETURNING id`, [input.hopId]);
+    const result = await tx.query<{ id: number }>(`DELETE FROM coffee_hop WHERE id = $1 RETURNING id`, [input.hopId]);
     if (!result.rowCount) throw new CatalogError(404, 'INVALID_INPUT', `Hop ${input.hopId} not found`);
     console.info('[catalog] removeHop', { actor: ctx.actor, hopId: input.hopId });
     return { result: { hopId: input.hopId }, warnings: [], integrity: [] };
@@ -927,8 +927,8 @@ async function wouldSlotStaySellableExcluding(roasterId: string, slotId: number)
     `SELECT 1
      FROM coffee_slot_assignment csa
      JOIN v_coffee vc ON vc.id = csa.coffee_id AND vc.is_active = true AND vc.roaster_id IS DISTINCT FROM $2
-     JOIN roaster_blend rb ON rb.coffee_id = vc.id AND rb.is_active = true AND rb.weight_oz = $3
-     JOIN dial_slot_price dsp ON dsp.slot_id = csa.slot_id AND dsp.weight_oz = $3
+     JOIN coffee_sku rb ON rb.coffee_id = vc.id AND rb.is_active = true AND rb.weight_oz = $3
+     JOIN coffee_slot_price dsp ON dsp.slot_id = csa.slot_id AND dsp.weight_oz = $3
      WHERE csa.slot_id = $1 AND csa.is_active = true
      LIMIT 1`,
     [slotId, roasterId, PREVIEW_WEIGHT_OZ]
@@ -962,7 +962,7 @@ export async function buildDeactivationPreview(roasterId: string) {
   );
 
   const blendsResult = await db.query(
-    `SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE is_active) AS active FROM roaster_blend WHERE roaster_id = $1`,
+    `SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE is_active) AS active FROM coffee_sku WHERE roaster_id = $1`,
     [roasterId]
   );
   // Replaces the old aliasesResult (coffee_alias) — placements, not aliases,
@@ -1010,14 +1010,14 @@ export async function buildDeactivationPreview(roasterId: string) {
 
   const coffeeIds: number[] = coffeesResult.rows.map((r) => r.id);
   const hopsResult = await db.query(
-    `SELECT COUNT(*) AS count FROM dial_coffee_relationships
+    `SELECT COUNT(*) AS count FROM coffee_hop
      WHERE from_coffee_id = ANY($1::int[]) OR to_coffee_id = ANY($1::int[])`,
     [coffeeIds.length ? coffeeIds : [0]]
   );
 
   const openOrdersResult = await db.query(
     `SELECT COUNT(*) AS count FROM order_line_item oli
-     JOIN roaster_blend rb ON rb.id = oli.blend_id
+     JOIN coffee_sku rb ON rb.id = oli.blend_id
      JOIN "order" o ON o.id = oli.order_id
      WHERE rb.roaster_id = $1 AND o.fulfillment_status NOT IN ('delivered', 'cancelled')`,
     [roasterId]
@@ -1034,7 +1034,7 @@ export async function buildDeactivationPreview(roasterId: string) {
        ORDER BY o.created_at DESC
        LIMIT 1
      ) last_line ON true
-     JOIN roaster_blend rb ON rb.id = last_line.blend_id
+     JOIN coffee_sku rb ON rb.id = last_line.blend_id
      WHERE s.status = 'active' AND rb.roaster_id = $1`,
     [roasterId]
   );
@@ -1080,7 +1080,7 @@ export async function buildReactivationPreview(roasterId: string) {
     [roasterId, roaster.deactivated_at]
   );
   const blendsResult = await db.query(
-    `SELECT COUNT(*) AS count FROM roaster_blend WHERE roaster_id = $1 AND deactivation_reason = 'roaster' AND deactivated_at >= $2`,
+    `SELECT COUNT(*) AS count FROM coffee_sku WHERE roaster_id = $1 AND deactivation_reason = 'roaster' AND deactivated_at >= $2`,
     [roasterId, roaster.deactivated_at]
   );
   // Catalog Blueprint brief 4 — no coffee_alias read here any more. There is
@@ -1114,7 +1114,7 @@ export async function deactivateRoastery(input: { roasterId: string; note?: stri
       [input.roasterId]
     );
     const blendsUpdate = await tx.query(
-      `UPDATE roaster_blend SET is_active = false, deactivated_at = now(), deactivation_reason = 'roaster', updated_at = now()
+      `UPDATE coffee_sku SET is_active = false, deactivated_at = now(), deactivation_reason = 'roaster', updated_at = now()
        WHERE roaster_id = $1 AND is_active = true RETURNING id`,
       [input.roasterId]
     );
@@ -1149,7 +1149,7 @@ export async function reactivateRoastery(input: { roasterId: string }, ctx: Ctx)
       [input.roasterId, cutoff]
     );
     const blendsUpdate = await tx.query(
-      `UPDATE roaster_blend SET is_active = true, deactivated_at = NULL, deactivation_reason = NULL, updated_at = now()
+      `UPDATE coffee_sku SET is_active = true, deactivated_at = NULL, deactivation_reason = NULL, updated_at = now()
        WHERE roaster_id = $1 AND deactivation_reason = 'roaster' AND deactivated_at >= $2 RETURNING id`,
       [input.roasterId, cutoff]
     );

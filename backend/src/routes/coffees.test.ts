@@ -47,9 +47,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
-  await db.query(`DELETE FROM archetype_assignments WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
-  await db.query(`DELETE FROM roaster_blend WHERE blend_name LIKE 'Vitest%' OR coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
-  await db.query(`DELETE FROM dial_slot_price WHERE slot_id = $1 AND weight_oz = $2`, [sharedFixture.slotId, CATALOG_WEIGHT_OZ]);
+  await db.query(`DELETE FROM coffee_archetype_assignment WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
+  await db.query(`DELETE FROM coffee_sku WHERE blend_name LIKE 'Vitest%' OR coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
+  await db.query(`DELETE FROM coffee_slot_price WHERE slot_id = $1 AND weight_oz = $2`, [sharedFixture.slotId, CATALOG_WEIGHT_OZ]);
   await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM roaster WHERE name LIKE 'Vitest%'`);
   await new Promise<void>(resolve => server.close(() => resolve()));
@@ -238,11 +238,11 @@ describe('GET /api/coffees/archetypes — inactive coffees', () => {
     } finally {
       if (coffeeId) {
         await db.query('DELETE FROM coffee_slot_assignment WHERE coffee_id = $1', [coffeeId]);
-        await db.query('DELETE FROM archetype_assignments WHERE coffee_id = $1', [coffeeId]);
-        await db.query('DELETE FROM roaster_blend WHERE coffee_id = $1', [coffeeId]);
+        await db.query('DELETE FROM coffee_archetype_assignment WHERE coffee_id = $1', [coffeeId]);
+        await db.query('DELETE FROM coffee_sku WHERE coffee_id = $1', [coffeeId]);
         await db.query('DELETE FROM coffees WHERE id = $1', [coffeeId]);
       }
-      if (slot) await db.query('DELETE FROM dial_slot_price WHERE slot_id = $1 AND weight_oz = $2', [slot.id, CATALOG_WEIGHT_OZ]);
+      if (slot) await db.query('DELETE FROM coffee_slot_price WHERE slot_id = $1 AND weight_oz = $2', [slot.id, CATALOG_WEIGHT_OZ]);
       if (roaster) await db.query('DELETE FROM roaster WHERE id = $1', [roaster.id]);
     }
   }, 20000);
@@ -316,13 +316,13 @@ describe('GET /api/coffees/:coffeeId/hops — inactive targets', () => {
     } finally {
       const targetIds = targets.map(t => t.coffeeId);
       const slotIds = targets.map(t => t.slotId);
-      await db.query(`DELETE FROM dial_coffee_relationships WHERE from_coffee_id = $1 OR to_coffee_id = ANY($2::int[])`, [sourceId ?? 0, targetIds]);
+      await db.query(`DELETE FROM coffee_hop WHERE from_coffee_id = $1 OR to_coffee_id = ANY($2::int[])`, [sourceId ?? 0, targetIds]);
       if (targetIds.length) {
         await db.query('DELETE FROM coffee_slot_assignment WHERE coffee_id = ANY($1::int[])', [targetIds]);
-        await db.query('DELETE FROM archetype_assignments WHERE coffee_id = ANY($1::int[])', [targetIds]);
-        await db.query('DELETE FROM roaster_blend WHERE coffee_id = ANY($1::int[])', [targetIds]);
+        await db.query('DELETE FROM coffee_archetype_assignment WHERE coffee_id = ANY($1::int[])', [targetIds]);
+        await db.query('DELETE FROM coffee_sku WHERE coffee_id = ANY($1::int[])', [targetIds]);
       }
-      if (slotIds.length) await db.query('DELETE FROM dial_slot_price WHERE slot_id = ANY($1::int[]) AND weight_oz = $2', [slotIds, CATALOG_WEIGHT_OZ]);
+      if (slotIds.length) await db.query('DELETE FROM coffee_slot_price WHERE slot_id = ANY($1::int[]) AND weight_oz = $2', [slotIds, CATALOG_WEIGHT_OZ]);
       if (sourceId) await db.query('DELETE FROM coffees WHERE id = $1', [sourceId]);
       if (targetIds.length) await db.query('DELETE FROM coffees WHERE id = ANY($1::int[])', [targetIds]);
       if (roaster) await db.query('DELETE FROM roaster WHERE id = $1', [roaster.id]);

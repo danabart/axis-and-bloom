@@ -163,7 +163,7 @@ async function start() {
     const mismatched = await db.query(
       `SELECT rb.id AS blend_id, rb.blend_name, rb.coffee_id, rb.roaster_id AS blend_roaster_id,
               c.roaster_id AS coffee_roaster_id, c.name AS coffee_name
-       FROM roaster_blend rb
+       FROM coffee_sku rb
        JOIN coffees c ON c.id = rb.coffee_id
        WHERE rb.roaster_id IS NOT NULL AND c.roaster_id IS NOT NULL AND rb.roaster_id <> c.roaster_id
        ORDER BY rb.id`
@@ -248,7 +248,7 @@ async function start() {
     for (const check of report.checks.filter(c => !c.pass)) {
       console.warn(`[catalog-integrity] check #${check.id} failed — ${check.name}: expected ${check.expected}, got ${check.actual}`);
     }
-    const nullCodeCount = await db.query(`SELECT COUNT(*) AS count FROM archetype WHERE code IS NULL`);
+    const nullCodeCount = await db.query(`SELECT COUNT(*) AS count FROM coffee_archetype WHERE code IS NULL`);
     if (Number(nullCodeCount.rows[0].count) > 0) {
       console.warn(`[catalog-integrity] ${nullCodeCount.rows[0].count} archetype row(s) still have code IS NULL`);
     }

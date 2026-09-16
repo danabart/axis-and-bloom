@@ -19,7 +19,7 @@ export async function saveQuizSession(
   archetypeName: string,
   contextData: Record<string, unknown>
 ): Promise<{ sessionId: string; archetypeId: string | null }> {
-  const archetypeResult = await db.query(`SELECT id FROM archetype WHERE name = $1`, [archetypeName]);
+  const archetypeResult = await db.query(`SELECT id FROM coffee_archetype WHERE name = $1`, [archetypeName]);
   const archetypeId = archetypeResult.rows[0]?.id ?? null;
 
   const sessionResult = await db.query(

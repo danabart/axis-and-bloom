@@ -333,7 +333,7 @@ export async function getBagNumberForCoffee(userId: string, coffeeId: number): P
     `SELECT COUNT(*) AS count
      FROM order_line_item li
      JOIN "order" o ON o.id = li.order_id
-     JOIN roaster_blend rb ON rb.id = li.blend_id
+     JOIN coffee_sku rb ON rb.id = li.blend_id
      WHERE o.user_id = $1 AND rb.coffee_id = $2`,
     [userId, coffeeId]
   );

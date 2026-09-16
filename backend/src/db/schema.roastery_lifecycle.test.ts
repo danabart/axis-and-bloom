@@ -20,7 +20,7 @@ import { db } from './client.js';
 afterAll(async () => {
   // coffee_alias's own cleanup line was dropped along with the table
   // (Catalog Blueprint brief 5a).
-  await db.query(`DELETE FROM roaster_blend WHERE blend_name LIKE 'Vitest%'`);
+  await db.query(`DELETE FROM coffee_sku WHERE blend_name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM roaster WHERE name LIKE 'Vitest%'`);
 });
@@ -127,7 +127,7 @@ describe('roaster_blend.coffee_id — NOT NULL supersedes the name-match backfil
     try {
       roaster = (await db.query(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Backfill Roastery A', true) RETURNING id`)).rows[0];
       await expect(db.query(
-        `INSERT INTO roaster_blend (roaster_id, blend_name, weight_oz, is_active) VALUES ($1, 'Vitest Backfill Coffee', 12, true)`,
+        `INSERT INTO coffee_sku (roaster_id, blend_name, weight_oz, is_active) VALUES ($1, 'Vitest Backfill Coffee', 12, true)`,
         [roaster!.id]
       )).rejects.toThrow(/null value in column "coffee_id"/);
     } finally {

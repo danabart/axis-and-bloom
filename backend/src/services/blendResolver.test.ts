@@ -25,8 +25,8 @@ const WEIGHT_OZ = 12;
 
 afterAll(async () => {
   await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
-  await db.query(`DELETE FROM archetype_assignments WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
-  await db.query(`DELETE FROM roaster_blend WHERE blend_name LIKE 'Vitest%' OR coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
+  await db.query(`DELETE FROM coffee_archetype_assignment WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
+  await db.query(`DELETE FROM coffee_sku WHERE blend_name LIKE 'Vitest%' OR coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
   await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM roaster WHERE name LIKE 'Vitest%'`);
 });
@@ -40,11 +40,11 @@ async function slotId(archetype: string, sortOrder: number): Promise<number> {
 async function cleanup(roaster: { id: string } | undefined, coffeeIds: number[], slotIds: number[] = []) {
   if (coffeeIds.length) {
     await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
-    await db.query(`DELETE FROM archetype_assignments WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
-    await db.query(`DELETE FROM roaster_blend WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
+    await db.query(`DELETE FROM coffee_archetype_assignment WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
+    await db.query(`DELETE FROM coffee_sku WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
     await db.query(`DELETE FROM coffees WHERE id = ANY($1::int[])`, [coffeeIds]);
   }
-  if (slotIds.length) await db.query(`DELETE FROM dial_slot_price WHERE slot_id = ANY($1::int[]) AND weight_oz = $2`, [slotIds, WEIGHT_OZ]);
+  if (slotIds.length) await db.query(`DELETE FROM coffee_slot_price WHERE slot_id = ANY($1::int[]) AND weight_oz = $2`, [slotIds, WEIGHT_OZ]);
   if (roaster) await db.query(`DELETE FROM roaster WHERE id = $1`, [roaster.id]);
 }
 
@@ -161,11 +161,11 @@ describe('resolveBlendForSlot', () => {
       roaster = await makeRoaster('Vitest BR NoPrice Roastery');
       slot = await slotId('earthy', 4);
       const existing = (await db.query<{ retail_price_cents: number }>(
-        `SELECT retail_price_cents FROM dial_slot_price WHERE slot_id = $1 AND weight_oz = $2`, [slot, WEIGHT_OZ]
+        `SELECT retail_price_cents FROM coffee_slot_price WHERE slot_id = $1 AND weight_oz = $2`, [slot, WEIGHT_OZ]
       )).rows[0];
       existingPriceCents = existing?.retail_price_cents;
       if (existingPriceCents !== undefined) {
-        await db.query(`DELETE FROM dial_slot_price WHERE slot_id = $1 AND weight_oz = $2`, [slot, WEIGHT_OZ]);
+        await db.query(`DELETE FROM coffee_slot_price WHERE slot_id = $1 AND weight_oz = $2`, [slot, WEIGHT_OZ]);
       }
 
       const { result: created } = await createCoffee({ roasterId: roaster.id, name: 'Vitest BR NoPrice Coffee' }, ACTOR);
@@ -185,7 +185,7 @@ describe('resolveBlendForSlot', () => {
     } finally {
       if (slot !== undefined && existingPriceCents !== undefined) {
         await db.query(
-          `INSERT INTO dial_slot_price (slot_id, weight_oz, retail_price_cents) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+          `INSERT INTO coffee_slot_price (slot_id, weight_oz, retail_price_cents) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
           [slot, WEIGHT_OZ, existingPriceCents]
         );
       }

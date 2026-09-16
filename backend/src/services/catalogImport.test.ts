@@ -19,13 +19,13 @@ const manifest: Manifest = JSON.parse(
 const ROASTER_NAME = manifest.roaster.name; // "Vitest Import Roastery"
 
 afterAll(async () => {
-  await db.query(`DELETE FROM dial_coffee_relationships WHERE from_coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%') OR to_coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
+  await db.query(`DELETE FROM coffee_hop WHERE from_coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%') OR to_coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
   await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
-  await db.query(`DELETE FROM archetype_assignments WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
-  await db.query(`DELETE FROM roaster_blend WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
+  await db.query(`DELETE FROM coffee_archetype_assignment WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
+  await db.query(`DELETE FROM coffee_sku WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
   await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM roaster WHERE name = $1`, [ROASTER_NAME]);
-  await db.query(`DELETE FROM dial_slot_price WHERE slot_id IN (SELECT id FROM coffee_dial_slot WHERE archetype = 'floral' AND sort_order IN (3, 4))`);
+  await db.query(`DELETE FROM coffee_slot_price WHERE slot_id IN (SELECT id FROM coffee_dial_slot WHERE archetype = 'floral' AND sort_order IN (3, 4))`);
 });
 
 async function countManifestRows() {

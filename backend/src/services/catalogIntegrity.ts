@@ -48,13 +48,13 @@ export interface CheckScope {
 }
 
 const REQUIRED_INDEXES = [
-  'archetype_code_key',
+  'coffee_archetype_code_key',
   'coffee_dial_slot_one_landing_default',
   'coffee_slot_assignment_one_active_home',
   'coffee_slot_assignment_one_active_per_priority',
-  'archetype_assignments_one_current',
-  'roaster_blend_one_active_per_weight',
-  'dial_slot_price_slot_weight_key',
+  'coffee_archetype_assignment_one_current',
+  'coffee_sku_one_active_per_weight',
+  'coffee_slot_price_slot_weight_key',
   'coffees_active_natural_key',
 ];
 
@@ -64,7 +64,7 @@ export async function checkArchetypeIdentity(scope: CheckScope = {}): Promise<Ca
   const archetypeResult = await runner.query<{
     name: string; code: string | null; sort_order: number | null;
     is_archetype: boolean; dominant_dimension_id: number | null;
-  }>(`SELECT name, code, sort_order, is_archetype, dominant_dimension_id FROM archetype`);
+  }>(`SELECT name, code, sort_order, is_archetype, dominant_dimension_id FROM coffee_archetype`);
   const details: string[] = [];
   for (const row of archetypeResult.rows) {
     if (!row.code) details.push(`"${row.name}": code is null`);
@@ -184,23 +184,23 @@ export async function checkActiveCoffeeMatchAndRoaster(scope: CheckScope = {}): 
   const runner = scope.tx ?? db;
   const missingMatchResult = await runner.query<{ id: number; name: string; missing_match: boolean; missing_roaster: boolean }>(
     `SELECT c.id, c.name,
-            NOT EXISTS (SELECT 1 FROM archetype_assignments aa WHERE aa.coffee_id = c.id AND aa.superseded_at IS NULL) AS missing_match,
+            NOT EXISTS (SELECT 1 FROM coffee_archetype_assignment aa WHERE aa.coffee_id = c.id AND aa.superseded_at IS NULL) AS missing_match,
             c.roaster_id IS NULL AS missing_roaster
      FROM coffees c
      WHERE c.is_active = true
        AND ($1::int IS NULL OR c.id = $1)
-       AND (NOT EXISTS (SELECT 1 FROM archetype_assignments aa WHERE aa.coffee_id = c.id AND aa.superseded_at IS NULL) OR c.roaster_id IS NULL)`,
+       AND (NOT EXISTS (SELECT 1 FROM coffee_archetype_assignment aa WHERE aa.coffee_id = c.id AND aa.superseded_at IS NULL) OR c.roaster_id IS NULL)`,
     [scope.coffeeId ?? null]
   );
   const details = missingMatchResult.rows.map(r => {
-    const problems = [r.missing_match && 'no current archetype_assignments row', r.missing_roaster && 'no roaster_id'].filter(Boolean);
+    const problems = [r.missing_match && 'no current coffee_archetype_assignment row', r.missing_roaster && 'no roaster_id'].filter(Boolean);
     return `coffee ${r.id} "${r.name}": ${problems.join(', ')}`;
   });
   return {
     id: 6,
     name: 'Every active coffee has a current match archetype and a roaster_id',
     pass: details.length === 0,
-    expected: 'every active coffee has a non-superseded archetype_assignments row and roaster_id',
+    expected: 'every active coffee has a non-superseded coffee_archetype_assignment row and roaster_id',
     actual: details.length === 0 ? 'all active coffees complete' : `${details.length} coffee(s) missing one or both`,
     details: details.length ? details : undefined,
   };
@@ -311,19 +311,19 @@ export async function checkRoasterFallback(scope: CheckScope = {}): Promise<Cata
   };
 }
 
-// ── 12. dial_slot_price / user_bloom_dial_current_position rows missing slot_id ──
+// ── 12. coffee_slot_price / user_bloom_dial_current_position rows missing slot_id ──
 export async function checkSlotIdBackfill(scope: CheckScope = {}): Promise<CatalogIntegrityCheck> {
   const runner = scope.tx ?? db;
-  const nullSlotPriceResult = await runner.query<{ count: string }>(`SELECT COUNT(*) AS count FROM dial_slot_price WHERE slot_id IS NULL`);
+  const nullSlotPriceResult = await runner.query<{ count: string }>(`SELECT COUNT(*) AS count FROM coffee_slot_price WHERE slot_id IS NULL`);
   const nullSlotPositionResult = await runner.query<{ count: string }>(`SELECT COUNT(*) AS count FROM user_bloom_dial_current_position WHERE slot_id IS NULL`);
   const nullPriceCount = Number(nullSlotPriceResult.rows[0].count);
   const nullPositionCount = Number(nullSlotPositionResult.rows[0].count);
   const details: string[] = [];
-  if (nullPriceCount > 0) details.push(`dial_slot_price: ${nullPriceCount} row(s) with slot_id IS NULL`);
+  if (nullPriceCount > 0) details.push(`coffee_slot_price: ${nullPriceCount} row(s) with slot_id IS NULL`);
   if (nullPositionCount > 0) details.push(`user_bloom_dial_current_position: ${nullPositionCount} row(s) with slot_id IS NULL`);
   return {
     id: 12,
-    name: 'dial_slot_price and user_bloom_dial_current_position have no un-backfilled slot_id',
+    name: 'coffee_slot_price and user_bloom_dial_current_position have no un-backfilled slot_id',
     pass: details.length === 0,
     expected: 'zero rows with slot_id IS NULL in either table',
     actual: details.length === 0 ? 'fully backfilled' : `${details.length} table(s) with gaps`,

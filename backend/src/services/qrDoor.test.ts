@@ -23,13 +23,13 @@ import { isCoffeeRetired, resolveUniversalToken, hasAnyOrderOrSponsorship, getOr
 // roaster_blend delete below throw a foreign key violation).
 afterAll(async () => {
   await db.query(`
-    DELETE FROM order_line_item WHERE blend_id IN (SELECT id FROM roaster_blend WHERE blend_name LIKE 'Vitest%')
+    DELETE FROM order_line_item WHERE blend_id IN (SELECT id FROM coffee_sku WHERE blend_name LIKE 'Vitest%')
   `);
   await db.query(`DELETE FROM "order" WHERE user_id IN (SELECT id FROM user_profile WHERE firebase_uid LIKE 'vitest-%')`);
   await db.query(`DELETE FROM user_profile WHERE firebase_uid LIKE 'vitest-%'`);
   // coffee_alias's own cleanup line was dropped along with the table
   // (Catalog Blueprint brief 5a).
-  await db.query(`DELETE FROM roaster_blend WHERE blend_name LIKE 'Vitest%'`);
+  await db.query(`DELETE FROM coffee_sku WHERE blend_name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM roaster WHERE name LIKE 'Vitest%'`);
 });
@@ -50,7 +50,7 @@ describe('isCoffeeRetired', () => {
         [roaster.id]
       )).rows[0];
       blend = (await db.query(
-        `INSERT INTO roaster_blend (blend_name, coffee_id, weight_oz, is_active) VALUES ('Vitest Retired Blend', $1, 12, true) RETURNING id`,
+        `INSERT INTO coffee_sku (blend_name, coffee_id, weight_oz, is_active) VALUES ('Vitest Retired Blend', $1, 12, true) RETURNING id`,
         [coffee!.id]
       )).rows[0];
 
@@ -58,7 +58,7 @@ describe('isCoffeeRetired', () => {
       await db.query('UPDATE coffees SET is_active = false WHERE id = $1', [coffee!.id]);
       expect(await isCoffeeRetired(coffee!.id)).toBe(true);
     } finally {
-      if (blend) await db.query('DELETE FROM roaster_blend WHERE id = $1', [blend.id]);
+      if (blend) await db.query('DELETE FROM coffee_sku WHERE id = $1', [blend.id]);
       if (coffee) await db.query('DELETE FROM coffees WHERE id = $1', [coffee.id]);
       if (roaster) await db.query('DELETE FROM roaster WHERE id = $1', [roaster.id]);
     }
@@ -103,7 +103,7 @@ describe('Universal QR resolve path stays independent of roastery/coffee active 
         [roaster.id]
       )).rows[0];
       blend = (await db.query(
-        `INSERT INTO roaster_blend (blend_name, coffee_id, weight_oz, is_active) VALUES ('Vitest QR Fixture Blend', $1, 12, false) RETURNING id`,
+        `INSERT INTO coffee_sku (blend_name, coffee_id, weight_oz, is_active) VALUES ('Vitest QR Fixture Blend', $1, 12, false) RETURNING id`,
         [coffee!.id]
       )).rows[0];
       profile = (await db.query(
@@ -123,7 +123,7 @@ describe('Universal QR resolve path stays independent of roastery/coffee active 
       if (lineItem) await db.query('DELETE FROM order_line_item WHERE id = $1', [lineItem.id]);
       if (order) await db.query('DELETE FROM "order" WHERE id = $1', [order.id]);
       if (profile) await db.query('DELETE FROM user_profile WHERE id = $1', [profile.id]);
-      if (blend) await db.query('DELETE FROM roaster_blend WHERE id = $1', [blend.id]);
+      if (blend) await db.query('DELETE FROM coffee_sku WHERE id = $1', [blend.id]);
       if (coffee) await db.query('DELETE FROM coffees WHERE id = $1', [coffee.id]);
       if (roaster) await db.query('DELETE FROM roaster WHERE id = $1', [roaster.id]);
     }

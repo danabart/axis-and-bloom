@@ -73,7 +73,7 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
       db.query(
         `SELECT qs.id, qs.completed_at, a.name AS archetype_name, a.id AS archetype_id
          FROM quiz_session qs
-         LEFT JOIN archetype a ON a.id = qs.resulting_archetype_id
+         LEFT JOIN coffee_archetype a ON a.id = qs.resulting_archetype_id
          WHERE qs.user_id = $1
          ORDER BY qs.completed_at DESC LIMIT 1`,
         [profileId]
@@ -84,7 +84,7 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
                 (ARRAY_AGG(rb.blend_name))[1] AS blend_name
          FROM "order" o
          LEFT JOIN order_line_item li ON li.order_id = o.id
-         LEFT JOIN roaster_blend rb ON rb.id = li.blend_id
+         LEFT JOIN coffee_sku rb ON rb.id = li.blend_id
          WHERE o.user_id = $1
          GROUP BY o.id ORDER BY o.created_at DESC LIMIT 10`,
         [profileId]
@@ -335,7 +335,7 @@ router.get('/homepage-state', requireAuth, async (req: AuthRequest, res) => {
     if (pendingFeedbackOrder) {
       const blendResult = await db.query(
         `SELECT rb.blend_name, rb.coffee_id FROM order_line_item oli
-         JOIN roaster_blend rb ON rb.id = oli.blend_id
+         JOIN coffee_sku rb ON rb.id = oli.blend_id
          WHERE oli.order_id = $1 LIMIT 1`,
         [pendingFeedbackOrder.orderId]
       );
@@ -351,7 +351,7 @@ router.get('/homepage-state', requireAuth, async (req: AuthRequest, res) => {
         `SELECT rb.id, rb.blend_name, COUNT(*) AS cnt
          FROM order_line_item oli
          JOIN "order" o ON o.id = oli.order_id
-         JOIN roaster_blend rb ON rb.id = oli.blend_id
+         JOIN coffee_sku rb ON rb.id = oli.blend_id
          WHERE o.user_id = $1
          GROUP BY rb.id, rb.blend_name
          ORDER BY cnt DESC LIMIT 1`,
@@ -599,7 +599,7 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
                 (ARRAY_AGG(rb.coffee_id))[1]  AS coffee_id
          FROM "order" o
          LEFT JOIN order_line_item li ON li.order_id = o.id
-         LEFT JOIN roaster_blend rb ON rb.id = li.blend_id
+         LEFT JOIN coffee_sku rb ON rb.id = li.blend_id
          WHERE o.user_id = $1
          GROUP BY o.id ORDER BY o.created_at DESC`,
         [profileId]
@@ -757,7 +757,7 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
       const quizResult = await db.query(
         `SELECT qs.completed_at, a.name AS archetype_name
          FROM quiz_session qs
-         LEFT JOIN archetype a ON a.id = qs.resulting_archetype_id
+         LEFT JOIN coffee_archetype a ON a.id = qs.resulting_archetype_id
          WHERE qs.user_id = $1
          ORDER BY qs.completed_at DESC LIMIT 1`,
         [profileId]

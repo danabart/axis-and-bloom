@@ -46,7 +46,7 @@ afterAll(async () => {
   // `fixture` variable was never assigned. This sweep is the real safety
   // net; moving creation inside try (below) only covers a failure in the
   // test body itself. Order matters — children before parents.
-  await db.query(`DELETE FROM roaster_blend WHERE blend_name LIKE 'Vitest%'`);
+  await db.query(`DELETE FROM coffee_sku WHERE blend_name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM roaster WHERE name LIKE 'Vitest%'`);
   await new Promise<void>(resolve => server.close(() => resolve()));
@@ -71,14 +71,14 @@ async function makeFixture(): Promise<Fixture> {
     [roaster.id]
   )).rows[0];
   const blend = (await db.query(
-    `INSERT INTO roaster_blend (roaster_id, blend_name, coffee_id, is_active) VALUES ($1, 'Vitest Blend', $2, true) RETURNING id`,
+    `INSERT INTO coffee_sku (roaster_id, blend_name, coffee_id, is_active) VALUES ($1, 'Vitest Blend', $2, true) RETURNING id`,
     [roaster.id, coffee.id]
   )).rows[0];
   return { roaster, coffee, blend };
 }
 
 async function cleanup(fixture: Fixture) {
-  await db.query('DELETE FROM roaster_blend WHERE id = $1', [fixture.blend.id]);
+  await db.query('DELETE FROM coffee_sku WHERE id = $1', [fixture.blend.id]);
   await db.query('DELETE FROM coffees WHERE id = $1', [fixture.coffee.id]);
   await db.query('DELETE FROM roaster WHERE id = $1', [fixture.roaster.id]);
 }
@@ -145,7 +145,7 @@ describe('POST /api/admin/roasters/:id/deactivate + reactivate', () => {
       expect(coffeeRow.deactivation_reason).toBe('roaster');
 
       const blendRow = (await db.query(
-        'SELECT is_active, deactivation_reason FROM roaster_blend WHERE id = $1', [fixture.blend.id]
+        'SELECT is_active, deactivation_reason FROM coffee_sku WHERE id = $1', [fixture.blend.id]
       )).rows[0];
       expect(blendRow.is_active).toBe(false);
       expect(blendRow.deactivation_reason).toBe('roaster');
