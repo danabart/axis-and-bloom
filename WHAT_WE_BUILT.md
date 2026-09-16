@@ -4704,6 +4704,12 @@ One test-suite casualty from A3's NOT NULL also found and fixed: `schema.roaster
 **`coffee%` table listing** (`information_schema.tables`, prod): `coffee_archetype, coffee_archetype_assignment, coffee_category, coffee_category_assignment, coffee_dial_slot, coffee_dimensions, coffee_hop, coffee_retail_price, coffee_sku, coffee_slot_assignment, coffee_slot_price, coffees` — 12 tables, exact match to the brief's own literal Definition of Done expectation.
 
 **Committed** — `1f10dc4` (Stage B rename, amended once locally pre-push to fix a commit-message backtick mangled by shell command substitution before it ever reached `origin`). Catalog Blueprint series complete.
+
+**Hotfix, 2026-09-16** — brief 4's retirement of `GET /api/admin/coffees` (410) missed two live callers: `AdminFlavorWheel.tsx`'s coffee selector and `AdminSessions.tsx`'s cupping-session coffee picker (both `loadAllCoffees` call sites), silently 410ing since brief 4 shipped. Repointed both to `GET /api/admin/catalog/coffees` (`v_coffee`-backed, same `?include_inactive=true` query), mapping `roaster_name` → the `roaster` field both components already use. Grepped the entire frontend for all 14 of brief 4's retired admin paths plus the brief-2 `/coffee-alias`/`/slot-prices`/`/inventory*` set — found zero other live callers, only one unrelated stale comment (`AdminDial.tsx`, describing data provenance, not a call). Frontend build clean, `tsc --noEmit` baseline unchanged (13, none in a touched file). Committed separately, not folded into #183.
+
+---
+
+### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.
 - ~~`archetype_relationship` table is confirmed unused (0 rows)~~ — done, #141 (2026-08-04): last consumer (`sommelierRag.ts`'s `getAdjacentArchetypes()`) migrated to `v_archetype_adjacency`; table deprecated in place in `schema.sql` (not dropped — dormant-data discipline). `archetype_tunable_variable`'s own status is unrelated and still unreviewed.

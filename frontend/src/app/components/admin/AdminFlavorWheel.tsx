@@ -42,17 +42,22 @@ export default function AdminFlavorWheel() {
   // only, same pattern as every other admin list this task touches.
   const [showInactive, setShowInactive] = useState(false);
 
-  // Load coffee list for selector
+  // Load coffee list for selector. GET /api/admin/coffees was retired (410,
+  // Catalog Blueprint brief 4) — this was missed at the time and kept
+  // silently 410ing until caught as a hotfix; repointed to
+  // /catalog/coffees (v_coffee-backed) and mapped roaster_name -> roaster,
+  // the field name this component already uses.
   useEffect(() => {
     (async () => {
       try {
         const token = await user!.getIdToken();
-        const res   = await fetch(`/api/admin/coffees${showInactive ? '?include_inactive=true' : ''}`, {
+        const res   = await fetch(`/api/admin/catalog/coffees${showInactive ? '?include_inactive=true' : ''}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        const data: Coffee[] = await res.json();
-        setCoffees(data);
-        if (data.length > 0) setSelectedId(String(data[0].id));
+        const data: { id: number; name: string; roaster_name: string | null; is_active?: boolean }[] = await res.json();
+        const mapped: Coffee[] = data.map(c => ({ id: c.id, name: c.name, roaster: c.roaster_name, is_active: c.is_active }));
+        setCoffees(mapped);
+        if (mapped.length > 0) setSelectedId(String(mapped[0].id));
       } catch (err) {
         reportError('[AdminFlavorWheel/load-coffees]', err);
         setError('Failed to load coffees');

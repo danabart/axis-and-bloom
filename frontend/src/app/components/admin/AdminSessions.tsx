@@ -27,6 +27,12 @@ interface SessionCoffee {
 interface Coffee { id: number; name: string; roaster: string | null; is_active?: boolean; }
 interface RoasterOption { id: string; name: string; }
 
+// v_coffee-shaped row from GET /api/admin/catalog/coffees, mapped to the
+// Coffee shape this component uses (roaster_name -> roaster).
+function toCoffee(c: { id: number; name: string; roaster_name: string | null; is_active?: boolean }): Coffee {
+  return { id: c.id, name: c.name, roaster: c.roaster_name, is_active: c.is_active };
+}
+
 const EMPTY_FORM = { session_date: '', brew_method: '', location: '', session_notes: '' };
 
 export default function AdminSessions() {
@@ -85,11 +91,15 @@ export default function AdminSessions() {
     }
   }
 
+  // GET /api/admin/coffees was retired (410, Catalog Blueprint brief 4) —
+  // this cupping session coffee picker was missed at the time and kept
+  // silently 410ing until caught as a hotfix; repointed to
+  // /catalog/coffees (v_coffee-backed), mapped via toCoffee().
   async function loadAllCoffees(force = false) {
     if (allCoffees.length > 0 && !force) return;
     try {
-      const res = await apiFetch(`/api/admin/coffees${showInactive ? '?include_inactive=true' : ''}`);
-      if (res.ok) setAllCoffees(await res.json());
+      const res = await apiFetch(`/api/admin/catalog/coffees${showInactive ? '?include_inactive=true' : ''}`);
+      if (res.ok) setAllCoffees((await res.json()).map(toCoffee));
     } catch (err) { reportError('[AdminSessions/load-all-coffees]', err); }
   }
 
@@ -99,9 +109,9 @@ export default function AdminSessions() {
   function handleShowInactiveChange(next: boolean) {
     setShowInactive(next);
     if (allCoffees.length > 0) {
-      apiFetch(`/api/admin/coffees${next ? '?include_inactive=true' : ''}`)
+      apiFetch(`/api/admin/catalog/coffees${next ? '?include_inactive=true' : ''}`)
         .then(res => res.ok && res.json())
-        .then(data => data && setAllCoffees(data))
+        .then(data => data && setAllCoffees(data.map(toCoffee)))
         .catch(err => reportError('[AdminSessions/load-all-coffees]', err));
     }
   }
