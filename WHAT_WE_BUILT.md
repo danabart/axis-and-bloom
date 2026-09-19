@@ -4751,6 +4751,18 @@ New bucket `axis-bloom-db-transfers` (`us-central1`, matching the instance's reg
 
 **Deliberately not touched**: the 189 `/api/admin/...` NULL rows (2026-09-14 → 09-16) — almost certainly `npm test` running against prod before #184's isolation; left in place per Dana. Historical client-errors NULL rows are not backfilled either. Frontend error signatures found in the 190 payloads are logged as OT-19…OT-22 in `OPEN_TASKS.md`, not fixed here.
 
+### 186. App Check rolled back to monitoring + quiz load-error retry (2026-09-18)
+
+**Context**: `backend/src/features/hoboken_crawl/CLAUDE_CODE_PROMPT_APPCHECK_INAPP_BROWSER.md` — the Instagram bio link (`/ig` → `/find-my-flavor?campaign=instagram`) showed Dana a blank quiz on her phone because `APP_CHECK_ENFORCED=true` (security entry 9) 401s any `/api/*` request without an `X-Firebase-AppCheck` header, and in-app browsers often can't mint a reCAPTCHA v3 token. Hoboken Coffee Crawl is 2026-09-20.
+
+**Task 0 (read-only)**: 14 days of Cloud Run 401s = 1,133 (1,129 App Check blocks). The brief's expectation that in-app browsers dominate was **not** borne out: 59% of 401s are scanner probes on non-app paths; on real-app routes only 73 of 461 are Instagram/Facebook in-app; no-token requests are ~a third of all traffic reaching the gate, mostly ordinary browser UAs; 0 invalid tokens. Firebase Auth and Firestore App Check are `UNENFORCED` in the console (read via the App Check REST API).
+
+**Task 1**: `.github/workflows/deploy.yml` `APP_CHECK_ENFORCED=true` → `false` (one value; push is the deploy, no manual `gcloud run services update`). Dated comment added to `backend/src/middleware/appCheck.ts`'s header; no logic change. Tokens are still verified and logged when present, nothing is blocked. **C17 residual gap reopens** for the launch window (direct `*.run.app` requests no longer need a token) — tradeoff accepted by Dana; other controls unchanged.
+
+**Task 2** (`FlavorQuiz.tsx`): the questions fetch is now a `loadQuestions()` function with an explicit `r.ok` check (a non-2xx used to be JSON-parsed and reach the error state only incidentally). The error screen — previously a faint 70%-opacity "Quiz unavailable. Please try again later." with no action — now shows readable full-colour "We couldn't load the quiz. Tap to try again." plus a "Try again" button that re-runs the fetch (resets `loadError`/`loading`). Same container and `QuizHeader`, no new components. Failures still go through `reportError('[FlavorQuiz/questions]', …)`.
+
+**Task 3**: `OPEN_TASKS.md` OT-23 records the rollback, the real finding, the C17 tradeoff and the post-crawl plan (per-route enforcement on cost-bearing routes only). `WHAT_WE_BUILT_SECURITY.md` entry 9 notes the rollback.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

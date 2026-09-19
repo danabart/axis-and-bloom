@@ -648,16 +648,26 @@ export default function FlavorQuiz() {
   const { addToCart, cart, cartOpen, toggleCartOpen, removeFromCart, checkout, checkoutStatus, checkoutMessage } = useCart();
   const navigate = useNavigate();
 
-  useEffect(() => {
+  // Extracted so the error screen's retry button can re-run it. Checks r.ok
+  // explicitly: a non-2xx (e.g. an App Check 401) used to parse its JSON error
+  // body, find no questions, and only incidentally land on the error state.
+  const loadQuestions = () => {
+    setLoadError(false);
+    setLoading(true);
     fetch('/api/quiz/questions')
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) throw new Error(`quiz questions request failed: HTTP ${r.status}`);
+        return r.json();
+      })
       .then(data => {
         if (data.questions?.length) setQuestions(data.questions);
         else setLoadError(true);
       })
       .catch(err => { reportError('[FlavorQuiz/questions]', err); setLoadError(true); })
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { loadQuestions(); }, []);
 
   // profileFetchDone (Profile Part 1's ?retake=1 handler needs this): distinct
   // from profileLoading, whose *initial* value is already `false` before this
@@ -1174,9 +1184,18 @@ export default function FlavorQuiz() {
     return (
       <div className="relative w-full min-h-screen bg-[#f2f1ea] flex items-center justify-center">
         <QuizHeader />
-        <p className="text-[#a33726]/70 text-sm uppercase tracking-[0.2em]">
-          Quiz unavailable. Please try again later.
-        </p>
+        <div className="text-center px-6">
+          <p className="text-[#a33726] text-base mb-6">
+            We couldn&apos;t load the quiz. Tap to try again.
+          </p>
+          <button
+            type="button"
+            onClick={loadQuestions}
+            className="px-8 py-3 bg-[#a33726] text-[#f2f1ea] text-sm uppercase tracking-[0.2em]"
+          >
+            Try again
+          </button>
+        </div>
       </div>
     );
   }

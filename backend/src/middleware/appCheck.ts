@@ -25,6 +25,10 @@ import admin from '../services/firebase-admin.js';
 //     these would lock them out permanently, valid cron secret or not.
 //   /health — Cloud Run's own uptime/health checks call with no App Check
 //     context either.
+//
+// 2026-09-18: enforcement rolled back to monitoring for the Hoboken crawl / Oct 1
+// window; in-app browsers (Instagram, Facebook) fail reCAPTCHA attestation. See
+// OPEN_TASKS.md.
 const EXEMPT_PATH_PREFIXES = ['/api/cron', '/api/webhooks'];
 
 function isExempt(path: string): boolean {

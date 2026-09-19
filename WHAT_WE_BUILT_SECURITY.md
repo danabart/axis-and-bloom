@@ -207,6 +207,8 @@ No rollback needed — every check passed on the first deploy.
 
 **Files:** `.github/workflows/deploy.yml`. Commit `da06c8f`.
 
+**Rolled back to monitoring 2026-09-18** (`WHAT_WE_BUILT.md` #186, `OPEN_TASKS.md` OT-23): `APP_CHECK_ENFORCED` is `false` again for the Hoboken crawl (2026-09-20) / Oct 1 launch window, because reCAPTCHA v3 attestation fails in Instagram/Facebook in-app browsers and enforcement blocked `/api/quiz/questions` for them. **Consequence: the C17 residual gap (entry 1 — forged CF-Connecting-IP via direct `*.run.app`) is open again**; accepted by Dana for the launch window. The 14-day data showed the no-token population is ~a third of gate traffic and mostly ordinary browsers and scanners, not just in-app browsers, so the post-crawl plan is per-route enforcement on cost-bearing routes only, not a global gate.
+
 ---
 
 ### 10. C6b — Hardened anonymous sign-in to await App Check (2026-08-09)
