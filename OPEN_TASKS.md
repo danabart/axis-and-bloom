@@ -235,3 +235,7 @@ Every open page site-wide (previously silently rendering in Arial — see OT-11)
 | — | OT-13: Cloud Scheduler jobs for Company Gift crons | ⏳ Pending (needs OT-1's secret, already done) |
 | — | OT-14: Company Gift emails — swap `/profile` placeholder for real checkout | ⏳ Pending (needs OT-6) |
 | 2026-09-01 | OT-18: Camila's review of the Arial → Lato cosmetic list | ⏳ Pending (Camila to review) |
+| 2026-09-18 | OT-19: `[FlavorQuiz/dial-position-read]: Failed to fetch dial position` on `/find-my-flavor` — 34 client-error reports, 2026-08-17 → 2026-09-18, ongoing. Real, recurring; find why the dial-position read fails (see CLAUDE_CODE_PROMPT_CLIENT_ERRORS_UNFINISHED.md) | ⏳ Pending |
+| 2026-09-18 | OT-20: Anonymous sign-in blocked by App Check (HTTP 403, a few 429) — 44 reports across `/`, `/crawl`, `/find-my-flavor`, `/bloom`, `/shop`, etc., 2026-08-26 → 2026-09-10; suspected in-app browsers (Instagram/Facebook webviews) failing App Check attestation. Confirm the UA mix and decide whether guests need a graceful fallback | ⏳ Pending |
+| 2026-09-18 | OT-21: `e.find is not a function` ErrorBoundary crash on `/admin/flavor-wheel` — 6 reports, 2026-09-16 ~16:47Z (admin page, likely a response-shape change from the catalog repoint in `49c6671`) | ⏳ Pending |
+| 2026-09-18 | OT-22: `ReferenceError: Can't find variable: _AutofillCallbackHandler` — 58 reports (mostly `/ig`, 2026-09-10 → 09-14). Instagram in-app browser noise, not our code; noted only so it isn't re-investigated. Consider filtering in the reporter | ℹ️ Noted |

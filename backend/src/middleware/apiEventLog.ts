@@ -12,7 +12,8 @@ import type { AuthRequest } from './auth.js';
 //
 // Hard requirement: this middleware can never fail, slow, or otherwise
 // change a request. Both DB writes are fire-and-forget (never awaited in
-// the request path); every code path here is wrapped so an internal error
+// the request path); the UPDATE waits on the INSERT's promise, off the request
+// path; every code path here is wrapped so an internal error
 // degrades to "no log row," never to a 500 or an added delay.
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -126,11 +127,20 @@ export function apiEventLog(req: Request, res: Response, next: NextFunction): vo
       bodyTruncated = truncated;
     }
 
-    db.query(
-      `INSERT INTO api_event (id, call_type, method, path, request_body, body_truncated)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [id, provisionalCallType, req.method, path, requestBody === null ? null : JSON.stringify(requestBody), bodyTruncated]
-    ).catch((err) => console.error('[apiEventLog/insert]', err));
+    // Kept (not discarded): the UPDATE below is chained on this promise. The
+    // INSERT and UPDATE are separate pool queries and may land on different
+    // connections, so on a fast route (client-errors answers in ~10 ms) an
+    // unchained UPDATE could execute before the INSERT committed, match zero
+    // rows, and never error -- leaving response_status/duration_ms NULL.
+    // Resolves true only if the row was actually inserted; never rejects.
+    const insertPromise: Promise<boolean> = db
+      .query(
+        `INSERT INTO api_event (id, call_type, method, path, request_body, body_truncated)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [id, provisionalCallType, req.method, path, requestBody === null ? null : JSON.stringify(requestBody), bodyTruncated]
+      )
+      .then(() => true)
+      .catch((err) => { console.error('[apiEventLog/insert]', err); return false; });
 
     // Capture the outgoing body without altering it or the response --
     // needed to fill response_error on failures, since Express gives no
@@ -153,7 +163,15 @@ export function apiEventLog(req: Request, res: Response, next: NextFunction): vo
       console.error('[apiEventLog/wrap-response]', err);
     }
 
-    res.on('finish', () => {
+    // One code path for the outcome UPDATE, called from both 'finish' and
+    // 'close', guarded so it runs at most once per row. 'finish' = the
+    // response completed (real status). 'close' without 'finish' = the
+    // client went away first: 499 (nginx's "client closed request"), with
+    // the real duration, so aborted requests stop reading as "unfinished".
+    let outcomeWritten = false;
+    const writeOutcome = (status: number, aborted: boolean): void => {
+      if (outcomeWritten) return;
+      outcomeWritten = true;
       try {
         const durationMs = Number(process.hrtime.bigint() - startedAtNs) / 1e6;
         const callType = deriveCallType(req);
@@ -162,41 +180,45 @@ export function apiEventLog(req: Request, res: Response, next: NextFunction): vo
         const isAnonymous = authReq.isAnonymous ?? null;
 
         let responseError: unknown = null;
-        if (res.statusCode >= 400 && responseBodyCaptured) {
+        if (aborted) {
+          responseError = { error: 'client closed request' };
+        } else if (status >= 400 && responseBodyCaptured) {
           const { value } = truncate(redact(responseBody), MAX_RESPONSE_ERROR_BYTES);
           responseError = value;
         }
 
-        db.query(
-          `UPDATE api_event
-           SET call_type = $1, firebase_uid = $2, is_anonymous = $3,
-               response_status = $4, response_error = $5, duration_ms = $6
-           WHERE id = $7`,
-          [
-            callType,
-            firebaseUid,
-            isAnonymous,
-            res.statusCode,
-            responseError === null ? null : JSON.stringify(responseError),
-            Math.round(durationMs),
-            id,
-          ]
-        ).catch((err) => console.error('[apiEventLog/update-finish]', err));
+        void insertPromise.then(async (inserted) => {
+          if (!inserted) return; // insert failed and already logged -- nothing to update
+          try {
+            const result = await db.query(
+              `UPDATE api_event
+               SET call_type = $1, firebase_uid = $2, is_anonymous = $3,
+                   response_status = $4, response_error = $5, duration_ms = $6
+               WHERE id = $7`,
+              [
+                callType,
+                firebaseUid,
+                isAnonymous,
+                status,
+                responseError === null ? null : JSON.stringify(responseError),
+                Math.round(durationMs),
+                id,
+              ]
+            );
+            if (result.rowCount === 0) {
+              console.warn('[apiEventLog/update-no-match]', { id, callType, status });
+            }
+          } catch (err) {
+            console.error(aborted ? '[apiEventLog/update-close]' : '[apiEventLog/update-finish]', err);
+          }
+        });
       } catch (err) {
-        console.error('[apiEventLog/finish-handler]', err);
+        console.error('[apiEventLog/outcome-handler]', err);
       }
-    });
+    };
 
-    res.on('close', () => {
-      try {
-        if (res.writableEnded) return; // 'finish' already handled this response
-        const durationMs = Number(process.hrtime.bigint() - startedAtNs) / 1e6;
-        db.query(`UPDATE api_event SET duration_ms = $1 WHERE id = $2`, [Math.round(durationMs), id])
-          .catch((err) => console.error('[apiEventLog/update-close]', err));
-      } catch (err) {
-        console.error('[apiEventLog/close-handler]', err);
-      }
-    });
+    res.on('finish', () => writeOutcome(res.statusCode, false));
+    res.on('close', () => writeOutcome(499, true)); // no-op if 'finish' already ran
 
     next();
   } catch (err) {

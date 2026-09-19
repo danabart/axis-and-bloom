@@ -4737,6 +4737,20 @@ New bucket `axis-bloom-db-transfers` (`us-central1`, matching the instance's reg
 
 **Verified**: `npm run lint:catalog` clean. `npm run build` (tsc) clean, `src/test/*.ts` included (same dist/src compiled-test-duplication convention every other test file already follows). Deploy unaffected by design — nothing under `src/test/` is imported by `index.ts` or any runtime code path; deploy confirmed green post-push regardless.
 
+### 185. api_event: UPDATE raced the INSERT — "unfinished" rows fixed (2026-09-18)
+
+**Context**: `backend/src/features/observability/CLAUDE_CODE_PROMPT_CLIENT_ERRORS_UNFINISHED.md` (investigation) plus its same-day follow-up. The System Health card showed `POST /api/client-errors` with 67 "unfinished" rows (`response_status IS NULL`); the brief's working hypothesis (browser aborts connection → `close` without `finish`) was **refuted** by evidence: Cloud Run's own request log recorded 204 for the same requests, the existing `close` handler had also never landed a duration (0 of 392 NULL-status rows had `duration_ms`), and `keepalive: true` was already on the reporter's `fetch`.
+
+**Root cause (code-confirmed, review hypothesis)**: in `middleware/apiEventLog.ts` the INSERT's promise was discarded and the `finish`/`close` handlers issued their UPDATE independently on the pool. Two fire-and-forget queries can run on different connections, so on a fast route (client-errors answers in ~10 ms) the UPDATE could execute before the INSERT committed, match **zero rows, and never error** — no status, no duration, no log line. Explains why the fastest route is hit hardest (173 of 190) and why no `[apiEventLog/...]` errors appear in Cloud Logging. (An earlier CPU-throttling theory — default request-based CPU on the service — was not supported by the data and is not the fix.)
+
+**Fix** (`apiEventLog.ts`, app-level, zero per-route work): the INSERT promise is kept (resolves `true` only if the row was inserted, never rejects) and both outcomes chain their UPDATE on it. One `writeOutcome()` path, guarded to run at most once per row, called from `finish` (real `res.statusCode`) and from `close` (no-op if `finish` already ran; otherwise **`response_status = 499`** with real `duration_ms`, uid if known, `response_error = {"error":"client closed request"}`). A zero-row UPDATE now logs `console.warn('[apiEventLog/update-no-match]', …)`. Still fire-and-forget off the request path — no added latency, still cannot fail a request.
+
+**System Health card**: `GET /api/admin/system-health` now returns `clientClosed` per call type (`response_status = 499`); `failed` excludes 499 (`>= 400 AND <> 499`); `AdminSystemHealth.tsx` shows a "Client closed (499)" column and header figure next to "Never finished". Existing card components reused.
+
+**Tests**: `backend/src/middleware/apiEventLog.test.ts` (new, db mocked): finish → real status; close-without-finish → 499 once with duration + error text; finish-then-close → single UPDATE; UPDATE waits for a pending INSERT; zero-row UPDATE warns.
+
+**Deliberately not touched**: the 189 `/api/admin/...` NULL rows (2026-09-14 → 09-16) — almost certainly `npm test` running against prod before #184's isolation; left in place per Dana. Historical client-errors NULL rows are not backfilled either. Frontend error signatures found in the 190 payloads are logged as OT-19…OT-22 in `OPEN_TASKS.md`, not fixed here.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

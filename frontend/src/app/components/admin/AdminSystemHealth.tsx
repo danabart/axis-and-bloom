@@ -12,6 +12,7 @@ interface CallTypeRow {
   callType: string;
   total: number;
   failed: number;
+  clientClosed: number;
   neverFinished: number;
 }
 
@@ -67,6 +68,7 @@ export default function AdminSystemHealth() {
   if (!data) return <div className="text-red-500 text-sm">{error || 'Failed to load'}</div>;
 
   const totalFailed = data.callTypes.reduce((s, r) => s + r.failed, 0);
+  const totalClientClosed = data.callTypes.reduce((s, r) => s + r.clientClosed, 0);
   const totalNeverFinished = data.callTypes.reduce((s, r) => s + r.neverFinished, 0);
 
   return (
@@ -104,6 +106,12 @@ export default function AdminSystemHealth() {
               <p className="text-xs text-stone-400">failed requests (7d)</p>
             </div>
           )}
+          {totalClientClosed > 0 && (
+            <div>
+              <p className="text-2xl font-normal text-stone-800">{totalClientClosed.toLocaleString()}</p>
+              <p className="text-xs text-stone-400">client closed (499, 7d)</p>
+            </div>
+          )}
           {totalNeverFinished > 0 && (
             <div>
               <p className="text-2xl font-normal" style={{ color: RUST }}>{totalNeverFinished.toLocaleString()}</p>
@@ -125,7 +133,8 @@ export default function AdminSystemHealth() {
                 <tr className="text-left text-stone-400 uppercase tracking-widest">
                   <th className="pb-2 pr-4 font-normal">Call type</th>
                   <th className="pb-2 pr-4 font-normal text-right">Total</th>
-                  <th className="pb-2 pr-4 font-normal text-right">Failed (≥400)</th>
+                  <th className="pb-2 pr-4 font-normal text-right">Failed (≥400, not 499)</th>
+                  <th className="pb-2 pr-4 font-normal text-right">Client closed (499)</th>
                   <th className="pb-2 font-normal text-right">Never finished</th>
                 </tr>
               </thead>
@@ -135,6 +144,7 @@ export default function AdminSystemHealth() {
                     <td className="py-2 pr-4 text-stone-700 font-mono">{row.callType}</td>
                     <td className="py-2 pr-4 text-right text-stone-600">{row.total.toLocaleString()}</td>
                     <td className="py-2 pr-4 text-right" style={{ color: row.failed > 0 ? RUST : undefined }}>{row.failed.toLocaleString()}</td>
+                    <td className="py-2 pr-4 text-right text-stone-600">{row.clientClosed.toLocaleString()}</td>
                     <td className="py-2 text-right" style={{ color: row.neverFinished > 0 ? RUST : undefined }}>{row.neverFinished.toLocaleString()}</td>
                   </tr>
                 ))}

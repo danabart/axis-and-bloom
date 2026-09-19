@@ -1801,10 +1801,11 @@ router.get('/catalog/integrity', async (_req, res) => {
 router.get('/system-health', async (_req, res) => {
   try {
     const [callTypeResult, clientErrorResult, retentionResult] = await Promise.all([
-      db.query<{ call_type: string; total: string; failed: string; never_finished: string }>(
+      db.query<{ call_type: string; total: string; failed: string; client_closed: string; never_finished: string }>(
         `SELECT call_type,
                 COUNT(*) AS total,
-                COUNT(*) FILTER (WHERE response_status >= 400) AS failed,
+                COUNT(*) FILTER (WHERE response_status >= 400 AND response_status <> 499) AS failed,
+                COUNT(*) FILTER (WHERE response_status = 499) AS client_closed,
                 COUNT(*) FILTER (WHERE response_status IS NULL) AS never_finished
          FROM api_event
          WHERE occurred_at >= now() - interval '7 days'
@@ -1832,6 +1833,7 @@ router.get('/system-health', async (_req, res) => {
         callType: r.call_type,
         total: Number(r.total),
         failed: Number(r.failed),
+        clientClosed: Number(r.client_closed),
         neverFinished: Number(r.never_finished),
       })),
       clientErrorSignatures: clientErrorResult.rows.map(r => ({
