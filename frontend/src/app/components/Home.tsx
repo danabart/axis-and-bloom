@@ -49,7 +49,7 @@ const photoEssay3 = homeAssets.photoEssay3;
 const COLLECTION = [
   { scan: scanFloral,       bag: bagFloral,       num: '01', name: 'Floral',            color: '#a34b78' },
   { scan: scanFruity,       bag: bagFruity,       num: '02', name: 'Fruity',             color: '#ca445f' },
-  { scan: scanBalanced,     bag: bagBalanced,     num: '03', name: 'Balanced & Sweet',   color: '#d1ac11' },
+  { scan: scanBalanced,     bag: bagBalanced,     num: '03', name: 'Balanced',   color: '#d1ac11' },
   { scan: scanChocolate,    bag: bagChocolate,    num: '04', name: 'Chocolate & Nutty',  color: '#a54c2d' },
   { scan: scanSpicy,        bag: bagEarthy,       num: '05', name: 'Earthy',             color: '#912f2f' },
   { scan: scanExperimental, bag: bagExperimental, num: '06', name: 'Experimental',       color: '#056c7a' },

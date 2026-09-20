@@ -13,7 +13,7 @@ const video08 = videoAssets.aboutSecondary
 const archetypes = [
   { name: 'Floral',            bg: '#a34b78' },
   { name: 'Fruity',            bg: '#ca445f' },
-  { name: 'Balanced & Sweet',  bg: '#d1ac11' },
+  { name: 'Balanced',  bg: '#d1ac11' },
   { name: 'Chocolate & Nutty', bg: '#a54c2d' },
   { name: 'Earthy',            bg: '#912f2f' },
 ];

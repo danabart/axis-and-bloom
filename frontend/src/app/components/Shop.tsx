@@ -56,7 +56,7 @@ const ARCHETYPES = [
     bag: bagFruity, hero: fruityHero, sm1: fruitySm1, sm2: fruitySm2,
   },
   {
-    id: 'balanced', num: '03', name: 'Balanced & Sweet', color: '#d1ac11',
+    id: 'balanced', num: '03', name: 'Balanced', color: '#d1ac11',
     descriptor: 'Smooth · Round · Comforting',
     coffee: 'Guatemala Antigua',
     notes: 'Caramel, Milk Chocolate, Red Apple',

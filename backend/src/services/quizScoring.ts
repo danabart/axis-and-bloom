@@ -26,7 +26,7 @@ export function findWinner(ranked: [string, number][], byQ: ByQ): string {
     if (pointsTo && tied.includes(pointsTo)) return pointsTo;
   }
 
-  return 'Balanced & Sweet';
+  return 'Balanced';
 }
 
 export function findSecondary(ranked: [string, number][], winner: string): string | null {

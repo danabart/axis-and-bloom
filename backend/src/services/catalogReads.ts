@@ -160,6 +160,14 @@ export async function archetypeLabel(code: string, runner: Runner = db): Promise
   return rows.find(r => r.code === code)?.label ?? code;
 }
 
+// Display names that older rows, emails or clients may still send. Codes, not labels,
+// on the right-hand side: archetypeCode() is the only place a legacy name is understood.
+const LEGACY_LABEL_TO_CODE: Record<string, ArchetypeCode> = {
+  'balanced & sweet': 'balanced_sweet',
+  'balanced and sweet': 'balanced_sweet',
+  'fruity & complex': 'fruity',
+};
+
 // Case-insensitive on label ("Chocolate & Nutty"), passthrough on code
 // ("chocolate_nutty") — replaces every hand-typed toEnum/ARCHETYPE_NAME_TO_KEY.
 export async function archetypeCode(labelOrCode: string, runner: Runner = db): Promise<ArchetypeCode | null> {
@@ -167,7 +175,17 @@ export async function archetypeCode(labelOrCode: string, runner: Runner = db): P
   const byCode = rows.find(r => r.code === labelOrCode);
   if (byCode) return byCode.code;
   const byLabel = rows.find(r => r.label.toLowerCase() === labelOrCode.toLowerCase());
-  return byLabel?.code ?? null;
+  if (byLabel) return byLabel.code;
+  return LEGACY_LABEL_TO_CODE[labelOrCode.trim().toLowerCase()] ?? null;
+}
+
+// Archetype UUID for a display name, legacy name or code — the quiz subsystem's
+// FK lookup, so nothing has to key on coffee_archetype.name any more.
+export async function archetypeUuid(labelOrCode: string, runner: Runner = db): Promise<string | null> {
+  const code = await archetypeCode(labelOrCode, runner);
+  if (!code) return null;
+  const rows = await getArchetypes(runner);
+  return rows.find(r => r.code === code)?.uuid ?? null;
 }
 
 // ── Coffees ──────────────────────────────────────────────────────────────────

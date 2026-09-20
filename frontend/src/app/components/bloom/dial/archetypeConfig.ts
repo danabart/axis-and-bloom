@@ -111,7 +111,7 @@ export function buildDialConfig(data: ArchetypeData): DialConfig | null {
     no: visual.num,
     nameLines: NAME_LINES[data.archetype] ?? [data.archetypeLabel.toUpperCase()],
     color: visual.color,
-    // Palette-only field text: terracotta on the mustard Balanced & Sweet field
+    // Palette-only field text: terracotta on the mustard Balanced field
     // (beige fails contrast on mustard), beige on the five deep fields.
     ftext: data.archetype === 'balanced_sweet' ? '#9a2918' : '#f2f1ea',
     bag: visual.bag,

@@ -9,7 +9,7 @@ const RECOMMENDATION_SYSTEM_PROMPT = `You are the Axis & Bloom coffee assistant 
 Axis & Bloom is a personalized coffee brand that matches customers to their ideal coffee archetype through a flavor quiz. The six archetypes are:
 - Floral: jasmine, bergamot, tea-like, light body
 - Fruity: berry, stone fruit, bright acidity, juicy
-- Balanced & Sweet: caramel, honey, milk chocolate, round body
+- Balanced: caramel, honey, milk chocolate, round body
 - Chocolate & Nutty: dark chocolate, roasted nuts, heavy body
 - Spicy & Earthy: cinnamon, tobacco, cedar, syrupy body
 - Experimental: wild fermentation, tropical fruit, unique processing

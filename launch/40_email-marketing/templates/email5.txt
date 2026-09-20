@@ -13,7 +13,7 @@ We'll say it once that morning and won't chase you about it. A date is informati
 Until then, nothing to do. Your profile is saved, your coffees are chosen, and the roaster is warned.
 
 REVISIT YOUR MATCH
-*|IF:ARCHETYPE=Floral|*https://axisandbloomcoffee.com/match/floral*|ELSEIF:ARCHETYPE=Fruity|*https://axisandbloomcoffee.com/match/fruity*|ELSEIF:ARCHETYPE=Balanced & Sweet|*https://axisandbloomcoffee.com/match/balanced-sweet*|ELSEIF:ARCHETYPE=Chocolate & Nutty|*https://axisandbloomcoffee.com/match/chocolate-nutty*|ELSEIF:ARCHETYPE=Earthy|*https://axisandbloomcoffee.com/match/earthy*|ELSE:|*https://axisandbloomcoffee.com/profile*|END:IF|*
+*|IF:ARCHETYPE=Floral|*https://axisandbloomcoffee.com/match/floral*|ELSEIF:ARCHETYPE=Fruity|*https://axisandbloomcoffee.com/match/fruity*|ELSEIF:ARCHETYPE=Balanced|*https://axisandbloomcoffee.com/match/balanced-sweet*|ELSEIF:ARCHETYPE=Chocolate & Nutty|*https://axisandbloomcoffee.com/match/chocolate-nutty*|ELSEIF:ARCHETYPE=Earthy|*https://axisandbloomcoffee.com/match/earthy*|ELSE:|*https://axisandbloomcoffee.com/profile*|END:IF|*
 
 — the Axis & Bloom team
 

@@ -10,6 +10,7 @@ import { computeBehavioralConfidence } from '../services/behavioralConfidence.js
 import { refreshLifecycleState } from '../services/userLifecycle.js';
 import { logFunnelEvent } from '../features/marketing/funnelEvents.js';
 import { saveQuizSession } from '../services/quizSession.js';
+import { archetypeUuid } from '../services/catalogReads.js';
 
 const router = Router();
 
@@ -63,7 +64,7 @@ router.get('/questions', async (_req, res) => {
 // Takes an array of selected answer UUIDs, SUMs weighted scores from
 // quiz_answer_archetype_score, and returns the winning archetype + full score map.
 //
-// Tie resolution — veto cascade (Q5 → Q4 → Q2 → Q1, fallback: Balanced & Sweet).
+// Tie resolution — veto cascade (Q5 → Q4 → Q2 → Q1, fallback: Balanced).
 //
 // Food signal (Q6) is captured separately from resulting_archetype_id and used
 // alongside the secondary archetype to determine confidence + recommendation mode.
@@ -132,7 +133,7 @@ router.post('/score', async (req, res) => {
       }
     }
 
-    // 3. Winner — veto cascade on tie (Q5 → Q4 → Q2 → Q1, fallback: Balanced & Sweet).
+    // 3. Winner — veto cascade on tie (Q5 → Q4 → Q2 → Q1, fallback: Balanced).
     const winnerName = findWinner(ranked, byQ);
 
     // 4. Secondary archetype — 2nd highest scoring archetype.
@@ -159,14 +160,11 @@ router.post('/score', async (req, res) => {
     const tiedArchetypes = tieDetected ? tied : [];
 
     // 9. Archetype UUID for winner.
-    const archetypeResult = await db.query(
-      `SELECT id FROM coffee_archetype WHERE name = $1`,
-      [winnerName]
-    );
+    const archetypeId = await archetypeUuid(winnerName);
 
     res.json({
       archetype: winnerName,
-      archetypeId: archetypeResult.rows[0]?.id ?? null,
+      archetypeId,
       scores,
       experimental,
       secondaryArchetype,

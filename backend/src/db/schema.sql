@@ -1906,10 +1906,18 @@ ON CONFLICT (category, value) DO UPDATE
 -- check never fires for it. Can't add code directly to this INSERT
 -- instead: the column doesn't exist yet at this point in the file on a
 -- fresh database (added by ALTER TABLE further down, then backfilled).
+-- Rename 'Balanced & Sweet' → 'Balanced' in existing DBs (2026-09-19, idempotent).
+-- Must run BEFORE the seed below: with code NOT NULL, a WHERE NOT EXISTS miss on the
+-- old name would try to insert a code-less row and fail 23502 at boot.
+UPDATE coffee_archetype SET name = 'Balanced', updated_at = NOW() WHERE name = 'Balanced & Sweet';
+-- Legacy display-name data (pre-launch subscribers claimed their match by name).
+UPDATE newsletter_subscriber SET archetype = 'Balanced'
+ WHERE archetype IN ('Balanced & Sweet', 'Balanced and Sweet');
+
 INSERT INTO coffee_archetype (name, description)
 SELECT v.name, v.description FROM (VALUES
   ('Chocolate & Nutty', 'A rich, bold, and comforting profile. You know exactly what you like and you like it satisfying.'),
-  ('Balanced & Sweet',  'A smooth, round, and approachable profile. You want coffee that''s easy, pleasant, and never surprising.'),
+  ('Balanced',  'A smooth, round, and approachable profile. You want coffee that''s easy, pleasant, and never surprising.'),
   ('Fruity',            'A vibrant, curious, and layered profile. You''re here for the experience, not just the caffeine.'),
   ('Earthy',            'A deep, complex, and grounded profile. You''re drawn to coffees with weight, structure, and earthy depth.'),
   ('Floral',            'A delicate, aromatic, and tea-like profile. You''re drawn to brightness and floral complexity over body and bitterness.'),
@@ -1983,7 +1991,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM quiz LIMIT 1) THEN
 
     SELECT id INTO v_choc_id  FROM coffee_archetype WHERE name = 'Chocolate & Nutty';
-    SELECT id INTO v_bal_id   FROM coffee_archetype WHERE name = 'Balanced & Sweet';
+    SELECT id INTO v_bal_id   FROM coffee_archetype WHERE name = 'Balanced';
     SELECT id INTO v_fruit_id FROM coffee_archetype WHERE name = 'Fruity';
 
     INSERT INTO quiz (version, description, is_active)
@@ -2045,7 +2053,7 @@ BEGIN
     SELECT 1 FROM quiz_question WHERE quiz_id = v_quiz_id AND q_number = 5
   ) THEN
     SELECT id INTO v_choc_id  FROM coffee_archetype WHERE name = 'Chocolate & Nutty';
-    SELECT id INTO v_bal_id   FROM coffee_archetype WHERE name = 'Balanced & Sweet';
+    SELECT id INTO v_bal_id   FROM coffee_archetype WHERE name = 'Balanced';
     SELECT id INTO v_fruit_id FROM coffee_archetype WHERE name = 'Fruity';
 
     INSERT INTO quiz_question (quiz_id, q_number, q_text)
@@ -2074,24 +2082,24 @@ BEGIN
     FROM (VALUES
       -- Q1 (1 pt each)
       (1, 'It''s a daily ritual. I''m particular about it.',                                          'Chocolate & Nutty', 1),
-      (1, 'It''s a reliable habit. I just like having it.',                                            'Balanced & Sweet',  1),
+      (1, 'It''s a reliable habit. I just like having it.',                                            'Balanced',  1),
       (1, 'It''s something I''m still discovering. I''m curious about it.',                           'Fruity',            1),
       -- Q2 (2 pts each)
       (2, 'Something rich and comforting — dark chocolate, roasted nuts, a warm brownie.',            'Chocolate & Nutty', 2),
-      (2, 'Something soft and sweet — a ripe peach, a vanilla biscuit, caramel.',                    'Balanced & Sweet',  2),
+      (2, 'Something soft and sweet — a ripe peach, a vanilla biscuit, caramel.',                    'Balanced',  2),
       (2, 'Something fresh and lively — a green apple, fresh berries, citrus.',                      'Fruity',            2),
       -- Q3 (1 pt each; option D → Chocolate & Nutty per scoring spec)
       (3, 'It feels complete. I''d drink it as is, or add milk to make it even richer.',             'Chocolate & Nutty', 1),
-      (3, 'It''s fine, easy to drink. I might add something to smooth it out.',                      'Balanced & Sweet',  1),
+      (3, 'It''s fine, easy to drink. I might add something to smooth it out.',                      'Balanced',  1),
       (3, 'Interesting… what flavors am I getting here?',                                              'Fruity',            1),
       (3, 'I''m not sure. I don''t usually drink it black.',                                         'Chocolate & Nutty', 1),
       -- Q4 (2 pts each)
       (4, 'Feels too thin or watery.',                                                                'Chocolate & Nutty', 2),
-      (4, 'Feels too heavy or strong.',                                                               'Balanced & Sweet',  2),
+      (4, 'Feels too heavy or strong.',                                                               'Balanced',  2),
       (4, 'Every sip tastes exactly the same.',                                                      'Fruity',            2),
       -- Q5 (3 pts each — highest weight, bitterness tolerance is the strongest signal)
       (5, 'I don''t mind. Actually I kind of like it. It tastes serious.',                           'Chocolate & Nutty', 3),
-      (5, 'I''ll reach for milk or sugar. I don''t want that.',                                      'Balanced & Sweet',  3),
+      (5, 'I''ll reach for milk or sugar. I don''t want that.',                                      'Balanced',  3),
       (5, 'It feels flat or burnt to me. I''d rather have something bright or light.',               'Fruity',            3)
     ) AS data(q_number, answer_text, archetype_name, score)
     JOIN quiz_question q ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
@@ -2126,7 +2134,7 @@ BEGIN
   IF EXISTS (SELECT 1 FROM quiz LIMIT 1) THEN RETURN; END IF;
 
   SELECT id INTO v_choc_id  FROM coffee_archetype WHERE name = 'Chocolate & Nutty';
-  SELECT id INTO v_bal_id   FROM coffee_archetype WHERE name = 'Balanced & Sweet';
+  SELECT id INTO v_bal_id   FROM coffee_archetype WHERE name = 'Balanced';
   SELECT id INTO v_fruit_id FROM coffee_archetype WHERE name = 'Fruity';
 
   -- Deactivate V2 (and any other active quiz)
@@ -2192,7 +2200,7 @@ BEGIN
 END $v3$;
 
 -- Seed quiz_answer_archetype_score for V3 (idempotent — ON CONFLICT DO NOTHING)
--- Q3-D splits: 0.5 to Chocolate & Nutty + 0.5 to Balanced & Sweet
+-- Q3-D splits: 0.5 to Chocolate & Nutty + 0.5 to Balanced
 DO $v3_scoring$
 DECLARE
   v_quiz_id UUID;
@@ -2205,25 +2213,25 @@ BEGIN
   FROM (VALUES
     -- Q1 (weight 1)
     (1, 'It''s a daily ritual. I''m particular about it.',                              'Chocolate & Nutty', 1.0),
-    (1, 'It''s a reliable habit. I just like having it.',                               'Balanced & Sweet',  1.0),
+    (1, 'It''s a reliable habit. I just like having it.',                               'Balanced',  1.0),
     (1, 'It''s something I''m still discovering. I''m curious about it.',               'Fruity',            1.0),
     -- Q2 (weight 2)
     (2, 'It was strong and satisfying — I felt it.',                                    'Chocolate & Nutty', 2.0),
-    (2, 'It was smooth and easy the whole way through — nothing got in the way.',       'Balanced & Sweet',  2.0),
+    (2, 'It was smooth and easy the whole way through — nothing got in the way.',       'Balanced',  2.0),
     (2, 'It felt alive — bright and changing. Every sip was a little different.',       'Fruity',            2.0),
     -- Q3 (weight 1; D splits 0.5 CN + 0.5 BS — two rows for the same answer)
     (3, 'It feels complete. I''d drink it as is, or add milk to make it even richer.',  'Chocolate & Nutty', 1.0),
-    (3, 'It''s fine, easy to drink. I might add something to smooth it out.',           'Balanced & Sweet',  1.0),
+    (3, 'It''s fine, easy to drink. I might add something to smooth it out.',           'Balanced',  1.0),
     (3, 'Interesting… what flavors am I getting here?',                                  'Fruity',            1.0),
     (3, 'I''m not sure. I don''t usually drink it black.',                              'Chocolate & Nutty', 0.5),
-    (3, 'I''m not sure. I don''t usually drink it black.',                              'Balanced & Sweet',  0.5),
+    (3, 'I''m not sure. I don''t usually drink it black.',                              'Balanced',  0.5),
     -- Q4 (weight 2)
     (4, 'It has no bitterness or intensity.',                                            'Chocolate & Nutty', 2.0),
-    (4, 'It''s too bitter or too intense.',                                              'Balanced & Sweet',  2.0),
+    (4, 'It''s too bitter or too intense.',                                              'Balanced',  2.0),
     (4, 'Every sip tastes exactly the same.',                                            'Fruity',            2.0),
     -- Q5 (weight 3)
     (5, 'I don''t mind. Actually I kind of like it. It tastes serious.',                'Chocolate & Nutty', 3.0),
-    (5, 'I''d rather have something gentler and smoother.',                              'Balanced & Sweet',  3.0),
+    (5, 'I''d rather have something gentler and smoother.',                              'Balanced',  3.0),
     (5, 'It feels burnt to me. I''d rather have something fresher or more alive.',      'Fruity',            3.0)
   ) AS data(q_number, answer_text, archetype_name, score)
   JOIN quiz_question q ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
@@ -2398,7 +2406,7 @@ ALTER TABLE coffee_archetype ADD COLUMN IF NOT EXISTS descriptor_families_seeded
 
 -- One-time backfill of code from name (the only place the name<->code map is ever written down again):
 UPDATE coffee_archetype SET code = CASE name
-  WHEN 'Chocolate & Nutty' THEN 'chocolate_nutty' WHEN 'Balanced & Sweet' THEN 'balanced_sweet'
+  WHEN 'Chocolate & Nutty' THEN 'chocolate_nutty' WHEN 'Balanced' THEN 'balanced_sweet' WHEN 'Balanced & Sweet' THEN 'balanced_sweet'
   WHEN 'Fruity' THEN 'fruity' WHEN 'Earthy' THEN 'earthy' WHEN 'Floral' THEN 'floral'
   WHEN 'Experimental' THEN 'experimental' END::archetype_enum
 WHERE code IS NULL;
@@ -2832,7 +2840,7 @@ BEGIN
   UPDATE quiz SET is_active = FALSE;
 
   SELECT id INTO v_choc_id  FROM coffee_archetype WHERE name = 'Chocolate & Nutty';
-  SELECT id INTO v_bal_id   FROM coffee_archetype WHERE name = 'Balanced & Sweet';
+  SELECT id INTO v_bal_id   FROM coffee_archetype WHERE name = 'Balanced';
   SELECT id INTO v_fruit_id FROM coffee_archetype WHERE name = 'Fruity';
 
   INSERT INTO quiz (version, description, is_active)
@@ -2897,26 +2905,26 @@ BEGIN
     (v_q6_id, 'It feels burnt to me. I''d rather have something fresher or more alive.', v_fruit_id);
 
   -- quiz_answer_archetype_score — Q1, Q3, Q4, Q5, Q6 only (Q2 is secondary signal, excluded)
-  -- Q4-D is a split: 0.5 points to both Chocolate & Nutty and Balanced & Sweet
+  -- Q4-D is a split: 0.5 points to both Chocolate & Nutty and Balanced
   INSERT INTO quiz_answer_archetype_score (answer_id, question_id, archetype_id, score)
   SELECT a.id, q.id, ar.id, data.score
   FROM (VALUES
     (1, 'It''s a daily ritual. I''m particular about it.',                             'Chocolate & Nutty', 1::numeric),
-    (1, 'It''s a reliable habit. I just like having it.',                              'Balanced & Sweet',  1::numeric),
+    (1, 'It''s a reliable habit. I just like having it.',                              'Balanced',  1::numeric),
     (1, 'It''s something I''m still discovering. I''m curious about it.',              'Fruity',            1::numeric),
     (3, 'It was strong and satisfying. I felt it.',                                    'Chocolate & Nutty', 2::numeric),
-    (3, 'It was smooth and easy the whole way through. Nothing got in the way.',       'Balanced & Sweet',  2::numeric),
+    (3, 'It was smooth and easy the whole way through. Nothing got in the way.',       'Balanced',  2::numeric),
     (3, 'It felt alive — bright and changing. Every sip was a little different.',      'Fruity',            2::numeric),
     (4, 'It feels complete. I''d drink it as is, or add milk to make it even richer.', 'Chocolate & Nutty', 1::numeric),
-    (4, 'It''s fine, easy to drink. I might add something to smooth it out.',          'Balanced & Sweet',  1::numeric),
+    (4, 'It''s fine, easy to drink. I might add something to smooth it out.',          'Balanced',  1::numeric),
     (4, 'Interesting — what flavors am I getting here?',                               'Fruity',            1::numeric),
     (4, 'I''m not sure. I don''t usually drink it black.',                             'Chocolate & Nutty', 0.5::numeric),
-    (4, 'I''m not sure. I don''t usually drink it black.',                             'Balanced & Sweet',  0.5::numeric),
+    (4, 'I''m not sure. I don''t usually drink it black.',                             'Balanced',  0.5::numeric),
     (5, 'It has no bitterness or intensity.',                                          'Chocolate & Nutty', 2::numeric),
-    (5, 'It''s too bitter or too intense.',                                            'Balanced & Sweet',  2::numeric),
+    (5, 'It''s too bitter or too intense.',                                            'Balanced',  2::numeric),
     (5, 'Every sip tastes exactly the same.',                                          'Fruity',            2::numeric),
     (6, 'I don''t mind. Actually I kind of like it. It tastes serious.',               'Chocolate & Nutty', 3::numeric),
-    (6, 'I''d rather have something gentler and smoother.',                            'Balanced & Sweet',  3::numeric),
+    (6, 'I''d rather have something gentler and smoother.',                            'Balanced',  3::numeric),
     (6, 'It feels burnt to me. I''d rather have something fresher or more alive.',     'Fruity',            3::numeric)
   ) AS data(q_number, answer_text, archetype_name, score)
   JOIN quiz_question q ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int
@@ -2977,7 +2985,7 @@ BEGIN
   SELECT id INTO v_branch_type_id FROM quiz_type WHERE name = 'branch';
 
   SELECT id INTO v_choc_id   FROM coffee_archetype WHERE name = 'Chocolate & Nutty';
-  SELECT id INTO v_bal_id    FROM coffee_archetype WHERE name = 'Balanced & Sweet';
+  SELECT id INTO v_bal_id    FROM coffee_archetype WHERE name = 'Balanced';
   SELECT id INTO v_fruit_id  FROM coffee_archetype WHERE name = 'Fruity';
   SELECT id INTO v_floral_id FROM coffee_archetype WHERE name = 'Floral';
   SELECT id INTO v_earthy_id FROM coffee_archetype WHERE name = 'Earthy';
@@ -3190,19 +3198,19 @@ BEGIN
   FOR rec IN
     SELECT * FROM (VALUES
       ('v7_q1_a', 'Chocolate & Nutty', 1::numeric),
-      ('v7_q1_b', 'Balanced & Sweet',  1::numeric),
+      ('v7_q1_b', 'Balanced',  1::numeric),
       ('v7_q1_c', 'Fruity',            1::numeric),
       ('v7_q2_a', 'Chocolate & Nutty', 2::numeric),
-      ('v7_q2_b', 'Balanced & Sweet',  2::numeric),
+      ('v7_q2_b', 'Balanced',  2::numeric),
       ('v7_q2_c', 'Fruity',            2::numeric),
       ('v7_q3_a', 'Chocolate & Nutty', 1::numeric),
-      ('v7_q3_b', 'Balanced & Sweet',  1::numeric),
+      ('v7_q3_b', 'Balanced',  1::numeric),
       ('v7_q3_c', 'Fruity',            1::numeric),
       ('v7_q4_a', 'Chocolate & Nutty', 2::numeric),
-      ('v7_q4_b', 'Balanced & Sweet',  2::numeric),
+      ('v7_q4_b', 'Balanced',  2::numeric),
       ('v7_q4_c', 'Fruity',            2::numeric),
       ('v7_q5_a', 'Chocolate & Nutty', 3::numeric),
-      ('v7_q5_b', 'Balanced & Sweet',  3::numeric),
+      ('v7_q5_b', 'Balanced',  3::numeric),
       ('v7_q5_c', 'Fruity',            3::numeric)
     ) AS t(answer_code, archetype_name, score)
   LOOP
@@ -3274,7 +3282,7 @@ LEFT JOIN coffee_archetype_assignment aa
   ON aa.superseded_at IS NULL
   AND CASE aa.archetype
         WHEN 'chocolate_nutty' THEN 'Chocolate & Nutty'
-        WHEN 'balanced_sweet'  THEN 'Balanced & Sweet'
+        WHEN 'balanced_sweet'  THEN 'Balanced'
         WHEN 'fruity'          THEN 'Fruity'
         WHEN 'earthy'          THEN 'Earthy'
         WHEN 'floral'          THEN 'Floral'

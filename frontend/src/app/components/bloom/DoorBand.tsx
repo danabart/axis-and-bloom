@@ -18,7 +18,7 @@ interface DoorBandProps {
   /** The archetype's dial field color (config.color) — the band's background. */
   color: string;
   /** The archetype's field-text color (config.ftext) — '#9a2918' (ink) for
-   * Balanced & Sweet's mustard field, '#f2f1ea' (beige) everywhere else. The
+   * Balanced's mustard field, '#f2f1ea' (beige) everywhere else. The
    * exact same rule BloomDial's own field/needle/ruler already use — reused
    * here rather than re-derived, per the prompt's explicit instruction. */
   ftext: string;

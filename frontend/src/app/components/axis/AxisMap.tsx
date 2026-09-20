@@ -49,7 +49,7 @@ const ARCHETYPE_ORDER: ArchetypeKey[] = ['fruity', 'floral', 'balanced_sweet', '
 const ARCHETYPE_LABEL: Record<ArchetypeKey, string> = {
   fruity: 'Fruity',
   floral: 'Floral',
-  balanced_sweet: 'Balanced & Sweet',
+  balanced_sweet: 'Balanced',
   chocolate_nutty: 'Chocolate & Nutty',
   earthy: 'Earthy',
 };

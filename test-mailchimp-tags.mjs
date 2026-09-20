@@ -48,13 +48,18 @@ function toArchetypeSlug(name) {
   return ARCHETYPE_NAME_TO_SLUG[key] ?? name;
 }
 
-// Deliberately a display name ("Balanced & Sweet"), not a slug — exercises the same
+// Deliberately a display name ("Balanced"), not a slug — exercises the same
 // toArchetypeSlug() normalization the live sync and backfill both go through (Step 06/C2).
-const testArchetypeName = 'Balanced & Sweet';
+const testArchetypeName = 'Balanced';
 const expectedArchetypeSlug = 'balanced';
 const computedSlug = toArchetypeSlug(testArchetypeName);
 if (computedSlug !== expectedArchetypeSlug) {
   console.log(`❌ FAILED — toArchetypeSlug("${testArchetypeName}") returned "${computedSlug}", expected "${expectedArchetypeSlug}"`);
+  process.exit(1);
+}
+// Legacy display name (older newsletter_subscriber rows / cached clients) must still slug to 'balanced'.
+if (toArchetypeSlug('Balanced & Sweet') !== 'balanced') {
+  console.log('❌ FAILED — legacy "Balanced & Sweet" no longer slugs to "balanced"');
   process.exit(1);
 }
 const testTags = ['source:post_quiz', `archetype:${computedSlug}`, 'quiz-completed'];

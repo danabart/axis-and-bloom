@@ -42,7 +42,7 @@ Sanity check: open
 `https://storage.googleapis.com/axis-bloom-assets/raw/email/archetype-card/floral-email.jpg`
 in a browser. Notes: no `&` in these filenames, so the known gsutil/`&` issue doesn't apply;
 the optimizer Cloud Function will also generate unused `optimized/...webp` copies — harmless;
-if Camila re-exports Balanced & Sweet (her open item 7.2), re-upload over the same filename and
+if Camila re-exports Balanced (her open item 7.2), re-upload over the same filename and
 nothing else changes.
 
 ### `%%CTA_URL%%`
@@ -65,7 +65,7 @@ in September — that's a one-field edit in the Mailchimp template.
 
 Camila's template branches on **exact lowercase slugs**: `floral` · `fruity` · `balanced` ·
 `chocolate` · `earthy` · `experimental`. But the sync writes **display names** into the
-ARCHETYPE merge field — the quiz gate sends `ARCHETYPES[key].name` ("Balanced & Sweet",
+ARCHETYPE merge field — the quiz gate sends `ARCHETYPES[key].name` ("Balanced",
 "Chocolate & Nutty"…) via `subscribeNewsletter`, and `mailchimp.ts` passes it straight through.
 As it stands, **every send would miss all six variants and render the fallback block.**
 
@@ -76,20 +76,20 @@ rule, the change goes through Claude Code — ready-to-run prompt:
 ```
 Read launch/README.md for context. In backend/src/features/marketing/mailchimp.ts, the
 ARCHETYPE merge field and the archetype:<x> tag currently receive archetype display names
-(e.g. "Balanced & Sweet"). Camila's Mailchimp template (misc/marketing/You're __ARCHETYPE__
+(e.g. "Balanced"). Camila's Mailchimp template (misc/marketing/You're __ARCHETYPE__
 -20260730T010523Z-1-001/You_re _ARCHETYPE_/31-mailchimp-email-brief.md §4) branches on exact
 lowercase slugs: floral, fruity, balanced, chocolate, earthy, experimental.
 
 Add a toArchetypeSlug(name) helper in mailchimp.ts that normalizes any known variant to those
-slugs — "Floral"→floral, "Fruity"→fruity, "Balanced & Sweet" (and "Balanced and Sweet")→
+slugs — "Floral"→floral, "Fruity"→fruity, "Balanced" (and "Balanced")→
 balanced, "Chocolate & Nutty" (and "Chocolate and Nutty")→chocolate, "Earthy" and legacy
 "Spicy & Earthy"/"Spicy and Earthy"→earthy, "Experimental"→experimental, case-insensitive;
 an unrecognized value logs a warning and passes through unchanged. Apply it to BOTH the
 ARCHETYPE merge field value and the archetype:<slug> tag in syncMailchimpMember/buildTags.
 Do not change the subscribe API shape, the frontend, or what the DB stores. Update
-test-mailchimp-tags.mjs to assert the slug round-trip for "Balanced & Sweet".
+test-mailchimp-tags.mjs to assert the slug round-trip for "Balanced".
 
-ACCEPTANCE: a fresh post-quiz signup with archetype "Balanced & Sweet" appears in Mailchimp
+ACCEPTANCE: a fresh post-quiz signup with archetype "Balanced" appears in Mailchimp
 with ARCHETYPE=balanced and tags quiz-completed + archetype:balanced; the test script passes.
 ```
 
@@ -155,7 +155,7 @@ value between sends:
 | Slug mapping fix (§3) | Claude Code prompt above | ⬜ blocker |
 | Upload 7 images + verify URL | Dana (commands above) | ⬜ |
 | CTA URL sign-off (/bloom vs sign-in-first) | Camila | ⬜ |
-| Balanced & Sweet card contrast re-export | Camila | ⬜ (swap-in, same filename) |
+| Balanced card contrast re-export | Camila | ⬜ (swap-in, same filename) |
 | Journey build + QA + enable | Dana | ⬜ after blockers |
 | Backfill timing decision | Dana | ⬜ |
 | Re-point CTA to real pre-order page | Dana | later (Sept, with Stripe) |

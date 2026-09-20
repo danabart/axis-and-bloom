@@ -216,7 +216,7 @@ the cup: berries and ripe stone fruit, citrus that sparkles, a tropical sweetnes
 morning cup feel awake before you are. Yours is the archetype for palates that want the cup to
 do something.
 
-**Balanced & Sweet**
+**Balanced**
 Your answers favored harmony — flavor where everything sits in its place. These coffees are
 smooth, round, and quietly generous: caramel and honey, a touch of gentle fruit, a sweetness
 that feels effortless. Yours is the cup that's exactly right every morning, before you've asked

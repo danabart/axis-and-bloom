@@ -29,7 +29,7 @@ export interface MailchimpTagInputs {
   campaign?: string | null;
 }
 
-// Step 06 (C2): the DB/quiz gate send archetype DISPLAY NAMES ("Balanced & Sweet"), but
+// Step 06 (C2): the DB/quiz gate send archetype DISPLAY NAMES ("Balanced"; legacy "Balanced & Sweet" still accepted), but
 // Camila's Mailchimp templates branch on exact lowercase slugs. This is the one choke
 // point that normalizes to a slug — applied only at the Mailchimp boundary, so the DB
 // keeps storing display names untouched and the backfill script gets the mapping for free.

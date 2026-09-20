@@ -3,7 +3,7 @@
 > Global step 01 of 11 · Workstream: quiz-and-archetypes · Model: Sonnet · Depends on: nothing · One session, read the diff before deploy.
 > Rewritten clean 2026-07-17 (v2) after a reverted first run — this version is the source of truth.
 
-CONTEXT: Axis & Bloom repo. The quiz backend (V7) scores exactly **5 archetypes**: Chocolate & Nutty, Balanced & Sweet, Fruity, Floral, Earthy — plus an `experimental` boolean flag returned by POST /api/quiz/score. The frontend has drifted from this in two distinct ways:
+CONTEXT: Axis & Bloom repo. The quiz backend (V7) scores exactly **5 archetypes**: Chocolate & Nutty, Balanced, Fruity, Floral, Earthy — plus an `experimental` boolean flag returned by POST /api/quiz/score. The frontend has drifted from this in two distinct ways:
 
 1. Some surfaces render **"Spicy & Earthy"** as if it were its own archetype. It is not — the backend scores it as Earthy, and ARCHETYPE_NAME_TO_KEY already maps "Spicy and Earthy" → earthy. This is a naming/mapping drift to fix.
 2. Some surfaces present **"Experimental"** as a 6th archetype in lists and counts. Officially, Experimental is a **CATEGORY** that attaches to a matched archetype — but it legitimately has its own visual identity in the product (wallpaper, bag, result rendering), and all of that stays.

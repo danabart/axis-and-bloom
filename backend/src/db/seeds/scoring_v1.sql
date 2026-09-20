@@ -53,7 +53,7 @@ BEGIN
     SELECT 1 FROM question WHERE quiz_id = v_quiz_id AND q_number = 5
   ) THEN
     SELECT id INTO v_choc_id  FROM archetype WHERE name = 'Chocolate & Nutty';
-    SELECT id INTO v_bal_id   FROM archetype WHERE name = 'Balanced & Sweet';
+    SELECT id INTO v_bal_id   FROM archetype WHERE name = 'Balanced';
     SELECT id INTO v_fruit_id FROM archetype WHERE name = 'Fruity';
 
     INSERT INTO question (quiz_id, q_number, q_text)
@@ -91,23 +91,23 @@ BEGIN
   FROM (VALUES
     -- Q1: relationship with coffee (1 pt each)
     (1, 'It''s a daily ritual. I''m particular about it.',                                          'Chocolate & Nutty', 1),
-    (1, 'It''s a reliable habit. I just like having it.',                                            'Balanced & Sweet',  1),
+    (1, 'It''s a reliable habit. I just like having it.',                                            'Balanced',  1),
     (1, 'It''s something I''m still discovering. I''m curious about it.',                           'Fruity',            1),
     -- Q2: treat pick (2 pts each)
     (2, 'Something rich and comforting — dark chocolate, roasted nuts, a warm brownie.',            'Chocolate & Nutty', 2),
-    (2, 'Something soft and sweet — a ripe peach, a vanilla biscuit, caramel.',                    'Balanced & Sweet',  2),
+    (2, 'Something soft and sweet — a ripe peach, a vanilla biscuit, caramel.',                    'Balanced',  2),
     (2, 'Something fresh and lively — a green apple, fresh berries, citrus.',                      'Fruity',            2),
     -- Q3: first sip black (1 pt each; option D neutral → no row)
     (3, 'It feels complete. I''d drink it as is, or add milk to make it even richer.',             'Chocolate & Nutty', 1),
-    (3, 'It''s fine, easy to drink. I might add something to smooth it out.',                      'Balanced & Sweet',  1),
+    (3, 'It''s fine, easy to drink. I might add something to smooth it out.',                      'Balanced',  1),
     (3, 'Interesting… what flavors am I getting here?',                                              'Fruity',            1),
     -- Q4: biggest disappointment (2 pts each)
     (4, 'Feels too thin or watery.',                                                                'Chocolate & Nutty', 2),
-    (4, 'Feels too heavy or strong.',                                                               'Balanced & Sweet',  2),
+    (4, 'Feels too heavy or strong.',                                                               'Balanced',  2),
     (4, 'Every sip tastes exactly the same.',                                                      'Fruity',            2),
     -- Q5: straight espresso (3 pts each — bitterness tolerance is the strongest signal)
     (5, 'I don''t mind. Actually I kind of like it. It tastes serious.',                           'Chocolate & Nutty', 3),
-    (5, 'I''ll reach for milk or sugar. I don''t want that.',                                      'Balanced & Sweet',  3),
+    (5, 'I''ll reach for milk or sugar. I don''t want that.',                                      'Balanced',  3),
     (5, 'It feels flat or burnt to me. I''d rather have something bright or light.',               'Fruity',            3)
   ) AS data(q_number, answer_text, archetype_name, score)
   JOIN question q  ON q.quiz_id = v_quiz_id AND q.q_number = data.q_number::int

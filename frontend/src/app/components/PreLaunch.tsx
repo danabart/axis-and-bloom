@@ -16,7 +16,7 @@ const FONT  = "'Lato', Arial, sans-serif";
 const ARCHETYPE_SWATCHES = [
   '#a34b78', // floral
   '#ca445f', // fruity
-  '#d1ac11', // balanced & sweet
+  '#d1ac11', // balanced
   '#a54c2d', // chocolate & nutty
   '#912f2f', // spicy & earthy
   '#056c7a', // experimental

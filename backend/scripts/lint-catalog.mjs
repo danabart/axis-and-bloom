@@ -226,7 +226,7 @@ for (const relPath of files) {
 }
 
 // ── Rule 4: hardcoded archetype display-label literals ─────────────────────
-const LABELS = ['Chocolate & Nutty', 'Balanced & Sweet', 'Fruity', 'Earthy', 'Floral', 'Experimental'];
+const LABELS = ['Chocolate & Nutty', 'Balanced', 'Fruity', 'Earthy', 'Floral', 'Experimental'];
 const RULE4_SCOPE_DIRS = ['routes/', 'services/'];
 // Catalog Blueprint brief 4, Part A — routes/admin.ts's own allow-list entry
 // removed now that admin.ts fetches labels from GET /catalog/archetypes too;

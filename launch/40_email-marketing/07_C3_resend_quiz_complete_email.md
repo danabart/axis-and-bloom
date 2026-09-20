@@ -30,7 +30,7 @@ The quiz-complete "Your archetype card is here" email currently goes out through
      - Footer `TO: *|IF:FNAME|**|UPPER:*|FNAME|*|**|ELSE:|*YOU*|END:IF|*` → `firstName.toUpperCase()` or `YOU`.
      - `*|LIST:ADDRESSLINE|*` → hardcode `Axis & Bloom Coffee · 159 19th Street · Union City, NJ 07087 · USA`.
      - `*|UNSUB|*` / `*|UPDATE_PROFILE|*` → Resend has no equivalent hosted pages. Replace the two links with a single `Unsubscribe` mailto link (`mailto:hello@axisandbloomcoffee.com?subject=Unsubscribe`) for now, and log unsubscribe handling as a follow-up in the PR description.
-   - Wire `archetypeSlug` at the call site from the quiz signup's archetype via the existing `toArchetypeSlug()` in mailchimp.ts (input is a display name like "Balanced & Sweet"); pass null when absent.
+   - Wire `archetypeSlug` at the call site from the quiz signup's archetype via the existing `toArchetypeSlug()` in mailchimp.ts (input is a display name like "Balanced"); pass null when absent.
    - Keep the existing image URLs (storage.googleapis.com/axis-bloom-assets/raw/email/archetype-card/...) exactly as-is.
    - Always include a plain-`text` alternative covering the recipient's variant (headline, word set, why, DOORS OPEN OCTOBER 1, promise, Instagram line + URL, footer).
    - Banned anywhere including alt text: "AI", "film", "photo essay" (Camila's brief). The source already complies — porting verbatim preserves that.

@@ -4,7 +4,7 @@ import 'dotenv/config';
 import { describe, it, expect, afterAll } from 'vitest';
 import { db } from '../db/client.js';
 import { createCoffee, setMatchArchetype, placeCoffee } from './catalogService.js';
-import { archetypeCode, getCatalogVersion } from './catalogReads.js';
+import { archetypeCode, archetypeUuid, getCatalogVersion } from './catalogReads.js';
 
 const ACTOR = { actor: 'vitest' };
 
@@ -27,6 +27,25 @@ describe('archetypeCode', () => {
 
   it('returns null for an unrecognized label or code', async () => {
     expect(await archetypeCode('Not A Real Archetype')).toBeNull();
+  });
+
+  it('resolves the current name and the retired "Balanced & Sweet" names to the same code', async () => {
+    expect(await archetypeCode('Balanced')).toBe('balanced_sweet');
+    expect(await archetypeCode('Balanced & Sweet')).toBe('balanced_sweet');
+    expect(await archetypeCode('balanced and sweet')).toBe('balanced_sweet');
+  });
+});
+
+describe('archetypeUuid', () => {
+  it('resolves the retired and current Balanced names to the same non-null UUID', async () => {
+    const current = await archetypeUuid('Balanced');
+    expect(current).not.toBeNull();
+    expect(await archetypeUuid('Balanced & Sweet')).toBe(current);
+    expect(await archetypeUuid('balanced_sweet')).toBe(current);
+  });
+
+  it('returns null for an unrecognized name', async () => {
+    expect(await archetypeUuid('Not A Real Archetype')).toBeNull();
   });
 });
 

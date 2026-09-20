@@ -1,6 +1,6 @@
 export const ARCHETYPE_LABEL: Record<string, string> = {
   chocolate_nutty: 'Chocolate & Nutty',
-  balanced_sweet:  'Balanced & Sweet',
+  balanced_sweet:  'Balanced',
   fruity:          'Fruity',
   earthy:          'Earthy',
   floral:          'Floral',

@@ -51,7 +51,7 @@ export default function HowItWorks() {
           {[
             { id: '01', name: 'Floral', color: '#a34b78', description: 'Light, elegant, and aromatic. Hints of jasmine, citrus, and a tea-like clarity.', descriptors: 'Fragrant, Bright, Delicate, Clean' },
             { id: '02', name: 'Fruity', color: '#ca445f', description: 'Juicy and lively with notes of berries and ripe fruit.', descriptors: 'Sweet, Vibrant, Expressive, Lively' },
-            { id: '03', name: 'Balanced & Sweet', color: '#d1ac11', description: 'Round, smooth, and comforting. Notes of caramel, honey, and soft fruit.', descriptors: 'Smooth, Sweet, Harmonious, Easy' },
+            { id: '03', name: 'Balanced', color: '#d1ac11', description: 'Round, smooth, and comforting. Notes of caramel, honey, and soft fruit.', descriptors: 'Smooth, Sweet, Harmonious, Easy' },
             { id: '04', name: 'Chocolate & Nutty', color: '#a54c2d', description: 'Deep and satisfying with cocoa, roasted nuts, and a rich presence.', descriptors: 'Rich, Grounded, Full, Comforting' },
             { id: '05', name: 'Earthy', color: '#912f2f', description: 'Warm and bold with hints of spice, wood, and lingering depth.', descriptors: 'Warm, Deep, Bold, Lasting' },
           ].map((archetype, idx) => (

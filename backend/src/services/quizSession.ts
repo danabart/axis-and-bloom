@@ -1,7 +1,9 @@
+import { archetypeUuid } from './catalogReads.js';
 import { db } from '../db/client.js';
 
 /**
- * Resolves an archetype display name (e.g. "Balanced & Sweet") to its
+ * Resolves an archetype display name (e.g. "Balanced"; legacy names such as
+ * "Balanced & Sweet" also resolve, via archetypeCode()) to its
  * archetype.id FK and inserts one quiz_session row for the given profile —
  * the exact write GET /api/users/profile, GET /api/users/homepage-state, and
  * GET /api/quiz/results/latest all read from.
@@ -19,8 +21,7 @@ export async function saveQuizSession(
   archetypeName: string,
   contextData: Record<string, unknown>
 ): Promise<{ sessionId: string; archetypeId: string | null }> {
-  const archetypeResult = await db.query(`SELECT id FROM coffee_archetype WHERE name = $1`, [archetypeName]);
-  const archetypeId = archetypeResult.rows[0]?.id ?? null;
+  const archetypeId = await archetypeUuid(archetypeName);
 
   const sessionResult = await db.query(
     `INSERT INTO quiz_session (user_id, resulting_archetype_id, context_data)

@@ -566,7 +566,7 @@ export interface DoorTarget { archetype: string; archetypeLabel: string; rule: '
 // Part 19 §A, revised — the door map is ONE canonical symmetric chain around
 // the archetype order (v_coffee_archetype.sort_order, seeded in brief 1 to
 // match the frontend's fixed nav-strip numbering — floral through
-// experimental), wrapping: Floral <-> Fruity <-> Balanced & Sweet <-> Chocolate
+// experimental), wrapping: Floral <-> Fruity <-> Balanced <-> Chocolate
 // & Nutty <-> Earthy <-> Experimental <-> Floral. Left door = previous in the
 // chain, right door = next. Deliberately not per-archetype bridge-hop-derived
 // (see the original design's two live defects, still relevant context: doors

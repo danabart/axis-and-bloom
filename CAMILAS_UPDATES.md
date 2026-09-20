@@ -401,7 +401,7 @@ Replaced the full-screen "Where taste becomes a match" split section with a full
 |---|---|---|
 | 01 | Floral | `#a34b78` |
 | 02 | Fruity | `#ca445f` |
-| 03 | Balanced & Sweet | `#d1ac11` |
+| 03 | Balanced | `#d1ac11` |
 | 04 | Chocolate & Nutty | `#a54c2d` |
 | 05 | Spicy & Earthy | `#912f2f` |
 | 06 | Experimental | `#056c7a` |
@@ -865,7 +865,7 @@ Complete redesign of the result page. Replaced the generic split-screen layout (
 - 6 new mock-up bag PNGs from `frontend/src/design/IMAGES/bags/new bags mock up/` (transparent backgrounds)
 
 **Archetype data updated:**
-- All 6 archetypes now fully mapped: Floral, Fruity, Balanced & Sweet, Chocolate & Nutty, Spicy & Earthy, Experimental
+- All 6 archetypes now fully mapped: Floral, Fruity, Balanced, Chocolate & Nutty, Spicy & Earthy, Experimental
 - Added: `wallpaper`, `bag`, `shortDescription`, `whyMatches` fields per archetype
 - Updated `ARCHETYPE_NAME_TO_KEY` to normalise all backend variants (`"Spicy & Earthy"`, `"earthy"`, `"Spicy and Earthy"`, etc.) to the correct key
 - Colors updated to match brand spec: Floral `#a34b78`, Spicy & Earthy `#912f2f`, Experimental `#056c7a`
@@ -894,6 +894,15 @@ Complete redesign of the result page. Replaced the generic split-screen layout (
 - Save profile prompt for non-logged-in users (links to `/sign-in`)
 - "Meet all archetypes →" links to `/coffees`
 - "Retake the quiz" button resets all state and scrolls back to top
+
+---
+
+### 44. Archetype rename — "Balanced & Sweet" is now "Balanced" (2026-09-19)
+**Files:** `frontend/src/app/components/FlavorQuiz.tsx`, `Home.tsx`, `About.tsx`, `HowItWorks.tsx`, `Shop.tsx`, `TheAxis.tsx`, `TheAxisV1.tsx`, `axis/AxisMap.tsx`, `coffee-info/archetypeConstants.ts`, `frontend/public/match/balanced-sweet/index.html`, plus the email sources under `launch/40_email-marketing/**` and `misc/marketing/**`
+
+Every place a person reads the archetype name now says **Balanced**. The description, colour (`#d1ac11`), URL (`/match/balanced-sweet`), Mailchimp slug (`balanced`), image filenames and the archetype's internal code (`balanced_sweet`) are all unchanged — only the display name moved. Old inputs (`Balanced & Sweet` from an older subscriber row or a cached client) still resolve to the same archetype.
+
+**Still to do outside the repo (Camila / Dana):** the live Mailchimp templates, audience merge fields and automations that render the archetype name, and the image/print assets that have the old words baked in (`bag-balanced.svg`, `BALANCED & SWEET transp.png`, `ARCHETYPE_Balanced_Sweet01.png`, `WEBCUTBalanced&Sweet*.png`, the roaster pitch deck) — full lists in `backend/src/features/archetype_rename_balanced/CLOSING_REPORT.md`. See `WHAT_WE_BUILT.md` #187.
 
 ---
 

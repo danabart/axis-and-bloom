@@ -8,7 +8,7 @@ import {
 } from './quizScoring.js';
 
 const CN = 'Chocolate & Nutty';
-const BS = 'Balanced & Sweet';
+const BS = 'Balanced';
 const FR = 'Fruity';
 
 // ─── rankScores ──────────────────────────────────────────────────────────────
@@ -50,12 +50,12 @@ describe('findWinner — veto cascade', () => {
     expect(findWinner(ranked, { 6: FR, 5: FR, 3: FR, 1: BS })).toBe(BS);
   });
 
-  it('falls back to Balanced & Sweet when cascade is exhausted', () => {
+  it('falls back to Balanced when cascade is exhausted', () => {
     const ranked = rankScores({ [CN]: 5, [BS]: 5, [FR]: 2 });
     expect(findWinner(ranked, { 6: FR, 5: FR, 3: FR, 1: FR })).toBe(BS);
   });
 
-  it('falls back to Balanced & Sweet when byQ is empty', () => {
+  it('falls back to Balanced when byQ is empty', () => {
     const ranked = rankScores({ [CN]: 5, [BS]: 5, [FR]: 2 });
     expect(findWinner(ranked, {})).toBe(BS);
   });

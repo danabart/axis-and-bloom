@@ -50,7 +50,7 @@ const VARIANTS: Record<ArchetypeSlug, ArchetypeVariant> = {
     why: 'Your answers pointed to brightness, to flavor that moves. Berries and ripe stone fruit, citrus that sparkles, a tropical sweetness that makes the cup feel awake before you are. Yours is the archetype for palates that want the cup to do something.',
   },
   balanced: {
-    displayName: 'Balanced & Sweet',
+    displayName: 'Balanced',
     image: 'balanced-sweet-email.jpg',
     colorLine: '#d7b838',
     words: ['SMOOTH', 'SWEET', 'HARMONIOUS', 'EASY'],

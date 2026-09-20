@@ -21,14 +21,14 @@ YOUR BLOOM DIAL
 
 Your archetype is only the beginning. The Bloom Dial lets you shape how Fruity comes through in your cup, from softer and more subtle to deeper and more pronounced. Set yours, and we’ll use it to refine your profile and match you with a coffee that feels unmistakably personal.
 *|ELSEIF:ARCHETYPE=balanced|*
-YOUR ARCHETYPE: BALANCED & SWEET
+YOUR ARCHETYPE: BALANCED
 smooth · sweet · harmonious · easy
 
 Your answers favored harmony, flavor where everything sits in its place. Caramel and honey, a touch of gentle fruit, a sweetness that feels effortless. Yours is the cup that’s exactly right every morning, before you’ve asked anything of it.
 
 YOUR BLOOM DIAL
 
-Your archetype is only the beginning. The Bloom Dial lets you shape how Balanced & Sweet comes through in your cup, from softer and more subtle to deeper and more pronounced. Set yours, and we’ll use it to refine your profile and match you with a coffee that feels unmistakably personal.
+Your archetype is only the beginning. The Bloom Dial lets you shape how Balanced comes through in your cup, from softer and more subtle to deeper and more pronounced. Set yours, and we’ll use it to refine your profile and match you with a coffee that feels unmistakably personal.
 *|ELSEIF:ARCHETYPE=chocolate|*
 YOUR ARCHETYPE: CHOCOLATE & NUTTY
 rich · grounded · full · comforting

@@ -392,6 +392,7 @@ const ARCHETYPE_NAME_TO_KEY: Record<string, ArchetypeKey> = {
   'floral':            'floral',
   'Fruity':            'fruity',
   'fruity':            'fruity',
+  'Balanced':          'balanced',
   'Balanced & Sweet':  'balanced',
   'Balanced and Sweet':'balanced',
   'balanced':          'balanced',
@@ -465,11 +466,11 @@ const ARCHETYPES: Record<ArchetypeKey, {
     ],
   },
   balanced: {
-    name: 'Balanced & Sweet',
+    name: 'Balanced',
     color: '#d1ac11',
     wallpaper: wallpaperBalanced,
     bag: bagBalanced,
-    shortDescription: 'Smooth, round, and comforting. Balanced & Sweet coffees are soft and approachable, often bringing caramel, honey, gentle fruit, and an easy sweetness.',
+    shortDescription: 'Smooth, round, and comforting. Balanced coffees are soft and approachable, often bringing caramel, honey, gentle fruit, and an easy sweetness.',
     whyMatches: [
       'You are drawn to coffees that feel smooth, sweet, and easy to love.',
       'You may prefer a cup with balance rather than extremes.',
@@ -697,7 +698,7 @@ export default function FlavorQuiz() {
   // right after a quiz result is saved. Without this, userProfile only ever
   // refetches once per `user` reference — never after a same-session quiz
   // retake — so a freshly-scored archetype's own compatibility badge could
-  // read against the *previous* match (real repro: retook Balanced & Sweet ->
+  // read against the *previous* match (real repro: retook Balanced ->
   // Floral, the one authored adjacency pair, and saw "Worth exploring" instead
   // of "In your wheelhouse" on Floral's own just-scored section, self-healing
   // only after a full page reload — confirmed a pure stale-state bug, not a
@@ -1564,7 +1565,7 @@ export default function FlavorQuiz() {
   const currentKw    = currentQ ? Q_HIGHLIGHTS[currentQ.q_number] : undefined;
 
   const archetypeNameMapTie: Record<string, string> = {
-    floral: 'Floral', fruity: 'Fruity', balanced: 'Balanced & Sweet',
+    floral: 'Floral', fruity: 'Fruity', balanced: 'Balanced',
     chocolate: 'Chocolate & Nutty', spicy: 'Earthy', experimental: 'Experimental',
   };
   const tiedNames = isOnTie ? (scoreData!.tiedArchetypes ?? []).map(k => archetypeNameMapTie[k.toLowerCase()] ?? k) : [];

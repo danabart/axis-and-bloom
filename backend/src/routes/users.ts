@@ -19,8 +19,8 @@ const router = Router();
 // else (dial_archetype_config, /api/coffees/archetypes' `archetype` field, etc.), NOT a
 // shorthand of the display name. Previously keyed by shorthand ('chocolate', 'balanced',
 // 'spicy') while lookups below derived the key via `archetype.name.toLowerCase()` — for
-// 'Chocolate & Nutty' / 'Balanced & Sweet' / 'Earthy' that produces 'chocolate & nutty' /
-// 'balanced & sweet' / 'earthy', none of which matched the old shorthand keys (only
+// 'Chocolate & Nutty' / 'Balanced' / 'Earthy' that produces 'chocolate & nutty' /
+// 'balanced' / 'earthy', none of which matched the old shorthand keys (only
 // 'floral' / 'fruity' / 'experimental' happened to survive .toLowerCase() unscathed).
 // Those three silently fell through to the generic-rust-color/no-features fallback below,
 // and worse, the mangled `.id` that shape produced didn't match archetype_enum, breaking

@@ -128,9 +128,9 @@ describe('Bloom Dial door map (Part 19 §A)', () => {
     // north's right door is east — but east's left door points at south,
     // not back at north. Each node's own left/right still differ (so this
     // isn't the "both doors the same" case above), it's specifically an
-    // unwalkable seam: exactly the live Fruity/Balanced & Sweet defect this
-    // chain replaced (Fruity's door pointed at Balanced & Sweet, but
-    // Balanced & Sweet's matching door didn't point back).
+    // unwalkable seam: exactly the live Fruity/Balanced defect this
+    // chain replaced (Fruity's door pointed at Balanced, but
+    // Balanced's matching door didn't point back).
     const chain = (l: string, r: string) => ({
       left: { archetype: l, archetypeLabel: l, rule: 'chain' as const },
       right: { archetype: r, archetypeLabel: r, rule: 'chain' as const },

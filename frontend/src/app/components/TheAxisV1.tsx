@@ -6,7 +6,7 @@ import { Link } from 'react-router';
 const ARCHETYPES = [
   { name: 'Fruity',            color: '#ca445f', desc: 'Bright acidity, stone fruit and berry, lively complex finish.' },
   { name: 'Floral',            color: '#8a7cbe', desc: 'Delicate aromatics, tea-like brightness, clean and elegant.' },
-  { name: 'Balanced & Sweet',  color: '#c9a830', desc: 'Gentle sweetness, soft acidity, approachable and easy to love.' },
+  { name: 'Balanced',  color: '#c9a830', desc: 'Gentle sweetness, soft acidity, approachable and easy to love.' },
   { name: 'Chocolate & Nutty', color: '#a54c2d', desc: 'Deep cocoa, roasted nuts, rich body with a lingering dry finish.' },
   { name: 'Earthy',            color: '#7a6a4f', desc: 'Full body, deep savory complexity, long and memorable finish.' },
 ];
@@ -16,7 +16,7 @@ const ARCHETYPES = [
 const RADAR_SHAPES: Record<string, number[]> = {
   'Fruity':            [0.55, 0.95, 0.20, 0.40, 0.25, 0.30],
   'Floral':            [0.60, 0.85, 0.15, 0.35, 0.20, 0.25],
-  'Balanced & Sweet':  [0.80, 0.55, 0.25, 0.60, 0.20, 0.40],
+  'Balanced':  [0.80, 0.55, 0.25, 0.60, 0.20, 0.40],
   'Chocolate & Nutty': [0.60, 0.25, 0.75, 0.85, 0.65, 0.60],
   'Earthy':            [0.40, 0.25, 0.65, 0.95, 0.90, 0.92],
 };

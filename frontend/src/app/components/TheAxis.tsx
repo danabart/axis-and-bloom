@@ -16,7 +16,7 @@ const VALID_ARCHETYPES: ArchetypeKey[] = ['fruity', 'floral', 'balanced_sweet', 
 const ARCHETYPES = [
   { key: 'fruity' as const,           name: 'Fruity',            desc: 'lively, juicy, full of movement.' },
   { key: 'floral' as const,           name: 'Floral',            desc: 'delicate, aromatic, refined.' },
-  { key: 'balanced_sweet' as const,   name: 'Balanced & Sweet',  desc: 'soft, rounded, effortlessly satisfying.' },
+  { key: 'balanced_sweet' as const,   name: 'Balanced',  desc: 'soft, rounded, effortlessly satisfying.' },
   { key: 'chocolate_nutty' as const,  name: 'Chocolate & Nutty', desc: 'rich, grounding, deeply comforting.' },
   { key: 'earthy' as const,           name: 'Earthy',            desc: 'full-bodied, savory, expressive depth.' },
 ];

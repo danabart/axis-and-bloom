@@ -574,7 +574,7 @@ export const BloomDial = forwardRef<BloomDialHandle, Props>(function BloomDial(
     paintRef.current?.(rotRef.current);
   }, [ceremony?.revealed, ceremony?.dialSortOrder, ceremony?.text, matchMode]);
 
-  // Terracotta field text (Balanced & Sweet mustard) vs beige (deep fields) —
+  // Terracotta field text (Balanced mustard) vs beige (deep fields) —
   // ruler ticks/labels take matching palette tints.
   // Part 22 — breakout is only ever meaningful on a folded surface; a plain
   // boolean computed once so the JSX below (className + the identity-
@@ -897,7 +897,7 @@ const CSS = `
 .bd-hint{margin-top:12px;font-size:10.5px;letter-spacing:.14em;color:var(--bd-ftext-mid);}
 /* Part 21 — needle-ceremony tag: shares .bd-ruler-ticks' positioning context
    with the needle, its left offset mirrored from it exactly in paint(). Uses
-   ftext, not a fixed white, so it reads correctly on Balanced & Sweet's
+   ftext, not a fixed white, so it reads correctly on Balanced's
    mustard field for free (the same reuse the door band's copy asks for). */
 .bd-tag{position:absolute;top:-24px;left:0;transform:translateX(-50%);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--bd-ftext);white-space:nowrap;opacity:0;transition:opacity 500ms ease;pointer-events:none;}
 /* Part 21 §2.4 — the fold control: top-right of the field, mirroring where

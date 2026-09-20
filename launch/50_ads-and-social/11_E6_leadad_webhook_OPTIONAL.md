@@ -7,7 +7,7 @@ CONTEXT: Fallback acquisition path — a 3-question taste mini-quiz running nati
 TASK (draft — refine before running):
 
 1. Backend endpoint receiving Meta's leadgen webhook (backend/src/features/marketing/): verify the webhook signature, fetch the lead via the Graph API (page token from Secret Manager), parse email + the 3 mini-quiz answers.
-2. Map the 3 answers to one of the 5 canon archetypes — derive the mapping from the existing V7 scoring matrix (a reduced 3-question weight table; document the mapping); fallback: Balanced & Sweet.
+2. Map the 3 answers to one of the 5 canon archetypes — derive the mapping from the existing V7 scoring matrix (a reduced 3-question weight table; document the mapping); fallback: Balanced.
 3. Upsert to newsletter_subscriber (source: 'lead_ad') and to Mailchimp with tags quiz-completed + archetype:<name> — reuse Step 05's sync module; the existing welcome journey then fires. Email #1 subject variant for this source: the match delivered in the email itself.
 4. Log quiz_funnel_event rows (quiz_complete + email_submitted, session_key = lead id) so the dashboard counts these subscribers.
 5. Idempotency on lead id (Meta retries webhooks); never double-subscribe.

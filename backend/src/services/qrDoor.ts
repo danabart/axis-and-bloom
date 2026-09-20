@@ -273,7 +273,7 @@ export async function resolveQrDisplayName(coffeeId: number): Promise<string> {
   // (D1's flavor identity) instead of a raw archetype_assignments query; the
   // fallback label comes from the real v_coffee_archetype label (via
   // archetypeLabel()) rather than a humanized code, so it matches the
-  // business name shown everywhere else (e.g. "Balanced & Sweet", not
+  // business name shown everywhere else (e.g. "Balanced", not
   // "Balanced Sweet").
   const [aliasMap, coffee] = await Promise.all([
     getAliases([coffeeId]),
