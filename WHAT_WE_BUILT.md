@@ -4779,6 +4779,14 @@ New bucket `axis-bloom-db-transfers` (`us-central1`, matching the instance's reg
 
 **Not done here — external follow-ups (Dana/Camila)**: (1) live Mailchimp templates/merge fields/automations that render the archetype name; (2) image and print assets with the old words baked in (`bag-balanced.svg`, `new bags mock up/BALANCED & SWEET transp.png`, `lifestyle/ARCHETYPE_Balanced_Sweet01.png`, `photos/june2026/WEBCUTBalanced&Sweet*.png`, roaster pitch deck v4). Full lists, the B3 discovery output and the residual grep list: `backend/src/features/archetype_rename_balanced/CLOSING_REPORT.md`.
 
+### 188. Reporting view: v_subscriber_quiz_results (2026-09-20)
+
+**Context**: `backend/src/features/marketing/CLAUDE_CODE_PROMPT_SUBSCRIBER_QUIZ_RESULTS_VIEW.md` — one repeatable place to read every subscriber together with their quiz outcome (Hoboken crawl tally / free-match draw, campaign readouts, Looker). Added to `schema.sql` in the Step 06 reporting block with `DROP VIEW IF EXISTS` first and to the `reporting_ro` `GRANT SELECT` list. No new tables, no data changes, no frontend. SQL used exactly as specified in the brief.
+
+**Verified first (read-only, prod)**: every column the view uses exists (`subscribed`, `confidence`, `experimental`, `subscriber_source.label`, `campaign`, `campaign_attributed_at`, `archetype`). Score keys actually stored across all 115 `quiz_session` rows: `Chocolate & Nutty` (96), `Balanced & Sweet` (88), `Fruity` (84), plus lowercase legacy `balanced`/`fruity`/`chocolate` on 2 sessions from 2026-05-24/25 (not mapped by the view). The brief's pre-rename `Fruity & Complex` key never occurs; `Balanced` (post-#187 rename) is covered by the COALESCE. `Earthy`/`Floral`/`Experimental` never appear as score keys. All 115 sessions have `user_id` and `context_data`.
+
+**Docs**: `WHAT_WE_BUILT_DB.md` reporting-views table has the new row with one group per column set and the data caveats (sparse scores → NULL not 0; three archetype score columns always NULL today; mixed archetype naming across the #187 rename).
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

@@ -3625,6 +3625,60 @@ CREATE VIEW v_orders_weekly AS
   GROUP BY 1
   ORDER BY 1 DESC;
 
+-- Subscriber x quiz outcome (2026-09-20, CLAUDE_CODE_PROMPT_SUBSCRIBER_QUIZ_RESULTS_VIEW.md).
+-- One row per subscriber; quiz columns from that subscriber's MOST RECENT
+-- quiz_session via newsletter_subscriber.user_id. Unlinked subscribers / no
+-- session still appear with NULL quiz columns. Scores are read from
+-- context_data->'scores' (keys = archetype display names as scored at the time;
+-- COALESCE tolerates the pre-rename Balanced / Fruity keys). quiz_result_json
+-- keeps the full raw payload for anything not broken out yet.
+DROP VIEW IF EXISTS v_subscriber_quiz_results;
+CREATE VIEW v_subscriber_quiz_results AS
+WITH latest_session AS (
+  SELECT DISTINCT ON (qs.user_id)
+         qs.user_id,
+         qs.id            AS quiz_session_id,
+         qs.completed_at,
+         ca.name          AS primary_archetype,
+         qs.context_data  AS ctx
+  FROM quiz_session qs
+  LEFT JOIN coffee_archetype ca ON ca.id = qs.resulting_archetype_id
+  WHERE qs.user_id IS NOT NULL
+  ORDER BY qs.user_id, qs.completed_at DESC
+)
+SELECT
+  ns.email,
+  ns.first_name,
+  ns.created_at                                   AS subscribed_at,
+  ss.label                                        AS source,
+  ns.campaign,
+  ns.campaign_attributed_at,
+  ns.subscribed,
+  ns.archetype                                    AS archetype_at_signup,
+  ns.confidence                                   AS confidence_at_signup,
+  ns.experimental                                 AS experimental_at_signup,
+  ls.primary_archetype,
+  ls.ctx ->> 'secondaryArchetype'                 AS secondary_archetype,
+  ls.ctx ->> 'recommendationMode'                 AS recommendation_mode,
+  ls.ctx ->> 'foodSignal'                         AS food_signal,
+  ls.ctx ->> 'foodSignalAlignment'                AS food_signal_alignment,
+  (ls.ctx ->> 'experimental')::boolean            AS experimental,
+  (ls.ctx ->> 'decaf')::boolean                   AS decaf,
+  (ls.ctx -> 'scores' ->> 'Chocolate & Nutty')::numeric                                                      AS score_chocolate_nutty,
+  COALESCE(ls.ctx -> 'scores' ->> 'Balanced', ls.ctx -> 'scores' ->> 'Balanced & Sweet')::numeric            AS score_balanced,
+  COALESCE(ls.ctx -> 'scores' ->> 'Fruity',   ls.ctx -> 'scores' ->> 'Fruity & Complex')::numeric            AS score_fruity,
+  (ls.ctx -> 'scores' ->> 'Earthy')::numeric                                                                 AS score_earthy,
+  (ls.ctx -> 'scores' ->> 'Floral')::numeric                                                                 AS score_floral,
+  (ls.ctx -> 'scores' ->> 'Experimental')::numeric                                                           AS score_experimental,
+  ls.ctx -> 'scores'                              AS scores_json,
+  ls.ctx                                          AS quiz_result_json,   -- the full saved quiz result payload as the API received it
+  ls.completed_at                                 AS quiz_completed_at,
+  ls.quiz_session_id,
+  ns.user_id
+FROM newsletter_subscriber ns
+LEFT JOIN subscriber_source ss ON ss.id = ns.source_id
+LEFT JOIN latest_session    ls ON ls.user_id = ns.user_id;
+
 -- Read-only reporting role for Looker Studio. Created NOLOGIN — no credential
 -- ever lives in this file or git history. Dana enables LOGIN + sets a real
 -- password manually (see README's "Manual GCP steps"), sourced from Secret Manager.
@@ -3647,7 +3701,8 @@ GRANT SELECT ON
   v_subscribers_weekly,
   v_quiz_funnel_weekly,
   v_archetype_distribution,
-  v_orders_weekly
+  v_orders_weekly,
+  v_subscriber_quiz_results
 TO reporting_ro;
 
 -- Admin-editable marketing dashboard links. One settable row per link so Dana
