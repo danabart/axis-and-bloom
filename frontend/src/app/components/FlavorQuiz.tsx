@@ -13,6 +13,7 @@ import { ShareMatchRow } from './ShareMatchRow';
 import { computeDefaultSortOrder } from './bloom/ArchetypeSection';
 import { DialArchetypeSection } from './bloom/DialArchetypeSection';
 import { FloatingCart } from './bloom/FloatingCart';
+import { QUIET_LINK_CLASS } from './bloom/RevealedPanel';
 import { FAMILY_LINES } from './bloom/matchCopy';
 import { CompareOverlay } from './bloom/CompareOverlay';
 import { useAdjacentArchetype } from './bloom/useAdjacentArchetype';
@@ -108,30 +109,19 @@ function QuizHeader() {
       height: 52,
       pointerEvents: 'none',
     }}>
-      <a href="/" style={{
-        fontFamily: 'inherit', fontSize: '0.52rem', letterSpacing: '0.28em',
-        textTransform: 'uppercase', color: '#9a2918', opacity: 0.6,
-        textDecoration: 'none', pointerEvents: 'auto',
-      }}>
+      <a href="/" className={QUIET_LINK_CLASS} style={{ fontFamily: 'inherit', pointerEvents: 'auto' }}>
         AXIS &amp; BLOOM
       </a>
       <div style={{ display: 'flex', gap: 24, alignItems: 'center', pointerEvents: 'auto' }}>
         {!user && (
-          <a href="/sign-in" style={{
-            fontFamily: 'inherit', fontSize: '0.50rem', letterSpacing: '0.24em',
-            textTransform: 'uppercase', color: '#9a2918', opacity: 0.40,
-            textDecoration: 'none',
-          }}>
+          <a href="/sign-in" className={QUIET_LINK_CLASS} style={{ fontFamily: 'inherit' }}>
             SAVE PROGRESS
           </a>
         )}
         <button
           onClick={() => navigate('/')}
-          style={{
-            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-            fontFamily: 'inherit', fontSize: '0.50rem', letterSpacing: '0.24em',
-            textTransform: 'uppercase', color: '#9a2918', opacity: 0.45,
-          }}
+          className={QUIET_LINK_CLASS}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}
         >
           EXIT ×
         </button>
@@ -1965,6 +1955,15 @@ export default function FlavorQuiz() {
                       />
                     </div>
                   )}
+
+                  {/* Way out of the results: where the profile lives, and home. Signed-in
+                      users get both; anonymous users' profile path is the email gate above. */}
+                  <nav aria-label="Next steps" className="flex flex-wrap justify-center gap-x-9 gap-y-3 mt-14">
+                    {user && !user.isAnonymous && (
+                      <Link to="/profile" className={QUIET_LINK_CLASS}>Your flavor profile →</Link>
+                    )}
+                    <Link to="/" className={QUIET_LINK_CLASS}>Back to home →</Link>
+                  </nav>
                 </div>
                 </div>
                 <CompareOverlay

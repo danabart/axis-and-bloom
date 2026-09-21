@@ -12,6 +12,7 @@ import {
 import { getUserBrewCards } from '../services/brewCard.js';
 import { getAliases } from '../services/sommelierRag.js';
 import { archetypeCode, archetypeLabel as catalogArchetypeLabel, getCoffees } from '../services/catalogReads.js';
+import { mapJourneyHistory } from '../services/tasteJourney.js';
 
 const router = Router();
 
@@ -732,12 +733,9 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
       journeyDocMissing = !journeySnap.exists;
       const journeyData = journeySnap.exists ? journeySnap.data() : null;
       const history: any[] = journeyData?.archetypeHistory ?? [];
-      journey = await Promise.all(history.map(async (h) => ({
-        archetype:      (await archetypeCode(h.archetype)) ?? String(h.archetype ?? '').toLowerCase(),
-        archetypeLabel: h.archetype,
-        at:             h.date?.toDate ? h.date.toDate().toISOString() : (h.date ?? null),
-        trigger:        h.trigger === 'first_quiz' ? 'first_quiz' : 'retake',
-      })));
+      // Label comes from the live archetype row, not the stored string, so an
+      // entry saved as "Balanced & Sweet" renders "Balanced" (see tasteJourney.ts).
+      journey = await mapJourneyHistory(history);
     } catch (err) {
       console.error('[/api/users/flavor-memory] taste_journey read failed:', err);
       journeyReadFailed = true;

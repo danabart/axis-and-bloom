@@ -58,7 +58,7 @@ export interface DialConfig {
 const NAME_LINES: Record<string, string[]> = {
   floral:          ['FLORAL'],
   fruity:          ['FRUITY'],
-  balanced_sweet:  ['BALANCED', '& SWEET'],
+  balanced_sweet:  ['BALANCED'],
   chocolate_nutty: ['CHOCOLATE', '& NUTTY'],
   earthy:          ['EARTHY'],
   experimental:    ['EXPERIMENTAL'],

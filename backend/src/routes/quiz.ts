@@ -10,7 +10,8 @@ import { computeBehavioralConfidence } from '../services/behavioralConfidence.js
 import { refreshLifecycleState } from '../services/userLifecycle.js';
 import { logFunnelEvent } from '../features/marketing/funnelEvents.js';
 import { saveQuizSession } from '../services/quizSession.js';
-import { archetypeUuid } from '../services/catalogReads.js';
+import { archetypeCode, archetypeUuid } from '../services/catalogReads.js';
+import { isSameArchetype } from '../services/tasteJourney.js';
 
 const router = Router();
 
@@ -229,9 +230,13 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
       answerIds: answerIds ?? null, branchedFrom: branchedFrom ?? null,
     });
 
+    // Code for the display name, resolved once: keys users/{uid}.archetype and the
+    // taste_journey same-archetype comparison below (retired names resolve too).
+    const newCode = await archetypeCode(archetype);
+
     // Sync to Firestore — non-blocking, Cloud SQL is source of truth
     firestoreDb.doc(`users/${req.uid}`).set({
-      archetype:      archetype.toLowerCase(),
+      archetype:      newCode ?? archetype.toLowerCase(),
       archetypeLabel: archetype,
       lastQuizDate:   FieldValue.serverTimestamp(),
       syncedAt:       FieldValue.serverTimestamp(),
@@ -282,11 +287,15 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
         const journeySnap = await journeyRef.get();
         const journey = journeySnap.exists ? journeySnap.data()! : null;
 
-        const isSame = journey?.currentArchetype === archetype;
+        // Compare by code, not display string: a doc stored as "Balanced & Sweet"
+        // must still count as the same archetype as a fresh "Balanced".
+        const currentCode = journey?.currentArchetype ? await archetypeCode(journey.currentArchetype) : null;
+        const isSame = isSameArchetype(newCode, currentCode);
         const isFirst = !journey?.currentArchetype;
 
         const newEntry = {
           archetype,
+          archetypeCode: newCode,
           date: Timestamp.now(),
           quizSessionId: String(sessionId),
           confidenceLevel,
@@ -295,6 +304,7 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
 
         await journeyRef.set({
           currentArchetype:   archetype,
+          currentArchetypeCode: newCode,
           currentStreakCount: isSame ? (journey?.currentStreakCount ?? 0) + 1 : 1,
           evolutionCount:     isSame ? (journey?.evolutionCount ?? 0) : (journey?.evolutionCount ?? 0) + 1,
           archetypeHistory:   [...(journey?.archetypeHistory ?? []), newEntry],

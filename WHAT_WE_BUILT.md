@@ -4787,6 +4787,18 @@ New bucket `axis-bloom-db-transfers` (`us-central1`, matching the instance's reg
 
 **Docs**: `WHAT_WE_BUILT_DB.md` reporting-views table has the new row with one group per column set and the data caveats (sparse scores → NULL not 0; three archetype score columns always NULL today; mixed archetype naming across the #187 rename).
 
+### 189. Archetype rename follow-up 1: dial name lines, Firestore journey labels, quiz exit row (2026-09-21)
+
+**Context**: `backend/src/features/archetype_rename_balanced/CLAUDE_CODE_PROMPT_ARCHETYPE_RENAME_FOLLOWUP_1.md`. Three things seen on the live site after #187, plus one UX gap.
+
+**Dial** (`bloom/dial/archetypeConfig.ts`): `NAME_LINES.balanced_sweet` was `['BALANCED', '& SWEET']` — the name split across two array elements, invisible to the literal sweep — now `['BALANCED']`. `BloomDial.fitLines()` sizes each line independently to the column width, so nothing keys on line count.
+
+**Firestore journey** (`users/{uid}/metadata/taste_journey` stores display names): new `services/tasteJourney.ts` — `mapJourneyHistory()` (read side of `GET /api/users/flavor-memory`: code via `archetypeCode()`, label via the live row, so an entry stored as "Balanced & Sweet" renders "Balanced" and future renames follow the row) and `isSameArchetype(newCode, currentCode)`. `POST /api/quiz/results` now resolves the new archetype to its code once and compares by code, so a retake landing on Balanced against history stored as "Balanced & Sweet" keeps `evolutionCount` and increments `currentStreakCount` instead of counting a false evolution. New docs carry `archetypeCode` on each history entry and `currentArchetypeCode` on the doc; display names are still stored for compatibility, existing docs are not rewritten. `users/{uid}.archetype` now writes the code (`balanced`→`balanced_sweet`, etc.) — no reader of that field exists in the backend or frontend (the frontend only initialises Firestore); `archetypeLabel` stays the display name.
+
+**Quiz result screen** (`FlavorQuiz.tsx`): `QuizHeader`'s wordmark, `SAVE PROGRESS` and `EXIT ×` (were ~8 px at 0.4–0.6 opacity) now use `QUIET_LINK_CLASS` (10.5 px, .14em, `#9a2918`, .85 opacity; exported from `RevealedPanel.tsx`). A quiet action row closes the results column after the adjacent archetype section: `Your flavor profile →` (signed-in, non-anonymous only) and `Back to home →`. `FloatingCart`, add-to-cart, `ShareMatchRow`, `WorthExploring`, `CompareOverlay`, `PostQuizEmailGate` unchanged.
+
+**Tests**: `services/tasteJourney.test.ts` (5 cases against `axisandbloom_test`). Details, the Firestore display-name list and verification notes: `CLOSING_REPORT_FOLLOWUP_1.md`.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)
