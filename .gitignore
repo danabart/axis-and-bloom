@@ -17,3 +17,6 @@ github-actions-sa-key.json
 set-gh-secrets*.mjs
 set-gh-secrets*.cjs
 .claude/settings.local.json
+
+# Quiz Email Audit (2026-09-24) — script output contains emails, never commit
+backend/tmp/
