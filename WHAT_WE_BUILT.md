@@ -4829,6 +4829,47 @@ New bucket `axis-bloom-db-transfers` (`us-central1`, matching the instance's reg
 
 **Go-forward test-data practice, per Dana (2026-09-25)**: `api_event` and `quiz_funnel_event` rows from a smoke test are **not** deleted any more, even for disposable test addresses — they're append-only by the same Part D1 decision that applies to everything else in those tables. Only `newsletter_subscriber` rows and Mailchimp test members get cleaned up after a smoke test; the report just notes which address was the marked test address so it's identifiable later. (This session's own cleanup, above, predates that instruction and did delete `api_event`/`quiz_funnel_event` test rows by hand — a one-time exception, not a precedent; the rule going forward is the one in this paragraph.)
 
+### 192. Quiz interpretation v2.1 · brief 1 of 3 — `interpret()`, `/score`, calibration fixture (2026-09-25)
+
+**Context**: `backend/src/features/quiz_interpretation_v2/CLAUDE_CODE_PROMPT_1_INTERPRETATION_RULES.md`; the "why" is `QUIZ_INTERPRETATION_V2_DECISIONS.md`. Logic + read-only endpoint + tests only: **no table is written, no stored row is touched, `POST /api/quiz/results` is unchanged, quiz scoring (questions, weights, winner, Q5→Q4→Q2→Q1 cascade) and quiz version `v7` are unchanged.** The Hoboken Crawl showed the customer-facing "confidence" was really `foodSignalAlignment` (does the treat agree with the winner), 11 of 37 users landed in `ai_agent / low` with decisive scores, and the secondary on a runner-up tie was whichever row Postgres returned first. This ruleset is interpretation version `v2.1`; what ran before is retroactively `v1`. Briefs 2 (SCD2 table) and 3 (view) build on it.
+
+**`services/quizScoring.ts`**: `findSecondary` and `computeConfidenceAndMode` replaced by one pure `interpret({ scores, byQ, foodSignal, experimental, finalArchetype, branchedFrom })` plus `INTERPRETATION_VERSION = 'v2.1'`, `ARCHETYPE_AXIS` / `axisDistance()` (interim hand-ordered axis Floral · Fruity · Balanced · Chocolate & Nutty · Earthy; to be replaced by dial-graph hop distance) and the `Interpretation` / `SecondaryPath` / `PairConfidence` types. `rankScores`, `findWinner`, `isSecondaryClose` are untouched. The old confidence function survives verbatim as `legacyFoodSignalAlignment()` (returns the label only; stored for comparison, drives nothing). `services/quizScorer.ts` (new) holds `scoreAnswerIds(answerIds)`, the two read queries `/score` used to inline, so brief 2 can recompute server-side; behaviour identical.
+
+**Secondary — first rule that applies wins** (`pick()` = single candidate, else the treat if among them, else cascade Q5→Q4→Q2→Q1, else Balanced/first):
+
+| # | path | condition | secondary |
+|---|---|---|---|
+| 1 | `near-tie` | winner margin ≤ 1 and a runner-up exists | `pick(runners)` |
+| 2 | `gate-backed` | experimental gate open, Fruity is a runner-up, winner is not Fruity | Fruity |
+| 3 | `food-led` | treat exists and differs from the winner | the treat |
+| 4 | `runner-up` | runner-up scored ≥ 2 | `pick(runners)` |
+| 5 | `none` | otherwise | null |
+
+On a real branch switch `secondaryArchetype` = `branchedFrom` (2026-08-11 rule), while `secondaryPath` still records what rules 1–5 gave on the pre-branch scores, because the mode derives from it.
+
+**Mode, from the path**: `near-tie`, `gate-backed` → `primary_plus_active_secondary`; `food-led` → `primary_plus_introduce_secondary` (gate open → `primary_plus_active_secondary`); `runner-up` → gate open: `primary_as_starting_point`, else `primary_plus_note_secondary` if the secondary scored on Q4/Q5 (`isSecondaryClose`), else `primary_only`; `none` → gate open: `primary_as_starting_point`, else `primary_only`. **`ai_agent` is never produced** (enum value kept for old rows).
+
+**Pair confidence** (customer-facing): strays = treat outside the pair; gate open with Fruity ≥ 2 outside the pair; a third archetype ≥ 3 (not double-counted with the treat). 0 → `high`, 1 → `medium`, 2+ → `low`; a treat 2+ axis steps from the nearest pair member → `low`. **Explore archetype** (Liam only): gate Fruity → treat → third archetype → unresolved/decided runner-up tie (`A / B` when the 2-point floor named no secondary), with `exploreReason` joining every reason. `primaryMargin` is analytics only.
+
+**`POST /api/quiz/score`**: uses `scoreAnswerIds()` + `interpret()` (`finalArchetype` = winner, `branchedFrom` = null; the branch happens in the frontend afterwards). Every existing response key kept (`secondaryArchetype`, `foodSignalAlignment`, `recommendationMode` now come from `interpret()`); added `secondaryPath`, `pairConfidence`, `exploreArchetype`, `exploreReason`, `primaryMargin`, `interpretationVersion`. `tieDetected` / `tiedArchetypes` unchanged. Stale comment "Q2 excluded — no rows" fixed (Q2 scores, weight 2; every v7 total sums to 9).
+
+**`FlavorQuiz.tsx` (types only)**: `ScoreResult` gains the six new fields; `buildQuizResultPayload()` passes them through as informational (`/results` destructures named fields, so they are ignored until brief 2). Nothing else in the component changed.
+
+**Calibration + tests**: fixture copied to `backend/src/fixtures/quiz_calibration/hoboken-crawl-2026.calibration.json`. The 18 v7 answer ids are generated at seed time (not in `schema.sql`), so `fixtures/quiz_calibration/v7AnswerMap.ts` derives them from the fixture — brute-forced over all 6⁵ archetype assignments, exactly one reproduces all 37 recorded score maps (Q3's Fruity answer is the only experimental gate, matching the decisions file); `rebuildV7Scoring()` rebuilds `byQ` offline. `quizScoring.test.ts` gained a table-driven block over all 37 cases: the answer map reproduces every case's scores/treat/gate, and `secondaryArchetype`, `recommendationMode`, `pairConfidence`, `exploreArchetype`, `primaryMargin` match `expected_v2_1` — **37/37 pass, no rule adjusted**. The old `findSecondary` tests were removed and the `computeConfidenceAndMode` tests re-pointed at `legacyFoodSignalAlignment` (label only). 6 pre-existing failures in this file (`findWinner` cascade and `isSecondaryClose` tests written for an older Q6-based cascade) fail identically on HEAD; left alone per the brief. `backend/scripts/quizRecalibrate.ts` (offline, no DB/network): reads a `v_subscriber_quiz_results` CSV, runs `interpret()` per row, writes a fixture-format JSON with `expected_v2_1`, `explore_reason` and a diff vs `stored_v1`; smoke-tested on a CSV synthesized from the fixture (37/37 reproduced, a no-session row skipped and listed).
+
+**Frontend locations that render or branch on the legacy fields (Part C, report only — none changed)**:
+- `FlavorQuiz.tsx` ~897 and ~921: `confidence: scoreData?.foodSignalAlignment` in the two `subscribeToNewsletter` payloads (resync effects).
+- `FlavorQuiz.tsx` ~1897 and ~2082: `confidence={scoreData?.foodSignalAlignment}` passed to `PostQuizEmailGate` (both gate placements).
+- `FlavorQuiz.tsx` ~1009: `buildQuizResultPayload()` sends `foodSignalAlignment` / `recommendationMode` to `saveQuizResult`; `lib/api.ts` ~23–24 types them.
+- `admin/AdminSommelierFlow.tsx` ~174: static label text `'quiz tie · low food signal · ai_agent mode'` describing the PROFILE_AMBIGUOUS trigger.
+- No frontend code compares `recommendationMode === 'ai_agent'` and none renders `recommendationMode`.
+
+**Follow-ups this surfaced (not changed here)**: (1) `services/sommelierEvaluator.ts` ~139 — `PROFILE_AMBIGUOUS` fires on `recommendationMode === 'ai_agent' || foodSignalAlignment === 'low'`. `ai_agent` is no longer produced, and because the legacy label is now computed with the v2.1 secondary, treat-led sessions read `medium` instead of `low`, so this intent will fire far less often for new quiz completions (it also still fires on `flags.quizTie`). The Liam-side replacement is `exploreArchetype` / `pairConfidence`; that wiring is a decision for Dana. (2) Confidence sent to Mailchimp/`newsletter_subscriber.confidence` still carries the legacy label — the scope boundary excludes the subscribe route and Mailchimp sync. (3) Once `pairConfidence` is the customer-facing label, the `confidence` prop on `PostQuizEmailGate` should be re-sourced (brief 3 territory).
+
+**Verification**: backend `tsc --noEmit` clean; frontend `tsc` clean for `FlavorQuiz.tsx` (other pre-existing frontend type errors elsewhere untouched). No SQL and no `INSERT`/`UPDATE` in the diff; the only DB access is the two `SELECT`s that moved into `scoreAnswerIds()`. Not committed or pushed (awaiting Dana's go).
+
+**Files**: `backend/src/services/quizScoring.ts`, `quizScorer.ts` (new), `quizScoring.test.ts`, `backend/src/routes/quiz.ts`, `backend/src/fixtures/quiz_calibration/{hoboken-crawl-2026.calibration.json,v7AnswerMap.ts}` (new), `backend/scripts/quizRecalibrate.ts` (new), `frontend/src/app/components/FlavorQuiz.tsx`.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

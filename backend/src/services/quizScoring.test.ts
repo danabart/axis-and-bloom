@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { rebuildV7Scoring } from '../fixtures/quiz_calibration/v7AnswerMap.js';
 import {
   rankScores,
   findWinner,
-  findSecondary,
   isSecondaryClose,
-  computeConfidenceAndMode,
+  legacyFoodSignalAlignment,
+  interpret,
 } from './quizScoring.js';
 
 const CN = 'Chocolate & Nutty';
@@ -77,26 +79,6 @@ describe('findWinner — veto cascade', () => {
   });
 });
 
-// ─── findSecondary ───────────────────────────────────────────────────────────
-
-describe('findSecondary', () => {
-  it('returns 2nd highest archetype', () => {
-    const ranked = rankScores({ [CN]: 7, [BS]: 4, [FR]: 2 });
-    expect(findSecondary(ranked, CN)).toBe(BS);
-  });
-
-  it('returns null when only one archetype has a score', () => {
-    const ranked = rankScores({ [CN]: 7 });
-    expect(findSecondary(ranked, CN)).toBeNull();
-  });
-
-  it('skips the winner when finding secondary', () => {
-    const ranked = rankScores({ [CN]: 7, [BS]: 7, [FR]: 2 });
-    // winner is CN (first in ranked after cascade), secondary should be BS
-    expect(findSecondary(ranked, CN)).toBe(BS);
-  });
-});
-
 // ─── isSecondaryClose ────────────────────────────────────────────────────────
 
 describe('isSecondaryClose (Option B — secondary scored on Q5 or Q6)', () => {
@@ -125,73 +107,133 @@ describe('isSecondaryClose (Option B — secondary scored on Q5 or Q6)', () => {
   });
 });
 
-// ─── computeConfidenceAndMode ────────────────────────────────────────────────
+// ─── legacyFoodSignalAlignment (v1 label, confidence only) ────────────────────────────────────────────────
 
-describe('computeConfidenceAndMode — Scenario 1: food matches primary', () => {
+describe('legacyFoodSignalAlignment — Scenario 1: food matches primary', () => {
   it('high confidence, primary_only when no experimental and secondary not close', () => {
-    const result = computeConfidenceAndMode(CN, CN, BS, false, false);
-    expect(result).toEqual({ confidence: 'high', recommendationMode: 'primary_only' });
+    const result = legacyFoodSignalAlignment(CN, CN, BS, false, false);
+    expect(result).toBe('high');
   });
 });
 
-describe('computeConfidenceAndMode — Scenario 2: food matches secondary', () => {
+describe('legacyFoodSignalAlignment — Scenario 2: food matches secondary', () => {
   it('medium confidence, introduce_secondary when not experimental', () => {
-    const result = computeConfidenceAndMode(BS, CN, BS, false, false);
-    expect(result).toEqual({ confidence: 'medium', recommendationMode: 'primary_plus_introduce_secondary' });
+    const result = legacyFoodSignalAlignment(BS, CN, BS, false, false);
+    expect(result).toBe('medium');
   });
 
   it('medium confidence, active_secondary when experimental=true', () => {
-    const result = computeConfidenceAndMode(BS, CN, BS, true, false);
-    expect(result).toEqual({ confidence: 'medium', recommendationMode: 'primary_plus_active_secondary' });
+    const result = legacyFoodSignalAlignment(BS, CN, BS, true, false);
+    expect(result).toBe('medium');
   });
 });
 
-describe('computeConfidenceAndMode — Scenario 3: food matches neither', () => {
+describe('legacyFoodSignalAlignment — Scenario 3: food matches neither', () => {
   it('low confidence, ai_agent', () => {
-    const result = computeConfidenceAndMode(FR, CN, BS, false, false);
-    expect(result).toEqual({ confidence: 'low', recommendationMode: 'ai_agent' });
+    const result = legacyFoodSignalAlignment(FR, CN, BS, false, false);
+    expect(result).toBe('low');
   });
 
   it('low confidence, ai_agent even if experimental=true', () => {
-    const result = computeConfidenceAndMode(FR, CN, BS, true, false);
-    expect(result).toEqual({ confidence: 'low', recommendationMode: 'ai_agent' });
+    const result = legacyFoodSignalAlignment(FR, CN, BS, true, false);
+    expect(result).toBe('low');
   });
 });
 
-describe('computeConfidenceAndMode — Scenario 4: food matches primary + secondary is close', () => {
+describe('legacyFoodSignalAlignment — Scenario 4: food matches primary + secondary is close', () => {
   it('medium confidence, note_secondary when not experimental', () => {
-    const result = computeConfidenceAndMode(CN, CN, BS, false, true);
-    expect(result).toEqual({ confidence: 'medium', recommendationMode: 'primary_plus_note_secondary' });
+    const result = legacyFoodSignalAlignment(CN, CN, BS, false, true);
+    expect(result).toBe('medium');
   });
 });
 
-describe('computeConfidenceAndMode — experimental modifiers', () => {
+describe('legacyFoodSignalAlignment — experimental modifiers', () => {
   it('experimental overrides Scenario 4: food==primary, close secondary → primary_as_starting_point', () => {
-    const result = computeConfidenceAndMode(CN, CN, BS, true, true);
-    expect(result).toEqual({ confidence: 'medium', recommendationMode: 'primary_as_starting_point' });
+    const result = legacyFoodSignalAlignment(CN, CN, BS, true, true);
+    expect(result).toBe('medium');
   });
 
   it('experimental + food==primary (no close secondary) → primary_as_starting_point', () => {
-    const result = computeConfidenceAndMode(CN, CN, BS, true, false);
-    expect(result).toEqual({ confidence: 'medium', recommendationMode: 'primary_as_starting_point' });
+    const result = legacyFoodSignalAlignment(CN, CN, BS, true, false);
+    expect(result).toBe('medium');
   });
 });
 
-describe('computeConfidenceAndMode — no food signal', () => {
+describe('legacyFoodSignalAlignment — no food signal', () => {
   it('defaults to high confidence, primary_only when foodSignal is null', () => {
-    const result = computeConfidenceAndMode(null, CN, BS, false, false);
-    expect(result).toEqual({ confidence: 'high', recommendationMode: 'primary_only' });
+    const result = legacyFoodSignalAlignment(null, CN, BS, false, false);
+    expect(result).toBe('high');
   });
 
   it('defaults to high confidence, primary_only even when experimental=true and no food signal', () => {
-    const result = computeConfidenceAndMode(null, CN, BS, true, false);
-    expect(result).toEqual({ confidence: 'high', recommendationMode: 'primary_only' });
+    const result = legacyFoodSignalAlignment(null, CN, BS, true, false);
+    expect(result).toBe('high');
   });
 });
 
-describe('computeConfidenceAndMode — secondary is null', () => {
+describe('legacyFoodSignalAlignment — secondary is null', () => {
   it('food matches neither when secondary is null and food != primary', () => {
-    const result = computeConfidenceAndMode(FR, CN, null, false, false);
-    expect(result).toEqual({ confidence: 'low', recommendationMode: 'ai_agent' });
+    const result = legacyFoodSignalAlignment(FR, CN, null, false, false);
+    expect(result).toBe('low');
+  });
+});
+
+// ─── interpret() v2.1 — Hoboken Crawl calibration set (37 real completions) ──
+// The v7 answer id map lives in fixtures/quiz_calibration/v7AnswerMap.ts (shared with scripts/quizRecalibrate.ts).
+// The 'answer map reproduces the fixture inputs' tests below prove it against all 37 recorded score maps.
+
+interface CalibrationCase {
+  case_id: string;
+  input: {
+    answerIds: string[];
+    scores: Record<string, number>;
+    archetype: string;
+    foodSignal: string | null;
+    experimental: boolean;
+    branchedFrom: string | null;
+  };
+  expected_v2_1: {
+    secondaryArchetype: string | null;
+    recommendationMode: string;
+    pairConfidence: string;
+    exploreArchetype: string | null;
+    primaryMargin: number;
+  };
+}
+
+const calibration = JSON.parse(
+  readFileSync(new URL('../fixtures/quiz_calibration/hoboken-crawl-2026.calibration.json', import.meta.url), 'utf8')
+) as { cases: CalibrationCase[] };
+
+const rebuild = rebuildV7Scoring;
+
+describe('interpret() v2.1 — calibration fixture', () => {
+  it('has 37 cases', () => {
+    expect(calibration.cases).toHaveLength(37);
+  });
+
+  it.each(calibration.cases.map(c => [c.case_id, c] as const))('%s: answer map reproduces the fixture inputs', (_id, c) => {
+    const r = rebuild(c.input.answerIds);
+    expect(r.scores).toEqual(c.input.scores);
+    expect(r.foodSignal).toBe(c.input.foodSignal);
+    expect(r.experimental).toBe(c.input.experimental);
+  });
+
+  it.each(calibration.cases.map(c => [c.case_id, c] as const))('%s: expected_v2_1', (_id, c) => {
+    const r = rebuild(c.input.answerIds);
+    const out = interpret({
+      ...r,
+      finalArchetype: c.input.archetype,
+      branchedFrom: c.input.branchedFrom,
+    });
+    expect({
+      secondaryArchetype: out.secondaryArchetype,
+      recommendationMode: out.recommendationMode,
+      pairConfidence: out.pairConfidence,
+      exploreArchetype: out.exploreArchetype,
+      primaryMargin: out.primaryMargin,
+    }).toEqual(c.expected_v2_1);
+    expect(out.recommendationMode).not.toBe('ai_agent');
+    expect(out.interpretationVersion).toBe('v2.1');
   });
 });

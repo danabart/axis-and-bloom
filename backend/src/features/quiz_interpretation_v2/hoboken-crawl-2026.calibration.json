@@ -1,0 +1,1239 @@
+{
+  "calibration_set": "hoboken-crawl-2026",
+  "interpretation_version": "v2.1",
+  "quiz_version": "v7",
+  "exported": "2026-09-25",
+  "source": "v_subscriber_quiz_results WHERE campaign='hoboken-crawl-2026' (Dana's own test addresses excluded); cases ordered by quiz completed_at",
+  "note": "Inputs are exactly what quiz_session.context_data holds. Expected values come from the v2.1 rules (incl. the 2026-09-25 tie-break explore hint) and were reviewed row by row by Dana. 37 cases. exploreArchetype for an unresolved tie is 'A / B'.",
+  "cases": [
+    {
+      "case_id": "hoboken-crawl-2026-01",
+      "input": {
+        "answerIds": [
+          "7bb70325-9f4b-42f1-8e23-c09e7bc1aeba",
+          "b155b352-60f4-4080-b273-989aec4a6c3b",
+          "04efe599-cc94-4ae3-a5c4-58af912e6fce",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "d22e21b5-84e6-43af-bf43-7a87a5fafabc",
+          "685108d8-ab46-41f4-919d-d9bf541b04da"
+        ],
+        "scores": {
+          "Balanced": 9
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Chocolate & Nutty",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": null,
+        "recommendationMode": "ai_agent",
+        "foodSignalAlignment": "low"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 9
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-02",
+      "input": {
+        "answerIds": [
+          "7bb70325-9f4b-42f1-8e23-c09e7bc1aeba",
+          "5508a85e-bf39-47bf-b449-9e2918f4a66c",
+          "a3dd85c7-8599-4acc-ab0c-c322e5376199",
+          "d91047b2-8f76-4266-8e34-86cd376a4464",
+          "84a495fc-897a-4126-b169-60c4c4788d83",
+          "fbbc7d10-78b4-49c4-b70f-d6562f90ea7b"
+        ],
+        "scores": {
+          "Fruity": 1,
+          "Balanced": 1,
+          "Chocolate & Nutty": 7
+        },
+        "archetype": "Earthy",
+        "foodSignal": "Balanced",
+        "experimental": true,
+        "branchedFrom": "Chocolate & Nutty"
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "ai_agent",
+        "foodSignalAlignment": "low"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "medium",
+        "exploreArchetype": "Fruity",
+        "primaryMargin": 6
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-03",
+      "input": {
+        "answerIds": [
+          "7bb70325-9f4b-42f1-8e23-c09e7bc1aeba",
+          "5508a85e-bf39-47bf-b449-9e2918f4a66c",
+          "3097eb82-eabe-4bfb-9ec4-87d543d12199",
+          "d91047b2-8f76-4266-8e34-86cd376a4464",
+          "9512f80b-08f6-482d-82a7-469d68b83e0d",
+          "fbbc7d10-78b4-49c4-b70f-d6562f90ea7b"
+        ],
+        "scores": {
+          "Fruity": 3,
+          "Balanced": 1,
+          "Chocolate & Nutty": 5
+        },
+        "archetype": "Chocolate & Nutty",
+        "foodSignal": "Balanced",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "ai_agent",
+        "foodSignalAlignment": "low"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Balanced",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "medium",
+        "exploreArchetype": "Fruity",
+        "primaryMargin": 2
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-04",
+      "input": {
+        "answerIds": [
+          "e8983de7-f940-4844-a524-ee194fefa652",
+          "b155b352-60f4-4080-b273-989aec4a6c3b",
+          "3097eb82-eabe-4bfb-9ec4-87d543d12199",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "d22e21b5-84e6-43af-bf43-7a87a5fafabc",
+          "fbbc7d10-78b4-49c4-b70f-d6562f90ea7b"
+        ],
+        "scores": {
+          "Fruity": 1,
+          "Balanced": 7,
+          "Chocolate & Nutty": 1
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Balanced",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_only",
+        "foodSignalAlignment": "high"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": null,
+        "recommendationMode": "primary_only",
+        "pairConfidence": "high",
+        "exploreArchetype": "Chocolate & Nutty / Fruity",
+        "primaryMargin": 6
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-05",
+      "input": {
+        "answerIds": [
+          "7bb70325-9f4b-42f1-8e23-c09e7bc1aeba",
+          "b155b352-60f4-4080-b273-989aec4a6c3b",
+          "04efe599-cc94-4ae3-a5c4-58af912e6fce",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "d22e21b5-84e6-43af-bf43-7a87a5fafabc",
+          "fbbc7d10-78b4-49c4-b70f-d6562f90ea7b"
+        ],
+        "scores": {
+          "Balanced": 9
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Balanced",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": null,
+        "recommendationMode": "primary_only",
+        "foodSignalAlignment": "high"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": null,
+        "recommendationMode": "primary_only",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 9
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-06",
+      "input": {
+        "answerIds": [
+          "9b6ed7dc-cea0-4616-b75c-f57efd7222fa",
+          "5508a85e-bf39-47bf-b449-9e2918f4a66c",
+          "a3dd85c7-8599-4acc-ab0c-c322e5376199",
+          "d91047b2-8f76-4266-8e34-86cd376a4464",
+          "84a495fc-897a-4126-b169-60c4c4788d83",
+          "a1b6cdc8-29a6-41ad-9c34-d839b62e86e3"
+        ],
+        "scores": {
+          "Fruity": 1,
+          "Chocolate & Nutty": 8
+        },
+        "archetype": "Chocolate & Nutty",
+        "foodSignal": "Fruity",
+        "experimental": true,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_plus_active_secondary",
+        "foodSignalAlignment": "medium"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 7
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-07",
+      "input": {
+        "answerIds": [
+          "9b6ed7dc-cea0-4616-b75c-f57efd7222fa",
+          "b155b352-60f4-4080-b273-989aec4a6c3b",
+          "04efe599-cc94-4ae3-a5c4-58af912e6fce",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "d22e21b5-84e6-43af-bf43-7a87a5fafabc",
+          "685108d8-ab46-41f4-919d-d9bf541b04da"
+        ],
+        "scores": {
+          "Balanced": 8,
+          "Chocolate & Nutty": 1
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Chocolate & Nutty",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "foodSignalAlignment": "medium"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 7
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-08",
+      "input": {
+        "answerIds": [
+          "7bb70325-9f4b-42f1-8e23-c09e7bc1aeba",
+          "b155b352-60f4-4080-b273-989aec4a6c3b",
+          "a3dd85c7-8599-4acc-ab0c-c322e5376199",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "9512f80b-08f6-482d-82a7-469d68b83e0d",
+          "fbbc7d10-78b4-49c4-b70f-d6562f90ea7b"
+        ],
+        "scores": {
+          "Fruity": 4,
+          "Balanced": 5
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Balanced",
+        "experimental": true,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_as_starting_point",
+        "foodSignalAlignment": "medium"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 1
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-09",
+      "input": {
+        "answerIds": [
+          "9b6ed7dc-cea0-4616-b75c-f57efd7222fa",
+          "199047bd-ec01-4312-b137-7b0635dc2a7a",
+          "3097eb82-eabe-4bfb-9ec4-87d543d12199",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "d22e21b5-84e6-43af-bf43-7a87a5fafabc",
+          "fbbc7d10-78b4-49c4-b70f-d6562f90ea7b"
+        ],
+        "scores": {
+          "Fruity": 2,
+          "Balanced": 5,
+          "Chocolate & Nutty": 2
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Balanced",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_only",
+        "foodSignalAlignment": "high"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_only",
+        "pairConfidence": "high",
+        "exploreArchetype": "Chocolate & Nutty",
+        "primaryMargin": 3
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-10",
+      "input": {
+        "answerIds": [
+          "9b6ed7dc-cea0-4616-b75c-f57efd7222fa",
+          "199047bd-ec01-4312-b137-7b0635dc2a7a",
+          "a3dd85c7-8599-4acc-ab0c-c322e5376199",
+          "d91047b2-8f76-4266-8e34-86cd376a4464",
+          "84a495fc-897a-4126-b169-60c4c4788d83",
+          "a1b6cdc8-29a6-41ad-9c34-d839b62e86e3"
+        ],
+        "scores": {
+          "Fruity": 3,
+          "Chocolate & Nutty": 6
+        },
+        "archetype": "Earthy",
+        "foodSignal": "Fruity",
+        "experimental": true,
+        "branchedFrom": "Chocolate & Nutty"
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_active_secondary",
+        "foodSignalAlignment": "medium"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "low",
+        "exploreArchetype": "Fruity",
+        "primaryMargin": 3
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-11",
+      "input": {
+        "answerIds": [
+          "9b6ed7dc-cea0-4616-b75c-f57efd7222fa",
+          "5508a85e-bf39-47bf-b449-9e2918f4a66c",
+          "04efe599-cc94-4ae3-a5c4-58af912e6fce",
+          "d91047b2-8f76-4266-8e34-86cd376a4464",
+          "84a495fc-897a-4126-b169-60c4c4788d83",
+          "a1b6cdc8-29a6-41ad-9c34-d839b62e86e3"
+        ],
+        "scores": {
+          "Balanced": 1,
+          "Chocolate & Nutty": 8
+        },
+        "archetype": "Earthy",
+        "foodSignal": "Fruity",
+        "experimental": false,
+        "branchedFrom": "Chocolate & Nutty"
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "ai_agent",
+        "foodSignalAlignment": "low"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "low",
+        "exploreArchetype": "Fruity",
+        "primaryMargin": 7
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-12",
+      "input": {
+        "answerIds": [
+          "7bb70325-9f4b-42f1-8e23-c09e7bc1aeba",
+          "5508a85e-bf39-47bf-b449-9e2918f4a66c",
+          "3097eb82-eabe-4bfb-9ec4-87d543d12199",
+          "d91047b2-8f76-4266-8e34-86cd376a4464",
+          "d22e21b5-84e6-43af-bf43-7a87a5fafabc",
+          "fbbc7d10-78b4-49c4-b70f-d6562f90ea7b"
+        ],
+        "scores": {
+          "Balanced": 4,
+          "Chocolate & Nutty": 5
+        },
+        "archetype": "Chocolate & Nutty",
+        "foodSignal": "Balanced",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Balanced",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "foodSignalAlignment": "medium"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Balanced",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 1
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-13",
+      "input": {
+        "answerIds": [
+          "7bb70325-9f4b-42f1-8e23-c09e7bc1aeba",
+          "b155b352-60f4-4080-b273-989aec4a6c3b",
+          "a3dd85c7-8599-4acc-ab0c-c322e5376199",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "9512f80b-08f6-482d-82a7-469d68b83e0d",
+          "fbbc7d10-78b4-49c4-b70f-d6562f90ea7b"
+        ],
+        "scores": {
+          "Fruity": 4,
+          "Balanced": 5
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Balanced",
+        "experimental": true,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_as_starting_point",
+        "foodSignalAlignment": "medium"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 1
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-14",
+      "input": {
+        "answerIds": [
+          "9b6ed7dc-cea0-4616-b75c-f57efd7222fa",
+          "5508a85e-bf39-47bf-b449-9e2918f4a66c",
+          "04efe599-cc94-4ae3-a5c4-58af912e6fce",
+          "d91047b2-8f76-4266-8e34-86cd376a4464",
+          "9512f80b-08f6-482d-82a7-469d68b83e0d",
+          "fbbc7d10-78b4-49c4-b70f-d6562f90ea7b"
+        ],
+        "scores": {
+          "Fruity": 3,
+          "Balanced": 1,
+          "Chocolate & Nutty": 5
+        },
+        "archetype": "Chocolate & Nutty",
+        "foodSignal": "Balanced",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "ai_agent",
+        "foodSignalAlignment": "low"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Balanced",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "medium",
+        "exploreArchetype": "Fruity",
+        "primaryMargin": 2
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-15",
+      "input": {
+        "answerIds": [
+          "9b6ed7dc-cea0-4616-b75c-f57efd7222fa",
+          "b155b352-60f4-4080-b273-989aec4a6c3b",
+          "04efe599-cc94-4ae3-a5c4-58af912e6fce",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "d22e21b5-84e6-43af-bf43-7a87a5fafabc",
+          "685108d8-ab46-41f4-919d-d9bf541b04da"
+        ],
+        "scores": {
+          "Balanced": 8,
+          "Chocolate & Nutty": 1
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Chocolate & Nutty",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "foodSignalAlignment": "medium"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 7
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-16",
+      "input": {
+        "answerIds": [
+          "9b6ed7dc-cea0-4616-b75c-f57efd7222fa",
+          "5508a85e-bf39-47bf-b449-9e2918f4a66c",
+          "3097eb82-eabe-4bfb-9ec4-87d543d12199",
+          "98fe11b7-e7cc-42e0-813d-b491d48447a3",
+          "d22e21b5-84e6-43af-bf43-7a87a5fafabc",
+          "fbbc7d10-78b4-49c4-b70f-d6562f90ea7b"
+        ],
+        "scores": {
+          "Fruity": 2,
+          "Balanced": 3,
+          "Chocolate & Nutty": 4
+        },
+        "archetype": "Chocolate & Nutty",
+        "foodSignal": "Balanced",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Balanced",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "foodSignalAlignment": "medium"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Balanced",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 1
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-17",
+      "input": {
+        "answerIds": [
+          "9b6ed7dc-cea0-4616-b75c-f57efd7222fa",
+          "5508a85e-bf39-47bf-b449-9e2918f4a66c",
+          "a3dd85c7-8599-4acc-ab0c-c322e5376199",
+          "d91047b2-8f76-4266-8e34-86cd376a4464",
+          "84a495fc-897a-4126-b169-60c4c4788d83",
+          "fbbc7d10-78b4-49c4-b70f-d6562f90ea7b"
+        ],
+        "scores": {
+          "Fruity": 1,
+          "Chocolate & Nutty": 8
+        },
+        "archetype": "Earthy",
+        "foodSignal": "Balanced",
+        "experimental": true,
+        "branchedFrom": "Chocolate & Nutty"
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "ai_agent",
+        "foodSignalAlignment": "low"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "medium",
+        "exploreArchetype": "Fruity",
+        "primaryMargin": 7
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-18",
+      "input": {
+        "answerIds": [
+          "9b6ed7dc-cea0-4616-b75c-f57efd7222fa",
+          "b155b352-60f4-4080-b273-989aec4a6c3b",
+          "04efe599-cc94-4ae3-a5c4-58af912e6fce",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "d22e21b5-84e6-43af-bf43-7a87a5fafabc",
+          "fbbc7d10-78b4-49c4-b70f-d6562f90ea7b"
+        ],
+        "scores": {
+          "Balanced": 8,
+          "Chocolate & Nutty": 1
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Balanced",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_only",
+        "foodSignalAlignment": "high"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": null,
+        "recommendationMode": "primary_only",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 7
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-19",
+      "input": {
+        "answerIds": [
+          "7bb70325-9f4b-42f1-8e23-c09e7bc1aeba",
+          "b155b352-60f4-4080-b273-989aec4a6c3b",
+          "3097eb82-eabe-4bfb-9ec4-87d543d12199",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "d22e21b5-84e6-43af-bf43-7a87a5fafabc",
+          "a1b6cdc8-29a6-41ad-9c34-d839b62e86e3"
+        ],
+        "scores": {
+          "Balanced": 8,
+          "Chocolate & Nutty": 1
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Fruity",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "ai_agent",
+        "foodSignalAlignment": "low"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 7
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-20",
+      "input": {
+        "answerIds": [
+          "9b6ed7dc-cea0-4616-b75c-f57efd7222fa",
+          "b155b352-60f4-4080-b273-989aec4a6c3b",
+          "04efe599-cc94-4ae3-a5c4-58af912e6fce",
+          "d91047b2-8f76-4266-8e34-86cd376a4464",
+          "d22e21b5-84e6-43af-bf43-7a87a5fafabc",
+          "fbbc7d10-78b4-49c4-b70f-d6562f90ea7b"
+        ],
+        "scores": {
+          "Balanced": 6,
+          "Chocolate & Nutty": 3
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Balanced",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_note_secondary",
+        "foodSignalAlignment": "medium"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_note_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 3
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-21",
+      "input": {
+        "answerIds": [
+          "e8983de7-f940-4844-a524-ee194fefa652",
+          "b155b352-60f4-4080-b273-989aec4a6c3b",
+          "04efe599-cc94-4ae3-a5c4-58af912e6fce",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "9512f80b-08f6-482d-82a7-469d68b83e0d",
+          "fbbc7d10-78b4-49c4-b70f-d6562f90ea7b"
+        ],
+        "scores": {
+          "Fruity": 4,
+          "Balanced": 5
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Balanced",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_plus_note_secondary",
+        "foodSignalAlignment": "medium"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 1
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-22",
+      "input": {
+        "answerIds": [
+          "7bb70325-9f4b-42f1-8e23-c09e7bc1aeba",
+          "5508a85e-bf39-47bf-b449-9e2918f4a66c",
+          "04efe599-cc94-4ae3-a5c4-58af912e6fce",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "9512f80b-08f6-482d-82a7-469d68b83e0d",
+          "fbbc7d10-78b4-49c4-b70f-d6562f90ea7b"
+        ],
+        "scores": {
+          "Fruity": 3,
+          "Balanced": 4,
+          "Chocolate & Nutty": 2
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Balanced",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_plus_note_secondary",
+        "foodSignalAlignment": "medium"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 1
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-23",
+      "input": {
+        "answerIds": [
+          "7bb70325-9f4b-42f1-8e23-c09e7bc1aeba",
+          "b155b352-60f4-4080-b273-989aec4a6c3b",
+          "3097eb82-eabe-4bfb-9ec4-87d543d12199",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "84a495fc-897a-4126-b169-60c4c4788d83",
+          "fbbc7d10-78b4-49c4-b70f-d6562f90ea7b"
+        ],
+        "scores": {
+          "Balanced": 5,
+          "Chocolate & Nutty": 4
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Balanced",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_note_secondary",
+        "foodSignalAlignment": "medium"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 1
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-24",
+      "input": {
+        "answerIds": [
+          "7bb70325-9f4b-42f1-8e23-c09e7bc1aeba",
+          "5508a85e-bf39-47bf-b449-9e2918f4a66c",
+          "3097eb82-eabe-4bfb-9ec4-87d543d12199",
+          "d91047b2-8f76-4266-8e34-86cd376a4464",
+          "9512f80b-08f6-482d-82a7-469d68b83e0d",
+          "685108d8-ab46-41f4-919d-d9bf541b04da"
+        ],
+        "scores": {
+          "Fruity": 3,
+          "Balanced": 1,
+          "Chocolate & Nutty": 5
+        },
+        "archetype": "Chocolate & Nutty",
+        "foodSignal": "Chocolate & Nutty",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_plus_note_secondary",
+        "foodSignalAlignment": "medium"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_plus_note_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 2
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-25",
+      "input": {
+        "answerIds": [
+          "9b6ed7dc-cea0-4616-b75c-f57efd7222fa",
+          "b155b352-60f4-4080-b273-989aec4a6c3b",
+          "a3dd85c7-8599-4acc-ab0c-c322e5376199",
+          "d91047b2-8f76-4266-8e34-86cd376a4464",
+          "84a495fc-897a-4126-b169-60c4c4788d83",
+          "685108d8-ab46-41f4-919d-d9bf541b04da"
+        ],
+        "scores": {
+          "Fruity": 1,
+          "Balanced": 2,
+          "Chocolate & Nutty": 6
+        },
+        "archetype": "Chocolate & Nutty",
+        "foodSignal": "Chocolate & Nutty",
+        "experimental": true,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Balanced",
+        "recommendationMode": "primary_as_starting_point",
+        "foodSignalAlignment": "medium"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Balanced",
+        "recommendationMode": "primary_as_starting_point",
+        "pairConfidence": "high",
+        "exploreArchetype": "Fruity",
+        "primaryMargin": 4
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-26",
+      "input": {
+        "answerIds": [
+          "7bb70325-9f4b-42f1-8e23-c09e7bc1aeba",
+          "b155b352-60f4-4080-b273-989aec4a6c3b",
+          "3097eb82-eabe-4bfb-9ec4-87d543d12199",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "d22e21b5-84e6-43af-bf43-7a87a5fafabc",
+          "685108d8-ab46-41f4-919d-d9bf541b04da"
+        ],
+        "scores": {
+          "Balanced": 8,
+          "Chocolate & Nutty": 1
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Chocolate & Nutty",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "foodSignalAlignment": "medium"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 7
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-27",
+      "input": {
+        "answerIds": [
+          "9b6ed7dc-cea0-4616-b75c-f57efd7222fa",
+          "5508a85e-bf39-47bf-b449-9e2918f4a66c",
+          "a3dd85c7-8599-4acc-ab0c-c322e5376199",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "9512f80b-08f6-482d-82a7-469d68b83e0d",
+          "a1b6cdc8-29a6-41ad-9c34-d839b62e86e3"
+        ],
+        "scores": {
+          "Fruity": 4,
+          "Balanced": 2,
+          "Chocolate & Nutty": 3
+        },
+        "archetype": "Fruity",
+        "foodSignal": "Fruity",
+        "experimental": true,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_as_starting_point",
+        "foodSignalAlignment": "medium"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 1
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-28",
+      "input": {
+        "answerIds": [
+          "9b6ed7dc-cea0-4616-b75c-f57efd7222fa",
+          "5508a85e-bf39-47bf-b449-9e2918f4a66c",
+          "04efe599-cc94-4ae3-a5c4-58af912e6fce",
+          "d91047b2-8f76-4266-8e34-86cd376a4464",
+          "84a495fc-897a-4126-b169-60c4c4788d83",
+          "fbbc7d10-78b4-49c4-b70f-d6562f90ea7b"
+        ],
+        "scores": {
+          "Balanced": 1,
+          "Chocolate & Nutty": 8
+        },
+        "archetype": "Chocolate & Nutty",
+        "foodSignal": "Balanced",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Balanced",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "foodSignalAlignment": "medium"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Balanced",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 7
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-29",
+      "input": {
+        "answerIds": [
+          "9b6ed7dc-cea0-4616-b75c-f57efd7222fa",
+          "199047bd-ec01-4312-b137-7b0635dc2a7a",
+          "04efe599-cc94-4ae3-a5c4-58af912e6fce",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "84a495fc-897a-4126-b169-60c4c4788d83",
+          "fbbc7d10-78b4-49c4-b70f-d6562f90ea7b"
+        ],
+        "scores": {
+          "Fruity": 2,
+          "Balanced": 3,
+          "Chocolate & Nutty": 4
+        },
+        "archetype": "Earthy",
+        "foodSignal": "Balanced",
+        "experimental": false,
+        "branchedFrom": "Chocolate & Nutty"
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "foodSignalAlignment": "medium"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "medium",
+        "exploreArchetype": "Balanced",
+        "primaryMargin": 1
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-30",
+      "input": {
+        "answerIds": [
+          "9b6ed7dc-cea0-4616-b75c-f57efd7222fa",
+          "199047bd-ec01-4312-b137-7b0635dc2a7a",
+          "04efe599-cc94-4ae3-a5c4-58af912e6fce",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "d22e21b5-84e6-43af-bf43-7a87a5fafabc",
+          "685108d8-ab46-41f4-919d-d9bf541b04da"
+        ],
+        "scores": {
+          "Fruity": 2,
+          "Balanced": 6,
+          "Chocolate & Nutty": 1
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Chocolate & Nutty",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "ai_agent",
+        "foodSignalAlignment": "low"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 4
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-31",
+      "input": {
+        "answerIds": [
+          "7bb70325-9f4b-42f1-8e23-c09e7bc1aeba",
+          "199047bd-ec01-4312-b137-7b0635dc2a7a",
+          "04efe599-cc94-4ae3-a5c4-58af912e6fce",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "d22e21b5-84e6-43af-bf43-7a87a5fafabc",
+          "fbbc7d10-78b4-49c4-b70f-d6562f90ea7b"
+        ],
+        "scores": {
+          "Fruity": 2,
+          "Balanced": 7
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Balanced",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_only",
+        "foodSignalAlignment": "high"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_only",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 5
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-32",
+      "input": {
+        "answerIds": [
+          "9b6ed7dc-cea0-4616-b75c-f57efd7222fa",
+          "b155b352-60f4-4080-b273-989aec4a6c3b",
+          "3097eb82-eabe-4bfb-9ec4-87d543d12199",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "d22e21b5-84e6-43af-bf43-7a87a5fafabc",
+          "fbbc7d10-78b4-49c4-b70f-d6562f90ea7b"
+        ],
+        "scores": {
+          "Balanced": 7,
+          "Chocolate & Nutty": 2
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Balanced",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_only",
+        "foodSignalAlignment": "high"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_only",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 5
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-33",
+      "input": {
+        "answerIds": [
+          "7bb70325-9f4b-42f1-8e23-c09e7bc1aeba",
+          "b155b352-60f4-4080-b273-989aec4a6c3b",
+          "04efe599-cc94-4ae3-a5c4-58af912e6fce",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "d22e21b5-84e6-43af-bf43-7a87a5fafabc",
+          "685108d8-ab46-41f4-919d-d9bf541b04da"
+        ],
+        "scores": {
+          "Balanced": 9
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Chocolate & Nutty",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": null,
+        "recommendationMode": "ai_agent",
+        "foodSignalAlignment": "low"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 9
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-34",
+      "input": {
+        "answerIds": [
+          "7bb70325-9f4b-42f1-8e23-c09e7bc1aeba",
+          "b155b352-60f4-4080-b273-989aec4a6c3b",
+          "04efe599-cc94-4ae3-a5c4-58af912e6fce",
+          "d91047b2-8f76-4266-8e34-86cd376a4464",
+          "d22e21b5-84e6-43af-bf43-7a87a5fafabc",
+          "685108d8-ab46-41f4-919d-d9bf541b04da"
+        ],
+        "scores": {
+          "Balanced": 7,
+          "Chocolate & Nutty": 2
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Chocolate & Nutty",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "foodSignalAlignment": "medium"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 5
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-35",
+      "input": {
+        "answerIds": [
+          "7bb70325-9f4b-42f1-8e23-c09e7bc1aeba",
+          "b155b352-60f4-4080-b273-989aec4a6c3b",
+          "04efe599-cc94-4ae3-a5c4-58af912e6fce",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "d22e21b5-84e6-43af-bf43-7a87a5fafabc",
+          "685108d8-ab46-41f4-919d-d9bf541b04da"
+        ],
+        "scores": {
+          "Balanced": 9
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Chocolate & Nutty",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": null,
+        "recommendationMode": "ai_agent",
+        "foodSignalAlignment": "low"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 9
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-36",
+      "input": {
+        "answerIds": [
+          "e8983de7-f940-4844-a524-ee194fefa652",
+          "b155b352-60f4-4080-b273-989aec4a6c3b",
+          "a3dd85c7-8599-4acc-ab0c-c322e5376199",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "d22e21b5-84e6-43af-bf43-7a87a5fafabc",
+          "685108d8-ab46-41f4-919d-d9bf541b04da"
+        ],
+        "scores": {
+          "Fruity": 2,
+          "Balanced": 7
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Chocolate & Nutty",
+        "experimental": true,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "ai_agent",
+        "foodSignalAlignment": "low"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "medium",
+        "exploreArchetype": "Chocolate & Nutty",
+        "primaryMargin": 5
+      }
+    },
+    {
+      "case_id": "hoboken-crawl-2026-37",
+      "input": {
+        "answerIds": [
+          "9b6ed7dc-cea0-4616-b75c-f57efd7222fa",
+          "b155b352-60f4-4080-b273-989aec4a6c3b",
+          "04efe599-cc94-4ae3-a5c4-58af912e6fce",
+          "1739b585-ce54-40cf-b0cd-a93c57ef94f3",
+          "d22e21b5-84e6-43af-bf43-7a87a5fafabc",
+          "fbbc7d10-78b4-49c4-b70f-d6562f90ea7b"
+        ],
+        "scores": {
+          "Balanced": 8,
+          "Chocolate & Nutty": 1
+        },
+        "archetype": "Balanced",
+        "foodSignal": "Balanced",
+        "experimental": false,
+        "branchedFrom": null
+      },
+      "stored_v1": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_only",
+        "foodSignalAlignment": "high"
+      },
+      "expected_v2_1": {
+        "secondaryArchetype": null,
+        "recommendationMode": "primary_only",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 7
+      }
+    }
+  ]
+}

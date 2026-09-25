@@ -3,7 +3,8 @@ import rateLimit from 'express-rate-limit';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { getRealClientIp } from '../middleware/clientIp.js';
 import { db } from '../db/client.js';
-import { rankScores, findWinner, findSecondary, isSecondaryClose, computeConfidenceAndMode } from '../services/quizScoring.js';
+import { rankScores, findWinner, interpret } from '../services/quizScoring.js';
+import { scoreAnswerIds } from '../services/quizScorer.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { Timestamp } from 'firebase-admin/firestore';
 import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
@@ -67,8 +68,8 @@ router.get('/questions', async (_req, res) => {
 //
 // Tie resolution — veto cascade (Q5 → Q4 → Q2 → Q1, fallback: Balanced).
 //
-// Food signal (Q6) is captured separately from resulting_archetype_id and used
-// alongside the secondary archetype to determine confidence + recommendation mode.
+// Food signal (Q6) is captured separately from resulting_archetype_id. Secondary, mode, pair confidence and
+// explore hint come from interpret() (interpretation v2.1, services/quizScoring.ts). Read-only: writes nothing.
 //
 // No auth required.
 router.post('/score', async (req, res) => {
@@ -79,88 +80,33 @@ router.post('/score', async (req, res) => {
   }
 
   try {
-    // 1. Sum weighted scores per archetype (Q2 excluded — no rows in quiz_answer_archetype_score).
-    const scoreResult = await db.query(
-      `SELECT ar.name AS archetype_name, SUM(aas.score)::numeric AS total
-       FROM quiz_answer_archetype_score aas
-       JOIN coffee_archetype ar ON ar.id = aas.archetype_id
-       WHERE aas.answer_id = ANY($1::uuid[])
-       GROUP BY ar.name`,
-      [answerIds]
-    );
+    // 1. Weighted scores per archetype, per-answer byQ, treat and experimental gate (shared scorer).
+    const { scores, byQ, foodSignal, experimental } = await scoreAnswerIds(answerIds);
 
-    if (!scoreResult.rows.length) {
+    if (!Object.keys(scores).length) {
       res.status(400).json({ error: 'No scoreable answers found' });
       return;
-    }
-
-    const scores: Record<string, number> = {};
-    for (const row of scoreResult.rows) {
-      scores[row.archetype_name] = Number(row.total);
     }
 
     const ranked = rankScores(scores);
     const maxScore = ranked[0][1];
     const tied = ranked.filter(([, s]) => s === maxScore).map(([n]) => n);
 
-    // 2. Fetch per-answer metadata in one query:
-    //    score_archetype — from quiz_answer_archetype_score (cascade + secondary close check)
-    //    result_archetype — from answer.resulting_archetype_id (food signal for Q6)
-    const metaResult = await db.query(
-      `SELECT
-         q.q_number,
-         ar_score.name  AS score_archetype,
-         ar_result.name AS result_archetype
-       FROM quiz_answer a
-       JOIN quiz_question q ON q.id = a.question_id
-       LEFT JOIN quiz_answer_archetype_score aas
-             ON aas.answer_id = a.id AND aas.score > 0
-       LEFT JOIN coffee_archetype ar_score  ON ar_score.id  = aas.archetype_id
-       LEFT JOIN coffee_archetype ar_result ON ar_result.id = a.resulting_archetype_id
-       WHERE a.id = ANY($1::uuid[])`,
-      [answerIds]
-    );
-
-    // q_number → score archetype (first non-null wins)
-    const byQ: Record<number, string | null> = {};
-    let foodSignal: string | null = null;
-
-    for (const row of metaResult.rows) {
-      const qNum = Number(row.q_number);
-      if (qNum === 6) {
-        foodSignal = row.result_archetype ?? null;
-      } else if (!byQ[qNum] && row.score_archetype) {
-        byQ[qNum] = row.score_archetype;
-      }
-    }
-
-    // 3. Winner — veto cascade on tie (Q5 → Q4 → Q2 → Q1, fallback: Balanced).
+    // 2. Winner — veto cascade on tie (Q5 → Q4 → Q2 → Q1, fallback: Balanced).
     const winnerName = findWinner(ranked, byQ);
 
-    // 4. Secondary archetype — 2nd highest scoring archetype.
-    const secondaryArchetype = findSecondary(ranked, winnerName);
+    // 3. Interpretation v2.1 (secondary, mode, pair confidence, explore hint). The branch happens in the
+    //    frontend afterwards, so finalArchetype is the pre-branch winner and branchedFrom is null here.
+    const interpretation = interpret({
+      scores, byQ, foodSignal, experimental, finalArchetype: winnerName, branchedFrom: null,
+    });
 
-    // 5. Experimental gate.
-    const expResult = await db.query(
-      `SELECT 1 FROM quiz_answer WHERE id = ANY($1::uuid[]) AND is_experimental_gate = TRUE LIMIT 1`,
-      [answerIds]
-    );
-    const experimental = expResult.rows.length > 0;
-
-    // 6. Option B close threshold: secondary is meaningful if it scored on Q4 or Q5.
-    const secondaryScoredHighWeight = isSecondaryClose(byQ, secondaryArchetype);
-
-    // 7. Confidence + recommendation mode from food signal scenarios.
-    const { confidence, recommendationMode } = computeConfidenceAndMode(
-      foodSignal, winnerName, secondaryArchetype, experimental, secondaryScoredHighWeight
-    );
-
-    // 8. Tie detection — cascade exhausted when there was a score tie and no cascade
+    // 4. Tie detection — cascade exhausted when there was a score tie and no cascade
     //    question (Q5→Q4→Q2→Q1) resolved it. Provides the ML feature for PROFILE_AMBIGUOUS.
     const tieDetected = tied.length > 1 && ![5, 4, 2, 1].some(q => byQ[q] != null && tied.includes(byQ[q]!));
     const tiedArchetypes = tieDetected ? tied : [];
 
-    // 9. Archetype UUID for winner.
+    // 5. Archetype UUID for winner.
     const archetypeId = await archetypeUuid(winnerName);
 
     res.json({
@@ -168,12 +114,18 @@ router.post('/score', async (req, res) => {
       archetypeId,
       scores,
       experimental,
-      secondaryArchetype,
+      secondaryArchetype: interpretation.secondaryArchetype,
       foodSignal,
-      foodSignalAlignment: confidence,
-      recommendationMode,
+      foodSignalAlignment: interpretation.foodSignalAlignment,
+      recommendationMode: interpretation.recommendationMode,
       tieDetected,
       tiedArchetypes,
+      secondaryPath: interpretation.secondaryPath,
+      pairConfidence: interpretation.pairConfidence,
+      exploreArchetype: interpretation.exploreArchetype,
+      exploreReason: interpretation.exploreReason,
+      primaryMargin: interpretation.primaryMargin,
+      interpretationVersion: interpretation.interpretationVersion,
     });
   } catch (err) {
     console.error('[quiz/score]', err);

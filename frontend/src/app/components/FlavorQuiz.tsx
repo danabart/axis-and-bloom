@@ -81,6 +81,13 @@ interface ScoreResult {
   recommendationMode: string;
   tieDetected: boolean;
   tiedArchetypes: string[];
+  // Interpretation v2.1 (informational: the backend recomputes them server-side on save).
+  secondaryPath: 'near-tie' | 'gate-backed' | 'food-led' | 'runner-up' | 'none';
+  pairConfidence: 'high' | 'medium' | 'low';
+  exploreArchetype: string | null;
+  exploreReason: string | null;
+  primaryMargin: number;
+  interpretationVersion: string;
 }
 
 interface BranchAnswer {
@@ -1009,6 +1016,13 @@ export default function FlavorQuiz() {
       foodSignalAlignment: score.foodSignalAlignment,
       recommendationMode:  score.recommendationMode,
       experimental:        score.experimental,
+      // Interpretation v2.1, informational: brief 2 recomputes server-side from answerIds.
+      secondaryPath:         score.secondaryPath,
+      pairConfidence:        score.pairConfidence,
+      exploreArchetype:      score.exploreArchetype,
+      exploreReason:         score.exploreReason,
+      primaryMargin:         score.primaryMargin,
+      interpretationVersion: score.interpretationVersion,
     };
   }
 
