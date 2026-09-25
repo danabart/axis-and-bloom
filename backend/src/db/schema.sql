@@ -3641,13 +3641,63 @@ CREATE VIEW v_orders_weekly AS
   GROUP BY 1
   ORDER BY 1 DESC;
 
--- Subscriber x quiz outcome (2026-09-20, CLAUDE_CODE_PROMPT_SUBSCRIBER_QUIZ_RESULTS_VIEW.md).
--- One row per subscriber; quiz columns from that subscriber's MOST RECENT
--- quiz_session via newsletter_subscriber.user_id. Unlinked subscribers / no
--- session still appear with NULL quiz columns. Scores are read from
--- context_data->'scores' (keys = archetype display names as scored at the time;
--- COALESCE tolerates the pre-rename Balanced / Fruity keys). quiz_result_json
--- keeps the full raw payload for anything not broken out yet.
+-- >>> quiz_session_interpretation (quiz interpretation v2.1, brief 2 — 2026-09-25)
+-- SCD Type 2 over the immutable quiz_session fact: one row per session PER INTERPRETATION VERSION (never per
+-- user), exactly one row per session flagged is_current = "produced by the latest deployed ruleset". Old rows
+-- are history, kept forever. This is the ONLY table brief 2 writes; quiz_session / newsletter_subscriber are
+-- never updated, deleted or altered. No ON DELETE CASCADE on the FK: we never delete.
+-- Not here on purpose: primary archetype, branched_from, scores, answers, treat, gate (they live on the fact).
+CREATE TABLE IF NOT EXISTS quiz_session_interpretation (
+  id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  quiz_session_id         UUID NOT NULL REFERENCES quiz_session(id),
+  interpretation_version  TEXT NOT NULL,
+  secondary_archetype     TEXT,
+  secondary_path          TEXT,
+  recommendation_mode     TEXT NOT NULL,
+  food_signal_alignment   TEXT NOT NULL,
+  pair_confidence         TEXT,
+  explore_archetype       TEXT,
+  explore_reason          TEXT,
+  primary_margin          SMALLINT,
+  is_current              BOOLEAN NOT NULL DEFAULT false,
+  valid_from              TIMESTAMPTZ NOT NULL,
+  valid_to                TIMESTAMPTZ,
+  computed_by             TEXT NOT NULL CHECK (computed_by IN ('scored', 'seed', 'backfill')),
+  computed_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (quiz_session_id, interpretation_version)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS quiz_session_interpretation_current
+  ON quiz_session_interpretation (quiz_session_id) WHERE is_current;
+CREATE INDEX IF NOT EXISTS idx_qsi_version ON quiz_session_interpretation (interpretation_version);
+-- <<< quiz_session_interpretation
+
+-- >>> quiz_interpretation_views (quiz interpretation v2.1, brief 3 — 2026-09-25)
+-- Read-only: one IMMUTABLE function and two views. Nothing here inserts, updates, deletes or alters a table.
+
+-- Canonical archetype names: values frozen as text before the September rename (context_data strings, the v1
+-- seed rows, newsletter_subscriber.archetype) map to today's coffee_archetype.name; anything else is unchanged.
+CREATE OR REPLACE FUNCTION quiz_archetype_canonical(t TEXT) RETURNS TEXT
+LANGUAGE sql IMMUTABLE AS $$
+  SELECT CASE t
+    WHEN 'Balanced & Sweet'   THEN 'Balanced'
+    WHEN 'Balanced and Sweet' THEN 'Balanced'
+    WHEN 'Fruity & Complex'   THEN 'Fruity'
+    WHEN 'Spicy & Earthy'     THEN 'Earthy'
+    ELSE t
+  END
+$$;
+
+-- Subscriber x quiz outcome (2026-09-20, CLAUDE_CODE_PROMPT_SUBSCRIBER_QUIZ_RESULTS_VIEW.md; reads the current
+-- quiz_session_interpretation row since 2026-09-25, brief 3).
+-- One row per subscriber; quiz columns from that subscriber's MOST RECENT quiz_session via
+-- newsletter_subscriber.user_id. Unlinked subscribers / no session still appear with NULL quiz columns.
+-- The interpretation columns (secondary_archetype, recommendation_mode, food_signal_alignment and the new
+-- secondary_path, pair_confidence, explore_*, primary_margin, interpretation_*) come from the session's CURRENT
+-- interpretation row; what the customer was told on the day stays available beside them as *_as_scored (frozen
+-- in context_data). Scores are read from context_data->'scores' (keys = archetype display names as scored at the
+-- time; COALESCE tolerates the pre-rename Balanced / Fruity keys). quiz_result_json keeps the full raw payload.
+-- Existing columns keep their names and positions (only confidence_at_signup was renamed, in place); new
+-- columns are appended after user_id.
 DROP VIEW IF EXISTS v_subscriber_quiz_results;
 CREATE VIEW v_subscriber_quiz_results AS
 WITH latest_session AS (
@@ -3656,9 +3706,21 @@ WITH latest_session AS (
          qs.id            AS quiz_session_id,
          qs.completed_at,
          ca.name          AS primary_archetype,
-         qs.context_data  AS ctx
+         qs.context_data  AS ctx,
+         i.interpretation_version,
+         i.secondary_archetype    AS i_secondary_archetype,
+         i.secondary_path,
+         i.recommendation_mode    AS i_recommendation_mode,
+         i.food_signal_alignment  AS i_food_signal_alignment,
+         i.pair_confidence,
+         i.explore_archetype,
+         i.explore_reason,
+         i.primary_margin,
+         i.computed_by            AS interpretation_computed_by,
+         i.valid_from             AS interpretation_valid_from
   FROM quiz_session qs
   LEFT JOIN coffee_archetype ca ON ca.id = qs.resulting_archetype_id
+  LEFT JOIN quiz_session_interpretation i ON i.quiz_session_id = qs.id AND i.is_current
   WHERE qs.user_id IS NOT NULL
   ORDER BY qs.user_id, qs.completed_at DESC
 )
@@ -3670,14 +3732,14 @@ SELECT
   ns.campaign,
   ns.campaign_attributed_at,
   ns.subscribed,
-  ns.archetype                                    AS archetype_at_signup,
-  ns.confidence                                   AS confidence_at_signup,
+  quiz_archetype_canonical(ns.archetype)          AS archetype_at_signup,
+  ns.confidence                                   AS food_signal_alignment_at_signup,
   ns.experimental                                 AS experimental_at_signup,
   ls.primary_archetype,
-  ls.ctx ->> 'secondaryArchetype'                 AS secondary_archetype,
-  ls.ctx ->> 'recommendationMode'                 AS recommendation_mode,
-  ls.ctx ->> 'foodSignal'                         AS food_signal,
-  ls.ctx ->> 'foodSignalAlignment'                AS food_signal_alignment,
+  quiz_archetype_canonical(ls.i_secondary_archetype)   AS secondary_archetype,
+  ls.i_recommendation_mode                        AS recommendation_mode,
+  quiz_archetype_canonical(ls.ctx ->> 'foodSignal')    AS food_signal,
+  ls.i_food_signal_alignment                      AS food_signal_alignment,
   (ls.ctx ->> 'experimental')::boolean            AS experimental,
   (ls.ctx ->> 'decaf')::boolean                   AS decaf,
   (ls.ctx -> 'scores' ->> 'Chocolate & Nutty')::numeric                                                      AS score_chocolate_nutty,
@@ -3690,10 +3752,53 @@ SELECT
   ls.ctx                                          AS quiz_result_json,   -- the full saved quiz result payload as the API received it
   ls.completed_at                                 AS quiz_completed_at,
   ls.quiz_session_id,
-  ns.user_id
+  ns.user_id,
+  -- appended by brief 3 (2026-09-25)
+  ls.secondary_path,
+  ls.pair_confidence,
+  ls.explore_archetype,
+  ls.explore_reason,
+  ls.primary_margin,
+  ls.interpretation_version,
+  ls.interpretation_computed_by,
+  ls.interpretation_valid_from,
+  quiz_archetype_canonical(ls.ctx ->> 'secondaryArchetype') AS secondary_archetype_as_scored,
+  ls.ctx ->> 'recommendationMode'                 AS recommendation_mode_as_scored,
+  ls.ctx ->> 'foodSignalAlignment'                AS food_signal_alignment_as_scored,
+  quiz_archetype_canonical(ls.ctx ->> 'branchedFrom')   AS branched_from,
+  ls.ctx ->> 'foodSignal'                         AS food_signal_raw
 FROM newsletter_subscriber ns
 LEFT JOIN subscriber_source ss ON ss.id = ns.source_id
 LEFT JOIN latest_session    ls ON ls.user_id = ns.user_id;
+
+-- One row per session per interpretation version: the calibration surface. Pivot WHERE interpretation_version
+-- IN ('v1','v2.1') by session for before/after on any set of sessions; the next event's export is
+-- WHERE completed_at >= <event>.
+DROP VIEW IF EXISTS v_quiz_session_interpretation_history;
+CREATE VIEW v_quiz_session_interpretation_history AS
+SELECT
+  qs.id                                           AS quiz_session_id,
+  qs.user_id,
+  qs.completed_at,
+  ca.name                                         AS final_archetype,
+  quiz_archetype_canonical(qs.context_data ->> 'branchedFrom') AS branched_from,
+  i.interpretation_version,
+  i.is_current,
+  i.valid_from,
+  i.valid_to,
+  i.computed_by,
+  quiz_archetype_canonical(i.secondary_archetype) AS secondary_archetype,
+  i.secondary_path,
+  i.recommendation_mode,
+  i.food_signal_alignment,
+  i.pair_confidence,
+  i.explore_archetype,
+  i.explore_reason,
+  i.primary_margin
+FROM quiz_session_interpretation i
+JOIN quiz_session qs ON qs.id = i.quiz_session_id
+LEFT JOIN coffee_archetype ca ON ca.id = qs.resulting_archetype_id;
+-- <<< quiz_interpretation_views
 
 -- Read-only reporting role for Looker Studio. Created NOLOGIN — no credential
 -- ever lives in this file or git history. Dana enables LOGIN + sets a real
@@ -3718,7 +3823,8 @@ GRANT SELECT ON
   v_quiz_funnel_weekly,
   v_archetype_distribution,
   v_orders_weekly,
-  v_subscriber_quiz_results
+  v_subscriber_quiz_results,
+  v_quiz_session_interpretation_history
 TO reporting_ro;
 
 -- Admin-editable marketing dashboard links. One settable row per link so Dana
@@ -4139,33 +4245,3 @@ WHERE vch.hop_type_derived = 'bridge_archetype'
   AND vch.from_archetype <> vch.to_archetype
 GROUP BY LEAST(vch.from_archetype, vch.to_archetype), GREATEST(vch.from_archetype, vch.to_archetype)
 ORDER BY hop_count DESC;
-
--- >>> quiz_session_interpretation (quiz interpretation v2.1, brief 2 — 2026-09-25)
--- SCD Type 2 over the immutable quiz_session fact: one row per session PER INTERPRETATION VERSION (never per
--- user), exactly one row per session flagged is_current = "produced by the latest deployed ruleset". Old rows
--- are history, kept forever. This is the ONLY table brief 2 writes; quiz_session / newsletter_subscriber are
--- never updated, deleted or altered. No ON DELETE CASCADE on the FK: we never delete.
--- Not here on purpose: primary archetype, branched_from, scores, answers, treat, gate (they live on the fact).
-CREATE TABLE IF NOT EXISTS quiz_session_interpretation (
-  id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  quiz_session_id         UUID NOT NULL REFERENCES quiz_session(id),
-  interpretation_version  TEXT NOT NULL,
-  secondary_archetype     TEXT,
-  secondary_path          TEXT,
-  recommendation_mode     TEXT NOT NULL,
-  food_signal_alignment   TEXT NOT NULL,
-  pair_confidence         TEXT,
-  explore_archetype       TEXT,
-  explore_reason          TEXT,
-  primary_margin          SMALLINT,
-  is_current              BOOLEAN NOT NULL DEFAULT false,
-  valid_from              TIMESTAMPTZ NOT NULL,
-  valid_to                TIMESTAMPTZ,
-  computed_by             TEXT NOT NULL CHECK (computed_by IN ('scored', 'seed', 'backfill')),
-  computed_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (quiz_session_id, interpretation_version)
-);
-CREATE UNIQUE INDEX IF NOT EXISTS quiz_session_interpretation_current
-  ON quiz_session_interpretation (quiz_session_id) WHERE is_current;
-CREATE INDEX IF NOT EXISTS idx_qsi_version ON quiz_session_interpretation (interpretation_version);
--- <<< quiz_session_interpretation
