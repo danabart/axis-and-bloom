@@ -1,5 +1,20 @@
 # Quiz interpretation v2.1 — decisions and rationale
 
+## Status
+
+**SHIPPED 2026-09-25.** Briefs 1–3 are built, deployed and verified on prod:
+
+| brief | what | `WHAT_WE_BUILT.md` | commit |
+|---|---|---|---|
+| 1 | `interpret()` rules, `/score` fields, calibration fixture (37/37) | #192 | `8edcac0` |
+| 2 | `quiz_session_interpretation` (SCD Type 2), live path, backfill script, read paths | #193 | `80a9d7a` |
+| 3 | `v_subscriber_quiz_results` reads the current interpretation; `v_quiz_session_interpretation_history` | #194 | `df5b30e` |
+
+- **Prod backfill applied** (`--apply --expect-db axisandbloom`): **121 `v1` + 70 `v2.1`** rows inserted.
+- **`v2.1` is current for every session with `answerIds`** (70 backfilled + new sessions, which are scored live). The 51 sessions without `answerIds` (cross-device match claims, pre-August rows) keep their `v1` row as current, because no `v2.1` can be computed for them. Every one of the 122 sessions has exactly one current row.
+- Verified on prod, read-only: the 37 crawl rows match `hoboken-crawl-2026.calibration.json` both ways (current row = `expected_v2_1`, `_as_scored` = `stored_v1`); no `v2.1` row is `ai_agent`; `quiz_session` and `newsletter_subscriber` count + md5 unchanged through every step.
+- Next: the caveat below stands. Treat v2.1 as a hypothesis and use `v_quiz_session_interpretation_history` and the next event's export (`backend/scripts/quizRecalibrate.ts`) to test it against what people order, save on the dial and say to Liam.
+
 Decided by Dana, 2026-09-20 to 2026-09-25, from the Hoboken Crawl results review (37 real completions,
 Flavor Finder v7; 34 in the first exports, 3 more linked by the 2026-09-25 subscriber repair). This file is the "why"; the three numbered `CLAUDE_CODE_PROMPT_*.md` files next to it are the
 "what" (1 rules, 2 SCD Type 2 table, 3 view; run in that order). Mockups with every row and Dana's comments: `Claude outputs/crawl_quiz_rules_mockup.xlsx` (v1,

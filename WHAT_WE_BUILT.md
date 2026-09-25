@@ -4939,6 +4939,8 @@ On a real branch switch `secondaryArchetype` = `branchedFrom` (2026-08-11 rule),
 
 **Readings, identical before and after every step** (`quiz_session` count · md5 / `newsletter_subscriber` count · md5): dev `axisandbloom_test` 78 · `febdee5a8a58d45b73f9b92fdc7a0aa3` / 49 · `1ddd8359418a9872674a8550635be9c7` — before, after the views DDL, after the tests; prod 122 · `fecd67eba56ef4b04c33f7bcabf9987d` / 88 · `fd35ea4b6665bab9ec79f91c6f20cddf` — before and after the read-only checks.
 
+**Post-deploy re-run (2026-09-25, `df5b30e` deployed green, `/health` 200)**: the same Part D checks against the *real* views on prod, read-only through the existing proxy: 37 crawl rows **37/37 both ways**, **0** `v2.1` rows with `ai_agent`, history view **122/122 sessions with exactly one current row**, readings unchanged (`quiz_session` 122 · `fecd67eba56ef4b04c33f7bcabf9987d`, `newsletter_subscriber` 88 · `fd35ea4b6665bab9ec79f91c6f20cddf`), identical to the pre-deploy run. Crawl export for Dana: `backend/tmp/hoboken-crawl-2026_v_subscriber_quiz_results.csv` (40 rows: the 37 crawl subscribers + 3 `danabar.mail%` rows; 41 columns; gitignored, contains emails).
+
 **One structural change**: the brief-2 `quiz_session_interpretation` DDL block moved earlier in `schema.sql`, to sit just before the views that read it (it was at the end of the file). No change on any existing database (idempotent, the table already exists); it makes a fresh database apply cleanly in one pass.
 
 **Files**: `backend/src/db/schema.sql`, `backend/src/services/quizResultsView.test.ts` (new).
