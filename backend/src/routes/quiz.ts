@@ -2,7 +2,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import { getRealClientIp } from '../middleware/clientIp.js';
-import { db } from '../db/client.js';
+import { db, withTransaction } from '../db/client.js';
 import { rankScores, findWinner, interpret } from '../services/quizScoring.js';
 import { scoreAnswerIds } from '../services/quizScorer.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
@@ -10,7 +10,7 @@ import { Timestamp } from 'firebase-admin/firestore';
 import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
 import { refreshLifecycleState } from '../services/userLifecycle.js';
 import { logFunnelEvent } from '../features/marketing/funnelEvents.js';
-import { saveQuizSession } from '../services/quizSession.js';
+import { saveQuizSession, recordScoredInterpretation, getLatestQuizResult } from '../services/quizSession.js';
 import { archetypeCode, archetypeUuid } from '../services/catalogReads.js';
 import { isSameArchetype } from '../services/tasteJourney.js';
 
@@ -156,7 +156,8 @@ router.post('/event', funnelEventLimiter, async (req, res) => {
 // ─── POST /api/quiz/results ──────────────────────────────────────────────────
 // Saves a completed quiz session, linking the real archetype FK from the DB.
 router.post('/results', requireAuth, async (req: AuthRequest, res) => {
-  const { archetype, scores, answers, decaf, experimental, secondaryArchetype, foodSignal, foodSignalAlignment, recommendationMode, answerIds, branchedFrom } = req.body;
+  const { archetype, scores, answers, decaf, experimental, secondaryArchetype, foodSignal, foodSignalAlignment, recommendationMode, answerIds, branchedFrom,
+    secondaryPath, pairConfidence, exploreArchetype, exploreReason, primaryMargin, interpretationVersion } = req.body;
   if (!archetype || !scores || !answers) {
     res.status(400).json({ error: 'archetype, scores, and answers required' });
     return;
@@ -180,7 +181,23 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
       secondaryArchetype: secondaryArchetype ?? null, foodSignal: foodSignal ?? null,
       foodSignalAlignment: foodSignalAlignment ?? 'high', recommendationMode: recommendationMode ?? 'primary_only',
       answerIds: answerIds ?? null, branchedFrom: branchedFrom ?? null,
+      // As-scored snapshot from the client (informational: the interpretation table below is recomputed
+      // server-side), kept so a session stays self-describing. Interpretation v2.1, brief 2.
+      secondaryPath: secondaryPath ?? null, pairConfidence: pairConfidence ?? null,
+      exploreArchetype: exploreArchetype ?? null, exploreReason: exploreReason ?? null,
+      primaryMargin: primaryMargin ?? null, interpretationVersion: interpretationVersion ?? null,
     });
+
+    // Interpretation v2.1 (brief 2): recompute server-side from answerIds and store the current `scored` row in
+    // quiz_session_interpretation (the only table this writes). saveQuizSession commits through the shared pool
+    // and is deliberately unmodified, so this is a second, best-effort transaction right after it rather than
+    // the same one: a failure is logged, never fails the save, and leaves the session on the context_data
+    // fallback until the backfill script covers it.
+    try {
+      await withTransaction(tx => recordScoredInterpretation(tx, { sessionId, answerIds, archetype, branchedFrom }));
+    } catch (err) {
+      console.error('[quiz/interpretation]', err);
+    }
 
     // Code for the display name, resolved once: keys users/{uid}.archetype and the
     // taste_journey same-archetype comparison below (retired names resolve too).
@@ -339,17 +356,8 @@ router.get('/branch', async (req, res) => {
 // ─── GET /api/quiz/results/latest ────────────────────────────────────────────
 router.get('/results/latest', requireAuth, async (req: AuthRequest, res) => {
   try {
-    const result = await db.query(
-      `SELECT qs.*, ar.name AS archetype_name
-       FROM quiz_session qs
-       JOIN user_profile up ON up.id = qs.user_id
-       LEFT JOIN coffee_archetype ar ON ar.id = qs.resulting_archetype_id
-       WHERE up.firebase_uid = $1
-       ORDER BY qs.completed_at DESC
-       LIMIT 1`,
-      [req.uid]
-    );
-    res.json(result.rows[0] ?? null);
+    // Latest session as before, plus the current interpretation row as top-level keys (context_data still raw).
+    res.json(await getLatestQuizResult(db, req.uid!));
   } catch (err) {
     console.error('[quiz/results/latest]', err);
     res.status(500).json({ error: 'Failed to fetch quiz result' });

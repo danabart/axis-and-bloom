@@ -4139,3 +4139,33 @@ WHERE vch.hop_type_derived = 'bridge_archetype'
   AND vch.from_archetype <> vch.to_archetype
 GROUP BY LEAST(vch.from_archetype, vch.to_archetype), GREATEST(vch.from_archetype, vch.to_archetype)
 ORDER BY hop_count DESC;
+
+-- >>> quiz_session_interpretation (quiz interpretation v2.1, brief 2 — 2026-09-25)
+-- SCD Type 2 over the immutable quiz_session fact: one row per session PER INTERPRETATION VERSION (never per
+-- user), exactly one row per session flagged is_current = "produced by the latest deployed ruleset". Old rows
+-- are history, kept forever. This is the ONLY table brief 2 writes; quiz_session / newsletter_subscriber are
+-- never updated, deleted or altered. No ON DELETE CASCADE on the FK: we never delete.
+-- Not here on purpose: primary archetype, branched_from, scores, answers, treat, gate (they live on the fact).
+CREATE TABLE IF NOT EXISTS quiz_session_interpretation (
+  id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  quiz_session_id         UUID NOT NULL REFERENCES quiz_session(id),
+  interpretation_version  TEXT NOT NULL,
+  secondary_archetype     TEXT,
+  secondary_path          TEXT,
+  recommendation_mode     TEXT NOT NULL,
+  food_signal_alignment   TEXT NOT NULL,
+  pair_confidence         TEXT,
+  explore_archetype       TEXT,
+  explore_reason          TEXT,
+  primary_margin          SMALLINT,
+  is_current              BOOLEAN NOT NULL DEFAULT false,
+  valid_from              TIMESTAMPTZ NOT NULL,
+  valid_to                TIMESTAMPTZ,
+  computed_by             TEXT NOT NULL CHECK (computed_by IN ('scored', 'seed', 'backfill')),
+  computed_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (quiz_session_id, interpretation_version)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS quiz_session_interpretation_current
+  ON quiz_session_interpretation (quiz_session_id) WHERE is_current;
+CREATE INDEX IF NOT EXISTS idx_qsi_version ON quiz_session_interpretation (interpretation_version);
+-- <<< quiz_session_interpretation

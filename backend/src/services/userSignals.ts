@@ -1,5 +1,6 @@
 import { db } from '../db/client.js';
 import { firestoreDb } from './firebase-admin.js';
+import { CURRENT_INTERPRETATION_COLUMNS, CURRENT_INTERPRETATION_JOIN, resolveInterpretation } from './quizSession.js';
 
 // ── getUserSignals() ──────────────────────────────────────────────────────────
 // Single shared collector of the raw, re-derivable facts about a user — quiz
@@ -28,6 +29,12 @@ export interface UserSignals {
   experimental: boolean;
   foodSignalAlignment: string;
   recommendationMode: string;
+  // Interpretation v2.1 (brief 2): from the session's current quiz_session_interpretation row; null on
+  // sessions still on the context_data fallback.
+  interpretationVersion: string | null;
+  pairConfidence: string | null;
+  exploreArchetype: string | null;
+  exploreReason: string | null;
   quizCount: number;
   archetypeChangeCount: number;              // changes across full quiz history
   archetypeChangedLastTwoQuizzes: boolean;    // Sommelier's TASTE_EVOLUTION trigger — last two sessions only
@@ -85,13 +92,14 @@ export async function getUserSignals(uid: string): Promise<UserSignals> {
   }
 
   // ── Quiz sessions (full history, oldest first) ───────────────────────────
-  let quizRows: Array<{ archetype_name: string | null; completed_at: string; context_data: any }> = [];
+  let quizRows: Array<{ archetype_name: string | null; completed_at: string; context_data: any } & Record<string, any>> = [];
   try {
     const result = await db.query(
-      `SELECT ar.name AS archetype_name, qs.completed_at, qs.context_data
+      `SELECT ar.name AS archetype_name, qs.completed_at, qs.context_data, ${CURRENT_INTERPRETATION_COLUMNS}
        FROM quiz_session qs
        JOIN user_profile up ON up.id = qs.user_id
        LEFT JOIN coffee_archetype ar ON ar.id = qs.resulting_archetype_id
+       ${CURRENT_INTERPRETATION_JOIN}
        WHERE up.firebase_uid = $1
        ORDER BY qs.completed_at ASC`,
       [uid]
@@ -114,12 +122,14 @@ export async function getUserSignals(uid: string): Promise<UserSignals> {
 
   const latestCtx = latestQuiz?.context_data ?? {};
   const archetype = latestQuiz?.archetype_name ?? null;
-  const secondaryArchetype = latestCtx.secondaryArchetype ?? null;
+  // The current interpretation row when the session has one, else context_data (old route defaults).
+  const interp = resolveInterpretation(latestQuiz ?? {}, latestCtx);
+  const secondaryArchetype = interp.secondaryArchetype;
   const branchedFrom = latestCtx.branchedFrom ?? null;
   const foodSignal = latestCtx.foodSignal ?? null;
   const experimental = latestCtx.experimental ?? false;
-  const foodSignalAlignment = latestCtx.foodSignalAlignment ?? 'high';
-  const recommendationMode = latestCtx.recommendationMode ?? 'primary_only';
+  const foodSignalAlignment = interp.foodSignalAlignment;
+  const recommendationMode = interp.recommendationMode;
 
   const lastQuizCompletedAt = latestQuiz?.completed_at ? new Date(latestQuiz.completed_at) : null;
   const daysSinceLastQuiz = lastQuizCompletedAt
@@ -290,6 +300,10 @@ export async function getUserSignals(uid: string): Promise<UserSignals> {
     experimental,
     foodSignalAlignment,
     recommendationMode,
+    interpretationVersion: interp.interpretationVersion,
+    pairConfidence: interp.pairConfidence,
+    exploreArchetype: interp.exploreArchetype,
+    exploreReason: interp.exploreReason,
     quizCount,
     archetypeChangeCount,
     archetypeChangedLastTwoQuizzes,

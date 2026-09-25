@@ -6,6 +6,7 @@ import { db } from '../db/client.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
 import { evaluateSommelier } from '../services/sommelierEvaluator.js';
+import { CURRENT_INTERPRETATION_COLUMNS, CURRENT_INTERPRETATION_JOIN, resolveInterpretation } from '../services/quizSession.js';
 import { fetchSommelierCoffees, getAliases } from '../services/sommelierRag.js';
 import { getCoffees, archetypeLabel, archetypeCode, getCatalogVersion } from '../services/catalogReads.js';
 import { getTokenBalance, spendToken, logUsage } from '../services/tokenService.js';
@@ -531,10 +532,11 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
 
     // Fetch user state from latest quiz for RAG context
     const quizResult = await db.query(
-      `SELECT qs.context_data, ar.name AS archetype_name, up.date_of_birth
+      `SELECT qs.context_data, ar.name AS archetype_name, up.date_of_birth, ${CURRENT_INTERPRETATION_COLUMNS}
        FROM quiz_session qs
        JOIN user_profile up ON up.id = qs.user_id
        LEFT JOIN coffee_archetype ar ON ar.id = qs.resulting_archetype_id
+       ${CURRENT_INTERPRETATION_JOIN}
        WHERE up.firebase_uid = $1
        ORDER BY qs.completed_at DESC LIMIT 2`,
       [req.uid]
@@ -548,6 +550,19 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
     const generation = getGeneration(latestQuiz?.date_of_birth ?? null);
     let enrichedOpeningContext = (openingContext ?? '') +
       `\nCustomer generation: ${generation}. Adjust register accordingly (see tone guidelines in your instructions).`;
+
+    // Interpretation v2.1 (brief 2): the loose thread and pair confidence for Liam only (never the reveal or the
+    // email). Only on a v2.1+ interpretation row; sessions on the context_data fallback add nothing.
+    if (latestQuiz) {
+      const interp = resolveInterpretation(latestQuiz, latestQuiz.context_data);
+      if (interp.source === 'table' && interp.pairConfidence) {
+        enrichedOpeningContext += `\nQuiz pair confidence: ${interp.pairConfidence}.`;
+        if (interp.exploreArchetype) {
+          enrichedOpeningContext += ` Loose thread to explore (not yet asked): ${interp.exploreArchetype}` +
+            (interp.exploreReason ? ` (${interp.exploreReason})` : '') + '.';
+        }
+      }
+    }
 
     // Liam Dial Event Log, Phase B — only for the intents where the addendum
     // actually invites Liam to reference it (PROFILE_AMBIGUOUS, EXPLORATION).

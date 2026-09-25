@@ -25,6 +25,30 @@ export const FEATURE_SCHEMA = [
 
 export type FeatureSchema = typeof FEATURE_SCHEMA;
 
+// 'v2.1' -> 2.1; anything unparseable (null = session still on the context_data fallback) -> 0.
+function interpretationMajorMinor(version: string | null | undefined): number {
+  const m = /^v(\d+(?:\.\d+)?)$/.exec(version ?? '');
+  return m ? Number(m[1]) : 0;
+}
+
+// PROFILE_AMBIGUOUS (interpretation v2.1, brief 2). On a v2.1+ interpretation the customer's own signals decide:
+// pair confidence 'low', or a loose thread for Liam to explore. Older sessions keep the v1 rule (ai_agent /
+// low treat alignment). A quiz tie fires it either way.
+export function isProfileAmbiguous(s: {
+  quizTie?: boolean;
+  interpretationVersion: string | null;
+  pairConfidence: string | null;
+  exploreArchetype: string | null;
+  recommendationMode: string;
+  foodSignalAlignment: string;
+}): boolean {
+  if (s.quizTie === true) return true;
+  if (interpretationMajorMinor(s.interpretationVersion) >= 2.1) {
+    return s.pairConfidence === 'low' || s.exploreArchetype !== null;
+  }
+  return s.recommendationMode === 'ai_agent' || s.foodSignalAlignment === 'low';
+}
+
 export interface EvaluatorFlags {
   quizTie?: boolean;
   tiedArchetypes?: string[];
@@ -74,6 +98,7 @@ export async function evaluateSommelier(
   const signals = await getUserSignals(uid);
   const {
     archetype, secondaryArchetype, branchedFrom, foodSignal, experimental, foodSignalAlignment, recommendationMode,
+    interpretationVersion, pairConfidence, exploreArchetype,
     quizCount, archetypeChangeCount, archetypeChangedLastTwoQuizzes, daysSinceLastQuiz,
     totalOrders, behavioralScore, behavioralLevel, behavioralComponents: bcComponents,
     hasRecentNegativeFeedback, age, generation, householdType,
@@ -135,9 +160,10 @@ export async function evaluateSommelier(
   const ruleChecks: Record<string, () => boolean> = {
     DISCOVERY_SEEKER: () => experimental === true,
     PROFILE_AMBIGUOUS: () =>
-      flags.quizTie === true ||
-      recommendationMode === 'ai_agent' ||
-      foodSignalAlignment === 'low',
+      isProfileAmbiguous({
+        quizTie: flags.quizTie, interpretationVersion, pairConfidence, exploreArchetype,
+        recommendationMode, foodSignalAlignment,
+      }),
     TASTE_EVOLUTION: () => archetypeChangedLastTwoQuizzes,
     RECOMMENDATION_MISS: () => hasRecentNegativeFeedback,
     CONVERSION: () => behavioralLevel !== 'low' && totalOrders === 0,
