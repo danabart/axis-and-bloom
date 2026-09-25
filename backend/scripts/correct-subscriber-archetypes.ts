@@ -31,6 +31,20 @@ const BACKUP_JSON_PATH = path.resolve('tmp', 'subscriber_backup_20260925.json');
 const CAMPAIGN_BACKFILL_EMAILS = ['katelyn.chen@yahoo.com', 'superwawa729@hotmail.com', 'rayraycola6@gmail.com'];
 const CAMPAIGN_BACKFILL_SLUG = 'hoboken-crawl-2026';
 
+// Dana's call, 2026-09-25 — of the 3 older (pre-window) mismatches this
+// script reports but does not auto-apply, two independently investigated
+// (per-email: subscriber archetype, latest quiz_session archetype/date, and
+// whether the Balanced-carrying api_event subscribe call's session key has
+// zero quiz_complete/quiz_final rows at all) and confirmed to match the
+// exact resync-bug signature: chloerosem@gmail.com (qsk 3d00807c…, zero
+// funnel rows) and marchon.bea@gmail.com (qsk 7fa3b0bb…, zero funnel rows).
+// The third, danabar.mail+dana-try-3@gmail.com, was investigated and found
+// genuinely more ambiguous (one of its two Balanced-carrying sessions DOES
+// have a quiz_complete row, just for a different archetype, Chocolate &
+// Nutty) — and per Dana directly, it's her own manual testing, not real
+// subscriber data. Deliberately excluded from this correction.
+const OLDER_WINDOW_APPROVED_EMAILS = ['chloerosem@gmail.com', 'marchon.bea@gmail.com'];
+
 interface MismatchRow {
   email: string;
   user_id: string;
@@ -79,8 +93,8 @@ async function findMismatches(): Promise<{ inWindow: MismatchRow[]; older: Misma
 }
 
 async function backupBeforeApply(emails: string[]): Promise<void> {
-  const existing = await db.query<{ email: string }>(
-    `SELECT email FROM information_schema.tables WHERE table_name = $1`,
+  const existing = await db.query<{ table_name: string }>(
+    `SELECT table_name FROM information_schema.tables WHERE table_name = $1`,
     [BACKUP_TABLE],
   );
   if (existing.rowCount && existing.rowCount > 0) {
@@ -124,11 +138,18 @@ async function main() {
     console.log(`  ${r.email}: subscriber="${r.subscriber_archetype}" -> latest quiz_session="${r.latest_session_archetype}" (created_at=${r.created_at})`);
   }
   if (older.length) {
-    console.log(`\nOlder mismatches, report-only, NOT part of this correction (${older.length}):`);
+    console.log(`\nOlder mismatches, report-only by default (${older.length}):`);
     for (const r of older) {
-      console.log(`  ${r.email}: subscriber="${r.subscriber_archetype}" -> latest quiz_session="${r.latest_session_archetype}" (created_at=${r.created_at})`);
+      const approved = OLDER_WINDOW_APPROVED_EMAILS.includes(r.email);
+      console.log(`  ${r.email}: subscriber="${r.subscriber_archetype}" -> latest quiz_session="${r.latest_session_archetype}" (created_at=${r.created_at}) ${approved ? '— APPROVED 2026-09-25, included in this correction (see OLDER_WINDOW_APPROVED_EMAILS)' : '— NOT included'}`);
     }
   }
+
+  // Dana's decision (2026-09-25), per-email investigated: the primary
+  // window's set-match check below stays strict against only the original
+  // 6 — OLDER_WINDOW_APPROVED_EMAILS is a separate, explicitly reviewed
+  // addition, never silently folded into "the window."
+  const toCorrect = [...inWindow, ...older.filter(r => OLDER_WINDOW_APPROVED_EMAILS.includes(r.email))];
 
   const EXPECTED = ['thyago.teixeira10@gmail.com', 'suzie.houska@yahoo.com', 'maryanndetrizio@gmail.com', 'hannahnyrie@yahoo.com', 'katelyn.chen@yahoo.com', 'superwawa729@hotmail.com'];
   const actualSet = new Set(inWindow.map(r => r.email));
@@ -139,9 +160,10 @@ async function main() {
     console.log(`  Expected: ${EXPECTED.join(', ')}`);
     console.log(`  Actual:   ${[...actualSet].join(', ')}`);
   }
+  console.log(`Total rows this run will correct (6 window + ${OLDER_WINDOW_APPROVED_EMAILS.length} approved older): ${toCorrect.length}`);
 
   console.log('\n--- Mailchimp tags now (read-only GET) ---');
-  for (const r of inWindow) {
+  for (const r of toCorrect) {
     const tags = await getMailchimpTags(r.email);
     console.log(`  ${r.email}: ${tags ? tags.join(', ') : '(MC disabled or member not found)'}`);
   }
@@ -168,13 +190,13 @@ async function main() {
     return;
   }
 
-  // ── --apply path (not run this pass — kept correct/reviewable, not executed) ──
-  const allEmails = [...inWindow.map(r => r.email)];
+  // ── --apply path ──
+  const allEmails = [...toCorrect.map(r => r.email)];
   await backupBeforeApply(allEmails);
 
   await db.query('BEGIN');
   try {
-    for (const r of inWindow) {
+    for (const r of toCorrect) {
       await db.query(
         `UPDATE newsletter_subscriber SET archetype = $1 WHERE email = $2`,
         [r.latest_session_archetype, r.email],
@@ -197,7 +219,7 @@ async function main() {
 
   // Mailchimp: activate archetype:<slug>, inactivate every other archetype:*
   // (syncMailchimpMember + its own replace-not-add computeTagUpdates does this).
-  for (const r of inWindow) {
+  for (const r of toCorrect) {
     const email = r.email;
     const firstNameResult = await db.query<{ first_name: string | null }>(`SELECT first_name FROM newsletter_subscriber WHERE email = $1`, [email]);
     await syncMailchimpMember(email, firstNameResult.rows[0]?.first_name ?? '', { archetype: r.latest_session_archetype });
@@ -208,7 +230,7 @@ async function main() {
   }
 
   console.log('\n--- After state ---');
-  for (const r of inWindow) {
+  for (const r of toCorrect) {
     const after = await db.query(`SELECT archetype FROM newsletter_subscriber WHERE email = $1`, [r.email]);
     const tags = await getMailchimpTags(r.email);
     console.log(`  ${r.email}: archetype="${after.rows[0]?.archetype}", tags=${tags ? tags.join(', ') : 'n/a'}`);
