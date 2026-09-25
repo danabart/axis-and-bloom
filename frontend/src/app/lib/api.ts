@@ -102,7 +102,10 @@ export async function subscribeNewsletter(payload: {
 // design (callers should .catch() and never let this block/break the calling flow).
 export async function logQuizFunnelEvent(
   sessionKey: string,
-  event: 'quiz_start' | 'quiz_complete' | 'email_submitted',
+  // 'quiz_final' added Quiz Resync Fix Part A4 (2026-09-25) — the post-branch,
+  // on-screen archetype, logged on its own row so the funnel carries the true
+  // final result even when quiz_complete (pre-branch) and the actual result differ.
+  event: 'quiz_start' | 'quiz_complete' | 'email_submitted' | 'quiz_final',
   archetype?: string,
   attribution?: { campaign: string; vid: string },
 ) {

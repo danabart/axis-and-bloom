@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'crypto';
 import { db } from '../db/client.js';
 import { optionalAuth, type AuthRequest } from '../middleware/auth.js';
 import { syncMailchimpMember, toArchetypeSlug } from '../features/marketing/mailchimp.js';
@@ -17,7 +18,14 @@ const QUIZ_COMPLETE_TEMPLATE = 'quiz_complete_v2';
 // immediately (sent_at = NOW()); a failed send rolls the claim back so the next
 // quiz completion can retry — a Resend failure must never permanently block the
 // email the way a real "already sent" would.
-async function sendQuizCompleteEmailOnce(email: string, firstName: string, archetype: string | undefined) {
+//
+// Quiz Resync Fix Part B2 (2026-09-25) — `archetype` is now required and always
+// the *verified* archetype (handleSubscribe below only calls this once the
+// archetype has passed verifyArchetypeAgainstFunnel), never a client-supplied
+// value taken on faith. The claim row is also updated with that archetype and
+// Resend's own message id after a successful send, so a delivered email can be
+// looked up/audited later without the Resend dashboard.
+async function sendQuizCompleteEmailOnce(email: string, firstName: string, archetype: string) {
   const claim = await db.query(
     `INSERT INTO transactional_email_log (email, template)
      VALUES ($1, $2)
@@ -27,15 +35,35 @@ async function sendQuizCompleteEmailOnce(email: string, firstName: string, arche
   );
   if (claim.rowCount === 0) return; // already sent
 
-  const archetypeSlug = archetype ? toArchetypeSlug(archetype) : null;
+  const archetypeSlug = toArchetypeSlug(archetype);
   const { subject, html, text } = renderQuizCompleteEmail(firstName || null, archetypeSlug);
-  const sent = await sendResendEmail({ to: email, subject, html, text });
-  if (!sent) {
+  const { ok, id } = await sendResendEmail({ to: email, subject, html, text });
+  if (!ok) {
     await db.query(
       `DELETE FROM transactional_email_log WHERE email = $1 AND template = $2`,
       [email, QUIZ_COMPLETE_TEMPLATE],
     );
+    return;
   }
+  await db.query(
+    `UPDATE transactional_email_log SET archetype = $1, resend_message_id = $2 WHERE email = $3 AND template = $4`,
+    [archetype, id, email, QUIZ_COMPLETE_TEMPLATE],
+  );
+}
+
+// Quiz Resync Fix Part B1 (2026-09-25) — a post_quiz archetype must be backed
+// by a scored session in *this* window, not taken on faith from the client.
+// quiz_final (Part A4) is checked alongside quiz_complete so a branched result
+// verifies correctly too; slug comparison (toArchetypeSlug on both sides)
+// makes the Balanced/"Balanced & Sweet" rename transparent to this check.
+async function verifyArchetypeAgainstFunnel(quizSessionKey: string, archetype: string): Promise<boolean> {
+  const result = await db.query<{ archetype: string | null }>(
+    `SELECT archetype FROM quiz_funnel_event
+     WHERE session_key = $1 AND event IN ('quiz_complete', 'quiz_final') AND archetype IS NOT NULL`,
+    [quizSessionKey],
+  );
+  const candidateSlug = toArchetypeSlug(archetype);
+  return result.rows.some(r => r.archetype && toArchetypeSlug(r.archetype) === candidateSlug);
 }
 
 // ── Shared subscribe logic ────────────────────────────────────────────────────
@@ -81,6 +109,31 @@ async function handleSubscribe(
     userId = profileResult.rows[0]?.id ?? null;
   }
 
+  // Quiz Resync Fix Part B1 (2026-09-25) — a post_quiz archetype must be
+  // backed by a scored session, or it is dropped (not written, not tagged,
+  // no email) rather than trusted. Without this, any caller — including a
+  // frontend bug firing the resync effect from stale/default state, which is
+  // exactly what happened during the Hoboken Crawl — could silently
+  // overwrite a subscriber's real archetype and Mailchimp tag with a value
+  // no quiz ever produced. The subscribe itself still succeeds either way; a
+  // rejected archetype is never a reason to fail someone's newsletter signup.
+  let verifiedArchetype = extra.archetype ?? null;
+  let verifiedExperimental = extra.experimental ?? null;
+  let verifiedConfidence = extra.confidence ?? null;
+  if (sourceName === 'post_quiz' && extra.archetype) {
+    const backed = extra.quizSessionKey ? await verifyArchetypeAgainstFunnel(extra.quizSessionKey, extra.archetype) : false;
+    if (!backed) {
+      console.warn('[newsletter] archetype rejected — no scored session behind it', {
+        emailHash: crypto.createHash('md5').update(clean).digest('hex'),
+        quizSessionKey: extra.quizSessionKey ?? null,
+        claimedArchetype: extra.archetype,
+      });
+      verifiedArchetype = null;
+      verifiedExperimental = null;
+      verifiedConfidence = null;
+    }
+  }
+
   // Hoboken Coffee Crawl (2026-08-31): campaign is a second, orthogonal dimension
   // from source — never write an unknown client-supplied campaign, and if campaign
   // doesn't normalize, drop vid too (no attribution timestamp without a real campaign).
@@ -102,18 +155,23 @@ async function handleSubscribe(
            campaign               = COALESCE(newsletter_subscriber.campaign, EXCLUDED.campaign),
            campaign_vid           = COALESCE(newsletter_subscriber.campaign_vid, EXCLUDED.campaign_vid),
            campaign_attributed_at = COALESCE(newsletter_subscriber.campaign_attributed_at, CASE WHEN EXCLUDED.campaign IS NOT NULL THEN now() END)`,
-    [clean, cleanName || null, sourceId, userId, extra.archetype ?? null, extra.experimental ?? null, extra.confidence ?? null, extra.quizSessionKey ?? null, cleanCampaign, cleanCampaignVid],
+    [clean, cleanName || null, sourceId, userId, verifiedArchetype, verifiedExperimental, verifiedConfidence, extra.quizSessionKey ?? null, cleanCampaign, cleanCampaignVid],
   );
 
-  // Forward to Mailchimp — non-blocking, never fails the request
-  syncMailchimpMember(clean, cleanName, { source: sourceName, archetype: extra.archetype, experimental: extra.experimental, campaign: cleanCampaign }).catch(err =>
+  // Forward to Mailchimp — non-blocking, never fails the request. Only the
+  // verified archetype ever reaches the tag (Part B3 also makes this
+  // replace-not-add on the Mailchimp side, see mailchimp.ts).
+  syncMailchimpMember(clean, cleanName, { source: sourceName, archetype: verifiedArchetype, experimental: verifiedExperimental, campaign: cleanCampaign }).catch(err =>
     console.error('[newsletter] mailchimp error:', err)
   );
 
   // Step 07 (C3): quiz-complete email — transactional send from our own backend,
-  // replacing the Mailchimp automation flow. Fire-and-forget, same as Mailchimp above.
-  if (sourceName === 'post_quiz') {
-    sendQuizCompleteEmailOnce(clean, cleanName, extra.archetype).catch(err =>
+  // replacing the Mailchimp automation flow. Fire-and-forget, same as Mailchimp
+  // above. Quiz Resync Fix Part B2 — only ever the verified archetype; a
+  // rejected/absent archetype means no email fires at all (the quiz-complete
+  // card without a real archetype behind it would just be wrong).
+  if (sourceName === 'post_quiz' && verifiedArchetype) {
+    sendQuizCompleteEmailOnce(clean, cleanName, verifiedArchetype).catch(err =>
       console.error('[newsletter] resend error:', err)
     );
   }

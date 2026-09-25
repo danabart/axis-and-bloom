@@ -99,13 +99,62 @@ async function ensureArchetypeMergeField(): Promise<void> {
   }
 }
 
+export interface MailchimpTagUpdate {
+  name: string;
+  status: 'active' | 'inactive';
+}
+
+// Quiz Resync Fix Part B3 (2026-09-25) — pure computation, no I/O: given the
+// tags this sync wants to set and the member's current tag names, returns
+// the full update list — the new tags as 'active', plus any *other*
+// archetype:* tag the member currently carries as 'inactive'. Extracted from
+// setMemberTags specifically so the replace-not-add logic is unit-testable
+// without a network call or a Mailchimp account. Other tag families
+// (source:*, campaign:*, quiz-completed, experimental) are untouched —
+// still add-only, matching this module's pre-existing behavior; only
+// archetype:* ever gets inactivated.
+export function computeTagUpdates(newTags: string[], currentTagNames: string[]): MailchimpTagUpdate[] {
+  const newArchetypeTags = new Set(newTags.filter(t => t.startsWith('archetype:')));
+  const inactivate = newArchetypeTags.size === 0
+    ? []
+    : currentTagNames.filter(name => name.startsWith('archetype:') && !newArchetypeTags.has(name));
+  return [
+    ...newTags.map(name => ({ name, status: 'active' as const })),
+    ...inactivate.map(name => ({ name, status: 'inactive' as const })),
+  ];
+}
+
+// Quiz Resync Fix Part B3 (2026-09-25) — the archetype:* tag family is now
+// replace-not-add (see computeTagUpdates above). Previously each sync only
+// ever POSTed the new tag as 'active', never inactivating the one it
+// superseded — a resync left two (or more) archetype:* tags active on the
+// same member simultaneously, the exact screenshot evidence this brief fixes.
 async function setMemberTags(hash: string, tags: string[]): Promise<boolean> {
-  if (tags.length === 0) return true;
+  let currentTagNames: string[] = [];
+  if (tags.some(t => t.startsWith('archetype:'))) {
+    // Best-effort: a failed read here just skips cleanup for this call — it
+    // never blocks setting the new tag, matching this module's existing
+    // non-blocking contract.
+    try {
+      const memberUrl = `https://${MC_DC}.api.mailchimp.com/3.0/lists/${MC_LIST_ID}/members/${hash}`;
+      const memberRes = await fetch(memberUrl, { headers: mcHeaders() });
+      if (memberRes.ok) {
+        const body = (await memberRes.json()) as { tags?: { name: string }[] };
+        currentTagNames = (body.tags ?? []).map(t => t.name);
+      } else if (memberRes.status !== 404) {
+        console.error('[mailchimp] could not read current tags for replace-not-add:', memberRes.status, await memberRes.text());
+      }
+    } catch (err) {
+      console.error('[mailchimp] could not read current tags for replace-not-add:', err);
+    }
+  }
+  const updates = computeTagUpdates(tags, currentTagNames);
+  if (updates.length === 0) return true;
   const url = `https://${MC_DC}.api.mailchimp.com/3.0/lists/${MC_LIST_ID}/members/${hash}/tags`;
   const res = await fetch(url, {
     method: 'POST',
     headers: mcHeaders(),
-    body: JSON.stringify({ tags: tags.map(name => ({ name, status: 'active' })) }),
+    body: JSON.stringify({ tags: updates }),
   });
   if (!res.ok) {
     console.error('[mailchimp] tag error:', res.status, await res.text());

@@ -1060,6 +1060,12 @@ CREATE TABLE IF NOT EXISTS transactional_email_log (
   PRIMARY KEY (email, template)
 );
 
+-- Quiz Resync Fix Part B2 (2026-09-25) — the archetype actually baked into
+-- the sent email, and Resend's own message id (previously discarded), so a
+-- send can be verified/looked-up after the fact without the Resend dashboard.
+ALTER TABLE transactional_email_log ADD COLUMN IF NOT EXISTS archetype TEXT;
+ALTER TABLE transactional_email_log ADD COLUMN IF NOT EXISTS resend_message_id TEXT;
+
 -- ─────────────────────────────────────────────
 -- CUPPING TOOL
 -- Separate from the main schema's cupping_session (singular).
@@ -3490,12 +3496,22 @@ ALTER TABLE company_gift ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES com
 CREATE TABLE IF NOT EXISTS quiz_funnel_event (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   session_key TEXT NOT NULL,
-  event       TEXT NOT NULL CHECK (event IN ('quiz_start', 'quiz_complete', 'email_submitted')),
+  event       TEXT NOT NULL CHECK (event IN ('quiz_start', 'quiz_complete', 'email_submitted', 'quiz_final')),
   archetype   TEXT,
   created_at  TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
 CREATE INDEX IF NOT EXISTS idx_quiz_funnel_event_session ON quiz_funnel_event(session_key);
 CREATE INDEX IF NOT EXISTS idx_quiz_funnel_event_created ON quiz_funnel_event(created_at);
+
+-- Quiz Resync Fix Part A4 (2026-09-25) — widen the event CHECK for an
+-- existing table (CREATE TABLE IF NOT EXISTS above is a no-op once the table
+-- exists, so the constraint must be widened explicitly). Idempotent: the
+-- constraint name is Postgres's own default for this column, confirmed live
+-- against prod before writing this; safe to re-run (DROP IF EXISTS + re-ADD
+-- every boot is cheap on this table's row count).
+ALTER TABLE quiz_funnel_event DROP CONSTRAINT IF EXISTS quiz_funnel_event_event_check;
+ALTER TABLE quiz_funnel_event ADD CONSTRAINT quiz_funnel_event_event_check
+  CHECK (event IN ('quiz_start', 'quiz_complete', 'email_submitted', 'quiz_final'));
 
 -- Hoboken Coffee Crawl (2026-08-31): campaign attribution, orthogonal to source.
 -- vid = anonymous per-phone visitor key minted on the landing page; joins scan → quiz → email.

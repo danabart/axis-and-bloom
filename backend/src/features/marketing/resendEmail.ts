@@ -20,15 +20,25 @@ export interface ResendEmailInput {
   text: string;
 }
 
+export interface ResendSendResult {
+  ok: boolean;
+  /** Resend's own message id (from the response body), or null when
+   * disabled, failed, or (belt-and-braces) the response didn't carry one.
+   * Quiz Resync Fix Part B2 (2026-09-25) — previously discarded entirely;
+   * now read and returned so callers can persist it for later lookup. */
+  id: string | null;
+}
+
 /**
  * Send one transactional email via the Resend API. Never throws — logs and
- * returns false on failure, no-op returning true when disabled. No open/click
- * tracking options are passed (tracking is intentionally unconfigured in Resend).
+ * returns { ok: false, id: null } on failure, no-op returning { ok: true, id: null }
+ * when disabled. No open/click tracking options are passed (tracking is
+ * intentionally unconfigured in Resend).
  */
-export async function sendResendEmail({ to, subject, html, text }: ResendEmailInput): Promise<boolean> {
+export async function sendResendEmail({ to, subject, html, text }: ResendEmailInput): Promise<ResendSendResult> {
   if (!RESEND_ENABLED) {
     console.debug('[resend] disabled — skipping send');
-    return true;
+    return { ok: true, id: null };
   }
   try {
     const res = await fetch('https://api.resend.com/emails', {
@@ -48,11 +58,18 @@ export async function sendResendEmail({ to, subject, html, text }: ResendEmailIn
     });
     if (!res.ok) {
       console.error('[resend] error:', res.status, await res.text());
-      return false;
+      return { ok: false, id: null };
     }
-    return true;
+    let id: string | null = null;
+    try {
+      const body = (await res.json()) as { id?: string };
+      id = body.id ?? null;
+    } catch (err) {
+      console.error('[resend] could not parse response body for id:', err);
+    }
+    return { ok: true, id };
   } catch (err) {
     console.error('[resend] sendResendEmail error:', err);
-    return false;
+    return { ok: false, id: null };
   }
 }

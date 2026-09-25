@@ -1,9 +1,13 @@
 import { db } from '../../db/client.js';
 import { normalizeCampaign, normalizeVid } from './campaigns.js';
 
-export type FunnelEvent = 'quiz_start' | 'quiz_complete' | 'email_submitted';
+// 'quiz_final' added Quiz Resync Fix Part A4 (2026-09-25) — the post-branch,
+// on-screen archetype the visitor actually saw, on its own row. quiz_complete
+// stays exactly what it always was (the pre-branch score) — existing reports
+// depend on that. See schema.sql's event CHECK, updated alongside this.
+export type FunnelEvent = 'quiz_start' | 'quiz_complete' | 'email_submitted' | 'quiz_final';
 
-const VALID_EVENTS: ReadonlySet<string> = new Set(['quiz_start', 'quiz_complete', 'email_submitted']);
+const VALID_EVENTS: ReadonlySet<string> = new Set(['quiz_start', 'quiz_complete', 'email_submitted', 'quiz_final']);
 
 /** First-party quiz funnel logging (launch/20_analytics-and-tracking/02_B1). Hoboken
  * Coffee Crawl (2026-08-31): campaign/campaignVid are optional, orthogonal attribution —

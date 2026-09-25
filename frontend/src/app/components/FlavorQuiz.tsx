@@ -555,8 +555,15 @@ export default function FlavorQuiz() {
   const [selectedIds, setSelectedIds]   = useState<Record<number, string>>({});
   const [isComplete, setIsComplete]     = useState(() => isPreview);
   const [isScoring, setIsScoring]       = useState(false);
-  const [archetypeKey, setArchetypeKey] = useState<ArchetypeKey>(() => previewKey ?? 'balanced');
+  // Quiz Resync Fix, 2026-09-25 — no placeholder archetype: null means "no
+  // score yet", full stop. Every reader below must handle null explicitly.
+  const [archetypeKey, setArchetypeKey] = useState<ArchetypeKey | null>(() => previewKey ?? null);
   const [scoreError, setScoreError]     = useState(false);
+  // True only once a real score (or branch/tie resolution) has landed in
+  // *this* mount — resets on retake and never implicitly true on load, so
+  // the resync effects below can never fire from the pre-score placeholder
+  // state again. Belt-and-braces alongside archetypeKey being nullable.
+  const [scoredThisSession, setScoredThisSession] = useState(false);
 
   // Branch state
   const [scoreData, setScoreData]               = useState<ScoreResult | null>(null);
@@ -726,15 +733,17 @@ export default function FlavorQuiz() {
   // reused from `matchedData` — `matchedData` is the signed-in user's previously
   // *saved* profile match, which may lag behind (or not exist for) what they just
   // scored on this attempt, and is never populated for guests at all.
-  const resultsArchetypeEnum = ARCHETYPE_KEY_TO_ENUM[archetypeKey];
-  const resultsArchetypeData = resultsArchetypeEnum === 'experimental'
-    ? experimentalData
-    : archetypesList.find(a => a.archetype === resultsArchetypeEnum) ?? null;
+  const resultsArchetypeEnum = archetypeKey ? ARCHETYPE_KEY_TO_ENUM[archetypeKey] : null;
+  const resultsArchetypeData = !resultsArchetypeEnum
+    ? null
+    : resultsArchetypeEnum === 'experimental'
+      ? experimentalData
+      : archetypesList.find(a => a.archetype === resultsArchetypeEnum) ?? null;
 
   // Step 07 (A3): the 5-archetype share canon excludes Experimental (it's a category,
   // not one of the 5 archetypes with a public /match page) — underscore-to-hyphen
   // matches archetypeAssets' ARCHETYPE_SLUGS convention (chocolate_nutty -> chocolate-nutty).
-  const shareSlug = archetypeKey === 'experimental' ? null : resultsArchetypeEnum.replace('_', '-');
+  const shareSlug = !resultsArchetypeEnum || archetypeKey === 'experimental' ? null : resultsArchetypeEnum.replace('_', '-');
 
   // Pre-set the dial to the signed-in user's saved position for this archetype (mirrors BloomPage.tsx Phase D).
   useEffect(() => {
@@ -838,11 +847,20 @@ export default function FlavorQuiz() {
 
   // First-time guest submits the card.
   function handleGateSuccess(submittedEmail: string) {
+    if (!archetypeKey) return; // gate only ever renders post-score — belt and braces
     // localStorage unavailable (private/incognito browsing, blocked storage) — not
     // an error; the guest just won't be recognized as returning next time.
     try { localStorage.setItem(POST_QUIZ_EMAIL_KEY, submittedEmail); } catch {}
     setPostQuizEmail(submittedEmail);
     const name = ARCHETYPES[archetypeKey].name;
+    // Quiz Resync Fix, Part A5 — PostQuizEmailGate already POSTed this exact
+    // subscribe call itself (see its handleSubmit) before calling onSuccess.
+    // Mark it synced now so the resync effect below, which also depends on
+    // postQuizEmail and is about to re-run because we just set it, sees
+    // recognizedGuestSyncedRef.current === name and skips — otherwise it
+    // double-fires the same subscribe call ~200ms later (the "two calls per
+    // signup" pattern the audit found).
+    recognizedGuestSyncedRef.current = name;
     trackEvent('EmailSubmitted', { archetype: name });
     trackLead({ archetype: name });
     const activeCampaign = getActiveCampaign();
@@ -853,7 +871,13 @@ export default function FlavorQuiz() {
   // session — resync the subscriber row to the current archetype, silently, no
   // card, no repeat ask, no analytics event (they already submitted once).
   useEffect(() => {
-    if (!resultsArchetypeData || (user && !user.isAnonymous) || !postQuizEmail) return;
+    // Quiz Resync Fix, Part A1/A2 — must not fire from the pre-score
+    // placeholder state (page load, retake-in-progress, anonymous→signed-in
+    // transition before a new score exists). archetypeKey is nullable now,
+    // so this null check is redundant with scoredThisSession in practice,
+    // but kept as an explicit second guard per the brief.
+    if (!scoredThisSession) return;
+    if (!archetypeKey || !resultsArchetypeData || (user && !user.isAnonymous) || !postQuizEmail) return;
     const name = ARCHETYPES[archetypeKey].name;
     if (recognizedGuestSyncedRef.current === name) return;
     recognizedGuestSyncedRef.current = name;
@@ -867,13 +891,15 @@ export default function FlavorQuiz() {
       quizSessionKey: sessionKeyRef.current,
       ...(activeCampaignResync ? { campaign: activeCampaignResync.slug, campaignVid: activeCampaignResync.vid } : {}),
     }).catch(err => reportError('[FlavorQuiz/resync-guest-subscriber]', err));
-  }, [user, postQuizEmail, resultsArchetypeData, archetypeKey]);
+  }, [user, postQuizEmail, resultsArchetypeData, archetypeKey, scoredThisSession]);
 
   // Signed-in users: never see the card. Auto-subscribe (source post_quiz) with a
   // one-line consent note shown once — only when they weren't already a subscriber;
   // an existing subscriber's row is just silently resynced to the new archetype.
   useEffect(() => {
-    if (!user || user.isAnonymous || !resultsArchetypeData || !userProfile || !profileFetchDone) return;
+    // Quiz Resync Fix, Part A1/A2 — same guard as the guest effect above.
+    if (!scoredThisSession) return;
+    if (!user || user.isAnonymous || !archetypeKey || !resultsArchetypeData || !userProfile || !profileFetchDone) return;
     const name = ARCHETYPES[archetypeKey].name;
     if (signedInSubscribeFiredRef.current === name) return;
     signedInSubscribeFiredRef.current = name;
@@ -896,7 +922,7 @@ export default function FlavorQuiz() {
         setShowSignedInConsentNote(true);
       }
     }).catch(err => reportError('[FlavorQuiz/signed-in-subscribe]', err));
-  }, [user, userProfile, profileFetchDone, resultsArchetypeData, archetypeKey]);
+  }, [user, userProfile, profileFetchDone, resultsArchetypeData, archetypeKey, scoredThisSession]);
 
   // Bug fix (Find My Flavor Part 2, Bug 1): preload the scored archetype's wallpaper
   // as soon as it's known (archetypeKey is set well before isComplete/the results
@@ -905,7 +931,7 @@ export default function FlavorQuiz() {
   // even on a slow connection. Pairs with the opaque backgroundColor fallback on the
   // curtain div itself below, which covers the case this doesn't (a cold cache).
   useEffect(() => {
-    const src = ARCHETYPES[archetypeKey]?.wallpaper;
+    const src = archetypeKey ? ARCHETYPES[archetypeKey]?.wallpaper : undefined;
     if (src) new Image().src = src;
   }, [archetypeKey]);
 
@@ -951,7 +977,11 @@ export default function FlavorQuiz() {
     if (resultHeroShown) heroHeadingRef.current?.focus();
   }, [resultHeroShown]);
 
-  const archetype = ARCHETYPES[archetypeKey];
+  // Only dereferenced (archetype!.x) in JSX that renders inside isComplete —
+  // isComplete only ever becomes true after archetypeKey has been set from a
+  // real score (see the WrapOverlay/onShowResult wiring below), so archetype
+  // is never actually undefined where it's read. Null before that.
+  const archetype = archetypeKey ? ARCHETYPES[archetypeKey] : null;
 
   // The scoring result carries the full picture (secondary archetype, food signal,
   // recommendation mode, experimental flag). Every save path must send all of it —
@@ -1007,8 +1037,17 @@ export default function FlavorQuiz() {
       const activeCampaignComplete = getActiveCampaign();
       logQuizFunnelEvent(sessionKeyRef.current!, 'quiz_complete', score.archetype, activeCampaignComplete ? { campaign: activeCampaignComplete.slug, vid: activeCampaignComplete.vid } : undefined).catch(err => reportError('[FlavorQuiz/funnel-event]', err));
 
-      const key = ARCHETYPE_NAME_TO_KEY[score.archetype] ?? 'balanced';
+      // Quiz Resync Fix Part A3 — an unrecognized archetype name from the
+      // server is now an explicit failure (scoreError), never a silent
+      // 'balanced' guess that could show the wrong card.
+      const key = ARCHETYPE_NAME_TO_KEY[score.archetype];
+      if (!key) {
+        reportError('[FlavorQuiz/unknown-archetype]', new Error(`Unknown archetype name from server: ${score.archetype}`));
+        setScoreError(true);
+        return;
+      }
       setArchetypeKey(key);
+      setScoredThisSession(true);
 
       // Tie detected — show interstitial before branch or result
       if (score.tieDetected && (score.tiedArchetypes ?? []).length >= 2) {
@@ -1027,6 +1066,13 @@ export default function FlavorQuiz() {
           }
         }
       }
+
+      // Quiz Resync Fix Part A4 — no branch question for this archetype, so
+      // score.archetype is the final, on-screen result: log it on its own
+      // funnel row so the funnel has the true on-screen archetype even when
+      // nothing branches (quiz_complete stays the pre-branch score, unchanged).
+      const activeCampaignFinal = getActiveCampaign();
+      logQuizFunnelEvent(sessionKeyRef.current!, 'quiz_final', score.archetype, activeCampaignFinal ? { campaign: activeCampaignFinal.slug, vid: activeCampaignFinal.vid } : undefined).catch(err => reportError('[FlavorQuiz/funnel-event]', err));
 
       if (user) {
         saveQuizResult(buildQuizResultPayload(score, score.archetype))
@@ -1055,8 +1101,21 @@ export default function FlavorQuiz() {
 
     const selected = branchQuestion.answers.find(a => a.id === selectedBranchAnswerId);
     const finalArchetypeName = selected?.archetypeName ?? scoreData.archetype;
-    const newKey = ARCHETYPE_NAME_TO_KEY[finalArchetypeName] ?? archetypeKey;
+    // Quiz Resync Fix Part A3 — explicit failure, not a silent fallback to
+    // the previous (pre-branch) archetypeKey.
+    const newKey = ARCHETYPE_NAME_TO_KEY[finalArchetypeName];
+    if (!newKey) {
+      reportError('[FlavorQuiz/unknown-archetype]', new Error(`Unknown archetype name from branch: ${finalArchetypeName}`));
+      setScoreError(true);
+      setShowBranch(false);
+      return;
+    }
     setArchetypeKey(newKey);
+    setScoredThisSession(true);
+
+    // Quiz Resync Fix Part A4 — the post-branch, on-screen result, on its own row.
+    const activeCampaignFinalBranch = getActiveCampaign();
+    logQuizFunnelEvent(sessionKeyRef.current!, 'quiz_final', finalArchetypeName, activeCampaignFinalBranch ? { campaign: activeCampaignFinalBranch.slug, vid: activeCampaignFinalBranch.vid } : undefined).catch(err => reportError('[FlavorQuiz/funnel-event]', err));
 
     if (user) {
       const branchedFrom = finalArchetypeName !== scoreData.archetype ? scoreData.archetype : null;
@@ -1084,7 +1143,10 @@ export default function FlavorQuiz() {
     setSelectedIds({});
     setScoreError(false);
     setShowTieInterstitial(false);
-    setArchetypeKey('balanced');
+    // Quiz Resync Fix Part A3 — no placeholder archetype; null until the
+    // retaken quiz actually scores. Part A1 — scoredThisSession resets too.
+    setArchetypeKey(null);
+    setScoredThisSession(false);
     sessionKeyRef.current = crypto.randomUUID();
     quizStartFiredRef.current = false;
     answerIdsRef.current = [];
@@ -1116,8 +1178,22 @@ export default function FlavorQuiz() {
       if (!scoreData || !branchQuestion) return;
       const selected = branchQuestion.answers.find(a => a.id === answerId);
       const finalArchetypeName = selected?.archetypeName ?? scoreData.archetype;
-      const newKey = ARCHETYPE_NAME_TO_KEY[finalArchetypeName] ?? archetypeKey;
+      // Quiz Resync Fix Part A3 — same explicit-failure treatment as
+      // handleBranchContinue (this is the auto-advance twin of that handler).
+      const newKey = ARCHETYPE_NAME_TO_KEY[finalArchetypeName];
+      if (!newKey) {
+        reportError('[FlavorQuiz/unknown-archetype]', new Error(`Unknown archetype name from branch: ${finalArchetypeName}`));
+        setScoreError(true);
+        setShowBranch(false);
+        return;
+      }
       setArchetypeKey(newKey);
+      setScoredThisSession(true);
+
+      // Quiz Resync Fix Part A4 — same as handleBranchContinue.
+      const activeCampaignFinalAuto = getActiveCampaign();
+      logQuizFunnelEvent(sessionKeyRef.current!, 'quiz_final', finalArchetypeName, activeCampaignFinalAuto ? { campaign: activeCampaignFinalAuto.slug, vid: activeCampaignFinalAuto.vid } : undefined).catch(err => reportError('[FlavorQuiz/funnel-event]', err));
+
       if (user) {
         const branchedFrom = finalArchetypeName !== scoreData.archetype ? scoreData.archetype : null;
         saveQuizResult(buildQuizResultPayload(scoreData, finalArchetypeName, branchedFrom))
@@ -1545,7 +1621,11 @@ export default function FlavorQuiz() {
   // Single return — quiz and result phases share the same render tree so the
   // WrapOverlay (a fixed sibling) stays mounted across the question→result switch.
 
-  const nightScanSrc = quizResultAssets[QUIZ_KEY_TO_SLUG[archetypeKey]].src;
+  // Computed on every render, including every pre-score question screen now
+  // that archetypeKey starts null — guarded so it never crashes there. Only
+  // actually consumed by WrapOverlay once isWrapping is true, which (per the
+  // wiring below) never happens until a real score has set archetypeKey.
+  const nightScanSrc = archetypeKey ? quizResultAssets[QUIZ_KEY_TO_SLUG[archetypeKey]].src : undefined;
   const isOnQuestion = !isComplete && !showBranch && !showTieInterstitial;
   const isOnBranch   = !isComplete && showBranch && !!branchQuestion;
   const isOnTie      = showTieInterstitial && !!scoreData;
@@ -1753,6 +1833,12 @@ export default function FlavorQuiz() {
               <button
                 onClick={() => {
                   setShowTieInterstitial(false);
+                  // Quiz Resync Fix Part A4 — archetypeKey was already set to
+                  // the primary score in handleNext, before the tie
+                  // interstitial showed; this is that same no-branch final
+                  // result, just reached via the tie path.
+                  const activeCampaignFinalTie = getActiveCampaign();
+                  logQuizFunnelEvent(sessionKeyRef.current!, 'quiz_final', scoreData!.archetype, activeCampaignFinalTie ? { campaign: activeCampaignFinalTie.slug, vid: activeCampaignFinalTie.vid } : undefined).catch(err => reportError('[FlavorQuiz/funnel-event]', err));
                   if (user) {
                     saveQuizResult(buildQuizResultPayload(scoreData!, scoreData!.archetype))
                       .then(refreshUserProfile).catch(err => reportError('[FlavorQuiz/save-quiz-result]', err));
@@ -1791,7 +1877,7 @@ export default function FlavorQuiz() {
                 </div>
               ) : (
                 <PostQuizEmailGate
-                  archetypeName={archetype.name}
+                  archetypeName={archetype!.name}
                   archetypeColor={RUST}
                   experimental={archetypeKey === 'experimental'}
                   confidence={scoreData?.foodSignalAlignment}
@@ -1826,7 +1912,7 @@ export default function FlavorQuiz() {
                     aria-hidden="true"
                     style={{
                       width: 56, height: 3, margin: '0 auto 20px',
-                      background: `color-mix(in srgb, ${archetype.color} 82%, #f2f1ea)`,
+                      background: `color-mix(in srgb, ${archetype!.color} 82%, #f2f1ea)`,
                       opacity: resultHeroShown ? 1 : 0,
                       transform: resultHeroShown ? 'scaleX(1)' : 'scaleX(.3)',
                       transition: 'opacity 0.7s ease 0.45s, transform 0.7s cubic-bezier(.22,1,.36,1) 0.45s',
@@ -1841,22 +1927,22 @@ export default function FlavorQuiz() {
                       ...stagger('.55s'),
                     }}
                   >
-                    {archetype.name}.
+                    {archetype!.name}.
                   </h1>
                   <p style={{ maxWidth: 560, margin: '0 auto', fontSize: 15.5, lineHeight: 1.7, color: 'rgba(242,241,234,.88)', padding: '0 clamp(20px,5vw,32px)', ...stagger('.7s') }}>
-                    {archetype.shortDescription}
+                    {archetype!.shortDescription}
                   </p>
                 </div>
                 {/* Scroll cue */}
                 <div aria-hidden="true" style={{
                   position: 'absolute', bottom: 26, left: '50%', transform: 'translateX(-50%)',
                   width: 1, height: 26, zIndex: 2,
-                  background: `color-mix(in srgb, ${archetype.color} 70%, #f2f1ea)`,
+                  background: `color-mix(in srgb, ${archetype!.color} 70%, #f2f1ea)`,
                 }} />
               </section>
 
               {/* Share row — available before gate unlock, hidden for Experimental (no share page) */}
-              <ShareMatchRow archetypeName={archetype.name} shareSlug={shareSlug} />
+              <ShareMatchRow archetypeName={archetype!.name} shareSlug={shareSlug} />
 
               {/* Gate / post-hero. Part 24 — the archetype block(s) below now unfold
                   in breakout mode, whose 40/60 + centering math assumes a plain,
@@ -1890,7 +1976,7 @@ export default function FlavorQuiz() {
                           {resultsArchetypeData.archetypeLabel.toUpperCase()}
                         </p>
                         <p style={{ fontSize: 15.5, fontWeight: 300, color: '#45474a', marginTop: 14 }}>
-                          {FAMILY_LINES[resultsArchetypeEnum] ?? `That's your family — ${resultsArchetypeData.archetypeLabel.toLowerCase()}, through and through.`}
+                          {FAMILY_LINES[resultsArchetypeEnum!] ?? `That's your family — ${resultsArchetypeData.archetypeLabel.toLowerCase()}, through and through.`}
                         </p>
                       </div>
                       <DialArchetypeSection
@@ -1976,8 +2062,8 @@ export default function FlavorQuiz() {
               ) : (
                 <section style={{ background: '#f2f1ea', padding: 'clamp(72px,10vh,120px) clamp(20px,5vw,40px) 90px' }}>
                   <PostQuizEmailGate
-                    archetypeName={archetype.name}
-                    archetypeColor={archetype.color}
+                    archetypeName={archetype!.name}
+                    archetypeColor={archetype!.color}
                     experimental={archetypeKey === 'experimental'}
                     confidence={scoreData?.foodSignalAlignment}
                     sessionKey={sessionKeyRef.current!}
@@ -1991,11 +2077,13 @@ export default function FlavorQuiz() {
         </div>
       )}
 
-      {/* ── Wrap overlay — fixed, stays mounted across question→result switch ── */}
+      {/* ── Wrap overlay — fixed, stays mounted across question→result switch ──
+           heroImageSrc uses ! — isWrapping is never true before archetypeKey
+           is set for real, see nightScanSrc above. */}
       {isWrapping && (
         <WrapOverlay
           name={userName}
-          heroImageSrc={nightScanSrc}
+          heroImageSrc={nightScanSrc!}
           onShowResult={() => setIsComplete(true)}
           onStartNaming={() => setResultHeroShown(true)}
           onDone={() => setIsWrapping(false)}

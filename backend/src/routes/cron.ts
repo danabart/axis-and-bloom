@@ -562,38 +562,15 @@ router.get('/purge-stale-anonymous-guests', requireCronSecret, async (_req, res)
   }
 });
 
-// ── GET /api/cron/purge-api-events ────────────────────────────────────────
-// Retention sweep for the api_event capture-first log (see
-// backend/src/features/api_event_log/CLAUDE_CODE_PROMPT_API_EVENT_LOG.md).
-// Payloads can contain emails/names, so this is data hygiene, not just disk
-// space — rows older than API_EVENT_RETENTION_DAYS (env, default 90) are
-// deleted. Batched (5,000/loop) to avoid a single long-running lock on a
-// table that can accumulate a lot of rows.
-const API_EVENT_PURGE_BATCH_SIZE = 5000;
-
-router.get('/purge-api-events', requireCronSecret, async (_req, res) => {
-  try {
-    const retentionDays = Number(process.env.API_EVENT_RETENTION_DAYS ?? 90);
-    let deleted = 0;
-    for (;;) {
-      const result = await db.query(
-        `DELETE FROM api_event
-         WHERE id IN (
-           SELECT id FROM api_event
-           WHERE occurred_at < now() - ($1 || ' days')::interval
-           LIMIT $2
-         )`,
-        [retentionDays, API_EVENT_PURGE_BATCH_SIZE]
-      );
-      deleted += result.rowCount ?? 0;
-      if (!result.rowCount || result.rowCount < API_EVENT_PURGE_BATCH_SIZE) break;
-    }
-    res.json({ deleted });
-  } catch (err) {
-    console.error('[cron/purge-api-events]', err);
-    res.status(500).json({ error: 'Cron job failed' });
-  }
-});
+// ── GET /api/cron/purge-api-events — RETIRED (2026-09-25) ────────────────
+// Quiz Resync Fix Part D1: api_event is now an append-only record; nothing
+// deletes from it, ever. The route, its Cloud Scheduler job, and
+// API_EVENT_PURGE_BATCH_SIZE/API_EVENT_RETENTION_DAYS are all gone —
+// deliberately, not an oversight. See
+// backend/src/features/api_event_log/CLAUDE_CODE_PROMPT_API_EVENT_LOG.md for
+// the (now superseded) original retention design, and lint-retention.mjs for
+// the build-time guard against any DELETE/TRUNCATE creeping back onto this
+// or the other gold/near-gold tables.
 
 function buildSponsoredTrialEndingEmail(firstName: string | null, profileLink: string): string {
   const greeting = firstName ? `Hi ${firstName},` : 'Hi there,';

@@ -13,6 +13,7 @@
     "db:migrate": "node -e \"import('./src/db/migrate.js').then(m => m.migrate())\"",
     "catalog:import": "tsx src/scripts/catalogImport.ts",
     "lint:catalog": "node scripts/lint-catalog.mjs",
+    "lint:retention": "node scripts/lint-retention.mjs",
     "test": "vitest run",
     "test:db:refresh": "node scripts/refresh-test-db.mjs"
   },

@@ -71,6 +71,14 @@ jobs:
         working-directory: backend
         run: npm run lint:catalog
 
+      # Quiz Resync Fix Part D1 (2026-09-25) — fails the deploy on any
+      # DELETE/TRUNCATE of api_event/quiz_funnel_event/quiz_session/
+      # newsletter_subscriber outside src/test/. Same placement/rationale as
+      # Lint catalog above.
+      - name: Lint retention
+        working-directory: backend
+        run: npm run lint:retention
+
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
 

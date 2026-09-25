@@ -1,4 +1,5 @@
 import { db } from '../db/client.js';
+import { toArchetypeSlug } from '../features/marketing/mailchimp.js';
 
 // ── Quiz content drift prevention — integrity check service ──────────────────
 // Codifies the manual EXPECTs in
@@ -265,6 +266,113 @@ export async function runQuizIntegrityChecks(): Promise<QuizIntegrityReport> {
     expected: '"Floral" and "Earthy" present (existence only — not an exclusivity check; Experimental is intentional and never flagged)',
     actual: check8Details.length === 0 ? 'both present' : `${check8Details.length} missing`,
     details: check8Details.length ? check8Details : undefined,
+  });
+
+  // ── 9. Quiz-complete emails since Part B2 have archetype + resend id,
+  // slug-matching the subscriber row ──────────────────────────────────────
+  // Quiz Resync Fix Part E1 (2026-09-25). B2_DEPLOY_AT marks when
+  // transactional_email_log.archetype/resend_message_id started being
+  // populated — rows sent before this deploy legitimately have both NULL
+  // and are not this check's concern. A subscriber archetype mismatch here
+  // can also be a legitimate later retake (the subscriber row moved on since
+  // the email went out), not necessarily a bug — surfaced for review either
+  // way, warn-not-fail like every other check in this file.
+  const B2_DEPLOY_AT = '2026-09-25T00:00:00Z';
+  const emailLogResult = await db.query<{
+    email: string; archetype: string | null; resend_message_id: string | null; subscriber_archetype: string | null;
+  }>(
+    `SELECT tel.email, tel.archetype, tel.resend_message_id, ns.archetype AS subscriber_archetype
+     FROM transactional_email_log tel
+     LEFT JOIN newsletter_subscriber ns ON ns.email = tel.email
+     WHERE tel.template = 'quiz_complete_v2' AND tel.sent_at >= $1`,
+    [B2_DEPLOY_AT],
+  );
+  const check9Details: string[] = [];
+  for (const row of emailLogResult.rows) {
+    if (!row.archetype) { check9Details.push(`${row.email}: archetype is null`); continue; }
+    if (!row.resend_message_id) check9Details.push(`${row.email}: resend_message_id is null`);
+    if (row.subscriber_archetype && toArchetypeSlug(row.archetype) !== toArchetypeSlug(row.subscriber_archetype)) {
+      check9Details.push(`${row.email}: email archetype "${row.archetype}" does not slug-match subscriber archetype "${row.subscriber_archetype}" (may be a later retake, not necessarily a bug)`);
+    }
+  }
+  checks.push({
+    id: 9,
+    name: `Quiz-complete emails sent since ${B2_DEPLOY_AT} have a non-null archetype + resend id, slug-matching the subscriber row`,
+    pass: check9Details.length === 0,
+    expected: 'non-null archetype/resend_message_id on every row; slug-matches newsletter_subscriber.archetype where a subscriber row exists',
+    actual: check9Details.length === 0 ? 'all correct' : `${check9Details.length} problem(s)`,
+    details: check9Details.length ? check9Details : undefined,
+  });
+
+  // ── 10. No newsletter_subscriber (with a linked quiz_session) disagrees
+  // with their own latest scored archetype ──────────────────────────────
+  const subscriberVsSessionResult = await db.query<{
+    email: string; subscriber_archetype: string; latest_session_archetype: string;
+  }>(
+    `SELECT ns.email, ns.archetype AS subscriber_archetype, ca.name AS latest_session_archetype
+     FROM newsletter_subscriber ns
+     JOIN user_profile up ON up.id = ns.user_id
+     JOIN LATERAL (
+       SELECT resulting_archetype_id FROM quiz_session
+       WHERE user_id = up.id AND resulting_archetype_id IS NOT NULL
+       ORDER BY completed_at DESC LIMIT 1
+     ) latest ON true
+     JOIN coffee_archetype ca ON ca.id = latest.resulting_archetype_id
+     WHERE ns.archetype IS NOT NULL`,
+  );
+  const check10Details: string[] = [];
+  for (const row of subscriberVsSessionResult.rows) {
+    if (toArchetypeSlug(row.subscriber_archetype) !== toArchetypeSlug(row.latest_session_archetype)) {
+      check10Details.push(`${row.email}: subscriber archetype "${row.subscriber_archetype}" != latest quiz_session archetype "${row.latest_session_archetype}"`);
+    }
+  }
+  checks.push({
+    id: 10,
+    name: 'No newsletter_subscriber (with a linked quiz_session) disagrees with their latest scored archetype',
+    pass: check10Details.length === 0,
+    expected: 'subscriber.archetype slug-matches the linked user\'s latest quiz_session archetype',
+    actual: check10Details.length === 0 ? 'all correct' : `${check10Details.length} mismatch(es)`,
+    details: check10Details.length ? check10Details : undefined,
+  });
+
+  // ── 11. No post_quiz subscribe in the last 24h referenced a session key
+  // without a matching quiz_complete/quiz_final row ──────────────────────
+  // Quiz Resync Fix Part E1 — this is the resync-bug signature itself
+  // (Part B1 now rejects these server-side; this check confirms that
+  // rejection is actually holding, and flags it visibly if a stale client
+  // bundle or a new caller ever reproduces the old shape).
+  const recentPostQuizResult = await db.query<{
+    occurred_at: string; quiz_session_key: string | null; archetype: string | null;
+  }>(
+    `SELECT occurred_at, request_body->>'quizSessionKey' AS quiz_session_key, request_body->>'archetype' AS archetype
+     FROM api_event
+     WHERE path IN ('/api/newsletter/subscribe', '/api/newsletter')
+       AND request_body->>'source' = 'post_quiz'
+       AND request_body->>'archetype' IS NOT NULL
+       AND occurred_at >= now() - interval '24 hours'`,
+  );
+  const check11Details: string[] = [];
+  for (const row of recentPostQuizResult.rows) {
+    if (!row.quiz_session_key) {
+      check11Details.push(`${row.occurred_at}: post_quiz subscribe with archetype "${row.archetype}" but no quizSessionKey at all`);
+      continue;
+    }
+    const funnelResult = await db.query<{ archetype: string | null }>(
+      `SELECT archetype FROM quiz_funnel_event WHERE session_key = $1 AND event IN ('quiz_complete', 'quiz_final') AND archetype IS NOT NULL`,
+      [row.quiz_session_key],
+    );
+    const backed = funnelResult.rows.some(r => r.archetype && toArchetypeSlug(r.archetype) === toArchetypeSlug(row.archetype!));
+    if (!backed) {
+      check11Details.push(`${row.occurred_at}: session ${row.quiz_session_key} archetype "${row.archetype}" has no matching quiz_complete/quiz_final row (should have been server-rejected — see Part B1)`);
+    }
+  }
+  checks.push({
+    id: 11,
+    name: 'No post_quiz subscribe in the last 24h referenced a session key with no matching quiz_complete/quiz_final',
+    pass: check11Details.length === 0,
+    expected: 'every recent post_quiz subscribe archetype is backed by a quiz_funnel_event row for the same session',
+    actual: check11Details.length === 0 ? 'all backed' : `${check11Details.length} unbacked call(s)`,
+    details: check11Details.length ? check11Details : undefined,
   });
 
   const allPass = checks.every(c => c.pass);

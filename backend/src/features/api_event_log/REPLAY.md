@@ -90,9 +90,15 @@ typical replay:
 
 ## Retention
 
-Rows are purged by `GET /api/cron/purge-api-events` (see `routes/cron.ts`),
-daily via Cloud Scheduler, deleting anything older than
-`API_EVENT_RETENTION_DAYS` (env var, default 90). Payloads can contain
-emails/names, so this is real data hygiene — don't raise the retention
-window without a reason, and don't rely on the log for anything older than
-that.
+**Retired 2026-09-25 (Quiz Resync Fix, Part D1).** `api_event` is now an
+append-only record — nothing deletes from it, ever. The `GET
+/api/cron/purge-api-events` route, its Cloud Scheduler job, and
+`API_EVENT_RETENTION_DAYS`/`API_EVENT_PURGE_BATCH_SIZE` are all gone, not
+just lengthened. Decision came out of the Hoboken Crawl quiz-email audit,
+where this log's untouched history was what made the audit possible in the
+first place — Dana's call: raw data is never deleted. `lint-retention.mjs`
+fails the build on any `DELETE`/`TRUNCATE` of this table (or
+`quiz_funnel_event`/`quiz_session`/`newsletter_subscriber`) outside
+`src/test/`, so this can't quietly regress. Table is small at current
+traffic (1,837 rows / 1,264 kB as of 2026-09-25) — see the README note next
+to it for the up-to-date number; no partitioning needed yet.
