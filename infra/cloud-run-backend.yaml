@@ -25,7 +25,12 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: axis-bloom-secrets
-                  key: DATABASE_URL
+                  key: APP_DATABASE_URL
+            - name: OWNER_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: axis-bloom-secrets
+                  key: OWNER_DATABASE_URL
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
