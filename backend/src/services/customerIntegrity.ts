@@ -374,6 +374,36 @@ export async function checkFeedbackParity(scope: CheckScope = {}): Promise<Custo
   };
 }
 
+// Replays every customer_brew_profile_change row for one (profile, field) in
+// occurred_at order to reconstruct "what SQL thinks the field's current value
+// is" — a single 'set'/'clear' replaces it outright; 'add'/'remove' build an
+// array. Needed because the fact table only ever records the delta ('add'
+// stores the one item just appended, not the resulting array), while
+// Firestore's brew_profile doc always holds the current, cumulative value —
+// comparing the latest row's raw value against the doc's value (as brief C2's
+// own literal spec describes) works for scalar fields but is always false for
+// array fields. Found by running the Part E smoke test against real
+// production, not by review.
+function reconstructBrewProfileValue(rows: Array<{ op: string; value: string | null }>): unknown {
+  let scalarValue: unknown;
+  let arrayValue: unknown[] | undefined;
+  for (const row of rows) {
+    const v = row.value != null ? JSON.parse(row.value) : null;
+    if (row.op === 'clear') { scalarValue = undefined; arrayValue = undefined; continue; }
+    if (row.op === 'add') { arrayValue = [...(arrayValue ?? []), v].filter((x, i, arr) => arr.indexOf(x) === i); continue; }
+    if (row.op === 'remove') { arrayValue = (arrayValue ?? []).filter(x => x !== v); continue; }
+    if (row.op === 'set') { if (Array.isArray(v)) arrayValue = v; else scalarValue = v; continue; }
+  }
+  return arrayValue !== undefined ? arrayValue : scalarValue;
+}
+
+function valuesMatch(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && [...a].sort().every((v, i) => v === [...b].sort()[i]);
+  }
+  return a === b;
+}
+
 // ── 11. Brew profile parity ────────────────────────────────────────────────
 export async function checkBrewProfileParity(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
   const runner = scope.tx ?? db;
@@ -390,21 +420,27 @@ export async function checkBrewProfileParity(scope: CheckScope = {}): Promise<Cu
 
     const data = doc.data();
     const fields = Object.keys(data).filter(f => f !== 'updatedAt');
-    const latestResult = await runner.query<{ field: string; value: string }>(
-      `SELECT DISTINCT ON (field) field, value FROM customer_brew_profile_change
-       WHERE user_id = $1 AND op <> 'clear' ORDER BY field, occurred_at DESC`,
+    const allRows = await runner.query<{ field: string; op: string; value: string | null }>(
+      `SELECT field, op, value FROM customer_brew_profile_change WHERE user_id = $1 ORDER BY occurred_at ASC`,
       [profileId]
     );
-    const latestByField = new Map(latestResult.rows.map(r => [r.field, r.value]));
+    const rowsByField = new Map<string, Array<{ op: string; value: string | null }>>();
+    for (const r of allRows.rows) {
+      if (!rowsByField.has(r.field)) rowsByField.set(r.field, []);
+      rowsByField.get(r.field)!.push({ op: r.op, value: r.value });
+    }
 
     for (const field of fields) {
-      const fsValue = JSON.stringify((data[field] as { value?: unknown })?.value ?? null);
-      const sqlValue = latestByField.get(field);
-      if (sqlValue === undefined) { details.push(`profile ${profileId}: field '${field}' in Firestore, no change row`); continue; }
-      if (sqlValue !== fsValue) details.push(`profile ${profileId}: field '${field}' Firestore=${fsValue} vs latest change=${sqlValue}`);
-      latestByField.delete(field);
+      const fsValue = (data[field] as { value?: unknown })?.value ?? null;
+      const fieldRows = rowsByField.get(field);
+      if (!fieldRows) { details.push(`profile ${profileId}: field '${field}' in Firestore, no change row`); continue; }
+      const reconstructed = reconstructBrewProfileValue(fieldRows);
+      if (!valuesMatch(reconstructed, fsValue)) {
+        details.push(`profile ${profileId}: field '${field}' Firestore=${JSON.stringify(fsValue)} vs reconstructed from changes=${JSON.stringify(reconstructed)}`);
+      }
+      rowsByField.delete(field);
     }
-    for (const field of latestByField.keys()) details.push(`profile ${profileId}: field '${field}' has a change row, not in Firestore doc`);
+    for (const field of rowsByField.keys()) details.push(`profile ${profileId}: field '${field}' has a change row, not in Firestore doc`);
   }
 
   return {

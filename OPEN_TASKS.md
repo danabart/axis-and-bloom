@@ -229,7 +229,7 @@ Once C2's dual-write has run clean for the agreed comparison period (14 days, Da
 - `user_flavor_feedback`'s `DELETE ... ; INSERT ...` revision pattern (`routes/orders.ts`) — superseded by `customer_feedback_descriptor`, which never deletes.
 - The synthetic sign-up `saveQuizSession(..., claimedFrom: 'newsletter_subscriber')` call (`routes/auth.ts`) — once reads resolve identity via `customer_identity_link` instead of a copied session.
 
-**Earliest retirement date: 2026-10-11** (14 days after 2026-09-27, if the backfill's `--apply` runs today and the comparison starts clean from day 0 — actual date depends on when Part B's backfills actually land and when the daily parity cron first reports zero disagreements).
+**Earliest retirement date: 2026-10-11.** The backfill's `--apply` ran today (2026-09-27) for all three subcommands (feedback 0 rows, brew-profile 2, dial-events 28) — checks 10-12 confirmed 0 disagreements immediately after. 14 days from today, if the daily `[customer-parity]` cron keeps reporting clean every day in between (a single dirty day resets the streak — see `routes/cron.ts`'s `/customer-parity`).
 
 **Not wired by C2, flagged for later**:
 - Checkout has no "who is this for" field in the frontend — `intendedForUserId` is accepted by the API (`routes/orders.ts`) but nothing in the UI sends it yet. Belongs to the household/B2B workstream.
