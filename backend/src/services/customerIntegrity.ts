@@ -1,5 +1,6 @@
 import { db, whoAmI } from '../db/client.js';
 import type { Tx } from '../db/client.js';
+import { firestoreDb } from './firebase-admin.js';
 
 // ── Customer Blueprint · brief C1, Part F (2026-09-27) ────────────────────────
 // Clone of catalogIntegrity.ts's shape. Read-only — this service never writes
@@ -316,6 +317,142 @@ export async function checkNamingConvention(scope: CheckScope = {}): Promise<Cus
   };
 }
 
+// ── Customer Blueprint · brief C2, Part C (2026-09-27) — coexistence
+// comparison. Checks 10-12 are always informational: dual-write means the
+// two stores are expected to agree once the backfill has run, but a
+// disagreement here is a signal for the daily comparison, never a boot
+// failure. Each cross-references live Firestore against the fact tables, so
+// unlike checks 1-9 these are genuinely slow-ish (collection-group scans) —
+// acceptable at today's volumes (Task 0, 2026-09-27: 0 feedback_events, 1
+// brew_profile, 28 dial_events); C3 revisits if volume grows. ────────────────
+
+async function profileIdsByFirebaseUid(runner: Tx | typeof db, uids: string[]): Promise<Map<string, string>> {
+  if (!uids.length) return new Map();
+  const result = await runner.query<{ id: string; firebase_uid: string }>(
+    `SELECT id, firebase_uid FROM user_profile WHERE firebase_uid = ANY($1::text[])`,
+    [uids]
+  );
+  return new Map(result.rows.map(r => [r.firebase_uid, r.id]));
+}
+
+// ── 10. Feedback parity ────────────────────────────────────────────────────
+export async function checkFeedbackParity(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  const runner = scope.tx ?? db;
+  const feedbackSnap = await firestoreDb.collectionGroup('feedback_events').get();
+  const fsCountByUid = new Map<string, number>();
+  for (const doc of feedbackSnap.docs) {
+    if (doc.data().supersededAt != null) continue;
+    const uid = doc.ref.parent.parent!.id;
+    fsCountByUid.set(uid, (fsCountByUid.get(uid) ?? 0) + 1);
+  }
+  const uidToProfile = await profileIdsByFirebaseUid(runner, [...fsCountByUid.keys()]);
+
+  const sqlResult = await runner.query<{ user_id: string; n: string }>(
+    `SELECT cfe.user_id, COUNT(*)::int AS n
+     FROM customer_feedback_event cfe
+     WHERE NOT EXISTS (SELECT 1 FROM customer_feedback_event y WHERE y.supersedes_id = cfe.id)
+     GROUP BY cfe.user_id`
+  );
+  const sqlCountByProfile = new Map(sqlResult.rows.map(r => [r.user_id, Number(r.n)]));
+
+  const profileIds = new Set([...uidToProfile.values(), ...sqlCountByProfile.keys()]);
+  const details: string[] = [];
+  for (const profileId of profileIds) {
+    const uid = [...uidToProfile.entries()].find(([, p]) => p === profileId)?.[0];
+    const fsCount = uid ? (fsCountByUid.get(uid) ?? 0) : 0;
+    const sqlCount = sqlCountByProfile.get(profileId) ?? 0;
+    if (fsCount !== sqlCount) details.push(`profile ${profileId}: Firestore ${fsCount} vs SQL ${sqlCount}`);
+  }
+  return {
+    id: 10,
+    name: 'Feedback parity: Firestore feedback_events (non-superseded) vs customer_feedback_event (informational)',
+    pass: true,
+    expected: 'n/a — coexistence comparison; zero disagreements expected once the backfill has run',
+    actual: details.length === 0 ? 'no disagreements' : `${details.length} profile(s) disagree`,
+    details: details.length ? details.slice(0, 10) : undefined,
+    severity: 'info',
+  };
+}
+
+// ── 11. Brew profile parity ────────────────────────────────────────────────
+export async function checkBrewProfileParity(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  const runner = scope.tx ?? db;
+  const metadataSnap = await firestoreDb.collectionGroup('metadata').get();
+  const brewProfileDocs = metadataSnap.docs.filter(d => d.id === 'brew_profile');
+  const uids = brewProfileDocs.map(d => d.ref.parent.parent!.id);
+  const uidToProfile = await profileIdsByFirebaseUid(runner, uids);
+
+  const details: string[] = [];
+  for (const doc of brewProfileDocs) {
+    const uid = doc.ref.parent.parent!.id;
+    const profileId = uidToProfile.get(uid);
+    if (!profileId) { details.push(`uid ${uid}: brew_profile doc exists, no user_profile row`); continue; }
+
+    const data = doc.data();
+    const fields = Object.keys(data).filter(f => f !== 'updatedAt');
+    const latestResult = await runner.query<{ field: string; value: string }>(
+      `SELECT DISTINCT ON (field) field, value FROM customer_brew_profile_change
+       WHERE user_id = $1 AND op <> 'clear' ORDER BY field, occurred_at DESC`,
+      [profileId]
+    );
+    const latestByField = new Map(latestResult.rows.map(r => [r.field, r.value]));
+
+    for (const field of fields) {
+      const fsValue = JSON.stringify((data[field] as { value?: unknown })?.value ?? null);
+      const sqlValue = latestByField.get(field);
+      if (sqlValue === undefined) { details.push(`profile ${profileId}: field '${field}' in Firestore, no change row`); continue; }
+      if (sqlValue !== fsValue) details.push(`profile ${profileId}: field '${field}' Firestore=${fsValue} vs latest change=${sqlValue}`);
+      latestByField.delete(field);
+    }
+    for (const field of latestByField.keys()) details.push(`profile ${profileId}: field '${field}' has a change row, not in Firestore doc`);
+  }
+
+  return {
+    id: 11,
+    name: 'Brew profile parity: Firestore brew_profile doc vs latest customer_brew_profile_change per field (informational)',
+    pass: true,
+    expected: 'n/a — coexistence comparison; zero disagreements expected once the backfill has run',
+    actual: details.length === 0 ? 'no disagreements' : `${details.length} disagreement(s)`,
+    details: details.length ? details.slice(0, 10) : undefined,
+    severity: 'info',
+  };
+}
+
+// ── 12. Dial parity ─────────────────────────────────────────────────────────
+export async function checkDialParity(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  const runner = scope.tx ?? db;
+  const dialSnap = await firestoreDb.collectionGroup('dial_events').get();
+  const fsCountByUid = new Map<string, number>();
+  for (const doc of dialSnap.docs) {
+    const uid = doc.ref.parent.parent!.id;
+    fsCountByUid.set(uid, (fsCountByUid.get(uid) ?? 0) + 1);
+  }
+  const uidToProfile = await profileIdsByFirebaseUid(runner, [...fsCountByUid.keys()]);
+
+  const sqlResult = await runner.query<{ user_id: string; n: string }>(
+    `SELECT user_id, COUNT(*)::int AS n FROM customer_dial_event GROUP BY user_id`
+  );
+  const sqlCountByProfile = new Map(sqlResult.rows.map(r => [r.user_id, Number(r.n)]));
+
+  const profileIds = new Set([...uidToProfile.values(), ...sqlCountByProfile.keys()]);
+  const details: string[] = [];
+  for (const profileId of profileIds) {
+    const uid = [...uidToProfile.entries()].find(([, p]) => p === profileId)?.[0];
+    const fsCount = uid ? (fsCountByUid.get(uid) ?? 0) : 0;
+    const sqlCount = sqlCountByProfile.get(profileId) ?? 0;
+    if (fsCount !== sqlCount) details.push(`profile ${profileId}: Firestore ${fsCount} vs SQL ${sqlCount}`);
+  }
+  return {
+    id: 12,
+    name: 'Dial parity: Firestore dial_events count vs customer_dial_event count per profile (informational)',
+    pass: true,
+    expected: 'n/a — coexistence comparison; zero disagreements expected once the backfill has run',
+    actual: details.length === 0 ? 'no disagreements' : `${details.length} profile(s) disagree`,
+    details: details.length ? details.slice(0, 10) : undefined,
+    severity: 'info',
+  };
+}
+
 export async function runCustomerIntegrityChecks(scope: CheckScope = {}): Promise<CustomerIntegrityReport> {
   const checks = [
     await checkGrantCoverage(scope),
@@ -327,6 +464,9 @@ export async function runCustomerIntegrityChecks(scope: CheckScope = {}): Promis
     await checkDeadTablesEmpty(scope),
     await checkOrderKindPopulated(scope),
     await checkNamingConvention(scope),
+    await checkFeedbackParity(scope),
+    await checkBrewProfileParity(scope),
+    await checkDialParity(scope),
   ];
   return {
     ranAt: new Date().toISOString(),

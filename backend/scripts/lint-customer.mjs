@@ -185,19 +185,26 @@ const RULE3_PERMANENT = [
 // Exact sites found in Task 0 (2026-09-27), not just the brief's own rough
 // bucket list — grepped `\.(set|add|update)\(` over src/**/*.ts excluding
 // tests, then traced each to its Firestore path by hand (see the closing
-// report for the full table). `until C2` = feedback/brew/dial/confidence
-// (and liam_saves — the brief's bucket list didn't name it; grouped here by
-// analogy with dial/Liam-action facts). `until C3` = taste_journey/user
-// doc/quiz_sessions copy/evaluations.
+// report for the full table). Customer Blueprint C2 (2026-09-27) relabels
+// every `until C2` note to `until C3`, per its own Part D instruction — dual-
+// write now exists for feedback/brew/dial (routes/orders.ts,
+// services/liamSmsFeedback.ts, routes/users.ts, routes/sommelier.ts's
+// resolveRemember), but the OLD Firestore writer stays exactly where it is
+// until C3 retires it. Two of these seven never actually gained a C2 writer
+// (services/behavioralConfidence.ts's confidence_profile — no fact table for
+// it exists at all; routes/users.ts's liam_saves sub-note — C2's real scope
+// never touched it, "C2" was only ever an analogy in C1) — relabeled to
+// `until C3` anyway per the brief's literal instruction, flagged here and in
+// the C2 closing report rather than silently left as a stale `until C2`.
 const RULE3_ALLOWLIST = [
   { file: 'routes/quiz.ts', note: 'until C3' },
-  { file: 'routes/orders.ts', note: 'until C2/C3 (user doc -> C3, feedback/confidence -> C2)' },
-  { file: 'routes/users.ts', note: 'until C2/C3 (user doc -> C3, dial/liam_saves/brew -> C2)' },
-  { file: 'services/behavioralConfidence.ts', note: 'until C2' },
-  { file: 'services/liamSmsFeedback.ts', note: 'until C2' },
+  { file: 'routes/orders.ts', note: 'until C3 (user doc, feedback/confidence)' },
+  { file: 'routes/users.ts', note: 'until C3 (user doc, dial/liam_saves/brew)' },
+  { file: 'services/behavioralConfidence.ts', note: 'until C3' },
+  { file: 'services/liamSmsFeedback.ts', note: 'until C3' },
   { file: 'services/sommelierEvaluator.ts', note: 'until C3' },
   { file: 'services/outcomeTracker.ts', note: 'until C3' },
-  { file: 'routes/sommelier.ts', note: 'until C2 (resolveRemember -> brew_profile) / until C3 (evaluations)' },
+  { file: 'routes/sommelier.ts', note: 'until C3 (resolveRemember -> brew_profile; evaluations)' },
   { file: 'services/tokenService.ts', note: 'until C3 (user doc tokenBalance sync)' },
 ];
 function isRule3Allowed(relPath) {

@@ -6,6 +6,8 @@ import { computeBehavioralConfidence } from './behavioralConfidence.js';
 import { refreshLifecycleState } from './userLifecycle.js';
 import { writeDialPositionSignal } from './dialPositionSignal.js';
 import { guardClaudeCall } from './anthropicGuard.js';
+import { record } from './customerFacts.js';
+import { latestFeedbackEventForOrder, orderLineForOrder } from './customerReads.js';
 
 const anthropic = new Anthropic();
 
@@ -297,6 +299,30 @@ Respond with JSON only, no explanation: { "sentiment": "...", "rating": N, "desc
      WHERE id = $1`,
     [inboundRowId, parsedRating, parsedSentiment, JSON.stringify(parsedDescriptors), firestoreDocId]
   );
+
+  // Customer Blueprint C2, Part A1 — dual-write into customer_feedback_event.
+  // No provider message sid is available anywhere in this function's scope
+  // (Task 0, 2026-09-27) — sourceId falls back to inboundRowId, the
+  // sommelier_sms_feedback row id, per the brief's own fallback. No
+  // descriptors (SMS has none, unlike onsite's tastedNoteIds chips). Never
+  // fails the reply-processing job: the SQL/Firestore writes above already landed.
+  if (outboundRow.order_id && outboundRow.blend_id) {
+    try {
+      const blendResult = await db.query(`SELECT coffee_id FROM coffee_sku WHERE id = $1`, [outboundRow.blend_id]);
+      const coffeeId: number | undefined = blendResult.rows[0]?.coffee_id;
+      if (coffeeId) {
+        const orderLineItemId = await orderLineForOrder(outboundRow.order_id);
+        const supersedesId = await latestFeedbackEventForOrder(outboundRow.user_id, outboundRow.order_id);
+        await record.feedback({
+          userId: outboundRow.user_id, source: 'sms', sourceId: inboundRowId,
+          orderLineItemId, coffeeId, rating: parsedRating, expectation: parsedExpectation, rawText: inboundBody,
+          channel: 'sms', supersedesId,
+        });
+      }
+    } catch (err) {
+      console.error('[customerFacts:feedback]', err);
+    }
+  }
 
   // If negative: flag confidence_profile so RECOMMENDATION_MISS fires on next session
   if (parsedSentiment === 'negative') {

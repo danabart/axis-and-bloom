@@ -219,6 +219,27 @@ Found running the full `npm test` suite as part of Customer Blueprint C1's Part 
 
 ---
 
+### OT-20: Customer Blueprint C3 retirement list (added 2026-09-27, C2 Part D)
+
+Once C2's dual-write has run clean for the agreed comparison period (14 days, Dana may shorten it — checked via `[customer-parity]` days-clean in the Cloud Run logs / `GET /api/admin/customer/integrity` checks 10-12), C3 retires:
+
+- Firestore `feedback_events` writer (`routes/orders.ts`, `services/liamSmsFeedback.ts`) — `customer_feedback_event`/`customer_feedback_descriptor` become the only store.
+- Firestore `users/{uid}/metadata/brew_profile` writer (`routes/users.ts`, `routes/sommelier.ts`'s `resolveRemember()`) — `customer_brew_profile_change` becomes the only store (C3 also needs a "current value per field" read, not just the change log).
+- Firestore `users/{uid}/dial_events` writer (`routes/users.ts`) — `customer_dial_event` becomes the only store.
+- `user_flavor_feedback`'s `DELETE ... ; INSERT ...` revision pattern (`routes/orders.ts`) — superseded by `customer_feedback_descriptor`, which never deletes.
+- The synthetic sign-up `saveQuizSession(..., claimedFrom: 'newsletter_subscriber')` call (`routes/auth.ts`) — once reads resolve identity via `customer_identity_link` instead of a copied session.
+
+**Earliest retirement date: 2026-10-11** (14 days after 2026-09-27, if the backfill's `--apply` runs today and the comparison starts clean from day 0 — actual date depends on when Part B's backfills actually land and when the daily parity cron first reports zero disagreements).
+
+**Not wired by C2, flagged for later**:
+- Checkout has no "who is this for" field in the frontend — `intendedForUserId` is accepted by the API (`routes/orders.ts`) but nothing in the UI sends it yet. Belongs to the household/B2B workstream.
+- `order_kind: 'subscription_renewal'` has no writer — waits for Shopify subscriptions to exist at all.
+- `order_kind: 'gift_redemption'` has no writer — no code path creates an order through a company-gift context today (`companyGiftRedemption.ts` only ever writes `subscription`).
+- `order_kind: 'liam_followed'` is L1-L3's job (derived from `customer_liam_recommendation` at read time), not written at checkout.
+- `record.identityLink`'s `household_claim`/`admin` `how` values have no caller — no UI exists for either yet.
+
+---
+
 ## 📋 Log
 
 | Date | Task | Status |

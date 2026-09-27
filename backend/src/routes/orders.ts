@@ -11,6 +11,8 @@ import { computeBehavioralConfidence } from '../services/behavioralConfidence.js
 import { writeDialPositionSignal } from '../services/dialPositionSignal.js';
 import { dispatchOrderPlacedBeat, dispatchDelayedBeats } from '../services/beatEngine.js';
 import { getBrewProfile } from './sommelier.js';
+import { record } from '../services/customerFacts.js';
+import { latestFeedbackEventForOrder, orderLineForOrder } from '../services/customerReads.js';
 
 const router = Router();
 
@@ -34,11 +36,47 @@ router.post('/', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) 
 
   try {
     const profileResult = await db.query(
-      `SELECT id FROM user_profile WHERE firebase_uid = $1`,
+      `SELECT id, household_id FROM user_profile WHERE firebase_uid = $1`,
       [req.uid]
     );
     const userId = profileResult.rows[0]?.id;
+    const buyerHouseholdId: string | null = profileResult.rows[0]?.household_id ?? null;
     if (!userId) { res.status(404).json({ error: 'User profile not found' }); return; }
+
+    // Customer Blueprint C2, Part A4 — intendedForUserId per line, validated
+    // against the buyer's own profile or a household member. This route
+    // never sets "order".household_id itself (confirmed, Task 0: this whole
+    // file has no reference to it) and there is no company-gift order path
+    // (companyGiftRedemption.ts only ever writes `subscription`, never
+    // `order`/`order_line_item`) — so D7's "neither household nor company-
+    // sponsored" branch is unconditionally true for every order this route
+    // creates today, and the default below always fires unless the client
+    // passes an explicit intendedForUserId.
+    let requestedIntendedForUserId: string | null | undefined;
+    if (req.body.items?.some((it: any) => it.intendedForUserId !== undefined)) {
+      const candidates = new Set((req.body.items as any[]).map(it => it.intendedForUserId).filter(v => v !== undefined));
+      if (candidates.size > 1) {
+        res.status(400).json({ error: 'intendedForUserId must be the same for every line in one order' });
+        return;
+      }
+      requestedIntendedForUserId = [...candidates][0] ?? null;
+      if (requestedIntendedForUserId) {
+        const isSelf = requestedIntendedForUserId === userId;
+        const isHouseholdMember = buyerHouseholdId
+          ? (await db.query(`SELECT 1 FROM user_profile WHERE id = $1 AND household_id = $2`, [requestedIntendedForUserId, buyerHouseholdId])).rows.length > 0
+          : false;
+        if (!isSelf && !isHouseholdMember) {
+          res.status(400).json({ error: 'intendedForUserId must be the buyer or a member of the buyer\'s household' });
+          return;
+        }
+      }
+    }
+    const orderHasHousehold = false; // this route never sets "order".household_id (Task 0 finding)
+    const orderHasCompanyGiftContext = false; // no company-gift order-creation path exists (Task 0 finding)
+    const intendedForUserId: string | null =
+      requestedIntendedForUserId !== undefined
+        ? requestedIntendedForUserId
+        : (!orderHasHousehold && !orderHasCompanyGiftContext ? userId : null);
 
     // Resolve each item to a concrete roaster_blend before charging or creating anything
     // downstream. An item can specify a direct blendId/variantId (unchanged, existing
@@ -180,10 +218,15 @@ router.post('/', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) 
       // columns, no new tables, just finally using the one that was already
       // there for exactly this purpose.
       const discountAmount = (item.discountCents ?? 0) / 100;
+      // Customer Blueprint C2, Part A4 — intended_for_user_id (D7) and
+      // order_kind. 'gift_redemption'/'subscription_renewal'/'liam_followed'
+      // have no writer yet (Task 0: no code path creates an order through a
+      // company-gift context; renewals wait for Shopify; liam_followed is
+      // L3's job, derived at read time) — 'manual' is the only reachable value.
       await db.query(
-        `INSERT INTO order_line_item (order_id, blend_id, quantity, unit_price_charged, discount_amount)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [orderId, item.blendId, item.quantity, unitPrice, discountAmount]
+        `INSERT INTO order_line_item (order_id, blend_id, quantity, unit_price_charged, discount_amount, intended_for_user_id, order_kind)
+         VALUES ($1, $2, $3, $4, $5, $6, 'manual')`,
+        [orderId, item.blendId, item.quantity, unitPrice, discountAmount, intendedForUserId]
       );
     }
 
@@ -432,7 +475,7 @@ router.post('/:orderId/feedback', requireAuth, blockAnonymousAuth, async (req: A
       await activeDoc.ref.update({ supersededAt: FieldValue.serverTimestamp() });
     }
 
-    await firestoreDb.collection(`users/${req.uid}/feedback_events`).add({
+    const feedbackDocRef = await firestoreDb.collection(`users/${req.uid}/feedback_events`).add({
       orderId,
       blendId,
       signalType: 'onsite_feedback',
@@ -471,6 +514,7 @@ router.post('/:orderId/feedback', requireAuth, blockAnonymousAuth, async (req: A
     // append-only audit trail (that trail already lives in feedback_events).
     if (profileId) {
       if (isRevision) {
+        // C3 removes this store.
         await db.query(`DELETE FROM user_flavor_feedback WHERE user_id = $1 AND order_id = $2`, [profileId, orderId]);
       }
       if (noteIds.length && coffeeId) {
@@ -506,6 +550,31 @@ router.post('/:orderId/feedback', requireAuth, blockAnonymousAuth, async (req: A
     }
     if (coffeeId) {
       await writeDialPositionSignal({ coffeeId, expectation: expectation ?? null, source: 'onsite_feedback', notes: signalNote });
+    }
+
+    // Customer Blueprint C2, Part A1 — dual-write into customer_feedback_event
+    // (+ one customer_feedback_descriptor per tasted note). Never fails the
+    // request: the Firestore/SQL writes above are the ones that matter today.
+    if (profileId && coffeeId) {
+      try {
+        const orderLineItemId = await orderLineForOrder(orderId);
+        if (!orderLineItemId) {
+          console.warn('[customerFacts:feedback] multi-line order, line unattributed', { orderId });
+        }
+        const supersedesId = isRevision ? await latestFeedbackEventForOrder(profileId, orderId) : null;
+        const { id: feedbackEventId } = await record.feedback({
+          userId: profileId, source: 'onsite', sourceId: feedbackDocRef.id,
+          orderLineItemId, coffeeId, rating, expectation: expectation ?? null, rawText: note ?? null,
+          channel: 'onsite', supersedesId,
+        });
+        if (feedbackEventId) {
+          for (const noteId of noteIds) {
+            await record.feedbackDescriptor({ userId: profileId, source: 'onsite', feedbackEventId, cuppingNoteId: noteId });
+          }
+        }
+      } catch (err) {
+        console.error('[customerFacts:feedback]', err);
+      }
     }
 
     res.json({ ok: true, revised: isRevision });

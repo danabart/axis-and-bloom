@@ -16,6 +16,7 @@ import { chatWithSommelier } from '../services/claude.js';
 import { isClaudeGuardBlocked } from '../services/anthropicGuard.js';
 import { getSommelierConfig } from '../services/sommelierConfig.js';
 import { routeTopic } from '../services/topicRouter.js';
+import { record } from '../services/customerFacts.js';
 import {
   getBrewProfileFieldsConfig,
   validateSingleValue,
@@ -381,7 +382,12 @@ export async function getBrewProfile(uid: string): Promise<BrewProfileDoc | null
 // field or a value outside the whitelist is dropped and logged, not written.
 // Write rule 3: every attempt — success or failure — increments an
 // admin-visible counter, never a silent fire-and-forget.
-export async function resolveRemember(uid: string, rememberOps: Array<{ field: string; rawValue: string }>): Promise<void> {
+export async function resolveRemember(
+  uid: string,
+  rememberOps: Array<{ field: string; rawValue: string }>,
+  sessionId: number,
+  turn: number
+): Promise<void> {
   if (!rememberOps.length) return;
   const fieldsCfg = getBrewProfileFieldsConfig();
   const docRef = firestoreDb.doc(`users/${uid}/metadata/brew_profile`);
@@ -395,6 +401,11 @@ export async function resolveRemember(uid: string, rememberOps: Array<{ field: s
   }
 
   const updates: Record<string, unknown> = {};
+  // Customer Blueprint C2, Part A2 — one accepted op per field, tracked
+  // alongside `updates` (which is itself keyed by field, so at most one op
+  // per field per call regardless). Ops dropped by validation above never
+  // reach this list — they never became a fact.
+  const accepted: Array<{ field: string; op: 'add' | 'set'; value: unknown }> = [];
   let anyValid = false;
 
   for (const rawOp of rememberOps) {
@@ -421,8 +432,10 @@ export async function resolveRemember(uid: string, rememberOps: Array<{ field: s
       const maxLen = fieldCfg.maxLength ?? 10;
       const nextArr = [...existingArr, validated as string].slice(-maxLen);
       updates[field] = { value: nextArr, source: 'conversation', capturedAt: FieldValue.serverTimestamp() };
+      accepted.push({ field, op: 'add', value: validated });
     } else {
       updates[field] = { value: validated, source: 'conversation', capturedAt: FieldValue.serverTimestamp() };
+      accepted.push({ field, op: 'set', value: validated });
     }
     anyValid = true;
   }
@@ -435,6 +448,26 @@ export async function resolveRemember(uid: string, rememberOps: Array<{ field: s
   } catch (err) {
     console.error('[resolveRemember] write failed', err);
     await incrementBrewProfileCounter('failures');
+    return; // Firestore write failed — don't record facts for ops that never landed.
+  }
+
+  // Customer Blueprint C2, Part A2 — dual-write into customer_brew_profile_change,
+  // one row per accepted op. Never fails the turn: the Firestore write above
+  // already succeeded and is what the customer-facing behavior depends on.
+  try {
+    const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [uid]);
+    const profileId = profileResult.rows[0]?.id;
+    if (profileId) {
+      for (const op of accepted) {
+        const sourceId = `${sessionId}:${turn}:${op.field}:${op.value}`;
+        await record.brewProfileChange({
+          userId: profileId, source: 'liam', sourceId, sessionId,
+          field: op.field as any, op: op.op, value: JSON.stringify(op.value),
+        });
+      }
+    }
+  } catch (err) {
+    console.error('[customerFacts:brew-profile]', err);
   }
 }
 
@@ -788,7 +821,7 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
     // The prompt instructs Liam never to use a marker on the opening turn, but
     // resolve defensively anyway rather than assuming the instruction always holds.
     const openingActions = await resolveActions(openingActionTypes, req.uid!, archetypeKey, openingSaveRecipeTitle);
-    await resolveRemember(req.uid!, openingRememberOps);
+    await resolveRemember(req.uid!, openingRememberOps, newSessionId, 0);
     await resolveCard(openingCardMarker, req.uid!, entryCoffeeId, entryMethod, brewProfile, 'Begin the conversation.');
 
     // Save opening message to Firestore
@@ -1053,7 +1086,7 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
     }
     const { reply, modelUsed, actionTypes, saveRecipeTitle, rememberOps, cardMarker } = chatResult;
     const actions = await resolveActions(actionTypes, req.uid!, ctx.archetypeKey ?? null, saveRecipeTitle);
-    await resolveRemember(req.uid!, rememberOps);
+    await resolveRemember(req.uid!, rememberOps, sessionId, session.turn_count);
     await resolveCard(cardMarker, req.uid!, entryCoffeeId, entryMethod, brewProfile, message);
 
     if (!gatingEnabled) {

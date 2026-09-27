@@ -267,26 +267,30 @@ One writer per fact, via a named service function (house rule, see `backend/src/
 
 ---
 
-### Customer ownership table (Customer Blueprint C1, 2026-09-27)
+### Customer ownership table (Customer Blueprint C1, 2026-09-27; writers filled by C2, 2026-09-27)
 
 Naming convention (Dana, 2026-09-26/27): `coffee_*` = catalog (master data); `customer_*` = a fact about a customer, append-only by definition; no prefix = operating table (mutable, runs the system); `v_customer_*` = one customer's facts or current state, joined (C3); `v_palate_*` = a versioned read over facts (C3). `quiz_session`, `quiz_session_interpretation`, `"order"` and `order_line_item` keep their names and are facts too, listed explicitly in the grant block above rather than renamed.
 
-Every table below is empty (DDL only) as of C1 — no writer is wired except `catalog_change` (Part D). All are append-only: `INSERT ... ON CONFLICT (source, source_id) DO NOTHING`, no UPDATE or DELETE, enforced by the `ab_app` grants above once Part G cuts over.
+Every fact table below is now live-written by C2 except the three Liam-specific ones (`customer_liam_recommendation`/`question`/`reply`/`action`, still waiting on L1-L3) — all still append-only: `INSERT ... ON CONFLICT (source, source_id) DO NOTHING`, no UPDATE or DELETE, enforced by the `ab_app` grants. C2 is dual-write only: every row's old store (Firestore or a mutable SQL table) is still written too, unchanged, until C3's 14-clean-day comparison period ends.
 
 | Table | Class | Writer | Readers |
 |---|---|---|---|
-| `customer_identity_link` | fact | none yet (C2/C3) | none yet (C3) |
-| `customer_feedback_event` | fact | none yet (C2) | none yet (C3) |
-| `customer_feedback_descriptor` | fact | none yet (C2) | none yet (C3) |
-| `customer_brew_profile_change` | fact | none yet (C2) | none yet (C3) |
-| `customer_dial_event` | fact | none yet (C2) | none yet (C3) |
-| `customer_liam_recommendation` | fact | none yet (C2/L3) | none yet (C3) |
-| `customer_liam_question` | fact | none yet (C2/L3) | none yet (C3) |
-| `customer_liam_reply` | fact | none yet (C2/L3) | none yet (C3) |
-| `customer_liam_action` | fact | none yet (C2/L3) | none yet (C3) |
-| `customer_bag_claim` | fact | none yet (C2) | none yet (C3) |
+| `customer_identity_link` | fact | `customerFacts.record.identityLink`, called from `routes/auth.ts`'s sign-up claim block (C2, Part A6, `how: 'email_match'` only — `household_claim`/`admin` supported, no caller yet) | none yet (C3) |
+| `customer_feedback_event` | fact | `customerFacts.record.feedback`, called from `routes/orders.ts` POST feedback (`channel: 'onsite'`) and `services/liamSmsFeedback.ts` (`channel: 'sms'`) (C2, Part A1) | none yet (C3) |
+| `customer_feedback_descriptor` | fact | `customerFacts.record.feedbackDescriptor`, one per tasted note, called alongside `customer_feedback_event` from `routes/orders.ts` only (SMS feedback has no descriptors) (C2, Part A1) | none yet (C3) |
+| `customer_brew_profile_change` | fact | `customerFacts.record.brewProfileChange`, called from `routes/users.ts` PATCH/DELETE `/brew-profile` (`source: 'onsite'`) and `routes/sommelier.ts`'s `resolveRemember()` (`source: 'liam'`) (C2, Part A2) | none yet (C3) |
+| `customer_dial_event` | fact | `customerFacts.record.dialEvent`, called from `routes/users.ts` PATCH `/dial-position` (C2, Part A3) | none yet (C3) |
+| `customer_liam_recommendation` | fact | none yet (L1-L3) | none yet (C3) |
+| `customer_liam_question` | fact | none yet (L1-L3) | none yet (C3) |
+| `customer_liam_reply` | fact | none yet (L1-L3) | none yet (C3) |
+| `customer_liam_action` | fact | none yet (L1-L3) | none yet (C3) |
+| `customer_bag_claim` | fact | `customerFacts.record.bagClaim`, called from `routes/qr.ts`'s coffee-token `authState === 'owner'` scan site only — the universal-token owner site has no single coffee to attribute a claim to (`coffee_id` is `NOT NULL`), deliberately skipped (C2, Part A5) | none yet (C3) |
 | `catalog_change` | fact (no `user_id` — about the catalog, not a customer) | `customerFacts.record.catalogChange`, called from every write verb in `catalogService.ts` (Part D) | `services/customerReads.ts` (reserved; no exports yet), `services/customerIntegrity.ts` check 6 |
-| `customer_order_kind` | dimension, not a fact (D18) | seeded once in `schema.sql`; `orders.ts` unchanged this brief | `order_line_item.order_kind` FK |
+| `customer_order_kind` | dimension, not a fact (D18) | seeded once in `schema.sql` | `order_line_item.order_kind` FK |
+
+**`order_line_item.intended_for_user_id` and `.order_kind`** (C2, Part A4): now written by `routes/orders.ts` at checkout. `intended_for_user_id` defaults to the buyer's own profile id whenever the client doesn't pass one explicitly — `"order".household_id` is never set anywhere in this route (confirmed, zero references), so D7's "neither household nor company-sponsored" condition is unconditionally true today, meaning the default fires for every order. `order_kind` is always `'manual'` — no code path creates an order through a company-gift context (`companyGiftRedemption.ts` only ever writes `subscription`), so `'gift_redemption'` has no reachable writer; `'subscription_renewal'` waits for Shopify, `'liam_followed'` is L3's job (derived at read time from `customer_liam_recommendation`, never written at checkout).
+
+**`newsletter_subscriber`**: unchanged as a store, but the sign-up claim path (`routes/auth.ts`) now also writes `customer_identity_link` when `newsletter_subscriber.user_id` is set and differs from the newly-created profile — see `customer_identity_link`'s writer above.
 
 Every `customer_*` table (minus `customer_feedback_descriptor`, which the brief specifies without `catalog_version`) carries the same seven leading columns: `id UUID PK`, `user_id UUID NOT NULL REFERENCES user_profile(id)` (D15 — never `firebase_uid` or email), `occurred_at`/`recorded_at TIMESTAMPTZ` (database clock; app code sets `occurred_at` only through a fact's `.backfill()` variant, owner-only), `source TEXT`, `source_id TEXT` (idempotency key with `source`, D17), `catalog_version TEXT` (via `getCatalogVersion()`, D16). `catalog_change` has no `user_id`, plus `changed_by TEXT`.
 

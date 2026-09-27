@@ -6,6 +6,7 @@ import { db } from '../db/client.js';
 import { getSommelierConfig } from '../services/sommelierConfig.js';
 import { saveQuizSession } from '../services/quizSession.js';
 import { refreshLifecycleState } from '../services/userLifecycle.js';
+import { record } from '../services/customerFacts.js';
 
 const router = Router();
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -61,13 +62,29 @@ router.post('/sync', requireAuth, async (req: AuthRequest, res) => {
         );
         if (existing.rowCount === 0) {
           const subscriber = await db.query(
-            `SELECT archetype, experimental, confidence, quiz_session_key
+            `SELECT user_id, archetype, experimental, confidence, quiz_session_key
              FROM newsletter_subscriber
              WHERE email = LOWER(TRIM($1)) AND archetype IS NOT NULL`,
             [req.email]
           );
           const match = subscriber.rows[0];
           if (match) {
+            // Customer Blueprint C2, Part A6 — identity link, before the
+            // synthetic session below. subscriber.user_id is nullable and,
+            // when set, is the profile that actually took the quiz (often a
+            // guest profile that survived sign-up under a *different*
+            // Firebase account — a second device).
+            if (match.user_id && match.user_id !== profileId) {
+              try {
+                await record.identityLink({
+                  userId: match.user_id, source: 'onsite', sourceId: `${match.user_id}:${profileId}`,
+                  fromUserId: match.user_id, toUserId: profileId, how: 'email_match',
+                });
+              } catch (err) {
+                console.error('[customerFacts:identity-link]', err);
+              }
+            }
+            // C3 removes this synthetic session once reads resolve identity links.
             await saveQuizSession(profileId, match.archetype, {
               archetype: match.archetype,
               experimental: match.experimental ?? false,

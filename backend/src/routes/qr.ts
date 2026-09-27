@@ -13,7 +13,9 @@ import {
   buildBagView,
   resolveUniversalToken,
   hasAnyOrderOrSponsorship,
+  findOwnedOrderLineItem,
 } from '../services/qrDoor.js';
+import { record } from '../services/customerFacts.js';
 
 const router = Router();
 
@@ -51,15 +53,17 @@ async function logScanEvent(
   userId: string | null,
   tokenType: QrTokenType,
   source: string | null
-): Promise<void> {
+): Promise<number | null> {
   try {
-    await db.query(
+    const result = await db.query<{ id: number }>(
       `INSERT INTO qr_scan_event (token, coffee_id, auth_state, destination, user_id, token_type, source)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
       [token, coffeeId, authState, destination, userId, tokenType, source]
     );
+    return result.rows[0]?.id ?? null;
   } catch (err) {
     console.error('[qr] scan event log failed:', err);
+    return null;
   }
 }
 
@@ -126,7 +130,26 @@ router.get('/:token/resolve', qrResolveLimiter, optionalAuth, async (req: AuthRe
 
       const brewProfile = await getBrewProfile(req.uid!);
       const bagView = await buildBagView(profileId!, coffeeId, brewProfile);
-      await logScanEvent(token, coffeeId, 'owner', 'bag_view', profileId, 'coffee', null);
+      const scanEventId = await logScanEvent(token, coffeeId, 'owner', 'bag_view', profileId, 'coffee', null);
+      // Customer Blueprint C2, Part A5 — dual-write into customer_bag_claim.
+      // Coffee-token owner scans only: the universal-token owner path below
+      // has no single coffee to attribute a claim to (it's an account-level
+      // "you have some bag" check via hasAnyOrderOrSponsorship(), not tied to
+      // one coffee) — customer_bag_claim.coffee_id is NOT NULL, so that path
+      // is deliberately skipped (Task 0, approved). A second scan of the same
+      // bag is a new scan event and a new claim row (different sourceId); C3's
+      // attribution read takes the earliest.
+      if (scanEventId !== null) {
+        try {
+          const orderLineItemId = await findOwnedOrderLineItem(profileId!, coffeeId);
+          await record.bagClaim({
+            userId: profileId!, source: 'qr', sourceId: String(scanEventId),
+            qrScanEventId: scanEventId, coffeeId, orderLineItemId,
+          });
+        } catch (err) {
+          console.error('[customerFacts:bag-claim]', err);
+        }
+      }
       res.json({ status: 'owner', coffeeId, displayName: bagView.displayName, card: bagView.card });
       return;
     }

@@ -352,6 +352,22 @@ export interface OwnershipResult {
   profileId: string | null;
 }
 
+// Customer Blueprint C2, Part A5 — the single order_line_item a bag-claim
+// scan attributes to, when exactly one exists (personal or sponsored, same
+// two conditions checkPersonalOrderOwnership/checkSponsorshipOwnership check
+// separately). Null when zero or more than one match — an ambiguous claim
+// records no line rather than guessing.
+export async function findOwnedOrderLineItem(profileId: string, coffeeId: number): Promise<string | null> {
+  const result = await db.query<{ id: string }>(
+    `SELECT li.id FROM order_line_item li
+     LEFT JOIN "order" o ON o.id = li.order_id
+     JOIN coffee_sku rb ON rb.id = li.blend_id
+     WHERE rb.coffee_id = $2 AND (o.user_id = $1 OR li.intended_for_user_id = $1)`,
+    [profileId, coffeeId]
+  );
+  return result.rows.length === 1 ? result.rows[0].id : null;
+}
+
 export async function resolveOwnership(uid: string, coffeeId: number): Promise<OwnershipResult> {
   const profileId = await resolveProfileId(uid);
   if (!profileId) return { isOwner: false, profileId: null };

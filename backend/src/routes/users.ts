@@ -13,8 +13,20 @@ import { getUserBrewCards } from '../services/brewCard.js';
 import { getAliases } from '../services/sommelierRag.js';
 import { archetypeCode, archetypeLabel as catalogArchetypeLabel, getCoffees } from '../services/catalogReads.js';
 import { mapJourneyHistory } from '../services/tasteJourney.js';
+import { record } from '../services/customerFacts.js';
+import { createHash } from 'node:crypto';
 
 const router = Router();
+
+// Customer Blueprint C2, Part A2 — source_id for onsite brew-profile changes.
+// res.locals.apiEventId (middleware/apiEventLog.ts) is used when present;
+// this is the documented fallback otherwise (one minute of idempotency for a
+// double submit — a genuine second edit within the same minute is rare for a
+// profile field and, worst case, is a logged duplicate no-op, never a wrong write).
+function brewProfileFallbackSourceId(uid: string, field: string, op: string, value: unknown): string {
+  const hash = createHash('sha1').update(JSON.stringify(value ?? null)).digest('hex');
+  return `${uid}:${field}:${op}:${hash}:${Math.floor(Date.now() / 60000)}`;
+}
 
 // Keyed by archetype_enum (schema.sql) — matches the archetype key format used everywhere
 // else (dial_archetype_config, /api/coffees/archetypes' `archetype` field, etc.), NOT a
@@ -560,15 +572,31 @@ router.patch('/dial-position', requireAuth, async (req: AuthRequest, res) => {
       // snapshot at save time (roaster-blind — see the flavor-memory route
       // below). Neither field trigger-gated: whichever the caller sends is
       // validated and stored, absent otherwise.
-      firestoreDb.collection(`users/${req.uid}/dial_events`).add({
-        trigger,
-        archetype,
-        dialSortOrder,
-        source: DIAL_EVENT_SOURCES.includes(source) ? source : null,
-        coffeeId: Number.isInteger(coffeeId) ? coffeeId : null,
-        platformName: typeof platformName === 'string' && platformName.trim() ? platformName.trim() : null,
-        createdAt: FieldValue.serverTimestamp(),
-      }).catch((err: unknown) => console.error('[dial-position] dial_events log failed:', err));
+      //
+      // Customer Blueprint C2, Part A3 — now awaited (was fire-and-forget)
+      // because customer_dial_event's sourceId is this doc's own id; a
+      // logging failure still never fails the request (own try/catch below).
+      try {
+        const dialEventRef = await firestoreDb.collection(`users/${req.uid}/dial_events`).add({
+          trigger,
+          archetype,
+          dialSortOrder,
+          source: DIAL_EVENT_SOURCES.includes(source) ? source : null,
+          coffeeId: Number.isInteger(coffeeId) ? coffeeId : null,
+          platformName: typeof platformName === 'string' && platformName.trim() ? platformName.trim() : null,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        try {
+          await record.dialEvent({
+            userId: profileId, source: 'onsite', sourceId: dialEventRef.id,
+            eventType: trigger, slotId, coffeeId: Number.isInteger(coffeeId) ? coffeeId : null, archetypeCode: archetype,
+          });
+        } catch (err) {
+          console.error('[customerFacts:dial-event]', err);
+        }
+      } catch (err) {
+        console.error('[dial-position] dial_events log failed:', err);
+      }
     }
 
     res.json({ ok: true });
@@ -1011,6 +1039,19 @@ router.patch('/brew-profile', requireAuth, blockAnonymousAuth, async (req: AuthR
       { merge: true }
     );
     await incrementBrewProfileCounter('writes');
+
+    // Customer Blueprint C2, Part A2 — dual-write into customer_brew_profile_change.
+    try {
+      const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]);
+      const profileId = profileResult.rows[0]?.id;
+      if (profileId) {
+        const sourceId = res.locals.apiEventId ?? brewProfileFallbackSourceId(req.uid!, field, 'set', validatedValue);
+        await record.brewProfileChange({ userId: profileId, source: 'onsite', sourceId, field: field as any, op: 'set', value: JSON.stringify(validatedValue) });
+      }
+    } catch (err) {
+      console.error('[customerFacts:brew-profile]', err);
+    }
+
     res.json({ ok: true, field, value: validatedValue });
   } catch (err) {
     console.error('[PATCH /api/users/brew-profile]', err);
@@ -1037,6 +1078,19 @@ router.delete('/brew-profile', requireAuth, blockAnonymousAuth, async (req: Auth
       { merge: true }
     );
     await incrementBrewProfileCounter('writes');
+
+    // Customer Blueprint C2, Part A2 — dual-write into customer_brew_profile_change.
+    try {
+      const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]);
+      const profileId = profileResult.rows[0]?.id;
+      if (profileId) {
+        const sourceId = res.locals.apiEventId ?? brewProfileFallbackSourceId(req.uid!, field, 'clear', null);
+        await record.brewProfileChange({ userId: profileId, source: 'onsite', sourceId, field: field as any, op: 'clear', value: null });
+      }
+    } catch (err) {
+      console.error('[customerFacts:brew-profile]', err);
+    }
+
     res.json({ ok: true, field });
   } catch (err) {
     console.error('[DELETE /api/users/brew-profile]', err);
