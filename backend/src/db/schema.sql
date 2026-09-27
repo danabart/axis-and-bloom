@@ -847,38 +847,17 @@ CREATE TABLE IF NOT EXISTS sommelier_sms_feedback (
   created_at                TIMESTAMPTZ DEFAULT timezone('utc', now())
 );
 
-CREATE TABLE IF NOT EXISTS user_feedback_event (
-  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id      UUID REFERENCES user_profile(id),
-  order_id     UUID REFERENCES "order"(id),
-  blend_id     UUID REFERENCES coffee_sku(id),
-  signal_type  TEXT NOT NULL,
-  rating       INTEGER,
-  s_value      NUMERIC,
-  confidence   NUMERIC,
-  created_at   TIMESTAMPTZ DEFAULT timezone('utc', now())
-);
-
-CREATE TABLE IF NOT EXISTS user_recommendation_log (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id         UUID REFERENCES user_profile(id),
-  candidates_shown JSONB NOT NULL,
-  chosen_blend_id  UUID REFERENCES coffee_sku(id),
-  created_at       TIMESTAMPTZ DEFAULT timezone('utc', now())
-);
+-- user_feedback_event, user_recommendation_log and chat_message were dropped
+-- by Customer Blueprint C3, Part C (2026-09-27) — dead tables, confirmed
+-- empty in prod, superseded by customer_feedback_event/
+-- customer_liam_recommendation and the Firestore sommelier transcript
+-- respectively. See the DROP TABLE block further down (customerIntegrity.ts
+-- check 7 proved them empty first) — removed here too so a fresh boot
+-- doesn't keep recreating them just to drop them again.
 
 -- ─────────────────────────────────────────────
 -- AI CHAT & NEWSLETTER
 -- ─────────────────────────────────────────────
-
-CREATE TABLE IF NOT EXISTS chat_message (
-  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id    UUID REFERENCES user_profile(id) ON DELETE CASCADE,
-  role       TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
-  content    TEXT NOT NULL,
-  context    JSONB,
-  created_at TIMESTAMPTZ DEFAULT timezone('utc', now())
-);
 
 -- ─────────────────────────────────────────────
 -- SOMMELIER
@@ -2350,8 +2329,9 @@ CREATE INDEX IF NOT EXISTS idx_quiz_vector_user        ON quiz_vector(user_id);
 CREATE INDEX IF NOT EXISTS idx_order_user              ON "order"(user_id);
 CREATE INDEX IF NOT EXISTS idx_order_line_item_order   ON order_line_item(order_id);
 CREATE INDEX IF NOT EXISTS idx_roastery_shipment_order  ON roastery_shipment_details(order_id);
-CREATE INDEX IF NOT EXISTS idx_feedback_user           ON user_feedback_event(user_id);
-CREATE INDEX IF NOT EXISTS idx_chat_message_user       ON chat_message(user_id);
+-- idx_feedback_user (user_feedback_event) and idx_chat_message_user
+-- (chat_message) removed by Customer Blueprint C3, Part C along with their
+-- tables (both dead, confirmed empty in prod, dropped further down).
 CREATE INDEX IF NOT EXISTS idx_user_coffee_profile_user     ON user_coffee_profile(user_id);
 
 -- Cupping tool indexes
@@ -2764,9 +2744,14 @@ CREATE VIEW v_cupping_scores_readable AS
 -- Sources: 'internal' (cupping sessions), 'roastery' (bag notes), 'client' (post-delivery feedback).
 -- Includes coffee name and full descriptor details — no extra JOINs needed at query time.
 -- One row per observation. GROUP BY coffee_id + descriptor to aggregate across sources.
--- DROP first — CREATE OR REPLACE cannot rename existing columns (PG restriction).
-DROP VIEW IF EXISTS v_collaborative_flavor_wheel;
-CREATE VIEW v_collaborative_flavor_wheel AS
+-- Customer Blueprint C3 (2026-09-27) gave this view permanent dependents
+-- (v_coffee_descriptor, chained on into v_palate_shared_traits and
+-- v_palate_slot_candidates) — a plain DROP now fails every boot once those
+-- exist ("cannot drop view ... because other objects depend on it"), so this
+-- is CREATE OR REPLACE, not DROP+CREATE, same as every other view below with
+-- a same-run dependent. Column list is unchanged; if a future column rename
+-- is ever needed here, drop the whole dependent chain explicitly first.
+CREATE OR REPLACE VIEW v_collaborative_flavor_wheel AS
   SELECT sc.coffee_id,
          c.name            AS coffee_name,
          csd.cupping_note_id,
@@ -2792,18 +2777,24 @@ UNION ALL
   FROM roastery_coffee_descriptors crd
   JOIN coffees      c  ON c.id  = crd.coffee_id
   JOIN cupping_note cn ON cn.id = crd.cupping_note_id
+-- Customer Blueprint C3, Part C — repointed from user_flavor_feedback (no
+-- writer as of this brief; dropped once no view names it, OPEN_TASKS.md) to
+-- customer_feedback_descriptor joined to its parent customer_feedback_event
+-- for coffee_id. intensity was always NULL on the old table's own writer
+-- (routes/orders.ts) — NULL here is behavior-identical, not a regression.
 UNION ALL
-  SELECT cff.coffee_id,
+  SELECT cfe.coffee_id,
          c.name            AS coffee_name,
-         cff.cupping_note_id,
+         cfd.cupping_note_id,
          cn.wheel_category,
          cn.wheel_subcategory,
          cn.descriptor,
          'client'          AS source,
-         cff.intensity
-  FROM user_flavor_feedback cff
-  JOIN coffees      c  ON c.id  = cff.coffee_id
-  JOIN cupping_note cn ON cn.id = cff.cupping_note_id;
+         NULL::numeric     AS intensity
+  FROM customer_feedback_descriptor cfd
+  JOIN customer_feedback_event cfe ON cfe.id = cfd.feedback_event_id
+  JOIN coffees      c  ON c.id  = cfe.coffee_id
+  JOIN cupping_note cn ON cn.id = cfd.cupping_note_id;
 
 -- Full quiz scoring matrix — one row per (question, answer, archetype)
 -- Shows all three scoring levels: question weight, answer weight, archetype-specific score.
@@ -4028,13 +4019,21 @@ ALTER TABLE coffees ADD COLUMN IF NOT EXISTS story_generation_failed BOOLEAN NOT
 -- all as of brief 3) — same fix as v_archetype_dimension_comparison/
 -- v_archetype_vectors above: a bare DROP VIEW IF EXISTS v_coffee on a second
 -- boot fails with "other objects depend on it" once the dependents exist.
+-- v_coffee and v_coffee_sellable_slot dropped out of this preamble by
+-- Customer Blueprint C3 (2026-09-27): they now have permanent dependents far
+-- below in the C3 block (v_customer_timeline/v_palate_archetype_spread and
+-- v_palate_slot_candidates respectively) that this preamble can't reach, so
+-- a plain drop-then-recreate here would fail every second boot the same way
+-- this comment already describes. Both are CREATE OR REPLACE at their own
+-- definitions below instead — see those for why that's safe (no column
+-- rename here, ever, without an explicit CASCADE plan).
+-- v_coffee_sellable_candidate joined v_coffee/v_coffee_sellable_slot's
+-- CREATE-OR-REPLACE-only list above for the same reason: it is now a
+-- permanent dependency of the never-dropped v_coffee_sellable_slot.
 DROP VIEW IF EXISTS v_archetype_adjacency;
 DROP VIEW IF EXISTS v_coffee_archetype_adjacency;
 DROP VIEW IF EXISTS v_coffee_hop;
-DROP VIEW IF EXISTS v_coffee_sellable_slot;
-DROP VIEW IF EXISTS v_coffee_sellable_candidate;
 DROP VIEW IF EXISTS v_coffee_slot;
-DROP VIEW IF EXISTS v_coffee;
 DROP VIEW IF EXISTS v_coffee_archetype;
 
 -- One row per archetype (all six, including 'experimental'). This is what
@@ -4066,7 +4065,7 @@ ORDER BY a.sort_order;
 -- `match_archetype`/`match_confidence` is the coffee's current
 -- (non-superseded) archetype_assignments row — its flavor identity (D1) —
 -- never to be confused with placement; see v_coffee_slot below for that.
-CREATE VIEW v_coffee AS
+CREATE OR REPLACE VIEW v_coffee AS
 SELECT
   c.id, c.name, c.origin, c.blend_or_single, c.process, c.roast_level, c.roast_shade,
   c.flavor_descriptors_roaster, c.ai_summary, c.surprise_note, c.three_voice_story,
@@ -4132,7 +4131,7 @@ JOIN v_coffee         vc  ON vc.id  = csa.coffee_id;
 -- absent. Category exclusions (decaf/half_caf/flavored never fill a flavor
 -- slot; experimental-tagged coffees only fill the experimental dial) applied
 -- here, same as before — the one place that rule lives.
-CREATE VIEW v_coffee_sellable_candidate AS
+CREATE OR REPLACE VIEW v_coffee_sellable_candidate AS
 SELECT
   cds.id             AS slot_id,
   cds.archetype,
@@ -4171,7 +4170,7 @@ WHERE cds.is_active = true AND cds.name IS NOT NULL
 -- winning candidate (role='home' first, then priority, D5) among
 -- v_coffee_sellable_candidate's is_sellable rows. Same output columns as
 -- brief 1 (brief 1's own tests assert this unchanged).
-CREATE VIEW v_coffee_sellable_slot AS
+CREATE OR REPLACE VIEW v_coffee_sellable_slot AS
 SELECT DISTINCT ON (cand.slot_id, cand.weight_oz)
   cand.slot_id, cand.archetype, cand.sort_order, cand.slot_name, cand.position_label,
   cand.is_landing_default, cand.weight_oz, cand.coffee_id, cand.coffee_name, cand.roaster_id,
@@ -4518,6 +4517,691 @@ ON CONFLICT (code) DO NOTHING;
 ALTER TABLE order_line_item ADD COLUMN IF NOT EXISTS order_kind TEXT REFERENCES customer_order_kind(code);
 UPDATE order_line_item SET order_kind = 'manual' WHERE order_kind IS NULL;
 ALTER TABLE order_line_item ALTER COLUMN order_kind SET DEFAULT 'manual';
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- CUSTOMER BLUEPRINT · brief C3 (2026-09-27) — views + two new operating
+-- tables (Parts A, B4, B6). See backend/src/features/customer_blueprint/
+-- CLAUDE_CODE_PROMPT_CUSTOMER_3_VIEWS_AND_RETIREMENTS.md.
+--
+-- Placed here — inside the C1 block, before its "-- A2. Prefix-driven
+-- grants" loops below — for the exact reason C1's own Task 0 learned the
+-- hard way for fact tables (see that comment above): db.query(schema) runs
+-- this whole file as one sequential batch, so anything created after the
+-- grant loops isn't granted until the NEXT boot. user_saved_item and
+-- sommelier_evaluation have no customer_ prefix, so they fall through to the
+-- "everything else" operating-table loop (full DML) automatically; every
+-- view below is swept by the view-grant loop the same way — no per-object
+-- grant statement needed for any of this block.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- Part B4 — saved items (operating table: the fact stays customer_dial_event
+-- / the recipe was never a fact; this is current state, edited by tombstone).
+CREATE TABLE IF NOT EXISTS user_saved_item (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    UUID NOT NULL REFERENCES user_profile(id),
+  kind       TEXT NOT NULL CHECK (kind IN ('dial_slot','recipe')),
+  ref_id     TEXT NOT NULL,
+  title      TEXT,
+  payload    JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+  removed_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_user_saved_item_user ON user_saved_item (user_id, created_at);
+
+-- Part B6 — sommelier evaluator log, replacing Firestore
+-- users/{uid}/sommelier_evaluations. Operating/log table: UPDATE is allowed
+-- for ab_app (outcomeTracker.ts updates `outcome` after the log row exists).
+-- user_id is user_profile.id, not the Firebase uid the evaluator receives —
+-- resolved once at insert time, same as every other write in this codebase.
+CREATE TABLE IF NOT EXISTS sommelier_evaluation (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id             UUID NOT NULL REFERENCES user_profile(id),
+  intent              TEXT NOT NULL,
+  triggers_fired      TEXT[] NOT NULL DEFAULT '{}',
+  needs_sommelier     BOOLEAN NOT NULL,
+  feature_vector      NUMERIC[] NOT NULL DEFAULT '{}',
+  feature_schema      TEXT[] NOT NULL DEFAULT '{}',
+  user_state_snapshot JSONB NOT NULL,
+  opening_context     TEXT,
+  session_started     BOOLEAN NOT NULL DEFAULT false,
+  started_at          TIMESTAMPTZ,
+  outcome             JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+);
+CREATE INDEX IF NOT EXISTS idx_sommelier_evaluation_user_created ON sommelier_evaluation (user_id, created_at);
+
+-- Part C — dead tables, dropped once integrity check 7 (customerIntegrity.ts)
+-- has proved them empty in prod. Confirmed empty 2026-09-27:
+-- user_recommendation_log, user_feedback_event, chat_message. Self-healing
+-- guard (same pattern as index.ts's NOT NULL preconditions): a live row found
+-- at boot skips the drop rather than destroying data, so this is safe to run
+-- unattended. sommelier_messages, the fourth dead-table candidate, is NOT
+-- dropped here — it has 9 real rows in prod (confirmed 2026-09-27, legacy
+-- pre-Firestore-migration session transcripts), still read as a fallback by
+-- GET /api/sommelier/:sessionId/messages; its own drop needs those 9 rows
+-- resolved first (OPEN_TASKS.md).
+-- Nested IFs, not a single `to_regclass(...) IS NOT NULL AND (SELECT COUNT...)`
+-- — Postgres does not guarantee AND short-circuits a subquery, so a combined
+-- condition risks the exact "relation does not exist" error this guards
+-- against once the table is actually gone.
+DO $$ BEGIN
+  IF to_regclass('user_recommendation_log') IS NOT NULL THEN
+    IF (SELECT COUNT(*) FROM user_recommendation_log) = 0 THEN DROP TABLE user_recommendation_log; END IF;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF to_regclass('user_feedback_event') IS NOT NULL THEN
+    IF (SELECT COUNT(*) FROM user_feedback_event) = 0 THEN DROP TABLE user_feedback_event; END IF;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF to_regclass('chat_message') IS NOT NULL THEN
+    IF (SELECT COUNT(*) FROM chat_message) = 0 THEN DROP TABLE chat_message; END IF;
+  END IF;
+END $$;
+
+-- ── Part A1 — Identity ────────────────────────────────────────────────────
+-- customer_identity_link rows point from_user_id (the older/merged profile)
+-- -> to_user_id (the surviving profile the new facts should read as), see
+-- routes/auth.ts's sync-match-claim. canonical_user_id walks that edge
+-- forward (from -> to) until a profile that is never a from_user_id is
+-- reached (D15: rows are never re-keyed, so this walk is done at read time,
+-- every time). depth <= 5, cycle-safe: if the walk is about to revisit an
+-- id already on its own path, it stops there and the lowest-created_at
+-- profile among the visited ids is canonical instead — see integrity check
+-- 13, which independently verifies no such cycle actually exists in prod
+-- data (this is a defensive bound, not an expected case).
+
+CREATE OR REPLACE VIEW v_customer_identity AS
+WITH RECURSIVE walk AS (
+  SELECT up.id AS user_id, up.id AS current_id, 0 AS depth, ARRAY[up.id] AS path, false AS cycle_detected
+  FROM user_profile up
+  UNION ALL
+  SELECT w.user_id, cil.to_user_id, w.depth + 1, w.path || cil.to_user_id,
+         (cil.to_user_id = ANY(w.path))
+  FROM walk w
+  JOIN customer_identity_link cil ON cil.from_user_id = w.current_id
+  WHERE w.depth < 5 AND NOT w.cycle_detected
+),
+terminal AS (
+  SELECT DISTINCT ON (user_id) user_id, current_id, path, cycle_detected
+  FROM walk
+  ORDER BY user_id, depth DESC
+)
+SELECT
+  t.user_id,
+  CASE WHEN t.cycle_detected THEN (
+    SELECT p.id FROM unnest(t.path) AS p(id)
+    JOIN user_profile up2 ON up2.id = p.id
+    ORDER BY up2.created_at ASC LIMIT 1
+  ) ELSE t.current_id END AS canonical_user_id
+FROM terminal t;
+
+-- ── Part A2 — Current state, replayed from facts ─────────────────────────
+
+-- Per canonical customer, the latest quiz_session (by completed_at) across
+-- every linked profile, joined to its current interpretation row —
+-- resolveInterpretation()'s whole-row-precedence fallback to context_data
+-- (services/quizSession.ts) reproduced here per column via COALESCE, since
+-- interpretation rows only exist from brief 2 onward. branched_from/
+-- food_signal/experimental always come from context_data (never part of
+-- quiz_session_interpretation, unchanged from today's reads).
+
+CREATE OR REPLACE VIEW v_customer_quiz_current AS
+WITH sessions AS (
+  SELECT
+    vci.canonical_user_id,
+    qs.id AS quiz_session_id,
+    qs.completed_at,
+    ca.name AS archetype_name,
+    ca.code AS archetype_code,
+    i.interpretation_version,
+    CASE WHEN i.id IS NOT NULL THEN 'table' ELSE 'context_data' END AS interpretation_source,
+    COALESCE(quiz_archetype_canonical(i.secondary_archetype), quiz_archetype_canonical(qs.context_data ->> 'secondaryArchetype')) AS secondary_archetype,
+    COALESCE(i.recommendation_mode, qs.context_data ->> 'recommendationMode', 'primary_only') AS recommendation_mode,
+    COALESCE(i.food_signal_alignment, qs.context_data ->> 'foodSignalAlignment', 'high') AS food_signal_alignment,
+    COALESCE(i.pair_confidence, qs.context_data ->> 'pairConfidence') AS pair_confidence,
+    COALESCE(quiz_archetype_canonical(i.explore_archetype), quiz_archetype_canonical(qs.context_data ->> 'exploreArchetype')) AS explore_archetype,
+    COALESCE(i.explore_reason, qs.context_data ->> 'exploreReason') AS explore_reason,
+    quiz_archetype_canonical(qs.context_data ->> 'branchedFrom') AS branched_from,
+    quiz_archetype_canonical(qs.context_data ->> 'foodSignal') AS food_signal,
+    COALESCE((qs.context_data ->> 'experimental')::boolean, false) AS experimental
+  FROM quiz_session qs
+  JOIN v_customer_identity vci ON vci.user_id = qs.user_id
+  LEFT JOIN coffee_archetype ca ON ca.id = qs.resulting_archetype_id
+  LEFT JOIN quiz_session_interpretation i ON i.quiz_session_id = qs.id AND i.is_current
+),
+with_secondary_code AS (
+  SELECT s.*, ca2.code AS secondary_archetype_code
+  FROM sessions s
+  LEFT JOIN coffee_archetype ca2 ON ca2.name = s.secondary_archetype
+),
+ranked AS (
+  SELECT s.*,
+    ROW_NUMBER() OVER (PARTITION BY canonical_user_id ORDER BY completed_at DESC) AS rn_desc,
+    COUNT(*) OVER (PARTITION BY canonical_user_id) AS quiz_count,
+    LAG(archetype_name) OVER (PARTITION BY canonical_user_id ORDER BY completed_at ASC) AS prev_archetype_name
+  FROM with_secondary_code s
+),
+changes AS (
+  SELECT canonical_user_id,
+    COUNT(*) FILTER (WHERE prev_archetype_name IS NOT NULL AND prev_archetype_name IS DISTINCT FROM archetype_name) AS archetype_change_count
+  FROM ranked
+  GROUP BY canonical_user_id
+),
+last_two AS (
+  SELECT r1.canonical_user_id,
+    (r2.archetype_name IS NOT NULL AND r1.archetype_name IS DISTINCT FROM r2.archetype_name) AS archetype_changed_last_two_quizzes
+  FROM ranked r1
+  LEFT JOIN ranked r2 ON r2.canonical_user_id = r1.canonical_user_id AND r2.rn_desc = 2
+  WHERE r1.rn_desc = 1
+)
+SELECT
+  r.canonical_user_id, r.quiz_session_id, r.archetype_name, r.archetype_code,
+  r.secondary_archetype, r.secondary_archetype_code, r.branched_from, r.food_signal, r.experimental,
+  r.food_signal_alignment, r.recommendation_mode, r.pair_confidence, r.explore_archetype, r.explore_reason,
+  r.interpretation_version, r.interpretation_source, r.completed_at,
+  ch.archetype_change_count, r.quiz_count, lt.archetype_changed_last_two_quizzes
+FROM ranked r
+JOIN changes ch ON ch.canonical_user_id = r.canonical_user_id
+JOIN last_two lt ON lt.canonical_user_id = r.canonical_user_id
+WHERE r.rn_desc = 1;
+
+-- Brew profile replay: customer_brew_profile_change.value is always the JSON
+-- encoding of a single scalar (customerFacts.ts callers JSON.stringify one
+-- value per row, even a 'set' on an array field stores the whole array that
+-- way — see routes/users.ts PATCH /brew-profile). _customer_brew_profile_fold
+-- replays set/clear/add/remove in occurred_at order into the field's current
+-- JSONB value (scalar or array); 'remove' has no live writer today but is a
+-- valid op per the CHECK constraint, so it's handled defensively.
+CREATE OR REPLACE FUNCTION _customer_brew_profile_fold_sfunc(state JSONB, op TEXT, raw_value TEXT) RETURNS JSONB
+LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE
+  arr JSONB;
+  item TEXT;
+BEGIN
+  IF op = 'clear' THEN
+    RETURN NULL;
+  ELSIF op = 'set' THEN
+    RETURN raw_value::jsonb;
+  ELSIF op = 'add' THEN
+    item := raw_value::jsonb #>> '{}';
+    arr := CASE WHEN jsonb_typeof(state) = 'array' THEN state ELSE '[]'::jsonb END;
+    IF NOT (arr ? item) THEN
+      arr := arr || to_jsonb(item);
+    END IF;
+    RETURN arr;
+  ELSIF op = 'remove' THEN
+    item := raw_value::jsonb #>> '{}';
+    arr := CASE WHEN jsonb_typeof(state) = 'array' THEN state ELSE '[]'::jsonb END;
+    RETURN (SELECT COALESCE(jsonb_agg(x), '[]'::jsonb) FROM jsonb_array_elements(arr) x WHERE x <> to_jsonb(item));
+  ELSE
+    RETURN state;
+  END IF;
+END;
+$$;
+
+-- No CREATE OR REPLACE AGGREGATE exists in Postgres — CASCADE is required
+-- once v_customer_brew_profile (and its own dependent v_palate_evidence)
+-- exist, same reasoning as the CREATE-OR-REPLACE-view fixes above; both are
+-- recreated later in this same file, in dependency order, so the cascade
+-- self-heals within one boot.
+DROP AGGREGATE IF EXISTS customer_brew_profile_fold(TEXT, TEXT) CASCADE;
+CREATE AGGREGATE customer_brew_profile_fold(TEXT, TEXT) (
+  SFUNC = _customer_brew_profile_fold_sfunc,
+  STYPE = JSONB
+);
+
+
+CREATE OR REPLACE VIEW v_customer_brew_profile AS
+SELECT canonical_user_id, field, value_jsonb, captured_at, source
+FROM (
+  SELECT
+    vci.canonical_user_id,
+    cbpc.field,
+    customer_brew_profile_fold(cbpc.op, cbpc.value ORDER BY cbpc.occurred_at) AS value_jsonb,
+    MAX(cbpc.occurred_at) AS captured_at,
+    (ARRAY_AGG(cbpc.source ORDER BY cbpc.occurred_at DESC))[1] AS source
+  FROM customer_brew_profile_change cbpc
+  JOIN v_customer_identity vci ON vci.user_id = cbpc.user_id
+  GROUP BY vci.canonical_user_id, cbpc.field
+) folded
+WHERE value_jsonb IS NOT NULL;
+
+-- customer_feedback_event rows not pointed at by any other row's
+-- supersedes_id, i.e. the current revision per (user, order line).
+
+CREATE OR REPLACE VIEW v_customer_feedback_current AS
+SELECT
+  vci.canonical_user_id,
+  cfe.id AS feedback_event_id,
+  cfe.occurred_at,
+  cfe.order_line_item_id,
+  cfe.coffee_id,
+  cfe.rating,
+  cfe.expectation,
+  cfe.raw_text,
+  cfe.channel,
+  cfe.source,
+  CASE WHEN cfe.rating >= 4 THEN 'positive' WHEN cfe.rating <= 2 THEN 'negative' ELSE 'neutral' END AS sentiment,
+  COALESCE(d.cupping_note_ids, ARRAY[]::UUID[]) AS descriptor_note_ids
+FROM customer_feedback_event cfe
+JOIN v_customer_identity vci ON vci.user_id = cfe.user_id
+LEFT JOIN (
+  SELECT feedback_event_id, ARRAY_AGG(cupping_note_id) AS cupping_note_ids
+  FROM customer_feedback_descriptor
+  GROUP BY feedback_event_id
+) d ON d.feedback_event_id = cfe.id
+WHERE NOT EXISTS (SELECT 1 FROM customer_feedback_event newer WHERE newer.supersedes_id = cfe.id);
+
+-- D7 drinker-attribution rule. "Company-gift subscription context" (Part A2's
+-- own wording) is read here as: the order's buyer has a company_gift_id on
+-- their profile (b2b_company_subscriptions) — an individually-sponsored seat,
+-- never a household. Untested in prod today: household_id is never set on
+-- any live order (see WHAT_WE_BUILT.md), so every row currently resolves via
+-- the buyer branch. Flagged in the C3 closing report as a judgment call, not
+-- a verified behavior.
+
+CREATE OR REPLACE VIEW v_customer_bag_attribution AS
+SELECT
+  oli.id AS order_line_item_id,
+  o.id AS order_id,
+  rb.coffee_id,
+  COALESCE(oli.order_kind, 'manual') AS order_kind,
+  CASE
+    WHEN oli.intended_for_user_id IS NOT NULL THEN oli.intended_for_user_id
+    WHEN o.household_id IS NULL AND buyer.company_gift_id IS NULL THEN o.user_id
+    ELSE claim.user_id
+  END AS drinker_user_id,
+  CASE
+    WHEN oli.intended_for_user_id IS NOT NULL THEN 'intended'
+    WHEN o.household_id IS NULL AND buyer.company_gift_id IS NULL THEN 'buyer'
+    WHEN claim.user_id IS NOT NULL THEN 'claim'
+    ELSE 'unattributed'
+  END AS attribution
+FROM order_line_item oli
+JOIN "order" o ON o.id = oli.order_id
+JOIN coffee_sku rb ON rb.id = oli.blend_id
+LEFT JOIN user_profile buyer ON buyer.id = o.user_id
+LEFT JOIN LATERAL (
+  SELECT cbc.user_id
+  FROM customer_bag_claim cbc
+  JOIN user_profile claimant ON claimant.id = cbc.user_id
+  WHERE cbc.coffee_id = rb.coffee_id
+    AND o.household_id IS NOT NULL
+    AND claimant.household_id = o.household_id
+  ORDER BY cbc.occurred_at ASC
+  LIMIT 1
+) claim ON true;
+
+-- ── Part A3 — The timeline ────────────────────────────────────────────────
+-- identity_link events are attributed to to_user_id's canonical customer —
+-- the surviving profile the link resolves toward (see v_customer_identity's
+-- comment above); both sides resolve to the same canonical_user_id in the
+-- common single-hop case.
+
+CREATE OR REPLACE VIEW v_customer_timeline AS
+SELECT vci1.canonical_user_id, qs.completed_at AS occurred_at, 'quiz'::text AS kind, qs.id::text AS ref_id,
+       NULL::int AS coffee_id, NULL::int AS slot_id, ca.code AS archetype_code, NULL::int AS session_id,
+       jsonb_build_object('archetype', ca.name, 'secondary_archetype', quiz_archetype_canonical(i.secondary_archetype)) AS detail
+FROM quiz_session qs
+JOIN v_customer_identity vci1 ON vci1.user_id = qs.user_id
+LEFT JOIN coffee_archetype ca ON ca.id = qs.resulting_archetype_id
+LEFT JOIN quiz_session_interpretation i ON i.quiz_session_id = qs.id AND i.is_current
+
+UNION ALL
+SELECT vci2.canonical_user_id, o.created_at AS occurred_at, 'order_line'::text AS kind, oli.id::text AS ref_id,
+       rb.coffee_id, NULL::int AS slot_id, vc.match_archetype AS archetype_code, NULL::int AS session_id,
+       jsonb_build_object('order_id', o.id, 'attribution', vba.attribution, 'order_kind', vba.order_kind, 'blend_name', rb.blend_name) AS detail
+FROM order_line_item oli
+JOIN "order" o ON o.id = oli.order_id
+JOIN coffee_sku rb ON rb.id = oli.blend_id
+LEFT JOIN v_coffee vc ON vc.id = rb.coffee_id
+JOIN v_customer_bag_attribution vba ON vba.order_line_item_id = oli.id
+JOIN v_customer_identity vci2 ON vci2.user_id = vba.drinker_user_id
+WHERE vba.drinker_user_id IS NOT NULL
+
+UNION ALL
+SELECT vci3.canonical_user_id, cfe.occurred_at, 'feedback'::text, cfe.id::text,
+       cfe.coffee_id, NULL::int, NULL::archetype_enum, NULL::int,
+       jsonb_build_object('rating', cfe.rating,
+         'sentiment', CASE WHEN cfe.rating >= 4 THEN 'positive' WHEN cfe.rating <= 2 THEN 'negative' ELSE 'neutral' END,
+         'expectation', cfe.expectation, 'raw_text', cfe.raw_text, 'channel', cfe.channel,
+         'supersedes_id', cfe.supersedes_id, 'order_line_item_id', cfe.order_line_item_id,
+         'is_current', (NOT EXISTS (SELECT 1 FROM customer_feedback_event newer WHERE newer.supersedes_id = cfe.id)))
+FROM customer_feedback_event cfe
+JOIN v_customer_identity vci3 ON vci3.user_id = cfe.user_id
+
+UNION ALL
+SELECT vci4.canonical_user_id, cbpc.occurred_at, 'brew_profile_change'::text, cbpc.id::text,
+       NULL::int, NULL::int, NULL::archetype_enum, cbpc.session_id,
+       jsonb_build_object('field', cbpc.field, 'op', cbpc.op, 'value', cbpc.value)
+FROM customer_brew_profile_change cbpc
+JOIN v_customer_identity vci4 ON vci4.user_id = cbpc.user_id
+
+UNION ALL
+SELECT vci5.canonical_user_id, cde.occurred_at, 'dial_event'::text, cde.id::text,
+       cde.coffee_id, cde.slot_id, cde.archetype_code, NULL::int,
+       jsonb_build_object('event_type', cde.event_type)
+FROM customer_dial_event cde
+JOIN v_customer_identity vci5 ON vci5.user_id = cde.user_id
+
+UNION ALL
+SELECT vci6.canonical_user_id, cbc.occurred_at, 'bag_claim'::text, cbc.id::text,
+       cbc.coffee_id, NULL::int, NULL::archetype_enum, NULL::int,
+       jsonb_build_object('order_line_item_id', cbc.order_line_item_id, 'qr_scan_event_id', cbc.qr_scan_event_id)
+FROM customer_bag_claim cbc
+JOIN v_customer_identity vci6 ON vci6.user_id = cbc.user_id
+
+UNION ALL
+SELECT vci7.canonical_user_id, clr.occurred_at, 'liam_recommendation'::text, clr.id::text,
+       clr.coffee_id, clr.slot_id, NULL::archetype_enum, clr.session_id,
+       jsonb_build_object('turn', clr.turn, 'message_id', clr.message_id, 'candidate_coffee_ids', clr.candidate_coffee_ids, 'detected', clr.detected)
+FROM customer_liam_recommendation clr
+JOIN v_customer_identity vci7 ON vci7.user_id = clr.user_id
+
+UNION ALL
+SELECT vci8.canonical_user_id, clq.occurred_at, 'liam_question'::text, clq.id::text,
+       NULL::int, NULL::int, clq.archetype_code, clq.session_id,
+       jsonb_build_object('kind', clq.kind, 'question', clq.question, 'reply', clreply.reply, 'answered', (clreply.id IS NOT NULL))
+FROM customer_liam_question clq
+JOIN v_customer_identity vci8 ON vci8.user_id = clq.user_id
+LEFT JOIN customer_liam_reply clreply ON clreply.question_id = clq.id
+
+UNION ALL
+SELECT vci9.canonical_user_id, cla.occurred_at, 'liam_action'::text, cla.id::text,
+       NULL::int, NULL::int, NULL::archetype_enum, cla.session_id,
+       jsonb_build_object('action_type', cla.action_type)
+FROM customer_liam_action cla
+JOIN v_customer_identity vci9 ON vci9.user_id = cla.user_id
+
+UNION ALL
+SELECT vci10.canonical_user_id, cil.occurred_at, 'identity_link'::text, cil.id::text,
+       NULL::int, NULL::int, NULL::archetype_enum, NULL::int,
+       jsonb_build_object('how', cil.how, 'from_user_id', cil.from_user_id, 'to_user_id', cil.to_user_id)
+FROM customer_identity_link cil
+JOIN v_customer_identity vci10 ON vci10.user_id = cil.to_user_id
+
+ORDER BY occurred_at, kind;
+
+-- ── Part A4 — Coffee facts for the reads ─────────────────────────────────
+-- Per active coffee/dimension: min(value_min)/max(value_max) across merged
+-- (is_merged) cupping_scores rows; falls back to all tasters' rows
+-- (basis='unmerged') when no merged row exists; no rows at all when a
+-- coffee has never been cupped (never a default range).
+
+CREATE OR REPLACE VIEW v_coffee_dimension_range AS
+WITH merged AS (
+  SELECT sc.coffee_id, csv.dimension_id, MIN(csv.value_min) AS value_min, MAX(csv.value_max) AS value_max, COUNT(*) AS n_scores
+  FROM cupping_score_values csv
+  JOIN cupping_scores cs ON cs.id = csv.cupping_score_id AND cs.is_merged = true
+  JOIN cupping_session_coffees sc ON sc.id = cs.session_coffee_id
+  GROUP BY sc.coffee_id, csv.dimension_id
+),
+unmerged AS (
+  SELECT sc.coffee_id, csv.dimension_id, MIN(csv.value_min) AS value_min, MAX(csv.value_max) AS value_max, COUNT(*) AS n_scores
+  FROM cupping_score_values csv
+  JOIN cupping_scores cs ON cs.id = csv.cupping_score_id
+  JOIN cupping_session_coffees sc ON sc.id = cs.session_coffee_id
+  GROUP BY sc.coffee_id, csv.dimension_id
+)
+SELECT
+  c.id AS coffee_id, d.id AS dimension_id, d.name AS dimension_name,
+  COALESCE(m.value_min, u.value_min) AS value_min,
+  COALESCE(m.value_max, u.value_max) AS value_max,
+  COALESCE(m.n_scores, u.n_scores) AS n_scores,
+  CASE WHEN m.coffee_id IS NOT NULL THEN 'merged' ELSE 'unmerged' END AS basis
+FROM coffees c
+CROSS JOIN coffee_dimensions d
+LEFT JOIN merged   m ON m.coffee_id = c.id AND m.dimension_id = d.id
+LEFT JOIN unmerged u ON u.coffee_id = c.id AND u.dimension_id = d.id
+WHERE c.is_active = true AND (m.coffee_id IS NOT NULL OR u.coffee_id IS NOT NULL);
+
+-- v_collaborative_flavor_wheel grouped; n_sources = number of distinct
+-- source channels ('internal'/'roastery'/'client') this descriptor was
+-- observed under for that coffee, not a total observation count.
+
+CREATE OR REPLACE VIEW v_coffee_descriptor AS
+SELECT coffee_id, descriptor, wheel_category, wheel_subcategory, COUNT(DISTINCT source) AS n_sources
+FROM v_collaborative_flavor_wheel
+GROUP BY coffee_id, descriptor, wheel_category, wheel_subcategory;
+
+-- ── Part A5 — The reads (v_palate_*, read_version = 'v1') ────────────────
+
+
+CREATE OR REPLACE VIEW v_palate_evidence AS
+WITH base_customers AS (
+  SELECT canonical_user_id FROM v_customer_quiz_current
+  UNION SELECT vci_i.canonical_user_id FROM v_customer_bag_attribution vba
+    JOIN v_customer_identity vci_i ON vci_i.user_id = vba.drinker_user_id WHERE vba.attribution <> 'unattributed'
+  UNION SELECT canonical_user_id FROM v_customer_feedback_current
+  UNION SELECT vci_i.canonical_user_id FROM customer_liam_question clq JOIN v_customer_identity vci_i ON vci_i.user_id = clq.user_id
+  UNION SELECT vci_i.canonical_user_id FROM customer_liam_recommendation clr JOIN v_customer_identity vci_i ON vci_i.user_id = clr.user_id
+  UNION SELECT canonical_user_id FROM v_customer_brew_profile
+)
+SELECT
+  bc.canonical_user_id,
+  'v1'::text AS read_version,
+  COALESCE(lines.n_lines, 0) AS n_attributed_lines,
+  COALESCE(lines.n_coffees, 0) AS n_distinct_coffees,
+  COALESCE(fb.n_positive, 0) AS n_feedback_positive,
+  COALESCE(fb.n_negative, 0) AS n_feedback_negative,
+  COALESCE(fb.n_total, 0) AS n_feedback_total,
+  COALESCE(q.n_asked, 0) AS n_questions_asked,
+  COALESCE(q.n_answered, 0) AS n_questions_answered,
+  COALESCE(rec.n_recommendations, 0) AS n_recommendations,
+  COALESCE(bp.n_fields, 0) AS n_brew_fields_known,
+  lines.first_order_at,
+  lines.last_order_at,
+  (qc.canonical_user_id IS NOT NULL) AS has_quiz
+FROM base_customers bc
+LEFT JOIN (
+  SELECT vba2.canonical_user_id, COUNT(*) AS n_lines, COUNT(DISTINCT vba2.coffee_id) AS n_coffees,
+         MIN(vba2.occurred_at) AS first_order_at, MAX(vba2.occurred_at) AS last_order_at
+  FROM (
+    SELECT vci_i.canonical_user_id, vba.coffee_id, o.created_at AS occurred_at
+    FROM v_customer_bag_attribution vba
+    JOIN order_line_item oli ON oli.id = vba.order_line_item_id
+    JOIN "order" o ON o.id = oli.order_id
+    JOIN v_customer_identity vci_i ON vci_i.user_id = vba.drinker_user_id
+    WHERE vba.attribution <> 'unattributed'
+  ) vba2
+  GROUP BY vba2.canonical_user_id
+) lines ON lines.canonical_user_id = bc.canonical_user_id
+LEFT JOIN (
+  SELECT canonical_user_id,
+    COUNT(*) FILTER (WHERE sentiment = 'positive') AS n_positive,
+    COUNT(*) FILTER (WHERE sentiment = 'negative') AS n_negative,
+    COUNT(*) AS n_total
+  FROM v_customer_feedback_current
+  GROUP BY canonical_user_id
+) fb ON fb.canonical_user_id = bc.canonical_user_id
+LEFT JOIN (
+  SELECT vci_q.canonical_user_id, COUNT(*) AS n_asked, COUNT(*) FILTER (WHERE r.id IS NOT NULL) AS n_answered
+  FROM customer_liam_question clq
+  JOIN v_customer_identity vci_q ON vci_q.user_id = clq.user_id
+  LEFT JOIN customer_liam_reply r ON r.question_id = clq.id
+  GROUP BY vci_q.canonical_user_id
+) q ON q.canonical_user_id = bc.canonical_user_id
+LEFT JOIN (
+  SELECT vci_r.canonical_user_id, COUNT(*) AS n_recommendations
+  FROM customer_liam_recommendation clr
+  JOIN v_customer_identity vci_r ON vci_r.user_id = clr.user_id
+  GROUP BY vci_r.canonical_user_id
+) rec ON rec.canonical_user_id = bc.canonical_user_id
+LEFT JOIN (
+  SELECT canonical_user_id, COUNT(*) AS n_fields FROM v_customer_brew_profile GROUP BY canonical_user_id
+) bp ON bp.canonical_user_id = bc.canonical_user_id
+LEFT JOIN (
+  SELECT DISTINCT canonical_user_id FROM v_customer_quiz_current
+) qc ON qc.canonical_user_id = bc.canonical_user_id;
+
+
+CREATE OR REPLACE VIEW v_palate_shared_traits AS
+WITH attributed_coffees AS (
+  SELECT DISTINCT vci_i.canonical_user_id, vba.coffee_id
+  FROM v_customer_bag_attribution vba
+  JOIN v_customer_identity vci_i ON vci_i.user_id = vba.drinker_user_id
+  WHERE vba.attribution <> 'unattributed'
+),
+dim AS (
+  SELECT ac.canonical_user_id, 'dimension'::text AS kind, cdr.dimension_id::text AS trait_key, cdr.dimension_name AS trait_label,
+    MAX(cdr.value_min) AS value_min, MIN(cdr.value_max) AS value_max, COUNT(*) AS n_coffees
+  FROM attributed_coffees ac
+  JOIN v_coffee_dimension_range cdr ON cdr.coffee_id = ac.coffee_id
+  GROUP BY ac.canonical_user_id, cdr.dimension_id, cdr.dimension_name
+),
+total_coffees AS (
+  SELECT canonical_user_id, COUNT(*) AS n_total FROM attributed_coffees GROUP BY canonical_user_id
+),
+desc_agg AS (
+  SELECT ac.canonical_user_id, 'descriptor'::text AS kind, vcd.descriptor AS trait_key, vcd.descriptor AS trait_label,
+    NULL::numeric AS value_min, NULL::numeric AS value_max, COUNT(DISTINCT ac.coffee_id) AS n_coffees
+  FROM attributed_coffees ac
+  JOIN v_coffee_descriptor vcd ON vcd.coffee_id = ac.coffee_id
+  GROUP BY ac.canonical_user_id, vcd.descriptor
+)
+SELECT canonical_user_id, kind, trait_key, trait_label, value_min, value_max,
+       (value_min IS NOT NULL AND value_max IS NOT NULL AND value_min <= value_max) AS overlaps, n_coffees
+FROM dim
+UNION ALL
+SELECT d.canonical_user_id, d.kind, d.trait_key, d.trait_label, d.value_min, d.value_max, NULL::boolean AS overlaps, d.n_coffees
+FROM desc_agg d
+JOIN total_coffees t ON t.canonical_user_id = d.canonical_user_id AND d.n_coffees = t.n_total;
+
+
+CREATE OR REPLACE VIEW v_palate_dominant_dimensions AS
+WITH attributed AS (
+  SELECT DISTINCT vci_i.canonical_user_id, vba.coffee_id, vba.order_line_item_id
+  FROM v_customer_bag_attribution vba
+  JOIN v_customer_identity vci_i ON vci_i.user_id = vba.drinker_user_id
+  WHERE vba.attribution <> 'unattributed'
+),
+midpoints AS (
+  SELECT a.canonical_user_id, a.coffee_id, a.order_line_item_id, cdr.dimension_id, cdr.dimension_name,
+         (cdr.value_min + cdr.value_max) / 2.0 AS midpoint
+  FROM attributed a
+  JOIN v_coffee_dimension_range cdr ON cdr.coffee_id = a.coffee_id
+),
+with_sentiment AS (
+  SELECT m.*, vfc.sentiment
+  FROM midpoints m
+  LEFT JOIN v_customer_feedback_current vfc ON vfc.order_line_item_id = m.order_line_item_id AND vfc.canonical_user_id = m.canonical_user_id
+)
+SELECT
+  canonical_user_id, dimension_id, dimension_name,
+  ROUND(AVG(midpoint)::numeric, 3) AS mean_midpoint,
+  COUNT(*) AS n_coffees,
+  ROUND(AVG(midpoint) FILTER (WHERE sentiment = 'positive')::numeric, 3) AS liked_mean_midpoint,
+  COUNT(*) FILTER (WHERE sentiment = 'positive') AS n_liked,
+  ROUND(AVG(midpoint) FILTER (WHERE sentiment = 'negative')::numeric, 3) AS disliked_mean_midpoint,
+  COUNT(*) FILTER (WHERE sentiment = 'negative') AS n_disliked
+FROM with_sentiment
+GROUP BY canonical_user_id, dimension_id, dimension_name;
+
+
+CREATE OR REPLACE VIEW v_palate_archetype_spread AS
+WITH attributed AS (
+  SELECT DISTINCT vci_i.canonical_user_id, vba.coffee_id, vba.order_line_item_id, vc.match_archetype
+  FROM v_customer_bag_attribution vba
+  JOIN v_customer_identity vci_i ON vci_i.user_id = vba.drinker_user_id
+  JOIN v_coffee vc ON vc.id = vba.coffee_id
+  WHERE vba.attribution <> 'unattributed' AND vc.match_archetype IS NOT NULL
+),
+with_sentiment AS (
+  SELECT a.*, vfc.sentiment
+  FROM attributed a
+  LEFT JOIN v_customer_feedback_current vfc ON vfc.order_line_item_id = a.order_line_item_id AND vfc.canonical_user_id = a.canonical_user_id
+)
+SELECT canonical_user_id, match_archetype,
+  COUNT(DISTINCT coffee_id) AS n_coffees,
+  COUNT(*) FILTER (WHERE sentiment = 'positive') AS n_positive,
+  COUNT(*) FILTER (WHERE sentiment = 'negative') AS n_negative
+FROM with_sentiment
+GROUP BY canonical_user_id, match_archetype;
+
+
+CREATE OR REPLACE VIEW v_palate_threads AS
+SELECT
+  vci_q.canonical_user_id,
+  clq.id AS question_id, clq.occurred_at, clq.kind, clq.archetype_code, clq.question,
+  clr.reply, clr.occurred_at AS replied_at,
+  CASE WHEN clr.id IS NOT NULL THEN 'answered' ELSE 'asked' END AS status
+FROM customer_liam_question clq
+JOIN v_customer_identity vci_q ON vci_q.user_id = clq.user_id
+LEFT JOIN customer_liam_reply clr ON clr.question_id = clq.id;
+
+-- "same coffee or slot": a coffee-targeted recommendation matches lines of
+-- that exact coffee; a slot-targeted one (no coffee_id) matches lines whose
+-- coffee is the slot's current active assignment.
+
+CREATE OR REPLACE VIEW v_palate_recommendation_outcome AS
+SELECT
+  vci_r.canonical_user_id,
+  clr.id AS recommendation_id, clr.occurred_at AS recommended_at, clr.coffee_id, clr.slot_id,
+  fl.order_line_item_id AS followed_order_line_item_id,
+  fl.occurred_at AS ordered_at,
+  CASE WHEN fl.occurred_at IS NOT NULL THEN ROUND(EXTRACT(EPOCH FROM (fl.occurred_at - clr.occurred_at)) / 86400.0, 2) END AS days_to_order,
+  fl.rating AS feedback_rating
+FROM customer_liam_recommendation clr
+JOIN v_customer_identity vci_r ON vci_r.user_id = clr.user_id
+LEFT JOIN LATERAL (
+  SELECT vba.order_line_item_id, o.created_at AS occurred_at, vfc.rating
+  FROM v_customer_bag_attribution vba
+  JOIN order_line_item oli ON oli.id = vba.order_line_item_id
+  JOIN "order" o ON o.id = oli.order_id
+  JOIN v_customer_identity vci_x ON vci_x.user_id = vba.drinker_user_id
+  LEFT JOIN v_customer_feedback_current vfc ON vfc.order_line_item_id = vba.order_line_item_id AND vfc.canonical_user_id = vci_x.canonical_user_id
+  WHERE vci_x.canonical_user_id = vci_r.canonical_user_id
+    AND vba.attribution <> 'unattributed'
+    AND o.created_at > clr.occurred_at
+    AND (
+      (clr.coffee_id IS NOT NULL AND vba.coffee_id = clr.coffee_id)
+      OR (clr.coffee_id IS NULL AND clr.slot_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM coffee_slot_assignment csa WHERE csa.slot_id = clr.slot_id AND csa.coffee_id = vba.coffee_id AND csa.is_active
+          ))
+    )
+  ORDER BY o.created_at ASC
+  LIMIT 1
+) fl ON true;
+
+
+CREATE OR REPLACE VIEW v_palate_slot_candidates AS
+WITH traits AS (
+  SELECT canonical_user_id, trait_key::int AS dimension_id, value_min, value_max
+  FROM v_palate_shared_traits WHERE kind = 'dimension'
+),
+customers_with_traits AS (SELECT DISTINCT canonical_user_id FROM traits),
+slots AS (SELECT * FROM v_coffee_sellable_slot WHERE weight_oz = 12),
+compare AS (
+  SELECT c.canonical_user_id, s.slot_id, s.coffee_id, cdr.dimension_id,
+    (cdr.value_min <= t.value_max AND cdr.value_max >= t.value_min) AS overlaps_dim
+  FROM customers_with_traits c
+  CROSS JOIN slots s
+  JOIN v_coffee_dimension_range cdr ON cdr.coffee_id = s.coffee_id
+  JOIN traits t ON t.canonical_user_id = c.canonical_user_id AND t.dimension_id = cdr.dimension_id
+),
+agg AS (
+  SELECT canonical_user_id, slot_id, coffee_id,
+    COUNT(*) AS n_dims_compared, COUNT(*) FILTER (WHERE overlaps_dim) AS n_dims_overlapping
+  FROM compare
+  GROUP BY canonical_user_id, slot_id, coffee_id
+)
+SELECT
+  a.canonical_user_id, s.slot_id, s.archetype, s.sort_order, s.slot_name, s.position_label,
+  s.coffee_id, s.coffee_name, s.blend_id, s.roaster_sku, s.shopify_variant_id, s.retail_price_cents,
+  a.n_dims_overlapping, a.n_dims_compared,
+  (qc.archetype_code = s.archetype OR qc.secondary_archetype_code = s.archetype) AS in_pair
+FROM agg a
+JOIN slots s ON s.slot_id = a.slot_id AND s.coffee_id = a.coffee_id
+LEFT JOIN v_customer_quiz_current qc ON qc.canonical_user_id = a.canonical_user_id
+ORDER BY in_pair DESC NULLS LAST, a.n_dims_overlapping DESC, a.n_dims_compared DESC, s.sort_order;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- END CUSTOMER BLUEPRINT C3 views/tables block
+-- ═══════════════════════════════════════════════════════════════════════════
+
 
 -- A2. Prefix-driven grants, re-run every boot. A table's name decides its
 -- privileges, so a customer_* table added later (C2) is immutable from the

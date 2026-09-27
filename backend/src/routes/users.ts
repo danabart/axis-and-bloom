@@ -11,10 +11,10 @@ import {
 } from '../services/brewProfile.js';
 import { getUserBrewCards } from '../services/brewCard.js';
 import { getAliases } from '../services/sommelierRag.js';
-import { archetypeCode, archetypeLabel as catalogArchetypeLabel, getCoffees } from '../services/catalogReads.js';
-import { mapJourneyHistory } from '../services/tasteJourney.js';
+import { archetypeCode, archetypeLabel as catalogArchetypeLabel } from '../services/catalogReads.js';
 import { record } from '../services/customerFacts.js';
-import { createHash } from 'node:crypto';
+import { getTimeline, getFeedbackCurrent, getBrewProfileCurrent } from '../services/customerReads.js';
+import { createHash, randomUUID } from 'node:crypto';
 
 const router = Router();
 
@@ -152,27 +152,25 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
     const archetypeName = archetypeKey && ARCHETYPES[archetypeKey] ? await catalogArchetypeLabel(archetypeKey) : (quiz?.archetype_name ?? null);
     const archetypeData = archetypeMeta ? { name: archetypeName, ...archetypeMeta } : null;
 
-    // Which orders already have a feedback_events doc (any source/channel) —
-    // drives the "Leave feedback" affordance in Profile.tsx order history.
+    // Which orders already have a feedback fact (any source/channel) — drives
+    // the "Leave feedback" affordance in Profile.tsx order history. Customer
+    // Blueprint C3, Part C — v_customer_feedback_current, not Firestore.
     let orderIdsWithFeedback = new Set<string>();
     try {
-      const feedbackSnap = await firestoreDb.collection(`users/${req.uid}/feedback_events`).get();
-      for (const doc of feedbackSnap.docs) {
-        const oid = doc.data().orderId;
-        if (oid) orderIdsWithFeedback.add(oid);
-      }
-    } catch {
-      // Subcollection may not exist yet — treat as no feedback captured
+      const feedbackRows = await getFeedbackCurrent(req.uid!);
+      for (const row of feedbackRows) if (row.orderId) orderIdsWithFeedback.add(row.orderId);
+    } catch (err) {
+      console.error('[/api/users/profile] feedback read failed:', err);
     }
 
-    // Sync to Firestore — non-blocking, Cloud SQL is source of truth
+    // Sync to Firestore — non-blocking, Cloud SQL is source of truth. Customer
+    // Blueprint C3, Part C: archetype/archetypeLabel/lastQuizDate are retired
+    // (v_customer_quiz_current is the read now); email/firstName/lastName stay
+    // — a still-live sync for other Firestore-reading consumers.
     firestoreDb.doc(`users/${req.uid}`).set({
       email:          emailResult.rows[0]?.email_address ?? req.email ?? null,
       firstName:      profileRow.first_name ?? null,
       lastName:       profileRow.last_name ?? null,
-      archetype:      archetypeKey,
-      archetypeLabel: archetypeData?.name ?? null,
-      lastQuizDate:   quiz?.completed_at ?? null,
       syncedAt:       FieldValue.serverTimestamp(),
     }, { merge: true }).catch((err: unknown) => console.error('[users/firestore-sync]', err));
 
@@ -573,29 +571,34 @@ router.patch('/dial-position', requireAuth, async (req: AuthRequest, res) => {
       // below). Neither field trigger-gated: whichever the caller sends is
       // validated and stored, absent otherwise.
       //
-      // Customer Blueprint C2, Part A3 — now awaited (was fire-and-forget)
-      // because customer_dial_event's sourceId is this doc's own id; a
-      // logging failure still never fails the request (own try/catch below).
+      // Customer Blueprint C3, Part C — the Firestore users/{uid}/dial_events
+      // write is retired; customer_dial_event (C2) is the fact, sourced by a
+      // fresh id here instead of a Firestore doc id.
+      const resolvedCoffeeId = Number.isInteger(coffeeId) ? coffeeId : null;
+      const resolvedPlatformName = typeof platformName === 'string' && platformName.trim() ? platformName.trim() : null;
       try {
-        const dialEventRef = await firestoreDb.collection(`users/${req.uid}/dial_events`).add({
-          trigger,
-          archetype,
-          dialSortOrder,
-          source: DIAL_EVENT_SOURCES.includes(source) ? source : null,
-          coffeeId: Number.isInteger(coffeeId) ? coffeeId : null,
-          platformName: typeof platformName === 'string' && platformName.trim() ? platformName.trim() : null,
-          createdAt: FieldValue.serverTimestamp(),
+        await record.dialEvent({
+          userId: profileId, source: 'onsite', sourceId: randomUUID(),
+          eventType: trigger, slotId, coffeeId: resolvedCoffeeId, archetypeCode: archetype,
         });
-        try {
-          await record.dialEvent({
-            userId: profileId, source: 'onsite', sourceId: dialEventRef.id,
-            eventType: trigger, slotId, coffeeId: Number.isInteger(coffeeId) ? coffeeId : null, archetypeCode: archetype,
-          });
-        } catch (err) {
-          console.error('[customerFacts:dial-event]', err);
-        }
       } catch (err) {
-        console.error('[dial-position] dial_events log failed:', err);
+        console.error('[customerFacts:dial-event]', err);
+      }
+
+      // Customer Blueprint C3, Part B4 — explicit_save additionally records
+      // current *state* (the saved list), separate from the fact above:
+      // add_to_cart is never a journal/saved-list entry, per the editorial rule.
+      if (trigger === 'explicit_save') {
+        try {
+          await db.query(
+            `INSERT INTO user_saved_item (user_id, kind, ref_id, title, payload)
+             VALUES ($1, 'dial_slot', $2, $3, $4)`,
+            [profileId, `${archetype}:${dialSortOrder}`, resolvedPlatformName,
+             JSON.stringify({ archetype, dialSortOrder, coffeeId: resolvedCoffeeId, platformName: resolvedPlatformName })]
+          );
+        } catch (err) {
+          console.error('[user_saved_item:dial_slot]', err);
+        }
       }
     }
 
@@ -607,60 +610,33 @@ router.patch('/dial-position', requireAuth, async (req: AuthRequest, res) => {
 });
 
 // ── GET /api/users/flavor-memory ──────────────────────────────────────────────
-// Profile Part 2 — the three content blocks behind the Profile page's Flavor
-// Memory tab: tasting journal (orders merged with Firestore feedback_events,
-// one read for all events, matched in code — not queried per order), archetype
-// journey (Firestore taste_journey doc), and contributionCount (this user's
-// user_flavor_feedback rows, which feed the Collaborative Flavor Wheel's client
-// source). Roaster-blind reasoning: blendName here is the user's own past
-// order, same precedent that already clears pendingFeedback.blendName for UC3 —
-// never a raw coffee/roaster name for catalogue browsing.
+// Customer Blueprint C3, Part B3 — the three content blocks behind the Profile
+// page's Flavor Memory tab now read from v_customer_timeline (one query,
+// every fact already joined) + user_saved_item (Part B4, current state for
+// 'saved'/'recipe') instead of Firestore feedback_events/taste_journey/
+// dial_events/liam_saves and a quiz_session fallback. contributionCount is
+// unchanged (user_flavor_feedback stays queryable until no view names it).
+// Roaster-blind reasoning: blendName here is the user's own past order, same
+// precedent that already clears pendingFeedback.blendName for UC3 — never a
+// raw coffee/roaster name for catalogue browsing.
 router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
   try {
     const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]);
     const profileId = profileResult.rows[0]?.id;
     if (!profileId) { res.status(404).json({ error: 'Profile not found' }); return; }
 
-    const [ordersResult, contributionResult, savedEventsSnap, recipeSnap, brewCardRows] = await Promise.all([
+    const [timeline, feedbackRows, contributionResult, savedItemsResult, brewCardRows] = await Promise.all([
+      getTimeline(req.uid!),
+      getFeedbackCurrent(req.uid!),
+      db.query(`SELECT COUNT(*) FROM user_flavor_feedback WHERE user_id = $1`, [profileId]),
       db.query(
-        `SELECT o.id, o.created_at,
-                (ARRAY_AGG(rb.blend_name))[1] AS blend_name,
-                (ARRAY_AGG(rb.coffee_id))[1]  AS coffee_id
-         FROM "order" o
-         LEFT JOIN order_line_item li ON li.order_id = o.id
-         LEFT JOIN coffee_sku rb ON rb.id = li.blend_id
-         WHERE o.user_id = $1
-         GROUP BY o.id ORDER BY o.created_at DESC`,
+        `SELECT id, kind, ref_id, title, payload, created_at
+         FROM user_saved_item WHERE user_id = $1 AND removed_at IS NULL ORDER BY created_at DESC`,
         [profileId]
       ),
-      db.query(`SELECT COUNT(*) FROM user_flavor_feedback WHERE user_id = $1`, [profileId]),
-      // Profile Part 7 Task 3 — 'saved' activity source. Filtered to explicit_save
-      // only (add_to_cart is never a journal entry, per the editorial rule);
-      // removedAt tombstones are filtered in code below, not in the query, to
-      // avoid a composite-field Firestore index requirement for a field that
-      // may not exist on most docs.
-      firestoreDb.collection(`users/${req.uid}/dial_events`).where('trigger', '==', 'explicit_save').get()
-        .catch((err: unknown) => { console.error('[/api/users/flavor-memory] dial_events read failed:', err); return null; }),
-      // 'recipe' activity source (Task 5's liam_saves) — collection may not
-      // exist yet for any given user, which reads as empty, not an error.
-      firestoreDb.collection(`users/${req.uid}/liam_saves`).get()
-        .catch((err: unknown) => { console.error('[/api/users/flavor-memory] liam_saves read failed:', err); return null; }),
       // HOME_TASK_6 — brew cards, read-only v1 display.
       getUserBrewCards(profileId).catch((err: unknown) => { console.error('[/api/users/flavor-memory] brew cards read failed:', err); return []; }),
     ]);
-
-    // Task 6's derived-reading-line signal (orderedActivity, below) needs each
-    // order's archetype. Was a raw archetype_assignments join in the query
-    // above; Catalog Blueprint brief 3 resolves it through catalogReads
-    // instead (D1 — this is match_archetype, the coffee's flavor identity,
-    // not a placement read), batched once for every distinct coffee_id in
-    // this user's orders.
-    const orderCoffeeIds = [...new Set(
-      ordersResult.rows.map((o) => o.coffee_id).filter((id: number | null): id is number => id != null)
-    )];
-    const orderArchetypeMap = orderCoffeeIds.length
-      ? new Map((await getCoffees({ ids: orderCoffeeIds })).map((c) => [c.id, c.match_archetype]))
-      : new Map<number, string | null>();
 
     // Alias only — never coffees.name/roaster, same S44/S77 discipline as
     // every other customer-facing render path.
@@ -693,118 +669,56 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
       ).catch((err: unknown) => console.error('[/api/users/flavor-memory] brew_card_view_event log failed:', err));
     }
 
-    // One Firestore read for every feedback event this user has, matched to
-    // orders in code below — not a per-order query.
-    const feedbackByOrder = new Map<string, {
-      rating: number | null; note: string | null; source: string | null;
-      expectation: string | null; tastedNoteIds: string[];
-    }>();
-    try {
-      const feedbackSnap = await firestoreDb.collection(`users/${req.uid}/feedback_events`).get();
-      for (const doc of feedbackSnap.docs) {
-        const d = doc.data();
-        // Skip superseded docs (Profile Part 5) — only the current revision
-        // per order should populate the journal; there is at most one
-        // non-superseded doc per orderId by construction.
-        if (d.supersededAt) continue;
-        if (d.orderId) {
-          feedbackByOrder.set(d.orderId, {
-            rating: d.rating ?? null,
-            note:   d.rawText ?? null,
-            source: d.source ?? null,
-            expectation:   d.expectation ?? null,
-            tastedNoteIds: Array.isArray(d.tastedNoteIds) ? d.tastedNoteIds : [],
-          });
-        }
-      }
-    } catch {
-      // Subcollection may not exist yet — treat as no feedback captured
+    // One order per row (multi-line orders pick the first line, same
+    // arbitrary-representative behavior the old ARRAY_AGG(...)[1] query had).
+    const orderLines = timeline.filter(e => e.kind === 'order_line');
+    const orderRowsMap = new Map<string, typeof orderLines[number]>();
+    for (const e of orderLines) {
+      const orderId = String((e.detail as any).order_id);
+      if (!orderRowsMap.has(orderId)) orderRowsMap.set(orderId, e);
     }
 
-    const journal = ordersResult.rows.map(o => {
-      const fb = feedbackByOrder.get(o.id);
+    // getFeedbackCurrent() already excludes superseded rows (Profile Part 5).
+    const feedbackByOrder = new Map<string, typeof feedbackRows[number]>();
+    for (const f of feedbackRows) if (f.orderId) feedbackByOrder.set(f.orderId, f);
+
+    const journal = [...orderRowsMap.entries()].map(([orderId, e]) => {
+      const fb = feedbackByOrder.get(orderId);
       return {
-        orderId:   o.id,
+        orderId,
         // ISO, not a pre-formatted display string — the journal only needs
         // month+year granularity (Profile Part 3 §2), coarser than the full
         // date /profile's order history already formats server-side.
-        date:      new Date(o.created_at).toISOString(),
-        blendName: o.blend_name ?? null,
-        coffeeId:  o.coffee_id ?? null,
-        rating:    fb?.rating ?? null,
-        note:      fb?.note ?? null,
-        source:    fb?.source ?? null,
+        date: new Date(e.occurredAt).toISOString(),
+        blendName: (e.detail as any).blend_name ?? null,
+        coffeeId: e.coffeeId,
+        rating: fb?.rating ?? null,
+        note: fb?.rawText ?? null,
+        source: fb?.source ?? null,
         hasFeedback: !!fb,
         // For Part 5's edit-prefill only — additive.
-        expectation:   fb?.expectation ?? null,
-        tastedNoteIds: fb?.tastedNoteIds ?? [],
+        expectation: fb?.expectation ?? null,
+        tastedNoteIds: fb?.descriptorNoteIds ?? [],
       };
     });
 
-    // Journey — Firestore users/{uid}/metadata/taste_journey (Sommelier Task 1
-    // §12, written fire-and-forget on every authenticated quiz save; path fixed
-    // to a valid 4-segment doc reference alongside quiz.ts — see the comment
-    // there). archetype here is stored as the human-readable name (quiz.ts
-    // writes `archetype` from the request body verbatim), so it's mapped to the
-    // enum key the rest of this route already uses via archetypeCode(),
-    // same as archetypeKey above.
-    // Profile Part 6: the synthetic single-entry fallback below must only
-    // trigger for a genuinely-missing doc, not for a read that threw (a real
-    // error masquerading as "new user" would silently hide a read bug behind
-    // fabricated data). readFailed is tracked separately from an empty/absent
-    // doc so only the former takes the fallback path.
-    let journey: Array<{ archetype: string; archetypeLabel: string; at: string | null; trigger: string }> = [];
-    let journeyDocMissing = true;
-    let journeyReadFailed = false;
-    try {
-      const journeySnap = await firestoreDb.doc(`users/${req.uid}/metadata/taste_journey`).get();
-      journeyDocMissing = !journeySnap.exists;
-      const journeyData = journeySnap.exists ? journeySnap.data() : null;
-      const history: any[] = journeyData?.archetypeHistory ?? [];
-      // Label comes from the live archetype row, not the stored string, so an
-      // entry saved as "Balanced & Sweet" renders "Balanced" (see tasteJourney.ts).
-      journey = await mapJourneyHistory(history);
-    } catch (err) {
-      console.error('[/api/users/flavor-memory] taste_journey read failed:', err);
-      journeyReadFailed = true;
-    }
+    // Journey — quiz-kind timeline entries, oldest first, across every linked
+    // profile (v_customer_identity). The first entry is 'first_quiz', every
+    // later one 'retake' — the same distinction Firestore's taste_journey
+    // doc used to carry explicitly, now derived from ordering.
+    const quizEntries = [...timeline]
+      .filter(e => e.kind === 'quiz')
+      .sort((a, b) => new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime());
+    const journey = await Promise.all(quizEntries.map(async (e, i) => ({
+      archetype: e.archetypeCode ?? String((e.detail as any).archetype ?? '').toLowerCase(),
+      archetypeLabel: e.archetypeCode ? await catalogArchetypeLabel(e.archetypeCode) : String((e.detail as any).archetype ?? ''),
+      at: e.occurredAt ? new Date(e.occurredAt).toISOString() : null,
+      trigger: i === 0 ? 'first_quiz' : 'retake',
+    })));
 
-    // Backfill caveat (Profile Part 2): users who quizzed before Sommelier Task 1
-    // shipped have a missing/empty taste_journey doc. Falls back to a single
-    // synthetic entry from the user's current archetype + quiz date, so a
-    // matched user always shows >=1 entry. Only applies when the doc is
-    // genuinely missing — a real read failure surfaces as a 500 instead of
-    // silently fabricating history (Part 6).
-    if (journeyReadFailed) {
-      res.status(500).json({ error: 'Failed to fetch flavor memory' });
-      return;
-    }
-    if (journey.length === 0 && journeyDocMissing) {
-      const quizResult = await db.query(
-        `SELECT qs.completed_at, a.name AS archetype_name
-         FROM quiz_session qs
-         LEFT JOIN coffee_archetype a ON a.id = qs.resulting_archetype_id
-         WHERE qs.user_id = $1
-         ORDER BY qs.completed_at DESC LIMIT 1`,
-        [profileId]
-      );
-      const quiz = quizResult.rows[0];
-      if (quiz?.archetype_name) {
-        journey = [{
-          archetype:      (await archetypeCode(quiz.archetype_name)) ?? quiz.archetype_name.toLowerCase(),
-          archetypeLabel: quiz.archetype_name,
-          at:             quiz.completed_at,
-          trigger:        'first_quiz',
-        }];
-      }
-    }
-
-    // Profile Part 7 Task 3 — the activity log. Additive: journal/journey/
-    // contributionCount above are unchanged for their existing consumers
-    // (TastingJournal's feedback machinery, the Part 2/6 backfill contract).
-    // Editorial rule (binding): only deliberate moments — quiz, order, explicit
-    // save, accepted Liam recipe. No add_to_cart, rotation, reveal, or inferred
-    // entries, ever.
+    // Profile Part 7 Task 3 — the activity log. Editorial rule (binding): only
+    // deliberate moments — quiz, order, explicit save, accepted Liam recipe.
+    // No add_to_cart, rotation, reveal, or inferred entries, ever.
     const quizActivity = journey.map((j, i) => ({
       id: `quiz_${i}`,
       type: 'quiz' as const,
@@ -815,59 +729,49 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
       removable: false,
     }));
 
-    // Task 6's derived-reading-line signal needs an archetype per order too —
-    // resolved via orderArchetypeMap above (D1's match_archetype, batched via
-    // catalogReads.getCoffees, not a raw archetype_assignments join). Kept
-    // out of `journal` itself so that response shape (and its existing
-    // consumers) stays untouched.
-    const orderedActivity = await Promise.all(ordersResult.rows.map(async (o) => {
-      const archetype = o.coffee_id != null ? (orderArchetypeMap.get(o.coffee_id) ?? null) : null;
-      return {
-        id: o.id,
-        type: 'ordered' as const,
-        at: new Date(o.created_at).toISOString(),
-        archetype,
-        archetypeLabel: archetype ? await catalogArchetypeLabel(archetype) : null,
-        coffeeName: o.blend_name ?? null,
-        removable: false,
-      };
-    }));
+    // order_line arm's archetype_code column is already v_coffee.match_archetype
+    // (D1) — no separate catalogReads.getCoffees batch needed any more.
+    const orderedActivity = await Promise.all([...orderRowsMap.entries()].map(async ([orderId, e]) => ({
+      id: orderId,
+      type: 'ordered' as const,
+      at: new Date(e.occurredAt).toISOString(),
+      archetype: e.archetypeCode,
+      archetypeLabel: e.archetypeCode ? await catalogArchetypeLabel(e.archetypeCode) : null,
+      coffeeName: (e.detail as any).blend_name ?? null,
+      removable: false,
+    })));
 
-    // 'saved' — explicit_save dial_events, tombstones filtered here (not in the
-    // Firestore query, see the read above). Legacy pre-Task-1 events (no
-    // coffeeId/platformName) render honestly as position-only — never resolved
-    // at read time (drift + roaster-blind, same reasoning as journal above).
-    const savedActivity = await Promise.all((savedEventsSnap?.docs ?? [])
-      .filter(doc => !doc.data().removedAt)
-      .map(async (doc) => {
-        const d = doc.data();
+    // 'saved' — user_saved_item kind='dial_slot' (Part B4's current-state
+    // store; the fact stays customer_dial_event). Legacy events with no
+    // coffeeId/platformName render honestly as position-only.
+    const savedActivity = await Promise.all(savedItemsResult.rows
+      .filter((r: any) => r.kind === 'dial_slot')
+      .map(async (r: any) => {
+        const payload = r.payload ?? {};
         return {
-          id: doc.id,
+          id: r.id,
           type: 'saved' as const,
-          at: d.createdAt?.toDate ? d.createdAt.toDate().toISOString() : null,
-          archetype: d.archetype ?? null,
-          archetypeLabel: d.archetype ? await catalogArchetypeLabel(d.archetype) : null,
-          dialSortOrder: typeof d.dialSortOrder === 'number' ? d.dialSortOrder : null,
-          coffeeName: d.platformName ?? null,
+          at: r.created_at ? new Date(r.created_at).toISOString() : null,
+          archetype: payload.archetype ?? null,
+          archetypeLabel: payload.archetype ? await catalogArchetypeLabel(payload.archetype) : null,
+          dialSortOrder: typeof payload.dialSortOrder === 'number' ? payload.dialSortOrder : null,
+          coffeeName: r.title ?? null,
           removable: true,
         };
       }));
 
-    // 'recipe' — Task 5's liam_saves, tombstones filtered the same way.
-    const recipeActivity = (recipeSnap?.docs ?? [])
-      .filter(doc => !doc.data().removedAt)
-      .map(doc => {
-        const d = doc.data();
-        return {
-          id: doc.id,
-          type: 'recipe' as const,
-          at: d.createdAt?.toDate ? d.createdAt.toDate().toISOString() : null,
-          title: d.title ?? null,
-          body: d.body ?? null,
-          coffeeName: d.coffeeName ?? null,
-          removable: true,
-        };
-      });
+    // 'recipe' — user_saved_item kind='recipe'.
+    const recipeActivity = savedItemsResult.rows
+      .filter((r: any) => r.kind === 'recipe')
+      .map((r: any) => ({
+        id: r.id,
+        type: 'recipe' as const,
+        at: r.created_at ? new Date(r.created_at).toISOString() : null,
+        title: r.title ?? null,
+        body: r.payload?.body ?? null,
+        coffeeName: r.payload?.coffeeName ?? null,
+        removable: true,
+      }));
 
     const activity = [...quizActivity, ...orderedActivity, ...savedActivity, ...recipeActivity]
       .sort((a, b) => new Date(b.at ?? 0).getTime() - new Date(a.at ?? 0).getTime());
@@ -886,19 +790,29 @@ router.get('/flavor-memory', requireAuth, async (req: AuthRequest, res) => {
 });
 
 // Profile Part 7 Task 2 — removable kinds. Both routes tombstone only (never
-// a hard delete — the Dial Event Log keeps full history for Liam/analytics).
-// Ownership is implicit in the doc path (scoped to req.uid by construction);
-// the explicit_save check on the first route rejects an attempt to remove an
-// add_to_cart event, the only other kind that lives in the same collection.
+// a hard delete — the Dial Event Log fact in customer_dial_event keeps full
+// history for Liam/analytics regardless). Customer Blueprint C3, Part B4:
+// user_saved_item.removed_at, not a Firestore doc update. Ownership is
+// enforced by the WHERE user_id = $2 clause, not an implicit doc path.
 router.patch('/flavor-memory/saved/:docId/remove', requireAuth, async (req: AuthRequest, res) => {
   try {
-    const ref = firestoreDb.doc(`users/${req.uid}/dial_events/${req.params.docId}`);
-    const snap = await ref.get();
-    if (!snap.exists) { res.status(404).json({ error: 'Not found' }); return; }
-    const d = snap.data()!;
-    if (d.trigger !== 'explicit_save') { res.status(400).json({ error: 'Not removable' }); return; }
-    if (!d.removedAt) {
-      await ref.update({ removedAt: FieldValue.serverTimestamp() });
+    const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]);
+    const profileId = profileResult.rows[0]?.id;
+    if (!profileId) { res.status(404).json({ error: 'Not found' }); return; }
+    const result = await db.query(
+      `UPDATE user_saved_item SET removed_at = NOW()
+       WHERE id = $1 AND user_id = $2 AND kind = 'dial_slot' AND removed_at IS NULL
+       RETURNING id`,
+      [req.params.docId, profileId]
+    );
+    if (!result.rowCount) {
+      // Either genuinely missing, already removed (idempotent no-op — ok:true,
+      // same as the old tombstone-if-not-already-set check), or the wrong kind.
+      const existsResult = await db.query(`SELECT kind, removed_at FROM user_saved_item WHERE id = $1 AND user_id = $2`, [req.params.docId, profileId]);
+      const existing = existsResult.rows[0];
+      if (!existing) { res.status(404).json({ error: 'Not found' }); return; }
+      if (existing.kind !== 'dial_slot') { res.status(400).json({ error: 'Not removable' }); return; }
+      // already removed — fall through to ok:true
     }
     res.json({ ok: true });
   } catch (err) {
@@ -909,11 +823,19 @@ router.patch('/flavor-memory/saved/:docId/remove', requireAuth, async (req: Auth
 
 router.patch('/flavor-memory/recipes/:docId/remove', requireAuth, async (req: AuthRequest, res) => {
   try {
-    const ref = firestoreDb.doc(`users/${req.uid}/liam_saves/${req.params.docId}`);
-    const snap = await ref.get();
-    if (!snap.exists) { res.status(404).json({ error: 'Not found' }); return; }
-    if (!snap.data()?.removedAt) {
-      await ref.update({ removedAt: FieldValue.serverTimestamp() });
+    const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]);
+    const profileId = profileResult.rows[0]?.id;
+    if (!profileId) { res.status(404).json({ error: 'Not found' }); return; }
+    const result = await db.query(
+      `UPDATE user_saved_item SET removed_at = NOW()
+       WHERE id = $1 AND user_id = $2 AND kind = 'recipe' AND removed_at IS NULL
+       RETURNING id`,
+      [req.params.docId, profileId]
+    );
+    if (!result.rowCount) {
+      const existsResult = await db.query(`SELECT id FROM user_saved_item WHERE id = $1 AND user_id = $2 AND kind = 'recipe'`, [req.params.docId, profileId]);
+      if (!existsResult.rows.length) { res.status(404).json({ error: 'Not found' }); return; }
+      // already removed — fall through to ok:true
     }
     res.json({ ok: true });
   } catch (err) {
@@ -927,6 +849,10 @@ router.patch('/flavor-memory/recipes/:docId/remove', requireAuth, async (req: Au
 // action, see sommelier.ts/claude.ts); this endpoint only fires because the
 // signed-in user tapped the chip. title/body come from that already-rendered
 // chat message on the client — server just length-validates and stores.
+// Customer Blueprint C3, Part B4 — user_saved_item (kind='recipe'), not
+// Firestore users/{uid}/liam_saves. ref_id has no natural external id for a
+// Liam-authored recipe (unlike a dial slot's archetype+sortOrder), so it's a
+// fixed tag; the row's own id is the real identity.
 router.post('/flavor-memory/liam-saves', requireAuth, async (req: AuthRequest, res) => {
   const { title, body } = req.body ?? {};
   if (typeof title !== 'string' || !title.trim() || title.length > 200) {
@@ -936,14 +862,16 @@ router.post('/flavor-memory/liam-saves', requireAuth, async (req: AuthRequest, r
     res.status(400).json({ error: 'invalid body' }); return;
   }
   try {
-    const ref = await firestoreDb.collection(`users/${req.uid}/liam_saves`).add({
-      kind: 'recipe',
-      title: title.trim(),
-      body: body.trim(),
-      coffeeName: null,
-      createdAt: FieldValue.serverTimestamp(),
-    });
-    res.json({ ok: true, id: ref.id });
+    const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]);
+    const profileId = profileResult.rows[0]?.id;
+    if (!profileId) { res.status(404).json({ error: 'Profile not found' }); return; }
+    const result = await db.query<{ id: string }>(
+      `INSERT INTO user_saved_item (user_id, kind, ref_id, title, payload)
+       VALUES ($1, 'recipe', 'liam_recipe', $2, $3)
+       RETURNING id`,
+      [profileId, title.trim(), JSON.stringify({ body: body.trim(), coffeeName: null })]
+    );
+    res.json({ ok: true, id: result.rows[0].id });
   } catch (err) {
     console.error('[POST /api/users/flavor-memory/liam-saves]', err);
     res.status(500).json({ error: 'Failed to save recipe' });
@@ -952,23 +880,12 @@ router.post('/flavor-memory/liam-saves', requireAuth, async (req: AuthRequest, r
 
 // ── GET /api/users/brew-profile ───────────────────────────────────────────────
 // HOME_TASK_4 (§4.5 write rule 2) — the day-one mirror: read, edit, delete per
-// field. A missing doc is a normal, common state (no facts captured yet), not
-// an error — returns {} rather than 404.
+// field. Customer Blueprint C3, Part B3 — v_customer_brew_profile via
+// customerReads, not the Firestore doc. No fields captured yet is a normal,
+// common state, not an error — returns {} rather than 404.
 router.get('/brew-profile', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   try {
-    const snap = await firestoreDb.doc(`users/${req.uid}/metadata/brew_profile`).get();
-    if (!snap.exists) { res.json({}); return; }
-    const data = snap.data() ?? {};
-    const profile: Record<string, unknown> = {};
-    for (const [field, entry] of Object.entries(data)) {
-      if (field === 'updatedAt' || !entry || typeof entry !== 'object') continue;
-      const e = entry as { value?: unknown; source?: string; capturedAt?: { toDate?: () => Date } };
-      profile[field] = {
-        value: e.value ?? null,
-        source: e.source ?? null,
-        capturedAt: typeof e.capturedAt?.toDate === 'function' ? e.capturedAt.toDate().toISOString() : null,
-      };
-    }
+    const profile = await getBrewProfileCurrent(req.uid!);
     res.json(profile);
   } catch (err) {
     console.error('[GET /api/users/brew-profile]', err);
@@ -1030,27 +947,16 @@ router.patch('/brew-profile', requireAuth, blockAnonymousAuth, async (req: AuthR
     validatedValue = v;
   }
 
+  // Customer Blueprint C3, Part C — the Firestore users/{uid}/metadata/
+  // brew_profile doc write is retired; record.brewProfileChange() (C2) is
+  // the only writer.
   try {
-    await firestoreDb.doc(`users/${req.uid}/metadata/brew_profile`).set(
-      {
-        [field]: { value: validatedValue, source: 'profile_page', capturedAt: FieldValue.serverTimestamp() },
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
+    const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]);
+    const profileId = profileResult.rows[0]?.id;
+    if (!profileId) { res.status(404).json({ error: 'Profile not found' }); return; }
+    const sourceId = res.locals.apiEventId ?? brewProfileFallbackSourceId(req.uid!, field, 'set', validatedValue);
+    await record.brewProfileChange({ userId: profileId, source: 'onsite', sourceId, field: field as any, op: 'set', value: JSON.stringify(validatedValue) });
     await incrementBrewProfileCounter('writes');
-
-    // Customer Blueprint C2, Part A2 — dual-write into customer_brew_profile_change.
-    try {
-      const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]);
-      const profileId = profileResult.rows[0]?.id;
-      if (profileId) {
-        const sourceId = res.locals.apiEventId ?? brewProfileFallbackSourceId(req.uid!, field, 'set', validatedValue);
-        await record.brewProfileChange({ userId: profileId, source: 'onsite', sourceId, field: field as any, op: 'set', value: JSON.stringify(validatedValue) });
-      }
-    } catch (err) {
-      console.error('[customerFacts:brew-profile]', err);
-    }
 
     res.json({ ok: true, field, value: validatedValue });
   } catch (err) {
@@ -1061,9 +967,10 @@ router.patch('/brew-profile', requireAuth, blockAnonymousAuth, async (req: AuthR
 });
 
 // ── DELETE /api/users/brew-profile ────────────────────────────────────────────
-// Delete = field removal (FieldValue.delete()), never a null-write — a null
-// value would still read as "captured, unknown" to the summary formatter,
-// whereas removal reads as "nothing captured", matching what the customer asked for.
+// Delete = a 'clear' fact row, never a null-write — a null value would still
+// read as "captured, unknown" to the summary formatter, whereas 'clear' folds
+// to absent in v_customer_brew_profile, matching what the customer asked for.
+// Customer Blueprint C3, Part C — the Firestore doc write is retired.
 router.delete('/brew-profile', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   const field = typeof req.body?.field === 'string' ? req.body.field : (req.query.field as string | undefined);
   if (!field || !getBrewProfileFieldsConfig()[field]) {
@@ -1071,25 +978,12 @@ router.delete('/brew-profile', requireAuth, blockAnonymousAuth, async (req: Auth
     return;
   }
   try {
-    // set(..., merge) rather than update() — the doc may not exist yet if the
-    // customer never captured anything else; update() would throw NOT_FOUND.
-    await firestoreDb.doc(`users/${req.uid}/metadata/brew_profile`).set(
-      { [field]: FieldValue.delete(), updatedAt: FieldValue.serverTimestamp() },
-      { merge: true }
-    );
+    const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]);
+    const profileId = profileResult.rows[0]?.id;
+    if (!profileId) { res.status(404).json({ error: 'Profile not found' }); return; }
+    const sourceId = res.locals.apiEventId ?? brewProfileFallbackSourceId(req.uid!, field, 'clear', null);
+    await record.brewProfileChange({ userId: profileId, source: 'onsite', sourceId, field: field as any, op: 'clear', value: null });
     await incrementBrewProfileCounter('writes');
-
-    // Customer Blueprint C2, Part A2 — dual-write into customer_brew_profile_change.
-    try {
-      const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]);
-      const profileId = profileResult.rows[0]?.id;
-      if (profileId) {
-        const sourceId = res.locals.apiEventId ?? brewProfileFallbackSourceId(req.uid!, field, 'clear', null);
-        await record.brewProfileChange({ userId: profileId, source: 'onsite', sourceId, field: field as any, op: 'clear', value: null });
-      }
-    } catch (err) {
-      console.error('[customerFacts:brew-profile]', err);
-    }
 
     res.json({ ok: true, field });
   } catch (err) {

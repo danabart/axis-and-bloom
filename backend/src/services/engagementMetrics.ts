@@ -10,7 +10,6 @@
 // from one or more of those four event sources (qr_scan_event, beat_event,
 // brew_card_view_event + user_brew_card.updated_at, sommelier_sessions).
 import { db } from '../db/client.js';
-import { firestoreDb } from './firebase-admin.js';
 
 // 1. Per-bag engagement rate — fraction of brew cards ("bags," per the
 // strategy doc's own bag=card framing) with at least one interaction across
@@ -98,20 +97,26 @@ export async function getRepeatQuestionRate() {
   };
 }
 
-// 4. Brew-profile fill rate — fraction of users with a real, non-empty
-// users/{uid}/metadata/brew_profile document (any captured field) out of
-// all users who have ever started a sommelier session (the denominator that
-// actually could have filled one in).
+// 4. Brew-profile fill rate — fraction of users with at least one captured
+// brew-profile field out of all users who have ever started a sommelier
+// session (the denominator that actually could have filled one in).
+// Customer Blueprint C3, Part B5 — v_customer_brew_profile (one SQL query
+// across every linked profile), not a per-user Firestore doc read in a loop.
 export async function getBrewProfileFillRate() {
   const sessionUidsResult = await db.query(`SELECT DISTINCT uid FROM sommelier_sessions`);
   const sessionUids: string[] = sessionUidsResult.rows.map((r: { uid: string }) => r.uid);
   if (!sessionUids.length) return { totalEligibleUsers: 0, filledUsers: 0, fillRate: null };
 
-  let filledUsers = 0;
-  for (const uid of sessionUids) {
-    const doc = await firestoreDb.doc(`users/${uid}/metadata/brew_profile`).get();
-    if (doc.exists && Object.keys(doc.data() ?? {}).some(k => k !== 'updatedAt')) filledUsers++;
-  }
+  const filledResult = await db.query<{ count: string }>(
+    `SELECT COUNT(DISTINCT up.firebase_uid) AS count
+     FROM sommelier_sessions ss
+     JOIN user_profile up ON up.firebase_uid = ss.uid
+     JOIN v_customer_identity vci ON vci.user_id = up.id
+     JOIN v_customer_brew_profile vcbp ON vcbp.canonical_user_id = vci.canonical_user_id
+     WHERE ss.uid = ANY($1::text[])`,
+    [sessionUids]
+  );
+  const filledUsers = Number(filledResult.rows[0]?.count ?? 0);
   return {
     totalEligibleUsers: sessionUids.length,
     filledUsers,

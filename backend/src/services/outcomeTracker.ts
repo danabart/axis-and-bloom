@@ -1,5 +1,9 @@
-import { firestoreDb } from './firebase-admin.js';
-import { FieldValue } from 'firebase-admin/firestore';
+import { db } from '../db/client.js';
+
+// Customer Blueprint C3, Part B6 — sommelier_evaluation (SQL) replaces
+// Firestore users/{uid}/sommelier_evaluations. `outcome` stays a JSONB blob
+// (merged via ||, same shallow-merge shape the old Firestore `outcome.*`
+// dotted-path update produced) so its field set doesn't need its own schema.
 
 export interface OutcomeFields {
   sessionCompleted?: boolean;
@@ -12,20 +16,16 @@ export interface OutcomeFields {
 }
 
 export async function writeOutcome(
-  uid: string,
+  _uid: string,
   evaluationId: string,
   fields: Partial<OutcomeFields>
 ): Promise<void> {
   try {
-    const update: Record<string, unknown> = {
-      'outcome.outcomeUpdatedAt': FieldValue.serverTimestamp(),
-    };
-    for (const [key, value] of Object.entries(fields)) {
-      update[`outcome.${key}`] = value;
-    }
-    await firestoreDb
-      .doc(`users/${uid}/sommelier_evaluations/${evaluationId}`)
-      .update(update);
+    const patch = { ...fields, outcomeUpdatedAt: new Date().toISOString() };
+    await db.query(
+      `UPDATE sommelier_evaluation SET outcome = outcome || $2::jsonb, updated_at = now() WHERE id = $1`,
+      [evaluationId, JSON.stringify(patch)]
+    );
   } catch (err) {
     console.error('[outcomeTracker] writeOutcome error:', err);
   }
@@ -36,50 +36,44 @@ export async function updateOrderOutcomes(uid: string, orderedAt: Date): Promise
     const sevenDaysAgo = new Date(orderedAt.getTime() - 7 * 24 * 60 * 60 * 1000);
     const thirtyDaysAgo = new Date(orderedAt.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    const snap = await firestoreDb
-      .collection(`users/${uid}/sommelier_evaluations`)
-      .where('sessionStarted', '==', true)
-      .where('startedAt', '>=', thirtyDaysAgo)
-      .get();
+    const rows = await db.query<{ id: string; started_at: string | null }>(
+      `SELECT se.id, se.started_at
+       FROM sommelier_evaluation se
+       JOIN user_profile up ON up.id = se.user_id
+       WHERE up.firebase_uid = $1 AND se.session_started = true AND se.started_at >= $2
+         AND COALESCE((se.outcome ->> 'orderedWithin30Days')::boolean, false) = false`,
+      [uid, thirtyDaysAgo]
+    );
 
-    for (const doc of snap.docs) {
-      const data = doc.data();
-      if (data.outcome?.orderedWithin30Days) continue;
-      const sessionAt: Date = data.startedAt?.toDate?.() ?? new Date(0);
+    for (const row of rows.rows) {
+      const sessionAt = row.started_at ? new Date(row.started_at) : new Date(0);
       const update: Partial<OutcomeFields> = { orderedWithin30Days: true };
       if (sessionAt >= sevenDaysAgo) update.orderedWithin7Days = true;
-      await writeOutcome(uid, doc.id, update);
+      await writeOutcome(uid, row.id, update);
     }
   } catch (err) {
-    // HOME_TASK_9B (S89) — this compound query (sessionStarted EQ + startedAt
-    // range) needs a composite index that never existed until S88; already
-    // logged with the real error attached (unlike the bare catches S88/S89
-    // found and fixed elsewhere), upgraded here to the same distinct,
-    // greppable [file:TAG] convention (7d/S85's unmissable-log-tag pattern)
-    // for consistency across every index-dependent query in this codebase.
-    console.error('[outcomeTracker:INDEX_QUERY_FAILED] updateOrderOutcomes query failed — orderedWithin7Days/30Days not updated', err);
+    console.error('[outcomeTracker] updateOrderOutcomes query failed — orderedWithin7Days/30Days not updated', err);
   }
 }
 
 export async function checkReturnedToSommelier(uid: string, currentEvaluationId: string): Promise<void> {
   try {
-    const snap = await firestoreDb
-      .collection(`users/${uid}/sommelier_evaluations`)
-      .where('sessionStarted', '==', true)
-      .orderBy('startedAt', 'desc')
-      .limit(10)
-      .get();
+    const rows = await db.query<{ id: string; outcome: Record<string, unknown> | null }>(
+      `SELECT se.id, se.outcome
+       FROM sommelier_evaluation se
+       JOIN user_profile up ON up.id = se.user_id
+       WHERE up.firebase_uid = $1 AND se.session_started = true
+       ORDER BY se.started_at DESC
+       LIMIT 10`,
+      [uid]
+    );
 
-    for (const doc of snap.docs) {
-      if (doc.id === currentEvaluationId) continue;
-      const data = doc.data();
-      if (!data.sessionStarted || data.outcome?.returnedToSommelier) continue;
-      await writeOutcome(uid, doc.id, { returnedToSommelier: true });
+    for (const row of rows.rows) {
+      if (row.id === currentEvaluationId) continue;
+      if (row.outcome?.returnedToSommelier) continue;
+      await writeOutcome(uid, row.id, { returnedToSommelier: true });
     }
   } catch (err) {
-    // HOME_TASK_9B (S89) — same index-dependent query class (sessionStarted
-    // EQ + startedAt orderBy DESC) as updateOrderOutcomes above; upgraded to
-    // the distinct [file:TAG] convention for consistency.
-    console.error('[outcomeTracker:INDEX_QUERY_FAILED] checkReturnedToSommelier query failed — returnedToSommelier not updated', err);
+    console.error('[outcomeTracker] checkReturnedToSommelier query failed — returnedToSommelier not updated', err);
   }
 }

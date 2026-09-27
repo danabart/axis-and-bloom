@@ -1519,14 +1519,24 @@ router.get('/sommelier/stats', async (_req, res) => {
   const cutoff = new Date(Date.now() - PERIOD_DAYS * 24 * 60 * 60 * 1000);
 
   try {
-    // Firestore: all evaluations (filter in JS — collectionGroup date index not guaranteed)
-    const snap = await firestoreDb.collectionGroup('sommelier_evaluations').get();
-    const evals = snap.docs
-      .map((d) => d.data())
-      .filter((d) => {
-        const ts = d.createdAt?.toDate?.();
-        return ts ? ts >= cutoff : false;
-      });
+    // Customer Blueprint C3, Part B6 — sommelier_evaluation (SQL), not
+    // Firestore users/{uid}/sommelier_evaluations (evaluations from before the
+    // cutover stay in Firestore as history, not migrated — see WHAT_WE_BUILT.md).
+    const evalRows = await db.query<{
+      intent: string; needs_sommelier: boolean; session_started: boolean;
+      outcome: any; user_state_snapshot: any;
+    }>(
+      `SELECT intent, needs_sommelier, session_started, outcome, user_state_snapshot
+       FROM sommelier_evaluation WHERE created_at >= $1`,
+      [cutoff]
+    );
+    const evals: any[] = evalRows.rows.map(r => ({
+      intent: r.intent,
+      needsSommelier: r.needs_sommelier,
+      sessionStarted: r.session_started,
+      outcome: r.outcome,
+      userStateSnapshot: r.user_state_snapshot,
+    }));
 
     const totalEvaluations = evals.length;
     const needsSommelierCount = evals.filter((d) => d.needsSommelier).length;
@@ -1674,19 +1684,22 @@ router.get('/sommelier/stats', async (_req, res) => {
 });
 
 // ── POST /api/admin/sommelier/recompute-centroids ─────────────────────────────
-// Reads all sommelier_evaluations documents across all users, groups by intent,
-// averages feature vectors component-by-component, and writes to config/sommelierCentroids.
+// Reads all sommelier_evaluation rows (SQL — Customer Blueprint C3, Part B6;
+// pre-cutover Firestore evaluations are history, not included), groups by
+// intent, averages feature vectors component-by-component, and writes to
+// config/sommelierCentroids (a config doc, out of C3's retirement scope).
 router.post('/sommelier/recompute-centroids', async (_req, res) => {
   try {
-    const snap = await firestoreDb.collectionGroup('sommelier_evaluations').get();
+    const evalRows = await db.query<{ intent: string; feature_vector: number[] }>(
+      `SELECT intent, feature_vector FROM sommelier_evaluation`
+    );
 
     const byIntent: Record<string, number[][]> = {};
     const FEATURE_DIM = 13;
 
-    for (const doc of snap.docs) {
-      const data = doc.data();
-      const intent: string = data.intent;
-      const vector: number[] = data.featureVector;
+    for (const row of evalRows.rows) {
+      const intent = row.intent;
+      const vector = row.feature_vector;
       if (!intent || !Array.isArray(vector) || vector.length !== FEATURE_DIM) continue;
       (byIntent[intent] ??= []).push(vector);
     }

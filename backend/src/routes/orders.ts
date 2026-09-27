@@ -3,7 +3,7 @@ import { requireAuth, blockAnonymousAuth, type AuthRequest } from '../middleware
 import { db } from '../db/client.js';
 import { createOrder } from '../services/shopify.js';
 import { resolveBlendForSlot, resolveCoffeeBlend, computeCollectionOffer } from '../services/blendResolver.js';
-import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
+import { firestoreDb } from '../services/firebase-admin.js';
 import { getSommelierConfig } from '../services/sommelierConfig.js';
 import { updateOrderOutcomes } from '../services/outcomeTracker.js';
 import { refreshLifecycleState } from '../services/userLifecycle.js';
@@ -13,6 +13,7 @@ import { dispatchOrderPlacedBeat, dispatchDelayedBeats } from '../services/beatE
 import { getBrewProfile } from './sommelier.js';
 import { record } from '../services/customerFacts.js';
 import { latestFeedbackEventForOrder, orderLineForOrder } from '../services/customerReads.js';
+import { randomUUID } from 'node:crypto';
 
 const router = Router();
 
@@ -423,110 +424,53 @@ router.post('/:orderId/feedback', requireAuth, blockAnonymousAuth, async (req: A
     if (!orderResult.rows.length) { res.status(404).json({ error: 'Order not found' }); return; }
 
     // Order -> coffee resolution: same first-line-item convention the codebase
-    // already uses for blendId — an order spanning multiple coffees still just
+    // already uses elsewhere — an order spanning multiple coffees still just
     // takes the first, rather than inventing multi-coffee handling here.
     const lineResult = await db.query(
-      `SELECT li.blend_id, rb.coffee_id
+      `SELECT rb.coffee_id
        FROM order_line_item li
        JOIN coffee_sku rb ON rb.id = li.blend_id
        WHERE li.order_id = $1 LIMIT 1`,
       [orderId]
     );
-    const blendId = lineResult.rows[0]?.blend_id ?? null;
     const coffeeId: number | null = lineResult.rows[0]?.coffee_id ?? null;
 
     // Validate tastedNoteIds against this specific coffee's own wheel vocabulary
     // (same set Part 3's chips are populated from) before writing anything.
     const noteIds: string[] = Array.isArray(tastedNoteIds) ? tastedNoteIds : [];
-    let noteLabelById = new Map<string, string>();
     if (noteIds.length) {
       if (!coffeeId) {
         res.status(400).json({ error: "Cannot resolve this order's coffee for tastedNoteIds" });
         return;
       }
       const wheelResult = await db.query(
-        `SELECT DISTINCT cupping_note_id, descriptor FROM v_collaborative_flavor_wheel WHERE coffee_id = $1`,
+        `SELECT DISTINCT cupping_note_id FROM v_collaborative_flavor_wheel WHERE coffee_id = $1`,
         [coffeeId]
       );
-      noteLabelById = new Map(wheelResult.rows.map((r: any) => [r.cupping_note_id, r.descriptor]));
+      const validNoteIds = new Set(wheelResult.rows.map((r: any) => r.cupping_note_id));
       for (const id of noteIds) {
-        if (!noteLabelById.has(id)) {
+        if (!validNoteIds.has(id)) {
           res.status(400).json({ error: `tastedNoteIds contains an id not offered for this coffee: ${id}` });
           return;
         }
       }
     }
 
-    // Is this a revision? Find this order's current (non-superseded) doc, if any.
-    // Equality-only query (no orderBy) so it needs no composite index; volume per
-    // order is always tiny.
-    const existingSnap = await firestoreDb
-      .collection(`users/${req.uid}/feedback_events`)
-      .where('orderId', '==', orderId)
-      .get();
-    const activeDoc = existingSnap.docs.find(d => !d.data().supersededAt);
-    const isRevision = !!activeDoc;
-
-    const sentiment: 'positive' | 'negative' | 'neutral' =
-      rating >= 4 ? 'positive' : rating <= 2 ? 'negative' : 'neutral';
-    const sValue = (rating - 1) / 4;
-
-    if (activeDoc) {
-      await activeDoc.ref.update({ supersededAt: FieldValue.serverTimestamp() });
-    }
-
-    const feedbackDocRef = await firestoreDb.collection(`users/${req.uid}/feedback_events`).add({
-      orderId,
-      blendId,
-      signalType: 'onsite_feedback',
-      rating,
-      sValue,
-      confidence: 1.0,
-      source: 'onsite',
-      sentiment,
-      rawText: note ?? null,
-      expectation: expectation ?? null,
-      descriptors: noteIds.map(id => noteLabelById.get(id)).filter((d): d is string => !!d),
-      // Additive — descriptors above is the label array every consumer already
-      // reads; tastedNoteIds is only for Part 5's edit-prefill (needs the actual
-      // chip ids, not just their labels, to re-check the right chips).
-      tastedNoteIds: noteIds,
-      createdAt: FieldValue.serverTimestamp(),
-    });
-
-    // Follows the *latest* sentiment (Part 5) — a revision upward clears the
-    // flag, a revision downward (re-)sets it. Scoped to this event only, same
-    // as the pre-Part-5 logic did (not a rescan across the user's other orders).
-    await firestoreDb.doc(`users/${req.uid}/metadata/confidence_profile`).set({
-      hasPendingNegativeFeedback: sentiment === 'negative',
-      ...(sentiment === 'negative'
-        ? { negativeFeedbackBlendId: blendId, negativeFeedbackDetectedAt: FieldValue.serverTimestamp(), negativeFeedbackSource: 'onsite' }
-        : {}),
-    }, { merge: true }).catch(err => console.error('[orders/feedback-confidence-profile]', err));
-
     const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [req.uid]);
     const profileId = profileResult.rows[0]?.id;
 
-    // user_flavor_feedback — no supersede column, and it feeds
-    // v_collaborative_flavor_wheel by row count, so a revision deletes this
-    // user's rows for this order and inserts the new chips rather than
-    // appending: these rows represent the user's *current* opinion, not an
-    // append-only audit trail (that trail already lives in feedback_events).
-    if (profileId) {
-      if (isRevision) {
-        // C3 removes this store.
-        await db.query(`DELETE FROM user_flavor_feedback WHERE user_id = $1 AND order_id = $2`, [profileId, orderId]);
-      }
-      if (noteIds.length && coffeeId) {
-        for (const noteId of noteIds) {
-          await db.query(
-            `INSERT INTO user_flavor_feedback (user_id, coffee_id, order_id, cupping_note_id, intensity, notes)
-             VALUES ($1, $2, $3, $4, NULL, NULL)`,
-            [profileId, coffeeId, orderId, noteId]
-          );
-        }
-      }
-    }
+    // Is this a revision? — Customer Blueprint C3, Part C: resolved from the
+    // fact itself (customer_feedback_event via latestFeedbackEventForOrder),
+    // not a Firestore doc lookup. The Firestore feedback_events write, the
+    // confidence_profile write, and the user_flavor_feedback DELETE+INSERT
+    // are all retired here — customer_feedback_descriptor (below) is the
+    // descriptors store now, and RECOMMENDATION_MISS derives its exclusion
+    // list live from v_customer_feedback_current.
+    const existingFeedbackEventId = profileId ? await latestFeedbackEventForOrder(profileId, orderId) : null;
+    const isRevision = !!existingFeedbackEventId;
+
+    const sentiment: 'positive' | 'negative' | 'neutral' =
+      rating >= 4 ? 'positive' : rating <= 2 ? 'negative' : 'neutral';
 
     // dial_position_signal — feeds the dormant Stage 2 dial loop
     // (BLOOM_DIAL_ALLOCATION_SPEC.md §3). Resolution (coffee → archetype →
@@ -552,20 +496,20 @@ router.post('/:orderId/feedback', requireAuth, blockAnonymousAuth, async (req: A
       await writeDialPositionSignal({ coffeeId, expectation: expectation ?? null, source: 'onsite_feedback', notes: signalNote });
     }
 
-    // Customer Blueprint C2, Part A1 — dual-write into customer_feedback_event
-    // (+ one customer_feedback_descriptor per tasted note). Never fails the
-    // request: the Firestore/SQL writes above are the ones that matter today.
+    // Customer Blueprint C2, Part A1 — customer_feedback_event (+ one
+    // customer_feedback_descriptor per tasted note) is the only feedback
+    // writer as of C3, Part C. sourceId is a fresh id (no Firestore doc to
+    // key off any more).
     if (profileId && coffeeId) {
       try {
         const orderLineItemId = await orderLineForOrder(orderId);
         if (!orderLineItemId) {
           console.warn('[customerFacts:feedback] multi-line order, line unattributed', { orderId });
         }
-        const supersedesId = isRevision ? await latestFeedbackEventForOrder(profileId, orderId) : null;
         const { id: feedbackEventId } = await record.feedback({
-          userId: profileId, source: 'onsite', sourceId: feedbackDocRef.id,
+          userId: profileId, source: 'onsite', sourceId: randomUUID(),
           orderLineItemId, coffeeId, rating, expectation: expectation ?? null, rawText: note ?? null,
-          channel: 'onsite', supersedesId,
+          channel: 'onsite', supersedesId: existingFeedbackEventId,
         });
         if (feedbackEventId) {
           for (const noteId of noteIds) {

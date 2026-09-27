@@ -10,8 +10,6 @@ import { generateBrewNoteSentence } from '../services/storyLayer.js';
 import { getBagNumberForCoffee, getArrivalNoteConfig, getMostRecentCard, type BrewCardParams } from '../services/brewCard.js';
 import { buildDialInSmsBody, respondToDialInBeat } from '../services/beatEngine.js';
 import { backfillCoffeeContent } from './coffees.js';
-import { checkFeedbackParity, checkBrewProfileParity, checkDialParity } from '../services/customerIntegrity.js';
-
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 const router = Router();
@@ -563,48 +561,13 @@ router.get('/purge-stale-anonymous-guests', requireCronSecret, async (_req, res)
   }
 });
 
-// ── GET /api/cron/customer-parity — Customer Blueprint C2, Part C ───────────
-// Daily: re-runs checks 10-12 (feedback/brew-profile/dial parity) and logs
-// the result. Same daily-cron shape as the other jobs here. "Clean days"
-// streak is a disclosed approximation, not an exact retroactive count: it is
-// derived from api_event (this route's own call history, response_status =
-// 200 on distinct prior calendar days), since the brief's own guardrail rules
-// out a dedicated table and api_event has no column for "was this past day's
-// comparison clean" — only whether the call itself succeeded. Today's own
-// clean/dirty state is always computed fresh, never assumed; a break (any
-// disagreement found today) resets the streak to 0 regardless of history.
-router.get('/customer-parity', requireCronSecret, async (_req, res) => {
-  try {
-    const [feedback, brewProfile, dial] = await Promise.all([
-      checkFeedbackParity(), checkBrewProfileParity(), checkDialParity(),
-    ]);
-    const disagreements = (feedback.details?.length ?? 0) + (brewProfile.details?.length ?? 0) + (dial.details?.length ?? 0);
-    const cleanToday = disagreements === 0;
-
-    let streak = 0;
-    if (cleanToday) {
-      const priorDaysResult = await db.query<{ n: string }>(
-        `SELECT COUNT(DISTINCT DATE(occurred_at))::int AS n
-         FROM api_event
-         WHERE path = '/api/cron/customer-parity' AND response_status = 200
-           AND DATE(occurred_at) < CURRENT_DATE`
-      );
-      streak = Number(priorDaysResult.rows[0]?.n ?? 0) + 1;
-    }
-
-    if (cleanToday) {
-      console.log(`[customer-parity] day ${streak} clean`);
-    } else {
-      console.warn(`[customer-parity] disagreements: ${disagreements} users`, {
-        feedback: feedback.details, brewProfile: brewProfile.details, dial: dial.details,
-      });
-    }
-    res.json({ clean: cleanToday, disagreements, streak, checks: { feedback, brewProfile, dial } });
-  } catch (err) {
-    console.error('[cron/customer-parity]', err);
-    res.status(500).json({ error: 'Cron job failed' });
-  }
-});
+// ── GET /api/cron/customer-parity — RETIRED (Customer Blueprint C3, Part C, 2026-09-27) ──
+// Checks 10-12 (feedback/brew-profile/dial parity) it called are gone: there
+// is no second store left to compare once the C3 writers are removed. The
+// route and its Cloud Scheduler job are both retired — see WHAT_WE_BUILT.md's
+// C3 entry for the GCP job deletion. If you're looking for the replacement,
+// there isn't one: checks 13-17 (customerIntegrity.ts) cover the post-C3
+// invariants instead.
 
 // ── GET /api/cron/purge-api-events — RETIRED (2026-09-25) ────────────────
 // Quiz Resync Fix Part D1: api_event is now an append-only record; nothing

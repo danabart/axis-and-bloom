@@ -30,7 +30,11 @@ export interface CheckScope {
 }
 
 const NAMED_FACT_TABLES = ['quiz_session', 'quiz_session_interpretation', 'order', 'order_line_item'];
-const DEAD_TABLES = ['user_recommendation_log', 'user_feedback_event', 'chat_message', 'sommelier_messages'];
+// Customer Blueprint C3, Part C — user_recommendation_log, user_feedback_event
+// and chat_message were dropped (confirmed empty in prod, 2026-09-27).
+// sommelier_messages is NOT dropped — it has 9 real legacy rows in prod, still
+// read as GET /api/sommelier/:sessionId/messages's pre-Firestore fallback.
+const DEAD_TABLES = ['sommelier_messages'];
 
 async function customerFactTables(runner: Tx | typeof db): Promise<string[]> {
   const result = await runner.query<{ tablename: string }>(
@@ -257,7 +261,11 @@ export async function checkCatalogChangeCoverage(scope: CheckScope = {}): Promis
   };
 }
 
-// ── 7. Dead tables are empty — informational (C3 drops them) ─────────────
+// ── 7. Dead tables are empty — informational ──────────────────────────────
+// user_recommendation_log/user_feedback_event/chat_message already dropped
+// (Part C); sommelier_messages is the one remaining candidate, non-empty
+// today (9 legacy rows) — this check watches for it to reach zero so that
+// future drop is provably safe, per the guardrail.
 export async function checkDeadTablesEmpty(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
   const runner = scope.tx ?? db;
   const details: string[] = [];
@@ -268,9 +276,9 @@ export async function checkDeadTablesEmpty(scope: CheckScope = {}): Promise<Cust
   }
   return {
     id: 7,
-    name: 'Dead tables (user_recommendation_log, user_feedback_event, chat_message, sommelier_messages) are empty',
+    name: 'Dead tables (sommelier_messages) are empty',
     pass: true,
-    expected: 'n/a — informational; C3 drops these after confirming they stay empty',
+    expected: 'n/a — informational; dropped only once confirmed empty',
     actual: details.length === 0 ? 'all empty' : `${details.length} table(s) non-empty`,
     details: details.length ? details : undefined,
     severity: 'info',
@@ -317,175 +325,157 @@ export async function checkNamingConvention(scope: CheckScope = {}): Promise<Cus
   };
 }
 
-// ── Customer Blueprint · brief C2, Part C (2026-09-27) — coexistence
-// comparison. Checks 10-12 are always informational: dual-write means the
-// two stores are expected to agree once the backfill has run, but a
-// disagreement here is a signal for the daily comparison, never a boot
-// failure. Each cross-references live Firestore against the fact tables, so
-// unlike checks 1-9 these are genuinely slow-ish (collection-group scans) —
-// acceptable at today's volumes (Task 0, 2026-09-27: 0 feedback_events, 1
-// brew_profile, 28 dial_events); C3 revisits if volume grows. ────────────────
+// ── Customer Blueprint · brief C3, Part C (2026-09-27) — checks 10-12
+// (Firestore-vs-fact coexistence parity, C2) are retired: there is no second
+// store left to compare once the Part C writers are removed. Replaced by
+// checks 13-17 below. ──────────────────────────────────────────────────────
 
-async function profileIdsByFirebaseUid(runner: Tx | typeof db, uids: string[]): Promise<Map<string, string>> {
-  if (!uids.length) return new Map();
-  const result = await runner.query<{ id: string; firebase_uid: string }>(
-    `SELECT id, firebase_uid FROM user_profile WHERE firebase_uid = ANY($1::text[])`,
-    [uids]
-  );
-  return new Map(result.rows.map(r => [r.firebase_uid, r.id]));
-}
-
-// ── 10. Feedback parity ────────────────────────────────────────────────────
-export async function checkFeedbackParity(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+// ── 13. Identity-link cycles = 0 ───────────────────────────────────────────
+// Independent of v_customer_identity's own cycle-safe walk (schema.sql) —
+// this re-derives the same graph from customer_identity_link directly so a
+// bug in the view's own cycle detection would still be caught here.
+export async function checkIdentityLinkCycles(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
   const runner = scope.tx ?? db;
-  const feedbackSnap = await firestoreDb.collectionGroup('feedback_events').get();
-  const fsCountByUid = new Map<string, number>();
-  for (const doc of feedbackSnap.docs) {
-    if (doc.data().supersededAt != null) continue;
-    const uid = doc.ref.parent.parent!.id;
-    fsCountByUid.set(uid, (fsCountByUid.get(uid) ?? 0) + 1);
-  }
-  const uidToProfile = await profileIdsByFirebaseUid(runner, [...fsCountByUid.keys()]);
-
-  const sqlResult = await runner.query<{ user_id: string; n: string }>(
-    `SELECT cfe.user_id, COUNT(*)::int AS n
-     FROM customer_feedback_event cfe
-     WHERE NOT EXISTS (SELECT 1 FROM customer_feedback_event y WHERE y.supersedes_id = cfe.id)
-     GROUP BY cfe.user_id`
+  const result = await runner.query<{ start_id: string }>(
+    `WITH RECURSIVE walk(start_id, current_id, path, is_cycle) AS (
+       SELECT from_user_id, to_user_id, ARRAY[from_user_id, to_user_id], false FROM customer_identity_link
+       UNION ALL
+       SELECT w.start_id, cil.to_user_id, w.path || cil.to_user_id, cil.to_user_id = ANY(w.path)
+       FROM walk w
+       JOIN customer_identity_link cil ON cil.from_user_id = w.current_id
+       WHERE NOT w.is_cycle AND array_length(w.path, 1) < 8
+     )
+     SELECT DISTINCT start_id FROM walk WHERE is_cycle`
   );
-  const sqlCountByProfile = new Map(sqlResult.rows.map(r => [r.user_id, Number(r.n)]));
-
-  const profileIds = new Set([...uidToProfile.values(), ...sqlCountByProfile.keys()]);
-  const details: string[] = [];
-  for (const profileId of profileIds) {
-    const uid = [...uidToProfile.entries()].find(([, p]) => p === profileId)?.[0];
-    const fsCount = uid ? (fsCountByUid.get(uid) ?? 0) : 0;
-    const sqlCount = sqlCountByProfile.get(profileId) ?? 0;
-    if (fsCount !== sqlCount) details.push(`profile ${profileId}: Firestore ${fsCount} vs SQL ${sqlCount}`);
-  }
+  const n = result.rows.length;
   return {
-    id: 10,
-    name: 'Feedback parity: Firestore feedback_events (non-superseded) vs customer_feedback_event (informational)',
-    pass: true,
-    expected: 'n/a — coexistence comparison; zero disagreements expected once the backfill has run',
-    actual: details.length === 0 ? 'no disagreements' : `${details.length} profile(s) disagree`,
-    details: details.length ? details.slice(0, 10) : undefined,
-    severity: 'info',
+    id: 13,
+    name: 'customer_identity_link graph has no cycles',
+    pass: n === 0,
+    expected: '0 profiles on a cyclic identity chain',
+    actual: `${n} profile(s)`,
+    details: n ? result.rows.map(r => `profile ${r.start_id} is on a cycle`).slice(0, 10) : undefined,
   };
 }
 
-// Replays every customer_brew_profile_change row for one (profile, field) in
-// occurred_at order to reconstruct "what SQL thinks the field's current value
-// is" — a single 'set'/'clear' replaces it outright; 'add'/'remove' build an
-// array. Needed because the fact table only ever records the delta ('add'
-// stores the one item just appended, not the resulting array), while
-// Firestore's brew_profile doc always holds the current, cumulative value —
-// comparing the latest row's raw value against the doc's value (as brief C2's
-// own literal spec describes) works for scalar fields but is always false for
-// array fields. Found by running the Part E smoke test against real
-// production, not by review.
-function reconstructBrewProfileValue(rows: Array<{ op: string; value: string | null }>): unknown {
-  let scalarValue: unknown;
-  let arrayValue: unknown[] | undefined;
-  for (const row of rows) {
-    const v = row.value != null ? JSON.parse(row.value) : null;
-    if (row.op === 'clear') { scalarValue = undefined; arrayValue = undefined; continue; }
-    if (row.op === 'add') { arrayValue = [...(arrayValue ?? []), v].filter((x, i, arr) => arr.indexOf(x) === i); continue; }
-    if (row.op === 'remove') { arrayValue = (arrayValue ?? []).filter(x => x !== v); continue; }
-    if (row.op === 'set') { if (Array.isArray(v)) arrayValue = v; else scalarValue = v; continue; }
-  }
-  return arrayValue !== undefined ? arrayValue : scalarValue;
-}
-
-function valuesMatch(a: unknown, b: unknown): boolean {
-  if (Array.isArray(a) && Array.isArray(b)) {
-    return a.length === b.length && [...a].sort().every((v, i) => v === [...b].sort()[i]);
-  }
-  return a === b;
-}
-
-// ── 11. Brew profile parity ────────────────────────────────────────────────
-export async function checkBrewProfileParity(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+// ── 14. Claimed sessions without a link = 0 ────────────────────────────────
+// routes/auth.ts's synthetic claimed quiz_session is retired (Part C), but
+// existing rows with context_data.claimedFrom = 'newsletter_subscriber' stay
+// (facts) — each one should have a matching customer_identity_link pointing
+// at its own user_id, from when it was claimed. A row without one means the
+// account can no longer see the original quiz it claimed.
+export async function checkClaimedSessionsHaveLinks(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
   const runner = scope.tx ?? db;
-  const metadataSnap = await firestoreDb.collectionGroup('metadata').get();
-  const brewProfileDocs = metadataSnap.docs.filter(d => d.id === 'brew_profile');
-  const uids = brewProfileDocs.map(d => d.ref.parent.parent!.id);
-  const uidToProfile = await profileIdsByFirebaseUid(runner, uids);
+  const result = await runner.query<{ id: string }>(
+    `SELECT qs.id
+     FROM quiz_session qs
+     WHERE qs.context_data ->> 'claimedFrom' = 'newsletter_subscriber'
+       AND NOT EXISTS (SELECT 1 FROM customer_identity_link cil WHERE cil.to_user_id = qs.user_id)`
+  );
+  const n = result.rows.length;
+  return {
+    id: 14,
+    name: 'Every claimed quiz_session (claimedFrom = newsletter_subscriber) has a customer_identity_link',
+    pass: n === 0,
+    expected: '0 claimed sessions without a link',
+    actual: `${n} session(s)`,
+    details: n ? result.rows.map(r => `quiz_session ${r.id} has no identity link`).slice(0, 10) : undefined,
+  };
+}
 
+// ── 15. No Firestore doc created in a retired collection after cutover ────
+// Informational, time-boxed: remove this check (and its Firestore reads)
+// CUTOVER_REMOVE_AFTER, once every writer has had 30 days to prove itself
+// fully retired (OPEN_TASKS.md). A hit here means an un-retired writer (or a
+// new one) is still landing in Firestore.
+const C3_CUTOVER_AT = new Date('2026-09-27T00:00:00Z');
+const C3_CUTOVER_REMOVE_AFTER = new Date('2026-10-27T00:00:00Z');
+const RETIRED_FIRESTORE_SOURCES: Array<{ label: string; collectionGroup: string; docId?: string; timestampField: string }> = [
+  { label: 'feedback_events', collectionGroup: 'feedback_events', timestampField: 'createdAt' },
+  { label: 'dial_events', collectionGroup: 'dial_events', timestampField: 'createdAt' },
+  { label: 'metadata/brew_profile', collectionGroup: 'metadata', docId: 'brew_profile', timestampField: 'updatedAt' },
+  { label: 'metadata/taste_journey', collectionGroup: 'metadata', docId: 'taste_journey', timestampField: 'lastUpdated' },
+  { label: 'metadata/confidence_profile', collectionGroup: 'metadata', docId: 'confidence_profile', timestampField: 'computedAt' },
+  { label: 'quiz_sessions', collectionGroup: 'quiz_sessions', timestampField: 'completedAt' },
+  { label: 'liam_saves', collectionGroup: 'liam_saves', timestampField: 'createdAt' },
+  { label: 'sommelier_evaluations', collectionGroup: 'sommelier_evaluations', timestampField: 'createdAt' },
+];
+export async function checkNoNewFirestoreWritesToRetiredStores(_scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  if (new Date() > C3_CUTOVER_REMOVE_AFTER) {
+    return {
+      id: 15,
+      name: 'No new Firestore documents in a retired collection since cutover',
+      pass: true,
+      expected: 'n/a — 30-day window elapsed; remove this check (OPEN_TASKS.md)',
+      actual: 'window elapsed',
+      severity: 'info',
+    };
+  }
   const details: string[] = [];
-  for (const doc of brewProfileDocs) {
-    const uid = doc.ref.parent.parent!.id;
-    const profileId = uidToProfile.get(uid);
-    if (!profileId) { details.push(`uid ${uid}: brew_profile doc exists, no user_profile row`); continue; }
-
-    const data = doc.data();
-    const fields = Object.keys(data).filter(f => f !== 'updatedAt');
-    const allRows = await runner.query<{ field: string; op: string; value: string | null }>(
-      `SELECT field, op, value FROM customer_brew_profile_change WHERE user_id = $1 ORDER BY occurred_at ASC`,
-      [profileId]
-    );
-    const rowsByField = new Map<string, Array<{ op: string; value: string | null }>>();
-    for (const r of allRows.rows) {
-      if (!rowsByField.has(r.field)) rowsByField.set(r.field, []);
-      rowsByField.get(r.field)!.push({ op: r.op, value: r.value });
-    }
-
-    for (const field of fields) {
-      const fsValue = (data[field] as { value?: unknown })?.value ?? null;
-      const fieldRows = rowsByField.get(field);
-      if (!fieldRows) { details.push(`profile ${profileId}: field '${field}' in Firestore, no change row`); continue; }
-      const reconstructed = reconstructBrewProfileValue(fieldRows);
-      if (!valuesMatch(reconstructed, fsValue)) {
-        details.push(`profile ${profileId}: field '${field}' Firestore=${JSON.stringify(fsValue)} vs reconstructed from changes=${JSON.stringify(reconstructed)}`);
+  for (const src of RETIRED_FIRESTORE_SOURCES) {
+    try {
+      const snap = await firestoreDb.collectionGroup(src.collectionGroup).get();
+      let hits = 0;
+      for (const doc of snap.docs) {
+        if (src.docId && doc.id !== src.docId) continue;
+        const ts = doc.data()[src.timestampField]?.toDate?.() as Date | undefined;
+        if (ts && ts >= C3_CUTOVER_AT) hits++;
       }
-      rowsByField.delete(field);
+      if (hits) details.push(`${src.label}: ${hits} doc(s) written since cutover`);
+    } catch (err) {
+      details.push(`${src.label}: read failed (${err instanceof Error ? err.message : String(err)})`);
     }
-    for (const field of rowsByField.keys()) details.push(`profile ${profileId}: field '${field}' has a change row, not in Firestore doc`);
   }
-
   return {
-    id: 11,
-    name: 'Brew profile parity: Firestore brew_profile doc vs latest customer_brew_profile_change per field (informational)',
+    id: 15,
+    name: 'No new Firestore documents in a retired collection since cutover',
     pass: true,
-    expected: 'n/a — coexistence comparison; zero disagreements expected once the backfill has run',
-    actual: details.length === 0 ? 'no disagreements' : `${details.length} disagreement(s)`,
-    details: details.length ? details.slice(0, 10) : undefined,
+    expected: `n/a — informational until ${C3_CUTOVER_REMOVE_AFTER.toISOString().slice(0, 10)}, then remove`,
+    actual: details.length === 0 ? 'none found' : `${details.length} source(s) with post-cutover writes`,
+    details: details.length ? details : undefined,
     severity: 'info',
   };
 }
 
-// ── 12. Dial parity ─────────────────────────────────────────────────────────
-export async function checkDialParity(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+// ── 16. Every active coffee has a dimension-range row (informational) ─────
+// Feeds the future Cupping Blueprint, not a hard requirement today — an
+// uncupped active coffee is a real, expected state (Task 0, 2026-09-27: prod
+// has exactly 1 active coffee with 0 merged/unmerged cupping rows).
+export async function checkActiveCoffeesHaveDimensionRange(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
   const runner = scope.tx ?? db;
-  const dialSnap = await firestoreDb.collectionGroup('dial_events').get();
-  const fsCountByUid = new Map<string, number>();
-  for (const doc of dialSnap.docs) {
-    const uid = doc.ref.parent.parent!.id;
-    fsCountByUid.set(uid, (fsCountByUid.get(uid) ?? 0) + 1);
-  }
-  const uidToProfile = await profileIdsByFirebaseUid(runner, [...fsCountByUid.keys()]);
-
-  const sqlResult = await runner.query<{ user_id: string; n: string }>(
-    `SELECT user_id, COUNT(*)::int AS n FROM customer_dial_event GROUP BY user_id`
+  const result = await runner.query<{ id: number }>(
+    `SELECT c.id FROM coffees c
+     WHERE c.is_active = true
+       AND NOT EXISTS (SELECT 1 FROM v_coffee_dimension_range cdr WHERE cdr.coffee_id = c.id)`
   );
-  const sqlCountByProfile = new Map(sqlResult.rows.map(r => [r.user_id, Number(r.n)]));
-
-  const profileIds = new Set([...uidToProfile.values(), ...sqlCountByProfile.keys()]);
-  const details: string[] = [];
-  for (const profileId of profileIds) {
-    const uid = [...uidToProfile.entries()].find(([, p]) => p === profileId)?.[0];
-    const fsCount = uid ? (fsCountByUid.get(uid) ?? 0) : 0;
-    const sqlCount = sqlCountByProfile.get(profileId) ?? 0;
-    if (fsCount !== sqlCount) details.push(`profile ${profileId}: Firestore ${fsCount} vs SQL ${sqlCount}`);
-  }
+  const n = result.rows.length;
   return {
-    id: 12,
-    name: 'Dial parity: Firestore dial_events count vs customer_dial_event count per profile (informational)',
+    id: 16,
+    name: 'Every active coffee has at least one v_coffee_dimension_range row',
     pass: true,
-    expected: 'n/a — coexistence comparison; zero disagreements expected once the backfill has run',
-    actual: details.length === 0 ? 'no disagreements' : `${details.length} profile(s) disagree`,
-    details: details.length ? details.slice(0, 10) : undefined,
+    expected: 'n/a — informational; feeds the Cupping Blueprint',
+    actual: n === 0 ? 'all active coffees have a range' : `${n} active coffee(s) with no range`,
+    details: n ? result.rows.map(r => `coffee ${r.id}: no merged or unmerged cupping rows`).slice(0, 10) : undefined,
     severity: 'info',
+  };
+}
+
+// ── 17. Brew profile replay hits no unknown op ─────────────────────────────
+// customer_brew_profile_change.op has a CHECK constraint limiting it to
+// set/add/remove/clear, so this should structurally never fail — verifies
+// the constraint holds rather than trusting it silently.
+export async function checkBrewProfileReplayKnownOps(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  const runner = scope.tx ?? db;
+  const result = await runner.query<{ op: string }>(
+    `SELECT DISTINCT op FROM customer_brew_profile_change WHERE op NOT IN ('set', 'add', 'remove', 'clear')`
+  );
+  const n = result.rows.length;
+  return {
+    id: 17,
+    name: 'customer_brew_profile_change.op is always set/add/remove/clear',
+    pass: n === 0,
+    expected: '0 distinct unknown ops',
+    actual: n === 0 ? 'all rows use a known op' : `${n} unknown op(s): ${result.rows.map(r => r.op).join(', ')}`,
   };
 }
 
@@ -500,9 +490,11 @@ export async function runCustomerIntegrityChecks(scope: CheckScope = {}): Promis
     await checkDeadTablesEmpty(scope),
     await checkOrderKindPopulated(scope),
     await checkNamingConvention(scope),
-    await checkFeedbackParity(scope),
-    await checkBrewProfileParity(scope),
-    await checkDialParity(scope),
+    await checkIdentityLinkCycles(scope),
+    await checkClaimedSessionsHaveLinks(scope),
+    await checkNoNewFirestoreWritesToRetiredStores(scope),
+    await checkActiveCoffeesHaveDimensionRange(scope),
+    await checkBrewProfileReplayKnownOps(scope),
   ];
   return {
     ranAt: new Date().toISOString(),

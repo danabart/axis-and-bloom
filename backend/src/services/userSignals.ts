@@ -1,6 +1,6 @@
 import { db } from '../db/client.js';
-import { firestoreDb } from './firebase-admin.js';
-import { CURRENT_INTERPRETATION_COLUMNS, CURRENT_INTERPRETATION_JOIN, resolveInterpretation } from './quizSession.js';
+import { getQuizCurrent, getFeedbackCurrent } from './customerReads.js';
+import { computeBehavioralConfidence } from './behavioralConfidence.js';
 
 // ── getUserSignals() ──────────────────────────────────────────────────────────
 // Single shared collector of the raw, re-derivable facts about a user — quiz
@@ -91,47 +91,35 @@ export async function getUserSignals(uid: string): Promise<UserSignals> {
     console.error('[userSignals] profile lookup failed:', err);
   }
 
-  // ── Quiz sessions (full history, oldest first) ───────────────────────────
-  let quizRows: Array<{ archetype_name: string | null; completed_at: string; context_data: any } & Record<string, any>> = [];
+  // ── Quiz (Customer Blueprint C3, Part B1) — v_customer_quiz_current, the
+  // latest session across every linked profile, replacing the raw quiz_session
+  // + resolveInterpretation() read. Output shape below is unchanged.
+  let quizCurrent: Awaited<ReturnType<typeof getQuizCurrent>> = null;
   try {
-    const result = await db.query(
-      `SELECT ar.name AS archetype_name, qs.completed_at, qs.context_data, ${CURRENT_INTERPRETATION_COLUMNS}
-       FROM quiz_session qs
-       JOIN user_profile up ON up.id = qs.user_id
-       LEFT JOIN coffee_archetype ar ON ar.id = qs.resulting_archetype_id
-       ${CURRENT_INTERPRETATION_JOIN}
-       WHERE up.firebase_uid = $1
-       ORDER BY qs.completed_at ASC`,
-      [uid]
-    );
-    quizRows = result.rows;
+    quizCurrent = await getQuizCurrent(uid);
   } catch (err) {
-    console.error('[userSignals] quiz sessions query failed:', err);
+    console.error('[userSignals] quiz read failed:', err);
   }
 
-  const quizCount = quizRows.length;
-  let archetypeChangeCount = 0;
-  for (let i = 1; i < quizRows.length; i++) {
-    if (quizRows[i].archetype_name !== quizRows[i - 1].archetype_name) archetypeChangeCount++;
-  }
+  const quizCount = quizCurrent?.quizCount ?? 0;
+  const archetypeChangeCount = quizCurrent?.archetypeChangeCount ?? 0;
+  const archetypeChangedLastTwoQuizzes = quizCurrent?.archetypeChangedLastTwoQuizzes ?? false;
 
-  const latestQuiz = quizRows[quizRows.length - 1] ?? null;
-  const prevQuiz = quizRows[quizRows.length - 2] ?? null;
-  const archetypeChangedLastTwoQuizzes =
-    quizRows.length >= 2 && !!prevQuiz && latestQuiz?.archetype_name !== prevQuiz?.archetype_name;
+  const archetype = quizCurrent?.archetypeName ?? null;
+  const secondaryArchetype = quizCurrent?.secondaryArchetype ?? null;
+  const branchedFrom = quizCurrent?.branchedFrom ?? null;
+  const foodSignal = quizCurrent?.foodSignal ?? null;
+  const experimental = quizCurrent?.experimental ?? false;
+  const foodSignalAlignment = quizCurrent?.foodSignalAlignment ?? 'high';
+  const recommendationMode = quizCurrent?.recommendationMode ?? 'primary_only';
+  const interp = {
+    interpretationVersion: quizCurrent?.interpretationVersion ?? null,
+    pairConfidence: quizCurrent?.pairConfidence ?? null,
+    exploreArchetype: quizCurrent?.exploreArchetype ?? null,
+    exploreReason: quizCurrent?.exploreReason ?? null,
+  };
 
-  const latestCtx = latestQuiz?.context_data ?? {};
-  const archetype = latestQuiz?.archetype_name ?? null;
-  // The current interpretation row when the session has one, else context_data (old route defaults).
-  const interp = resolveInterpretation(latestQuiz ?? {}, latestCtx);
-  const secondaryArchetype = interp.secondaryArchetype;
-  const branchedFrom = latestCtx.branchedFrom ?? null;
-  const foodSignal = latestCtx.foodSignal ?? null;
-  const experimental = latestCtx.experimental ?? false;
-  const foodSignalAlignment = interp.foodSignalAlignment;
-  const recommendationMode = interp.recommendationMode;
-
-  const lastQuizCompletedAt = latestQuiz?.completed_at ? new Date(latestQuiz.completed_at) : null;
+  const lastQuizCompletedAt = quizCurrent?.completedAt ? new Date(quizCurrent.completedAt) : null;
   const daysSinceLastQuiz = lastQuizCompletedAt
     ? Math.floor((Date.now() - lastQuizCompletedAt.getTime()) / (1000 * 60 * 60 * 24))
     : null;
@@ -154,16 +142,14 @@ export async function getUserSignals(uid: string): Promise<UserSignals> {
     console.error('[userSignals] order query failed:', err);
   }
 
-  // Which of this user's orders already have a feedback_events doc (any source/channel).
+  // Which of this user's orders already have a feedback fact (any source/channel).
+  // Customer Blueprint C3, Part B1 — v_customer_feedback_current, not Firestore.
   let orderIdsWithFeedback = new Set<string>();
   try {
-    const feedbackSnap = await firestoreDb.collection(`users/${uid}/feedback_events`).get();
-    for (const doc of feedbackSnap.docs) {
-      const orderId = doc.data().orderId;
-      if (orderId) orderIdsWithFeedback.add(orderId);
-    }
-  } catch {
-    // Subcollection may not exist yet — treat as no feedback captured
+    const feedbackRows = await getFeedbackCurrent(uid);
+    for (const row of feedbackRows) if (row.orderId) orderIdsWithFeedback.add(row.orderId);
+  } catch (err) {
+    console.error('[userSignals] feedback read failed:', err);
   }
 
   const orders: OrderSignal[] = orderRows.map(o => ({
@@ -185,45 +171,34 @@ export async function getUserSignals(uid: string): Promise<UserSignals> {
 
   const oldestOrderMissingFeedback = orders.find(o => !o.hasFeedback) ?? null;
 
-  // ── Behavioral confidence (Firestore, written by computeBehavioralConfidence) ──
+  // ── Behavioral confidence — Customer Blueprint C3, Part B1: computed live,
+  // on demand, via the now-pure computeBehavioralConfidence(uid) (Part C),
+  // not read back from a Firestore doc it used to write.
   let behavioralScore = 0.5;
   let behavioralLevel = 'medium';
   let behavioralComponents = { quizStability: 0.5, behavioralValidation: 0.5, dataDepth: 0.5, feedbackAlignment: 0.5 };
   try {
-    const confSnap = await firestoreDb.doc(`users/${uid}/metadata/confidence_profile`).get();
-    if (confSnap.exists) {
-      const data = confSnap.data()!;
-      behavioralScore = data.score ?? 0.5;
-      behavioralLevel = data.level ?? 'medium';
-      behavioralComponents = {
-        quizStability: data.components?.quizStability ?? 0.5,
-        behavioralValidation: data.components?.behavioralValidation ?? 0.5,
-        dataDepth: data.components?.dataDepth ?? 0.5,
-        feedbackAlignment: data.components?.feedbackAlignment ?? 0.5,
-      };
-    }
-  } catch { /* use defaults */ }
+    const bc = await computeBehavioralConfidence(uid);
+    behavioralScore = bc.score;
+    behavioralLevel = bc.level;
+    behavioralComponents = bc.components;
+  } catch (err) {
+    console.error('[userSignals] behavioral confidence computation failed:', err);
+  }
 
   // ── Negative feedback in lookback window ─────────────────────────────────
+  // Customer Blueprint C3, Part B1 — v_customer_feedback_current already
+  // excludes superseded rows (Profile Part 5), so no extra filter is needed
+  // here the way the old Firestore query needed its own supersededAt check.
   let hasRecentNegativeFeedback = false;
   try {
     const { getSommelierConfig } = await import('./sommelierConfig.js');
     const lookbackDays = getSommelierConfig()?.timeWindows?.negativeFeedbackLookback ?? 30;
     const lookbackDate = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
-    // No `.limit(1)` — a revised (now-superseded) negative event must not count,
-    // so we need enough rows to find a non-superseded one (Profile Part 5).
-    const feedbackSnap = await firestoreDb
-      .collection(`users/${uid}/feedback_events`)
-      .where('createdAt', '>=', lookbackDate)
-      .where('sentiment', '==', 'negative')
-      .get();
-    hasRecentNegativeFeedback = feedbackSnap.docs.some(d => !d.data().supersededAt);
+    const negativeRows = await getFeedbackCurrent(uid, { sentiment: 'negative' });
+    hasRecentNegativeFeedback = negativeRows.some(r => r.occurredAt >= lookbackDate);
   } catch (err) {
-    // HOME_TASK_9B (S89) — this exact bare catch is what let a missing
-    // Firestore composite index silently zero out RECOMMENDATION_MISS for
-    // two months (S88). Unmissable-log-tag pattern from 7d/S85: a distinct,
-    // greppable tag with the real error attached, never a silent no-op.
-    console.error('[userSignals:INDEX_QUERY_FAILED] negative-feedback lookup failed — hasRecentNegativeFeedback defaulting to false', err);
+    console.error('[userSignals] negative-feedback lookup failed — hasRecentNegativeFeedback defaulting to false', err);
   }
 
   // ── Active subscription ──────────────────────────────────────────────────

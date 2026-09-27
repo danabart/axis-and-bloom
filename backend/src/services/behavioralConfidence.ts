@@ -1,7 +1,7 @@
 import { db } from '../db/client.js';
-import { firestoreDb } from './firebase-admin.js';
 import { getSommelierConfig } from './sommelierConfig.js';
 import { archetypeCode } from './catalogReads.js';
+import { getFeedbackCurrent } from './customerReads.js';
 
 export interface BehavioralConfidenceResult {
   score: number;
@@ -84,39 +84,33 @@ export async function computeBehavioralConfidence(uid: string): Promise<Behavior
     console.error('[behavioralConfidence] order query failed:', err);
   }
 
-  // ── 3. Firestore: feedback_events (last 180 days) ────────────────────────────
-  // Liam feedback is written to Firestore only — NOT read from SQL user_feedback_event.
+  // ── 3. v_customer_feedback_current (last 180 days) ───────────────────────────
+  // Customer Blueprint C3, Part C — reads the fact through the view now;
+  // supersede resolution (Profile Part 5's "a revised event's prior version
+  // must not double-count") is v_customer_feedback_current's own job
+  // (customer_feedback_event rows pointed at by a newer row's supersedes_id
+  // are excluded there), not repeated here.
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 180);
 
-  let feedbackDocs: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+  let feedbackRows: Awaited<ReturnType<typeof getFeedbackCurrent>> = [];
   try {
-    const feedbackSnap = await firestoreDb
-      .collection(`users/${uid}/feedback_events`)
-      .where('createdAt', '>=', cutoff)
-      .get();
-    // Ignore superseded docs (Profile Part 5) — a revised event's prior version
-    // must not double-count alongside its replacement.
-    feedbackDocs = feedbackSnap.docs.filter(d => !d.data().supersededAt);
-  } catch {
-    // Subcollection may not exist yet — treat as zero events
+    feedbackRows = (await getFeedbackCurrent(uid)).filter(f => f.occurredAt >= cutoff);
+  } catch (err) {
+    console.error('[behavioralConfidence] feedback read failed:', err);
   }
 
-  const feedbackEventCount = feedbackDocs.length;
+  const feedbackEventCount = feedbackRows.length;
 
   // negativeFeedbackFlag: any event with sentiment = 'negative' in the last N days
   const negativeFeedbackCutoff = new Date();
   negativeFeedbackCutoff.setDate(negativeFeedbackCutoff.getDate() - negativeFeedbackWindow);
-  const negativeFeedbackFlag = feedbackDocs.some(d => {
-    const data = d.data();
-    const createdAt = data.createdAt?.toDate?.() ?? new Date(0);
-    return data.sentiment === 'negative' && createdAt >= negativeFeedbackCutoff;
-  });
+  const negativeFeedbackFlag = feedbackRows.some(f => f.sentiment === 'negative' && f.occurredAt >= negativeFeedbackCutoff);
 
-  const positiveFeedbackCount = feedbackDocs.filter(d => {
-    const data = d.data();
-    return typeof data.sValue === 'number' && data.sValue >= 0.6;
-  }).length;
+  // sValue (Firestore-era) was (rating - 1) / 4 with a >= 0.6 positive cutoff,
+  // i.e. rating >= 4 — the same threshold v_customer_feedback_current already
+  // derives sentiment='positive' from (rating >= 4).
+  const positiveFeedbackCount = feedbackRows.filter(f => f.sentiment === 'positive').length;
 
   // ── 4. Compute component scores ──────────────────────────────────────────────
 
@@ -162,19 +156,10 @@ export async function computeBehavioralConfidence(uid: string): Promise<Behavior
     rawInputs: { quizCount, archetypeChangeCount, totalOrders, matchedOrders, feedbackEventCount, negativeFeedbackFlag },
   };
 
-  // ── 6. Write to Firestore (non-blocking from caller's perspective) ────────────
-  try {
-    firestoreDb.doc(`users/${uid}/metadata/confidence_profile`).set({
-      score:                result.score,
-      level,
-      components,
-      rawInputs:            result.rawInputs,
-      hasPendingNegativeFeedback: negativeFeedbackFlag,
-      computedAt:           new Date(),
-    }, { merge: true }).catch(err => console.error('[behavioralConfidence/firestore]', err));
-  } catch (err) {
-    console.error('[behavioralConfidence] firestore doc path error:', err);
-  }
-
+  // Customer Blueprint C3, Part C — computeBehavioralConfidence is pure now:
+  // reads facts through views, returns the result, writes nothing. The old
+  // Firestore users/{uid}/metadata/confidence_profile write is retired; every
+  // call site (routes/sommelier.ts POST /evaluate, routes/quiz.ts, this
+  // module's own callers) already only ever used the returned value.
   return result;
 }

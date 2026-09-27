@@ -1,6 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { firestoreDb } from './firebase-admin.js';
-import { FieldValue } from 'firebase-admin/firestore';
+import { db } from '../db/client.js';
 import { getSommelierConfig } from './sommelierConfig.js';
 import { getUserSignals } from './userSignals.js';
 import { guardClaudeCall } from './anthropicGuard.js';
@@ -240,36 +239,27 @@ Write only the briefing, including a tone note for Liam at the end (e.g. "Tone: 
     console.error('[sommelierEvaluator] Haiku Stage 2 error:', err);
   }
 
-  // ── Stage 3: Write evaluation to Firestore ───────────────────────────────
+  // ── Stage 3: Write evaluation — Customer Blueprint C3, Part B6 ───────────
+  // sommelier_evaluation (SQL, operating/log table) replaces Firestore
+  // users/{uid}/sommelier_evaluations; user_id is user_profile.id, resolved
+  // from the Firebase uid this function receives. Existing Firestore
+  // evaluations are left in place as history under the old key, not migrated.
   let evaluationId: string | null = null;
   try {
-    const evalDoc = await firestoreDb
-      .collection(`users/${uid}/sommelier_evaluations`)
-      .add({
-        intent: matchedIntent,
-        triggersFired,
-        needsSommelier: true,
-        sessionStarted: false,
-        startedAt: null,
-        featureVector,
-        featureSchema: [...FEATURE_SCHEMA],
-        userStateSnapshot,
-        openingContext,
-        outcome: {
-          sessionCompleted: null,
-          turnsUsed: null,
-          tokensSpent: null,
-          orderedWithin7Days: null,
-          orderedWithin30Days: null,
-          feedbackAfterSession: null,
-          returnedToSommelier: null,
-          outcomeUpdatedAt: null,
-        },
-        createdAt: FieldValue.serverTimestamp(),
-      });
-    evaluationId = evalDoc.id;
+    const profileResult = await db.query<{ id: string }>(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [uid]);
+    const profileId = profileResult.rows[0]?.id;
+    if (profileId) {
+      const insertResult = await db.query<{ id: string }>(
+        `INSERT INTO sommelier_evaluation
+           (user_id, intent, triggers_fired, needs_sommelier, feature_vector, feature_schema, user_state_snapshot, opening_context)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING id`,
+        [profileId, matchedIntent, triggersFired, true, featureVector, [...FEATURE_SCHEMA], JSON.stringify(userStateSnapshot), openingContext]
+      );
+      evaluationId = insertResult.rows[0]?.id ?? null;
+    }
   } catch (err) {
-    console.error('[sommelierEvaluator] Firestore write error:', err);
+    console.error('[sommelierEvaluator] evaluation insert error:', err);
   }
 
   return {

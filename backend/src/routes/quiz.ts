@@ -5,14 +5,10 @@ import { getRealClientIp } from '../middleware/clientIp.js';
 import { db, withTransaction } from '../db/client.js';
 import { rankScores, findWinner, interpret } from '../services/quizScoring.js';
 import { scoreAnswerIds } from '../services/quizScorer.js';
-import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
-import { Timestamp } from 'firebase-admin/firestore';
-import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
 import { refreshLifecycleState } from '../services/userLifecycle.js';
 import { logFunnelEvent } from '../features/marketing/funnelEvents.js';
 import { saveQuizSession, recordScoredInterpretation, getLatestQuizResult } from '../services/quizSession.js';
-import { archetypeCode, archetypeUuid } from '../services/catalogReads.js';
-import { isSameArchetype } from '../services/tasteJourney.js';
+import { archetypeUuid } from '../services/catalogReads.js';
 
 const router = Router();
 
@@ -199,90 +195,15 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
       console.error('[quiz/interpretation]', err);
     }
 
-    // Code for the display name, resolved once: keys users/{uid}.archetype and the
-    // taste_journey same-archetype comparison below (retired names resolve too).
-    const newCode = await archetypeCode(archetype);
-
-    // Sync to Firestore — non-blocking, Cloud SQL is source of truth
-    firestoreDb.doc(`users/${req.uid}`).set({
-      archetype:      newCode ?? archetype.toLowerCase(),
-      archetypeLabel: archetype,
-      lastQuizDate:   FieldValue.serverTimestamp(),
-      syncedAt:       FieldValue.serverTimestamp(),
-    }, { merge: true }).catch((err: unknown) => console.error('[quiz/firestore-profile]', err));
-
-    await firestoreDb.doc(`users/${req.uid}/quiz_sessions/${sessionId}`).set({
-      archetype,
-      secondaryArchetype:  secondaryArchetype ?? null,
-      foodSignal:          foodSignal ?? null,
-      foodSignalAlignment: foodSignalAlignment ?? 'high',
-      recommendationMode:  recommendationMode ?? 'primary_only',
-      experimental:        experimental ?? false,
-      answerIds:           answerIds ?? null,
-      branchedFrom:        branchedFrom ?? null,
-      scores,
-      completedAt:         FieldValue.serverTimestamp(),
-    }).catch((err: unknown) => console.error('[quiz/firestore-session]', err));
-
     res.json({ id: sessionId });
 
-    // Fire-and-forget: compute behavioral confidence, then write taste_journey.
-    // Always after the quiz session is saved so the new quiz counts in the computation.
-    ;(async () => {
-      // Profile Part 6: the taste_journey write must not depend on behavioral
-      // confidence succeeding — bc failure previously meant the journey write
-      // (below) never ran at all, only console.error'd, silently dropping a
-      // real quiz completion from the user's history. bc is now computed
-      // best-effort in its own try/catch; the journey write always runs.
-      let confidenceLevel: 'low' | 'medium' | 'high' | null = null;
-      try {
-        const bcResult = await computeBehavioralConfidence(req.uid!);
-        confidenceLevel = bcResult.level;
-        refreshLifecycleState(req.uid!).catch(err => console.error('[quiz/lifecycle]', err));
-      } catch (err) {
-        console.error('[quiz/behavioral-confidence]', err);
-      }
-
-      try {
-        // Bug fix (Profile Part 2/3 verification): `users/{uid}/taste_journey` is a
-        // 3-segment path — Firestore document references require an even segment
-        // count (collection/doc/collection/doc/...), so `.doc()` on this threw
-        // synchronously on every call, silently swallowed by this block's own
-        // try/catch. taste_journey has therefore never actually persisted since
-        // Sommelier Task 1 shipped it — confirmed by reproducing the throw
-        // directly. Matches the working `confidence_profile` convention
-        // (`users/{uid}/metadata/{name}`, 4 segments) instead.
-        const journeyRef = firestoreDb.doc(`users/${req.uid}/metadata/taste_journey`);
-        const journeySnap = await journeyRef.get();
-        const journey = journeySnap.exists ? journeySnap.data()! : null;
-
-        // Compare by code, not display string: a doc stored as "Balanced & Sweet"
-        // must still count as the same archetype as a fresh "Balanced".
-        const currentCode = journey?.currentArchetype ? await archetypeCode(journey.currentArchetype) : null;
-        const isSame = isSameArchetype(newCode, currentCode);
-        const isFirst = !journey?.currentArchetype;
-
-        const newEntry = {
-          archetype,
-          archetypeCode: newCode,
-          date: Timestamp.now(),
-          quizSessionId: String(sessionId),
-          confidenceLevel,
-          trigger: isFirst ? 'first_quiz' : 'retake',
-        };
-
-        await journeyRef.set({
-          currentArchetype:   archetype,
-          currentArchetypeCode: newCode,
-          currentStreakCount: isSame ? (journey?.currentStreakCount ?? 0) + 1 : 1,
-          evolutionCount:     isSame ? (journey?.evolutionCount ?? 0) : (journey?.evolutionCount ?? 0) + 1,
-          archetypeHistory:   [...(journey?.archetypeHistory ?? []), newEntry],
-          lastUpdated:        FieldValue.serverTimestamp(),
-        }, { merge: true });
-      } catch (err) {
-        console.error('[quiz/taste-journey]', err);
-      }
-    })();
+    // Customer Blueprint C3, Part C — the Firestore users/{uid} archetype
+    // write, the users/{uid}/quiz_sessions/{id} copy, and the
+    // users/{uid}/metadata/taste_journey write are all retired:
+    // v_customer_quiz_current (schema.sql) and v_customer_timeline's 'quiz'
+    // entries (customerReads.getTimeline) are the reads now. Lifecycle
+    // refresh still runs fire-and-forget after every quiz completion.
+    refreshLifecycleState(req.uid!).catch(err => console.error('[quiz/lifecycle]', err));
   } catch (err) {
     console.error('[quiz/results]', err);
     res.status(500).json({ error: 'Failed to save quiz result' });

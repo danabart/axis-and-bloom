@@ -1,6 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { db } from '../db/client.js';
-import { firestoreDb, FieldValue } from './firebase-admin.js';
 import { sendSms, logToNotificationLog } from './smsProvider.js';
 import { computeBehavioralConfidence } from './behavioralConfidence.js';
 import { refreshLifecycleState } from './userLifecycle.js';
@@ -236,33 +235,10 @@ Respond with JSON only, no explanation: { "sentiment": "...", "rating": N, "desc
 
   const sValue = (parsedRating - 1) / 4;
 
-  // Write to Firestore users/{uid}/feedback_events — includes `expectation`
-  // (Liam SMS Dial Question), same field name on-site v2 writes, so every
-  // downstream consumer of feedback_events treats the two channels
-  // interchangeably.
-  let firestoreDocId: string | null = null;
-  try {
-    const docRef = await firestoreDb
-      .collection(`users/${uid}/feedback_events`)
-      .add({
-        orderId:            outboundRow.order_id ?? null,
-        blendId:            outboundRow.blend_id ?? null,
-        signalType:         'liam_sms',
-        rating:             parsedRating,
-        sValue,
-        confidence:         0.7,
-        source:             'sms',
-        sentiment:          parsedSentiment,
-        rawText:            inboundBody,
-        descriptors:        parsedDescriptors,
-        expectation:        parsedExpectation,
-        liamSmsFeedbackId:  inboundRowId,
-        createdAt:          FieldValue.serverTimestamp(),
-      });
-    firestoreDocId = docRef.id;
-  } catch (err) {
-    console.error('[liamSms] Firestore feedback_events write failed:', err);
-  }
+  // Customer Blueprint C3, Part C — the Firestore users/{uid}/feedback_events
+  // write is retired; record.feedback() (C2, below) is the only writer.
+  // firestore_feedback_doc_id on the SQL row below is left null going
+  // forward (the column stays for historical rows).
 
   // dial_position_signal — same resolution dialPositionSignal.ts already does
   // for on-site feedback (Profile Part 2), reused here rather than duplicated.
@@ -287,17 +263,17 @@ Respond with JSON only, no explanation: { "sentiment": "...", "rating": N, "desc
     }
   }
 
-  // Update SQL row
+  // Update SQL row — firestore_feedback_doc_id stays null going forward
+  // (Customer Blueprint C3, Part C retired the Firestore write above).
   await db.query(
     `UPDATE sommelier_sms_feedback
      SET haiku_parsed = true,
          parsed_signal_type = 'liam_sms',
          parsed_rating = $2,
          parsed_sentiment = $3,
-         parsed_descriptors = $4::jsonb,
-         firestore_feedback_doc_id = $5
+         parsed_descriptors = $4::jsonb
      WHERE id = $1`,
-    [inboundRowId, parsedRating, parsedSentiment, JSON.stringify(parsedDescriptors), firestoreDocId]
+    [inboundRowId, parsedRating, parsedSentiment, JSON.stringify(parsedDescriptors)]
   );
 
   // Customer Blueprint C2, Part A1 — dual-write into customer_feedback_event.
@@ -324,19 +300,10 @@ Respond with JSON only, no explanation: { "sentiment": "...", "rating": N, "desc
     }
   }
 
-  // If negative: flag confidence_profile so RECOMMENDATION_MISS fires on next session
-  if (parsedSentiment === 'negative') {
-    try {
-      await firestoreDb.doc(`users/${uid}/metadata/confidence_profile`).set({
-        hasPendingNegativeFeedback:   true,
-        negativeFeedbackBlendId:      outboundRow.blend_id ?? null,
-        negativeFeedbackDetectedAt:   FieldValue.serverTimestamp(),
-        negativeFeedbackSource:       'liam_sms',
-      }, { merge: true });
-    } catch (err) {
-      console.error('[liamSms] confidence_profile update failed:', err);
-    }
-  }
+  // Customer Blueprint C3, Part C — no confidence_profile flag to write:
+  // RECOMMENDATION_MISS now derives its exclusion list live from
+  // v_customer_feedback_current (customerReads.getFeedbackCurrent), which
+  // already reflects the customer_feedback_event row just recorded above.
 
   // Recompute behavioral confidence — fire-and-forget
   computeBehavioralConfidence(uid).catch(err =>

@@ -176,37 +176,25 @@ for (const relPath of files) {
 // `const/let <name> = firestoreDb.(doc|collection)(\`...users/...\`)`
 // bindings per file and flags `<name>.set(/.add(/.update(` anywhere later in
 // that same file, not just within the assignment's own statement.
+// Customer Blueprint C3, Part C (2026-09-27) — every `until C3` entry from C1/
+// C2 is gone: quiz.ts's archetype/quiz_sessions/taste_journey writers,
+// orders.ts's feedback/confidence writers, users.ts's dial/liam_saves/brew
+// writers, behavioralConfidence.ts, liamSmsFeedback.ts, sommelierEvaluator.ts,
+// outcomeTracker.ts and sommelier.ts's resolveRemember/evaluation writers are
+// all retired. What's left in each of these files (below) is deliberately
+// permanent, not "until" anything: operating-state mirrors (user doc email/
+// name/tokenBalance sync) and the Liam transcript — this rule can't tell
+// which specific write in a file is legitimate, only that the file has one,
+// so a future regression re-adding a retired write to one of these same
+// files would NOT be caught by this rule alone; rule 5 (retired Firestore
+// *reads*) is the backstop for the read side of the same regression class.
 const RULE3_PERMANENT = [
-  // routes/sommelier.ts's message transcript — permanent, never expires,
-  // both the direct chain and its two collection-ref-then-.doc().set()
-  // variants (messagesCol / messagesColForClose).
   { file: 'routes/sommelier.ts', note: 'sommelier_sessions/{id}/messages transcript — permanent' },
+  { file: 'routes/users.ts', note: 'user doc email/firstName/lastName/syncedAt sync (GET, PATCH /profile) — permanent' },
+  { file: 'routes/orders.ts', note: 'user doc tokenBalance sync (signup bonus award) — permanent' },
+  { file: 'services/tokenService.ts', note: 'user doc tokenBalance sync — permanent' },
 ];
-// Exact sites found in Task 0 (2026-09-27), not just the brief's own rough
-// bucket list — grepped `\.(set|add|update)\(` over src/**/*.ts excluding
-// tests, then traced each to its Firestore path by hand (see the closing
-// report for the full table). Customer Blueprint C2 (2026-09-27) relabels
-// every `until C2` note to `until C3`, per its own Part D instruction — dual-
-// write now exists for feedback/brew/dial (routes/orders.ts,
-// services/liamSmsFeedback.ts, routes/users.ts, routes/sommelier.ts's
-// resolveRemember), but the OLD Firestore writer stays exactly where it is
-// until C3 retires it. Two of these seven never actually gained a C2 writer
-// (services/behavioralConfidence.ts's confidence_profile — no fact table for
-// it exists at all; routes/users.ts's liam_saves sub-note — C2's real scope
-// never touched it, "C2" was only ever an analogy in C1) — relabeled to
-// `until C3` anyway per the brief's literal instruction, flagged here and in
-// the C2 closing report rather than silently left as a stale `until C2`.
-const RULE3_ALLOWLIST = [
-  { file: 'routes/quiz.ts', note: 'until C3' },
-  { file: 'routes/orders.ts', note: 'until C3 (user doc, feedback/confidence)' },
-  { file: 'routes/users.ts', note: 'until C3 (user doc, dial/liam_saves/brew)' },
-  { file: 'services/behavioralConfidence.ts', note: 'until C3' },
-  { file: 'services/liamSmsFeedback.ts', note: 'until C3' },
-  { file: 'services/sommelierEvaluator.ts', note: 'until C3' },
-  { file: 'services/outcomeTracker.ts', note: 'until C3' },
-  { file: 'routes/sommelier.ts', note: 'until C3 (resolveRemember -> brew_profile; evaluations)' },
-  { file: 'services/tokenService.ts', note: 'until C3 (user doc tokenBalance sync)' },
-];
+const RULE3_ALLOWLIST = [];
 function isRule3Allowed(relPath) {
   return RULE3_PERMANENT.some(a => a.file === relPath) || RULE3_ALLOWLIST.some(a => a.file === relPath);
 }
@@ -273,6 +261,59 @@ for (const relPath of files) {
       if (new RegExp(`\\bFROM\\s+"?${table}"?\\b`, 'i').test(stripped)) {
         violations.push({ file: relPath, line: i + 1, message: `SELECT from '${table}' outside services/customerReads.ts` });
       }
+    }
+  });
+}
+
+// ── Rule 5: no firestoreDb read of a retired path (Customer Blueprint C3, Part C) ──
+// The writers to these paths are gone (rule 3 above no longer allow-lists
+// them); a read of one now means either a leftover reader C3 missed, or a
+// future reader accidentally pointed at history instead of the SQL views.
+// Allow-list: customerIntegrity.ts's own check 15, which deliberately reads
+// these exact paths to verify nothing writes to them any more — a read for
+// monitoring, not a production consumer.
+const RETIRED_FIRESTORE_PATH_FRAGMENTS = [
+  'feedback_events', 'dial_events', 'metadata/brew_profile', 'metadata/taste_journey',
+  'metadata/confidence_profile', 'quiz_sessions', 'liam_saves', 'sommelier_evaluations',
+];
+const RULE5_ALLOWLIST = new Set(['services/customerIntegrity.ts']);
+const firestoreRefRe = /firestoreDb\s*\.\s*(?:doc|collection|collectionGroup)\s*\(\s*[`'"]([^`'"]*)[`'"]/g;
+for (const relPath of files) {
+  if (RULE5_ALLOWLIST.has(relPath)) continue;
+  const text = fileText(relPath);
+  let rm;
+  while ((rm = firestoreRefRe.exec(text))) {
+    const refPath = rm[1];
+    const hit = RETIRED_FIRESTORE_PATH_FRAGMENTS.find(f => refPath.includes(f));
+    if (hit) {
+      violations.push({ file: relPath, line: lineNumberAt(text, rm.index), message: `Firestore read of a retired path ('${hit}') — writers were removed in Customer Blueprint C3` });
+    }
+  }
+  // collectionGroup('feedback_events') etc. pass a bare name, not a path
+  // containing the fragment — caught separately since the regex above only
+  // matches doc/collection paths with the fragment as a substring, which
+  // already covers collectionGroup('feedback_events') too (fragment ===
+  // whole string). No separate pass needed.
+}
+
+// ── Rule 6: SELECT from user_flavor_feedback outside a view (Customer
+// Blueprint C3, Part C) ── The table has no writer left (orders.ts's
+// DELETE+INSERT is gone); v_collaborative_flavor_wheel is repointed to
+// customer_feedback_descriptor. Three pre-existing COUNT(*) admin/analytics
+// reads are allow-listed here rather than migrated — the brief's own Part F
+// docs keep the table "queryable until no view names it", and these were
+// never business-logic reads of its rows, only trivial aggregate counts.
+// Deviation from the brief's literal "any SELECT ... outside a view fails":
+// disclosed here and in the C3 closing report, same precedent as rule 3's
+// own documented strengthening beyond its brief's literal wording.
+const RULE6_ALLOWLIST = new Set(['routes/admin.ts', 'routes/axis.ts', 'routes/users.ts']);
+for (const relPath of files) {
+  if (RULE6_ALLOWLIST.has(relPath)) continue;
+  const lines = fileText(relPath).split('\n');
+  lines.forEach((line, i) => {
+    const stripped = stripLineComment(line);
+    if (/\bFROM\s+"?user_flavor_feedback"?\b/i.test(stripped)) {
+      violations.push({ file: relPath, line: i + 1, message: `SELECT from 'user_flavor_feedback' outside a view` });
     }
   });
 }

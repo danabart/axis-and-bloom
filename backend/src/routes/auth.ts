@@ -4,7 +4,6 @@ import { requireAuth, type AuthRequest } from '../middleware/auth.js';
 import admin from '../services/firebase-admin.js';
 import { db } from '../db/client.js';
 import { getSommelierConfig } from '../services/sommelierConfig.js';
-import { saveQuizSession } from '../services/quizSession.js';
 import { refreshLifecycleState } from '../services/userLifecycle.js';
 import { record } from '../services/customerFacts.js';
 
@@ -69,11 +68,14 @@ router.post('/sync', requireAuth, async (req: AuthRequest, res) => {
           );
           const match = subscriber.rows[0];
           if (match) {
-            // Customer Blueprint C2, Part A6 — identity link, before the
-            // synthetic session below. subscriber.user_id is nullable and,
-            // when set, is the profile that actually took the quiz (often a
-            // guest profile that survived sign-up under a *different*
-            // Firebase account — a second device).
+            // Customer Blueprint C2, Part A6 — identity link. subscriber.user_id
+            // is nullable and, when set, is the profile that actually took the
+            // quiz (often a guest profile that survived sign-up under a
+            // *different* Firebase account — a second device). Customer
+            // Blueprint C3, Part C: the synthetic quiz_session that used to
+            // follow this is retired — v_customer_quiz_current walks this exact
+            // link to resolve the new profile's quiz to match.user_id's real
+            // session, so no copy is needed for reads to work.
             if (match.user_id && match.user_id !== profileId) {
               try {
                 await record.identityLink({
@@ -84,14 +86,6 @@ router.post('/sync', requireAuth, async (req: AuthRequest, res) => {
                 console.error('[customerFacts:identity-link]', err);
               }
             }
-            // C3 removes this synthetic session once reads resolve identity links.
-            await saveQuizSession(profileId, match.archetype, {
-              archetype: match.archetype,
-              experimental: match.experimental ?? false,
-              foodSignalAlignment: match.confidence ?? 'high',
-              quizSessionKey: match.quiz_session_key ?? null,
-              claimedFrom: 'newsletter_subscriber',
-            });
             refreshLifecycleState(req.uid!).catch(err => console.error('[auth/sync-match-claim-lifecycle]', err));
           }
         }

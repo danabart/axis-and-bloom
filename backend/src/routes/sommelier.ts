@@ -6,7 +6,6 @@ import { db } from '../db/client.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
 import { evaluateSommelier } from '../services/sommelierEvaluator.js';
-import { CURRENT_INTERPRETATION_COLUMNS, CURRENT_INTERPRETATION_JOIN, resolveInterpretation } from '../services/quizSession.js';
 import { fetchSommelierCoffees, getAliases } from '../services/sommelierRag.js';
 import { getCoffees, archetypeLabel, archetypeCode, getCatalogVersion } from '../services/catalogReads.js';
 import { getTokenBalance, spendToken, logUsage } from '../services/tokenService.js';
@@ -17,6 +16,7 @@ import { isClaudeGuardBlocked } from '../services/anthropicGuard.js';
 import { getSommelierConfig } from '../services/sommelierConfig.js';
 import { routeTopic } from '../services/topicRouter.js';
 import { record } from '../services/customerFacts.js';
+import { getQuizCurrent, getPreviousQuizArchetype, getFeedbackCurrent, getBrewProfileCurrent, getRecentDialActivity } from '../services/customerReads.js';
 import {
   getBrewProfileFieldsConfig,
   validateSingleValue,
@@ -332,24 +332,24 @@ async function resolveActions(
 // last ~30 *intentional* dial events (explicit_save / add_to_cart only — plain dial
 // turns are never logged, so every event here is already meaningful). Summarized
 // into a few fields per archetype, never dumped raw into the prompt.
+// Customer Blueprint C3, Part B2 — customer_dial_event via the door's own
+// table, not Firestore users/{uid}/dial_events. dial_sort_order isn't stored
+// on the fact row (only slot_id/archetype_code, D16) — joined back through
+// coffee_dial_slot the same way every other dial-position read in this
+// codebase already resolves it.
 async function getRecentDialActivitySummary(uid: string): Promise<string> {
   try {
-    const snap = await firestoreDb
-      .collection(`users/${uid}/dial_events`)
-      .orderBy('createdAt', 'desc')
-      .limit(30)
-      .get();
-    if (snap.empty) return '';
+    const rows = await getRecentDialActivity(uid, 30);
+    if (!rows.length) return '';
 
     const byArchetype: Record<string, { saveCount: number; cartCount: number; latestSortOrder: number | null; latestTrigger: string }> = {};
-    for (const doc of snap.docs) {
-      const d = doc.data();
-      const archetype = d.archetype as string;
+    for (const row of rows) {
+      const archetype = row.archetypeCode;
       if (!archetype) continue;
       const entry = byArchetype[archetype] ??= { saveCount: 0, cartCount: 0, latestSortOrder: null, latestTrigger: '' };
-      if (d.trigger === 'explicit_save') entry.saveCount++;
-      if (d.trigger === 'add_to_cart') entry.cartCount++;
-      if (entry.latestSortOrder === null) { entry.latestSortOrder = d.dialSortOrder; entry.latestTrigger = d.trigger; }
+      if (row.eventType === 'explicit_save') entry.saveCount++;
+      if (row.eventType === 'add_to_cart') entry.cartCount++;
+      if (entry.latestSortOrder === null) { entry.latestSortOrder = row.dialSortOrder; entry.latestTrigger = row.eventType; }
     }
 
     return Object.entries(byArchetype)
@@ -366,10 +366,14 @@ async function getRecentDialActivitySummary(uid: string): Promise<string> {
 // the summary-for-the-prompt path and resolveRemember()'s existing-array read.
 // Not cached in context_data (unlike catalogText) because a fact captured
 // earlier in *this same* conversation must be reflected on the very next turn.
+// Customer Blueprint C3, Part B2 — v_customer_brew_profile via customerReads,
+// not the Firestore users/{uid}/metadata/brew_profile doc. Same BrewProfileDoc
+// shape (getBrewProfileCurrent maps FactSource -> 'conversation'/'profile_page'),
+// so formatBrewProfileSummary()/getStaleFieldNudge() are untouched.
 export async function getBrewProfile(uid: string): Promise<BrewProfileDoc | null> {
   try {
-    const snap = await firestoreDb.doc(`users/${uid}/metadata/brew_profile`).get();
-    return snap.exists ? (snap.data() as BrewProfileDoc) : null;
+    const doc = await getBrewProfileCurrent(uid);
+    return Object.keys(doc).length ? (doc as unknown as BrewProfileDoc) : null;
   } catch (err) {
     console.error('[brewProfile] read failed', err);
     return null;
@@ -382,6 +386,11 @@ export async function getBrewProfile(uid: string): Promise<BrewProfileDoc | null
 // field or a value outside the whitelist is dropped and logged, not written.
 // Write rule 3: every attempt — success or failure — increments an
 // admin-visible counter, never a silent fire-and-forget.
+// Customer Blueprint C3, Part C — the Firestore users/{uid}/metadata/
+// brew_profile doc write is retired; record.brewProfileChange() (C2) is the
+// only writer now. The "already known" dedup check reads the current value
+// through v_customer_brew_profile (customerReads.getBrewProfileCurrent)
+// instead of the doc this used to read back.
 export async function resolveRemember(
   uid: string,
   rememberOps: Array<{ field: string; rawValue: string }>,
@@ -390,23 +399,18 @@ export async function resolveRemember(
 ): Promise<void> {
   if (!rememberOps.length) return;
   const fieldsCfg = getBrewProfileFieldsConfig();
-  const docRef = firestoreDb.doc(`users/${uid}/metadata/brew_profile`);
 
   let current: BrewProfileDoc = {};
   try {
-    const snap = await docRef.get();
-    current = snap.exists ? (snap.data() as BrewProfileDoc) : {};
+    current = (await getBrewProfileCurrent(uid)) as unknown as BrewProfileDoc;
   } catch (err) {
     console.error('[resolveRemember] read failed', err);
   }
 
-  const updates: Record<string, unknown> = {};
-  // Customer Blueprint C2, Part A2 — one accepted op per field, tracked
-  // alongside `updates` (which is itself keyed by field, so at most one op
-  // per field per call regardless). Ops dropped by validation above never
-  // reach this list — they never became a fact.
+  // One accepted op per field (at most one per field per call regardless,
+  // since a field can only be validated once per rememberOps batch below).
+  // Ops dropped by validation never reach this list — they never became a fact.
   const accepted: Array<{ field: string; op: 'add' | 'set'; value: unknown }> = [];
-  let anyValid = false;
 
   for (const rawOp of rememberOps) {
     // Defense-in-depth: a plausible singular/plural near-miss (e.g. the model
@@ -429,31 +433,14 @@ export async function resolveRemember(
     if (fieldCfg.type === 'array' || fieldCfg.type === 'array_freeform') {
       const existingArr = Array.isArray(current[field]?.value) ? (current[field]!.value as string[]) : [];
       if (existingArr.includes(validated as string)) continue; // already known — nothing new to write
-      const maxLen = fieldCfg.maxLength ?? 10;
-      const nextArr = [...existingArr, validated as string].slice(-maxLen);
-      updates[field] = { value: nextArr, source: 'conversation', capturedAt: FieldValue.serverTimestamp() };
       accepted.push({ field, op: 'add', value: validated });
     } else {
-      updates[field] = { value: validated, source: 'conversation', capturedAt: FieldValue.serverTimestamp() };
       accepted.push({ field, op: 'set', value: validated });
     }
-    anyValid = true;
   }
 
-  if (!anyValid) return;
+  if (!accepted.length) return;
 
-  try {
-    await docRef.set({ ...updates, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-    await incrementBrewProfileCounter('writes');
-  } catch (err) {
-    console.error('[resolveRemember] write failed', err);
-    await incrementBrewProfileCounter('failures');
-    return; // Firestore write failed — don't record facts for ops that never landed.
-  }
-
-  // Customer Blueprint C2, Part A2 — dual-write into customer_brew_profile_change,
-  // one row per accepted op. Never fails the turn: the Firestore write above
-  // already succeeded and is what the customer-facing behavior depends on.
   try {
     const profileResult = await db.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [uid]);
     const profileId = profileResult.rows[0]?.id;
@@ -465,9 +452,11 @@ export async function resolveRemember(
           field: op.field as any, op: op.op, value: JSON.stringify(op.value),
         });
       }
+      await incrementBrewProfileCounter('writes');
     }
   } catch (err) {
     console.error('[customerFacts:brew-profile]', err);
+    await incrementBrewProfileCounter('failures');
   }
 }
 
@@ -563,37 +552,29 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
       return;
     }
 
-    // Fetch user state from latest quiz for RAG context
-    const quizResult = await db.query(
-      `SELECT qs.context_data, ar.name AS archetype_name, up.date_of_birth, ${CURRENT_INTERPRETATION_COLUMNS}
-       FROM quiz_session qs
-       JOIN user_profile up ON up.id = qs.user_id
-       LEFT JOIN coffee_archetype ar ON ar.id = qs.resulting_archetype_id
-       ${CURRENT_INTERPRETATION_JOIN}
-       WHERE up.firebase_uid = $1
-       ORDER BY qs.completed_at DESC LIMIT 2`,
-      [req.uid]
-    );
-    const latestQuiz = quizResult.rows[0];
-    const prevQuiz = quizResult.rows[1];
-    const userArchetype = latestQuiz?.archetype_name ?? null;
-    const previousArchetype = prevQuiz?.archetype_name ?? null;
+    // Fetch user state from latest quiz for RAG context — Customer Blueprint
+    // C3, Part B2: v_customer_quiz_current across every linked profile, not a
+    // raw quiz_session query scoped to this one profile. date_of_birth stays
+    // a direct profile lookup (not quiz-scoped).
+    const [quizCurrent, dobResult] = await Promise.all([
+      getQuizCurrent(req.uid!),
+      db.query(`SELECT date_of_birth FROM user_profile WHERE firebase_uid = $1`, [req.uid]),
+    ]);
+    const userArchetype = quizCurrent?.archetypeName ?? null;
+    const previousArchetype = await getPreviousQuizArchetype(req.uid!);
     const archetypeKey = userArchetype ? await archetypeCode(userArchetype) : null;
 
-    const generation = getGeneration(latestQuiz?.date_of_birth ?? null);
+    const generation = getGeneration(dobResult.rows[0]?.date_of_birth ?? null);
     let enrichedOpeningContext = (openingContext ?? '') +
       `\nCustomer generation: ${generation}. Adjust register accordingly (see tone guidelines in your instructions).`;
 
     // Interpretation v2.1 (brief 2): the loose thread and pair confidence for Liam only (never the reveal or the
     // email). Only on a v2.1+ interpretation row; sessions on the context_data fallback add nothing.
-    if (latestQuiz) {
-      const interp = resolveInterpretation(latestQuiz, latestQuiz.context_data);
-      if (interp.source === 'table' && interp.pairConfidence) {
-        enrichedOpeningContext += `\nQuiz pair confidence: ${interp.pairConfidence}.`;
-        if (interp.exploreArchetype) {
-          enrichedOpeningContext += ` Loose thread to explore (not yet asked): ${interp.exploreArchetype}` +
-            (interp.exploreReason ? ` (${interp.exploreReason})` : '') + '.';
-        }
+    if (quizCurrent?.interpretationSource === 'table' && quizCurrent.pairConfidence) {
+      enrichedOpeningContext += `\nQuiz pair confidence: ${quizCurrent.pairConfidence}.`;
+      if (quizCurrent.exploreArchetype) {
+        enrichedOpeningContext += ` Loose thread to explore (not yet asked): ${quizCurrent.exploreArchetype}` +
+          (quizCurrent.exploreReason ? ` (${quizCurrent.exploreReason})` : '') + '.';
       }
     }
 
@@ -606,31 +587,16 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
       }
     }
 
-    // Determine excludeCoffeeIds for RECOMMENDATION_MISS
+    // Determine excludeCoffeeIds for RECOMMENDATION_MISS — Customer Blueprint
+    // C3, Part B2: v_customer_feedback_current already excludes superseded
+    // rows (Profile Part 5), so no extra filter is needed here.
     let excludeCoffeeIds: number[] = [];
     if (intent === 'RECOMMENDATION_MISS') {
       try {
-        // No `.limit(10)` before filtering — a revised (now-superseded) negative
-        // event must not keep excluding a coffee the customer no longer feels
-        // negatively about (Profile Part 5).
-        const feedbackSnap = await firestoreDb
-          .collection(`users/${req.uid}/feedback_events`)
-          .where('sentiment', '==', 'negative')
-          .orderBy('createdAt', 'desc')
-          .get();
-        excludeCoffeeIds = feedbackSnap.docs
-          .filter(d => !d.data().supersededAt)
-          .slice(0, 10)
-          .map((d) => d.data().coffeeId)
-          .filter((id): id is number => typeof id === 'number');
+        const negativeRows = await getFeedbackCurrent(req.uid!, { sentiment: 'negative' });
+        excludeCoffeeIds = negativeRows.slice(0, 10).map(r => r.coffeeId);
       } catch (err) {
-        // HOME_TASK_9B (S89) — a real, live instance of the exact same
-        // missing-composite-index bug class S88 found in userSignals.ts and
-        // outcomeTracker.ts: this query (sentiment EQ + createdAt orderBy
-        // DESC) needs its own index, distinct from the ASC one S88 created —
-        // confirmed throwing FAILED_PRECONDITION before this task's fix.
-        // Unmissable-log-tag pattern from 7d/S85, not a silent no-op.
-        console.error('[sommelier:INDEX_QUERY_FAILED] RECOMMENDATION_MISS excludeCoffeeIds lookup failed — proceeding with zero exclusions', err);
+        console.error('[sommelier] RECOMMENDATION_MISS excludeCoffeeIds lookup failed — proceeding with zero exclusions', err);
       }
     }
 
@@ -741,10 +707,12 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
 
     // Update Firestore evaluation
     if (evaluationId) {
-      firestoreDb
-        .doc(`users/${req.uid}/sommelier_evaluations/${evaluationId}`)
-        .update({ sessionStarted: true, sessionId: newSessionId, startedAt: new Date() })
-        .catch((err: unknown) => console.error('[sommelier/start] eval update:', err));
+      // Customer Blueprint C3, Part B6 — sommelier_evaluation (SQL), not the
+      // Firestore users/{uid}/sommelier_evaluations doc.
+      db.query(
+        `UPDATE sommelier_evaluation SET session_started = true, started_at = NOW(), updated_at = NOW() WHERE id = $1`,
+        [evaluationId]
+      ).catch((err: unknown) => console.error('[sommelier/start] eval update:', err));
 
       checkReturnedToSommelier(req.uid!, evaluationId).catch(err => console.error('[sommelier/start] checkReturnedToSommelier failed:', err));
     }
