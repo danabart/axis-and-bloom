@@ -79,6 +79,15 @@ jobs:
         working-directory: backend
         run: npm run lint:retention
 
+      # Customer Blueprint brief C1, Part E (2026-09-27) — fails the deploy on
+      # any INSERT/UPDATE/DELETE against a customer_*/fact table outside
+      # customerFacts.ts, any new Firestore write on a users/ path outside the
+      # brief's own inventory, or any direct SELECT from a customer_* table
+      # outside customerReads.ts. Same placement/rationale as Lint catalog above.
+      - name: Lint customer
+        working-directory: backend
+        run: npm run lint:customer
+
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
 

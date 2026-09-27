@@ -6,7 +6,7 @@ import rateLimit from 'express-rate-limit';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { db } from './db/client.js';
+import { db, ownerPool, whoAmI } from './db/client.js';
 import { getRealClientIp } from './middleware/clientIp.js';
 import { appCheckGate } from './middleware/appCheck.js';
 import { apiEventLog } from './middleware/apiEventLog.js';
@@ -36,6 +36,7 @@ import campaignRouter from './routes/campaign.js';
 import { initSommelierConfig } from './services/sommelierConfig.js';
 import { runQuizIntegrityChecks } from './services/quizIntegrity.js';
 import { runCatalogIntegrityChecks } from './services/catalogIntegrity.js';
+import { runCustomerIntegrityChecks } from './services/customerIntegrity.js';
 
 const app = express();
 const PORT = process.env.PORT ?? 4000;
@@ -139,11 +140,27 @@ app.use((err: any, req: express.Request, res: express.Response, _next: express.N
 });
 
 async function start() {
+  // Customer Blueprint · brief C1, Part B (2026-09-27) — schema.sql now
+  // applies through ownerPool(), not the request pool `db`. Every boot check
+  // after this block stays on `db` unchanged. Never blocks startup: the pool
+  // is always closed, and an unset OWNER_DATABASE_URL just means schema
+  // applies as whatever DATABASE_URL already was (see client.ts).
   try {
-    const __dirname = dirname(fileURLToPath(import.meta.url));
-    const schema = readFileSync(join(__dirname, 'db', 'schema.sql'), 'utf-8');
-    await db.query(schema);
-    console.log('DB schema verified');
+    const owner = ownerPool();
+    try {
+      const __dirname = dirname(fileURLToPath(import.meta.url));
+      const schema = readFileSync(join(__dirname, 'db', 'schema.sql'), 'utf-8');
+      await owner.query(schema);
+      console.log('DB schema verified');
+      const ownerUser = await whoAmI(owner);
+      if (process.env.OWNER_DATABASE_URL) {
+        console.log(`[db-roles] schema applied as ${ownerUser}; request pool is ab_app`);
+      } else {
+        console.warn(`[db-roles] OWNER_DATABASE_URL not set — schema applied by the request pool role (${ownerUser}); fact grants are written but NOT enforcing until the cutover (Customer Blueprint C1, Part G)`);
+      }
+    } finally {
+      await owner.end();
+    }
   } catch (err) {
     console.error('DB migration error (non-fatal):', err);
   }
@@ -254,6 +271,20 @@ async function start() {
     }
   } catch (err) {
     console.error('Catalog integrity check error (non-fatal):', err);
+  }
+
+  // Customer Blueprint · brief C1, Part F (2026-09-27) — same fire-and-log
+  // convention as quiz/catalog integrity above: non-fatal, just surfaces
+  // failing checks in deploy logs. Checks 2 and 3 are expected to fail (as
+  // 'fail', not 'info') until the Part G cutover — the [db-roles] line above
+  // explains why.
+  try {
+    const report = await runCustomerIntegrityChecks();
+    for (const check of report.checks.filter(c => !c.pass)) {
+      console.warn(`[customer-integrity] check #${check.id} failed — ${check.name}: expected ${check.expected}, got ${check.actual}`);
+    }
+  } catch (err) {
+    console.error('Customer integrity check error (non-fatal):', err);
   }
 
   // 2026-08-15 CRON_SECRET incident hardening — every version of the secret

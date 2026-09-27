@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import { db, withTransaction, type Tx } from '../db/client.js';
 import { getAvgCuppingScore } from './dialSuggestion.js';
+import { record } from './customerFacts.js';
 import {
   checkActiveAssignmentsValid,
   checkOneActiveHome,
@@ -7,6 +9,35 @@ import {
   checkPlacedNotSellable,
   type CatalogIntegrityCheck,
 } from './catalogIntegrity.js';
+
+// Customer Blueprint · brief C1, Part D (2026-09-27) — every write verb below
+// logs one catalog_change fact after its write, before its integrity report.
+// Whole-row before/after snapshots, no field-level diffing (kept cheap per
+// the brief). `source_id` is `<tx-scoped uuid>:<entity>:<entityId>` so two
+// writes to the same entity inside one transaction never collide on the
+// fact's own UNIQUE (source, source_id). `before`/`after` reuse whatever
+// full-row snapshot the verb already has at hand where one exists; otherwise
+// this adds one cheap SELECT by primary key, never a new query pattern.
+async function snapshotRow(tx: Tx, table: string, column: string, value: unknown): Promise<Record<string, unknown> | null> {
+  if (value == null) return null;
+  const result = await tx.query(`SELECT * FROM ${table} WHERE ${column} = $1`, [value]);
+  return result.rows[0] ?? null;
+}
+async function logCatalogChange(
+  tx: Tx,
+  opts: { entity: string; entityId: string | number; action: string; before: unknown; after: unknown; changedBy: string }
+): Promise<void> {
+  await record.catalogChange({
+    source: 'catalogService',
+    sourceId: `${randomUUID()}:${opts.entity}:${opts.entityId}`,
+    entity: opts.entity,
+    entityId: String(opts.entityId),
+    action: opts.action,
+    before: opts.before,
+    after: opts.after,
+    changedBy: opts.changedBy,
+  }, tx);
+}
 
 // ── Catalog Blueprint · brief 2 (2026-09-14) ──────────────────────────────────
 // The one place every catalog write happens. See backend/src/features/
@@ -196,12 +227,12 @@ export async function placeCoffeeInTx(
   tx: Tx,
   input: { coffeeId: number; slotId: number; role: SlotRole; priority?: number; placementNote?: string; certify?: { by: string; note?: string } },
   ctx: Ctx
-): Promise<{ assignmentId: number; warnings: PlacementWarning[] }> {
+): Promise<{ assignmentId: number; warnings: PlacementWarning[]; before: Record<string, unknown> | null }> {
   await fetchActiveSlot(tx, input.slotId);
   await fetchActiveCoffee(tx, input.coffeeId);
 
-  const existingResult = await tx.query<{ id: number; is_active: boolean }>(
-    `SELECT id, is_active FROM coffee_slot_assignment WHERE slot_id = $1 AND coffee_id = $2`,
+  const existingResult = await tx.query<{ id: number; is_active: boolean } & Record<string, unknown>>(
+    `SELECT * FROM coffee_slot_assignment WHERE slot_id = $1 AND coffee_id = $2`,
     [input.slotId, input.coffeeId]
   );
   const existing = existingResult.rows[0];
@@ -279,7 +310,7 @@ export async function placeCoffeeInTx(
     );
   }
 
-  return { assignmentId, warnings };
+  return { assignmentId, warnings, before: existing ?? null };
 }
 
 export async function placeCoffee(
@@ -287,7 +318,9 @@ export async function placeCoffee(
   ctx: Ctx
 ): Promise<CatalogWriteResult<{ assignmentId: number }>> {
   return withTransaction(async (tx) => {
-    const { assignmentId, warnings } = await placeCoffeeInTx(tx, input, ctx);
+    const { assignmentId, warnings, before } = await placeCoffeeInTx(tx, input, ctx);
+    const after = await snapshotRow(tx, 'coffee_slot_assignment', 'id', assignmentId);
+    await logCatalogChange(tx, { entity: 'coffee_slot_assignment', entityId: assignmentId, action: 'placeCoffee', before, after, changedBy: ctx.actor });
     const integrity = await scopedIntegrity(tx, { coffeeId: input.coffeeId, slotId: input.slotId });
     console.info('[catalog] placeCoffee', { actor: ctx.actor, coffeeId: input.coffeeId, slotId: input.slotId, role: input.role, warnings: warnings.map(w => w.kind) });
     return { result: { assignmentId }, warnings, integrity };
@@ -309,21 +342,26 @@ export async function moveCoffee(
 ): Promise<CatalogWriteResult<{ assignmentId: number }>> {
   return withTransaction(async (tx) => {
     await fetchActiveCoffee(tx, input.coffeeId);
-    const homeResult = await tx.query<{ id: number }>(
-      `SELECT id FROM coffee_slot_assignment WHERE coffee_id = $1 AND role = 'home' AND is_active = true`,
+    const homeResult = await tx.query<{ id: number } & Record<string, unknown>>(
+      `SELECT * FROM coffee_slot_assignment WHERE coffee_id = $1 AND role = 'home' AND is_active = true`,
       [input.coffeeId]
     );
     if (homeResult.rowCount) {
+      const oldHome = homeResult.rows[0];
       await tx.query(
         `UPDATE coffee_slot_assignment SET is_active = false, deactivated_at = now(), deactivation_reason = 'moved', updated_at = now() WHERE id = $1`,
-        [homeResult.rows[0].id]
+        [oldHome.id]
       );
+      const oldHomeAfter = await snapshotRow(tx, 'coffee_slot_assignment', 'id', oldHome.id);
+      await logCatalogChange(tx, { entity: 'coffee_slot_assignment', entityId: oldHome.id, action: 'moveCoffee.vacate', before: oldHome, after: oldHomeAfter, changedBy: ctx.actor });
     }
-    const { assignmentId, warnings } = await placeCoffeeInTx(
+    const { assignmentId, warnings, before } = await placeCoffeeInTx(
       tx,
       { coffeeId: input.coffeeId, slotId: input.toSlotId, role: 'home', priority: input.priority, placementNote: input.placementNote, certify: input.certify },
       ctx
     );
+    const after = await snapshotRow(tx, 'coffee_slot_assignment', 'id', assignmentId);
+    await logCatalogChange(tx, { entity: 'coffee_slot_assignment', entityId: assignmentId, action: 'moveCoffee', before, after, changedBy: ctx.actor });
     const integrity = await scopedIntegrity(tx, { coffeeId: input.coffeeId, slotId: input.toSlotId });
     console.info('[catalog] moveCoffee', { actor: ctx.actor, coffeeId: input.coffeeId, toSlotId: input.toSlotId, warnings: warnings.map(w => w.kind) });
     return { result: { assignmentId }, warnings, integrity };
@@ -335,15 +373,20 @@ export async function removeFromSlot(
   ctx: Ctx
 ): Promise<CatalogWriteResult<{ assignmentId: number }>> {
   return withTransaction(async (tx) => {
+    const before = await snapshotRow(tx, 'coffee_slot_assignment', 'id',
+      (await tx.query<{ id: number }>(`SELECT id FROM coffee_slot_assignment WHERE coffee_id = $1 AND slot_id = $2 AND is_active = true`, [input.coffeeId, input.slotId])).rows[0]?.id ?? null);
     const result = await tx.query<{ id: number }>(
       `UPDATE coffee_slot_assignment SET is_active = false, deactivated_at = now(), deactivation_reason = $1, updated_at = now()
        WHERE coffee_id = $2 AND slot_id = $3 AND is_active = true RETURNING id`,
       [input.reason, input.coffeeId, input.slotId]
     );
     if (!result.rowCount) throw new CatalogError(404, 'COFFEE_NOT_FOUND', `No active assignment for coffee ${input.coffeeId} on slot ${input.slotId}`);
+    const assignmentId = result.rows[0].id;
+    const after = await snapshotRow(tx, 'coffee_slot_assignment', 'id', assignmentId);
+    await logCatalogChange(tx, { entity: 'coffee_slot_assignment', entityId: assignmentId, action: 'removeFromSlot', before, after, changedBy: ctx.actor });
     const integrity = await scopedIntegrity(tx, { coffeeId: input.coffeeId, slotId: input.slotId });
     console.info('[catalog] removeFromSlot', { actor: ctx.actor, coffeeId: input.coffeeId, slotId: input.slotId, reason: input.reason });
-    return { result: { assignmentId: result.rows[0].id }, warnings: [], integrity };
+    return { result: { assignmentId }, warnings: [], integrity };
   });
 }
 
@@ -373,6 +416,12 @@ export async function setPriority(input: { slotId: number; ordered: number[] }, 
       await tx.query(`UPDATE coffee_slot_assignment SET priority = $1, updated_at = now() WHERE id = $2`, [i + 1, row.id]);
     }
 
+    // One row per affected assignment (Part D: "where a verb touches many
+    // rows, one catalog_change row per affected coffee/slot").
+    for (const row of activeResult.rows) {
+      const after = await snapshotRow(tx, 'coffee_slot_assignment', 'id', row.id);
+      await logCatalogChange(tx, { entity: 'coffee_slot_assignment', entityId: row.id, action: 'setPriority', before: row, after, changedBy: ctx.actor });
+    }
     const integrity = await scopedIntegrity(tx, { slotId: input.slotId });
     console.info('[catalog] setPriority', { actor: ctx.actor, slotId: input.slotId, ordered: input.ordered });
     return { result: { slotId: input.slotId }, warnings: [], integrity };
@@ -395,7 +444,11 @@ export async function certifyPlacementInTx(tx: Tx, input: { coffeeId: number; sl
 
 export async function certifyPlacement(input: { coffeeId: number; slotId: number; by: string; note?: string }, ctx: Ctx): Promise<CatalogWriteResult<{ assignmentId: number }>> {
   return withTransaction(async (tx) => {
+    const before = await snapshotRow(tx, 'coffee_slot_assignment', 'id',
+      (await tx.query<{ id: number }>(`SELECT id FROM coffee_slot_assignment WHERE coffee_id = $1 AND slot_id = $2 AND is_active = true`, [input.coffeeId, input.slotId])).rows[0]?.id ?? null);
     const { assignmentId } = await certifyPlacementInTx(tx, input);
+    const after = await snapshotRow(tx, 'coffee_slot_assignment', 'id', assignmentId);
+    await logCatalogChange(tx, { entity: 'coffee_slot_assignment', entityId: assignmentId, action: 'certifyPlacement', before, after, changedBy: ctx.actor });
     const integrity = await scopedIntegrity(tx, { coffeeId: input.coffeeId, slotId: input.slotId });
     console.info('[catalog] certifyPlacement', { actor: ctx.actor, coffeeId: input.coffeeId, slotId: input.slotId });
     return { result: { assignmentId }, warnings: [], integrity };
@@ -520,6 +573,8 @@ export async function createCoffeeInTx(tx: Tx, input: CreateCoffeeInput): Promis
 export async function createCoffee(input: CreateCoffeeInput, ctx: Ctx): Promise<CatalogWriteResult<{ coffeeId: number }>> {
   return withTransaction(async (tx) => {
     const { coffeeId } = await createCoffeeInTx(tx, input);
+    const after = await snapshotRow(tx, 'coffees', 'id', coffeeId);
+    await logCatalogChange(tx, { entity: 'coffee', entityId: coffeeId, action: 'createCoffee', before: null, after, changedBy: ctx.actor });
     console.info('[catalog] createCoffee', { actor: ctx.actor, coffeeId, roasterId: input.roasterId });
     return { result: { coffeeId }, warnings: [], integrity: [] };
   });
@@ -537,6 +592,7 @@ export interface UpdateCoffeeInput {
 }
 export async function updateCoffee(input: UpdateCoffeeInput, ctx: Ctx): Promise<CatalogWriteResult<{ coffeeId: number }>> {
   return withTransaction(async (tx) => {
+    const before = await snapshotRow(tx, 'coffees', 'id', input.coffeeId);
     await fetchCoffeeRow(tx, input.coffeeId);
     const setOriginRegion = input.originRegion !== undefined;
     await tx.query(
@@ -553,6 +609,8 @@ export async function updateCoffee(input: UpdateCoffeeInput, ctx: Ctx): Promise<
        setOriginRegion, input.originRegion ?? null]
     );
     if (input.categoryCodes !== undefined) await applyCategoryCodes(tx, input.coffeeId, input.categoryCodes);
+    const after = await snapshotRow(tx, 'coffees', 'id', input.coffeeId);
+    await logCatalogChange(tx, { entity: 'coffee', entityId: input.coffeeId, action: 'updateCoffee', before, after, changedBy: ctx.actor });
     const integrity = await scopedIntegrity(tx, { coffeeId: input.coffeeId });
     console.info('[catalog] updateCoffee', { actor: ctx.actor, coffeeId: input.coffeeId });
     return { result: { coffeeId: input.coffeeId }, warnings: [], integrity };
@@ -561,6 +619,7 @@ export async function updateCoffee(input: UpdateCoffeeInput, ctx: Ctx): Promise<
 
 export async function retireCoffee(input: { coffeeId: number; reason: 'manual' }, ctx: Ctx): Promise<CatalogWriteResult<{ assignments: number; blends: number }>> {
   return withTransaction(async (tx) => {
+    const before = await snapshotRow(tx, 'coffees', 'id', input.coffeeId);
     const updateResult = await tx.query<{ id: number }>(
       `UPDATE coffees SET is_active = false, deactivated_at = now(), deactivation_reason = $1 WHERE id = $2 AND is_active = true RETURNING id`,
       [input.reason, input.coffeeId]
@@ -579,6 +638,8 @@ export async function retireCoffee(input: { coffeeId: number; reason: 'manual' }
        WHERE coffee_id = $1 AND is_active = true RETURNING id`,
       [input.coffeeId]
     );
+    const after = await snapshotRow(tx, 'coffees', 'id', input.coffeeId);
+    await logCatalogChange(tx, { entity: 'coffee', entityId: input.coffeeId, action: 'retireCoffee', before, after, changedBy: ctx.actor });
     const integrity = await scopedIntegrity(tx, { coffeeId: input.coffeeId });
     console.info('[catalog] retireCoffee', { actor: ctx.actor, coffeeId: input.coffeeId, assignments: assignmentsResult.rowCount, blends: blendsResult.rowCount });
     return { result: { assignments: assignmentsResult.rowCount ?? 0, blends: blendsResult.rowCount ?? 0 }, warnings: [], integrity };
@@ -587,6 +648,7 @@ export async function retireCoffee(input: { coffeeId: number; reason: 'manual' }
 
 export async function restoreCoffee(input: { coffeeId: number }, ctx: Ctx): Promise<CatalogWriteResult<{ blends: number }>> {
   return withTransaction(async (tx) => {
+    const before = await snapshotRow(tx, 'coffees', 'id', input.coffeeId);
     const coffeeResult = await tx.query<{ id: number }>(
       `UPDATE coffees SET is_active = true, deactivated_at = NULL, deactivation_reason = NULL
        WHERE id = $1 AND deactivation_reason = 'manual' RETURNING id`,
@@ -599,6 +661,8 @@ export async function restoreCoffee(input: { coffeeId: number }, ctx: Ctx): Prom
        WHERE coffee_id = $1 AND deactivation_reason = 'manual' RETURNING id`,
       [input.coffeeId]
     );
+    const after = await snapshotRow(tx, 'coffees', 'id', input.coffeeId);
+    await logCatalogChange(tx, { entity: 'coffee', entityId: input.coffeeId, action: 'restoreCoffee', before, after, changedBy: ctx.actor });
     const integrity = await scopedIntegrity(tx, { coffeeId: input.coffeeId });
     console.info('[catalog] restoreCoffee', { actor: ctx.actor, coffeeId: input.coffeeId, blends: blendsResult.rowCount });
     return { result: { blends: blendsResult.rowCount ?? 0 }, warnings: [], integrity };
@@ -611,7 +675,7 @@ export interface SetMatchArchetypeInput {
   coffeeId: number; archetype: ArchetypeCode; confidence: ConfidenceLevel; source: AssignmentSource;
   sessionId?: number; notes?: string;
 }
-export async function setMatchArchetypeInTx(tx: Tx, input: SetMatchArchetypeInput): Promise<{ coffeeId: number; warnings: PlacementWarning[] }> {
+export async function setMatchArchetypeInTx(tx: Tx, input: SetMatchArchetypeInput): Promise<{ coffeeId: number; warnings: PlacementWarning[]; before: Record<string, unknown> | null }> {
   await fetchCoffeeRow(tx, input.coffeeId);
   const currentResult = await tx.query<{ id: number; archetype: string; confidence: string }>(
     `SELECT id, archetype, confidence FROM coffee_archetype_assignment WHERE coffee_id = $1 AND superseded_at IS NULL`,
@@ -637,12 +701,14 @@ export async function setMatchArchetypeInTx(tx: Tx, input: SetMatchArchetypeInpu
   if (homeResult.rowCount && homeResult.rows[0].archetype !== input.archetype) {
     warnings.push({ kind: 'placement_diverges_from_match', match: input.archetype, placement: homeResult.rows[0].archetype });
   }
-  return { coffeeId: input.coffeeId, warnings };
+  return { coffeeId: input.coffeeId, warnings, before: current ?? null };
 }
 
 export async function setMatchArchetype(input: SetMatchArchetypeInput, ctx: Ctx): Promise<CatalogWriteResult<{ coffeeId: number }>> {
   return withTransaction(async (tx) => {
-    const { coffeeId, warnings } = await setMatchArchetypeInTx(tx, input);
+    const { coffeeId, warnings, before } = await setMatchArchetypeInTx(tx, input);
+    const afterResult = await tx.query(`SELECT * FROM coffee_archetype_assignment WHERE coffee_id = $1 AND superseded_at IS NULL`, [coffeeId]);
+    await logCatalogChange(tx, { entity: 'coffee', entityId: coffeeId, action: 'setMatchArchetype', before, after: afterResult.rows[0] ?? null, changedBy: ctx.actor });
     const integrity = await scopedIntegrity(tx, { coffeeId });
     console.info('[catalog] setMatchArchetype', { actor: ctx.actor, coffeeId, archetype: input.archetype, warnings: warnings.map(w => w.kind) });
     return { result: { coffeeId }, warnings, integrity };
@@ -661,6 +727,7 @@ export async function setArchetypeDescriptorFamilies(
   ctx: Ctx
 ): Promise<CatalogWriteResult<{ code: ArchetypeCode; families: string[] }>> {
   return withTransaction(async (tx) => {
+    const before = await snapshotRow(tx, 'coffee_archetype', 'code', input.code);
     const wheelResult = await tx.query<{ wheel_category: string }>(
       `SELECT DISTINCT wheel_category FROM cupping_note WHERE wheel_category IS NOT NULL`
     );
@@ -676,6 +743,8 @@ export async function setArchetypeDescriptorFamilies(
     // ArchetypeCode is a closed, statically-known enum — this is unreachable
     // in practice, but every verb in this file guards its lookup the same way.
     if (updateResult.rowCount === 0) throw new CatalogError(400, 'INVALID_INPUT', `Unknown archetype code ${input.code}`);
+    const after = await snapshotRow(tx, 'coffee_archetype', 'code', input.code);
+    await logCatalogChange(tx, { entity: 'archetype', entityId: input.code, action: 'setArchetypeDescriptorFamilies', before, after, changedBy: ctx.actor });
     console.info('[catalog] setArchetypeDescriptorFamilies', { actor: ctx.actor, code: input.code, families: input.families });
     return { result: { code: input.code, families: input.families }, warnings: [], integrity: [] };
   });
@@ -687,13 +756,13 @@ export interface UpsertSkuInput {
   coffeeId: number; weightOz: number; blendName?: string; roasterSku?: string; shopifyVariantId?: string;
   costToUs?: number; quantityAvailable?: number; safetyStockBuffer?: number; isActive?: boolean;
 }
-export async function upsertSkuInTx(tx: Tx, input: UpsertSkuInput): Promise<{ blendId: string }> {
+export async function upsertSkuInTx(tx: Tx, input: UpsertSkuInput): Promise<{ blendId: string; before: Record<string, unknown> | null }> {
     const coffee = await fetchCoffeeRow(tx, input.coffeeId);
     if (!coffee.roaster_id) throw new CatalogError(409, 'ROASTER_STATE', `Coffee ${input.coffeeId} has no roaster_id set`);
     if (!Number.isFinite(input.weightOz) || input.weightOz <= 0) throw new CatalogError(400, 'INVALID_INPUT', 'weightOz must be a positive number');
 
-    const existingResult = await tx.query<{ id: string; quantity_available: number; safety_stock_buffer: number }>(
-      `SELECT id, quantity_available, safety_stock_buffer FROM coffee_sku WHERE coffee_id = $1 AND weight_oz = $2 AND is_active = true`,
+    const existingResult = await tx.query<{ id: string; quantity_available: number; safety_stock_buffer: number } & Record<string, unknown>>(
+      `SELECT * FROM coffee_sku WHERE coffee_id = $1 AND weight_oz = $2 AND is_active = true`,
       [input.coffeeId, input.weightOz]
     );
     let blendId: string;
@@ -723,12 +792,14 @@ export async function upsertSkuInTx(tx: Tx, input: UpsertSkuInput): Promise<{ bl
       );
       blendId = insertResult.rows[0].id;
     }
-    return { blendId };
+    return { blendId, before: existingResult.rows[0] ?? null };
 }
 
 export async function upsertSku(input: UpsertSkuInput, ctx: Ctx): Promise<CatalogWriteResult<{ blendId: string }>> {
   return withTransaction(async (tx) => {
-    const { blendId } = await upsertSkuInTx(tx, input);
+    const { blendId, before } = await upsertSkuInTx(tx, input);
+    const after = await snapshotRow(tx, 'coffee_sku', 'id', blendId);
+    await logCatalogChange(tx, { entity: 'sku', entityId: blendId, action: 'upsertSku', before, after, changedBy: ctx.actor });
     const integrity = await scopedIntegrity(tx, { coffeeId: input.coffeeId });
     console.info('[catalog] upsertSku', { actor: ctx.actor, coffeeId: input.coffeeId, weightOz: input.weightOz, blendId });
     return { result: { blendId }, warnings: [], integrity };
@@ -738,6 +809,7 @@ export async function upsertSku(input: UpsertSkuInput, ctx: Ctx): Promise<Catalo
 export async function restockSku(input: { blendId: string; quantity: number }, ctx: Ctx): Promise<CatalogWriteResult<{ blendId: string; quantityAvailable: number }>> {
   return withTransaction(async (tx) => {
     if (!Number.isFinite(input.quantity) || input.quantity <= 0) throw new CatalogError(400, 'INVALID_INPUT', 'quantity must be a positive number');
+    const before = await snapshotRow(tx, 'coffee_sku', 'id', input.blendId);
     const current = await tx.query<{ quantity_available: number; safety_stock_buffer: number }>(
       `SELECT quantity_available, safety_stock_buffer FROM coffee_sku WHERE id = $1`, [input.blendId]
     );
@@ -748,6 +820,8 @@ export async function restockSku(input: { blendId: string; quantity: number }, c
       `UPDATE coffee_sku SET quantity_available = $1, inventory_status = $2, last_restocked_at = timezone('utc', now()), updated_at = now() WHERE id = $3`,
       [nextQty, status, input.blendId]
     );
+    const after = await snapshotRow(tx, 'coffee_sku', 'id', input.blendId);
+    await logCatalogChange(tx, { entity: 'sku', entityId: input.blendId, action: 'restockSku', before, after, changedBy: ctx.actor });
     console.info('[catalog] restockSku', { actor: ctx.actor, blendId: input.blendId, quantity: input.quantity });
     return { result: { blendId: input.blendId, quantityAvailable: nextQty }, warnings: [], integrity: [] };
   });
@@ -760,6 +834,7 @@ export async function renameSlot(input: { slotId: number; name?: string; positio
     if (input.name === undefined && input.positionLabel === undefined && input.positionDescription === undefined) {
       throw new CatalogError(400, 'INVALID_INPUT', 'name, positionLabel, or positionDescription is required');
     }
+    const before = await snapshotRow(tx, 'coffee_dial_slot', 'id', input.slotId);
     try {
       const result = await tx.query<{ id: number }>(
         `UPDATE coffee_dial_slot SET name = COALESCE($1, name), position_label = COALESCE($2, position_label),
@@ -772,6 +847,8 @@ export async function renameSlot(input: { slotId: number; name?: string; positio
       if (err?.code === '23505') throw new CatalogError(409, 'INVALID_INPUT', 'That name is already used by another slot');
       throw err;
     }
+    const after = await snapshotRow(tx, 'coffee_dial_slot', 'id', input.slotId);
+    await logCatalogChange(tx, { entity: 'slot', entityId: input.slotId, action: 'renameSlot', before, after, changedBy: ctx.actor });
     const integrity = await scopedIntegrity(tx, { slotId: input.slotId });
     console.info('[catalog] renameSlot', { actor: ctx.actor, slotId: input.slotId });
     return { result: { slotId: input.slotId }, warnings: [], integrity };
@@ -789,6 +866,7 @@ export async function setSlotSpec(input: { slotId: number; bandLo?: number | nul
       const unknown = input.descriptorFamilies.filter(f => !knownSet.has(f));
       if (unknown.length) throw new CatalogError(400, 'INVALID_INPUT', `Unknown descriptor families (not real wheel_category values): ${unknown.join(', ')}`);
     }
+    const before = await snapshotRow(tx, 'coffee_dial_slot', 'id', input.slotId);
     const setBandLo = input.bandLo !== undefined;
     const setBandHi = input.bandHi !== undefined;
     const setFamilies = input.descriptorFamilies !== undefined;
@@ -807,17 +885,20 @@ export async function setSlotSpec(input: { slotId: number; bandLo?: number | nul
       if (err?.code === '23514') throw new CatalogError(400, 'INVALID_INPUT', 'bandLo must be <= bandHi');
       throw err;
     }
+    const after = await snapshotRow(tx, 'coffee_dial_slot', 'id', input.slotId);
+    await logCatalogChange(tx, { entity: 'slot', entityId: input.slotId, action: 'setSlotSpec', before, after, changedBy: ctx.actor });
     const integrity = await scopedIntegrity(tx, { slotId: input.slotId });
     console.info('[catalog] setSlotSpec', { actor: ctx.actor, slotId: input.slotId });
     return { result: { slotId: input.slotId }, warnings: [], integrity };
   });
 }
 
-export async function setSlotPriceInTx(tx: Tx, input: { slotId: number; weightOz: number; retailPriceCents: number }): Promise<{ slotId: number; weightOz: number }> {
+export async function setSlotPriceInTx(tx: Tx, input: { slotId: number; weightOz: number; retailPriceCents: number }): Promise<{ slotId: number; weightOz: number; before: Record<string, unknown> | null }> {
   if (!Number.isFinite(input.weightOz) || input.weightOz <= 0 || !Number.isInteger(input.retailPriceCents) || input.retailPriceCents < 0) {
     throw new CatalogError(400, 'INVALID_INPUT', 'weightOz and a non-negative integer retailPriceCents are required');
   }
   await fetchSlotRow(tx, input.slotId); // validates the slot exists
+  const beforeResult = await tx.query(`SELECT * FROM coffee_slot_price WHERE slot_id = $1 AND weight_oz = $2`, [input.slotId, input.weightOz]);
   // Catalog Blueprint brief 5a dropped dial_slot_price's legacy archetype/
   // dial_sort_order columns — slot_id is the only key now.
   await tx.query(
@@ -826,12 +907,14 @@ export async function setSlotPriceInTx(tx: Tx, input: { slotId: number; weightOz
      ON CONFLICT (slot_id, weight_oz) DO UPDATE SET retail_price_cents = EXCLUDED.retail_price_cents, updated_at = now()`,
     [input.slotId, input.weightOz, input.retailPriceCents]
   );
-  return { slotId: input.slotId, weightOz: input.weightOz };
+  return { slotId: input.slotId, weightOz: input.weightOz, before: beforeResult.rows[0] ?? null };
 }
 
 export async function setSlotPrice(input: { slotId: number; weightOz: number; retailPriceCents: number }, ctx: Ctx): Promise<CatalogWriteResult<{ slotId: number; weightOz: number }>> {
   return withTransaction(async (tx) => {
-    const result = await setSlotPriceInTx(tx, input);
+    const { before, ...result } = await setSlotPriceInTx(tx, input);
+    const after = await tx.query(`SELECT * FROM coffee_slot_price WHERE slot_id = $1 AND weight_oz = $2`, [input.slotId, input.weightOz]);
+    await logCatalogChange(tx, { entity: 'slot_price', entityId: `${input.slotId}:${input.weightOz}`, action: 'setSlotPrice', before, after: after.rows[0] ?? null, changedBy: ctx.actor });
     const integrity = await scopedIntegrity(tx, { slotId: input.slotId });
     console.info('[catalog] setSlotPrice', { actor: ctx.actor, slotId: input.slotId, weightOz: input.weightOz });
     return { result, warnings: [], integrity };
@@ -841,8 +924,11 @@ export async function setSlotPrice(input: { slotId: number; weightOz: number; re
 export async function setLandingDefault(input: { slotId: number }, ctx: Ctx): Promise<CatalogWriteResult<{ slotId: number }>> {
   return withTransaction(async (tx) => {
     const slot = await fetchSlotRow(tx, input.slotId);
+    const before = await snapshotRow(tx, 'coffee_dial_slot', 'id', input.slotId);
     await tx.query(`UPDATE coffee_dial_slot SET is_landing_default = false, updated_at = now() WHERE archetype = $1 AND is_landing_default = true`, [slot.archetype]);
     await tx.query(`UPDATE coffee_dial_slot SET is_landing_default = true, updated_at = now() WHERE id = $1`, [input.slotId]);
+    const after = await snapshotRow(tx, 'coffee_dial_slot', 'id', input.slotId);
+    await logCatalogChange(tx, { entity: 'slot', entityId: input.slotId, action: 'setLandingDefault', before, after, changedBy: ctx.actor });
     const integrity = await scopedIntegrity(tx, { slotId: input.slotId });
     console.info('[catalog] setLandingDefault', { actor: ctx.actor, slotId: input.slotId });
     return { result: { slotId: input.slotId }, warnings: [], integrity };
@@ -860,6 +946,12 @@ export async function setHop(input: SetHopInput, ctx: Ctx): Promise<CatalogWrite
     if (input.fromCoffeeId === input.toCoffeeId) throw new CatalogError(400, 'INVALID_INPUT', 'A hop needs two different coffees');
     await fetchCoffeeRow(tx, input.fromCoffeeId);
     await fetchCoffeeRow(tx, input.toCoffeeId);
+
+    const before = await snapshotRow(tx, 'coffee_hop', 'id',
+      (await tx.query<{ id: number }>(
+        `SELECT id FROM coffee_hop WHERE from_coffee_id = $1 AND to_coffee_id = $2 AND dimension_id = $3 AND direction = $4`,
+        [input.fromCoffeeId, input.toCoffeeId, input.dimensionId, input.direction]
+      )).rows[0]?.id ?? null);
 
     const warnings: PlacementWarning[] = [];
 
@@ -898,6 +990,8 @@ export async function setHop(input: SetHopInput, ctx: Ctx): Promise<CatalogWrite
       }
     }
 
+    const after = await snapshotRow(tx, 'coffee_hop', 'id', hopId);
+    await logCatalogChange(tx, { entity: 'hop', entityId: hopId, action: 'setHop', before, after, changedBy: ctx.actor });
     console.info('[catalog] setHop', { actor: ctx.actor, hopId, from: input.fromCoffeeId, to: input.toCoffeeId, warnings: warnings.map(w => w.kind) });
     return { result: { hopId }, warnings, integrity: [] };
   });
@@ -905,8 +999,10 @@ export async function setHop(input: SetHopInput, ctx: Ctx): Promise<CatalogWrite
 
 export async function removeHop(input: { hopId: number }, ctx: Ctx): Promise<CatalogWriteResult<{ hopId: number }>> {
   return withTransaction(async (tx) => {
+    const before = await snapshotRow(tx, 'coffee_hop', 'id', input.hopId);
     const result = await tx.query<{ id: number }>(`DELETE FROM coffee_hop WHERE id = $1 RETURNING id`, [input.hopId]);
     if (!result.rowCount) throw new CatalogError(404, 'INVALID_INPUT', `Hop ${input.hopId} not found`);
+    await logCatalogChange(tx, { entity: 'hop', entityId: input.hopId, action: 'removeHop', before, after: null, changedBy: ctx.actor });
     console.info('[catalog] removeHop', { actor: ctx.actor, hopId: input.hopId });
     return { result: { hopId: input.hopId }, warnings: [], integrity: [] };
   });
@@ -1101,6 +1197,7 @@ export async function deactivateRoastery(input: { roasterId: string; note?: stri
   if (!preview.roaster.isActive) throw new CatalogError(409, 'ROASTER_STATE', 'This roastery is already inactive');
 
   return withTransaction(async (tx) => {
+    const before = await snapshotRow(tx, 'roaster', 'id', input.roasterId);
     const roasterUpdate = await tx.query(
       `UPDATE roaster SET is_active = false, deactivated_at = now(), deactivation_note = $2, updated_at = now()
        WHERE id = $1 AND is_active = true RETURNING id`,
@@ -1130,6 +1227,8 @@ export async function deactivateRoastery(input: { roasterId: string; note?: stri
       coffees: coffeesUpdate.rowCount ?? 0, blends: blendsUpdate.rowCount ?? 0,
       assignments: assignmentsUpdate.rowCount ?? 0,
     };
+    const after = await snapshotRow(tx, 'roaster', 'id', input.roasterId);
+    await logCatalogChange(tx, { entity: 'roaster', entityId: input.roasterId, action: 'deactivateRoastery', before, after, changedBy: ctx.actor });
     console.info('[catalog] deactivateRoastery', { actor: ctx.actor, roasterId: input.roasterId, applied });
     return { result: { ...preview, applied }, warnings: [], integrity: [] };
   });
@@ -1137,6 +1236,7 @@ export async function deactivateRoastery(input: { roasterId: string; note?: stri
 
 export async function reactivateRoastery(input: { roasterId: string }, ctx: Ctx) {
   return withTransaction(async (tx) => {
+    const before = await snapshotRow(tx, 'roaster', 'id', input.roasterId);
     const roasterResult = await tx.query(`SELECT id, name, is_active, deactivated_at FROM roaster WHERE id = $1`, [input.roasterId]);
     if (roasterResult.rowCount === 0) throw new CatalogError(404, 'ROASTER_NOT_FOUND', `Roaster ${input.roasterId} not found`);
     const roaster = roasterResult.rows[0];
@@ -1163,6 +1263,7 @@ export async function reactivateRoastery(input: { roasterId: string }, ctx: Ctx)
     );
 
     const restored = { coffees: coffeesUpdate.rowCount ?? 0, blends: blendsUpdate.rowCount ?? 0 };
+    await logCatalogChange(tx, { entity: 'roaster', entityId: input.roasterId, action: 'reactivateRoastery', before, after: roasterUpdate.rows[0] ?? null, changedBy: ctx.actor });
     console.info('[catalog] reactivateRoastery', { actor: ctx.actor, roasterId: input.roasterId, restored });
     return { result: { roaster: roasterUpdate.rows[0], restored }, warnings: [], integrity: [] };
   });

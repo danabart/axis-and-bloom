@@ -14,6 +14,7 @@ import { getOrMintCanonicalUniversalToken } from '../services/qrDoor.js';
 import { getEffectiveAiControls, envCeilingUsd } from '../services/anthropicGuard.js';
 import { runQuizIntegrityChecks } from '../services/quizIntegrity.js';
 import { runCatalogIntegrityChecks } from '../services/catalogIntegrity.js';
+import { runCustomerIntegrityChecks } from '../services/customerIntegrity.js';
 import {
   CatalogError, type Ctx, type ArchetypeCode,
   createCoffee, updateCoffee, retireCoffee, restoreCoffee,
@@ -1789,6 +1790,18 @@ router.get('/catalog/integrity', async (_req, res) => {
   } catch (err) {
     console.error('[admin/catalog/integrity]', err);
     res.status(500).json({ error: 'Failed to run catalog integrity checks' });
+  }
+});
+
+// ── GET /api/admin/customer/integrity — Customer Blueprint brief C1, Part F ──
+// Read-only: see backend/src/services/customerIntegrity.ts for the 9 checks.
+router.get('/customer/integrity', async (_req, res) => {
+  try {
+    const report = await runCustomerIntegrityChecks();
+    res.json(report);
+  } catch (err) {
+    console.error('[admin/customer/integrity]', err);
+    res.status(500).json({ error: 'Failed to run customer integrity checks' });
   }
 });
 

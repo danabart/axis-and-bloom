@@ -208,6 +208,17 @@ Every open page site-wide (previously silently rendering in Arial — see OT-11)
 
 ---
 
+### OT-19: `quizScoring.test.ts` — 12 pre-existing failures, not touched by Customer Blueprint C1 (found 2026-09-27)
+
+Found running the full `npm test` suite as part of Customer Blueprint C1's Part I verification (`git status`/`git log` confirm `backend/src/services/quizScoring.ts` and its test have no uncommitted diff and were last touched by commit `8edcac0`, already on `main` — this session never opened either file). **Pre-existing on `main` at `6f34238`, not introduced or touched by C1.** Not fixed here — out of scope for this brief.
+
+- **File**: `backend/src/services/quizScoring.test.ts` (and its compiled `dist/services/quizScoring.test.js` copy — same 6 failures counted twice, 12 total across both).
+- **Count**: 12 of 497 total tests failed; all 12 are in the `findWinner` veto-cascade / `isSecondaryClose` describe blocks. Every other test in the repo (485), including everything this brief added or touched, is green.
+- **Hypothesis**: every failure is an archetype-name mismatch (e.g. expected `Chocolate & Nutty` / `Fruity`, got `Balanced`, or the reverse) in the veto-cascade tie-break logic, not a crash or a type error. The most recent commit touching `quizScoring.ts` before this brief is `5028c7d` ("archetype: rename 'Balanced & Sweet' to 'Balanced' (display name only)") — the tie-break cascade (`findWinner`) or its test fixtures likely still reference the pre-rename archetype identity/ordering in a way the display-name-only rename didn't fully account for. Not confirmed by reading the function — a hypothesis from the failure shape, not a diagnosis.
+- **Does not block deploys**: `.github/workflows/deploy.yml`'s backend job runs `npm audit`, `lint:catalog`, `lint:retention`, `lint:customer`, then the Docker build (`tsc`, not vitest) — no `npm test`/vitest step anywhere in the gate. Confirmed before pushing C1.
+
+---
+
 ## 📋 Log
 
 | Date | Task | Status |

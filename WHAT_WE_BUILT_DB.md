@@ -262,6 +262,41 @@ One writer per fact, via a named service function (house rule, see `backend/src/
 | Role | Purpose |
 |---|---|
 | `reporting_ro` *(added launch Step 06, 2026-07-22)* | Read-only Postgres role for the Looker Studio connector. `LOGIN`, `CONNECT` on the database, `USAGE` on schema `public`, `SELECT` on exactly the four `v_*_weekly`/`v_archetype_distribution` reporting views above — no base tables, no other views. Password lives in Secret Manager (per the Step 06 spec), not in any committed file. Defined in `backend/src/db/schema.sql` (also mirrored in `backend/src/db/migrations/reporting_views_2026_07_23.sql`, a redundant paper-trail copy — see note above). |
+| `ab_owner` *(Customer Blueprint C1, 2026-09-27 — not an actual role name, this series' name for whatever role already applies `schema.sql`)* | Today's login role, confirmed via `SELECT current_user` (Task 0): **`axisbloom`** — the same role/credential this project has always deployed with. Not created by C1; `client.ts`'s `ownerPool()` connects as it via `OWNER_DATABASE_URL ?? DATABASE_URL`. Runs `schema.sql`, backfills, and (from Part G onward) is the only role that can INSERT a backfilled `occurred_at` on a fact or run DDL. |
+| `ab_app` *(Customer Blueprint C1, 2026-09-27)* | The Cloud Run request pool's future role. `NOLOGIN` today (created in `schema.sql`, Part A1) — `LOGIN` + a generated password are set only in the Part G cutover, never in a committed file. Prefix-driven grants re-run every boot (Part A2): `SELECT, INSERT` on every `customer_%` table (`customer_order_kind` excluded — a dimension) plus `quiz_session`, `quiz_session_interpretation`, `"order"`, `order_line_item`, `catalog_change`, with `UPDATE`/`DELETE`/`TRUNCATE` revoked on all of them except a single column-level `GRANT UPDATE (valid_to, is_current) ON quiz_session_interpretation` (D11 — forward-looking; Task 0 found no live UPDATE using it yet, see `customer_blueprint_1_2026_09_27.sql`'s own comment); `SELECT, INSERT, UPDATE, DELETE` on every other table (`customer_order_kind` included); `SELECT` on every view. Until Part G, `DATABASE_URL` still points at `axisbloom`, so these grants exist but do not yet gate anything live — `backend/src/index.ts`'s boot log says so explicitly (`[db-roles] OWNER_DATABASE_URL not set...`). |
+
+---
+
+### Customer ownership table (Customer Blueprint C1, 2026-09-27)
+
+Naming convention (Dana, 2026-09-26/27): `coffee_*` = catalog (master data); `customer_*` = a fact about a customer, append-only by definition; no prefix = operating table (mutable, runs the system); `v_customer_*` = one customer's facts or current state, joined (C3); `v_palate_*` = a versioned read over facts (C3). `quiz_session`, `quiz_session_interpretation`, `"order"` and `order_line_item` keep their names and are facts too, listed explicitly in the grant block above rather than renamed.
+
+Every table below is empty (DDL only) as of C1 — no writer is wired except `catalog_change` (Part D). All are append-only: `INSERT ... ON CONFLICT (source, source_id) DO NOTHING`, no UPDATE or DELETE, enforced by the `ab_app` grants above once Part G cuts over.
+
+| Table | Class | Writer | Readers |
+|---|---|---|---|
+| `customer_identity_link` | fact | none yet (C2/C3) | none yet (C3) |
+| `customer_feedback_event` | fact | none yet (C2) | none yet (C3) |
+| `customer_feedback_descriptor` | fact | none yet (C2) | none yet (C3) |
+| `customer_brew_profile_change` | fact | none yet (C2) | none yet (C3) |
+| `customer_dial_event` | fact | none yet (C2) | none yet (C3) |
+| `customer_liam_recommendation` | fact | none yet (C2/L3) | none yet (C3) |
+| `customer_liam_question` | fact | none yet (C2/L3) | none yet (C3) |
+| `customer_liam_reply` | fact | none yet (C2/L3) | none yet (C3) |
+| `customer_liam_action` | fact | none yet (C2/L3) | none yet (C3) |
+| `customer_bag_claim` | fact | none yet (C2) | none yet (C3) |
+| `catalog_change` | fact (no `user_id` — about the catalog, not a customer) | `customerFacts.record.catalogChange`, called from every write verb in `catalogService.ts` (Part D) | `services/customerReads.ts` (reserved; no exports yet), `services/customerIntegrity.ts` check 6 |
+| `customer_order_kind` | dimension, not a fact (D18) | seeded once in `schema.sql`; `orders.ts` unchanged this brief | `order_line_item.order_kind` FK |
+
+Every `customer_*` table (minus `customer_feedback_descriptor`, which the brief specifies without `catalog_version`) carries the same seven leading columns: `id UUID PK`, `user_id UUID NOT NULL REFERENCES user_profile(id)` (D15 — never `firebase_uid` or email), `occurred_at`/`recorded_at TIMESTAMPTZ` (database clock; app code sets `occurred_at` only through a fact's `.backfill()` variant, owner-only), `source TEXT`, `source_id TEXT` (idempotency key with `source`, D17), `catalog_version TEXT` (via `getCatalogVersion()`, D16). `catalog_change` has no `user_id`, plus `changed_by TEXT`.
+
+Three FK type corrections made against the brief's own literal DDL (Task 0, confirmed against live column types): `customer_dial_event.slot_id` and `customer_liam_recommendation.slot_id` are `INT REFERENCES coffee_dial_slot(id)`, not `UUID` (`coffee_dial_slot.id` is `SERIAL`); `customer_bag_claim.qr_scan_event_id` is `INT REFERENCES qr_scan_event(id)`, not `UUID` (`qr_scan_event.id` is `SERIAL`). `customer_liam_question` has no `reply`/`reply_message_id` columns — the brief's own table row and its very next sentence disagree on whether the reply is a column or a separate row; built per the resolving sentence ("Default for this brief: separate table `customer_liam_reply`"), so no fact row is ever updated.
+
+`order_kind` (D18): `order_line_item.order_kind TEXT REFERENCES customer_order_kind(code) DEFAULT 'manual'`, backfilled to `'manual'` for every existing row in the same idempotent block. `orders.ts` does not change in this brief.
+
+The `ab_app` grant block (see Roles, above) lives at the true end of `schema.sql` — after `marketing_config`, `qr_scan_event`, `qr_universal_token`, `claude_daily_spend`, `api_event` and seven `v_coffee_*` views, none of which follow the `reporting_ro` block the brief assumed was last (Task 0). Internally, the new block orders its own statements as fact DDL → grants (not the brief's literal grants-then-DDL order), so the very first boot that creates these tables also grants them in the same pass. `customerIntegrity.ts` check 1 enforces this going forward: it fails at boot for any `customer_*`/fact table with `UPDATE`/`DELETE` granted, or any view without `SELECT` — catching a future append below the grant block, not just discouraging it.
+
+**Table count**: this doc's own "Database Schema (69 Tables)" header above has been stale since well before this brief (a fresh count of `axisandbloom_test` immediately before applying C1 was **86**, not 69 — pre-existing drift, not something this brief introduces or audits). C1 adds 12 tables (11 `customer_*` + `catalog_change`; `customer_order_kind` is the 12th and is the only one of the twelve that is a dimension, not a fact).
 
 ---
 

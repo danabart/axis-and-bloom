@@ -19,9 +19,16 @@ import 'dotenv/config';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { db } from '../src/db/client.js';
+import { ownerPool, whoAmI } from '../src/db/client.js';
 import { INTERPRETATION_VERSION } from '../src/services/quizScoring.js';
 import { runBackfill, compareToFixture, parseArgs, dbNameFromUrl } from '../src/services/quizInterpretationBackfill.js';
+
+// Customer Blueprint · brief C1, Part B (2026-09-27) — backfills write facts
+// (quiz_session_interpretation), so this script now runs through
+// ownerPool(), not the shared `db` pool, and refuses outright if that somehow
+// still resolves to ab_app (which cannot write quiz_session_interpretation
+// past a single is_current row, and must never run backfills anyway).
+const db = ownerPool();
 
 async function main() {
   const { apply, limit, expectDb } = parseArgs(process.argv.slice(2));
@@ -39,6 +46,11 @@ async function main() {
     const cur = (await client.query('SELECT current_database() AS d')).rows[0].d;
     if (cur !== expectDb) {
       console.error(`REFUSING: connected to '${cur}', expected '${expectDb}'. Nothing was written.`);
+      process.exit(3);
+    }
+    const currentUser = await whoAmI(db);
+    if (currentUser === 'ab_app') {
+      console.error(`REFUSING: connected as ab_app. Backfills run under the owner role — set OWNER_DATABASE_URL or point DATABASE_URL at the owner connection string.`);
       process.exit(3);
     }
     const tbl = await client.query(`SELECT to_regclass('public.quiz_session_interpretation') IS NOT NULL AS ok`);
