@@ -208,6 +208,12 @@ Every open page site-wide (previously silently rendering in Arial — see OT-11)
 
 ---
 
+### OT-24: `sommelier_messages` (SQL) has 9 rows not fully mirrored in Firestore — reconcile before any drop (found 2026-09-27, Customer Blueprint C3)
+
+Customer Blueprint C3 dropped 3 of the 4 dead-table candidates (`user_recommendation_log`, `user_feedback_event`, `chat_message` — all confirmed empty in prod). `sommelier_messages` was **not** dropped: it has 9 real rows in production, all belonging to a single session (`session_id = 2`, one user), dated **2026-06-28** (three months before this pre-Firestore-migration table was superseded), `is_closed = true` — 5 assistant + 4 user turns.
+
+Firestore has a transcript at the same path (`users/{uid}/sommelier_sessions/2/messages`) for the same session, but with only **6 docs**, not 9 — a partial overlap, not a clean duplicate. The SQL rows are therefore not safely redundant as-is: before this table can be dropped, someone needs to reconcile which of the 9 SQL rows are genuinely missing from the Firestore transcript (the likely candidates are the earliest turns, from before the mid-session cutover to Firestore-based storage) and decide whether those need to be preserved some other way. `customerIntegrity.ts` check 7 (informational) will keep reporting this table non-empty until that reconciliation happens. Not fixed here — out of scope for C3, which only drops tables it can prove empty.
+
 ### OT-19: `quizScoring.test.ts` — 12 pre-existing failures, not touched by Customer Blueprint C1 (found 2026-09-27)
 
 Found running the full `npm test` suite as part of Customer Blueprint C1's Part I verification (`git status`/`git log` confirm `backend/src/services/quizScoring.ts` and its test have no uncommitted diff and were last touched by commit `8edcac0`, already on `main` — this session never opened either file). **Pre-existing on `main` at `6f34238`, not introduced or touched by C1.** Not fixed here — out of scope for this brief.
