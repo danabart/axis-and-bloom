@@ -38,6 +38,15 @@ import { runQuizIntegrityChecks } from './services/quizIntegrity.js';
 import { runCatalogIntegrityChecks } from './services/catalogIntegrity.js';
 import { runCustomerIntegrityChecks } from './services/customerIntegrity.js';
 
+// Customer Blueprint C3, Part 0 — surfaces the firestoreDb write-guard's
+// state on every boot, same visibility [db-roles] gives the Postgres split.
+const firestoreWriteEnvsOk = process.env.NODE_ENV === 'production' || process.env.NODE_ENV === 'test';
+console.log(
+  firestoreWriteEnvsOk
+    ? `[firestore-write-guard] active — writes allowed (NODE_ENV=${process.env.NODE_ENV})`
+    : `[firestore-write-guard] active — writes BLOCKED for this process (NODE_ENV=${JSON.stringify(process.env.NODE_ENV ?? null)}); reads still work normally`
+);
+
 const app = express();
 const PORT = process.env.PORT ?? 4000;
 
