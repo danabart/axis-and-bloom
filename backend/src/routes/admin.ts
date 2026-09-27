@@ -1724,6 +1724,78 @@ router.post('/sommelier/recompute-centroids', async (_req, res) => {
   }
 });
 
+// ── GET /api/admin/liam/outcomes — Customer Blueprint C3, Part E (D20) ────────
+// The three Liam numbers, read straight from v_palate_recommendation_outcome/
+// v_palate_threads/v_customer_feedback_current — no fallback numbers, no
+// invented weights. Empty until L3 writes customer_liam_recommendation rows
+// (0 today, confirmed); every rate is null (not 0) when its denominator is 0,
+// so the frontend can render an honest "no data yet" instead of a fake 0%.
+router.get('/liam/outcomes', async (req, res) => {
+  const windowDays = [7, 14, 30].includes(Number(req.query.days)) ? Number(req.query.days) : 30;
+  try {
+    const recResult = await db.query<{ total: string; followed: string }>(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE days_to_order IS NOT NULL AND days_to_order <= $1)::int AS followed
+       FROM v_palate_recommendation_outcome`,
+      [windowDays]
+    );
+    const recRow = recResult.rows[0];
+    const recTotal = Number(recRow.total);
+    const recFollowed = Number(recRow.followed);
+
+    const ratingResult = await db.query<{
+      recommended_mean: string | null; recommended_count: string; self_chosen_mean: string | null; self_chosen_count: string;
+    }>(
+      `WITH recommended_lines AS (
+         SELECT DISTINCT followed_order_line_item_id AS line_id, feedback_rating AS rating
+         FROM v_palate_recommendation_outcome
+         WHERE followed_order_line_item_id IS NOT NULL
+       ),
+       all_attributed_feedback AS (
+         SELECT vfc.order_line_item_id AS line_id, vfc.rating
+         FROM v_customer_feedback_current vfc
+         WHERE vfc.order_line_item_id IS NOT NULL AND vfc.rating IS NOT NULL
+       )
+       SELECT
+         (SELECT ROUND(AVG(rating)::numeric, 2) FROM recommended_lines WHERE rating IS NOT NULL) AS recommended_mean,
+         (SELECT COUNT(*)::int FROM recommended_lines WHERE rating IS NOT NULL) AS recommended_count,
+         (SELECT ROUND(AVG(rating)::numeric, 2) FROM all_attributed_feedback WHERE line_id NOT IN (SELECT line_id FROM recommended_lines)) AS self_chosen_mean,
+         (SELECT COUNT(*)::int FROM all_attributed_feedback WHERE line_id NOT IN (SELECT line_id FROM recommended_lines)) AS self_chosen_count`
+    );
+    const ratingRow = ratingResult.rows[0];
+
+    const threadsResult = await db.query<{ total: string; answered: string }>(
+      `SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE status = 'answered')::int AS answered FROM v_palate_threads`
+    );
+    const threadsRow = threadsResult.rows[0];
+    const threadsTotal = Number(threadsRow.total);
+    const threadsAnswered = Number(threadsRow.answered);
+
+    res.json({
+      windowDays,
+      recommendations: {
+        total: recTotal,
+        followedWithinWindow: recFollowed,
+        followedRate: recTotal > 0 ? Math.round((recFollowed / recTotal) * 10000) / 10000 : null,
+      },
+      feedbackRating: {
+        recommendedMean: ratingRow.recommended_mean !== null ? Number(ratingRow.recommended_mean) : null,
+        recommendedCount: Number(ratingRow.recommended_count),
+        selfChosenMean: ratingRow.self_chosen_mean !== null ? Number(ratingRow.self_chosen_mean) : null,
+        selfChosenCount: Number(ratingRow.self_chosen_count),
+      },
+      threads: {
+        totalAsked: threadsTotal,
+        totalAnswered: threadsAnswered,
+        answeredRate: threadsTotal > 0 ? Math.round((threadsAnswered / threadsTotal) * 10000) / 10000 : null,
+      },
+    });
+  } catch (err) {
+    console.error('[admin/liam/outcomes]', err);
+    res.status(500).json({ error: 'Failed to load Liam outcomes' });
+  }
+});
+
 // ── INVENTORY ─────────────────────────────────────────────────────────────────
 
 // ── GET /api/admin/inventory/coffees-lookup — RETIRED (Catalog Blueprint brief 4) ─

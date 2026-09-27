@@ -4,6 +4,7 @@ import { reportError } from '../../lib/errorReporter';
 import AdminQuizIntegrity from './AdminQuizIntegrity';
 import AdminCatalogIntegrity from './AdminCatalogIntegrity';
 import AdminCustomerIntegrity from './AdminCustomerIntegrity';
+import AdminLiamOutcomes from './AdminLiamOutcomes';
 
 interface Stats {
   coffees: string;
@@ -143,6 +144,7 @@ export default function AdminDashboard() {
       <AdminQuizIntegrity />
       <AdminCatalogIntegrity />
       <AdminCustomerIntegrity />
+      <AdminLiamOutcomes />
     </div>
   );
 }
