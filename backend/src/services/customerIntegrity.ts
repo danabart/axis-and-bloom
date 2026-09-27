@@ -388,7 +388,15 @@ export async function checkClaimedSessionsHaveLinks(scope: CheckScope = {}): Pro
 // CUTOVER_REMOVE_AFTER, once every writer has had 30 days to prove itself
 // fully retired (OPEN_TASKS.md). A hit here means an un-retired writer (or a
 // new one) is still landing in Firestore.
-const C3_CUTOVER_AT = new Date('2026-09-27T00:00:00Z');
+// Real deploy moment (Cloud Run revision axis-bloom-backend-00699-krp
+// creationTimestamp, 2026-09-27T22:23:28Z), not deploy-day midnight — a
+// calendar-day cutoff would permanently count the old code's entirely
+// legitimate Firestore writes from earlier the same day as "post-cutover",
+// masking a real future regression for this check's whole 30-day life.
+// Confirmed live in prod on first boot: with a midnight cutoff, this check
+// reported 5 sources with "post-cutover" writes, all from before this exact
+// deploy went out.
+const C3_CUTOVER_AT = new Date('2026-09-27T22:23:28Z');
 const C3_CUTOVER_REMOVE_AFTER = new Date('2026-10-27T00:00:00Z');
 const RETIRED_FIRESTORE_SOURCES: Array<{ label: string; collectionGroup: string; docId?: string; timestampField: string }> = [
   { label: 'feedback_events', collectionGroup: 'feedback_events', timestampField: 'createdAt' },
