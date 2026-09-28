@@ -5199,7 +5199,17 @@ LEFT JOIN LATERAL (
 --     every slot, n_dims_disliked_overlap populated and steering the order.
 --     Requires a quiz (D14's "no behaviour yet" fallback still applies to a
 --     customer with neither a liked bag nor a quiz: zero rows).
-CREATE OR REPLACE VIEW v_palate_slot_candidates AS
+-- Plain DROP VIEW + CREATE, not CREATE OR REPLACE: rule 6 inserts
+-- n_dims_disliked_overlap ahead of the existing in_pair/already_bought/
+-- last_rating columns, and CREATE OR REPLACE VIEW cannot reorder or rename
+-- an existing view's columns (error 42P16) — hit for real in production on
+-- this deploy (non-fatal per-statement, but the view was left on its old
+-- pre-rule-6 definition until this fix). Nothing else in this file
+-- references v_palate_slot_candidates, so a bare drop is safe; if that
+-- changes, convert back to CREATE OR REPLACE, same as this file's other
+-- views did once they gained a permanent dependent.
+DROP VIEW IF EXISTS v_palate_slot_candidates;
+CREATE VIEW v_palate_slot_candidates AS
 WITH traits AS (
   -- "overlaps" is a reserved word (the OVERLAPS predicate) - must be quoted
   -- as a column reference here or Postgres tries to parse it as that operator.

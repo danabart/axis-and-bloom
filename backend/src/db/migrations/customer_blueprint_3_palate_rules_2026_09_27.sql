@@ -5,8 +5,11 @@
 -- (backend/src/index.ts, `await db.query(schema)` through ownerPool()). Same
 -- convention as customer_blueprint_1_2026_09_27.sql in this directory.
 -- Running this file by hand against a database that already booted with the
--- updated schema.sql is a safe no-op — both statements are
--- CREATE OR REPLACE VIEW.
+-- updated schema.sql is a safe no-op — v_palate_shared_traits is
+-- CREATE OR REPLACE VIEW; v_palate_slot_candidates is a plain DROP VIEW IF
+-- EXISTS + CREATE VIEW (CREATE OR REPLACE VIEW cannot reorder/rename an
+-- existing view's columns, which rule 6 does — hit for real in production,
+-- see schema.sql's own comment above this view).
 --
 -- Scope: only the two views Dana's six-rule review changed. Everything else
 -- Parts A-C added (the other v_customer_*/v_palate_* views, user_saved_item,
@@ -69,7 +72,8 @@ SELECT d.canonical_user_id, d.kind, d.trait_key, d.trait_label, d.value_min, d.v
 FROM desc_agg d
 JOIN total_coffees t ON t.canonical_user_id = d.canonical_user_id AND d.n_coffees = t.n_total;
 
-CREATE OR REPLACE VIEW v_palate_slot_candidates AS
+DROP VIEW IF EXISTS v_palate_slot_candidates;
+CREATE VIEW v_palate_slot_candidates AS
 WITH traits AS (
   SELECT canonical_user_id, trait_key::int AS dimension_id, value_min, value_max
   FROM v_palate_shared_traits WHERE kind = 'dimension' AND "overlaps" = true
