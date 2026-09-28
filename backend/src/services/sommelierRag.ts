@@ -235,6 +235,10 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
     secondaryArchetype, exploreArchetype, slotCandidates = [], dislikedCoffeeIds = [],
   } = params;
   const userCode = userArchetype ? await archetypeCode(userArchetype) : null;
+  // Hoisted so both the generic secondary slice (step 2) and the 'matched'
+  // focus's own fill branch (step 4, Liam L2 Part C) can reuse it without a
+  // second archetypeCode() lookup.
+  const secondaryCode = secondaryArchetype ? await archetypeCode(secondaryArchetype) : null;
 
   // Liam L1, Part B — composition order: thread, secondary, palate, then
   // today's focus fill for the remainder, every focus, each coffee placed
@@ -268,16 +272,16 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
       }
     }
 
-    // 2. Secondary slice.
-    if (secondaryArchetype) {
-      const secondaryCode = await archetypeCode(secondaryArchetype);
-      if (secondaryCode) {
-        const secondaryCoffees = pool.filter(c => c.archetype === secondaryCode && !placedIds.has(c.id))
-          .sort((a, b) => a.id - b.id)
-          .slice(0, 2);
-        for (const c of secondaryCoffees) {
-          composed.push(c); placedIds.add(c.id); sliceByCoffee.set(c.id, 'secondary'); labelText.set(c.id, '[second archetype]');
-        }
+    // 2. Secondary slice — skipped for 'matched' (Liam L2, Part C): that
+    // focus places primary coffees before secondary ones, entirely within
+    // its own fill step below, so it doesn't use this universal slice (which
+    // would otherwise place secondary coffees first, ahead of the fill step).
+    if (secondaryCode && ragFocus !== 'matched') {
+      const secondaryCoffees = pool.filter(c => c.archetype === secondaryCode && !placedIds.has(c.id))
+        .sort((a, b) => a.id - b.id)
+        .slice(0, 2);
+      for (const c of secondaryCoffees) {
+        composed.push(c); placedIds.add(c.id); sliceByCoffee.set(c.id, 'secondary'); labelText.set(c.id, '[second archetype]');
       }
     }
 
@@ -393,6 +397,19 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
         .sort(editorialSort)
         .slice(0, Math.min(5, fillBudget));
 
+    } else if (ragFocus === 'matched') {
+      // Liam L2, Part C — the new default focus for any quiz taker (D5):
+      // primary archetype coffees (exact_match's own editorial-first sort)
+      // fill first, then the secondary if room remains. A quiz-only customer
+      // with no attributed bags (no palate slice) therefore sees their
+      // primary's coffees labelled [primary], then [second archetype] —
+      // never the other way around, which is why this focus skips the
+      // universal secondary slice (step 2) above and handles both archetypes
+      // itself, in this specific order.
+      const primaryCoffees = userCode ? pool.filter(c => c.archetype === userCode).sort(editorialSort) : [];
+      const secondaryCoffees = secondaryCode ? pool.filter(c => c.archetype === secondaryCode).sort(editorialSort) : [];
+      fillCoffees = [...primaryCoffees, ...secondaryCoffees].slice(0, fillBudget);
+
     } else {
       // curated_mix: 1 per archetype with most complete editorial data.
       const archetypesInPool = [...new Set(pool.map(c => c.archetype))];
@@ -413,6 +430,11 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
       if (c.archetype === userCode) {
         sliceByCoffee.set(c.id, 'primary');
         labelText.set(c.id, '[primary]');
+      } else if (ragFocus === 'matched' && secondaryCode && c.archetype === secondaryCode) {
+        // The 'matched' focus's own secondary-archetype fill (above) —
+        // same label as the universal secondary slice would have used.
+        sliceByCoffee.set(c.id, 'secondary');
+        labelText.set(c.id, '[second archetype]');
       } else {
         sliceByCoffee.set(c.id, 'focus');
       }

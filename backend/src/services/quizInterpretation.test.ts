@@ -274,8 +274,13 @@ describe('PROFILE_AMBIGUOUS reads the current interpretation', () => {
     expect(isProfileAmbiguous({ ...base, interpretationVersion: null, foodSignalAlignment: 'low' })).toBe(true);
     expect(isProfileAmbiguous({ ...base, interpretationVersion: null })).toBe(false);
   });
-  it('a quiz tie fires it on any version', () => {
-    expect(isProfileAmbiguous({ ...base, quizTie: true })).toBe(true);
+  // Liam L2, Part A (2026-09-28) — quizTie is no longer checked on a v2.1+
+  // interpretation: an unresolved near-tie is already surfaced as
+  // exploreArchetype = 'A / B' (quizScoring.ts), so re-checking quizTie here
+  // too would be redundant, not additive. It stays load-bearing on the
+  // context_data fallback path, which has no exploreArchetype hint at all.
+  it('a quiz tie fires it only on the context_data fallback, not on a v2.1+ interpretation', () => {
+    expect(isProfileAmbiguous({ ...base, quizTie: true })).toBe(false);
     expect(isProfileAmbiguous({ ...base, quizTie: true, interpretationVersion: null })).toBe(true);
   });
 });

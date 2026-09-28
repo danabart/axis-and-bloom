@@ -69,7 +69,10 @@ export function validateSingleValue(fieldCfg: BrewProfileFieldConfig, rawValue: 
 // an admin-visible counter. `admin_stats/brew_profile` is a 2-segment path
 // (collection/doc) — even, valid. Never throws: a counter failing to
 // increment must never be the reason a customer-facing request 500s.
-export async function incrementBrewProfileCounter(kind: 'writes' | 'failures'): Promise<void> {
+// Liam L2, Part 0 — 'noop' counts a re-affirmed scalar value that resolveRemember
+// deliberately skipped (not a failure — the fact was already known, just not
+// re-written as a fresh row).
+export async function incrementBrewProfileCounter(kind: 'writes' | 'failures' | 'noop'): Promise<void> {
   try {
     await firestoreDb.doc('admin_stats/brew_profile').set(
       { [kind]: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp() },
@@ -80,13 +83,13 @@ export async function incrementBrewProfileCounter(kind: 'writes' | 'failures'): 
   }
 }
 
-export async function getBrewProfileCounters(): Promise<{ writes: number; failures: number }> {
+export async function getBrewProfileCounters(): Promise<{ writes: number; failures: number; noop: number }> {
   try {
     const snap = await firestoreDb.doc('admin_stats/brew_profile').get();
     const data = snap.exists ? snap.data() : null;
-    return { writes: Number(data?.writes ?? 0), failures: Number(data?.failures ?? 0) };
+    return { writes: Number(data?.writes ?? 0), failures: Number(data?.failures ?? 0), noop: Number(data?.noop ?? 0) };
   } catch {
-    return { writes: 0, failures: 0 };
+    return { writes: 0, failures: 0, noop: 0 };
   }
 }
 

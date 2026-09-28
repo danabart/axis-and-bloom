@@ -232,8 +232,8 @@ Five small items C3's Part F named explicitly rather than leaving implicit:
 
 ### OT-26: Liam L1 follow-ups (found 2026-09-28)
 
-- **The Stage 2 Haiku call could be removed entirely**: after L1, its prompt carries only generation + household type — a fixed lookup table (`getGeneration()` already exists), not something that needs a model call to compute. Removing it would save one Anthropic call per session start with no loss of fidelity; flagged as an L2 candidate rather than done here (out of L1's stated scope).
-- **"Recent dial activity" no longer reaches Liam**: previously folded into `openingContext` for EXPLORATION/PROFILE_AMBIGUOUS intents (`getRecentDialActivitySummary()`, deleted this brief); the new profile line's target shape has no line for it. If this signal is wanted back, it should be a structured profile-line addition (a real read via `customerReads.getRecentDialActivity`), not prose folded into `openingContext` again.
+- ~~**The Stage 2 Haiku call could be removed entirely**~~ — **done, Liam L2** (`SOMMELIER_BUILT.md` S101): Stage 2 is now a plain `register.generation`/`register.household` config lookup, no model call. One Anthropic call removed per session start.
+- **"Recent dial activity" no longer reaches Liam** (final, not revisited by L2 or L3): previously folded into `openingContext` for EXPLORATION/PROFILE_AMBIGUOUS intents (`getRecentDialActivitySummary()`, deleted at L1); the profile line's target shape has no line for it, and L2 confirmed this is staying that way for the rest of the series. If this signal is wanted back, it should be a structured profile-line addition (a real read via `customerReads.getRecentDialActivity`), not prose folded into `openingContext` again — not planned, no brief currently scoped for it.
 
 ### OT-19: `quizScoring.test.ts` — 12 pre-existing failures, not touched by Customer Blueprint C1 (found 2026-09-27)
 

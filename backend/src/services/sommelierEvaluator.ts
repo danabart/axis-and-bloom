@@ -1,10 +1,6 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { db } from '../db/client.js';
 import { getSommelierConfig } from './sommelierConfig.js';
 import { getUserSignals } from './userSignals.js';
-import { guardClaudeCall } from './anthropicGuard.js';
-
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 export const FEATURE_SCHEMA = [
   'quizStability',
@@ -30,9 +26,14 @@ function interpretationMajorMinor(version: string | null | undefined): number {
   return m ? Number(m[1]) : 0;
 }
 
-// PROFILE_AMBIGUOUS (interpretation v2.1, brief 2). On a v2.1+ interpretation the customer's own signals decide:
-// pair confidence 'low', or a loose thread for Liam to explore. Older sessions keep the v1 rule (ai_agent /
-// low treat alignment). A quiz tie fires it either way.
+// PROFILE_AMBIGUOUS (interpretation v2.1, brief 2; quizTie scoping — L2, Part
+// A). On a v2.1+ interpretation the customer's own signals decide: pair
+// confidence 'low', or a loose thread for Liam to explore — quizTie is
+// ignored here, since an unresolved near-tie is already surfaced as
+// `exploreArchetype = 'A / B'` (quizScoring.ts) and checking it again would
+// be redundant, not additive. Older sessions (context_data fallback, no
+// v2.1+ interpretation row) have no exploreArchetype hint at all, so quizTie
+// stays load-bearing there — the only way that path learns about a tie.
 export function isProfileAmbiguous(s: {
   quizTie?: boolean;
   interpretationVersion: string | null;
@@ -41,11 +42,89 @@ export function isProfileAmbiguous(s: {
   recommendationMode: string;
   foodSignalAlignment: string;
 }): boolean {
-  if (s.quizTie === true) return true;
   if (interpretationMajorMinor(s.interpretationVersion) >= 2.1) {
     return s.pairConfidence === 'low' || s.exploreArchetype !== null;
   }
-  return s.recommendationMode === 'ai_agent' || s.foodSignalAlignment === 'low';
+  return s.quizTie === true || s.recommendationMode === 'ai_agent' || s.foodSignalAlignment === 'low';
+}
+
+// Liam L2, Part A — the router's default priority (seed and fallback are the
+// same list; live config can override). PROFILE_AMBIGUOUS now outranks
+// DISCOVERY_SEEKER; MATCHED is the new default for any quiz taker, sitting
+// after CONVERSION; EXPLORATION drops to last.
+export const DEFAULT_EVALUATOR_RULE_PRIORITY = [
+  'PROFILE_AMBIGUOUS',
+  'DISCOVERY_SEEKER',
+  'TASTE_EVOLUTION',
+  'RECOMMENDATION_MISS',
+  'CONVERSION',
+  'MATCHED',
+  'EXPLORATION',
+];
+
+export interface RuleInputs {
+  quizTie?: boolean;
+  interpretationVersion: string | null;
+  pairConfidence: string | null;
+  exploreArchetype: string | null;
+  recommendationMode: string;
+  foodSignalAlignment: string;
+  experimental: boolean;
+  archetypeChangedLastTwoQuizzes: boolean;
+  hasRecentNegativeFeedback: boolean;
+  behavioralLevel: string;
+  totalOrders: number;
+  quizCount: number;
+  userInitiated?: boolean;
+  browsingSignal?: boolean;
+}
+
+export interface MatchIntentResult {
+  matchedIntent: string | null;
+  triggersFired: string[];
+}
+
+// Liam L2, Part A — extracted out of evaluateSommelier() so both the unit
+// tests and Part E's calibration script can exercise the router's actual
+// priority/rule logic directly, over plain inputs, with no DB or Firestore
+// involved — evaluateSommelier() itself just gathers the inputs and calls
+// this. `isActive` is config-dependent (an admin can deactivate an intent
+// without a deploy) so it's the one thing left as an injected predicate
+// rather than baked into RuleInputs.
+export function matchIntent(
+  inputs: RuleInputs,
+  priority: string[] = DEFAULT_EVALUATOR_RULE_PRIORITY,
+  isActive: (intentName: string) => boolean = () => true
+): MatchIntentResult {
+  // Computed once, shared by both PROFILE_AMBIGUOUS and DISCOVERY_SEEKER —
+  // DISCOVERY_SEEKER only fires on a clean (non-ambiguous) profile, so
+  // triggersFired never lists DISCOVERY for an ambiguous one.
+  const ambiguous = isProfileAmbiguous(inputs);
+
+  const ruleChecks: Record<string, () => boolean> = {
+    PROFILE_AMBIGUOUS: () => ambiguous,
+    DISCOVERY_SEEKER: () => inputs.experimental === true && !ambiguous,
+    TASTE_EVOLUTION: () => inputs.archetypeChangedLastTwoQuizzes,
+    RECOMMENDATION_MISS: () => inputs.hasRecentNegativeFeedback,
+    CONVERSION: () => inputs.behavioralLevel !== 'low' && inputs.totalOrders === 0,
+    // Liam L2, Part A — the new default for any quiz taker (D5): a current
+    // quiz exists. Sits after CONVERSION in priority so it only catches
+    // everyone CONVERSION doesn't.
+    MATCHED: () => inputs.quizCount > 0,
+    EXPLORATION: () => inputs.userInitiated === true || inputs.browsingSignal === true,
+  };
+
+  const triggersFired: string[] = [];
+  let matchedIntent: string | null = null;
+  for (const intentName of priority) {
+    if (!isActive(intentName)) continue;
+    const check = ruleChecks[intentName];
+    if (check && check()) {
+      triggersFired.push(intentName);
+      if (!matchedIntent) matchedIntent = intentName;
+    }
+  }
+  return { matchedIntent, triggersFired };
 }
 
 export interface EvaluatorFlags {
@@ -144,40 +223,25 @@ export async function evaluateSommelier(
   };
 
   // ── Rule evaluation ──────────────────────────────────────────────────────
-  const priority: string[] = config?.evaluatorRulePriority ?? [
-    'DISCOVERY_SEEKER',
-    'PROFILE_AMBIGUOUS',
-    'TASTE_EVOLUTION',
-    'RECOMMENDATION_MISS',
-    'CONVERSION',
-    'EXPLORATION',
-  ];
-
-  const triggersFired: string[] = [];
-  let matchedIntent: string | null = null;
-
-  const ruleChecks: Record<string, () => boolean> = {
-    DISCOVERY_SEEKER: () => experimental === true,
-    PROFILE_AMBIGUOUS: () =>
-      isProfileAmbiguous({
-        quizTie: flags.quizTie, interpretationVersion, pairConfidence, exploreArchetype,
-        recommendationMode, foodSignalAlignment,
-      }),
-    TASTE_EVOLUTION: () => archetypeChangedLastTwoQuizzes,
-    RECOMMENDATION_MISS: () => hasRecentNegativeFeedback,
-    CONVERSION: () => behavioralLevel !== 'low' && totalOrders === 0,
-    EXPLORATION: () => flags.userInitiated === true || flags.browsingSignal === true,
-  };
-
-  for (const intentName of priority) {
-    const intentConfig = config?.intents?.[intentName];
-    if (intentConfig && !intentConfig.active) continue;
-    const check = ruleChecks[intentName];
-    if (check && check()) {
-      triggersFired.push(intentName);
-      if (!matchedIntent) matchedIntent = intentName;
+  // Liam L2, Part A — the actual priority/rule logic lives in matchIntent()
+  // above (pure, shared with the unit tests and Part E's calibration
+  // script); this call just gathers the live inputs and applies the
+  // config-dependent active-intent filter, which matchIntent() takes as an
+  // injected predicate rather than baking config into its own signature.
+  const priority: string[] = config?.evaluatorRulePriority ?? DEFAULT_EVALUATOR_RULE_PRIORITY;
+  const { matchedIntent, triggersFired } = matchIntent(
+    {
+      quizTie: flags.quizTie, interpretationVersion, pairConfidence, exploreArchetype,
+      recommendationMode, foodSignalAlignment, experimental, archetypeChangedLastTwoQuizzes,
+      hasRecentNegativeFeedback, behavioralLevel, totalOrders, quizCount,
+      userInitiated: flags.userInitiated, browsingSignal: flags.browsingSignal,
+    },
+    priority,
+    (intentName) => {
+      const intentConfig = config?.intents?.[intentName];
+      return !intentConfig || intentConfig.active;
     }
-  }
+  );
 
   if (!matchedIntent) {
     return {
@@ -192,46 +256,19 @@ export async function evaluateSommelier(
     };
   }
 
-  // ── Stage 2: Haiku enrichment ────────────────────────────────────────────
-  // Liam L1, Part C.5 (2026-09-28) — every fact this prompt used to carry
-  // (archetype, secondary, behavioral counts, feedback flag) now lives in the
-  // structured profile line instead (services/liamProfile.ts), injected every
-  // turn, not just this one turn-0 briefing. This call's only job left is
-  // tone calibration: generation and household type only.
-  const demographicLine = [
-    generation ?? null,
-    householdType === 'family' ? 'family household' : 'solo',
-  ].filter(Boolean).join(', ');
-
-  const userPrompt = `Write one tone-calibration sentence for Liam (a coffee sommelier) before his first exchange with this customer. No facts about the customer's taste or history — those are handled elsewhere. Just how to speak to them.
-
-Demographic: ${demographicLine || 'unknown'}
-
-Tone calibration guidance:
-- Gen Z: casual and brief is fine, informal register
-- Millennial: conversational but substantive, no hype
-- Gen X: direct and no-nonsense, earned trust — don't try to charm them
-- Boomer: formal and respectful, expertise matters, no slang
-- Family household: may be buying for others, practical decisions
-- Solo: individual taste focus
-
-Write only the one sentence (e.g. "Tone: direct, no-nonsense — Gen X.")`;
-
-  let openingContext = `${archetype ?? 'Unknown archetype'} user — ${matchedIntent} intent.`;
-  try {
-    const haikuResp = await guardClaudeCall('liam_chat', 'claude-haiku-4-5-20251001', () =>
-      client.messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 60,
-        system: 'You generate concise tone-calibration notes. Respond with only the one sentence, no preamble.',
-        messages: [{ role: 'user', content: userPrompt }],
-      })
-    );
-    const block = haikuResp.content[0];
-    if (block.type === 'text') openingContext = block.text;
-  } catch (err) {
-    console.error('[sommelierEvaluator] Haiku Stage 2 error:', err);
-  }
+  // ── Stage 2: tone calibration (a lookup, not a model call) ───────────────
+  // Liam L2, Part D (2026-09-28) — Stage 2 used to spend one Haiku call per
+  // session start to produce a tone sentence from generation and household
+  // type alone (L1, Part C.5, already stripped it down to just those two
+  // inputs). Since neither input needs a model to interpret — they're a
+  // closed, small set — this is now a plain config lookup: one Anthropic
+  // call removed from every session start, this feature's own Haiku
+  // dependency gone entirely (see OPEN_TASKS.md OT-26, closed by this brief).
+  const register = config?.register;
+  const generationSentence = register?.generation?.[generation ?? 'unknown'] ?? '';
+  const householdSentence = register?.household?.[householdType === 'family' ? 'family' : 'solo'] ?? '';
+  const openingContext = [generationSentence, householdSentence].filter(Boolean).join(' ')
+    || `${archetype ?? 'Unknown archetype'} user — ${matchedIntent} intent.`;
 
   // ── Stage 3: Write evaluation — Customer Blueprint C3, Part B6 ───────────
   // sommelier_evaluation (SQL, operating/log table) replaces Firestore

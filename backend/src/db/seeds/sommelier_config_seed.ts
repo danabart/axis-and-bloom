@@ -304,12 +304,16 @@ export const DEFAULT_SOMMELIER_CONFIG = {
       activeBagWindowDays: 45,
     },
 
+    // Liam L2, Part A (2026-09-28) — PROFILE_AMBIGUOUS now outranks
+    // DISCOVERY_SEEKER; MATCHED is the new default for any quiz taker,
+    // after CONVERSION; EXPLORATION drops to last.
     evaluatorRulePriority: [
-      'DISCOVERY_SEEKER',
       'PROFILE_AMBIGUOUS',
+      'DISCOVERY_SEEKER',
       'TASTE_EVOLUTION',
       'RECOMMENDATION_MISS',
       'CONVERSION',
+      'MATCHED',
       'EXPLORATION',
     ],
 
@@ -322,12 +326,25 @@ export const DEFAULT_SOMMELIER_CONFIG = {
     },
 
     intents: {
+      // Liam L2, Part B (2026-09-28) — full rewrite: the thread/pair signal
+      // from the profile line drives the question now, not generic
+      // "understand taste through dialogue." No dial-activity sentence.
       PROFILE_AMBIGUOUS: {
         active:              true,
-        label:               'Discovering your profile',
-        conversationGoal:    'Understand taste through dialogue before recommending. Hold off on a recommendation until turn 3 or later.',
-        systemPromptAddendum: 'This customer\'s profile isn\'t clear yet. Hold off on a recommendation for the first two turns. Ask one specific, grounded question about how they drink coffee or what they like in food — something answerable in a few words. Let the picture build from their answers, not from a list of your questions. If the conversation surfaces real doubt about their archetype, end your reply with <<action:retake_quiz>>. If recent dial activity is included in your context, you may reference it naturally to ground a direction — e.g. "I see you saved a bolder spot recently" — only if it\'s actually present, never invented.',
+        label:               'Getting the picture right',
+        conversationGoal:    'Test what is unresolved with one concrete question, then recommend from the answer.',
+        systemPromptAddendum: 'The ABOUT THIS CUSTOMER block says what is unresolved: an open thread, or a low-confidence pair. If there is an open thread that is "not yet asked", your first question tests it with one concrete tasting question the customer can answer in a few words (a food, a fruit, a cup they remember), never a question about coffee vocabulary. If they lean in, recommend from the coffees labelled [thread]; if they don\'t, recommend from the pair. If the thread names two archetypes ("A / B"), the question separates them. If there is no thread and the pair is low-confidence, ask one grounded question about how they drink coffee or what they like in food before recommending. One question per turn. Never use the words explore, confidence, thread, pair or palate with the customer. Recommend by turn 3.',
         ragFocus:            'archetype_range',
+        maxTurns:            8,
+      },
+      // Liam L2, Part B — new; the default for any quiz taker who matches
+      // nothing more specific (D5). ragFocus 'matched' is new too (Part C).
+      MATCHED: {
+        active:              true,
+        label:               'Your match, settled',
+        conversationGoal:    'Confirm one clear pick, then learn one new thing.',
+        systemPromptAddendum: 'This customer\'s match is settled. Open by confirming where they are in one sentence and naming one clear pick: the first coffee labelled [palate match] when present, else the first labelled [primary]. Their setup shapes the pick (a French press wants body; an espresso machine wants something that holds up). Then ask exactly one question whose answer we do not already have in the ABOUT THIS CUSTOMER block: how they take it, what they brew on, what they noticed in their last cup, or whether they want the same again or something new. Never re-ask a fact that is already listed. Never frame the question as a test. Never use the words explore, confidence, thread, pair or palate with the customer.',
+        ragFocus:            'matched',
         maxTurns:            8,
       },
       RECOMMENDATION_MISS: {
@@ -350,7 +367,9 @@ export const DEFAULT_SOMMELIER_CONFIG = {
         active:              true,
         label:               'Going somewhere unexpected',
         conversationGoal:    'Lead with contrast. Do not default to the primary archetype.',
-        systemPromptAddendum: 'This customer chose the adventurous path — they want contrast, not comfort. Lead with what\'s unusual or unexpected. Frame coffees by what makes them different, not by archetype match. Don\'t play it safe.',
+        // Liam L2, Part B — one sentence appended: thread/secondary coffees
+        // are fair contrast material too, not just the discovery focus's own fill.
+        systemPromptAddendum: 'This customer chose the adventurous path — they want contrast, not comfort. Lead with what\'s unusual or unexpected. Frame coffees by what makes them different, not by archetype match. Don\'t play it safe. Coffees labelled [thread] or [second archetype] are fair game for contrast.',
         ragFocus:            'discovery',
         maxTurns:            8,
       },
@@ -366,9 +385,33 @@ export const DEFAULT_SOMMELIER_CONFIG = {
         active:              true,
         label:               'Exploring together',
         conversationGoal:    'Follow their lead. Let the direction emerge.',
-        systemPromptAddendum: 'This customer came to explore with no specific goal. Follow their lead. Don\'t push toward a recommendation — they may just want to talk about coffee. Let the direction emerge from what they say. If the conversation lands on a bolder or lighter position within their archetype, you may end your reply with <<action:open_dial>>. If recent dial activity is included in your context, you may reference it naturally — e.g. "I see you saved a bolder spot recently" — only if it\'s actually present, never invented.',
+        // Liam L2, Part B — dial-activity sentence removed: no dial activity
+        // has reached Liam's context since L1 retired that data path.
+        systemPromptAddendum: 'This customer came to explore with no specific goal. Follow their lead. Don\'t push toward a recommendation — they may just want to talk about coffee. Let the direction emerge from what they say. If the conversation lands on a bolder or lighter position within their archetype, you may end your reply with <<action:open_dial>>.',
         ragFocus:            'curated_mix',
         maxTurns:            8,
+      },
+    },
+
+    // Liam L2, Part D (2026-09-28) — the tone-calibration sentences that used
+    // to be a live Haiku call's own guidance text, now a plain lookup:
+    // sommelierEvaluator.ts's Stage 2 becomes
+    // `[register.generation[generation ?? 'unknown'], register.household[householdType]].filter(Boolean).join(' ')`.
+    // No model call, no cost, same sentences a Haiku briefing would have
+    // produced from this exact guidance every time anyway. solo is
+    // deliberately empty — L1's own demographicLine build treated "solo" as
+    // needing no sentence of its own, only family did.
+    register: {
+      generation: {
+        'Gen Z':      'Keep it casual and brief — informal register, no ceremony.',
+        'Millennial': 'Conversational but substantive — warm, no hype.',
+        'Gen X':      'Direct and no-nonsense — earned trust, don\'t try to charm them.',
+        'Boomer':     'Formal and respectful — expertise matters, no slang.',
+        unknown:      'Conversational but substantive — warm, no hype.',
+      },
+      household: {
+        family: 'They may be buying for others — practical decisions matter here.',
+        solo:   '',
       },
     },
 

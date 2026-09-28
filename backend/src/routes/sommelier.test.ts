@@ -23,11 +23,23 @@ vi.mock('../services/sommelierRag.js', () => ({
 vi.mock('../services/customerReads.js', () => ({
   getSlotCandidates: vi.fn(),
   getFeedbackCurrent: vi.fn(),
+  getBrewProfileCurrent: vi.fn(),
 }));
 vi.mock('../services/liamProfile.js', () => ({
   loadProfileReads: vi.fn(),
   buildProfileLine: vi.fn(),
 }));
+// Liam L2, Part 0 — resolveRemember's only real I/O beyond db.query is
+// record.brewProfileChange() (customerFacts.js) and incrementBrewProfileCounter()
+// (brewProfile.js, Firestore); everything else in brewProfile.js is pure
+// validation logic, kept real so FALLBACK_FIELDS' actual whitelist still governs.
+vi.mock('../services/customerFacts.js', () => ({
+  record: { brewProfileChange: vi.fn() },
+}));
+vi.mock('../services/brewProfile.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/brewProfile.js')>();
+  return { ...actual, incrementBrewProfileCounter: vi.fn() };
+});
 vi.mock('../db/client.js', () => ({
   db: { query: vi.fn() },
 }));
@@ -54,9 +66,10 @@ vi.mock('../services/topicRouter.js', () => ({ routeTopic: vi.fn() }));
 const { getCatalogVersion } = await import('../services/catalogReads.js');
 const { fetchSommelierCoffees, getAliases } = await import('../services/sommelierRag.js');
 type CoffeeSlice = 'palate' | 'primary' | 'secondary' | 'thread' | 'focus' | 'had';
-const { getSlotCandidates, getFeedbackCurrent } = await import('../services/customerReads.js');
+const { getSlotCandidates, getFeedbackCurrent, getBrewProfileCurrent } = await import('../services/customerReads.js');
+const { record } = await import('../services/customerFacts.js');
 const { db } = await import('../db/client.js');
-const { refreshCatalogSnapshotIfStale, refreshSliceIfFactsChanged } = await import('./sommelier.js');
+const { refreshCatalogSnapshotIfStale, refreshSliceIfFactsChanged, resolveRemember } = await import('./sommelier.js');
 const { assembleSystemPrompt } = await import('../services/claude.js');
 type StoryCandidate = { coffeeId: number; alias: string; story: string | null };
 
@@ -65,6 +78,8 @@ const mockedFetch = fetchSommelierCoffees as unknown as ReturnType<typeof vi.fn>
 const mockedGetAliases = getAliases as unknown as ReturnType<typeof vi.fn>;
 const mockedGetSlotCandidates = getSlotCandidates as unknown as ReturnType<typeof vi.fn>;
 const mockedGetFeedbackCurrent = getFeedbackCurrent as unknown as ReturnType<typeof vi.fn>;
+const mockedGetBrewProfileCurrent = getBrewProfileCurrent as unknown as ReturnType<typeof vi.fn>;
+const mockedRecordBrewProfileChange = record.brewProfileChange as unknown as ReturnType<typeof vi.fn>;
 const mockedDbQuery = db.query as unknown as ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -213,5 +228,45 @@ describe('assembleSystemPrompt — profile line (Liam L1, Part C.4)', () => {
 
     expect(result).toContain(PROFILE_LINE);
     expect(result).not.toContain('YOUR CURRENT CATALOG');
+  });
+});
+
+// Liam L2, Part 0 — a re-affirmed scalar fact is not a new fact (D14): the
+// exact "two takes_it=milk rows" case the L1 smoke surfaced, now fixed.
+describe('resolveRemember — re-affirmed scalar facts (Liam L2, Part 0)', () => {
+  it('two turns marking the same scalar value produce one customer_brew_profile_change row', async () => {
+    mockedDbQuery.mockResolvedValue({ rows: [{ id: 'profile-1' }] });
+
+    // Turn 1: nothing known yet — a real new fact, one row written.
+    mockedGetBrewProfileCurrent.mockResolvedValueOnce({});
+    await resolveRemember('vitest-uid', [{ field: 'takes_it', rawValue: 'milk' }], 1, 1);
+    expect(mockedRecordBrewProfileChange).toHaveBeenCalledTimes(1);
+
+    // Turn 2: the model re-emits the same marker on a turn where the
+    // customer didn't restate it — getBrewProfileCurrent now reflects turn
+    // 1's write, so this is a no-op: still exactly one row total.
+    mockedGetBrewProfileCurrent.mockResolvedValueOnce({
+      takes_it: { value: 'milk', source: 'conversation', capturedAt: null },
+    });
+    await resolveRemember('vitest-uid', [{ field: 'takes_it', rawValue: 'milk' }], 1, 2);
+    expect(mockedRecordBrewProfileChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('a genuinely changed scalar value still writes a new row', async () => {
+    mockedDbQuery.mockResolvedValue({ rows: [{ id: 'profile-1' }] });
+    mockedGetBrewProfileCurrent.mockResolvedValueOnce({
+      takes_it: { value: 'black', source: 'conversation', capturedAt: null },
+    });
+    await resolveRemember('vitest-uid', [{ field: 'takes_it', rawValue: 'milk' }], 1, 1);
+    expect(mockedRecordBrewProfileChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('array fields keep their own pre-existing "already known" skip, unaffected by the scalar no-op', async () => {
+    mockedDbQuery.mockResolvedValue({ rows: [{ id: 'profile-1' }] });
+    mockedGetBrewProfileCurrent.mockResolvedValueOnce({
+      brew_methods: { value: ['v60'], source: 'conversation', capturedAt: null },
+    });
+    await resolveRemember('vitest-uid', [{ field: 'brew_methods', rawValue: 'v60' }], 1, 1);
+    expect(mockedRecordBrewProfileChange).not.toHaveBeenCalled();
   });
 });

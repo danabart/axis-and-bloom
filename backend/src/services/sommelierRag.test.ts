@@ -214,6 +214,28 @@ describe('fetchSommelierCoffees — Liam L1, Part B: thread/secondary/palate sli
     });
     expect(withDislike.coffeeIds).not.toContain(state.earthy[0]);
   }, 20000);
+
+  // Liam L2, Part C — the new 'matched' focus.
+  it('matched focus: a quiz-only customer with a secondary gets primary coffees before secondary', async () => {
+    const result = await fetchSommelierCoffees({
+      ragFocus: 'matched', userArchetype: 'floral', secondaryArchetype: 'fruity',
+    });
+    const primaryIndexes = result.slices.map((s, i) => (s.slice === 'primary' ? i : -1)).filter(i => i !== -1);
+    const secondaryIndexes = result.slices.map((s, i) => (s.slice === 'secondary' ? i : -1)).filter(i => i !== -1);
+    expect(primaryIndexes.length).toBeGreaterThan(0);
+    expect(secondaryIndexes.length).toBeGreaterThan(0);
+    expect(Math.max(...primaryIndexes)).toBeLessThan(Math.min(...secondaryIndexes));
+    expect(result.catalogText).toContain('[primary]');
+    expect(result.catalogText).toContain('[second archetype]');
+  }, 20000);
+
+  it('matched focus: a customer with slot candidates gets [palate match] first', async () => {
+    const result = await fetchSommelierCoffees({
+      ragFocus: 'matched', userArchetype: 'floral', secondaryArchetype: 'fruity',
+      slotCandidates: [{ coffee_id: state.earthy[0], already_bought: false, last_rating: null }],
+    });
+    expect(result.slices[0]).toEqual({ coffeeId: state.earthy[0], slice: 'palate' });
+  }, 20000);
 });
 
 describe('getAliases', () => {

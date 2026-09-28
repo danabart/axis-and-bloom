@@ -85,15 +85,6 @@ function logProfileLineDebug(uid: string, where: string, profileLine: string): v
   }
 }
 
-function getGeneration(dateOfBirth: string | Date | null | undefined): string {
-  if (!dateOfBirth) return 'Millennial';
-  const year = new Date(dateOfBirth).getFullYear();
-  if (year >= 1997) return 'Gen Z';
-  if (year >= 1981) return 'Millennial';
-  if (year >= 1965) return 'Gen X';
-  return 'Boomer';
-}
-
 // Was a hand-typed label→enum-key map (ARCHETYPE_NAME_TO_KEY), matching
 // users.ts's own copy. Catalog Blueprint brief 3: quiz/session data still
 // carries the display name (`archetype.name`), but the key lookup itself now
@@ -499,6 +490,16 @@ export async function resolveRemember(
       if (existingArr.includes(validated as string)) continue; // already known — nothing new to write
       accepted.push({ field, op: 'add', value: validated });
     } else {
+      // Liam L2, Part 0 — a re-affirmed fact is not a new fact (D14): the
+      // model sometimes re-emits a <<remember:...>> marker for a scalar field
+      // on a turn where the customer didn't restate it (the exact "two
+      // takes_it=milk rows" case the L1 smoke surfaced). Arrays already skip
+      // known items above; scalars had no equivalent guard.
+      if (current[field]?.value === validated) {
+        console.log(`[resolveRemember] unchanged, skipped field="${field}" uid=${uid}`);
+        await incrementBrewProfileCounter('noop');
+        continue;
+      }
       accepted.push({ field, op: 'set', value: validated });
     }
   }
@@ -622,10 +623,7 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
     // thread, recent dial activity all folded into one turn-0-only string) —
     // those facts now live in the structured profile line instead, rebuilt
     // every turn (see /message below), not just at session start.
-    const [reads, dobResult] = await Promise.all([
-      loadProfileReads(req.uid!),
-      db.query(`SELECT date_of_birth FROM user_profile WHERE firebase_uid = $1`, [req.uid]),
-    ]);
+    const reads = await loadProfileReads(req.uid!);
     const quizCurrent = reads.quizCurrent;
     const userArchetype = quizCurrent?.archetypeName ?? null;
     const previousArchetype = await getPreviousQuizArchetype(req.uid!);
@@ -635,12 +633,13 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
     const secondaryArchetype = quizCurrent?.secondaryArchetype ?? null;
     const exploreArchetype = quizCurrent?.interpretationSource === 'table' ? quizCurrent.exploreArchetype : null;
 
-    const generation = getGeneration(dobResult.rows[0]?.date_of_birth ?? null);
-    // openingContext is the Haiku tone note plus the generation line only now
-    // (Part C.2) — every other fact that used to be folded in here is in the
-    // profile line instead.
-    const enrichedOpeningContext = (openingContext ?? '') +
-      `\nCustomer generation: ${generation}. Adjust register accordingly (see tone guidelines in your instructions).`;
+    // Liam L2, Part D — openingContext is now the register-based tone
+    // sentence sommelierEvaluator.ts's Stage 2 produces (a lookup, not a
+    // Haiku call), which already reads generation off the same date_of_birth
+    // this route used to fetch separately just to append a redundant
+    // "Customer generation: X" line — one of the two, not both, per the
+    // brief; the register sentence is the more specific one, so it's what stays.
+    const enrichedOpeningContext = openingContext ?? '';
 
     const profileLine = buildProfileLine(reads);
     logProfileLineDebug(req.uid!, '/start', profileLine);

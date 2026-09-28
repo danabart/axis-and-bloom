@@ -227,6 +227,14 @@ export interface SommelierConfig {
   // (or, before the first snapshot ever lands, the hardcoded defaults in
   // anthropicGuard.ts). See anthropicGuard.ts for the full fail-open story.
   aiControls?: AiControls;
+  // Liam L2, Part D (2026-09-28) — tone-calibration sentences, replacing what
+  // used to be a live Haiku call's own guidance text. A plain lookup:
+  // sommelierEvaluator.ts's Stage 2 joins register.generation[generation] and
+  // register.household[householdType]. No model call.
+  register?: {
+    generation: Record<string, string>;
+    household: Record<string, string>;
+  };
   updatedAt?: unknown;
 }
 

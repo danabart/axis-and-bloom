@@ -5116,6 +5116,42 @@ On a real branch switch `secondaryArchetype` = `branchedFrom` (2026-08-11 rule),
 
 ---
 
+### 199. Liam Recommendation L2 — router priority, MATCHED default, thread rule, tone lookup (2026-09-28)
+
+**Context**: `backend/src/features/ai_agent_liam/recommendation/CLAUDE_CODE_PROMPT_LIAM_2_ROUTER_AND_ADDENDA.md`. Brief 2 of 3 (L1: #198). Goal: the right conversation for the right customer, and every conversation adds a fact.
+
+**Task 0 finding worth knowing**: `getSommelierConfig()` never merges the live Firestore doc against the seed/fallback at runtime — it's the live doc, wholesale, or the hardcoded fallback only when the doc itself hasn't loaded yet. So every config-dependent change this brief makes (new router priority, new/rewritten intent addenda, the tone-register lookup) has no live effect in production until `config-apply` copies the new seed values onto the live document — confirmed by reading `sommelierConfig.ts`'s `onSnapshot` handler directly, not assumed.
+
+**Part 0**: `resolveRemember` (`routes/sommelier.ts`) now skips a scalar `<<remember:...>>` marker when the validated value already equals the customer's current one (arrays already had this guard) — the exact "two `takes_it=milk` rows" bug the L1 smoke surfaced. Logs `[resolveRemember] unchanged, skipped` and a new `noop` Firestore counter, instead of counting it as a write or a failure.
+
+**Part A — router**: new priority `PROFILE_AMBIGUOUS, DISCOVERY_SEEKER, TASTE_EVOLUTION, RECOMMENDATION_MISS, CONVERSION, MATCHED, EXPLORATION`. `isProfileAmbiguous` ignores `quizTie` on a v2.1+ interpretation (redundant with `exploreArchetype = 'A / B'`); still load-bearing for the context_data-fallback path. `DISCOVERY_SEEKER` now requires a non-ambiguous profile. New `MATCHED` rule (`quizCount > 0`) is the default for any quiz taker CONVERSION doesn't already catch. The priority/rule logic moved into a new pure, exported `matchIntent()` — testable with no DB or Firestore, and reused by Part E's calibration script.
+
+**Part B — addenda**: `PROFILE_AMBIGUOUS` rewritten around the profile line's own thread/pair signal (tests the open thread with one concrete tasting question, handles an "A / B" tie); new `MATCHED` intent (confirm one clear pick, then one new-information question); `DISCOVERY_SEEKER` gains one sentence naming `[thread]`/`[second archetype]` coffees as fair contrast; `EXPLORATION` loses its own dial-activity sentence (no dial activity reaches Liam since L1). One new `LIAM_BASE_PROMPT` line: mark a fact only on the turn it's stated.
+
+**Part C — `matched` RAG focus** (`sommelierRag.ts`): primary archetype coffees fill first, secondary after — the new focus deliberately skips the universal secondary slice (step 2 in L1's composition) and handles both archetypes itself, in that order, so a quiz-only customer sees `[primary]` before `[second archetype]`, never the reverse.
+
+**Part D — tone without Haiku**: Stage 2 is now a plain `register.generation`/`register.household` lookup (new seed key), no model call. The Haiku call and its `Anthropic`/`guardClaudeCall` imports are gone from `sommelierEvaluator.ts` entirely — **one Anthropic call removed per session start**, this feature's last remaining Haiku dependency (OT-26, closed).
+
+**Part E — frontend and the tie flag**: no code change needed (confirmed by reading `Sommelier.tsx`/`FlavorQuiz.tsx` directly). Measured the router on the 37-case Hoboken calibration table:
+
+| | before | after |
+|---|---|---|
+| No intent at all | 22 | **0** |
+| Experimental + ambiguous → PROFILE_AMBIGUOUS (was DISCOVERY_SEEKER) | 0 | **5** |
+| Experimental, clean profile → stays DISCOVERY_SEEKER | 4 | 4 |
+| Already PROFILE_AMBIGUOUS (non-experimental) | 6 | 6 (unchanged) |
+| Previously unmatched → MATCHED | 0 | **22** |
+
+Matches Task 0's own prediction exactly (5 of 9 Hoboken discovery seekers were carrying a thread or low confidence).
+
+**Verification**: `npx tsc --noEmit`, `lint:catalog`, `lint:customer` clean. New `sommelierEvaluator.test.ts` (20 tests, including the 37-case table as 5 checked assertions, not a printout); 3 new `resolveRemember` tests; 2 new `matched`-focus tests. 138 tests across every L1+L2 touched file, all green. Full `npm test`: OT-19's 12 pre-existing failures unchanged.
+
+**Not live until `config-apply`**: the new priority order, every rewritten addendum, and the register lookup all sit in the seed only until Dana approves the drift/apply step — see the closing report for the exact diff. Code-level behaviors (Part 0's no-op, Part C's `matched` focus, `matchIntent()` itself) are live immediately on deploy.
+
+**Files**: `backend/src/services/sommelierEvaluator.ts`, `backend/src/services/sommelierEvaluator.test.ts` (new), `backend/src/db/seeds/sommelier_config_seed.ts`, `backend/src/services/sommelierConfig.ts`, `backend/src/services/sommelierRag.ts`, `backend/src/services/sommelierRag.test.ts`, `backend/src/services/claude.ts`, `backend/src/services/brewProfile.ts`, `backend/src/routes/sommelier.ts`, `backend/src/routes/sommelier.test.ts`, `backend/src/scripts/measureRouterOnCalibration.ts` (new), `SOMMELIER_BUILT.md`, `backend/src/features/ai_agent_liam/recommendation/README.md`, `OPEN_TASKS.md`.
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.
