@@ -6,7 +6,8 @@ import { db } from '../db/client.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
 import { evaluateSommelier } from '../services/sommelierEvaluator.js';
-import { fetchSommelierCoffees, getAliases } from '../services/sommelierRag.js';
+import { fetchSommelierCoffees, getAliases, type SlotCandidate, type RagResult } from '../services/sommelierRag.js';
+import { loadProfileReads, buildProfileLine } from '../services/liamProfile.js';
 import { getCoffees, archetypeLabel, archetypeCode, getCatalogVersion } from '../services/catalogReads.js';
 import { getTokenBalance, spendToken, logUsage } from '../services/tokenService.js';
 import { checkDailyCap, checkMonthlySpendAndAlert } from '../services/sommelierGuards.js';
@@ -16,7 +17,7 @@ import { isClaudeGuardBlocked } from '../services/anthropicGuard.js';
 import { getSommelierConfig } from '../services/sommelierConfig.js';
 import { routeTopic } from '../services/topicRouter.js';
 import { record } from '../services/customerFacts.js';
-import { getQuizCurrent, getPreviousQuizArchetype, getFeedbackCurrent, getBrewProfileCurrent, getRecentDialActivity } from '../services/customerReads.js';
+import { getPreviousQuizArchetype, getFeedbackCurrent, getBrewProfileCurrent, getSlotCandidates, getFactsWatermark } from '../services/customerReads.js';
 import {
   getBrewProfileFieldsConfig,
   validateSingleValue,
@@ -72,6 +73,17 @@ const DAILY_CAP_CLOSE_MESSAGE = "That's a good amount of ground for today — le
 // DAILY_CAP_CLOSE_MESSAGE above (a per-customer cap on a session that's
 // otherwise working) — this means Liam himself is unavailable right now.
 const LIAM_UNAVAILABLE_MESSAGE = 'Liam is temporarily unavailable — please try again shortly.';
+
+// Liam L1, Part D smoke — gated debug visibility into the profile line for
+// exactly one designated test account, so its contents can be confirmed
+// against real production data without logging any real customer's facts.
+// Never fires for anyone else; safe to leave in permanently (see OPEN_TASKS.md).
+const PROFILE_LINE_DEBUG_UID = process.env.LIAM_PROFILE_LINE_DEBUG_UID ?? null;
+function logProfileLineDebug(uid: string, where: string, profileLine: string): void {
+  if (PROFILE_LINE_DEBUG_UID && uid === PROFILE_LINE_DEBUG_UID) {
+    console.log(`[liam:PROFILE_LINE_DEBUG] ${where} uid=${uid}\n${profileLine}`);
+  }
+}
 
 function getGeneration(dateOfBirth: string | Date | null | undefined): string {
   if (!dateOfBirth) return 'Millennial';
@@ -136,11 +148,29 @@ export function resolveStoryForMessage(
 // needed. Extracted out of the per-turn handler (rather than inlined) so this
 // branch is unit-testable on its own, mocking fetchSommelierCoffees/getAliases
 // without a live DB.
+// Liam L1, Part C.3 — RagInputs is the stable, rarely-changing half of a
+// session's RAG configuration (which focus, which archetypes), stored once at
+// /start as context_data.ragInputs. dislikedCoffeeIds/slotCandidateIds are
+// recorded as a snapshot of what /start actually used, but both a catalog-
+// version refresh (here) and a facts-watermark refresh (/message) re-read the
+// live equivalents rather than reusing these — a stale disliked/slot list
+// would defeat the whole point of refreshing.
+export interface RagInputs {
+  ragFocus: string;
+  userArchetype: string | null;
+  previousArchetype: string | null;
+  excludeCoffeeIds: number[];
+  secondaryArchetype: string | null;
+  exploreArchetype: string | null;
+  dislikedCoffeeIds: number[];
+  slotCandidateIds: number[];
+}
+
 export async function refreshCatalogSnapshotIfStale(
+  uid: string,
   ctx: {
-    catalogVersion?: string; ragFocus?: string; archetype?: string | null;
-    previousArchetypeForRag?: string | null; excludeCoffeeIds?: number[];
-    catalogText?: string; coffeeIds?: number[]; storyCandidates?: StoryCandidate[];
+    catalogVersion?: string; ragInputs?: RagInputs;
+    catalogText?: string; coffeeIds?: number[]; storyCandidates?: StoryCandidate[]; slices?: RagResult['slices'];
   },
   sessionId: number
 ): Promise<void> {
@@ -148,11 +178,20 @@ export async function refreshCatalogSnapshotIfStale(
     const currentCatalogVersion = await getCatalogVersion();
     if (ctx.catalogVersion === currentCatalogVersion) return;
 
+    const ragInputs = ctx.ragInputs;
+    const [slotCandidates, negativeRows] = await Promise.all([
+      getSlotCandidates(uid),
+      getFeedbackCurrent(uid, { sentiment: 'negative' }),
+    ]);
     const refreshed = await fetchSommelierCoffees({
-      ragFocus: ctx.ragFocus ?? 'curated_mix',
-      userArchetype: ctx.archetype ?? null,
-      previousArchetype: ctx.previousArchetypeForRag ?? null,
-      excludeCoffeeIds: ctx.excludeCoffeeIds ?? [],
+      ragFocus: ragInputs?.ragFocus ?? 'curated_mix',
+      userArchetype: ragInputs?.userArchetype ?? null,
+      previousArchetype: ragInputs?.previousArchetype ?? null,
+      excludeCoffeeIds: ragInputs?.excludeCoffeeIds ?? [],
+      secondaryArchetype: ragInputs?.secondaryArchetype ?? null,
+      exploreArchetype: ragInputs?.exploreArchetype ?? null,
+      slotCandidates: slotCandidates as unknown as SlotCandidate[],
+      dislikedCoffeeIds: negativeRows.map(r => r.coffeeId),
     });
     let refreshedStoryCandidates: StoryCandidate[] = [];
     if (refreshed.coffeeIds.length) {
@@ -170,9 +209,68 @@ export async function refreshCatalogSnapshotIfStale(
     ctx.catalogText = refreshed.catalogText;
     ctx.coffeeIds = refreshed.coffeeIds;
     ctx.storyCandidates = refreshedStoryCandidates;
+    ctx.slices = refreshed.slices;
     ctx.catalogVersion = currentCatalogVersion;
   } catch (err) {
     console.error('[sommelier] catalog snapshot refresh failed — using the stale snapshot for this turn:', err);
+  }
+}
+
+// Liam L1, Part C.3 — the customer's-own-facts counterpart to
+// refreshCatalogSnapshotIfStale above (that one triggers on the *catalog*
+// changing; this one triggers on the *customer's facts* changing — a new
+// order, rating, bag claim, brew-profile change, etc. — anything
+// getFactsWatermark tracks). Extracted the same way, for the same reason:
+// directly unit-testable without a live DB or a full route/supertest setup.
+// profileReads/factsWatermark are passed in rather than re-fetched here
+// because the caller (/message) already needed both for the profile line
+// itself — no duplicate query.
+export async function refreshSliceIfFactsChanged(
+  ctx: {
+    factsWatermark?: string; ragInputs?: RagInputs;
+    catalogText?: string; coffeeIds?: number[]; storyCandidates?: StoryCandidate[]; slices?: RagResult['slices'];
+  },
+  sessionId: number,
+  turnCount: number,
+  profileReads: { feedbackCurrent: Array<{ coffeeId: number; sentiment: string }>; slotCandidates: unknown[] },
+  factsWatermark: Date | null
+): Promise<void> {
+  const storedWatermark = ctx.factsWatermark ? new Date(ctx.factsWatermark) : null;
+  if (!factsWatermark || (storedWatermark && factsWatermark <= storedWatermark)) return;
+
+  try {
+    const ragInputs = ctx.ragInputs;
+    const dislikedCoffeeIds = profileReads.feedbackCurrent.filter(f => f.sentiment === 'negative').map(f => f.coffeeId);
+    const refreshed = await fetchSommelierCoffees({
+      ragFocus: ragInputs?.ragFocus ?? 'curated_mix',
+      userArchetype: ragInputs?.userArchetype ?? null,
+      previousArchetype: ragInputs?.previousArchetype ?? null,
+      excludeCoffeeIds: ragInputs?.excludeCoffeeIds ?? [],
+      secondaryArchetype: ragInputs?.secondaryArchetype ?? null,
+      exploreArchetype: ragInputs?.exploreArchetype ?? null,
+      slotCandidates: profileReads.slotCandidates as unknown as SlotCandidate[],
+      dislikedCoffeeIds,
+    });
+    ctx.catalogText = refreshed.catalogText;
+    ctx.coffeeIds = refreshed.coffeeIds;
+    ctx.slices = refreshed.slices;
+    if (refreshed.coffeeIds.length) {
+      const [storyResult, aliasMap] = await Promise.all([
+        db.query(`SELECT id, story, story_published FROM coffees WHERE id = ANY($1::int[])`, [refreshed.coffeeIds]),
+        getAliases(refreshed.coffeeIds),
+      ]);
+      ctx.storyCandidates = storyResult.rows.map((r: { id: number; story: string | null; story_published: boolean }) => ({
+        coffeeId: r.id,
+        alias: aliasMap.get(r.id) ?? '',
+        story: r.story_published ? r.story : null,
+      }));
+    } else {
+      ctx.storyCandidates = [];
+    }
+    ctx.factsWatermark = factsWatermark.toISOString();
+    console.log(`[liam:SLICE_REFRESHED] session=${sessionId} turn=${turnCount} reason=facts`);
+  } catch (err) {
+    console.error('[sommelier/message] facts-watermark slice refresh failed — using the stale slice for this turn:', err);
   }
 }
 
@@ -326,40 +424,6 @@ async function resolveActions(
     // open_dial with no known archetype: nothing sensible to link to — omitted.
   }
   return actions;
-}
-
-// Liam Dial Event Log, Phase B — a compact, server-side summary of the customer's
-// last ~30 *intentional* dial events (explicit_save / add_to_cart only — plain dial
-// turns are never logged, so every event here is already meaningful). Summarized
-// into a few fields per archetype, never dumped raw into the prompt.
-// Customer Blueprint C3, Part B2 — customer_dial_event via the door's own
-// table, not Firestore users/{uid}/dial_events. dial_sort_order isn't stored
-// on the fact row (only slot_id/archetype_code, D16) — joined back through
-// coffee_dial_slot the same way every other dial-position read in this
-// codebase already resolves it.
-async function getRecentDialActivitySummary(uid: string): Promise<string> {
-  try {
-    const rows = await getRecentDialActivity(uid, 30);
-    if (!rows.length) return '';
-
-    const byArchetype: Record<string, { saveCount: number; cartCount: number; latestSortOrder: number | null; latestTrigger: string }> = {};
-    for (const row of rows) {
-      const archetype = row.archetypeCode;
-      if (!archetype) continue;
-      const entry = byArchetype[archetype] ??= { saveCount: 0, cartCount: 0, latestSortOrder: null, latestTrigger: '' };
-      if (row.eventType === 'explicit_save') entry.saveCount++;
-      if (row.eventType === 'add_to_cart') entry.cartCount++;
-      if (entry.latestSortOrder === null) { entry.latestSortOrder = row.dialSortOrder; entry.latestTrigger = row.eventType; }
-    }
-
-    return Object.entries(byArchetype)
-      .map(([archetype, e]) =>
-        `${archetype}: latest position ${e.latestSortOrder} (${e.latestTrigger === 'add_to_cart' ? 'from a cart add' : 'explicitly saved'}), ${e.saveCount} save(s) and ${e.cartCount} cart add(s) recently`
-      )
-      .join('; ');
-  } catch {
-    return ''; // no dial events — normal for most users, not an error
-  }
 }
 
 // HOME_TASK_4 (§4.5) — one Firestore read of the brew profile, shared by both
@@ -552,53 +616,46 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
       return;
     }
 
-    // Fetch user state from latest quiz for RAG context — Customer Blueprint
-    // C3, Part B2: v_customer_quiz_current across every linked profile, not a
-    // raw quiz_session query scoped to this one profile. date_of_birth stays
-    // a direct profile lookup (not quiz-scoped).
-    const [quizCurrent, dobResult] = await Promise.all([
-      getQuizCurrent(req.uid!),
+    // Liam L1, Part C — every C3 fact this customer has, gathered once, in
+    // parallel (services/liamProfile.ts's loadProfileReads()). Replaces the
+    // old prose-string enrichedOpeningContext build (pair confidence, loose
+    // thread, recent dial activity all folded into one turn-0-only string) —
+    // those facts now live in the structured profile line instead, rebuilt
+    // every turn (see /message below), not just at session start.
+    const [reads, dobResult] = await Promise.all([
+      loadProfileReads(req.uid!),
       db.query(`SELECT date_of_birth FROM user_profile WHERE firebase_uid = $1`, [req.uid]),
     ]);
+    const quizCurrent = reads.quizCurrent;
     const userArchetype = quizCurrent?.archetypeName ?? null;
     const previousArchetype = await getPreviousQuizArchetype(req.uid!);
     const archetypeKey = userArchetype ? await archetypeCode(userArchetype) : null;
+    // interpretationSource-gated the same way the old pair-confidence/thread
+    // prose was — a pre-v2.1 interpretation has no meaningful explore concept.
+    const secondaryArchetype = quizCurrent?.secondaryArchetype ?? null;
+    const exploreArchetype = quizCurrent?.interpretationSource === 'table' ? quizCurrent.exploreArchetype : null;
 
     const generation = getGeneration(dobResult.rows[0]?.date_of_birth ?? null);
-    let enrichedOpeningContext = (openingContext ?? '') +
+    // openingContext is the Haiku tone note plus the generation line only now
+    // (Part C.2) — every other fact that used to be folded in here is in the
+    // profile line instead.
+    const enrichedOpeningContext = (openingContext ?? '') +
       `\nCustomer generation: ${generation}. Adjust register accordingly (see tone guidelines in your instructions).`;
 
-    // Interpretation v2.1 (brief 2): the loose thread and pair confidence for Liam only (never the reveal or the
-    // email). Only on a v2.1+ interpretation row; sessions on the context_data fallback add nothing.
-    if (quizCurrent?.interpretationSource === 'table' && quizCurrent.pairConfidence) {
-      enrichedOpeningContext += `\nQuiz pair confidence: ${quizCurrent.pairConfidence}.`;
-      if (quizCurrent.exploreArchetype) {
-        enrichedOpeningContext += ` Loose thread to explore (not yet asked): ${quizCurrent.exploreArchetype}` +
-          (quizCurrent.exploreReason ? ` (${quizCurrent.exploreReason})` : '') + '.';
-      }
-    }
+    const profileLine = buildProfileLine(reads);
+    logProfileLineDebug(req.uid!, '/start', profileLine);
 
-    // Liam Dial Event Log, Phase B — only for the intents where the addendum
-    // actually invites Liam to reference it (PROFILE_AMBIGUOUS, EXPLORATION).
-    if (intent === 'EXPLORATION' || intent === 'PROFILE_AMBIGUOUS') {
-      const recentDialActivity = await getRecentDialActivitySummary(req.uid!);
-      if (recentDialActivity) {
-        enrichedOpeningContext += `\nRecent dial activity: ${recentDialActivity}.`;
-      }
-    }
+    // Reused from the same read loadProfileReads() already did — no second
+    // query. Distinct from excludeCoffeeIds below (a pre-existing, narrower
+    // TASTE_EVOLUTION/RECOMMENDATION_MISS-specific hop exclusion inside the
+    // 'alternatives' focus branch): dislikedCoffeeIds is the blanket "never
+    // show a disliked coffee" rule (rule 1 of Dana's fixture review).
+    const dislikedCoffeeIds = reads.feedbackCurrent.filter(f => f.sentiment === 'negative').map(f => f.coffeeId);
 
-    // Determine excludeCoffeeIds for RECOMMENDATION_MISS — Customer Blueprint
-    // C3, Part B2: v_customer_feedback_current already excludes superseded
-    // rows (Profile Part 5), so no extra filter is needed here.
-    let excludeCoffeeIds: number[] = [];
-    if (intent === 'RECOMMENDATION_MISS') {
-      try {
-        const negativeRows = await getFeedbackCurrent(req.uid!, { sentiment: 'negative' });
-        excludeCoffeeIds = negativeRows.slice(0, 10).map(r => r.coffeeId);
-      } catch (err) {
-        console.error('[sommelier] RECOMMENDATION_MISS excludeCoffeeIds lookup failed — proceeding with zero exclusions', err);
-      }
-    }
+    // Determine excludeCoffeeIds for RECOMMENDATION_MISS — same values
+    // dislikedCoffeeIds already carries, capped the same way the old direct
+    // getFeedbackCurrent(uid, {sentiment:'negative'}) call was.
+    const excludeCoffeeIds: number[] = intent === 'RECOMMENDATION_MISS' ? dislikedCoffeeIds.slice(0, 10) : [];
 
     const ragFocus = config?.intents?.[intent]?.ragFocus ?? 'curated_mix';
     // Catalog Blueprint brief 3 — resolved once here and persisted below
@@ -606,13 +663,23 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
     // check on later turns can call fetchSommelierCoffees with the exact
     // same inputs, not just the same ragFocus/archetype.
     const previousArchetypeForRag = intent === 'TASTE_EVOLUTION' ? previousArchetype : null;
+    // Part C.2 — stored in context_data as ragInputs (the brief's own list,
+    // plus excludeCoffeeIds: refreshCatalogSnapshotIfStale's catalog-version
+    // refresh needs it too, to keep calling fetchSommelierCoffees with
+    // identical inputs). slotCandidateIds/dislikedCoffeeIds here are a record
+    // of what /start actually used — the facts-watermark refresh path
+    // (/message, Part C.3) re-reads both live rather than reusing these.
+    const ragInputs = {
+      ragFocus, userArchetype, previousArchetype: previousArchetypeForRag, excludeCoffeeIds,
+      secondaryArchetype, exploreArchetype, dislikedCoffeeIds,
+      slotCandidateIds: reads.slotCandidates.map(c => c.coffee_id),
+    };
     const ragResult = await fetchSommelierCoffees({
-      ragFocus,
-      userArchetype,
-      previousArchetype: previousArchetypeForRag,
-      excludeCoffeeIds,
+      ragFocus, userArchetype, previousArchetype: previousArchetypeForRag, excludeCoffeeIds,
+      secondaryArchetype, exploreArchetype, slotCandidates: reads.slotCandidates, dislikedCoffeeIds,
     });
     const catalogVersion = await getCatalogVersion();
+    const factsWatermark = await getFactsWatermark(req.uid!);
 
     // Brew profile (§4.5, §3.5) — moved ahead of its original spot (just
     // before the opening chatWithSommelier call) so HOME_TASK_6's entry-coffee
@@ -690,12 +757,12 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
           archetypeKey,
           tiedArchetypes: tiedArchetypes ?? [],
           openingContext: enrichedOpeningContext,
-          ragFocus,
-          previousArchetypeForRag,
-          excludeCoffeeIds,
+          ragInputs,
+          factsWatermark,
           coffeeIds: ragResult.coffeeIds,
           catalogText: ragResult.catalogText,
           catalogVersion,
+          slices: ragResult.slices,
           storyCandidates,
           evaluationId: evaluationId ?? null,
           entryCoffeeId,
@@ -757,6 +824,7 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
         history: [],
         brewProfileContext,
         currentCoffeeContext,
+        profileLine,
       });
       openingMessage = chatResult.reply;
       modelUsed = chatResult.modelUsed;
@@ -956,7 +1024,17 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
     // Generate reply
     const ctx = session.context_data ?? {};
 
-    await refreshCatalogSnapshotIfStale(ctx, sessionId);
+    await refreshCatalogSnapshotIfStale(req.uid!, ctx, sessionId);
+
+    // Liam L1, Part C.3 — the profile line is rebuilt every turn (the reads
+    // are cheap; this is the point — a fact captured earlier in *this same*
+    // conversation must show up on the very next turn, same reasoning as the
+    // brew-profile/current-coffee live reads elsewhere in this handler).
+    const profileReads = await loadProfileReads(req.uid!);
+    const profileLine = buildProfileLine(profileReads);
+    logProfileLineDebug(req.uid!, '/message', profileLine);
+    const factsWatermark = await getFactsWatermark(req.uid!);
+    await refreshSliceIfFactsChanged(ctx, sessionId, session.turn_count, profileReads, factsWatermark);
 
     // Turn-level topic routing (§4.1, HOME_TASK_2) — classifies this message,
     // carrying the previous turn's topic forward (stickiness) until it decays.
@@ -1043,6 +1121,7 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
         brewProfileContext,
         storyContext,
         currentCoffeeContext,
+        profileLine,
       });
     } catch (claudeErr) {
       if (isClaudeGuardBlocked(claudeErr)) {

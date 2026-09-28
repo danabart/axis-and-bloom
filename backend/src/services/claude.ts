@@ -70,6 +70,8 @@ How to use customer history:
 
 Only recommend coffees from the catalog provided. Never invent a coffee or a flavor.
 
+The ABOUT THIS CUSTOMER block is for you. Use its facts; never repeat its labels or the words "confidence", "thread", "pair", "palate" or "explore" to the customer. When it says "quiz only", their match is what you know; when it lists palate picks, those are the coffees their own bags point to.
+
 Guardrails:
 - Caffeine and health: share only general, well-established facts. Never give personal health advice — that includes anything about medication, pregnancy, or children. Defer warmly to a doctor or pharmacist for those specifically.
   Right: "Decaf still has a small amount of caffeine — it's not zero." Then, if it's medical: "That one's really worth asking your doctor about."
@@ -140,8 +142,9 @@ export function assembleSystemPrompt(params: {
   brewProfileContext?: string;
   storyContext?: string;
   currentCoffeeContext?: string;
+  profileLine?: string;
 }): string {
-  const { session, catalogContext, mode, config, brewProfileContext, storyContext, currentCoffeeContext } = params;
+  const { session, catalogContext, mode, config, brewProfileContext, storyContext, currentCoffeeContext, profileLine } = params;
   const intentCfg = config?.intents?.[session.intent];
   const maxTurns = intentCfg?.maxTurns ?? config?.sessionLimits?.maxTurns ?? 8;
 
@@ -167,6 +170,15 @@ export function assembleSystemPrompt(params: {
     // not a per-topic story injection.
   } else {
     systemParts.push(`\n\n${catalogContext}`);
+  }
+
+  // Liam L1, Part C.4 (2026-09-28) — the structured profile line, injected
+  // every turn in both modes (turn 0 included), right after the catalog
+  // block — even in expertise mode, where the catalog itself is omitted, the
+  // profile line still goes in. Facts, not a model-generated summary; see
+  // services/liamProfile.ts.
+  if (profileLine) {
+    systemParts.push(`\n\n${profileLine}`);
   }
 
   // HOME_TASK_6 (§3.1, §3.2) — the "current coffee" concept S71 deferred
@@ -244,6 +256,7 @@ export async function chatWithSommelier(params: {
   brewProfileContext?: string;
   storyContext?: string;
   currentCoffeeContext?: string;
+  profileLine?: string;
 }): Promise<{
   reply: string;
   modelUsed: string;
@@ -254,11 +267,11 @@ export async function chatWithSommelier(params: {
   /** HOME_TASK_6 — <<card:save>> / <<card:adjust=KEY>>, resolved server-side by sommelier.ts's resolveCard(). */
   cardMarker?: { type: 'save' } | { type: 'adjust'; adjustment: string };
 }> {
-  const { message, session, catalogContext, history, brewProfileContext, storyContext, currentCoffeeContext } = params;
+  const { message, session, catalogContext, history, brewProfileContext, storyContext, currentCoffeeContext, profileLine } = params;
   const mode: SommelierMode = params.mode ?? 'matching';
   const config = getSommelierConfig();
 
-  const systemPrompt = assembleSystemPrompt({ session, catalogContext, mode, config, brewProfileContext, storyContext, currentCoffeeContext });
+  const systemPrompt = assembleSystemPrompt({ session, catalogContext, mode, config, brewProfileContext, storyContext, currentCoffeeContext, profileLine });
 
   // C2 Part 2 (M4 fix) — model choice is decided purely by surface, never by
   // message content. chatWithSommelier is the authenticated Liam

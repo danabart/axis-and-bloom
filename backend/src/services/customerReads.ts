@@ -292,3 +292,58 @@ export async function getRecentDialActivity(uid: string, limit = 30, runner: Run
   );
   return result.rows.map(row => ({ archetypeCode: row.archetype_code, eventType: row.event_type, dialSortOrder: row.dial_sort_order }));
 }
+
+// ── Liam L1, Part C (2026-09-28) ───────────────────────────────────────────
+// One timestamp: the latest occurred_at across every one of this customer's
+// fact tables, through identity — quiz sessions, order lines (via the same
+// v_customer_bag_attribution join v_customer_timeline's own 'order_line' arm
+// uses), feedback, brew changes, dial events, bag claims, every Liam fact
+// (recommendation/question/reply/action) and identity links themselves. Used
+// by routes/sommelier.ts to decide whether a session's cached RAG slice is
+// stale — a fact that landed after the slice was built means the palate
+// picks it fed on may now be wrong. Null when the customer has no facts yet
+// (a brand-new profile) — never a default timestamp.
+export async function getFactsWatermark(uid: string, runner: Runner = db): Promise<Date | null> {
+  const canonicalId = await resolveCanonicalUserId(uid, runner);
+  if (!canonicalId) return null;
+  const result = await runner.query<{ watermark: Date | null }>(
+    `SELECT MAX(occurred_at) AS watermark FROM (
+       SELECT qs.completed_at AS occurred_at FROM quiz_session qs
+         JOIN v_customer_identity vci ON vci.user_id = qs.user_id WHERE vci.canonical_user_id = $1
+       UNION ALL
+       SELECT o.created_at FROM order_line_item oli
+         JOIN "order" o ON o.id = oli.order_id
+         JOIN v_customer_bag_attribution vba ON vba.order_line_item_id = oli.id
+         JOIN v_customer_identity vci ON vci.user_id = vba.drinker_user_id WHERE vci.canonical_user_id = $1
+       UNION ALL
+       SELECT cfe.occurred_at FROM customer_feedback_event cfe
+         JOIN v_customer_identity vci ON vci.user_id = cfe.user_id WHERE vci.canonical_user_id = $1
+       UNION ALL
+       SELECT cbpc.occurred_at FROM customer_brew_profile_change cbpc
+         JOIN v_customer_identity vci ON vci.user_id = cbpc.user_id WHERE vci.canonical_user_id = $1
+       UNION ALL
+       SELECT cde.occurred_at FROM customer_dial_event cde
+         JOIN v_customer_identity vci ON vci.user_id = cde.user_id WHERE vci.canonical_user_id = $1
+       UNION ALL
+       SELECT cbc.occurred_at FROM customer_bag_claim cbc
+         JOIN v_customer_identity vci ON vci.user_id = cbc.user_id WHERE vci.canonical_user_id = $1
+       UNION ALL
+       SELECT clr.occurred_at FROM customer_liam_recommendation clr
+         JOIN v_customer_identity vci ON vci.user_id = clr.user_id WHERE vci.canonical_user_id = $1
+       UNION ALL
+       SELECT clq.occurred_at FROM customer_liam_question clq
+         JOIN v_customer_identity vci ON vci.user_id = clq.user_id WHERE vci.canonical_user_id = $1
+       UNION ALL
+       SELECT clrep.occurred_at FROM customer_liam_reply clrep
+         JOIN v_customer_identity vci ON vci.user_id = clrep.user_id WHERE vci.canonical_user_id = $1
+       UNION ALL
+       SELECT cla.occurred_at FROM customer_liam_action cla
+         JOIN v_customer_identity vci ON vci.user_id = cla.user_id WHERE vci.canonical_user_id = $1
+       UNION ALL
+       SELECT cil.occurred_at FROM customer_identity_link cil
+         JOIN v_customer_identity vci ON vci.user_id = cil.user_id WHERE vci.canonical_user_id = $1
+     ) all_facts`,
+    [canonicalId]
+  );
+  return result.rows[0]?.watermark ?? null;
+}

@@ -100,7 +100,7 @@ export async function evaluateSommelier(
     interpretationVersion, pairConfidence, exploreArchetype,
     quizCount, archetypeChangeCount, archetypeChangedLastTwoQuizzes, daysSinceLastQuiz,
     totalOrders, behavioralScore, behavioralLevel, behavioralComponents: bcComponents,
-    hasRecentNegativeFeedback, age, generation, householdType,
+    hasRecentNegativeFeedback, generation, householdType,
   } = signals;
 
   // ── Build feature vector (13 dims) ──────────────────────────────────────
@@ -193,24 +193,18 @@ export async function evaluateSommelier(
   }
 
   // ── Stage 2: Haiku enrichment ────────────────────────────────────────────
-  const intentCfg = config?.intents?.[matchedIntent];
+  // Liam L1, Part C.5 (2026-09-28) — every fact this prompt used to carry
+  // (archetype, secondary, behavioral counts, feedback flag) now lives in the
+  // structured profile line instead (services/liamProfile.ts), injected every
+  // turn, not just this one turn-0 briefing. This call's only job left is
+  // tone calibration: generation and household type only.
   const demographicLine = [
-    age !== null ? `Age ${age}` : null,
     generation ?? null,
     householdType === 'family' ? 'family household' : 'solo',
   ].filter(Boolean).join(', ');
 
-  const userPrompt = `Initialize a coffee sommelier session. Write 2-3 sentences briefing Liam (the sommelier) about this specific user before their first exchange. Be factual and specific. Include their demographic and tone calibration so Liam knows how to speak to them.
+  const userPrompt = `Write one tone-calibration sentence for Liam (a coffee sommelier) before his first exchange with this customer. No facts about the customer's taste or history — those are handled elsewhere. Just how to speak to them.
 
-Intent: ${matchedIntent}
-Goal: ${intentCfg?.conversationGoal ?? 'Guide the user to a coffee they will love'}
-Archetype: ${archetype ?? 'Unknown'}, Secondary: ${secondaryArchetype ?? 'none'}
-Behavioral confidence: ${behavioralLevel} (score: ${behavioralScore.toFixed(2)})
-Experimental: ${experimental}
-Quiz count: ${quizCount}, Archetype changes: ${archetypeChangeCount}
-Order count: ${totalOrders}
-Recent negative feedback: ${hasRecentNegativeFeedback ? 'yes' : 'no'}
-Days since last quiz: ${daysSinceLastQuiz !== null ? daysSinceLastQuiz : 'first quiz'}
 Demographic: ${demographicLine || 'unknown'}
 
 Tone calibration guidance:
@@ -221,15 +215,15 @@ Tone calibration guidance:
 - Family household: may be buying for others, practical decisions
 - Solo: individual taste focus
 
-Write only the briefing, including a tone note for Liam at the end (e.g. "Tone: direct, no-nonsense — Gen X.")`;
+Write only the one sentence (e.g. "Tone: direct, no-nonsense — Gen X.")`;
 
   let openingContext = `${archetype ?? 'Unknown archetype'} user — ${matchedIntent} intent.`;
   try {
     const haikuResp = await guardClaudeCall('liam_chat', 'claude-haiku-4-5-20251001', () =>
       client.messages.create({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 100,
-        system: 'You generate concise briefings. Respond with only the briefing text, no preamble.',
+        max_tokens: 60,
+        system: 'You generate concise tone-calibration notes. Respond with only the one sentence, no preamble.',
         messages: [{ role: 'user', content: userPrompt }],
       })
     );
