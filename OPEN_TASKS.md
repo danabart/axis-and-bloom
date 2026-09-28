@@ -1,6 +1,6 @@
 # Axis & Bloom — Open Tasks
 
-Last updated: 2026-07-13. All 5 Liam Sommelier tasks are code-complete and deployed. The Company Gift Subscriptions feature (sponsored 3-month coffee perk companies buy for employees) is also code-complete and deployed as of 2026-07-13 — see `backend/src/features/b2b_company_subscriptions/CLAUDE_CODE_PROMPT_B2B_COMPANY_SUBSCRIPTIONS.md` for the full spec and decisions log. These are the remaining items that require manual setup, provider wiring, or future development work.
+Last updated: 2026-08-05 (added Cloudflare Bot Fight Mode note to OT-17/OT-4 after the DNS→Cloudflare migration). All 5 Liam Sommelier tasks are code-complete and deployed. The Company Gift Subscriptions feature (sponsored 3-month coffee perk companies buy for employees) is also code-complete and deployed as of 2026-07-13 — see `backend/src/features/b2b_company_subscriptions/CLAUDE_CODE_PROMPT_B2B_COMPANY_SUBSCRIPTIONS.md` for the full spec and decisions log. These are the remaining items that require manual setup, provider wiring, or future development work.
 
 ---
 
@@ -60,7 +60,7 @@ The SMS opt-in toggle in Profile Settings is disabled if the user has no phone n
    });
    return { success: true, providerMessageId: msg.sid };
    ```
-4. Wire Twilio inbound webhook URL to `POST https://[backend-url]/api/webhooks/sms/inbound`
+4. Wire Twilio inbound webhook URL to `POST https://[backend-url]/api/webhooks/sms/inbound` — **⚠️ mind Cloudflare Bot Fight Mode: see the note under OT-17 before choosing the `[backend-url]` (custom domain needs a WAF Skip rule; the `*.run.app` URL bypasses Cloudflare)**
 5. Add Twilio signature validation to the webhook handler (TODO comment is in `cron.ts`)
 
 ---
@@ -197,6 +197,12 @@ Task 6 verified everything up to the actual send (render, selection, scheduling)
 ### OT-17: SMS beats go-live checklist (when Twilio is set up)
 Everything already tracked elsewhere, gathered here so SMS day is one checklist: OT-3 (phone UI) → A2P carrier registration (started August, lead time days–weeks) → OT-4 (wire Twilio in `smsProvider.ts`) → extend the SMS opt-in consent copy to cover outbound beats, not just the feedback question (HOME Task 8 requirement) → flip `config/sommelier.beats.smsEnabled` to `true` (stays `false` until every prior step is done).
 
+**⚠️ Cloudflare Bot Fight Mode — add a WAF Skip rule before the Twilio inbound webhook goes live (added 2026-08-05).** As of the DNS migration to Cloudflare, the site sits behind Cloudflare with **Bot Fight Mode ON**, which challenges non-browser (bot-like) traffic. The Twilio inbound-SMS webhook (`POST /api/webhooks/sms/inbound`, OT-4 step 4) is exactly that kind of legitimate server-to-server call. Two safe options:
+- **If the webhook points at the custom domain** `axisandbloomcoffee.com`: first add a Cloudflare **WAF → Skip** rule for `/api/webhooks/*` (and `/api/cron/*` only if any cron is ever pointed at the custom domain — today they use the `*.run.app` URL and bypass Cloudflare, so they're unaffected), so Bot Fight Mode / the WAF don't challenge and drop those requests.
+- **Or point the webhook at the Cloud Run `*.run.app` URL directly** (the same base URL the cron jobs already use, e.g. `https://axis-bloom-backend-oiub7eumya-uc.a.run.app/api/webhooks/sms/inbound`), which bypasses Cloudflare entirely — no challenge, but also no WAF in front of it.
+
+Same consideration applies to any **Shopify order webhook** (OT-6) whenever that's wired up. Full context and the current Cloudflare config: `backend/src/features/cyber_security/CLOUDFLARE_SETUP.md`.
+
 ---
 
 ### OT-18: Camila's review — Arial → Lato font-metrics cosmetic list (2026-09-01)
@@ -214,6 +220,16 @@ Customer Blueprint C3 dropped 3 of the 4 dead-table candidates (`user_recommenda
 
 Firestore has a transcript at the same path (`users/{uid}/sommelier_sessions/2/messages`) for the same session, but with only **6 docs**, not 9 — a partial overlap, not a clean duplicate. The SQL rows are therefore not safely redundant as-is: before this table can be dropped, someone needs to reconcile which of the 9 SQL rows are genuinely missing from the Firestore transcript (the likely candidates are the earliest turns, from before the mid-session cutover to Firestore-based storage) and decide whether those need to be preserved some other way. `customerIntegrity.ts` check 7 (informational) will keep reporting this table non-empty until that reconciliation happens. Not fixed here — out of scope for C3, which only drops tables it can prove empty.
 
+### OT-25: Customer Blueprint C3 follow-ups (found 2026-09-27)
+
+Five small items C3's Part F named explicitly rather than leaving implicit:
+
+- **`user_flavor_feedback` drop**: no writer as of C3 (`routes/orders.ts` now calls `customerFacts.record.feedbackDescriptor()`; `v_collaborative_flavor_wheel` repointed to `customer_feedback_descriptor`/`customer_feedback_event`). The table itself still holds historical rows and 3 pre-existing `COUNT(*)` reads (allow-listed under `lint-customer.mjs` Rule 6) — drop it once no view names it any more.
+- **`newsletter_subscriber.archetype` rename**: no code change needed (#191 already stopped the resync that used to keep it live-updated); its real semantics are "archetype at signup," documented as such in `WHAT_WE_BUILT_DB.md`. The column rename itself is deferred — Mailchimp sync and reporting views still name it `archetype`.
+- **Check 15 removal date**: `customerIntegrity.ts`'s check 15 (`checkNoNewFirestoreWritesToRetiredStores`) is informational and time-boxed — remove the check entirely after **2026-10-27** (`C3_CUTOVER_REMOVE_AFTER`), once 30 days of clean post-cutover data confirms nothing new is writing to a retired Firestore collection.
+- **Cupping Blueprint dependency**: `v_coffee_dimension_range`/`v_coffee_descriptor` currently read cupping data directly (merged `cupping_scores` rows, falling back to unmerged) and `v_palate_dominant_dimensions` takes a plain mean over as-cupped midpoints with no weighting. The Cupping Blueprint may change how cupping data rolls up (e.g. per-batch/roast-date specificity) — when it does, these two `v_coffee_*` views are the only place that needs to change; every `v_palate_*` view reads through them, never the cupping tables directly.
+- **`order_kind` filtering in reads v2**: `read_version = 'v1'` deliberately does not filter or weight by `order_line_item.order_kind` (manual vs. subscription-renewal vs. gift-redemption vs. liam-followed) — Dana's decision, since v1 defines the baseline read, not a revision. The first v2 read should decide whether/how `order_kind` should change attribution or trait weighting.
+
 ### OT-19: `quizScoring.test.ts` — 12 pre-existing failures, not touched by Customer Blueprint C1 (found 2026-09-27)
 
 Found running the full `npm test` suite as part of Customer Blueprint C1's Part I verification (`git status`/`git log` confirm `backend/src/services/quizScoring.ts` and its test have no uncommitted diff and were last touched by commit `8edcac0`, already on `main` — this session never opened either file). **Pre-existing on `main` at `6f34238`, not introduced or touched by C1.** Not fixed here — out of scope for this brief.
@@ -222,27 +238,6 @@ Found running the full `npm test` suite as part of Customer Blueprint C1's Part 
 - **Count**: 12 of 497 total tests failed; all 12 are in the `findWinner` veto-cascade / `isSecondaryClose` describe blocks. Every other test in the repo (485), including everything this brief added or touched, is green.
 - **Hypothesis**: every failure is an archetype-name mismatch (e.g. expected `Chocolate & Nutty` / `Fruity`, got `Balanced`, or the reverse) in the veto-cascade tie-break logic, not a crash or a type error. The most recent commit touching `quizScoring.ts` before this brief is `5028c7d` ("archetype: rename 'Balanced & Sweet' to 'Balanced' (display name only)") — the tie-break cascade (`findWinner`) or its test fixtures likely still reference the pre-rename archetype identity/ordering in a way the display-name-only rename didn't fully account for. Not confirmed by reading the function — a hypothesis from the failure shape, not a diagnosis.
 - **Does not block deploys**: `.github/workflows/deploy.yml`'s backend job runs `npm audit`, `lint:catalog`, `lint:retention`, `lint:customer`, then the Docker build (`tsc`, not vitest) — no `npm test`/vitest step anywhere in the gate. Confirmed before pushing C1.
-
----
-
-### OT-20: Customer Blueprint C3 retirement list (added 2026-09-27, C2 Part D)
-
-Once C2's dual-write has run clean for the agreed comparison period (14 days, Dana may shorten it — checked via `[customer-parity]` days-clean in the Cloud Run logs / `GET /api/admin/customer/integrity` checks 10-12), C3 retires:
-
-- Firestore `feedback_events` writer (`routes/orders.ts`, `services/liamSmsFeedback.ts`) — `customer_feedback_event`/`customer_feedback_descriptor` become the only store.
-- Firestore `users/{uid}/metadata/brew_profile` writer (`routes/users.ts`, `routes/sommelier.ts`'s `resolveRemember()`) — `customer_brew_profile_change` becomes the only store (C3 also needs a "current value per field" read, not just the change log).
-- Firestore `users/{uid}/dial_events` writer (`routes/users.ts`) — `customer_dial_event` becomes the only store.
-- `user_flavor_feedback`'s `DELETE ... ; INSERT ...` revision pattern (`routes/orders.ts`) — superseded by `customer_feedback_descriptor`, which never deletes.
-- The synthetic sign-up `saveQuizSession(..., claimedFrom: 'newsletter_subscriber')` call (`routes/auth.ts`) — once reads resolve identity via `customer_identity_link` instead of a copied session.
-
-**Earliest retirement date: 2026-10-11.** The backfill's `--apply` ran today (2026-09-27) for all three subcommands (feedback 0 rows, brew-profile 2, dial-events 28) — checks 10-12 confirmed 0 disagreements immediately after. 14 days from today, if the daily `[customer-parity]` cron keeps reporting clean every day in between (a single dirty day resets the streak — see `routes/cron.ts`'s `/customer-parity`).
-
-**Not wired by C2, flagged for later**:
-- Checkout has no "who is this for" field in the frontend — `intendedForUserId` is accepted by the API (`routes/orders.ts`) but nothing in the UI sends it yet. Belongs to the household/B2B workstream.
-- `order_kind: 'subscription_renewal'` has no writer — waits for Shopify subscriptions to exist at all.
-- `order_kind: 'gift_redemption'` has no writer — no code path creates an order through a company-gift context today (`companyGiftRedemption.ts` only ever writes `subscription`).
-- `order_kind: 'liam_followed'` is L1-L3's job (derived from `customer_liam_recommendation` at read time), not written at checkout.
-- `record.identityLink`'s `household_claim`/`admin` `how` values have no caller — no UI exists for either yet.
 
 ---
 

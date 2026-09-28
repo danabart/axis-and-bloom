@@ -5038,12 +5038,20 @@ LEFT JOIN (
 ) qc ON qc.canonical_user_id = bc.canonical_user_id;
 
 
+-- Customer Blueprint C3, Part D (Dana's fixture review, 2026-09-27, rule 1) —
+-- only lines with no feedback or feedback rating >= 3 shape "this customer's
+-- palate"; a disliked bag (rating <= 2) never contributes a range or
+-- descriptor here. A customer whose only bag is disliked gets zero rows.
+-- These are v1 rules (read_version stays 'v1' everywhere) — order_kind
+-- filtering is the first named v2 item, not done here.
 CREATE OR REPLACE VIEW v_palate_shared_traits AS
 WITH attributed_coffees AS (
   SELECT DISTINCT vci_i.canonical_user_id, vba.coffee_id
   FROM v_customer_bag_attribution vba
   JOIN v_customer_identity vci_i ON vci_i.user_id = vba.drinker_user_id
-  WHERE vba.attribution <> 'unattributed'
+  LEFT JOIN v_customer_feedback_current vfc
+    ON vfc.order_line_item_id = vba.order_line_item_id AND vfc.canonical_user_id = vci_i.canonical_user_id
+  WHERE vba.attribution <> 'unattributed' AND (vfc.rating IS NULL OR vfc.rating >= 3)
 ),
 dim AS (
   SELECT ac.canonical_user_id, 'dimension'::text AS kind, cdr.dimension_id::text AS trait_key, cdr.dimension_name AS trait_label,
@@ -5167,36 +5175,114 @@ LEFT JOIN LATERAL (
 ) fl ON true;
 
 
+-- Customer Blueprint C3, Part D (Dana's fixture review, 2026-09-27) — rules
+-- 1, 2, 3, 4, 6:
+--  1. Comparable range excludes disliked bags (inherited from
+--     v_palate_shared_traits, rule 1 above); a slot whose OWN coffee this
+--     customer rated <= 2 is excluded outright, never just ranked low.
+--  2. already_bought / last_rating are informational columns; they never
+--     affect ordering.
+--  3. Only dimensions where the customer's own shared-trait row has
+--     overlaps = true are comparable at all (n_dims_compared excludes the
+--     rest) — a crossover profile whose coffees never agree on a dimension
+--     (e.g. two very different archetypes) excludes that dimension from
+--     comparison entirely, rather than comparing against a range that can't
+--     mean anything (min > max). With zero comparable dimensions for every
+--     slot, ordering falls through to in_pair as the effective tiebreak.
+--  4. Deterministic tiebreak: slot sort_order, then slot id.
+--  6. Dislikes push, not just exclude: n_dims_disliked_overlap counts
+--     dimensions where a slot's coffee range overlaps ANY range of a coffee
+--     this customer rated <= 2 (checked per dimension, independent of
+--     whether that dimension is "comparable" under rule 3). A customer with
+--     disliked bags but no liked ones still gets ranked candidates — via
+--     their quiz pair alone, all n_dims_compared/n_dims_overlapping = 0 for
+--     every slot, n_dims_disliked_overlap populated and steering the order.
+--     Requires a quiz (D14's "no behaviour yet" fallback still applies to a
+--     customer with neither a liked bag nor a quiz: zero rows).
 CREATE OR REPLACE VIEW v_palate_slot_candidates AS
 WITH traits AS (
+  -- "overlaps" is a reserved word (the OVERLAPS predicate) - must be quoted
+  -- as a column reference here or Postgres tries to parse it as that operator.
   SELECT canonical_user_id, trait_key::int AS dimension_id, value_min, value_max
-  FROM v_palate_shared_traits WHERE kind = 'dimension'
+  FROM v_palate_shared_traits WHERE kind = 'dimension' AND "overlaps" = true
 ),
-customers_with_traits AS (SELECT DISTINCT canonical_user_id FROM traits),
+customers_with_dimension_rows AS (
+  SELECT DISTINCT canonical_user_id FROM v_palate_shared_traits WHERE kind = 'dimension'
+),
+disliked_coffees AS (
+  SELECT DISTINCT vci_i.canonical_user_id, vba.coffee_id
+  FROM v_customer_bag_attribution vba
+  JOIN v_customer_identity vci_i ON vci_i.user_id = vba.drinker_user_id
+  JOIN v_customer_feedback_current vfc
+    ON vfc.order_line_item_id = vba.order_line_item_id AND vfc.canonical_user_id = vci_i.canonical_user_id
+  WHERE vba.attribution <> 'unattributed' AND vfc.rating <= 2
+),
+disliked_ranges AS (
+  SELECT dc.canonical_user_id, cdr.dimension_id, cdr.value_min, cdr.value_max
+  FROM disliked_coffees dc
+  JOIN v_coffee_dimension_range cdr ON cdr.coffee_id = dc.coffee_id
+),
+customers_disliked_only AS (
+  SELECT DISTINCT dc.canonical_user_id
+  FROM disliked_coffees dc
+  JOIN v_customer_quiz_current qc ON qc.canonical_user_id = dc.canonical_user_id
+  WHERE dc.canonical_user_id NOT IN (SELECT canonical_user_id FROM customers_with_dimension_rows)
+),
+eligible_customers AS (
+  SELECT canonical_user_id FROM customers_with_dimension_rows
+  UNION
+  SELECT canonical_user_id FROM customers_disliked_only
+),
+already_bought AS (
+  SELECT DISTINCT vci_i.canonical_user_id, vba.coffee_id
+  FROM v_customer_bag_attribution vba
+  JOIN v_customer_identity vci_i ON vci_i.user_id = vba.drinker_user_id
+  WHERE vba.attribution <> 'unattributed'
+),
+last_feedback AS (
+  SELECT DISTINCT ON (canonical_user_id, coffee_id) canonical_user_id, coffee_id, rating
+  FROM v_customer_feedback_current
+  ORDER BY canonical_user_id, coffee_id, occurred_at DESC
+),
 slots AS (SELECT * FROM v_coffee_sellable_slot WHERE weight_oz = 12),
 compare AS (
   SELECT c.canonical_user_id, s.slot_id, s.coffee_id, cdr.dimension_id,
-    (cdr.value_min <= t.value_max AND cdr.value_max >= t.value_min) AS overlaps_dim
-  FROM customers_with_traits c
+    (t.dimension_id IS NOT NULL) AS is_comparable,
+    (t.dimension_id IS NOT NULL AND cdr.value_min <= t.value_max AND cdr.value_max >= t.value_min) AS overlaps_dim,
+    EXISTS (
+      SELECT 1 FROM disliked_ranges dr
+      WHERE dr.canonical_user_id = c.canonical_user_id AND dr.dimension_id = cdr.dimension_id
+        AND cdr.value_min <= dr.value_max AND cdr.value_max >= dr.value_min
+    ) AS is_disliked_overlap
+  FROM eligible_customers c
   CROSS JOIN slots s
   JOIN v_coffee_dimension_range cdr ON cdr.coffee_id = s.coffee_id
-  JOIN traits t ON t.canonical_user_id = c.canonical_user_id AND t.dimension_id = cdr.dimension_id
+  LEFT JOIN traits t ON t.canonical_user_id = c.canonical_user_id AND t.dimension_id = cdr.dimension_id
 ),
 agg AS (
   SELECT canonical_user_id, slot_id, coffee_id,
-    COUNT(*) AS n_dims_compared, COUNT(*) FILTER (WHERE overlaps_dim) AS n_dims_overlapping
+    COUNT(*) FILTER (WHERE is_comparable) AS n_dims_compared,
+    COUNT(*) FILTER (WHERE is_comparable AND overlaps_dim) AS n_dims_overlapping,
+    COUNT(*) FILTER (WHERE is_disliked_overlap) AS n_dims_disliked_overlap
   FROM compare
   GROUP BY canonical_user_id, slot_id, coffee_id
 )
 SELECT
   a.canonical_user_id, s.slot_id, s.archetype, s.sort_order, s.slot_name, s.position_label,
   s.coffee_id, s.coffee_name, s.blend_id, s.roaster_sku, s.shopify_variant_id, s.retail_price_cents,
-  a.n_dims_overlapping, a.n_dims_compared,
-  (qc.archetype_code = s.archetype OR qc.secondary_archetype_code = s.archetype) AS in_pair
+  a.n_dims_overlapping, a.n_dims_compared, a.n_dims_disliked_overlap,
+  COALESCE(qc.archetype_code = s.archetype OR qc.secondary_archetype_code = s.archetype, false) AS in_pair,
+  (ab.coffee_id IS NOT NULL) AS already_bought,
+  lf.rating AS last_rating
 FROM agg a
 JOIN slots s ON s.slot_id = a.slot_id AND s.coffee_id = a.coffee_id
 LEFT JOIN v_customer_quiz_current qc ON qc.canonical_user_id = a.canonical_user_id
-ORDER BY in_pair DESC NULLS LAST, a.n_dims_overlapping DESC, a.n_dims_compared DESC, s.sort_order;
+LEFT JOIN already_bought ab ON ab.canonical_user_id = a.canonical_user_id AND ab.coffee_id = a.coffee_id
+LEFT JOIN last_feedback lf ON lf.canonical_user_id = a.canonical_user_id AND lf.coffee_id = a.coffee_id
+WHERE NOT EXISTS (
+  SELECT 1 FROM disliked_coffees dc WHERE dc.canonical_user_id = a.canonical_user_id AND dc.coffee_id = a.coffee_id
+)
+ORDER BY in_pair DESC, a.n_dims_overlapping DESC, a.n_dims_disliked_overlap ASC, a.n_dims_compared DESC, s.sort_order, s.slot_id;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- END CUSTOMER BLUEPRINT C3 views/tables block

@@ -1,0 +1,487 @@
+{
+  "generated_at": "2026-09-28T02:09:05Z",
+  "coffees": {
+    "A": {
+      "name": "Vitest Coffee A",
+      "archetype": "balanced_sweet",
+      "is_slot": true,
+      "dims": {
+        "Acidity": [
+          3,
+          5
+        ],
+        "Body": [
+          8,
+          10
+        ],
+        "Sweetness": [
+          10,
+          12
+        ]
+      },
+      "descriptors": [
+        "caramel",
+        "brown_sugar"
+      ]
+    },
+    "B": {
+      "name": "Vitest Coffee B",
+      "archetype": "balanced_sweet",
+      "is_slot": false,
+      "dims": {
+        "Acidity": [
+          2,
+          4
+        ],
+        "Body": [
+          9,
+          11
+        ],
+        "Sweetness": [
+          11,
+          13
+        ]
+      },
+      "descriptors": [
+        "caramel",
+        "honey"
+      ]
+    },
+    "C": {
+      "name": "Vitest Coffee C",
+      "archetype": "fruity",
+      "is_slot": true,
+      "dims": {
+        "Acidity": [
+          11,
+          13
+        ],
+        "Body": [
+          3,
+          5
+        ],
+        "Sweetness": [
+          6,
+          8
+        ]
+      },
+      "descriptors": [
+        "citrus",
+        "berry"
+      ]
+    },
+    "D": {
+      "name": "Vitest Coffee D",
+      "archetype": "earthy",
+      "is_slot": true,
+      "dims": {
+        "Acidity": [
+          2,
+          3
+        ],
+        "Body": [
+          12,
+          14
+        ],
+        "Sweetness": [
+          4,
+          6
+        ]
+      },
+      "descriptors": [
+        "earthy_note",
+        "tobacco"
+      ]
+    },
+    "E": {
+      "name": "Vitest Coffee E",
+      "archetype": "chocolate_nutty",
+      "is_slot": true,
+      "dims": {
+        "Acidity": [
+          3,
+          4
+        ],
+        "Body": [
+          10,
+          12
+        ],
+        "Sweetness": [
+          9,
+          11
+        ]
+      },
+      "descriptors": [
+        "cocoa",
+        "hazelnut"
+      ]
+    },
+    "F": {
+      "name": "Vitest Coffee F",
+      "archetype": "floral",
+      "is_slot": true,
+      "dims": {
+        "Acidity": [
+          9,
+          11
+        ],
+        "Body": [
+          4,
+          6
+        ],
+        "Sweetness": [
+          7,
+          9
+        ]
+      },
+      "descriptors": [
+        "jasmine",
+        "honey"
+      ]
+    }
+  },
+  "customers": {
+    "maya": {
+      "name": "Maya (quiz only)",
+      "quiz": {
+        "archetype": "balanced_sweet",
+        "at": "2026-08-01T00:00:00Z",
+        "secondary": null
+      },
+      "lines": [],
+      "questions": [],
+      "recommendations": []
+    },
+    "ben": {
+      "name": "Ben (one bag)",
+      "quiz": {
+        "archetype": "balanced_sweet",
+        "at": "2026-08-01T00:00:00Z",
+        "secondary": null
+      },
+      "lines": [
+        {
+          "id": "OL_ben_1",
+          "coffee": "A",
+          "order_at": "2026-08-06T00:00:00Z",
+          "attribution": "buyer",
+          "drinker": "ben",
+          "order_kind": "manual",
+          "household_id": null,
+          "claimed_at": null,
+          "feedback": {
+            "rating": 5,
+            "at": "2026-08-11T00:00:00Z"
+          }
+        }
+      ],
+      "questions": [],
+      "recommendations": []
+    },
+    "carla": {
+      "name": "Carla (two bags, same archetype, both liked)",
+      "quiz": {
+        "archetype": "balanced_sweet",
+        "at": "2026-08-01T00:00:00Z",
+        "secondary": null
+      },
+      "lines": [
+        {
+          "id": "OL_carla_1",
+          "coffee": "A",
+          "order_at": "2026-08-05T00:00:00Z",
+          "attribution": "buyer",
+          "drinker": "carla",
+          "order_kind": "manual",
+          "household_id": null,
+          "claimed_at": null,
+          "feedback": {
+            "rating": 5,
+            "at": "2026-08-07T00:00:00Z"
+          }
+        },
+        {
+          "id": "OL_carla_2",
+          "coffee": "B",
+          "order_at": "2026-08-21T00:00:00Z",
+          "attribution": "buyer",
+          "drinker": "carla",
+          "order_kind": "manual",
+          "household_id": null,
+          "claimed_at": null,
+          "feedback": {
+            "rating": 4,
+            "at": "2026-08-25T00:00:00Z"
+          }
+        }
+      ],
+      "questions": [],
+      "recommendations": []
+    },
+    "derek": {
+      "name": "Derek (crossover archetype)",
+      "quiz": {
+        "archetype": "balanced_sweet",
+        "at": "2026-08-01T00:00:00Z",
+        "secondary": "fruity"
+      },
+      "lines": [
+        {
+          "id": "OL_derek_1",
+          "coffee": "A",
+          "order_at": "2026-08-04T00:00:00Z",
+          "attribution": "buyer",
+          "drinker": "derek",
+          "order_kind": "manual",
+          "household_id": null,
+          "claimed_at": null,
+          "feedback": {
+            "rating": 5,
+            "at": "2026-08-06T00:00:00Z"
+          }
+        },
+        {
+          "id": "OL_derek_2",
+          "coffee": "C",
+          "order_at": "2026-08-16T00:00:00Z",
+          "attribution": "buyer",
+          "drinker": "derek",
+          "order_kind": "manual",
+          "household_id": null,
+          "claimed_at": null,
+          "feedback": {
+            "rating": 4,
+            "at": "2026-08-18T00:00:00Z"
+          }
+        }
+      ],
+      "questions": [],
+      "recommendations": []
+    },
+    "elena": {
+      "name": "Elena (negative feedback)",
+      "quiz": {
+        "archetype": "earthy",
+        "at": "2026-08-01T00:00:00Z",
+        "secondary": null
+      },
+      "lines": [
+        {
+          "id": "OL_elena_1",
+          "coffee": "D",
+          "order_at": "2026-08-07T00:00:00Z",
+          "attribution": "buyer",
+          "drinker": "elena",
+          "order_kind": "manual",
+          "household_id": null,
+          "claimed_at": null,
+          "feedback": {
+            "rating": 2,
+            "at": "2026-08-10T00:00:00Z"
+          }
+        }
+      ],
+      "questions": [],
+      "recommendations": []
+    },
+    "fiona": {
+      "name": "Fiona (household buyer, quiz only)",
+      "quiz": {
+        "archetype": "chocolate_nutty",
+        "at": "2026-08-01T00:00:00Z",
+        "secondary": null
+      },
+      "lines": [
+        {
+          "id": "OL_household_1",
+          "coffee": "E",
+          "order_at": "2026-08-06T00:00:00Z",
+          "attribution": "claim",
+          "drinker": "gary",
+          "order_kind": "manual",
+          "household_id": "H1",
+          "claimed_at": "2026-08-09T00:00:00Z",
+          "feedback": null
+        }
+      ],
+      "questions": [],
+      "recommendations": []
+    },
+    "gary": {
+      "name": "Gary (household member, claims the bag)",
+      "quiz": null,
+      "lines": [
+        {
+          "id": "OL_household_1",
+          "coffee": "E",
+          "order_at": "2026-08-06T00:00:00Z",
+          "attribution": "claim",
+          "drinker": "gary",
+          "order_kind": "manual",
+          "household_id": "H1",
+          "claimed_at": "2026-08-09T00:00:00Z",
+          "feedback": {
+            "rating": 5,
+            "at": "2026-08-13T00:00:00Z"
+          }
+        }
+      ],
+      "questions": [],
+      "recommendations": []
+    },
+    "harold": {
+      "name": "Harold (subscription renewal)",
+      "quiz": {
+        "archetype": "chocolate_nutty",
+        "at": "2026-08-01T00:00:00Z",
+        "secondary": null
+      },
+      "lines": [
+        {
+          "id": "OL_harold_1",
+          "coffee": "E",
+          "order_at": "2026-08-31T00:00:00Z",
+          "attribution": "buyer",
+          "drinker": "harold",
+          "order_kind": "subscription_renewal",
+          "household_id": null,
+          "claimed_at": null,
+          "feedback": null
+        }
+      ],
+      "questions": [],
+      "recommendations": []
+    },
+    "ivy": {
+      "name": "Ivy (followed recommendation)",
+      "quiz": {
+        "archetype": "floral",
+        "at": "2026-08-01T00:00:00Z",
+        "secondary": null
+      },
+      "lines": [
+        {
+          "id": "OL_ivy_1",
+          "coffee": "F",
+          "order_at": "2026-08-14T00:00:00Z",
+          "attribution": "buyer",
+          "drinker": "ivy",
+          "order_kind": "manual",
+          "household_id": null,
+          "claimed_at": null,
+          "feedback": {
+            "rating": 5,
+            "at": "2026-08-17T00:00:00Z"
+          }
+        }
+      ],
+      "questions": [],
+      "recommendations": [
+        {
+          "id": "REC_ivy_1",
+          "coffee": "F",
+          "at": "2026-08-11T00:00:00Z",
+          "followed_line_id": "OL_ivy_1",
+          "ordered_at": "2026-08-14T00:00:00Z"
+        }
+      ]
+    },
+    "jade": {
+      "name": "Jade (answered thread question)",
+      "quiz": {
+        "archetype": "experimental",
+        "at": "2026-08-01T00:00:00Z",
+        "secondary": null
+      },
+      "lines": [],
+      "questions": [
+        {
+          "id": "Q_jade_1",
+          "at": "2026-08-03T00:00:00Z",
+          "kind": "thread",
+          "question": "Do you like fermented flavors?",
+          "reply": "Yes, count me in!",
+          "replied_at": "2026-08-03T00:00:00Z"
+        }
+      ],
+      "recommendations": []
+    },
+    "kira_guest": {
+      "name": "Kira - guest profile (quiz only, pre-signup)",
+      "quiz": {
+        "archetype": "fruity",
+        "at": "2026-08-01T00:00:00Z",
+        "secondary": null
+      },
+      "lines": [],
+      "questions": [],
+      "recommendations": []
+    },
+    "kira_real": {
+      "name": "Kira - real account (linked to kira_guest)",
+      "quiz": null,
+      "lines": [
+        {
+          "id": "OL_kira_1",
+          "coffee": "C",
+          "order_at": "2026-08-10T00:00:00Z",
+          "attribution": "buyer",
+          "drinker": "kira_real",
+          "order_kind": "manual",
+          "household_id": null,
+          "claimed_at": null,
+          "feedback": {
+            "rating": 5,
+            "at": "2026-08-12T00:00:00Z"
+          }
+        }
+      ],
+      "questions": [],
+      "recommendations": []
+    }
+  },
+  "identity_links": [
+    {
+      "from": "kira_guest",
+      "to": "kira_real",
+      "how": "email_match",
+      "at": "2026-08-05T00:00:00Z"
+    }
+  ],
+  "canonical_groups": {
+    "maya": [
+      "maya"
+    ],
+    "ben": [
+      "ben"
+    ],
+    "carla": [
+      "carla"
+    ],
+    "derek": [
+      "derek"
+    ],
+    "elena": [
+      "elena"
+    ],
+    "fiona": [
+      "fiona"
+    ],
+    "gary": [
+      "gary"
+    ],
+    "harold": [
+      "harold"
+    ],
+    "ivy": [
+      "ivy"
+    ],
+    "jade": [
+      "jade"
+    ],
+    "kira_real": [
+      "kira_guest",
+      "kira_real"
+    ]
+  }
+}

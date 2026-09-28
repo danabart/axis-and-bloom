@@ -1,0 +1,1915 @@
+[
+  {
+    "canonical": "maya",
+    "label": "Maya (quiz only)",
+    "view": "v_palate_evidence",
+    "summary": "has_quiz=True, 0 attributed line(s), 0 positive / 0 negative feedback, 0 recommendation(s), 0 question(s)",
+    "rows": [
+      {
+        "canonical_user_id": "maya",
+        "read_version": "v1",
+        "n_attributed_lines": 0,
+        "n_distinct_coffees": 0,
+        "n_feedback_positive": 0,
+        "n_feedback_negative": 0,
+        "n_feedback_total": 0,
+        "n_questions_asked": 0,
+        "n_questions_answered": 0,
+        "n_recommendations": 0,
+        "n_brew_fields_known": 0,
+        "first_order_at": null,
+        "last_order_at": null,
+        "has_quiz": true
+      }
+    ]
+  },
+  {
+    "canonical": "maya",
+    "label": "Maya (quiz only)",
+    "view": "v_palate_shared_traits",
+    "summary": "0 rows (no attributed coffees)",
+    "rows": []
+  },
+  {
+    "canonical": "maya",
+    "label": "Maya (quiz only)",
+    "view": "v_palate_dominant_dimensions",
+    "summary": "0 rows (no attributed coffees)",
+    "rows": []
+  },
+  {
+    "canonical": "maya",
+    "label": "Maya (quiz only)",
+    "view": "v_palate_archetype_spread",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "maya",
+    "label": "Maya (quiz only)",
+    "view": "v_palate_threads",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "maya",
+    "label": "Maya (quiz only)",
+    "view": "v_palate_recommendation_outcome",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "maya",
+    "label": "Maya (quiz only)",
+    "view": "v_palate_slot_candidates",
+    "summary": "0 rows (no eligible signal - no liked bag and no disliked-bag+quiz combo)",
+    "rows": []
+  },
+  {
+    "canonical": "ben",
+    "label": "Ben (one bag)",
+    "view": "v_customer_bag_attribution",
+    "summary": "1 order line(s): OL_ben_1=buyer/ben",
+    "rows": [
+      {
+        "order_line_item_id": "OL_ben_1",
+        "coffee_id": "Vitest Coffee A",
+        "order_kind": "manual",
+        "drinker_user_id": "ben",
+        "attribution": "buyer"
+      }
+    ]
+  },
+  {
+    "canonical": "ben",
+    "label": "Ben (one bag)",
+    "view": "v_palate_evidence",
+    "summary": "has_quiz=True, 1 attributed line(s), 1 positive / 0 negative feedback, 0 recommendation(s), 0 question(s)",
+    "rows": [
+      {
+        "canonical_user_id": "ben",
+        "read_version": "v1",
+        "n_attributed_lines": 1,
+        "n_distinct_coffees": 1,
+        "n_feedback_positive": 1,
+        "n_feedback_negative": 0,
+        "n_feedback_total": 1,
+        "n_questions_asked": 0,
+        "n_questions_answered": 0,
+        "n_recommendations": 0,
+        "n_brew_fields_known": 0,
+        "first_order_at": "2026-08-06T00:00:00Z",
+        "last_order_at": "2026-08-06T00:00:00Z",
+        "has_quiz": true
+      }
+    ]
+  },
+  {
+    "canonical": "ben",
+    "label": "Ben (one bag)",
+    "view": "v_palate_shared_traits",
+    "summary": "5 row(s)",
+    "rows": [
+      {
+        "kind": "dimension",
+        "trait_key": "Acidity",
+        "trait_label": "Acidity",
+        "value_min": 3,
+        "value_max": 5,
+        "overlaps": true,
+        "n_coffees": 1
+      },
+      {
+        "kind": "dimension",
+        "trait_key": "Body",
+        "trait_label": "Body",
+        "value_min": 8,
+        "value_max": 10,
+        "overlaps": true,
+        "n_coffees": 1
+      },
+      {
+        "kind": "dimension",
+        "trait_key": "Sweetness",
+        "trait_label": "Sweetness",
+        "value_min": 10,
+        "value_max": 12,
+        "overlaps": true,
+        "n_coffees": 1
+      },
+      {
+        "kind": "descriptor",
+        "trait_key": "brown_sugar",
+        "trait_label": "brown_sugar",
+        "value_min": null,
+        "value_max": null,
+        "overlaps": null,
+        "n_coffees": 1
+      },
+      {
+        "kind": "descriptor",
+        "trait_key": "caramel",
+        "trait_label": "caramel",
+        "value_min": null,
+        "value_max": null,
+        "overlaps": null,
+        "n_coffees": 1
+      }
+    ]
+  },
+  {
+    "canonical": "ben",
+    "label": "Ben (one bag)",
+    "view": "v_palate_dominant_dimensions",
+    "summary": "3 row(s)",
+    "rows": [
+      {
+        "dimension_name": "Acidity",
+        "mean_midpoint": 4.0,
+        "n_coffees": 1,
+        "liked_mean_midpoint": 4.0,
+        "n_liked": 1,
+        "disliked_mean_midpoint": null,
+        "n_disliked": 0
+      },
+      {
+        "dimension_name": "Body",
+        "mean_midpoint": 9.0,
+        "n_coffees": 1,
+        "liked_mean_midpoint": 9.0,
+        "n_liked": 1,
+        "disliked_mean_midpoint": null,
+        "n_disliked": 0
+      },
+      {
+        "dimension_name": "Sweetness",
+        "mean_midpoint": 11.0,
+        "n_coffees": 1,
+        "liked_mean_midpoint": 11.0,
+        "n_liked": 1,
+        "disliked_mean_midpoint": null,
+        "n_disliked": 0
+      }
+    ]
+  },
+  {
+    "canonical": "ben",
+    "label": "Ben (one bag)",
+    "view": "v_palate_archetype_spread",
+    "summary": "balanced_sweet: n=1 +1/-0",
+    "rows": [
+      {
+        "match_archetype": "balanced_sweet",
+        "n_coffees": 1,
+        "n_positive": 1,
+        "n_negative": 0
+      }
+    ]
+  },
+  {
+    "canonical": "ben",
+    "label": "Ben (one bag)",
+    "view": "v_palate_threads",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "ben",
+    "label": "Ben (one bag)",
+    "view": "v_palate_recommendation_outcome",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "ben",
+    "label": "Ben (one bag)",
+    "view": "v_palate_slot_candidates",
+    "summary": "Vitest Coffee A (3/3, disliked_overlap=0, in_pair=True, already_bought=True, last_rating=5); Vitest Coffee E (3/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee D (1/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee C (0/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee F (0/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None)",
+    "rows": [
+      {
+        "slot_archetype": "balanced_sweet",
+        "coffee_id": "Vitest Coffee A",
+        "slot_id": 101,
+        "n_dims_overlapping": 3,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": true,
+        "already_bought": true,
+        "last_rating": 5
+      },
+      {
+        "slot_archetype": "chocolate_nutty",
+        "coffee_id": "Vitest Coffee E",
+        "slot_id": 104,
+        "n_dims_overlapping": 3,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "earthy",
+        "coffee_id": "Vitest Coffee D",
+        "slot_id": 103,
+        "n_dims_overlapping": 1,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "fruity",
+        "coffee_id": "Vitest Coffee C",
+        "slot_id": 102,
+        "n_dims_overlapping": 0,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "floral",
+        "coffee_id": "Vitest Coffee F",
+        "slot_id": 105,
+        "n_dims_overlapping": 0,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      }
+    ]
+  },
+  {
+    "canonical": "carla",
+    "label": "Carla (two bags, same archetype, both liked)",
+    "view": "v_customer_bag_attribution",
+    "summary": "2 order line(s): OL_carla_1=buyer/carla; OL_carla_2=buyer/carla",
+    "rows": [
+      {
+        "order_line_item_id": "OL_carla_1",
+        "coffee_id": "Vitest Coffee A",
+        "order_kind": "manual",
+        "drinker_user_id": "carla",
+        "attribution": "buyer"
+      },
+      {
+        "order_line_item_id": "OL_carla_2",
+        "coffee_id": "Vitest Coffee B",
+        "order_kind": "manual",
+        "drinker_user_id": "carla",
+        "attribution": "buyer"
+      }
+    ]
+  },
+  {
+    "canonical": "carla",
+    "label": "Carla (two bags, same archetype, both liked)",
+    "view": "v_palate_evidence",
+    "summary": "has_quiz=True, 2 attributed line(s), 2 positive / 0 negative feedback, 0 recommendation(s), 0 question(s)",
+    "rows": [
+      {
+        "canonical_user_id": "carla",
+        "read_version": "v1",
+        "n_attributed_lines": 2,
+        "n_distinct_coffees": 2,
+        "n_feedback_positive": 2,
+        "n_feedback_negative": 0,
+        "n_feedback_total": 2,
+        "n_questions_asked": 0,
+        "n_questions_answered": 0,
+        "n_recommendations": 0,
+        "n_brew_fields_known": 0,
+        "first_order_at": "2026-08-05T00:00:00Z",
+        "last_order_at": "2026-08-21T00:00:00Z",
+        "has_quiz": true
+      }
+    ]
+  },
+  {
+    "canonical": "carla",
+    "label": "Carla (two bags, same archetype, both liked)",
+    "view": "v_palate_shared_traits",
+    "summary": "4 row(s)",
+    "rows": [
+      {
+        "kind": "dimension",
+        "trait_key": "Acidity",
+        "trait_label": "Acidity",
+        "value_min": 3,
+        "value_max": 4,
+        "overlaps": true,
+        "n_coffees": 2
+      },
+      {
+        "kind": "dimension",
+        "trait_key": "Body",
+        "trait_label": "Body",
+        "value_min": 9,
+        "value_max": 10,
+        "overlaps": true,
+        "n_coffees": 2
+      },
+      {
+        "kind": "dimension",
+        "trait_key": "Sweetness",
+        "trait_label": "Sweetness",
+        "value_min": 11,
+        "value_max": 12,
+        "overlaps": true,
+        "n_coffees": 2
+      },
+      {
+        "kind": "descriptor",
+        "trait_key": "caramel",
+        "trait_label": "caramel",
+        "value_min": null,
+        "value_max": null,
+        "overlaps": null,
+        "n_coffees": 2
+      }
+    ]
+  },
+  {
+    "canonical": "carla",
+    "label": "Carla (two bags, same archetype, both liked)",
+    "view": "v_palate_dominant_dimensions",
+    "summary": "3 row(s)",
+    "rows": [
+      {
+        "dimension_name": "Acidity",
+        "mean_midpoint": 3.5,
+        "n_coffees": 2,
+        "liked_mean_midpoint": 3.5,
+        "n_liked": 2,
+        "disliked_mean_midpoint": null,
+        "n_disliked": 0
+      },
+      {
+        "dimension_name": "Body",
+        "mean_midpoint": 9.5,
+        "n_coffees": 2,
+        "liked_mean_midpoint": 9.5,
+        "n_liked": 2,
+        "disliked_mean_midpoint": null,
+        "n_disliked": 0
+      },
+      {
+        "dimension_name": "Sweetness",
+        "mean_midpoint": 11.5,
+        "n_coffees": 2,
+        "liked_mean_midpoint": 11.5,
+        "n_liked": 2,
+        "disliked_mean_midpoint": null,
+        "n_disliked": 0
+      }
+    ]
+  },
+  {
+    "canonical": "carla",
+    "label": "Carla (two bags, same archetype, both liked)",
+    "view": "v_palate_archetype_spread",
+    "summary": "balanced_sweet: n=2 +2/-0",
+    "rows": [
+      {
+        "match_archetype": "balanced_sweet",
+        "n_coffees": 2,
+        "n_positive": 2,
+        "n_negative": 0
+      }
+    ]
+  },
+  {
+    "canonical": "carla",
+    "label": "Carla (two bags, same archetype, both liked)",
+    "view": "v_palate_threads",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "carla",
+    "label": "Carla (two bags, same archetype, both liked)",
+    "view": "v_palate_recommendation_outcome",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "carla",
+    "label": "Carla (two bags, same archetype, both liked)",
+    "view": "v_palate_slot_candidates",
+    "summary": "Vitest Coffee A (3/3, disliked_overlap=0, in_pair=True, already_bought=True, last_rating=5); Vitest Coffee E (3/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee D (1/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee C (0/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee F (0/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None)",
+    "rows": [
+      {
+        "slot_archetype": "balanced_sweet",
+        "coffee_id": "Vitest Coffee A",
+        "slot_id": 101,
+        "n_dims_overlapping": 3,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": true,
+        "already_bought": true,
+        "last_rating": 5
+      },
+      {
+        "slot_archetype": "chocolate_nutty",
+        "coffee_id": "Vitest Coffee E",
+        "slot_id": 104,
+        "n_dims_overlapping": 3,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "earthy",
+        "coffee_id": "Vitest Coffee D",
+        "slot_id": 103,
+        "n_dims_overlapping": 1,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "fruity",
+        "coffee_id": "Vitest Coffee C",
+        "slot_id": 102,
+        "n_dims_overlapping": 0,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "floral",
+        "coffee_id": "Vitest Coffee F",
+        "slot_id": 105,
+        "n_dims_overlapping": 0,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      }
+    ]
+  },
+  {
+    "canonical": "derek",
+    "label": "Derek (crossover archetype)",
+    "view": "v_customer_bag_attribution",
+    "summary": "2 order line(s): OL_derek_1=buyer/derek; OL_derek_2=buyer/derek",
+    "rows": [
+      {
+        "order_line_item_id": "OL_derek_1",
+        "coffee_id": "Vitest Coffee A",
+        "order_kind": "manual",
+        "drinker_user_id": "derek",
+        "attribution": "buyer"
+      },
+      {
+        "order_line_item_id": "OL_derek_2",
+        "coffee_id": "Vitest Coffee C",
+        "order_kind": "manual",
+        "drinker_user_id": "derek",
+        "attribution": "buyer"
+      }
+    ]
+  },
+  {
+    "canonical": "derek",
+    "label": "Derek (crossover archetype)",
+    "view": "v_palate_evidence",
+    "summary": "has_quiz=True, 2 attributed line(s), 2 positive / 0 negative feedback, 0 recommendation(s), 0 question(s)",
+    "rows": [
+      {
+        "canonical_user_id": "derek",
+        "read_version": "v1",
+        "n_attributed_lines": 2,
+        "n_distinct_coffees": 2,
+        "n_feedback_positive": 2,
+        "n_feedback_negative": 0,
+        "n_feedback_total": 2,
+        "n_questions_asked": 0,
+        "n_questions_answered": 0,
+        "n_recommendations": 0,
+        "n_brew_fields_known": 0,
+        "first_order_at": "2026-08-04T00:00:00Z",
+        "last_order_at": "2026-08-16T00:00:00Z",
+        "has_quiz": true
+      }
+    ]
+  },
+  {
+    "canonical": "derek",
+    "label": "Derek (crossover archetype)",
+    "view": "v_palate_shared_traits",
+    "summary": "3 row(s)",
+    "rows": [
+      {
+        "kind": "dimension",
+        "trait_key": "Acidity",
+        "trait_label": "Acidity",
+        "value_min": 11,
+        "value_max": 5,
+        "overlaps": false,
+        "n_coffees": 2
+      },
+      {
+        "kind": "dimension",
+        "trait_key": "Body",
+        "trait_label": "Body",
+        "value_min": 8,
+        "value_max": 5,
+        "overlaps": false,
+        "n_coffees": 2
+      },
+      {
+        "kind": "dimension",
+        "trait_key": "Sweetness",
+        "trait_label": "Sweetness",
+        "value_min": 10,
+        "value_max": 8,
+        "overlaps": false,
+        "n_coffees": 2
+      }
+    ]
+  },
+  {
+    "canonical": "derek",
+    "label": "Derek (crossover archetype)",
+    "view": "v_palate_dominant_dimensions",
+    "summary": "3 row(s)",
+    "rows": [
+      {
+        "dimension_name": "Acidity",
+        "mean_midpoint": 8.0,
+        "n_coffees": 2,
+        "liked_mean_midpoint": 8.0,
+        "n_liked": 2,
+        "disliked_mean_midpoint": null,
+        "n_disliked": 0
+      },
+      {
+        "dimension_name": "Body",
+        "mean_midpoint": 6.5,
+        "n_coffees": 2,
+        "liked_mean_midpoint": 6.5,
+        "n_liked": 2,
+        "disliked_mean_midpoint": null,
+        "n_disliked": 0
+      },
+      {
+        "dimension_name": "Sweetness",
+        "mean_midpoint": 9.0,
+        "n_coffees": 2,
+        "liked_mean_midpoint": 9.0,
+        "n_liked": 2,
+        "disliked_mean_midpoint": null,
+        "n_disliked": 0
+      }
+    ]
+  },
+  {
+    "canonical": "derek",
+    "label": "Derek (crossover archetype)",
+    "view": "v_palate_archetype_spread",
+    "summary": "balanced_sweet: n=1 +1/-0; fruity: n=1 +1/-0",
+    "rows": [
+      {
+        "match_archetype": "balanced_sweet",
+        "n_coffees": 1,
+        "n_positive": 1,
+        "n_negative": 0
+      },
+      {
+        "match_archetype": "fruity",
+        "n_coffees": 1,
+        "n_positive": 1,
+        "n_negative": 0
+      }
+    ]
+  },
+  {
+    "canonical": "derek",
+    "label": "Derek (crossover archetype)",
+    "view": "v_palate_threads",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "derek",
+    "label": "Derek (crossover archetype)",
+    "view": "v_palate_recommendation_outcome",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "derek",
+    "label": "Derek (crossover archetype)",
+    "view": "v_palate_slot_candidates",
+    "summary": "Vitest Coffee A (0/0, disliked_overlap=0, in_pair=True, already_bought=True, last_rating=5); Vitest Coffee C (0/0, disliked_overlap=0, in_pair=True, already_bought=True, last_rating=4); Vitest Coffee D (0/0, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee E (0/0, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee F (0/0, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None)",
+    "rows": [
+      {
+        "slot_archetype": "balanced_sweet",
+        "coffee_id": "Vitest Coffee A",
+        "slot_id": 101,
+        "n_dims_overlapping": 0,
+        "n_dims_compared": 0,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": true,
+        "already_bought": true,
+        "last_rating": 5
+      },
+      {
+        "slot_archetype": "fruity",
+        "coffee_id": "Vitest Coffee C",
+        "slot_id": 102,
+        "n_dims_overlapping": 0,
+        "n_dims_compared": 0,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": true,
+        "already_bought": true,
+        "last_rating": 4
+      },
+      {
+        "slot_archetype": "earthy",
+        "coffee_id": "Vitest Coffee D",
+        "slot_id": 103,
+        "n_dims_overlapping": 0,
+        "n_dims_compared": 0,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "chocolate_nutty",
+        "coffee_id": "Vitest Coffee E",
+        "slot_id": 104,
+        "n_dims_overlapping": 0,
+        "n_dims_compared": 0,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "floral",
+        "coffee_id": "Vitest Coffee F",
+        "slot_id": 105,
+        "n_dims_overlapping": 0,
+        "n_dims_compared": 0,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      }
+    ]
+  },
+  {
+    "canonical": "elena",
+    "label": "Elena (negative feedback)",
+    "view": "v_customer_bag_attribution",
+    "summary": "1 order line(s): OL_elena_1=buyer/elena",
+    "rows": [
+      {
+        "order_line_item_id": "OL_elena_1",
+        "coffee_id": "Vitest Coffee D",
+        "order_kind": "manual",
+        "drinker_user_id": "elena",
+        "attribution": "buyer"
+      }
+    ]
+  },
+  {
+    "canonical": "elena",
+    "label": "Elena (negative feedback)",
+    "view": "v_palate_evidence",
+    "summary": "has_quiz=True, 1 attributed line(s), 0 positive / 1 negative feedback, 0 recommendation(s), 0 question(s)",
+    "rows": [
+      {
+        "canonical_user_id": "elena",
+        "read_version": "v1",
+        "n_attributed_lines": 1,
+        "n_distinct_coffees": 1,
+        "n_feedback_positive": 0,
+        "n_feedback_negative": 1,
+        "n_feedback_total": 1,
+        "n_questions_asked": 0,
+        "n_questions_answered": 0,
+        "n_recommendations": 0,
+        "n_brew_fields_known": 0,
+        "first_order_at": "2026-08-07T00:00:00Z",
+        "last_order_at": "2026-08-07T00:00:00Z",
+        "has_quiz": true
+      }
+    ]
+  },
+  {
+    "canonical": "elena",
+    "label": "Elena (negative feedback)",
+    "view": "v_palate_shared_traits",
+    "summary": "0 rows (no attributed coffees)",
+    "rows": []
+  },
+  {
+    "canonical": "elena",
+    "label": "Elena (negative feedback)",
+    "view": "v_palate_dominant_dimensions",
+    "summary": "3 row(s)",
+    "rows": [
+      {
+        "dimension_name": "Acidity",
+        "mean_midpoint": 2.5,
+        "n_coffees": 1,
+        "liked_mean_midpoint": null,
+        "n_liked": 0,
+        "disliked_mean_midpoint": 2.5,
+        "n_disliked": 1
+      },
+      {
+        "dimension_name": "Body",
+        "mean_midpoint": 13.0,
+        "n_coffees": 1,
+        "liked_mean_midpoint": null,
+        "n_liked": 0,
+        "disliked_mean_midpoint": 13.0,
+        "n_disliked": 1
+      },
+      {
+        "dimension_name": "Sweetness",
+        "mean_midpoint": 5.0,
+        "n_coffees": 1,
+        "liked_mean_midpoint": null,
+        "n_liked": 0,
+        "disliked_mean_midpoint": 5.0,
+        "n_disliked": 1
+      }
+    ]
+  },
+  {
+    "canonical": "elena",
+    "label": "Elena (negative feedback)",
+    "view": "v_palate_archetype_spread",
+    "summary": "earthy: n=1 +0/-1",
+    "rows": [
+      {
+        "match_archetype": "earthy",
+        "n_coffees": 1,
+        "n_positive": 0,
+        "n_negative": 1
+      }
+    ]
+  },
+  {
+    "canonical": "elena",
+    "label": "Elena (negative feedback)",
+    "view": "v_palate_threads",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "elena",
+    "label": "Elena (negative feedback)",
+    "view": "v_palate_recommendation_outcome",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "elena",
+    "label": "Elena (negative feedback)",
+    "view": "v_palate_slot_candidates",
+    "summary": "Vitest Coffee F (0/0, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee A (0/0, disliked_overlap=1, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee C (0/0, disliked_overlap=1, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee E (0/0, disliked_overlap=2, in_pair=False, already_bought=False, last_rating=None)",
+    "rows": [
+      {
+        "slot_archetype": "floral",
+        "coffee_id": "Vitest Coffee F",
+        "slot_id": 105,
+        "n_dims_overlapping": 0,
+        "n_dims_compared": 0,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "balanced_sweet",
+        "coffee_id": "Vitest Coffee A",
+        "slot_id": 101,
+        "n_dims_overlapping": 0,
+        "n_dims_compared": 0,
+        "n_dims_disliked_overlap": 1,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "fruity",
+        "coffee_id": "Vitest Coffee C",
+        "slot_id": 102,
+        "n_dims_overlapping": 0,
+        "n_dims_compared": 0,
+        "n_dims_disliked_overlap": 1,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "chocolate_nutty",
+        "coffee_id": "Vitest Coffee E",
+        "slot_id": 104,
+        "n_dims_overlapping": 0,
+        "n_dims_compared": 0,
+        "n_dims_disliked_overlap": 2,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      }
+    ]
+  },
+  {
+    "canonical": "fiona",
+    "label": "Fiona (household buyer, quiz only)",
+    "view": "v_customer_bag_attribution",
+    "summary": "1 order line(s): OL_household_1=claim/gary",
+    "rows": [
+      {
+        "order_line_item_id": "OL_household_1",
+        "coffee_id": "Vitest Coffee E",
+        "order_kind": "manual",
+        "drinker_user_id": "gary",
+        "attribution": "claim"
+      }
+    ]
+  },
+  {
+    "canonical": "fiona",
+    "label": "Fiona (household buyer, quiz only)",
+    "view": "v_palate_evidence",
+    "summary": "has_quiz=True, 0 attributed line(s), 0 positive / 0 negative feedback, 0 recommendation(s), 0 question(s)",
+    "rows": [
+      {
+        "canonical_user_id": "fiona",
+        "read_version": "v1",
+        "n_attributed_lines": 0,
+        "n_distinct_coffees": 0,
+        "n_feedback_positive": 0,
+        "n_feedback_negative": 0,
+        "n_feedback_total": 0,
+        "n_questions_asked": 0,
+        "n_questions_answered": 0,
+        "n_recommendations": 0,
+        "n_brew_fields_known": 0,
+        "first_order_at": null,
+        "last_order_at": null,
+        "has_quiz": true
+      }
+    ]
+  },
+  {
+    "canonical": "fiona",
+    "label": "Fiona (household buyer, quiz only)",
+    "view": "v_palate_shared_traits",
+    "summary": "0 rows (no attributed coffees)",
+    "rows": []
+  },
+  {
+    "canonical": "fiona",
+    "label": "Fiona (household buyer, quiz only)",
+    "view": "v_palate_dominant_dimensions",
+    "summary": "0 rows (no attributed coffees)",
+    "rows": []
+  },
+  {
+    "canonical": "fiona",
+    "label": "Fiona (household buyer, quiz only)",
+    "view": "v_palate_archetype_spread",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "fiona",
+    "label": "Fiona (household buyer, quiz only)",
+    "view": "v_palate_threads",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "fiona",
+    "label": "Fiona (household buyer, quiz only)",
+    "view": "v_palate_recommendation_outcome",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "fiona",
+    "label": "Fiona (household buyer, quiz only)",
+    "view": "v_palate_slot_candidates",
+    "summary": "0 rows (no eligible signal - no liked bag and no disliked-bag+quiz combo)",
+    "rows": []
+  },
+  {
+    "canonical": "gary",
+    "label": "Gary (household member, claims the bag)",
+    "view": "v_customer_bag_attribution",
+    "summary": "1 order line(s): OL_household_1=claim/gary",
+    "rows": [
+      {
+        "order_line_item_id": "OL_household_1",
+        "coffee_id": "Vitest Coffee E",
+        "order_kind": "manual",
+        "drinker_user_id": "gary",
+        "attribution": "claim"
+      }
+    ]
+  },
+  {
+    "canonical": "gary",
+    "label": "Gary (household member, claims the bag)",
+    "view": "v_palate_evidence",
+    "summary": "has_quiz=False, 1 attributed line(s), 1 positive / 0 negative feedback, 0 recommendation(s), 0 question(s)",
+    "rows": [
+      {
+        "canonical_user_id": "gary",
+        "read_version": "v1",
+        "n_attributed_lines": 1,
+        "n_distinct_coffees": 1,
+        "n_feedback_positive": 1,
+        "n_feedback_negative": 0,
+        "n_feedback_total": 1,
+        "n_questions_asked": 0,
+        "n_questions_answered": 0,
+        "n_recommendations": 0,
+        "n_brew_fields_known": 0,
+        "first_order_at": "2026-08-06T00:00:00Z",
+        "last_order_at": "2026-08-06T00:00:00Z",
+        "has_quiz": false
+      }
+    ]
+  },
+  {
+    "canonical": "gary",
+    "label": "Gary (household member, claims the bag)",
+    "view": "v_palate_shared_traits",
+    "summary": "5 row(s)",
+    "rows": [
+      {
+        "kind": "dimension",
+        "trait_key": "Acidity",
+        "trait_label": "Acidity",
+        "value_min": 3,
+        "value_max": 4,
+        "overlaps": true,
+        "n_coffees": 1
+      },
+      {
+        "kind": "dimension",
+        "trait_key": "Body",
+        "trait_label": "Body",
+        "value_min": 10,
+        "value_max": 12,
+        "overlaps": true,
+        "n_coffees": 1
+      },
+      {
+        "kind": "dimension",
+        "trait_key": "Sweetness",
+        "trait_label": "Sweetness",
+        "value_min": 9,
+        "value_max": 11,
+        "overlaps": true,
+        "n_coffees": 1
+      },
+      {
+        "kind": "descriptor",
+        "trait_key": "cocoa",
+        "trait_label": "cocoa",
+        "value_min": null,
+        "value_max": null,
+        "overlaps": null,
+        "n_coffees": 1
+      },
+      {
+        "kind": "descriptor",
+        "trait_key": "hazelnut",
+        "trait_label": "hazelnut",
+        "value_min": null,
+        "value_max": null,
+        "overlaps": null,
+        "n_coffees": 1
+      }
+    ]
+  },
+  {
+    "canonical": "gary",
+    "label": "Gary (household member, claims the bag)",
+    "view": "v_palate_dominant_dimensions",
+    "summary": "3 row(s)",
+    "rows": [
+      {
+        "dimension_name": "Acidity",
+        "mean_midpoint": 3.5,
+        "n_coffees": 1,
+        "liked_mean_midpoint": 3.5,
+        "n_liked": 1,
+        "disliked_mean_midpoint": null,
+        "n_disliked": 0
+      },
+      {
+        "dimension_name": "Body",
+        "mean_midpoint": 11.0,
+        "n_coffees": 1,
+        "liked_mean_midpoint": 11.0,
+        "n_liked": 1,
+        "disliked_mean_midpoint": null,
+        "n_disliked": 0
+      },
+      {
+        "dimension_name": "Sweetness",
+        "mean_midpoint": 10.0,
+        "n_coffees": 1,
+        "liked_mean_midpoint": 10.0,
+        "n_liked": 1,
+        "disliked_mean_midpoint": null,
+        "n_disliked": 0
+      }
+    ]
+  },
+  {
+    "canonical": "gary",
+    "label": "Gary (household member, claims the bag)",
+    "view": "v_palate_archetype_spread",
+    "summary": "chocolate_nutty: n=1 +1/-0",
+    "rows": [
+      {
+        "match_archetype": "chocolate_nutty",
+        "n_coffees": 1,
+        "n_positive": 1,
+        "n_negative": 0
+      }
+    ]
+  },
+  {
+    "canonical": "gary",
+    "label": "Gary (household member, claims the bag)",
+    "view": "v_palate_threads",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "gary",
+    "label": "Gary (household member, claims the bag)",
+    "view": "v_palate_recommendation_outcome",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "gary",
+    "label": "Gary (household member, claims the bag)",
+    "view": "v_palate_slot_candidates",
+    "summary": "Vitest Coffee A (3/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee E (3/3, disliked_overlap=0, in_pair=False, already_bought=True, last_rating=5); Vitest Coffee D (2/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee F (1/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee C (0/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None)",
+    "rows": [
+      {
+        "slot_archetype": "balanced_sweet",
+        "coffee_id": "Vitest Coffee A",
+        "slot_id": 101,
+        "n_dims_overlapping": 3,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "chocolate_nutty",
+        "coffee_id": "Vitest Coffee E",
+        "slot_id": 104,
+        "n_dims_overlapping": 3,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": true,
+        "last_rating": 5
+      },
+      {
+        "slot_archetype": "earthy",
+        "coffee_id": "Vitest Coffee D",
+        "slot_id": 103,
+        "n_dims_overlapping": 2,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "floral",
+        "coffee_id": "Vitest Coffee F",
+        "slot_id": 105,
+        "n_dims_overlapping": 1,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "fruity",
+        "coffee_id": "Vitest Coffee C",
+        "slot_id": 102,
+        "n_dims_overlapping": 0,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      }
+    ]
+  },
+  {
+    "canonical": "harold",
+    "label": "Harold (subscription renewal)",
+    "view": "v_customer_bag_attribution",
+    "summary": "1 order line(s): OL_harold_1=buyer/harold",
+    "rows": [
+      {
+        "order_line_item_id": "OL_harold_1",
+        "coffee_id": "Vitest Coffee E",
+        "order_kind": "subscription_renewal",
+        "drinker_user_id": "harold",
+        "attribution": "buyer"
+      }
+    ]
+  },
+  {
+    "canonical": "harold",
+    "label": "Harold (subscription renewal)",
+    "view": "v_palate_evidence",
+    "summary": "has_quiz=True, 1 attributed line(s), 0 positive / 0 negative feedback, 0 recommendation(s), 0 question(s)",
+    "rows": [
+      {
+        "canonical_user_id": "harold",
+        "read_version": "v1",
+        "n_attributed_lines": 1,
+        "n_distinct_coffees": 1,
+        "n_feedback_positive": 0,
+        "n_feedback_negative": 0,
+        "n_feedback_total": 0,
+        "n_questions_asked": 0,
+        "n_questions_answered": 0,
+        "n_recommendations": 0,
+        "n_brew_fields_known": 0,
+        "first_order_at": "2026-08-31T00:00:00Z",
+        "last_order_at": "2026-08-31T00:00:00Z",
+        "has_quiz": true
+      }
+    ]
+  },
+  {
+    "canonical": "harold",
+    "label": "Harold (subscription renewal)",
+    "view": "v_palate_shared_traits",
+    "summary": "5 row(s)",
+    "rows": [
+      {
+        "kind": "dimension",
+        "trait_key": "Acidity",
+        "trait_label": "Acidity",
+        "value_min": 3,
+        "value_max": 4,
+        "overlaps": true,
+        "n_coffees": 1
+      },
+      {
+        "kind": "dimension",
+        "trait_key": "Body",
+        "trait_label": "Body",
+        "value_min": 10,
+        "value_max": 12,
+        "overlaps": true,
+        "n_coffees": 1
+      },
+      {
+        "kind": "dimension",
+        "trait_key": "Sweetness",
+        "trait_label": "Sweetness",
+        "value_min": 9,
+        "value_max": 11,
+        "overlaps": true,
+        "n_coffees": 1
+      },
+      {
+        "kind": "descriptor",
+        "trait_key": "cocoa",
+        "trait_label": "cocoa",
+        "value_min": null,
+        "value_max": null,
+        "overlaps": null,
+        "n_coffees": 1
+      },
+      {
+        "kind": "descriptor",
+        "trait_key": "hazelnut",
+        "trait_label": "hazelnut",
+        "value_min": null,
+        "value_max": null,
+        "overlaps": null,
+        "n_coffees": 1
+      }
+    ]
+  },
+  {
+    "canonical": "harold",
+    "label": "Harold (subscription renewal)",
+    "view": "v_palate_dominant_dimensions",
+    "summary": "3 row(s)",
+    "rows": [
+      {
+        "dimension_name": "Acidity",
+        "mean_midpoint": 3.5,
+        "n_coffees": 1,
+        "liked_mean_midpoint": null,
+        "n_liked": 0,
+        "disliked_mean_midpoint": null,
+        "n_disliked": 0
+      },
+      {
+        "dimension_name": "Body",
+        "mean_midpoint": 11.0,
+        "n_coffees": 1,
+        "liked_mean_midpoint": null,
+        "n_liked": 0,
+        "disliked_mean_midpoint": null,
+        "n_disliked": 0
+      },
+      {
+        "dimension_name": "Sweetness",
+        "mean_midpoint": 10.0,
+        "n_coffees": 1,
+        "liked_mean_midpoint": null,
+        "n_liked": 0,
+        "disliked_mean_midpoint": null,
+        "n_disliked": 0
+      }
+    ]
+  },
+  {
+    "canonical": "harold",
+    "label": "Harold (subscription renewal)",
+    "view": "v_palate_archetype_spread",
+    "summary": "chocolate_nutty: n=1 +0/-0",
+    "rows": [
+      {
+        "match_archetype": "chocolate_nutty",
+        "n_coffees": 1,
+        "n_positive": 0,
+        "n_negative": 0
+      }
+    ]
+  },
+  {
+    "canonical": "harold",
+    "label": "Harold (subscription renewal)",
+    "view": "v_palate_threads",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "harold",
+    "label": "Harold (subscription renewal)",
+    "view": "v_palate_recommendation_outcome",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "harold",
+    "label": "Harold (subscription renewal)",
+    "view": "v_palate_slot_candidates",
+    "summary": "Vitest Coffee E (3/3, disliked_overlap=0, in_pair=True, already_bought=True, last_rating=None); Vitest Coffee A (3/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee D (2/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee F (1/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee C (0/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None)",
+    "rows": [
+      {
+        "slot_archetype": "chocolate_nutty",
+        "coffee_id": "Vitest Coffee E",
+        "slot_id": 104,
+        "n_dims_overlapping": 3,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": true,
+        "already_bought": true,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "balanced_sweet",
+        "coffee_id": "Vitest Coffee A",
+        "slot_id": 101,
+        "n_dims_overlapping": 3,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "earthy",
+        "coffee_id": "Vitest Coffee D",
+        "slot_id": 103,
+        "n_dims_overlapping": 2,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "floral",
+        "coffee_id": "Vitest Coffee F",
+        "slot_id": 105,
+        "n_dims_overlapping": 1,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "fruity",
+        "coffee_id": "Vitest Coffee C",
+        "slot_id": 102,
+        "n_dims_overlapping": 0,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      }
+    ]
+  },
+  {
+    "canonical": "ivy",
+    "label": "Ivy (followed recommendation)",
+    "view": "v_customer_bag_attribution",
+    "summary": "1 order line(s): OL_ivy_1=buyer/ivy",
+    "rows": [
+      {
+        "order_line_item_id": "OL_ivy_1",
+        "coffee_id": "Vitest Coffee F",
+        "order_kind": "manual",
+        "drinker_user_id": "ivy",
+        "attribution": "buyer"
+      }
+    ]
+  },
+  {
+    "canonical": "ivy",
+    "label": "Ivy (followed recommendation)",
+    "view": "v_palate_evidence",
+    "summary": "has_quiz=True, 1 attributed line(s), 1 positive / 0 negative feedback, 1 recommendation(s), 0 question(s)",
+    "rows": [
+      {
+        "canonical_user_id": "ivy",
+        "read_version": "v1",
+        "n_attributed_lines": 1,
+        "n_distinct_coffees": 1,
+        "n_feedback_positive": 1,
+        "n_feedback_negative": 0,
+        "n_feedback_total": 1,
+        "n_questions_asked": 0,
+        "n_questions_answered": 0,
+        "n_recommendations": 1,
+        "n_brew_fields_known": 0,
+        "first_order_at": "2026-08-14T00:00:00Z",
+        "last_order_at": "2026-08-14T00:00:00Z",
+        "has_quiz": true
+      }
+    ]
+  },
+  {
+    "canonical": "ivy",
+    "label": "Ivy (followed recommendation)",
+    "view": "v_palate_shared_traits",
+    "summary": "5 row(s)",
+    "rows": [
+      {
+        "kind": "dimension",
+        "trait_key": "Acidity",
+        "trait_label": "Acidity",
+        "value_min": 9,
+        "value_max": 11,
+        "overlaps": true,
+        "n_coffees": 1
+      },
+      {
+        "kind": "dimension",
+        "trait_key": "Body",
+        "trait_label": "Body",
+        "value_min": 4,
+        "value_max": 6,
+        "overlaps": true,
+        "n_coffees": 1
+      },
+      {
+        "kind": "dimension",
+        "trait_key": "Sweetness",
+        "trait_label": "Sweetness",
+        "value_min": 7,
+        "value_max": 9,
+        "overlaps": true,
+        "n_coffees": 1
+      },
+      {
+        "kind": "descriptor",
+        "trait_key": "honey",
+        "trait_label": "honey",
+        "value_min": null,
+        "value_max": null,
+        "overlaps": null,
+        "n_coffees": 1
+      },
+      {
+        "kind": "descriptor",
+        "trait_key": "jasmine",
+        "trait_label": "jasmine",
+        "value_min": null,
+        "value_max": null,
+        "overlaps": null,
+        "n_coffees": 1
+      }
+    ]
+  },
+  {
+    "canonical": "ivy",
+    "label": "Ivy (followed recommendation)",
+    "view": "v_palate_dominant_dimensions",
+    "summary": "3 row(s)",
+    "rows": [
+      {
+        "dimension_name": "Acidity",
+        "mean_midpoint": 10.0,
+        "n_coffees": 1,
+        "liked_mean_midpoint": 10.0,
+        "n_liked": 1,
+        "disliked_mean_midpoint": null,
+        "n_disliked": 0
+      },
+      {
+        "dimension_name": "Body",
+        "mean_midpoint": 5.0,
+        "n_coffees": 1,
+        "liked_mean_midpoint": 5.0,
+        "n_liked": 1,
+        "disliked_mean_midpoint": null,
+        "n_disliked": 0
+      },
+      {
+        "dimension_name": "Sweetness",
+        "mean_midpoint": 8.0,
+        "n_coffees": 1,
+        "liked_mean_midpoint": 8.0,
+        "n_liked": 1,
+        "disliked_mean_midpoint": null,
+        "n_disliked": 0
+      }
+    ]
+  },
+  {
+    "canonical": "ivy",
+    "label": "Ivy (followed recommendation)",
+    "view": "v_palate_archetype_spread",
+    "summary": "floral: n=1 +1/-0",
+    "rows": [
+      {
+        "match_archetype": "floral",
+        "n_coffees": 1,
+        "n_positive": 1,
+        "n_negative": 0
+      }
+    ]
+  },
+  {
+    "canonical": "ivy",
+    "label": "Ivy (followed recommendation)",
+    "view": "v_palate_threads",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "ivy",
+    "label": "Ivy (followed recommendation)",
+    "view": "v_palate_recommendation_outcome",
+    "summary": "Vitest Coffee F -> 3.0d, rating=5",
+    "rows": [
+      {
+        "recommendation_id": "REC_ivy_1",
+        "recommended_at": "2026-08-11T00:00:00Z",
+        "coffee_id": "Vitest Coffee F",
+        "followed_order_line_item_id": "OL_ivy_1",
+        "ordered_at": "2026-08-14T00:00:00Z",
+        "days_to_order": 3.0,
+        "feedback_rating": 5
+      }
+    ]
+  },
+  {
+    "canonical": "ivy",
+    "label": "Ivy (followed recommendation)",
+    "view": "v_palate_slot_candidates",
+    "summary": "Vitest Coffee F (3/3, disliked_overlap=0, in_pair=True, already_bought=True, last_rating=5); Vitest Coffee C (3/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee E (1/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee A (0/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee D (0/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None)",
+    "rows": [
+      {
+        "slot_archetype": "floral",
+        "coffee_id": "Vitest Coffee F",
+        "slot_id": 105,
+        "n_dims_overlapping": 3,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": true,
+        "already_bought": true,
+        "last_rating": 5
+      },
+      {
+        "slot_archetype": "fruity",
+        "coffee_id": "Vitest Coffee C",
+        "slot_id": 102,
+        "n_dims_overlapping": 3,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "chocolate_nutty",
+        "coffee_id": "Vitest Coffee E",
+        "slot_id": 104,
+        "n_dims_overlapping": 1,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "balanced_sweet",
+        "coffee_id": "Vitest Coffee A",
+        "slot_id": 101,
+        "n_dims_overlapping": 0,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "earthy",
+        "coffee_id": "Vitest Coffee D",
+        "slot_id": 103,
+        "n_dims_overlapping": 0,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      }
+    ]
+  },
+  {
+    "canonical": "jade",
+    "label": "Jade (answered thread question)",
+    "view": "v_palate_evidence",
+    "summary": "has_quiz=True, 0 attributed line(s), 0 positive / 0 negative feedback, 0 recommendation(s), 1 question(s)",
+    "rows": [
+      {
+        "canonical_user_id": "jade",
+        "read_version": "v1",
+        "n_attributed_lines": 0,
+        "n_distinct_coffees": 0,
+        "n_feedback_positive": 0,
+        "n_feedback_negative": 0,
+        "n_feedback_total": 0,
+        "n_questions_asked": 1,
+        "n_questions_answered": 1,
+        "n_recommendations": 0,
+        "n_brew_fields_known": 0,
+        "first_order_at": null,
+        "last_order_at": null,
+        "has_quiz": true
+      }
+    ]
+  },
+  {
+    "canonical": "jade",
+    "label": "Jade (answered thread question)",
+    "view": "v_palate_shared_traits",
+    "summary": "0 rows (no attributed coffees)",
+    "rows": []
+  },
+  {
+    "canonical": "jade",
+    "label": "Jade (answered thread question)",
+    "view": "v_palate_dominant_dimensions",
+    "summary": "0 rows (no attributed coffees)",
+    "rows": []
+  },
+  {
+    "canonical": "jade",
+    "label": "Jade (answered thread question)",
+    "view": "v_palate_archetype_spread",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "jade",
+    "label": "Jade (answered thread question)",
+    "view": "v_palate_threads",
+    "summary": "answered: Do you like fermented flavors?",
+    "rows": [
+      {
+        "question_id": "Q_jade_1",
+        "occurred_at": "2026-08-03T00:00:00Z",
+        "kind": "thread",
+        "question": "Do you like fermented flavors?",
+        "reply": "Yes, count me in!",
+        "replied_at": "2026-08-03T00:00:00Z",
+        "status": "answered"
+      }
+    ]
+  },
+  {
+    "canonical": "jade",
+    "label": "Jade (answered thread question)",
+    "view": "v_palate_recommendation_outcome",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "jade",
+    "label": "Jade (answered thread question)",
+    "view": "v_palate_slot_candidates",
+    "summary": "0 rows (no eligible signal - no liked bag and no disliked-bag+quiz combo)",
+    "rows": []
+  },
+  {
+    "canonical": "kira_real",
+    "label": "Kira - guest profile (quiz only, pre-signup) + Kira - real account (linked to kira_guest)",
+    "view": "v_customer_bag_attribution",
+    "summary": "1 order line(s): OL_kira_1=buyer/kira_real",
+    "rows": [
+      {
+        "order_line_item_id": "OL_kira_1",
+        "coffee_id": "Vitest Coffee C",
+        "order_kind": "manual",
+        "drinker_user_id": "kira_real",
+        "attribution": "buyer"
+      }
+    ]
+  },
+  {
+    "canonical": "kira_real",
+    "label": "Kira - guest profile (quiz only, pre-signup) + Kira - real account (linked to kira_guest)",
+    "view": "v_palate_evidence",
+    "summary": "has_quiz=True, 1 attributed line(s), 1 positive / 0 negative feedback, 0 recommendation(s), 0 question(s)",
+    "rows": [
+      {
+        "canonical_user_id": "kira_real",
+        "read_version": "v1",
+        "n_attributed_lines": 1,
+        "n_distinct_coffees": 1,
+        "n_feedback_positive": 1,
+        "n_feedback_negative": 0,
+        "n_feedback_total": 1,
+        "n_questions_asked": 0,
+        "n_questions_answered": 0,
+        "n_recommendations": 0,
+        "n_brew_fields_known": 0,
+        "first_order_at": "2026-08-10T00:00:00Z",
+        "last_order_at": "2026-08-10T00:00:00Z",
+        "has_quiz": true
+      }
+    ]
+  },
+  {
+    "canonical": "kira_real",
+    "label": "Kira - guest profile (quiz only, pre-signup) + Kira - real account (linked to kira_guest)",
+    "view": "v_palate_shared_traits",
+    "summary": "5 row(s)",
+    "rows": [
+      {
+        "kind": "dimension",
+        "trait_key": "Acidity",
+        "trait_label": "Acidity",
+        "value_min": 11,
+        "value_max": 13,
+        "overlaps": true,
+        "n_coffees": 1
+      },
+      {
+        "kind": "dimension",
+        "trait_key": "Body",
+        "trait_label": "Body",
+        "value_min": 3,
+        "value_max": 5,
+        "overlaps": true,
+        "n_coffees": 1
+      },
+      {
+        "kind": "dimension",
+        "trait_key": "Sweetness",
+        "trait_label": "Sweetness",
+        "value_min": 6,
+        "value_max": 8,
+        "overlaps": true,
+        "n_coffees": 1
+      },
+      {
+        "kind": "descriptor",
+        "trait_key": "berry",
+        "trait_label": "berry",
+        "value_min": null,
+        "value_max": null,
+        "overlaps": null,
+        "n_coffees": 1
+      },
+      {
+        "kind": "descriptor",
+        "trait_key": "citrus",
+        "trait_label": "citrus",
+        "value_min": null,
+        "value_max": null,
+        "overlaps": null,
+        "n_coffees": 1
+      }
+    ]
+  },
+  {
+    "canonical": "kira_real",
+    "label": "Kira - guest profile (quiz only, pre-signup) + Kira - real account (linked to kira_guest)",
+    "view": "v_palate_dominant_dimensions",
+    "summary": "3 row(s)",
+    "rows": [
+      {
+        "dimension_name": "Acidity",
+        "mean_midpoint": 12.0,
+        "n_coffees": 1,
+        "liked_mean_midpoint": 12.0,
+        "n_liked": 1,
+        "disliked_mean_midpoint": null,
+        "n_disliked": 0
+      },
+      {
+        "dimension_name": "Body",
+        "mean_midpoint": 4.0,
+        "n_coffees": 1,
+        "liked_mean_midpoint": 4.0,
+        "n_liked": 1,
+        "disliked_mean_midpoint": null,
+        "n_disliked": 0
+      },
+      {
+        "dimension_name": "Sweetness",
+        "mean_midpoint": 7.0,
+        "n_coffees": 1,
+        "liked_mean_midpoint": 7.0,
+        "n_liked": 1,
+        "disliked_mean_midpoint": null,
+        "n_disliked": 0
+      }
+    ]
+  },
+  {
+    "canonical": "kira_real",
+    "label": "Kira - guest profile (quiz only, pre-signup) + Kira - real account (linked to kira_guest)",
+    "view": "v_palate_archetype_spread",
+    "summary": "fruity: n=1 +1/-0",
+    "rows": [
+      {
+        "match_archetype": "fruity",
+        "n_coffees": 1,
+        "n_positive": 1,
+        "n_negative": 0
+      }
+    ]
+  },
+  {
+    "canonical": "kira_real",
+    "label": "Kira - guest profile (quiz only, pre-signup) + Kira - real account (linked to kira_guest)",
+    "view": "v_palate_threads",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "kira_real",
+    "label": "Kira - guest profile (quiz only, pre-signup) + Kira - real account (linked to kira_guest)",
+    "view": "v_palate_recommendation_outcome",
+    "summary": "0 rows",
+    "rows": []
+  },
+  {
+    "canonical": "kira_real",
+    "label": "Kira - guest profile (quiz only, pre-signup) + Kira - real account (linked to kira_guest)",
+    "view": "v_palate_slot_candidates",
+    "summary": "Vitest Coffee C (3/3, disliked_overlap=0, in_pair=True, already_bought=True, last_rating=5); Vitest Coffee F (3/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee D (1/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee A (0/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None); Vitest Coffee E (0/3, disliked_overlap=0, in_pair=False, already_bought=False, last_rating=None)",
+    "rows": [
+      {
+        "slot_archetype": "fruity",
+        "coffee_id": "Vitest Coffee C",
+        "slot_id": 102,
+        "n_dims_overlapping": 3,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": true,
+        "already_bought": true,
+        "last_rating": 5
+      },
+      {
+        "slot_archetype": "floral",
+        "coffee_id": "Vitest Coffee F",
+        "slot_id": 105,
+        "n_dims_overlapping": 3,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "earthy",
+        "coffee_id": "Vitest Coffee D",
+        "slot_id": 103,
+        "n_dims_overlapping": 1,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "balanced_sweet",
+        "coffee_id": "Vitest Coffee A",
+        "slot_id": 101,
+        "n_dims_overlapping": 0,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      },
+      {
+        "slot_archetype": "chocolate_nutty",
+        "coffee_id": "Vitest Coffee E",
+        "slot_id": 104,
+        "n_dims_overlapping": 0,
+        "n_dims_compared": 3,
+        "n_dims_disliked_overlap": 0,
+        "in_pair": false,
+        "already_bought": false,
+        "last_rating": null
+      }
+    ]
+  }
+]
