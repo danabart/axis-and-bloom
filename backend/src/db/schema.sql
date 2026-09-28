@@ -4533,6 +4533,7 @@ ALTER TABLE order_line_item ALTER COLUMN order_kind SET DEFAULT 'manual';
 -- view below is swept by the view-grant loop the same way — no per-object
 -- grant statement needed for any of this block.
 -- ═══════════════════════════════════════════════════════════════════════════
+-- BEGIN CUSTOMER BLUEPRINT C3 views/tables block
 
 -- Part B4 — saved items (operating table: the fact stays customer_dial_event
 -- / the recipe was never a fact; this is current state, edited by tombstone).
@@ -4613,7 +4614,18 @@ END $$;
 -- 13, which independently verifies no such cycle actually exists in prod
 -- data (this is a defensive bound, not an expected case).
 
-CREATE OR REPLACE VIEW v_customer_identity AS
+-- Every view for the rest of this C3 block uses DROP VIEW IF EXISTS ...
+-- CASCADE; CREATE VIEW, never CREATE OR REPLACE VIEW (Dana, 2026-09-27, after
+-- CREATE OR REPLACE's column-reorder restriction broke v_palate_slot_candidates
+-- live in production — see that view's own comment below). CASCADE is safe
+-- because this file only ever defines a view after everything it references,
+-- so a cascaded drop only ever removes views that this same file's later
+-- statements recreate in the same pass — self-healing within one boot, same
+-- as the customer_brew_profile_fold aggregate's own DROP ... CASCADE earlier
+-- in this file. lint-customer.mjs Rule 5 fails the build on any
+-- CREATE OR REPLACE VIEW reintroduced under this block.
+DROP VIEW IF EXISTS v_customer_identity CASCADE;
+CREATE VIEW v_customer_identity AS
 WITH RECURSIVE walk AS (
   SELECT up.id AS user_id, up.id AS current_id, 0 AS depth, ARRAY[up.id] AS path, false AS cycle_detected
   FROM user_profile up
@@ -4648,7 +4660,8 @@ FROM terminal t;
 -- food_signal/experimental always come from context_data (never part of
 -- quiz_session_interpretation, unchanged from today's reads).
 
-CREATE OR REPLACE VIEW v_customer_quiz_current AS
+DROP VIEW IF EXISTS v_customer_quiz_current CASCADE;
+CREATE VIEW v_customer_quiz_current AS
 WITH sessions AS (
   SELECT
     vci.canonical_user_id,
@@ -4754,7 +4767,8 @@ CREATE AGGREGATE customer_brew_profile_fold(TEXT, TEXT) (
 );
 
 
-CREATE OR REPLACE VIEW v_customer_brew_profile AS
+DROP VIEW IF EXISTS v_customer_brew_profile CASCADE;
+CREATE VIEW v_customer_brew_profile AS
 SELECT canonical_user_id, field, value_jsonb, captured_at, source
 FROM (
   SELECT
@@ -4772,7 +4786,8 @@ WHERE value_jsonb IS NOT NULL;
 -- customer_feedback_event rows not pointed at by any other row's
 -- supersedes_id, i.e. the current revision per (user, order line).
 
-CREATE OR REPLACE VIEW v_customer_feedback_current AS
+DROP VIEW IF EXISTS v_customer_feedback_current CASCADE;
+CREATE VIEW v_customer_feedback_current AS
 SELECT
   vci.canonical_user_id,
   cfe.id AS feedback_event_id,
@@ -4803,7 +4818,8 @@ WHERE NOT EXISTS (SELECT 1 FROM customer_feedback_event newer WHERE newer.supers
 -- the buyer branch. Flagged in the C3 closing report as a judgment call, not
 -- a verified behavior.
 
-CREATE OR REPLACE VIEW v_customer_bag_attribution AS
+DROP VIEW IF EXISTS v_customer_bag_attribution CASCADE;
+CREATE VIEW v_customer_bag_attribution AS
 SELECT
   oli.id AS order_line_item_id,
   o.id AS order_id,
@@ -4841,7 +4857,8 @@ LEFT JOIN LATERAL (
 -- comment above); both sides resolve to the same canonical_user_id in the
 -- common single-hop case.
 
-CREATE OR REPLACE VIEW v_customer_timeline AS
+DROP VIEW IF EXISTS v_customer_timeline CASCADE;
+CREATE VIEW v_customer_timeline AS
 SELECT vci1.canonical_user_id, qs.completed_at AS occurred_at, 'quiz'::text AS kind, qs.id::text AS ref_id,
        NULL::int AS coffee_id, NULL::int AS slot_id, ca.code AS archetype_code, NULL::int AS session_id,
        jsonb_build_object('archetype', ca.name, 'secondary_archetype', quiz_archetype_canonical(i.secondary_archetype)) AS detail
@@ -4931,7 +4948,8 @@ ORDER BY occurred_at, kind;
 -- (basis='unmerged') when no merged row exists; no rows at all when a
 -- coffee has never been cupped (never a default range).
 
-CREATE OR REPLACE VIEW v_coffee_dimension_range AS
+DROP VIEW IF EXISTS v_coffee_dimension_range CASCADE;
+CREATE VIEW v_coffee_dimension_range AS
 WITH merged AS (
   SELECT sc.coffee_id, csv.dimension_id, MIN(csv.value_min) AS value_min, MAX(csv.value_max) AS value_max, COUNT(*) AS n_scores
   FROM cupping_score_values csv
@@ -4962,7 +4980,8 @@ WHERE c.is_active = true AND (m.coffee_id IS NOT NULL OR u.coffee_id IS NOT NULL
 -- source channels ('internal'/'roastery'/'client') this descriptor was
 -- observed under for that coffee, not a total observation count.
 
-CREATE OR REPLACE VIEW v_coffee_descriptor AS
+DROP VIEW IF EXISTS v_coffee_descriptor CASCADE;
+CREATE VIEW v_coffee_descriptor AS
 SELECT coffee_id, descriptor, wheel_category, wheel_subcategory, COUNT(DISTINCT source) AS n_sources
 FROM v_collaborative_flavor_wheel
 GROUP BY coffee_id, descriptor, wheel_category, wheel_subcategory;
@@ -4970,7 +4989,8 @@ GROUP BY coffee_id, descriptor, wheel_category, wheel_subcategory;
 -- ── Part A5 — The reads (v_palate_*, read_version = 'v1') ────────────────
 
 
-CREATE OR REPLACE VIEW v_palate_evidence AS
+DROP VIEW IF EXISTS v_palate_evidence CASCADE;
+CREATE VIEW v_palate_evidence AS
 WITH base_customers AS (
   SELECT canonical_user_id FROM v_customer_quiz_current
   UNION SELECT vci_i.canonical_user_id FROM v_customer_bag_attribution vba
@@ -5044,7 +5064,8 @@ LEFT JOIN (
 -- descriptor here. A customer whose only bag is disliked gets zero rows.
 -- These are v1 rules (read_version stays 'v1' everywhere) — order_kind
 -- filtering is the first named v2 item, not done here.
-CREATE OR REPLACE VIEW v_palate_shared_traits AS
+DROP VIEW IF EXISTS v_palate_shared_traits CASCADE;
+CREATE VIEW v_palate_shared_traits AS
 WITH attributed_coffees AS (
   SELECT DISTINCT vci_i.canonical_user_id, vba.coffee_id
   FROM v_customer_bag_attribution vba
@@ -5079,7 +5100,8 @@ FROM desc_agg d
 JOIN total_coffees t ON t.canonical_user_id = d.canonical_user_id AND d.n_coffees = t.n_total;
 
 
-CREATE OR REPLACE VIEW v_palate_dominant_dimensions AS
+DROP VIEW IF EXISTS v_palate_dominant_dimensions CASCADE;
+CREATE VIEW v_palate_dominant_dimensions AS
 WITH attributed AS (
   SELECT DISTINCT vci_i.canonical_user_id, vba.coffee_id, vba.order_line_item_id
   FROM v_customer_bag_attribution vba
@@ -5109,7 +5131,8 @@ FROM with_sentiment
 GROUP BY canonical_user_id, dimension_id, dimension_name;
 
 
-CREATE OR REPLACE VIEW v_palate_archetype_spread AS
+DROP VIEW IF EXISTS v_palate_archetype_spread CASCADE;
+CREATE VIEW v_palate_archetype_spread AS
 WITH attributed AS (
   SELECT DISTINCT vci_i.canonical_user_id, vba.coffee_id, vba.order_line_item_id, vc.match_archetype
   FROM v_customer_bag_attribution vba
@@ -5130,7 +5153,8 @@ FROM with_sentiment
 GROUP BY canonical_user_id, match_archetype;
 
 
-CREATE OR REPLACE VIEW v_palate_threads AS
+DROP VIEW IF EXISTS v_palate_threads CASCADE;
+CREATE VIEW v_palate_threads AS
 SELECT
   vci_q.canonical_user_id,
   clq.id AS question_id, clq.occurred_at, clq.kind, clq.archetype_code, clq.question,
@@ -5144,7 +5168,8 @@ LEFT JOIN customer_liam_reply clr ON clr.question_id = clq.id;
 -- that exact coffee; a slot-targeted one (no coffee_id) matches lines whose
 -- coffee is the slot's current active assignment.
 
-CREATE OR REPLACE VIEW v_palate_recommendation_outcome AS
+DROP VIEW IF EXISTS v_palate_recommendation_outcome CASCADE;
+CREATE VIEW v_palate_recommendation_outcome AS
 SELECT
   vci_r.canonical_user_id,
   clr.id AS recommendation_id, clr.occurred_at AS recommended_at, clr.coffee_id, clr.slot_id,
@@ -5199,16 +5224,18 @@ LEFT JOIN LATERAL (
 --     every slot, n_dims_disliked_overlap populated and steering the order.
 --     Requires a quiz (D14's "no behaviour yet" fallback still applies to a
 --     customer with neither a liked bag nor a quiz: zero rows).
--- Plain DROP VIEW + CREATE, not CREATE OR REPLACE: rule 6 inserts
--- n_dims_disliked_overlap ahead of the existing in_pair/already_bought/
--- last_rating columns, and CREATE OR REPLACE VIEW cannot reorder or rename
--- an existing view's columns (error 42P16) — hit for real in production on
--- this deploy (non-fatal per-statement, but the view was left on its old
--- pre-rule-6 definition until this fix). Nothing else in this file
--- references v_palate_slot_candidates, so a bare drop is safe; if that
--- changes, convert back to CREATE OR REPLACE, same as this file's other
--- views did once they gained a permanent dependent.
-DROP VIEW IF EXISTS v_palate_slot_candidates;
+-- Plain DROP VIEW + CREATE, not CREATE OR REPLACE — the whole C3 block's
+-- convention as of this fix (lint-customer.mjs Rule 5 enforces it): rule 6
+-- inserted n_dims_disliked_overlap ahead of the existing in_pair/
+-- already_bought/last_rating columns, and CREATE OR REPLACE VIEW cannot
+-- reorder or rename an existing view's columns (error 42P16) — hit for real
+-- in production (non-fatal per-statement, but the view was left on its old
+-- pre-rule-6 definition until this fix). CASCADE is harmless here (nothing
+-- references v_palate_slot_candidates today) and keeps every C3 view on one
+-- uniform, future-proof pattern: if something later joins through this view,
+-- the CASCADE self-heals within the same boot, same as every other view in
+-- this block.
+DROP VIEW IF EXISTS v_palate_slot_candidates CASCADE;
 CREATE VIEW v_palate_slot_candidates AS
 WITH traits AS (
   -- "overlaps" is a reserved word (the OVERLAPS predicate) - must be quoted

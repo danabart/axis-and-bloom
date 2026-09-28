@@ -6,7 +6,8 @@
 // (services/lintCustomer.test.ts) and by .github/workflows/deploy.yml right
 // before the backend build, beside lint:catalog.
 //
-// Four rules. See backend/src/features/customer_blueprint/
+// Started at four rules (C1, Part E); rules 5/6 added in C3, Part F; rule 7
+// added in a later C3 fix pass. See backend/src/features/customer_blueprint/
 // CLAUDE_CODE_PROMPT_CUSTOMER_1_ROLES_NAMING_DOOR.md, Part E.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -316,6 +317,54 @@ for (const relPath of files) {
       violations.push({ file: relPath, line: i + 1, message: `SELECT from 'user_flavor_feedback' outside a view` });
     }
   });
+}
+
+// ── Rule 7: no CREATE OR REPLACE VIEW under the Customer Blueprint C3 block ──
+// Dana, 2026-09-27, after CREATE OR REPLACE VIEW's column-reorder restriction
+// (Postgres error 42P16) broke v_palate_slot_candidates live in production —
+// rule 6 inserted a column ahead of existing ones, which CREATE OR REPLACE
+// silently can't do (the failure is non-fatal per-statement at boot, so the
+// view was just silently left on its old definition). Every view in this
+// block now uses DROP VIEW IF EXISTS ... CASCADE; CREATE VIEW instead (see
+// schema.sql's own comment above v_customer_identity) — this rule keeps it
+// that way. Scope is schema.sql only, between the block's own BEGIN/END
+// markers (added the same day as this rule, for exactly this purpose) — a
+// CREATE OR REPLACE VIEW elsewhere in the file (catalog/quiz/reporting views
+// that predate this convention and have no history of this failure mode) is
+// out of scope and not flagged.
+{
+  const beginMarker = '-- BEGIN CUSTOMER BLUEPRINT C3 views/tables block';
+  const endMarker = '-- END CUSTOMER BLUEPRINT C3 views/tables block';
+  const beginIdx = schemaText.indexOf(beginMarker);
+  const endIdx = schemaText.indexOf(endMarker);
+  if (beginIdx === -1 || endIdx === -1 || endIdx < beginIdx) {
+    violations.push({
+      file: 'db/schema.sql',
+      line: 1,
+      message: `Rule 7 can't find the Customer Blueprint C3 block markers ('${beginMarker}' / '${endMarker}') — schema.sql was restructured; update lint-customer.mjs's markers or this rule silently checks nothing`,
+    });
+  } else {
+    // Strip SQL line comments (`-- ...`) before matching — this file's own
+    // prose (including this rule's explanatory comments) mentions
+    // "CREATE OR REPLACE VIEW" by name, which must not self-trigger.
+    const block = schemaText.slice(beginIdx, endIdx);
+    const blockNoComments = block
+      .split('\n')
+      .map(line => {
+        const idx = line.indexOf('--');
+        return idx === -1 ? line : line.slice(0, idx);
+      })
+      .join('\n');
+    const reReplaceRe = /CREATE\s+OR\s+REPLACE\s+VIEW\s+(\w+)/gi;
+    let rm;
+    while ((rm = reReplaceRe.exec(blockNoComments))) {
+      violations.push({
+        file: 'db/schema.sql',
+        line: lineNumberAt(schemaText, beginIdx + rm.index),
+        message: `CREATE OR REPLACE VIEW '${rm[1]}' under the Customer Blueprint C3 block — use DROP VIEW IF EXISTS ... CASCADE; CREATE VIEW instead (CREATE OR REPLACE can't reorder/rename columns, see this view's own history)`,
+      });
+    }
+  }
 }
 
 // ── Report ───────────────────────────────────────────────────────────────────

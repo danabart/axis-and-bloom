@@ -487,6 +487,86 @@ export async function checkBrewProfileReplayKnownOps(scope: CheckScope = {}): Pr
   };
 }
 
+// ── 18. Every v_customer_*/v_palate_* view the palate fixture exercises has
+// exactly the column list backend/src/services/palateReads.test.ts and
+// palate_read_fixture_v1.xlsx expect it to have ────────────────────────────
+// Dana, 2026-09-27, the same day v_palate_slot_candidates deployed with a
+// stale column list live in production (CREATE OR REPLACE VIEW silently
+// couldn't reorder its columns — see schema.sql's own comment on that view,
+// and lint-customer.mjs Rule 7, which now blocks CREATE OR REPLACE under the
+// whole C3 block so this exact failure mode can't recur). That bug was only
+// caught by an ad-hoc prod smoke query, after the fact — this check makes
+// the same class of failure fail *boot*, not smoke, the next time.
+//
+// Deviation from the literal instruction, disclosed: this does NOT read
+// backend/src/fixtures/palate/expected.json's row keys directly and diff
+// them against information_schema.columns. expected.json's row keys are
+// test-fixture shorthand, not always the view's real column names —
+// concretely, v_palate_slot_candidates' fixture rows key the slot's
+// archetype as `slot_archetype` (the view's real column is `archetype`) and
+// `coffee_id` in the fixture is the coffee's *name* (a string), while the
+// view's real `coffee_id` is an integer — palateReads.test.ts itself has to
+// translate both before comparing. A literal key-diff against
+// information_schema.columns would therefore permanently fail on
+// `slot_archetype` alone, every boot, which is not what "fails boot on a
+// real regression" means. Instead, each view's full real column list is
+// captured here directly (sourced from the exact columns
+// backend/src/db/schema.sql's C3 block defines, cross-checked against
+// palateReads.test.ts's own property accesses and expected.json's row
+// shapes at the time this check was written) — an exact two-way diff catches
+// both a missing column (this deploy's real bug) and an unexpected extra or
+// renamed one.
+const EXPECTED_PALATE_VIEW_COLUMNS: Record<string, string[]> = {
+  v_customer_bag_attribution: ['order_line_item_id', 'order_id', 'coffee_id', 'order_kind', 'drinker_user_id', 'attribution'],
+  v_palate_evidence: [
+    'canonical_user_id', 'read_version', 'n_attributed_lines', 'n_distinct_coffees', 'n_feedback_positive',
+    'n_feedback_negative', 'n_feedback_total', 'n_questions_asked', 'n_questions_answered', 'n_recommendations',
+    'n_brew_fields_known', 'first_order_at', 'last_order_at', 'has_quiz',
+  ],
+  v_palate_shared_traits: ['canonical_user_id', 'kind', 'trait_key', 'trait_label', 'value_min', 'value_max', 'overlaps', 'n_coffees'],
+  v_palate_dominant_dimensions: [
+    'canonical_user_id', 'dimension_id', 'dimension_name', 'mean_midpoint', 'n_coffees',
+    'liked_mean_midpoint', 'n_liked', 'disliked_mean_midpoint', 'n_disliked',
+  ],
+  v_palate_archetype_spread: ['canonical_user_id', 'match_archetype', 'n_coffees', 'n_positive', 'n_negative'],
+  v_palate_threads: ['canonical_user_id', 'question_id', 'occurred_at', 'kind', 'archetype_code', 'question', 'reply', 'replied_at', 'status'],
+  v_palate_recommendation_outcome: [
+    'canonical_user_id', 'recommendation_id', 'recommended_at', 'coffee_id', 'slot_id',
+    'followed_order_line_item_id', 'ordered_at', 'days_to_order', 'feedback_rating',
+  ],
+  v_palate_slot_candidates: [
+    'canonical_user_id', 'slot_id', 'archetype', 'sort_order', 'slot_name', 'position_label', 'coffee_id',
+    'coffee_name', 'blend_id', 'roaster_sku', 'shopify_variant_id', 'retail_price_cents', 'n_dims_overlapping',
+    'n_dims_compared', 'n_dims_disliked_overlap', 'in_pair', 'already_bought', 'last_rating',
+  ],
+};
+export async function checkPalateViewColumnsMatchFixture(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  const runner = scope.tx ?? db;
+  const details: string[] = [];
+  for (const [view, expectedCols] of Object.entries(EXPECTED_PALATE_VIEW_COLUMNS)) {
+    const result = await runner.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
+      [view]
+    );
+    const liveCols = result.rows.map(r => r.column_name);
+    const liveSet = new Set(liveCols);
+    const expectedSet = new Set(expectedCols);
+    const missing = expectedCols.filter(c => !liveSet.has(c));
+    const extra = liveCols.filter(c => !expectedSet.has(c));
+    if (missing.length) details.push(`${view}: missing ${missing.join(', ')} (deployed with stale columns?)`);
+    if (extra.length) details.push(`${view}: unexpected column(s) ${extra.join(', ')} (fixture/this manifest needs updating)`);
+    if (liveCols.length === 0) details.push(`${view}: view does not exist`);
+  }
+  return {
+    id: 18,
+    name: 'Every palate-fixture view has exactly the column list the fixture/test expect',
+    pass: details.length === 0,
+    expected: 'live column list exactly matches EXPECTED_PALATE_VIEW_COLUMNS for all 8 views',
+    actual: details.length === 0 ? 'all correct' : `${details.length} view(s) with a column mismatch`,
+    details: details.length ? details : undefined,
+  };
+}
+
 export async function runCustomerIntegrityChecks(scope: CheckScope = {}): Promise<CustomerIntegrityReport> {
   const checks = [
     await checkGrantCoverage(scope),
@@ -503,6 +583,7 @@ export async function runCustomerIntegrityChecks(scope: CheckScope = {}): Promis
     await checkNoNewFirestoreWritesToRetiredStores(scope),
     await checkActiveCoffeesHaveDimensionRange(scope),
     await checkBrewProfileReplayKnownOps(scope),
+    await checkPalateViewColumnsMatchFixture(scope),
   ];
   return {
     ranAt: new Date().toISOString(),
