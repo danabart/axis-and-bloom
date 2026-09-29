@@ -391,7 +391,8 @@
       "quiz": {
         "archetype": "experimental",
         "at": "2026-08-01T00:00:00Z",
-        "secondary": null
+        "secondary": null,
+        "explore": "floral"
       },
       "lines": [],
       "questions": [
@@ -401,7 +402,8 @@
           "kind": "thread",
           "question": "Do you like fermented flavors?",
           "reply": "Yes, count me in!",
-          "replied_at": "2026-08-03T00:00:00Z"
+          "replied_at": "2026-08-03T00:00:00Z",
+          "archetype_code": "floral"
         }
       ],
       "recommendations": []

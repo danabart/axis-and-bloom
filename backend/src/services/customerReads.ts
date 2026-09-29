@@ -71,6 +71,9 @@ export interface QuizCurrentRow {
   interpretationVersion: string | null;
   interpretationSource: 'table' | 'context_data';
   completedAt: Date | null;
+  // Liam L3, Part D — when this row's interpretation became current; null on
+  // a context_data-fallback row (no interpretation table row at all).
+  interpretationValidFrom: Date | null;
   archetypeChangeCount: number;
   quizCount: number;
   archetypeChangedLastTwoQuizzes: boolean;
@@ -90,6 +93,7 @@ export async function getQuizCurrent(uid: string, runner: Runner = db): Promise<
     foodSignalAlignment: row.food_signal_alignment, recommendationMode: row.recommendation_mode,
     pairConfidence: row.pair_confidence, exploreArchetype: row.explore_archetype, exploreReason: row.explore_reason,
     interpretationVersion: row.interpretation_version, interpretationSource: row.interpretation_source, completedAt: row.completed_at,
+    interpretationValidFrom: row.interpretation_valid_from,
     archetypeChangeCount: Number(row.archetype_change_count), quizCount: Number(row.quiz_count),
     archetypeChangedLastTwoQuizzes: row.archetype_changed_last_two_quizzes,
   };

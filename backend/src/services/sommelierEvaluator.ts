@@ -41,9 +41,13 @@ export function isProfileAmbiguous(s: {
   exploreArchetype: string | null;
   recommendationMode: string;
   foodSignalAlignment: string;
+  // Liam L3, Part D — a kind='thread' question already asked for this
+  // exploreArchetype since the current interpretation became valid. Once
+  // true, an otherwise-open thread no longer routes here on its own.
+  threadAsked?: boolean;
 }): boolean {
   if (interpretationMajorMinor(s.interpretationVersion) >= 2.1) {
-    return s.pairConfidence === 'low' || s.exploreArchetype !== null;
+    return s.pairConfidence === 'low' || (s.exploreArchetype !== null && !s.threadAsked);
   }
   return s.quizTie === true || s.recommendationMode === 'ai_agent' || s.foodSignalAlignment === 'low';
 }
@@ -69,6 +73,7 @@ export interface RuleInputs {
   exploreArchetype: string | null;
   recommendationMode: string;
   foodSignalAlignment: string;
+  threadAsked?: boolean;
   experimental: boolean;
   archetypeChangedLastTwoQuizzes: boolean;
   hasRecentNegativeFeedback: boolean;
@@ -176,7 +181,7 @@ export async function evaluateSommelier(
   const signals = await getUserSignals(uid);
   const {
     archetype, secondaryArchetype, branchedFrom, foodSignal, experimental, foodSignalAlignment, recommendationMode,
-    interpretationVersion, pairConfidence, exploreArchetype,
+    interpretationVersion, pairConfidence, exploreArchetype, threadAskedForCurrentInterpretation,
     quizCount, archetypeChangeCount, archetypeChangedLastTwoQuizzes, daysSinceLastQuiz,
     totalOrders, behavioralScore, behavioralLevel, behavioralComponents: bcComponents,
     hasRecentNegativeFeedback, generation, householdType,
@@ -232,6 +237,7 @@ export async function evaluateSommelier(
   const { matchedIntent, triggersFired } = matchIntent(
     {
       quizTie: flags.quizTie, interpretationVersion, pairConfidence, exploreArchetype,
+      threadAsked: threadAskedForCurrentInterpretation,
       recommendationMode, foodSignalAlignment, experimental, archetypeChangedLastTwoQuizzes,
       hasRecentNegativeFeedback, behavioralLevel, totalOrders, quizCount,
       userInitiated: flags.userInitiated, browsingSignal: flags.browsingSignal,

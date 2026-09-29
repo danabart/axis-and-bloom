@@ -60,6 +60,10 @@ interface ThreadRow {
   archetype_code: string | null;
   reply: string | null;
   status: 'asked' | 'answered';
+  // Liam L3, Part D — so the line can say "asked on turn n (session s)"
+  // instead of a bare date.
+  session_id: number;
+  turn: number;
 }
 
 export interface ProfileReads {
@@ -115,16 +119,10 @@ function buildMatchLine(quiz: QuizCurrentRow | null): string | null {
   return line;
 }
 
-// "asked on turn n" (the brief's own target shape) needs customer_liam_
-// question.turn, which v_palate_threads does not select (confirmed against
-// schema.sql — canonical_user_id, question_id, occurred_at, kind,
-// archetype_code, question, reply, replied_at, status only). L1 doesn't touch
-// schema.sql (Part C's file list is routes/sommelier.ts, services/claude.ts,
-// services/customerReads.ts only) and no writer exists for this table until a
-// later L-series brief — until then this is only reachable via the C3
-// fixture's own backfill, so it's exercised by liamProfile.test.ts but not by
-// any real customer today. Deviation, disclosed: renders the thread's own
-// occurred_at as a short date instead of a turn number.
+// Liam L3, Part D — "asked on turn n (session s)" / "answered: '...' (turn n)",
+// now that v_palate_threads exposes session_id/turn (added this brief).
+// L1's disclosed deviation (short-date rendering, no writer existed yet) is
+// resolved: recordTurn() in liamWriteBack.ts is the real writer now.
 function buildOpenThreadLine(quiz: QuizCurrentRow | null, threads: ThreadRow[], exploreArchetypeCode: string | null): string | null {
   if (quiz?.interpretationSource !== 'table' || !quiz.exploreArchetype) return null;
   let line = `Open thread: ${quiz.exploreArchetype}`;
@@ -132,9 +130,10 @@ function buildOpenThreadLine(quiz: QuizCurrentRow | null, threads: ThreadRow[], 
 
   const thread = exploreArchetypeCode ? threads.find(t => t.archetype_code === exploreArchetypeCode) : undefined;
   if (thread?.status === 'answered' && thread.reply) {
-    line += ` — answered: "${thread.reply}"`;
+    const trimmedReply = thread.reply.length > 80 ? `${thread.reply.slice(0, 80).trim()}…` : thread.reply;
+    line += ` — answered: "${trimmedReply}" (turn ${thread.turn})`;
   } else if (thread) {
-    line += ` — asked ${shortDate(thread.occurred_at)}`;
+    line += ` — asked on turn ${thread.turn} (session ${thread.session_id})`;
   } else {
     line += ' — not yet asked';
   }

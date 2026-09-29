@@ -5152,6 +5152,39 @@ Matches Task 0's own prediction exactly (5 of 9 Hoboken discovery seekers were c
 
 ---
 
+### 200. Liam Recommendation L3 — write-back: recommend/ask markers, replies, action clicks, thread closure, calibration export, transcript backfill (2026-09-28)
+
+**Context**: `backend/src/features/ai_agent_liam/recommendation/CLAUDE_CODE_PROMPT_LIAM_3_WRITE_BACK.md`. Brief 3 of 3 (L1: #198, L2: #199) — **series complete**. Goal: what Liam recommends, asks, and the customer answers or clicks all become facts — closing a loop C1 opened but never wired a writer for.
+
+**Task 0 findings**: no API response anywhere exposed a message's Firestore doc id (needed for the new action-click endpoint) — added to `/start`, `/message`, and `GET /:sessionId/messages`. `v_customer_quiz_current` had no `interpretation_valid_from` (needed to tell a thread question asked for the current interpretation apart from one asked for a since-superseded one) — added. No fixture customer had a real `quiz_session_interpretation` row, so Jade's Open-thread line — despite her having real backfilled question/reply rows since C1 — had never actually rendered; added one so the brief's own assumption ("gains Jade's answered thread") holds.
+
+**Part A — markers** (`claude.ts`): `<<recommend:Alias>>` (one per turn, the one named exception to "never on your opening turn" — MATCHED/CONVERSION open with a pick) and `<<ask:thread|palate|brew>>` (one per turn). The full marker parse/strip block was extracted into a new pure `parseAndStripMarkers()`, finally testable without an Anthropic call — no prior test file had ever exercised the real regexes (every caller mocks `chatWithSommelier` wholesale). 13 new tests.
+
+**Part B — resolution** (new `liamWriteBack.ts`): a marked pick writes `customer_liam_recommendation` with `detected:false`; an unmarked-but-named coffee writes `detected:true` per alias found (a real pick is never silently lost); an unresolved alias writes nothing, logged and counted. `<<ask>>` writes a question row and opens it in `context_data`; the customer's very next message is recorded as its verbatim reply before anything else about that turn happens — a model judgment ("leaned in") is never stored, only the reply text. One question open at a time; a fresh `<<ask>>` simply replaces which one `context_data` points to. 16 new tests against the real test database.
+
+**Part C — action clicks**: new `POST /api/sommelier/:sessionId/action` records a click on `retake_quiz`/`open_dial`/`save_recipe` (previously only ever recorded as *offered*, never as *clicked*) — deterministic idempotency key, two clicks write one row.
+
+**Part D — the thread stops re-firing**: once a thread's question has actually been asked (for the *current* interpretation — a recalibration can reopen the same thread), `isProfileAmbiguous` stops routing to PROFILE_AMBIGUOUS on that thread alone; the customer falls through to the next rule, usually MATCHED. The profile line now says `asked on turn n (session s)` / `answered: "…" (turn n)` instead of L1's disclosed short-date placeholder, now that a real writer exists.
+
+**Part E — calibration and outcomes**: new `v_customer_calibration` view (identity-resolved, unlike the older subscriber-keyed `v_subscriber_quiz_results` it's modeled after — a deliberate deviation so every quiz-taker gets a row, subscriber or not) plus `first_recommendation_*`/`first_attributed_order_*`/`thread_status` columns; `scripts/exportCalibration.ts` (new, read-only) exports it to CSV, and `quizRecalibrate.ts` gained `--with-outcomes` to print the recommended-vs-ordered numbers when they're present. The admin outcomes panel now splits marked vs. detected recommendations, surfaces the unresolved-marker count, and clears its empty state on the first real row from *any* source.
+
+**Part F — backfill, dry-run only (Dana's go pending for apply)**: scanned every session with a non-empty coffee-candidate list and detected alias mentions in the real historical transcripts (aliases re-resolved *as of now* — a slot may have moved since, a miss is possible and counted, never guessed).
+
+| | count |
+|---|---|
+| Sessions with a candidate list | 23 |
+| Assistant messages scanned | 52 |
+| Rows that would insert | **12** |
+| Collisions (already recorded) | 0 |
+| Unresolved aliases | 0 |
+| Proof (`quiz_session`/`newsletter_subscriber`/`sommelier_sessions` untouched) | PASS |
+
+**Verification**: `npx tsc --noEmit` clean (backend + frontend). 33 new tests (13 + 16 + 4) across the files this brief touches, all green; `liamProfile.test.ts`'s Jade case now exercises the real render, not a documented gap. Check 18's column manifest extended for the two changed views plus the new one (9 views total, was 8). Full `npm test`: OT-19's 12 pre-existing failures unchanged, nothing else newly broken.
+
+**Files**: `backend/src/services/claude.ts`, `backend/src/services/claude.test.ts` (new), `backend/src/services/liamWriteBack.ts` (new), `backend/src/services/liamWriteBack.test.ts` (new), `backend/src/routes/sommelier.ts`, `backend/src/services/userSignals.ts`, `backend/src/services/sommelierEvaluator.ts`, `backend/src/services/sommelierEvaluator.test.ts`, `backend/src/services/liamProfile.ts`, `backend/src/services/liamProfile.test.ts`, `backend/src/services/customerReads.ts`, `backend/src/services/customerIntegrity.ts`, `backend/src/db/schema.sql`, `backend/src/fixtures/palate/timelines.json`, `backend/src/routes/admin.ts`, `backend/scripts/exportCalibration.ts` (new), `backend/scripts/quizRecalibrate.ts`, `backend/scripts/backfillLiamRecommendations.ts` (new), `frontend/src/app/components/Sommelier.tsx`, `frontend/src/app/components/admin/AdminLiamOutcomes.tsx`, `SOMMELIER_BUILT.md`, `backend/src/features/ai_agent_liam/recommendation/README.md`, `WHAT_WE_BUILT_DB.md`.
+
+---
+
 ### The Bloom — content/admin follow-ups (#83, #84)
 - **`dial_position_vocabulary.description` is empty everywhere in production** — the Bloom Dial widget gracefully omits it when empty (no blank line), but every position currently just shows its label with no supporting copy. Content task, not a code task.
 - **No dimension admin UI exists** — `coffee_dimensions.platform_name` (5 numeric dimensions seeded, see #84) is direct-SQL-only for now. Add click-to-edit for it wherever dimension-level admin editing eventually lives, same pattern as `coffee_alias.platform_name` on the Coffees page.

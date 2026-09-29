@@ -4679,7 +4679,13 @@ WITH sessions AS (
     COALESCE(i.explore_reason, qs.context_data ->> 'exploreReason') AS explore_reason,
     quiz_archetype_canonical(qs.context_data ->> 'branchedFrom') AS branched_from,
     quiz_archetype_canonical(qs.context_data ->> 'foodSignal') AS food_signal,
-    COALESCE((qs.context_data ->> 'experimental')::boolean, false) AS experimental
+    COALESCE((qs.context_data ->> 'experimental')::boolean, false) AS experimental,
+    -- Liam L3, Part D (2026-09-28) — when this interpretation became current.
+    -- Distinct from qs.completed_at: a session can be re-interpreted later
+    -- (recalibration), which bumps valid_from without changing completed_at.
+    -- Needed to tell whether a thread question asked in the past was asked
+    -- for THIS interpretation or a since-superseded one.
+    i.valid_from AS interpretation_valid_from
   FROM quiz_session qs
   JOIN v_customer_identity vci ON vci.user_id = qs.user_id
   LEFT JOIN coffee_archetype ca ON ca.id = qs.resulting_archetype_id
@@ -4714,7 +4720,7 @@ SELECT
   r.canonical_user_id, r.quiz_session_id, r.archetype_name, r.archetype_code,
   r.secondary_archetype, r.secondary_archetype_code, r.branched_from, r.food_signal, r.experimental,
   r.food_signal_alignment, r.recommendation_mode, r.pair_confidence, r.explore_archetype, r.explore_reason,
-  r.interpretation_version, r.interpretation_source, r.completed_at,
+  r.interpretation_version, r.interpretation_source, r.completed_at, r.interpretation_valid_from,
   ch.archetype_change_count, r.quiz_count, lt.archetype_changed_last_two_quizzes
 FROM ranked r
 JOIN changes ch ON ch.canonical_user_id = r.canonical_user_id
@@ -5158,6 +5164,9 @@ CREATE VIEW v_palate_threads AS
 SELECT
   vci_q.canonical_user_id,
   clq.id AS question_id, clq.occurred_at, clq.kind, clq.archetype_code, clq.question,
+  -- Liam L3, Part D — session_id/turn so the profile line can render "asked
+  -- on turn n (session s)" instead of a bare date.
+  clq.session_id, clq.turn,
   clr.reply, clr.occurred_at AS replied_at,
   CASE WHEN clr.id IS NOT NULL THEN 'answered' ELSE 'asked' END AS status
 FROM customer_liam_question clq
@@ -5173,6 +5182,9 @@ CREATE VIEW v_palate_recommendation_outcome AS
 SELECT
   vci_r.canonical_user_id,
   clr.id AS recommendation_id, clr.occurred_at AS recommended_at, clr.coffee_id, clr.slot_id,
+  -- Liam L3, Part B/E — passthrough so the outcomes page can report marked
+  -- vs. detected picks separately (a detected pick is a lower-grade signal).
+  clr.detected,
   fl.order_line_item_id AS followed_order_line_item_id,
   fl.occurred_at AS ordered_at,
   CASE WHEN fl.occurred_at IS NOT NULL THEN ROUND(EXTRACT(EPOCH FROM (fl.occurred_at - clr.occurred_at)) / 86400.0, 2) END AS days_to_order,
@@ -5199,6 +5211,76 @@ LEFT JOIN LATERAL (
   LIMIT 1
 ) fl ON true;
 
+-- Liam L3, Part E (2026-09-28) — the calibration export surface. Modeled on
+-- v_customer_quiz_current's identity-resolved pattern (one row per canonical
+-- customer's latest quiz session), NOT v_subscriber_quiz_results's own
+-- subscriber-keyed pattern (LEFT JOIN by raw newsletter_subscriber.user_id) —
+-- disclosed deviation from the brief's literal wording ("the
+-- v_subscriber_quiz_results columns the fixture uses"): every quiz-taker gets
+-- a row here whether or not they ever subscribed, and a household's linked
+-- profiles all resolve to the one canonical row. Column NAMES quizRecalibrate.ts
+-- actually looks up by (quiz_result_json, primary_archetype, required;
+-- email, quiz_completed_at, optional) are kept identical so the CSV export
+-- stays a drop-in replacement.
+DROP VIEW IF EXISTS v_customer_calibration CASCADE;
+CREATE VIEW v_customer_calibration AS
+WITH first_rec AS (
+  SELECT DISTINCT ON (vci.canonical_user_id)
+    vci.canonical_user_id, clr.coffee_id, clr.occurred_at AS recommended_at, clr.detected
+  FROM customer_liam_recommendation clr
+  JOIN v_customer_identity vci ON vci.user_id = clr.user_id
+  ORDER BY vci.canonical_user_id, clr.occurred_at ASC
+),
+first_order AS (
+  SELECT DISTINCT ON (vci.canonical_user_id)
+    vci.canonical_user_id, vba.coffee_id, o.created_at AS ordered_at, vfc.rating
+  FROM v_customer_bag_attribution vba
+  JOIN order_line_item oli ON oli.id = vba.order_line_item_id
+  JOIN "order" o ON o.id = oli.order_id
+  JOIN v_customer_identity vci ON vci.user_id = vba.drinker_user_id
+  LEFT JOIN v_customer_feedback_current vfc ON vfc.order_line_item_id = vba.order_line_item_id AND vfc.canonical_user_id = vci.canonical_user_id
+  WHERE vba.attribution <> 'unattributed'
+  ORDER BY vci.canonical_user_id, o.created_at ASC
+),
+thread AS (
+  SELECT DISTINCT ON (canonical_user_id) canonical_user_id, status, reply
+  FROM v_palate_threads
+  WHERE kind = 'thread'
+  ORDER BY canonical_user_id, occurred_at DESC
+)
+SELECT
+  qc.canonical_user_id,
+  ns.email,
+  qc.archetype_name AS primary_archetype,
+  qc.secondary_archetype,
+  qc.recommendation_mode,
+  qc.food_signal_alignment,
+  qc.experimental,
+  qs.context_data AS quiz_result_json,
+  qc.completed_at AS quiz_completed_at,
+  qc.quiz_session_id,
+  fr.coffee_id AS first_recommendation_coffee,
+  fr.recommended_at AS first_recommendation_at,
+  fr.detected AS first_recommendation_detected,
+  fo.coffee_id AS first_attributed_order_coffee,
+  fo.ordered_at AS first_attributed_order_at,
+  CASE WHEN fr.recommended_at IS NOT NULL AND fo.ordered_at IS NOT NULL
+       THEN ROUND(EXTRACT(EPOCH FROM (fo.ordered_at - fr.recommended_at)) / 86400.0, 2) END AS days_recommendation_to_order,
+  fo.rating AS first_order_feedback_rating,
+  COALESCE(th.status, 'none') AS thread_status,
+  th.reply AS thread_reply
+FROM v_customer_quiz_current qc
+JOIN quiz_session qs ON qs.id = qc.quiz_session_id
+LEFT JOIN LATERAL (
+  SELECT ns2.email
+  FROM newsletter_subscriber ns2
+  JOIN v_customer_identity vci_ns ON vci_ns.user_id = ns2.user_id
+  WHERE vci_ns.canonical_user_id = qc.canonical_user_id
+  LIMIT 1
+) ns ON true
+LEFT JOIN first_rec fr ON fr.canonical_user_id = qc.canonical_user_id
+LEFT JOIN first_order fo ON fo.canonical_user_id = qc.canonical_user_id
+LEFT JOIN thread th ON th.canonical_user_id = qc.canonical_user_id;
 
 -- Customer Blueprint C3, Part D (Dana's fixture review, 2026-09-27) — rules
 -- 1, 2, 3, 4, 6:

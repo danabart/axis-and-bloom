@@ -1,5 +1,6 @@
 import { db } from '../db/client.js';
-import { getQuizCurrent, getFeedbackCurrent } from './customerReads.js';
+import { getQuizCurrent, getFeedbackCurrent, getThreads } from './customerReads.js';
+import { archetypeCode } from './catalogReads.js';
 import { computeBehavioralConfidence } from './behavioralConfidence.js';
 
 // ── getUserSignals() ──────────────────────────────────────────────────────────
@@ -35,6 +36,11 @@ export interface UserSignals {
   pairConfidence: string | null;
   exploreArchetype: string | null;
   exploreReason: string | null;
+  // Liam L3, Part D — a kind='thread' question whose archetype_code matches
+  // exploreArchetype and whose occurred_at is after this interpretation's own
+  // valid_from (not an older, superseded interpretation's question). Once
+  // true, isProfileAmbiguous() stops re-firing PROFILE_AMBIGUOUS for this thread.
+  threadAskedForCurrentInterpretation: boolean;
   quizCount: number;
   archetypeChangeCount: number;              // changes across full quiz history
   archetypeChangedLastTwoQuizzes: boolean;    // Sommelier's TASTE_EVOLUTION trigger — last two sessions only
@@ -123,6 +129,27 @@ export async function getUserSignals(uid: string): Promise<UserSignals> {
   const daysSinceLastQuiz = lastQuizCompletedAt
     ? Math.floor((Date.now() - lastQuizCompletedAt.getTime()) / (1000 * 60 * 60 * 24))
     : null;
+
+  // Liam L3, Part D — has the open thread already been asked for THIS
+  // interpretation? A kind='thread' question whose archetype_code matches
+  // exploreArchetype's code and whose occurred_at is after
+  // interpretation_valid_from (a question asked for a superseded
+  // interpretation doesn't count — a recalibration can reopen the same thread).
+  let threadAskedForCurrentInterpretation = false;
+  if (interp.exploreArchetype && quizCurrent?.interpretationValidFrom) {
+    try {
+      const exploreCode = await archetypeCode(interp.exploreArchetype);
+      const validFrom = new Date(quizCurrent.interpretationValidFrom).getTime();
+      const threads = await getThreads(uid);
+      threadAskedForCurrentInterpretation = threads.some(t =>
+        t.kind === 'thread' &&
+        t.archetype_code === exploreCode &&
+        new Date(t.occurred_at as string).getTime() > validFrom
+      );
+    } catch (err) {
+      console.error('[userSignals] thread-asked check failed:', err);
+    }
+  }
 
   // ── Orders (ascending by createdAt) ──────────────────────────────────────
   let orderRows: Array<{ id: string; created_at: string; blend_id: string | null }> = [];
@@ -279,6 +306,7 @@ export async function getUserSignals(uid: string): Promise<UserSignals> {
     pairConfidence: interp.pairConfidence,
     exploreArchetype: interp.exploreArchetype,
     exploreReason: interp.exploreReason,
+    threadAskedForCurrentInterpretation,
     quizCount,
     archetypeChangeCount,
     archetypeChangedLastTwoQuizzes,

@@ -36,6 +36,21 @@ describe('isProfileAmbiguous', () => {
     expect(isProfileAmbiguous({ ...BASE_INPUTS, exploreArchetype: 'Fruity' })).toBe(true);
   });
 
+  // Liam L3, Part D — a thread already asked (for THIS interpretation) no
+  // longer routes here on its own; pairConfidence:'low' still fires
+  // regardless, since threadAsked only gates the exploreArchetype branch.
+  it('v2.1+: an already-asked thread no longer fires PROFILE_AMBIGUOUS on its own', () => {
+    expect(isProfileAmbiguous({ ...BASE_INPUTS, exploreArchetype: 'Fruity', threadAsked: true })).toBe(false);
+  });
+
+  it('v2.1+: an unasked thread still fires (threadAsked defaults to falsy)', () => {
+    expect(isProfileAmbiguous({ ...BASE_INPUTS, exploreArchetype: 'Fruity', threadAsked: false })).toBe(true);
+  });
+
+  it('v2.1+: low pair confidence fires even with threadAsked true', () => {
+    expect(isProfileAmbiguous({ ...BASE_INPUTS, pairConfidence: 'low', exploreArchetype: null, threadAsked: true })).toBe(true);
+  });
+
   it('context_data fallback (no v2.1+ row): quizTie still fires it — the only way that path learns about a tie', () => {
     expect(isProfileAmbiguous({ ...BASE_INPUTS, interpretationVersion: null, quizTie: true, pairConfidence: 'high', recommendationMode: 'primary_only', foodSignalAlignment: 'high' })).toBe(true);
   });
@@ -77,6 +92,12 @@ describe('matchIntent — priority and each rule', () => {
 
   it('MATCHED never fires ahead of CONVERSION for a customer CONVERSION would also match', () => {
     expect(matchIntent({ ...BASE_INPUTS, behavioralLevel: 'high', totalOrders: 0 }).matchedIntent).toBe('CONVERSION');
+  });
+
+  it('Liam L3, Part D — an already-asked thread falls through to MATCHED instead of re-firing PROFILE_AMBIGUOUS', () => {
+    const result = matchIntent({ ...BASE_INPUTS, exploreArchetype: 'Fruity', threadAsked: true });
+    expect(result.matchedIntent).toBe('MATCHED');
+    expect(result.triggersFired).not.toContain('PROFILE_AMBIGUOUS');
   });
 
   it('EXPLORATION is last — reached only by a customer with no quiz (quizCount 0) who clicked in or browsed', () => {

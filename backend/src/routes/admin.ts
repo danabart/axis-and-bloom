@@ -9,6 +9,7 @@ import { DEFAULT_SOMMELIER_CONFIG } from '../db/seeds/sommelier_config_seed.js';
 import { checkAggregateAnomaly, getMonthlySpendEstimate } from '../services/sommelierGuards.js';
 import { getSommelierConfig, AI_FEATURES, type AiFeature, type AiControls } from '../services/sommelierConfig.js';
 import { getBrewProfileCounters } from '../services/brewProfile.js';
+import { getLiamWriteBackCounters } from '../services/liamWriteBack.js';
 import { checkStorySpecificityViolations } from '../services/storyLayer.js';
 import { getOrMintCanonicalUniversalToken } from '../services/qrDoor.js';
 import { getEffectiveAiControls, envCeilingUsd } from '../services/anthropicGuard.js';
@@ -1733,15 +1734,19 @@ router.post('/sommelier/recompute-centroids', async (_req, res) => {
 router.get('/liam/outcomes', async (req, res) => {
   const windowDays = [7, 14, 30].includes(Number(req.query.days)) ? Number(req.query.days) : 30;
   try {
-    const recResult = await db.query<{ total: string; followed: string }>(
+    const recResult = await db.query<{ total: string; followed: string; marked: string; detected: string }>(
       `SELECT COUNT(*)::int AS total,
-              COUNT(*) FILTER (WHERE days_to_order IS NOT NULL AND days_to_order <= $1)::int AS followed
+              COUNT(*) FILTER (WHERE days_to_order IS NOT NULL AND days_to_order <= $1)::int AS followed,
+              COUNT(*) FILTER (WHERE detected = false)::int AS marked,
+              COUNT(*) FILTER (WHERE detected = true)::int AS detected
        FROM v_palate_recommendation_outcome`,
       [windowDays]
     );
     const recRow = recResult.rows[0];
     const recTotal = Number(recRow.total);
     const recFollowed = Number(recRow.followed);
+    const recMarked = Number(recRow.marked);
+    const recDetected = Number(recRow.detected);
 
     const ratingResult = await db.query<{
       recommended_mean: string | null; recommended_count: string; self_chosen_mean: string | null; self_chosen_count: string;
@@ -1771,12 +1776,22 @@ router.get('/liam/outcomes', async (req, res) => {
     const threadsTotal = Number(threadsRow.total);
     const threadsAnswered = Number(threadsRow.answered);
 
+    // Liam L3, Part E — the unresolved-marker count isn't a fact row anywhere
+    // (an unresolved <<recommend:...>> deliberately leaves no row — see
+    // liamWriteBack.ts's recordRecommendation()), so it comes from the same
+    // lightweight Firestore counter brewProfile.ts's own admin panel uses,
+    // not a SQL aggregate. Informational only.
+    const writeBackCounters = await getLiamWriteBackCounters();
+
     res.json({
       windowDays,
       recommendations: {
         total: recTotal,
+        marked: recMarked,
+        detected: recDetected,
         followedWithinWindow: recFollowed,
         followedRate: recTotal > 0 ? Math.round((recFollowed / recTotal) * 10000) / 10000 : null,
+        unresolvedMarkerCount: writeBackCounters.recommendUnresolved,
       },
       feedbackRating: {
         recommendedMean: ratingRow.recommended_mean !== null ? Number(ratingRow.recommended_mean) : null,
@@ -1789,6 +1804,10 @@ router.get('/liam/outcomes', async (req, res) => {
         totalAnswered: threadsAnswered,
         answeredRate: threadsTotal > 0 ? Math.round((threadsAnswered / threadsTotal) * 10000) / 10000 : null,
       },
+      // Part E — "the panel loses the empty-state copy only when there is at
+      // least one row": one flag covering every source this endpoint reads
+      // from, so the frontend doesn't need to know which table is which.
+      hasAnyData: recTotal > 0 || threadsTotal > 0 || Number(ratingRow.recommended_count) > 0 || Number(ratingRow.self_chosen_count) > 0,
     });
   } catch (err) {
     console.error('[admin/liam/outcomes]', err);

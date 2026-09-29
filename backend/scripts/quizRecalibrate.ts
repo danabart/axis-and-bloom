@@ -38,9 +38,13 @@ function parseCsv(text: string): string[][] {
   return rows;
 }
 
-const [csvPath, outArg, setName = 'recalibration'] = process.argv.slice(2);
+// Liam L3, Part E — an optional flag, filtered out before positional parsing
+// so it can appear anywhere without disturbing csvPath/outArg/setName's order.
+const rawArgs = process.argv.slice(2);
+const withOutcomes = rawArgs.includes('--with-outcomes');
+const [csvPath, outArg, setName = 'recalibration'] = rawArgs.filter(a => a !== '--with-outcomes');
 if (!csvPath) {
-  console.error('usage: npx tsx scripts/quizRecalibrate.ts <export.csv> [out.json] [calibration-set-name]');
+  console.error('usage: npx tsx scripts/quizRecalibrate.ts <export.csv> [out.json] [calibration-set-name] [--with-outcomes]');
   process.exit(1);
 }
 
@@ -133,3 +137,31 @@ writeFileSync(outPath, JSON.stringify({
 
 console.log(`${cases.length} cases -> ${outPath}; ${changed} differ from stored v1; ${skipped.length} skipped`);
 for (const s of skipped) console.log(`  skipped row ${s.row}: ${s.reason}`);
+
+// Liam L3, Part E — prints only when the export actually has outcome columns
+// (a v_customer_calibration export does; an older v_subscriber_quiz_results
+// one does not) — extra columns are otherwise silently ignored everywhere
+// else in this script, same discipline here.
+if (withOutcomes) {
+  const iFirstRec = header.indexOf('first_recommendation_coffee');
+  const iDetected = header.indexOf('first_recommendation_detected');
+  const iOrdered = header.indexOf('first_attributed_order_coffee');
+  const iThread = header.indexOf('thread_status');
+  if (iFirstRec < 0) {
+    console.log('\n--with-outcomes: this export has no outcome columns (not a v_customer_calibration export) — skipped.');
+  } else {
+    const dataRows = rows.slice(1);
+    const withRec = dataRows.filter(r => r[iFirstRec]);
+    const marked = withRec.filter(r => r[iDetected] === 'false').length;
+    const detected = withRec.filter(r => r[iDetected] === 'true').length;
+    const ordered = withRec.filter(r => r[iOrdered]).length;
+    console.log('\n--with-outcomes:');
+    console.log(`  rows: ${dataRows.length}, with a first recommendation: ${withRec.length} (marked ${marked}, detected ${detected})`);
+    console.log(`  recommended -> later ordered: ${ordered}${withRec.length ? ` (${Math.round((ordered / withRec.length) * 1000) / 10}%)` : ''}`);
+    if (iThread >= 0) {
+      const counts: Record<string, number> = {};
+      for (const r of dataRows) { const k = r[iThread] || 'none'; counts[k] = (counts[k] ?? 0) + 1; }
+      console.log(`  threads — none: ${counts.none ?? 0}, asked: ${counts.asked ?? 0}, answered: ${counts.answered ?? 0}`);
+    }
+  }
+}

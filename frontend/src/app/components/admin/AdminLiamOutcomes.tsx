@@ -9,9 +9,13 @@ import { reportError } from '../../lib/errorReporter';
 
 interface LiamOutcomes {
   windowDays: number;
-  recommendations: { total: number; followedWithinWindow: number; followedRate: number | null };
+  recommendations: {
+    total: number; marked: number; detected: number; followedWithinWindow: number; followedRate: number | null;
+    unresolvedMarkerCount: number;
+  };
   feedbackRating: { recommendedMean: number | null; recommendedCount: number; selfChosenMean: number | null; selfChosenCount: number };
   threads: { totalAsked: number; totalAnswered: number; answeredRate: number | null };
+  hasAnyData: boolean;
 }
 
 const LABEL = 'text-xs text-stone-400 tracking-widest uppercase mb-1';
@@ -50,7 +54,10 @@ export default function AdminLiamOutcomes() {
 
   useEffect(() => { load(days); }, [days]);
 
-  const hasRecommendations = !!data && data.recommendations.total > 0;
+  // Liam L3, Part E — gated on the whole panel having any real row, not just
+  // recommendations, so a customer who only answered a thread question still
+  // sees real numbers instead of the blanket empty state.
+  const hasAnyData = !!data && data.hasAnyData;
 
   return (
     <div className="mb-8">
@@ -78,7 +85,7 @@ export default function AdminLiamOutcomes() {
           <p className="text-sm text-stone-400">Loading…</p>
         ) : error ? (
           <p className="text-sm text-red-500">{error}</p>
-        ) : !hasRecommendations ? (
+        ) : !hasAnyData ? (
           <p className="text-sm text-stone-400">No recommendations recorded yet (L3)</p>
         ) : data ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -86,6 +93,10 @@ export default function AdminLiamOutcomes() {
               <p className="text-2xl font-normal text-stone-800">{formatRate(data.recommendations.followedRate)}</p>
               <p className="text-xs text-stone-400 mt-1">
                 Recommendations followed within {data.windowDays}d ({data.recommendations.followedWithinWindow} of {data.recommendations.total})
+              </p>
+              <p className="text-xs text-stone-400 mt-1">
+                Marked {data.recommendations.marked} · detected {data.recommendations.detected}
+                {data.recommendations.unresolvedMarkerCount > 0 ? ` · ${data.recommendations.unresolvedMarkerCount} unresolved` : ''}
               </p>
             </div>
             <div>
@@ -99,7 +110,7 @@ export default function AdminLiamOutcomes() {
             <div>
               <p className="text-2xl font-normal text-stone-800">{formatRate(data.threads.answeredRate)}</p>
               <p className="text-xs text-stone-400 mt-1">
-                Palate questions answered ({data.threads.totalAnswered} of {data.threads.totalAsked})
+                Questions answered ({data.threads.totalAnswered} of {data.threads.totalAsked})
               </p>
             </div>
           </div>

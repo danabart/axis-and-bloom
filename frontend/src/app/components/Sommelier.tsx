@@ -36,6 +36,10 @@ interface Message {
   content: string;
   synthetic?: boolean;
   actions?: SommelierAction[];
+  // Liam L3, Part C — the Firestore doc id for this assistant message, so an
+  // action-link click can be recorded server-side. Absent for a synthetic
+  // message or a pre-migration SQL-only historical session.
+  messageId?: string;
 }
 
 interface PastSession {
@@ -63,6 +67,7 @@ interface EvalResult {
 interface StartResult {
   sessionId?: number;
   openingMessage?: string;
+  openingMessageId?: string;
   openingActions?: SommelierAction[];
   coffeeNames?: string[];
   turnsRemaining?: number;
@@ -130,12 +135,24 @@ export default function Sommelier() {
     });
   }
 
+  // Liam L3, Part C — records that an action link was actually clicked
+  // (previously only ever stored as *offered* on the message). Fire-and-forget:
+  // a failure here never blocks the click's own navigation/save.
+  function postAction(messageId: string | undefined, actionType: 'retake_quiz' | 'open_dial' | 'save_recipe') {
+    if (!sessionId || !messageId) return;
+    doFetch(`/api/sommelier/${sessionId}/action`, {
+      method: 'POST',
+      body: JSON.stringify({ messageId, actionType }),
+    }).catch(err => reportError('[Sommelier/action-click]', err));
+  }
+
   // Profile Part 7 Task 5 — user-initiated content save. Liam only marked the
   // offer appropriate (the save_recipe action); this only fires because the
   // signed-in user tapped the chip. body is that message's already-rendered
   // text verbatim; the endpoint length-validates and stores.
-  async function handleSaveRecipe(index: number, content: string, suppliedTitle?: string) {
+  async function handleSaveRecipe(index: number, content: string, messageId: string | undefined, suppliedTitle?: string) {
     setRecipeSaveStatus(prev => ({ ...prev, [index]: 'saving' }));
+    postAction(messageId, 'save_recipe');
     try {
       const res = await doFetch('/api/users/flavor-memory/liam-saves', {
         method: 'POST',
@@ -218,7 +235,7 @@ export default function Sommelier() {
     const tr = data.turnsRemaining ?? 7;
     setMaxTurns(tr + 1);
     setTurnCount(1);
-    setMessages(data.openingMessage ? [{ role: 'assistant', content: data.openingMessage, actions: data.openingActions }] : []);
+    setMessages(data.openingMessage ? [{ role: 'assistant', content: data.openingMessage, actions: data.openingActions, messageId: data.openingMessageId }] : []);
     setPhase('chat');
     setTimeout(() => inputRef.current?.focus(), 100);
   }, [tiedParam, isCoffeeEntry, entry, coffeeIdNum]);
@@ -281,7 +298,7 @@ export default function Sommelier() {
       if (res.status === 409) { setSessionClosed(true); return; }
       if (!res.ok) throw new Error('Message failed');
       const data = await res.json();
-      setMessages(prev => [...prev, { role: 'assistant', content: data.reply, actions: data.actions }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: data.reply, actions: data.actions, messageId: data.messageId }]);
       setTurnCount(data.turnCount);
       if (data.sessionClosed) setSessionClosed(true);
     } catch (err) {
@@ -582,6 +599,7 @@ export default function Sommelier() {
                                     <Link
                                       key={ai}
                                       to="/find-my-flavor?retake=1"
+                                      onClick={() => postAction(msg.messageId, 'retake_quiz')}
                                       className="text-[11px] uppercase tracking-[0.15em] px-3 py-1.5 rounded-full border transition-colors hover:bg-stone-50"
                                       style={{ borderColor: '#e0dcd4', color: RUST }}
                                     >
@@ -594,6 +612,7 @@ export default function Sommelier() {
                                     <Link
                                       key={ai}
                                       to={`/bloom?archetype=${action.archetype}${action.slot != null ? `&slot=${action.slot}` : ''}`}
+                                      onClick={() => postAction(msg.messageId, 'open_dial')}
                                       className="text-[11px] uppercase tracking-[0.15em] px-3 py-1.5 rounded-full border transition-colors hover:bg-stone-50"
                                       style={{ borderColor: '#e0dcd4', color: RUST }}
                                     >
@@ -627,7 +646,7 @@ export default function Sommelier() {
                                     key={ai}
                                     type="button"
                                     disabled={status === 'saving'}
-                                    onClick={() => handleSaveRecipe(i, msg.content, action.title)}
+                                    onClick={() => handleSaveRecipe(i, msg.content, msg.messageId, action.title)}
                                     className="text-[11px] uppercase tracking-[0.15em] px-3 py-1.5 rounded-full border transition-colors hover:bg-stone-50 disabled:opacity-50"
                                     style={{ borderColor: '#e0dcd4', color: RUST }}
                                   >

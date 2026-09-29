@@ -17,6 +17,7 @@ import { isClaudeGuardBlocked } from '../services/anthropicGuard.js';
 import { getSommelierConfig } from '../services/sommelierConfig.js';
 import { routeTopic } from '../services/topicRouter.js';
 import { record } from '../services/customerFacts.js';
+import { recordTurn, recordReplyForOpenQuestion, type AliasCandidate } from '../services/liamWriteBack.js';
 import { getPreviousQuizArchetype, getFeedbackCurrent, getBrewProfileCurrent, getSlotCandidates, getFactsWatermark } from '../services/customerReads.js';
 import {
   getBrewProfileFieldsConfig,
@@ -815,6 +816,8 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
     let openingRememberOps: Array<{ field: string; rawValue: string }> = [];
     let openingSaveRecipeTitle: string | undefined;
     let openingCardMarker: { type: 'save' } | { type: 'adjust'; adjustment: string } | undefined;
+    let openingRecommendAlias: string | null = null;
+    let openingAskKind: 'thread' | 'palate' | 'brew' | null = null;
     try {
       const chatResult = await chatWithSommelier({
         message: null,
@@ -831,6 +834,8 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
       openingSaveRecipeTitle = chatResult.saveRecipeTitle;
       openingRememberOps = chatResult.rememberOps;
       openingCardMarker = chatResult.cardMarker;
+      openingRecommendAlias = chatResult.recommendAlias;
+      openingAskKind = chatResult.askKind;
     } catch (claudeErr) {
       // C2 Part 1 — a guard block (kill-switch / daily ceiling) means Liam
       // genuinely can't respond right now. Silently creating a session with
@@ -860,7 +865,7 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
     await resolveCard(openingCardMarker, req.uid!, entryCoffeeId, entryMethod, brewProfile, 'Begin the conversation.');
 
     // Save opening message to Firestore
-    await firestoreDb
+    const openingMsgRef = await firestoreDb
       .collection(`users/${req.uid}/sommelier_sessions/${newSessionId}/messages`)
       .add({
         role: 'assistant',
@@ -871,12 +876,36 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
         createdAt: FieldValue.serverTimestamp(),
       });
 
-    // Update session turn_count + last_active_at
+    // Liam L3, Part B — recommend/ask markers become facts once the opening
+    // message's own doc id exists. MATCHED and CONVERSION are the two
+    // intents that open with a pick (see claude.ts's opening-turn exception).
+    const openingCandidates: AliasCandidate[] = storyCandidates.map(c => ({ coffeeId: c.coffeeId, alias: c.alias }));
+    const openingWriteBack = await recordTurn({
+      uid: req.uid!,
+      sessionId: newSessionId,
+      turn: 0,
+      assistantMessageId: openingMsgRef.id,
+      reply: openingMessage,
+      recommendAlias: openingRecommendAlias,
+      askKind: openingAskKind,
+      candidates: openingCandidates,
+      candidateCoffeeIds: ragResult.coffeeIds,
+      exploreArchetypeCode: reads.exploreArchetypeCode,
+    });
+
+    // Update session turn_count + last_active_at (+ any open question just recorded)
     await db.query(
       `UPDATE sommelier_sessions
-       SET turn_count = 1, last_active_at = NOW()
+       SET turn_count = 1, last_active_at = NOW(), context_data = context_data || $2::jsonb
        WHERE id = $1`,
-      [newSessionId]
+      [
+        newSessionId,
+        JSON.stringify(
+          openingWriteBack
+            ? { openQuestionId: openingWriteBack.openQuestionId, openQuestionTurn: openingWriteBack.openQuestionTurn }
+            : {}
+        ),
+      ]
     );
 
     // Coffee names for the frontend display — aliases only, see
@@ -886,6 +915,11 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
     res.json({
       sessionId: newSessionId,
       openingMessage,
+      // Liam L3, Part C — the opening message's own Firestore doc id, so an
+      // action-link click on the very first turn can call POST
+      // /:sessionId/action with the right messageId (previously unavailable
+      // anywhere in the response — see Task 0's disclosed deviation).
+      openingMessageId: openingMsgRef.id,
       openingActions,
       coffeeNames,
       // Kept for API back-compat (nothing customer-facing reads this — see
@@ -1023,6 +1057,22 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
     // Generate reply
     const ctx = session.context_data ?? {};
 
+    // Liam L3, Part B, step 3 — record the reply to whatever question is
+    // still open from an earlier turn, using this turn's incoming message
+    // verbatim, before anything else about this turn happens. Only cleared
+    // from context_data on a confirmed write (inserted or an idempotent
+    // duplicate) — a genuine failure leaves it open for one more attempt on
+    // the next turn rather than silently losing the reply.
+    let openQuestionId: string | null = ctx.openQuestionId ?? null;
+    let openQuestionTurn: number | null = ctx.openQuestionTurn ?? null;
+    if (openQuestionId) {
+      const cleared = await recordReplyForOpenQuestion({
+        uid: req.uid!, sessionId, openQuestionId, openQuestionTurn,
+        message, userMessageId: userMsgRef.id,
+      });
+      if (cleared) { openQuestionId = null; openQuestionTurn = null; }
+    }
+
     await refreshCatalogSnapshotIfStale(req.uid!, ctx, sessionId);
 
     // Liam L1, Part C.3 — the profile line is rebuilt every turn (the reads
@@ -1130,7 +1180,7 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
       }
       throw claudeErr; // unexpected error — preserve existing behavior (outer catch, 500)
     }
-    const { reply, modelUsed, actionTypes, saveRecipeTitle, rememberOps, cardMarker } = chatResult;
+    const { reply, modelUsed, actionTypes, saveRecipeTitle, rememberOps, cardMarker, recommendAlias, askKind } = chatResult;
     const actions = await resolveActions(actionTypes, req.uid!, ctx.archetypeKey ?? null, saveRecipeTitle);
     await resolveRemember(req.uid!, rememberOps, sessionId, session.turn_count);
     await resolveCard(cardMarker, req.uid!, entryCoffeeId, entryMethod, brewProfile, message);
@@ -1143,17 +1193,51 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
     const newTurnCount = session.turn_count + 1;
     const shouldClose = newTurnCount >= maxTurns;
 
+    // Save assistant reply to Firestore first — Liam L3, Part B's
+    // recommendation/question rows key on this message's own doc id, so it
+    // must exist before recordTurn() runs (moved ahead of the session
+    // UPDATE below, which now also needs recordTurn()'s result).
+    const assistantMsgRef = await messagesCol.add({
+      role: 'assistant',
+      content: reply,
+      modelUsed,
+      seq: session.turn_count * 2,
+      actions,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    const messageCandidates: AliasCandidate[] = (Array.isArray(ctx.storyCandidates) ? ctx.storyCandidates : [])
+      .map((c: StoryCandidate) => ({ coffeeId: c.coffeeId, alias: c.alias }));
+    const writeBackResult = await recordTurn({
+      uid: req.uid!,
+      sessionId,
+      turn: session.turn_count,
+      assistantMessageId: assistantMsgRef.id,
+      reply,
+      recommendAlias,
+      askKind,
+      candidates: messageCandidates,
+      candidateCoffeeIds: Array.isArray(ctx.coffeeIds) ? ctx.coffeeIds : [],
+      exploreArchetypeCode: profileReads.exploreArchetypeCode,
+    });
+
     // Updated context_data — carries the topic router's state forward so the
     // next turn's stickiness/decay is correct, and keeps the topic log (the
     // §4.10 ML dataset / §7 topic-distribution metric) growing across turns.
     // staleNudgeSent (write rule 5) latches true the first time a nudge is
     // used and never resets within the session — at most one per session.
+    // openQuestionId/openQuestionTurn: writeBackResult only overrides these
+    // when a fresh <<ask>> fired this turn; otherwise the step-3 reply
+    // recording above already resolved the right carry-forward value
+    // (cleared on a recorded reply, unchanged if none was open).
     const updatedContextData = {
       ...ctx,
       currentTopic: topicResult.topic,
       currentTopicTurnsSinceMatch: topicResult.turnsSinceMatch,
       topicLog,
       staleNudgeSent: ctx.staleNudgeSent === true || !!staleNudge,
+      openQuestionId: writeBackResult ? writeBackResult.openQuestionId : openQuestionId,
+      openQuestionTurn: writeBackResult ? writeBackResult.openQuestionTurn : openQuestionTurn,
     };
 
     // Update session
@@ -1164,16 +1248,6 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
        WHERE id = $1`,
       [sessionId, newTurnCount, shouldClose, shouldClose ? 'turn_limit' : null, JSON.stringify(updatedContextData)]
     );
-
-    // Save assistant reply to Firestore
-    await messagesCol.add({
-      role: 'assistant',
-      content: reply,
-      modelUsed,
-      seq: session.turn_count * 2,
-      actions,
-      createdAt: FieldValue.serverTimestamp(),
-    });
 
     // Outcome on close
     if (shouldClose && ctx.evaluationId) {
@@ -1193,6 +1267,10 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
 
     res.json({
       reply,
+      // Liam L3, Part C — the assistant reply's own Firestore doc id, so an
+      // action-link click can call POST /:sessionId/action with the right
+      // messageId (see Task 0's disclosed deviation: no response exposed this before).
+      messageId: assistantMsgRef.id,
       actions,
       turnCount: newTurnCount,
       sessionClosed: shouldClose,
@@ -1205,6 +1283,44 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
   } catch (err) {
     console.error('[sommelier/message]', err);
     res.status(500).json({ error: 'Failed to process message' });
+  }
+});
+
+// ─── POST /api/sommelier/:sessionId/action ───────────────────────────────────
+// Liam L3, Part C — records that the customer actually clicked one of
+// Liam's action links (retake_quiz / open_dial / save_recipe), previously
+// only ever stored as *offered* on the assistant message, never as a click.
+// Idempotent the same way every other Liam fact is: sourceId is deterministic
+// per session/message/actionType, so two clicks on the same link write one row.
+router.post('/:sessionId/action', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
+  const sessionId = Number(req.params.sessionId);
+  const { messageId, actionType } = req.body;
+  if (!messageId || typeof messageId !== 'string' ||
+      !['open_dial', 'retake_quiz', 'save_recipe'].includes(actionType)) {
+    res.status(400).json({ error: 'messageId and a known actionType are required' });
+    return;
+  }
+  try {
+    const sessionResult = await db.query('SELECT id FROM sommelier_sessions WHERE id = $1 AND uid = $2', [sessionId, req.uid]);
+    if (!sessionResult.rows.length) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    const profileId = await resolveProfileId(req.uid!);
+    if (profileId) {
+      await record.liamAction({
+        userId: profileId,
+        source: 'liam',
+        sourceId: `${sessionId}:${messageId}:${actionType}`,
+        sessionId,
+        messageId,
+        actionType,
+      });
+    }
+    res.status(204).end();
+  } catch (err) {
+    console.error('[sommelier/action]', err);
+    res.status(500).json({ error: 'Failed to record action' });
   }
 });
 
@@ -1251,12 +1367,16 @@ router.get('/:sessionId/messages', requireAuth, blockAnonymousAuth, async (req: 
       resolveCoffeeDisplayNames(ctx.coffeeIds ?? []),
     ]);
 
-    let messages: { role: string; content: string; actions?: SommelierAction[] }[];
+    let messages: { role: string; content: string; actions?: SommelierAction[]; messageId?: string }[];
     if (!firestoreSnap.empty) {
       messages = firestoreSnap.docs.map(d => ({
         role: d.data().role as string,
         content: d.data().content as string,
         actions: d.data().actions ?? undefined,
+        // Liam L3, Part C — the Firestore doc id, so a past session's action
+        // links can still call POST /:sessionId/action (a pre-migration
+        // SQL-only session has no doc id at all: messageId stays undefined).
+        messageId: d.id,
       }));
     } else {
       const sql = await db.query(

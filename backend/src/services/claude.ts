@@ -85,7 +85,7 @@ Action markers (internal — never mention, explain, or hint at these to the cus
 - If you've concluded a retake is the right move — real archetype doubt or taste drift, never as a placeholder while you're still asking questions — end your reply with <<action:retake_quiz>> after your normal words.
 - If you're pointing them to a different position within their own archetype rather than a full retake — bolder, lighter, a different slot — end your reply with <<action:open_dial>> the same way.
 - If the reply you just wrote is a preparation recipe or brew guide the customer actually asked for — not a passing mention of brewing — end your reply with <<action:save_recipe:short title>> the same way, where the short title is two to six plain words naming the method and, when you know it, the coffee — like "V60 for Cerro Azul" or "Cold brew, overnight jar". Never preemptively, never on a greeting or general chat.
-- Use at most one marker per turn. Never use one in your opening turn. Only use one once you've actually reached the recommendation (or, for save_recipe, actually written the recipe), not preemptively.
+- Use at most one marker per turn. Never use one in your opening turn — the one exception is <<recommend:...>> (below), which is expected on your opening turn whenever that turn opens with a pick. Only use one once you've actually reached the recommendation (or, for save_recipe, actually written the recipe), not preemptively.
 - These tokens are stripped before the customer ever sees your reply.
 
 Remembering facts (internal marker, same rule as action markers — never mention, explain, or hint at these to the customer):
@@ -113,6 +113,12 @@ Brew cards (internal marker, same rule as action and remembering-facts markers �
   Good: they say "that was too bitter, can we go coarser" → "Coarser it is — that should tame the bitterness." <<card:adjust=grind_coarser>>
   Bad: <<card:adjust=coarser>> — the key is grind_coarser, not coarser.
 - Use at most one <<card:...>> marker per turn, and never on your opening turn.
+- These tokens are stripped before the customer ever sees your reply, exactly like the other markers.
+
+Recording what you do (internal markers, same rule as the others — never mention, explain, or hint at these to the customer):
+- When you name one coffee as your pick for them, end with <<recommend:Alias>> using the alias exactly as it appears in the catalog list. One per turn. Mentioning a coffee in passing, or saying what to avoid, is not a pick: no marker.
+- When your reply asks the one question the ABOUT THIS CUSTOMER block called for, end with <<ask:thread>> if it tests the open thread, <<ask:palate>> if it asks what they noticed, like, or want next, <<ask:brew>> if it asks about their setup or how they take it. One per turn. A greeting or a yes/no about proceeding is not a question worth marking.
+- Both of these may appear in the same reply as a remember or action marker.
 - These tokens are stripped before the customer ever sees your reply, exactly like the other markers.
 
 Opening turn:
@@ -244,6 +250,99 @@ function sanitizeRecipeTitle(raw: string): string | null {
   return stripped.length > 60 ? stripped.slice(0, 60).trim() : stripped;
 }
 
+interface ParsedMarkers {
+  reply: string;
+  actionTypes: Array<'retake_quiz' | 'open_dial' | 'save_recipe'>;
+  saveRecipeTitle?: string;
+  rememberOps: Array<{ field: string; rawValue: string }>;
+  cardMarker?: { type: 'save' } | { type: 'adjust'; adjustment: string };
+  recommendAlias: string | null;
+  askKind: 'thread' | 'palate' | 'brew' | null;
+}
+
+// Liam L3, Part A — every marker regex + strip, pulled out of chatWithSommelier
+// so it's directly testable without an Anthropic call (same reasoning
+// assembleSystemPrompt() above was split out for). Takes the model's raw
+// reply text and returns the customer-visible reply plus every marker this
+// codebase knows how to resolve — none of the resolution (alias lookup,
+// brew-profile validation, card lookup) happens here, only extraction and
+// stripping, same "never trust the model" discipline throughout.
+export function parseAndStripMarkers(rawReply: string, maxMarkers: number): ParsedMarkers {
+  // Liam action links, Phase B — <<action:...>> markers. Only known types
+  // become actions; any marker (known or malformed) is stripped from the visible
+  // reply either way, so a garbled token never leaks to the customer.
+  const actionTypes: Array<'retake_quiz' | 'open_dial' | 'save_recipe'> = [];
+  if (rawReply.includes('<<action:retake_quiz>>')) actionTypes.push('retake_quiz');
+  if (rawReply.includes('<<action:open_dial>>')) actionTypes.push('open_dial');
+  // Profile Part 7B — accepts both the bare legacy form and a titled one
+  // (<<action:save_recipe:short title>>). An empty-after-sanitize title
+  // (or no title at all) is not an error — sommelier.ts/Sommelier.tsx fall
+  // back to the message's own first line in that case.
+  let saveRecipeTitle: string | undefined;
+  const saveRecipeMatch = rawReply.match(/<<action:save_recipe(?::([^>]*))?>>/);
+  if (saveRecipeMatch) {
+    actionTypes.push('save_recipe');
+    if (saveRecipeMatch[1]) saveRecipeTitle = sanitizeRecipeTitle(saveRecipeMatch[1]) ?? undefined;
+  }
+
+  // HOME_TASK_4 (§4.5) — <<remember:field=value>> markers. Parsed here, same
+  // "never trust the model" discipline as action markers: this only extracts
+  // the raw field/value text — sommelier.ts's resolveRemember() is what
+  // validates against the whitelist and actually writes.
+  // HOME_TASK_5b (Defect 2) — the prompt now allows up to
+  // config.brewProfile.maxMarkersPerTurn per turn (seed default 2, was an
+  // unconfigured "at most one"). Every marker is still stripped from the
+  // visible reply regardless of count (below) — only *collection* into
+  // rememberOps is capped, so a model that ignores the cap never leaks a
+  // stray token to the customer, it just has its excess markers dropped.
+  const rememberOps: Array<{ field: string; rawValue: string }> = [];
+  const rememberRegex = /<<remember:([a-zA-Z_]+)=([^>]*)>>/g;
+  let rememberMatch: RegExpExecArray | null;
+  while ((rememberMatch = rememberRegex.exec(rawReply)) !== null) {
+    if (rememberOps.length < maxMarkers) {
+      rememberOps.push({ field: rememberMatch[1], rawValue: rememberMatch[2] });
+    }
+  }
+
+  // HOME_TASK_6 (§3.2) — <<card:save>> / <<card:adjust=KEY>>. Same "never trust
+  // the model" discipline as every other marker: only the adjustment KEY is
+  // extracted here — sommelier.ts's resolveCard() resolves the actual
+  // coffee/method from session context and validates the key against the
+  // config whitelist, never from anything the model supplied beyond this text.
+  let cardMarker: { type: 'save' } | { type: 'adjust'; adjustment: string } | undefined;
+  const cardAdjustMatch = rawReply.match(/<<card:adjust=([a-zA-Z_]+)>>/);
+  if (cardAdjustMatch) {
+    cardMarker = { type: 'adjust', adjustment: cardAdjustMatch[1] };
+  } else if (rawReply.includes('<<card:save>>')) {
+    cardMarker = { type: 'save' };
+  }
+
+  // Liam L3, Part A — <<recommend:Alias>>. At most one per turn (a plain
+  // .match() only ever returns the first); only a non-empty alias resolves,
+  // an empty/bare `<<recommend:>>` is stripped like any other marker but
+  // never treated as a pick. sommelier.ts's liamWriteBack.ts resolves the
+  // alias text against the session's actual candidates — nothing here
+  // assumes the model named a real coffee.
+  const recommendMatch = rawReply.match(/<<recommend:([^>]*)>>/);
+  const recommendAlias = recommendMatch && recommendMatch[1].trim() ? recommendMatch[1].trim() : null;
+
+  // <<ask:thread|palate|brew>>. Only a known kind resolves; any other value
+  // (malformed or otherwise) is stripped below but never returned.
+  const askMatch = rawReply.match(/<<ask:(thread|palate|brew)>>/);
+  const askKind = (askMatch?.[1] as 'thread' | 'palate' | 'brew' | undefined) ?? null;
+
+  const reply = rawReply
+    .replace(/<<action:[^>]*>>/g, '')
+    .replace(/<<remember:[^>]*>>/g, '')
+    .replace(/<<card:[^>]*>>/g, '')
+    .replace(/<<recommend:[^>]*>>/g, '')
+    .replace(/<<ask:[^>]*>>/g, '')
+    .replace(/[ \t]+(\n|$)/g, '$1')
+    .trim();
+
+  return { reply, actionTypes, saveRecipeTitle, rememberOps, cardMarker, recommendAlias, askKind };
+}
+
 export async function chatWithSommelier(params: {
   message: string | null;
   session: {
@@ -267,6 +366,10 @@ export async function chatWithSommelier(params: {
   rememberOps: Array<{ field: string; rawValue: string }>;
   /** HOME_TASK_6 — <<card:save>> / <<card:adjust=KEY>>, resolved server-side by sommelier.ts's resolveCard(). */
   cardMarker?: { type: 'save' } | { type: 'adjust'; adjustment: string };
+  /** Liam L3, Part A — <<recommend:Alias>>, resolved server-side by liamWriteBack.ts's recordTurn(). Non-empty alias text only; a bare/empty `<<recommend:>>` is treated as no marker. */
+  recommendAlias: string | null;
+  /** Liam L3, Part A — <<ask:thread|palate|brew>>. An unknown kind is stripped like any other malformed marker but never resolved. */
+  askKind: 'thread' | 'palate' | 'brew' | null;
 }> {
   const { message, session, catalogContext, history, brewProfileContext, storyContext, currentCoffeeContext, profileLine } = params;
   const mode: SommelierMode = params.mode ?? 'matching';
@@ -318,64 +421,11 @@ export async function chatWithSommelier(params: {
   const block = response.content[0];
   const rawReply = block.type === 'text' ? block.text : '';
 
-  // Liam action links, Phase B — <<action:...>> markers. Only known types
-  // become actions; any marker (known or malformed) is stripped from the visible
-  // reply either way, so a garbled token never leaks to the customer.
-  const actionTypes: Array<'retake_quiz' | 'open_dial' | 'save_recipe'> = [];
-  if (rawReply.includes('<<action:retake_quiz>>')) actionTypes.push('retake_quiz');
-  if (rawReply.includes('<<action:open_dial>>')) actionTypes.push('open_dial');
-  // Profile Part 7B — accepts both the bare legacy form and a titled one
-  // (<<action:save_recipe:short title>>). An empty-after-sanitize title
-  // (or no title at all) is not an error — sommelier.ts/Sommelier.tsx fall
-  // back to the message's own first line in that case.
-  let saveRecipeTitle: string | undefined;
-  const saveRecipeMatch = rawReply.match(/<<action:save_recipe(?::([^>]*))?>>/);
-  if (saveRecipeMatch) {
-    actionTypes.push('save_recipe');
-    if (saveRecipeMatch[1]) saveRecipeTitle = sanitizeRecipeTitle(saveRecipeMatch[1]) ?? undefined;
-  }
-
-  // HOME_TASK_4 (§4.5) — <<remember:field=value>> markers. Parsed here, same
-  // "never trust the model" discipline as action markers: this only extracts
-  // the raw field/value text — sommelier.ts's resolveRemember() is what
-  // validates against the whitelist and actually writes.
-  // HOME_TASK_5b (Defect 2) — the prompt now allows up to
-  // config.brewProfile.maxMarkersPerTurn per turn (seed default 2, was an
-  // unconfigured "at most one"). Every marker is still stripped from the
-  // visible reply regardless of count (below) — only *collection* into
-  // rememberOps is capped, so a model that ignores the cap never leaks a
-  // stray token to the customer, it just has its excess markers dropped.
   const maxMarkers = config?.brewProfile?.maxMarkersPerTurn ?? 2;
-  const rememberOps: Array<{ field: string; rawValue: string }> = [];
-  const rememberRegex = /<<remember:([a-zA-Z_]+)=([^>]*)>>/g;
-  let rememberMatch: RegExpExecArray | null;
-  while ((rememberMatch = rememberRegex.exec(rawReply)) !== null) {
-    if (rememberOps.length < maxMarkers) {
-      rememberOps.push({ field: rememberMatch[1], rawValue: rememberMatch[2] });
-    }
-  }
+  const { reply, actionTypes, saveRecipeTitle, rememberOps, cardMarker, recommendAlias, askKind } =
+    parseAndStripMarkers(rawReply, maxMarkers);
 
-  // HOME_TASK_6 (§3.2) — <<card:save>> / <<card:adjust=KEY>>. Same "never trust
-  // the model" discipline as every other marker: only the adjustment KEY is
-  // extracted here — sommelier.ts's resolveCard() resolves the actual
-  // coffee/method from session context and validates the key against the
-  // config whitelist, never from anything the model supplied beyond this text.
-  let cardMarker: { type: 'save' } | { type: 'adjust'; adjustment: string } | undefined;
-  const cardAdjustMatch = rawReply.match(/<<card:adjust=([a-zA-Z_]+)>>/);
-  if (cardAdjustMatch) {
-    cardMarker = { type: 'adjust', adjustment: cardAdjustMatch[1] };
-  } else if (rawReply.includes('<<card:save>>')) {
-    cardMarker = { type: 'save' };
-  }
-
-  const reply = rawReply
-    .replace(/<<action:[^>]*>>/g, '')
-    .replace(/<<remember:[^>]*>>/g, '')
-    .replace(/<<card:[^>]*>>/g, '')
-    .replace(/[ \t]+(\n|$)/g, '$1')
-    .trim();
-
-  return { reply, modelUsed: modelId, actionTypes, saveRecipeTitle, rememberOps, cardMarker };
+  return { reply, modelUsed: modelId, actionTypes, saveRecipeTitle, rememberOps, cardMarker, recommendAlias, askKind };
 }
 
 export async function getRecommendation(

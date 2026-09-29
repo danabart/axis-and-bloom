@@ -30,13 +30,21 @@ interface FixtureLine {
 }
 interface FixtureQuestion {
   id: string; at: string; kind: string; question: string; reply: string | null; replied_at: string | null;
+  // Liam L3, Part D — real archetype_enum code, so a thread question can
+  // actually match quiz_session_interpretation.explore_archetype (Jade only).
+  archetype_code?: string;
 }
 interface FixtureRecommendation {
   id: string; coffee: string; at: string; followed_line_id: string | null; ordered_at: string | null;
 }
 interface FixtureCustomer {
   name: string;
-  quiz: { archetype: string; at: string; secondary: string | null } | null;
+  // Liam L3, Part D — `explore` (archetype code) is new: buildOpenThreadLine()
+  // requires a real quiz_session_interpretation row (interpretationSource
+  // 'table'), which no fixture customer had before this brief — only Jade
+  // sets it, so her already-existing thread question/reply backfill rows
+  // finally have an Open-thread line to attach to.
+  quiz: { archetype: string; at: string; secondary: string | null; explore?: string } | null;
   lines: FixtureLine[]; questions: FixtureQuestion[]; recommendations: FixtureRecommendation[];
 }
 interface FixtureFile {
@@ -166,10 +174,22 @@ async function loadFixtures(client: Tx): Promise<void> {
     const secondaryLabel = cust.quiz.secondary
       ? (await client.query<{ name: string }>(`SELECT name FROM coffee_archetype WHERE code = $1`, [cust.quiz.secondary])).rows[0]?.name
       : null;
-    await client.query(
-      `INSERT INTO quiz_session (user_id, resulting_archetype_id, completed_at, context_data) VALUES ($1, $2, $3, $4)`,
+    const sessionRow = await client.query<{ id: string }>(
+      `INSERT INTO quiz_session (user_id, resulting_archetype_id, completed_at, context_data) VALUES ($1, $2, $3, $4) RETURNING id`,
       [profileIdByCid[cid], archetypeRow.rows[0].id, cust.quiz.at, JSON.stringify({ secondaryArchetype: secondaryLabel ?? null })]
     );
+    // Liam L3, Part D — a real interpretation-table row (interpretationSource
+    // 'table'), the only way buildOpenThreadLine() ever renders an Open
+    // thread line at all (see liamProfile.ts's own comment on that guard).
+    if (cust.quiz.explore) {
+      const exploreLabel = (await client.query<{ name: string }>(`SELECT name FROM coffee_archetype WHERE code = $1`, [cust.quiz.explore])).rows[0]?.name;
+      await client.query(
+        `INSERT INTO quiz_session_interpretation
+           (quiz_session_id, interpretation_version, recommendation_mode, food_signal_alignment, explore_archetype, is_current, valid_from, computed_by)
+         VALUES ($1, 'v2.1', 'primary_only', 'high', $2, true, $3, 'backfill')`,
+        [sessionRow.rows[0].id, exploreLabel, cust.quiz.at]
+      );
+    }
   }
 
   interface UniqueLine extends FixtureLine { ownerCids: string[] }
@@ -224,6 +244,7 @@ async function loadFixtures(client: Tx): Promise<void> {
         userId: profileIdByCid[cid], source: 'backfill', sourceId: q.id,
         occurredAt: new Date(q.at), sessionId: 1, turn, messageId: `${q.id}:msg`,
         kind: q.kind as 'thread' | 'palate' | 'brew', question: q.question,
+        archetypeCode: q.archetype_code ?? null,
       }, client);
       if (q.reply) {
         const questionRow = await client.query<{ id: string }>(`SELECT id FROM customer_liam_question WHERE source_id = $1`, [q.id]);
@@ -376,17 +397,17 @@ describe('buildProfileLine (Liam L1, Part A) — one per C3 fixture customer', (
     },
     {
       cid: 'jade', label: 'Jade (answered thread question)',
-      // Jade's real customer_liam_question/reply backfill rows exist in the
-      // fixture, but the Open-thread line requires quizCurrent.exploreArchetype
-      // (v_customer_quiz_current.explore_archetype), which the fixture's
-      // quiz_session.context_data never sets for any of the ten customers —
-      // only secondaryArchetype is. So the Open-thread line is untested by
-      // this fixture for every customer, Jade included; disclosed, not
-      // silently worked around (the fixture is explicitly out of scope to
-      // edit for this brief).
+      // Liam L3, Part D — Jade's real customer_liam_question/reply backfill
+      // rows now finally have an Open-thread line to attach to: her fixture
+      // quiz gained a real quiz_session_interpretation row (explore_archetype
+      // 'floral'), and her thread question gained a matching archetype_code.
+      // Before this brief, no fixture customer had a real interpretation-table
+      // row at all (only context_data), so the Open-thread line was untested —
+      // see liamProfile.ts's buildOpenThreadLine() for why 'table' is required.
       expected: [
         'ABOUT THIS CUSTOMER (facts; rebuilt every turn)',
         'Match: Experimental',
+        'Open thread: Floral — answered: "Yes, count me in!" (turn 2)',
         'Bags: quiz only: no bags yet',
       ].join('\n'),
     },

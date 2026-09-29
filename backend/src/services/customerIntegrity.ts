@@ -529,15 +529,30 @@ const EXPECTED_PALATE_VIEW_COLUMNS: Record<string, string[]> = {
     'liked_mean_midpoint', 'n_liked', 'disliked_mean_midpoint', 'n_disliked',
   ],
   v_palate_archetype_spread: ['canonical_user_id', 'match_archetype', 'n_coffees', 'n_positive', 'n_negative'],
-  v_palate_threads: ['canonical_user_id', 'question_id', 'occurred_at', 'kind', 'archetype_code', 'question', 'reply', 'replied_at', 'status'],
+  // Liam L3, Part D — session_id/turn added (buildOpenThreadLine's "asked on
+  // turn n" rendering).
+  v_palate_threads: [
+    'canonical_user_id', 'question_id', 'occurred_at', 'kind', 'archetype_code', 'question',
+    'session_id', 'turn', 'reply', 'replied_at', 'status',
+  ],
+  // Liam L3, Part B/E — detected passthrough (marked vs. detected split on
+  // the outcomes page).
   v_palate_recommendation_outcome: [
-    'canonical_user_id', 'recommendation_id', 'recommended_at', 'coffee_id', 'slot_id',
+    'canonical_user_id', 'recommendation_id', 'recommended_at', 'coffee_id', 'slot_id', 'detected',
     'followed_order_line_item_id', 'ordered_at', 'days_to_order', 'feedback_rating',
   ],
   v_palate_slot_candidates: [
     'canonical_user_id', 'slot_id', 'archetype', 'sort_order', 'slot_name', 'position_label', 'coffee_id',
     'coffee_name', 'blend_id', 'roaster_sku', 'shopify_variant_id', 'retail_price_cents', 'n_dims_overlapping',
     'n_dims_compared', 'n_dims_disliked_overlap', 'in_pair', 'already_bought', 'last_rating',
+  ],
+  // Liam L3, Part E — the calibration export surface (new this brief).
+  v_customer_calibration: [
+    'canonical_user_id', 'email', 'primary_archetype', 'secondary_archetype', 'recommendation_mode',
+    'food_signal_alignment', 'experimental', 'quiz_result_json', 'quiz_completed_at', 'quiz_session_id',
+    'first_recommendation_coffee', 'first_recommendation_at', 'first_recommendation_detected',
+    'first_attributed_order_coffee', 'first_attributed_order_at', 'days_recommendation_to_order',
+    'first_order_feedback_rating', 'thread_status', 'thread_reply',
   ],
 };
 export async function checkPalateViewColumnsMatchFixture(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
@@ -561,7 +576,7 @@ export async function checkPalateViewColumnsMatchFixture(scope: CheckScope = {})
     id: 18,
     name: 'Every palate-fixture view has exactly the column list the fixture/test expect',
     pass: details.length === 0,
-    expected: 'live column list exactly matches EXPECTED_PALATE_VIEW_COLUMNS for all 8 views',
+    expected: 'live column list exactly matches EXPECTED_PALATE_VIEW_COLUMNS for all 9 views',
     actual: details.length === 0 ? 'all correct' : `${details.length} view(s) with a column mismatch`,
     details: details.length ? details : undefined,
   };
