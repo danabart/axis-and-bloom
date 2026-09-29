@@ -1,6 +1,6 @@
 import { db } from '../db/client.js';
 import type { Tx } from '../db/client.js';
-import { getNotSellable } from './catalogReads.js';
+import { getNotSellable, getVisibleSlotCounts, getSizeIntegrity } from './catalogReads.js';
 
 // ── Catalog Blueprint · brief 1 — integrity check service ────────────────────
 // Clone of quizIntegrity.ts's shape. Read-only — this service never writes or
@@ -14,7 +14,7 @@ import { getNotSellable } from './catalogReads.js';
 // taking an optional CheckScope so catalogService.ts's verbs can re-run just
 // checks 4/5/6/8 for the coffee/slot they touched, inside the same write
 // transaction (via `tx`), instead of re-running all 13 globally after every
-// write. runCatalogIntegrityChecks() composes all 13 unscoped, unchanged in
+// write. runCatalogIntegrityChecks() composes all 14 unscoped, unchanged in
 // output shape from brief 1.
 
 export interface CatalogIntegrityCheck {
@@ -55,6 +55,7 @@ const REQUIRED_INDEXES = [
   'coffee_archetype_assignment_one_current',
   'coffee_sku_one_active_per_weight',
   'coffee_slot_price_slot_weight_key',
+  'coffee_size_one_anchor',
   'coffees_active_natural_key',
 ];
 
@@ -222,45 +223,45 @@ export async function checkPlacementDivergence(scope: CheckScope = {}): Promise<
   };
 }
 
-// ── 8. Placed but not sellable at 12 oz — informational ───────────────────
+// ── 8. Placed but not visible to customers — informational ────────────────
 // Catalog Blueprint brief 4, Part D — extracted into catalogReads.getNotSellable()
 // so GET /api/admin/catalog/not-sellable and this check share one query and
-// can never drift apart. Reason strings kept human-readable here; the
-// endpoint returns the same underlying reason codes as a machine-readable array.
+// can never drift apart. Rebuilt by the Catalog Sizes + Visibility brief
+// (2026-09-28) on v_coffee_visibility: an active placement that wins at no
+// size. Reason strings are human-readable here; the endpoint returns the same
+// reason codes as machine-readable arrays.
 export async function checkPlacedNotSellable(scope: CheckScope = {}): Promise<CatalogIntegrityCheck> {
   const runner = scope.tx ?? db;
-  const notSellable = await getNotSellable({ slotId: scope.slotId }, runner);
+  const notSellable = await getNotSellable({ slotId: scope.slotId, coffeeId: scope.coffeeId }, runner);
   const REASON_TEXT: Record<string, string> = {
-    coffee_inactive: 'coffee inactive', category_excluded: 'category excluded',
-    no_active_12oz_sku: 'no active 12 oz SKU', no_price_12oz: 'no price',
+    coffee_inactive: 'coffee inactive', slot_inactive_or_unnamed: 'slot inactive or unnamed', category_excluded: 'category excluded',
+    no_active_sku: 'no SKU', no_slot_price: 'no slot price', outranked: 'outranked',
   };
   return {
     id: 8,
-    name: 'Placed but not sellable at 12 oz (informational)',
+    name: 'Placed but not visible to customers (informational)',
     pass: true,
     expected: 'n/a — listed so Dana can see what still needs a SKU/price',
-    actual: `${notSellable.length} slot(s) placed but not sellable at 12 oz`,
+    actual: `${notSellable.length} placement(s) not visible to customers at any size`,
     details: notSellable.length
-      ? notSellable.map(r => `slot ${r.slot_id} "${r.slot_name}" (${r.coffee_name}): ${r.reasons.map(reason => REASON_TEXT[reason]).join(', ')}`)
+      ? notSellable.map(r => `slot ${r.slot_id} "${r.slot_name}" (${r.coffee_name}, ${r.role}): ${r.sizes.map(sz => `${sz.label} ${sz.reasons.map(reason => REASON_TEXT[reason]).join('/')}`).join(' · ')}`)
       : undefined,
     severity: 'info',
   };
 }
 
-// ── 9. Sellable slot count per archetype at 12 oz — informational ────────
+// ── 9. Visible slots per archetype, per size — informational ──────────────
 export async function checkSellableCounts(scope: CheckScope = {}): Promise<CatalogIntegrityCheck> {
   const runner = scope.tx ?? db;
-  const sellableCountResult = await runner.query<{ archetype: string; count: string }>(
-    `SELECT archetype, COUNT(DISTINCT slot_id) AS count FROM v_coffee_sellable_slot WHERE weight_oz = 12 GROUP BY archetype ORDER BY archetype`
-  );
+  const counts = await getVisibleSlotCounts(runner);
   return {
     id: 9,
-    name: 'Sellable slots per archetype at 12 oz (informational)',
+    name: 'Visible slots per archetype, per size (informational)',
     pass: true,
     expected: 'n/a',
-    actual: sellableCountResult.rows.length
-      ? sellableCountResult.rows.map(r => `${r.archetype}: ${r.count}`).join(', ')
-      : 'no sellable slots at 12 oz',
+    actual: counts.length
+      ? counts.map(r => `${r.archetype} ${r.label}: ${r.count}`).join(', ')
+      : 'no visible slots at any size',
     severity: 'info',
   };
 }
@@ -360,6 +361,28 @@ export async function checkLegacyRowsForActiveCoffees(scope: CheckScope = {}): P
   };
 }
 
+// ── 14. Sizes are well-formed (fail) ───────────────────────────────────────
+// Catalog Sizes + Visibility brief (2026-09-28): exactly one active anchor
+// size, and every coffee_sku / coffee_slot_price / coffee_retail_price weight
+// exists in coffee_size (the FKs enforce the second half at write time; this
+// is the boot-time assertion that they still hold).
+export async function checkSizes(scope: CheckScope = {}): Promise<CatalogIntegrityCheck> {
+  const runner = scope.tx ?? db;
+  const { anchorCount, orphanWeights } = await getSizeIntegrity(runner);
+  const details: string[] = [];
+  if (anchorCount !== 1) details.push(`${anchorCount} active anchor size(s), expected exactly 1`);
+  for (const o of orphanWeights) details.push(`${o.table}: weight ${o.weight_oz} oz is not in coffee_size`);
+  return {
+    id: 14,
+    name: 'Sizes: exactly one active anchor; every SKU / price weight exists in coffee_size',
+    pass: details.length === 0,
+    expected: 'one active anchor size; zero weights outside coffee_size',
+    actual: details.length === 0 ? 'anchor present, all weights known' : `${details.length} problem(s)`,
+    details: details.length ? details : undefined,
+    severity: 'fail',
+  };
+}
+
 const ALL_CHECKS = [
   checkArchetypeIdentity,
   checkDialSlotCounts,
@@ -374,6 +397,7 @@ const ALL_CHECKS = [
   checkRoasterFallback,
   checkSlotIdBackfill,
   checkLegacyRowsForActiveCoffees,
+  checkSizes,
 ];
 
 // Optional `tx` (brief 2, Part B) — catalogImport.ts runs the unscoped report

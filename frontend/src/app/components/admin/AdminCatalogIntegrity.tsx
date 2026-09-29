@@ -28,18 +28,22 @@ interface CatalogIntegrityReport {
 
 // Catalog Blueprint brief 4, Part C — two new diagnostic panels under the
 // checks: GET /catalog/not-sellable and GET /catalog/changes.
+// Catalog Sizes + Visibility brief (2026-09-28): one row per active placement
+// that wins at no size, with the reason per size.
+type NotSellableReason = 'coffee_inactive' | 'slot_inactive_or_unnamed' | 'category_excluded' | 'no_active_sku' | 'no_slot_price' | 'outranked';
 interface NotSellableRow {
   slot_id: number; archetype: string; sort_order: number; slot_name: string | null;
-  coffee_id: number; coffee_name: string;
-  reasons: Array<'no_active_12oz_sku' | 'no_price_12oz' | 'coffee_inactive' | 'category_excluded'>;
+  coffee_id: number; coffee_name: string; role: 'home' | 'guest';
+  reasons: NotSellableReason[];
+  sizes: Array<{ weight_oz: number; label: string; reasons: NotSellableReason[] }>;
 }
 interface ChangeRow {
   at: string; actor: string | null; verb: string; method: string; path: string;
   status: number | null; coffee_id: number | null; slot_id: number | null; error: unknown;
 }
-const REASON_TEXT: Record<NotSellableRow['reasons'][number], string> = {
-  no_active_12oz_sku: 'no active 12oz SKU', no_price_12oz: 'no price at 12oz',
-  coffee_inactive: 'coffee inactive', category_excluded: 'category excluded',
+const REASON_TEXT: Record<NotSellableReason, string> = {
+  no_active_sku: 'no SKU', no_slot_price: 'no slot price', outranked: 'outranked',
+  coffee_inactive: 'coffee inactive', category_excluded: 'category excluded', slot_inactive_or_unnamed: 'slot inactive or unnamed',
 };
 
 const RUST = '#b05642';
@@ -170,22 +174,24 @@ export default function AdminCatalogIntegrity() {
 
       {/* Catalog Blueprint brief 4, Part C — placed-not-sellable panel */}
       <div className="mt-4">
-        <p className={LABEL}>Placed, not yet sellable</p>
+        <p className={LABEL}>Placed, not visible to customers</p>
         <div className={`${CARD} border-stone-200`}>
           {notSellable.length === 0 ? (
-            <p className="text-sm text-stone-400">Every placed slot is sellable at 12oz.</p>
+            <p className="text-sm text-stone-400">Every placed coffee is visible to customers at at least one size.</p>
           ) : (
             <div className="space-y-1.5">
               {notSellable.map((row) => (
-                <div key={row.slot_id} className="text-xs flex items-center justify-between gap-3 border-b border-stone-50 last:border-b-0 pb-1.5 last:pb-0">
+                <div key={`${row.slot_id}-${row.coffee_id}`} className="text-xs flex items-center justify-between gap-3 border-b border-stone-50 last:border-b-0 pb-1.5 last:pb-0">
                   <span className="text-stone-600">
                     <Link to={`/admin/coffees?q=${encodeURIComponent(row.coffee_name)}`} className="underline hover:text-stone-800">
                       {row.coffee_name}
                     </Link>
                     {' '}on {row.archetype} · slot {row.sort_order}
-                    {row.slot_name ? ` (${row.slot_name})` : ''}
+                    {row.slot_name ? ` (${row.slot_name})` : ''} ({row.role})
                   </span>
-                  <span className="text-stone-400 shrink-0">{row.reasons.map(r => REASON_TEXT[r]).join(', ')}</span>
+                  <span className="text-stone-400 text-right">
+                    {row.sizes.map(sz => `${sz.label}: ${sz.reasons.map(r => REASON_TEXT[r]).join(', ')}`).join(' · ')}
+                  </span>
                 </div>
               ))}
             </div>

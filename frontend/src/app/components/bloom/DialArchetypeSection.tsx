@@ -10,7 +10,7 @@ import { RevealedPanel } from './RevealedPanel';
 import { DoorBand } from './DoorBand';
 import { usePositionCardData } from './usePositionCardData';
 import type { ArchetypeData, CartItem, DoorTarget, Slot } from './types';
-import { slotKey, formatPrice, formatWeight } from './types';
+import { slotKey, formatPrice, priceLabel } from './types';
 
 // Part 21 — small-number spellout for the /bloom why-line ("Four {Archetype}
 // coffees live here..."); falls back to the numeral itself past Ten (never
@@ -131,7 +131,7 @@ export function DialArchetypeSection({
     ? isDefaultSlots[0]
     : data.slots.find(s => s.dialSortOrder === computeDefaultSortOrder(data));
   const defaultSortOrder = defaultSlot?.dialSortOrder ?? computeDefaultSortOrder(data);
-  const defaultPrice = defaultSlot?.prices.find(p => p.weightOz === 12) ?? defaultSlot?.prices[0];
+  const defaultPrice = defaultSlot?.prices.find(p => p.isAnchor) ?? defaultSlot?.prices[0];
   const classicAvailable = !!(defaultSlot && defaultSlot.isActive && defaultSlot.platformName && defaultPrice);
 
   // Part 21 — fold/unfold state. Purely local: each mount of this component
@@ -359,13 +359,13 @@ export function DialArchetypeSection({
                         className={`bd-card-weight ${selected ? 'sel' : 'un'}`}
                         onClick={() => cardData.setSelectedWeight(p.weightOz)}
                       >
-                        {formatWeight(p.weightOz)} · {formatPrice(p.retailPriceCents)}
+                        {priceLabel(p)} · {formatPrice(p.retailPriceCents)}
                       </button>
                     );
                   })
                 ) : cardData.selectedPrice ? (
                   <span className="bd-card-weight sel" style={{ cursor: 'default' }}>
-                    {formatWeight(cardData.selectedPrice.weightOz)} · {formatPrice(cardData.selectedPrice.retailPriceCents)}
+                    {priceLabel(cardData.selectedPrice)} · {formatPrice(cardData.selectedPrice.retailPriceCents)}
                   </span>
                 ) : null}
                 <span className="bd-card-ship">shipping included</span>

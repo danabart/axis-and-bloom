@@ -1,5 +1,5 @@
 import type { Slot, SlotPrice, CartItem } from './types';
-import { formatPrice, formatWeight } from './types';
+import { formatPrice, priceLabel } from './types';
 
 interface PositionCardProps {
   slot: Slot;
@@ -86,7 +86,7 @@ export function PositionCard({
       <div className="px-6 pb-5">
         <div className="flex items-center gap-4 flex-wrap">
           {availableWeights.length > 1 && (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {availableWeights.map(p => (
                 <button
                   key={p.weightOz}
@@ -98,14 +98,14 @@ export function PositionCard({
                     color: selectedWeight === p.weightOz ? '#fff' : '#8a8070',
                   }}
                 >
-                  {formatWeight(p.weightOz)} · {formatPrice(p.retailPriceCents)}
+                  {priceLabel(p)} · {formatPrice(p.retailPriceCents)}
                 </button>
               ))}
             </div>
           )}
           {availableWeights.length === 1 && selectedPrice && (
             <span className="text-sm" style={{ color: '#4a4035' }}>
-              {formatWeight(selectedPrice.weightOz)} · {formatPrice(selectedPrice.retailPriceCents)}
+              {priceLabel(selectedPrice)} · {formatPrice(selectedPrice.retailPriceCents)}
             </span>
           )}
           <button

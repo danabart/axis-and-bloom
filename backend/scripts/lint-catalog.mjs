@@ -4,7 +4,7 @@
 // vitest wrapper (services/lintCatalog.test.ts) so `npm test` catches it too,
 // and by .github/workflows/deploy.yml right before the backend build.
 //
-// Four rules, each an allow-list of {file, ...} exceptions with an expiry note
+// Five rules, each an allow-list of {file, ...} exceptions with an expiry note
 // where one applies. A rule failure is reported as `file:line  message` and
 // the process exits 1; a clean run exits 0 and prints nothing (CI-quiet).
 
@@ -127,7 +127,7 @@ for (const relPath of files) {
 const DML_TABLES = [
   'coffee_slot_assignment', 'coffee_dial_slot', 'coffee_archetype_assignment',
   'coffee_slot_price', 'coffee_hop', 'coffee_category_assignment',
-  'coffee_sku', 'coffee_archetype', 'coffees',
+  'coffee_sku', 'coffee_archetype', 'coffees', 'coffee_size',
 ];
 const DML_VERBS = ['INSERT INTO', 'UPDATE', 'DELETE FROM'];
 const RULE2_WRITER = 'services/catalogService.ts';
@@ -271,6 +271,37 @@ for (const relPath of files) {
 }
 for (const relPath of frontendAdminFiles) {
   checkRule4(relPath);
+}
+
+// ── Rule 5: no bag-size literals ────────────────────────────────────────────
+// Catalog Sizes + Visibility brief (2026-09-28). Bag sizes live in the
+// coffee_size table (catalogReads.getSizes()/getAnchorSize()); a numeric
+// literal 12, 32 or 80 compared to, assigned to, or listed as a weight in
+// routes/ or services/ means a size got hardcoded again. Same spirit as rule 4
+// (no archetype label literals). *.test.ts is excluded by isExcluded(); the
+// schema.sql seed is not scanned. No other allow-list entries.
+const RULE5_SCOPE_DIRS = ['routes/', 'services/'];
+const SIZE_LITERAL = '(?:12|32|80)(?:\\.0+)?(?![\\d.])';
+const RULE5_PATTERNS = [
+  // weightOz === 12, weight_oz = 12, weightOz: 12, BLOOM_WEIGHT_OZ = 12 ...
+  new RegExp(`\\w*weight\\w*\\s*(?:===?|!==?|<=?|>=?|=|:)\\s*${SIZE_LITERAL}`, 'i'),
+  // 12 === weightOz
+  new RegExp(`\\b${SIZE_LITERAL}\\s*(?:===?|!==?)\\s*[\\w.]*weight`, 'i'),
+  // const COLLECTION_WEIGHTS_OZ = [12, 80]
+  new RegExp(`\\w*weights?\\w*[^=\\n]*=\\s*\\[[^\\]]*\\b${SIZE_LITERAL}`, 'i'),
+  // weight_oz IN (12, 80) / weight_oz = ANY(ARRAY[12, 80])
+  new RegExp(`\\w*weight\\w*\\s+(?:NOT\\s+)?IN\\s*\\([^)]*\\b${SIZE_LITERAL}`, 'i'),
+  new RegExp(`\\w*weight\\w*\\s*=\\s*ANY\\s*\\(\\s*ARRAY\\s*\\[[^\\]]*\\b${SIZE_LITERAL}`, 'i'),
+];
+
+for (const relPath of files) {
+  if (!RULE5_SCOPE_DIRS.some((d) => relPath.startsWith(d))) continue;
+  fileLines(relPath).forEach((line, i) => {
+    const stripped = stripLineComment(line);
+    if (RULE5_PATTERNS.some((re) => re.test(stripped))) {
+      violations.push({ file: relPath, line: i + 1, message: `bag-size literal (12/32/80) used as a weight — use getSizes()/getAnchorSize() from catalogReads` });
+    }
+  });
 }
 
 // ── Report ───────────────────────────────────────────────────────────────────

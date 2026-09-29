@@ -29,6 +29,7 @@ export default function AdminInventory() {
   const [coffees, setCoffees] = useState<Coffee[]>([]);
   const [error, setError] = useState('');
   const [showInactive, setShowInactive] = useState(false);
+  const [sizeLabels, setSizeLabels] = useState<Record<number, string>>({});
 
   const [editSkuId, setEditSkuId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ roasterSku: '', shopifyVariantId: '', costToUs: '', quantityAvailable: '', safetyStockBuffer: '' });
@@ -52,6 +53,12 @@ export default function AdminInventory() {
       const res = await apiFetch(`/api/admin/catalog/coffees${qs}`);
       if (!res.ok) throw new Error('Failed to fetch coffees');
       setCoffees(await res.json());
+      // Size labels come from coffee_size (GET /catalog/sizes); falls back to "<n> oz" if it can't load.
+      const sizesRes = await apiFetch('/api/admin/catalog/sizes');
+      if (sizesRes.ok) {
+        const sizes: Array<{ weightOz: number; label: string }> = await sizesRes.json();
+        setSizeLabels(Object.fromEntries(sizes.map(sz => [sz.weightOz, sz.label])));
+      }
       setError('');
     } catch (err) { reportError('[AdminInventory/load]', err); setError('Failed to load data'); }
   }
@@ -173,7 +180,7 @@ export default function AdminInventory() {
                     <div className="text-xs text-stone-400">{coffee.roaster_name ?? '—'}</div>
                   </td>
                   <td className="py-2 px-3 text-xs text-stone-500">{archetypeLabel(coffee.match_archetype)}</td>
-                  <td className="py-2 px-3 text-stone-500 text-xs">{sku.weight_oz} oz</td>
+                  <td className="py-2 px-3 text-stone-500 text-xs">{sizeLabels[Number(sku.weight_oz)] ?? `${sku.weight_oz} oz`}</td>
                   <td className="py-2 px-3 text-stone-400 text-xs font-mono">{sku.roaster_sku ?? <span className="text-stone-200">—</span>}</td>
                   <td className="py-2 px-3 text-stone-400 text-xs font-mono">{sku.shopify_variant_id ?? <span className="text-stone-200">—</span>}</td>
                   <td className="py-2 px-3 text-xs text-stone-500">{sku.quantity_available} / {sku.safety_stock_buffer}</td>

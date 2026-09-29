@@ -1,5 +1,5 @@
 import { db } from '../db/client.js';
-import { getSlots, getSellableCandidates, getSellableSlots } from './catalogReads.js';
+import { getSlots, getSellableCandidates, getSellableSlots, getSizes } from './catalogReads.js';
 
 // Catalog Blueprint · brief 3 (2026-09-14) — rebuilt onto the views
 // (v_coffee_sellable_candidate / v_coffee_sellable_slot) via catalogReads.ts.
@@ -85,7 +85,11 @@ export const COLLECTION_DISCOUNT = 0.10;
 // A "set" of fewer than this reads wrong (Dana's own framing) — also the floor
 // below which the collection CTA is hidden entirely.
 export const COLLECTION_MIN_MEMBERS = 3;
-const COLLECTION_WEIGHTS_OZ = [12, 80]; // try 12oz first per member, else 5lb — same fallback order as "the classic" (§B).
+// Sizes are tried anchor first, then by coffee_size.sort_order (12 oz, 2 lb, 5 lb) — same fallback idea as "the classic" (§B); the list itself comes from getSizes().
+async function collectionWeightsOz(): Promise<number[]> {
+  const sizes = await getSizes();
+  return [...sizes].sort((a, b) => Number(b.is_anchor) - Number(a.is_anchor) || a.sort_order - b.sort_order).map(s => s.weight_oz);
+}
 
 export interface CollectionMember {
   dialSortOrder: number;
@@ -109,7 +113,7 @@ export interface CollectionOffer {
 export async function computeCollectionOffer(archetype: string): Promise<CollectionOffer | null> {
   const members: CollectionMember[] = [];
   const seenSortOrders = new Set<number>();
-  for (const weightOz of COLLECTION_WEIGHTS_OZ) {
+  for (const weightOz of await collectionWeightsOz()) {
     const sellable = await getSellableSlots({ archetype, weightOz });
     for (const slot of sellable) {
       if (seenSortOrders.has(slot.sort_order)) continue; // 12oz already resolved+priced this position

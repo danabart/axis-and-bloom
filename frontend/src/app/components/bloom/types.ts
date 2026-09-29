@@ -1,6 +1,10 @@
 export interface SlotPrice {
   weightOz: number;
   retailPriceCents: number;
+  /** coffee_size label ("12 oz" / "2 lb" / "5 lb") — use with priceLabel(); absent on older payloads. */
+  label?: string;
+  /** The anchor size (coffee_size.is_anchor) — the default selection on a card. */
+  isAnchor?: boolean;
 }
 
 export interface Slot {
@@ -114,6 +118,8 @@ export interface OtherCategoryPrice {
   weightOz: number;
   retailPriceCents: number;
   isActive: boolean;
+  label?: string;
+  isAnchor?: boolean;
 }
 
 export interface OtherCategoryCoffee {
@@ -140,5 +146,10 @@ export function formatPrice(cents: number): string {
 }
 
 export function formatWeight(weightOz: number): string {
-  return weightOz === 12 ? '12oz' : weightOz >= 16 ? `${weightOz / 16}lb` : `${weightOz}oz`;
+  return weightOz >= 16 ? `${weightOz / 16}lb` : `${weightOz}oz`;
+}
+
+/** Size text for a price button: the API's coffee_size label, else formatWeight (cart lines have no label). */
+export function priceLabel(p: { weightOz: number; label?: string }): string {
+  return p.label ?? formatWeight(p.weightOz);
 }

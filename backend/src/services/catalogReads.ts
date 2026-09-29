@@ -93,6 +93,8 @@ export interface SellableSlotRow {
   roaster_sku: string | null;
   shopify_variant_id: string | null;
   retail_price_cents: number;
+  size_label: string;
+  size_sort_order: number;
 }
 
 export interface SellableCandidateRow extends Omit<SellableSlotRow, 'blend_id' | 'retail_price_cents'> {
@@ -188,6 +190,45 @@ export async function archetypeUuid(labelOrCode: string, runner: Runner = db): P
   return rows.find(r => r.code === code)?.uuid ?? null;
 }
 
+// ── Sizes (in-process cache, 60s — same posture as archetype labels) ───────────
+// Catalog Sizes + Visibility brief (2026-09-28), Part A. coffee_size is the
+// one bag-size list; this is the only file that queries it. pg returns NUMERIC
+// as a string, so weight_oz is converted here once and callers get a number.
+
+export interface SizeRow {
+  weight_oz: number;
+  label: string;
+  sort_order: number;
+  is_anchor: boolean;
+  is_active: boolean;
+}
+
+let sizeCache: { at: number; rows: SizeRow[] } | null = null;
+const SIZE_CACHE_MS = 60_000;
+
+// Active sizes, in sort_order.
+export async function getSizes(runner: Runner = db): Promise<SizeRow[]> {
+  if (sizeCache && Date.now() - sizeCache.at < SIZE_CACHE_MS) return sizeCache.rows;
+  const result = await runner.query<SizeRow>(
+    `SELECT weight_oz, label, sort_order, is_anchor, is_active FROM coffee_size WHERE is_active = true ORDER BY sort_order`
+  );
+  const rows = result.rows.map(r => ({ ...r, weight_oz: Number(r.weight_oz) }));
+  sizeCache = { at: Date.now(), rows };
+  return rows;
+}
+
+// The anchor size (S2): the one every coffee must have a SKU for, that Liam
+// recommends and subscriptions use. Throws if none — integrity check 14 fails
+// boot for that state, so this is unreachable in a healthy deploy.
+export async function getAnchorSize(runner: Runner = db): Promise<SizeRow> {
+  const anchor = (await getSizes(runner)).find(s => s.is_anchor);
+  if (!anchor) throw new Error('coffee_size has no active anchor size');
+  return anchor;
+}
+
+// For tests that change coffee_size within a run.
+export function clearSizeCache(): void { sizeCache = null; }
+
 // ── Coffees ──────────────────────────────────────────────────────────────────
 
 export async function getCoffee(coffeeId: number, runner: Runner = db): Promise<CoffeeRow | null> {
@@ -248,7 +289,7 @@ export async function getSellableSlots(
   if (filter.weightOz !== undefined) { params.push(filter.weightOz); clauses.push(`weight_oz = $${params.length}`); }
   if (filter.slotId !== undefined) { params.push(filter.slotId); clauses.push(`slot_id = $${params.length}`); }
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-  const result = await runner.query<SellableSlotRow>(`SELECT * FROM v_coffee_sellable_slot ${where} ORDER BY slot_id, weight_oz`, params);
+  const result = await runner.query<SellableSlotRow>(`SELECT * FROM v_coffee_sellable_slot ${where} ORDER BY slot_id, size_sort_order`, params);
   return result.rows;
 }
 
@@ -267,6 +308,18 @@ export async function getSlots(archetype?: string, runner: Runner = db): Promise
     ? await runner.query<SlotRow>(`SELECT * FROM coffee_dial_slot WHERE archetype = $1 ORDER BY sort_order`, [archetype])
     : await runner.query<SlotRow>(`SELECT * FROM coffee_dial_slot ORDER BY archetype, sort_order`);
   return result.rows;
+}
+
+// Plain lookup of the prices set per slot (base table, same precedent as
+// getSlots() on coffee_dial_slot) — the admin slot cards render one input per
+// active size and need the raw price, not just the winner's.
+export async function getSlotPrices(slotIds: number[], runner: Runner = db): Promise<Array<{ slot_id: number; weight_oz: number; retail_price_cents: number }>> {
+  if (!slotIds.length) return [];
+  const result = await runner.query<{ slot_id: number; weight_oz: string; retail_price_cents: number }>(
+    `SELECT slot_id, weight_oz, retail_price_cents FROM coffee_slot_price WHERE slot_id = ANY($1::int[]) ORDER BY slot_id, weight_oz`,
+    [slotIds]
+  );
+  return result.rows.map(r => ({ ...r, weight_oz: Number(r.weight_oz) }));
 }
 
 // ── Hops ─────────────────────────────────────────────────────────────────────
@@ -293,8 +346,171 @@ export async function getHops(
   return result.rows;
 }
 
-// ── Not sellable (admin diagnostic) ───────────────────────────────────────────
+// ── Visibility (admin diagnostic) ─────────────────────────────────────────────
+// Catalog Sizes + Visibility brief (2026-09-28), Part B/D. "Visible to
+// customers" (S3) = the coffee wins at least one of its placements (home or
+// guest) at at least one active size. All of it is v_coffee_visibility /
+// v_coffee_visibility_summary; this section only groups those rows for the
+// admin UI and orders the reason flags (presentation, no rule of its own).
 
+export type VisibilityReason =
+  | 'coffee_inactive' | 'slot_inactive_or_unnamed' | 'category_excluded'
+  | 'no_active_sku' | 'no_slot_price' | 'outranked';
+
+interface VisibilityRow {
+  coffee_id: number; coffee_name: string; assignment_id: number; slot_id: number;
+  archetype: ArchetypeCode; sort_order: number; slot_name: string | null;
+  role: 'home' | 'guest'; priority: number;
+  weight_oz: string | number; size_label: string; size_sort_order: number; is_anchor_size: boolean;
+  is_winner: boolean; winner_coffee_id: number | null; winner_coffee_name: string | null;
+  slot_inactive_or_unnamed: boolean; coffee_inactive: boolean; category_excluded: boolean;
+  no_active_sku: boolean; no_slot_price: boolean; outranked: boolean;
+}
+
+// Why a placement is not winning at one size. Root causes first: an inactive
+// coffee / slot or an excluded category explains everything else, and a
+// missing SKU is reported before a missing price (fix the SKU first).
+function visibilityReasons(r: VisibilityRow): VisibilityReason[] {
+  if (r.is_winner) return [];
+  if (r.coffee_inactive) return ['coffee_inactive'];
+  if (r.slot_inactive_or_unnamed) return ['slot_inactive_or_unnamed'];
+  if (r.category_excluded) return ['category_excluded'];
+  if (r.no_active_sku) return ['no_active_sku'];
+  if (r.no_slot_price) return ['no_slot_price'];
+  if (r.outranked) return ['outranked'];
+  return [];
+}
+
+export interface VisibilitySize {
+  weightOz: number;
+  label: string;
+  isAnchor: boolean;
+  isWinner: boolean;
+  reasons: VisibilityReason[];
+  winnerCoffeeId: number | null;
+  winnerCoffeeName: string | null;
+}
+
+export interface VisibilityPlacement {
+  assignmentId: number;
+  slotId: number;
+  archetype: ArchetypeCode;
+  sortOrder: number;
+  slotName: string | null;
+  role: 'home' | 'guest';
+  priority: number;
+  sizes: VisibilitySize[];
+}
+
+export interface CoffeeVisibility {
+  coffeeId: number;
+  isVisible: boolean;
+  isPlaced: boolean;
+  visibleSlotCount: number;
+  placements: VisibilityPlacement[];
+}
+
+function toVisibilitySize(r: VisibilityRow): VisibilitySize {
+  return {
+    weightOz: Number(r.weight_oz), label: r.size_label, isAnchor: r.is_anchor_size, isWinner: r.is_winner,
+    reasons: visibilityReasons(r), winnerCoffeeId: r.winner_coffee_id, winnerCoffeeName: r.winner_coffee_name,
+  };
+}
+
+const VISIBILITY_ORDER = `ORDER BY coffee_id, (role = 'home') DESC, priority, slot_id, size_sort_order`;
+
+// One entry per coffee (all coffees when coffeeIds is omitted, including
+// unplaced and inactive ones), keyed by coffee id.
+export async function getCoffeeVisibility(coffeeIds?: number[], runner: Runner = db): Promise<Map<number, CoffeeVisibility>> {
+  const params: unknown[] = [];
+  const where = coffeeIds ? (params.push(coffeeIds), `WHERE coffee_id = ANY($1::int[])`) : '';
+  const [summary, rows] = await Promise.all([
+    runner.query<{ coffee_id: number; is_visible: boolean; is_placed: boolean; visible_slot_count: string }>(
+      `SELECT coffee_id, is_visible, is_placed, visible_slot_count FROM v_coffee_visibility_summary ${where}`, params
+    ),
+    runner.query<VisibilityRow>(`SELECT * FROM v_coffee_visibility ${where} ${VISIBILITY_ORDER}`, params),
+  ]);
+  const out = new Map<number, CoffeeVisibility>();
+  for (const s of summary.rows) {
+    out.set(s.coffee_id, {
+      coffeeId: s.coffee_id, isVisible: s.is_visible, isPlaced: s.is_placed,
+      visibleSlotCount: Number(s.visible_slot_count), placements: [],
+    });
+  }
+  const byAssignment = new Map<number, VisibilityPlacement>();
+  for (const r of rows.rows) {
+    let placement = byAssignment.get(r.assignment_id);
+    if (!placement) {
+      placement = {
+        assignmentId: r.assignment_id, slotId: r.slot_id, archetype: r.archetype, sortOrder: r.sort_order,
+        slotName: r.slot_name, role: r.role, priority: r.priority, sizes: [],
+      };
+      byAssignment.set(r.assignment_id, placement);
+      out.get(r.coffee_id)?.placements.push(placement);
+    }
+    placement.sizes.push(toVisibilitySize(r));
+  }
+  return out;
+}
+
+export interface SlotVisibilitySize {
+  weightOz: number;
+  label: string;
+  winnerCoffeeId: number | null;
+  winnerCoffeeName: string | null;
+  // When nobody wins: the slot's top-ranked occupant (home first, then
+  // priority) and why it is not showing. Null when the slot has no occupant
+  // (or somebody wins).
+  topOccupant: { coffeeId: number; coffeeName: string; reasons: VisibilityReason[] } | null;
+}
+
+export interface SlotVisibility {
+  slotId: number;
+  isVisible: boolean;
+  sizes: SlotVisibilitySize[];
+}
+
+// Per slot, per active size: who wins (v_coffee_visibility's winner columns,
+// i.e. v_coffee_sellable_slot) and, when nobody does, why. Slots with no
+// active placement have no rows in the view; they get every size with no
+// winner and no occupant.
+export async function getSlotVisibility(slotIds?: number[], runner: Runner = db): Promise<Map<number, SlotVisibility>> {
+  const params: unknown[] = [];
+  const where = slotIds ? (params.push(slotIds), `WHERE slot_id = ANY($1::int[])`) : '';
+  const [sizes, rows] = await Promise.all([
+    getSizes(runner),
+    runner.query<VisibilityRow>(
+      `SELECT * FROM v_coffee_visibility ${where} ORDER BY slot_id, size_sort_order, (role = 'home') DESC, priority`, params
+    ),
+  ]);
+  const bySlot = new Map<number, Map<number, VisibilityRow>>();
+  for (const r of rows.rows) {
+    const perSize = bySlot.get(r.slot_id) ?? new Map<number, VisibilityRow>();
+    const key = Number(r.weight_oz);
+    if (!perSize.has(key)) perSize.set(key, r); // first row per slot x size = top occupant
+    bySlot.set(r.slot_id, perSize);
+  }
+  const out = new Map<number, SlotVisibility>();
+  const ids = slotIds ?? [...bySlot.keys()];
+  for (const slotId of ids) {
+    const perSize = bySlot.get(slotId);
+    const slotSizes: SlotVisibilitySize[] = sizes.map(sz => {
+      const top = perSize?.get(sz.weight_oz);
+      return {
+        weightOz: sz.weight_oz, label: sz.label,
+        winnerCoffeeId: top?.winner_coffee_id ?? null, winnerCoffeeName: top?.winner_coffee_name ?? null,
+        topOccupant: top && top.winner_coffee_id == null
+          ? { coffeeId: top.coffee_id, coffeeName: top.coffee_name, reasons: visibilityReasons(top) }
+          : null,
+      };
+    });
+    out.set(slotId, { slotId, isVisible: slotSizes.some(s => s.winnerCoffeeId != null), sizes: slotSizes });
+  }
+  return out;
+}
+
+// Placements that are active but win at no size — the "placed but not visible
+// to customers" diagnostic (integrity check 8, GET /catalog/not-sellable).
 export interface NotSellableRow {
   slot_id: number;
   archetype: ArchetypeCode;
@@ -302,64 +518,61 @@ export interface NotSellableRow {
   slot_name: string | null;
   coffee_id: number;
   coffee_name: string;
-  reasons: Array<'no_active_12oz_sku' | 'no_price_12oz' | 'coffee_inactive' | 'category_excluded'>;
+  role: 'home' | 'guest';
+  reasons: VisibilityReason[];
+  sizes: Array<{ weight_oz: number; label: string; reasons: VisibilityReason[] }>;
 }
 
-const NOT_SELLABLE_WEIGHT_OZ = 12;
-
-// Catalog Blueprint brief 4, Part D — active slots with at least one active
-// assignment but no v_coffee_sellable_slot row at 12oz. The reported
-// coffee_id/coffee_name is the slot's top-ranked occupant (home first, then
-// priority — same rank v_coffee_sellable_candidate itself uses), since
-// that's "the" coffee stuck there from an admin's point of view.
-// catalogIntegrity.ts's check 8 reuses this (extracted from its own query,
-// same shape it already reported) so the boot check and this endpoint never
-// drift apart.
-export async function getNotSellable(filter: { slotId?: number } = {}, runner: Runner = db): Promise<NotSellableRow[]> {
-  const result = await runner.query<{
-    slot_id: number; archetype: ArchetypeCode; sort_order: number; slot_name: string | null;
-    coffee_id: number; coffee_name: string; coffee_is_active: boolean; category_codes: string[];
-    has_active_12oz_sku: boolean; has_12oz_price: boolean;
-  }>(
-    `SELECT
-       s.id AS slot_id, s.archetype, s.sort_order, s.name AS slot_name,
-       top.coffee_id, top.coffee_name, top.coffee_is_active, top.category_codes,
-       EXISTS (
-         SELECT 1 FROM coffee_sku rb WHERE rb.coffee_id = top.coffee_id AND rb.is_active = true AND rb.weight_oz = $1
-       ) AS has_active_12oz_sku,
-       EXISTS (
-         SELECT 1 FROM coffee_slot_price dsp WHERE dsp.slot_id = s.id AND dsp.weight_oz = $1
-       ) AS has_12oz_price
-     FROM coffee_dial_slot s
-     JOIN LATERAL (
-       SELECT csa.coffee_id, vc.name AS coffee_name, vc.is_active AS coffee_is_active, vc.category_codes
-       FROM coffee_slot_assignment csa
-       JOIN v_coffee vc ON vc.id = csa.coffee_id
-       WHERE csa.slot_id = s.id AND csa.is_active = true
-       ORDER BY (csa.role = 'home') DESC, csa.priority
-       LIMIT 1
-     ) top ON true
-     WHERE s.is_active = true
-       AND ($2::int IS NULL OR s.id = $2)
-       AND NOT EXISTS (SELECT 1 FROM v_coffee_sellable_slot vs WHERE vs.slot_id = s.id AND vs.weight_oz = $1)
-     ORDER BY s.archetype, s.sort_order`,
-    [NOT_SELLABLE_WEIGHT_OZ, filter.slotId ?? null]
+export async function getNotSellable(filter: { slotId?: number; coffeeId?: number } = {}, runner: Runner = db): Promise<NotSellableRow[]> {
+  const result = await runner.query<VisibilityRow>(
+    `SELECT v.* FROM v_coffee_visibility v
+     WHERE ($1::int IS NULL OR v.slot_id = $1) AND ($2::int IS NULL OR v.coffee_id = $2)
+       AND NOT EXISTS (SELECT 1 FROM v_coffee_visibility w WHERE w.assignment_id = v.assignment_id AND w.is_winner)
+     ORDER BY v.archetype, v.sort_order, (v.role = 'home') DESC, v.priority, v.size_sort_order`,
+    [filter.slotId ?? null, filter.coffeeId ?? null]
   );
+  const rows = new Map<number, NotSellableRow>();
+  for (const r of result.rows) {
+    let row = rows.get(r.assignment_id);
+    if (!row) {
+      row = {
+        slot_id: r.slot_id, archetype: r.archetype, sort_order: r.sort_order, slot_name: r.slot_name,
+        coffee_id: r.coffee_id, coffee_name: r.coffee_name, role: r.role, reasons: [], sizes: [],
+      };
+      rows.set(r.assignment_id, row);
+    }
+    const reasons = visibilityReasons(r);
+    row.sizes.push({ weight_oz: Number(r.weight_oz), label: r.size_label, reasons });
+    for (const reason of reasons) if (!row.reasons.includes(reason)) row.reasons.push(reason);
+  }
+  return [...rows.values()];
+}
 
-  return result.rows.map((r) => {
-    const reasons: NotSellableRow['reasons'] = [];
-    if (!r.coffee_is_active) reasons.push('coffee_inactive');
-    const categories = r.category_codes ?? [];
-    const categoryExcluded = categories.some((c) => c === 'decaf' || c === 'half_caf' || c === 'flavored')
-      || (r.archetype !== 'experimental' && categories.includes('experimental'));
-    if (categoryExcluded) reasons.push('category_excluded');
-    if (!r.has_active_12oz_sku) reasons.push('no_active_12oz_sku');
-    else if (!r.has_12oz_price) reasons.push('no_price_12oz');
-    return {
-      slot_id: r.slot_id, archetype: r.archetype, sort_order: r.sort_order, slot_name: r.slot_name,
-      coffee_id: r.coffee_id, coffee_name: r.coffee_name, reasons,
-    };
-  });
+// Winning slots per archetype per size — integrity check 9's data.
+export async function getVisibleSlotCounts(runner: Runner = db): Promise<Array<{ archetype: string; weight_oz: number; label: string; count: number }>> {
+  const result = await runner.query<{ archetype: string; weight_oz: string; label: string; count: string }>(
+    `SELECT archetype, weight_oz, size_label AS label, COUNT(DISTINCT slot_id) AS count
+     FROM v_coffee_sellable_slot GROUP BY archetype, weight_oz, size_label, size_sort_order
+     ORDER BY archetype, size_sort_order`
+  );
+  return result.rows.map(r => ({ archetype: r.archetype, weight_oz: Number(r.weight_oz), label: r.label, count: Number(r.count) }));
+}
+
+// Anchor count plus any weight present in the three price/SKU tables but
+// missing from coffee_size — integrity check 14's data.
+export async function getSizeIntegrity(runner: Runner = db): Promise<{ anchorCount: number; orphanWeights: Array<{ table: string; weight_oz: number }> }> {
+  const [anchor, orphans] = await Promise.all([
+    runner.query<{ count: string }>(`SELECT COUNT(*) AS count FROM coffee_size WHERE is_anchor = true AND is_active = true`),
+    runner.query<{ tbl: string; weight_oz: string }>(
+      `SELECT 'coffee_sku' AS tbl, weight_oz FROM coffee_sku WHERE weight_oz NOT IN (SELECT weight_oz FROM coffee_size)
+       UNION SELECT 'coffee_slot_price', weight_oz FROM coffee_slot_price WHERE weight_oz NOT IN (SELECT weight_oz FROM coffee_size)
+       UNION SELECT 'coffee_retail_price', weight_oz FROM coffee_retail_price WHERE weight_oz NOT IN (SELECT weight_oz FROM coffee_size)`
+    ),
+  ]);
+  return {
+    anchorCount: Number(anchor.rows[0].count),
+    orphanWeights: orphans.rows.map(r => ({ table: r.tbl, weight_oz: Number(r.weight_oz) })),
+  };
 }
 
 // ── Catalog changes feed (admin diagnostic) ───────────────────────────────────

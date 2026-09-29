@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db, withTransaction, type Tx } from '../db/client.js';
 import { getAvgCuppingScore } from './dialSuggestion.js';
+import { getSizes, getAnchorSize } from './catalogReads.js';
 import { record } from './customerFacts.js';
 import {
   checkActiveAssignmentsValid,
@@ -58,7 +59,18 @@ export interface Ctx {
 export type CatalogErrorCode =
   | 'COFFEE_NOT_FOUND' | 'SLOT_NOT_FOUND' | 'ROASTER_NOT_FOUND' | 'COFFEE_INACTIVE' | 'SLOT_INACTIVE'
   | 'HOME_EXISTS' | 'PRIORITY_TAKEN' | 'NOTE_REQUIRED' | 'ALREADY_ASSIGNED' | 'SKU_EXISTS'
-  | 'ROASTER_STATE' | 'INVALID_INPUT' | 'SPEC_VIOLATION';
+  | 'ROASTER_STATE' | 'INVALID_INPUT' | 'SPEC_VIOLATION' | 'UNKNOWN_SIZE';
+
+// Catalog Sizes + Visibility brief (2026-09-28) — a weight not in an active
+// coffee_size row is refused with a 400, ahead of the FK that would otherwise
+// surface it as a 500. Every SKU / slot-price write (and the importer, which
+// calls the same *InTx functions) goes through this.
+export async function assertKnownSize(weightOz: number): Promise<void> {
+  const sizes = await getSizes();
+  if (!sizes.some(sz => sz.weight_oz === Number(weightOz))) {
+    throw new CatalogError(400, 'UNKNOWN_SIZE', `${weightOz} oz is not an active bag size (allowed: ${sizes.map(sz => sz.label).join(', ')})`);
+  }
+}
 
 export class CatalogError extends Error {
   status: 400 | 404 | 409;
@@ -508,8 +520,9 @@ export async function previewPlacement(input: { coffeeId: number; slotId: number
   for (const sid of slotIdsToCount) userPositionCounts[sid] = 0;
   for (const row of userPosResult.rows) userPositionCounts[row.slot_id] = Number(row.c);
 
-  const priceRow = await db.query(`SELECT 1 FROM coffee_slot_price WHERE slot_id = $1 AND weight_oz = 12`, [input.slotId]);
-  const skuRow = await db.query(`SELECT 1 FROM coffee_sku WHERE coffee_id = $1 AND weight_oz = 12 AND is_active = true`, [input.coffeeId]);
+  const anchorOz = (await getAnchorSize()).weight_oz;
+  const priceRow = await db.query(`SELECT 1 FROM coffee_slot_price WHERE slot_id = $1 AND weight_oz = $2`, [input.slotId, anchorOz]);
+  const skuRow = await db.query(`SELECT 1 FROM coffee_sku WHERE coffee_id = $1 AND weight_oz = $2 AND is_active = true`, [input.coffeeId, anchorOz]);
 
   const occupantsResult = await db.query<{ coffee_id: number; coffee_name: string; role: string; priority: number }>(
     `SELECT coffee_id, coffee_name, role, priority FROM v_coffee_slot
@@ -760,6 +773,7 @@ export async function upsertSkuInTx(tx: Tx, input: UpsertSkuInput): Promise<{ bl
     const coffee = await fetchCoffeeRow(tx, input.coffeeId);
     if (!coffee.roaster_id) throw new CatalogError(409, 'ROASTER_STATE', `Coffee ${input.coffeeId} has no roaster_id set`);
     if (!Number.isFinite(input.weightOz) || input.weightOz <= 0) throw new CatalogError(400, 'INVALID_INPUT', 'weightOz must be a positive number');
+    await assertKnownSize(input.weightOz);
 
     const existingResult = await tx.query<{ id: string; quantity_available: number; safety_stock_buffer: number } & Record<string, unknown>>(
       `SELECT * FROM coffee_sku WHERE coffee_id = $1 AND weight_oz = $2 AND is_active = true`,
@@ -897,6 +911,7 @@ export async function setSlotPriceInTx(tx: Tx, input: { slotId: number; weightOz
   if (!Number.isFinite(input.weightOz) || input.weightOz <= 0 || !Number.isInteger(input.retailPriceCents) || input.retailPriceCents < 0) {
     throw new CatalogError(400, 'INVALID_INPUT', 'weightOz and a non-negative integer retailPriceCents are required');
   }
+  await assertKnownSize(input.weightOz);
   await fetchSlotRow(tx, input.slotId); // validates the slot exists
   const beforeResult = await tx.query(`SELECT * FROM coffee_slot_price WHERE slot_id = $1 AND weight_oz = $2`, [input.slotId, input.weightOz]);
   // Catalog Blueprint brief 5a dropped dial_slot_price's legacy archetype/
@@ -1011,14 +1026,12 @@ export async function removeHop(input: { hopId: number }, ctx: Ctx): Promise<Cat
 // ── Roastery lifecycle (moved verbatim in semantics from admin.ts L684/L740,
 // plus the coffee_slot_assignment cascade addition) ───────────────────────────
 
-const PREVIEW_WEIGHT_OZ = 12;
-
-// Would `slotId` still resolve at 12oz if every coffee belonging to
+// Would `slotId` still resolve at the anchor size if every coffee belonging to
 // `excludeRoasterId` were removed from consideration? Mirrors
 // v_coffee_sellable_slot's own candidate logic (active assignment + active
 // coffee not from the excluded roaster + active 12oz SKU + a 12oz price),
 // since the view itself has no parameter for "excluding a roaster."
-async function wouldSlotStaySellableExcluding(roasterId: string, slotId: number): Promise<boolean> {
+async function wouldSlotStaySellableExcluding(roasterId: string, slotId: number, weightOz: number): Promise<boolean> {
   const result = await db.query(
     `SELECT 1
      FROM coffee_slot_assignment csa
@@ -1027,7 +1040,7 @@ async function wouldSlotStaySellableExcluding(roasterId: string, slotId: number)
      JOIN coffee_slot_price dsp ON dsp.slot_id = csa.slot_id AND dsp.weight_oz = $3
      WHERE csa.slot_id = $1 AND csa.is_active = true
      LIMIT 1`,
-    [slotId, roasterId, PREVIEW_WEIGHT_OZ]
+    [slotId, roasterId, weightOz]
   );
   return (result.rowCount ?? 0) > 0;
 }
@@ -1080,13 +1093,15 @@ export async function buildDeactivationPreview(roasterId: string) {
   // v_coffee_sellable_slot, per this brief's Part A1. Only a slot that
   // resolves TODAY via v_coffee_sellable_slot and would stop resolving with
   // this roastery's coffees excluded counts as "going empty."
+  const previewWeightOz = (await getAnchorSize()).weight_oz;
   const sellableNowResult = await db.query<{ slot_id: number; archetype: string; sort_order: number; slot_name: string; roaster_id: string | null }>(
-    `SELECT slot_id, archetype, sort_order, slot_name, roaster_id FROM v_coffee_sellable_slot WHERE weight_oz = ${PREVIEW_WEIGHT_OZ}`
+    `SELECT slot_id, archetype, sort_order, slot_name, roaster_id FROM v_coffee_sellable_slot WHERE weight_oz = $1`,
+    [previewWeightOz]
   );
   const slotsGoingEmpty: Array<{ archetype: string; dialSortOrder: number; platformName: string }> = [];
   for (const row of sellableNowResult.rows) {
     if (row.roaster_id !== roasterId) continue; // current occupant isn't this roastery's — unaffected
-    const staysSellable = await wouldSlotStaySellableExcluding(roasterId, row.slot_id);
+    const staysSellable = await wouldSlotStaySellableExcluding(roasterId, row.slot_id, previewWeightOz);
     if (!staysSellable) slotsGoingEmpty.push({ archetype: row.archetype, dialSortOrder: row.sort_order, platformName: row.slot_name });
   }
 
@@ -1099,9 +1114,9 @@ export async function buildDeactivationPreview(roasterId: string) {
   const defaultResult = await db.query(
     `SELECT cds.archetype
      FROM coffee_dial_slot cds
-     JOIN v_coffee_sellable_slot vcs ON vcs.slot_id = cds.id AND vcs.weight_oz = ${PREVIEW_WEIGHT_OZ}
+     JOIN v_coffee_sellable_slot vcs ON vcs.slot_id = cds.id AND vcs.weight_oz = $2
      WHERE cds.is_landing_default = true AND vcs.roaster_id = $1`,
-    [roasterId]
+    [roasterId, previewWeightOz]
   );
 
   const coffeeIds: number[] = coffeesResult.rows.map((r) => r.id);

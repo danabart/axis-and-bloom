@@ -21,11 +21,14 @@ import {
   createCoffee, updateCoffee, retireCoffee, restoreCoffee,
   setMatchArchetype, placeCoffee, moveCoffee, removeFromSlot, certifyPlacement, previewPlacement, setPriority,
   renameSlot, setSlotSpec, setSlotPrice, setLandingDefault, setArchetypeDescriptorFamilies,
-  upsertSku, restockSku, setHop, removeHop,
+  upsertSku, restockSku, setHop, removeHop, assertKnownSize,
   deactivateRoastery, reactivateRoastery, buildDeactivationPreview, buildReactivationPreview,
 } from '../services/catalogService.js';
 import { importCatalog } from '../services/catalogImport.js';
-import { getArchetypes, getSlots, getCoffee, getCoffees, getSlotsForCoffee, getHops, getNotSellable, getChanges } from '../services/catalogReads.js';
+import {
+  getArchetypes, getSlots, getCoffee, getCoffees, getSlotsForCoffee, getHops, getNotSellable, getChanges,
+  getSizes, getSlotPrices, getCoffeeVisibility, getSlotVisibility,
+} from '../services/catalogReads.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -602,6 +605,7 @@ router.patch('/coffee-prices', async (req, res) => {
     return;
   }
   try {
+    await assertKnownSize(weightOz); // UNKNOWN_SIZE 400 ahead of the coffee_retail_price FK
     const result = await db.query(
       `INSERT INTO coffee_retail_price (coffee_id, weight_oz, retail_price_cents, updated_at)
        VALUES ($1, $2, $3, NOW())
@@ -612,6 +616,7 @@ router.patch('/coffee-prices', async (req, res) => {
     );
     res.json(result.rows[0]);
   } catch (err) {
+    if (handleCatalogError(err, res)) return;
     console.error('[admin/coffee-prices PATCH]', err);
     res.status(500).json({ error: 'Failed to update coffee price' });
   }
@@ -2269,38 +2274,49 @@ catalogRouter.get('/archetypes', async (_req, res) => {
   }
 });
 
+// Catalog Sizes + Visibility brief (2026-09-28) — the bag-size list the admin
+// price inputs / SKU selects render from (coffee_size, active, in order).
+catalogRouter.get('/sizes', async (_req, res) => {
+  try {
+    res.json((await getSizes()).map(s => ({ weightOz: s.weight_oz, label: s.label, sortOrder: s.sort_order, isAnchor: s.is_anchor })));
+  } catch (err) {
+    console.error('[admin/catalog/sizes]', err);
+    res.status(500).json({ error: 'Failed to fetch sizes' });
+  }
+});
+
 catalogRouter.get('/slots', async (req, res) => {
   const archetype = typeof req.query.archetype === 'string' ? req.query.archetype : undefined;
   try {
     const slots = await getSlots(archetype);
     const slotIds = slots.map(s => s.id);
-    const [occupantsResult, sellableResult, pricesResult] = await Promise.all([
+    const [occupantsResult, sizes, slotPrices, visibilityBySlot] = await Promise.all([
       db.query(`
         SELECT vcs.*, r.name AS roaster_name
         FROM v_coffee_slot vcs
         LEFT JOIN roaster r ON r.id = vcs.roaster_id
         WHERE vcs.assignment_is_active = true AND vcs.slot_id = ANY($1::int[])
       `, [slotIds]),
-      db.query(`SELECT DISTINCT ON (slot_id) slot_id, coffee_id FROM v_coffee_sellable_slot WHERE weight_oz = 12 AND slot_id = ANY($1::int[])`, [slotIds]),
-      db.query(`SELECT slot_id, weight_oz, retail_price_cents FROM coffee_slot_price WHERE slot_id = ANY($1::int[]) ORDER BY slot_id, weight_oz`, [slotIds]),
+      getSizes(),
+      getSlotPrices(slotIds),
+      getSlotVisibility(slotIds),
     ]);
     const occupantsBySlot = new Map<number, unknown[]>();
     for (const row of occupantsResult.rows) {
       if (!occupantsBySlot.has(row.slot_id)) occupantsBySlot.set(row.slot_id, []);
       occupantsBySlot.get(row.slot_id)!.push(row);
     }
-    const sellableBySlot = new Map<number, number>(sellableResult.rows.map((r: { slot_id: number; coffee_id: number }) => [r.slot_id, r.coffee_id]));
-    const pricesBySlot = new Map<number, unknown[]>();
-    for (const row of pricesResult.rows) {
-      if (!pricesBySlot.has(row.slot_id)) pricesBySlot.set(row.slot_id, []);
-      pricesBySlot.get(row.slot_id)!.push({ weight_oz: row.weight_oz, retail_price_cents: row.retail_price_cents });
-    }
+    const priceBySlotSize = new Map<string, number>(slotPrices.map(r => [`${r.slot_id}|${r.weight_oz}`, r.retail_price_cents]));
+    // sellable_12oz / sellable_12oz_coffee_id retired (caller grep 2026-09-28:
+    // AdminCatalog.tsx was the only reader, moved onto `visibility` below).
     res.json(slots.map(slot => ({
       ...slot,
       occupants: occupantsBySlot.get(slot.id) ?? [],
-      sellable_12oz: sellableBySlot.has(slot.id),
-      sellable_12oz_coffee_id: sellableBySlot.get(slot.id) ?? null,
-      prices: pricesBySlot.get(slot.id) ?? [],
+      // One entry per active size, priced or not (retail_price_cents null = no price set).
+      prices: sizes.map(sz => ({
+        weight_oz: sz.weight_oz, label: sz.label, retail_price_cents: priceBySlotSize.get(`${slot.id}|${sz.weight_oz}`) ?? null,
+      })),
+      visibility: { sizes: visibilityBySlot.get(slot.id)?.sizes ?? [] },
     })));
   } catch (err) {
     console.error('[admin/catalog/slots]', err);
@@ -2323,9 +2339,10 @@ catalogRouter.get('/coffees', async (req, res) => {
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     const coffeesResult = await db.query(`SELECT * FROM v_coffee ${where} ORDER BY name`, params);
     const coffeeIds: number[] = coffeesResult.rows.map((c: { id: number }) => c.id);
-    const [placementsResult, skusResult] = await Promise.all([
+    const [placementsResult, skusResult, visibilityByCoffee] = await Promise.all([
       db.query(`SELECT * FROM v_coffee_slot WHERE assignment_is_active = true AND coffee_id = ANY($1::int[])`, [coffeeIds]),
       db.query(`SELECT * FROM coffee_sku WHERE coffee_id = ANY($1::int[]) ORDER BY coffee_id, weight_oz`, [coffeeIds]),
+      getCoffeeVisibility(coffeeIds),
     ]);
     const placementsByCoffee = new Map<number, unknown[]>();
     for (const row of placementsResult.rows) {
@@ -2341,6 +2358,7 @@ catalogRouter.get('/coffees', async (req, res) => {
       ...c,
       placements: placementsByCoffee.get(c.id) ?? [],
       skus: skusByCoffee.get(c.id) ?? [],
+      visibility: visibilityByCoffee.get(c.id) ?? { isVisible: false, isPlaced: false, placements: [] },
     })));
   } catch (err) {
     console.error('[admin/catalog/coffees GET]', err);

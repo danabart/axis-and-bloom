@@ -4117,15 +4117,58 @@ FROM coffee_slot_assignment csa
 JOIN coffee_dial_slot cds ON cds.id = csa.slot_id
 JOIN v_coffee         vc  ON vc.id  = csa.coffee_id;
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- CATALOG SIZES + VISIBILITY brief (2026-09-28) — Part A: coffee_size
+-- See backend/src/features/catalog_sizes_visibility/CLAUDE_CODE_PROMPT_CATALOG_SIZES_AND_VISIBILITY.md
+--
+-- The bag-size list (S1). Every reader and writer of a weight goes through
+-- this table (catalogReads.getSizes / getAnchorSize); a 4th size later is one
+-- INSERT here, no code change. Writer: this idempotent seed only (same as
+-- coffee_archetype in brief 1) — catalogService.ts has no verb that edits
+-- sizes, and lint-catalog.mjs has coffee_size in DML_TABLES so any other TS
+-- write fails CI. is_anchor (S2) = the size a coffee must have a SKU for,
+-- Liam recommends, and subscriptions use; exactly one row.
+-- order_line_item.weight_oz deliberately gets no FK: it is a purchase-time
+-- snapshot.
+-- ═══════════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS coffee_size (
+  weight_oz   NUMERIC PRIMARY KEY CHECK (weight_oz > 0),
+  label       TEXT NOT NULL,
+  sort_order  INT NOT NULL UNIQUE,
+  is_anchor   BOOLEAN NOT NULL DEFAULT false,
+  is_active   BOOLEAN NOT NULL DEFAULT true,
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS coffee_size_one_anchor ON coffee_size ((true)) WHERE is_anchor;
+INSERT INTO coffee_size (weight_oz, label, sort_order, is_anchor) VALUES
+  (12, '12 oz', 1, true),
+  (32, '2 lb',  2, false),
+  (80, '5 lb',  3, false)
+ON CONFLICT (weight_oz) DO NOTHING;
+
+-- Task 0 (2026-09-28) confirmed test + prod hold only 12 / 80 in these three
+-- tables, so the FKs are safe to add (idempotent, by constraint name).
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coffee_sku_weight_oz_fkey') THEN
+    ALTER TABLE coffee_sku ADD CONSTRAINT coffee_sku_weight_oz_fkey FOREIGN KEY (weight_oz) REFERENCES coffee_size(weight_oz);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coffee_slot_price_weight_oz_fkey') THEN
+    ALTER TABLE coffee_slot_price ADD CONSTRAINT coffee_slot_price_weight_oz_fkey FOREIGN KEY (weight_oz) REFERENCES coffee_size(weight_oz);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'coffee_retail_price_weight_oz_fkey') THEN
+    ALTER TABLE coffee_retail_price ADD CONSTRAINT coffee_retail_price_weight_oz_fkey FOREIGN KEY (weight_oz) REFERENCES coffee_size(weight_oz);
+  END IF;
+END $$;
+
 -- Catalog Blueprint brief 3 (2026-09-14) — the pre-DISTINCT-ON candidate list
 -- v_coffee_sellable_slot picks its winner from, exposed on its own so the
 -- resolver (blendResolver.ts) can report *why* a losing candidate didn't
 -- resolve (no blend at that weight vs. no price) and honour excludeCoffeeIds
 -- by filtering this view's rows in application code, instead of re-deriving
 -- the candidate list itself. One row per (active slot, active assignment,
--- active coffee, weight in BLOOM_WEIGHTS_OZ = 12/80 — routes/coffees.ts's own
--- constant; hardcoded here the same way dial_slot_price's own $32/12oz,
--- $185/80oz fallback defaults are, elsewhere in this file) — unlike the old
+-- active coffee, active size in coffee_size — was a hardcoded 12/80 VALUES
+-- list until the 2026-09-28 sizes brief) — unlike the old
 -- inline subquery, a weight with no active blend still gets a row (blend_id
 -- NULL), so "skipped, no blend at that weight" is visible, not silently
 -- absent. Category exclusions (decaf/half_caf/flavored never fill a flavor
@@ -4139,7 +4182,7 @@ SELECT
   cds.name           AS slot_name,
   cds.position_label,
   cds.is_landing_default,
-  w.weight_oz,
+  sz.weight_oz,
   vc.id              AS coffee_id,
   vc.name            AS coffee_name,
   vc.roaster_id,
@@ -4153,16 +4196,18 @@ SELECT
   dsp.retail_price_cents,
   (rb.id IS NOT NULL AND dsp.retail_price_cents IS NOT NULL) AS is_sellable,
   ROW_NUMBER() OVER (
-    PARTITION BY cds.id, w.weight_oz
+    PARTITION BY cds.id, sz.weight_oz
     ORDER BY (csa.role = 'home') DESC, csa.priority
-  ) AS rank
+  ) AS rank,
+  sz.label           AS size_label,
+  sz.sort_order      AS size_sort_order
 FROM coffee_dial_slot cds
 JOIN coffee_slot_assignment csa       ON csa.slot_id = cds.id AND csa.is_active = true
 JOIN v_coffee vc                      ON vc.id = csa.coffee_id AND vc.is_active = true
-CROSS JOIN (VALUES (12::numeric), (80::numeric)) AS w(weight_oz)
-LEFT JOIN coffee_sku rb            ON rb.coffee_id = vc.id AND rb.is_active = true AND rb.weight_oz = w.weight_oz
-LEFT JOIN coffee_slot_price dsp         ON dsp.slot_id = cds.id AND dsp.weight_oz = w.weight_oz
-WHERE cds.is_active = true AND cds.name IS NOT NULL
+CROSS JOIN coffee_size sz
+LEFT JOIN coffee_sku rb            ON rb.coffee_id = vc.id AND rb.is_active = true AND rb.weight_oz = sz.weight_oz
+LEFT JOIN coffee_slot_price dsp         ON dsp.slot_id = cds.id AND dsp.weight_oz = sz.weight_oz
+WHERE sz.is_active = true AND cds.is_active = true AND cds.name IS NOT NULL
   AND NOT (vc.category_codes && ARRAY['decaf','half_caf','flavored'])
   AND (cds.archetype = 'experimental' OR NOT (vc.category_codes && ARRAY['experimental']));
 
@@ -4175,10 +4220,72 @@ SELECT DISTINCT ON (cand.slot_id, cand.weight_oz)
   cand.slot_id, cand.archetype, cand.sort_order, cand.slot_name, cand.position_label,
   cand.is_landing_default, cand.weight_oz, cand.coffee_id, cand.coffee_name, cand.roaster_id,
   cand.role, cand.priority, cand.blend_id, cand.roaster_sku, cand.shopify_variant_id,
-  cand.retail_price_cents
+  cand.retail_price_cents,
+  cand.size_label, cand.size_sort_order
 FROM v_coffee_sellable_candidate cand
 WHERE cand.is_sellable
 ORDER BY cand.slot_id, cand.weight_oz, cand.rank;
+
+-- Catalog Sizes + Visibility brief (2026-09-28), Part B — "why is this coffee
+-- (not) visible to customers", the one place that rule lives (S3). One row per
+-- ACTIVE placement (home or guest) x ACTIVE size. is_winner = this coffee is
+-- the v_coffee_sellable_slot row for that slot x size, i.e. exactly what the
+-- public pages (routes/coffees.ts) show, so admin and customer pages cannot
+-- disagree. The reason flags explain a false is_winner; outranked = sellable
+-- here but another coffee wins (D5: home first, then priority). category_excluded
+-- repeats v_coffee_sellable_candidate's category rule verbatim.
+CREATE OR REPLACE VIEW v_coffee_visibility AS
+SELECT
+  csa.coffee_id,
+  vc.name                     AS coffee_name,
+  csa.id                      AS assignment_id,
+  cds.id                      AS slot_id,
+  cds.archetype,
+  cds.sort_order,
+  cds.name                    AS slot_name,
+  csa.role,
+  csa.priority,
+  sz.weight_oz,
+  sz.label                    AS size_label,
+  sz.sort_order               AS size_sort_order,
+  sz.is_anchor                AS is_anchor_size,
+  COALESCE(win.coffee_id = csa.coffee_id, false) AS is_winner,
+  win.coffee_id               AS winner_coffee_id,
+  win.coffee_name             AS winner_coffee_name,
+  (cds.is_active = false OR cds.name IS NULL)    AS slot_inactive_or_unnamed,
+  (vc.is_active = false)                         AS coffee_inactive,
+  ((vc.category_codes && ARRAY['decaf','half_caf','flavored'])
+    OR (cds.archetype <> 'experimental' AND vc.category_codes && ARRAY['experimental'])) AS category_excluded,
+  NOT EXISTS (
+    SELECT 1 FROM coffee_sku sk WHERE sk.coffee_id = csa.coffee_id AND sk.is_active = true AND sk.weight_oz = sz.weight_oz
+  )                                              AS no_active_sku,
+  NOT EXISTS (
+    SELECT 1 FROM coffee_slot_price sp WHERE sp.slot_id = cds.id AND sp.weight_oz = sz.weight_oz
+  )                                              AS no_slot_price,
+  (COALESCE(cand.is_sellable, false) AND COALESCE(win.coffee_id <> csa.coffee_id, false)) AS outranked
+FROM coffee_slot_assignment csa
+JOIN coffee_dial_slot cds ON cds.id = csa.slot_id
+JOIN v_coffee vc          ON vc.id = csa.coffee_id
+CROSS JOIN coffee_size sz
+LEFT JOIN v_coffee_sellable_slot win
+       ON win.slot_id = cds.id AND win.weight_oz = sz.weight_oz
+LEFT JOIN v_coffee_sellable_candidate cand
+       ON cand.assignment_id = csa.id AND cand.weight_oz = sz.weight_oz
+WHERE csa.is_active = true AND sz.is_active = true;
+
+-- One row per coffee (unplaced and inactive ones too): is it visible to
+-- customers at any size, is it placed at all, in how many slots does it win.
+CREATE OR REPLACE VIEW v_coffee_visibility_summary AS
+SELECT
+  vc.id                       AS coffee_id,
+  vc.name                     AS coffee_name,
+  vc.is_active                AS coffee_is_active,
+  COALESCE(bool_or(v.is_winner), false)                       AS is_visible,
+  EXISTS (SELECT 1 FROM coffee_slot_assignment a WHERE a.coffee_id = vc.id AND a.is_active = true) AS is_placed,
+  COUNT(DISTINCT v.slot_id) FILTER (WHERE v.is_winner)        AS visible_slot_count
+FROM v_coffee vc
+LEFT JOIN v_coffee_visibility v ON v.coffee_id = vc.id
+GROUP BY vc.id, vc.name, vc.is_active;
 
 -- One row per dial_coffee_relationships row. hop_type_derived is computed
 -- fresh from each endpoint's current active HOME assignment (D3 — hop_type
@@ -5363,7 +5470,7 @@ last_feedback AS (
   FROM v_customer_feedback_current
   ORDER BY canonical_user_id, coffee_id, occurred_at DESC
 ),
-slots AS (SELECT * FROM v_coffee_sellable_slot WHERE weight_oz = 12),
+slots AS (SELECT * FROM v_coffee_sellable_slot WHERE weight_oz = (SELECT weight_oz FROM coffee_size WHERE is_anchor AND is_active)),
 compare AS (
   SELECT c.canonical_user_id, s.slot_id, s.coffee_id, cdr.dimension_id,
     (t.dimension_id IS NOT NULL) AS is_comparable,

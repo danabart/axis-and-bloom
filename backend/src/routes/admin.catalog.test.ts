@@ -128,7 +128,7 @@ describe('POST /catalog/coffees', () => {
 });
 
 describe('Catalog Blueprint brief 4 — new admin reads', () => {
-  it('GET /catalog/slots shows occupants + sellable_12oz + prices on a fixture', async () => {
+  it('GET /catalog/slots shows occupants + per-size prices + visibility on a fixture', async () => {
     let roaster: { id: string } | undefined;
     let coffeeId: number | undefined;
     let slot: number | undefined;
@@ -152,9 +152,15 @@ describe('Catalog Blueprint brief 4 — new admin reads', () => {
       const targetSlot = slots.find((s: { id: number }) => s.id === slot);
       expect(targetSlot.occupants).toHaveLength(1);
       expect(targetSlot.occupants[0].coffee_id).toBe(coffeeId);
-      expect(targetSlot.sellable_12oz).toBe(true);
-      expect(targetSlot.sellable_12oz_coffee_id).toBe(coffeeId);
-      expect(targetSlot.prices).toEqual(expect.arrayContaining([expect.objectContaining({ weight_oz: '12', retail_price_cents: 1800 })]));
+      // sellable_12oz / sellable_12oz_coffee_id are retired (sizes brief) — visibility replaces them.
+      expect(targetSlot.sellable_12oz).toBeUndefined();
+      expect(targetSlot.prices).toEqual([
+        { weight_oz: 12, label: '12 oz', retail_price_cents: 1800 },
+        { weight_oz: 32, label: '2 lb', retail_price_cents: null },
+        { weight_oz: 80, label: '5 lb', retail_price_cents: null },
+      ]);
+      expect(targetSlot.visibility.sizes.map((sz: { label: string; winnerCoffeeId: number | null }) => [sz.label, sz.winnerCoffeeId]))
+        .toEqual([['12 oz', coffeeId], ['2 lb', null], ['5 lb', null]]);
     } finally {
       await cleanup(roaster, coffeeId ? [coffeeId] : [], slot ? [slot] : []);
     }
@@ -203,7 +209,7 @@ describe('Catalog Blueprint brief 4 — new admin reads', () => {
     }
   }, 20000);
 
-  it('GET /catalog/not-sellable lists a placed-unpriced fixture with no_price_12oz', async () => {
+  it('GET /catalog/not-sellable lists a placed-unpriced fixture with no_slot_price at 12 oz', async () => {
     let roaster: { id: string } | undefined;
     let coffeeId: number | undefined;
     let slot: number | undefined;
@@ -226,7 +232,8 @@ describe('Catalog Blueprint brief 4 — new admin reads', () => {
       const row = rows.find((r: { slot_id: number }) => r.slot_id === slot);
       expect(row).toBeTruthy();
       expect(row.coffee_id).toBe(coffeeId);
-      expect(row.reasons).toContain('no_price_12oz');
+      expect(row.reasons).toContain('no_slot_price');
+      expect(row.sizes[0]).toMatchObject({ label: '12 oz', reasons: ['no_slot_price'] });
 
       if (existing) await db.query(
         `INSERT INTO coffee_slot_price (slot_id, weight_oz, retail_price_cents) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,

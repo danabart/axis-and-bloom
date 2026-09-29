@@ -12,8 +12,6 @@ import { DOORS_ENABLED } from '../doorConfig';
 export interface DialCoffee {
   dialSortOrder: number;      // 1..4
   name: string;
-  price12Cents: number;
-  price5Cents: number;
   coffeeId: number | null;    // real coffee id when resolved, else null
   /** Part 16 §B — which position is the archetype's default slot (Slot.isDefault),
    * used to compute the dial's stop layout (default anchors at visual center). */
@@ -76,14 +74,6 @@ const PLACEHOLDER_COFFEES: Record<string, [string, string, string, string]> = {
   experimental:    ['Postcard from Nowhere', 'Wild Card', 'Plot Twist', 'Uncharted'],
 };
 
-// Standard bag pricing (matches the DB defaults, pricing_update_2026_07_24).
-const DEFAULT_PRICE_12 = 3200;
-const DEFAULT_PRICE_5LB = 18500;
-
-function priceForWeight(prices: { weightOz: number; retailPriceCents: number }[], weightOz: number, fallback: number): number {
-  return prices.find(p => p.weightOz === weightOz)?.retailPriceCents ?? fallback;
-}
-
 /** Build a dial config from one archetype's live catalogue data. */
 export function buildDialConfig(data: ArchetypeData): DialConfig | null {
   const visual = ARCHETYPE_VISUALS[data.archetype];
@@ -97,8 +87,6 @@ export function buildDialConfig(data: ArchetypeData): DialConfig | null {
     return {
       dialSortOrder: sortOrder,
       name,
-      price12Cents: slot ? priceForWeight(slot.prices, 12, DEFAULT_PRICE_12) : DEFAULT_PRICE_12,
-      price5Cents:  slot ? priceForWeight(slot.prices, 80, DEFAULT_PRICE_5LB) : DEFAULT_PRICE_5LB,
       coffeeId: slot?.coffeeId ?? null,
       isDefault: slot?.isDefault ?? false,
       positionLabel: slot?.positionLabel ?? '',

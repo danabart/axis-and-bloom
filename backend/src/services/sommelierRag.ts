@@ -2,7 +2,7 @@ import { db } from '../db/client.js';
 import type { Tx } from '../db/client.js';
 import { getSommelierConfig } from './sommelierConfig.js';
 import {
-  archetypeCode, archetypeLabel, getCoffees, getSellableSlots, getSlotsForCoffees, getHops,
+  archetypeCode, archetypeLabel, getCoffees, getSellableSlots, getSlotsForCoffees, getHops, getAnchorSize,
 } from './catalogReads.js';
 
 // Catalog Blueprint · brief 3 (2026-09-14) — Liam's candidate pool is now
@@ -200,7 +200,7 @@ async function buildCatalogText(
 // here, keyed by coffee id, which is what every focus below actually wants —
 // "is this coffee a real recommendation candidate," not "how many slots."
 async function getCandidatePool(): Promise<CoffeeRow[]> {
-  const sellable = await getSellableSlots({ weightOz: 12 });
+  const sellable = await getSellableSlots({ weightOz: (await getAnchorSize()).weight_oz }); // D2/S2: anchor size only
   const coffeeIds = [...new Set(sellable.map(s => s.coffee_id))];
   if (!coffeeIds.length) return [];
   const coffees = await getCoffees({ ids: coffeeIds, active: true });

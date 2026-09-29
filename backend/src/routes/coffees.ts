@@ -6,7 +6,7 @@ import { generateCoffeeStoryWithRetry, checkStorySpecificityViolations } from '.
 import { looksLikeRefusal } from '../services/contentGuard.js';
 import { isClaudeGuardBlocked } from '../services/anthropicGuard.js';
 import {
-  getArchetypes, archetypeLabel, getCoffee, getCoffees, getHomeSlot, getSlots, getSellableSlots, getHops,
+  getArchetypes, archetypeLabel, getCoffee, getCoffees, getHomeSlot, getSlots, getSellableSlots, getHops, getSizes, getAnchorSize,
 } from '../services/catalogReads.js';
 
 // C2 Part 1 — a blocked generation call (global kill-switch / daily ceiling)
@@ -485,8 +485,8 @@ export async function generateAndStoreSummary(coffeeId: string | number): Promis
 // chain never did that). `isDefault` is now `coffee_dial_slot.is_landing_default`
 // — a SLOT property, no longer tied to which coffee currently occupies it
 // (visible behavior change, see WHAT_WE_BUILT.md).
-const BLOOM_WEIGHTS_OZ = [12, 80] as const;
-const BLOOM_CANONICAL_WEIGHT_OZ = 12;
+// Bag sizes come from coffee_size via catalogReads.getSizes() (Catalog Sizes +
+// Visibility brief, 2026-09-28) — no size literals in this file (lint rule 5).
 // No hardcoded fallback price. A weight with no explicit dial_slot_price/
 // coffee_retail_price row is omitted from `prices` entirely rather than guessed —
 // the frontend renders that as "Unpriced" (PositionCard.tsx/OtherCategoryCard.tsx),
@@ -500,31 +500,34 @@ interface Slot {
   isActive: boolean;
   platformName: string | null;
   isDefault: boolean;
-  prices: { weightOz: number; retailPriceCents: number }[];
+  prices: { weightOz: number; retailPriceCents: number; label: string; isAnchor: boolean }[];
   coffeeId: number | null;
 }
 
 // Shared per-archetype slot builder — used by both /archetypes (the 5 real
 // archetypes) and /experimental. One row per coffee_dial_slot (always 4,
 // sort_order 1-4); sellability/price/coffeeId come from v_coffee_sellable_slot
-// at each of BLOOM_WEIGHTS_OZ, independently per weight (a slot can be
-// sellable at 12oz only, 80oz only, both, or neither).
+// at every active size (coffee_size), independently per size (a slot can be
+// sellable at some sizes, all, or none). One query for the archetype, grouped
+// here; rows arrive in size sort order.
 async function buildSlotsForArchetype(archetype: string): Promise<Slot[]> {
-  const [slots, sellable12, sellable80] = await Promise.all([
+  const [slots, sellable] = await Promise.all([
     getSlots(archetype),
-    getSellableSlots({ archetype, weightOz: 12 }),
-    getSellableSlots({ archetype, weightOz: 80 }),
+    getSellableSlots({ archetype }),
   ]);
-  const by12 = new Map(sellable12.map(r => [r.slot_id, r]));
-  const by80 = new Map(sellable80.map(r => [r.slot_id, r]));
+  const bySlot = new Map<number, typeof sellable>();
+  for (const r of sellable) {
+    const list = bySlot.get(r.slot_id) ?? [];
+    list.push(r);
+    bySlot.set(r.slot_id, list);
+  }
+  const anchor = await getAnchorSize();
 
   return slots.map(s => {
-    const winner12 = by12.get(s.id);
-    const winner80 = by80.get(s.id);
-    const winner = winner12 ?? winner80; // prefer the 12oz winner for isActive/coffeeId, same precedence the canonical weight always had
-    const prices: { weightOz: number; retailPriceCents: number }[] = [];
-    if (winner12) prices.push({ weightOz: 12, retailPriceCents: winner12.retail_price_cents });
-    if (winner80) prices.push({ weightOz: 80, retailPriceCents: winner80.retail_price_cents });
+    const winners = bySlot.get(s.id) ?? [];
+    // isActive = any size wins; coffeeId = the anchor-size winner, else the first size (by sort order) that has one.
+    const winner = winners.find(r => Number(r.weight_oz) === anchor.weight_oz) ?? winners[0];
+    const prices = winners.map(r => ({ weightOz: Number(r.weight_oz), retailPriceCents: r.retail_price_cents, label: r.size_label, isAnchor: Number(r.weight_oz) === anchor.weight_oz }));
     return {
       dialSortOrder: s.sort_order,
       positionLabel: s.position_label,
@@ -548,11 +551,11 @@ async function buildSlotsForArchetype(archetype: string): Promise<Slot[]> {
 // COLLECTION_MIN_MEMBERS constants as the authoritative version — imported, not
 // redeclared, so there is exactly one number a discount-rate change would ever
 // need to touch.
-function computeCollectionOfferFromSlots(slots: Slot[]) {
+function computeCollectionOfferFromSlots(slots: Slot[], anchorOz: number) {
   const members: { dialSortOrder: number; weightOz: number; priceCents: number }[] = [];
   for (const s of slots) {
     if (!s.isActive || !s.prices.length) continue;
-    const chosen = s.prices.find(p => p.weightOz === 12) ?? s.prices[0];
+    const chosen = s.prices.find(p => p.weightOz === anchorOz) ?? s.prices[0];
     members.push({ dialSortOrder: s.dialSortOrder, weightOz: chosen.weightOz, priceCents: chosen.retailPriceCents });
   }
   if (members.length < COLLECTION_MIN_MEMBERS) return null;
@@ -687,7 +690,7 @@ router.get('/archetypes', async (_req, res) => {
         // own comment); null when fewer than COLLECTION_MIN_MEMBERS positions are
         // currently purchasable, which is also how the frontend decides whether to
         // render the collection CTA at all.
-        collectionOffer: computeCollectionOfferFromSlots(slots),
+        collectionOffer: computeCollectionOfferFromSlots(slots, (await getAnchorSize()).weight_oz),
       });
     }
 
@@ -734,7 +737,7 @@ router.get('/experimental', async (_req, res) => {
       dimensionScaleMaxLabel: dim?.scale_max_label ?? null,
       slots,
       doors: doorMap['experimental'] ?? null,
-      collectionOffer: computeCollectionOfferFromSlots(slots),
+      collectionOffer: computeCollectionOfferFromSlots(slots, (await getAnchorSize()).weight_oz),
     });
   } catch (err) {
     console.error('[coffees/experimental]', err);
@@ -836,9 +839,10 @@ router.get('/other-categories', async (_req, res) => {
       byCoffee.get(row.coffee_id)!.categories.push({ code: row.category_code, label: row.category_label, sortOrder: row.category_sort_order });
     }
 
+    const sizes = await getSizes();
     const priceRows = await db.query(
       `SELECT coffee_id, weight_oz, retail_price_cents FROM coffee_retail_price WHERE weight_oz = ANY($1::numeric[])`,
-      [BLOOM_WEIGHTS_OZ]
+      [sizes.map(sz => sz.weight_oz)]
     );
     const priceMap = new Map<string, number>();
     for (const r of priceRows.rows) priceMap.set(`${r.coffee_id}|${Number(r.weight_oz)}`, r.retail_price_cents);
@@ -848,11 +852,11 @@ router.get('/other-categories', async (_req, res) => {
       const coffee = coffeeMap.get(coffeeId)!;
       const homeSlot = await getHomeSlot(coffeeId);
       const prices = [];
-      for (const weightOz of BLOOM_WEIGHTS_OZ) {
+      for (const { weight_oz: weightOz, label, is_anchor: isAnchor } of sizes) {
         const cents = priceMap.get(`${coffeeId}|${weightOz}`);
         if (cents === undefined) continue; // unpriced — omit rather than guess
         const blend = await resolveCoffeeBlend(coffeeId, weightOz);
-        prices.push({ weightOz, retailPriceCents: cents, isActive: !!blend });
+        prices.push({ weightOz, retailPriceCents: cents, isActive: !!blend, label, isAnchor });
       }
       result.push({
         coffeeId,
@@ -969,7 +973,7 @@ router.get('/:coffeeId/hops', async (req, res) => {
       const targetSlot = slotById.get(h.to_slot_id);
       if (!targetSlot) continue;
 
-      const sellable = await getSellableSlots({ slotId: h.to_slot_id, weightOz: BLOOM_CANONICAL_WEIGHT_OZ });
+      const sellable = await getSellableSlots({ slotId: h.to_slot_id, weightOz: (await getAnchorSize()).weight_oz });
       if (!sellable.length) continue; // target slot isn't currently sellable — a dead end
 
       const dim = await getDimensionInfo(h.dimension_id);

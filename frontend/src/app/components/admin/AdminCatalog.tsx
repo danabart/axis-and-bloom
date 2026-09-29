@@ -39,8 +39,36 @@ interface Coffee {
   story: string | null; story_draft: string | null; story_published: boolean; story_admin_edited: boolean;
   is_active: boolean; deactivated_at: string | null; deactivation_reason: string | null;
   placements: Placement[]; skus: Sku[];
+  visibility: CoffeeVisibility;
 }
 interface Roaster { id: string; name: string; is_active: boolean; }
+
+// Catalog Sizes + Visibility brief (2026-09-28) — the bag-size list and the
+// "visible to customers" reasons both come from the API (coffee_size,
+// v_coffee_visibility); nothing here hardcodes a size or re-derives a rule.
+interface SizeOption { weightOz: number; label: string; sortOrder: number; isAnchor: boolean; }
+type VisibilityReason = 'coffee_inactive' | 'slot_inactive_or_unnamed' | 'category_excluded' | 'no_active_sku' | 'no_slot_price' | 'outranked';
+interface VisibilitySize {
+  weightOz: number; label: string; isAnchor: boolean; isWinner: boolean; reasons: VisibilityReason[];
+  winnerCoffeeId: number | null; winnerCoffeeName: string | null;
+}
+interface VisibilityPlacement {
+  assignmentId: number; slotId: number; archetype: string; sortOrder: number; slotName: string | null;
+  role: 'home' | 'guest'; priority: number; sizes: VisibilitySize[];
+}
+interface CoffeeVisibility { isVisible: boolean; isPlaced: boolean; placements: VisibilityPlacement[]; }
+interface SlotVisibilitySize {
+  weightOz: number; label: string; winnerCoffeeId: number | null; winnerCoffeeName: string | null;
+  topOccupant: { coffeeId: number; coffeeName: string; reasons: VisibilityReason[] } | null;
+}
+
+const REASON_TEXT: Record<VisibilityReason, string> = {
+  no_slot_price: 'no slot price', no_active_sku: 'no SKU', outranked: 'outranked',
+  coffee_inactive: 'coffee retired', category_excluded: 'category excluded', slot_inactive_or_unnamed: 'slot inactive or unnamed',
+};
+
+// Where to land on the Slots & pricing tab (fix links from the Coffees list).
+interface SlotFocus { slotId: number; archetype: string; target: 'price' | 'card' | 'name'; weightOz?: number; nonce: number; }
 interface SlotOccupant {
   coffee_id: number; coffee_name: string; roaster_name: string | null; role: 'home' | 'guest'; priority: number;
   certified_at: string | null; placement_note: string | null;
@@ -50,32 +78,14 @@ interface Slot {
   position_description: string | null; dimension_id: number | null; is_landing_default: boolean;
   spec_band_lo: number | null; spec_band_hi: number | null; spec_descriptor_families: string[];
   is_active: boolean; occupants: SlotOccupant[];
-  sellable_12oz: boolean; sellable_12oz_coffee_id: number | null; prices: Array<{ weight_oz: number; retail_price_cents: number }>;
+  prices: Array<{ weight_oz: number; label: string; retail_price_cents: number | null }>;
+  visibility: { sizes: SlotVisibilitySize[] };
 }
 interface CoffeeCategoryRow { id: number; coffee_id: number; category_id: number; }
 interface WarningLike { kind: string; [k: string]: unknown }
-interface NotSellableRow {
-  slot_id: number; archetype: string; sort_order: number; slot_name: string | null;
-  coffee_id: number; coffee_name: string;
-  reasons: Array<'no_active_12oz_sku' | 'no_price_12oz' | 'coffee_inactive' | 'category_excluded'>;
-}
-const NOT_SELLABLE_REASON_SHORT: Record<NotSellableRow['reasons'][number], string> = {
-  no_active_12oz_sku: 'no SKU', no_price_12oz: 'no price',
-  coffee_inactive: 'coffee inactive', category_excluded: 'category excluded',
-};
-
 function warningsSummary(warnings: WarningLike[] | undefined): string {
   if (!warnings || !warnings.length) return '';
   return `Saved with warnings: ${warnings.map(w => w.kind).join(', ')}`;
-}
-
-function sellableSummary(coffeeId: number, placement: Placement, slots: Slot[], notSellable: NotSellableRow[]): string {
-  const slot = slots.find(s => s.id === placement.slot_id);
-  if (!slot) return 'Placed';
-  if (slot.sellable_12oz_coffee_id === coffeeId) return `Sellable on ${slot.archetype}/${slot.sort_order}`;
-  const row = notSellable.find(r => r.slot_id === placement.slot_id && r.coffee_id === coffeeId);
-  const reason = row?.reasons.map(r => NOT_SELLABLE_REASON_SHORT[r]).join(', ') ?? 'not resolved';
-  return `Placed, not sellable: ${reason}`;
 }
 
 type Tab = 'list' | 'place' | 'slots';
@@ -92,7 +102,8 @@ export default function AdminCatalog() {
   const [roasters, setRoasters] = useState<Roaster[]>([]);
   const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [coffeeCategories, setCoffeeCategories] = useState<CoffeeCategoryRow[]>([]);
-  const [notSellable, setNotSellable] = useState<NotSellableRow[]>([]);
+  const [sizes, setSizes] = useState<SizeOption[]>([]);
+  const [slotFocus, setSlotFocus] = useState<SlotFocus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
@@ -113,13 +124,13 @@ export default function AdminCatalog() {
 
   const load = useCallback(async () => {
     try {
-      const [coffeesRes, slotsRes, roastersRes, categoriesRes, coffeeCategoriesRes, notSellableRes] = await Promise.all([
+      const [coffeesRes, slotsRes, roastersRes, categoriesRes, coffeeCategoriesRes, sizesRes] = await Promise.all([
         apiFetch('/api/admin/catalog/coffees?include_inactive=true'),
         apiFetch('/api/admin/catalog/slots'),
         apiFetch('/api/admin/roasters'),
         apiFetch('/api/admin/categories'),
         apiFetch('/api/admin/coffee-categories'),
-        apiFetch('/api/admin/catalog/not-sellable'),
+        apiFetch('/api/admin/catalog/sizes'),
       ]);
       if (!coffeesRes.ok || !slotsRes.ok) throw new Error('Failed to load catalog');
       setCoffees(await coffeesRes.json());
@@ -127,7 +138,7 @@ export default function AdminCatalog() {
       setRoasters(await roastersRes.json().catch(() => []));
       setCategories(await categoriesRes.json().catch(() => []));
       setCoffeeCategories(await coffeeCategoriesRes.json().catch(() => []));
-      setNotSellable(await notSellableRes.json().catch(() => []));
+      setSizes(await sizesRes.json().catch(() => []));
       setError('');
     } catch (err) {
       reportError('[AdminCatalog/load]', err);
@@ -150,6 +161,13 @@ export default function AdminCatalog() {
   function archetypeLabel(code: string | null): string {
     if (!code) return '—';
     return archetypes.find(a => a.code === code)?.label ?? code;
+  }
+
+  // Fix link target: switch to Slots & pricing and land on the slot card
+  // (and, for a missing price, the size's price input).
+  function goToSlot(focus: Omit<SlotFocus, 'nonce'>) {
+    setSlotFocus({ ...focus, nonce: Date.now() });
+    setTab('slots');
   }
 
   const filteredCoffees = useMemo(() => coffees.filter(c => {
@@ -187,7 +205,7 @@ export default function AdminCatalog() {
 
       {!loading && tab === 'list' && (
         <CoffeeList
-          coffees={filteredCoffees} allCoffees={coffees} slots={slots} roasters={roasters} notSellable={notSellable}
+          coffees={filteredCoffees} allCoffees={coffees} slots={slots} roasters={roasters} sizes={sizes} goToSlot={goToSlot}
           archetypes={archetypes} categories={categories} coffeeCategories={coffeeCategories}
           filterRoaster={filterRoaster} setFilterRoaster={setFilterRoaster}
           filterArchetype={filterArchetype} setFilterArchetype={setFilterArchetype}
@@ -199,14 +217,15 @@ export default function AdminCatalog() {
       )}
       {!loading && tab === 'place' && (
         <PlaceACoffee
-          roasters={roasters.filter(r => r.is_active)} archetypes={archetypes} slots={slots}
+          roasters={roasters.filter(r => r.is_active)} archetypes={archetypes} slots={slots} sizes={sizes}
           categories={categories} lookups={lookups} refreshLookups={refreshLookups}
           apiFetch={apiFetch} onPlaced={() => { load(); setTab('list'); }}
         />
       )}
       {!loading && tab === 'slots' && (
         <SlotsAndPricing
-          slots={slots} archetypes={archetypes} apiFetch={apiFetch} onReload={load}
+          slots={slots} archetypes={archetypes} sizes={sizes} apiFetch={apiFetch} onReload={load}
+          focus={slotFocus} onFocusDone={() => setSlotFocus(null)}
         />
       )}
 
@@ -223,7 +242,8 @@ export default function AdminCatalog() {
 // ── B1: Coffee list ───────────────────────────────────────────────────────────
 
 function CoffeeList(props: {
-  coffees: Coffee[]; allCoffees: Coffee[]; slots: Slot[]; roasters: Roaster[]; notSellable: NotSellableRow[];
+  coffees: Coffee[]; allCoffees: Coffee[]; slots: Slot[]; roasters: Roaster[]; sizes: SizeOption[];
+  goToSlot: (focus: Omit<SlotFocus, 'nonce'>) => void;
   archetypes: ReturnType<typeof useArchetypes>['archetypes'];
   categories: CategoryOption[]; coffeeCategories: CoffeeCategoryRow[];
   filterRoaster: string; setFilterRoaster: (v: string) => void;
@@ -235,7 +255,7 @@ function CoffeeList(props: {
   lookups: Record<string, { value: string; label: string }[]>; refreshLookups: () => void | Promise<void>;
 }) {
   const {
-    coffees, slots, roasters, notSellable, archetypes, categories, coffeeCategories,
+    coffees, slots, roasters, sizes, goToSlot, archetypes, categories, coffeeCategories,
     filterRoaster, setFilterRoaster, filterArchetype, setFilterArchetype,
     filterActive, setFilterActive, filterText, setFilterText,
     apiFetch, onReload, setToast, lookups, refreshLookups,
@@ -245,13 +265,34 @@ function CoffeeList(props: {
   const [editMetaId, setEditMetaId] = useState<number | null>(null);
   const [matchModalId, setMatchModalId] = useState<number | null>(null);
   const [placeModal, setPlaceModal] = useState<{ coffeeId: number; role: 'home' | 'guest' } | null>(null);
-  const [skuModalId, setSkuModalId] = useState<number | null>(null);
+  const [skuModal, setSkuModal] = useState<{ coffeeId: number; weightOz?: number } | null>(null);
   const [storyCoffeeId, setStoryCoffeeId] = useState<number | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
 
   function archetypeLabel(code: string | null): string {
     if (!code) return '—';
     return archetypes.find(a => a.code === code)?.label ?? code;
+  }
+
+  const anchor = sizes.find(sz => sz.isAnchor);
+
+  // One reason on the "Visible to customers" cell, as the link/button that
+  // fixes it (Part D): price -> slot card's price input; SKU -> Manage SKUs
+  // at that size; outranked -> the slot card's priorities; retired ->
+  // Restore; category -> Edit; slot inactive/unnamed -> the slot's name field.
+  function reasonFix(coffee: Coffee, placement: VisibilityPlacement, size: VisibilitySize, reason: VisibilityReason) {
+    const text = reason === 'outranked' ? `outranked — shown instead: ${size.winnerCoffeeName ?? 'another coffee'}` : REASON_TEXT[reason];
+    const fix: Record<VisibilityReason, () => void> = {
+      no_slot_price: () => goToSlot({ slotId: placement.slotId, archetype: placement.archetype, target: 'price', weightOz: size.weightOz }),
+      no_active_sku: () => setSkuModal({ coffeeId: coffee.id, weightOz: size.weightOz }),
+      outranked: () => goToSlot({ slotId: placement.slotId, archetype: placement.archetype, target: 'card' }),
+      coffee_inactive: () => handleRetireRestore(coffee),
+      category_excluded: () => setEditMetaId(coffee.id),
+      slot_inactive_or_unnamed: () => goToSlot({ slotId: placement.slotId, archetype: placement.archetype, target: 'name' }),
+    };
+    return (
+      <button key={reason} onClick={fix[reason]} className="text-red-600 underline decoration-dotted hover:text-red-800">{text}</button>
+    );
   }
 
   async function handleRetireRestore(coffee: Coffee) {
@@ -296,8 +337,8 @@ function CoffeeList(props: {
             <th className="py-2 px-3 text-left font-normal">Match</th>
             <th className="py-2 px-3 text-left font-normal">Home slot</th>
             <th className="py-2 px-3 text-left font-normal">Guests</th>
-            <th className="py-2 px-3 text-left font-normal">12oz SKU</th>
-            <th className="py-2 px-3 text-left font-normal">Sellable</th>
+            <th className="py-2 px-3 text-left font-normal">{anchor?.label ?? 'Anchor'} SKU</th>
+            <th className="py-2 px-3 text-left font-normal">Visible to customers</th>
             <th className="py-2 px-3 text-left font-normal">Categories</th>
             <th className="py-2 px-3 text-left font-normal">Story</th>
             <th className="py-2 px-3 text-left font-normal"></th>
@@ -307,7 +348,7 @@ function CoffeeList(props: {
           {coffees.map(coffee => {
             const home = coffee.placements.find(p => p.role === 'home' && p.assignment_is_active);
             const guests = coffee.placements.filter(p => p.role === 'guest' && p.assignment_is_active);
-            const sku12 = coffee.skus.find(s => Number(s.weight_oz) === 12);
+            const skuAnchor = anchor ? coffee.skus.find(s => Number(s.weight_oz) === anchor.weightOz) : undefined;
             const guestsExpanded = expandedGuestsId === coffee.id;
             const isBusy = busyId === coffee.id;
             return (
@@ -336,10 +377,38 @@ function CoffeeList(props: {
                   )}
                 </td>
                 <td className="py-2 px-3 text-xs">
-                  {sku12 ? <span className={sku12.is_active ? 'text-green-600' : 'text-stone-400'}>{sku12.is_active ? 'Active' : 'Inactive'}</span> : <span className="text-stone-300">Absent</span>}
+                  {skuAnchor ? <span className={skuAnchor.is_active ? 'text-green-600' : 'text-stone-400'}>{skuAnchor.is_active ? 'Active' : 'Inactive'}</span> : <span className="text-stone-300">Absent</span>}
                 </td>
-                <td className="py-2 px-3 text-xs text-stone-500">
-                  {home ? sellableSummary(coffee.id, home, slots, notSellable) : 'Not placed'}
+                <td className="py-2 px-3 text-xs text-stone-700 min-w-[280px]">
+                  {!coffee.is_active ? (
+                    <span className="inline-block rounded px-2 py-0.5 bg-stone-200 text-stone-600 font-medium">Retired</span>
+                  ) : !coffee.visibility.isPlaced ? (
+                    <span>
+                      <span className="inline-block rounded px-2 py-0.5 bg-stone-200 text-stone-600 font-medium">Not placed</span>{' '}
+                      <button onClick={() => setPlaceModal({ coffeeId: coffee.id, role: 'home' })} className="underline text-stone-600 hover:text-stone-900">Place</button>
+                    </span>
+                  ) : coffee.visibility.isVisible ? (
+                    <span className="inline-block rounded px-2 py-0.5 bg-green-100 text-green-800 font-medium">Visible</span>
+                  ) : (
+                    <span className="inline-block rounded px-2 py-0.5 bg-red-100 text-red-700 font-medium">Hidden</span>
+                  )}
+                  {coffee.visibility.placements.map(pl => (
+                    <div key={pl.assignmentId} className="mt-1 leading-snug">
+                      {archetypeLabel(pl.archetype)} · {pl.slotName ?? `slot ${pl.sortOrder}`} ({pl.role}):{' '}
+                      {pl.sizes.map((sz, i) => (
+                        <span key={sz.weightOz}>
+                          {i > 0 && ' · '}
+                          {sz.label}{' '}
+                          {sz.isWinner ? <span className="text-green-700 font-medium">✓</span> : (
+                            <>
+                              <span className="text-red-600 font-medium">✗</span>{' '}
+                              {sz.reasons.map(r => reasonFix(coffee, pl, sz, r))}
+                            </>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  ))}
                 </td>
                 <td className="py-2 px-3 text-xs text-stone-500">
                   {coffee.category_codes.length ? coffee.category_codes.join(', ') : '—'}
@@ -357,7 +426,7 @@ function CoffeeList(props: {
                     <button onClick={() => setPlaceModal({ coffeeId: coffee.id, role: home ? 'guest' : 'home' })} className="text-xs text-stone-400 hover:text-stone-700">
                       {home ? 'Add guest' : 'Place'}
                     </button>
-                    <button onClick={() => setSkuModalId(coffee.id)} className="text-xs text-stone-400 hover:text-stone-700">SKUs</button>
+                    <button onClick={() => setSkuModal({ coffeeId: coffee.id })} className="text-xs text-stone-400 hover:text-stone-700">SKUs</button>
                     <button onClick={() => handleRetireRestore(coffee)} disabled={isBusy} className="text-xs text-stone-400 hover:text-red-500 disabled:opacity-40">
                       {isBusy ? '…' : coffee.is_active ? 'Retire' : 'Restore'}
                     </button>
@@ -386,9 +455,9 @@ function CoffeeList(props: {
           apiFetch={apiFetch} onClose={() => setPlaceModal(null)}
           onSaved={(warnings) => { onReload(); const s = warningsSummary(warnings); if (s) setToast(s); }} />
       )}
-      {skuModalId != null && (
-        <ManageSkusModal coffee={coffees.find(c => c.id === skuModalId)!}
-          apiFetch={apiFetch} onClose={() => setSkuModalId(null)} onSaved={onReload} />
+      {skuModal != null && (
+        <ManageSkusModal coffee={coffees.find(c => c.id === skuModal.coffeeId)!} sizes={sizes} initialWeightOz={skuModal.weightOz}
+          apiFetch={apiFetch} onClose={() => setSkuModal(null)} onSaved={onReload} />
       )}
       {storyCoffeeId != null && (() => {
         const coffee = coffees.find(c => c.id === storyCoffeeId);
@@ -642,10 +711,11 @@ function PlaceModal({ coffeeId, role, archetypes, slots, apiFetch, onClose, onSa
   );
 }
 
-function ManageSkusModal({ coffee, apiFetch, onClose, onSaved }: {
-  coffee: Coffee; apiFetch: (url: string, options?: RequestInit) => Promise<Response>; onClose: () => void; onSaved: () => void | Promise<void>;
+function ManageSkusModal({ coffee, sizes, initialWeightOz, apiFetch, onClose, onSaved }: {
+  coffee: Coffee; sizes: SizeOption[]; initialWeightOz?: number;
+  apiFetch: (url: string, options?: RequestInit) => Promise<Response>; onClose: () => void; onSaved: () => void | Promise<void>;
 }) {
-  const [weightOz, setWeightOz] = useState('12');
+  const [weightOz, setWeightOz] = useState(String(initialWeightOz ?? sizes.find(sz => sz.isAnchor)?.weightOz ?? sizes[0]?.weightOz ?? ''));
   const [roasterSku, setRoasterSku] = useState('');
   const [shopifyVariantId, setShopifyVariantId] = useState('');
   const [quantityAvailable, setQuantityAvailable] = useState('0');
@@ -676,7 +746,7 @@ function ManageSkusModal({ coffee, apiFetch, onClose, onSaved }: {
             <tbody>
               {coffee.skus.map(s => (
                 <tr key={s.id} className="border-t border-stone-50">
-                  <td className="py-1">{s.weight_oz} oz</td>
+                  <td className="py-1">{sizes.find(sz => sz.weightOz === Number(s.weight_oz))?.label ?? `${s.weight_oz} oz`}</td>
                   <td className="py-1 font-mono">{s.roaster_sku ?? '—'}</td>
                   <td className="py-1">{s.quantity_available}</td>
                   <td className="py-1">{s.is_active ? s.inventory_status : 'inactive'}</td>
@@ -687,9 +757,9 @@ function ManageSkusModal({ coffee, apiFetch, onClose, onSaved }: {
         )}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-stone-400 mb-1">Weight (oz)</label>
+            <label className="block text-xs text-stone-400 mb-1">Size</label>
             <select value={weightOz} onChange={e => setWeightOz(e.target.value)} className="w-full border border-stone-300 rounded px-3 py-2 text-sm">
-              <option value="12">12</option><option value="80">80 (5 lb)</option>
+              {sizes.map(sz => <option key={sz.weightOz} value={sz.weightOz}>{sz.label}</option>)}
             </select>
           </div>
           <div>
@@ -720,11 +790,13 @@ function ManageSkusModal({ coffee, apiFetch, onClose, onSaved }: {
 // ── B2: Place a coffee (the door) ─────────────────────────────────────────────
 
 function PlaceACoffee(props: {
-  roasters: Roaster[]; archetypes: ReturnType<typeof useArchetypes>['archetypes']; slots: Slot[];
+  roasters: Roaster[]; archetypes: ReturnType<typeof useArchetypes>['archetypes']; slots: Slot[]; sizes: SizeOption[];
   categories: CategoryOption[]; lookups: Record<string, { value: string; label: string }[]>; refreshLookups: () => void | Promise<void>;
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>; onPlaced: () => void;
 }) {
-  const { roasters, archetypes, slots, lookups, refreshLookups, apiFetch, onPlaced } = props;
+  const { roasters, archetypes, slots, sizes, lookups, refreshLookups, apiFetch, onPlaced } = props;
+  const anchorSize = sizes.find(sz => sz.isAnchor);
+  const extraSizes = sizes.filter(sz => !sz.isAnchor);
 
   const [step, setStep] = useState(1);
   const [roasterName, setRoasterName] = useState('');
@@ -732,8 +804,9 @@ function PlaceACoffee(props: {
   const [archetype, setArchetype] = useState('');
   const [confidence, setConfidence] = useState('medium');
   const [homeSlot, setHomeSlot] = useState('');
-  const [homeWeightOz, setHomeWeightOz] = useState('12');
   const [homeSku, setHomeSku] = useState({ roasterSku: '', costToUs: '' });
+  // Optional extra sizes (the anchor SKU is always required — the importer refuses a coffee without it).
+  const [extraSkus, setExtraSkus] = useState<Array<{ weightOz: string; roasterSku: string }>>([]);
   const [guestSlots, setGuestSlots] = useState<string[]>([]);
 
   const [preview, setPreview] = useState<{ warnings: WarningLike[] } | null>(null);
@@ -755,7 +828,10 @@ function PlaceACoffee(props: {
         match: { archetype, confidence, source: 'manual' as const },
         home: homeSlot ? { slot: homeSlot, placementNote: placementNote || undefined } : undefined,
         guests: guestSlots.filter(Boolean).map(slot => ({ slot })),
-        skus: homeSlot ? [{ weightOz: Number(homeWeightOz), roasterSku: homeSku.roasterSku || undefined, costToUs: homeSku.costToUs ? Number(homeSku.costToUs) : undefined }] : undefined,
+        skus: homeSlot && anchorSize ? [
+          { weightOz: anchorSize.weightOz, roasterSku: homeSku.roasterSku || undefined, costToUs: homeSku.costToUs ? Number(homeSku.costToUs) : undefined },
+          ...extraSkus.filter(x => x.weightOz).map(x => ({ weightOz: Number(x.weightOz), roasterSku: x.roasterSku || undefined })),
+        ] : undefined,
       }],
     };
     void dryRun;
@@ -813,7 +889,7 @@ function PlaceACoffee(props: {
     );
   }
 
-  const steps = ['Roastery & metadata', 'Match', 'Home slot', '12oz SKU', 'Guests', 'Preview', 'Confirm'];
+  const steps = ['Roastery & metadata', 'Match', 'Home slot', `${anchorSize?.label ?? 'Anchor'} SKU`, 'Guests', 'Preview', 'Confirm'];
 
   return (
     <div className="max-w-2xl">
@@ -880,7 +956,7 @@ function PlaceACoffee(props: {
               <button key={s.id} onClick={() => setHomeSlot(`${archetype}/${s.sort_order}`)}
                 className={`text-left border rounded p-3 text-xs ${homeSlot === `${archetype}/${s.sort_order}` ? 'border-stone-800' : 'border-stone-200'}`}>
                 <div className="text-stone-700">{s.sort_order} · {s.name ?? s.position_label}</div>
-                <div className="text-stone-400 mt-1">{s.occupants.length} current occupant{s.occupants.length === 1 ? '' : 's'} · {s.sellable_12oz ? 'sellable now' : 'not sellable'}</div>
+                <div className="text-stone-400 mt-1">{s.occupants.length} current occupant{s.occupants.length === 1 ? '' : 's'} · {s.visibility.sizes.some(sz => sz.winnerCoffeeId != null) ? 'visible to customers' : 'not visible'}</div>
                 {(s.spec_band_lo != null || s.spec_band_hi != null) && <div className="text-stone-300 mt-0.5">spec: {s.spec_band_lo ?? '–'} to {s.spec_band_hi ?? '–'}</div>}
               </button>
             ))}
@@ -896,9 +972,9 @@ function PlaceACoffee(props: {
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-stone-400 mb-1">Weight (oz)</label>
-              <select value={homeWeightOz} onChange={e => setHomeWeightOz(e.target.value)} className="w-full border border-stone-300 rounded px-3 py-2 text-sm">
-                <option value="12">12</option>
+              <label className="block text-xs text-stone-400 mb-1">Size</label>
+              <select value={anchorSize?.weightOz ?? ''} disabled className="w-full border border-stone-300 rounded px-3 py-2 text-sm bg-stone-50">
+                {sizes.filter(sz => sz.isAnchor).map(sz => <option key={sz.weightOz} value={sz.weightOz}>{sz.label} (required)</option>)}
               </select>
             </div>
             <div>
@@ -910,6 +986,20 @@ function PlaceACoffee(props: {
               <input type="number" step="0.01" value={homeSku.costToUs} onChange={e => setHomeSku(f => ({ ...f, costToUs: e.target.value }))} className="w-full border border-stone-300 rounded px-3 py-2 text-sm" />
             </div>
           </div>
+          {extraSkus.map((x, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <select value={x.weightOz} onChange={e => setExtraSkus(xs => xs.map((y, j) => j === i ? { ...y, weightOz: e.target.value } : y))} className="border border-stone-300 rounded px-2 py-1.5 text-sm">
+                <option value="">— size —</option>
+                {extraSizes.map(sz => <option key={sz.weightOz} value={sz.weightOz}>{sz.label}</option>)}
+              </select>
+              <input value={x.roasterSku} onChange={e => setExtraSkus(xs => xs.map((y, j) => j === i ? { ...y, roasterSku: e.target.value } : y))}
+                placeholder="Roaster SKU" className="border border-stone-300 rounded px-3 py-1.5 text-sm font-mono flex-1" />
+              <button onClick={() => setExtraSkus(xs => xs.filter((_, j) => j !== i))} className="text-xs text-stone-400 hover:text-red-500">Remove</button>
+            </div>
+          ))}
+          {extraSizes.length > 0 && (
+            <button onClick={() => setExtraSkus(xs => [...xs, { weightOz: '', roasterSku: '' }])} className="text-xs text-stone-500 border border-dashed border-stone-300 rounded px-3 py-1.5">+ Add another size (optional)</button>
+          )}
           <div className="flex justify-between">
             <button onClick={() => setStep(3)} className="text-sm text-stone-500 px-3 py-1.5">Back</button>
             <button onClick={() => setStep(5)} className="text-sm text-white px-4 py-1.5 rounded" style={{ backgroundColor: BRAND }}>Next</button>
@@ -975,12 +1065,30 @@ function PlaceACoffee(props: {
 
 // ── B3: Slots & pricing ────────────────────────────────────────────────────────
 
-function SlotsAndPricing({ slots, archetypes, apiFetch, onReload }: {
-  slots: Slot[]; archetypes: ReturnType<typeof useArchetypes>['archetypes'];
+function SlotsAndPricing({ slots, archetypes, sizes, apiFetch, onReload, focus, onFocusDone }: {
+  slots: Slot[]; archetypes: ReturnType<typeof useArchetypes>['archetypes']; sizes: SizeOption[];
   apiFetch: (url: string, options?: RequestInit) => Promise<Response>; onReload: () => void | Promise<void>;
+  focus: SlotFocus | null; onFocusDone: () => void;
 }) {
-  const [activeArchetype, setActiveArchetype] = useState(archetypes[0]?.code ?? '');
+  const [activeArchetype, setActiveArchetype] = useState(focus?.archetype ?? archetypes[0]?.code ?? '');
   useEffect(() => { if (!activeArchetype && archetypes.length) setActiveArchetype(archetypes[0].code); }, [archetypes, activeArchetype]);
+
+  // Fix-link landing: show the slot's archetype, scroll its card into view,
+  // then (price target) focus that size's input — the card handles its own
+  // name/price focus; this only switches the pill and does the scroll.
+  useEffect(() => {
+    if (!focus) return;
+    if (activeArchetype !== focus.archetype) { setActiveArchetype(focus.archetype); return; }
+    const t = window.setTimeout(() => {
+      document.getElementById(`slot-card-${focus.slotId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (focus.target === 'price' && focus.weightOz != null) {
+        (document.getElementById(`slot-price-${focus.slotId}-${focus.weightOz}`) as HTMLInputElement | null)?.focus();
+      }
+      if (focus.target !== 'name') onFocusDone(); // the card clears a 'name' focus itself once its input is open
+    }, 50);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus, activeArchetype]);
 
   const [descriptorFamiliesDraft, setDescriptorFamiliesDraft] = useState('');
   const [savingFamilies, setSavingFamilies] = useState(false);
@@ -1036,22 +1144,33 @@ function SlotsAndPricing({ slots, archetypes, apiFetch, onReload }: {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {archetypeSlots.map(slot => (
-          <SlotCard key={slot.id} slot={slot} apiFetch={apiFetch} onReload={onReload} onSetDefault={() => handleSetLandingDefault(slot.id)} />
+          <SlotCard key={slot.id} slot={slot} sizes={sizes} apiFetch={apiFetch} onReload={onReload} onSetDefault={() => handleSetLandingDefault(slot.id)}
+            focusName={focus?.target === 'name' && focus.slotId === slot.id ? focus : null} onFocusDone={onFocusDone} />
         ))}
       </div>
     </div>
   );
 }
 
-function SlotCard({ slot, apiFetch, onReload, onSetDefault }: {
-  slot: Slot; apiFetch: (url: string, options?: RequestInit) => Promise<Response>; onReload: () => void | Promise<void>;
-  onSetDefault: () => void;
+function SlotCard({ slot, sizes, apiFetch, onReload, onSetDefault, focusName, onFocusDone }: {
+  slot: Slot; sizes: SizeOption[]; apiFetch: (url: string, options?: RequestInit) => Promise<Response>; onReload: () => void | Promise<void>;
+  onSetDefault: () => void; focusName: SlotFocus | null; onFocusDone: () => void;
 }) {
   const [nameDraft, setNameDraft] = useState(slot.name ?? '');
   const [editingName, setEditingName] = useState(false);
-  const [price12, setPrice12] = useState(String((slot.prices.find(p => Number(p.weight_oz) === 12)?.retail_price_cents ?? 0) / 100));
-  const [price80, setPrice80] = useState(String((slot.prices.find(p => Number(p.weight_oz) === 80)?.retail_price_cents ?? 0) / 100));
+  // One price input per active size (dollars, blank = no price set).
+  const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>(() => Object.fromEntries(
+    slot.prices.map(p => [Number(p.weight_oz), p.retail_price_cents == null ? '' : String(p.retail_price_cents / 100)])
+  ));
   const [savingPrice, setSavingPrice] = useState(false);
+
+  useEffect(() => {
+    if (!focusName) return;
+    setEditingName(true);
+    document.getElementById(`slot-card-${slot.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    onFocusDone();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusName]);
   const [savingName, setSavingName] = useState(false);
   const [certifyBy, setCertifyBy] = useState<{ coffeeId: number } | null>(null);
   const [certifyName, setCertifyName] = useState('');
@@ -1068,7 +1187,8 @@ function SlotCard({ slot, apiFetch, onReload, onSetDefault }: {
     } catch (err) { reportError('[SlotCard/save-name]', err); } finally { setSavingName(false); }
   }
 
-  async function handleSavePrice(weightOz: 12 | 80, value: string) {
+  async function handleSavePrice(weightOz: number, value: string) {
+    if (value.trim() === '') return;
     setSavingPrice(true);
     try {
       const cents = Math.round(Number(value) * 100);
@@ -1112,11 +1232,11 @@ function SlotCard({ slot, apiFetch, onReload, onSetDefault }: {
   const occupantsSorted = [...slot.occupants].sort((a, b) => (a.role === b.role ? a.priority - b.priority : a.role === 'home' ? -1 : 1));
 
   return (
-    <div className="border border-stone-100 rounded-lg p-3">
+    <div id={`slot-card-${slot.id}`} className="border border-stone-100 rounded-lg p-3 scroll-mt-24">
       <div className="flex items-center justify-between mb-1">
         {editingName ? (
           <div className="flex items-center gap-1.5 flex-1">
-            <input value={nameDraft} onChange={e => setNameDraft(e.target.value)} className="border border-stone-300 rounded px-2 py-1 text-sm flex-1" />
+            <input autoFocus value={nameDraft} onChange={e => setNameDraft(e.target.value)} className="border border-stone-300 rounded px-2 py-1 text-sm flex-1" />
             <button onClick={handleSaveName} disabled={savingName} className="text-xs text-white px-2 py-1 rounded" style={{ backgroundColor: BRAND }}>Save</button>
           </div>
         ) : (
@@ -1128,21 +1248,18 @@ function SlotCard({ slot, apiFetch, onReload, onSetDefault }: {
       </div>
       <p className="text-xs text-stone-400 mb-2">{slot.position_label}</p>
 
-      <div className="grid grid-cols-2 gap-2 mb-2">
-        <div>
-          <label className="block text-[10px] text-stone-400">12oz price ($)</label>
-          <div className="flex gap-1">
-            <input type="number" step="0.01" value={price12} onChange={e => setPrice12(e.target.value)} className="border border-stone-300 rounded px-2 py-1 text-xs w-full" />
-            <button onClick={() => handleSavePrice(12, price12)} disabled={savingPrice} className="text-[10px] text-stone-500 border border-stone-200 rounded px-1.5">Save</button>
+      <div className="grid grid-cols-3 gap-2 mb-2">
+        {sizes.map(sz => (
+          <div key={sz.weightOz}>
+            <label htmlFor={`slot-price-${slot.id}-${sz.weightOz}`} className="block text-[10px] text-stone-400">{sz.label} price ($)</label>
+            <div className="flex gap-1">
+              <input id={`slot-price-${slot.id}-${sz.weightOz}`} type="number" step="0.01" placeholder="—"
+                value={priceDrafts[sz.weightOz] ?? ''} onChange={e => setPriceDrafts(d => ({ ...d, [sz.weightOz]: e.target.value }))}
+                className="border border-stone-300 rounded px-2 py-1 text-xs w-full min-w-0" />
+              <button onClick={() => handleSavePrice(sz.weightOz, priceDrafts[sz.weightOz] ?? '')} disabled={savingPrice} className="text-[10px] text-stone-500 border border-stone-200 rounded px-1.5">Save</button>
+            </div>
           </div>
-        </div>
-        <div>
-          <label className="block text-[10px] text-stone-400">5lb price ($)</label>
-          <div className="flex gap-1">
-            <input type="number" step="0.01" value={price80} onChange={e => setPrice80(e.target.value)} className="border border-stone-300 rounded px-2 py-1 text-xs w-full" />
-            <button onClick={() => handleSavePrice(80, price80)} disabled={savingPrice} className="text-[10px] text-stone-500 border border-stone-200 rounded px-1.5">Save</button>
-          </div>
-        </div>
+        ))}
       </div>
 
       <div className="space-y-1">
@@ -1170,7 +1287,37 @@ function SlotCard({ slot, apiFetch, onReload, onSetDefault }: {
         ))}
         {occupantsSorted.length === 0 && <p className="text-xs text-stone-300">Open.</p>}
       </div>
-      <p className="text-[10px] text-stone-300 mt-2">{slot.sellable_12oz ? 'Sellable at 12oz' : 'Not sellable at 12oz'}</p>
+      <SlotVisibilityBadge sizes={slot.visibility.sizes} />
+    </div>
+  );
+}
+
+// "Visible" (with what's showing) or "Hidden" (with the reason per size) —
+// built from getSlotVisibility(), i.e. the same view the customer pages read.
+function SlotVisibilityBadge({ sizes }: { sizes: SlotVisibilitySize[] }) {
+  const winners = sizes.filter(sz => sz.winnerCoffeeId != null);
+  if (winners.length > 0) {
+    const byCoffee = new Map<string, string[]>();
+    for (const w of winners) byCoffee.set(w.winnerCoffeeName ?? 'a coffee', [...(byCoffee.get(w.winnerCoffeeName ?? 'a coffee') ?? []), w.label]);
+    return (
+      <p className="text-xs mt-2 text-stone-700">
+        <span className="inline-block rounded px-2 py-0.5 bg-green-100 text-green-800 font-medium mr-1.5">Visible</span>
+        showing {[...byCoffee].map(([name, labels]) => `${name} at ${labels.join(' · ')}`).join('; ')}
+      </p>
+    );
+  }
+  return (
+    <div className="text-xs mt-2 text-stone-700">
+      <span className="inline-block rounded px-2 py-0.5 bg-red-100 text-red-700 font-medium">Hidden</span>
+      <ul className="mt-1 space-y-0.5">
+        {sizes.map(sz => (
+          <li key={sz.weightOz}>
+            {sz.label}: {sz.topOccupant
+              ? `${sz.topOccupant.coffeeName} — ${sz.topOccupant.reasons.map(r => REASON_TEXT[r]).join(', ') || 'not resolved'}`
+              : 'no coffee placed'}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

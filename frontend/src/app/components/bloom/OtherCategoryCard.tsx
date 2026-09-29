@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { CartItem, OtherCategoryCoffee } from './types';
-import { formatPrice, formatWeight } from './types';
+import { formatPrice, priceLabel } from './types';
 
 interface OtherCategoryCardProps {
   coffee: OtherCategoryCoffee;
@@ -19,7 +19,7 @@ interface OtherCategoryCardProps {
 export function OtherCategoryCard({ coffee, categoryLabel, onAddToCart, renderFlavorIntelligenceLink }: OtherCategoryCardProps) {
   const availablePrices = coffee.prices.filter(p => p.isActive);
   const [selectedWeight, setSelectedWeight] = useState<number | null>(
-    (availablePrices.find(p => p.weightOz === 12) ?? availablePrices[0])?.weightOz ?? null
+    (availablePrices.find(p => p.isAnchor) ?? availablePrices[0])?.weightOz ?? null
   );
   const selectedPrice = availablePrices.find(p => p.weightOz === selectedWeight) ?? availablePrices[0];
 
@@ -71,7 +71,7 @@ export function OtherCategoryCard({ coffee, categoryLabel, onAddToCart, renderFl
       <div className="px-6 pb-5">
         <div className="flex items-center gap-4 flex-wrap">
           {availablePrices.length > 1 && (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {availablePrices.map(p => (
                 <button
                   key={p.weightOz}
@@ -83,14 +83,14 @@ export function OtherCategoryCard({ coffee, categoryLabel, onAddToCart, renderFl
                     color: selectedWeight === p.weightOz ? '#fff' : '#8a8070',
                   }}
                 >
-                  {formatWeight(p.weightOz)} · {formatPrice(p.retailPriceCents)}
+                  {priceLabel(p)} · {formatPrice(p.retailPriceCents)}
                 </button>
               ))}
             </div>
           )}
           {availablePrices.length === 1 && selectedPrice && (
             <span className="text-sm" style={{ color: '#4a4035' }}>
-              {formatWeight(selectedPrice.weightOz)} · {formatPrice(selectedPrice.retailPriceCents)}
+              {priceLabel(selectedPrice)} · {formatPrice(selectedPrice.retailPriceCents)}
             </span>
           )}
           <button

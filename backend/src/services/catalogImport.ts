@@ -4,6 +4,7 @@ import {
   setSlotPriceInTx, type Ctx, type PlacementWarning, type ArchetypeCode, type ConfidenceLevel, type AssignmentSource,
 } from './catalogService.js';
 import { runCatalogIntegrityChecks, type CatalogIntegrityReport } from './catalogIntegrity.js';
+import { getSizes, getAnchorSize } from './catalogReads.js';
 
 // ── Catalog Blueprint · brief 2, Part B ──────────────────────────────────────
 // Bulk importer replacing the seed files (N7). One manifest = one roastery.
@@ -107,6 +108,8 @@ async function runImportInTx(tx: Tx, manifest: Manifest, options: ImportOptions)
   // ── Pass 1: validate the whole manifest — collected, not thrown one at a time ──
   const namesLower = manifest.coffees.map(c => c.name.trim().toLowerCase());
   const coffeeReports: ImportCoffeeReport[] = [];
+  const sizes = await getSizes(tx);
+  const anchor = await getAnchorSize(tx);
 
   for (let i = 0; i < manifest.coffees.length; i++) {
     const coffee = manifest.coffees[i];
@@ -122,7 +125,10 @@ async function runImportInTx(tx: Tx, manifest: Manifest, options: ImportOptions)
     for (const g of coffee.guests ?? []) {
       if (!(await resolveCached(g.slot))) errors.push(`Unknown slot: ${g.slot}`);
     }
-    if (!(coffee.skus ?? []).some(s => s.weightOz === 12)) errors.push('Missing a 12 oz SKU');
+    if (!(coffee.skus ?? []).some(s => s.weightOz === anchor.weight_oz)) errors.push(`Missing a ${anchor.label} SKU`);
+    for (const s of coffee.skus ?? []) {
+      if (!sizes.some(sz => sz.weight_oz === s.weightOz)) errors.push(`UNKNOWN_SIZE: ${s.weightOz} oz SKU (allowed: ${sizes.map(sz => sz.label).join(', ')})`);
+    }
 
     const existingResult = await tx.query(
       `SELECT id FROM coffees WHERE roaster_id = $1 AND lower(trim(name)) = lower(trim($2)) AND is_active = true`,
@@ -143,6 +149,8 @@ async function runImportInTx(tx: Tx, manifest: Manifest, options: ImportOptions)
   for (const sp of manifest.slotPrices ?? []) {
     if (!(await resolveCached(sp.slot))) {
       slotPriceValidationErrors.push({ slot: sp.slot, weightOz: sp.weightOz, status: 'error', error: `Unknown slot: ${sp.slot}` });
+    } else if (!sizes.some(sz => sz.weight_oz === sp.weightOz)) {
+      slotPriceValidationErrors.push({ slot: sp.slot, weightOz: sp.weightOz, status: 'error', error: `UNKNOWN_SIZE: ${sp.weightOz} oz` });
     }
   }
 
