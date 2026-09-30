@@ -127,6 +127,27 @@ describe('POST /catalog/coffees', () => {
   });
 });
 
+// Catalog write-door brief (2026-09-30) — stock tracking retired.
+describe('retired stock tracking', () => {
+  it('POST /catalog/skus/:blendId/restock returns 410 RETIRED', async () => {
+    const res = await fetch(`${baseUrl}/catalog/skus/00000000-0000-0000-0000-000000000000/restock`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quantity: 5 }),
+    });
+    expect(res.status).toBe(410);
+    expect((await res.json()).error).toBe('RETIRED');
+  });
+
+  for (const field of ['quantityAvailable', 'safetyStockBuffer']) {
+    it(`PUT /catalog/coffees/:id/skus with ${field} returns 400 FIELD_RETIRED`, async () => {
+      const res = await fetch(`${baseUrl}/catalog/coffees/1/skus`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ weightOz: 12, [field]: 5 }),
+      });
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe('FIELD_RETIRED');
+    });
+  }
+});
+
 describe('Catalog Blueprint brief 4 — new admin reads', () => {
   it('GET /catalog/slots shows occupants + per-size prices + visibility on a fixture', async () => {
     let roaster: { id: string } | undefined;

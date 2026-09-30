@@ -4161,6 +4161,17 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- Catalog write-door brief (2026-09-30): stock tracking retired. We don't hold
+-- inventory (roasters drop-ship every order); a SKU's availability is its
+-- is_active switch ("Available from roaster" / "Paused"). The columns stay
+-- (no DROP, no UPDATE of existing values) but are marked deprecated, and
+-- lint-catalog.mjs rule 6 fails any app reference to them.
+COMMENT ON COLUMN coffee_sku.quantity_available IS 'DEPRECATED 2026-09-30: drop-ship model, stock not tracked; not read or written by the app.';
+COMMENT ON COLUMN coffee_sku.safety_stock_buffer IS 'DEPRECATED 2026-09-30: drop-ship model, stock not tracked; not read or written by the app.';
+COMMENT ON COLUMN coffee_sku.inventory_status IS 'DEPRECATED 2026-09-30: drop-ship model, stock not tracked; not read or written by the app.';
+COMMENT ON COLUMN coffee_sku.last_restocked_at IS 'DEPRECATED 2026-09-30: drop-ship model, stock not tracked; not read or written by the app.';
+COMMENT ON COLUMN coffee_sku.inventory_last_synced_at IS 'DEPRECATED 2026-09-30: drop-ship model, stock not tracked; not read or written by the app.';
+
 -- Catalog Blueprint brief 3 (2026-09-14) — the pre-DISTINCT-ON candidate list
 -- v_coffee_sellable_slot picks its winner from, exposed on its own so the
 -- resolver (blendResolver.ts) can report *why* a losing candidate didn't

@@ -27,8 +27,7 @@ interface Placement {
 }
 interface Sku {
   id: string; weight_oz: number; roaster_sku: string | null; shopify_variant_id: string | null;
-  cost_to_us: string | null; quantity_available: number; safety_stock_buffer: number;
-  inventory_status: string; is_active: boolean;
+  cost_to_us: string | null; is_active: boolean;
 }
 interface Coffee {
   id: number; name: string; origin: string | null; blend_or_single: string | null; process: string | null;
@@ -281,7 +280,9 @@ function CoffeeList(props: {
   // at that size; outranked -> the slot card's priorities; retired ->
   // Restore; category -> Edit; slot inactive/unnamed -> the slot's name field.
   function reasonFix(coffee: Coffee, placement: VisibilityPlacement, size: VisibilitySize, reason: VisibilityReason) {
-    const text = reason === 'outranked' ? `outranked — shown instead: ${size.winnerCoffeeName ?? 'another coffee'}` : REASON_TEXT[reason];
+    // A missing SKU at a size where the coffee has a paused one reads "SKU paused" (presentation only, from coffee.skus).
+    const skuPaused = reason === 'no_active_sku' && coffee.skus.some(k => Number(k.weight_oz) === size.weightOz && !k.is_active);
+    const text = reason === 'outranked' ? `outranked — shown instead: ${size.winnerCoffeeName ?? 'another coffee'}` : skuPaused ? 'SKU paused' : REASON_TEXT[reason];
     const fix: Record<VisibilityReason, () => void> = {
       no_slot_price: () => goToSlot({ slotId: placement.slotId, archetype: placement.archetype, target: 'price', weightOz: size.weightOz }),
       no_active_sku: () => setSkuModal({ coffeeId: coffee.id, weightOz: size.weightOz }),
@@ -718,7 +719,6 @@ function ManageSkusModal({ coffee, sizes, initialWeightOz, apiFetch, onClose, on
   const [weightOz, setWeightOz] = useState(String(initialWeightOz ?? sizes.find(sz => sz.isAnchor)?.weightOz ?? sizes[0]?.weightOz ?? ''));
   const [roasterSku, setRoasterSku] = useState('');
   const [shopifyVariantId, setShopifyVariantId] = useState('');
-  const [quantityAvailable, setQuantityAvailable] = useState('0');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
@@ -729,7 +729,6 @@ function ManageSkusModal({ coffee, sizes, initialWeightOz, apiFetch, onClose, on
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           weightOz: Number(weightOz), roasterSku: roasterSku || undefined, shopifyVariantId: shopifyVariantId || undefined,
-          quantityAvailable: Number(quantityAvailable) || 0,
         }),
       });
       if (!res.ok) throw new Error((await res.json()).message ?? 'Failed to save SKU');
@@ -742,14 +741,13 @@ function ManageSkusModal({ coffee, sizes, initialWeightOz, apiFetch, onClose, on
       <div className="space-y-3">
         {coffee.skus.length > 0 && (
           <table className="w-full text-xs mb-3">
-            <thead><tr className="text-stone-300 uppercase"><th className="text-left py-1">Weight</th><th className="text-left py-1">SKU</th><th className="text-left py-1">Qty</th><th className="text-left py-1">Status</th></tr></thead>
+            <thead><tr className="text-stone-300 uppercase"><th className="text-left py-1">Weight</th><th className="text-left py-1">SKU</th><th className="text-left py-1">Availability</th></tr></thead>
             <tbody>
               {coffee.skus.map(s => (
                 <tr key={s.id} className="border-t border-stone-50">
                   <td className="py-1">{sizes.find(sz => sz.weightOz === Number(s.weight_oz))?.label ?? `${s.weight_oz} oz`}</td>
                   <td className="py-1 font-mono">{s.roaster_sku ?? '—'}</td>
-                  <td className="py-1">{s.quantity_available}</td>
-                  <td className="py-1">{s.is_active ? s.inventory_status : 'inactive'}</td>
+                  <td className="py-1">{s.is_active ? 'Available from roaster' : 'Paused'}</td>
                 </tr>
               ))}
             </tbody>
@@ -761,10 +759,6 @@ function ManageSkusModal({ coffee, sizes, initialWeightOz, apiFetch, onClose, on
             <select value={weightOz} onChange={e => setWeightOz(e.target.value)} className="w-full border border-stone-300 rounded px-3 py-2 text-sm">
               {sizes.map(sz => <option key={sz.weightOz} value={sz.weightOz}>{sz.label}</option>)}
             </select>
-          </div>
-          <div>
-            <label className="block text-xs text-stone-400 mb-1">Quantity</label>
-            <input type="number" value={quantityAvailable} onChange={e => setQuantityAvailable(e.target.value)} className="w-full border border-stone-300 rounded px-3 py-2 text-sm" />
           </div>
           <div>
             <label className="block text-xs text-stone-400 mb-1">Roaster SKU</label>

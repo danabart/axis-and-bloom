@@ -21,13 +21,14 @@ import {
   createCoffee, updateCoffee, retireCoffee, restoreCoffee,
   setMatchArchetype, placeCoffee, moveCoffee, removeFromSlot, certifyPlacement, previewPlacement, setPriority,
   renameSlot, setSlotSpec, setSlotPrice, setLandingDefault, setArchetypeDescriptorFamilies,
-  upsertSku, restockSku, setHop, removeHop, assertKnownSize,
+  upsertSku, setHop, removeHop, setCoffeeRetailPrice, createCategory, updateCategory, deleteCategory,
   deactivateRoastery, reactivateRoastery, buildDeactivationPreview, buildReactivationPreview,
 } from '../services/catalogService.js';
 import { importCatalog } from '../services/catalogImport.js';
 import {
   getArchetypes, getSlots, getCoffee, getCoffees, getSlotsForCoffee, getHops, getNotSellable, getChanges,
   getSizes, getSlotPrices, getCoffeeVisibility, getSlotVisibility,
+  getCoffeeRetailPrices, getCategories, getCategory, getCategoryAssignments,
 } from '../services/catalogReads.js';
 
 const router = Router();
@@ -573,8 +574,9 @@ router.patch('/slot-prices', (_req, res) => {
 // ── GET /api/admin/coffee-prices ──────────────────────────────────────────────
 // Coffee-keyed counterpart to slot-prices, for Decaf/Half-Caf/Flavored/Experimental
 // coffees (no dial slot to key a price off of) — Bloom Dial Base Data Part 3, Phase 6.
-// Same "only returns rows that actually exist" contract; unset coffees fall back to
-// the $32.00/12oz, $185.00/5lb defaults applied at GET /api/coffees/other-categories.
+// Same "only returns rows that actually exist" contract; an unset price is omitted,
+// not defaulted (GET /api/coffees/other-categories drops it from `prices` and the
+// card renders "Unpriced" — no fallback price anywhere).
 // Roastery lifecycle (2026-08-25) — defaults to prices for active coffees
 // only; ?include_inactive=true also returns rows for inactive ones. The
 // frontend already joins this against its own (separately active-filtered)
@@ -582,14 +584,7 @@ router.patch('/slot-prices', (_req, res) => {
 router.get('/coffee-prices', async (req, res) => {
   const includeInactive = req.query.include_inactive === 'true';
   try {
-    const result = await db.query(
-      `SELECT crp.coffee_id, crp.weight_oz, crp.retail_price_cents
-       FROM coffee_retail_price crp
-       JOIN coffees c ON c.id = crp.coffee_id
-       ${includeInactive ? '' : 'WHERE c.is_active = true'}
-       ORDER BY crp.coffee_id, crp.weight_oz`
-    );
-    res.json(result.rows);
+    res.json(await getCoffeeRetailPrices({ includeInactive }));
   } catch (err) {
     console.error('[admin/coffee-prices GET]', err);
     res.status(500).json({ error: 'Failed to fetch coffee prices' });
@@ -597,7 +592,7 @@ router.get('/coffee-prices', async (req, res) => {
 });
 
 // ── PATCH /api/admin/coffee-prices — upsert one coffee+weight price ──────────
-router.patch('/coffee-prices', async (req, res) => {
+router.patch('/coffee-prices', async (req: AuthRequest, res) => {
   const { coffeeId, weightOz, retailPriceCents } = req.body;
   if (!Number.isInteger(coffeeId) || !Number.isFinite(weightOz)
     || !Number.isInteger(retailPriceCents) || retailPriceCents < 0) {
@@ -605,16 +600,8 @@ router.patch('/coffee-prices', async (req, res) => {
     return;
   }
   try {
-    await assertKnownSize(weightOz); // UNKNOWN_SIZE 400 ahead of the coffee_retail_price FK
-    const result = await db.query(
-      `INSERT INTO coffee_retail_price (coffee_id, weight_oz, retail_price_cents, updated_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (coffee_id, weight_oz)
-       DO UPDATE SET retail_price_cents = $3, updated_at = NOW()
-       RETURNING coffee_id, weight_oz, retail_price_cents`,
-      [coffeeId, weightOz, retailPriceCents]
-    );
-    res.json(result.rows[0]);
+    const { result } = await setCoffeeRetailPrice({ coffeeId, weightOz, retailPriceCents }, { actor: req.uid ?? 'unknown' });
+    res.json(result);
   } catch (err) {
     if (handleCatalogError(err, res)) return;
     console.error('[admin/coffee-prices PATCH]', err);
@@ -631,11 +618,7 @@ router.patch('/coffee-prices', async (req, res) => {
 // reactivate one), ordered by sort_order
 router.get('/categories', async (_req, res) => {
   try {
-    const result = await db.query(
-      `SELECT id, code, label, description, sort_order, is_active, is_hoppable
-       FROM coffee_category ORDER BY sort_order`
-    );
-    res.json(result.rows);
+    res.json(await getCategories());
   } catch (err) {
     console.error('[admin/categories GET]', err);
     res.status(500).json({ error: 'Failed to fetch categories' });
@@ -645,27 +628,23 @@ router.get('/categories', async (_req, res) => {
 // POST /api/admin/categories — create a new category. is_hoppable always defaults
 // false here — opening a category to hop creation is a manual DB decision, not
 // something exposed to this endpoint.
-router.post('/categories', async (req, res) => {
+router.post('/categories', async (req: AuthRequest, res) => {
   const { code, label } = req.body;
   if (!code || !label) {
     res.status(400).json({ error: 'code and label are required' }); return;
   }
   try {
-    const result = await db.query(
-      `INSERT INTO coffee_category (code, label, sort_order)
-       VALUES ($1, $2, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM coffee_category))
-       RETURNING id, code, label, description, sort_order, is_active, is_hoppable`,
-      [code, label]
-    );
-    res.status(201).json(result.rows[0]);
+    const { result } = await createCategory({ code, label }, { actor: req.uid ?? 'unknown' });
+    res.status(201).json(result);
   } catch (err) {
+    if (handleCatalogError(err, res)) return;
     console.error('[admin/categories POST]', err);
-    res.status(500).json({ error: 'Failed to create category (code may already exist)' });
+    res.status(500).json({ error: 'Failed to create category' });
   }
 });
 
 // PATCH /api/admin/categories/:id — rename and/or toggle active (partial update)
-router.patch('/categories/:id', async (req, res) => {
+router.patch('/categories/:id', async (req: AuthRequest, res) => {
   const { id } = req.params;
   const { label, is_active } = req.body;
   if (label !== undefined && (typeof label !== 'string' || !label.trim())) {
@@ -678,37 +657,26 @@ router.patch('/categories/:id', async (req, res) => {
     res.status(400).json({ error: 'label or is_active is required' }); return;
   }
   try {
-    const result = await db.query(
-      `UPDATE coffee_category
-       SET label     = COALESCE($1::text, label),
-           is_active = COALESCE($2::boolean, is_active)
-       WHERE id = $3
-       RETURNING id, code, label, description, sort_order, is_active, is_hoppable`,
-      [label?.trim() ?? null, is_active ?? null, id]
-    );
-    if (result.rowCount === 0) { res.status(404).json({ error: 'Category not found' }); return; }
-    res.json(result.rows[0]);
+    const { result } = await updateCategory({ categoryId: Number(id), label, isActive: is_active }, { actor: req.uid ?? 'unknown' });
+    res.json(result);
   } catch (err) {
+    if (handleCatalogError(err, res)) return;
     console.error('[admin/categories PATCH]', err);
     res.status(500).json({ error: 'Failed to update category' });
   }
 });
 
-// DELETE /api/admin/categories/:id — remove a category outright. coffee_category_assignment
-// rows cascade automatically (ON DELETE CASCADE); a category still referenced by a
-// dial_coffee_relationships hop (from_category_id/to_category_id, no cascade there by
-// design) is blocked with a clear error instead of silently orphaning the hop.
-router.delete('/categories/:id', async (req, res) => {
+// DELETE /api/admin/categories/:id — remove an UNUSED category. A category still
+// assigned to any coffee (or referenced by a hop) is refused with 409
+// CATEGORY_IN_USE — the schema's ON DELETE CASCADE would otherwise silently untag
+// those coffees and put them back on the dial; deactivate it instead (PATCH).
+router.delete('/categories/:id', async (req: AuthRequest, res) => {
   const { id } = req.params;
   try {
-    const result = await db.query(`DELETE FROM coffee_category WHERE id = $1 RETURNING id`, [id]);
-    if (result.rowCount === 0) { res.status(404).json({ error: 'Category not found' }); return; }
-    res.json({ ok: true });
-  } catch (err: any) {
-    if (err?.code === '23503') {
-      res.status(409).json({ error: 'Cannot delete — this category is still referenced by a hop. Remove the hop first.' });
-      return;
-    }
+    const { result } = await deleteCategory({ categoryId: Number(id) }, { actor: req.uid ?? 'unknown' });
+    res.json(result);
+  } catch (err) {
+    if (handleCatalogError(err, res)) return;
     console.error('[admin/categories DELETE]', err);
     res.status(500).json({ error: 'Failed to delete category' });
   }
@@ -718,15 +686,7 @@ router.delete('/categories/:id', async (req, res) => {
 // name and category label/code (mirrors GET /api/admin/coffee-alias's shape)
 router.get('/coffee-categories', async (_req, res) => {
   try {
-    const result = await db.query(
-      `SELECT cca.id, cca.coffee_id, cca.category_id,
-              c.name AS coffee_name, cc.code AS category_code, cc.label AS category_label
-       FROM coffee_category_assignment cca
-       JOIN coffees c ON c.id = cca.coffee_id
-       JOIN coffee_category cc ON cc.id = cca.category_id
-       ORDER BY c.name, cc.sort_order`
-    );
-    res.json(result.rows);
+    res.json(await getCategoryAssignments());
   } catch (err) {
     console.error('[admin/coffee-categories GET]', err);
     res.status(500).json({ error: 'Failed to fetch coffee categories' });
@@ -745,9 +705,9 @@ router.post('/coffee-categories', async (req: AuthRequest, res) => {
     res.status(400).json({ error: 'coffee_id and category_id are required' }); return;
   }
   try {
-    const catResult = await db.query(`SELECT code FROM coffee_category WHERE id = $1`, [category_id]);
-    if (catResult.rowCount === 0) { res.status(404).json({ error: 'Category not found' }); return; }
-    const code = catResult.rows[0].code;
+    const category = await getCategory(Number(category_id));
+    if (!category) { res.status(404).json({ error: 'Category not found' }); return; }
+    const code = category.code;
 
     const currentResult = await db.query<{ category_codes: string[] }>(`SELECT category_codes FROM v_coffee WHERE id = $1`, [coffee_id]);
     if (currentResult.rowCount === 0) { res.status(404).json({ error: 'Coffee not found' }); return; }
@@ -778,8 +738,7 @@ router.delete('/coffee-categories/:id', async (req: AuthRequest, res) => {
     if (assignmentResult.rowCount === 0) { res.status(404).json({ error: 'Assignment not found' }); return; }
     const { coffee_id: coffeeId, category_id: categoryId } = assignmentResult.rows[0];
 
-    const catResult = await db.query<{ code: string }>(`SELECT code FROM coffee_category WHERE id = $1`, [categoryId]);
-    const code = catResult.rows[0]?.code;
+    const code = (await getCategory(categoryId))?.code;
     const currentResult = await db.query<{ category_codes: string[] }>(`SELECT category_codes FROM v_coffee WHERE id = $1`, [coffeeId]);
     const current = currentResult.rows[0]?.category_codes ?? [];
 
@@ -2194,11 +2153,16 @@ catalogRouter.post('/slots/:slotId/landing-default', async (req: AuthRequest, re
 });
 
 catalogRouter.put('/coffees/:id/skus', async (req: AuthRequest, res) => {
-  const { weightOz, blendName, roasterSku, shopifyVariantId, costToUs, quantityAvailable, safetyStockBuffer, isActive } = req.body;
+  const { weightOz, blendName, roasterSku, shopifyVariantId, costToUs, isActive } = req.body;
+  // Stock is not tracked (drop-ship model, 2026-09-30) — the SKU's isActive switch is the availability lever.
+  const retiredField = ['quantityAvailable', 'safetyStockBuffer'].find(f => req.body[f] !== undefined);
+  if (retiredField) {
+    res.status(400).json({ error: 'FIELD_RETIRED', message: `${retiredField} is retired — stock is not tracked; use isActive to pause or resume a SKU` }); return;
+  }
   if (!weightOz) { res.status(400).json({ error: 'INVALID_INPUT', message: 'weightOz is required' }); return; }
   try {
     const { result } = await upsertSku(
-      { coffeeId: Number(req.params.id), weightOz, blendName, roasterSku, shopifyVariantId, costToUs, quantityAvailable, safetyStockBuffer, isActive },
+      { coffeeId: Number(req.params.id), weightOz, blendName, roasterSku, shopifyVariantId, costToUs, isActive },
       { actor: req.uid ?? 'unknown' }
     );
     res.json(result);
@@ -2209,16 +2173,10 @@ catalogRouter.put('/coffees/:id/skus', async (req: AuthRequest, res) => {
   }
 });
 
-catalogRouter.post('/skus/:blendId/restock', async (req: AuthRequest, res) => {
-  const quantity = Number(req.body.quantity);
-  try {
-    const { result } = await restockSku({ blendId: req.params.blendId, quantity }, { actor: req.uid ?? 'unknown' });
-    res.json(result);
-  } catch (err) {
-    if (handleCatalogError(err, res)) return;
-    console.error('[admin/catalog/skus restock]', err);
-    res.status(500).json({ error: 'Failed to restock SKU' });
-  }
+// RETIRED 2026-09-30 — stock is not tracked (drop-ship model); a SKU is either
+// Available from roaster or Paused (isActive).
+catalogRouter.post('/skus/:blendId/restock', (_req, res) => {
+  res.status(410).json({ error: 'RETIRED', message: 'Stock is not tracked (drop-ship model) — use the SKU switch (isActive) instead' });
 });
 
 catalogRouter.post('/hops', async (req: AuthRequest, res) => {

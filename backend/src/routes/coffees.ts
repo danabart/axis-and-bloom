@@ -7,6 +7,7 @@ import { looksLikeRefusal } from '../services/contentGuard.js';
 import { isClaudeGuardBlocked } from '../services/anthropicGuard.js';
 import {
   getArchetypes, archetypeLabel, getCoffee, getCoffees, getHomeSlot, getSlots, getSellableSlots, getHops, getSizes, getAnchorSize,
+  getCategoryCoffees, getCoffeeRetailPrices,
 } from '../services/catalogReads.js';
 
 // C2 Part 1 — a blocked generation call (global kill-switch / daily ceiling)
@@ -821,31 +822,22 @@ router.get('/archetype-order', async (req, res) => {
 // Blueprint brief 3 — coffee_alias is no longer a trusted read).
 router.get('/other-categories', async (_req, res) => {
   try {
-    const catResult = await db.query<{ coffee_id: number; category_code: string; category_label: string; category_sort_order: number }>(`
-      SELECT cca.coffee_id, cc.code AS category_code, cc.label AS category_label, cc.sort_order AS category_sort_order
-      FROM coffee_category_assignment cca
-      JOIN coffee_category cc ON cc.id = cca.category_id
-      WHERE cc.code IN ('decaf', 'half_caf', 'flavored', 'experimental')
-      ORDER BY cc.sort_order
-    `);
-    const coffeeIds = [...new Set(catResult.rows.map(r => r.coffee_id))];
+    const categoryRows = await getCategoryCoffees(['decaf', 'half_caf', 'flavored', 'experimental']);
+    const coffeeIds = [...new Set(categoryRows.map(r => r.coffee_id))];
     const coffees = coffeeIds.length ? await getCoffees({ ids: coffeeIds, active: true }) : [];
     const coffeeMap = new Map(coffees.map(c => [c.id, c]));
 
     const byCoffee = new Map<number, { categories: { code: string; label: string; sortOrder: number }[] }>();
-    for (const row of catResult.rows) {
+    for (const row of categoryRows) {
       if (!coffeeMap.has(row.coffee_id)) continue; // inactive (or not found) — excluded, same as the old c.is_active filter
       if (!byCoffee.has(row.coffee_id)) byCoffee.set(row.coffee_id, { categories: [] });
       byCoffee.get(row.coffee_id)!.categories.push({ code: row.category_code, label: row.category_label, sortOrder: row.category_sort_order });
     }
 
     const sizes = await getSizes();
-    const priceRows = await db.query(
-      `SELECT coffee_id, weight_oz, retail_price_cents FROM coffee_retail_price WHERE weight_oz = ANY($1::numeric[])`,
-      [sizes.map(sz => sz.weight_oz)]
-    );
+    const priceRows = await getCoffeeRetailPrices({ includeInactive: true }); // inactive coffees are dropped via coffeeMap above
     const priceMap = new Map<string, number>();
-    for (const r of priceRows.rows) priceMap.set(`${r.coffee_id}|${Number(r.weight_oz)}`, r.retail_price_cents);
+    for (const r of priceRows) priceMap.set(`${r.coffee_id}|${Number(r.weight_oz)}`, r.retail_price_cents);
 
     const result = [];
     for (const [coffeeId, info] of byCoffee) {

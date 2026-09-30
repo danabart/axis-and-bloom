@@ -4,7 +4,7 @@
 // vitest wrapper (services/lintCatalog.test.ts) so `npm test` catches it too,
 // and by .github/workflows/deploy.yml right before the backend build.
 //
-// Five rules, each an allow-list of {file, ...} exceptions with an expiry note
+// Six rules, each an allow-list of {file, ...} exceptions with an expiry note
 // where one applies. A rule failure is reported as `file:line  message` and
 // the process exits 1; a clean run exits 0 and prints nothing (CI-quiet).
 
@@ -128,12 +128,12 @@ const DML_TABLES = [
   'coffee_slot_assignment', 'coffee_dial_slot', 'coffee_archetype_assignment',
   'coffee_slot_price', 'coffee_hop', 'coffee_category_assignment',
   'coffee_sku', 'coffee_archetype', 'coffees', 'coffee_size',
+  'coffee_retail_price', 'coffee_category',
 ];
 const DML_VERBS = ['INSERT INTO', 'UPDATE', 'DELETE FROM'];
 const RULE2_WRITER = 'services/catalogService.ts';
 // {file, table, verb} — each an explicit, permanent-or-expiring exception.
 const RULE2_ALLOWLIST = [
-  { file: 'routes/orders.ts', table: 'coffee_sku', verb: 'UPDATE', note: 'commerce stock decrement, permanent' },
   { file: 'routes/admin.ts', table: 'coffees', verb: 'UPDATE', note: 'content columns, permanent' },
   { file: 'routes/coffees.ts', table: 'coffees', verb: 'UPDATE', note: 'content columns, permanent' },
   { file: 'services/qrDoor.ts', table: 'coffees', verb: 'UPDATE', note: 'content columns (qr_token), permanent' },
@@ -300,6 +300,29 @@ for (const relPath of files) {
     const stripped = stripLineComment(line);
     if (RULE5_PATTERNS.some((re) => re.test(stripped))) {
       violations.push({ file: relPath, line: i + 1, message: `bag-size literal (12/32/80) used as a weight — use getSizes()/getAnchorSize() from catalogReads` });
+    }
+  });
+}
+
+// ── Rule 6: deprecated stock columns ────────────────────────────────────────
+// Catalog write-door brief (2026-09-30). We don't hold inventory (roasters
+// drop-ship every order), so coffee_sku's stock columns are deprecated in the
+// schema (COMMENT ON COLUMN) and must not be read or written by app code. A
+// SKU's availability is its is_active switch. Any reference in routes/ or
+// services/ (test files and comments excluded) fails.
+const DEPRECATED_STOCK_COLUMNS = [
+  'quantity_available', 'safety_stock_buffer', 'inventory_status', 'last_restocked_at', 'inventory_last_synced_at',
+  // camelCase spellings of the same fields (request bodies, TS types)
+  'quantityAvailable', 'safetyStockBuffer', 'inventoryStatus', 'lastRestockedAt', 'inventoryLastSyncedAt',
+];
+for (const relPath of files) {
+  if (!RULE5_SCOPE_DIRS.some((d) => relPath.startsWith(d))) continue;
+  fileLines(relPath).forEach((line, i) => {
+    const stripped = stripLineComment(line);
+    for (const col of DEPRECATED_STOCK_COLUMNS) {
+      if (new RegExp(`\\b${col}\\b`).test(stripped)) {
+        violations.push({ file: relPath, line: i + 1, message: `deprecated stock column '${col}' — stock is not tracked; availability is coffee_sku.is_active` });
+      }
     }
   });
 }

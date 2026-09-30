@@ -37,7 +37,7 @@ export default function CategoryAdmin({ categories, apiFetch, onChanged }: {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, label: newCategoryLabel.trim() }),
       });
-      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
+      if (!res.ok) { const body = await res.json().catch(() => ({})); throw new Error(body.message ?? body.error ?? 'Failed'); }
       setNewCategoryLabel(''); await onChanged();
     } catch (err: unknown) {
       reportError('[CategoryAdmin/create]', err);
@@ -53,17 +53,22 @@ export default function CategoryAdmin({ categories, apiFetch, onChanged }: {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_active: !cat.is_active }),
       });
-      if (!res.ok) { const body = await res.json().catch(() => ({})); alert(body.error ?? 'Failed to update category'); return; }
+      if (!res.ok) { const body = await res.json().catch(() => ({})); alert(body.message ?? body.error ?? 'Failed to update category'); return; }
       await onChanged();
     } catch (err) { reportError('[CategoryAdmin/toggle-active]', err); } finally { setTogglingCategoryId(null); }
   }
 
   async function handleDelete(cat: CategoryOption) {
-    if (!confirm(`Remove "${cat.label}" entirely? This also removes it from every coffee currently tagged with it.`)) return;
+    if (!confirm(`Remove "${cat.label}" entirely? Only a category no coffee is tagged with can be removed — otherwise deactivate it instead.`)) return;
     setCategoryDeletingId(cat.id);
     try {
       const res = await apiFetch(`/api/admin/categories/${cat.id}`, { method: 'DELETE' });
-      if (!res.ok) { const body = await res.json(); alert(body.error ?? 'Failed to delete category'); return; }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        // CATEGORY_IN_USE: the message says how many coffees still carry it and to deactivate instead.
+        alert(body.message ?? body.error ?? 'Failed to delete category');
+        return;
+      }
       await onChanged();
     } catch (err) { reportError('[CategoryAdmin/delete]', err); } finally { setCategoryDeletingId(null); }
   }

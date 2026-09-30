@@ -59,7 +59,8 @@ export interface Ctx {
 export type CatalogErrorCode =
   | 'COFFEE_NOT_FOUND' | 'SLOT_NOT_FOUND' | 'ROASTER_NOT_FOUND' | 'COFFEE_INACTIVE' | 'SLOT_INACTIVE'
   | 'HOME_EXISTS' | 'PRIORITY_TAKEN' | 'NOTE_REQUIRED' | 'ALREADY_ASSIGNED' | 'SKU_EXISTS'
-  | 'ROASTER_STATE' | 'INVALID_INPUT' | 'SPEC_VIOLATION' | 'UNKNOWN_SIZE';
+  | 'ROASTER_STATE' | 'INVALID_INPUT' | 'SPEC_VIOLATION' | 'UNKNOWN_SIZE'
+  | 'CATEGORY_NOT_FOUND' | 'CATEGORY_EXISTS' | 'CATEGORY_IN_USE';
 
 // Catalog Sizes + Visibility brief (2026-09-28) — a weight not in an active
 // coffee_size row is refused with a 400, ahead of the FK that would otherwise
@@ -102,12 +103,6 @@ export interface CatalogWriteResult<T = unknown> {
   result: T;
   warnings: PlacementWarning[];
   integrity: CatalogIntegrityCheck[];
-}
-
-function computeInventoryStatus(quantity: number, buffer: number): string {
-  if (quantity <= 0) return 'out_of_stock';
-  if (quantity <= buffer) return 'low_stock';
-  return 'in_stock';
 }
 
 // ── Shared lookups (throw CatalogError on miss — every verb uses these so the
@@ -767,7 +762,7 @@ export async function setArchetypeDescriptorFamilies(
 
 export interface UpsertSkuInput {
   coffeeId: number; weightOz: number; blendName?: string; roasterSku?: string; shopifyVariantId?: string;
-  costToUs?: number; quantityAvailable?: number; safetyStockBuffer?: number; isActive?: boolean;
+  costToUs?: number; isActive?: boolean;
 }
 export async function upsertSkuInTx(tx: Tx, input: UpsertSkuInput): Promise<{ blendId: string; before: Record<string, unknown> | null }> {
     const coffee = await fetchCoffeeRow(tx, input.coffeeId);
@@ -775,34 +770,35 @@ export async function upsertSkuInTx(tx: Tx, input: UpsertSkuInput): Promise<{ bl
     if (!Number.isFinite(input.weightOz) || input.weightOz <= 0) throw new CatalogError(400, 'INVALID_INPUT', 'weightOz must be a positive number');
     await assertKnownSize(input.weightOz);
 
-    const existingResult = await tx.query<{ id: string; quantity_available: number; safety_stock_buffer: number } & Record<string, unknown>>(
-      `SELECT * FROM coffee_sku WHERE coffee_id = $1 AND weight_oz = $2 AND is_active = true`,
-      [input.coffeeId, input.weightOz]
+    // Stock is not tracked (drop-ship model, 2026-09-30): the SKU's is_active is
+    // the one availability lever ("Available from roaster" / "Paused"). Turning a
+    // paused SKU back on (isActive: true), or editing a paused one (isActive: false),
+    // targets that size's existing row instead of inserting a duplicate; an upsert
+    // that doesn't say only matches the active one.
+    const existingResult = await tx.query<{ id: string } & Record<string, unknown>>(
+      `SELECT * FROM coffee_sku WHERE coffee_id = $1 AND weight_oz = $2 AND (is_active = true OR $3::boolean IS NOT NULL)
+       ORDER BY is_active DESC, updated_at DESC LIMIT 1`,
+      [input.coffeeId, input.weightOz, input.isActive ?? null]
     );
     let blendId: string;
     if (existingResult.rowCount) {
       const existing = existingResult.rows[0];
-      const qty = input.quantityAvailable ?? existing.quantity_available;
-      const buffer = input.safetyStockBuffer ?? existing.safety_stock_buffer;
       const updateResult = await tx.query<{ id: string }>(
         `UPDATE coffee_sku SET
            blend_name = COALESCE($1, blend_name), roaster_sku = COALESCE($2, roaster_sku),
            shopify_variant_id = COALESCE($3, shopify_variant_id), cost_to_us = COALESCE($4, cost_to_us),
-           quantity_available = $5, safety_stock_buffer = $6, inventory_status = $7,
-           is_active = COALESCE($8, is_active), updated_at = now()
-         WHERE id = $9 RETURNING id`,
+           is_active = COALESCE($5, is_active), updated_at = now()
+         WHERE id = $6 RETURNING id`,
         [input.blendName ?? null, input.roasterSku ?? null, input.shopifyVariantId ?? null, input.costToUs ?? null,
-         qty, buffer, computeInventoryStatus(qty, buffer), input.isActive ?? null, existing.id]
+         input.isActive ?? null, existing.id]
       );
       blendId = updateResult.rows[0].id;
     } else {
-      const qty = input.quantityAvailable ?? 0;
-      const buffer = input.safetyStockBuffer ?? 2;
       const insertResult = await tx.query<{ id: string }>(
-        `INSERT INTO coffee_sku (roaster_id, coffee_id, blend_name, weight_oz, roaster_sku, shopify_variant_id, cost_to_us, quantity_available, safety_stock_buffer, inventory_status, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
+        `INSERT INTO coffee_sku (roaster_id, coffee_id, blend_name, weight_oz, roaster_sku, shopify_variant_id, cost_to_us, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
         [coffee.roaster_id, input.coffeeId, input.blendName ?? coffee.name, input.weightOz, input.roasterSku ?? null,
-         input.shopifyVariantId ?? null, input.costToUs ?? null, qty, buffer, computeInventoryStatus(qty, buffer), input.isActive ?? true]
+         input.shopifyVariantId ?? null, input.costToUs ?? null, input.isActive ?? true]
       );
       blendId = insertResult.rows[0].id;
     }
@@ -820,24 +816,108 @@ export async function upsertSku(input: UpsertSkuInput, ctx: Ctx): Promise<Catalo
   });
 }
 
-export async function restockSku(input: { blendId: string; quantity: number }, ctx: Ctx): Promise<CatalogWriteResult<{ blendId: string; quantityAvailable: number }>> {
+// ── Coffee retail price + categories ────────────────────────────────────────
+// Catalog write-door brief (2026-09-30): the last two catalog tables that were
+// written inline from routes/admin.ts. Same verb shape as everything above.
+
+export async function setCoffeeRetailPrice(
+  input: { coffeeId: number; weightOz: number; retailPriceCents: number }, ctx: Ctx
+): Promise<CatalogWriteResult<{ coffee_id: number; weight_oz: string; retail_price_cents: number }>> {
   return withTransaction(async (tx) => {
-    if (!Number.isFinite(input.quantity) || input.quantity <= 0) throw new CatalogError(400, 'INVALID_INPUT', 'quantity must be a positive number');
-    const before = await snapshotRow(tx, 'coffee_sku', 'id', input.blendId);
-    const current = await tx.query<{ quantity_available: number; safety_stock_buffer: number }>(
-      `SELECT quantity_available, safety_stock_buffer FROM coffee_sku WHERE id = $1`, [input.blendId]
+    if (!Number.isInteger(input.coffeeId) || !Number.isFinite(input.weightOz)
+      || !Number.isInteger(input.retailPriceCents) || input.retailPriceCents < 0) {
+      throw new CatalogError(400, 'INVALID_INPUT', 'coffeeId, weightOz, and a non-negative integer retailPriceCents are required');
+    }
+    await assertKnownSize(input.weightOz); // UNKNOWN_SIZE 400 ahead of the coffee_retail_price FK
+    await fetchCoffeeRow(tx, input.coffeeId);
+    const before = (await tx.query(`SELECT * FROM coffee_retail_price WHERE coffee_id = $1 AND weight_oz = $2`, [input.coffeeId, input.weightOz])).rows[0] ?? null;
+    const upsert = await tx.query<{ coffee_id: number; weight_oz: string; retail_price_cents: number }>(
+      `INSERT INTO coffee_retail_price (coffee_id, weight_oz, retail_price_cents, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (coffee_id, weight_oz)
+       DO UPDATE SET retail_price_cents = $3, updated_at = NOW()
+       RETURNING coffee_id, weight_oz, retail_price_cents`,
+      [input.coffeeId, input.weightOz, input.retailPriceCents]
     );
-    if (!current.rowCount) throw new CatalogError(404, 'INVALID_INPUT', `SKU ${input.blendId} not found`);
-    const nextQty = Number(current.rows[0].quantity_available) + input.quantity;
-    const status = computeInventoryStatus(nextQty, current.rows[0].safety_stock_buffer);
-    await tx.query(
-      `UPDATE coffee_sku SET quantity_available = $1, inventory_status = $2, last_restocked_at = timezone('utc', now()), updated_at = now() WHERE id = $3`,
-      [nextQty, status, input.blendId]
+    const after = (await tx.query(`SELECT * FROM coffee_retail_price WHERE coffee_id = $1 AND weight_oz = $2`, [input.coffeeId, input.weightOz])).rows[0] ?? null;
+    await logCatalogChange(tx, { entity: 'coffee_retail_price', entityId: `${input.coffeeId}:${input.weightOz}`, action: 'setCoffeeRetailPrice', before, after, changedBy: ctx.actor });
+    const integrity = await scopedIntegrity(tx, { coffeeId: input.coffeeId });
+    console.info('[catalog] setCoffeeRetailPrice', { actor: ctx.actor, coffeeId: input.coffeeId, weightOz: input.weightOz });
+    return { result: upsert.rows[0], warnings: [], integrity };
+  });
+}
+
+export interface CategoryResult {
+  id: number; code: string; label: string; description: string | null; sort_order: number; is_active: boolean; is_hoppable: boolean;
+}
+const CATEGORY_COLUMNS = 'id, code, label, description, sort_order, is_active, is_hoppable';
+
+// is_hoppable always defaults false — opening a category to hop creation is a
+// manual DB decision, never something a verb sets.
+export async function createCategory(input: { code: string; label: string }, ctx: Ctx): Promise<CatalogWriteResult<CategoryResult>> {
+  return withTransaction(async (tx) => {
+    if (!input.code?.trim() || !input.label?.trim()) throw new CatalogError(400, 'INVALID_INPUT', 'code and label are required');
+    const dup = await tx.query(`SELECT 1 FROM coffee_category WHERE code = $1`, [input.code]);
+    if (dup.rowCount) throw new CatalogError(409, 'CATEGORY_EXISTS', `A category with code "${input.code}" already exists`);
+    const inserted = await tx.query<CategoryResult>(
+      `INSERT INTO coffee_category (code, label, sort_order)
+       VALUES ($1, $2, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM coffee_category))
+       RETURNING ${CATEGORY_COLUMNS}`,
+      [input.code, input.label]
     );
-    const after = await snapshotRow(tx, 'coffee_sku', 'id', input.blendId);
-    await logCatalogChange(tx, { entity: 'sku', entityId: input.blendId, action: 'restockSku', before, after, changedBy: ctx.actor });
-    console.info('[catalog] restockSku', { actor: ctx.actor, blendId: input.blendId, quantity: input.quantity });
-    return { result: { blendId: input.blendId, quantityAvailable: nextQty }, warnings: [], integrity: [] };
+    const row = inserted.rows[0];
+    await logCatalogChange(tx, { entity: 'category', entityId: row.id, action: 'createCategory', before: null, after: row, changedBy: ctx.actor });
+    console.info('[catalog] createCategory', { actor: ctx.actor, categoryId: row.id, code: row.code });
+    return { result: row, warnings: [], integrity: [] };
+  });
+}
+
+export async function updateCategory(input: { categoryId: number; label?: string; isActive?: boolean }, ctx: Ctx): Promise<CatalogWriteResult<CategoryResult>> {
+  return withTransaction(async (tx) => {
+    if (input.label !== undefined && !input.label.trim()) throw new CatalogError(400, 'INVALID_INPUT', 'label must be a non-empty string');
+    if (input.label === undefined && input.isActive === undefined) throw new CatalogError(400, 'INVALID_INPUT', 'label or isActive is required');
+    const before = await snapshotRow(tx, 'coffee_category', 'id', input.categoryId);
+    if (!before) throw new CatalogError(404, 'CATEGORY_NOT_FOUND', `Category ${input.categoryId} not found`);
+    const updated = await tx.query<CategoryResult>(
+      `UPDATE coffee_category
+       SET label     = COALESCE($1::text, label),
+           is_active = COALESCE($2::boolean, is_active)
+       WHERE id = $3
+       RETURNING ${CATEGORY_COLUMNS}`,
+      [input.label?.trim() ?? null, input.isActive ?? null, input.categoryId]
+    );
+    await logCatalogChange(tx, { entity: 'category', entityId: input.categoryId, action: 'updateCategory', before, after: updated.rows[0], changedBy: ctx.actor });
+    console.info('[catalog] updateCategory', { actor: ctx.actor, categoryId: input.categoryId });
+    return { result: updated.rows[0], warnings: [], integrity: [] };
+  });
+}
+
+// Only an unused category can be deleted. coffee_category_assignment cascades in
+// the schema, so deleting a tagged category would silently untag its coffees
+// (a decaf would land back on the dial) — refused here, no cascade ever runs
+// from the app. Deactivating (updateCategory isActive: false) is the alternative.
+export async function deleteCategory(input: { categoryId: number }, ctx: Ctx): Promise<CatalogWriteResult<{ ok: true }>> {
+  return withTransaction(async (tx) => {
+    const before = await snapshotRow(tx, 'coffee_category', 'id', input.categoryId);
+    if (!before) throw new CatalogError(404, 'CATEGORY_NOT_FOUND', `Category ${input.categoryId} not found`);
+    const inUse = await tx.query<{ count: string }>(`SELECT COUNT(*) AS count FROM coffee_category_assignment WHERE category_id = $1`, [input.categoryId]);
+    const count = Number(inUse.rows[0].count);
+    if (count > 0) {
+      throw new CatalogError(409, 'CATEGORY_IN_USE',
+        `Category "${before.label}" is still assigned to ${count} coffee${count === 1 ? '' : 's'} — untag them first, or deactivate the category instead`,
+        { assignments: count });
+    }
+    try {
+      await tx.query(`DELETE FROM coffee_category WHERE id = $1`, [input.categoryId]);
+    } catch (err) {
+      if ((err as { code?: string })?.code === '23503') {
+        throw new CatalogError(409, 'CATEGORY_IN_USE', 'Cannot delete — this category is still referenced by a hop. Remove the hop first, or deactivate the category instead');
+      }
+      throw err;
+    }
+    await logCatalogChange(tx, { entity: 'category', entityId: input.categoryId, action: 'deleteCategory', before, after: null, changedBy: ctx.actor });
+    console.info('[catalog] deleteCategory', { actor: ctx.actor, categoryId: input.categoryId });
+    return { result: { ok: true as const }, warnings: [], integrity: [] };
   });
 }
 

@@ -322,6 +322,76 @@ export async function getSlotPrices(slotIds: number[], runner: Runner = db): Pro
   return result.rows.map(r => ({ ...r, weight_oz: Number(r.weight_oz) }));
 }
 
+// ── Coffee retail prices + categories (write-door brief, 2026-09-30) ──────────
+// Plain lookups on coffee_retail_price / coffee_category(+_assignment), same
+// precedent as getSlots() / getSlotPrices(): no view exists for them, and the
+// only writers are catalogService's setCoffeeRetailPrice / *Category verbs.
+
+// Prices keyed by coffee. Active coffees only unless includeInactive.
+export async function getCoffeeRetailPrices(
+  filter: { includeInactive?: boolean } = {}, runner: Runner = db
+): Promise<Array<{ coffee_id: number; weight_oz: string; retail_price_cents: number }>> {
+  const result = await runner.query<{ coffee_id: number; weight_oz: string; retail_price_cents: number }>(
+    `SELECT crp.coffee_id, crp.weight_oz, crp.retail_price_cents
+     FROM coffee_retail_price crp
+     JOIN coffees c ON c.id = crp.coffee_id
+     ${filter.includeInactive ? '' : 'WHERE c.is_active = true'}
+     ORDER BY crp.coffee_id, crp.weight_oz`
+  );
+  return result.rows;
+}
+
+export interface CategoryRow {
+  id: number; code: string; label: string; description: string | null; sort_order: number; is_active: boolean; is_hoppable: boolean;
+}
+
+// All categories (inactive included, so an admin can reactivate one), by sort_order.
+export async function getCategories(runner: Runner = db): Promise<CategoryRow[]> {
+  const result = await runner.query<CategoryRow>(
+    `SELECT id, code, label, description, sort_order, is_active, is_hoppable FROM coffee_category ORDER BY sort_order`
+  );
+  return result.rows;
+}
+
+export async function getCategory(categoryId: number, runner: Runner = db): Promise<CategoryRow | null> {
+  const result = await runner.query<CategoryRow>(
+    `SELECT id, code, label, description, sort_order, is_active, is_hoppable FROM coffee_category WHERE id = $1`, [categoryId]
+  );
+  return result.rows[0] ?? null;
+}
+
+// Every coffee-to-category assignment, with the coffee's name and the
+// category's code/label.
+export async function getCategoryAssignments(runner: Runner = db): Promise<Array<{
+  id: number; coffee_id: number; category_id: number; coffee_name: string; category_code: string; category_label: string;
+}>> {
+  const result = await runner.query(
+    `SELECT cca.id, cca.coffee_id, cca.category_id,
+            c.name AS coffee_name, cc.code AS category_code, cc.label AS category_label
+     FROM coffee_category_assignment cca
+     JOIN coffees c ON c.id = cca.coffee_id
+     JOIN coffee_category cc ON cc.id = cca.category_id
+     ORDER BY c.name, cc.sort_order`
+  );
+  return result.rows;
+}
+
+// Assignments restricted to the given category codes, ordered by category —
+// /other-categories' source rows.
+export async function getCategoryCoffees(codes: string[], runner: Runner = db): Promise<Array<{
+  coffee_id: number; category_code: string; category_label: string; category_sort_order: number;
+}>> {
+  const result = await runner.query(
+    `SELECT cca.coffee_id, cc.code AS category_code, cc.label AS category_label, cc.sort_order AS category_sort_order
+     FROM coffee_category_assignment cca
+     JOIN coffee_category cc ON cc.id = cca.category_id
+     WHERE cc.code = ANY($1::text[])
+     ORDER BY cc.sort_order`,
+    [codes]
+  );
+  return result.rows;
+}
+
 // ── Hops ─────────────────────────────────────────────────────────────────────
 
 export async function getHops(

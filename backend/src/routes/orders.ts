@@ -231,26 +231,9 @@ router.post('/', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) 
       );
     }
 
-    // Decrement inventory for each purchased blend. Best-effort per item —
-    // a failure here should not block the customer's order confirmation.
-    for (const item of resolvedItems) {
-      if (!item.blendId) continue;
-      try {
-        await db.query(
-          `UPDATE coffee_sku
-           SET quantity_available = GREATEST(quantity_available - $1, 0),
-               inventory_status = CASE
-                 WHEN GREATEST(quantity_available - $1, 0) <= 0 THEN 'out_of_stock'
-                 WHEN GREATEST(quantity_available - $1, 0) <= safety_stock_buffer THEN 'low_stock'
-                 ELSE 'in_stock'
-               END
-           WHERE id = $2`,
-          [item.quantity, item.blendId]
-        );
-      } catch (err) {
-        console.error('[orders] inventory decrement failed for blend', item.blendId, err);
-      }
-    }
+    // No inventory decrement: we don't hold stock (roasters drop-ship every
+    // order), so a SKU's availability is its is_active switch alone — retired
+    // 2026-09-30 with the rest of stock tracking.
 
     // HOME_TASK_8 (§3.1) — the order-placed beat. Resolved and generated
     // synchronously, before the response, since it's injected into the
