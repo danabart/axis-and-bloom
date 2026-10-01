@@ -724,9 +724,11 @@ export default function Sommelier() {
           </div>
         </div>
 
-        {/* Input bar */}
+        {/* Input bar. pr-20 below md: the floating cart (fixed, 56px at right
+            28px, z-60) otherwise sits exactly on top of the Send button at
+            phone width. */}
         {phase === 'chat' && (
-          <div className="shrink-0 border-t border-stone-100 px-5 md:px-12 py-5">
+          <div className="shrink-0 border-t border-stone-100 pl-5 pr-20 md:px-12 py-5">
             <div className="max-w-2xl mx-auto">
               <div className="flex gap-3 items-end border border-stone-200 rounded-2xl px-4 py-3 focus-within:border-stone-400 transition-colors shadow-sm">
                 <textarea
