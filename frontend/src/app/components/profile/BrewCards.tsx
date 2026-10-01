@@ -1,6 +1,7 @@
 import { Link } from 'react-router';
 import { ArrowRight } from 'lucide-react';
 import type { BrewCardSummary } from '../../lib/api';
+import { useAuth } from '../../context/AuthContext';
 
 interface Props {
   cards: BrewCardSummary[];
@@ -17,6 +18,7 @@ const METHOD_LABEL: Record<string, string> = {
  * Same quiet register and archetype-color-adjacent styling as
  * ActivityTimeline, since this sits right beside it on the Flavor Memory tab. */
 export default function BrewCards({ cards }: Props) {
+  const { hasLiamAccess } = useAuth();
   if (cards.length === 0) return null;
 
   return (
@@ -37,12 +39,14 @@ export default function BrewCards({ cards }: Props) {
             {card.notes && (
               <p className="text-xs text-[#a33726]/60 leading-relaxed">{card.notes}</p>
             )}
-            <Link
-              to={`/sommelier?entry=card&coffee=${card.coffeeId}`}
-              className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.15em] text-[#a33726]/40 hover:text-[#a33726] transition-colors w-fit mt-0.5"
-            >
-              Ask Liam about this <ArrowRight size={11} />
-            </Link>
+            {hasLiamAccess && (
+              <Link
+                to={`/sommelier?entry=card&coffee=${card.coffeeId}`}
+                className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.15em] text-[#a33726]/40 hover:text-[#a33726] transition-colors w-fit mt-0.5"
+              >
+                Ask Liam about this <ArrowRight size={11} />
+              </Link>
+            )}
           </div>
         ))}
       </div>

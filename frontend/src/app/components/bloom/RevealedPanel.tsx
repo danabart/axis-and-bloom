@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Link } from 'react-router';
+import { useAuth } from '../../context/AuthContext';
 import { TastingNotes, type ContentData } from '../coffee-info/TastingNotes';
 import { DimensionBars, type DimensionRow } from '../coffee-info/DimensionBars';
 import { CollaborativeFlavorWheel, type WheelRow } from '../coffee-info/CollaborativeFlavorWheel';
@@ -57,6 +58,7 @@ export const QUIET_LINK_CLASS = 'text-[10.5px] uppercase tracking-[.14em] text-[
  */
 export function RevealedPanel({ isRevealed, archetype, dialSortOrder, content, dimensions, wheelRows, userArchetype, hideProfileLink = false, prelaunch = false }: RevealedPanelProps) {
   const { compat, dimCompText } = useCompatibility(archetype, userArchetype, dimensions);
+  const { hasLiamAccess } = useAuth();
   const exploreLink = archetype && dialSortOrder != null ? `/flavor-intelligence?archetype=${archetype}&slot=${dialSortOrder}` : '/flavor-intelligence';
   const hasDimensions = dimensions.length > 0;
   const hasWheel = wheelRows.length > 0;
@@ -133,7 +135,7 @@ export function RevealedPanel({ isRevealed, archetype, dialSortOrder, content, d
             {/* ── Row 4 · Footer: actions ── */}
             <div className="flex flex-wrap gap-x-9 gap-y-3">
               {!prelaunch && <Link to={exploreLink} className={QUIET_LINK_CLASS}>Explore the full breakdown →</Link>}
-              {!prelaunch && <Link to="/sommelier" className={QUIET_LINK_CLASS}>Talk to Liam →</Link>}
+              {!prelaunch && hasLiamAccess && <Link to="/sommelier" className={QUIET_LINK_CLASS}>Talk to Liam →</Link>}
               {!hideProfileLink && <Link to="/profile" className={QUIET_LINK_CLASS}>Your flavor profile →</Link>}
             </div>
           </div>

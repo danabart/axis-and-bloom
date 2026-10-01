@@ -20,7 +20,7 @@ Your role:
 
 Always be concise, warm, and specific. If you recommend a coffee, explain WHY it matches their taste. Keep responses under 200 words unless the question warrants more detail.`;
 
-const LIAM_BASE_PROMPT = `You are Liam — Axis & Bloom's coffee sommelier. Your purpose is intimacy and precision: you know this customer, and your recommendations are specific to them, not generic.
+export const LIAM_BASE_PROMPT = `You are Liam — Axis & Bloom's coffee sommelier. Your purpose is intimacy and precision: you know this customer, and your recommendations are specific to them, not generic.
 
 You are educated and knowledgeable about coffee, but you never perform it. Your expertise shows in what you notice, not in what you explain. Find the exact right word instead of three safe ones. Think of yourself as the brilliant friend who happens to know everything about coffee — not the expert giving a lecture.
 
@@ -137,11 +137,7 @@ const DEFAULT_NUMBERS_CARVEOUT =
 
 type SommelierMode = 'matching' | 'expertise';
 
-// Pure system-prompt assembly (HOME_TASK_2) — split out of chatWithSommelier so
-// it's directly testable without hitting the Anthropic API. Matching mode's
-// output must stay byte-for-byte identical to the pre-HOME_TASK_2 assembly
-// (aside from the deliberate guardrail sentences now in LIAM_BASE_PROMPT above).
-export function assembleSystemPrompt(params: {
+type SystemPromptParams = {
   session: { intent: string; turnCount: number; openingContext: string };
   catalogContext: string;
   mode: SommelierMode;
@@ -150,12 +146,44 @@ export function assembleSystemPrompt(params: {
   storyContext?: string;
   currentCoffeeContext?: string;
   profileLine?: string;
-}): string {
+};
+
+// Liam access & cost brief, Part C1 (2026-10-01) — the prompt-cache tiers.
+// Anthropic caches a prompt *prefix* up to each cache_control breakpoint, so
+// a part can only be cached if everything before it is byte-identical on the
+// next call. Assembly order is unchanged; each part is only labelled:
+//   'shared'  — LIAM_BASE_PROMPT, identical for every customer (breakpoint 1).
+//   'session' — the catalog block (matching) / story block (expertise): the
+//               session's frozen context_data snapshot, byte-identical turn to
+//               turn until the catalog version or the customer's facts change
+//               (refreshCatalogSnapshotIfStale / refreshSliceIfFactsChanged in
+//               routes/sommelier.ts) — breakpoint 2.
+//   'turn'    — everything after it, never cached. The profile line comes
+//               next and is rebuilt every turn (it changes when Liam asks a
+//               thread question, when it's answered, when a brew fact lands),
+//               so nothing after it can sit in a stable prefix. The intent
+//               addendum and goal are stable, but they come after the profile
+//               line as the parts are ordered today — moving them up is a
+//               reorder, left as a follow-up (OPEN_TASKS.md OT-31).
+type CacheTier = 'shared' | 'session' | 'turn';
+
+// Pure system-prompt assembly (HOME_TASK_2) — split out of chatWithSommelier so
+// it's directly testable without hitting the Anthropic API. Matching mode's
+// output must stay byte-for-byte identical to the pre-HOME_TASK_2 assembly
+// (aside from the deliberate guardrail sentences now in LIAM_BASE_PROMPT above).
+//
+// Part C1: returns the parts with their cache tier; assembleSystemPrompt()
+// joins them (the string every existing caller and test uses, unchanged),
+// assembleSystemPromptBlocks() groups them into cache_control blocks for the
+// API call. Both come from this one function, so the text the model receives
+// and the text the old string return gave can't drift apart.
+function assembleSystemPromptParts(params: SystemPromptParams): Array<{ text: string; tier: CacheTier }> {
   const { session, catalogContext, mode, config, brewProfileContext, storyContext, currentCoffeeContext, profileLine } = params;
   const intentCfg = config?.intents?.[session.intent];
   const maxTurns = intentCfg?.maxTurns ?? config?.sessionLimits?.maxTurns ?? 8;
 
-  const systemParts = [LIAM_BASE_PROMPT];
+  const parts: Array<{ text: string; tier: CacheTier }> = [{ text: LIAM_BASE_PROMPT, tier: 'shared' }];
+  const push = (text: string, tier: CacheTier = 'turn') => { parts.push({ text, tier }); };
 
   // Mode-aware context assembly (§4.6) — the frozen catalog block has no
   // business in a knowledge-dominant turn. Assembly-time only: this never
@@ -169,14 +197,14 @@ export function assembleSystemPrompt(params: {
       // topics that ask about the customer's own coffee — never invented,
       // only what's in the published story (§4.4's "speak only from provided
       // story/catalog context" guardrail, already in LIAM_BASE_PROMPT above).
-      systemParts.push(`\n\nTheir coffee, explained:\n${storyContext}`);
+      push(`\n\nTheir coffee, explained:\n${storyContext}`, 'session');
     }
     // No story available for this turn's topic — nothing to inject here, the
     // omit branch. currentCoffeeContext (below) is independent of this branch:
     // it's the session-wide "which bag is this conversation about" grounding,
     // not a per-topic story injection.
   } else {
-    systemParts.push(`\n\n${catalogContext}`);
+    push(`\n\n${catalogContext}`, 'session');
   }
 
   // Liam L1, Part C.4 (2026-09-28) — the structured profile line, injected
@@ -185,7 +213,7 @@ export function assembleSystemPrompt(params: {
   // profile line still goes in. Facts, not a model-generated summary; see
   // services/liamProfile.ts.
   if (profileLine) {
-    systemParts.push(`\n\n${profileLine}`);
+    push(`\n\n${profileLine}`);
   }
 
   // HOME_TASK_6 (§3.1, §3.2) — the "current coffee" concept S71 deferred
@@ -197,26 +225,26 @@ export function assembleSystemPrompt(params: {
   // before this task, in both modes, exactly like brewProfileContext's own
   // absent/empty guarantee above it.
   if (currentCoffeeContext) {
-    systemParts.push(`\n\nThe coffee this conversation is about: ${currentCoffeeContext}`);
+    push(`\n\nThe coffee this conversation is about: ${currentCoffeeContext}`);
   }
 
   if (intentCfg?.systemPromptAddendum) {
-    systemParts.push(`\n\n${intentCfg.systemPromptAddendum}`);
+    push(`\n\n${intentCfg.systemPromptAddendum}`);
   }
   if (intentCfg?.conversationGoal) {
-    systemParts.push(`\n\nYour goal: ${intentCfg.conversationGoal}`);
+    push(`\n\nYour goal: ${intentCfg.conversationGoal}`);
   }
   if (session.turnCount === 0 && session.openingContext) {
-    systemParts.push(`\n\nContext for this user: ${session.openingContext}`);
+    push(`\n\nContext for this user: ${session.openingContext}`);
   }
   // HOME_TASK_4 (§4.5, §3.5) — the brew profile, every turn (not just the
   // opening one), only when non-empty. Absent/empty produces zero difference
   // in the assembled prompt — this is the byte-for-byte guarantee's whole point.
   if (brewProfileContext) {
-    systemParts.push(`\n\nWhat you know about their setup: ${brewProfileContext}`);
+    push(`\n\nWhat you know about their setup: ${brewProfileContext}`);
   }
   if (session.turnCount === maxTurns - 1) {
-    systemParts.push(
+    push(
       '\n\nThis is one of the final turns. Work toward a concrete recommendation or clear next step.'
     );
   }
@@ -228,12 +256,47 @@ export function assembleSystemPrompt(params: {
     const contract = config?.responseContracts?.expertise;
     const lengthInstruction = contract?.lengthInstruction ?? DEFAULT_EXPERTISE_LENGTH_INSTRUCTION;
     const numbersCarveout = contract?.numbersCarveout ?? DEFAULT_NUMBERS_CARVEOUT;
-    systemParts.push(
+    push(
       `\n\nThis turn is a knowledge question, not a matching turn. ${lengthInstruction} ${numbersCarveout}`
     );
   }
 
-  return systemParts.join('');
+  return parts;
+}
+
+export function assembleSystemPrompt(params: SystemPromptParams): string {
+  return assembleSystemPromptParts(params).map(p => p.text).join('');
+}
+
+/**
+ * Part C1 — the same text as assembleSystemPrompt(), as `system` text blocks:
+ * [shared + breakpoint] [session + breakpoint] [turn]. Joining the blocks'
+ * text gives assembleSystemPrompt() byte for byte (claude.test.ts asserts it).
+ *
+ * The API rejects an empty or whitespace-only text block, so a group that is
+ * only whitespace (e.g. an empty catalog leaves just "\n\n") is folded into
+ * the block before it rather than sent on its own — the joined text is
+ * unchanged, only where the block boundary falls moves. Both breakpoints'
+ * prefixes clear Sonnet 4.6's 1,024-token minimum: LIAM_BASE_PROMPT alone is
+ * ~3,000 tokens (Task 0), and breakpoint 2's prefix contains it.
+ */
+export function assembleSystemPromptBlocks(params: SystemPromptParams): Anthropic.TextBlockParam[] {
+  const parts = assembleSystemPromptParts(params);
+  const groups: Array<{ text: string; cache: boolean }> = [];
+  for (const tier of ['shared', 'session', 'turn'] as const) {
+    const text = parts.filter(p => p.tier === tier).map(p => p.text).join('');
+    if (!text) continue;
+    if (!text.trim() && groups.length > 0) {
+      groups[groups.length - 1].text += text;
+      continue;
+    }
+    groups.push({ text, cache: tier !== 'turn' });
+  }
+  return groups.map(g =>
+    g.cache
+      ? { type: 'text', text: g.text, cache_control: { type: 'ephemeral' } }
+      : { type: 'text', text: g.text }
+  );
 }
 
 // Profile Part 7B — sanitizes a model-supplied save_recipe title. Never
@@ -375,7 +438,9 @@ export async function chatWithSommelier(params: {
   const mode: SommelierMode = params.mode ?? 'matching';
   const config = getSommelierConfig();
 
-  const systemPrompt = assembleSystemPrompt({ session, catalogContext, mode, config, brewProfileContext, storyContext, currentCoffeeContext, profileLine });
+  // Part C1 — prompt caching: the same text assembleSystemPrompt() returns,
+  // split into cache_control blocks (see assembleSystemPromptBlocks).
+  const system = assembleSystemPromptBlocks({ session, catalogContext, mode, config, brewProfileContext, storyContext, currentCoffeeContext, profileLine });
 
   // C2 Part 2 (M4 fix) — model choice is decided purely by surface, never by
   // message content. chatWithSommelier is the authenticated Liam
@@ -413,7 +478,7 @@ export async function chatWithSommelier(params: {
     client.messages.create({
       model: modelId,
       max_tokens: maxTokens,
-      system: systemPrompt,
+      system,
       messages,
     })
   );

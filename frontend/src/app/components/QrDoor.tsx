@@ -37,6 +37,7 @@ const METHOD_LABEL: Record<string, string> = {
  * shows every bag for free, so there's nothing left for this page to render
  * for a universal scan. */
 function BagView({ coffeeId, displayName, card }: { coffeeId: number; displayName: string; card: QrBagCard }) {
+  const { hasLiamAccess } = useAuth();
   return (
     <div className="max-w-xl mx-auto px-6 py-16">
       <p className="text-[10px] uppercase tracking-[0.3em] mb-2" style={{ color: `${RUST}99` }}>Your bag</p>
@@ -52,13 +53,15 @@ function BagView({ coffeeId, displayName, card }: { coffeeId: number; displayNam
         )}
       </div>
 
-      <Link
-        to={`/sommelier?entry=bag&coffee=${coffeeId}`}
-        className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] border-b pb-0.5 transition-colors"
-        style={{ color: RUST, borderColor: RUST }}
-      >
-        Talk to Liam about this coffee <ArrowRight size={12} />
-      </Link>
+      {hasLiamAccess && (
+        <Link
+          to={`/sommelier?entry=bag&coffee=${coffeeId}`}
+          className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.2em] border-b pb-0.5 transition-colors"
+          style={{ color: RUST, borderColor: RUST }}
+        >
+          Talk to Liam about this coffee <ArrowRight size={12} />
+        </Link>
+      )}
     </div>
   );
 }

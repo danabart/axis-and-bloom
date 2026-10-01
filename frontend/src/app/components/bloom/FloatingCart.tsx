@@ -1,5 +1,6 @@
 import { motion, AnimatePresence } from 'motion/react';
-import { Link } from 'react-router';
+import { Link, useLocation } from 'react-router';
+import { useAuth } from '../../context/AuthContext';
 import type { CartItem } from './types';
 import { formatPrice, formatWeight } from './types';
 
@@ -15,14 +16,18 @@ interface FloatingCartProps {
 }
 
 export function FloatingCart({ items, open, onToggle, onRemove, onCheckout, checkoutStatus, checkoutMessage, isSignedIn }: FloatingCartProps) {
+  const { hasLiamAccess } = useAuth();
+  const { pathname } = useLocation();
   const count = items.reduce((sum, i) => sum + i.qty, 0);
   const totalCents = items.reduce((sum, i) => sum + i.retailPriceCents * i.qty, 0);
 
   return (
     <>
-      {/* Talk to Liam — secondary to the cart, always-available, sits just to its left.
-          Icon-only by design, but a hover/focus label makes it legible on first sight. */}
-      <Link
+      {/* Talk to Liam — secondary to the cart, sits just to its left.
+          Icon-only by design, but a hover/focus label makes it legible on first sight.
+          Liam access & cost brief (2026-10-01): subscribers/admins only, and never
+          on /sommelier itself (it used to sit on top of the chat input). */}
+      {hasLiamAccess && pathname !== '/sommelier' && <Link
         to="/sommelier"
         className="group fixed z-[60] rounded-full flex items-center justify-center shadow-lg"
         style={{
@@ -42,7 +47,7 @@ export function FloatingCart({ items, open, onToggle, onRemove, onCheckout, chec
         >
           Talk to Liam
         </span>
-      </Link>
+      </Link>}
 
       {/* Floating icon — persists across the whole scroll */}
       <button

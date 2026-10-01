@@ -84,7 +84,7 @@ function formatSessionDate(iso: string): string {
 }
 
 export default function Sommelier() {
-  const { user } = useAuth();
+  const { user, hasLiamAccess, revokeLiamAccess } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const entry = searchParams.get('entry') ?? '';
@@ -105,8 +105,6 @@ export default function Sommelier() {
   const [intent, setIntent] = useState<string | null>(null);
   const [coffeeNames, setCoffeeNames] = useState<string[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [turnCount, setTurnCount] = useState(0);
-  const [maxTurns, setMaxTurns] = useState(8);
   const [sessionClosed, setSessionClosed] = useState(false);
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
@@ -125,7 +123,7 @@ export default function Sommelier() {
 
   async function doFetch(url: string, opts?: RequestInit) {
     const token = await getToken();
-    return fetch(url, {
+    const res = await fetch(url, {
       ...opts,
       headers: {
         'Content-Type': 'application/json',
@@ -133,6 +131,15 @@ export default function Sommelier() {
         ...(opts?.headers ?? {}),
       },
     });
+    // Liam access & cost brief (2026-10-01) — the server refused this user
+    // (e.g. a subscription that ended mid-session): switch to the quiet
+    // not-included page. The caller still gets the 403 and bails out its own
+    // way; nothing it renders shows once access is off.
+    if (res.status === 403) {
+      const body = await res.clone().json().catch(() => null);
+      if (body?.error === 'liam_not_included') revokeLiamAccess();
+    }
+    return res;
   }
 
   // Liam L3, Part C — records that an action link was actually clicked
@@ -181,7 +188,6 @@ export default function Sommelier() {
       const data = res.ok ? await res.json() : { messages: [], coffeeNames: [] };
       setSessionId(sid);
       setIntent(past.intent);
-      setTurnCount(past.turn_count);
       setCoffeeNames(data.coffeeNames ?? []);
       setMessages(data.messages ?? []);
       setSessionClosed(past.is_closed);
@@ -232,15 +238,14 @@ export default function Sommelier() {
     setSessionId(data.sessionId ?? null);
     setIntent(ev.intent);
     setCoffeeNames(data.coffeeNames ?? []);
-    const tr = data.turnsRemaining ?? 7;
-    setMaxTurns(tr + 1);
-    setTurnCount(1);
     setMessages(data.openingMessage ? [{ role: 'assistant', content: data.openingMessage, actions: data.openingActions, messageId: data.openingMessageId }] : []);
     setPhase('chat');
     setTimeout(() => inputRef.current?.focus(), 100);
   }, [tiedParam, isCoffeeEntry, entry, coffeeIdNum]);
 
   useEffect(() => {
+    // No access → the not-included page renders; never evaluate or start a session.
+    if (!hasLiamAccess) return;
     (async () => {
       try {
         await loadPastSessions();
@@ -299,7 +304,6 @@ export default function Sommelier() {
       if (!res.ok) throw new Error('Message failed');
       const data = await res.json();
       setMessages(prev => [...prev, { role: 'assistant', content: data.reply, actions: data.actions, messageId: data.messageId }]);
-      setTurnCount(data.turnCount);
       if (data.sessionClosed) setSessionClosed(true);
     } catch (err) {
       reportError('[Sommelier/send-message]', err);
@@ -317,8 +321,6 @@ export default function Sommelier() {
       const res = await doFetch(`/api/sommelier/${resumable.sessionId}/messages`);
       const data = res.ok ? await res.json() : { messages: [], coffeeNames: [] };
       setSessionId(resumable.sessionId);
-      setTurnCount(resumable.turnCount);
-      setMaxTurns(resumable.turnCount + resumable.turnsRemaining);
       setCoffeeNames(data.coffeeNames ?? []);
       setMessages(
         data.messages?.length
@@ -363,8 +365,6 @@ export default function Sommelier() {
     }
   }
 
-  const turnsRemaining = maxTurns - turnCount;
-  const turnColor = turnsRemaining <= 0 ? RUST : turnsRemaining <= 2 ? '#d97706' : '#a8a29e';
   const inputDisabled = sessionClosed || sending;
 
   // ── Sidebar JSX (reused for desktop + mobile drawer) ──────────────────────
@@ -420,8 +420,38 @@ export default function Sommelier() {
   );
 
   // ── Render ─────────────────────────────────────────────────────────────────
+  // Liam access & cost brief (2026-10-01) — subscribers and admins only. A
+  // signed-in visitor without access (old link, bookmark, QR) gets a quiet page
+  // inside the normal layout, footer included; no evaluate/start call is made
+  // (the mount effect returns early). Copy: positive register only, no price,
+  // no "upgrade", nothing about what they lack.
+  if (!hasLiamAccess) {
+    return (
+      <div className="max-w-xl mx-auto px-6 pt-40 pb-32 min-h-[70vh] text-center">
+        <p className="text-[10px] uppercase tracking-[0.3em] mb-4" style={{ color: RUST, fontWeight: 100 }}>Liam</p>
+        <h1 className="text-2xl font-normal mb-4" style={{ color: '#3a2e28' }}>
+          Liam comes with your Axis &amp; Bloom subscription.
+        </h1>
+        <p className="text-[15px] leading-[1.75] mb-10" style={{ color: '#6b5c54' }}>
+          He knows your bags, keeps your brew cards, and follows your palate from cup to cup.
+        </p>
+        <Link
+          to="/profile"
+          className="text-xs uppercase tracking-[0.2em] border-b pb-0.5 transition-colors"
+          style={{ color: RUST, borderColor: RUST }}
+        >
+          Back to your profile →
+        </Link>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex bg-white overflow-hidden" style={{ position: 'fixed', top: 64, left: 0, right: 0, bottom: 0 }}>
+    // Explicit z-index (Liam access & cost brief, 2026-10-01): below Navigation
+    // (100) and the floating cart (60), above anything in normal page flow. A
+    // z-index-less fixed panel let opacity-created stacking contexts (the old
+    // footer's links and labels) paint over the chat.
+    <div className="flex bg-white overflow-hidden" style={{ position: 'fixed', top: 64, left: 0, right: 0, bottom: 0, zIndex: 50 }}>
 
       {/* Desktop sidebar */}
       <div className="hidden md:flex h-full shrink-0">{sidebarJsx}</div>
@@ -470,12 +500,6 @@ export default function Sommelier() {
               </p>
             )}
           </div>
-
-          {phase === 'chat' && turnCount > 0 && (
-            <span className="shrink-0 text-[10px]" style={{ color: turnColor }}>
-              {turnCount} / {maxTurns}
-            </span>
-          )}
 
           <button
             onClick={() => navigate(-1)}
@@ -530,7 +554,7 @@ export default function Sommelier() {
                   <div>
                     <p className="text-stone-700 mb-1">You have an open conversation with Liam.</p>
                     <p className="text-sm text-stone-400">
-                      {INTENT_LABELS[resumable.intent] ?? resumable.intent} · {resumable.turnsRemaining} turns remaining
+                      {INTENT_LABELS[resumable.intent] ?? resumable.intent}
                     </p>
                   </div>
                   <div className="flex flex-col gap-3">
@@ -733,12 +757,6 @@ export default function Sommelier() {
                     <path d="M6.5 11V2M2 6.5l4.5-4.5 4.5 4.5" />
                   </svg>
                 </button>
-              </div>
-
-              <div className="flex items-center justify-end mt-2 px-1">
-                <span className="text-[10px]" style={{ color: turnColor }}>
-                  {turnCount > 0 ? `${turnsRemaining} turn${turnsRemaining !== 1 ? 's' : ''} remaining` : ''}
-                </span>
               </div>
             </div>
           </div>

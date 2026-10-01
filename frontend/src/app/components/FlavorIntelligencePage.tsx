@@ -97,7 +97,7 @@ function CuppingNotes({ notes }: { notes: CuppingNote[] }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function FlavorIntelligencePage() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, hasLiamAccess } = useAuth();
   const { addToCart } = useCart();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -731,7 +731,7 @@ export default function FlavorIntelligencePage() {
                     {showCompareGrid && (showTastingNotes || showCuppingNotes || showDimensionBars || showWheel) && <hr style={RULE_STYLE} />}
 
                     {showTastingNotes && (
-                      <TastingNotes content={content} contentLoading={contentLoading} talkToLiamLink="/sommelier?entry=user_initiated" />
+                      <TastingNotes content={content} contentLoading={contentLoading} talkToLiamLink={hasLiamAccess ? '/sommelier?entry=user_initiated' : undefined} />
                     )}
 
                     {showTastingNotes && (showCuppingNotes || showDimensionBars || showWheel) && <hr style={RULE_STYLE} />}

@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
+import { useAuth } from '../../context/AuthContext';
 import type { CartItem, OtherCategoryCoffee } from './types';
 import { formatPrice, priceLabel } from './types';
 
@@ -17,6 +18,7 @@ interface OtherCategoryCardProps {
  * PositionCard.tsx (the dial-slot card) but grouped by category tag instead of a dial
  * position, since these coffees have neither a slot nor a dial-position label. */
 export function OtherCategoryCard({ coffee, categoryLabel, onAddToCart, renderFlavorIntelligenceLink }: OtherCategoryCardProps) {
+  const { hasLiamAccess } = useAuth();
   const availablePrices = coffee.prices.filter(p => p.isActive);
   const [selectedWeight, setSelectedWeight] = useState<number | null>(
     (availablePrices.find(p => p.isAnchor) ?? availablePrices[0])?.weightOz ?? null
@@ -105,7 +107,7 @@ export function OtherCategoryCard({ coffee, categoryLabel, onAddToCart, renderFl
         <p className="text-xs mt-2" style={{ color: '#a09880' }}>Price includes shipping</p>
 
         <div className="flex items-center gap-3 mt-4 pt-4 border-t" style={{ borderColor: '#f0ede6' }}>
-          <Link to="/sommelier" className="text-xs underline" style={{ color: '#8a8070' }}>Talk to Liam</Link>
+          {hasLiamAccess && <Link to="/sommelier" className="text-xs underline" style={{ color: '#8a8070' }}>Talk to Liam</Link>}
           {renderFlavorIntelligenceLink(coffee.coffeeId)}
         </div>
       </div>

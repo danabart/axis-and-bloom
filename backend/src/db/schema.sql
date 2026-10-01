@@ -3956,6 +3956,23 @@ CREATE TABLE IF NOT EXISTS claude_daily_spend (
   PRIMARY KEY (date, feature)
 );
 ALTER TABLE claude_daily_spend ADD COLUMN IF NOT EXISTS feature TEXT NOT NULL DEFAULT 'unattributed';
+
+-- Liam access & cost brief (2026-10-01) -- spend in micro-dollars (1 USD =
+-- 1,000,000). Every call used to be rounded UP to a whole cent, so an 8-turn
+-- Liam conversation always read as exactly $0.16. usd_micros is now the only
+-- spend column written (anthropicGuard.ts recordSpendMicros, rounded up to
+-- the next micro-dollar per call) and the only one read (the guard's cap
+-- checks, GET /api/admin/ai-ops). No dual-write.
+--
+-- Backfill: rows from before this change carry their total in `cents` only.
+-- Re-runs every boot but can only ever match those old rows -- a row written
+-- by the new code has cents = 0, and an already-backfilled row has
+-- usd_micros > 0.
+ALTER TABLE claude_daily_spend ADD COLUMN IF NOT EXISTS usd_micros BIGINT NOT NULL DEFAULT 0;
+UPDATE claude_daily_spend SET usd_micros = cents::BIGINT * 10000 WHERE usd_micros = 0 AND cents > 0;
+COMMENT ON COLUMN claude_daily_spend.cents IS
+  'FROZEN 2026-10-01: superseded by usd_micros (Liam access & cost brief). Not read or written by the app; kept for history. Removal tracked in OPEN_TASKS.md OT-30.';
+
 ALTER TABLE qr_scan_event ADD COLUMN IF NOT EXISTS source TEXT;
 
 -- C3 -- terminal generation-failure flags (2026-08-08). Distinguishes "never

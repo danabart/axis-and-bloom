@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
-import { requireAuth, blockAnonymousAuth, type AuthRequest } from '../middleware/auth.js';
+import { requireAuth, blockAnonymousAuth, requireLiamAccess, type AuthRequest } from '../middleware/auth.js';
 import { getRealClientIp } from '../middleware/clientIp.js';
 import { db } from '../db/client.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
@@ -528,8 +528,15 @@ export async function resolveRemember(
 
 const router = Router();
 
+// Liam access & cost brief (2026-10-01) — every customer route below carries
+// requireLiamAccess (subscribers and admins only, 403 liam_not_included
+// otherwise), right after requireAuth + blockAnonymousAuth so a refused user
+// never reaches the per-account limiter, the daily cap or a model call. The
+// per-IP limiter stays first on /start and /message: it guards Firebase token
+// verification from unauthenticated floods, before anyone is known.
+
 // ─── POST /api/sommelier/evaluate ────────────────────────────────────────────
-router.post('/evaluate', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
+router.post('/evaluate', requireAuth, blockAnonymousAuth, requireLiamAccess, async (req: AuthRequest, res) => {
   const { quizTie, tiedArchetypes, userInitiated } = req.body;
   try {
     await computeBehavioralConfidence(req.uid!);
@@ -551,7 +558,7 @@ router.post('/evaluate', requireAuth, blockAnonymousAuth, async (req: AuthReques
 });
 
 // ─── POST /api/sommelier/start ────────────────────────────────────────────────
-router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, sommelierAccountLimiter, async (req: AuthRequest, res) => {
+router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, requireLiamAccess, sommelierAccountLimiter, async (req: AuthRequest, res) => {
   // HOME_TASK_6 (§3.1, §3.2) — entry/coffeeId arrive from a bag/card link
   // (this task's own arrival-note/home-surface links today; Task 7's QR
   // redirect later, per the entry=bag param contract this task defines —
@@ -935,7 +942,7 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, somme
 });
 
 // ─── POST /api/sommelier/:sessionId/message ───────────────────────────────────
-router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymousAuth, sommelierAccountLimiter, async (req: AuthRequest, res) => {
+router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymousAuth, requireLiamAccess, sommelierAccountLimiter, async (req: AuthRequest, res) => {
   const sessionId = Number(req.params.sessionId);
   const { message } = req.body;
   if (!message || typeof message !== 'string') {
@@ -1292,7 +1299,7 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
 // only ever stored as *offered* on the assistant message, never as a click.
 // Idempotent the same way every other Liam fact is: sourceId is deterministic
 // per session/message/actionType, so two clicks on the same link write one row.
-router.post('/:sessionId/action', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
+router.post('/:sessionId/action', requireAuth, blockAnonymousAuth, requireLiamAccess, async (req: AuthRequest, res) => {
   const sessionId = Number(req.params.sessionId);
   const { messageId, actionType } = req.body;
   if (!messageId || typeof messageId !== 'string' ||
@@ -1325,7 +1332,7 @@ router.post('/:sessionId/action', requireAuth, blockAnonymousAuth, async (req: A
 });
 
 // ─── GET /api/sommelier/sessions ─────────────────────────────────────────────
-router.get('/sessions', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
+router.get('/sessions', requireAuth, blockAnonymousAuth, requireLiamAccess, async (req: AuthRequest, res) => {
   try {
     const result = await db.query(
       `SELECT id, intent, started_at, turn_count, is_closed, close_reason
@@ -1343,7 +1350,7 @@ router.get('/sessions', requireAuth, blockAnonymousAuth, async (req: AuthRequest
 });
 
 // ─── GET /api/sommelier/:sessionId/messages ──────────────────────────────────
-router.get('/:sessionId/messages', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
+router.get('/:sessionId/messages', requireAuth, blockAnonymousAuth, requireLiamAccess, async (req: AuthRequest, res) => {
   const sessionId = Number(req.params.sessionId);
   try {
     const sessionResult = await db.query(
@@ -1397,7 +1404,7 @@ router.get('/:sessionId/messages', requireAuth, blockAnonymousAuth, async (req: 
 });
 
 // ─── POST /api/sommelier/:sessionId/close ────────────────────────────────────
-router.post('/:sessionId/close', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
+router.post('/:sessionId/close', requireAuth, blockAnonymousAuth, requireLiamAccess, async (req: AuthRequest, res) => {
   const sessionId = Number(req.params.sessionId);
   try {
     const sessionResult = await db.query(

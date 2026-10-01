@@ -24,10 +24,18 @@ import { getSommelierConfig, type AiFeature, type AiControls } from './sommelier
 // spend-read failure are allowed to do that.
 
 /** $ per million tokens, by exact model id. Keep in one place — this is the
- *  only spot a rate change needs to land. */
-const MODEL_RATES_PER_MILLION: Record<string, { inputUsd: number; outputUsd: number }> = {
-  'claude-haiku-4-5-20251001': { inputUsd: 1, outputUsd: 5 },
-  'claude-sonnet-4-6':         { inputUsd: 3, outputUsd: 15 },
+ *  only spot a rate change needs to land.
+ *
+ *  Liam access & cost brief (2026-10-01) — gained the two prompt-caching
+ *  rates. Checked against Anthropic's pricing + prompt-caching docs that day:
+ *  a 5-minute cache write is 1.25x base input, a cache read 0.1x (Sonnet 4.6:
+ *  $3.75 / $0.30 per MTok; Haiku 4.5: $1.25 / $0.10). `cache_control:
+ *  { type: 'ephemeral' }` with no ttl is the 5-minute cache, so that is the
+ *  write rate used. */
+interface ModelRate { inputUsd: number; outputUsd: number; cacheWriteUsd: number; cacheReadUsd: number }
+const MODEL_RATES_PER_MILLION: Record<string, ModelRate> = {
+  'claude-haiku-4-5-20251001': { inputUsd: 1, outputUsd: 5,  cacheWriteUsd: 1.25, cacheReadUsd: 0.10 },
+  'claude-sonnet-4-6':         { inputUsd: 3, outputUsd: 15, cacheWriteUsd: 3.75, cacheReadUsd: 0.30 },
 };
 
 // An admin-configured model override (config/sommelier.modelRouting's
@@ -37,7 +45,7 @@ const MODEL_RATES_PER_MILLION: Record<string, { inputUsd: number; outputUsd: num
 // to prevent; overcounting an unusual model by a few cents is harmless.
 const UNKNOWN_MODEL_FALLBACK_RATE = MODEL_RATES_PER_MILLION['claude-sonnet-4-6'];
 
-function rateFor(model: string): { inputUsd: number; outputUsd: number } {
+function rateFor(model: string): ModelRate {
   const rate = MODEL_RATES_PER_MILLION[model];
   if (!rate) {
     console.warn(`[anthropicGuard] no rate entry for model "${model}" — costing at the Sonnet fallback rate`);
@@ -45,12 +53,56 @@ function rateFor(model: string): { inputUsd: number; outputUsd: number } {
   return rate ?? UNKNOWN_MODEL_FALLBACK_RATE;
 }
 
-/** Cost of one call, in integer cents, rounded UP — under-counting spend is
- *  the failure mode this gate exists to avoid, not over-counting by a cent. */
-export function computeCostCents(model: string, inputTokens: number, outputTokens: number): number {
+/** The usage block Anthropic returns. The cache fields are absent on older
+ *  responses and null when caching wasn't used — both count as zero. */
+export interface ClaudeUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+}
+
+/**
+ * Cost of one call in integer micro-dollars (1 USD = 1,000,000), rounded UP
+ * to the next whole micro-dollar. Was whole cents rounded up per call
+ * (computeCostCents), which made every Liam turn cost at least a cent on the
+ * books. With caching, `input_tokens` is only the uncached part (tokens after
+ * the last cache breakpoint), so the two cache fields are costed separately
+ * at their own rates — leaving them out would undercount.
+ *
+ * $/MTok × tokens is exactly micro-dollars, so no unit conversion is needed;
+ * rates are scaled to integers (×100) first so the sum is exact and the
+ * single Math.ceil only ever rounds a genuine fraction, never float noise.
+ */
+export function computeCostMicros(model: string, usage: ClaudeUsage): number {
   const rate = rateFor(model);
-  const dollars = (inputTokens / 1_000_000) * rate.inputUsd + (outputTokens / 1_000_000) * rate.outputUsd;
-  return Math.ceil(dollars * 100);
+  const scaled = (usd: number) => Math.round(usd * 100);
+  const sum =
+    (usage.input_tokens ?? 0) * scaled(rate.inputUsd) +
+    (usage.cache_creation_input_tokens ?? 0) * scaled(rate.cacheWriteUsd) +
+    (usage.cache_read_input_tokens ?? 0) * scaled(rate.cacheReadUsd) +
+    (usage.output_tokens ?? 0) * scaled(rate.outputUsd);
+  return Math.ceil(sum / 100);
+}
+
+const MICROS_PER_USD = 1_000_000;
+
+/** USD → integer micro-dollars, for comparing a dollar cap against spend. A
+ *  cap is set in dollars (at most cents precision), so this is exact. */
+export function usdToMicros(usd: number): number {
+  return Math.round(usd * MICROS_PER_USD);
+}
+
+/** The one place a `claude_daily_spend.usd_micros` value is parsed — `pg`
+ *  returns BIGINT as a string. Anything unparseable throws rather than
+ *  silently reading as zero (the guard's caller treats a throw as a failed
+ *  spend read and fails closed). */
+export function parseUsdMicros(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isSafeInteger(n)) {
+    throw new Error(`[anthropicGuard] unparseable usd_micros value: ${String(value)}`);
+  }
+  return n;
 }
 
 function todayUtcDateKey(): string {
@@ -59,16 +111,16 @@ function todayUtcDateKey(): string {
 
 /** CLAUDE_GLOBAL_DAILY_USD — the infra-pinned ceiling (deploy.yml). This is
  *  now the outer ceiling the admin-portal working cap can never exceed, not
- *  the working cap itself — see getEffectiveGlobalCapCents(). */
-function envCeilingCents(): number {
+ *  the working cap itself — see getEffectiveGlobalCapMicros(). */
+function envCeilingMicros(): number {
   const usd = Number(process.env.CLAUDE_GLOBAL_DAILY_USD ?? '20');
-  return Math.round((Number.isFinite(usd) ? usd : 20) * 100);
+  return usdToMicros(Number.isFinite(usd) ? usd : 20);
 }
 
 /** The env ceiling in dollars — exposed for the admin GET endpoint (shown as
  *  the working-cap editor's max) and the PUT endpoint's server-side min()
- *  enforcement. Same underlying value as envCeilingCents(), just not rounded
- *  to cents, so an admin typing "20" back doesn't get rejected by a rounding
+ *  enforcement. Same underlying value as envCeilingMicros(), just not
+ *  converted, so an admin typing "20" back doesn't get rejected by a rounding
  *  artifact. */
 export function envCeilingUsd(): number {
   return Number(process.env.CLAUDE_GLOBAL_DAILY_USD ?? '20');
@@ -127,25 +179,49 @@ export function getEffectiveAiControls(): AiControls {
 
 /** min(env ceiling, admin working cap) — the UI is only ever a brake, never
  *  an accelerator; raising above the env-pinned ceiling requires a deploy. */
-export function getEffectiveGlobalCapCents(controls: AiControls): number {
-  return Math.min(envCeilingCents(), Math.round(controls.globalDailyUsd * 100));
+export function getEffectiveGlobalCapMicros(controls: AiControls): number {
+  return Math.min(envCeilingMicros(), usdToMicros(controls.globalDailyUsd));
 }
 
-/** Today's spend, in cents, both the running total and broken out per
+/** Today's spend, in micro-dollars, both the running total and broken out per
  *  feature — one query, since the guard needs both on every call (the
- *  feature-cap check and the global-cap check). */
-async function getTodaySpend(): Promise<{ totalCents: number; byFeatureCents: Partial<Record<AiFeature, number>> }> {
-  const result = await db.query<{ feature: string; cents: number }>(
-    `SELECT feature, cents FROM claude_daily_spend WHERE date = $1`,
+ *  feature-cap check and the global-cap check). `usd_micros` is the only
+ *  spend column read or written since 2026-10-01; `cents` is frozen. */
+async function getTodaySpend(): Promise<{ totalMicros: number; byFeatureMicros: Partial<Record<AiFeature, number>> }> {
+  const result = await db.query<{ feature: string; usd_micros: string }>(
+    `SELECT feature, usd_micros FROM claude_daily_spend WHERE date = $1`,
     [todayUtcDateKey()]
   );
-  const byFeatureCents: Partial<Record<AiFeature, number>> = {};
-  let totalCents = 0;
+  const byFeatureMicros: Partial<Record<AiFeature, number>> = {};
+  let totalMicros = 0;
   for (const row of result.rows) {
-    byFeatureCents[row.feature as AiFeature] = row.cents;
-    totalCents += row.cents;
+    const micros = parseUsdMicros(row.usd_micros);
+    byFeatureMicros[row.feature as AiFeature] = micros;
+    totalMicros += micros;
   }
-  return { totalCents, byFeatureCents };
+  return { totalMicros, byFeatureMicros };
+}
+
+/** Layers 4–5 as a pure decision, exported so the cap boundary is testable
+ *  without a database. Spend at or above a cap blocks (unchanged from the
+ *  cents version: `>=`, so the gate is never looser than it was). */
+export function capBlockReason(
+  feature: AiFeature,
+  controls: AiControls,
+  spend: { totalMicros: number; byFeatureMicros: Partial<Record<AiFeature, number>> }
+): 'feature_cap' | 'global_cap' | null {
+  const featureCap = controls.features[feature].dailyUsd;
+  if (featureCap !== null && (spend.byFeatureMicros[feature] ?? 0) >= usdToMicros(featureCap)) {
+    return 'feature_cap';
+  }
+  if (spend.totalMicros >= getEffectiveGlobalCapMicros(controls)) {
+    return 'global_cap';
+  }
+  return null;
+}
+
+function formatUsd(micros: number): string {
+  return `$${(micros / MICROS_PER_USD).toFixed(2)}`;
 }
 
 // Atomic — a single UPSERT keyed on (date, feature), so concurrent Cloud Run
@@ -153,14 +229,14 @@ async function getTodaySpend(): Promise<{ totalCents: number; byFeatureCents: Pa
 // race (Postgres resolves ON CONFLICT DO UPDATE under a row-level lock;
 // there is no read-modify-write gap here for two instances to stomp on
 // each other).
-async function recordSpendCents(feature: AiFeature, costCents: number): Promise<void> {
+async function recordSpendMicros(feature: AiFeature, costMicros: number): Promise<void> {
   await db.query(
-    `INSERT INTO claude_daily_spend (date, feature, cents)
+    `INSERT INTO claude_daily_spend (date, feature, usd_micros)
      VALUES ($1, $2, $3)
      ON CONFLICT (date, feature) DO UPDATE
-       SET cents = claude_daily_spend.cents + EXCLUDED.cents,
+       SET usd_micros = claude_daily_spend.usd_micros + EXCLUDED.usd_micros,
            updated_at = timezone('utc', now())`,
-    [todayUtcDateKey(), feature, costCents]
+    [todayUtcDateKey(), feature, costMicros]
   );
 }
 
@@ -212,7 +288,7 @@ export function isClaudeGuardBlocked(err: unknown): err is ClaudeGuardBlockedErr
  *   4. Per-feature daily cap, if aiControls.features[feature].dailyUsd is set.
  *   5. Effective global daily cap = min(env ceiling, aiControls.globalDailyUsd).
  */
-export async function guardClaudeCall<T extends { usage?: { input_tokens: number; output_tokens: number } }>(
+export async function guardClaudeCall<T extends { usage?: ClaudeUsage }>(
   feature: AiFeature,
   model: string,
   makeCall: () => Promise<T>
@@ -235,7 +311,7 @@ export async function guardClaudeCall<T extends { usage?: { input_tokens: number
 
   // Layers 4–5 — the real-dollar caps (fails closed: a spend-read error
   // blocks the call rather than silently removing the ceiling).
-  let spend: { totalCents: number; byFeatureCents: Partial<Record<AiFeature, number>> };
+  let spend: { totalMicros: number; byFeatureMicros: Partial<Record<AiFeature, number>> };
   try {
     spend = await getTodaySpend();
   } catch (err) {
@@ -243,19 +319,14 @@ export async function guardClaudeCall<T extends { usage?: { input_tokens: number
     throw new ClaudeGuardBlockedError('store_error', feature);
   }
 
-  const featureCap = controls.features[feature].dailyUsd;
-  if (featureCap !== null) {
-    const featureCeilingCents = Math.round(featureCap * 100);
-    const featureSpentCents = spend.byFeatureCents[feature] ?? 0;
-    if (featureSpentCents >= featureCeilingCents) {
-      console.warn(`[anthropicGuard] blocked (feature_cap) — feature=${feature} $${(featureSpentCents / 100).toFixed(2)} >= $${(featureCeilingCents / 100).toFixed(2)}`);
-      throw new ClaudeGuardBlockedError('feature_cap', feature);
-    }
+  const capReason = capBlockReason(feature, controls, spend);
+  if (capReason === 'feature_cap') {
+    const featureCapUsd = controls.features[feature].dailyUsd ?? 0;
+    console.warn(`[anthropicGuard] blocked (feature_cap) — feature=${feature} ${formatUsd(spend.byFeatureMicros[feature] ?? 0)} >= $${featureCapUsd.toFixed(2)}`);
+    throw new ClaudeGuardBlockedError('feature_cap', feature);
   }
-
-  const globalCeilingCents = getEffectiveGlobalCapCents(controls);
-  if (spend.totalCents >= globalCeilingCents) {
-    console.warn(`[anthropicGuard] blocked (global_cap) — feature=${feature} $${(spend.totalCents / 100).toFixed(2)} >= $${(globalCeilingCents / 100).toFixed(2)}`);
+  if (capReason === 'global_cap') {
+    console.warn(`[anthropicGuard] blocked (global_cap) — feature=${feature} ${formatUsd(spend.totalMicros)} >= ${formatUsd(getEffectiveGlobalCapMicros(controls))}`);
     throw new ClaudeGuardBlockedError('global_cap', feature);
   }
 
@@ -267,8 +338,15 @@ export async function guardClaudeCall<T extends { usage?: { input_tokens: number
   try {
     const usage = response.usage;
     if (usage) {
-      const costCents = computeCostCents(model, usage.input_tokens, usage.output_tokens);
-      if (costCents > 0) await recordSpendCents(feature, costCents);
+      const costMicros = computeCostMicros(model, usage);
+      // One line per successful call, token counts and cost only (no
+      // content, no uid) — how per-turn cache behaviour is read from the logs.
+      console.log(
+        `[anthropicGuard] spend feature=${feature} model=${model} input=${usage.input_tokens} ` +
+        `cache_write=${usage.cache_creation_input_tokens ?? 0} cache_read=${usage.cache_read_input_tokens ?? 0} ` +
+        `output=${usage.output_tokens} usd_micros=${costMicros}`
+      );
+      if (costMicros > 0) await recordSpendMicros(feature, costMicros);
     }
   } catch (err) {
     // The call already succeeded and Anthropic already billed it; a failure

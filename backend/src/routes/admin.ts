@@ -12,7 +12,7 @@ import { getBrewProfileCounters } from '../services/brewProfile.js';
 import { getLiamWriteBackCounters } from '../services/liamWriteBack.js';
 import { checkStorySpecificityViolations } from '../services/storyLayer.js';
 import { getOrMintCanonicalUniversalToken } from '../services/qrDoor.js';
-import { getEffectiveAiControls, envCeilingUsd } from '../services/anthropicGuard.js';
+import { getEffectiveAiControls, envCeilingUsd, parseUsdMicros } from '../services/anthropicGuard.js';
 import { runQuizIntegrityChecks } from '../services/quizIntegrity.js';
 import { runCatalogIntegrityChecks } from '../services/catalogIntegrity.js';
 import { runCustomerIntegrityChecks } from '../services/customerIntegrity.js';
@@ -1322,7 +1322,11 @@ router.post('/sommelier/config-apply', async (req: AuthRequest, res) => {
 
 const AI_OPS_FEATURE_DISPLAY_KEYS = [...AI_FEATURES, 'unattributed'];
 
-function zeroByFeatureCents(): Record<string, number> {
+// Liam access & cost brief (2026-10-01) — spend is micro-dollars now
+// (claude_daily_spend.usd_micros; `cents` is frozen), so the response fields
+// say so in their names: totalUsdMicros / byFeatureUsdMicros. The page formats
+// them to dollars-and-cents for display.
+function zeroByFeatureMicros(): Record<string, number> {
   return Object.fromEntries(AI_OPS_FEATURE_DISPLAY_KEYS.map((k) => [k, 0]));
 }
 
@@ -1332,34 +1336,35 @@ router.get('/ai-ops', async (_req, res) => {
     const TREND_DAYS = 14;
     const trendCutoffKey = new Date(Date.now() - (TREND_DAYS - 1) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-    const spendResult = await db.query<{ date: Date; feature: string; cents: number }>(
-      `SELECT date, feature, cents FROM claude_daily_spend WHERE date >= $1 ORDER BY date ASC`,
+    const spendResult = await db.query<{ date: Date; feature: string; usd_micros: string }>(
+      `SELECT date, feature, usd_micros FROM claude_daily_spend WHERE date >= $1 ORDER BY date ASC`,
       [trendCutoffKey]
     );
 
-    const byDateKey = new Map<string, { date: string; totalCents: number; byFeature: Record<string, number> }>();
+    type DaySpend = { date: string; totalUsdMicros: number; byFeatureUsdMicros: Record<string, number> };
+    const emptyDay = (date: string): DaySpend => ({ date, totalUsdMicros: 0, byFeatureUsdMicros: zeroByFeatureMicros() });
+    const byDateKey = new Map<string, DaySpend>();
     for (const row of spendResult.rows) {
       const dateKey = row.date.toISOString().slice(0, 10);
-      if (!byDateKey.has(dateKey)) {
-        byDateKey.set(dateKey, { date: dateKey, totalCents: 0, byFeature: zeroByFeatureCents() });
-      }
+      if (!byDateKey.has(dateKey)) byDateKey.set(dateKey, emptyDay(dateKey));
       const entry = byDateKey.get(dateKey)!;
-      entry.totalCents += row.cents;
+      const micros = parseUsdMicros(row.usd_micros);
+      entry.totalUsdMicros += micros;
       // A feature value outside the known 4 (only possible historical case:
       // pre-migration rows, always 'unattributed') is bucketed under
       // 'unattributed' rather than dropped — the spec's own "may show that as
       // a historical row" instruction.
       const bucket = AI_FEATURES.includes(row.feature as AiFeature) ? row.feature : 'unattributed';
-      entry.byFeature[bucket] = (entry.byFeature[bucket] ?? 0) + row.cents;
+      entry.byFeatureUsdMicros[bucket] = (entry.byFeatureUsdMicros[bucket] ?? 0) + micros;
     }
 
     const todayKey = new Date().toISOString().slice(0, 10);
-    const today = byDateKey.get(todayKey) ?? { date: todayKey, totalCents: 0, byFeature: zeroByFeatureCents() };
+    const today = byDateKey.get(todayKey) ?? emptyDay(todayKey);
 
-    const trend14d = [];
+    const trend14d: DaySpend[] = [];
     for (let i = TREND_DAYS - 1; i >= 0; i--) {
       const dateKey = new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      trend14d.push(byDateKey.get(dateKey) ?? { date: dateKey, totalCents: 0, byFeature: zeroByFeatureCents() });
+      trend14d.push(byDateKey.get(dateKey) ?? emptyDay(dateKey));
     }
 
     // Most recent aiControls audit entries — same collection/pattern as

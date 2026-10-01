@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import admin from '../services/firebase-admin.js';
 import { db } from '../db/client.js';
+import { hasLiamAccess } from '../services/liamAccess.js';
 
 export interface AuthRequest extends Request {
   uid?: string;
@@ -52,6 +53,19 @@ export async function requireAdmin(req: AuthRequest, res: Response, next: NextFu
   } catch {
     res.status(401).json({ error: 'Invalid token' });
   }
+}
+
+// Liam access & cost brief (2026-10-01) — subscribers and admins only. Sits
+// after requireAuth + blockAnonymousAuth on every customer route in
+// routes/sommelier.ts, ahead of the per-account limiter, the daily cap and any
+// model call. The decision itself lives in services/liamAccess.ts.
+export async function requireLiamAccess(req: AuthRequest, res: Response, next: NextFunction) {
+  const access = await hasLiamAccess(req.uid!);
+  if (!access.allowed) {
+    res.status(403).json({ error: 'liam_not_included' });
+    return;
+  }
+  next();
 }
 
 export async function optionalAuth(req: AuthRequest, _res: Response, next: NextFunction) {

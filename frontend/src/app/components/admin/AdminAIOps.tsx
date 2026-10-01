@@ -13,10 +13,12 @@ const FEATURE_LABELS: Record<AiFeature, string> = {
   lifecycle: 'Lifecycle / Beats',
 };
 
+// Liam access & cost brief (2026-10-01) — spend arrives in micro-dollars
+// (1 USD = 1,000,000), no longer whole cents rounded up per call.
 interface DaySpend {
   date: string;
-  totalCents: number;
-  byFeature: Record<string, number>;
+  totalUsdMicros: number;
+  byFeatureUsdMicros: Record<string, number>;
 }
 
 interface AiFeatureControls {
@@ -52,8 +54,11 @@ const CARD = 'border rounded-lg p-4 bg-white';
 const LABEL = 'text-xs text-stone-400 tracking-widest uppercase mb-1';
 const STAT_BIG = 'text-2xl font-normal text-stone-800';
 
-function usd(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+const MICROS_PER_USD = 1_000_000;
+
+/** Dollars to the cent, ordinary rounding — display only. */
+function usd(micros: number): string {
+  return `$${(Math.round(micros / 10_000) / 100).toFixed(2)}`;
 }
 
 function Toggle({ on, onClick, disabled }: { on: boolean; onClick: () => void; disabled?: boolean }) {
@@ -70,7 +75,7 @@ function Toggle({ on, onClick, disabled }: { on: boolean; onClick: () => void; d
 }
 
 function Trend({ trend, feature }: { trend: DaySpend[]; feature?: AiFeature }) {
-  const values = trend.map((d) => (feature ? d.byFeature[feature] ?? 0 : d.totalCents));
+  const values = trend.map((d) => (feature ? d.byFeatureUsdMicros[feature] ?? 0 : d.totalUsdMicros));
   const max = Math.max(1, ...values);
   return (
     <div className="flex items-end gap-1 h-12">
@@ -158,8 +163,8 @@ export default function AdminAIOps() {
   if (loading) return <div className="text-stone-400 text-sm">Loading…</div>;
   if (!data || !draft) return <div className="text-red-500 text-sm">{error || 'Failed to load'}</div>;
 
-  const effectiveCapCents = Math.round(Math.min(data.envCeilingUsd, data.controls.globalDailyUsd) * 100);
-  const pctOfCap = effectiveCapCents > 0 ? Math.min(1, data.today.totalCents / effectiveCapCents) : 0;
+  const effectiveCapMicros = Math.round(Math.min(data.envCeilingUsd, data.controls.globalDailyUsd) * MICROS_PER_USD);
+  const pctOfCap = effectiveCapMicros > 0 ? Math.min(1, data.today.totalUsdMicros / effectiveCapMicros) : 0;
   const dirty = JSON.stringify(draft) !== JSON.stringify(data.controls);
 
   return (
@@ -202,7 +207,7 @@ export default function AdminAIOps() {
           <div className="mb-3">
             <div className="flex items-center justify-between text-xs text-stone-500 mb-1">
               <span>Today's spend</span>
-              <span>{usd(data.today.totalCents)} / {usd(effectiveCapCents)}</span>
+              <span>{usd(data.today.totalUsdMicros)} / {usd(effectiveCapMicros)}</span>
             </div>
             <div className="w-full h-2 rounded-full bg-stone-100 overflow-hidden">
               <div className="h-full rounded-full" style={{ width: `${pctOfCap * 100}%`, backgroundColor: pctOfCap >= 1 ? RUST : '#78716c' }} />
@@ -238,7 +243,7 @@ export default function AdminAIOps() {
         <div className="space-y-3">
           {AI_FEATURES.map((feature) => {
             const f = draft.features[feature];
-            const spentToday = data.today.byFeature[feature] ?? 0;
+            const spentToday = data.today.byFeatureUsdMicros[feature] ?? 0;
             return (
               <div key={feature} className={`${CARD} border-stone-200`}>
                 <div className="flex items-center justify-between mb-3">

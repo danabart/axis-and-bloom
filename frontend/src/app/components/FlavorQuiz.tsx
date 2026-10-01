@@ -641,7 +641,7 @@ export default function FlavorQuiz() {
     resultsAdjacent.openAtPosition(target.archetype, resolveLandingSortOrder(edge, targetData));
   }
 
-  const { user } = useAuth();
+  const { user, hasLiamAccess } = useAuth();
   // Part 21 fix (live QA / Dana, 2026-08-09) — the quiz route deliberately
   // skips PublicLayout ("own minimal chrome, no public nav/footer/cart"),
   // which meant Add to Cart silently updated the shared CartContext with
@@ -1345,7 +1345,8 @@ export default function FlavorQuiz() {
     // trimmed nav ("never show a door we won't open").
     const navItems = [
       { label: 'Retake the quiz',      action: () => { handleRetake(); setUserName(firstName); setHasStarted(true); } },
-      ...(prelaunchGated ? [] : [{ label: 'Talk to Liam',         href: '/sommelier?entry=user_initiated' }]),
+      // Liam access & cost brief (2026-10-01): also only for subscribers/admins.
+      ...(prelaunchGated || !hasLiamAccess ? [] : [{ label: 'Talk to Liam',         href: '/sommelier?entry=user_initiated' }]),
       { label: 'Your flavor profile',  href: '/profile' },
       ...(prelaunchGated ? [] : [{ label: 'Flavor intelligence',  href: '/flavor-intelligence' }]),
       { label: 'Create a household party', href: '/profile?tab=family' },
@@ -1835,7 +1836,7 @@ export default function FlavorQuiz() {
             <div className="flex flex-col gap-3">
               {/* /sommelier is a hidden route while gated — omitted, same rule
                   as every other Liam entry point. */}
-              {!prelaunchGated && (
+              {!prelaunchGated && hasLiamAccess && (
                 <button
                   onClick={() => { window.location.href = `/sommelier?entry=quiz_tie&tied=${encodeURIComponent(tiedParam)}`; }}
                   className="w-full py-3 rounded-lg text-white text-sm tracking-wide"

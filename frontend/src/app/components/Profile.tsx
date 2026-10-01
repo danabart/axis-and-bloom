@@ -74,7 +74,7 @@ export default function Profile() {
   const [profile, setProfile]             = useState<ProfileData | null>(null);
   const [loading, setLoading]             = useState(true);
   const [feedbackOrderId, setFeedbackOrderId] = useState<string | null>(null);
-  const { user, logout, loading: authLoading } = useAuth();
+  const { user, logout, loading: authLoading, hasLiamAccess } = useAuth();
   const { addToCart }                     = useCart();
   const navigate                          = useNavigate();
   // Pre-Launch Gate — hides Add to Cart/Liam/flavor-intelligence on this
@@ -679,7 +679,7 @@ export default function Profile() {
                     <div className="flex flex-col gap-6">
                       {/* Liam entry point — generic across stages, no stage-aware copy (decided).
                           /sommelier is a hidden route while gated — omitted, same rule as everywhere else. */}
-                      {!prelaunchGated && (
+                      {!prelaunchGated && hasLiamAccess && (
                         <div>
                           <p className="text-[11px] uppercase tracking-[0.2em] text-[#a33726]/40 mb-3">Coffee Sommelier</p>
                           <Link

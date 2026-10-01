@@ -20,6 +20,14 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   isAdmin: boolean;
+  /** Liam access & cost brief (2026-10-01) — subscribers and admins only. The
+   *  server decides (services/liamAccess.ts, reported on GET /api/users/profile
+   *  and enforced on every /api/sommelier route); this only reflects it. False
+   *  while loading and on any error. */
+  hasLiamAccess: boolean;
+  /** Called when the server refuses a Liam call (403 liam_not_included) —
+   *  e.g. a subscription that ended mid-session. */
+  revokeLiamAccess: () => void;
   isGuest: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, firstName?: string, lastName?: string) => Promise<void>;
@@ -34,6 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [hasLiamAccess, setHasLiamAccess] = useState(false);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -66,15 +75,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           });
           const data = await res.json();
           setIsAdmin(data.isAdmin === true);
+          setHasLiamAccess(data.hasLiamAccess === true);
         } catch (err) {
           // Fails closed by design (never grants admin on an error) — still
           // worth recording, since a real failure here silently drops every
           // admin's access to /admin for their whole session.
           reportError('[AuthContext/check-admin]', err);
           setIsAdmin(false);
+          setHasLiamAccess(false);
         }
       } else {
         setIsAdmin(false);
+        setHasLiamAccess(false);
       }
       setLoading(false);
     });
@@ -162,10 +174,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await signOut(auth);
   };
 
+  const revokeLiamAccess = () => setHasLiamAccess(false);
+
   const isGuest = !!user && user.isAnonymous;
 
   return (
-    <AuthContext.Provider value={{ user, loading, isAdmin, isGuest, signIn, signUp, signInWithGoogle, signInWithApple, logout }}>
+    <AuthContext.Provider value={{ user, loading, isAdmin, hasLiamAccess, revokeLiamAccess, isGuest, signIn, signUp, signInWithGoogle, signInWithApple, logout }}>
       {children}
     </AuthContext.Provider>
   );

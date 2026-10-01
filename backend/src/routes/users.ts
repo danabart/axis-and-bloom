@@ -10,6 +10,7 @@ import {
   incrementBrewProfileCounter,
 } from '../services/brewProfile.js';
 import { getUserBrewCards } from '../services/brewCard.js';
+import { hasLiamAccess } from '../services/liamAccess.js';
 import { getAliases } from '../services/sommelierRag.js';
 import { archetypeCode, archetypeLabel as catalogArchetypeLabel } from '../services/catalogReads.js';
 import { record } from '../services/customerFacts.js';
@@ -144,6 +145,11 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
       isNewsletterSubscriber = newsletterResult.rows.length > 0;
     }
 
+    // Liam access & cost brief (2026-10-01) — AuthContext reads isAdmin from
+    // this response already, so Liam access rides along (no second round
+    // trip). The decision is services/liamAccess.ts's; this only reports it.
+    const liamAccess = await hasLiamAccess(req.uid!);
+
     const quiz = quizResult.rows[0];
     const archetypeKey = quiz?.archetype_name ? ((await archetypeCode(quiz.archetype_name)) ?? quiz.archetype_name.toLowerCase()) : null;
     // Label comes from archetypeLabel() (v_coffee_archetype) for a recognized
@@ -181,6 +187,7 @@ router.get('/profile', requireAuth, async (req: AuthRequest, res) => {
       dateOfBirth: profileRow.date_of_birth ?? null,
       displayName: null,
       isAdmin:     roleResult.rows[0]?.name === 'admin',
+      hasLiamAccess: liamAccess.allowed,
       archetype:   archetypeData ? { ...archetypeData, id: archetypeKey } : null,
       lastQuizDate: quiz?.completed_at ?? null,
       addresses:   addressResult.rows,

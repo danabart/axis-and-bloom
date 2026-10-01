@@ -9,7 +9,7 @@ import { usePrelaunchGated } from '../lib/prelaunch';
 
 export default function PublicLayout() {
   const { pathname } = useLocation();
-  const { user } = useAuth();
+  const { user, hasLiamAccess } = useAuth();
   const { cart, cartOpen, toggleCartOpen, removeFromCart, checkout, checkoutStatus, checkoutMessage } = useCart();
   const gated = usePrelaunchGated();
 
@@ -20,8 +20,14 @@ export default function PublicLayout() {
   // These pages render Footer inside TasteFinderSection (behind the curtain reveal)
   const footerInPage = pathname === '/' || pathname === '/about';
 
+  // Liam's chat is a fixed full-height panel; the footer under it used to
+  // bleed through (Liam access & cost brief, 2026-10-01). Only while the chat
+  // itself shows — a visitor without Liam access sees a quiet in-layout page
+  // there instead, and that page keeps the footer.
+  const isLiamChat = pathname === '/sommelier' && hasLiamAccess;
+
   // Quiz page has its own footer handling; suppress the global one
-  const noFooter = footerInPage || pathname === '/find-my-flavor';
+  const noFooter = footerInPage || pathname === '/find-my-flavor' || isLiamChat;
 
   if (isPreLaunchPage) {
     return <Outlet />;
