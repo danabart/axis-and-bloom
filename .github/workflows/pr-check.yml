@@ -1,0 +1,62 @@
+name: PR check
+
+# Runs on pull requests into main so a Dependabot (or any) PR is not merged
+# blind. Read-only: no secrets, no GCP auth, no deploy. Works for Dependabot
+# PRs, which get a read-only token and no secrets.
+#
+# LIMIT: this does NOT run `npm test` (vitest). That suite needs the Cloud SQL
+# proxy and the test database, which CI does not have. Run `npm test` locally
+# before merging grouped weekly dependency PRs.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run build
+      - run: npm run lint:catalog
+      - run: npm run lint:retention
+      - run: npm run lint:customer
+
+  frontend:
+    name: Frontend check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
+      # Verified locally with no .env and no VITE_* variables: the vite build
+      # completes without them, so none are passed here.
+      - run: npm run build

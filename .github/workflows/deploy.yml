@@ -3,6 +3,15 @@ name: Deploy
 on:
   push:
     branches: [main]
+  # Follow-up to C11: a deliberate, visible way to deploy past the dependency
+  # audit. Manual only -- a push to main always runs the audit. The daily
+  # `dependency-audit` issue is the record of what was skipped.
+  workflow_dispatch:
+    inputs:
+      skip_audit:
+        description: 'Deploy without the dependency audit. Only when an advisory has no fix yet or a deploy cannot wait.'
+        type: boolean
+        default: false
 
 env:
   PROJECT_ID: axis-and-bloom-prod
@@ -13,6 +22,8 @@ env:
 jobs:
   deploy-backend:
     name: Build & Deploy Backend
+    # A manual run from any other branch must not deploy to production.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -56,11 +67,18 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
 
-      - name: Backend dependency audit
+      - name: Install backend dependencies
         working-directory: backend
-        run: |
-          npm ci
-          npm audit --omit=dev --audit-level=high
+        run: npm ci
+
+      - name: Backend dependency audit
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.skip_audit) }}
+        working-directory: backend
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Warn that the dependency audit was skipped
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_audit }}
+        run: echo "::warning title=Dependency audit SKIPPED::Dependency audit SKIPPED by manual run (backend job), triggered by ${{ github.actor }}"
 
       # Catalog Blueprint brief 3, Part D — greps for raw catalog-table DML,
       # dormant legacy-table reads, and hardcoded archetype labels outside
@@ -152,11 +170,18 @@ jobs:
       # rationale as the backend job. A separate step (not folded into the
       # build step below) so a failure here reads clearly as "dependency
       # audit failed," not "build failed."
-      - name: Install & audit frontend dependencies
+      - name: Install frontend dependencies
         working-directory: frontend
-        run: |
-          npm ci
-          npm audit --omit=dev --audit-level=high
+        run: npm ci
+
+      - name: Frontend dependency audit
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.skip_audit) }}
+        working-directory: frontend
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Warn that the dependency audit was skipped
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_audit }}
+        run: echo "::warning title=Dependency audit SKIPPED::Dependency audit SKIPPED by manual run (frontend job), triggered by ${{ github.actor }}"
 
       - name: Build frontend
         working-directory: frontend

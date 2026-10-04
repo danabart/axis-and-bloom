@@ -312,3 +312,28 @@ object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
 **Not done in this pass, by design:** converting the CSP to enforcing — deliberately deferred pending review, exactly as instructed. The Cloudflare-side HSTS value cleanup noted in Step 2. The two pre-existing side-findings from the code survey (broken font file, hardcoded placeholder images).
 
 **Files:** `firebase.json`, `backend/src/index.ts`.
+
+---
+
+### 14. Dependency freshness — follow-up to C11 (2026-10-04)
+
+**Problem:** the C11 gate (`npm audit --omit=dev --audit-level=high`, #11) only ran inside the deploy. From Aug 9 to Sep 29 it never fired; from Sep 30 to Oct 4 it fired four times (Deploy runs #713 `brace-expansion` backend, #714 `undici` frontend, #716 `@grpc/grpc-js` backend, #719 `@fastify/busboy` backend), each time mid-way through an unrelated deploy, and each time the first notice was a failed deploy. All four packages are transitive (through `firebase-admin` / `firebase`). Two frontend fixes could not be a lockfile bump because `firebase@10.14.1` pins old versions, so they needed `overrides`. With no way past the gate, an unfixable advisory or an urgent fix meant production was frozen.
+
+**Three new files:**
+- `.github/dependabot.yml` — weekly (Mon 09:00 America/New_York) grouped minor/patch PRs for `/backend` and `/frontend`, majors ignored, limit 5, commit prefix `deps`; monthly grouped PRs for GitHub Actions with majors allowed (the deprecated-Node-20 warnings on `checkout@v4`, `setup-node@v4`, `auth@v2`, `setup-gcloud@v2` are fixed by major versions).
+- `.github/workflows/pr-check.yml` — on pull requests into `main`: audit, build and the three lints in both apps. Read-only, no secrets, no GCP, works for Dependabot PRs. **No vitest** — it needs the Cloud SQL proxy and test DB. So for grouped weekly PRs run `npm test` locally before merging; single-package security PRs can go on the PR check alone. Remember merging to `main` is a production deploy.
+- `.github/workflows/dependency-audit.yml` — daily 11:17 UTC (and on demand). Same gate command in both folders; on failure opens (or comments on) one issue `Dependency audit: new high/critical advisory`, label `dependency-audit`, with the audit output and the fix order below; on a clean run it comments "Audit clean" and closes the issue. GitHub emails the issue.
+
+**Fix order (printed in the issue):** (1) merge the Dependabot security PR if one is open; (2) otherwise `npm audit fix` (never `--force`) in that folder and commit the lockfile; (3) if it still fails a parent package is pinning the version, so add an `overrides` entry the way `undici` and `@grpc/grpc-js` are handled in `frontend/package.json`; (4) if no patched version exists and a deploy cannot wait, use the manual skip below and leave the issue open until the audit is clean.
+
+**`deploy.yml` change (only this):** a `workflow_dispatch` trigger with boolean `skip_audit` (default false). In both jobs `npm ci` is its own step and the audit is its own step, skipped only when the run is a `workflow_dispatch` with `skip_audit` true; a skipped audit prints a `::warning::` "Dependency audit SKIPPED by manual run" naming the actor. **The gate for pushes is unchanged:** every push to `main` runs the audit at `--omit=dev --audit-level=high` and fails the deploy on a hit, and a manual run with `skip_audit` false behaves exactly like a push.
+
+**Using the manual skip, and when it is acceptable:** Actions tab → Deploy → Run workflow → tick "Deploy without the dependency audit". Acceptable only when an advisory has no patched release yet, or a deploy genuinely cannot wait. It is a production button and a deliberate decision, never a default. The open `dependency-audit` issue is the record of what was skipped; do not close it until the audit is clean.
+
+**Honest limits:** Dependabot's weekly PRs update direct dependencies and do not refresh transitive packages on their own (all four failures were transitive); they still help by keeping `firebase-admin` and friends current. Same-day transitive fixes come from Dependabot security updates, which are a GitHub setting, not a file. Dependabot does not manage `overrides` — **re-check by hand:** backend `uuid` (`^11.1.1`); frontend `undici` (`^6.28.0`) and `@grpc/grpc-js` (`^1.14.5`). The frontend two should go away with the separate firebase upgrade brief (`CLAUDE_CODE_PROMPT_FRONTEND_FIREBASE_UPGRADE.md`).
+
+**Dana's step (GitHub settings, not doable from the repo):** Settings → Code security → enable **Dependabot alerts** and **Dependabot security updates**. Without them only the weekly routine PRs appear.
+
+**Verified locally:** YAML parse of all four files, Dependabot option names, `actionlint` 1.7.12 (0 errors; shellcheck rule not run), the issue-body step with `gh` stubbed, every PR-check command exit 0 on current main in both apps (frontend build also with no `.env`). **Only on GitHub after push:** the workflows actually running, issue create/close, the skip path. See `WHAT_WE_BUILT.md` #206.
+
+**Files:** `.github/dependabot.yml`, `.github/workflows/pr-check.yml`, `.github/workflows/dependency-audit.yml`, `.github/workflows/deploy.yml`.
