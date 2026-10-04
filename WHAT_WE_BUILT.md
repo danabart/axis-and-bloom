@@ -5268,6 +5268,22 @@ The opening turn already read from cache, because Dana's own conversation 6 minu
 
 **Files**: `backend/src/services/liamAccess.ts` (new), `backend/src/services/liamAccess.test.ts` (new), `backend/src/middleware/auth.ts`, `backend/src/routes/sommelier.ts`, `backend/src/routes/sommelier.access.test.ts` (new), `backend/src/routes/users.ts`, `backend/src/services/claude.ts`, `backend/src/services/claude.cache.test.ts` (new), `backend/src/services/anthropicGuard.ts`, `backend/src/services/anthropicGuard.test.ts` (new), `backend/src/routes/admin.ts`, `backend/src/db/schema.sql`, `frontend/src/app/context/AuthContext.tsx`, `frontend/src/app/components/Sommelier.tsx`, `PublicLayout.tsx`, `FlavorQuiz.tsx`, `Profile.tsx`, `FlavorIntelligencePage.tsx`, `QrDoor.tsx`, `bloom/FloatingCart.tsx`, `bloom/RevealedPanel.tsx`, `bloom/OtherCategoryCard.tsx`, `profile/BrewCards.tsx`, `admin/AdminAIOps.tsx`, `SOMMELIER_BUILT.md`, `WHAT_WE_BUILT_DB.md`, `OPEN_TASKS.md`.
 
+### 204. Pre-launch copy — "October 1" → "this fall" on the curtain and quiz email-capture screens (2026-10-04)
+
+**Context**: `launch/10_quiz-and-archetypes/CLAUDE_CODE_PROMPT_CURTAIN_THIS_FALL.md`. There is no October 1 launch and no new date. The crawl page and the quiz-complete email already said "this fall"; the pre-launch curtain and two quiz screens still promised October 1. Copy-only change, frontend strings, no logic.
+
+**Part A — curtain**: `PreLaunch.tsx:171` `The doors open October&nbsp;1.` → `The doors open this&nbsp;fall.` (the `&nbsp;` is kept so "this fall" doesn't break across lines).
+
+**Part B — other live screens**: `PostQuizEmailGate.tsx:76` (`…plus first access this fall.`), `PostQuizEmailGate.tsx:77` (`First access when doors open this fall.`), `FlavorQuiz.tsx:1890` (`You're on the first-access list for this fall.`). Only the date words changed.
+
+**Left alone on purpose**: the `before Oct 1` code comment at `PostQuizEmailGate.tsx:18`; `Home.tsx:654` (month list) and `TheAxisV1.tsx:281` ("you love in October") are unrelated uses of the word; nothing under `launch/`, `misc/`, or backend feature briefs (historical).
+
+**Verification**: `grep -rn "October" frontend/src` now returns only `Home.tsx:654` and `TheAxisV1.tsx:281`. `vite build` clean. Frontend `tsc --noEmit` shows only the same 13 pre-existing errors (Footer, Home, Profile, TheAxis, ArchetypeSection, useAdjacentArchetype), none in the three touched files. Local browser check (dev server with `VITE_PRELAUNCH_MODE=true`): the curtain reads "The doors open this fall." on one line at desktop width and at 390px and 320px (the latter two measured in same-origin iframes, since the browser window would not resize). No backend, DB or schema change, so `WHAT_WE_BUILT_DB.md` and `SOMMELIER_BUILT.md` are unchanged.
+
+**Not done in this pass**: not deployed (Dana deploys). Not pushed.
+
+**Files**: `frontend/src/app/components/PreLaunch.tsx`, `frontend/src/app/components/PostQuizEmailGate.tsx`, `frontend/src/app/components/FlavorQuiz.tsx`, `WHAT_WE_BUILT.md`.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

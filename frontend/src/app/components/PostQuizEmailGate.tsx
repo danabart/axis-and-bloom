@@ -73,8 +73,8 @@ export function PostQuizEmailGate({ archetypeName, archetypeColor, experimental,
         maxWidth: 480, margin: '0 0 40px',
       }}>
         {sealed
-          ? 'Your archetype, the why behind it, and your matched coffees — plus first access October 1.'
-          : 'See why this is you — and meet the coffees chosen for your taste. Then make it entirely yours with the Bloom Dial. First access when doors open October 1.'}
+          ? 'Your archetype, the why behind it, and your matched coffees — plus first access this fall.'
+          : 'See why this is you — and meet the coffees chosen for your taste. Then make it entirely yours with the Bloom Dial. First access when doors open this fall.'}
       </p>
 
       {/* Parcel address block */}

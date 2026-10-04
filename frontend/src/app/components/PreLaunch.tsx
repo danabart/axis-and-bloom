@@ -168,7 +168,7 @@ export default function PreLaunch() {
             <h1 className="pl-h1">
               You already know what you <span className="pl-hl">love.</span>
             </h1>
-            <p className="pl-sub">The doors open October&nbsp;1.</p>
+            <p className="pl-sub">The doors open this&nbsp;fall.</p>
 
             <div className="pl-worlds" aria-hidden="true">
               {ARCHETYPE_SWATCHES.map((c) => (
