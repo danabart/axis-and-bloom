@@ -5284,6 +5284,18 @@ The opening turn already read from cache, because Dana's own conversation 6 minu
 
 **Files**: `frontend/src/app/components/PreLaunch.tsx`, `frontend/src/app/components/PostQuizEmailGate.tsx`, `frontend/src/app/components/FlavorQuiz.tsx`, `WHAT_WE_BUILT.md`.
 
+### 205. Deploy unblocked again — `@fastify/busboy` 3.2.0 → 3.2.2 for two new high advisories (2026-10-04)
+
+**Context**: the Deploy run for `4812fb5` (entry #204, copy-only) failed at the backend `npm audit --omit=dev --audit-level=high` gate before any later step ran; the frontend job never started. Same pattern as #203's `@grpc/grpc-js` failure: a new advisory landed between two pushes, not caused by the code. `@fastify/busboy` (1.0.0–3.2.0) is a transitive dependency of `firebase-admin@14.2.0`. Advisories: **GHSA-xjh9-v7x6-24jw** (denial of service via oversized multipart boundary) and **GHSA-x8mw-p69m-v3mx** (denial of service via prototype-named multipart part header).
+
+**Change**: `npm audit fix` in `backend/` (no `--force`), which changed only `backend/package-lock.json`: `@fastify/busboy` **3.2.0 → 3.2.2**. `package.json` is untouched; no major bump.
+
+**Verification**: the exact workflow commands (`npm ci` then `npm audit --omit=dev --audit-level=high`) report 0 vulnerabilities and exit 0 for both `backend/` and `frontend/`, so the frontend gate does not fail behind this one. Backend `tsc --noEmit` clean; `lint:catalog`, `lint:retention`, `lint:customer` clean.
+
+**Not run — vitest**: `npm test` was **not run** for this change. The suite needs the Cloud SQL Auth Proxy on port 5433 and runs against `axisandbloom_test` on the production Cloud SQL instance; the auto-mode classifier denied the run after the proxy was started, and Dana chose to skip it. Basis for skipping: a patch bump of a transitive dependency, with the build, lints and both audit gates clean. Deploy does not run vitest.
+
+**Files**: `backend/package-lock.json`, `WHAT_WE_BUILT.md`.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)
