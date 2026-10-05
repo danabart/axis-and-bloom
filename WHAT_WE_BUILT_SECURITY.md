@@ -344,12 +344,12 @@ object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
 
 **Old / new:** `firebase` 10.14.1 → 12.19.0 in `frontend/` (`@firebase/auth` 1.7.9 → 1.13.6, `@firebase/app-check` 0.8.8 → 0.13.1, `@firebase/firestore` 4.7.3 → 4.17.2). Branch `deps/frontend-firebase-upgrade`, pull request open, not merged. Full detail in `WHAT_WE_BUILT.md` #207.
 
-**What changed in code:** nothing. The Firebase surface (`firebase.ts`, `AuthContext.tsx`) compiled unchanged; `tsc` shows the same 13 pre-existing errors before and after. Only `frontend/package.json` and the lockfile changed.
+**What changed in code:** the upgrade itself needed nothing — `firebase.ts` and `AuthContext.tsx` compiled unchanged, and `tsc` shows the same 13 pre-existing errors before and after. The only source edit is removing the unused `firestore` export and `firebase/firestore` import from `firebase.ts` (see side finding). Other changes: `frontend/package.json` and the lockfile.
 
 **Overrides:** `undici` **removed** — v11+ dropped it, and it is no longer in the tree. `@grpc/grpc-js` **kept** — `@firebase/firestore@4.17.2` pins `~1.9.0` (1.9.16, inside the advisory range), so without the override `npm audit --omit=dev --audit-level=high` fails with 4 highs. It is Node-only and not used by Firestore's browser build, so it is audit hygiene, not a runtime exposure. **The recurrence risk remains:** Dependabot does not manage `overrides`, so re-check `@grpc/grpc-js` by hand until Firestore stops pinning the 1.9 line. The backend `uuid` override is unchanged (see #14).
 
-**Side finding:** the frontend `firestore` export is unused and, under v12, is not tree-shaken: +258,832 B raw / +68 kB gzip on the main bundle versus pre-upgrade; a build without it is smaller than before. Tracked as OPEN_TASKS OT-34, not changed here.
+**Side finding:** the frontend `firestore` export is unused and, under v12, is not tree-shaken: +258,832 B raw / +68 kB gzip on the main bundle versus pre-upgrade; a build without it is smaller than before. Removed in the same PR (OPEN_TASKS OT-34, closed); the final bundle is 74,528 B raw smaller than before the upgrade.
 
 **Verification status:** build, audit and tsc verified locally; anonymous sign-in and App Check initialisation partly verified in a browser; quiz not verified (no local backend); email/password, Google, Apple, sign-out and anonymous-to-real linking are for Dana to test. After the merge-deploy, smoke test sign-in and the quiz on the live site, including from the Instagram in-app browser.
 
-**Files:** `frontend/package.json`, `frontend/package-lock.json`.
+**Files:** `frontend/package.json`, `frontend/package-lock.json`, `frontend/src/app/lib/firebase.ts`.
