@@ -73,6 +73,7 @@ jobs:
 
       - name: Backend dependency audit
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.skip_audit) }}
+        continue-on-error: true
         working-directory: backend
         run: npm audit --omit=dev --audit-level=high
 
@@ -176,6 +177,7 @@ jobs:
 
       - name: Frontend dependency audit
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.skip_audit) }}
+        continue-on-error: true
         working-directory: frontend
         run: npm audit --omit=dev --audit-level=high
 

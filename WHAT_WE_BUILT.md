@@ -5312,6 +5312,8 @@ The opening turn already read from cache, because Dana's own conversation 6 minu
 
 **Files**: `.github/dependabot.yml`, `.github/workflows/pr-check.yml`, `.github/workflows/dependency-audit.yml`, `.github/workflows/deploy.yml`, `WHAT_WE_BUILT.md`, `WHAT_WE_BUILT_SECURITY.md`.
 
+**Superseded 2026-10-05 (Dana's decision)**: `dependabot.yml` and `pr-check.yml` deleted; Dependabot PRs #3 and #4 closed unmerged; `dependency-audit.yml` kept; the two audit steps in `deploy.yml` got `continue-on-error: true`, so an audit finding no longer blocks a deploy (the daily issue is the alert). See `WHAT_WE_BUILT_SECURITY.md` #14.
+
 
 ### 207. Frontend Firebase SDK 10.14.1 → 12.19.0; `undici` override removed, `@grpc/grpc-js` override kept (2026-10-04)
 

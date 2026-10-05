@@ -338,6 +338,8 @@ object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
 
 **Files:** `.github/dependabot.yml`, `.github/workflows/pr-check.yml`, `.github/workflows/dependency-audit.yml`, `.github/workflows/deploy.yml`.
 
+**Superseded 2026-10-05 (Dana's decision):** `.github/dependabot.yml` and `.github/workflows/pr-check.yml` were deleted, and Dependabot PRs #3 and #4 were closed unmerged (branches deleted). `dependency-audit.yml` stays. In `deploy.yml` the two audit steps now have `continue-on-error: true`, so **an audit finding no longer fails or blocks a deploy** — it still runs and shows as a warning on the run; the daily `dependency-audit` issue is the alert. The "gate for pushes is unchanged" statement above no longer holds. The `skip_audit` input still exists but is now rarely needed. The Dependabot-based text above describes what was built, not what is live.
+
 ---
 
 ### 15. C11 follow-up — frontend Firebase 10 → 12 (2026-10-04)
