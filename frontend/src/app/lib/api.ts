@@ -373,12 +373,17 @@ export type QrResolveResult =
   // picker no longer exists (the profile page shows every bag for free).
   | { status: 'profile' }
   | { status: 'quiz' }
+  // bag_qr (2026-10-05) — a signed-out universal scan: the two-door page.
+  | { status: 'doors' }
   | { status: 'rate_limited' }
   | { status: 'error' };
 
-export async function resolveQrToken(token: string): Promise<QrResolveResult> {
+// No token = the bare printed address /b, resolved server-side against the
+// one canonical universal token (GET /api/qr/resolve).
+export async function resolveQrToken(token?: string): Promise<QrResolveResult> {
   try {
-    const res = await fetch(`${BASE}/qr/${encodeURIComponent(token)}/resolve`, {
+    const path = token ? `/qr/${encodeURIComponent(token)}/resolve` : '/qr/resolve';
+    const res = await fetch(`${BASE}${path}`, {
       headers: await getHeaders(),
     });
     if (res.status === 404) return { status: 'unknown' };

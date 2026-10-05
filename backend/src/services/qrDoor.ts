@@ -209,6 +209,32 @@ export async function hasAnyOrderOrSponsorship(profileId: string): Promise<boole
   return result.rows.length > 0;
 }
 
+// bag_qr (2026-10-05, amends HOME_TASK_7E) — the universal scan's whole
+// decision, shared by GET /api/qr/:token/resolve (long form, canonical or the
+// dormant 'temecula' token) and GET /api/qr/resolve (the bare printed /b).
+// One behaviour, one code path: the route only logs and responds. Signed out
+// now gets the two-door page ('doors') instead of 7E's straight bounce to
+// sign-in; 'profile' and 'quiz' are unchanged from 7E (the frontend now
+// opens /profile on the Past Orders tab).
+export type UniversalScanStatus = 'doors' | 'profile' | 'quiz';
+
+export interface UniversalScanOutcome {
+  status: UniversalScanStatus;
+  authState: 'signed_out' | 'owner' | 'no_orders';
+  destination: 'door_choice' | 'bag_view' | 'brand_landing';
+}
+
+export async function resolveUniversalScan(isRealSignIn: boolean, profileId: string | null): Promise<UniversalScanOutcome> {
+  if (!isRealSignIn) {
+    return { status: 'doors', authState: 'signed_out', destination: 'door_choice' };
+  }
+  const isCustomer = profileId ? await hasAnyOrderOrSponsorship(profileId) : false;
+  if (!isCustomer) {
+    return { status: 'quiz', authState: 'no_orders', destination: 'brand_landing' };
+  }
+  return { status: 'profile', authState: 'owner', destination: 'bag_view' };
+}
+
 // Roastery lifecycle (2026-08-25) — "Retired/inactive" now HAS a dedicated
 // column: coffees.is_active. Primary signal is that; "no active roaster_blend"
 // is kept as a secondary signal (a coffee can go unfulfillable — e.g. every

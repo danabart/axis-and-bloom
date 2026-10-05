@@ -66,26 +66,68 @@ function BagView({ coffeeId, displayName, card }: { coffeeId: number; displayNam
   );
 }
 
+/** bag_qr (2026-10-05, amends HOME_TASK_7E) — a signed-out universal scan.
+ * Two doors instead of 7E's straight bounce to sign-in. Both links replace
+ * this history entry, so the back button from either destination never walks
+ * back into /b (which would just resolve and forward again). Door 1 returns
+ * to the address the visitor arrived on, which then resolves as signed in. */
+function TwoDoors({ returnTo }: { returnTo: string }) {
+  const signInHref = `/sign-in?mode=signin&redirect=${encodeURIComponent(returnTo)}`;
+  const doors = [
+    { to: signInHref, label: 'I have a profile', line: 'Sign in to see your coffee and your flavor memory.' },
+    { to: '/find-my-flavor', label: "I'm new here", line: 'Take the quiz and find your flavor.' },
+  ];
+  return (
+    <div className="max-w-xl mx-auto px-6 py-16">
+      <p className="text-[10px] uppercase tracking-[0.3em] mb-2" style={{ color: `${RUST}99` }}>
+        FROM: AXIS &amp; BLOOM · TO: YOU
+      </p>
+      <h1 className="text-2xl font-normal mb-10" style={{ color: '#3a2e28' }}>See how this coffee matches you.</h1>
+
+      <div className="flex flex-col gap-8">
+        {doors.map(door => (
+          <Link key={door.label} to={door.to} replace className="group flex flex-col gap-1.5 py-2">
+            <span
+              className="inline-flex items-center gap-2 self-start text-xs uppercase tracking-[0.2em] border-b pb-0.5"
+              style={{ color: RUST, borderColor: RUST }}
+            >
+              {door.label} <ArrowRight size={12} />
+            </span>
+            <span className="text-xs leading-relaxed" style={{ color: `${RUST}99` }}>{door.line}</span>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function QrDoor() {
+  // No token = the bare printed address /b (bag_qr) — the server resolves it
+  // against the one canonical universal token, same branch as the long form.
   const { token } = useParams();
   const { loading: authLoading } = useAuth();
   const [result, setResult] = useState<QrResolveResult | null>(null);
+  const arrivedAt = token ? `/b/${token}` : '/b';
 
   useEffect(() => {
-    if (!token || authLoading) return;
+    if (authLoading) return;
     let cancelled = false;
     resolveQrToken(token).then(r => { if (!cancelled) setResult(r); });
     return () => { cancelled = true; };
   }, [token, authLoading]);
 
-  if (!token) return <Navigate to="/" replace />;
-
   if (authLoading || !result) {
     return <div className="min-h-[50vh] flex items-center justify-center text-sm text-stone-400">Loading…</div>;
   }
 
+  // Per-coffee tokens only since bag_qr — a signed-out universal scan gets
+  // 'doors' instead.
   if (result.status === 'sign_in') {
-    return <Navigate to={`/sign-in?redirect=${encodeURIComponent(`/b/${token}`)}`} replace />;
+    return <Navigate to={`/sign-in?redirect=${encodeURIComponent(arrivedAt)}`} replace />;
+  }
+
+  if (result.status === 'doors') {
+    return <TwoDoors returnTo={arrivedAt} />;
   }
 
   if (result.status === 'retired') {
@@ -99,9 +141,10 @@ export default function QrDoor() {
   }
 
   // HOME_TASK_7E — universal token, signed in. Customer → their profile
-  // (every bag lives there already); not a customer → the quiz.
+  // (every bag lives there already); not a customer → the quiz. bag_qr
+  // (2026-10-05) — the profile opens on Past Orders, not Flavor Memory.
   if (result.status === 'profile') {
-    return <Navigate to="/profile" replace />;
+    return <Navigate to="/profile?tab=orders" replace />;
   }
 
   if (result.status === 'quiz') {

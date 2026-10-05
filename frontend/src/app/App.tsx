@@ -157,6 +157,7 @@ export default function App() {
               <Route path="/coffees" element={<PrelaunchGate><CoffeesRedirect /></PrelaunchGate>} />
               <Route path="/bloom" element={<PrelaunchGate><BloomPage /></PrelaunchGate>} />
               <Route path="/coffee/:id/story" element={<PrelaunchGate><CoffeeStoryPage /></PrelaunchGate>} />
+              <Route path="/b" element={<QrDoor />} />
               <Route path="/b/:token" element={<QrDoor />} />
               <Route
                 path="/sommelier"

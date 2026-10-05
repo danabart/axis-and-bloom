@@ -3875,6 +3875,9 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 -- (2+ plausible active bags; a signed-in customer with none at all).
 ALTER TYPE qr_destination_enum ADD VALUE IF NOT EXISTS 'bag_picker';
 ALTER TYPE qr_destination_enum ADD VALUE IF NOT EXISTS 'brand_landing';
+-- 'door_choice' added bag_qr (2026-10-05) — a signed-out universal scan (bare
+-- /b or the long form) now lands on the two-door page, not straight at sign-in.
+ALTER TYPE qr_destination_enum ADD VALUE IF NOT EXISTS 'door_choice';
 
 DO $$ BEGIN
   CREATE TYPE qr_token_type_enum AS ENUM ('coffee', 'universal');

@@ -1833,7 +1833,9 @@ const QR_BASE_URL = process.env.FRONTEND_URL ?? 'http://localhost:5173';
 router.get('/qr/universal-tokens', async (_req, res) => {
   try {
     const { source, token } = await getOrMintCanonicalUniversalToken();
-    res.json({ source, token, url: `${QR_BASE_URL}/b/${token}` });
+    // bag_qr (2026-10-05) — printedUrl is what the ink carries: the bare /b,
+    // a permanent alias for this same token. url stays as the long form.
+    res.json({ source, token, url: `${QR_BASE_URL}/b/${token}`, printedUrl: `${QR_BASE_URL}/b` });
   } catch (err) {
     console.error('[admin/qr/universal-tokens]', err);
     res.status(500).json({ error: 'Failed to fetch universal QR token' });

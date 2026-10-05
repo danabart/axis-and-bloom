@@ -5333,6 +5333,31 @@ The opening turn already read from cache, because Dana's own conversation 6 minu
 
 **Files**: `frontend/package.json`, `frontend/package-lock.json`, `frontend/src/app/lib/firebase.ts`, `OPEN_TASKS.md`, `WHAT_WE_BUILT.md`, `WHAT_WE_BUILT_SECURITY.md`.
 
+### 208. Bag QR short address — the printed `/b` and the two-door landing (2026-10-05)
+
+**Context**: `backend/src/features/bag_qr/CLAUDE_CODE_PROMPT_BAG_QR_SHORT_ADDRESS.md` (decided by Dana 2026-10-05). Amends HOME_TASK_7E (#139, `SOMMELIER_BUILT.md` S87; pointer in S104). The bag artwork prints one QR whose ink is exactly `https://axisandbloomcoffee.com/b` — no token. Before this, only `/b/:token` existed.
+
+**Task 0 (all confirmed, nothing contradicted the brief)**: `routes/qr.ts`'s universal branch and `QrDoor.tsx` were as described (signed-out universal scan logged `signed_out`/`sign_in` and bounced to `/sign-in?redirect=/b/<token>`; signed-in → `profile`/`quiz`; `if (!token) <Navigate to="/" />`). Enum precedent: `schema.sql` already adds values to existing enums with bare `ALTER TYPE ... ADD VALUE IF NOT EXISTS` lines (`archetype_enum 'experimental'`, `qr_auth_state_enum 'no_orders'`, `qr_destination_enum 'bag_picker'/'brand_landing'`). The boot apply (`index.ts`) runs the whole file as one multi-statement `owner.query(schema)` (implicit transaction under the simple-query protocol, no explicit `BEGIN`); `ADD VALUE` is legal there on PG 12+ as long as nothing in the same batch uses the new value, which nothing does — same as the precedent. `Profile.tsx` honours `?tab=orders` (`tabParam` against `VALID_TABS`). `SignIn.tsx` hard-coded `useState('create')` and read `?redirect=` (default `/profile`). One note, not a contradiction: prod `FRONTEND_URL` (the admin route's `QR_BASE_URL`) is `https://www.axisandbloomcoffee.com`, so `printedUrl` reads `https://www.axisandbloomcoffee.com/b`, not the apex form the ink carries — see the live check below.
+
+**Backend**:
+- `services/qrDoor.ts` — new `resolveUniversalScan(isRealSignIn, profileId)` returns `{ status, authState, destination }`: signed out → `doors`/`signed_out`/`door_choice`; customer (`hasAnyOrderOrSponsorship`) → `profile`/`owner`/`bag_view`; otherwise → `quiz`/`no_orders`/`brand_landing`. A real sign-in with no `user_profile` row resolves as not a customer (was `profileId!`).
+- `routes/qr.ts` — `isRealSignIn(req)` extracted (the same `!!req.uid && !req.isAnonymous` rule, verbatim; anonymous is not signed in) and `respondUniversal()` (resolve → one `qr_scan_event` row → `{ status }`) shared by both routes. `GET /api/qr/:token/resolve`'s universal branch now calls it. **New `GET /api/qr/resolve`** (no token; same `qrResolveLimiter` + `optionalAuth`): `getOrMintCanonicalUniversalToken()` then the same `respondUniversal()`, so a bare `/b` row carries the canonical token, `token_type 'universal'`, `source 'path'`, exactly like a long-form scan. Never 404s. Per-coffee resolution, `customer_bag_claim` writes, minting and both token caches untouched.
+- `schema.sql` — `ALTER TYPE qr_destination_enum ADD VALUE IF NOT EXISTS 'door_choice'`; `QrDestination` type gains it. No other schema change.
+- `routes/admin.ts` — `GET /api/admin/qr/universal-tokens` adds `printedUrl: ${QR_BASE_URL}/b`; `token` and `url` kept.
+
+**Frontend**:
+- `App.tsx` — `<Route path="/b" element={<QrDoor />} />` beside `/b/:token`, inside `PublicLayout`, not wrapped in `PrelaunchGate`. `lib/prelaunch.ts` — `'/b'` added to `PRELAUNCH_OPEN_ROUTES` (documentation list).
+- `lib/api.ts` — `resolveQrToken(token?)` hits `/qr/resolve` when there is no token; `QrResolveResult` gains `{ status: 'doors' }`.
+- `QrDoor.tsx` — the no-token bounce to `/` is gone (no token = the bag address). `profile` → `/profile?tab=orders`. `doors` → the new `TwoDoors` block (eyebrow `FROM: AXIS & BLOOM · TO: YOU`, heading `See how this coffee matches you.`, door 1 `I have a profile` → `/sign-in?mode=signin&redirect=<arrived-at address>`, door 2 `I'm new here` → `/find-my-flavor`), same RUST / uppercase-tracked-link / type scale as the page's other states, no new components, colours or fonts. Both door links use `replace`, so the back button from either destination never walks back into `/b`. `sign_in` keeps its behaviour and is now reached by per-coffee tokens only.
+- `SignIn.tsx` — `?mode=signin` preselects the Sign In tab; default stays `create`.
+- `admin/AdminQrDoor.tsx` — shows `printedUrl` as "The printed address" (with Copy); the token URL stays below, labelled as the long form.
+
+**Checks**: backend `npx tsc --noEmit` exit 0; `lint:catalog`, `lint:retention`, `lint:customer` all pass; `vitest run src/services/qrDoor.test.ts` 3/3 against `axisandbloom_test` (globalSetup re-applied `schema.sql` twice with no error, so the new `ADD VALUE` is idempotent), including new assertions on all three `resolveUniversalScan` outcomes. Frontend `vite build` clean; frontend `tsc --noEmit` reports the same 13 pre-existing errors as #207 (Footer/Home/Profile/TheAxis/ArchetypeSection/useAdjacentArchetype), none in a file this task touched.
+
+**Prod baseline before deploy**: `qr_scan_event` 18 rows (max id 63); `"order"` 0, `order_line_item` 0, `customer_bag_claim` 0, `user_profile` 112. Canonical token `path` = `41654e3f…`.
+
+**Files**: `backend/src/services/qrDoor.ts`, `backend/src/services/qrDoor.test.ts`, `backend/src/routes/qr.ts`, `backend/src/routes/admin.ts`, `backend/src/db/schema.sql`, `frontend/src/app/App.tsx`, `frontend/src/app/lib/prelaunch.ts`, `frontend/src/app/lib/api.ts`, `frontend/src/app/components/QrDoor.tsx`, `frontend/src/app/components/SignIn.tsx`, `frontend/src/app/components/admin/AdminQrDoor.tsx`, `backend/src/features/bag_qr/CLAUDE_CODE_PROMPT_BAG_QR_SHORT_ADDRESS.md`, `WHAT_WE_BUILT.md`, `WHAT_WE_BUILT_DB.md`, `WHAT_WE_BUILT_SECURITY.md` (#16), `SOMMELIER_BUILT.md`.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

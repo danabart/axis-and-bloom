@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { db } from '../db/client.js';
 import { optionalAuth, type AuthRequest } from '../middleware/auth.js';
@@ -12,7 +12,8 @@ import {
   resolveOwnership,
   buildBagView,
   resolveUniversalToken,
-  hasAnyOrderOrSponsorship,
+  resolveUniversalScan,
+  getOrMintCanonicalUniversalToken,
   findOwnedOrderLineItem,
 } from '../services/qrDoor.js';
 import { record } from '../services/customerFacts.js';
@@ -37,7 +38,7 @@ const qrResolveLimiter = rateLimit({
 });
 
 type QrAuthState = 'owner' | 'signed_out' | 'non_owner' | 'unresolved' | 'no_orders';
-type QrDestination = 'bag_view' | 'sign_in' | 'story_page' | 'retired_story' | 'unknown' | 'bag_picker' | 'brand_landing';
+type QrDestination = 'bag_view' | 'sign_in' | 'story_page' | 'retired_story' | 'unknown' | 'bag_picker' | 'brand_landing' | 'door_choice';
 type QrTokenType = 'coffee' | 'universal';
 
 // Scan-analytics point (§3.1 closing pass; token_type/source added
@@ -72,6 +73,36 @@ async function resolveProfileId(uid: string): Promise<string | null> {
   return result.rows[0]?.id ?? null;
 }
 
+// Every visitor gets an anonymous Firebase session automatically
+// (AuthContext.tsx signs one in whenever there's no user yet), and
+// getHeaders() sends that anonymous user's ID token on every request —
+// optionalAuth decodes it fine and sets req.uid. Caught live during
+// HOME_TASK_7 verification: without this check, a guest's first-ever scan
+// silently resolved as "signed in", because an anonymous uid looks signed in
+// to a naive uid check. RequireAuth.tsx already treats isAnonymous as
+// not-really-signed-in (`if (!user || isGuest)`) — mirrored here. Shared by
+// both resolve routes below (bag_qr, 2026-10-05), not re-derived.
+function isRealSignIn(req: AuthRequest): boolean {
+  return !!req.uid && !req.isAnonymous;
+}
+
+// bag_qr (2026-10-05) — the universal branch's request plumbing, shared by
+// the long form (/:token/resolve) and the bare printed address (/resolve).
+// The decision itself lives in resolveUniversalScan() (services/qrDoor.ts).
+// One log row per scan, carrying the real token + source either way, so a
+// bare /b scan is indistinguishable in qr_scan_event from a long-form one.
+async function respondUniversal(
+  res: Response,
+  token: string,
+  source: string,
+  realSignIn: boolean,
+  profileId: string | null
+): Promise<void> {
+  const outcome = await resolveUniversalScan(realSignIn, profileId);
+  await logScanEvent(token, null, outcome.authState, outcome.destination, profileId, 'universal', source);
+  res.json({ status: outcome.status });
+}
+
 // ─── GET /api/qr/:token/resolve ────────────────────────────────────────────
 // Public — no auth required to resolve (optionalAuth decodes a token if
 // present, never rejects if absent). Auth state only changes the
@@ -83,20 +114,9 @@ async function resolveProfileId(uid: string): Promise<string | null> {
 router.get('/:token/resolve', qrResolveLimiter, optionalAuth, async (req: AuthRequest, res) => {
   const { token } = req.params;
   try {
-    // Every visitor gets an anonymous Firebase session automatically
-    // (AuthContext.tsx signs one in whenever there's no user yet), and
-    // getHeaders() sends that anonymous user's ID token on every request —
-    // optionalAuth decodes it fine and sets req.uid. Caught live during
-    // verification: without this check, a guest's first-ever scan (the
-    // strategy doc's own "majority case for a first scan") silently
-    // resolved to the public story page instead of the sign-in prompt,
-    // because an anonymous uid looks "signed in" to a naive uid check.
-    // RequireAuth.tsx already treats isAnonymous as not-really-signed-in
-    // (`if (!user || isGuest)`) — mirrored here for the same reason. Reused
-    // verbatim for the universal-token branch below, per HOME_TASK_7C's
-    // environment note — not re-derived.
-    const isRealSignIn = !!req.uid && !req.isAnonymous;
-    const profileId = isRealSignIn ? await resolveProfileId(req.uid!) : null;
+    // Anonymous is NOT signed in — see isRealSignIn() above.
+    const realSignIn = isRealSignIn(req);
+    const profileId = realSignIn ? await resolveProfileId(req.uid!) : null;
 
     // Per-coffee token first (unchanged from HOME_TASK_7) — this is still
     // the digital-link path (story pages, emails). Only if it doesn't match
@@ -114,7 +134,7 @@ router.get('/:token/resolve', qrResolveLimiter, optionalAuth, async (req: AuthRe
         return;
       }
 
-      if (!isRealSignIn) {
+      if (!realSignIn) {
         await logScanEvent(token, coffeeId, 'signed_out', 'sign_in', null, 'coffee', null);
         res.json({ status: 'sign_in' });
         return;
@@ -161,34 +181,14 @@ router.get('/:token/resolve', qrResolveLimiter, optionalAuth, async (req: AuthRe
     // branch, just never surfaced on the admin page or minted again.
     const source = await resolveUniversalToken(token);
 
+    // HOME_TASK_7E (decision #1, amends 7c) — a signed-in universal scan
+    // lands on /profile (customer, 'owner'/'bag_view') or the quiz (not a
+    // customer, 'no_orders'/'brand_landing'). bag_qr (2026-10-05) — signed
+    // out now gets the two-door page ('signed_out'/'door_choice'), and the
+    // whole branch is shared with the bare /resolve route below, so the long
+    // form /b/<canonical token> behaves identically to the printed /b.
     if (source !== null) {
-      if (!isRealSignIn) {
-        await logScanEvent(token, null, 'signed_out', 'sign_in', null, 'universal', source);
-        res.json({ status: 'sign_in' });
-        return;
-      }
-
-      // HOME_TASK_7E (decision #1, amends 7c) — the universal scan no longer
-      // lands on a dedicated bag view or picker; it lands on /profile, which
-      // already shows every one of a customer's cards. So the only question
-      // left is binary: customer or not. `auth_state`/`destination` reuse
-      // the closest existing enum values rather than adding new ones (no
-      // schema changes, per this task's own scope) — 'owner'/'bag_view' for
-      // "they have a bag (or several) to see," now surfaced at /profile
-      // instead of a per-bag page; 'no_orders'/'brand_landing' for "not a
-      // customer," now pointed at the quiz specifically rather than the
-      // homepage that merely carries a quiz CTA — the quiz page IS the
-      // brand's actual conversion engine per the strategy doc.
-      const isCustomer = await hasAnyOrderOrSponsorship(profileId!);
-
-      if (!isCustomer) {
-        await logScanEvent(token, null, 'no_orders', 'brand_landing', profileId, 'universal', source);
-        res.json({ status: 'quiz' });
-        return;
-      }
-
-      await logScanEvent(token, null, 'owner', 'bag_view', profileId, 'universal', source);
-      res.json({ status: 'profile' });
+      await respondUniversal(res, token, source, realSignIn, profileId);
       return;
     }
 
@@ -197,6 +197,25 @@ router.get('/:token/resolve', qrResolveLimiter, optionalAuth, async (req: AuthRe
     res.status(404).json({ status: 'unknown' });
   } catch (err) {
     console.error('[qr/:token/resolve]', err);
+    res.status(500).json({ error: 'Failed to resolve code' });
+  }
+});
+
+// ─── GET /api/qr/resolve ───────────────────────────────────────────────────
+// bag_qr (2026-10-05) — the bare printed address, /b. The ink carries no
+// token, so this is a permanent alias for the ONE canonical universal token
+// (CANONICAL_UNIVERSAL_QR_SOURCE, HOME_TASK_7E decision #0): it fetches that
+// token (minting it on first call, idempotent) and runs the exact same
+// universal branch as /:token/resolve. Never 404s — there is nothing to
+// mistype in the ink.
+router.get('/resolve', qrResolveLimiter, optionalAuth, async (req: AuthRequest, res) => {
+  try {
+    const realSignIn = isRealSignIn(req);
+    const profileId = realSignIn ? await resolveProfileId(req.uid!) : null;
+    const { source, token } = await getOrMintCanonicalUniversalToken();
+    await respondUniversal(res, token, source, realSignIn, profileId);
+  } catch (err) {
+    console.error('[qr/resolve]', err);
     res.status(500).json({ error: 'Failed to resolve code' });
   }
 });

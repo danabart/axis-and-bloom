@@ -6,6 +6,7 @@ interface UniversalTokenRow {
   source: string;
   token: string;
   url: string;
+  printedUrl: string;
 }
 
 /** HOME_TASK_7 (§3.1, QR indirection) — originally the artwork-export page,
@@ -70,15 +71,22 @@ export default function AdminQrDoor() {
         </p>
 
         {row ? (
-          <div className="flex items-center gap-4">
-            <span className="font-mono text-xs text-stone-700 break-all">{row.url}</span>
-            <button
-              onClick={() => copy(row.url)}
-              className="shrink-0 text-xs uppercase tracking-wide font-semibold text-[#a33726]"
-            >
-              {copied ? 'Copied' : 'Copy'}
-            </button>
-          </div>
+          <>
+            {/* bag_qr (2026-10-05) — the ink carries the bare /b, a permanent
+                alias the server resolves to the token below. */}
+            <p className="text-xs text-stone-500 mb-1">The printed address</p>
+            <div className="flex items-center gap-4 mb-4">
+              <span className="font-mono text-sm text-stone-800 break-all">{row.printedUrl}</span>
+              <button
+                onClick={() => copy(row.printedUrl)}
+                className="shrink-0 text-xs uppercase tracking-wide font-semibold text-[#a33726]"
+              >
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            <p className="text-xs text-stone-500 mb-1">Long form (same token, behaves identically — not for print)</p>
+            <span className="font-mono text-xs text-stone-500 break-all">{row.url}</span>
+          </>
         ) : (
           !error && <p className="text-sm text-stone-400">Loading…</p>
         )}

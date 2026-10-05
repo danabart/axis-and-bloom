@@ -36,6 +36,7 @@ export const PRELAUNCH_OPEN_ROUTES = [
   '/terms',
   '/privacy',
   '/admin',
+  '/b', // The printed bag QR's address (bag_qr) — never wrapped in anything, same as /b/:token.
   '/b/:token',
   '/crawl', // Hoboken Coffee Crawl event page (Sep 20 2026) — reached by QR/URL only.
   '/ig', // Social short link — forwards to /find-my-flavor?campaign=instagram (already open).

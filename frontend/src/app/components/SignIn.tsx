@@ -6,7 +6,12 @@ import { useAuth } from '../context/AuthContext';
 import { reportError } from '../lib/errorReporter';
 
 export default function SignIn() {
-  const [activeTab, setActiveTab] = useState<'create' | 'signin'>('create');
+  const [searchParams] = useSearchParams();
+  // bag_qr (2026-10-05) — `?mode=signin` preselects the Sign In tab (the QR
+  // two-door page's "I have a profile" door). Default stays 'create'.
+  const [activeTab, setActiveTab] = useState<'create' | 'signin'>(
+    searchParams.get('mode') === 'signin' ? 'signin' : 'create'
+  );
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [firstName, setFirstName] = useState('');
@@ -14,7 +19,6 @@ export default function SignIn() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [resetSent, setResetSent] = useState(false);
-  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { signIn, signUp, signInWithGoogle, signInWithApple } = useAuth();
   const fromQuiz = searchParams.get('quiz_id');

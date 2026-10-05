@@ -12,7 +12,7 @@
 import 'dotenv/config';
 import { describe, it, expect, afterAll } from 'vitest';
 import { db } from '../db/client.js';
-import { isCoffeeRetired, resolveUniversalToken, hasAnyOrderOrSponsorship, getOrMintCanonicalUniversalToken } from './qrDoor.js';
+import { isCoffeeRetired, resolveUniversalToken, hasAnyOrderOrSponsorship, getOrMintCanonicalUniversalToken, resolveUniversalScan } from './qrDoor.js';
 
 // 2026-08-26 hardening round — the real safety net for a fixture whose
 // creation itself fails partway. This file's own fixture also creates
@@ -119,6 +119,13 @@ describe('Universal QR resolve path stays independent of roastery/coffee active 
       )).rows[0];
 
       expect(await hasAnyOrderOrSponsorship(profile!.id)).toBe(true);
+
+      // bag_qr (2026-10-05) — the shared universal decision, all three states.
+      expect(await resolveUniversalScan(false, null)).toEqual({ status: 'doors', authState: 'signed_out', destination: 'door_choice' });
+      expect(await resolveUniversalScan(true, profile!.id)).toEqual({ status: 'profile', authState: 'owner', destination: 'bag_view' });
+      await db.query('DELETE FROM order_line_item WHERE id = $1', [lineItem!.id]);
+      lineItem = undefined;
+      expect(await resolveUniversalScan(true, profile!.id)).toEqual({ status: 'quiz', authState: 'no_orders', destination: 'brand_landing' });
     } finally {
       if (lineItem) await db.query('DELETE FROM order_line_item WHERE id = $1', [lineItem.id]);
       if (order) await db.query('DELETE FROM "order" WHERE id = $1', [order.id]);

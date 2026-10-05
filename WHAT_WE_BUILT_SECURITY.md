@@ -355,3 +355,11 @@ object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
 **Verification status:** build, audit and tsc verified locally; anonymous sign-in and App Check initialisation partly verified in a browser; quiz not verified (no local backend); email/password, Google, Apple, sign-out and anonymous-to-real linking are for Dana to test. After the merge-deploy, smoke test sign-in and the quiz on the live site, including from the Instagram in-app browser.
 
 **Files:** `frontend/package.json`, `frontend/package-lock.json`, `frontend/src/app/lib/firebase.ts`.
+
+### 16. Bag QR short address — one new public endpoint (2026-10-05)
+
+**What:** `GET /api/qr/resolve` (bag_qr, `WHAT_WE_BUILT.md` #208), the bare printed `/b`. Public by design (a phone camera has no session), same posture as the existing `GET /api/qr/:token/resolve`: `qrResolveLimiter` (30/min per real client IP, C17 keying) and `optionalAuth` (decodes a token if present, never rejects). It takes no input at all, so there is nothing to enumerate or inject; the response is only `{ status: 'doors' | 'profile' | 'quiz' }` and never exposes the canonical token. Anonymous Firebase sessions are treated as signed out (unchanged `isRealSignIn` rule). Every call writes exactly one `qr_scan_event` row, so a scripted caller is bounded by the same rate limit as the long form.
+
+**Sign-in redirect:** the two-door page links to `/sign-in?mode=signin&redirect=/b` (or `/b/<token>`). `redirect` values are always same-site paths built in `QrDoor.tsx`; `SignIn.tsx`'s existing `navigate(redirectTo)` is unchanged and routes in-app (React Router), so this adds no new open-redirect surface.
+
+**Files:** `backend/src/routes/qr.ts`, `backend/src/services/qrDoor.ts`, `frontend/src/app/components/QrDoor.tsx`, `frontend/src/app/components/SignIn.tsx`.
