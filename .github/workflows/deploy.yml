@@ -107,6 +107,15 @@ jobs:
         working-directory: backend
         run: npm run lint:customer
 
+      # Roastery Portal (2026-10-05) — fails the deploy on any INSERT/UPDATE/
+      # DELETE on a roastery_portal_* table outside roasteryPortalService.ts, or
+      # on any DML against the catalog (coffees, coffee_*,
+      # roastery_coffee_descriptors) from the portal's own files. Same
+      # placement/rationale as Lint customer above.
+      - name: Lint roastery portal
+        working-directory: backend
+        run: npm run lint:roastery-portal
+
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
 

@@ -42,6 +42,8 @@ import PrelaunchGate from './components/PrelaunchGate';
 import Privacy from './components/Privacy';
 import Terms from './components/Terms';
 import CrawlLanding from './components/CrawlLanding';
+import RoasteryPortal from './components/roastery-portal/RoasteryPortal';
+import AdminRoasteryPortal from './components/admin/AdminRoasteryPortal';
 import ConsentBanner from './components/ConsentBanner';
 import CampaignQueryReader from './components/CampaignQueryReader';
 import { usePrelaunchGated } from './lib/prelaunch';
@@ -51,6 +53,8 @@ import { usePrelaunchGated } from './lib/prelaunch';
 function AnalyticsRouteTracker() {
   const location = useLocation();
   useEffect(() => {
+    // Roastery portal (2026-10-05): partner pages send no analytics events.
+    if (location.pathname.startsWith('/roastery/')) return;
     trackPageView(location.pathname + location.search);
   }, [location.pathname, location.search]);
   return null;
@@ -106,6 +110,7 @@ export default function App() {
               <Route path="sessions" element={<AdminSessions />} />
               <Route path="flavor-wheel" element={<AdminFlavorWheel />} />
               <Route path="roasters" element={<AdminRoasters />} />
+              <Route path="roastery-portal" element={<AdminRoasteryPortal />} />
               <Route path="cupping" element={<AdminCupping />} />
               <Route path="dial" element={<AdminDial />} />
               <Route path="qr-door" element={<AdminQrDoor />} />
@@ -127,6 +132,13 @@ export default function App() {
                  not wrapped in <PrelaunchGate> (see PRELAUNCH_OPEN_ROUTES); reached by
                  QR/URL only, deliberately not in Navigation/Footer's link sets. ── */}
             <Route path="/crawl" element={<CrawlLanding />} />
+
+            {/* ── Roastery portal (2026-10-05) — the partner page. Private revocable
+                 link, own minimal chrome (no site nav/footer/newsletter modal/
+                 consent banner/analytics/Liam), outside <PublicLayout> and not
+                 wrapped in <PrelaunchGate> (see PRELAUNCH_OPEN_ROUTES). ── */}
+            <Route path="/roastery/:token" element={<RoasteryPortal />} />
+            <Route path="/roastery/:token/coffee/:id" element={<RoasteryPortal />} />
 
             {/* ── Social short links — pure forwards, no logic (see SHORTLINKS above). ── */}
             <Route path="/ig" element={<ShortLink to={SHORTLINKS['/ig']} />} />

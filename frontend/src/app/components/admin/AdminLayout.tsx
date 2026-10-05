@@ -16,6 +16,7 @@ const NAV_SECTIONS = [
     label: 'Catalogue & Supply',
     items: [
       { to: '/admin/roasters',  label: 'Roasteries' },
+      { to: '/admin/roastery-portal', label: 'Roastery Feedback' },
       { to: '/admin/coffees',   label: 'Coffees' },
       { to: '/admin/inventory', label: 'Blends & SKUs' },
       { to: '/admin/dial',      label: 'Bloom Dial' },

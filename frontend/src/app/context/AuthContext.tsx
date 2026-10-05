@@ -47,6 +47,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
+      if (u === null && window.location.pathname.startsWith('/roastery/')) {
+        // Roastery portal (2026-10-05) — a partner roaster on a private link is
+        // not a site visitor: no anonymous Firebase identity, no profile sync.
+        setLoading(false);
+        return;
+      }
       if (u === null) {
         // First visit, or fully signed out — give this visitor a real (invisible)
         // Firebase identity so quiz persistence and lifecycle tracking work for

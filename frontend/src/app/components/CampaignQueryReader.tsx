@@ -25,6 +25,7 @@ export default function CampaignQueryReader() {
   const firedSlugsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
+    if (location.pathname.startsWith('/roastery/')) return; // partner pages: no campaign stamping (roastery portal, 2026-10-05)
     const params = new URLSearchParams(location.search);
     const raw = params.get('campaign');
     if (!isCampaignSlug(raw)) return; // absent or unknown — do nothing, no error
@@ -43,7 +44,7 @@ export default function CampaignQueryReader() {
       utmCampaign: params.get('utm_campaign'),
       referrer: document.referrer || null,
     }).catch(err => reportError('[CampaignQueryReader/logCampaignLanding]', err));
-  }, [location.search]);
+  }, [location.pathname, location.search]);
 
   return null;
 }

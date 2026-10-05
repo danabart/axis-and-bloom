@@ -5546,6 +5546,388 @@ ORDER BY in_pair DESC, a.n_dims_overlapping DESC, a.n_dims_disliked_overlap ASC,
 -- ═══════════════════════════════════════════════════════════════════════════
 
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- BEGIN ROASTERY PORTAL block (2026-10-05)
+-- backend/src/features/roastery_portal/CLAUDE_CODE_PROMPT_ROASTERY_PORTAL_1.md
+--
+-- Evidence tables for what partner roasteries say about their own coffees.
+-- Nothing here writes to the catalog: accepting an answer into
+-- roastery_coffee_descriptors / coffees / hops is part 2. One writer
+-- (services/roasteryPortalService.ts), views as the read path, nothing is
+-- ever deleted (deactivate, revoke, or version).
+--
+-- Deliberately placed BEFORE the A2 grant loops below: a table or view
+-- created after them is not granted to ab_app until the next boot.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- 1. One private, revocable link per roastery (a roastery can have several
+-- over time; revoking one never touches the others).
+CREATE TABLE IF NOT EXISTS roastery_portal_link (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  roaster_id          UUID NOT NULL REFERENCES roaster(id),
+  token               TEXT NOT NULL UNIQUE CHECK (length(token) >= 32),
+  contact_name        TEXT,
+  contact_email       TEXT,
+  created_by_admin_id UUID REFERENCES user_profile(id),
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_opened_at      TIMESTAMPTZ,
+  revoked_at          TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS roastery_portal_link_roaster_idx ON roastery_portal_link (roaster_id);
+
+-- 2. Who filled it in. One row per (roastery, email).
+CREATE TABLE IF NOT EXISTS roastery_portal_respondent (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  roaster_id UUID NOT NULL REFERENCES roaster(id),
+  link_id    UUID NOT NULL REFERENCES roastery_portal_link(id),
+  name       TEXT NOT NULL,
+  email      TEXT NOT NULL CHECK (email = lower(email)),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (roaster_id, email)
+);
+
+-- 3. The roastery's lineup, managed in admin (or added by the roaster),
+-- optionally linked to a catalog coffee. The catalog is never touched.
+CREATE TABLE IF NOT EXISTS roastery_portal_coffee (
+  id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  roaster_id              UUID NOT NULL REFERENCES roaster(id),
+  name                    TEXT NOT NULL,
+  coffee_id               INTEGER REFERENCES coffees(id),
+  origin                  TEXT,
+  process_values          TEXT[] NOT NULL DEFAULT '{}',
+  roast_level             TEXT,
+  blend_or_single         TEXT,
+  is_decaf                BOOLEAN,
+  prefill_source          TEXT CHECK (prefill_source IN ('roaster_site', 'catalog')),
+  added_by                TEXT NOT NULL DEFAULT 'admin' CHECK (added_by IN ('admin', 'roaster')),
+  added_by_respondent_id  UUID REFERENCES roastery_portal_respondent(id),
+  sort_order              INTEGER NOT NULL DEFAULT 0,
+  is_active               BOOLEAN NOT NULL DEFAULT true,
+  created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS roastery_portal_coffee_roaster_idx ON roastery_portal_coffee (roaster_id, sort_order);
+CREATE UNIQUE INDEX IF NOT EXISTS roastery_portal_coffee_active_name
+  ON roastery_portal_coffee (roaster_id, lower(name)) WHERE is_active;
+
+-- 4. Which numeric dimensions the portal asks, and how it words them. Seeded
+-- by dimension NAME (never by id) so a re-seeded coffee_dimensions can't
+-- silently repoint a row. The 1 to 5 scale here is relative to the roaster's
+-- own lineup, stored in roastery_portal_response_dimension, and is never
+-- mixed with cupping values (0 to 15 absolute).
+CREATE TABLE IF NOT EXISTS roastery_portal_dimension (
+  dimension_id INTEGER PRIMARY KEY REFERENCES coffee_dimensions(id),
+  label        TEXT NOT NULL,
+  low_label    TEXT NOT NULL,
+  high_label   TEXT NOT NULL,
+  sort_order   INTEGER NOT NULL DEFAULT 0,
+  is_active    BOOLEAN NOT NULL DEFAULT true
+);
+INSERT INTO roastery_portal_dimension (dimension_id, label, low_label, high_label, sort_order)
+SELECT d.id, v.label, v.low_label, v.high_label, v.sort_order
+FROM (VALUES
+  ('Acidity',        'Acidity',       'Low',   'High',  1),
+  ('Sweetness',      'Sweetness',     'Low',   'High',  2),
+  ('Bitterness',     'Bitterness',    'Low',   'High',  3),
+  ('Body',           'Body',          'Light', 'Full',  4),
+  ('Savory / Depth', 'Clean to deep', 'Clean', 'Deep',  5),
+  ('Texture',        'Texture',       'Silky', 'Drying',6),
+  ('Finish Length',  'Finish length', 'Short', 'Long',  7)
+) AS v(dimension_name, label, low_label, high_label, sort_order)
+JOIN coffee_dimensions d ON d.name = v.dimension_name AND d.is_numeric = true
+ON CONFLICT (dimension_id) DO NOTHING;
+
+-- 5. One row per coffee per version. At most one open draft per coffee; a
+-- submitted row is never updated or deleted again (trigger below, children
+-- included). Reopening a submitted coffee starts a new draft at version + 1.
+CREATE TABLE IF NOT EXISTS roastery_portal_response (
+  id                              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  portal_coffee_id                UUID NOT NULL REFERENCES roastery_portal_coffee(id),
+  version                         INTEGER NOT NULL CHECK (version >= 1),
+  status                          TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'submitted')),
+  origin                          TEXT,
+  process_values                  TEXT[] NOT NULL DEFAULT '{}',
+  roast_level                     TEXT,
+  blend_or_single                 TEXT,
+  is_decaf                        BOOLEAN,
+  proposed_archetype              archetype_enum,
+  dominant_dimension_id           INTEGER REFERENCES coffee_dimensions(id),
+  takes_it                        TEXT CHECK (takes_it IN ('black', 'milk', 'both')),
+  brew_notes                      TEXT,
+  availability                    TEXT,
+  typical_notice                  TEXT,
+  expected_availability           TEXT,
+  similar_when_out                TEXT,
+  closest_cousin_portal_coffee_id UUID REFERENCES roastery_portal_coffee(id),
+  what_changes                    TEXT,
+  anything_else                   TEXT,
+  last_saved_by_respondent_id     UUID REFERENCES roastery_portal_respondent(id),
+  submitted_by_respondent_id      UUID REFERENCES roastery_portal_respondent(id),
+  created_at                      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at                      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  submitted_at                    TIMESTAMPTZ,
+  UNIQUE (portal_coffee_id, version)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS roastery_portal_response_one_draft
+  ON roastery_portal_response (portal_coffee_id) WHERE status = 'draft';
+
+-- 6. Tasting notes: the roaster's own words, then the closest flavor wheel
+-- term. A note with no wheel pick is allowed (words only).
+CREATE TABLE IF NOT EXISTS roastery_portal_response_note (
+  response_id     UUID NOT NULL REFERENCES roastery_portal_response(id),
+  rank            INTEGER NOT NULL CHECK (rank >= 1),
+  roaster_words   TEXT NOT NULL,
+  cupping_note_id UUID REFERENCES cupping_note(id),
+  PRIMARY KEY (response_id, rank)
+);
+
+-- 7. The seven 1 to 5 dimension values, relative to the roaster's lineup.
+CREATE TABLE IF NOT EXISTS roastery_portal_response_dimension (
+  response_id  UUID NOT NULL REFERENCES roastery_portal_response(id),
+  dimension_id INTEGER NOT NULL REFERENCES coffee_dimensions(id),
+  value        INTEGER NOT NULL CHECK (value BETWEEN 1 AND 5),
+  PRIMARY KEY (response_id, dimension_id)
+);
+
+-- 8. Brewing: one best method, any number of also-goods.
+CREATE TABLE IF NOT EXISTS roastery_portal_response_brew (
+  response_id UUID NOT NULL REFERENCES roastery_portal_response(id),
+  brew_method TEXT NOT NULL,
+  role        TEXT NOT NULL CHECK (role IN ('best', 'also_good')),
+  PRIMARY KEY (response_id, brew_method)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS roastery_portal_response_brew_one_best
+  ON roastery_portal_response_brew (response_id) WHERE role = 'best';
+
+-- 9. The two lineup-wide answers, asked once per roastery, versioned the same
+-- way. A coffee's own typical_notice / similar_when_out are overrides; null
+-- there means "same as the lineup answer".
+CREATE TABLE IF NOT EXISTS roastery_portal_lineup_response (
+  id                          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  roaster_id                  UUID NOT NULL REFERENCES roaster(id),
+  version                     INTEGER NOT NULL CHECK (version >= 1),
+  status                      TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'submitted')),
+  typical_notice              TEXT,
+  similar_when_out            TEXT,
+  anything_else               TEXT,
+  last_saved_by_respondent_id UUID REFERENCES roastery_portal_respondent(id),
+  submitted_by_respondent_id  UUID REFERENCES roastery_portal_respondent(id),
+  created_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  submitted_at                TIMESTAMPTZ,
+  UNIQUE (roaster_id, version)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS roastery_portal_lineup_response_one_draft
+  ON roastery_portal_lineup_response (roaster_id) WHERE status = 'draft';
+
+-- Immutability: a submitted response (and its children) is never changed or
+-- removed again. CREATE OR REPLACE + DROP TRIGGER IF EXISTS keeps this
+-- re-applicable on every boot.
+CREATE OR REPLACE FUNCTION roastery_portal_reject_submitted_change() RETURNS trigger AS $$
+BEGIN
+  IF OLD.status = 'submitted' THEN
+    RAISE EXCEPTION 'roastery_portal: a submitted % row is immutable (id %)', TG_TABLE_NAME, OLD.id
+      USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION roastery_portal_reject_submitted_child_change() RETURNS trigger AS $$
+DECLARE
+  parent_status TEXT;
+  parent_id UUID;
+BEGIN
+  parent_id := CASE WHEN TG_OP = 'DELETE' THEN OLD.response_id ELSE NEW.response_id END;
+  SELECT status INTO parent_status FROM roastery_portal_response WHERE id = parent_id;
+  IF parent_status = 'submitted' THEN
+    RAISE EXCEPTION 'roastery_portal: % rows of a submitted response are immutable (response %)', TG_TABLE_NAME, parent_id
+      USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS roastery_portal_response_immutable ON roastery_portal_response;
+CREATE TRIGGER roastery_portal_response_immutable
+  BEFORE UPDATE OR DELETE ON roastery_portal_response
+  FOR EACH ROW EXECUTE FUNCTION roastery_portal_reject_submitted_change();
+
+DROP TRIGGER IF EXISTS roastery_portal_lineup_response_immutable ON roastery_portal_lineup_response;
+CREATE TRIGGER roastery_portal_lineup_response_immutable
+  BEFORE UPDATE OR DELETE ON roastery_portal_lineup_response
+  FOR EACH ROW EXECUTE FUNCTION roastery_portal_reject_submitted_change();
+
+DROP TRIGGER IF EXISTS roastery_portal_response_note_immutable ON roastery_portal_response_note;
+CREATE TRIGGER roastery_portal_response_note_immutable
+  BEFORE INSERT OR UPDATE OR DELETE ON roastery_portal_response_note
+  FOR EACH ROW EXECUTE FUNCTION roastery_portal_reject_submitted_child_change();
+
+DROP TRIGGER IF EXISTS roastery_portal_response_dimension_immutable ON roastery_portal_response_dimension;
+CREATE TRIGGER roastery_portal_response_dimension_immutable
+  BEFORE INSERT OR UPDATE OR DELETE ON roastery_portal_response_dimension
+  FOR EACH ROW EXECUTE FUNCTION roastery_portal_reject_submitted_child_change();
+
+DROP TRIGGER IF EXISTS roastery_portal_response_brew_immutable ON roastery_portal_response_brew;
+CREATE TRIGGER roastery_portal_response_brew_immutable
+  BEFORE INSERT OR UPDATE OR DELETE ON roastery_portal_response_brew
+  FOR EACH ROW EXECUTE FUNCTION roastery_portal_reject_submitted_child_change();
+
+-- 10. Vocabulary. Every chip group the portal shows is read from here.
+-- 'co-ferment' joins the shared process list (customer-neutral: the catalog
+-- simply gains one more allowed process value).
+INSERT INTO lookup_value (category, value, label, sort_order) VALUES
+  ('process', 'co-ferment', 'Co-ferment', 7)
+ON CONFLICT (category, value) DO NOTHING;
+
+-- Values are EXACTLY the customer brew-profile vocabulary
+-- (getBrewProfileFieldsConfig().brew_methods.allowedValues); the labels are
+-- the roaster-friendly wording. A test fails if the two ever drift apart.
+INSERT INTO lookup_value (category, value, label, sort_order) VALUES
+  ('roastery_portal_brew_method', 'v60',          'Pour-over',    1),
+  ('roastery_portal_brew_method', 'drip',         'Drip',         2),
+  ('roastery_portal_brew_method', 'espresso',     'Espresso',     3),
+  ('roastery_portal_brew_method', 'french_press', 'French press', 4),
+  ('roastery_portal_brew_method', 'aeropress',    'AeroPress',    5),
+  ('roastery_portal_brew_method', 'moka',         'Moka pot',     6),
+  ('roastery_portal_brew_method', 'cold_brew',    'Cold brew',    7),
+  ('roastery_portal_brew_method', 'other',        'Other',        8),
+  ('roastery_portal_availability', 'always_on',       'Always on',       1),
+  ('roastery_portal_availability', 'rotating',        'Rotating',        2),
+  ('roastery_portal_availability', 'limited_release', 'Limited release', 3),
+  ('roastery_portal_notice', 'under_2_weeks',  'Under 2 weeks',  1),
+  ('roastery_portal_notice', '2_to_4_weeks',   '2 to 4 weeks',   2),
+  ('roastery_portal_notice', '1_to_2_months',  '1 to 2 months',  3),
+  ('roastery_portal_notice', '2_plus_months',  '2+ months',      4),
+  ('roastery_portal_notice', 'unpredictable',  'Unpredictable',  5),
+  ('roastery_portal_similar', 'yes',       'Yes',       1),
+  ('roastery_portal_similar', 'usually',   'Usually',   2),
+  ('roastery_portal_similar', 'sometimes', 'Sometimes', 3),
+  ('roastery_portal_similar', 'no',        'No',        4),
+  ('roastery_portal_similar', 'not_sure',  'Not sure',  5),
+  ('roastery_portal_takes_it', 'black', 'Black',     1),
+  ('roastery_portal_takes_it', 'milk',  'With milk', 2),
+  ('roastery_portal_takes_it', 'both',  'Both',      3)
+ON CONFLICT (category, value) DO NOTHING;
+
+-- 11. Views (DROP + CREATE, never CREATE OR REPLACE: a column added ahead of
+-- existing ones is exactly what OR REPLACE silently refuses).
+DROP VIEW IF EXISTS v_roastery_portal_progress;
+DROP VIEW IF EXISTS v_roastery_portal_current_response;
+DROP VIEW IF EXISTS v_roastery_portal_coffee;
+
+-- Lineup row with its prefill values. When the lineup row is linked to a
+-- catalog coffee, the catalog's values (v_coffee) are used, field by field,
+-- wherever the catalog has one, EXCEPT for rows loaded from the roaster's own
+-- site (prefill_source = 'roaster_site'): there the roaster's own words win
+-- and the catalog only fills the gaps, so linking a coffee never hides what
+-- the roaster published about it.
+CREATE VIEW v_roastery_portal_coffee AS
+SELECT
+  pc.id AS portal_coffee_id,
+  pc.roaster_id,
+  pc.name,
+  pc.coffee_id,
+  CASE WHEN pc.prefill_source = 'roaster_site'
+       THEN COALESCE(NULLIF(pc.origin, ''), vc.origin)
+       ELSE COALESCE(vc.origin, NULLIF(pc.origin, '')) END AS origin,
+  CASE WHEN pc.prefill_source = 'roaster_site'
+       THEN COALESCE(NULLIF(pc.process_values, '{}'), CASE WHEN vc.process IS NULL THEN '{}'::text[] ELSE ARRAY[vc.process] END)
+       ELSE COALESCE(CASE WHEN vc.process IS NULL THEN NULL ELSE ARRAY[vc.process] END, pc.process_values) END AS process_values,
+  CASE WHEN pc.prefill_source = 'roaster_site'
+       THEN COALESCE(pc.roast_level, vc.roast_level)
+       ELSE COALESCE(vc.roast_level, pc.roast_level) END AS roast_level,
+  CASE WHEN pc.prefill_source = 'roaster_site'
+       THEN COALESCE(pc.blend_or_single, vc.blend_or_single)
+       ELSE COALESCE(vc.blend_or_single, pc.blend_or_single) END AS blend_or_single,
+  pc.is_decaf,
+  CASE WHEN pc.coffee_id IS NOT NULL AND pc.prefill_source IS DISTINCT FROM 'roaster_site'
+            AND (vc.origin IS NOT NULL OR vc.process IS NOT NULL OR vc.roast_level IS NOT NULL OR vc.blend_or_single IS NOT NULL)
+       THEN 'catalog' ELSE pc.prefill_source END AS prefill_source,
+  pc.added_by,
+  pc.added_by_respondent_id,
+  pc.sort_order,
+  pc.is_active,
+  pc.created_at
+FROM roastery_portal_coffee pc
+LEFT JOIN v_coffee vc ON vc.id = pc.coffee_id;
+
+-- Per lineup coffee: the open draft if one exists, else the latest submitted
+-- version. (A coffee nobody has touched has no row here.)
+CREATE VIEW v_roastery_portal_current_response AS
+SELECT DISTINCT ON (r.portal_coffee_id) r.*
+FROM roastery_portal_response r
+ORDER BY r.portal_coffee_id, (r.status = 'draft') DESC, r.version DESC;
+
+-- Per lineup coffee: state, sections answered (0 to 6), who/when, versions,
+-- and whether the notes still need mapping to the flavor wheel.
+--   state: 'submitted' once any version was submitted (an open draft on top of
+--          it is flagged by has_open_draft, not hidden), 'in_progress' for a
+--          draft with no submission yet, else 'not_started'.
+--   has_unmapped_notes looks at the latest submitted version when there is
+--          one (that is the evidence), else at the draft.
+CREATE VIEW v_roastery_portal_progress AS
+WITH cur AS (
+  SELECT * FROM v_roastery_portal_current_response
+), evidence AS (
+  SELECT DISTINCT ON (r.portal_coffee_id) r.portal_coffee_id, r.id AS response_id
+  FROM roastery_portal_response r
+  ORDER BY r.portal_coffee_id, (r.status = 'submitted') DESC, r.version DESC
+), last_sub AS (
+  SELECT DISTINCT ON (r.portal_coffee_id) r.portal_coffee_id, r.submitted_at, r.submitted_by_respondent_id, r.version
+  FROM roastery_portal_response r
+  WHERE r.status = 'submitted'
+  ORDER BY r.portal_coffee_id, r.version DESC
+), sub_count AS (
+  SELECT portal_coffee_id, count(*)::int AS n FROM roastery_portal_response WHERE status = 'submitted' GROUP BY portal_coffee_id
+)
+SELECT
+  pc.id AS portal_coffee_id,
+  pc.roaster_id,
+  pc.name,
+  pc.sort_order,
+  pc.is_active,
+  CASE WHEN ls.portal_coffee_id IS NOT NULL THEN 'submitted'
+       WHEN cur.id IS NOT NULL THEN 'in_progress'
+       ELSE 'not_started' END AS state,
+  COALESCE(cur.status = 'draft', false) AS has_open_draft,
+  CASE WHEN cur.id IS NULL THEN 0 ELSE
+    ( (cur.origin IS NOT NULL OR cardinality(cur.process_values) > 0 OR cur.roast_level IS NOT NULL
+       OR cur.blend_or_single IS NOT NULL OR cur.is_decaf IS NOT NULL)::int
+    + (EXISTS (SELECT 1 FROM roastery_portal_response_note n WHERE n.response_id = cur.id) OR cur.proposed_archetype IS NOT NULL)::int
+    + (EXISTS (SELECT 1 FROM roastery_portal_response_dimension d WHERE d.response_id = cur.id) OR cur.dominant_dimension_id IS NOT NULL)::int
+    + (EXISTS (SELECT 1 FROM roastery_portal_response_brew b WHERE b.response_id = cur.id) OR cur.takes_it IS NOT NULL OR cur.brew_notes IS NOT NULL)::int
+    + (cur.availability IS NOT NULL OR cur.typical_notice IS NOT NULL OR cur.expected_availability IS NOT NULL
+       OR cur.similar_when_out IS NOT NULL OR cur.closest_cousin_portal_coffee_id IS NOT NULL OR cur.what_changes IS NOT NULL)::int
+    + (cur.anything_else IS NOT NULL)::int )
+  END AS sections_answered,
+  cur.id AS current_response_id,
+  cur.version AS current_version,
+  cur.updated_at AS last_saved_at,
+  cur.last_saved_by_respondent_id,
+  saver.name AS last_saved_by_name,
+  ls.submitted_at,
+  ls.submitted_by_respondent_id,
+  submitter.name AS submitted_by_name,
+  COALESCE(sc.n, 0) AS submitted_version_count,
+  EXISTS (
+    SELECT 1 FROM evidence ev
+    JOIN roastery_portal_response_note n ON n.response_id = ev.response_id
+    WHERE ev.portal_coffee_id = pc.id AND n.cupping_note_id IS NULL
+  ) AS has_unmapped_notes
+FROM roastery_portal_coffee pc
+LEFT JOIN cur ON cur.portal_coffee_id = pc.id
+LEFT JOIN last_sub ls ON ls.portal_coffee_id = pc.id
+LEFT JOIN sub_count sc ON sc.portal_coffee_id = pc.id
+LEFT JOIN roastery_portal_respondent saver ON saver.id = cur.last_saved_by_respondent_id
+LEFT JOIN roastery_portal_respondent submitter ON submitter.id = ls.submitted_by_respondent_id;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- END ROASTERY PORTAL block
+-- ═══════════════════════════════════════════════════════════════════════════
+
+
 -- A2. Prefix-driven grants, re-run every boot. A table's name decides its
 -- privileges, so a customer_* table added later (C2) is immutable from the
 -- boot that creates it, with no grant to remember.

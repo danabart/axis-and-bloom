@@ -1,0 +1,145 @@
+/* Roastery portal (2026-10-05) — layout, spacing, palette and component shapes
+   lifted from Camila's mockup 47 v8 (backend/src/features/roastery_portal/
+   reference/47-roaster-portal-mockup-v8.html), scoped under .rp so nothing leaks
+   into the rest of the app. Not shipped from the mockup: .mocktitle, .notes,
+   .notetoggle, .note and the sample answers. Font is Lato (the site's), per the
+   brief: no Genova/Gotham, so no .amp/.qm rules. Never #ffffff: the lightest
+   value anywhere here is beige #f2f1ea (autofill and focus included). */
+
+.rp {
+  --terra:#9a2918; --terra-deep:#8a2416;
+  --pink:#ee5974;
+  --beige:#f2f1ea; --beige2:#ebebe3; --beige3:#e5e5da;
+  --ink:#45474a; --gray:#7b7f80; --gray60:#aeb0b1; --gray40:#c5c7c8;
+  min-height:100vh; background:var(--beige); color:var(--ink);
+  font-family:'Lato', Arial, ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing:antialiased; text-align:left;
+}
+.rp *, .rp *::before, .rp *::after { box-sizing:border-box; }
+.rp button, .rp input, .rp textarea, .rp select { font-family:inherit; }
+.rp a { color:inherit; text-decoration:none; }
+.rp :focus-visible { outline:2px solid var(--terra); outline-offset:2px; }
+
+/* portal bar */
+.rp .bar { display:flex; align-items:center; justify-content:space-between; padding:18px 28px; border-bottom:1px solid var(--beige3); }
+.rp .wm { font-size:10.5px; letter-spacing:.3em; color:var(--terra); font-weight:400; }
+.rp .wm small { color:var(--gray); margin-left:14px; letter-spacing:.26em; font-size:inherit; }
+.rp .who { font-size:10px; letter-spacing:.2em; color:var(--gray); font-weight:400; text-transform:uppercase; }
+
+.rp .wrap { max-width:720px; margin:0 auto; padding:40px 24px 80px; }
+.rp .crumb { font-size:10px; letter-spacing:.24em; color:var(--gray); text-transform:uppercase; font-weight:400; }
+.rp .crumb b { color:var(--ink); font-weight:400; }
+.rp .crumb a { border-bottom:1px solid var(--gray40); }
+.rp h1 { font-size:40px; font-weight:500; letter-spacing:.02em; text-transform:uppercase; line-height:1.08; margin:14px 0 0; color:inherit; }
+.rp h1 .a { color:var(--pink); } .rp h1 .b { color:var(--terra); }
+.rp .lede { font-size:15px; font-weight:100; line-height:1.65; margin:14px 0 0; max-width:560px; }
+.rp .lede b { font-weight:400; }
+
+.rp .sec { margin-top:44px; padding-top:16px; border-top:1px solid var(--beige3); display:flex; align-items:baseline; gap:12px; }
+.rp .sn { font-size:9.5px; letter-spacing:.24em; color:var(--gray); font-weight:400; }
+.rp .st { font-size:15px; font-weight:500; letter-spacing:.06em; text-transform:uppercase; color:var(--terra); margin:0; }
+.rp .help { font-size:12.5px; font-weight:100; color:var(--gray); margin-top:6px; line-height:1.5; }
+
+.rp .f { margin-top:22px; border:0; padding:0; min-width:0; }
+.rp .lab { font-size:12.5px; font-weight:400; color:var(--ink); display:block; padding:0; }
+.rp .lab small { font-weight:100; color:var(--gray); margin-left:6px; font-size:inherit; }
+.rp .in { display:block; width:100%; background:none; border:none; border-bottom:1px solid var(--gray40); font-size:17px; font-weight:100; color:var(--ink); padding:9px 0 8px; outline:none; border-radius:0; -webkit-appearance:none; appearance:none; }
+.rp .in:focus { border-bottom-color:var(--terra); }
+.rp .in::placeholder { color:var(--gray60); }
+.rp textarea.in { resize:vertical; min-height:72px; line-height:1.5; }
+.rp .in:-webkit-autofill { -webkit-box-shadow:0 0 0 1000px var(--beige) inset; -webkit-text-fill-color:var(--ink); caret-color:var(--ink); }
+.rp .row { display:grid; grid-template-columns:1fr 1fr; gap:0 28px; }
+
+/* chips */
+.rp .chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.rp .chip { font-size:12px; font-weight:400; letter-spacing:.02em; padding:8px 14px; border:1px solid var(--gray40); border-radius:999px; color:var(--ink); cursor:pointer; background:none; line-height:1.3; text-align:left; }
+.rp .chip.on { background:var(--terra); border-color:var(--terra); color:var(--beige); }
+.rp .chip:disabled { opacity:.4; cursor:not-allowed; }
+.rp .chip.sm { font-size:11.5px; padding:6px 12px; }
+.rp .src { white-space:nowrap; display:inline-block; font-style:normal; font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:var(--gray); margin-left:10px; font-weight:400; background:var(--beige2); padding:2px 7px; border-radius:3px; vertical-align:middle; }
+.rp .quiet { font-size:11px; font-weight:100; color:var(--gray); margin-top:8px; }
+
+/* Bloom Dial family cards */
+.rp .agrid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px; }
+.rp .acard { display:flex; gap:14px; align-items:flex-start; padding:14px 16px 14px 14px; border:1px solid var(--gray40); border-radius:6px; cursor:pointer; background:none; text-align:left; color:var(--ink); }
+.rp .acard.on { background:var(--c); border-color:var(--c); color:var(--t); }
+.rp .dialwrap { width:58px; height:58px; border-radius:50%; background:var(--c); flex:none; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+.rp .dialimg { width:52px; height:52px; display:block; }
+.rp .acard.on .dialwrap { background:rgba(242,241,234,.14); }
+.rp .anum { font-size:9px; letter-spacing:.22em; color:var(--gray); font-weight:400; }
+.rp .acard.on .anum { color:var(--t); opacity:.9; }
+.rp .aname { font-size:12px; font-weight:500; letter-spacing:.04em; text-transform:uppercase; margin-top:3px; }
+.rp .adesc { font-size:11.5px; font-weight:100; line-height:1.45; margin-top:4px; color:var(--gray); letter-spacing:.06em; text-transform:uppercase; }
+.rp .acard.on .adesc { color:var(--t); }
+.rp .awarn { font-size:10.5px; font-weight:100; line-height:1.4; margin-top:6px; color:var(--gray); }
+.rp .acard.on .awarn { color:var(--t); }
+
+/* 1 to 5 scale */
+.rp .scale { display:flex; align-items:center; gap:10px; margin-top:10px; }
+.rp .sl { font-size:11px; font-weight:100; color:var(--gray); min-width:44px; }
+.rp .sl.r { text-align:right; }
+.rp .dots { display:flex; gap:8px; flex:none; }
+.rp .dot { width:30px; height:30px; border-radius:50%; border:1px solid var(--gray40); display:flex; align-items:center; justify-content:center; font-size:11.5px; font-weight:400; color:var(--ink); cursor:pointer; background:none; padding:0; flex:none; }
+.rp .dot.on { background:var(--terra); border-color:var(--terra); color:var(--beige); }
+.rp .dims { display:grid; grid-template-columns:1fr 1fr; gap:14px 36px; margin-top:18px; }
+.rp .dim .lab { margin-bottom:2px; }
+
+/* tasting notes */
+.rp .notes-list { margin-top:16px; display:flex; flex-direction:column; gap:22px; }
+.rp .note-item { border-bottom:1px solid var(--beige3); padding-bottom:18px; }
+.rp .n3 { display:flex; align-items:flex-end; gap:12px; }
+.rp .nn { width:24px; height:24px; border-radius:50%; background:var(--terra); color:var(--beige); font-size:10.5px; font-weight:500; display:flex; align-items:center; justify-content:center; flex:none; margin-bottom:10px; }
+.rp .n3 .grow { flex:1; min-width:0; }
+.rp .nctl { display:flex; gap:6px; margin-bottom:6px; flex:none; }
+.rp .tiny { font-size:10px; letter-spacing:.14em; text-transform:uppercase; font-weight:400; color:var(--gray); border:1px solid var(--gray40); background:none; border-radius:999px; padding:6px 10px; cursor:pointer; line-height:1; }
+.rp .tiny:disabled { opacity:.35; cursor:not-allowed; }
+.rp .wheel { margin-top:12px; padding-left:36px; }
+.rp .glab { font-size:9.5px; letter-spacing:.2em; text-transform:uppercase; color:var(--gray); margin-top:12px; font-weight:400; }
+.rp .addnote { margin-top:16px; }
+.rp .chip.add, .rp .crow.add { border-style:dashed; color:var(--gray); }
+
+/* lineup */
+.rp .rows { margin-top:16px; border-top:1px solid var(--beige3); }
+.rp .crow { display:flex; align-items:center; justify-content:space-between; gap:14px; width:100%; padding:16px 0; border:0; border-bottom:1px solid var(--beige3); background:none; text-align:left; cursor:pointer; color:var(--ink); }
+.rp .crow .cn { font-size:15px; font-weight:500; letter-spacing:.02em; }
+.rp .crow .cs { font-size:12px; font-weight:400; color:var(--gray); text-align:right; }
+.rp .crow.submitted .cs { color:var(--terra); }
+.rp .crow.add { margin-top:14px; border:1px dashed var(--gray40); border-radius:6px; padding:14px 16px; font-size:12px; letter-spacing:.02em; }
+.rp .addbox { margin-top:14px; border:1px dashed var(--gray40); border-radius:6px; padding:14px 16px 18px; }
+
+/* actions */
+.rp .actions { margin-top:48px; display:flex; align-items:center; gap:22px; flex-wrap:wrap; }
+.rp .btn { display:inline-block; background:var(--terra); color:var(--beige); font-size:12.5px; letter-spacing:.24em; font-weight:900; padding:17px 38px; border:none; cursor:pointer; text-transform:uppercase; }
+.rp .btn:hover { background:var(--terra-deep); }
+.rp .btn:disabled { opacity:.5; cursor:not-allowed; }
+.rp .ghost { font-size:11px; letter-spacing:.2em; color:var(--gray); text-transform:uppercase; font-weight:400; border:0; border-bottom:1px solid var(--gray40); padding:0 0 3px; background:none; cursor:pointer; }
+.rp .saved { font-size:12px; font-weight:100; color:var(--gray); margin-left:auto; }
+.rp .err { font-size:12.5px; font-weight:400; color:var(--terra); margin-top:12px; }
+.rp .banner { margin-top:22px; padding:12px 16px; background:var(--beige2); border-radius:4px; font-size:12.5px; font-weight:100; line-height:1.5; }
+
+.rp .usage { max-width:720px; margin:0 auto; padding:0 24px; font-size:12px; font-weight:100; color:var(--gray); line-height:1.5; }
+.rp footer { max-width:720px; margin:20px auto 0; padding:0 24px 40px; }
+.rp .fromto { font-size:9.5px; letter-spacing:.2em; color:var(--gray); margin-bottom:14px; font-weight:400; }
+.rp .band { display:flex; height:8px; } .rp .band div { flex:1; }
+
+.rp .centered { max-width:520px; margin:0 auto; padding:96px 24px; }
+
+@media (max-width:640px) {
+  .rp .row, .rp .dims, .rp .agrid { grid-template-columns:1fr; }
+  .rp h1 { font-size:34px; }
+  .rp .bar { padding:16px 20px; }
+  .rp .who { display:none; }
+  .rp .wrap { padding-left:20px; padding-right:20px; }
+  .rp .usage, .rp footer { padding-left:20px; padding-right:20px; }
+  .rp .wheel { padding-left:0; }
+  /* the five dots stay on one line at 30px; the end labels wrap above/below if the row is tight */
+  .rp .scale { flex-wrap:wrap; row-gap:4px; }
+  .rp .scale .sl { min-width:0; }
+  .rp .n3 { flex-wrap:wrap; }
+  .rp .nctl { margin-left:36px; }
+  /* the actions row stacks: button full width first, then the ghost link, then the status */
+  .rp .actions { flex-direction:column; align-items:stretch; gap:16px; }
+  .rp .btn { width:100%; text-align:center; }
+  .rp .ghost { align-self:flex-start; }
+  .rp .saved { margin-left:0; }
+}

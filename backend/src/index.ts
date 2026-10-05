@@ -33,6 +33,8 @@ import qrRouter from './routes/qr.js';
 import beatsRouter from './routes/beats.js';
 import clientErrorsRouter from './routes/clientErrors.js';
 import campaignRouter from './routes/campaign.js';
+import roasteryPortalRouter from './routes/roasteryPortal.js';
+import roasteryPortalAdminRouter from './routes/roasteryPortalAdmin.js';
 import { initSommelierConfig } from './services/sommelierConfig.js';
 import { runQuizIntegrityChecks } from './services/quizIntegrity.js';
 import { runCatalogIntegrityChecks } from './services/catalogIntegrity.js';
@@ -126,6 +128,9 @@ app.use('/api/qr', qrRouter);
 app.use('/api/beats', beatsRouter);
 app.use('/api/client-errors', clientErrorsRouter);
 app.use('/api/campaign', campaignRouter);
+// Roastery Portal (2026-10-05) — public token-gated partner surface + its admin side.
+app.use('/api/roastery-portal', roasteryPortalRouter);
+app.use('/api/admin/roastery-portal', roasteryPortalAdminRouter);
 
 // Observability Foundation Part B -- central boundary handler, mounted AFTER
 // every router so it only sees what Express itself routes here: a

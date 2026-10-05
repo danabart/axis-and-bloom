@@ -17,7 +17,11 @@ import type { AuthRequest } from './auth.js';
 // degrades to "no log row," never to a 500 or an added delay.
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-const SKIP_PATH_PREFIXES = ['/api/cron', '/api/webhooks'];
+// /api/roastery-portal (2026-10-05): the partner link token is IN the path and
+// respondent emails are in the bodies; neither belongs in api_event, and a
+// coffee's autosave fires about once a second. The portal's own versioned,
+// stamped tables are its record.
+const SKIP_PATH_PREFIXES = ['/api/cron', '/api/webhooks', '/api/roastery-portal'];
 const REDACT_KEY_PATTERN = /password|passwd|secret|token|authorization|apikey|api_key|card|cvv|cvc/i;
 const MAX_REQUEST_BODY_BYTES = 64 * 1024;
 const MAX_RESPONSE_ERROR_BYTES = 2 * 1024;

@@ -15,6 +15,7 @@
     "lint:catalog": "node scripts/lint-catalog.mjs",
     "lint:retention": "node scripts/lint-retention.mjs",
     "lint:customer": "node scripts/lint-customer.mjs",
+    "lint:roastery-portal": "node scripts/lint-roastery-portal.mjs",
     "test": "vitest run",
     "test:db:refresh": "node scripts/refresh-test-db.mjs"
   },

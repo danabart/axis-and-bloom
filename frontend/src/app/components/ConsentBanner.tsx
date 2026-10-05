@@ -16,7 +16,7 @@ export default function ConsentBanner() {
     setVisible(!hasStoredConsentChoice());
   }, []);
 
-  if (pathname.startsWith('/admin') || !visible) return null;
+  if (pathname.startsWith('/admin') || pathname.startsWith('/roastery/') || !visible) return null; // /roastery/: partner pages, no consent banner (roastery portal, 2026-10-05)
 
   const choose = (granted: boolean) => {
     setAnalyticsConsent(granted);
