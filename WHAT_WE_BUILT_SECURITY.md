@@ -363,3 +363,17 @@ object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
 **Sign-in redirect:** the two-door page links to `/sign-in?mode=signin&redirect=/b` (or `/b/<token>`). `redirect` values are always same-site paths built in `QrDoor.tsx`; `SignIn.tsx`'s existing `navigate(redirectTo)` is unchanged and routes in-app (React Router), so this adds no new open-redirect surface.
 
 **Files:** `backend/src/routes/qr.ts`, `backend/src/services/qrDoor.ts`, `frontend/src/app/components/QrDoor.tsx`, `frontend/src/app/components/SignIn.tsx`.
+
+### 17. Roastery portal — a second public, token-gated surface (2026-10-05)
+
+**What:** `/api/roastery-portal/:token/*` (`WHAT_WE_BUILT.md` #209). The credential is the link token (32 random bytes, 43 url-safe characters, unique, revocable; never an email or a guessable id). Every route resolves it through one gate; **an unknown token, a revoked token, another roastery's coffee id and a malformed id all return the identical `404 {"error":"not_found"}`**, so nothing can be enumerated or told apart (tested over HTTP). Every write checks that the respondent, the lineup coffee, the cousin coffee and every lookup / wheel / dimension value belong to this token's roastery or the allowed vocabulary; free text is capped (names 120, short 300, long 2000, 15 notes). A submitted response is immutable by trigger. No roastery can read another's name, coffees or answers (tested with a second roastery's token and the first's ids: 404 on GET, PUT and submit, no data in any body).
+
+**Rate limit:** own limiter modelled on `qrResolveLimiter`, 240/min per real client IP (C17 keying); higher than the QR door because one editor autosaves about once a second.
+
+**Logging:** `/api/roastery-portal` is excluded from `api_event` capture (like `/api/cron`): the token is in the path and respondent emails in the bodies, and neither should sit in a table for 90 days. Cloud Run's own request log still carries the path, which is inherent to a path-token link; revoking a link is the remedy.
+
+**Browser side:** partner pages open no anonymous Firebase session, send no analytics events, show no consent banner and no site chrome; `X-Robots-Tag: noindex, nofollow` on `/roastery/**` (hosting) plus the robots meta and `robots.txt` `Disallow: /roastery/`.
+
+**Admin side:** `/api/admin/roastery-portal/*` behind `requireAdmin`; read-only on answers (no accept / promote / edit-on-behalf). `lint:roastery-portal` (CI) keeps `roastery_portal_*` DML inside the one writer and the catalog out of the portal's reach. For acceptance, admin API calls were made with an ID token minted through the backend's firebase-admin for Dana's own admin account (no password entered).
+
+**Files:** `backend/src/routes/roasteryPortal.ts`, `roasteryPortalAdmin.ts`, `services/roasteryPortalService.ts`, `roasteryPortalReads.ts`, `middleware/apiEventLog.ts`, `scripts/lint-roastery-portal.mjs`, `firebase.json`, `frontend/public/robots.txt`.

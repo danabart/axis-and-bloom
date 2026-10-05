@@ -1,7 +1,7 @@
 # Feature: Roastery Portal, part 1 (partner page + admin page + `roastery_portal_*` tables)
 
 > Folder: `backend/src/features/roastery_portal/` · Decided: 2026-10-05 (Dana) · Model: Sonnet is fine
-> Status: not executed
+> Status: EXECUTED 2026-10-05 (commit 595c060 + a follow-up on main, deploy green, acceptance verified live, Utopian lineup loaded; see WHAT_WE_BUILT.md #209)
 > Reference files in `reference/`: Camila's mockup `47-roaster-portal-mockup-v8.html`, its two PDF renders (1440 and 390 wide), and her original brief `48-roaster-portal-build-brief.md`.
 > This brief REPLACES brief 48. Where the two disagree, this one wins. The mockup stays the visual source of truth for layout, spacing, palette and tone.
 

@@ -322,6 +322,30 @@ The `ab_app` grant block (see Roles, above) lives at the true end of `schema.sql
 
 ---
 
+### Roastery portal (2026-10-05, `WHAT_WE_BUILT.md` #209)
+
+Evidence tables for what partner roasteries say about their own coffees. **Nothing here writes the catalog.** One writer (`services/roasteryPortalService.ts`, every verb in `withTransaction`), views as the read path, nothing ever deleted (deactivate, revoke, or version). The block sits in `schema.sql` before the A2 grant loops (operating-table grants and view SELECT apply on the creating boot). FKs: `roaster(id)` UUID, `coffees(id)` INT, `cupping_note(id)` UUID, `coffee_dimensions(id)` INT.
+
+| Table | Purpose |
+|---|---|
+| `roastery_portal_link` | one private, revocable link per issue: `token` (unique, at least 32 url-safe chars, minted as 32 random bytes), optional `contact_name`/`contact_email` (prefill only), `created_by_admin_id`, `last_opened_at`, `revoked_at` |
+| `roastery_portal_respondent` | who filled it in; unique `(roaster_id, email)`, email lowercased, first-recorded name wins |
+| `roastery_portal_coffee` | the lineup: `coffee_id` nullable catalog link (same roastery only), prefill columns (`origin`, `process_values`, `roast_level`, `blend_or_single`, `is_decaf`, `prefill_source` `roaster_site`/`catalog`), `added_by` `admin`/`roaster`, `sort_order`, `is_active`; unique active name per roastery, case-insensitive |
+| `roastery_portal_dimension` | which numeric dimensions are asked and how they are worded, seeded by dimension NAME: Acidity, Sweetness, Bitterness, Body, Savory / Depth ("Clean to deep"), Texture, Finish Length ("Finish length") |
+| `roastery_portal_response` | one row per coffee per version, `draft`/`submitted`; `proposed_archetype archetype_enum` (the roaster's proposal only, never an assignment); partial unique index = one open draft per coffee; unique `(portal_coffee_id, version)` |
+| `roastery_portal_response_note` | `rank` (1 = leading), `roaster_words` NOT NULL, `cupping_note_id` nullable (words-only allowed) |
+| `roastery_portal_response_dimension` | `value` 1 to 5, **relative to the roaster's own lineup**; never mixed with cupping values (0 to 15 absolute) |
+| `roastery_portal_response_brew` | `best` (one per response, partial unique) / `also_good` |
+| `roastery_portal_lineup_response` | the two lineup-wide answers (`typical_notice`, `similar_when_out`), versioned like a response; a coffee's own values are overrides, null = same as the lineup answer |
+
+**Immutability**: `roastery_portal_reject_submitted_change()` (before UPDATE/DELETE on `roastery_portal_response` and `_lineup_response`) and `roastery_portal_reject_submitted_child_change()` (before INSERT/UPDATE/DELETE on the three child sets) raise `integrity_constraint_violation` (SQLSTATE 23000) once the parent is `submitted`. Reopening starts a new draft at version + 1, copied from the latest submitted version.
+
+**Vocabulary** (`lookup_value`): `process` gained `co-ferment`; new categories `roastery_portal_brew_method` (v60 "Pour-over", drip, espresso, french_press, aeropress, moka "Moka pot", cold_brew, other: values exactly equal to the customer brew-profile vocabulary, drift-tested), `roastery_portal_availability`, `roastery_portal_notice`, `roastery_portal_similar`, `roastery_portal_takes_it` (black / milk / both).
+
+**Views**: `v_roastery_portal_coffee` (lineup row with prefill; catalog values field by field, except `roaster_site` rows where the roaster's own words win), `v_roastery_portal_current_response` (open draft else latest submitted), `v_roastery_portal_progress` (`state` not_started / in_progress / submitted, `has_open_draft`, `sections_answered` 0 to 6, last saved / submitted at + by, `submitted_version_count`, `has_unmapped_notes`). Created with DROP VIEW + CREATE VIEW, never OR REPLACE.
+
+**Prod state after #209**: Utopian has 10 lineup rows (Flying Jewel linked to coffee 2891) and no link yet; Zzz Test Roastery has two inactive test coffees (one with two submitted versions) and a revoked link; Path Coffee Roasters has one revoked test link.
+
 ### Dimensions (seeded, 12 rows)
 
 | ID | Name | Type | Scale |

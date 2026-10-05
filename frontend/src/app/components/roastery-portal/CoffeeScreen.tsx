@@ -212,9 +212,11 @@ export default function CoffeeScreen({ token, id, landing, respondent, onRespond
     };
   }, [token, id, respondent.id]);
 
-  const update = useCallback((patch: Partial<Doc>) => {
+  // A patch may be a function of the LATEST document (docRef), so two quick
+  // changes in one render tick (e.g. two dots, two chips) never overwrite each other.
+  const update = useCallback((patch: Partial<Doc> | ((d: Doc) => Partial<Doc>)) => {
     if (!docRef.current) return;
-    const next = { ...docRef.current, ...patch };
+    const next = { ...docRef.current, ...(typeof patch === 'function' ? patch(docRef.current) : patch) };
     docRef.current = next;
     setDoc(next);
     markChanged();
@@ -378,11 +380,11 @@ export default function CoffeeScreen({ token, id, landing, respondent, onRespond
             low={d.lowLabel}
             high={d.highLabel}
             value={doc.dimensions[String(d.dimensionId)]}
-            onChange={val => {
-              const next = { ...doc.dimensions };
+            onChange={val => update(cur => {
+              const next = { ...cur.dimensions };
               if (val === undefined) delete next[String(d.dimensionId)]; else next[String(d.dimensionId)] = val;
-              update({ dimensions: next });
-            }}
+              return { dimensions: next };
+            })}
           />
         ))}
       </div>
@@ -401,7 +403,7 @@ export default function CoffeeScreen({ token, id, landing, respondent, onRespond
           <SingleChips
             options={v.brewMethods}
             value={doc.bestBrew}
-            onChange={bestBrew => update({ bestBrew, alsoGoodBrews: bestBrew ? doc.alsoGoodBrews.filter(m => m !== bestBrew) : doc.alsoGoodBrews })}
+            onChange={bestBrew => update(cur => ({ bestBrew, alsoGoodBrews: bestBrew ? cur.alsoGoodBrews.filter(m => m !== bestBrew) : cur.alsoGoodBrews }))}
           />
         </Field>
         <Field legend="Also good as">
@@ -410,7 +412,7 @@ export default function CoffeeScreen({ token, id, landing, respondent, onRespond
               const on = doc.alsoGoodBrews.includes(o.value);
               return (
                 <Chip key={o.value} role="checkbox" on={on} disabled={doc.bestBrew === o.value}
-                  onClick={() => update({ alsoGoodBrews: on ? doc.alsoGoodBrews.filter(m => m !== o.value) : [...doc.alsoGoodBrews, o.value] })}>
+                  onClick={() => update(cur => ({ alsoGoodBrews: cur.alsoGoodBrews.includes(o.value) ? cur.alsoGoodBrews.filter(m => m !== o.value) : [...cur.alsoGoodBrews, o.value] }))}>
                   {o.label}
                 </Chip>
               );
