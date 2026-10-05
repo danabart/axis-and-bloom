@@ -5312,6 +5312,25 @@ The opening turn already read from cache, because Dana's own conversation 6 minu
 
 **Files**: `.github/dependabot.yml`, `.github/workflows/pr-check.yml`, `.github/workflows/dependency-audit.yml`, `.github/workflows/deploy.yml`, `WHAT_WE_BUILT.md`, `WHAT_WE_BUILT_SECURITY.md`.
 
+
+### 207. Frontend Firebase SDK 10.14.1 → 12.19.0; `undici` override removed, `@grpc/grpc-js` override kept (2026-10-04)
+
+**Context**: `backend/src/features/cyber_security/CLAUDE_CODE_PROMPT_FRONTEND_FIREBASE_UPGRADE.md`, follow-up to C11 and #206. `firebase@10.14.1` pinned old dependency versions, which is why the `undici` (run #714) and `@grpc/grpc-js` (run #716) advisories needed `overrides` in `frontend/package.json` instead of a lockfile bump. Branch `deps/frontend-firebase-upgrade`, pull request against `main`; **not merged, not deployed** (Dana merges after reading the report; the merge is a production deploy of an auth-critical library).
+
+**Survey (Step 1)**: only `frontend/src/app/lib/firebase.ts` and `frontend/src/app/context/AuthContext.tsx` import the SDK. Used: `initializeApp`; `initializeAppCheck`, `ReCaptchaV3Provider`, `getToken`; `getAuth`; `getFirestore`; `onAuthStateChanged`, `signInAnonymously`, `signInWithEmailAndPassword`, `createUserWithEmailAndPassword`, `linkWithCredential`, `linkWithPopup`, `signInWithPopup`, `signOut`, `EmailAuthProvider`, `GoogleAuthProvider`, `OAuthProvider('apple.com')`, the `User` type. v11 (drops ES5, removes undici/node-fetch from the Node bundles) and v12 (Node 20 minimum, ES2020 targets, Firebase AI breaking changes) touch none of it. Targets are fine: tsconfig ES2020, Vite 6.4.3, TypeScript 5.9.3, CI Node 22.
+
+**Change**: `frontend/package.json`: `firebase` `^10.12.0` → `^12.19.0`; `undici` removed from `overrides`. `frontend/package-lock.json` regenerated. **No source change was needed for the upgrade itself** — zero import or type changes. Follow-up commit in the same PR (Dana's decision): removed the dead `firestore` export and its `firebase/firestore` import from `frontend/src/app/lib/firebase.ts` (the only edit under `src`; confirmed by grep that nothing imported it). Resolved: `firebase@12.19.0`, `@firebase/auth@1.13.6`, `@firebase/app-check@0.13.1`, `@firebase/firestore@4.17.2`; `undici` no longer in the tree.
+
+**Why `@grpc/grpc-js` stays**: `@firebase/firestore@4.17.2` (the latest release) pins `@grpc/grpc-js ~1.9.0`, which resolves to 1.9.16, inside the advisory range (≤1.13.5). Without the override `npm audit --omit=dev --audit-level=high` reports 4 high findings (confirmed in a scratch copy before the change). The package is Node-only and Firestore's browser build does not use it, so this is audit hygiene, not a runtime risk. **The recurrence risk remains**: the override still needs a hand re-check (Dependabot does not manage `overrides`) until Firestore stops pinning the 1.9 line. With the override, `npm ls` resolves `@grpc/grpc-js@1.14.5`. The backend `uuid` override is unrelated and untouched.
+
+**Verified locally (in `frontend/`)**: `npm ci` from the new lockfile, `npm audit --omit=dev --audit-level=high` (0 vulnerabilities) and `npm run build` all exit 0. `tsc --noEmit`: **13 errors before, 13 after, identical set** (the pre-existing Footer/Home/Profile/TheAxis/ArchetypeSection/useAdjacentArchetype errors). **Bundle size**: main JS 1,231,488 B (335.21 kB gzip) → 1,490,320 B (403.22 kB gzip), **+258,832 B raw, +68.01 kB gzip (+21%)**. Cause found with a throwaway build: the unused `firestore` export in `firebase.ts` is no longer tree-shaken under v12; without it the bundle is 1,156,960 B (310.66 kB gzip), smaller than before. Removed in the follow-up commit (OPEN_TASKS OT-34, closed): the final main bundle is **1,156,960 B (310.66 kB gzip)**, i.e. 74,528 B raw / 24.55 kB gzip *smaller* than before the upgrade; `tsc` still the same 13 errors, build and audit exit 0.
+
+**Browser checks (dev server on this branch, Chrome)**: *Verified*: the app loads with no console errors; App Check initialises (dev debug-token path logs its token, no App Check errors); a signed-in Firebase session is accepted (`identitytoolkit accounts:lookup` 200). *Partly verified*: anonymous sign-in on load — a user was established and validated, but I could not confirm it is anonymous because reading the auth store was declined. *Not verified*: the quiz, including a narrow mobile viewport — the local backend could not be started (the auto-mode classifier denied starting the Cloud SQL proxy against production), and `/find-my-flavor` hangs without a backend. *Not applicable*: "a page that reads from Firestore" — the frontend never reads Firestore (OT-34). *Not verified, Dana to test*: email/password sign-in and sign-up, Google, Apple, sign-out, anonymous-to-real linking.
+
+**Not done in this pass**: no backend, DB, GCP or Firebase console change; not deployed. `WHAT_WE_BUILT_DB.md` and `SOMMELIER_BUILT.md` unchanged.
+
+**Files**: `frontend/package.json`, `frontend/package-lock.json`, `frontend/src/app/lib/firebase.ts`, `OPEN_TASKS.md`, `WHAT_WE_BUILT.md`, `WHAT_WE_BUILT_SECURITY.md`.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

@@ -1,6 +1,5 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
 import { initializeAppCheck, ReCaptchaV3Provider, getToken as getAppCheckToken } from 'firebase/app-check';
 
 const firebaseConfig = {
@@ -33,7 +32,6 @@ const appCheck = initializeAppCheck(app, {
 });
 
 export const auth = getAuth(app);
-export const firestore = getFirestore(app, 'axis-bloom-fs');
 
 // C6 -- attach the App Check token to every call to our own backend, via a
 // global fetch() wrapper rather than a change to lib/api.ts's getHeaders().
