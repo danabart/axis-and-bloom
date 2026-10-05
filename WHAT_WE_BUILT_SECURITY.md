@@ -337,3 +337,19 @@ object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
 **Verified locally:** YAML parse of all four files, Dependabot option names, `actionlint` 1.7.12 (0 errors; shellcheck rule not run), the issue-body step with `gh` stubbed, every PR-check command exit 0 on current main in both apps (frontend build also with no `.env`). **Only on GitHub after push:** the workflows actually running, issue create/close, the skip path. See `WHAT_WE_BUILT.md` #206.
 
 **Files:** `.github/dependabot.yml`, `.github/workflows/pr-check.yml`, `.github/workflows/dependency-audit.yml`, `.github/workflows/deploy.yml`.
+
+---
+
+### 15. C11 follow-up — frontend Firebase 10 → 12 (2026-10-04)
+
+**Old / new:** `firebase` 10.14.1 → 12.19.0 in `frontend/` (`@firebase/auth` 1.7.9 → 1.13.6, `@firebase/app-check` 0.8.8 → 0.13.1, `@firebase/firestore` 4.7.3 → 4.17.2). Branch `deps/frontend-firebase-upgrade`, pull request open, not merged. Full detail in `WHAT_WE_BUILT.md` #207.
+
+**What changed in code:** nothing. The Firebase surface (`firebase.ts`, `AuthContext.tsx`) compiled unchanged; `tsc` shows the same 13 pre-existing errors before and after. Only `frontend/package.json` and the lockfile changed.
+
+**Overrides:** `undici` **removed** — v11+ dropped it, and it is no longer in the tree. `@grpc/grpc-js` **kept** — `@firebase/firestore@4.17.2` pins `~1.9.0` (1.9.16, inside the advisory range), so without the override `npm audit --omit=dev --audit-level=high` fails with 4 highs. It is Node-only and not used by Firestore's browser build, so it is audit hygiene, not a runtime exposure. **The recurrence risk remains:** Dependabot does not manage `overrides`, so re-check `@grpc/grpc-js` by hand until Firestore stops pinning the 1.9 line. The backend `uuid` override is unchanged (see #14).
+
+**Side finding:** the frontend `firestore` export is unused and, under v12, is not tree-shaken: +258,832 B raw / +68 kB gzip on the main bundle versus pre-upgrade; a build without it is smaller than before. Tracked as OPEN_TASKS OT-34, not changed here.
+
+**Verification status:** build, audit and tsc verified locally; anonymous sign-in and App Check initialisation partly verified in a browser; quiz not verified (no local backend); email/password, Google, Apple, sign-out and anonymous-to-real linking are for Dana to test. After the merge-deploy, smoke test sign-in and the quiz on the live site, including from the Instagram in-app browser.
+
+**Files:** `frontend/package.json`, `frontend/package-lock.json`.
