@@ -182,14 +182,14 @@ describe('best sellers (once per lineup)', () => {
     await expect(db.query(`UPDATE roastery_portal_lineup_response_best_seller SET rank = 3 WHERE lineup_response_id = $1`, [lr])).rejects.toMatchObject({ code: '23000' });
   });
 
-  it("refuses another roastery's coffee, an inactive one, and a malformed id", async () => {
+  it("answers another roastery's coffee, an inactive one and a malformed id with not found", async () => {
     const mine = await lineup(roasterB, 'bs-mine');
     const theirs = await lineup(roasterA, 'bs-theirs');
     const gone = await lineup(roasterB, 'bs-gone');
     await deactivateLineupCoffee({ roasterId: roasterB, portalCoffeeId: gone.id });
     for (const bad of [theirs.id, gone.id, 'not-a-uuid', '00000000-0000-0000-0000-000000000000']) {
       await expect(saveLineupDraft({ roasterId: roasterB, respondentId: personB.id, doc: { bestSellers: [mine.id, bad] } }))
-        .rejects.toMatchObject({ code: 'validation' });
+        .rejects.toMatchObject({ code: 'not_found', status: 404 });
     }
     await saveLineupDraft({ roasterId: roasterB, respondentId: personB.id, doc: { bestSellers: [mine.id] } });
     expect((await getCurrentLineupResponse(roasterB))?.bestSellers.map(x => x.portalCoffeeId)).toEqual([mine.id]);

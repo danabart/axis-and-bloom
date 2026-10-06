@@ -674,12 +674,14 @@ async function normalizeLineupDoc(tx: Tx, raw: any, roasterId: string): Promise<
   if (rawBest.length > 3) throw invalid('pick at most three best sellers');
   const bestSellers = [...new Set(rawBest.map(v => String(v)))];
   if (bestSellers.length !== rawBest.length) throw invalid('a coffee can only be picked once');
-  if (bestSellers.some(id => !isUuid(id))) throw invalid('unknown coffee');
+  // Another roastery's coffee, an inactive one and a malformed id all get the same answer as everywhere
+  // else in the portal: not found (404), so nothing about another roastery is revealed.
+  if (bestSellers.some(id => !isUuid(id))) throw notFound('coffee');
   if (bestSellers.length) {
     const owned = await tx.query(
       `SELECT id FROM roastery_portal_coffee WHERE roaster_id = $1 AND is_active AND id = ANY($2::uuid[])`, [roasterId, bestSellers]
     );
-    if (owned.rows.length !== bestSellers.length) throw invalid('unknown coffee');
+    if (owned.rows.length !== bestSellers.length) throw notFound('coffee');
   }
   return {
     typicalNotice: oneOf(raw.typicalNotice, lookupValues(vocab.notice), 'typical notice'),
