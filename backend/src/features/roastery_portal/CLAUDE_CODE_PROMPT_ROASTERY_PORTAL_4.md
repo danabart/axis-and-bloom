@@ -1,7 +1,7 @@
 # Feature: Roastery Portal, part 4 (audit the founders' test, remove "Roasted for", purge all test data)
 
 > Folder: `backend/src/features/roastery_portal/` · Decided: 2026-10-06 (Dana) · Model: Sonnet is fine
-> Status: PARTIAL 2026-10-06. Phase A audit passed (all ten checks), Phase B deployed and verified live (commit 85ceb2e). Phase C (the purge) NOT run: the permission classifier blocked writing the purge script, so it awaits Dana; see WHAT_WE_BUILT.md #213.
+> Status: EXECUTED 2026-10-06. Phase A audit passed (all ten checks), Phase B deployed and verified live (commit 85ceb2e), Phase C purge applied with Dana's explicit approval and verified; see WHAT_WE_BUILT.md #213.
 > Depends on: parts 1 to 3 (executed, `WHAT_WE_BUILT.md` #209, #210, #212).
 
 ## What this is
