@@ -35,7 +35,7 @@ async function main() {
     `SELECT ns.email, ns.first_name, ss.name AS source_name, ns.archetype, ns.experimental
      FROM newsletter_subscriber ns
      LEFT JOIN subscriber_source ss ON ss.id = ns.source_id
-     WHERE ns.subscribed = TRUE
+     WHERE ns.subscribed = TRUE  -- never sync an unsubscribed row: the upsert PUTs status 'subscribed'
      ORDER BY ns.created_at ASC`,
   );
   const rows = result.rows;

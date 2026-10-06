@@ -38,7 +38,7 @@ export async function notifySubmission(responseId: string): Promise<{ sent: numb
       );
       if (!claim.rows[0]) { result.skipped++; continue; }
       let sent: { ok: boolean; id: string | null };
-      try { sent = await sendResendEmail({ to: email, subject, html, text }); }
+      try { sent = await sendResendEmail({ to: email, subject, html, text, kind: 'transactional' }); }
       catch { sent = { ok: false, id: null }; } // the helper never throws; belt and braces
       if (!sent.ok) {
         // Release the claim so a later attempt may still send (same precedent as newsletter.ts).

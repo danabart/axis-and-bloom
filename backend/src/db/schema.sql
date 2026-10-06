@@ -1029,6 +1029,17 @@ ALTER TABLE newsletter_subscriber ADD COLUMN IF NOT EXISTS experimental BOOLEAN;
 ALTER TABLE newsletter_subscriber ADD COLUMN IF NOT EXISTS confidence TEXT;
 ALTER TABLE newsletter_subscriber ADD COLUMN IF NOT EXISTS quiz_session_key TEXT;
 
+-- Unsubscribe sync (2026-10-01, db/migrations/newsletter_unsubscribe_2026_10_01.sql
+-- step 1). subscribed is the single source of truth for marketing consent;
+-- unsubscribe_token is the capability token in the hosted unsubscribe URL
+-- (crypto.randomBytes(32) hex, minted in app code like beat_event.respond_token).
+-- Nullable here on purpose: SET NOT NULL is migration step 3, run by hand only
+-- after the backfill script reports zero NULLs — never on boot.
+ALTER TABLE newsletter_subscriber ADD COLUMN IF NOT EXISTS unsubscribe_token   TEXT;
+ALTER TABLE newsletter_subscriber ADD COLUMN IF NOT EXISTS unsubscribed_at     TIMESTAMPTZ;
+ALTER TABLE newsletter_subscriber ADD COLUMN IF NOT EXISTS unsubscribe_source  TEXT;  -- 'link' | 'one_click' | 'mailchimp' | 'admin'
+CREATE UNIQUE INDEX IF NOT EXISTS newsletter_subscriber_unsubscribe_token_idx ON newsletter_subscriber (unsubscribe_token);
+
 -- Step 07 (C3): at-most-once guard for transactional sends (Resend), keyed by
 -- template so a future redesign can re-enable one send of a new version by
 -- bumping the template key. Not used for Mailchimp — that stays tag/journey-driven.

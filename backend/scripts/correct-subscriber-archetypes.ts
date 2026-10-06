@@ -219,13 +219,18 @@ async function main() {
 
   // Mailchimp: activate archetype:<slug>, inactivate every other archetype:*
   // (syncMailchimpMember + its own replace-not-add computeTagUpdates does this).
+  // Unsubscribe sync (2026-10-01): syncMailchimpMember PUTs status 'subscribed',
+  // so an unsubscribed row (subscribed = false) is never synced — that would
+  // silently re-subscribe them in Mailchimp.
   for (const r of toCorrect) {
     const email = r.email;
-    const firstNameResult = await db.query<{ first_name: string | null }>(`SELECT first_name FROM newsletter_subscriber WHERE email = $1`, [email]);
+    const firstNameResult = await db.query<{ first_name: string | null; subscribed: boolean | null }>(`SELECT first_name, subscribed FROM newsletter_subscriber WHERE email = $1`, [email]);
+    if (firstNameResult.rows[0]?.subscribed === false) { console.log(`Skipped Mailchimp sync (unsubscribed): ${email}`); continue; }
     await syncMailchimpMember(email, firstNameResult.rows[0]?.first_name ?? '', { archetype: r.latest_session_archetype });
   }
   for (const email of CAMPAIGN_BACKFILL_EMAILS) {
-    const firstNameResult = await db.query<{ first_name: string | null }>(`SELECT first_name FROM newsletter_subscriber WHERE email = $1`, [email]);
+    const firstNameResult = await db.query<{ first_name: string | null; subscribed: boolean | null }>(`SELECT first_name, subscribed FROM newsletter_subscriber WHERE email = $1`, [email]);
+    if (firstNameResult.rows[0]?.subscribed === false) { console.log(`Skipped Mailchimp sync (unsubscribed): ${email}`); continue; }
     await syncMailchimpMember(email, firstNameResult.rows[0]?.first_name ?? '', { campaign: CAMPAIGN_BACKFILL_SLUG });
   }
 

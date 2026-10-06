@@ -8,8 +8,10 @@
 //   - *|IF:FNAME|* ... *|ELSE:|* → firstName !== null
 //   - *|UPPER:*|FNAME|*|* → firstName.toUpperCase()
 //   - *|LIST:ADDRESSLINE|* → hardcoded address line (Mailchimp's list address block)
-//   - *|UNSUB|* / *|UPDATE_PROFILE|* → single mailto Unsubscribe link (Resend has no
-//     hosted equivalent) — unsubscribe handling proper is a follow-up, not this step.
+//   - *|UNSUB|* / *|UPDATE_PROFILE|* → single Unsubscribe link. Was a mailto until the
+//     unsubscribe sync (2026-10-01); now the hosted confirm page
+//     (/api/newsletter/unsubscribe/:token, built by unsubscribe.ts's buildUnsubscribeUrl).
+//     The mailto survives only as the secondary target in the List-Unsubscribe header.
 // Banned anywhere including alt text (Camila's brief): "AI", "film", "photo essay".
 // The source already complies — porting verbatim preserves that.
 
@@ -161,7 +163,7 @@ function renderFallbackHtml(): string {
       </tr>`;
 }
 
-function renderHtml(firstName: string | null, archetypeSlug: string | null): string {
+function renderHtml(firstName: string | null, archetypeSlug: string | null, unsubscribeUrl: string): string {
   const variant = isArchetypeSlug(archetypeSlug) ? VARIANTS[archetypeSlug] : null;
   const escapedName = firstName ? escapeHtml(firstName) : null;
 
@@ -280,7 +282,7 @@ function renderHtml(firstName: string | null, archetypeSlug: string | null): str
                 <tr>
                   <td align="center" style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:10.5px;line-height:19px;color:#7b7f80;">
                     Axis &amp; Bloom &middot; Creative Box LLC &middot; Union City, NJ 07087<br />
-                    <a href="mailto:hello@axisandbloomcoffee.com?subject=Unsubscribe" style="color:#7b7f80;text-decoration:underline;">Unsubscribe</a>
+                    <a href="${escapeHtml(unsubscribeUrl)}" style="color:#7b7f80;text-decoration:underline;">Unsubscribe</a>
                   </td>
                 </tr>
               </table>
@@ -296,7 +298,7 @@ function renderHtml(firstName: string | null, archetypeSlug: string | null): str
 `;
 }
 
-function renderText(firstName: string | null, archetypeSlug: string | null): string {
+function renderText(firstName: string | null, archetypeSlug: string | null, unsubscribeUrl: string): string {
   const variant = isArchetypeSlug(archetypeSlug) ? VARIANTS[archetypeSlug] : null;
   const headline = firstName ? `${firstName}, your match is in.` : 'Your match is in.';
   const footerTo = firstName ? firstName.toUpperCase() : 'YOU';
@@ -328,7 +330,7 @@ function renderText(firstName: string | null, archetypeSlug: string | null): str
     '',
     `FROM: AXIS & BLOOM — TO: ${footerTo}`,
     'Axis & Bloom · Creative Box LLC · Union City, NJ 07087',
-    'Unsubscribe: mailto:hello@axisandbloomcoffee.com?subject=Unsubscribe',
+    `Unsubscribe: ${unsubscribeUrl}`,
   ].join('\n');
 }
 
@@ -341,12 +343,13 @@ export interface RenderedEmail {
 /**
  * Render the quiz-complete email for a given recipient. archetypeSlug must already
  * be normalized to one of the six known slugs (see mailchimp.ts's toArchetypeSlug) —
- * anything else, including null, renders the fallback variant.
+ * anything else, including null, renders the fallback variant. unsubscribeUrl is the
+ * recipient's hosted unsubscribe link (unsubscribe.ts buildUnsubscribeUrl).
  */
-export function renderQuizCompleteEmail(firstName: string | null, archetypeSlug: string | null): RenderedEmail {
+export function renderQuizCompleteEmail(firstName: string | null, archetypeSlug: string | null, unsubscribeUrl: string): RenderedEmail {
   return {
     subject: 'Your coffee archetype card is here',
-    html: renderHtml(firstName, archetypeSlug),
-    text: renderText(firstName, archetypeSlug),
+    html: renderHtml(firstName, archetypeSlug, unsubscribeUrl),
+    text: renderText(firstName, archetypeSlug, unsubscribeUrl),
   };
 }

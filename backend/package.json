@@ -12,6 +12,8 @@
     "start": "node dist/index.js",
     "db:migrate": "node -e \"import('./src/db/migrate.js').then(m => m.migrate())\"",
     "catalog:import": "tsx src/scripts/catalogImport.ts",
+    "newsletter:unsubscribe": "tsx src/scripts/unsubscribe.ts",
+    "newsletter:reconcile": "tsx src/scripts/newsletterReconcile.ts",
     "lint:catalog": "node scripts/lint-catalog.mjs",
     "lint:retention": "node scripts/lint-retention.mjs",
     "lint:customer": "node scripts/lint-customer.mjs",

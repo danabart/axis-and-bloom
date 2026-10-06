@@ -1,11 +1,17 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import crypto from 'crypto';
+import rateLimit from 'express-rate-limit';
 import { db } from '../db/client.js';
 import { optionalAuth, type AuthRequest } from '../middleware/auth.js';
+import { getRealClientIp } from '../middleware/clientIp.js';
 import { syncMailchimpMember, toArchetypeSlug } from '../features/marketing/mailchimp.js';
 import { sendResendEmail } from '../features/marketing/resendEmail.js';
 import { renderQuizCompleteEmail } from '../features/marketing/templates/quizCompleteEmail.js';
 import { normalizeCampaign, normalizeVid } from '../features/marketing/campaigns.js';
+import {
+  buildUnsubscribeUrl, generateUnsubscribeToken, isSuppressed, unsubscribeByToken, unsubscribeTokenExists,
+} from '../features/marketing/unsubscribe.js';
+import { renderResponsePage } from '../lib/responsePage.js';
 
 const router = Router();
 
@@ -25,7 +31,32 @@ const QUIZ_COMPLETE_TEMPLATE = 'quiz_complete_v2';
 // value taken on faith. The claim row is also updated with that archetype and
 // Resend's own message id after a successful send, so a delivered email can be
 // looked up/audited later without the Resend dashboard.
-async function sendQuizCompleteEmailOnce(email: string, firstName: string, archetype: string) {
+//
+// Unsubscribe sync (2026-10-01) — this is a MARKETING send. Suppression is
+// checked BEFORE the claim row is inserted: a claim left behind for a skipped
+// send would mean a later re-subscribe never gets the email. sendResendEmail
+// checks again (kind 'marketing'); if it reports suppressed (an unsubscribe
+// landed in between), the claim is released the same way as a failed send.
+export async function sendQuizCompleteEmailOnce(email: string, firstName: string, archetype: string) {
+  if (await isSuppressed(email)) {
+    console.log('[newsletter] suppressed — quiz-complete email not sent');
+    return;
+  }
+
+  // handleSubscribe's upsert always leaves a token (minted on insert, COALESCEd
+  // onto a pre-backfill row on conflict), so this is never null on the live path.
+  // Read before the claim too, so a missing token never strands a claim row.
+  const tokenResult = await db.query<{ unsubscribe_token: string | null }>(
+    `SELECT unsubscribe_token FROM newsletter_subscriber WHERE email = $1`,
+    [email],
+  );
+  const token = tokenResult.rows[0]?.unsubscribe_token;
+  if (!token) {
+    console.error('[newsletter] no unsubscribe_token — quiz-complete email not sent');
+    return;
+  }
+  const unsubscribeUrl = buildUnsubscribeUrl(token);
+
   const claim = await db.query(
     `INSERT INTO transactional_email_log (email, template)
      VALUES ($1, $2)
@@ -36,9 +67,9 @@ async function sendQuizCompleteEmailOnce(email: string, firstName: string, arche
   if (claim.rowCount === 0) return; // already sent
 
   const archetypeSlug = toArchetypeSlug(archetype);
-  const { subject, html, text } = renderQuizCompleteEmail(firstName || null, archetypeSlug);
-  const { ok, id } = await sendResendEmail({ to: email, subject, html, text });
-  if (!ok) {
+  const { subject, html, text } = renderQuizCompleteEmail(firstName || null, archetypeSlug, unsubscribeUrl);
+  const { ok, id, suppressed } = await sendResendEmail({ to: email, subject, html, text, kind: 'marketing', unsubscribeUrl });
+  if (!ok || suppressed) {
     await db.query(
       `DELETE FROM transactional_email_log WHERE email = $1 AND template = $2`,
       [email, QUIZ_COMPLETE_TEMPLATE],
@@ -140,11 +171,18 @@ async function handleSubscribe(
   const cleanCampaign = normalizeCampaign(extra.campaign);
   const cleanCampaignVid = cleanCampaign ? normalizeVid(extra.campaignVid) : null;
 
+  // Unsubscribe sync (2026-10-01): a token is minted on insert; on conflict an
+  // existing token is never rotated (COALESCE keeps it), and a row from before
+  // the backfill picks up the fresh one. A form submission is fresh consent, so
+  // a re-subscribe also clears unsubscribed_at/unsubscribe_source.
   await db.query(
-    `INSERT INTO newsletter_subscriber (email, first_name, source_id, user_id, archetype, experimental, confidence, quiz_session_key, campaign, campaign_vid, campaign_attributed_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $9::text IS NOT NULL THEN now() END)
+    `INSERT INTO newsletter_subscriber (email, first_name, source_id, user_id, archetype, experimental, confidence, quiz_session_key, campaign, campaign_vid, campaign_attributed_at, unsubscribe_token)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $9::text IS NOT NULL THEN now() END, $11)
      ON CONFLICT (email) DO UPDATE
        SET subscribed             = TRUE,
+           unsubscribed_at        = NULL,
+           unsubscribe_source     = NULL,
+           unsubscribe_token      = COALESCE(newsletter_subscriber.unsubscribe_token, EXCLUDED.unsubscribe_token),
            first_name             = COALESCE(EXCLUDED.first_name, newsletter_subscriber.first_name),
            source_id              = COALESCE(newsletter_subscriber.source_id, EXCLUDED.source_id),
            user_id                = COALESCE(newsletter_subscriber.user_id, EXCLUDED.user_id),
@@ -155,10 +193,12 @@ async function handleSubscribe(
            campaign               = COALESCE(newsletter_subscriber.campaign, EXCLUDED.campaign),
            campaign_vid           = COALESCE(newsletter_subscriber.campaign_vid, EXCLUDED.campaign_vid),
            campaign_attributed_at = COALESCE(newsletter_subscriber.campaign_attributed_at, CASE WHEN EXCLUDED.campaign IS NOT NULL THEN now() END)`,
-    [clean, cleanName || null, sourceId, userId, verifiedArchetype, verifiedExperimental, verifiedConfidence, extra.quizSessionKey ?? null, cleanCampaign, cleanCampaignVid],
+    [clean, cleanName || null, sourceId, userId, verifiedArchetype, verifiedExperimental, verifiedConfidence, extra.quizSessionKey ?? null, cleanCampaign, cleanCampaignVid, generateUnsubscribeToken()],
   );
 
-  // Forward to Mailchimp — non-blocking, never fails the request. Only the
+  // Forward to Mailchimp — non-blocking, never fails the request. The upsert
+  // just set subscribed = TRUE, so its unconditional status 'subscribed' is
+  // consent-backed here (the only live caller). Only the
   // verified archetype ever reaches the tag (Part B3 also makes this
   // replace-not-add on the Mailchimp side, see mailchimp.ts).
   syncMailchimpMember(clean, cleanName, { source: sourceName, archetype: verifiedArchetype, experimental: verifiedExperimental, campaign: cleanCampaign }).catch(err =>
@@ -218,6 +258,76 @@ router.post('/', optionalAuth, async (req: AuthRequest, res) => {
   } catch (err) {
     console.error('[newsletter]', err);
     res.status(500).json({ error: 'Failed to subscribe' });
+  }
+});
+
+// ── Unsubscribe (2026-10-01, features/newsletter_unsubscribe/) ────────────────
+// The hosted link in our marketing email and the List-Unsubscribe header both
+// point at /api/newsletter/unsubscribe/:token (unsubscribe.ts buildUnsubscribeUrl).
+// App-Check-exempt (middleware/appCheck.ts): opened from an inbox, the token in
+// the path is the credential. Generous per-IP limit — it's a one-click link.
+const unsubscribeLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, keyGenerator: getRealClientIp });
+
+const NOT_VALID_PAGE = renderResponsePage('That link is no longer valid.');
+
+// GET never writes. Corporate mail security (Outlook Safe Links, Mimecast,
+// Proofpoint) opens every link in an email to scan it; an unsubscribe-on-GET
+// would let a scanner unsubscribe a reader who never tapped anything. The token
+// lookup only picks between the confirm page and a neutral 404, which never
+// reveals whether an address exists.
+router.get('/unsubscribe/:token', unsubscribeLimiter, async (req, res) => {
+  const { token } = req.params;
+  try {
+    if (!(await unsubscribeTokenExists(token))) {
+      res.status(404).send(NOT_VALID_PAGE);
+      return;
+    }
+    res.send(renderResponsePage('One tap and we stop sending marketing emails to this address.', {
+      heading: 'Unsubscribe from Axis &amp; Bloom emails?',
+      actionHtml:
+        `<form method="POST" action="/api/newsletter/unsubscribe/${token}" style="margin:0;">`
+        + '<input type="hidden" name="confirm" value="1" />'
+        + '<button type="submit" style="padding:14px 32px;background:#a33726;color:#ffffff;border:0;cursor:pointer;'
+        + 'font-size:11px;letter-spacing:0.2em;text-transform:uppercase;font-family:Arial,sans-serif;">Unsubscribe</button>'
+        + '</form>',
+    }));
+  } catch (err) {
+    console.error('[newsletter/unsubscribe GET]', err);
+    res.status(500).send(renderResponsePage('Something went wrong on our end — nothing was changed.'));
+  }
+});
+
+// The only path that writes. Two callers: the confirm page's button (body
+// empty or confirm=1) and mail clients' RFC 8058 one-click (body
+// List-Unsubscribe=One-Click, sent only on a real user action). Told apart by
+// that body field and nothing else. One-click gets 200 with an empty body (no
+// redirect, no HTML, as RFC 8058 requires); the form gets the done page.
+// urlencoded on this route only — the app parses JSON globally, nothing else.
+router.post('/unsubscribe/:token', unsubscribeLimiter, express.urlencoded({ extended: false }), async (req, res) => {
+  const { token } = req.params;
+  const oneClick = req.body?.['List-Unsubscribe'] === 'One-Click';
+  try {
+    const result = await unsubscribeByToken(token, oneClick ? 'one_click' : 'link');
+    if (!result.ok) {
+      if (oneClick) res.status(404).end();
+      else res.status(404).send(NOT_VALID_PAGE);
+      return;
+    }
+    if (oneClick) {
+      res.status(200).end();
+      return;
+    }
+    res.send(renderResponsePage(
+      "We won't send marketing emails to this address. Your flavor profile and any orders stay exactly as they are.",
+      {
+        heading: "You're unsubscribed.",
+        actionHtml: '<a href="https://axisandbloomcoffee.com" style="color:#a33726;font-size:13px;letter-spacing:0.1em;font-family:Arial,sans-serif;">Back to Axis &amp; Bloom</a>',
+      },
+    ));
+  } catch (err) {
+    console.error('[newsletter/unsubscribe POST]', err);
+    if (oneClick) res.status(500).end();
+    else res.status(500).send(renderResponsePage('Something went wrong on our end — nothing was changed.'));
   }
 });
 

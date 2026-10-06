@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { respondToDialInBeat, resolveDialInBeatIdByRespondToken } from '../services/beatEngine.js';
+import { renderResponsePage } from '../lib/responsePage.js';
 
 const router = Router();
 
@@ -50,28 +51,5 @@ router.get('/dial-in/:token/respond', async (req, res) => {
     res.status(500).send(renderResponsePage('Something went wrong on our end — no changes were made.'));
   }
 });
-
-function renderResponsePage(message: string): string {
-  return `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Axis &amp; Bloom</title>
-</head>
-<body style="margin:0;padding:0;background:#f2f1ea;font-family:Georgia,serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f2f1ea;min-height:100vh;">
-    <tr>
-      <td align="center" style="padding:80px 24px;">
-        <p style="margin:0 0 24px;font-size:11px;letter-spacing:0.3em;text-transform:uppercase;color:#a33726;">Axis &amp; Bloom</p>
-        <p style="margin:0;font-size:20px;color:#6b5a56;line-height:1.6;max-width:420px;">${message}</p>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>
-  `.trim();
-}
 
 export default router;

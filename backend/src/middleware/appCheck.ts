@@ -25,11 +25,20 @@ import admin from '../services/firebase-admin.js';
 //     these would lock them out permanently, valid cron secret or not.
 //   /health — Cloud Run's own uptime/health checks call with no App Check
 //     context either.
+//   /api/newsletter/unsubscribe/*, /api/beats/dial-in/* — capability links
+//     opened straight from an inbox (and mail clients' RFC 8058 one-click
+//     POST); no browser app, so no App Check token can exist. The token in
+//     the path is the credential. (Unsubscribe sync, 2026-10-01.)
 //
 // 2026-09-18: enforcement rolled back to monitoring for the Hoboken crawl / Oct 1
 // window; in-app browsers (Instagram, Facebook) fail reCAPTCHA attestation. See
 // OPEN_TASKS.md.
-const EXEMPT_PATH_PREFIXES = ['/api/cron', '/api/webhooks'];
+const EXEMPT_PATH_PREFIXES = [
+  '/api/cron',
+  '/api/webhooks',
+  '/api/newsletter/unsubscribe', // inbox capability link + one-click POST, no App Check context
+  '/api/beats/dial-in',          // inbox capability link (dial-in respond), same case
+];
 
 function isExempt(path: string): boolean {
   if (path === '/health' || path.startsWith('/health/')) return true;

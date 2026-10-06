@@ -45,7 +45,9 @@ const RESEND_FROM = process.env.RESEND_FROM || 'Axis & Bloom <hello@axisandbloom
 const RESEND_REPLY_TO = process.env.RESEND_REPLY_TO || 'hello@axisandbloomcoffee.com';
 
 async function send(label, firstName, archetypeSlug) {
-  const { subject, html, text } = renderQuizCompleteEmail(firstName, archetypeSlug);
+  // Preview token: the link renders the "no longer valid" page, never a real unsubscribe.
+  const unsubscribeUrl = 'https://www.axisandbloomcoffee.com/api/newsletter/unsubscribe/test-resend-preview';
+  const { subject, html, text } = renderQuizCompleteEmail(firstName, archetypeSlug, unsubscribeUrl);
 
   // Acceptance check: zero merge-tag remnants in the rendered HTML.
   const remnants = html.match(/\*\|[^|]*\|\*/g);

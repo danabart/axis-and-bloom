@@ -198,3 +198,69 @@ export async function syncMailchimpMember(
 
   return setMemberTags(hash, buildTags(inputs));
 }
+
+// Unsubscribe sync (2026-10-01) — newsletter_subscriber.subscribed is the source
+// of truth; these mirror it outward and read Mailchimp's side for the admin
+// lookup and the reconcile job. Same contract as the rest of this module:
+// MC_ENABLED-guarded, never throws, logs and returns false/null on error.
+
+export type MailchimpMemberStatus = 'subscribed' | 'unsubscribed' | 'cleaned' | 'pending' | 'transactional' | 'archived';
+
+/** PATCH a member's status. A 404 (not a member) and a 400 on a 'subscribed'
+ * PATCH ("Member In Compliance State" — Mailchimp refuses some re-subscribes)
+ * are logged as warnings, not errors. */
+export async function setMailchimpStatus(email: string, status: 'unsubscribed' | 'subscribed'): Promise<boolean> {
+  if (!MC_ENABLED) return true;
+  try {
+    const url = `https://${MC_DC}.api.mailchimp.com/3.0/lists/${MC_LIST_ID}/members/${memberHash(email)}`;
+    const res = await fetch(url, { method: 'PATCH', headers: mcHeaders(), body: JSON.stringify({ status }) });
+    if (res.ok) return true;
+    const body = await res.text();
+    if (res.status === 404 || (res.status === 400 && status === 'subscribed')) {
+      console.warn(`[mailchimp] status ${status} not applied:`, res.status, body);
+    } else {
+      console.error(`[mailchimp] status ${status} error:`, res.status, body);
+    }
+    return false;
+  } catch (err) {
+    console.error('[mailchimp] setMailchimpStatus error:', err);
+    return false;
+  }
+}
+
+/** The member's live status, or null when disabled, not a member, or the read failed. */
+export async function getMailchimpMemberStatus(email: string): Promise<MailchimpMemberStatus | null> {
+  if (!MC_ENABLED) return null;
+  try {
+    const url = `https://${MC_DC}.api.mailchimp.com/3.0/lists/${MC_LIST_ID}/members/${memberHash(email)}?fields=status`;
+    const res = await fetch(url, { headers: mcHeaders() });
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      console.error('[mailchimp] member status read error:', res.status, await res.text());
+      return null;
+    }
+    const body = (await res.json()) as { status?: MailchimpMemberStatus };
+    return body.status ?? null;
+  } catch (err) {
+    console.error('[mailchimp] getMailchimpMemberStatus error:', err);
+    return null;
+  }
+}
+
+/** Every member email with the given status, paginated 1000 at a time.
+ * Throws on a failed page: a partial list would make the reconcile report wrong. */
+export async function listMailchimpMembersByStatus(status: 'unsubscribed' | 'cleaned'): Promise<string[]> {
+  if (!MC_ENABLED) return [];
+  const PAGE = 1000;
+  const emails: string[] = [];
+  for (let offset = 0; ; offset += PAGE) {
+    const url = `https://${MC_DC}.api.mailchimp.com/3.0/lists/${MC_LIST_ID}/members`
+      + `?status=${status}&count=${PAGE}&offset=${offset}&fields=members.email_address,members.status,total_items`;
+    const res = await fetch(url, { headers: mcHeaders() });
+    if (!res.ok) throw new Error(`[mailchimp] list ${status} members failed: ${res.status} ${await res.text()}`);
+    const body = (await res.json()) as { members?: { email_address: string }[]; total_items?: number };
+    const page = body.members ?? [];
+    emails.push(...page.map(m => m.email_address));
+    if (page.length < PAGE || emails.length >= (body.total_items ?? 0)) return emails;
+  }
+}

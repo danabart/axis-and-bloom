@@ -21,7 +21,11 @@ const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 // respondent emails are in the bodies; neither belongs in api_event, and a
 // coffee's autosave fires about once a second. The portal's own versioned,
 // stamped tables are its record.
-const SKIP_PATH_PREFIXES = ['/api/cron', '/api/webhooks', '/api/roastery-portal'];
+// /api/newsletter/unsubscribe (2026-10-01): the raw path carries the subscriber's
+// unsubscribe capability token, and api_event is append-only, so it would sit
+// there forever. newsletter_subscriber's unsubscribed_at/unsubscribe_source is
+// the record of the unsubscribe.
+const SKIP_PATH_PREFIXES = ['/api/cron', '/api/webhooks', '/api/roastery-portal', '/api/newsletter/unsubscribe'];
 const REDACT_KEY_PATTERN = /password|passwd|secret|token|authorization|apikey|api_key|card|cvv|cvc/i;
 const MAX_REQUEST_BODY_BYTES = 64 * 1024;
 const MAX_RESPONSE_ERROR_BYTES = 2 * 1024;

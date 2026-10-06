@@ -397,3 +397,15 @@ object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
 5. Acceptance ran against a MARKED test admin (`Zzz Test Admin`, sink address), never a real person's account; demoted to customer and its Firebase user disabled afterwards.
 
 **Files:** `backend/src/services/roasteryPortalService.ts`, `roasteryPortalReads.ts`, `db/schema.sql` (views, best-seller table and trigger, guarded updates).
+
+### 20. Unsubscribe sync — a capability link, a keyed webhook, two App Check exemptions (2026-10-05)
+
+**What:** `WHAT_WE_BUILT.md` #211. Four security-relevant pieces.
+1. **`/api/newsletter/unsubscribe/:token`** (public). The credential is `newsletter_subscriber.unsubscribe_token`, 32 random bytes hex (same as `beat_event.respond_token`, C4), never an email or a guessable id. A malformed token is rejected without a query; unknown and malformed both get the same neutral 404 ("That link is no longer valid."), so the endpoint never says whether an address exists. **GET never writes** (mail scanners such as Safe Links, Mimecast and Proofpoint open every link in a message); only POST does, from the confirm page's button or a mail client's RFC 8058 one-click. A repeat is an idempotent no-op. Own limiter, 30/min per real client IP (C17 keying). The one write is narrow: it can only turn marketing email off for the token's own row.
+2. **`/api/webhooks/mailchimp`** (public). Mailchimp signs nothing, so the URL carries `?key=` checked against `MAILCHIMP_WEBHOOK_KEY` (trimmed and BOM-stripped, the CRON_SECRET incident lesson); unset or wrong → 403 for GET and POST. It can only flip a row toward unsubscribed (types other than `unsubscribe`/`cleaned` are no-ops). The key is in the query string, so it appears in Cloud Run's request log (inherent to Mailchimp's model); `/api/webhooks/*` is already excluded from `api_event`. Rotate by changing the secret and re-saving the webhook URL in Mailchimp.
+3. **App Check exemptions:** `/api/newsletter/unsubscribe` and `/api/beats/dial-in` added to `EXEMPT_PATH_PREFIXES`. Both are opened from an inbox with no App Check context; the path token is the credential. `/api/beats/dial-in` had this latent breakage already and would have stopped working the day `APP_CHECK_ENFORCED=true` is flipped (OT-23).
+4. **api_event:** `/api/newsletter/unsubscribe` excluded from capture, because `api_event` is append-only and stores the raw path, i.e. the subscriber's token, forever. Same reasoning as `/api/roastery-portal` (#17).
+
+**Admin:** `POST /api/admin/newsletter/unsubscribe` and `GET /api/admin/newsletter/subscriber` sit behind `admin.ts`'s `router.use(requireAdmin)`. The reconcile endpoint `GET /api/cron/newsletter-reconcile` is behind `requireCronSecret`.
+
+**Files:** `backend/src/routes/newsletter.ts`, `routes/cron.ts`, `routes/admin.ts`, `features/marketing/unsubscribe.ts`, `middleware/appCheck.ts`, `middleware/apiEventLog.ts`.

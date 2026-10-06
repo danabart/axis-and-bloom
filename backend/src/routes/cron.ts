@@ -1,4 +1,4 @@
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import express, { Router, type Request, type Response, type NextFunction } from 'express';
 import { Resend } from 'resend';
 import { db } from '../db/client.js';
 import { processPendingMessages, parseInboundReply } from '../services/liamSmsFeedback.js';
@@ -10,6 +10,8 @@ import { generateBrewNoteSentence } from '../services/storyLayer.js';
 import { getBagNumberForCoffee, getArrivalNoteConfig, getMostRecentCard, type BrewCardParams } from '../services/brewCard.js';
 import { buildDialInSmsBody, respondToDialInBeat } from '../services/beatEngine.js';
 import { backfillCoffeeContent } from './coffees.js';
+import { unsubscribeByEmail } from '../features/marketing/unsubscribe.js';
+import { reconcileNewsletter } from '../features/marketing/newsletterReconcile.js';
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 const router = Router();
@@ -561,6 +563,22 @@ router.get('/purge-stale-anonymous-guests', requireCronSecret, async (_req, res)
   }
 });
 
+// ── GET /api/cron/newsletter-reconcile ───────────────────────────────────────
+// Unsubscribe sync, Part 7 (2026-10-01): pull Mailchimp's unsubscribed/cleaned
+// members and flip any still subscribed in the DB; report (and push outward)
+// DB-unsubscribed rows Mailchimp still holds as subscribed. Same logic as
+// `npm run newsletter:reconcile`. Applies by default; ?dryRun=1 reports only.
+// Not scheduled yet — run once after deploy; optional weekly job (OPEN_TASKS).
+router.get('/newsletter-reconcile', requireCronSecret, async (req, res) => {
+  try {
+    const dryRun = req.query.dryRun === '1' || req.query.dryRun === 'true';
+    res.json(await reconcileNewsletter({ apply: !dryRun }));
+  } catch (err) {
+    console.error('[cron/newsletter-reconcile]', err);
+    res.status(500).json({ error: 'Cron job failed' });
+  }
+});
+
 // ── GET /api/cron/customer-parity — RETIRED (Customer Blueprint C3, Part C, 2026-09-27) ──
 // Checks 10-12 (feedback/brew-profile/dial parity) it called are gone: there
 // is no second store left to compare once the C3 writers are removed. The
@@ -783,6 +801,52 @@ router.post('/webhooks/sms/inbound', async (req, res) => {
   }
 
   // Always return 200 — provider will retry on non-200
+  res.status(200).send('');
+});
+
+// ── /api/webhooks/mailchimp ──────────────────────────────────────────────────
+// Unsubscribe sync, Part 5 (2026-10-01): a Mailchimp-footer unsubscribe (or a
+// cleaned address) lands in newsletter_subscriber. Mailchimp webhooks carry no
+// signature, so the URL carries a secret: ?key=<MAILCHIMP_WEBHOOK_KEY>. Same
+// handling discipline as CRON_SECRET (the 2026-08-15 BOM incident above): the
+// configured value is trimmed and BOM-stripped before comparing. Missing or
+// wrong key -> 403. Registered against the *.run.app URL, so no Cloudflare WAF
+// rule is involved (same as the SMS webhook).
+function requireMailchimpWebhookKey(req: Request, res: Response, next: NextFunction): void {
+  const expected = (process.env.MAILCHIMP_WEBHOOK_KEY ?? '').replace(/^﻿/, '').trim();
+  if (!expected || req.query.key !== expected) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+  next();
+}
+
+// Mailchimp sends a GET when the webhook is saved in its UI, to validate the URL.
+router.get('/mailchimp', requireMailchimpWebhookKey, (_req, res) => {
+  res.status(200).send('');
+});
+
+// Body is application/x-www-form-urlencoded with bracketed keys
+// (type=unsubscribe&data[email]=...&data[reason]=manual), hence extended
+// parsing on this route only. unsubscribe and cleaned flip the row with
+// source 'mailchimp' (never mirrored back — Mailchimp already knows); every
+// other type (subscribe, profile, upemail, campaign) is a logged no-op. The DB
+// write is one UPDATE and happens before responding; any error still answers
+// 200 (Mailchimp disables a webhook that keeps failing) and the reconcile job
+// catches whatever was missed.
+router.post('/mailchimp', requireMailchimpWebhookKey, express.urlencoded({ extended: true }), async (req, res) => {
+  const type = typeof req.body?.type === 'string' ? req.body.type : '';
+  const email = typeof req.body?.data?.email === 'string' ? req.body.data.email : '';
+  try {
+    if ((type === 'unsubscribe' || type === 'cleaned') && email) {
+      const result = await unsubscribeByEmail(email, 'mailchimp');
+      console.log(`[webhooks/mailchimp] ${type}: ${result.ok ? (result.wasSubscribed ? 'flipped' : 'already unsubscribed') : 'not in DB'}`);
+    } else {
+      console.debug(`[webhooks/mailchimp] ignored type=${type || '(none)'}`);
+    }
+  } catch (err) {
+    console.error('[webhooks/mailchimp]', err);
+  }
   res.status(200).send('');
 });
 

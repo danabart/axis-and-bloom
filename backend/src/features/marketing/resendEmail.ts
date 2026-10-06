@@ -7,6 +7,8 @@
 // routes/auth.ts (password reset) is a separate, pre-existing pattern; this module
 // intentionally mirrors mailchimp.ts's zero-dependency style instead.
 
+import { isSuppressed } from './unsubscribe.js';
+
 const RESEND_API_KEY = (process.env.RESEND_API_KEY ?? '').trim();
 const RESEND_FROM = process.env.RESEND_FROM || 'Axis & Bloom <hello@axisandbloomcoffee.com>';
 const RESEND_REPLY_TO = process.env.RESEND_REPLY_TO || 'hello@axisandbloomcoffee.com';
@@ -18,6 +20,27 @@ export interface ResendEmailInput {
   subject: string;
   html: string;
   text: string;
+  /** Unsubscribe sync (2026-10-01) — required so every caller declares it.
+   * 'marketing': skipped for a suppressed address (newsletter_subscriber.subscribed
+   * = false) and carries List-Unsubscribe headers. 'transactional': no check, no
+   * headers — order, account, password-reset, household-invite, brew-card and
+   * internal admin mail must keep reaching an unsubscribed customer. */
+  kind: 'marketing' | 'transactional';
+  /** Hosted one-click URL (buildUnsubscribeUrl) for the List-Unsubscribe header. */
+  unsubscribeUrl?: string;
+}
+
+const UNSUBSCRIBE_MAILTO = 'mailto:hello@axisandbloomcoffee.com?subject=Unsubscribe';
+
+/** Pure: the RFC 2369 / RFC 8058 headers for a marketing send. Without a hosted
+ * URL only the mailto target is offered, and no -Post header (one-click needs an
+ * https target). */
+export function buildListUnsubscribeHeaders(unsubscribeUrl?: string): Record<string, string> {
+  if (!unsubscribeUrl) return { 'List-Unsubscribe': `<${UNSUBSCRIBE_MAILTO}>` };
+  return {
+    'List-Unsubscribe': `<${unsubscribeUrl}>, <${UNSUBSCRIBE_MAILTO}>`,
+    'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+  };
 }
 
 export interface ResendSendResult {
@@ -27,20 +50,29 @@ export interface ResendSendResult {
    * Quiz Resync Fix Part B2 (2026-09-25) — previously discarded entirely;
    * now read and returned so callers can persist it for later lookup. */
   id: string | null;
+  /** True when a marketing send was skipped because the address is unsubscribed
+   * (ok stays true: nothing failed). A caller holding an at-most-once claim
+   * should release it, so a later re-subscribe can still receive the email. */
+  suppressed?: boolean;
 }
 
 /**
- * Send one transactional email via the Resend API. Never throws — logs and
- * returns { ok: false, id: null } on failure, no-op returning { ok: true, id: null }
- * when disabled. No open/click tracking options are passed (tracking is
+ * Send one email via the Resend API. Never throws — logs and returns
+ * { ok: false, id: null } on failure, no-op returning { ok: true, id: null }
+ * when disabled, and { ok: true, id: null, suppressed: true } for a marketing
+ * send to an unsubscribed address. No open/click tracking options are passed (tracking is
  * intentionally unconfigured in Resend).
  */
-export async function sendResendEmail({ to, subject, html, text }: ResendEmailInput): Promise<ResendSendResult> {
+export async function sendResendEmail({ to, subject, html, text, kind, unsubscribeUrl }: ResendEmailInput): Promise<ResendSendResult> {
   if (!RESEND_ENABLED) {
     console.debug('[resend] disabled — skipping send');
     return { ok: true, id: null };
   }
   try {
+    if (kind === 'marketing' && await isSuppressed(to)) {
+      console.log('[resend] suppressed — skipping marketing send');
+      return { ok: true, id: null, suppressed: true };
+    }
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
@@ -54,6 +86,7 @@ export async function sendResendEmail({ to, subject, html, text }: ResendEmailIn
         subject,
         html,
         text,
+        ...(kind === 'marketing' ? { headers: buildListUnsubscribeHeaders(unsubscribeUrl) } : {}),
       }),
     });
     if (!res.ok) {

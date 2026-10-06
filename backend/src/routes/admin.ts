@@ -5,6 +5,8 @@ import { generateAndStoreSummary, generateAndStoreAllContent } from './coffees.j
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { recordCuppingSignal, getAvgCuppingScore, getArchetypeBucketWidth, getAvgCuppingScoresBatch } from '../services/dialSuggestion.js';
 import { getMarketingConfig, setMarketingConfigValue } from '../features/marketing/reportingConfig.js';
+import { MC_ENABLED, getMailchimpMemberStatus } from '../features/marketing/mailchimp.js';
+import { unsubscribeByEmail } from '../features/marketing/unsubscribe.js';
 import { DEFAULT_SOMMELIER_CONFIG } from '../db/seeds/sommelier_config_seed.js';
 import { checkAggregateAnomaly, getMonthlySpendEstimate } from '../services/sommelierGuards.js';
 import { getSommelierConfig, AI_FEATURES, type AiFeature, type AiControls } from '../services/sommelierConfig.js';
@@ -2541,5 +2543,49 @@ catalogRouter.put('/archetypes/:code/descriptor-families', async (req: AuthReque
 });
 
 router.use('/catalog', catalogRouter);
+
+// ── Newsletter consent (unsubscribe sync, 2026-10-01) ────────────────────────
+// The hello@ inbox path: someone asks by email to stop. Same service as
+// `npm run newsletter:unsubscribe`. Rows are flipped, never deleted.
+
+// POST /api/admin/newsletter/unsubscribe  { email }
+// Flips the DB row (source 'admin') and pushes 'unsubscribed' to Mailchimp.
+// wasSubscribed says whether this call changed anything in the DB.
+router.post('/newsletter/unsubscribe', async (req: AuthRequest, res) => {
+  const email = typeof req.body?.email === 'string' ? req.body.email.toLowerCase().trim() : '';
+  if (!email) { res.status(400).json({ error: 'email required' }); return; }
+  try {
+    const result = await unsubscribeByEmail(email, 'admin');
+    res.json(result.ok
+      ? { ok: true, email, wasSubscribed: result.wasSubscribed, mailchimpMirrored: result.mailchimpMirrored }
+      : { ok: false, email, wasSubscribed: false, inDb: false, mailchimpMirrored: result.mailchimpMirrored ?? false });
+  } catch (err) {
+    console.error('[admin/newsletter/unsubscribe]', err);
+    res.status(500).json({ error: 'Failed to unsubscribe' });
+  }
+});
+
+// GET /api/admin/newsletter/subscriber?email=
+// The DB row's consent fields plus Mailchimp's live status, so a mismatch is
+// visible in one call.
+router.get('/newsletter/subscriber', async (req: AuthRequest, res) => {
+  const email = typeof req.query.email === 'string' ? req.query.email.toLowerCase().trim() : '';
+  if (!email) { res.status(400).json({ error: 'email required' }); return; }
+  try {
+    const r = await db.query(
+      `SELECT ns.email, ns.subscribed, ns.unsubscribed_at, ns.unsubscribe_source, ns.archetype,
+              ss.name AS source, ns.created_at
+         FROM newsletter_subscriber ns
+         LEFT JOIN subscriber_source ss ON ss.id = ns.source_id
+        WHERE ns.email = $1`,
+      [email],
+    );
+    const mailchimpStatus = MC_ENABLED ? await getMailchimpMemberStatus(email) : null;
+    res.json({ email, subscriber: r.rows[0] ?? null, mailchimpStatus, mailchimpEnabled: MC_ENABLED });
+  } catch (err) {
+    console.error('[admin/newsletter/subscriber]', err);
+    res.status(500).json({ error: 'Failed to load subscriber' });
+  }
+});
 
 export default router;
