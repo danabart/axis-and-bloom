@@ -364,6 +364,8 @@ Evidence tables for what partner roasteries say about their own coffees. **Nothi
 - **`v_roastery_portal_progress`**: section 01 counts the new per-coffee answers (still 6 sections); new columns `additives_present`, `additives_detail`, `blend_recipe_changes` (from the latest submitted version; display only).
 - **Prod state after #212**: Zzz Test Roastery has no active lineup row or link; catalog coffee 2893 (retired Zzz test coffee) has one category assignment (`decaf`) and no active descriptor.
 
+**Part 4 (2026-10-06, `WHAT_WE_BUILT.md` #213)**: "Roasted for" removed. **`roastery_portal_response.roast_intent` is deprecated in place** (same treatment as `is_decaf`): the column stays, nothing reads or writes it, `v_roastery_portal_response` no longer lists it (so `v_roastery_portal_current_response` no longer carries it) and `v_roastery_portal_progress` no longer counts it toward section 01. The `roastery_portal_roast_intent` lookup rows (filter, espresso, omni) stay, unused. **The one-time purge of portal test data (Phase C) has NOT been run yet**; when it is, record here: the date, the tables and row counts deleted, and that the seven reject-change triggers were disabled by name only inside the purge transaction and re-enabled (`pg_trigger.tgenabled = 'O'`) before it committed.
+
 ### Dimensions (seeded, 12 rows)
 
 | ID | Name | Type | Scale |
