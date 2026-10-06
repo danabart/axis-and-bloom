@@ -386,3 +386,14 @@ object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
 3. **The submit email** (`services/roasteryPortalNotify.ts`) goes to every `admin` address, resolved at send time through `user_type`/`user_email`: no environment variable, no hardcoded address. Roaster-supplied names are HTML-escaped in the body; the email carries no token and no roaster email (only the admin link). A failed send never fails the submit. Acceptance ran against a MARKED test admin created for the purpose (`Zzz Test Admin`, Resend sink address), never a real person's account; afterwards it was demoted to customer and its Firebase user disabled.
 
 **Files:** `backend/src/services/catalogService.ts`, `roasteryPortalService.ts`, `roasteryPortalReads.ts`, `roasteryPortalNotify.ts`, `routes/roasteryPortalAdmin.ts`, `routes/roasteryPortal.ts`, `scripts/lint-catalog.mjs`, `scripts/lint-roastery-portal.mjs`.
+
+### 19. Roastery portal part 3 — new roaster answers, additives as evidence only (2026-10-06)
+
+**What:** `WHAT_WE_BUILT.md` #212. No new endpoint and no new public route; the existing token-gated routes accept more fields. What changed that matters here:
+1. **Every new value is validated against its lookup category on the server** (even one the normalisation then clears), text is capped at 300, a best seller must be an active coffee of the SAME roastery and **anything else (another roastery's id, an inactive one, a malformed id) answers the identical `404 {"error":"not_found"}`** as an unknown token, so nothing about another roastery can be probed. Checked live with a Utopian coffee id (read only).
+2. **The additives answer is evidence for an admin and nothing else.** It is shown as a plain marker ("Contains added ingredients: <detail>. Check the ingredients statement on the bag.") on the admin row and in the accept preview. It writes no label, ingredients text or customer surface; free text is HTML-escaped by React on render and never reaches a customer or Liam.
+3. **Accept's only new catalog effect is a category code** (`decaf` / `half_caf`) through `catalogService.updateCoffeeInTx`, keeping the coffee's other categories. Admin-only, in the same single transaction as before.
+4. **Label updates are guarded** on the old label so a hand edit in prod is never overwritten; the deprecated `is_decaf` is never written again and never backfilled on immutable submitted rows.
+5. Acceptance ran against a MARKED test admin (`Zzz Test Admin`, sink address), never a real person's account; demoted to customer and its Firebase user disabled afterwards.
+
+**Files:** `backend/src/services/roasteryPortalService.ts`, `roasteryPortalReads.ts`, `db/schema.sql` (views, best-seller table and trigger, guarded updates).
