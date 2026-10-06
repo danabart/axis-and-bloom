@@ -340,6 +340,8 @@ object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
 
 **Superseded 2026-10-05 (Dana's decision):** `.github/dependabot.yml` and `.github/workflows/pr-check.yml` were deleted, and Dependabot PRs #3 and #4 were closed unmerged (branches deleted). `dependency-audit.yml` stays. In `deploy.yml` the two audit steps now have `continue-on-error: true`, so **an audit finding no longer fails or blocks a deploy** — it still runs and shows as a warning on the run; the daily `dependency-audit` issue is the alert. The "gate for pushes is unchanged" statement above no longer holds. The `skip_audit` input still exists but is now rarely needed. The Dependabot-based text above describes what was built, not what is live.
 
+**Daily audit removed 2026-10-06 (Dana's decision):** `.github/workflows/dependency-audit.yml` was deleted, and the one open `dependency-audit` issue (#6, opened 2026-10-06 17:12 UTC) was closed with a comment saying why. Nothing now runs on a schedule and nothing opens an issue or sends an email when an advisory lands. The only remaining audit is the pair of non-blocking `npm audit --omit=dev --audit-level=high` steps inside every Deploy run (`continue-on-error: true`): a high/critical finding shows only as a failed-but-ignored step and a warning on that run, and nobody is notified. So everything above that relies on the daily issue (the alert, the fix order "printed in the issue", "leave the issue open until the audit is clean", the issue as the record of a skipped audit) no longer applies. To see current advisories, read the audit steps of the latest Deploy run or run `npm audit --omit=dev` in `backend/` and `frontend/`.
+
 ---
 
 ### 15. C11 follow-up — frontend Firebase 10 → 12 (2026-10-04)
