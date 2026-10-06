@@ -7,7 +7,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { portalApi, PortalApiError, docToWire } from './api';
+import { PortalApiError, docToWire } from './apiShared';
+import { usePortal } from './portalContext';
 import { COPY } from './copy';
 import { Chip, Field, MultiChips, Scale, SingleChips, SrcTag, formatWhen, timeAgo } from './ui';
 import NotesSection, { newNoteKey } from './NotesSection';
@@ -115,6 +116,7 @@ export default function CoffeeScreen({ token, id, landing, respondent, onRespond
   onRespondentInvalid: () => void; onChanged: () => void;
 }) {
   const navigate = useNavigate();
+  const { client: portalApi, basePath } = usePortal();
   const v = landing.vocabulary;
 
   const [phase, setPhase] = useState<'loading' | 'missing' | 'error' | 'ready'>('loading');
@@ -257,7 +259,7 @@ export default function CoffeeScreen({ token, id, landing, respondent, onRespond
             return ordered.find(c => c.portalCoffeeId !== id && c.state !== 'submitted');
           })()
         : undefined;
-      navigate(next ? `/roastery/${token}/coffee/${next.portalCoffeeId}` : `/roastery/${token}`);
+      navigate(next ? `${basePath}/coffee/${next.portalCoffeeId}` : basePath);
     } catch (err) {
       if (err instanceof PortalApiError && err.status === 400 && /respondent/i.test(err.message)) { onRespondentInvalid(); return; }
       setError(err instanceof PortalApiError && err.status === 400 ? err.message : 'We could not save that just now. Please try again.');
@@ -274,7 +276,7 @@ export default function CoffeeScreen({ token, id, landing, respondent, onRespond
   if (phase === 'missing') return (
     <>
       <h1><span className="b">We could not find that coffee</span></h1>
-      <p className="lede"><Link to={`/roastery/${token}`} className="ghost">Back to your coffees</Link></p>
+      <p className="lede"><Link to={basePath} className="ghost">Back to your coffees</Link></p>
     </>
   );
   if (phase === 'error' || !doc || !coffee) return (
@@ -307,7 +309,7 @@ export default function CoffeeScreen({ token, id, landing, respondent, onRespond
   return (
     <>
       <div className="crumb">
-        {landing.roastery.name} &nbsp;/&nbsp; <Link to={`/roastery/${token}`}>{COPY.yourCoffees}</Link> &nbsp;/&nbsp; <b>{coffee.name}</b>
+        {landing.roastery.name} &nbsp;/&nbsp; <Link to={basePath}>{COPY.yourCoffees}</Link> &nbsp;/&nbsp; <b>{coffee.name}</b>
       </div>
       <h1>
         <span className="a">{coffee.name}</span><br />

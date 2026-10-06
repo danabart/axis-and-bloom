@@ -43,6 +43,7 @@ import Privacy from './components/Privacy';
 import Terms from './components/Terms';
 import CrawlLanding from './components/CrawlLanding';
 import RoasteryPortal from './components/roastery-portal/RoasteryPortal';
+import RoasteryPortalPreview from './components/roastery-portal/RoasteryPortalPreview';
 import AdminRoasteryPortal from './components/admin/AdminRoasteryPortal';
 import ConsentBanner from './components/ConsentBanner';
 import CampaignQueryReader from './components/CampaignQueryReader';
@@ -120,6 +121,14 @@ export default function App() {
               <Route path="ai-ops" element={<AdminAIOps />} />
               <Route path="system-health" element={<AdminSystemHealth />} />
               <Route path="company-gifts" element={<AdminCompanyGifts />} />
+            </Route>
+
+            {/* ── Roastery portal admin preview (part 5) — the real partner screens with a client that saves
+                 nothing; admins only, outside AdminLayout so it looks as the roaster sees it. One parent
+                 route so state survives moving between the lineup and a coffee. ── */}
+            <Route path="/admin/roastery-portal/:roasterId/preview" element={<AdminRoute><RoasteryPortalPreview /></AdminRoute>}>
+              <Route index element={null} />
+              <Route path="coffee/:id" element={null} />
             </Route>
 
             {/* ── Quiz — own minimal chrome, no public nav/footer/cart ── */}

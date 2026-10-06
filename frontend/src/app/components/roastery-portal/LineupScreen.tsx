@@ -5,7 +5,8 @@
 
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { portalApi, PortalApiError } from './api';
+import { PortalApiError } from './apiShared';
+import { usePortal } from './portalContext';
 import { COPY } from './copy';
 import { Chip, Field, SingleChips, formatWhen } from './ui';
 import type { Landing, LineupRow } from './types';
@@ -24,6 +25,7 @@ export default function LineupScreen({ token, landing, respondentId, onResponden
   onRespondentInvalid: () => void; onChanged: () => void;
 }) {
   const navigate = useNavigate();
+  const { client: portalApi, basePath } = usePortal();
   const v = landing.vocabulary;
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
@@ -53,7 +55,7 @@ export default function LineupScreen({ token, landing, respondentId, onResponden
     setBusy(true); setAddError('');
     try {
       const created = await portalApi.addCoffee(token, newName, respondentId);
-      navigate(`/roastery/${token}/coffee/${created.id}`);
+      navigate(`${basePath}/coffee/${created.id}`);
     } catch (err) {
       setAddError(failure(err, 'We could not add that just now. Please try again.'));
       setBusy(false);
@@ -88,7 +90,7 @@ export default function LineupScreen({ token, landing, respondentId, onResponden
       <div className="sec"><span className="sn">{String(landing.counts.submitted).padStart(2, '0')}/{String(landing.counts.total).padStart(2, '0')}</span><h2 className="st">{COPY.yourCoffees}</h2></div>
       <div className="rows">
         {landing.lineup.map(c => (
-          <Link key={c.portalCoffeeId} to={`/roastery/${token}/coffee/${c.portalCoffeeId}`} className={`crow ${c.state}`}>
+          <Link key={c.portalCoffeeId} to={`${basePath}/coffee/${c.portalCoffeeId}`} className={`crow ${c.state}`}>
             <span className="cn">{c.name}</span>
             <span className="cs">{stateLabel(c)}</span>
           </Link>

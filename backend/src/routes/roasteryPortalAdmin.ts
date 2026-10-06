@@ -11,7 +11,7 @@ import { requireAdmin, type AuthRequest } from '../middleware/auth.js';
 import { log } from '../lib/logger.js';
 import {
   getVocabulary, listRoasteriesWithProgress, listLinks, getRoasterBasics, getAdminLineup, getLineupCoffee,
-  previewAcceptance, listAcceptances, listNoteMappings, getCoffeeHint, listCousinHints,
+  previewAcceptance, listAcceptances, listNoteMappings, getCoffeeHint, listCousinHints, getPortalLanding, getPreviewContact,
   getCurrentResponse, getResponseById, listResponseVersions, getCurrentLineupResponse,
   listLineupResponseVersions, listCatalogCoffeesForRoaster,
 } from '../services/roasteryPortalReads.js';
@@ -53,6 +53,31 @@ router.get('/roasteries', async (req, res) => {
 // its process / roast level / blend lists).
 router.get('/vocabulary', async (_req, res) => {
   try { res.json(await getVocabulary()); } catch (err) { fail('[admin/roastery-portal/vocabulary]', res, err); }
+});
+
+// ── Part 5: admin preview of a roastery's form (READ ONLY, no link needed) ───
+// The same landing and coffee payloads the roaster's page loads, built by the same read functions, but with no token,
+// no touchLink, no respondent and no write of any kind: previewing leaves every portal table exactly as it was. There
+// are deliberately no preview write endpoints; the preview client in the browser answers saves locally.
+router.get('/roasteries/:roasterId/preview', async (req, res) => {
+  const { roasterId } = req.params;
+  if (!isUuid(roasterId)) return badId(res);
+  try {
+    const roaster = await getRoasterBasics(roasterId);
+    if (!roaster) return badId(res);
+    res.json(await getPortalLanding({ roasterId, roasteryName: roaster.name, contact: await getPreviewContact(roasterId) }));
+  } catch (err) { fail('[admin/roastery-portal/preview]', res, err); }
+});
+
+// A coffee id from another roastery (or an inactive / malformed one) is a plain 404, exactly as on the public route.
+router.get('/roasteries/:roasterId/preview/coffees/:portalCoffeeId', async (req, res) => {
+  const { roasterId, portalCoffeeId } = req.params;
+  if (!isUuid(roasterId) || !isUuid(portalCoffeeId)) return badId(res);
+  try {
+    const coffee = await getLineupCoffee(roasterId, portalCoffeeId);
+    if (!coffee || !coffee.isActive) return badId(res);
+    res.json({ coffee, response: await getCurrentResponse(portalCoffeeId) });
+  } catch (err) { fail('[admin/roastery-portal/preview-coffee]', res, err); }
 });
 
 // GET /roasteries/:roasterId — one roastery: links, lineup with progress,

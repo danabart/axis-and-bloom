@@ -11,10 +11,12 @@
 //
 // Brief: backend/src/features/roastery_portal/CLAUDE_CODE_PROMPT_ROASTERY_PORTAL_1.md
 
-import { useCallback, useEffect, useState } from 'react';
-import { useParams } from 'react-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useParams } from 'react-router';
 import './portal.css';
-import { portalApi, PortalApiError } from './api';
+import { portalApi } from './api';
+import { PortalApiError, type PortalClient } from './apiShared';
+import { PortalContext } from './portalContext';
 import { COPY } from './copy';
 import WhoScreen from './WhoScreen';
 import LineupScreen from './LineupScreen';
@@ -43,9 +45,23 @@ function writeRespondent(token: string, r: Respondent | null) {
   } catch { /* storage unavailable (private window, blocked): the page still works, it just asks again */ }
 }
 
-function Chrome({ right, children, bandCodes }: { right?: string; children: React.ReactNode; bandCodes: string[] }) {
+// The preview banner: in the page flow (sticky, never over the form), one slim line, so it also fits a phone.
+export function PreviewBanner({ backTo }: { backTo: string }) {
+  return (
+    <div className="preview-banner" role="note">
+      <span>Preview. Nothing you do here is saved.</span>
+      <Link to={backTo}>Back to admin</Link>
+    </div>
+  );
+}
+
+/** Set by the admin preview route only; absent on the public route. */
+export interface PreviewMode { client: PortalClient; basePath: string; backTo: string; roasterId: string }
+
+function Chrome({ right, children, bandCodes, banner }: { right?: string; children: React.ReactNode; bandCodes: string[]; banner?: React.ReactNode }) {
   return (
     <div className="rp">
+      {banner}
       <div className="bar">
         <div className="wm">AXIS &amp; BLOOM <small>ROASTER PORTAL</small></div>
         {right ? <div className="who">{right}</div> : null}
@@ -62,11 +78,17 @@ function Chrome({ right, children, bandCodes }: { right?: string; children: Reac
   );
 }
 
-export default function RoasteryPortal() {
-  const { token = '', id } = useParams();
+export default function RoasteryPortal({ preview }: { preview?: PreviewMode } = {}) {
+  const params = useParams();
+  const id = params.id;
+  // In preview there is no token: the roastery id stands in so every screen keeps its (token, id) arguments.
+  const token = preview ? preview.roasterId : (params.token ?? '');
+  const client: PortalClient = preview ? preview.client : portalApi;
+  const basePath = preview ? preview.basePath : `/roastery/${token}`;
+  const ctx = useMemo(() => ({ client, basePath, isPreview: !!preview }), [client, basePath, preview]);
   const [status, setStatus] = useState<'loading' | 'inactive' | 'error' | 'ready'>('loading');
   const [landing, setLanding] = useState<Landing | null>(null);
-  const [respondent, setRespondent] = useState<Respondent | null>(() => readRespondent(token));
+  const [respondent, setRespondent] = useState<Respondent | null>(() => (preview ? null : readRespondent(token)));
 
   // Noindex, nofollow (the hosting header does the same for crawlers that never run JS),
   // and the page ground, restored on the way out.
@@ -88,25 +110,26 @@ export default function RoasteryPortal() {
 
   const load = useCallback(async () => {
     try {
-      setLanding(await portalApi.landing(token));
+      setLanding(await client.landing(token));
       setStatus('ready');
     } catch (err) {
       // Unknown and revoked tokens are the same 404, so they get the same page.
       setStatus(err instanceof PortalApiError && err.status === 404 ? 'inactive' : 'error');
     }
-  }, [token]);
+  }, [token, client]);
 
   // Load on arrival, and again whenever we come back to the lineup so its states are current.
   useEffect(() => { void load(); }, [load, id]);
 
-  const onWho = useCallback((r: Respondent) => { writeRespondent(token, r); setRespondent(r); }, [token]);
-  const onRespondentInvalid = useCallback(() => { writeRespondent(token, null); setRespondent(null); }, [token]);
+  // Preview keeps the respondent in React state only: nothing is read from or written to localStorage.
+  const onWho = useCallback((r: Respondent) => { if (!preview) writeRespondent(token, r); setRespondent(r); }, [token, preview]);
+  const onRespondentInvalid = useCallback(() => { if (!preview) writeRespondent(token, null); setRespondent(null); }, [token, preview]);
 
   const bandCodes = landing?.vocabulary.archetypes.slice().sort((a, b) => a.sortOrder - b.sortOrder).map(a => a.code) ?? [];
 
   if (status === 'inactive') {
     return (
-      <Chrome bandCodes={[]}>
+      <Chrome bandCodes={[]} banner={preview ? <PreviewBanner backTo={preview.backTo} /> : undefined}>
         <div className="centered" style={{ padding: '56px 0' }}>
           <h1><span className="b">{COPY.inactiveTitle}</span></h1>
           <p className="lede">{COPY.inactiveBody}</p>
@@ -115,11 +138,11 @@ export default function RoasteryPortal() {
     );
   }
   if (status === 'loading' || (status === 'ready' && !landing)) {
-    return <Chrome bandCodes={[]}><p className="lede" aria-live="polite">Loading…</p></Chrome>;
+    return <Chrome bandCodes={[]} banner={preview ? <PreviewBanner backTo={preview.backTo} /> : undefined}><p className="lede" aria-live="polite">Loading…</p></Chrome>;
   }
   if (status === 'error' || !landing) {
     return (
-      <Chrome bandCodes={[]}>
+      <Chrome bandCodes={[]} banner={preview ? <PreviewBanner backTo={preview.backTo} /> : undefined}>
         <h1><span className="b">Something went wrong</span></h1>
         <p className="lede">Please refresh the page in a moment.</p>
       </Chrome>
@@ -129,7 +152,8 @@ export default function RoasteryPortal() {
   const right = `${landing.roastery.name} · ${landing.counts.submitted} of ${landing.counts.total} coffees done`;
 
   return (
-    <Chrome right={right} bandCodes={bandCodes}>
+    <PortalContext.Provider value={ctx}>
+    <Chrome right={right} bandCodes={bandCodes} banner={preview ? <PreviewBanner backTo={preview.backTo} /> : undefined}>
       {!respondent ? (
         <WhoScreen token={token} contactName={landing.contact.name} contactEmail={landing.contact.email} onDone={onWho} />
       ) : id ? (
@@ -138,5 +162,6 @@ export default function RoasteryPortal() {
         <LineupScreen key={landing.lineupResponse?.id ?? 'none'} token={token} landing={landing} respondentId={respondent.id} onRespondentInvalid={onRespondentInvalid} onChanged={() => void load()} />
       )}
     </Chrome>
+    </PortalContext.Provider>
   );
 }

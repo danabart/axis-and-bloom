@@ -4,13 +4,15 @@
 // The server is the record; the device only remembers the respondent id.
 
 import { useState, type FormEvent } from 'react';
-import { portalApi, PortalApiError } from './api';
+import { PortalApiError } from './apiShared';
+import { usePortal } from './portalContext';
 import { COPY } from './copy';
 
 export default function WhoScreen({ token, contactName, contactEmail, onDone }: {
   token: string; contactName: string | null; contactEmail: string | null;
   onDone: (respondent: { id: string; name: string }) => void;
 }) {
+  const { client: portalApi } = usePortal();
   const [name, setName] = useState(contactName ?? '');
   const [email, setEmail] = useState(contactEmail ?? '');
   const [busy, setBusy] = useState(false);

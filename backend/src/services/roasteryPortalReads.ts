@@ -881,3 +881,46 @@ export async function getSubmissionContext(responseId: string, runner: Runner = 
   const x = r.rows[0];
   return x ? { roasteryName: x.roastery_name, coffeeName: x.coffee_name, roasterId: x.roaster_id, portalCoffeeId: x.portal_coffee_id, submittedByName: x.submitted_by_name, version: x.version } : null;
 }
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Part 5 (2026-10-06): admin preview. The landing payload the partner page loads is built HERE, once, for
+// both the public GET /:token and the admin preview, so the two can never drift apart. Read-only.
+// ═════════════════════════════════════════════════════════════════════════════
+export interface PortalLanding {
+  roastery: { name: string };
+  contact: { name: string | null; email: string | null };
+  vocabulary: PortalVocabulary;
+  lineup: LineupRow[];
+  counts: { total: number; submitted: number };
+  lineupResponse: LineupResponse | null;
+}
+
+export async function getPortalLanding(input: {
+  roasterId: string; roasteryName: string; contact: { name: string | null; email: string | null };
+}): Promise<PortalLanding> {
+  const [vocabulary, lineup, lineupResponse] = await Promise.all([
+    getVocabulary(),
+    getLineup(input.roasterId),
+    getCurrentLineupResponse(input.roasterId),
+  ]);
+  return {
+    roastery: { name: input.roasteryName },
+    contact: input.contact,
+    vocabulary,
+    lineup,
+    counts: { total: lineup.length, submitted: lineup.filter(c => c.state === 'submitted').length },
+    lineupResponse,
+  };
+}
+
+/** The contact the "Who is filling this in?" screen would prefill from: the roastery's newest unrevoked link,
+ * else its newest link of any kind, else nothing. Admin preview only. */
+export async function getPreviewContact(roasterId: string, runner: Runner = db): Promise<{ name: string | null; email: string | null }> {
+  const r = await runner.query(
+    `SELECT contact_name, contact_email FROM roastery_portal_link WHERE roaster_id = $1
+     ORDER BY (revoked_at IS NULL) DESC, created_at DESC LIMIT 1`,
+    [roasterId]
+  );
+  return { name: r.rows[0]?.contact_name ?? null, email: r.rows[0]?.contact_email ?? null };
+}

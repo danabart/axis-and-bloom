@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
 import { reportError } from '../../lib/errorReporter';
 import LookupSelect from './LookupSelect';
@@ -177,7 +177,10 @@ function RoasteryList({ apiFetch, onOpen }: { apiFetch: (u: string, o?: RequestI
                 </td>
                 <td className="py-3 pr-4 text-stone-600">{r.coffeesSubmitted} of {r.coffeesTotal}</td>
                 <td className="py-3 pr-4 text-stone-600">{fmt(r.lastActivityAt)}</td>
-                <td className="py-3 text-right"><button className={BTN} onClick={() => onOpen(r.roasterId)}>Open</button></td>
+                <td className="py-3 text-right whitespace-nowrap">
+                  {r.coffeesTotal > 0 && <Link className={`${BTN} mr-2 inline-block`} to={`/admin/roastery-portal/${r.roasterId}/preview`}>Preview form</Link>}
+                  <button className={BTN} onClick={() => onOpen(r.roasterId)}>Open</button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -228,6 +231,9 @@ function RoasteryDetailView({ roasterId, apiFetch, vocab, onBack, onOpenCoffee, 
       <div>
         <button className="text-xs uppercase tracking-wide text-stone-500 mb-2" onClick={onBack}>← All roasteries</button>
         <h2 className="text-lg">{roaster.name}{!roaster.isActive && <span className="ml-2 text-xs text-stone-400">inactive</span>}</h2>
+        {activeLineup.length > 0 && (
+          <Link className={`${BTN} mt-2 inline-block`} to={`/admin/roastery-portal/${roasterId}/preview`}>Preview form</Link>
+        )}
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
 

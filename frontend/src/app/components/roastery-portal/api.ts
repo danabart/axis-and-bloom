@@ -2,16 +2,12 @@
 // The token in the URL is the only credential: no Authorization header, no
 // Firebase session, nothing from the site's own API client.
 
-import type { Doc, Landing, LineupRow, PortalResponse } from './types';
+import type { Landing, LineupRow, PortalResponse } from './types';
+import { PortalApiError, docToWire, type PortalClient } from './apiShared';
+
+export { PortalApiError, docToWire };
 
 const BASE = '/api/roastery-portal';
-
-export class PortalApiError extends Error {
-  constructor(public status: number, public code: string, message: string) {
-    super(message);
-    this.name = 'PortalApiError';
-  }
-}
 
 async function call<T>(method: string, path: string, body?: unknown, keepalive = false): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -29,7 +25,7 @@ async function call<T>(method: string, path: string, body?: unknown, keepalive =
 
 const enc = encodeURIComponent;
 
-export const portalApi = {
+export const portalApi: PortalClient = {
   landing: (token: string) => call<Landing>('GET', `/${enc(token)}`),
   registerRespondent: (token: string, name: string, email: string) =>
     call<{ respondentId: string; name: string }>('POST', `/${enc(token)}/respondent`, { name, email }),
@@ -46,11 +42,3 @@ export const portalApi = {
   submitLineup: (token: string, respondentId: string) =>
     call<{ version: number; submittedAt: string }>('POST', `/${enc(token)}/lineup/submit`, { respondentId }),
 };
-
-/** The wire document: the editor's Doc minus its local-only note keys. */
-export function docToWire(doc: Doc) {
-  return {
-    ...doc,
-    notes: doc.notes.map(n => ({ words: n.words, cuppingNoteId: n.cuppingNoteId })),
-  };
-}

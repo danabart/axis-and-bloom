@@ -13,8 +13,7 @@ import rateLimit from 'express-rate-limit';
 import { getRealClientIp } from '../middleware/clientIp.js';
 import { log } from '../lib/logger.js';
 import {
-  getActiveLinkByToken, getVocabulary, getLineup, getLineupCoffee, getCurrentResponse,
-  getCurrentLineupResponse, type PortalLinkContext,
+  getActiveLinkByToken, getPortalLanding, getLineupCoffee, getCurrentResponse, type PortalLinkContext,
 } from '../services/roasteryPortalReads.js';
 import { notifySubmission } from '../services/roasteryPortalNotify.js';
 import {
@@ -72,19 +71,9 @@ router.get('/:token', loadLink, async (req: PortalRequest, res) => {
   const link = req.link!;
   try {
     await touchLink(link.linkId);
-    const [vocabulary, lineup, lineupResponse] = await Promise.all([
-      getVocabulary(),
-      getLineup(link.roasterId),
-      getCurrentLineupResponse(link.roasterId),
-    ]);
-    res.json({
-      roastery: { name: link.roasteryName },
-      contact: { name: link.contactName, email: link.contactEmail },
-      vocabulary,
-      lineup,
-      counts: { total: lineup.length, submitted: lineup.filter(c => c.state === 'submitted').length },
-      lineupResponse,
-    });
+    res.json(await getPortalLanding({
+      roasterId: link.roasterId, roasteryName: link.roasteryName, contact: { name: link.contactName, email: link.contactEmail },
+    }));
   } catch (err) { handleError('[roastery-portal/landing]', res, err); }
 });
 
