@@ -41,7 +41,6 @@ function docFromCoffee(coffee: LineupRow): Doc {
     blendOrSingle: coffee.blendOrSingle,
     additivesPresent: null,
     additivesDetail: '',
-    roastIntent: null,
     blendComponents: '',
     blendRotation: null,
     // the lineup row's is_decaf prefill prefills the caffeine answer (true = Decaf, false = Regular)
@@ -78,7 +77,6 @@ function docFromResponse(r: PortalResponse): Doc {
     blendOrSingle: r.blendOrSingle,
     additivesPresent: r.additivesPresent,
     additivesDetail: r.additivesDetail ?? '',
-    roastIntent: r.roastIntent,
     blendComponents: r.blendComponents ?? '',
     blendRotation: r.blendRotation,
     caffeineLevel: r.caffeineLevel, // already the effective answer: an old is_decaf response is derived by the view
@@ -381,9 +379,6 @@ export default function CoffeeScreen({ token, id, landing, respondent, onRespond
       )}
       <Field legend="Roast level" tag={<SrcTag text={roastTag} />}>
         <SingleChips options={v.roastLevel} value={doc.roastLevel} onChange={roastLevel => update({ roastLevel })} />
-      </Field>
-      <Field legend={COPY.roastedForLabel}>
-        <SingleChips options={v.roastIntent} value={doc.roastIntent} onChange={roastIntent => update({ roastIntent })} />
       </Field>
       <Field legend={COPY.certificationsLabel}>
         <MultiChips

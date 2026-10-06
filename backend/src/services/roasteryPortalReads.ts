@@ -35,7 +35,6 @@ export interface PortalVocabulary {
   notice: LookupOption[];
   similar: LookupOption[];
   takesIt: LookupOption[];
-  roastIntent: LookupOption[];
   blendRotation: LookupOption[];
   caffeine: LookupOption[];
   decafProcess: LookupOption[];
@@ -59,7 +58,7 @@ async function lookup(runner: Runner, category: string): Promise<LookupOption[]>
 
 async function loadVocabulary(runner: Runner): Promise<PortalVocabulary> {
   const [process, roastLevel, blendOrSingle, brewMethods, availability, notice, similar, takesIt,
-    roastIntent, blendRotation, caffeine, decafProcess, certification] = await Promise.all([
+    blendRotation, caffeine, decafProcess, certification] = await Promise.all([
     lookup(runner, 'process'),
     lookup(runner, 'roast_level'),
     lookup(runner, 'blend_or_single'),
@@ -68,7 +67,6 @@ async function loadVocabulary(runner: Runner): Promise<PortalVocabulary> {
     lookup(runner, 'roastery_portal_notice'),
     lookup(runner, 'roastery_portal_similar'),
     lookup(runner, 'roastery_portal_takes_it'),
-    lookup(runner, 'roastery_portal_roast_intent'),
     lookup(runner, 'roastery_portal_blend_rotation'),
     lookup(runner, 'roastery_portal_caffeine'),
     lookup(runner, 'roastery_portal_decaf_process'),
@@ -104,7 +102,7 @@ async function loadVocabulary(runner: Runner): Promise<PortalVocabulary> {
 
   return {
     process, roastLevel, blendOrSingle, brewMethods, availability, notice, similar, takesIt,
-    roastIntent, blendRotation, caffeine, decafProcess, certification,
+    blendRotation, caffeine, decafProcess, certification,
     dimensions: dims.rows.map(d => ({ dimensionId: d.dimension_id, label: d.label, lowLabel: d.low_label, highLabel: d.high_label })),
     archetypes: arch.rows.map(a => ({ code: a.code, label: a.label, sortOrder: a.sort_order })),
     wheel,
@@ -250,7 +248,6 @@ export interface PortalResponse {
   anythingElse: string | null;
   additivesPresent: boolean | null;
   additivesDetail: string | null;
-  roastIntent: string | null;
   blendComponents: string | null;
   blendRotation: string | null;
   /** The effective caffeine answer: the new column, else derived from the deprecated is_decaf (by the view). */
@@ -293,7 +290,7 @@ async function hydrateResponse(row: any, runner: Runner): Promise<PortalResponse
     availability: row.availability, typicalNotice: row.typical_notice, expectedAvailability: row.expected_availability,
     similarWhenOut: row.similar_when_out, closestCousinPortalCoffeeId: row.closest_cousin_portal_coffee_id,
     whatChanges: row.what_changes, anythingElse: row.anything_else,
-    additivesPresent: row.additives_present, additivesDetail: row.additives_detail, roastIntent: row.roast_intent,
+    additivesPresent: row.additives_present, additivesDetail: row.additives_detail,
     blendComponents: row.blend_components, blendRotation: row.blend_rotation, caffeineLevel: row.caffeine_level,
     decafProcess: row.decaf_process, certifications: row.certifications ?? [],
     lastSavedByName: nameOf(row.last_saved_by_respondent_id), lastSavedByRespondentId: row.last_saved_by_respondent_id,
@@ -710,7 +707,7 @@ export interface AcceptancePreview {
   retiring: { descriptorId: number; cuppingNoteId: string; descriptor: string }[];
   /** Part 3: everything else the roaster added, display only. Nothing here is ever applied. */
   extras: {
-    roastIntent: string | null; caffeineLevel: string | null; decafProcess: string | null; certifications: string[];
+    caffeineLevel: string | null; decafProcess: string | null; certifications: string[];
     additivesPresent: boolean | null; additivesDetail: string | null;
     blendComponents: string | null; blendRotation: string | null; blendRecipeChanges: boolean;
     /** "Contains added ingredients: ..." when the roaster said something is added; null otherwise. */
@@ -844,7 +841,7 @@ export async function previewAcceptance(responseId: string, runner: Runner = db)
     visibleToCustomers: visible,
     basics, notes, currentActive, retiring,
     extras: {
-      roastIntent: response.roastIntent, caffeineLevel: response.caffeineLevel, decafProcess: response.decafProcess,
+      caffeineLevel: response.caffeineLevel, decafProcess: response.decafProcess,
       certifications: response.certifications, additivesPresent: response.additivesPresent,
       additivesDetail: response.additivesPresent ? response.additivesDetail : null,
       blendComponents: response.blendComponents, blendRotation: response.blendRotation,

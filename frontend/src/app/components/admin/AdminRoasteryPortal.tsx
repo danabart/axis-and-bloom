@@ -16,7 +16,7 @@ interface Option { value: string; label: string }
 interface Vocabulary {
   process: Option[]; roastLevel: Option[]; blendOrSingle: Option[]; brewMethods: Option[];
   availability: Option[]; notice: Option[]; similar: Option[]; takesIt: Option[];
-  roastIntent: Option[]; blendRotation: Option[]; caffeine: Option[]; decafProcess: Option[]; certification: Option[];
+  blendRotation: Option[]; caffeine: Option[]; decafProcess: Option[]; certification: Option[];
   dimensions: { dimensionId: number; label: string; lowLabel: string; highLabel: string }[];
   wheel: { name: string; subcategories: { name: string | null; descriptors: { id: string; descriptor: string }[] }[] }[];
 }
@@ -51,7 +51,7 @@ interface RoasteryDetail {
 interface ResponseView {
   id: string; version: number; status: 'draft' | 'submitted'; origin: string | null; processValues: string[];
   roastLevel: string | null; blendOrSingle: string | null; isDecaf: boolean | null; proposedArchetype: string | null;
-  additivesPresent: boolean | null; additivesDetail: string | null; roastIntent: string | null; blendComponents: string | null;
+  additivesPresent: boolean | null; additivesDetail: string | null; blendComponents: string | null;
   blendRotation: string | null; caffeineLevel: string | null; decafProcess: string | null; certifications: string[];
   dominantDimensionId: number | null; takesIt: string | null; brewNotes: string | null; availability: string | null;
   typicalNotice: string | null; expectedAvailability: string | null; similarWhenOut: string | null;
@@ -576,7 +576,6 @@ function CoffeeResponsePanel({ roasterId, coffeeId, apiFetch, vocab, onBack, onA
               <p className="text-xs" style={{ color: ACCENT }}>Contains added ingredients: {r.additivesDetail ?? 'not specified'}. Check the ingredients statement on the bag.</p>
             )}
             <Line k="Roast level" v={r.roastLevel ? labelOf(vocab.roastLevel, r.roastLevel) : null} />
-            <Line k="Roasted for" v={r.roastIntent ? labelOf(vocab.roastIntent, r.roastIntent) : null} />
             <Line k="Certifications" v={r.certifications.length ? r.certifications.map(c => labelOf(vocab.certification, c)).join(', ') : null} />
           </Block>
 
@@ -681,7 +680,7 @@ interface Preview {
   visibleToCustomers: boolean;
   basics: { field: 'origin' | 'process' | 'roastLevel' | 'blendOrSingle' | 'caffeine'; catalogValue: string | null; roasterValue: string | null; roasterValues: string[]; differs: boolean; applicable?: boolean }[];
   extras: {
-    roastIntent: string | null; caffeineLevel: string | null; decafProcess: string | null; certifications: string[];
+    caffeineLevel: string | null; decafProcess: string | null; certifications: string[];
     additivesPresent: boolean | null; additivesDetail: string | null; blendComponents: string | null; blendRotation: string | null;
     blendRecipeChanges: boolean; additivesNotice: string | null;
   };
@@ -869,7 +868,6 @@ function AcceptPanel({ roasterId, portalCoffeeId, apiFetch, vocab, onBack }: {
         <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#a337261a', color: ACCENT }}>{preview.extras.additivesNotice}</p>
       )}
       <Block title="Also said (display only, never applied)">
-        <Line k="Roasted for" v={preview.extras.roastIntent ? labelOf(vocab.roastIntent, preview.extras.roastIntent) : null} />
         {(preview.extras.caffeineLevel === 'decaf' || preview.extras.caffeineLevel === 'half_caff') && (
           <Line k="Decaf process" v={preview.extras.decafProcess ? labelOf(vocab.decafProcess, preview.extras.decafProcess) : null} />
         )}

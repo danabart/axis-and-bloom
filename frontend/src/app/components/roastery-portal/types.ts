@@ -17,7 +17,6 @@ export interface PortalVocabulary {
   notice: LookupOption[];
   similar: LookupOption[];
   takesIt: LookupOption[];
-  roastIntent: LookupOption[];
   blendRotation: LookupOption[];
   caffeine: LookupOption[];
   decafProcess: LookupOption[];
@@ -93,7 +92,6 @@ export interface PortalResponse {
   anythingElse: string | null;
   additivesPresent: boolean | null;
   additivesDetail: string | null;
-  roastIntent: string | null;
   blendComponents: string | null;
   blendRotation: string | null;
   caffeineLevel: string | null;
@@ -130,7 +128,6 @@ export interface Doc {
   blendOrSingle: string | null;
   additivesPresent: boolean | null;
   additivesDetail: string;
-  roastIntent: string | null;
   blendComponents: string;
   blendRotation: string | null;
   caffeineLevel: string | null;

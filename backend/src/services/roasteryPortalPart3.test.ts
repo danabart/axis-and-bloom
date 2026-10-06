@@ -66,7 +66,6 @@ describe('lookup validation of each new field', () => {
 
   it('rejects any value outside its vocabulary, even one the normalisation would have cleared', async () => {
     await rejects({ additivesPresent: 'yes' });
-    await rejects({ roastIntent: 'drip' });
     await rejects({ blendOrSingle: 'single', blendRotation: 'monthly' });
     await rejects({ caffeineLevel: 'none' });
     await rejects({ caffeineLevel: 'regular', decafProcess: 'chemical' });
@@ -78,7 +77,9 @@ describe('lookup validation of each new field', () => {
 
   it('serves the new option lists from the DB with the new wording', async () => {
     const v = await getVocabulary({ fresh: true });
-    expect(v.roastIntent.map(o => [o.value, o.label])).toEqual([['filter', 'Filter'], ['espresso', 'Espresso'], ['omni', 'Both (omni)']]);
+    // "Roasted for" was removed in part 4: the bundle no longer carries its list (the lookup rows stay, unused)
+    expect('roastIntent' in v).toBe(false);
+    expect((await db.query(`SELECT count(*)::int n FROM lookup_value WHERE category = 'roastery_portal_roast_intent'`)).rows[0].n).toBe(3);
     expect(v.blendRotation.map(o => o.label)).toEqual(['Fixed recipe', 'Components rotate, profile stays', 'Changes with the season']);
     expect(v.caffeine.map(o => o.value)).toEqual(['regular', 'half_caff', 'decaf']);
     expect(v.decafProcess.map(o => o.label)).toEqual(['Swiss Water', 'Sugarcane (EA)', 'Mountain Water', 'CO2', 'Other']);
@@ -95,13 +96,14 @@ describe('lookup validation of each new field', () => {
   it('accepts a legal document and reads every new answer back', async () => {
     await save(roasterA, id, personA, {
       blendOrSingle: 'blend', blendComponents: 'Peru, Colombia, roughly 60/40', blendRotation: 'seasonal', caffeineLevel: 'half_caff',
-      decafProcess: 'swiss_water', additivesPresent: true, additivesDetail: 'passion fruit', roastIntent: 'omni', certifications: ['fair_trade', 'usda_organic'],
+      decafProcess: 'swiss_water', additivesPresent: true, additivesDetail: 'passion fruit', certifications: ['fair_trade', 'usda_organic'],
     });
     const r = await getCurrentResponse(id);
     expect(r).toMatchObject({
       blendOrSingle: 'blend', blendComponents: 'Peru, Colombia, roughly 60/40', blendRotation: 'seasonal', caffeineLevel: 'half_caff',
-      decafProcess: 'swiss_water', additivesPresent: true, additivesDetail: 'passion fruit', roastIntent: 'omni',
+      decafProcess: 'swiss_water', additivesPresent: true, additivesDetail: 'passion fruit',
     });
+    expect('roastIntent' in (r as object)).toBe(false);
     expect(r?.certifications.sort()).toEqual(['fair_trade', 'usda_organic']);
     expect(r?.isDecaf).toBeNull(); // nothing writes is_decaf any more
   });
@@ -150,9 +152,11 @@ describe('the four normalisation rules', () => {
 
   it('counts the new per-coffee answers toward section 01 (still 6 sections)', async () => {
     const c = await lineup(roasterA, 'sections');
+    // a stale client still sending roastIntent: ignored (not stored, not counted, not rejected)
     await save(roasterA, c.id, personA, { roastIntent: 'filter' });
     let row = (await getAdminLineup(roasterA)).find(x => x.portalCoffeeId === c.id)!;
-    expect(row.sectionsAnswered).toBe(1);
+    expect(row.sectionsAnswered).toBe(0);
+    expect((await db.query(`SELECT roast_intent FROM roastery_portal_response WHERE portal_coffee_id = $1`, [c.id])).rows[0].roast_intent).toBeNull();
     await save(roasterA, c.id, personA, { certifications: ['none'] });
     row = (await getAdminLineup(roasterA)).find(x => x.portalCoffeeId === c.id)!;
     expect(row.sectionsAnswered).toBe(1);

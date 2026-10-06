@@ -56,7 +56,6 @@ export const COPY = {
   additivesLabel: 'Is anything added to this coffee?',
   additivesHint: 'fruit, spices, yeast cultures, flavoring, during processing or after roasting',
   additivesDetailLabel: 'What is added',
-  roastedForLabel: 'Roasted for',
   certificationsLabel: 'Certifications',
   // NEW: once per lineup.
   bestSellersLabel: 'Which of these do you sell most?',

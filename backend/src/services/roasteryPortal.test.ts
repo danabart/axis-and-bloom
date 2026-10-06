@@ -322,7 +322,8 @@ describe('drafts, versions and immutability', () => {
     const before = await getCurrentLineupResponse(roasterB);
     await saveLineupDraft({ roasterId: roasterB, respondentId: personB.id, doc: { typicalNotice: 'under_2_weeks', similarWhenOut: 'yes', anythingElse: 'Hi' } });
     const sub = await submitLineupResponse({ roasterId: roasterB, respondentId: personB.id });
-    expect(sub.version).toBe((before?.version ?? 0) + 1);
+    // an open draft left by another test file is reused by the save; otherwise the save opens the next version
+    expect(sub.version).toBe(before?.status === 'draft' ? before.version : (before?.version ?? 0) + 1);
     const row = (await db.query(`SELECT id FROM roastery_portal_lineup_response WHERE roaster_id = $1 AND version = $2`, [roasterB, sub.version])).rows[0];
     await expect(db.query(`UPDATE roastery_portal_lineup_response SET typical_notice = 'x' WHERE id = $1`, [row.id])).rejects.toMatchObject({ code: '23000' });
     await expectPortalError(submitLineupResponse({ roasterId: roasterB, respondentId: personB.id }), 'no_draft');

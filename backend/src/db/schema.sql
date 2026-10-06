@@ -5916,6 +5916,9 @@ $$ LANGUAGE sql IMMUTABLE;
 -- what readers use (v_roastery_portal_response derives it from is_decaf when it is not set).
 ALTER TABLE roastery_portal_response ADD COLUMN IF NOT EXISTS additives_present BOOLEAN;
 ALTER TABLE roastery_portal_response ADD COLUMN IF NOT EXISTS additives_detail  TEXT;
+-- roast_intent ("Roasted for") is DEPRECATED in place (part 4, 2026-10-06; Camila: it duplicates the brewing questions):
+-- the column stays, nothing reads or writes it, the view below no longer exposes it and progress no longer counts it.
+-- The roastery_portal_roast_intent lookup rows stay, unused.
 ALTER TABLE roastery_portal_response ADD COLUMN IF NOT EXISTS roast_intent      TEXT;
 ALTER TABLE roastery_portal_response ADD COLUMN IF NOT EXISTS blend_components  TEXT;
 ALTER TABLE roastery_portal_response ADD COLUMN IF NOT EXISTS blend_rotation    TEXT;
@@ -6053,7 +6056,7 @@ SELECT r.id, r.portal_coffee_id, r.version, r.status, r.origin, r.process_values
        r.typical_notice, r.expected_availability, r.similar_when_out, r.closest_cousin_portal_coffee_id,
        r.what_changes, r.anything_else, r.last_saved_by_respondent_id, r.submitted_by_respondent_id,
        r.created_at, r.updated_at, r.submitted_at,
-       r.additives_present, r.additives_detail, r.roast_intent, r.blend_components, r.blend_rotation,
+       r.additives_present, r.additives_detail, r.blend_components, r.blend_rotation,
        r.decaf_process, r.certifications,
        COALESCE(r.caffeine_level, CASE WHEN r.is_decaf IS TRUE THEN 'decaf' WHEN r.is_decaf IS FALSE THEN 'regular' END) AS caffeine_level
 FROM roastery_portal_response r;
@@ -6105,7 +6108,7 @@ SELECT
   CASE WHEN cur.id IS NULL THEN 0 ELSE
     ( (cur.origin IS NOT NULL OR cardinality(cur.process_values) > 0 OR cur.roast_level IS NOT NULL
        OR cur.blend_or_single IS NOT NULL OR cur.caffeine_level IS NOT NULL OR cur.additives_present IS NOT NULL
-       OR cur.roast_intent IS NOT NULL OR cur.blend_components IS NOT NULL OR cur.blend_rotation IS NOT NULL
+       OR cur.blend_components IS NOT NULL OR cur.blend_rotation IS NOT NULL
        OR cardinality(cur.certifications) > 0)::int
     + (EXISTS (SELECT 1 FROM roastery_portal_response_note n WHERE n.response_id = cur.id) OR cur.proposed_archetype IS NOT NULL)::int
     + (EXISTS (SELECT 1 FROM roastery_portal_response_dimension d WHERE d.response_id = cur.id) OR cur.dominant_dimension_id IS NOT NULL)::int

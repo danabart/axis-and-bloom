@@ -357,7 +357,6 @@ export interface ResponseDoc {
   // (caffeineLevel replaces it; v_roastery_portal_response derives an old answer's caffeine).
   additivesPresent: boolean | null;
   additivesDetail: string | null;
-  roastIntent: string | null;
   blendComponents: string | null;
   blendRotation: string | null;
   caffeineLevel: string | null;
@@ -476,7 +475,6 @@ async function normalizeResponseDoc(
     additivesPresent = raw.additivesPresent;
   }
   const additivesDetailRaw = text(raw.additivesDetail, LIMITS.short, 'what is added');
-  const roastIntent = oneOf(raw.roastIntent, lookupValues(vocab.roastIntent), 'roasted for');
   const blendComponentsRaw = text(raw.blendComponents, LIMITS.short, 'blend components');
   const blendRotationRaw = oneOf(raw.blendRotation, lookupValues(vocab.blendRotation), 'recipe change answer');
   const caffeineLevel = oneOf(raw.caffeineLevel, lookupValues(vocab.caffeine), 'caffeine');
@@ -503,7 +501,7 @@ async function normalizeResponseDoc(
     processValues: prefill.processValues,
     roastLevel: prefill.roastLevel,
     blendOrSingle: prefill.blendOrSingle,
-    additivesPresent, additivesDetail, roastIntent, blendComponents, blendRotation, caffeineLevel, decafProcess, certifications,
+    additivesPresent, additivesDetail, blendComponents, blendRotation, caffeineLevel, decafProcess, certifications,
     notes,
     proposedArchetype,
     dimensions,
@@ -550,17 +548,17 @@ async function openDraft(tx: Tx, portalCoffeeId: string): Promise<string> {
        (portal_coffee_id, version, status, origin, process_values, roast_level, blend_or_single,
         proposed_archetype, dominant_dimension_id, takes_it, brew_notes, availability, typical_notice,
         expected_availability, similar_when_out, closest_cousin_portal_coffee_id, what_changes, anything_else,
-        additives_present, additives_detail, roast_intent, blend_components, blend_rotation, caffeine_level,
+        additives_present, additives_detail, blend_components, blend_rotation, caffeine_level,
         decaf_process, certifications)
      VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-             $18, $19, $20, $21, $22, $23, $24, $25)
+             $18, $19, $20, $21, $22, $23, $24)
      RETURNING id`,
     [portalCoffeeId, version, prev?.origin ?? null, prev?.process_values ?? [], prev?.roast_level ?? null,
      prev?.blend_or_single ?? null, prev?.proposed_archetype ?? null,
      prev?.dominant_dimension_id ?? null, prev?.takes_it ?? null, prev?.brew_notes ?? null, prev?.availability ?? null,
      prev?.typical_notice ?? null, prev?.expected_availability ?? null, prev?.similar_when_out ?? null,
      prev?.closest_cousin_portal_coffee_id ?? null, prev?.what_changes ?? null, prev?.anything_else ?? null,
-     prev?.additives_present ?? null, prev?.additives_detail ?? null, prev?.roast_intent ?? null,
+     prev?.additives_present ?? null, prev?.additives_detail ?? null,
      prev?.blend_components ?? null, prev?.blend_rotation ?? null, prev?.caffeine_level ?? null,
      prev?.decaf_process ?? null, prev?.certifications ?? []]
   );
@@ -595,16 +593,16 @@ export async function saveDraft(input: {
          proposed_archetype = $6, dominant_dimension_id = $7, takes_it = $8, brew_notes = $9,
          availability = $10, typical_notice = $11, expected_availability = $12, similar_when_out = $13,
          closest_cousin_portal_coffee_id = $14, what_changes = $15, anything_else = $16,
-         additives_present = $17, additives_detail = $18, roast_intent = $19, blend_components = $20,
-         blend_rotation = $21, caffeine_level = $22, decaf_process = $23, certifications = $24,
-         last_saved_by_respondent_id = $25, updated_at = now()
+         additives_present = $17, additives_detail = $18, blend_components = $19,
+         blend_rotation = $20, caffeine_level = $21, decaf_process = $22, certifications = $23,
+         last_saved_by_respondent_id = $24, updated_at = now()
        WHERE id = $1 AND status = 'draft'
        RETURNING version, updated_at`,
       [responseId, doc.origin, doc.processValues, doc.roastLevel, doc.blendOrSingle,
        doc.proposedArchetype, doc.dominantDimensionId, doc.takesIt, doc.brewNotes, doc.availability,
        doc.typicalNotice, doc.expectedAvailability, doc.similarWhenOut, doc.closestCousinPortalCoffeeId,
        doc.whatChanges, doc.anythingElse,
-       doc.additivesPresent, doc.additivesDetail, doc.roastIntent, doc.blendComponents,
+       doc.additivesPresent, doc.additivesDetail, doc.blendComponents,
        doc.blendRotation, doc.caffeineLevel, doc.decafProcess, doc.certifications, respondent.id]
     );
 
