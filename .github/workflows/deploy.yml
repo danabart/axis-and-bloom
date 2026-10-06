@@ -3,9 +3,11 @@ name: Deploy
 on:
   push:
     branches: [main]
-  # Follow-up to C11: a deliberate, visible way to deploy past the dependency
-  # audit. Manual only -- a push to main always runs the audit. The daily
-  # `dependency-audit` issue is the record of what was skipped.
+  # Follow-up to C11: a manual run can skip the dependency audit steps. Since
+  # 2026-10-05 those steps are non-blocking anyway (continue-on-error), so a
+  # push to main runs the audit but never fails on it; a skipped audit is
+  # recorded only by the warning annotation on that run. (The daily
+  # dependency-audit workflow and its issue were removed 2026-10-06.)
   workflow_dispatch:
     inputs:
       skip_audit:

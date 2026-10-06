@@ -5296,7 +5296,7 @@ The opening turn already read from cache, because Dana's own conversation 6 minu
 
 **Files**: `backend/package-lock.json`, `WHAT_WE_BUILT.md`.
 
-### 206. Dependency freshness — Dependabot, PR check, daily audit, and a manual deploy that can skip the audit (2026-10-04)
+### 206. Dependency freshness — Dependabot, PR check, daily audit, and a manual deploy that can skip the audit (2026-10-04) — Dependabot, PR check and daily audit since removed (see "Superseded" below)
 
 **Context**: `backend/src/features/cyber_security/CLAUDE_CODE_PROMPT_DEPENDENCY_FRESHNESS.md`, follow-up to C11 (`WHAT_WE_BUILT_SECURITY.md` #11, #14). The C11 gate never fired from Aug 9 to Sep 29, then fired four times between Sep 30 and Oct 4 (runs #713 `brace-expansion`, #714 `undici`, #716 `@grpc/grpc-js`, #719 `@fastify/busboy`), each time in the middle of an unrelated deploy. All four were transitive (via `firebase-admin` / `firebase`). The only place anything checked for advisories was inside the deploy itself, and when the gate fired there was no way through.
 
@@ -5312,7 +5312,7 @@ The opening turn already read from cache, because Dana's own conversation 6 minu
 
 **Files**: `.github/dependabot.yml`, `.github/workflows/pr-check.yml`, `.github/workflows/dependency-audit.yml`, `.github/workflows/deploy.yml`, `WHAT_WE_BUILT.md`, `WHAT_WE_BUILT_SECURITY.md`.
 
-**Superseded 2026-10-05 (Dana's decision)**: `dependabot.yml` and `pr-check.yml` deleted; Dependabot PRs #3 and #4 closed unmerged; `dependency-audit.yml` kept; the two audit steps in `deploy.yml` got `continue-on-error: true`, so an audit finding no longer blocks a deploy (the daily issue is the alert). See `WHAT_WE_BUILT_SECURITY.md` #14.
+**Superseded (Dana's decisions) — what is live now**: everything this entry added except the `skip_audit` input has been removed. 2026-10-05: `dependabot.yml` and `pr-check.yml` deleted; Dependabot PRs #3 and #4 closed unmerged (#2, the GitHub Actions bump, had already been merged); the two audit steps in `deploy.yml` got `continue-on-error: true`. 2026-10-06: `dependency-audit.yml` deleted too and its last issue (#6) closed. So today: **no Dependabot, no PR check, no daily audit, no pull requests** (0 open; work goes straight to `main`). The only audit is the `npm audit --omit=dev --audit-level=high` step in each Deploy job, and it is **non-blocking**: a finding shows as a warning on that run, never fails the deploy, and notifies nobody. The `skip_audit` manual input still exists (rarely useful now). To check for advisories, run `npm audit --omit=dev` in `backend/` and `frontend/`, or read the audit steps of the latest Deploy run. The rest of this entry describes what was built on 2026-10-04, not what runs. See `WHAT_WE_BUILT_SECURITY.md` #14.
 
 
 ### 207. Frontend Firebase SDK 10.14.1 → 12.19.0; `undici` override removed, `@grpc/grpc-js` override kept (2026-10-04)
@@ -5330,6 +5330,8 @@ The opening turn already read from cache, because Dana's own conversation 6 minu
 **Browser checks (dev server on this branch, Chrome)**: *Verified*: the app loads with no console errors; App Check initialises (dev debug-token path logs its token, no App Check errors); a signed-in Firebase session is accepted (`identitytoolkit accounts:lookup` 200). *Partly verified*: anonymous sign-in on load — a user was established and validated, but I could not confirm it is anonymous because reading the auth store was declined. *Not verified*: the quiz, including a narrow mobile viewport — the local backend could not be started (the auto-mode classifier denied starting the Cloud SQL proxy against production), and `/find-my-flavor` hangs without a backend. *Not applicable*: "a page that reads from Firestore" — the frontend never reads Firestore (OT-34). *Not verified, Dana to test*: email/password sign-in and sign-up, Google, Apple, sign-out, anonymous-to-real linking.
 
 **Not done in this pass**: no backend, DB, GCP or Firebase console change; not deployed. `WHAT_WE_BUILT_DB.md` and `SOMMELIER_BUILT.md` unchanged.
+
+**Status since**: PR #5 was merged 2026-10-05 (`3435aff`) and deployed; it is live. Dependabot has since been removed (#206 "Superseded"), so the `@grpc/grpc-js` override is re-checked by hand only.
 
 **Files**: `frontend/package.json`, `frontend/package-lock.json`, `frontend/src/app/lib/firebase.ts`, `OPEN_TASKS.md`, `WHAT_WE_BUILT.md`, `WHAT_WE_BUILT_SECURITY.md`.
 
@@ -5518,6 +5520,17 @@ The opening turn already read from cache, because Dana's own conversation 6 minu
 **Phase C: purge, applied 2026-10-06 with Dana's explicit approval.** One-off script run locally against production (not committed; deleted afterwards), dry run first, JSON snapshot of every deleted row at `C:/Users/DanaB/axis-and-bloom-purge-snapshots/portal_purge_2026-10-06.json` (outside git, 69 KB; it contains the founders' respondent emails). The dry run's scope checks passed (survivors exactly Utopian's ten active admin-added lineup coffees; every acceptance on the Zzz roastery; the only foreign key into the portal tables from outside is `roastery_coffee_descriptors.source_response_id`). Counts were slightly above the audit's because of the Phase B live check's rows on the Zzz roastery (+1 link, respondent, lineup coffee, 2 responses, 2 brews). ONE transaction: the seven reject-change triggers disabled by name (never `DISABLE TRIGGER ALL`), deleted `roastery_coffee_descriptors` 3 (stamped with a purged response, all on test coffee 2892), best sellers 3, lineup responses 1, notes 13, dimensions 39, brews 15, acceptances 4, responses 13, mappings 1, respondents 8, links 7, lineup coffees 8 (all Zzz); triggers re-enabled and checked (`tgenabled = 'O'`) before COMMIT. The test coffees 2892 and 2893 were already retired (never deleted). **After commit**: zero rows in links, respondents, responses and every child table, lineup responses, best sellers, acceptances and note mappings; Utopian's ten lineup rows identical in every column to the dry-run snapshot and all "Not started" in `v_roastery_portal_progress`; all eight portal triggers enabled; an UPDATE on a submitted response is still rejected (proved on the TEST database, SQLSTATE 23000); all 7 purged links answer 404 (the "not active" page); catalog and customer integrity green, quiz integrity shows only the standing #10. The Zzz Test Roastery is inactive and no `Zzz Test` admin remains. No other table was deleted from (not `api_event`, `transactional_email_log`, `catalog_change`, `coffees`). No Utopian link exists: Dana creates a fresh one when she sends it.
 
 **Not done**: nothing from the brief.
+
+### 214. Dependency cleanup — daily audit removed, proxy-addr critical fixed, docs brought to the current CI state (2026-10-06)
+
+**Context**: Dana's decisions on the git/deploy-failure follow-up (#206/#207, `WHAT_WE_BUILT_SECURITY.md` #14, #15, #21).
+- **Daily audit removed** (`2868dce`): `.github/workflows/dependency-audit.yml` deleted; the one open `dependency-audit` issue (#6, opened 2026-10-06 17:12 UTC) commented on and closed. With Dependabot and the PR check already gone (2026-10-05), the only dependency audit left is the non-blocking `npm audit --omit=dev --audit-level=high` step in each Deploy job. There are no pull requests (0 open).
+- **proxy-addr 2.0.7 → 2.0.8** (GHSA-jqcg-44mw-7w3h, critical; the advisory behind #6): `npm audit fix` in `backend/` (no `--force`), lockfile only (transitive via `express@4.22.3`). `npm audit --omit=dev` now 0 vulnerabilities in `backend/` and `frontend/`; backend `tsc --noEmit` clean. Exposure most likely nil: `trust proxy` is a hop count (`1`), not a subnet list, so the vulnerable subnet check never decides `req.ip` (security #21).
+- **Docs corrected to the current state**: the `deploy.yml` header comment (no longer points at the deleted daily issue); #206's title and "Superseded" line (Dependabot, PR check and daily audit all removed; the deploy audit is non-blocking; no PRs); #207 status (PR #5 merged 2026-10-05, live); security #14 "Current state", #15 status (merged, not "PR open"), #21 new; `cyber_security/RUN_ORDER.md`'s console item no longer asks to enable Dependabot. `OPEN_TASKS.md` had no mention. The original briefs (`CLAUDE_CODE_PROMPT_DEPENDENCY_FRESHNESS.md`, `CLAUDE_CODE_PROMPT_FRONTEND_FIREBASE_UPGRADE.md`, `CLAUDE_CODE_PROMPTS.md`) and the `SECURITY_SERVICES.md` options doc were left as written: they are historical specs and plans, not state.
+
+**Worth knowing**: nothing now alerts on a new advisory. Check with `npm audit --omit=dev` in both folders, or read the audit steps of the latest Deploy run (they pass with `continue-on-error`, so a green run does not mean a clean audit).
+
+**Files**: `backend/package-lock.json`, `.github/workflows/deploy.yml` (comment only), `WHAT_WE_BUILT.md`, `WHAT_WE_BUILT_SECURITY.md`, `backend/src/features/cyber_security/RUN_ORDER.md`.
 
 ---
 

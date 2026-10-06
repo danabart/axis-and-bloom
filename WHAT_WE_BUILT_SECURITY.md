@@ -338,7 +338,7 @@ object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
 
 **Files:** `.github/dependabot.yml`, `.github/workflows/pr-check.yml`, `.github/workflows/dependency-audit.yml`, `.github/workflows/deploy.yml`.
 
-**Superseded 2026-10-05 (Dana's decision):** `.github/dependabot.yml` and `.github/workflows/pr-check.yml` were deleted, and Dependabot PRs #3 and #4 were closed unmerged (branches deleted). `dependency-audit.yml` stays. In `deploy.yml` the two audit steps now have `continue-on-error: true`, so **an audit finding no longer fails or blocks a deploy** — it still runs and shows as a warning on the run; the daily `dependency-audit` issue is the alert. The "gate for pushes is unchanged" statement above no longer holds. The `skip_audit` input still exists but is now rarely needed. The Dependabot-based text above describes what was built, not what is live.
+**Current state (everything above is history; Dana's decisions 2026-10-05 and 2026-10-06):** no Dependabot (`.github/dependabot.yml` deleted; PRs #3 and #4 closed unmerged, #2 the Actions bump had been merged), no PR check (`pr-check.yml` deleted), no daily audit (`dependency-audit.yml` deleted 2026-10-06, see below), and no pull requests (0 open; work goes straight to `main`). The "Dana's step" above (enable Dependabot alerts/security updates) is moot. In `deploy.yml` the two audit steps have `continue-on-error: true` (since 2026-10-05), so **an audit finding never fails or blocks a deploy**; the "gate for pushes is unchanged" statement above no longer holds. The `skip_audit` input still exists but is rarely needed. `overrides` still need re-checking by hand, as before: backend `uuid` (`^11.1.1`), frontend `@grpc/grpc-js` (`^1.14.5`; `undici` was removed in #15).
 
 **Daily audit removed 2026-10-06 (Dana's decision):** `.github/workflows/dependency-audit.yml` was deleted, and the one open `dependency-audit` issue (#6, opened 2026-10-06 17:12 UTC) was closed with a comment saying why. Nothing now runs on a schedule and nothing opens an issue or sends an email when an advisory lands. The only remaining audit is the pair of non-blocking `npm audit --omit=dev --audit-level=high` steps inside every Deploy run (`continue-on-error: true`): a high/critical finding shows only as a failed-but-ignored step and a warning on that run, and nobody is notified. So everything above that relies on the daily issue (the alert, the fix order "printed in the issue", "leave the issue open until the audit is clean", the issue as the record of a skipped audit) no longer applies. To see current advisories, read the audit steps of the latest Deploy run or run `npm audit --omit=dev` in `backend/` and `frontend/`.
 
@@ -346,15 +346,15 @@ object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
 
 ### 15. C11 follow-up — frontend Firebase 10 → 12 (2026-10-04)
 
-**Old / new:** `firebase` 10.14.1 → 12.19.0 in `frontend/` (`@firebase/auth` 1.7.9 → 1.13.6, `@firebase/app-check` 0.8.8 → 0.13.1, `@firebase/firestore` 4.7.3 → 4.17.2). Branch `deps/frontend-firebase-upgrade`, pull request open, not merged. Full detail in `WHAT_WE_BUILT.md` #207.
+**Old / new:** `firebase` 10.14.1 → 12.19.0 in `frontend/` (`@firebase/auth` 1.7.9 → 1.13.6, `@firebase/app-check` 0.8.8 → 0.13.1, `@firebase/firestore` 4.7.3 → 4.17.2). Branch `deps/frontend-firebase-upgrade`, PR #5, **merged 2026-10-05** (`3435aff`) and live. Full detail in `WHAT_WE_BUILT.md` #207.
 
 **What changed in code:** the upgrade itself needed nothing — `firebase.ts` and `AuthContext.tsx` compiled unchanged, and `tsc` shows the same 13 pre-existing errors before and after. The only source edit is removing the unused `firestore` export and `firebase/firestore` import from `firebase.ts` (see side finding). Other changes: `frontend/package.json` and the lockfile.
 
-**Overrides:** `undici` **removed** — v11+ dropped it, and it is no longer in the tree. `@grpc/grpc-js` **kept** — `@firebase/firestore@4.17.2` pins `~1.9.0` (1.9.16, inside the advisory range), so without the override `npm audit --omit=dev --audit-level=high` fails with 4 highs. It is Node-only and not used by Firestore's browser build, so it is audit hygiene, not a runtime exposure. **The recurrence risk remains:** Dependabot does not manage `overrides`, so re-check `@grpc/grpc-js` by hand until Firestore stops pinning the 1.9 line. The backend `uuid` override is unchanged (see #14).
+**Overrides:** `undici` **removed** — v11+ dropped it, and it is no longer in the tree. `@grpc/grpc-js` **kept** — `@firebase/firestore@4.17.2` pins `~1.9.0` (1.9.16, inside the advisory range), so without the override `npm audit --omit=dev --audit-level=high` fails with 4 highs. It is Node-only and not used by Firestore's browser build, so it is audit hygiene, not a runtime exposure. **The recurrence risk remains:** Dependabot does not manage `overrides`, so re-check `@grpc/grpc-js` by hand until Firestore stops pinning the 1.9 line. (Dependabot itself has since been removed, see #14; the override still needs the same hand re-check.) The backend `uuid` override is unchanged (see #14).
 
 **Side finding:** the frontend `firestore` export is unused and, under v12, is not tree-shaken: +258,832 B raw / +68 kB gzip on the main bundle versus pre-upgrade; a build without it is smaller than before. Removed in the same PR (OPEN_TASKS OT-34, closed); the final bundle is 74,528 B raw smaller than before the upgrade.
 
-**Verification status:** build, audit and tsc verified locally; anonymous sign-in and App Check initialisation partly verified in a browser; quiz not verified (no local backend); email/password, Google, Apple, sign-out and anonymous-to-real linking are for Dana to test. After the merge-deploy, smoke test sign-in and the quiz on the live site, including from the Instagram in-app browser.
+**Verification status:** build, audit and tsc verified locally; anonymous sign-in and App Check initialisation partly verified in a browser; quiz not verified (no local backend); email/password, Google, Apple, sign-out and anonymous-to-real linking are for Dana to test. It has been live since the 2026-10-05 merge-deploy; a smoke test of sign-in and the quiz on the live site (including from the Instagram in-app browser) is not recorded here.
 
 **Files:** `frontend/package.json`, `frontend/package-lock.json`, `frontend/src/app/lib/firebase.ts`.
 
@@ -411,3 +411,15 @@ object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
 **Admin:** `POST /api/admin/newsletter/unsubscribe` and `GET /api/admin/newsletter/subscriber` sit behind `admin.ts`'s `router.use(requireAdmin)`. The reconcile endpoint `GET /api/cron/newsletter-reconcile` is behind `requireCronSecret`.
 
 **Files:** `backend/src/routes/newsletter.ts`, `routes/cron.ts`, `routes/admin.ts`, `features/marketing/unsubscribe.ts`, `middleware/appCheck.ts`, `middleware/apiEventLog.ts`.
+
+### 21. proxy-addr 2.0.7 → 2.0.8 (GHSA-jqcg-44mw-7w3h, critical) (2026-10-06)
+
+**What:** the advisory that opened issue #6 on 2026-10-06 (the last one the daily audit filed before it was removed, see #14). `proxy-addr` 1.1.0–2.0.7 can mis-evaluate a *trust subnet* (an IP/CIDR trust list) against an IPv4-mapped IPv6 address, letting a caller spoof the client IP that Express derives. It is transitive: `express@4.22.3` → `proxy-addr`. Backend only; the frontend tree was already at 0 findings.
+
+**Fix:** `npm audit fix` in `backend/` (no `--force`): only `backend/package-lock.json` changed, `proxy-addr` now resolves to 2.0.8; `npm audit --omit=dev` reports 0 vulnerabilities in both `backend/` and `frontend/`; backend `tsc --noEmit` clean. No override was needed.
+
+**Exposure (assessment, not tested):** most likely nil here. `index.ts` sets `app.set('trust proxy', 1)`, a hop count, not a subnet list, so the vulnerable subnet-matching path is not what decides `req.ip`. Rate limiting keys on `getRealClientIp` (`CF-Connecting-IP` first, `req.ip` only as the fallback; see #1/C17). The fix is still the right one: it costs nothing and removes the finding.
+
+**Note on alerting:** with the daily audit gone (#14), nothing will flag the next one; it will only show as a non-blocking warning in a Deploy run's audit step.
+
+**Files:** `backend/package-lock.json`.
