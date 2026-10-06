@@ -332,10 +332,16 @@ describe('unsubscribe sync', () => {
     expect(sendResendEmail).toHaveBeenCalledTimes(1);
     const sent = sendResendEmail.mock.calls[0][0] as { kind: string; unsubscribeUrl: string; html: string; text: string };
     expect(sent.kind).toBe('marketing');
-    expect(sent.unsubscribeUrl).toMatch(new RegExp(`/api/newsletter/unsubscribe/${token}$`));
-    expect(sent.html).toContain(`href="${sent.unsubscribeUrl}"`);
+    // Header (one-click) → Cloud Run origin; visible link → site domain.
+    const { buildOneClickUnsubscribeUrl, buildUnsubscribeUrl } = await import('../features/marketing/unsubscribe.js');
+    const oneClick = buildOneClickUnsubscribeUrl(token);
+    const bodyLink = buildUnsubscribeUrl(token);
+    expect(oneClick).toBe(`${(process.env.BACKEND_URL ?? 'http://localhost:4000').replace(/\/$/, '')}/api/newsletter/unsubscribe/${token}`);
+    expect(bodyLink).toBe(`${(process.env.FRONTEND_URL ?? 'http://localhost:5173').replace(/\/$/, '')}/api/newsletter/unsubscribe/${token}`);
+    expect(sent.unsubscribeUrl).toBe(oneClick);
+    expect(sent.html).toContain(`href="${bodyLink}"`);
     expect(sent.html).not.toContain('mailto:');
-    expect(sent.text).toContain(`Unsubscribe: ${sent.unsubscribeUrl}`);
+    expect(sent.text).toContain(`Unsubscribe: ${bodyLink}`);
   });
 
   it('(6) Mailchimp webhook: right key + unsubscribe flips (no mirror back); wrong key 403; subscribe is a no-op', async () => {

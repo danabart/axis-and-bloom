@@ -26,7 +26,8 @@ export interface ResendEmailInput {
    * headers — order, account, password-reset, household-invite, brew-card and
    * internal admin mail must keep reaching an unsubscribed customer. */
   kind: 'marketing' | 'transactional';
-  /** Hosted one-click URL (buildUnsubscribeUrl) for the List-Unsubscribe header. */
+  /** One-click URL for the List-Unsubscribe header — buildOneClickUnsubscribeUrl
+   * (the Cloud Run origin), not the site domain: mail servers can't pass Cloudflare's challenge. */
   unsubscribeUrl?: string;
 }
 

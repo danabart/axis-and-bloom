@@ -9,7 +9,7 @@ import { sendResendEmail } from '../features/marketing/resendEmail.js';
 import { renderQuizCompleteEmail } from '../features/marketing/templates/quizCompleteEmail.js';
 import { normalizeCampaign, normalizeVid } from '../features/marketing/campaigns.js';
 import {
-  buildUnsubscribeUrl, generateUnsubscribeToken, isSuppressed, unsubscribeByToken, unsubscribeTokenExists,
+  buildOneClickUnsubscribeUrl, buildUnsubscribeUrl, generateUnsubscribeToken, isSuppressed, unsubscribeByToken, unsubscribeTokenExists,
 } from '../features/marketing/unsubscribe.js';
 import { renderResponsePage } from '../lib/responsePage.js';
 
@@ -55,7 +55,10 @@ export async function sendQuizCompleteEmailOnce(email: string, firstName: string
     console.error('[newsletter] no unsubscribe_token — quiz-complete email not sent');
     return;
   }
+  // Body link on the site domain; the List-Unsubscribe header goes straight to
+  // Cloud Run, because mail servers can't pass Cloudflare's challenge (unsubscribe.ts).
   const unsubscribeUrl = buildUnsubscribeUrl(token);
+  const oneClickUrl = buildOneClickUnsubscribeUrl(token);
 
   const claim = await db.query(
     `INSERT INTO transactional_email_log (email, template)
@@ -68,7 +71,7 @@ export async function sendQuizCompleteEmailOnce(email: string, firstName: string
 
   const archetypeSlug = toArchetypeSlug(archetype);
   const { subject, html, text } = renderQuizCompleteEmail(firstName || null, archetypeSlug, unsubscribeUrl);
-  const { ok, id, suppressed } = await sendResendEmail({ to: email, subject, html, text, kind: 'marketing', unsubscribeUrl });
+  const { ok, id, suppressed } = await sendResendEmail({ to: email, subject, html, text, kind: 'marketing', unsubscribeUrl: oneClickUrl });
   if (!ok || suppressed) {
     await db.query(
       `DELETE FROM transactional_email_log WHERE email = $1 AND template = $2`,

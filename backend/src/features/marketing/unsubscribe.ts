@@ -35,9 +35,22 @@ export function isWellFormedToken(token: string): boolean {
   return TOKEN_SHAPE.test(token);
 }
 
-/** Hosted unsubscribe URL. The site domain proxies /api to Cloud Run (firebase.json). */
+/** Hosted unsubscribe URL for the visible link in the email body. The site
+ * domain proxies /api to Cloud Run (firebase.json); a person clicking it passes
+ * Cloudflare's browser challenge and lands on the confirm page. */
 export function buildUnsubscribeUrl(token: string): string {
   const base = (process.env.FRONTEND_URL ?? 'http://localhost:5173').replace(/\/$/, '');
+  return `${base}/api/newsletter/unsubscribe/${token}`;
+}
+
+/** Target for the List-Unsubscribe header (RFC 8058 one-click). Gmail/Yahoo/Apple
+ * POST to it from their own servers, with no browser. Cloudflare in front of the
+ * site domain answers every non-browser /api request with a JS challenge (403,
+ * `cf-mitigated: challenge`, observed live 2026-10-06), which a mail server
+ * can't pass. So this goes straight to the Cloud Run origin (BACKEND_URL, the
+ * *.run.app URL), the same way the dial-in email's links do (cron.ts). */
+export function buildOneClickUnsubscribeUrl(token: string): string {
+  const base = (process.env.BACKEND_URL ?? 'http://localhost:4000').replace(/\/$/, '');
   return `${base}/api/newsletter/unsubscribe/${token}`;
 }
 
