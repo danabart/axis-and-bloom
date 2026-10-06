@@ -11,7 +11,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { withTransaction, type Tx } from '../db/client.js';
-import { getVocabulary, getRespondent, normalizeWords, type PortalVocabulary } from './roasteryPortalReads.js';
+import { getVocabulary, getRespondent, normalizeWords, getMappingSuggestions, type PortalVocabulary } from './roasteryPortalReads.js';
 import {
   createCoffeeInTx, updateCoffeeInTx, setRoasterDescriptorsInTx, snapshotRow, logCatalogChange, scopedIntegrity,
   type UpdateCoffeeInput,
@@ -774,11 +774,17 @@ export async function acceptResponse(input: { responseId: string; items: unknown
       if (!n || typeof n.rank !== 'number' || !rows.some(r => r.rank === n.rank)) throw invalid('unknown note');
       itemByRank.set(n.rank, n);
     }
+    // A term the caller does not send defaults exactly as the preview presets it: the roaster's own
+    // pick, else the remembered suggestion for those words, else none (words only). An explicit
+    // null means "words only, on purpose".
+    const suggestions = await getMappingSuggestions(rows.map(r => r.roaster_words), tx);
     const chosen = rows
       .filter(r => itemByRank.get(r.rank)?.include === true)
       .map(r => {
         const it = itemByRank.get(r.rank)!;
-        const term = it.cuppingNoteId === undefined ? r.cupping_note_id : it.cuppingNoteId;
+        const term = it.cuppingNoteId === undefined
+          ? (r.cupping_note_id ?? suggestions.get(normalizeWords(r.roaster_words))?.cuppingNoteId ?? null)
+          : it.cuppingNoteId;
         return { rank: r.rank, words: r.roaster_words, cuppingNoteId: term ?? null, remember: it.remember === true, roasterPick: r.cupping_note_id };
       });
     const terms = await assertWheelTerms(tx, [...new Set(chosen.map(c => c.cuppingNoteId).filter((x): x is string => !!x))]);

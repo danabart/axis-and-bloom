@@ -322,6 +322,25 @@ describe('remembered mappings', () => {
     expect((await db.query(`SELECT count(*)::int n FROM roastery_portal_note_mapping WHERE normalized_words = $1`, [key])).rows[0].n).toBe(2);
   });
 
+  it('an accept that does not send a term defaults as the preview presets it: the roaster pick, else the remembered suggestion', async () => {
+    const words = `zzz default ${RUN}`;
+    mappingWords.push(normalizeWords(words));
+    const t = pick('Sweet', 5);
+    const first = await submitted('def1', { notes: [{ words, cuppingNoteId: null }] });
+    const o1 = await acceptResponse({ responseId: first.responseId, actorUid: ADMIN.actor, items: { notes: [{ rank: 1, include: true, cuppingNoteId: t.id, remember: true }] } });
+    coffeeIds.push(o1.coffeeId);
+    const second = await submitted('def2', { notes: [{ words: `ZZZ  Default ${RUN}`, cuppingNoteId: null }] });
+    const o2 = await acceptResponse({ responseId: second.responseId, actorUid: ADMIN.actor, items: { notes: [{ rank: 1, include: true }] } });
+    coffeeIds.push(o2.coffeeId);
+    const rows = (await db.query(`SELECT cupping_note_id, is_active FROM roastery_coffee_descriptors WHERE coffee_id = $1`, [o2.coffeeId])).rows;
+    expect(rows).toEqual([{ cupping_note_id: t.id, is_active: true }]);
+    // an explicit null stays words-only, on purpose
+    const third = await submitted('def3', { notes: [{ words, cuppingNoteId: null }] });
+    const o3 = await acceptResponse({ responseId: third.responseId, actorUid: ADMIN.actor, items: { notes: [{ rank: 1, include: true, cuppingNoteId: null }] } });
+    coffeeIds.push(o3.coffeeId);
+    expect((await db.query(`SELECT count(*)::int n FROM roastery_coffee_descriptors WHERE coffee_id = $1 AND is_active`, [o3.coffeeId])).rows[0].n).toBe(0);
+  });
+
   it('does not remember when the box is not ticked', async () => {
     const words = `zzz nomem ${RUN}`;
     const r = await submitted('nomem', { notes: [{ words, cuppingNoteId: null }] });
