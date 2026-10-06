@@ -8,6 +8,13 @@
 //
 // Rule 1: any INSERT / UPDATE / DELETE / TRUNCATE on a roastery_portal_* table
 //         outside services/roasteryPortalService.ts fails.
+// Rule 3 (part 2, F1): outside roasteryPortalService.ts and roasteryPortalReads.ts no SQL
+//         may reference a roastery_portal_* table or a v_roastery_portal_* view (or the
+//         roastery_portal_* helper functions). Every other file reads portal data by
+//         calling roasteryPortalReads functions.
+// Rule 4 (part 2, F1): inside roasteryPortalReads.ts, "current response" and progress come
+//         from the views, not from re-derived queries: no DISTINCT ON and no
+//         status = 'draft' ordering in that file (the views own that logic).
 // Rule 2: the portal's own files (the service, the reads, both route files) must
 //         not contain DML on `coffees`, any `coffee_*` table, or
 //         `roastery_coffee_descriptors` — the portal collects evidence, it never
@@ -72,10 +79,19 @@ const PORTAL_FILES = new Set([
   'services/roasteryPortalReads.ts',
   'routes/roasteryPortal.ts',
   'routes/roasteryPortalAdmin.ts',
+  'services/roasteryPortalNotify.ts',
 ]);
 
 const RULE1 = /\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?)\s+(?:ONLY\s+)?"?(roastery_portal_\w+)"?/gi;
 const RULE2 = /\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?)\s+(?:ONLY\s+)?"?(coffees|coffee_\w+|roastery_coffee_descriptors)"?\b/gi;
+
+const RULE3 = /\b(v_)?roastery_portal_\w+/g;
+const RULE3_ALLOWED = new Set(['services/roasteryPortalService.ts', 'services/roasteryPortalReads.ts']);
+const READS = 'services/roasteryPortalReads.ts';
+const RULE4 = [
+  { re: /DISTINCT\s+ON\b/i, what: 'DISTINCT ON' },
+  { re: /status\s*=\s*'draft'/i, what: "status = 'draft'" },
+];
 
 const violations = [];
 for (const relPath of walk(SRC_ROOT, [])) {
@@ -85,6 +101,20 @@ for (const relPath of walk(SRC_ROOT, [])) {
     RULE1.lastIndex = 0;
     while ((m = RULE1.exec(text))) {
       violations.push({ file: relPath, line: lineNumberAt(text, m.index), message: `${m[1].toUpperCase()} on '${m[2]}' outside ${WRITER}` });
+    }
+  }
+  if (!RULE3_ALLOWED.has(relPath)) {
+    RULE3.lastIndex = 0;
+    while ((m = RULE3.exec(text))) {
+      violations.push({ file: relPath, line: lineNumberAt(text, m.index), message: `reference to '${m[0]}' outside roasteryPortalService.ts / roasteryPortalReads.ts: read portal data through roasteryPortalReads functions` });
+    }
+  }
+  if (relPath === READS) {
+    for (const r of RULE4) {
+      const re = new RegExp(r.re.source, r.re.flags.includes('g') ? r.re.flags : r.re.flags + 'g');
+      while ((m = re.exec(text))) {
+        violations.push({ file: relPath, line: lineNumberAt(text, m.index), message: `${r.what} in roasteryPortalReads.ts: current response and progress come from the views, not re-derived queries` });
+      }
     }
   }
   if (PORTAL_FILES.has(relPath)) {

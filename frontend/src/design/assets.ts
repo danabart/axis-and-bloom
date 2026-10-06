@@ -149,6 +149,20 @@ export const brandAssets = {
   logoLines: raw('brand/logo-lines.svg'),
 };
 
+// The six small Bloom Dial images (160px, transparent) on the roastery portal's family
+// cards. Keyed by archetype enum code (not the ArchetypeSlug spelling above) because
+// that is what the portal and ARCHETYPE_VISUALS use. Uploaded as raw PNGs (alpha kept,
+// no transform): gs://axis-bloom-assets/raw/bloom/dials/<code>.png. Replacing an object
+// there is Camila's workflow, no deploy needed. Moved here from frontend/public (2026-10-05).
+export const bloomDialAssets = {
+  floral: raw('bloom/dials/floral.png'),
+  fruity: raw('bloom/dials/fruity.png'),
+  balanced_sweet: raw('bloom/dials/balanced_sweet.png'),
+  chocolate_nutty: raw('bloom/dials/chocolate_nutty.png'),
+  earthy: raw('bloom/dials/earthy.png'),
+  experimental: raw('bloom/dials/experimental.png'),
+} as const;
+
 // Event landing pages (e.g. /crawl). One sub-object per event, role-based key
 // names within it (`photoBand`, not the specific photo's content) so a reshoot
 // swap is a bucket file replacement, no code change.

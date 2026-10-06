@@ -619,6 +619,34 @@ function SetMatchModal({ coffee, archetypes, apiFetch, onClose, onSaved }: {
   );
 }
 
+// Roastery portal part 2 (2026-10-05): the roaster's own view of a coffee, shown beside the
+// placement choice. Read-only evidence: their proposed family, their dominant dimension next to
+// ours, their 1 to 5 values (relative to their own lineup, never cupping scores). It does not
+// preselect a slot, add a warning, or block anything.
+interface RoasterHint {
+  respondentName: string | null; submittedAt: string; proposedArchetype: string | null; dominantDimensionLabel: string | null;
+  dimensions: { label: string; value: number }[];
+  match: { ourDimensionName: string | null; ourSlotName: string | null; matches: boolean | null } | null;
+  matchForSlot: { ourDimensionName: string | null; ourSlotName: string | null; matches: boolean | null } | null;
+}
+function RoasterViewBox({ hint, archetypes, hasSlot }: { hint: RoasterHint; archetypes: ReturnType<typeof useArchetypes>['archetypes']; hasSlot: boolean }) {
+  const family = hint.proposedArchetype ? archetypes.find(a => a.code === hint.proposedArchetype)?.label ?? hint.proposedArchetype : null;
+  const m = hasSlot && hint.matchForSlot ? hint.matchForSlot : hint.match;
+  const against = hasSlot && hint.matchForSlot ? `against ${hint.matchForSlot.ourSlotName ?? 'the chosen slot'}` : 'against where it sits today';
+  return (
+    <div className="text-xs text-stone-600 border border-stone-200 rounded p-2 bg-stone-50" data-testid="roasters-view">
+      <p className="text-stone-400 uppercase tracking-wide mb-1">Roaster's view (read-only)</p>
+      <p>Proposed family: {family ?? '—'} · Dominant dimension: {hint.dominantDimensionLabel ?? '—'}
+        {hint.dominantDimensionLabel && (
+          <> · <b className="font-normal">{m?.matches === true ? 'Matches' : m?.matches === false ? 'Differs' : 'not placed yet'}</b>{m?.ourDimensionName ? ` (ours: ${m.ourDimensionName}, ${against})` : ''}</>
+        )}
+      </p>
+      {hint.dimensions.length > 0 && <p className="mt-1">Their 1 to 5, relative to their lineup: {hint.dimensions.map(d => `${d.label} ${d.value}`).join(' · ')}</p>}
+      <p className="mt-1 text-stone-400">{hint.respondentName ?? 'The roaster'}, {new Date(hint.submittedAt).toLocaleDateString()}</p>
+    </div>
+  );
+}
+
 // D6 — preview then confirm, note required on an out-of-spec placement.
 function PlaceModal({ coffeeId, role, archetypes, slots, apiFetch, onClose, onSaved }: {
   coffeeId: number; role: 'home' | 'guest'; archetypes: ReturnType<typeof useArchetypes>['archetypes']; slots: Slot[];
@@ -635,6 +663,22 @@ function PlaceModal({ coffeeId, role, archetypes, slots, apiFetch, onClose, onSa
 
   const archetypeSlots = slots.filter(s => s.archetype === archetype);
   const blocking = (preview?.warnings ?? []).some(w => w.kind === 'band_out_of_spec' || w.kind === 'descriptor_off_family');
+
+  // Roastery portal part 2: what the roaster said about this coffee, read-only. It never
+  // preselects or changes anything below; the dominant-dimension marker is display only.
+  const [hint, setHint] = useState<RoasterHint | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch(`/api/admin/roastery-portal/hints/coffee/${coffeeId}${slotId ? `?slotId=${slotId}` : ''}`);
+        if (!res.ok) return;
+        const body = await res.json();
+        if (!cancelled) setHint(body);
+      } catch { /* a hint that fails to load is simply not shown */ }
+    })();
+    return () => { cancelled = true; };
+  }, [coffeeId, slotId, apiFetch]);
 
   async function handlePreview() {
     if (!slotId) { setErr('Pick a slot first'); return; }
@@ -664,6 +708,7 @@ function PlaceModal({ coffeeId, role, archetypes, slots, apiFetch, onClose, onSa
   return (
     <Modal title={role === 'home' ? 'Place a coffee — home slot' : 'Add guest'} onClose={onClose}>
       <div className="space-y-3">
+        {hint && <RoasterViewBox hint={hint} archetypes={archetypes} hasSlot={!!slotId} />}
         <div>
           <label className="block text-xs text-stone-400 mb-1">Archetype</label>
           <select value={archetype} onChange={e => { setArchetype(e.target.value); setSlotId(''); setPreview(null); }} className="w-full border border-stone-300 rounded px-3 py-2 text-sm">

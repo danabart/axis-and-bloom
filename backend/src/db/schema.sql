@@ -1405,6 +1405,18 @@ CREATE TABLE IF NOT EXISTS roastery_coffee_descriptors (
   UNIQUE (coffee_id, cupping_note_id)
 );
 
+-- Roastery portal part 2 (2026-10-05): accepted portal notes are written here by
+-- catalogService.setRoasterDescriptorsInTx only. Retire, never delete: a retired
+-- row keeps its history (is_active = false, retired_at) and the wheel view below
+-- ignores it. source_response_id points at the roastery_portal_response version
+-- the row was accepted from (null = legacy seed row); its FK is added in the
+-- roastery portal block, after that table exists. Existing rows stay active.
+ALTER TABLE roastery_coffee_descriptors ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE roastery_coffee_descriptors ADD COLUMN IF NOT EXISTS source_response_id UUID;
+ALTER TABLE roastery_coffee_descriptors ADD COLUMN IF NOT EXISTS accepted_by_admin_id UUID REFERENCES user_profile(id);
+ALTER TABLE roastery_coffee_descriptors ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMPTZ;
+ALTER TABLE roastery_coffee_descriptors ADD COLUMN IF NOT EXISTS retired_at TIMESTAMPTZ;
+
 -- Client flavor feedback — collected via post-delivery feedback requests.
 -- Lightweight: no session, no brew params. User picks descriptors from the SCA wheel.
 -- intensity = how strongly they perceived it (0–15, optional).
@@ -2777,6 +2789,7 @@ UNION ALL
   FROM roastery_coffee_descriptors crd
   JOIN coffees      c  ON c.id  = crd.coffee_id
   JOIN cupping_note cn ON cn.id = crd.cupping_note_id
+  WHERE crd.is_active
 -- Customer Blueprint C3, Part C — repointed from user_flavor_feedback (no
 -- writer as of this brief; dropped once no view names it, OPEN_TASKS.md) to
 -- customer_feedback_descriptor joined to its parent customer_feedback_event
@@ -5811,8 +5824,85 @@ INSERT INTO lookup_value (category, value, label, sort_order) VALUES
   ('roastery_portal_takes_it', 'both',  'Both',      3)
 ON CONFLICT (category, value) DO NOTHING;
 
+-- ── Roastery portal part 2 (2026-10-05): accept answers into the catalog ──────
+-- Portal tables hold what the roaster said and are never edited after submit;
+-- catalog tables hold what Dana decided. Accepting goes only through
+-- catalogService, records which response version it came from, and nothing is
+-- ever copied back from the catalog into the portal.
+
+-- The FK from roastery_coffee_descriptors.source_response_id (column added next
+-- to the table itself, early in this file) to the version a row was accepted from.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'roastery_coffee_descriptors_source_response_fk') THEN
+    ALTER TABLE roastery_coffee_descriptors
+      ADD CONSTRAINT roastery_coffee_descriptors_source_response_fk
+      FOREIGN KEY (source_response_id) REFERENCES roastery_portal_response(id);
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_roastery_desc_active ON roastery_coffee_descriptors (coffee_id) WHERE is_active;
+
+-- Insert-only log of every accept: what was applied, with the catalog value before and after.
+CREATE TABLE IF NOT EXISTS roastery_portal_acceptance (
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  response_id           UUID NOT NULL REFERENCES roastery_portal_response(id),
+  portal_coffee_id      UUID NOT NULL REFERENCES roastery_portal_coffee(id),
+  coffee_id             INTEGER NOT NULL REFERENCES coffees(id),
+  created_coffee        BOOLEAN NOT NULL DEFAULT false,
+  applied               JSONB NOT NULL,
+  accepted_by_admin_id  UUID REFERENCES user_profile(id),
+  accepted_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS roastery_portal_acceptance_coffee_idx ON roastery_portal_acceptance (portal_coffee_id, accepted_at DESC);
+
+CREATE OR REPLACE FUNCTION roastery_portal_acceptance_guard() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NOT EXISTS (SELECT 1 FROM roastery_portal_response WHERE id = NEW.response_id AND status = 'submitted' AND portal_coffee_id = NEW.portal_coffee_id) THEN
+      RAISE EXCEPTION 'roastery_portal: an acceptance must point at a submitted version of its own coffee (response %)', NEW.response_id
+        USING ERRCODE = 'integrity_constraint_violation';
+    END IF;
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION 'roastery_portal: roastery_portal_acceptance is insert-only'
+    USING ERRCODE = 'integrity_constraint_violation';
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS roastery_portal_acceptance_insert_guard ON roastery_portal_acceptance;
+CREATE TRIGGER roastery_portal_acceptance_insert_guard
+  BEFORE INSERT ON roastery_portal_acceptance
+  FOR EACH ROW EXECUTE FUNCTION roastery_portal_acceptance_guard();
+DROP TRIGGER IF EXISTS roastery_portal_acceptance_immutable ON roastery_portal_acceptance;
+CREATE TRIGGER roastery_portal_acceptance_immutable
+  BEFORE UPDATE OR DELETE ON roastery_portal_acceptance
+  FOR EACH ROW EXECUTE FUNCTION roastery_portal_acceptance_guard();
+
+-- The remembered translations: a roaster's words -> a flavor wheel term. Offered as
+-- the suggestion the next time the same words appear (any roastery); never auto-applied.
+-- Changing one supersedes the old row and inserts a new one (history kept).
+CREATE TABLE IF NOT EXISTS roastery_portal_note_mapping (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  normalized_words    TEXT NOT NULL,
+  cupping_note_id     UUID NOT NULL REFERENCES cupping_note(id),
+  created_by_admin_id UUID REFERENCES user_profile(id),
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  superseded_at       TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS roastery_portal_note_mapping_active
+  ON roastery_portal_note_mapping (normalized_words) WHERE superseded_at IS NULL;
+
+-- The one definition of "the roaster's dominant dimension matches ours" (display only,
+-- never a gate): either side missing = unknown (null).
+CREATE OR REPLACE FUNCTION roastery_portal_dimension_matches(roaster_dim INTEGER, our_dim INTEGER) RETURNS BOOLEAN AS $$
+  SELECT CASE WHEN roaster_dim IS NULL OR our_dim IS NULL THEN NULL ELSE roaster_dim = our_dim END;
+$$ LANGUAGE sql IMMUTABLE;
+
 -- 11. Views (DROP + CREATE, never CREATE OR REPLACE: a column added ahead of
 -- existing ones is exactly what OR REPLACE silently refuses).
+DROP VIEW IF EXISTS v_roastery_portal_dimension_match;
+DROP VIEW IF EXISTS v_roastery_portal_cousin_hint;
+DROP VIEW IF EXISTS v_roastery_portal_coffee_hint;
+DROP VIEW IF EXISTS v_roastery_portal_lineup_current_response;
 DROP VIEW IF EXISTS v_roastery_portal_progress;
 DROP VIEW IF EXISTS v_roastery_portal_current_response;
 DROP VIEW IF EXISTS v_roastery_portal_coffee;
@@ -5881,6 +5971,11 @@ WITH cur AS (
   ORDER BY r.portal_coffee_id, r.version DESC
 ), sub_count AS (
   SELECT portal_coffee_id, count(*)::int AS n FROM roastery_portal_response WHERE status = 'submitted' GROUP BY portal_coffee_id
+), accepted AS (
+  SELECT DISTINCT ON (a.portal_coffee_id) a.portal_coffee_id, a.accepted_at, r.version AS accepted_version
+  FROM roastery_portal_acceptance a
+  JOIN roastery_portal_response r ON r.id = a.response_id
+  ORDER BY a.portal_coffee_id, a.accepted_at DESC
 )
 SELECT
   pc.id AS portal_coffee_id,
@@ -5915,13 +6010,138 @@ SELECT
     SELECT 1 FROM evidence ev
     JOIN roastery_portal_response_note n ON n.response_id = ev.response_id
     WHERE ev.portal_coffee_id = pc.id AND n.cupping_note_id IS NULL
-  ) AS has_unmapped_notes
+  ) AS has_unmapped_notes,
+  ac.accepted_version,
+  ac.accepted_at,
+  (ac.accepted_version IS NOT NULL AND ls.version > ac.accepted_version) AS changed_since_accept,
+  ls.version AS latest_submitted_version
 FROM roastery_portal_coffee pc
 LEFT JOIN cur ON cur.portal_coffee_id = pc.id
 LEFT JOIN last_sub ls ON ls.portal_coffee_id = pc.id
 LEFT JOIN sub_count sc ON sc.portal_coffee_id = pc.id
+LEFT JOIN accepted ac ON ac.portal_coffee_id = pc.id
 LEFT JOIN roastery_portal_respondent saver ON saver.id = cur.last_saved_by_respondent_id
 LEFT JOIN roastery_portal_respondent submitter ON submitter.id = ls.submitted_by_respondent_id;
+
+-- The lineup-wide answers have no per-coffee key, so "current" gets its own view
+-- (open draft, else latest submitted), same rule as v_roastery_portal_current_response.
+CREATE VIEW v_roastery_portal_lineup_current_response AS
+SELECT DISTINCT ON (lr.roaster_id) lr.*
+FROM roastery_portal_lineup_response lr
+ORDER BY lr.roaster_id, (lr.status = 'draft') DESC, lr.version DESC;
+
+-- Per catalog coffee: what the roaster said, from the latest submitted response of
+-- the linked lineup coffee. Hints only: nothing here is ever written to the catalog.
+CREATE VIEW v_roastery_portal_coffee_hint AS
+WITH latest AS (
+  SELECT DISTINCT ON (pc.coffee_id)
+         pc.coffee_id, pc.id AS portal_coffee_id, pc.roaster_id, r.id AS response_id, r.version,
+         r.submitted_at, r.submitted_by_respondent_id, r.proposed_archetype, r.dominant_dimension_id
+  FROM roastery_portal_coffee pc
+  JOIN roastery_portal_response r ON r.portal_coffee_id = pc.id AND r.status = 'submitted'
+  WHERE pc.coffee_id IS NOT NULL
+  ORDER BY pc.coffee_id, r.submitted_at DESC, r.version DESC
+)
+SELECT
+  l.coffee_id,
+  l.portal_coffee_id,
+  l.response_id,
+  l.version,
+  l.submitted_at,
+  resp.name AS respondent_name,
+  l.proposed_archetype,
+  l.dominant_dimension_id,
+  pd.label AS dominant_dimension_label,
+  COALESCE((
+    SELECT jsonb_agg(jsonb_build_object(
+             'dimension_id', rd.dimension_id, 'label', d.label, 'low_label', d.low_label,
+             'high_label', d.high_label, 'value', rd.value) ORDER BY d.sort_order)
+    FROM roastery_portal_response_dimension rd
+    JOIN roastery_portal_dimension d ON d.dimension_id = rd.dimension_id
+    WHERE rd.response_id = l.response_id
+  ), '[]'::jsonb) AS dimensions
+FROM latest l
+LEFT JOIN roastery_portal_respondent resp ON resp.id = l.submitted_by_respondent_id
+LEFT JOIN roastery_portal_dimension pd ON pd.dimension_id = l.dominant_dimension_id;
+
+-- Per lineup coffee with a closest cousin (latest submitted response): both lineup
+-- coffees, both catalog ids when linked, the "what changes" text, and each coffee's
+-- roaster-stated dominant dimension (from its own latest submitted response).
+CREATE VIEW v_roastery_portal_cousin_hint AS
+WITH latest AS (
+  SELECT DISTINCT ON (r.portal_coffee_id) r.*
+  FROM roastery_portal_response r
+  WHERE r.status = 'submitted'
+  ORDER BY r.portal_coffee_id, r.version DESC
+)
+SELECT
+  l.id AS response_id,
+  l.version,
+  pc.roaster_id,
+  pc.id AS portal_coffee_id,
+  pc.name AS coffee_name,
+  pc.coffee_id,
+  l.dominant_dimension_id,
+  d1.label AS dominant_dimension_label,
+  cz.id AS cousin_portal_coffee_id,
+  cz.name AS cousin_name,
+  cz.coffee_id AS cousin_coffee_id,
+  lc.dominant_dimension_id AS cousin_dominant_dimension_id,
+  d2.label AS cousin_dominant_dimension_label,
+  l.what_changes,
+  l.submitted_at
+FROM latest l
+JOIN roastery_portal_coffee pc ON pc.id = l.portal_coffee_id
+JOIN roastery_portal_coffee cz ON cz.id = l.closest_cousin_portal_coffee_id
+LEFT JOIN latest lc ON lc.portal_coffee_id = cz.id
+LEFT JOIN roastery_portal_dimension d1 ON d1.dimension_id = l.dominant_dimension_id
+LEFT JOIN roastery_portal_dimension d2 ON d2.dimension_id = lc.dominant_dimension_id
+WHERE l.closest_cousin_portal_coffee_id IS NOT NULL;
+
+-- Decision 11: the roaster's dominant dimension next to ours, plain Matches / Differs.
+-- "Ours" is a decided fact, never a computed guess: the dimension of the slot the
+-- coffee is placed in (its active home placement, else any active one), else the
+-- dominant dimension of its match archetype, else null ("not placed yet"). The merged
+-- cupping range on the roaster's dimension is context only (v_coffee_dimension_range).
+-- Display and evidence: this never blocks, warns on, or changes a placement.
+CREATE VIEW v_roastery_portal_dimension_match AS
+WITH placed AS (
+  SELECT DISTINCT ON (a.coffee_id) a.coffee_id, s.id AS slot_id, s.name AS slot_name, s.dimension_id AS slot_dimension_id
+  FROM coffee_slot_assignment a
+  JOIN coffee_dial_slot s ON s.id = a.slot_id AND s.is_active
+  WHERE a.is_active
+  ORDER BY a.coffee_id, (a.role = 'home') DESC, a.priority, a.id
+), matched AS (
+  SELECT ca.coffee_id, ar.dominant_dimension_id
+  FROM coffee_archetype_assignment ca
+  JOIN coffee_archetype ar ON ar.code = ca.archetype
+  WHERE ca.superseded_at IS NULL
+)
+SELECT
+  h.coffee_id,
+  h.response_id,
+  h.dominant_dimension_id AS roaster_dimension_id,
+  rd.name AS roaster_dimension_name,
+  CASE WHEN p.slot_dimension_id IS NOT NULL THEN p.slot_dimension_id ELSE m.dominant_dimension_id END AS our_dimension_id,
+  od.name AS our_dimension_name,
+  CASE WHEN p.slot_dimension_id IS NOT NULL THEN 'slot'
+       WHEN m.dominant_dimension_id IS NOT NULL THEN 'match_archetype'
+       ELSE NULL END AS our_source,
+  CASE WHEN p.slot_dimension_id IS NOT NULL THEN p.slot_name ELSE NULL END AS our_slot_name,
+  roastery_portal_dimension_matches(
+    h.dominant_dimension_id,
+    CASE WHEN p.slot_dimension_id IS NOT NULL THEN p.slot_dimension_id ELSE m.dominant_dimension_id END
+  ) AS matches,
+  rng.value_min AS range_min,
+  rng.value_max AS range_max,
+  rng.n_scores AS range_n_scores,
+  rng.basis AS range_basis
+FROM v_roastery_portal_coffee_hint h
+LEFT JOIN placed p ON p.coffee_id = h.coffee_id
+LEFT JOIN matched m ON m.coffee_id = h.coffee_id
+LEFT JOIN coffee_dimensions rd ON rd.id = h.dominant_dimension_id
+LEFT JOIN coffee_dimensions od ON od.id = CASE WHEN p.slot_dimension_id IS NOT NULL THEN p.slot_dimension_id ELSE m.dominant_dimension_id END
+LEFT JOIN v_coffee_dimension_range rng ON rng.coffee_id = h.coffee_id AND rng.dimension_id = h.dominant_dimension_id;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- END ROASTERY PORTAL block

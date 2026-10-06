@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useSearchParams } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
 import { reportError } from '../../lib/errorReporter';
 
@@ -338,6 +339,7 @@ type Lens = 'map' | 'journey';
 
 export default function AdminDial() {
   const apiFetch = useApiFetch();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [graph, setGraph] = useState<Graph | null>(null);
   const [adjacency, setAdjacency] = useState<Record<string, string[]>>({});
@@ -596,6 +598,18 @@ export default function AdminDial() {
     } catch (err) { reportError('[AdminDial/add-position]', err); setToast(err instanceof Error ? err.message : 'Add failed'); }
   }
 
+  // Roastery portal part 2: a "Roaster cousin hints" link opens the existing create-hop form with the
+  // two coffees prefilled (?hopFrom=&hopTo=). Dimension and direction stay the admin's choice.
+  useEffect(() => {
+    const from = Number(searchParams.get('hopFrom'));
+    const to = Number(searchParams.get('hopTo'));
+    if (!graph || !Number.isInteger(from) || !Number.isInteger(to) || !from || !to) return;
+    setEditMode(true);
+    openAddHopDialog(from, to);
+    setSearchParams({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graph, searchParams]);
+
   function openAddHopDialog(from: number, to: number) {
     setHopDialog({ from, to });
     const fromArch = graph?.positions.find(p => p.coffeeId === from)?.archetype;
@@ -753,6 +767,8 @@ export default function AdminDial() {
           }}
         />
       ) : null}
+
+      <CousinHintsPanel apiFetch={apiFetch} onOpenHop={openAddHopDialog} />
 
       {hopDialog && (
         <HopDialog
@@ -1495,5 +1511,50 @@ function JourneyLens(props: {
         )}
       </div>
     </div>
+  );
+}
+
+
+// ── Roaster cousin hints (roastery portal part 2) ───────────────────────────────
+// Read-only. "Closest cousin" is something a roaster said about two of their coffees; a hop needs a
+// dimension and a direction, which they do not give. So this only shows the pair, each side's
+// roaster-stated dominant dimension and the "what changes" text, and a link that opens the create-hop
+// form with both coffees prefilled. The admin creates the hop.
+interface CousinHintRow {
+  responseId: string; coffeeName: string; coffeeId: number; dominantDimensionLabel: string | null;
+  cousinName: string; cousinCoffeeId: number; cousinDominantDimensionLabel: string | null; whatChanges: string | null;
+}
+function CousinHintsPanel({ apiFetch, onOpenHop }: {
+  apiFetch: (url: string, options?: RequestInit) => Promise<Response>; onOpenHop: (from: number, to: number) => void;
+}) {
+  const [rows, setRows] = useState<CousinHintRow[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch('/api/admin/roastery-portal/hints/cousins?bothInCatalog=1');
+        if (res.ok && !cancelled) setRows(await res.json());
+      } catch { /* hints are optional */ }
+    })();
+    return () => { cancelled = true; };
+  }, [apiFetch]);
+  if (!rows || rows.length === 0) return null;
+  return (
+    <section className="mt-8 border-t border-stone-200 pt-4">
+      <h3 className="text-sm text-stone-700 mb-1">Roaster cousin hints</h3>
+      <p className="text-xs text-stone-400 mb-3">Pairs a roaster called close cousins, both in the catalog. Hints only: you choose the dimension and the direction.</p>
+      <ul className="space-y-2 text-sm">
+        {rows.map(r => (
+          <li key={r.responseId} className="flex flex-wrap items-center gap-3 border border-stone-100 rounded p-2">
+            <span>{r.coffeeName} <span className="text-xs text-stone-400">({r.dominantDimensionLabel ?? 'no dominant dimension given'})</span></span>
+            <span className="text-stone-300">→</span>
+            <span>{r.cousinName} <span className="text-xs text-stone-400">({r.cousinDominantDimensionLabel ?? 'no dominant dimension given'})</span></span>
+            {r.whatChanges && <span className="text-xs text-stone-500">What changes: {r.whatChanges}</span>}
+            <button className="ml-auto text-xs uppercase tracking-wide border border-stone-300 rounded px-2 py-1 text-stone-600"
+              onClick={() => onOpenHop(r.coffeeId, r.cousinCoffeeId)}>Create a hop…</button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

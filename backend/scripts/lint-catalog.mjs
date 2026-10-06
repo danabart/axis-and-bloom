@@ -129,6 +129,8 @@ const DML_TABLES = [
   'coffee_slot_price', 'coffee_hop', 'coffee_category_assignment',
   'coffee_sku', 'coffee_archetype', 'coffees', 'coffee_size',
   'coffee_retail_price', 'coffee_category',
+  // Roastery portal part 2 (2026-10-05): the roaster branch of v_collaborative_flavor_wheel.
+  'roastery_coffee_descriptors',
 ];
 const DML_VERBS = ['INSERT INTO', 'UPDATE', 'DELETE FROM'];
 const RULE2_WRITER = 'services/catalogService.ts';

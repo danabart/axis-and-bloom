@@ -11,7 +11,11 @@
 
 import { randomBytes } from 'node:crypto';
 import { withTransaction, type Tx } from '../db/client.js';
-import { getVocabulary, getRespondent, type PortalVocabulary } from './roasteryPortalReads.js';
+import { getVocabulary, getRespondent, normalizeWords, type PortalVocabulary } from './roasteryPortalReads.js';
+import {
+  createCoffeeInTx, updateCoffeeInTx, setRoasterDescriptorsInTx, snapshotRow, logCatalogChange, scopedIntegrity,
+  type UpdateCoffeeInput,
+} from './catalogService.js';
 
 // ── Errors ───────────────────────────────────────────────────────────────────
 export type PortalErrorCode =
@@ -667,5 +671,235 @@ export async function submitLineupResponse(input: { roasterId: string; responden
     );
     if (!r.rows[0]) throw new PortalError('no_draft', 'there is nothing to submit yet', 409);
     return { responseId: r.rows[0].id, version: r.rows[0].version, submittedAt: r.rows[0].submitted_at, respondentName: respondent.name };
+  });
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Part 2 (2026-10-05): accepting a submitted coffee into the catalog.
+//
+// Portal tables hold what the roaster said and are never edited after submit;
+// catalog tables hold what Dana decided. This file never touches a catalog
+// table itself: every catalog write below is a catalogService function
+// (createCoffeeInTx, updateCoffeeInTx, setRoasterDescriptorsInTx) run inside
+// the ONE transaction acceptResponse opens, so a failed step rolls the whole
+// accept back. Nothing is copied back from the catalog into the portal, and the
+// roaster's proposed family, their 1 to 5 dimension values, brewing and
+// "black or with milk" are never written anywhere.
+// ═════════════════════════════════════════════════════════════════════════════
+
+export interface AcceptNoteItem { rank: number; include: boolean; cuppingNoteId?: string | null; remember?: boolean }
+export interface AcceptBasicItem { include: boolean; value?: string | null }
+export interface AcceptItems {
+  basics?: { origin?: AcceptBasicItem; process?: AcceptBasicItem; roastLevel?: AcceptBasicItem; blendOrSingle?: AcceptBasicItem };
+  notes?: AcceptNoteItem[];
+}
+
+export interface AcceptResult {
+  acceptanceId: string;
+  coffeeId: number;
+  createdCoffee: boolean;
+  applied: Record<string, unknown>;
+  warnings: unknown[];
+  integrity: unknown[];
+}
+
+async function adminProfileIdFor(tx: Tx, firebaseUid: string): Promise<string | null> {
+  const r = await tx.query(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [firebaseUid]);
+  return r.rows[0]?.id ?? null;
+}
+
+/** A wheel term an admin may choose: an active cupping_note, never a defect under 'Other'. */
+async function assertWheelTerms(tx: Tx, ids: string[]): Promise<Map<string, { descriptor: string; wheelCategory: string }>> {
+  const out = new Map<string, { descriptor: string; wheelCategory: string }>();
+  if (!ids.length) return out;
+  const r = await tx.query(
+    `SELECT id, descriptor, wheel_category FROM cupping_note WHERE id = ANY($1::uuid[]) AND is_active AND wheel_category <> 'Other'`, [ids]
+  );
+  for (const x of r.rows) out.set(x.id, { descriptor: x.descriptor, wheelCategory: x.wheel_category });
+  const bad = ids.filter(id => !out.has(id));
+  if (bad.length) throw invalid('unknown flavor wheel term');
+  return out;
+}
+
+/** Create, supersede or leave alone the remembered mapping for these words. */
+async function rememberMapping(tx: Tx, words: string, cuppingNoteId: string, adminProfileId: string | null): Promise<'created' | 'superseded' | 'unchanged'> {
+  const key = normalizeWords(words);
+  if (!key) return 'unchanged';
+  const cur = await tx.query(`SELECT id, cupping_note_id FROM roastery_portal_note_mapping WHERE normalized_words = $1 AND superseded_at IS NULL`, [key]);
+  if (cur.rows[0]?.cupping_note_id === cuppingNoteId) return 'unchanged';
+  if (cur.rows[0]) await tx.query(`UPDATE roastery_portal_note_mapping SET superseded_at = now() WHERE id = $1`, [cur.rows[0].id]);
+  await tx.query(
+    `INSERT INTO roastery_portal_note_mapping (normalized_words, cupping_note_id, created_by_admin_id) VALUES ($1, $2, $3)`,
+    [key, cuppingNoteId, adminProfileId]
+  );
+  return cur.rows[0] ? 'superseded' : 'created';
+}
+
+export async function acceptResponse(input: { responseId: string; items: unknown; actorUid: string }): Promise<AcceptResult> {
+  if (!isUuid(input.responseId)) throw notFound('response');
+  const items = (input.items ?? {}) as AcceptItems;
+  if (typeof items !== 'object' || Array.isArray(items)) throw invalid('items must be an object');
+  const noteItems = items.notes ?? [];
+  if (!Array.isArray(noteItems)) throw invalid('notes must be a list');
+  const vocab = await getVocabulary({ fresh: true });
+
+  return withTransaction(async tx => {
+    const rr = await tx.query(
+      `SELECT r.*, pc.roaster_id, pc.name AS coffee_name, pc.coffee_id, pc.is_active AS lineup_active
+       FROM roastery_portal_response r JOIN roastery_portal_coffee pc ON pc.id = r.portal_coffee_id
+       WHERE r.id = $1`, [input.responseId]
+    );
+    const resp = rr.rows[0];
+    if (!resp) throw notFound('response');
+    // One accept at a time per lineup coffee (and a stable view of coffee_id).
+    await tx.query(`SELECT id FROM roastery_portal_coffee WHERE id = $1 FOR UPDATE`, [resp.portal_coffee_id]);
+    if (resp.status !== 'submitted') throw invalid('only a submitted version can be accepted');
+    if (!resp.lineup_active) throw invalid('this lineup coffee is inactive');
+    const newer = await tx.query(
+      `SELECT 1 FROM roastery_portal_response WHERE portal_coffee_id = $1 AND status = 'submitted' AND version > $2`,
+      [resp.portal_coffee_id, resp.version]
+    );
+    if (newer.rows[0]) throw invalid('a newer version has been submitted; review that one instead');
+
+    const adminId = await adminProfileIdFor(tx, input.actorUid);
+    const ctxActor = input.actorUid;
+
+    // ── the notes the admin ticked, with their final wheel term ───────────────
+    const rows = (await tx.query(
+      `SELECT rank, roaster_words, cupping_note_id FROM roastery_portal_response_note WHERE response_id = $1 ORDER BY rank`, [input.responseId]
+    )).rows as { rank: number; roaster_words: string; cupping_note_id: string | null }[];
+    const itemByRank = new Map<number, AcceptNoteItem>();
+    for (const n of noteItems) {
+      if (!n || typeof n.rank !== 'number' || !rows.some(r => r.rank === n.rank)) throw invalid('unknown note');
+      itemByRank.set(n.rank, n);
+    }
+    const chosen = rows
+      .filter(r => itemByRank.get(r.rank)?.include === true)
+      .map(r => {
+        const it = itemByRank.get(r.rank)!;
+        const term = it.cuppingNoteId === undefined ? r.cupping_note_id : it.cuppingNoteId;
+        return { rank: r.rank, words: r.roaster_words, cuppingNoteId: term ?? null, remember: it.remember === true, roasterPick: r.cupping_note_id };
+      });
+    const terms = await assertWheelTerms(tx, [...new Set(chosen.map(c => c.cuppingNoteId).filter((x): x is string => !!x))]);
+
+    // ── the ticked basics ─────────────────────────────────────────────────────
+    const b = items.basics ?? {};
+    const update: UpdateCoffeeInput = { coffeeId: 0 };
+    const basicsApplied: { field: string; before: unknown; after: unknown }[] = [];
+    const wanted: { field: string; value: string | null; set: (v: string) => void }[] = [];
+    if (b.origin?.include) wanted.push({ field: 'origin', value: resp.origin, set: v => { update.origin = v; } });
+    if (b.process?.include) {
+      const value = b.process.value ?? resp.process_values?.[0] ?? null;
+      if (value && !vocab.process.some(o => o.value === value)) throw invalid(`unknown process value "${value}"`);
+      wanted.push({ field: 'process', value, set: v => { update.process = v; } });
+    }
+    if (b.roastLevel?.include) wanted.push({ field: 'roastLevel', value: resp.roast_level, set: v => { update.roastLevel = v; } });
+    if (b.blendOrSingle?.include) wanted.push({ field: 'blendOrSingle', value: resp.blend_or_single, set: v => { update.blendOrSingle = v; } });
+    for (const w of wanted) if (w.value) w.set(w.value);
+
+    // ── 1. the catalog coffee: create (hidden until placed and priced) or reuse ─
+    let coffeeId: number | null = resp.coffee_id;
+    let created = false;
+    if (coffeeId === null) {
+      const c = await createCoffeeInTx(tx, { roasterId: resp.roaster_id, name: resp.coffee_name });
+      coffeeId = c.coffeeId;
+      created = true;
+      await logCatalogChange(tx, {
+        entity: 'coffee', entityId: coffeeId, action: 'createCoffee', before: null,
+        after: await snapshotRow(tx, 'coffees', 'id', coffeeId), changedBy: ctxActor,
+      });
+      await tx.query(`UPDATE roastery_portal_coffee SET coffee_id = $1 WHERE id = $2`, [coffeeId, resp.portal_coffee_id]);
+    }
+    update.coffeeId = coffeeId;
+
+    // ── 2. the ticked basics + the roaster's own words, in order (internal only) ─
+    const phrases = chosen.map(c => c.words);
+    if (phrases.length) update.flavorDescriptorsRoaster = phrases;
+    let coffeeBefore: Record<string, unknown> | null = null;
+    let coffeeAfter: Record<string, unknown> | null = null;
+    if (Object.keys(update).length > 1) {
+      const r = await updateCoffeeInTx(tx, update);
+      coffeeBefore = r.before; coffeeAfter = r.after;
+      await logCatalogChange(tx, { entity: 'coffee', entityId: coffeeId, action: 'updateCoffee', before: r.before, after: r.after, changedBy: ctxActor });
+      const col: Record<string, string> = { origin: 'origin', process: 'process', roastLevel: 'roast_level', blendOrSingle: 'blend_or_single' };
+      for (const w of wanted) if (w.value) basicsApplied.push({ field: w.field, before: r.before?.[col[w.field]] ?? null, after: r.after?.[col[w.field]] ?? null });
+    }
+
+    // ── 3. the ticked, mapped notes -> roaster descriptors (set semantics) ─────
+    let descriptors: Record<string, unknown> | null = null;
+    if (chosen.length) {
+      const mapped = chosen.filter(c => c.cuppingNoteId).map(c => ({ cuppingNoteId: c.cuppingNoteId!, roasterWords: c.words }));
+      const d = await setRoasterDescriptorsInTx(tx, { coffeeId, notes: mapped, sourceResponseId: input.responseId, adminProfileId: adminId });
+      await logCatalogChange(tx, { entity: 'coffee_roaster_descriptors', entityId: coffeeId, action: 'setRoasterDescriptors', before: d.before, after: d.after, changedBy: ctxActor });
+      descriptors = {
+        activated: d.activated, retired: d.retired,
+        words_only_notes: chosen.filter(c => !c.cuppingNoteId).map(c => c.words),
+        before: d.before, after: d.after,
+      };
+    }
+
+    // ── 4. remembered mappings: only where the admin chose or changed the term ─
+    const remembered: { words: string; cuppingNoteId: string; result: string }[] = [];
+    for (const c of chosen) {
+      if (!c.remember || !c.cuppingNoteId) continue;
+      remembered.push({ words: normalizeWords(c.words), cuppingNoteId: c.cuppingNoteId, result: await rememberMapping(tx, c.words, c.cuppingNoteId, adminId) });
+    }
+
+    // ── 5. the insert-only acceptance log ────────────────────────────────────
+    const applied = {
+      version: resp.version,
+      createdCoffee: created,
+      coffee: { before: coffeeBefore, after: coffeeAfter },
+      basics: basicsApplied,
+      flavorDescriptorsRoaster: phrases.length ? { before: coffeeBefore?.flavor_descriptors_roaster ?? null, after: phrases } : null,
+      notes: chosen.map(c => ({
+        rank: c.rank, roasterWords: c.words, roasterPick: c.roasterPick, cuppingNoteId: c.cuppingNoteId,
+        descriptor: c.cuppingNoteId ? terms.get(c.cuppingNoteId)?.descriptor ?? null : null,
+      })),
+      descriptors,
+      mappingsRemembered: remembered,
+    };
+    const log = await tx.query(
+      `INSERT INTO roastery_portal_acceptance (response_id, portal_coffee_id, coffee_id, created_coffee, applied, accepted_by_admin_id)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [input.responseId, resp.portal_coffee_id, coffeeId, created, JSON.stringify(applied), adminId]
+    );
+    const integrity = await scopedIntegrity(tx, { coffeeId });
+    return { acceptanceId: log.rows[0].id, coffeeId, createdCoffee: created, applied, warnings: [], integrity };
+  });
+}
+
+// ── Remembered mappings, managed from the admin "Mappings" list ───────────────
+/** Set (create, or supersede-and-replace) the remembered term for some words. */
+export async function setNoteMapping(input: { words: unknown; cuppingNoteId: unknown; actorUid: string }): Promise<{ result: 'created' | 'superseded' | 'unchanged' }> {
+  const words = requiredText(input.words, LIMITS.short, 'words');
+  if (!isUuid(input.cuppingNoteId)) throw invalid('choose a flavor wheel term');
+  return withTransaction(async tx => {
+    await assertWheelTerms(tx, [input.cuppingNoteId as string]);
+    return { result: await rememberMapping(tx, words, input.cuppingNoteId as string, await adminProfileIdFor(tx, input.actorUid)) };
+  });
+}
+
+/** Retire a remembered mapping without a replacement (history kept). */
+export async function supersedeNoteMapping(input: { mappingId: string }): Promise<{ superseded: boolean }> {
+  if (!isUuid(input.mappingId)) throw notFound('mapping');
+  return withTransaction(async tx => {
+    const exists = await tx.query(`SELECT id FROM roastery_portal_note_mapping WHERE id = $1`, [input.mappingId]);
+    if (!exists.rows[0]) throw notFound('mapping');
+    const r = await tx.query(`UPDATE roastery_portal_note_mapping SET superseded_at = now() WHERE id = $1 AND superseded_at IS NULL`, [input.mappingId]);
+    return { superseded: (r.rowCount ?? 0) > 0 };
+  });
+}
+
+/** Change an existing mapping to a different term: supersedes the old row, inserts a new one. */
+export async function changeNoteMapping(input: { mappingId: string; cuppingNoteId: unknown; actorUid: string }): Promise<{ result: 'created' | 'superseded' | 'unchanged' }> {
+  if (!isUuid(input.mappingId)) throw notFound('mapping');
+  if (!isUuid(input.cuppingNoteId)) throw invalid('choose a flavor wheel term');
+  return withTransaction(async tx => {
+    const cur = await tx.query(`SELECT normalized_words FROM roastery_portal_note_mapping WHERE id = $1 AND superseded_at IS NULL`, [input.mappingId]);
+    if (!cur.rows[0]) throw notFound('mapping');
+    await assertWheelTerms(tx, [input.cuppingNoteId as string]);
+    return { result: await rememberMapping(tx, cur.rows[0].normalized_words, input.cuppingNoteId as string, await adminProfileIdFor(tx, input.actorUid)) };
   });
 }

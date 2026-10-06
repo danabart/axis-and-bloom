@@ -16,6 +16,7 @@ import {
   getActiveLinkByToken, getVocabulary, getLineup, getLineupCoffee, getCurrentResponse,
   getCurrentLineupResponse, type PortalLinkContext,
 } from '../services/roasteryPortalReads.js';
+import { notifySubmission } from '../services/roasteryPortalNotify.js';
 import {
   PortalError, isUuid, touchLink, upsertRespondent, addLineupCoffee, saveDraft, submitResponse,
   saveLineupDraft, submitLineupResponse,
@@ -149,10 +150,9 @@ router.post('/:token/coffees/:id/submit', loadLink, async (req: PortalRequest, r
     const submitted = await submitResponse({
       roasterId: req.link!.roasterId, portalCoffeeId: coffee.portalCoffeeId, respondentId: req.body?.respondentId,
     });
-    // Brief B5: no reusable internal-notification mechanism exists in code
-    // (the "API error alert" is a Cloud Monitoring policy on log severity, not
-    // a recipient this service can address), so no email is sent. A plain
-    // INFO line keeps the event visible in Cloud Logging.
+    // Part 2, F3: one plain internal email to every admin, resolved at send time. Awaited
+    // (Cloud Run may pause the instance once the response is out) but it never throws.
+    await notifySubmission(submitted.responseId);
     log.info('[roastery-portal/submitted]', `${req.link!.roasteryName}: ${submitted.coffeeName} submitted by ${submitted.respondentName}`, {
       version: submitted.version,
     });

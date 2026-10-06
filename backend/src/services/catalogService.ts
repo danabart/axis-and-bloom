@@ -19,12 +19,12 @@ import {
 // fact's own UNIQUE (source, source_id). `before`/`after` reuse whatever
 // full-row snapshot the verb already has at hand where one exists; otherwise
 // this adds one cheap SELECT by primary key, never a new query pattern.
-async function snapshotRow(tx: Tx, table: string, column: string, value: unknown): Promise<Record<string, unknown> | null> {
+export async function snapshotRow(tx: Tx, table: string, column: string, value: unknown): Promise<Record<string, unknown> | null> {
   if (value == null) return null;
   const result = await tx.query(`SELECT * FROM ${table} WHERE ${column} = $1`, [value]);
   return result.rows[0] ?? null;
 }
-async function logCatalogChange(
+export async function logCatalogChange(
   tx: Tx,
   opts: { entity: string; entityId: string | number; action: string; before: unknown; after: unknown; changedBy: string }
 ): Promise<void> {
@@ -145,7 +145,7 @@ async function fetchRoasterRow(tx: Tx, roasterId: string): Promise<RoasterRow> {
 
 // Checks 4/5/6/8 from catalogIntegrity.ts, scoped to the coffee/slot a verb
 // just touched, run inside the same transaction (Part A3).
-async function scopedIntegrity(tx: Tx, scope: { coffeeId?: number; slotId?: number }): Promise<CatalogIntegrityCheck[]> {
+export async function scopedIntegrity(tx: Tx, scope: { coffeeId?: number; slotId?: number }): Promise<CatalogIntegrityCheck[]> {
   // Sequential, not Promise.all — all four checks share this one transaction's
   // single connection, and firing concurrent queries on the same pg Client
   // is deprecated (and fragile) even though pg currently queues them.
@@ -598,30 +598,135 @@ export interface UpdateCoffeeInput {
   // retirement. `null` clears it; `undefined` leaves it untouched.
   originRegion?: string | null;
 }
+// Split the same way createCoffee / createCoffeeInTx are, so a caller that already
+// holds a transaction (the roastery portal's accept, one transaction for create +
+// update + descriptors) can run the UPDATE without opening its own. No behaviour
+// change for updateCoffee's existing callers. The InTx half does not log or run
+// integrity: the caller does, once, at the end of its transaction.
+export async function updateCoffeeInTx(
+  tx: Tx, input: UpdateCoffeeInput
+): Promise<{ coffeeId: number; before: Record<string, unknown> | null; after: Record<string, unknown> | null }> {
+  const before = await snapshotRow(tx, 'coffees', 'id', input.coffeeId);
+  await fetchCoffeeRow(tx, input.coffeeId);
+  const setOriginRegion = input.originRegion !== undefined;
+  await tx.query(
+    `UPDATE coffees SET
+       name = COALESCE($1, name), origin = COALESCE($2, origin), blend_or_single = COALESCE($3, blend_or_single),
+       process = COALESCE($4, process), roast_level = COALESCE($5, roast_level), roast_shade = COALESCE($6, roast_shade),
+       flavor_descriptors_roaster = COALESCE($7, flavor_descriptors_roaster),
+       origin_region_id = CASE WHEN $9::boolean
+         THEN (SELECT id FROM lookup_value WHERE category = 'origin_region' AND value = $10)
+         ELSE origin_region_id END
+     WHERE id = $8`,
+    [input.name ?? null, input.origin ?? null, input.blendOrSingle ?? null, input.process ?? null,
+     input.roastLevel ?? null, input.roastShade ?? null, input.flavorDescriptorsRoaster ?? null, input.coffeeId,
+     setOriginRegion, input.originRegion ?? null]
+  );
+  if (input.categoryCodes !== undefined) await applyCategoryCodes(tx, input.coffeeId, input.categoryCodes);
+  const after = await snapshotRow(tx, 'coffees', 'id', input.coffeeId);
+  return { coffeeId: input.coffeeId, before, after };
+}
+
 export async function updateCoffee(input: UpdateCoffeeInput, ctx: Ctx): Promise<CatalogWriteResult<{ coffeeId: number }>> {
   return withTransaction(async (tx) => {
-    const before = await snapshotRow(tx, 'coffees', 'id', input.coffeeId);
-    await fetchCoffeeRow(tx, input.coffeeId);
-    const setOriginRegion = input.originRegion !== undefined;
-    await tx.query(
-      `UPDATE coffees SET
-         name = COALESCE($1, name), origin = COALESCE($2, origin), blend_or_single = COALESCE($3, blend_or_single),
-         process = COALESCE($4, process), roast_level = COALESCE($5, roast_level), roast_shade = COALESCE($6, roast_shade),
-         flavor_descriptors_roaster = COALESCE($7, flavor_descriptors_roaster),
-         origin_region_id = CASE WHEN $9::boolean
-           THEN (SELECT id FROM lookup_value WHERE category = 'origin_region' AND value = $10)
-           ELSE origin_region_id END
-       WHERE id = $8`,
-      [input.name ?? null, input.origin ?? null, input.blendOrSingle ?? null, input.process ?? null,
-       input.roastLevel ?? null, input.roastShade ?? null, input.flavorDescriptorsRoaster ?? null, input.coffeeId,
-       setOriginRegion, input.originRegion ?? null]
-    );
-    if (input.categoryCodes !== undefined) await applyCategoryCodes(tx, input.coffeeId, input.categoryCodes);
-    const after = await snapshotRow(tx, 'coffees', 'id', input.coffeeId);
+    const { before, after } = await updateCoffeeInTx(tx, input);
     await logCatalogChange(tx, { entity: 'coffee', entityId: input.coffeeId, action: 'updateCoffee', before, after, changedBy: ctx.actor });
     const integrity = await scopedIntegrity(tx, { coffeeId: input.coffeeId });
     console.info('[catalog] updateCoffee', { actor: ctx.actor, coffeeId: input.coffeeId });
     return { result: { coffeeId: input.coffeeId }, warnings: [], integrity };
+  });
+}
+
+// ── Roaster descriptors (roastery portal part 2) ───────────────────────────
+// roastery_coffee_descriptors is the roaster branch of v_collaborative_flavor_wheel,
+// which every flavor surface reads (public wheel, Liam's RAG, lifecycle emails, the
+// placement guardrail's descriptor-family check, the palate views, the feedback
+// chips). This is its ONLY writer. Set semantics for one coffee: activate or insert
+// the given rows (stamping source response, admin, time), retire the active rows not
+// in the set (is_active = false, retired_at). Never delete. `notes` keeps the
+// roaster's exact words, internal only: no customer surface or Liam reads it.
+export interface RoasterDescriptorNote { cuppingNoteId: string; roasterWords: string }
+export interface RoasterDescriptorsInput {
+  coffeeId: number;
+  notes: RoasterDescriptorNote[];
+  sourceResponseId: string | null;
+  /** user_profile.id of the admin accepting (nullable for system callers). */
+  adminProfileId: string | null;
+}
+export interface RoasterDescriptorsResult {
+  coffeeId: number;
+  before: Record<string, unknown>[];
+  after: Record<string, unknown>[];
+  activated: number[];
+  retired: number[];
+}
+
+export async function setRoasterDescriptorsInTx(tx: Tx, input: RoasterDescriptorsInput): Promise<RoasterDescriptorsResult> {
+  await fetchCoffeeRow(tx, input.coffeeId);
+
+  // Two notes mapped to the same wheel term collapse into one row (the unique key is
+  // (coffee_id, cupping_note_id)); their words are kept together, in order.
+  const byTerm = new Map<string, string[]>();
+  for (const n of input.notes) {
+    const words = n.roasterWords?.trim() ?? '';
+    const list = byTerm.get(n.cuppingNoteId) ?? [];
+    if (words && !list.includes(words)) list.push(words);
+    byTerm.set(n.cuppingNoteId, list);
+  }
+  const termIds = [...byTerm.keys()];
+  if (termIds.length) {
+    const known = await tx.query<{ id: string }>(
+      `SELECT id FROM cupping_note WHERE id = ANY($1::uuid[]) AND is_active`, [termIds]
+    );
+    const missing = termIds.filter(id => !known.rows.some(r => r.id === id));
+    if (missing.length) throw new CatalogError(400, 'INVALID_INPUT', `Unknown or inactive flavor wheel term(s): ${missing.join(', ')}`);
+  }
+
+  const snapshot = async () => (await tx.query(
+    `SELECT * FROM roastery_coffee_descriptors WHERE coffee_id = $1 ORDER BY id`, [input.coffeeId]
+  )).rows as Record<string, unknown>[];
+  const before = await snapshot();
+
+  const activated: number[] = [];
+  for (const [termId, words] of byTerm) {
+    const r = await tx.query<{ id: number }>(
+      `INSERT INTO roastery_coffee_descriptors
+         (coffee_id, cupping_note_id, notes, is_active, source_response_id, accepted_by_admin_id, accepted_at, retired_at)
+       VALUES ($1, $2, $3, true, $4, $5, now(), NULL)
+       ON CONFLICT (coffee_id, cupping_note_id) DO UPDATE SET
+         notes = EXCLUDED.notes, is_active = true, source_response_id = EXCLUDED.source_response_id,
+         accepted_by_admin_id = EXCLUDED.accepted_by_admin_id, accepted_at = now(), retired_at = NULL
+       RETURNING id`,
+      [input.coffeeId, termId, words.length ? words.join(' / ') : null, input.sourceResponseId, input.adminProfileId]
+    );
+    activated.push(r.rows[0].id);
+  }
+  const retiredResult = await tx.query<{ id: number }>(
+    `UPDATE roastery_coffee_descriptors SET is_active = false, retired_at = now()
+     WHERE coffee_id = $1 AND is_active AND cupping_note_id <> ALL($2::uuid[])
+     RETURNING id`,
+    [input.coffeeId, termIds.length ? termIds : ['00000000-0000-0000-0000-000000000000']]
+  );
+  return { coffeeId: input.coffeeId, before, after: await snapshot(), activated, retired: retiredResult.rows.map(r => r.id) };
+}
+
+export async function setRoasterDescriptors(
+  input: Omit<RoasterDescriptorsInput, 'adminProfileId'> & { adminProfileId?: string | null }, ctx: Ctx
+): Promise<CatalogWriteResult<{ coffeeId: number; activated: number; retired: number }>> {
+  return withTransaction(async (tx) => {
+    let adminProfileId = input.adminProfileId ?? null;
+    if (!adminProfileId && ctx.actor) {
+      const a = await tx.query<{ id: string }>(`SELECT id FROM user_profile WHERE firebase_uid = $1`, [ctx.actor]);
+      adminProfileId = a.rows[0]?.id ?? null;
+    }
+    const r = await setRoasterDescriptorsInTx(tx, { ...input, adminProfileId });
+    await logCatalogChange(tx, {
+      entity: 'coffee_roaster_descriptors', entityId: input.coffeeId, action: 'setRoasterDescriptors',
+      before: r.before, after: r.after, changedBy: ctx.actor,
+    });
+    const integrity = await scopedIntegrity(tx, { coffeeId: input.coffeeId });
+    console.info('[catalog] setRoasterDescriptors', { actor: ctx.actor, coffeeId: input.coffeeId, activated: r.activated.length, retired: r.retired.length });
+    return { result: { coffeeId: input.coffeeId, activated: r.activated.length, retired: r.retired.length }, warnings: [], integrity };
   });
 }
 

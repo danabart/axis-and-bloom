@@ -10,12 +10,14 @@ import { Router, type Response } from 'express';
 import { requireAdmin, type AuthRequest } from '../middleware/auth.js';
 import { log } from '../lib/logger.js';
 import {
-  getVocabulary, listRoasteriesWithProgress, listLinks, getRoasterBasics, getLineup, getLineupCoffee,
+  getVocabulary, listRoasteriesWithProgress, listLinks, getRoasterBasics, getAdminLineup, getLineupCoffee,
+  previewAcceptance, listAcceptances, listNoteMappings, getCoffeeHint, listCousinHints,
   getCurrentResponse, getResponseById, listResponseVersions, getCurrentLineupResponse,
   listLineupResponseVersions, listCatalogCoffeesForRoaster,
 } from '../services/roasteryPortalReads.js';
+import { CatalogError } from '../services/catalogService.js';
 import {
-  PortalError, isUuid, createLink, revokeLink, addLineupCoffee, bulkAddLineupCoffees, updateLineupCoffee,
+  PortalError, isUuid, acceptResponse, setNoteMapping, changeNoteMapping, supersedeNoteMapping, createLink, revokeLink, addLineupCoffee, bulkAddLineupCoffees, updateLineupCoffee,
   linkLineupCoffeeToCatalog, deactivateLineupCoffee, reorderLineupCoffees,
 } from '../services/roasteryPortalService.js';
 
@@ -23,6 +25,11 @@ const router = Router();
 router.use(requireAdmin);
 
 function fail(tag: string, res: Response, err: unknown): void {
+  // The catalog door's own errors (a roastery that is not active, a coffee that is gone, ...) keep their codes.
+  if (err instanceof CatalogError) {
+    res.status(err.status).json({ error: err.code, message: err.message });
+    return;
+  }
   if (err instanceof PortalError) {
     res.status(err.status).json({ error: err.code, message: err.message });
     return;
@@ -58,7 +65,7 @@ router.get('/roasteries/:roasterId', async (req, res) => {
     if (!roaster) return badId(res);
     const [links, lineup, lineupResponse, lineupVersions, catalogCoffees] = await Promise.all([
       listLinks(roasterId),
-      getLineup(roasterId, { includeInactive: true }),
+      getAdminLineup(roasterId),
       getCurrentLineupResponse(roasterId),
       listLineupResponseVersions(roasterId),
       listCatalogCoffeesForRoaster(roasterId),
@@ -172,6 +179,65 @@ router.get('/roasteries/:roasterId/lineup/:id/response', async (req, res) => {
     }
     res.json({ coffee, response, versions });
   } catch (err) { fail('[admin/roastery-portal/response]', res, err); }
+});
+
+// ── Part 2: accept a submitted coffee into the catalog ───────────────────────
+// GET .../responses/:id/acceptance-preview: read-only; exactly what would change.
+router.get('/responses/:id/acceptance-preview', async (req, res) => {
+  if (!isUuid(req.params.id)) return badId(res);
+  try {
+    const preview = await previewAcceptance(req.params.id);
+    if (!preview) return badId(res);
+    res.json(preview);
+  } catch (err) { fail('[admin/roastery-portal/preview]', res, err); }
+});
+
+// POST .../responses/:id/accept { items }: one transaction, through catalogService.
+router.post('/responses/:id/accept', async (req: AuthRequest, res) => {
+  if (!isUuid(req.params.id)) return badId(res);
+  try {
+    res.status(201).json(await acceptResponse({ responseId: req.params.id, items: req.body?.items, actorUid: req.uid! }));
+  } catch (err) { fail('[admin/roastery-portal/accept]', res, err); }
+});
+
+// GET .../acceptances?portalCoffeeId=: the insert-only log for one lineup coffee.
+router.get('/acceptances', async (req, res) => {
+  const id = typeof req.query.portalCoffeeId === 'string' ? req.query.portalCoffeeId : '';
+  if (!isUuid(id)) return badId(res);
+  try { res.json(await listAcceptances(id)); } catch (err) { fail('[admin/roastery-portal/acceptances]', res, err); }
+});
+
+// Remembered translations (admin-side only; never in the partner page's vocabulary bundle).
+router.get('/note-mappings', async (req, res) => {
+  try { res.json(await listNoteMappings({ includeSuperseded: req.query.includeSuperseded === '1' })); }
+  catch (err) { fail('[admin/roastery-portal/mappings]', res, err); }
+});
+router.post('/note-mappings', async (req: AuthRequest, res) => {
+  try { res.status(201).json(await setNoteMapping({ words: req.body?.words, cuppingNoteId: req.body?.cuppingNoteId, actorUid: req.uid! })); }
+  catch (err) { fail('[admin/roastery-portal/mapping-create]', res, err); }
+});
+// PATCH { cuppingNoteId } changes the term (supersede + insert); { cuppingNoteId: null } retires it.
+router.patch('/note-mappings/:id', async (req: AuthRequest, res) => {
+  if (!isUuid(req.params.id)) return badId(res);
+  try {
+    if (req.body?.cuppingNoteId === null) { res.json(await supersedeNoteMapping({ mappingId: req.params.id })); return; }
+    res.json(await changeNoteMapping({ mappingId: req.params.id, cuppingNoteId: req.body?.cuppingNoteId, actorUid: req.uid! }));
+  } catch (err) { fail('[admin/roastery-portal/mapping-change]', res, err); }
+});
+
+// Read-only hints: never applied to anything.
+router.get('/hints/coffee/:coffeeId', async (req, res) => {
+  const coffeeId = Number(req.params.coffeeId);
+  if (!Number.isInteger(coffeeId)) return badId(res);
+  try {
+    const slotId = req.query.slotId !== undefined ? Number(req.query.slotId) : undefined;
+    const hint = await getCoffeeHint(coffeeId, Number.isInteger(slotId) ? { slotId } : {});
+    res.json(hint); // null when this coffee has no submitted roaster response
+  } catch (err) { fail('[admin/roastery-portal/hint]', res, err); }
+});
+router.get('/hints/cousins', async (req, res) => {
+  try { res.json(await listCousinHints({ bothInCatalog: req.query.bothInCatalog === '1' })); }
+  catch (err) { fail('[admin/roastery-portal/cousins]', res, err); }
 });
 
 export default router;
