@@ -126,8 +126,9 @@ export default function NotesSection({ notes, wheel, onChange }: {
 
   return (
     <>
+      <span className="lab" id="rp-notes-label">{COPY.notesLabel}</span>
       <p className="help">{COPY.notesHint}</p>
-      <ol className="notes-list" style={{ listStyle: 'none', padding: 0 }} aria-label={COPY.notesLabel}>
+      <ol className="notes-list" style={{ listStyle: 'none', padding: 0 }} aria-labelledby="rp-notes-label">
         {notes.map((n, i) => (
           <NoteItem
             key={n.key}

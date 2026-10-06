@@ -13,7 +13,8 @@ export const COPY = {
     after: ' 1 is your gentlest coffee on that scale, 5 your most intense. There are no wrong answers.',
   },
   // CHANGED: the notes hint (words first, then the wheel pick).
-  notesLabel: 'Your official tasting notes',
+  // CHANGED (part 3): "Your official tasting notes" -> "Your bag notes".
+  notesLabel: 'Your bag notes',
   notesHint: 'Your words first, the leading note on top. Then pick the closest match on the flavor wheel.',
   notePlaceholder: 'Blueberry, cream, milk chocolate',
   // Unchanged from the mockup.
@@ -21,7 +22,8 @@ export const COPY = {
   bloomDialHint: 'pick the family it belongs to first; we will refine it with you',
   experimentalWarning: 'Only for the truly rare: mushroom-infused, aged in a whisky barrel, a process almost nobody has tasted. Unusual is not enough; it has to surprise.',
   dimensionsHelp: 'Relative to your own lineup. 1 is your gentlest coffee on that scale, 5 your most intense.',
-  dominantLabel: 'Most dominant dimension',
+  // CHANGED (part 3): "Most dominant dimension" -> "What leads in the cup?".
+  dominantLabel: 'What leads in the cup?',
   dominantHint: 'the one thing people notice first',
   brewNotesLabel: 'Anything we should know about brewing it?',
   brewNotesPlaceholder: 'Grind a touch finer than you\'d expect. Shines at 94°C.',
@@ -41,6 +43,26 @@ export const COPY = {
   whoTitle: 'Who is filling this in?',
   whoHint: 'So we know who to thank, and who to ask if we have a question.',
   // NEW or CHANGED short state words (thin and gray, per brief 48 section 9).
+  // ── part 3 (2026-10-06). Lines marked NEW are drafts for Camila's review. ──
+  // CHANGED: section 04 question and legend (was "How is it best enjoyed?" / "Best brewing method").
+  milkLabel: 'Does it hold up in milk?',
+  whereItShines: 'Where it shines',
+  // NEW: section 01 questions.
+  blendComponentsLabel: 'Components',
+  blendComponentsHint: 'origins, rough shares if you share them',
+  blendRotationLabel: 'Does the recipe change during the year?',
+  caffeineLabel: 'Caffeine',
+  decafProcessLabel: 'Decaf process',
+  additivesLabel: 'Is anything added to this coffee?',
+  additivesHint: 'fruit, spices, yeast cultures, flavoring, during processing or after roasting',
+  additivesDetailLabel: 'What is added',
+  roastedForLabel: 'Roasted for',
+  certificationsLabel: 'Certifications',
+  // NEW: once per lineup.
+  bestSellersLabel: 'Which of these do you sell most?',
+  bestSellersHint: 'Pick up to three, in order. Tap again to remove one.',
+  yes: 'Yes',
+  no: 'No',
   saveAndNext: 'Save and open the next coffee',
   inactiveTitle: 'This link is not active',
   inactiveBody: 'Please ask your Axis & Bloom contact for a fresh one.',

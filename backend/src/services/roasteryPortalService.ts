@@ -12,6 +12,7 @@
 import { randomBytes } from 'node:crypto';
 import { withTransaction, type Tx } from '../db/client.js';
 import { getVocabulary, getRespondent, normalizeWords, getMappingSuggestions, type PortalVocabulary } from './roasteryPortalReads.js';
+import { getCoffee as getCatalogCoffee } from './catalogReads.js';
 import {
   createCoffeeInTx, updateCoffeeInTx, setRoasterDescriptorsInTx, snapshotRow, logCatalogChange, scopedIntegrity,
   type UpdateCoffeeInput,
@@ -352,7 +353,16 @@ export interface ResponseDoc {
   processValues: string[];
   roastLevel: string | null;
   blendOrSingle: string | null;
-  isDecaf: boolean | null;
+  // Part 3 (2026-10-06). All optional. is_decaf is DEPRECATED: nothing writes it any more
+  // (caffeineLevel replaces it; v_roastery_portal_response derives an old answer's caffeine).
+  additivesPresent: boolean | null;
+  additivesDetail: string | null;
+  roastIntent: string | null;
+  blendComponents: string | null;
+  blendRotation: string | null;
+  caffeineLevel: string | null;
+  decafProcess: string | null;
+  certifications: string[];
   notes: { words: string; cuppingNoteId: string | null }[];
   proposedArchetype: string | null;
   dimensions: Record<string, number>;
@@ -392,7 +402,7 @@ async function normalizeResponseDoc(
   const vocab = await getVocabulary();
 
   const prefill = normalizePrefill(
-    { origin: raw.origin, processValues: raw.processValues, roastLevel: raw.roastLevel, blendOrSingle: raw.blendOrSingle, isDecaf: raw.isDecaf },
+    { origin: raw.origin, processValues: raw.processValues, roastLevel: raw.roastLevel, blendOrSingle: raw.blendOrSingle },
     vocab
   );
 
@@ -459,12 +469,41 @@ async function normalizeResponseDoc(
     closestCousinPortalCoffeeId = raw.closestCousinPortalCoffeeId;
   }
 
+  // ── part 3 answers: validate every value against its lookup category, THEN normalise ──
+  let additivesPresent: boolean | null = null;
+  if (raw.additivesPresent !== undefined && raw.additivesPresent !== null) {
+    if (typeof raw.additivesPresent !== 'boolean') throw invalid('"anything added" must be yes or no');
+    additivesPresent = raw.additivesPresent;
+  }
+  const additivesDetailRaw = text(raw.additivesDetail, LIMITS.short, 'what is added');
+  const roastIntent = oneOf(raw.roastIntent, lookupValues(vocab.roastIntent), 'roasted for');
+  const blendComponentsRaw = text(raw.blendComponents, LIMITS.short, 'blend components');
+  const blendRotationRaw = oneOf(raw.blendRotation, lookupValues(vocab.blendRotation), 'recipe change answer');
+  const caffeineLevel = oneOf(raw.caffeineLevel, lookupValues(vocab.caffeine), 'caffeine');
+  const decafProcessRaw = oneOf(raw.decafProcess, lookupValues(vocab.decafProcess), 'decaf process');
+  const certAllowed = lookupValues(vocab.certification);
+  const certRaw: unknown[] = raw.certifications === undefined || raw.certifications === null ? [] : raw.certifications;
+  if (!Array.isArray(certRaw)) throw invalid('certifications must be a list');
+  let certifications = [...new Set(certRaw.map(v => String(v)))];
+  for (const c of certifications) if (!certAllowed.has(c)) throw invalid('unknown certification');
+  // The four normalisation rules (the form mirrors them, so nothing stale is ever kept):
+  //  - "None" is a real answer and clears the others
+  if (certifications.includes('none')) certifications = ['none'];
+  //  - the decaf process only means something for Decaf or Half-caff
+  const decafProcess = caffeineLevel === 'decaf' || caffeineLevel === 'half_caff' ? decafProcessRaw : null;
+  //  - components and rotation only mean something for a blend
+  const isBlend = prefill.blendOrSingle === 'blend';
+  const blendComponents = isBlend ? blendComponentsRaw : null;
+  const blendRotation = isBlend ? blendRotationRaw : null;
+  //  - the detail only means something when something is added
+  const additivesDetail = additivesPresent === true ? additivesDetailRaw : null;
+
   return {
     origin: prefill.origin,
     processValues: prefill.processValues,
     roastLevel: prefill.roastLevel,
     blendOrSingle: prefill.blendOrSingle,
-    isDecaf: prefill.isDecaf,
+    additivesPresent, additivesDetail, roastIntent, blendComponents, blendRotation, caffeineLevel, decafProcess, certifications,
     notes,
     proposedArchetype,
     dimensions,
@@ -498,24 +537,32 @@ async function openDraft(tx: Tx, portalCoffeeId: string): Promise<string> {
   );
   if (open.rows[0]) return open.rows[0].id;
 
+  // Read through the view: it carries the effective caffeine answer, so a reopened old response keeps its
+  // caffeine even though is_decaf itself is never copied (nothing writes it any more).
   const latest = await tx.query(
-    `SELECT * FROM roastery_portal_response WHERE portal_coffee_id = $1 ORDER BY version DESC LIMIT 1`,
+    `SELECT * FROM v_roastery_portal_response WHERE portal_coffee_id = $1 ORDER BY version DESC LIMIT 1`,
     [portalCoffeeId]
   );
   const prev = latest.rows[0];
   const version = prev ? prev.version + 1 : 1;
   const created = await tx.query(
     `INSERT INTO roastery_portal_response
-       (portal_coffee_id, version, status, origin, process_values, roast_level, blend_or_single, is_decaf,
+       (portal_coffee_id, version, status, origin, process_values, roast_level, blend_or_single,
         proposed_archetype, dominant_dimension_id, takes_it, brew_notes, availability, typical_notice,
-        expected_availability, similar_when_out, closest_cousin_portal_coffee_id, what_changes, anything_else)
-     VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+        expected_availability, similar_when_out, closest_cousin_portal_coffee_id, what_changes, anything_else,
+        additives_present, additives_detail, roast_intent, blend_components, blend_rotation, caffeine_level,
+        decaf_process, certifications)
+     VALUES ($1, $2, 'draft', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+             $18, $19, $20, $21, $22, $23, $24, $25)
      RETURNING id`,
     [portalCoffeeId, version, prev?.origin ?? null, prev?.process_values ?? [], prev?.roast_level ?? null,
-     prev?.blend_or_single ?? null, prev?.is_decaf ?? null, prev?.proposed_archetype ?? null,
+     prev?.blend_or_single ?? null, prev?.proposed_archetype ?? null,
      prev?.dominant_dimension_id ?? null, prev?.takes_it ?? null, prev?.brew_notes ?? null, prev?.availability ?? null,
      prev?.typical_notice ?? null, prev?.expected_availability ?? null, prev?.similar_when_out ?? null,
-     prev?.closest_cousin_portal_coffee_id ?? null, prev?.what_changes ?? null, prev?.anything_else ?? null]
+     prev?.closest_cousin_portal_coffee_id ?? null, prev?.what_changes ?? null, prev?.anything_else ?? null,
+     prev?.additives_present ?? null, prev?.additives_detail ?? null, prev?.roast_intent ?? null,
+     prev?.blend_components ?? null, prev?.blend_rotation ?? null, prev?.caffeine_level ?? null,
+     prev?.decaf_process ?? null, prev?.certifications ?? []]
   );
   const id = created.rows[0].id as string;
   if (prev) {
@@ -544,17 +591,21 @@ export async function saveDraft(input: {
     const responseId = await openDraft(tx, input.portalCoffeeId);
     const updated = await tx.query(
       `UPDATE roastery_portal_response SET
-         origin = $2, process_values = $3, roast_level = $4, blend_or_single = $5, is_decaf = $6,
-         proposed_archetype = $7, dominant_dimension_id = $8, takes_it = $9, brew_notes = $10,
-         availability = $11, typical_notice = $12, expected_availability = $13, similar_when_out = $14,
-         closest_cousin_portal_coffee_id = $15, what_changes = $16, anything_else = $17,
-         last_saved_by_respondent_id = $18, updated_at = now()
+         origin = $2, process_values = $3, roast_level = $4, blend_or_single = $5,
+         proposed_archetype = $6, dominant_dimension_id = $7, takes_it = $8, brew_notes = $9,
+         availability = $10, typical_notice = $11, expected_availability = $12, similar_when_out = $13,
+         closest_cousin_portal_coffee_id = $14, what_changes = $15, anything_else = $16,
+         additives_present = $17, additives_detail = $18, roast_intent = $19, blend_components = $20,
+         blend_rotation = $21, caffeine_level = $22, decaf_process = $23, certifications = $24,
+         last_saved_by_respondent_id = $25, updated_at = now()
        WHERE id = $1 AND status = 'draft'
        RETURNING version, updated_at`,
-      [responseId, doc.origin, doc.processValues, doc.roastLevel, doc.blendOrSingle, doc.isDecaf,
+      [responseId, doc.origin, doc.processValues, doc.roastLevel, doc.blendOrSingle,
        doc.proposedArchetype, doc.dominantDimensionId, doc.takesIt, doc.brewNotes, doc.availability,
        doc.typicalNotice, doc.expectedAvailability, doc.similarWhenOut, doc.closestCousinPortalCoffeeId,
-       doc.whatChanges, doc.anythingElse, respondent.id]
+       doc.whatChanges, doc.anythingElse,
+       doc.additivesPresent, doc.additivesDetail, doc.roastIntent, doc.blendComponents,
+       doc.blendRotation, doc.caffeineLevel, doc.decafProcess, doc.certifications, respondent.id]
     );
 
     await tx.query(`DELETE FROM roastery_portal_response_note WHERE response_id = $1`, [responseId]);
@@ -612,15 +663,29 @@ export async function submitResponse(input: {
 }
 
 // ── Lineup-wide answers ──────────────────────────────────────────────────────
-export interface LineupDoc { typicalNotice: string | null; similarWhenOut: string | null; anythingElse: string | null }
+export interface LineupDoc { typicalNotice: string | null; similarWhenOut: string | null; anythingElse: string | null; bestSellers: string[] }
 
-async function normalizeLineupDoc(tx: Tx, raw: any): Promise<LineupDoc> {
+async function normalizeLineupDoc(tx: Tx, raw: any, roasterId: string): Promise<LineupDoc> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw invalid('document must be an object');
   const vocab = await getVocabulary();
+  // "Which of these do you sell most?": up to three of THIS roastery's active lineup coffees, in order.
+  const rawBest: unknown[] = raw.bestSellers === undefined || raw.bestSellers === null ? [] : raw.bestSellers;
+  if (!Array.isArray(rawBest)) throw invalid('best sellers must be a list');
+  if (rawBest.length > 3) throw invalid('pick at most three best sellers');
+  const bestSellers = [...new Set(rawBest.map(v => String(v)))];
+  if (bestSellers.length !== rawBest.length) throw invalid('a coffee can only be picked once');
+  if (bestSellers.some(id => !isUuid(id))) throw invalid('unknown coffee');
+  if (bestSellers.length) {
+    const owned = await tx.query(
+      `SELECT id FROM roastery_portal_coffee WHERE roaster_id = $1 AND is_active AND id = ANY($2::uuid[])`, [roasterId, bestSellers]
+    );
+    if (owned.rows.length !== bestSellers.length) throw invalid('unknown coffee');
+  }
   return {
     typicalNotice: oneOf(raw.typicalNotice, lookupValues(vocab.notice), 'typical notice'),
     similarWhenOut: oneOf(raw.similarWhenOut, lookupValues(vocab.similar), 'similar profile answer'),
     anythingElse: text(raw.anythingElse, LIMITS.long, 'anything else'),
+    bestSellers,
   };
 }
 
@@ -632,7 +697,7 @@ export async function saveLineupDraft(input: { roasterId: string; respondentId: 
   return withTransaction(async tx => {
     await lockRoasterLineup(tx, input.roasterId);
     const respondent = await requireRespondent(tx, input.roasterId, input.respondentId);
-    const doc = await normalizeLineupDoc(tx, input.doc);
+    const doc = await normalizeLineupDoc(tx, input.doc, input.roasterId);
 
     const open = await tx.query(`SELECT id, version FROM roastery_portal_lineup_response WHERE roaster_id = $1 AND status = 'draft'`, [input.roasterId]);
     let id: string; let version: number;
@@ -653,6 +718,13 @@ export async function saveLineupDraft(input: { roasterId: string; respondentId: 
        WHERE id = $1 AND status = 'draft'`,
       [id, doc.typicalNotice, doc.similarWhenOut, doc.anythingElse, respondent.id]
     );
+    await tx.query(`DELETE FROM roastery_portal_lineup_response_best_seller WHERE lineup_response_id = $1`, [id]);
+    for (let i = 0; i < doc.bestSellers.length; i++) {
+      await tx.query(
+        `INSERT INTO roastery_portal_lineup_response_best_seller (lineup_response_id, portal_coffee_id, rank) VALUES ($1, $2, $3)`,
+        [id, doc.bestSellers[i], i + 1]
+      );
+    }
     return { responseId: id, version };
   });
 }
@@ -691,7 +763,7 @@ export async function submitLineupResponse(input: { roasterId: string; responden
 export interface AcceptNoteItem { rank: number; include: boolean; cuppingNoteId?: string | null; remember?: boolean }
 export interface AcceptBasicItem { include: boolean; value?: string | null }
 export interface AcceptItems {
-  basics?: { origin?: AcceptBasicItem; process?: AcceptBasicItem; roastLevel?: AcceptBasicItem; blendOrSingle?: AcceptBasicItem };
+  basics?: { origin?: AcceptBasicItem; process?: AcceptBasicItem; roastLevel?: AcceptBasicItem; blendOrSingle?: AcceptBasicItem; caffeine?: AcceptBasicItem };
   notes?: AcceptNoteItem[];
 }
 
@@ -804,6 +876,17 @@ export async function acceptResponse(input: { responseId: string; items: unknown
     if (b.blendOrSingle?.include) wanted.push({ field: 'blendOrSingle', value: resp.blend_or_single, set: v => { update.blendOrSingle = v; } });
     for (const w of wanted) if (w.value) w.set(w.value);
 
+    // Caffeine (part 3): "Category: Decaf" / "Category: Half-caff", through the existing category codes only
+    // (never creating a category). Regular, or a code that does not exist, offers nothing to apply.
+    let caffeineChange: { before: string[]; after: string[] } | null = null;
+    const caffeineWanted = b.caffeine?.include === true;
+    let caffeineCode: string | null = null;
+    if (caffeineWanted) {
+      const level = (await tx.query(`SELECT caffeine_level FROM v_roastery_portal_response WHERE id = $1`, [input.responseId])).rows[0]?.caffeine_level;
+      const code = level === 'decaf' ? 'decaf' : level === 'half_caff' ? 'half_caf' : null;
+      if (code && (await tx.query(`SELECT 1 FROM coffee_category WHERE code = $1`, [code])).rows[0]) caffeineCode = code;
+    }
+
     // ── 1. the catalog coffee: create (hidden until placed and priced) or reuse ─
     let coffeeId: number | null = resp.coffee_id;
     let created = false;
@@ -818,6 +901,13 @@ export async function acceptResponse(input: { responseId: string; items: unknown
       await tx.query(`UPDATE roastery_portal_coffee SET coffee_id = $1 WHERE id = $2`, [coffeeId, resp.portal_coffee_id]);
     }
     update.coffeeId = coffeeId;
+    if (caffeineCode) {
+      // categoryCodes is a full-set replace in the catalog door, so keep every other category the coffee has.
+      const existing = ((await getCatalogCoffee(coffeeId, tx))?.category_codes ?? []) as string[];
+      const after = [...existing.filter(c => c !== 'decaf' && c !== 'half_caf'), caffeineCode];
+      update.categoryCodes = after;
+      caffeineChange = { before: existing, after };
+    }
 
     // ── 2. the ticked basics + the roaster's own words, in order (internal only) ─
     const phrases = chosen.map(c => c.words);
@@ -830,6 +920,7 @@ export async function acceptResponse(input: { responseId: string; items: unknown
       await logCatalogChange(tx, { entity: 'coffee', entityId: coffeeId, action: 'updateCoffee', before: r.before, after: r.after, changedBy: ctxActor });
       const col: Record<string, string> = { origin: 'origin', process: 'process', roastLevel: 'roast_level', blendOrSingle: 'blend_or_single' };
       for (const w of wanted) if (w.value) basicsApplied.push({ field: w.field, before: r.before?.[col[w.field]] ?? null, after: r.after?.[col[w.field]] ?? null });
+      if (caffeineChange) basicsApplied.push({ field: 'caffeine', before: caffeineChange.before, after: caffeineChange.after });
     }
 
     // ── 3. the ticked, mapped notes -> roaster descriptors (set semantics) ─────

@@ -16,6 +16,7 @@ interface Option { value: string; label: string }
 interface Vocabulary {
   process: Option[]; roastLevel: Option[]; blendOrSingle: Option[]; brewMethods: Option[];
   availability: Option[]; notice: Option[]; similar: Option[]; takesIt: Option[];
+  roastIntent: Option[]; blendRotation: Option[]; caffeine: Option[]; decafProcess: Option[]; certification: Option[];
   dimensions: { dimensionId: number; label: string; lowLabel: string; highLabel: string }[];
   wheel: { name: string; subcategories: { name: string | null; descriptors: { id: string; descriptor: string }[] }[] }[];
 }
@@ -35,10 +36,12 @@ interface LineupRow {
   submittedByName: string | null; submittedVersionCount: number; hasUnmappedNotes: boolean;
   acceptedVersion: number | null; acceptedAt: string | null; changedSinceAccept: boolean; latestSubmittedVersion: number | null;
   roasterDimensionLabel: string | null; ourDimensionName: string | null; dimensionMatches: boolean | null;
+  additivesPresent: boolean; additivesDetail: string | null; blendRecipeChanges: boolean;
 }
 interface LineupResponse {
   id: string; version: number; status: string; typicalNotice: string | null; similarWhenOut: string | null;
   lastSavedByName: string | null; submittedByName: string | null; updatedAt: string; submittedAt: string | null;
+  bestSellers: { portalCoffeeId: string; name: string; rank: number }[];
 }
 interface RoasteryDetail {
   roaster: { id: string; name: string; isActive: boolean };
@@ -48,6 +51,8 @@ interface RoasteryDetail {
 interface ResponseView {
   id: string; version: number; status: 'draft' | 'submitted'; origin: string | null; processValues: string[];
   roastLevel: string | null; blendOrSingle: string | null; isDecaf: boolean | null; proposedArchetype: string | null;
+  additivesPresent: boolean | null; additivesDetail: string | null; roastIntent: string | null; blendComponents: string | null;
+  blendRotation: string | null; caffeineLevel: string | null; decafProcess: string | null; certifications: string[];
   dominantDimensionId: number | null; takesIt: string | null; brewNotes: string | null; availability: string | null;
   typicalNotice: string | null; expectedAvailability: string | null; similarWhenOut: string | null;
   closestCousinPortalCoffeeId: string | null; whatChanges: string | null; anythingElse: string | null;
@@ -254,6 +259,12 @@ function RoasteryDetailView({ roasterId, apiFetch, vocab, onBack, onOpenCoffee, 
                   {c.state === 'submitted' ? 'Submitted' : c.state === 'in_progress' ? `In progress, ${c.sectionsAnswered} of 6` : 'Not started'}
                   {c.hasOpenDraft && c.state === 'submitted' && <span className="ml-1 text-stone-400">(edit in progress)</span>}
                   {c.hasUnmappedNotes && <span className="ml-2 text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#a337261a', color: ACCENT }}>needs mapping</span>}
+                  {c.blendRecipeChanges && <span className="ml-2 text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#a337261a', color: ACCENT }}>Recipe changes</span>}
+                  {c.additivesPresent && (
+                    <span className="block text-xs mt-1" style={{ color: ACCENT }}>
+                      Contains added ingredients: {c.additivesDetail ?? 'not specified'}. Check the ingredients statement on the bag.
+                    </span>
+                  )}
                 </td>
                 <td className="py-3 pr-4 text-stone-600">{c.lastSavedAt ? `${fmt(c.lastSavedAt)}${c.lastSavedByName ? `, ${c.lastSavedByName}` : ''}` : '—'}</td>
                 <td className="py-3 pr-4 text-stone-600">{c.submittedAt ? `${fmt(c.submittedAt)}${c.submittedByName ? `, ${c.submittedByName}` : ''}` : '—'}</td>
@@ -345,6 +356,7 @@ function LineupAnswers({ response, versions, vocab }: { response: LineupResponse
         <div className="text-sm text-stone-700 space-y-1">
           <p>Typical notice before a coffee becomes unavailable: <b className="font-normal">{labelOf(vocab.notice, response.typicalNotice)}</b></p>
           <p>When one runs out, a similar profile: <b className="font-normal">{labelOf(vocab.similar, response.similarWhenOut)}</b></p>
+          <p>Sells most, in order: <b className="font-normal">{response.bestSellers.length ? response.bestSellers.map(b => `${b.rank}. ${b.name}`).join(', ') : '—'}</b></p>
           <p className="text-xs text-stone-400">
             Version {response.version}, {response.status === 'submitted' ? `submitted ${fmt(response.submittedAt)}${response.submittedByName ? ` by ${response.submittedByName}` : ''}` : `draft saved ${fmt(response.updatedAt)}${response.lastSavedByName ? ` by ${response.lastSavedByName}` : ''}`}.
             {versions.length > 1 ? ` ${versions.filter(v => v.status === 'submitted').length} submitted versions kept.` : ''}
@@ -555,8 +567,17 @@ function CoffeeResponsePanel({ roasterId, coffeeId, apiFetch, vocab, onBack, onA
             <Line k="Origin" v={r.origin} />
             <Line k="Process" v={r.processValues.map(p => labelOf(vocab.process, p)).join(', ') || null} />
             <Line k="Single origin or blend" v={r.blendOrSingle ? labelOf(vocab.blendOrSingle, r.blendOrSingle) : null} />
-            <Line k="Decaf" v={r.isDecaf === null ? null : r.isDecaf ? 'Yes' : 'No'} />
+            {r.blendOrSingle === 'blend' && <Line k="Components" v={r.blendComponents} />}
+            {r.blendOrSingle === 'blend' && <Line k="Recipe through the year" v={r.blendRotation ? labelOf(vocab.blendRotation, r.blendRotation) : null} />}
+            <Line k="Caffeine" v={r.caffeineLevel ? labelOf(vocab.caffeine, r.caffeineLevel) : null} />
+            {(r.caffeineLevel === 'decaf' || r.caffeineLevel === 'half_caff') && <Line k="Decaf process" v={r.decafProcess ? labelOf(vocab.decafProcess, r.decafProcess) : null} />}
+            <Line k="Anything added" v={r.additivesPresent === null ? null : r.additivesPresent ? `Yes: ${r.additivesDetail ?? 'not specified'}` : 'No'} />
+            {r.additivesPresent === true && (
+              <p className="text-xs" style={{ color: ACCENT }}>Contains added ingredients: {r.additivesDetail ?? 'not specified'}. Check the ingredients statement on the bag.</p>
+            )}
             <Line k="Roast level" v={r.roastLevel ? labelOf(vocab.roastLevel, r.roastLevel) : null} />
+            <Line k="Roasted for" v={r.roastIntent ? labelOf(vocab.roastIntent, r.roastIntent) : null} />
+            <Line k="Certifications" v={r.certifications.length ? r.certifications.map(c => labelOf(vocab.certification, c)).join(', ') : null} />
           </Block>
 
           <Block title="Tasting notes">
@@ -585,13 +606,13 @@ function CoffeeResponsePanel({ roasterId, coffeeId, apiFetch, vocab, onBack, onA
             {vocab.dimensions.map(d => (
               <Line key={d.dimensionId} k={d.label} v={r.dimensions[String(d.dimensionId)] !== undefined ? `${r.dimensions[String(d.dimensionId)]} of 5 (${d.lowLabel} to ${d.highLabel})` : null} />
             ))}
-            <Line k="Most dominant" v={r.dominantDimensionId ? vocab.dimensions.find(d => d.dimensionId === r.dominantDimensionId)?.label ?? null : null} />
+            <Line k="What leads in the cup" v={r.dominantDimensionId ? vocab.dimensions.find(d => d.dimensionId === r.dominantDimensionId)?.label ?? null : null} />
           </Block>
 
           <Block title="How to drink it">
-            <Line k="Best brewing method" v={r.bestBrew ? labelOf(vocab.brewMethods, r.bestBrew) : null} />
+            <Line k="Where it shines" v={r.bestBrew ? labelOf(vocab.brewMethods, r.bestBrew) : null} />
             <Line k="Also good as" v={r.alsoGoodBrews.map(m => labelOf(vocab.brewMethods, m)).join(', ') || null} />
-            <Line k="Best enjoyed" v={r.takesIt ? labelOf(vocab.takesIt, r.takesIt) : null} />
+            <Line k="Holds up in milk" v={r.takesIt ? labelOf(vocab.takesIt, r.takesIt) : null} />
             <Line k="Brewing notes" v={r.brewNotes} />
           </Block>
 
@@ -658,7 +679,12 @@ interface Preview {
   response: { id: string; portalCoffeeId: string; version: number; submittedAt: string | null; submittedByName: string | null; roasteryName: string };
   coffee: { exists: boolean; coffeeId: number | null; name: string; willCreate: { name: string; roasterName: string } | null };
   visibleToCustomers: boolean;
-  basics: { field: 'origin' | 'process' | 'roastLevel' | 'blendOrSingle'; catalogValue: string | null; roasterValue: string | null; roasterValues: string[]; differs: boolean }[];
+  basics: { field: 'origin' | 'process' | 'roastLevel' | 'blendOrSingle' | 'caffeine'; catalogValue: string | null; roasterValue: string | null; roasterValues: string[]; differs: boolean; applicable?: boolean }[];
+  extras: {
+    roastIntent: string | null; caffeineLevel: string | null; decafProcess: string | null; certifications: string[];
+    additivesPresent: boolean | null; additivesDetail: string | null; blendComponents: string | null; blendRotation: string | null;
+    blendRecipeChanges: boolean; additivesNotice: string | null;
+  };
   notes: PreviewNote[];
   currentActive: { descriptorId: number; cuppingNoteId: string; descriptor: string; wheelCategory: string; notes: string | null }[];
   hints: {
@@ -675,7 +701,8 @@ interface AcceptResultView {
              descriptors?: { activated?: number[]; retired?: number[] } | null };
 }
 
-const BASIC_LABEL: Record<string, string> = { origin: 'Origin', process: 'Process', roastLevel: 'Roast level', blendOrSingle: 'Single origin or blend' };
+const BASIC_LABEL: Record<string, string> = { origin: 'Origin', process: 'Process', roastLevel: 'Roast level', blendOrSingle: 'Single origin or blend', caffeine: 'Caffeine' };
+const CATEGORY_LABEL: Record<string, string> = { decaf: 'Category: Decaf', half_caf: 'Category: Half-caff' };
 
 /** One flavor wheel term, as a grouped select (category, then descriptor). */
 function WheelSelect({ wheel, value, onChange, id }: { wheel: Vocabulary['wheel']; value: string | null; onChange: (v: string | null) => void; id: string }) {
@@ -717,7 +744,7 @@ function AcceptPanel({ roasterId, portalCoffeeId, apiFetch, vocab, onBack }: {
         const body: Preview = await res.json();
         if (cancelled) return;
         setPreview(body);
-        setBasicTick(Object.fromEntries(body.basics.map(b => [b.field, b.roasterValue !== null])));
+        setBasicTick(Object.fromEntries(body.basics.map(b => [b.field, b.roasterValue !== null && b.applicable !== false])));
         setProcessChoice(body.basics.find(b => b.field === 'process')?.roasterValue ?? '');
         setNoteState(Object.fromEntries(body.notes.map(n => [n.rank, { include: true, term: n.defaultCuppingNoteId, remember: false }])));
       } catch (err) { reportError('[AdminRoasteryPortal/preview]', err); if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load the preview'); }
@@ -811,7 +838,7 @@ function AcceptPanel({ roasterId, portalCoffeeId, apiFetch, vocab, onBack }: {
           <tbody>
             {preview.basics.map(b => {
               const opts = b.field === 'process' ? vocab.process : b.field === 'roastLevel' ? vocab.roastLevel : b.field === 'blendOrSingle' ? vocab.blendOrSingle : undefined;
-              const show = (v: string | null) => (v ? (opts ? labelOf(opts, v) : v) : '—');
+              const show = (v: string | null) => (v ? (b.field === 'caffeine' ? CATEGORY_LABEL[v] ?? v : opts ? labelOf(opts, v) : v) : '—');
               return (
                 <tr key={b.field} className="border-t border-stone-100 align-top">
                   <td className="py-2 pr-4">{BASIC_LABEL[b.field]}</td>
@@ -821,11 +848,13 @@ function AcceptPanel({ roasterId, portalCoffeeId, apiFetch, vocab, onBack }: {
                       <select className={INPUT} value={processChoice} onChange={e => setProcessChoice(e.target.value)} aria-label="Process that goes to the catalog">
                         {b.roasterValues.map(v => <option key={v} value={v}>{labelOf(vocab.process, v)}</option>)}
                       </select>
+                    ) : b.field === 'caffeine' && b.roasterValue === null ? (
+                      <span className="text-stone-600">{preview.extras.caffeineLevel ? labelOf(vocab.caffeine, preview.extras.caffeineLevel) : '—'}<span className="block text-xs text-stone-400">Nothing to apply.</span></span>
                     ) : show(b.field === 'process' ? b.roasterValues[0] ?? null : b.roasterValue)}
                     {b.field === 'process' && b.roasterValues.length > 1 && <span className="block text-xs text-stone-400">They gave {b.roasterValues.length}; pick the one for the catalog.</span>}
                   </td>
                   <td className="py-2">
-                    <input type="checkbox" aria-label={`Apply ${BASIC_LABEL[b.field]}`} disabled={b.roasterValue === null} checked={!!basicTick[b.field]}
+                    <input type="checkbox" aria-label={`Apply ${BASIC_LABEL[b.field]}`} disabled={b.roasterValue === null || b.applicable === false} checked={!!basicTick[b.field]}
                       onChange={e => setBasicTick(t => ({ ...t, [b.field]: e.target.checked }))} />
                     {!b.differs && b.roasterValue !== null && <span className="ml-2 text-xs text-stone-400">same</span>}
                   </td>
@@ -834,6 +863,22 @@ function AcceptPanel({ roasterId, portalCoffeeId, apiFetch, vocab, onBack }: {
             })}
           </tbody>
         </table>
+      </Block>
+
+      {preview.extras.additivesNotice && (
+        <p className="text-sm px-3 py-2 rounded" style={{ backgroundColor: '#a337261a', color: ACCENT }}>{preview.extras.additivesNotice}</p>
+      )}
+      <Block title="Also said (display only, never applied)">
+        <Line k="Roasted for" v={preview.extras.roastIntent ? labelOf(vocab.roastIntent, preview.extras.roastIntent) : null} />
+        {(preview.extras.caffeineLevel === 'decaf' || preview.extras.caffeineLevel === 'half_caff') && (
+          <Line k="Decaf process" v={preview.extras.decafProcess ? labelOf(vocab.decafProcess, preview.extras.decafProcess) : null} />
+        )}
+        <Line k="Certifications" v={preview.extras.certifications.length ? preview.extras.certifications.map(c => labelOf(vocab.certification, c)).join(', ') : null} />
+        {(preview.extras.blendComponents || preview.extras.blendRotation) && (
+          <Line k="Blend" v={[preview.extras.blendComponents, preview.extras.blendRotation ? labelOf(vocab.blendRotation, preview.extras.blendRotation) : null].filter(Boolean).join('. ')} />
+        )}
+        {preview.extras.blendRecipeChanges && <p className="text-xs" style={{ color: ACCENT }}>Recipe changes</p>}
+        <p className="text-xs text-stone-400">Where it shines, milk, availability and the rest stay in the portal tables until roasters have answered.</p>
       </Block>
 
       <Block title="Tasting notes, in their order">

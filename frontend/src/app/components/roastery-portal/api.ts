@@ -41,7 +41,7 @@ export const portalApi = {
     call<{ responseId: string; version: number; updatedAt: string }>('PUT', `/${enc(token)}/coffees/${enc(id)}/draft`, { respondentId, doc }, keepalive),
   submit: (token: string, id: string, respondentId: string) =>
     call<{ version: number; submittedAt: string }>('POST', `/${enc(token)}/coffees/${enc(id)}/submit`, { respondentId }),
-  saveLineup: (token: string, respondentId: string, doc: { typicalNotice: string | null; similarWhenOut: string | null }) =>
+  saveLineup: (token: string, respondentId: string, doc: { typicalNotice: string | null; similarWhenOut: string | null; bestSellers: string[] }) =>
     call<{ responseId: string; version: number }>('PUT', `/${enc(token)}/lineup`, { respondentId, doc }),
   submitLineup: (token: string, respondentId: string) =>
     call<{ version: number; submittedAt: string }>('POST', `/${enc(token)}/lineup/submit`, { respondentId }),

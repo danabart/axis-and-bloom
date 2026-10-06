@@ -17,6 +17,11 @@ export interface PortalVocabulary {
   notice: LookupOption[];
   similar: LookupOption[];
   takesIt: LookupOption[];
+  roastIntent: LookupOption[];
+  blendRotation: LookupOption[];
+  caffeine: LookupOption[];
+  decafProcess: LookupOption[];
+  certification: LookupOption[];
   dimensions: PortalDimension[];
   archetypes: PortalArchetype[];
   wheel: WheelCategory[];
@@ -60,6 +65,7 @@ export interface LineupResponse {
   submittedByName: string | null;
   updatedAt: string;
   submittedAt: string | null;
+  bestSellers: { portalCoffeeId: string; name: string; rank: number }[];
 }
 
 export interface ResponseNote { rank: number; roasterWords: string; cuppingNoteId: string | null; descriptor: string | null; wheelCategory: string | null }
@@ -85,6 +91,14 @@ export interface PortalResponse {
   closestCousinPortalCoffeeId: string | null;
   whatChanges: string | null;
   anythingElse: string | null;
+  additivesPresent: boolean | null;
+  additivesDetail: string | null;
+  roastIntent: string | null;
+  blendComponents: string | null;
+  blendRotation: string | null;
+  caffeineLevel: string | null;
+  decafProcess: string | null;
+  certifications: string[];
   lastSavedByName: string | null;
   lastSavedByRespondentId: string | null;
   submittedByName: string | null;
@@ -114,7 +128,14 @@ export interface Doc {
   processValues: string[];
   roastLevel: string | null;
   blendOrSingle: string | null;
-  isDecaf: boolean | null;
+  additivesPresent: boolean | null;
+  additivesDetail: string;
+  roastIntent: string | null;
+  blendComponents: string;
+  blendRotation: string | null;
+  caffeineLevel: string | null;
+  decafProcess: string | null;
+  certifications: string[];
   notes: DocNote[];
   proposedArchetype: string | null;
   dimensions: Record<string, number>;

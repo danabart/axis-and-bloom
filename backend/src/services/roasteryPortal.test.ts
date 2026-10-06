@@ -388,7 +388,7 @@ describe('vocabulary validation', () => {
 
   it('serves the vocabulary from the DB: 7 numeric dimensions, the wheel without defects, the six families', async () => {
     const vocab = await getVocabulary({ fresh: true });
-    expect(vocab.dimensions.map(d => d.label)).toEqual(['Acidity', 'Sweetness', 'Bitterness', 'Body', 'Clean to deep', 'Texture', 'Finish length']);
+    expect(vocab.dimensions.map(d => d.label)).toEqual(['Acidity', 'Sweetness', 'Bitterness', 'Body', 'Clarity', 'Mouthfeel', 'Finish']);
     expect(vocab.wheel.map(c => c.name)).not.toContain('Other');
     expect(vocab.wheel.length).toBe(8);
     expect(vocab.archetypes.map(a => a.code)).toEqual(['floral', 'fruity', 'balanced_sweet', 'chocolate_nutty', 'earthy', 'experimental']);

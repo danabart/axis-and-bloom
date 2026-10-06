@@ -7,7 +7,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { portalApi, PortalApiError } from './api';
 import { COPY } from './copy';
-import { Field, SingleChips, formatWhen } from './ui';
+import { Chip, Field, SingleChips, formatWhen } from './ui';
 import type { Landing, LineupRow } from './types';
 
 function stateLabel(c: LineupRow): string {
@@ -33,6 +33,9 @@ export default function LineupScreen({ token, landing, respondentId, onResponden
   const lr = landing.lineupResponse;
   const [notice, setNotice] = useState<string | null>(lr?.typicalNotice ?? null);
   const [similar, setSimilar] = useState<string | null>(lr?.similarWhenOut ?? null);
+  // "Which of these do you sell most?": up to three of the roastery's own coffees, in pick order.
+  const [best, setBest] = useState<string[]>(lr?.bestSellers.map(b => b.portalCoffeeId) ?? []);
+  const [bestNote, setBestNote] = useState('');
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<{ when: string; by: string | null } | null>(
@@ -60,7 +63,7 @@ export default function LineupScreen({ token, landing, respondentId, onResponden
   async function saveLineup() {
     setSaving(true); setLineupError('');
     try {
-      await portalApi.saveLineup(token, respondentId, { typicalNotice: notice, similarWhenOut: similar });
+      await portalApi.saveLineup(token, respondentId, { typicalNotice: notice, similarWhenOut: similar, bestSellers: best });
       const sub = await portalApi.submitLineup(token, respondentId);
       setSavedAt({ when: sub.submittedAt, by: null });
       setDirty(false);
@@ -114,6 +117,26 @@ export default function LineupScreen({ token, landing, respondentId, onResponden
       <Field legend={COPY.similarLabel}>
         <SingleChips options={v.similar} value={similar} onChange={x => { setSimilar(x); setDirty(true); }} />
       </Field>
+      <fieldset className="f">
+        <legend className="lab">{COPY.bestSellersLabel}<small>{COPY.bestSellersHint}</small></legend>
+        <div className="chips" role="group">
+          {landing.lineup.map(c => {
+            const at = best.indexOf(c.portalCoffeeId);
+            return (
+              <Chip key={c.portalCoffeeId} role="checkbox" on={at !== -1}
+                onClick={() => {
+                  setBestNote('');
+                  if (at !== -1) { setBest(best.filter(x => x !== c.portalCoffeeId)); setDirty(true); return; }
+                  if (best.length >= 3) { setBestNote('You can pick up to three. Tap one to remove it first.'); return; }
+                  setBest([...best, c.portalCoffeeId]); setDirty(true);
+                }}>
+                {at !== -1 ? `${at + 1} · ` : ''}{c.name}
+              </Chip>
+            );
+          })}
+        </div>
+        {bestNote && <p className="quiet" role="status">{bestNote}</p>}
+      </fieldset>
       {lineupError && <p className="err" role="alert">{lineupError}</p>}
       <div className="actions" style={{ marginTop: 28 }}>
         <button className="btn" type="button" disabled={saving || !dirty} onClick={saveLineup}>SAVE&nbsp;&nbsp;→</button>

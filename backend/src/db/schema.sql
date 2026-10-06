@@ -5638,13 +5638,13 @@ CREATE TABLE IF NOT EXISTS roastery_portal_dimension (
 INSERT INTO roastery_portal_dimension (dimension_id, label, low_label, high_label, sort_order)
 SELECT d.id, v.label, v.low_label, v.high_label, v.sort_order
 FROM (VALUES
-  ('Acidity',        'Acidity',       'Low',   'High',  1),
+  ('Acidity',        'Acidity',       'Soft',  'Bright',1),
   ('Sweetness',      'Sweetness',     'Low',   'High',  2),
   ('Bitterness',     'Bitterness',    'Low',   'High',  3),
   ('Body',           'Body',          'Light', 'Full',  4),
-  ('Savory / Depth', 'Clean to deep', 'Clean', 'Deep',  5),
-  ('Texture',        'Texture',       'Silky', 'Drying',6),
-  ('Finish Length',  'Finish length', 'Short', 'Long',  7)
+  ('Savory / Depth', 'Clarity',       'Clean', 'Layered',5),
+  ('Texture',        'Mouthfeel',     'Silky', 'Grippy',6),
+  ('Finish Length',  'Finish',        'Short', 'Lingering',7)
 ) AS v(dimension_name, label, low_label, high_label, sort_order)
 JOIN coffee_dimensions d ON d.name = v.dimension_name AND d.is_numeric = true
 ON CONFLICT (dimension_id) DO NOTHING;
@@ -5799,15 +5799,15 @@ ON CONFLICT (category, value) DO NOTHING;
 -- the roaster-friendly wording. A test fails if the two ever drift apart.
 INSERT INTO lookup_value (category, value, label, sort_order) VALUES
   ('roastery_portal_brew_method', 'v60',          'Pour-over',    1),
-  ('roastery_portal_brew_method', 'drip',         'Drip',         2),
+  ('roastery_portal_brew_method', 'drip',         'Batch brew / drip', 2),
   ('roastery_portal_brew_method', 'espresso',     'Espresso',     3),
   ('roastery_portal_brew_method', 'french_press', 'French press', 4),
   ('roastery_portal_brew_method', 'aeropress',    'AeroPress',    5),
   ('roastery_portal_brew_method', 'moka',         'Moka pot',     6),
   ('roastery_portal_brew_method', 'cold_brew',    'Cold brew',    7),
   ('roastery_portal_brew_method', 'other',        'Other',        8),
-  ('roastery_portal_availability', 'always_on',       'Always on',       1),
-  ('roastery_portal_availability', 'rotating',        'Rotating',        2),
+  ('roastery_portal_availability', 'always_on',       'Year-round (core)', 1),
+  ('roastery_portal_availability', 'rotating',        'Seasonal',        2),
   ('roastery_portal_availability', 'limited_release', 'Limited release', 3),
   ('roastery_portal_notice', 'under_2_weeks',  'Under 2 weeks',  1),
   ('roastery_portal_notice', '2_to_4_weeks',   '2 to 4 weeks',   2),
@@ -5819,9 +5819,9 @@ INSERT INTO lookup_value (category, value, label, sort_order) VALUES
   ('roastery_portal_similar', 'sometimes', 'Sometimes', 3),
   ('roastery_portal_similar', 'no',        'No',        4),
   ('roastery_portal_similar', 'not_sure',  'Not sure',  5),
-  ('roastery_portal_takes_it', 'black', 'Black',     1),
-  ('roastery_portal_takes_it', 'milk',  'With milk', 2),
-  ('roastery_portal_takes_it', 'both',  'Both',      3)
+  ('roastery_portal_takes_it', 'black', 'Best black',      1),
+  ('roastery_portal_takes_it', 'milk',  'Great with milk', 2),
+  ('roastery_portal_takes_it', 'both',  'Works both ways', 3)
 ON CONFLICT (category, value) DO NOTHING;
 
 -- ── Roastery portal part 2 (2026-10-05): accept answers into the catalog ──────
@@ -5897,6 +5897,92 @@ CREATE OR REPLACE FUNCTION roastery_portal_dimension_matches(roaster_dim INTEGER
   SELECT CASE WHEN roaster_dim IS NULL OR our_dim IS NULL THEN NULL ELSE roaster_dim = our_dim END;
 $$ LANGUAGE sql IMMUTABLE;
 
+-- ── Roastery portal part 3 (2026-10-06): roaster wording + the questions we were missing ─────────
+-- Labels change; stored values, the dimensions asked and the write/read paths do not.
+
+-- New per-coffee answers (all optional). is_decaf is DEPRECATED: nothing writes it any more, the
+-- column stays, submitted rows are never backfilled (they are immutable); caffeine_level below is
+-- what readers use (v_roastery_portal_response derives it from is_decaf when it is not set).
+ALTER TABLE roastery_portal_response ADD COLUMN IF NOT EXISTS additives_present BOOLEAN;
+ALTER TABLE roastery_portal_response ADD COLUMN IF NOT EXISTS additives_detail  TEXT;
+ALTER TABLE roastery_portal_response ADD COLUMN IF NOT EXISTS roast_intent      TEXT;
+ALTER TABLE roastery_portal_response ADD COLUMN IF NOT EXISTS blend_components  TEXT;
+ALTER TABLE roastery_portal_response ADD COLUMN IF NOT EXISTS blend_rotation    TEXT;
+ALTER TABLE roastery_portal_response ADD COLUMN IF NOT EXISTS caffeine_level    TEXT;
+ALTER TABLE roastery_portal_response ADD COLUMN IF NOT EXISTS decaf_process     TEXT;
+ALTER TABLE roastery_portal_response ADD COLUMN IF NOT EXISTS certifications    TEXT[] NOT NULL DEFAULT '{}';
+
+-- "Which of these do you sell most?": up to three of the roastery's own lineup coffees, in order,
+-- asked once per lineup response (versioned and immutable after submit like every other child set).
+CREATE TABLE IF NOT EXISTS roastery_portal_lineup_response_best_seller (
+  lineup_response_id UUID    NOT NULL REFERENCES roastery_portal_lineup_response(id),
+  portal_coffee_id   UUID    NOT NULL REFERENCES roastery_portal_coffee(id),
+  rank               INTEGER NOT NULL CHECK (rank BETWEEN 1 AND 3),
+  PRIMARY KEY (lineup_response_id, rank),
+  UNIQUE (lineup_response_id, portal_coffee_id)
+);
+
+CREATE OR REPLACE FUNCTION roastery_portal_reject_submitted_lineup_child_change() RETURNS trigger AS $$
+DECLARE
+  parent_status TEXT;
+  parent_id UUID;
+BEGIN
+  parent_id := CASE WHEN TG_OP = 'DELETE' THEN OLD.lineup_response_id ELSE NEW.lineup_response_id END;
+  SELECT status INTO parent_status FROM roastery_portal_lineup_response WHERE id = parent_id;
+  IF parent_status = 'submitted' THEN
+    RAISE EXCEPTION 'roastery_portal: % rows of a submitted lineup response are immutable (lineup response %)', TG_TABLE_NAME, parent_id
+      USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS roastery_portal_lineup_best_seller_immutable ON roastery_portal_lineup_response_best_seller;
+CREATE TRIGGER roastery_portal_lineup_best_seller_immutable
+  BEFORE INSERT OR UPDATE OR DELETE ON roastery_portal_lineup_response_best_seller
+  FOR EACH ROW EXECUTE FUNCTION roastery_portal_reject_submitted_lineup_child_change();
+
+INSERT INTO lookup_value (category, value, label, sort_order) VALUES
+  ('roastery_portal_roast_intent', 'filter',   'Filter',       1),
+  ('roastery_portal_roast_intent', 'espresso', 'Espresso',     2),
+  ('roastery_portal_roast_intent', 'omni',     'Both (omni)',  3),
+  ('roastery_portal_blend_rotation', 'fixed',                'Fixed recipe',                        1),
+  ('roastery_portal_blend_rotation', 'rotates_same_profile', 'Components rotate, profile stays',    2),
+  ('roastery_portal_blend_rotation', 'seasonal',             'Changes with the season',             3),
+  ('roastery_portal_caffeine', 'regular',   'Regular',   1),
+  ('roastery_portal_caffeine', 'half_caff', 'Half-caff', 2),
+  ('roastery_portal_caffeine', 'decaf',     'Decaf',     3),
+  ('roastery_portal_decaf_process', 'swiss_water',    'Swiss Water',    1),
+  ('roastery_portal_decaf_process', 'sugarcane_ea',   'Sugarcane (EA)', 2),
+  ('roastery_portal_decaf_process', 'mountain_water', 'Mountain Water', 3),
+  ('roastery_portal_decaf_process', 'co2',            'CO2',            4),
+  ('roastery_portal_decaf_process', 'other',          'Other',          5),
+  ('roastery_portal_certification', 'usda_organic',       'USDA Organic',       1),
+  ('roastery_portal_certification', 'fair_trade',         'Fair Trade',         2),
+  ('roastery_portal_certification', 'rainforest_alliance','Rainforest Alliance',3),
+  ('roastery_portal_certification', 'other',              'Other',              4),
+  ('roastery_portal_certification', 'none',               'None',               5)
+ON CONFLICT (category, value) DO NOTHING;
+
+-- Rewording for rows that already exist in a database. Each UPDATE is guarded on the OLD label, so a
+-- label someone edited by hand is never overwritten (and re-applying is a no-op). The seed INSERTs
+-- above carry the new wording, so a fresh database gets it directly.
+UPDATE lookup_value SET label = 'Best black'          WHERE category = 'roastery_portal_takes_it' AND value = 'black' AND label = 'Black';
+UPDATE lookup_value SET label = 'Great with milk'     WHERE category = 'roastery_portal_takes_it' AND value = 'milk'  AND label = 'With milk';
+UPDATE lookup_value SET label = 'Works both ways'     WHERE category = 'roastery_portal_takes_it' AND value = 'both'  AND label = 'Both';
+UPDATE lookup_value SET label = 'Batch brew / drip'   WHERE category = 'roastery_portal_brew_method' AND value = 'drip' AND label = 'Drip';
+UPDATE lookup_value SET label = 'Year-round (core)'   WHERE category = 'roastery_portal_availability' AND value = 'always_on' AND label = 'Always on';
+UPDATE lookup_value SET label = 'Seasonal'            WHERE category = 'roastery_portal_availability' AND value = 'rotating'  AND label = 'Rotating';
+UPDATE roastery_portal_dimension p SET low_label  = 'Soft'      FROM coffee_dimensions d WHERE d.id = p.dimension_id AND d.name = 'Acidity'        AND p.low_label  = 'Low';
+UPDATE roastery_portal_dimension p SET high_label = 'Bright'    FROM coffee_dimensions d WHERE d.id = p.dimension_id AND d.name = 'Acidity'        AND p.high_label = 'High';
+UPDATE roastery_portal_dimension p SET label      = 'Clarity'   FROM coffee_dimensions d WHERE d.id = p.dimension_id AND d.name = 'Savory / Depth' AND p.label      = 'Clean to deep';
+UPDATE roastery_portal_dimension p SET high_label = 'Layered'   FROM coffee_dimensions d WHERE d.id = p.dimension_id AND d.name = 'Savory / Depth' AND p.high_label = 'Deep';
+UPDATE roastery_portal_dimension p SET label      = 'Mouthfeel' FROM coffee_dimensions d WHERE d.id = p.dimension_id AND d.name = 'Texture'        AND p.label      = 'Texture';
+UPDATE roastery_portal_dimension p SET high_label = 'Grippy'    FROM coffee_dimensions d WHERE d.id = p.dimension_id AND d.name = 'Texture'        AND p.high_label = 'Drying';
+UPDATE roastery_portal_dimension p SET label      = 'Finish'    FROM coffee_dimensions d WHERE d.id = p.dimension_id AND d.name = 'Finish Length'  AND p.label      = 'Finish length';
+UPDATE roastery_portal_dimension p SET high_label = 'Lingering' FROM coffee_dimensions d WHERE d.id = p.dimension_id AND d.name = 'Finish Length'  AND p.high_label = 'Long';
+
 -- 11. Views (DROP + CREATE, never CREATE OR REPLACE: a column added ahead of
 -- existing ones is exactly what OR REPLACE silently refuses).
 DROP VIEW IF EXISTS v_roastery_portal_dimension_match;
@@ -5905,6 +5991,7 @@ DROP VIEW IF EXISTS v_roastery_portal_coffee_hint;
 DROP VIEW IF EXISTS v_roastery_portal_lineup_current_response;
 DROP VIEW IF EXISTS v_roastery_portal_progress;
 DROP VIEW IF EXISTS v_roastery_portal_current_response;
+DROP VIEW IF EXISTS v_roastery_portal_response;
 DROP VIEW IF EXISTS v_roastery_portal_coffee;
 
 -- Lineup row with its prefill values. When the lineup row is linked to a
@@ -5945,9 +6032,26 @@ LEFT JOIN v_coffee vc ON vc.id = pc.coffee_id;
 
 -- Per lineup coffee: the open draft if one exists, else the latest submitted
 -- version. (A coffee nobody has touched has no row here.)
+-- Part 3 (2026-10-06): every response row with ONE effective caffeine_level. The new column when
+-- set, else 'decaf' / 'regular' derived from the deprecated is_decaf answer (a response saved
+-- before part 3 keeps showing its caffeine; is_decaf null = not answered). This view is the only
+-- definition: the current-response view and every read of a single version go through it.
+CREATE VIEW v_roastery_portal_response AS
+SELECT r.id, r.portal_coffee_id, r.version, r.status, r.origin, r.process_values, r.roast_level, r.blend_or_single,
+       r.is_decaf, r.proposed_archetype, r.dominant_dimension_id, r.takes_it, r.brew_notes, r.availability,
+       r.typical_notice, r.expected_availability, r.similar_when_out, r.closest_cousin_portal_coffee_id,
+       r.what_changes, r.anything_else, r.last_saved_by_respondent_id, r.submitted_by_respondent_id,
+       r.created_at, r.updated_at, r.submitted_at,
+       r.additives_present, r.additives_detail, r.roast_intent, r.blend_components, r.blend_rotation,
+       r.decaf_process, r.certifications,
+       COALESCE(r.caffeine_level, CASE WHEN r.is_decaf IS TRUE THEN 'decaf' WHEN r.is_decaf IS FALSE THEN 'regular' END) AS caffeine_level
+FROM roastery_portal_response r;
+
+-- Per lineup coffee: the open draft if one exists, else the latest submitted
+-- version. (A coffee nobody has touched has no row here.)
 CREATE VIEW v_roastery_portal_current_response AS
 SELECT DISTINCT ON (r.portal_coffee_id) r.*
-FROM roastery_portal_response r
+FROM v_roastery_portal_response r
 ORDER BY r.portal_coffee_id, (r.status = 'draft') DESC, r.version DESC;
 
 -- Per lineup coffee: state, sections answered (0 to 6), who/when, versions,
@@ -5989,7 +6093,9 @@ SELECT
   COALESCE(cur.status = 'draft', false) AS has_open_draft,
   CASE WHEN cur.id IS NULL THEN 0 ELSE
     ( (cur.origin IS NOT NULL OR cardinality(cur.process_values) > 0 OR cur.roast_level IS NOT NULL
-       OR cur.blend_or_single IS NOT NULL OR cur.is_decaf IS NOT NULL)::int
+       OR cur.blend_or_single IS NOT NULL OR cur.caffeine_level IS NOT NULL OR cur.additives_present IS NOT NULL
+       OR cur.roast_intent IS NOT NULL OR cur.blend_components IS NOT NULL OR cur.blend_rotation IS NOT NULL
+       OR cardinality(cur.certifications) > 0)::int
     + (EXISTS (SELECT 1 FROM roastery_portal_response_note n WHERE n.response_id = cur.id) OR cur.proposed_archetype IS NOT NULL)::int
     + (EXISTS (SELECT 1 FROM roastery_portal_response_dimension d WHERE d.response_id = cur.id) OR cur.dominant_dimension_id IS NOT NULL)::int
     + (EXISTS (SELECT 1 FROM roastery_portal_response_brew b WHERE b.response_id = cur.id) OR cur.takes_it IS NOT NULL OR cur.brew_notes IS NOT NULL)::int
@@ -6014,12 +6120,17 @@ SELECT
   ac.accepted_version,
   ac.accepted_at,
   (ac.accepted_version IS NOT NULL AND ls.version > ac.accepted_version) AS changed_since_accept,
-  ls.version AS latest_submitted_version
+  ls.version AS latest_submitted_version,
+  -- from the latest SUBMITTED version only (evidence for Dana; display only, never a label or ingredients text)
+  COALESCE(lsr.additives_present, false) AS additives_present,
+  CASE WHEN lsr.additives_present IS TRUE THEN lsr.additives_detail END AS additives_detail,
+  (lsr.blend_or_single = 'blend' AND lsr.blend_rotation IN ('rotates_same_profile', 'seasonal')) AS blend_recipe_changes
 FROM roastery_portal_coffee pc
 LEFT JOIN cur ON cur.portal_coffee_id = pc.id
 LEFT JOIN last_sub ls ON ls.portal_coffee_id = pc.id
 LEFT JOIN sub_count sc ON sc.portal_coffee_id = pc.id
 LEFT JOIN accepted ac ON ac.portal_coffee_id = pc.id
+LEFT JOIN v_roastery_portal_response lsr ON lsr.portal_coffee_id = ls.portal_coffee_id AND lsr.version = ls.version
 LEFT JOIN roastery_portal_respondent saver ON saver.id = cur.last_saved_by_respondent_id
 LEFT JOIN roastery_portal_respondent submitter ON submitter.id = ls.submitted_by_respondent_id;
 

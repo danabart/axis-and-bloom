@@ -29,6 +29,8 @@ interface Meta {
   submittedByName: string | null;
 }
 
+const caffeineFromPrefill = (isDecaf: boolean | null) => (isDecaf === null ? null : isDecaf ? 'decaf' : 'regular');
+
 function blankNote() { return { key: newNoteKey(), words: '', cuppingNoteId: null as string | null }; }
 
 function docFromCoffee(coffee: LineupRow): Doc {
@@ -37,7 +39,15 @@ function docFromCoffee(coffee: LineupRow): Doc {
     processValues: coffee.processValues ?? [],
     roastLevel: coffee.roastLevel,
     blendOrSingle: coffee.blendOrSingle,
-    isDecaf: coffee.isDecaf,
+    additivesPresent: null,
+    additivesDetail: '',
+    roastIntent: null,
+    blendComponents: '',
+    blendRotation: null,
+    // the lineup row's is_decaf prefill prefills the caffeine answer (true = Decaf, false = Regular)
+    caffeineLevel: caffeineFromPrefill(coffee.isDecaf),
+    decafProcess: null,
+    certifications: [],
     notes: [blankNote()],
     proposedArchetype: null,
     dimensions: {},
@@ -66,7 +76,14 @@ function docFromResponse(r: PortalResponse): Doc {
     processValues: r.processValues ?? [],
     roastLevel: r.roastLevel,
     blendOrSingle: r.blendOrSingle,
-    isDecaf: r.isDecaf,
+    additivesPresent: r.additivesPresent,
+    additivesDetail: r.additivesDetail ?? '',
+    roastIntent: r.roastIntent,
+    blendComponents: r.blendComponents ?? '',
+    blendRotation: r.blendRotation,
+    caffeineLevel: r.caffeineLevel, // already the effective answer: an old is_decaf response is derived by the view
+    decafProcess: r.decafProcess,
+    certifications: r.certifications ?? [],
     notes: notes.length ? notes : [blankNote()],
     proposedArchetype: r.proposedArchetype,
     dimensions: r.dimensions ?? {},
@@ -280,7 +297,7 @@ export default function CoffeeScreen({ token, id, landing, respondent, onRespond
   const processTag = tagFor(coffee.processValues.length > 0, sameSet(doc.processValues, coffee.processValues));
   const roastTag = tagFor(!!coffee.roastLevel, doc.roastLevel === coffee.roastLevel);
   const blendTag = tagFor(!!coffee.blendOrSingle, doc.blendOrSingle === coffee.blendOrSingle);
-  const decafTag = tagFor(coffee.isDecaf !== null, doc.isDecaf === coffee.isDecaf);
+  const caffeineTag = tagFor(coffee.isDecaf !== null, doc.caffeineLevel === caffeineFromPrefill(coffee.isDecaf));
 
   const someoneElseSaved = meta.status === 'draft' && meta.lastSavedByRespondentId && meta.lastSavedByRespondentId !== respondent.id;
   const statusText =
@@ -311,29 +328,73 @@ export default function CoffeeScreen({ token, id, landing, respondent, onRespond
 
       {/* 01 The coffee */}
       <div className="sec"><span className="sn">01</span><h2 className="st">The coffee</h2></div>
-      <div className="row">
+      <div className="f">
+        <label className="lab" htmlFor="rp-origin">{COPY.originLabel}<small>{COPY.originHint}</small><SrcTag text={originTag} /></label>
+        <input id="rp-origin" className="in" value={doc.origin} maxLength={300} onChange={e => update({ origin: e.target.value })} />
+      </div>
+      <Field legend="Single origin or blend" tag={<SrcTag text={blendTag} />}>
+        <SingleChips
+          options={v.blendOrSingle}
+          value={doc.blendOrSingle}
+          // the form mirrors the service: leaving Blend clears what only a blend answers
+          onChange={blendOrSingle => update(blendOrSingle === 'blend' ? { blendOrSingle } : { blendOrSingle, blendComponents: '', blendRotation: null })}
+        />
+      </Field>
+      {doc.blendOrSingle === 'blend' && (
+        <>
+          <div className="f">
+            <label className="lab" htmlFor="rp-blend-components">{COPY.blendComponentsLabel}<small>{COPY.blendComponentsHint}</small></label>
+            <input id="rp-blend-components" className="in" value={doc.blendComponents} maxLength={300} onChange={e => update({ blendComponents: e.target.value })} />
+          </div>
+          <Field legend={COPY.blendRotationLabel}>
+            <SingleChips options={v.blendRotation} value={doc.blendRotation} onChange={blendRotation => update({ blendRotation })} />
+          </Field>
+        </>
+      )}
+      <Field legend={COPY.caffeineLabel} tag={<SrcTag text={caffeineTag} />}>
+        <SingleChips
+          options={v.caffeine}
+          value={doc.caffeineLevel}
+          onChange={caffeineLevel => update(caffeineLevel === 'decaf' || caffeineLevel === 'half_caff' ? { caffeineLevel } : { caffeineLevel, decafProcess: null })}
+        />
+      </Field>
+      {(doc.caffeineLevel === 'decaf' || doc.caffeineLevel === 'half_caff') && (
+        <Field legend={COPY.decafProcessLabel}>
+          <SingleChips options={v.decafProcess} value={doc.decafProcess} onChange={decafProcess => update({ decafProcess })} />
+        </Field>
+      )}
+      <Field legend="Process" tag={<SrcTag text={processTag} />}>
+        <MultiChips options={v.process} values={doc.processValues} onChange={processValues => update({ processValues })} />
+      </Field>
+      <Field legend={COPY.additivesLabel} hint={COPY.additivesHint}>
+        <SingleChips
+          options={[{ value: 'yes', label: COPY.yes }, { value: 'no', label: COPY.no }]}
+          value={doc.additivesPresent === null ? null : doc.additivesPresent ? 'yes' : 'no'}
+          onChange={x => update(x === 'yes' ? { additivesPresent: true } : { additivesPresent: x === null ? null : false, additivesDetail: '' })}
+        />
+      </Field>
+      {doc.additivesPresent === true && (
         <div className="f">
-          <label className="lab" htmlFor="rp-origin">{COPY.originLabel}<small>{COPY.originHint}</small><SrcTag text={originTag} /></label>
-          <input id="rp-origin" className="in" value={doc.origin} maxLength={300} onChange={e => update({ origin: e.target.value })} />
+          <label className="lab" htmlFor="rp-additives-detail">{COPY.additivesDetailLabel}</label>
+          <input id="rp-additives-detail" className="in" value={doc.additivesDetail} maxLength={300} onChange={e => update({ additivesDetail: e.target.value })} />
         </div>
-        <Field legend="Process" tag={<SrcTag text={processTag} />}>
-          <MultiChips options={v.process} values={doc.processValues} onChange={processValues => update({ processValues })} />
-        </Field>
-      </div>
-      <div className="row">
-        <Field legend="Single origin or blend" tag={<SrcTag text={blendTag} />}>
-          <SingleChips options={v.blendOrSingle} value={doc.blendOrSingle} onChange={blendOrSingle => update({ blendOrSingle })} />
-        </Field>
-        <Field legend="Decaf" tag={<SrcTag text={decafTag} />}>
-          <SingleChips
-            options={[{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }]}
-            value={doc.isDecaf === null ? null : doc.isDecaf ? 'yes' : 'no'}
-            onChange={x => update({ isDecaf: x === null ? null : x === 'yes' })}
-          />
-        </Field>
-      </div>
+      )}
       <Field legend="Roast level" tag={<SrcTag text={roastTag} />}>
         <SingleChips options={v.roastLevel} value={doc.roastLevel} onChange={roastLevel => update({ roastLevel })} />
+      </Field>
+      <Field legend={COPY.roastedForLabel}>
+        <SingleChips options={v.roastIntent} value={doc.roastIntent} onChange={roastIntent => update({ roastIntent })} />
+      </Field>
+      <Field legend={COPY.certificationsLabel}>
+        <MultiChips
+          options={v.certification}
+          values={doc.certifications}
+          // "None" is a real answer and clears the others; picking another one drops None; nothing picked = not answered
+          onChange={next => update(cur => {
+            const added = next.find(x => !cur.certifications.includes(x));
+            return { certifications: added === 'none' ? ['none'] : next.filter(x => x !== 'none') };
+          })}
+        />
       </Field>
 
       {/* 02 Tasting notes, then the Bloom Dial question */}
@@ -399,7 +460,7 @@ export default function CoffeeScreen({ token, id, landing, respondent, onRespond
       {/* 04 How to drink it */}
       <div className="sec"><span className="sn">04</span><h2 className="st">How to drink it</h2></div>
       <div className="row">
-        <Field legend="Best brewing method">
+        <Field legend={COPY.whereItShines}>
           <SingleChips
             options={v.brewMethods}
             value={doc.bestBrew}
@@ -420,7 +481,7 @@ export default function CoffeeScreen({ token, id, landing, respondent, onRespond
           </div>
         </Field>
       </div>
-      <Field legend="How is it best enjoyed?">
+      <Field legend={COPY.milkLabel}>
         <SingleChips options={v.takesIt} value={doc.takesIt} onChange={takesIt => update({ takesIt })} />
       </Field>
       <div className="f">

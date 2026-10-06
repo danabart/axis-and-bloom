@@ -35,6 +35,11 @@ export interface PortalVocabulary {
   notice: LookupOption[];
   similar: LookupOption[];
   takesIt: LookupOption[];
+  roastIntent: LookupOption[];
+  blendRotation: LookupOption[];
+  caffeine: LookupOption[];
+  decafProcess: LookupOption[];
+  certification: LookupOption[];
   dimensions: PortalDimension[];
   archetypes: PortalArchetype[];
   wheel: WheelCategory[];
@@ -53,7 +58,8 @@ async function lookup(runner: Runner, category: string): Promise<LookupOption[]>
 }
 
 async function loadVocabulary(runner: Runner): Promise<PortalVocabulary> {
-  const [process, roastLevel, blendOrSingle, brewMethods, availability, notice, similar, takesIt] = await Promise.all([
+  const [process, roastLevel, blendOrSingle, brewMethods, availability, notice, similar, takesIt,
+    roastIntent, blendRotation, caffeine, decafProcess, certification] = await Promise.all([
     lookup(runner, 'process'),
     lookup(runner, 'roast_level'),
     lookup(runner, 'blend_or_single'),
@@ -62,6 +68,11 @@ async function loadVocabulary(runner: Runner): Promise<PortalVocabulary> {
     lookup(runner, 'roastery_portal_notice'),
     lookup(runner, 'roastery_portal_similar'),
     lookup(runner, 'roastery_portal_takes_it'),
+    lookup(runner, 'roastery_portal_roast_intent'),
+    lookup(runner, 'roastery_portal_blend_rotation'),
+    lookup(runner, 'roastery_portal_caffeine'),
+    lookup(runner, 'roastery_portal_decaf_process'),
+    lookup(runner, 'roastery_portal_certification'),
   ]);
 
   const dims = await runner.query<{ dimension_id: number; label: string; low_label: string; high_label: string }>(
@@ -93,6 +104,7 @@ async function loadVocabulary(runner: Runner): Promise<PortalVocabulary> {
 
   return {
     process, roastLevel, blendOrSingle, brewMethods, availability, notice, similar, takesIt,
+    roastIntent, blendRotation, caffeine, decafProcess, certification,
     dimensions: dims.rows.map(d => ({ dimensionId: d.dimension_id, label: d.label, lowLabel: d.low_label, highLabel: d.high_label })),
     archetypes: arch.rows.map(a => ({ code: a.code, label: a.label, sortOrder: a.sort_order })),
     wheel,
@@ -236,6 +248,15 @@ export interface PortalResponse {
   closestCousinPortalCoffeeId: string | null;
   whatChanges: string | null;
   anythingElse: string | null;
+  additivesPresent: boolean | null;
+  additivesDetail: string | null;
+  roastIntent: string | null;
+  blendComponents: string | null;
+  blendRotation: string | null;
+  /** The effective caffeine answer: the new column, else derived from the deprecated is_decaf (by the view). */
+  caffeineLevel: string | null;
+  decafProcess: string | null;
+  certifications: string[];
   lastSavedByName: string | null;
   lastSavedByRespondentId: string | null;
   submittedByName: string | null;
@@ -272,6 +293,9 @@ async function hydrateResponse(row: any, runner: Runner): Promise<PortalResponse
     availability: row.availability, typicalNotice: row.typical_notice, expectedAvailability: row.expected_availability,
     similarWhenOut: row.similar_when_out, closestCousinPortalCoffeeId: row.closest_cousin_portal_coffee_id,
     whatChanges: row.what_changes, anythingElse: row.anything_else,
+    additivesPresent: row.additives_present, additivesDetail: row.additives_detail, roastIntent: row.roast_intent,
+    blendComponents: row.blend_components, blendRotation: row.blend_rotation, caffeineLevel: row.caffeine_level,
+    decafProcess: row.decaf_process, certifications: row.certifications ?? [],
     lastSavedByName: nameOf(row.last_saved_by_respondent_id), lastSavedByRespondentId: row.last_saved_by_respondent_id,
     submittedByName: nameOf(row.submitted_by_respondent_id), submittedByRespondentId: row.submitted_by_respondent_id,
     createdAt: row.created_at, updatedAt: row.updated_at, submittedAt: row.submitted_at,
@@ -292,7 +316,7 @@ export async function getCurrentResponse(portalCoffeeId: string, runner: Runner 
 }
 
 export async function getResponseById(responseId: string, runner: Runner = db): Promise<PortalResponse | null> {
-  const r = await runner.query(`SELECT * FROM roastery_portal_response WHERE id = $1`, [responseId]);
+  const r = await runner.query(`SELECT * FROM v_roastery_portal_response WHERE id = $1`, [responseId]);
   return r.rows[0] ? hydrateResponse(r.rows[0], runner) : null;
 }
 
@@ -327,6 +351,8 @@ export interface LineupResponse {
   submittedByName: string | null;
   updatedAt: string;
   submittedAt: string | null;
+  /** "Which of these do you sell most?": up to three of the roastery's own lineup coffees, in order. */
+  bestSellers: { portalCoffeeId: string; name: string; rank: number }[];
 }
 
 function mapLineupResponse(x: any): LineupResponse {
@@ -334,8 +360,20 @@ function mapLineupResponse(x: any): LineupResponse {
     id: x.id, version: x.version, status: x.status, typicalNotice: x.typical_notice,
     similarWhenOut: x.similar_when_out, anythingElse: x.anything_else,
     lastSavedByName: x.last_saved_by_name, submittedByName: x.submitted_by_name,
-    updatedAt: x.updated_at, submittedAt: x.submitted_at,
+    updatedAt: x.updated_at, submittedAt: x.submitted_at, bestSellers: [],
   };
+}
+
+async function withBestSellers(list: LineupResponse[], runner: Runner): Promise<LineupResponse[]> {
+  if (list.length === 0) return list;
+  const r = await runner.query(
+    `SELECT b.lineup_response_id, b.portal_coffee_id, b.rank, pc.name
+     FROM roastery_portal_lineup_response_best_seller b JOIN roastery_portal_coffee pc ON pc.id = b.portal_coffee_id
+     WHERE b.lineup_response_id = ANY($1::uuid[]) ORDER BY b.rank`,
+    [list.map(l => l.id)]
+  );
+  for (const l of list) l.bestSellers = r.rows.filter((x: any) => x.lineup_response_id === l.id).map((x: any) => ({ portalCoffeeId: x.portal_coffee_id, name: x.name, rank: x.rank }));
+  return list;
 }
 
 const LINEUP_RESPONSE_SELECT = `
@@ -354,12 +392,12 @@ export async function getCurrentLineupResponse(roasterId: string, runner: Runner
      WHERE lr.roaster_id = $1`,
     [roasterId]
   );
-  return r.rows[0] ? mapLineupResponse(r.rows[0]) : null;
+  return r.rows[0] ? (await withBestSellers([mapLineupResponse(r.rows[0])], runner))[0] : null;
 }
 
 export async function listLineupResponseVersions(roasterId: string, runner: Runner = db): Promise<LineupResponse[]> {
   const r = await runner.query(`${LINEUP_RESPONSE_SELECT} WHERE lr.roaster_id = $1 ORDER BY lr.version DESC`, [roasterId]);
-  return r.rows.map(mapLineupResponse);
+  return withBestSellers(r.rows.map(mapLineupResponse), runner);
 }
 
 // ── Admin: roasteries, links ─────────────────────────────────────────────────
@@ -452,6 +490,10 @@ export interface AdminLineupRow extends LineupRow {
   roasterDimensionLabel: string | null;
   ourDimensionName: string | null;
   dimensionMatches: boolean | null;
+  /** Part 3, display only: from the latest SUBMITTED version. Never a label or an ingredients statement. */
+  additivesPresent: boolean;
+  additivesDetail: string | null;
+  blendRecipeChanges: boolean;
 }
 
 /** The partner page's lineup rows must not carry acceptance state, so the admin
@@ -462,7 +504,8 @@ export async function getAdminLineup(roasterId: string, runner: Runner = db): Pr
   const ids = base.map(b => b.portalCoffeeId);
   const extra = await runner.query(
     `SELECT p.portal_coffee_id, p.accepted_version, p.accepted_at, p.changed_since_accept, p.latest_submitted_version,
-            h.dominant_dimension_label, m.our_dimension_name, m.matches
+            h.dominant_dimension_label, m.our_dimension_name, m.matches,
+            p.additives_present, p.additives_detail, p.blend_recipe_changes
      FROM v_roastery_portal_progress p
      JOIN v_roastery_portal_coffee c ON c.portal_coffee_id = p.portal_coffee_id
      LEFT JOIN v_roastery_portal_coffee_hint h ON h.coffee_id = c.coffee_id AND h.portal_coffee_id = p.portal_coffee_id
@@ -482,6 +525,9 @@ export async function getAdminLineup(roasterId: string, runner: Runner = db): Pr
       roasterDimensionLabel: e?.dominant_dimension_label ?? null,
       ourDimensionName: e?.our_dimension_name ?? null,
       dimensionMatches: e?.matches ?? null,
+      additivesPresent: e?.additives_present ?? false,
+      additivesDetail: e?.additives_detail ?? null,
+      blendRecipeChanges: e?.blend_recipe_changes === true,
     };
   });
 }
@@ -642,11 +688,13 @@ export interface PreviewNote {
 }
 
 export interface PreviewBasic {
-  field: 'origin' | 'process' | 'roastLevel' | 'blendOrSingle';
+  field: 'origin' | 'process' | 'roastLevel' | 'blendOrSingle' | 'caffeine';
   catalogValue: string | null;
   roasterValue: string | null;
   roasterValues: string[];
   differs: boolean;
+  /** caffeine only: false when the matching category code does not exist (then it is display only). */
+  applicable?: boolean;
 }
 
 export interface AcceptancePreview {
@@ -660,6 +708,14 @@ export interface AcceptancePreview {
   notes: PreviewNote[];
   currentActive: { descriptorId: number; cuppingNoteId: string; descriptor: string; wheelCategory: string; notes: string | null }[];
   retiring: { descriptorId: number; cuppingNoteId: string; descriptor: string }[];
+  /** Part 3: everything else the roaster added, display only. Nothing here is ever applied. */
+  extras: {
+    roastIntent: string | null; caffeineLevel: string | null; decafProcess: string | null; certifications: string[];
+    additivesPresent: boolean | null; additivesDetail: string | null;
+    blendComponents: string | null; blendRotation: string | null; blendRecipeChanges: boolean;
+    /** "Contains added ingredients: ..." when the roaster said something is added; null otherwise. */
+    additivesNotice: string | null;
+  };
   hints: {
     proposedArchetype: string | null;
     dimensions: { dimension_id: number; label: string; low_label: string; high_label: string; value: number }[];
@@ -689,7 +745,7 @@ export async function previewAcceptance(responseId: string, runner: Runner = db)
   let visible = false;
   let currentActive: AcceptancePreview['currentActive'] = [];
   if (coffeeId !== null) {
-    catalog = (await runner.query(`SELECT name, origin, process, roast_level, blend_or_single FROM v_coffee WHERE id = $1`, [coffeeId])).rows[0] ?? null;
+    catalog = (await runner.query(`SELECT name, origin, process, roast_level, blend_or_single, category_codes FROM v_coffee WHERE id = $1`, [coffeeId])).rows[0] ?? null;
     visible = (await runner.query(`SELECT is_visible FROM v_coffee_visibility_summary WHERE coffee_id = $1`, [coffeeId])).rows[0]?.is_visible === true;
     currentActive = (await runner.query(
       `SELECT d.id, d.cupping_note_id, cn.descriptor, cn.wheel_category, d.notes
@@ -704,7 +760,17 @@ export async function previewAcceptance(responseId: string, runner: Runner = db)
     { field: 'roastLevel', catalogValue: catalog?.roast_level ?? null, roasterValue: response.roastLevel, roasterValues: [], differs: false },
     { field: 'blendOrSingle', catalogValue: catalog?.blend_or_single ?? null, roasterValue: response.blendOrSingle, roasterValues: [], differs: false },
   ];
-  for (const b of basics) b.differs = (b.roasterValue ?? null) !== (b.catalogValue ?? null);
+  // Caffeine (part 3): "Category: Decaf" / "Category: Half-caff", applied through the existing category codes
+  // only. The roaster saying Regular (or nothing) offers nothing to apply; a missing category code makes it display only.
+  const codes = new Set((await runner.query(`SELECT code FROM coffee_category`)).rows.map((x: any) => x.code as string));
+  const caffeineCode = response.caffeineLevel === 'decaf' ? 'decaf' : response.caffeineLevel === 'half_caff' ? 'half_caf' : null;
+  const currentCaffeineCode = (catalog?.category_codes as string[] | undefined)?.find(c => c === 'decaf' || c === 'half_caf') ?? null;
+  basics.push({
+    field: 'caffeine', catalogValue: currentCaffeineCode,
+    roasterValue: caffeineCode, roasterValues: [], differs: caffeineCode !== currentCaffeineCode,
+    applicable: caffeineCode !== null && codes.has(caffeineCode),
+  });
+  for (const b of basics) if (b.field !== 'caffeine') b.differs = (b.roasterValue ?? null) !== (b.catalogValue ?? null);
 
   const suggestions = await getMappingSuggestions(response.notes.map(n => n.roasterWords), runner);
   const activeTerms = new Set(currentActive.map(c => c.cuppingNoteId));
@@ -777,6 +843,15 @@ export async function previewAcceptance(responseId: string, runner: Runner = db)
     },
     visibleToCustomers: visible,
     basics, notes, currentActive, retiring,
+    extras: {
+      roastIntent: response.roastIntent, caffeineLevel: response.caffeineLevel, decafProcess: response.decafProcess,
+      certifications: response.certifications, additivesPresent: response.additivesPresent,
+      additivesDetail: response.additivesPresent ? response.additivesDetail : null,
+      blendComponents: response.blendComponents, blendRotation: response.blendRotation,
+      blendRecipeChanges: response.blendOrSingle === 'blend' && (response.blendRotation === 'rotates_same_profile' || response.blendRotation === 'seasonal'),
+      additivesNotice: response.additivesPresent
+        ? `Contains added ingredients: ${response.additivesDetail ?? 'not specified'}. Check the ingredients statement on the bag.` : null,
+    },
     hints: { proposedArchetype: response.proposedArchetype, dimensions: dims.rows, cousin, dominant: { ...dominant, roasterLabel: roasterDimLabel } },
   };
 }
