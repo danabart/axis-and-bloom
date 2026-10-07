@@ -5550,6 +5550,10 @@ Brief: `backend/src/features/roastery_portal/CLAUDE_CODE_PROMPT_ROASTERY_PORTAL_
 
 **Not done / open**: a signed-in click-through of the real `/admin/.../preview` route on production by Dana or Camila (the route, auth and endpoints were verified; only the in-browser admin session was not), OT-36 (`dist/**` excluded from vitest).
 
+### 216. Roastery portal, part 6 — Joe Bean Roasters' lineup loaded (2026-10-07)
+
+Data task only (no code, no schema, no deploy of its own). Brief: `backend/src/features/roastery_portal/CLAUDE_CODE_PROMPT_ROASTERY_PORTAL_6_JOE_BEAN.md`. Task 0: no Joe Bean roastery existed under any spelling (and no "Joe Coffee"), so none to reactivate or duplicate; lookup values were `dark`, `natural`, `blend`, `single`. Created through the admin roasters route (`POST /api/admin/roasters`): `Joe Bean Roasters`, website `https://shop.joebeanroasters.com`, active, id `19098f5c-99b9-4d7c-90ef-ee33d1e896b7`. Seven lineup coffees added through the portal admin API (`added_by = admin`, no catalog link, no `coffees` row), in this order: Blossom Dark Roast (blend, roast dark), Tiger Stripe Espresso (blend), Fabricator House Roast (blend, origin "Colombia and Brazil (Mogiana)"), Geometric Filter Coffee (blend), Brazil (single, no source), Indonesia (single, no source), D.R. Congo (single, origin "South Kivu, D.R. Congo (Muungano Cooperative)", process natural). Every row has decaf = no; `prefill_source` is `roaster_site` on rows 1 to 4 and 7 and null on 5 and 6; everything the brief lists as empty is empty. Verified through the part 5 admin preview endpoint: seven coffees in that order, all Not started, no lineup response. The partner form shows the "from your site" tag only on a field that has a value and is unchanged, so rows 5 and 6 carry no tag. No link, respondent or response exists for Joe Bean (Dana creates the link; open the roastery in admin, Roastery Feedback). Utopian and every other roastery untouched. Checks ran as a marked `Zzz Test` admin, demoted and disabled afterwards.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)
