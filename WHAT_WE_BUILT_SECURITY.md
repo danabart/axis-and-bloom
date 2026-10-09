@@ -423,3 +423,9 @@ object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
 **Note on alerting:** with the daily audit gone (#14), nothing will flag the next one; it will only show as a non-blocking warning in a Deploy run's audit step.
 
 **Files:** `backend/package-lock.json`.
+
+### 22. Quiz content is read-only to the request pool, and the database refuses edits and deletes (2026-10-09)
+
+**What:** `WHAT_WE_BUILT.md` #218 (Prompt 4A). Quiz content (`quiz`, `quiz_type`, `quiz_question`, `quiz_answer`, `quiz_answer_archetype_score`, plus the four `quiz_backup_20261008_*` snapshot tables) is master data with one writer, the `schema.sql` seed running as the owner. `ab_app` (the live request pool since the C1 Part G cutover; prod logs `[db-roles] ... request pool is ab_app`) now has SELECT and nothing else on all nine; before, the operating-table grant loop gave it full DML. No application code writes quiz content (Task 0 grep), so nothing loses a privilege it used. Defense in depth for every role, the owner included: row triggers (`quiz_content_guard`) refuse DELETE and any in-place UPDATE on the three content tables, and statement triggers refuse TRUNCATE. The only update let through is retiring a current row (`valid_to`, `is_current`) or filling a NULL `answer_code`/`sort_order`; a retired row never changes again. Consequence worth knowing: deleting a `coffee_archetype` row would now fail, because its `ON DELETE SET NULL` on score rows is an UPDATE the trigger refuses (nothing deletes archetypes). The seed functions have EXECUTE revoked from PUBLIC. `quizIntegrity.ts` check 16 fails if `ab_app` ever gains more than SELECT on these tables; check 17 fails if a snapshot row disappears from its live table.
+
+**Files:** `backend/src/db/schema.sql`, `backend/src/services/quizIntegrity.ts`.

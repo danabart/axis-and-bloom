@@ -11,6 +11,12 @@ import { toArchetypeSlug } from '../features/marketing/mailchimp.js';
 // prod so it no longer matches any code in the seed file. Flagging it by name
 // here is the whole point — guessing by position would be worse than leaving
 // it broken (answer ordering is `ORDER BY a.id` on UUIDs and means nothing).
+//
+// Quiz content is SCD Type 2 since Prompt 4A (2026-10-08): retired versions
+// stay in quiz_question/quiz_answer forever, so every content check below
+// reads current rows only (is_current). Checks 12–17 guard the versioning
+// itself. Stray score rows are reported here (checks 4 and 7) and never
+// removed — the seed's old self-healing DELETEs are gone.
 
 export interface QuizIntegrityCheck {
   id: number;
@@ -20,6 +26,14 @@ export interface QuizIntegrityCheck {
   actual: string;
   details?: string[];
 }
+
+// Prompt 4A, Part A: taken once at the first boot with SCD2 (schema.sql).
+const QUIZ_SNAPSHOT_TABLES = [
+  { snapshot: 'quiz_backup_20261008_quiz', source: 'quiz' },
+  { snapshot: 'quiz_backup_20261008_quiz_question', source: 'quiz_question' },
+  { snapshot: 'quiz_backup_20261008_quiz_answer', source: 'quiz_answer' },
+  { snapshot: 'quiz_backup_20261008_quiz_answer_archetype_score', source: 'quiz_answer_archetype_score' },
+] as const;
 
 export interface QuizIntegrityReport {
   ranAt: string;
@@ -63,6 +77,7 @@ export async function runQuizIntegrityChecks(): Promise<QuizIntegrityReport> {
        JOIN quiz_question qq ON qq.id = a.question_id
        JOIN quiz q           ON q.id  = qq.quiz_id
        WHERE (q.id = $1 OR q.parent_quiz_id = $1)
+         AND qq.is_current AND a.is_current
          AND a.answer_code IS NULL
        ORDER BY a.answer_text`,
       [activeMainId]
@@ -112,7 +127,7 @@ export async function runQuizIntegrityChecks(): Promise<QuizIntegrityReport> {
   let check3Details: string[] = [];
   if (activeMainId) {
     const qResult = await db.query<{ q_number: number; weight: string }>(
-      `SELECT qq.q_number, qq.weight FROM quiz_question qq WHERE qq.quiz_id = $1 ORDER BY qq.q_number`,
+      `SELECT qq.q_number, qq.weight FROM quiz_question qq WHERE qq.quiz_id = $1 AND qq.is_current ORDER BY qq.q_number`,
       [activeMainId]
     );
     const rows = qResult.rows;
@@ -144,9 +159,9 @@ export async function runQuizIntegrityChecks(): Promise<QuizIntegrityReport> {
               COUNT(aas.id)::int AS score_count,
               SUM(aas.score)::numeric AS total_score
        FROM quiz_question qq
-       JOIN quiz_answer a ON a.question_id = qq.id
+       JOIN quiz_answer a ON a.question_id = qq.id AND a.is_current
        LEFT JOIN quiz_answer_archetype_score aas ON aas.answer_id = a.id
-       WHERE qq.quiz_id = $1
+       WHERE qq.quiz_id = $1 AND qq.is_current
        GROUP BY qq.q_number, a.id, a.answer_text`,
       [activeMainId]
     );
@@ -178,7 +193,7 @@ export async function runQuizIntegrityChecks(): Promise<QuizIntegrityReport> {
       `SELECT qq.q_number, a.answer_text
        FROM quiz_answer a
        JOIN quiz_question qq ON qq.id = a.question_id
-       WHERE qq.quiz_id = $1 AND a.is_experimental_gate = TRUE`,
+       WHERE qq.quiz_id = $1 AND qq.is_current AND a.is_current AND a.is_experimental_gate = TRUE`,
       [activeMainId]
     );
     const rows = gateResult.rows;
@@ -204,7 +219,7 @@ export async function runQuizIntegrityChecks(): Promise<QuizIntegrityReport> {
        FROM quiz_answer a
        JOIN quiz_question qq ON qq.id = a.question_id
        LEFT JOIN coffee_archetype ar ON ar.id = a.resulting_archetype_id
-       WHERE qq.quiz_id = $1 AND qq.q_number = 6`,
+       WHERE qq.quiz_id = $1 AND qq.q_number = 6 AND qq.is_current AND a.is_current`,
       [activeMainId]
     );
     const rows = foodResult.rows;
@@ -225,12 +240,14 @@ export async function runQuizIntegrityChecks(): Promise<QuizIntegrityReport> {
   });
 
   // ── 7. Branch outcomes — 4 branch answers, every resulting_archetype_id
-  // non-null ─────────────────────────────────────────────────────────────
-  const branchAnswerResult = await db.query<{ branch_version: string; answer_text: string; archetype_name: string | null }>(
-    `SELECT bq.version AS branch_version, a.answer_text, ar.name AS archetype_name
+  // non-null, and no branch answer carries a score row (Prompt 4A: this
+  // replaces the seed's old DELETE — a stray is reported, not removed) ─────
+  const branchAnswerResult = await db.query<{ branch_version: string; answer_text: string; archetype_name: string | null; score_count: number }>(
+    `SELECT bq.version AS branch_version, a.answer_text, ar.name AS archetype_name,
+            (SELECT COUNT(*)::int FROM quiz_answer_archetype_score aas WHERE aas.answer_id = a.id) AS score_count
      FROM quiz bq
-     JOIN quiz_question qq ON qq.quiz_id = bq.id
-     JOIN quiz_answer a    ON a.question_id = qq.id
+     JOIN quiz_question qq ON qq.quiz_id = bq.id AND qq.is_current
+     JOIN quiz_answer a    ON a.question_id = qq.id AND a.is_current
      LEFT JOIN coffee_archetype ar ON ar.id = a.resulting_archetype_id
      WHERE bq.parent_quiz_id IS NOT NULL`
   );
@@ -239,12 +256,13 @@ export async function runQuizIntegrityChecks(): Promise<QuizIntegrityReport> {
   if (branchAnswerRows.length !== 4) check7Details.push(`${branchAnswerRows.length} branch answer(s) total (expected exactly 4)`);
   for (const row of branchAnswerRows) {
     if (!row.archetype_name) check7Details.push(`${row.branch_version} "${row.answer_text}": null resulting archetype`);
+    if (row.score_count !== 0) check7Details.push(`${row.branch_version} "${row.answer_text}": has ${row.score_count} score row(s) (expected 0 — branch answers are not scored)`);
   }
   checks.push({
     id: 7,
-    name: '4 branch answers, every resulting_archetype_id non-null',
+    name: '4 branch answers, every resulting_archetype_id non-null, none scored',
     pass: check7Details.length === 0,
-    expected: '4 rows total (2 per branch quiz), all non-null',
+    expected: '4 rows total (2 per branch quiz), all non-null, zero score rows',
     actual: check7Details.length === 0 ? 'branch outcomes correct' : `${check7Details.length} problem(s)`,
     details: check7Details.length ? check7Details : undefined,
   });
@@ -373,6 +391,154 @@ export async function runQuizIntegrityChecks(): Promise<QuizIntegrityReport> {
     expected: 'every recent post_quiz subscribe archetype is backed by a quiz_funnel_event row for the same session',
     actual: check11Details.length === 0 ? 'all backed' : `${check11Details.length} unbacked call(s)`,
     details: check11Details.length ? check11Details : undefined,
+  });
+
+  // ── 12. Exactly one current row per question business key (quiz_id,
+  // q_number) — every key that has rows has one current version ─────────
+  const qKeyResult = await db.query<{ version: string | null; q_number: number; current_count: number }>(
+    `SELECT qz.version, qq.q_number, COUNT(*) FILTER (WHERE qq.is_current)::int AS current_count
+     FROM quiz_question qq LEFT JOIN quiz qz ON qz.id = qq.quiz_id
+     GROUP BY qq.quiz_id, qz.version, qq.q_number
+     HAVING COUNT(*) FILTER (WHERE qq.is_current) <> 1
+     ORDER BY qz.version, qq.q_number`
+  );
+  const check12Details = qKeyResult.rows.map(r => `${r.version ?? '(no quiz)'} Q${r.q_number}: ${r.current_count} current row(s)`);
+  checks.push({
+    id: 12,
+    name: 'Exactly one current version per question (quiz_id, q_number)',
+    pass: check12Details.length === 0,
+    expected: 'one is_current row per (quiz_id, q_number)',
+    actual: check12Details.length === 0 ? 'all question keys have one current row' : `${check12Details.length} key(s) wrong`,
+    details: check12Details.length ? check12Details : undefined,
+  });
+
+  // ── 13. Exactly one current row per answer_code ────────────────────────
+  // A code with no current row at all is a retired answer — legal only
+  // through an explicit quiz_retire_answer() seed line, none exist yet.
+  const aKeyResult = await db.query<{ answer_code: string; current_count: number }>(
+    `SELECT answer_code, COUNT(*) FILTER (WHERE is_current)::int AS current_count
+     FROM quiz_answer WHERE answer_code IS NOT NULL
+     GROUP BY answer_code HAVING COUNT(*) FILTER (WHERE is_current) <> 1
+     ORDER BY answer_code`
+  );
+  const check13Details = aKeyResult.rows.map(r => `${r.answer_code}: ${r.current_count} current row(s)`);
+  checks.push({
+    id: 13,
+    name: 'Exactly one current version per answer_code',
+    pass: check13Details.length === 0,
+    expected: 'one is_current row per answer_code',
+    actual: check13Details.length === 0 ? 'all answer codes have one current row' : `${check13Details.length} code(s) wrong`,
+    details: check13Details.length ? check13Details : undefined,
+  });
+
+  // ── 14. No current answer hangs off a retired question ─────────────────
+  const orphanResult = await db.query<{ answer_code: string | null; answer_text: string }>(
+    `SELECT a.answer_code, a.answer_text
+     FROM quiz_answer a JOIN quiz_question qq ON qq.id = a.question_id
+     WHERE a.is_current AND NOT qq.is_current
+     ORDER BY a.answer_code, a.answer_text`
+  );
+  const check14Details = orphanResult.rows.map(r => `${r.answer_code ?? '(uncoded)'} "${r.answer_text}"`);
+  checks.push({
+    id: 14,
+    name: 'No current answer points at a retired question',
+    pass: check14Details.length === 0,
+    expected: 'zero current answers on a non-current question',
+    actual: check14Details.length === 0 ? 'none' : `${check14Details.length} answer(s)`,
+    details: check14Details.length ? check14Details : undefined,
+  });
+
+  // ── 15. Display order — every current answer on the active quiz and its
+  // branches has a sort_order, unique within its question ─────────────────
+  let check15Details: string[] = [];
+  if (activeMainId) {
+    const orderResult = await db.query<{ q_label: string; answer_code: string | null; sort_order: number | null; dup_count: number }>(
+      `SELECT q.version || ' Q' || qq.q_number AS q_label, a.answer_code, a.sort_order,
+              COUNT(*) OVER (PARTITION BY a.question_id, a.sort_order)::int AS dup_count
+       FROM quiz_answer a
+       JOIN quiz_question qq ON qq.id = a.question_id AND qq.is_current
+       JOIN quiz q           ON q.id  = qq.quiz_id
+       WHERE (q.id = $1 OR q.parent_quiz_id = $1) AND a.is_current`,
+      [activeMainId]
+    );
+    for (const row of orderResult.rows) {
+      if (row.sort_order === null) check15Details.push(`${row.q_label} ${row.answer_code ?? '(uncoded)'}: no sort_order`);
+      else if (row.dup_count > 1) check15Details.push(`${row.q_label} ${row.answer_code ?? '(uncoded)'}: sort_order ${row.sort_order} shared by ${row.dup_count} answers`);
+    }
+  } else {
+    check15Details.push('no active quiz to check against (see check 1)');
+  }
+  checks.push({
+    id: 15,
+    name: 'Every current answer on the active quiz + branches has a sort_order, unique within its question',
+    pass: check15Details.length === 0,
+    expected: 'sort_order set and unique per question',
+    actual: check15Details.length === 0 ? 'display order correct' : `${check15Details.length} problem(s)`,
+    details: check15Details.length ? check15Details : undefined,
+  });
+
+  // ── 16. The request pool role reads quiz content and nothing else ─────
+  const QUIZ_CONTENT_TABLES = [
+    'quiz', 'quiz_type', 'quiz_question', 'quiz_answer', 'quiz_answer_archetype_score',
+    ...QUIZ_SNAPSHOT_TABLES.map(s => s.snapshot),
+  ];
+  const check16Details: string[] = [];
+  const roleResult = await db.query(`SELECT 1 FROM pg_roles WHERE rolname = 'ab_app'`);
+  if (!roleResult.rows.length) {
+    check16Details.push('role ab_app does not exist');
+  } else {
+    for (const t of QUIZ_CONTENT_TABLES) {
+      const exists = await db.query(`SELECT to_regclass($1) AS reg`, [`public.${t}`]);
+      if (!exists.rows[0]?.reg) { check16Details.push(`${t}: table missing`); continue; }
+      const priv = await db.query<Record<string, boolean>>(
+        `SELECT has_table_privilege('ab_app', $1, 'SELECT') AS sel,
+                has_table_privilege('ab_app', $1, 'INSERT') AS ins,
+                has_table_privilege('ab_app', $1, 'UPDATE') AS upd,
+                has_table_privilege('ab_app', $1, 'DELETE') AS del,
+                has_table_privilege('ab_app', $1, 'TRUNCATE') AS trn,
+                has_table_privilege('ab_app', $1, 'REFERENCES') AS ref,
+                has_table_privilege('ab_app', $1, 'TRIGGER') AS trg`,
+        [`public.${t}`]
+      );
+      const p = priv.rows[0];
+      if (!p.sel) check16Details.push(`${t}: ab_app lacks SELECT`);
+      const extra = (['ins', 'upd', 'del', 'trn', 'ref', 'trg'] as const).filter(k => p[k]);
+      if (extra.length) check16Details.push(`${t}: ab_app also has ${extra.join(', ')}`);
+    }
+  }
+  checks.push({
+    id: 16,
+    name: 'ab_app has SELECT and nothing else on quiz content and its snapshot tables',
+    pass: check16Details.length === 0,
+    expected: `SELECT only on ${QUIZ_CONTENT_TABLES.length} tables`,
+    actual: check16Details.length === 0 ? 'read-only' : `${check16Details.length} problem(s)`,
+    details: check16Details.length ? check16Details : undefined,
+  });
+
+  // ── 17. The 2026-10-08 snapshot exists and none of its rows has left
+  // the live table (quiz content is never deleted) ─────────────────────────
+  const check17Details: string[] = [];
+  const snapshotCounts: string[] = [];
+  for (const { snapshot, source } of QUIZ_SNAPSHOT_TABLES) {
+    const exists = await db.query(`SELECT to_regclass($1) AS reg`, [`public.${snapshot}`]);
+    if (!exists.rows[0]?.reg) { check17Details.push(`${snapshot}: missing`); continue; }
+    // Identifiers are constants above, never user input.
+    const r = await db.query<{ n: number; gone: number }>(
+      `SELECT COUNT(*)::int AS n,
+              COUNT(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM ${source} live WHERE live.id = s.id))::int AS gone
+       FROM ${snapshot} s`
+    );
+    snapshotCounts.push(`${source} ${r.rows[0].n}`);
+    if (r.rows[0].n === 0) check17Details.push(`${snapshot}: empty`);
+    if (r.rows[0].gone > 0) check17Details.push(`${snapshot}: ${r.rows[0].gone} row(s) no longer in ${source}`);
+  }
+  checks.push({
+    id: 17,
+    name: 'Quiz content snapshot of 2026-10-08 present, every snapshot row still live',
+    pass: check17Details.length === 0,
+    expected: '4 non-empty snapshot tables; every snapshot id still exists in its source table',
+    actual: check17Details.length === 0 ? `snapshot rows: ${snapshotCounts.join(', ')}` : `${check17Details.length} problem(s)`,
+    details: check17Details.length ? check17Details : undefined,
   });
 
   const allPass = checks.every(c => c.pass);

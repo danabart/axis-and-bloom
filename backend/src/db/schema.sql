@@ -2820,31 +2820,8 @@ UNION ALL
   JOIN coffees      c  ON c.id  = cfe.coffee_id
   JOIN cupping_note cn ON cn.id = cfd.cupping_note_id;
 
--- Full quiz scoring matrix — one row per (question, answer, archetype)
--- Shows all three scoring levels: question weight, answer weight, archetype-specific score.
--- Lambda formula: q_weight × ans_weight × ans_score = effective contribution per archetype.
-DROP VIEW IF EXISTS v_quiz_scoring_matrix;
-CREATE VIEW v_quiz_scoring_matrix AS
-SELECT
-  qz.version                                                        AS quiz_version,
-  qt.name                                                           AS quiz_type,
-  q.q_number,
-  q.q_text,
-  ROW_NUMBER() OVER (PARTITION BY q.id ORDER BY a.id)              AS a_number,
-  a.answer_text,
-  q.weight                                                          AS q_weight,
-  a.weight                                                          AS ans_weight,
-  ar_ans.name                                                       AS resulting_archetype,
-  ar_score.name                                                     AS scored_archetype,
-  aas.score                                                         AS ans_score
-FROM quiz_answer a
-JOIN quiz_question q    ON q.id  = a.question_id
-JOIN quiz      qz      ON qz.id = q.quiz_id
-LEFT JOIN quiz_type qt ON qt.id = qz.quiz_type_id
-LEFT JOIN coffee_archetype ar_ans   ON ar_ans.id = a.resulting_archetype_id
-LEFT JOIN quiz_answer_archetype_score aas ON aas.answer_id = a.id
-LEFT JOIN coffee_archetype ar_score ON ar_score.id = aas.archetype_id
-ORDER BY quiz_version, q_number, a_number, ans_score DESC NULLS LAST;
+-- v_quiz_scoring_matrix lives below the V7 seed (Prompt 4A, 2026-10-08):
+-- it reads the SCD2 columns that section adds.
 
 -- QUIZ V4 — "Instinct" edition (6 questions, weighted scoring, veto cascade)
 DO $v4$
@@ -2964,22 +2941,307 @@ END $v4$;
 -- Drift prevention (Quiz Content Drift Prevention, 2026-08-11): quiz_answer
 -- carries a stable, version-scoped answer_code (v7_q1_a, v7_branch_fruity_stay,
 -- etc.) so scoring survives a copy edit. The block below is a re-asserting
--- upsert, not a one-time seed — it runs on every application of this file
+-- seed, not a one-time seed — it runs on every application of this file
 -- (every boot, see index.ts's start()) and converges DB content to this
--- file's content every time, keyed on answer_code. It never deletes and
--- reinserts quiz_answer rows — answer UUIDs are load-bearing (referenced by
--- quiz_answer_archetype_score and, as of the AI-call-removal change, by
--- persisted session answerIds) — only UPDATEs existing rows in place.
--- Retired quiz versions (v5/v6) are untouched: every write below is scoped to
+-- file's content every time, keyed on answer_code. Since Prompt 4A
+-- (2026-10-08) it converges by VERSIONS, not by UPDATE: a changed question or
+-- answer is closed and a new row inserted (SCD Type 2, see the block just
+-- below). Answer UUIDs are load-bearing (referenced by
+-- quiz_answer_archetype_score and by persisted session answerIds), so a
+-- row's content is never changed and no row is ever deleted.
+--
+-- HOW TO CHANGE QUIZ COPY: edit the value on the code's line in the lists
+-- below and deploy. The next boot closes the old row and inserts a new
+-- version (new id, same answer_code, score rows copied); /api/quiz serves
+-- the new id, old sessions keep the id and the words they saw. Never UPDATE
+-- quiz content in Cloud SQL (the triggers refuse it). Leave the adoption
+-- list (Change 2) alone: it holds historical text on purpose.
+-- Retired quiz versions (v2-v4) are untouched: every write below is scoped to
 -- the v7 quiz tree, either by explicit quiz_id or by answer_code.
 -- ─────────────────────────────────────────────
 
 -- Change 1 — stable answer_code. Only the active v7 quiz and its two branch
 -- quizzes ever get one; retired v5/v6 rows keep answer_code IS NULL, which
 -- this partial unique index tolerates (many nulls, no conflict).
+-- The original index, quiz_answer_code_unique (answer_code WHERE answer_code
+-- IS NOT NULL), is replaced by quiz_answer_code_current_unique below (Prompt
+-- 4A, 2026-10-08): once answers have versions, several rows share a code and
+-- only the current one is unique. It is dropped there, not recreated here.
 ALTER TABLE quiz_answer ADD COLUMN IF NOT EXISTS answer_code TEXT;
-CREATE UNIQUE INDEX IF NOT EXISTS quiz_answer_code_unique
-  ON quiz_answer (answer_code) WHERE answer_code IS NOT NULL;
+
+-- ═════════════════════════════════════════════════════════════════════════
+-- QUIZ CONTENT IS SCD TYPE 2 (Prompt 4A, 2026-10-08, decided by Dana)
+-- backend/src/features/quiz_interpretation_v2/CLAUDE_CODE_PROMPT_4A_QUIZ_CONTENT_SCD2.md
+--
+-- quiz_question and quiz_answer keep every version of their content. A change
+-- closes the current row (valid_to = now(), is_current = false) and inserts a
+-- new row with a new id. Nothing is updated in place, nothing is deleted:
+-- sessions store answer ids, so an old id must keep pointing at the words the
+-- person actually saw and keep its score rows forever. Business keys:
+-- question = (quiz_id, q_number), answer = answer_code. The only writer is
+-- the seed below, running as the owner; the request pool (ab_app) has SELECT
+-- only (end of this file) and the triggers here refuse in-place edits and
+-- deletes for every role.
+-- ═════════════════════════════════════════════════════════════════════════
+
+-- Part A — snapshot of the pre-SCD2 quiz content. IF NOT EXISTS: only the
+-- first boot's copy is ever kept (the production-minted ids are the part this
+-- file cannot rebuild). Never written again; ab_app gets SELECT only.
+CREATE TABLE IF NOT EXISTS quiz_backup_20261008_quiz                        AS TABLE quiz;
+CREATE TABLE IF NOT EXISTS quiz_backup_20261008_quiz_question               AS TABLE quiz_question;
+CREATE TABLE IF NOT EXISTS quiz_backup_20261008_quiz_answer                 AS TABLE quiz_answer;
+CREATE TABLE IF NOT EXISTS quiz_backup_20261008_quiz_answer_archetype_score AS TABLE quiz_answer_archetype_score;
+
+-- Part B — SCD2 columns. valid_from is added nullable, filled once from the
+-- owning quiz's created_at, then made NOT NULL DEFAULT now(): the fill only
+-- ever matches rows on the boot that adds the column (a second boot is a
+-- no-op). is_current defaults to true for every existing row, retired v2-v4
+-- content included (quiz-level retirement stays quiz.is_active).
+ALTER TABLE quiz_question ADD COLUMN IF NOT EXISTS valid_from TIMESTAMPTZ;
+ALTER TABLE quiz_question ADD COLUMN IF NOT EXISTS valid_to   TIMESTAMPTZ;
+ALTER TABLE quiz_question ADD COLUMN IF NOT EXISTS is_current BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE quiz_answer   ADD COLUMN IF NOT EXISTS valid_from TIMESTAMPTZ;
+ALTER TABLE quiz_answer   ADD COLUMN IF NOT EXISTS valid_to   TIMESTAMPTZ;
+ALTER TABLE quiz_answer   ADD COLUMN IF NOT EXISTS is_current BOOLEAN NOT NULL DEFAULT true;
+-- Display position of an answer inside its question (replaces ORDER BY a.id).
+ALTER TABLE quiz_answer   ADD COLUMN IF NOT EXISTS sort_order SMALLINT;
+
+UPDATE quiz_question qq
+SET valid_from = COALESCE((SELECT qz.created_at FROM quiz qz WHERE qz.id = qq.quiz_id), now())
+WHERE qq.valid_from IS NULL;
+UPDATE quiz_answer a
+SET valid_from = COALESCE((SELECT qz.created_at FROM quiz_question qq JOIN quiz qz ON qz.id = qq.quiz_id
+                           WHERE qq.id = a.question_id), now())
+WHERE a.valid_from IS NULL;
+ALTER TABLE quiz_question ALTER COLUMN valid_from SET DEFAULT now();
+ALTER TABLE quiz_question ALTER COLUMN valid_from SET NOT NULL;
+ALTER TABLE quiz_answer   ALTER COLUMN valid_from SET DEFAULT now();
+ALTER TABLE quiz_answer   ALTER COLUMN valid_from SET NOT NULL;
+
+-- One-time fill: rank by id inside the question, which is exactly the order
+-- the quiz was served in before this change (ORDER BY a.id), so nothing moves
+-- on screen. Matches nothing once every row has one (the seed below always
+-- supplies sort_order for the v7 tree).
+UPDATE quiz_answer a
+SET sort_order = r.rn
+FROM (SELECT id, row_number() OVER (PARTITION BY question_id ORDER BY id) AS rn FROM quiz_answer) r
+WHERE r.id = a.id AND a.sort_order IS NULL;
+
+-- Known limit (not fixed, on purpose): v7_q3_a, v7_q3_b, v7_q6_b and the Q3
+-- stem were edited in place on 2026-08-15, before this existed. Sessions
+-- before that date saw the earlier wording; it survives only in the seed's
+-- adoption list below. No historical rows are fabricated for it.
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quiz_question_scd2_current_check') THEN
+    ALTER TABLE quiz_question ADD CONSTRAINT quiz_question_scd2_current_check
+      CHECK ((is_current AND valid_to IS NULL) OR (NOT is_current AND valid_to IS NOT NULL));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quiz_answer_scd2_current_check') THEN
+    ALTER TABLE quiz_answer ADD CONSTRAINT quiz_answer_scd2_current_check
+      CHECK ((is_current AND valid_to IS NULL) OR (NOT is_current AND valid_to IS NOT NULL));
+  END IF;
+END $$;
+
+-- Exactly one current version per business key.
+CREATE UNIQUE INDEX IF NOT EXISTS quiz_question_current_unique
+  ON quiz_question (quiz_id, q_number) WHERE is_current;
+DROP INDEX IF EXISTS quiz_answer_code_unique;
+CREATE UNIQUE INDEX IF NOT EXISTS quiz_answer_code_current_unique
+  ON quiz_answer (answer_code) WHERE answer_code IS NOT NULL AND is_current;
+
+-- Part E — the database refuses in-place edits and deletes, for every role.
+-- Created after the Part B fill above, so the fill never meets them; the seed
+-- below runs under them from the first boot. UPDATE is allowed only to retire
+-- a current row (valid_to, is_current), plus filling answer_code or
+-- sort_order where it is still NULL (the adoption UPDATE and the Part B fill).
+-- A retired row never changes again.
+CREATE OR REPLACE FUNCTION quiz_content_guard() RETURNS trigger
+LANGUAGE plpgsql AS $fn$
+DECLARE
+  o JSONB;
+  n JSONB;
+BEGIN
+  IF TG_OP IN ('DELETE', 'TRUNCATE') THEN
+    RAISE EXCEPTION 'quiz content is never deleted (% on %): retire the row instead (valid_to, is_current = false)', TG_OP, TG_TABLE_NAME;
+  END IF;
+  IF TG_TABLE_NAME = 'quiz_answer_archetype_score' THEN
+    RAISE EXCEPTION 'quiz_answer_archetype_score rows are never updated: a different score is a new answer version';
+  END IF;
+  IF NOT OLD.is_current THEN
+    RAISE EXCEPTION '% % is a retired version and cannot change', TG_TABLE_NAME, OLD.id;
+  END IF;
+  o := to_jsonb(OLD) - 'valid_to' - 'is_current';
+  n := to_jsonb(NEW) - 'valid_to' - 'is_current';
+  IF TG_TABLE_NAME = 'quiz_answer' THEN
+    IF o->>'answer_code' IS NULL THEN o := o - 'answer_code'; n := n - 'answer_code'; END IF;
+    IF o->>'sort_order'  IS NULL THEN o := o - 'sort_order';  n := n - 'sort_order';  END IF;
+  END IF;
+  IF o IS DISTINCT FROM n THEN
+    RAISE EXCEPTION '% % cannot be edited in place: quiz content is SCD Type 2, close the row and insert a new version', TG_TABLE_NAME, OLD.id;
+  END IF;
+  RETURN NEW;
+END $fn$;
+
+CREATE OR REPLACE TRIGGER quiz_question_scd2_guard
+  BEFORE UPDATE OR DELETE ON quiz_question FOR EACH ROW EXECUTE FUNCTION quiz_content_guard();
+CREATE OR REPLACE TRIGGER quiz_question_no_truncate
+  BEFORE TRUNCATE ON quiz_question FOR EACH STATEMENT EXECUTE FUNCTION quiz_content_guard();
+CREATE OR REPLACE TRIGGER quiz_answer_scd2_guard
+  BEFORE UPDATE OR DELETE ON quiz_answer FOR EACH ROW EXECUTE FUNCTION quiz_content_guard();
+CREATE OR REPLACE TRIGGER quiz_answer_no_truncate
+  BEFORE TRUNCATE ON quiz_answer FOR EACH STATEMENT EXECUTE FUNCTION quiz_content_guard();
+CREATE OR REPLACE TRIGGER quiz_answer_archetype_score_guard
+  BEFORE UPDATE OR DELETE ON quiz_answer_archetype_score FOR EACH ROW EXECUTE FUNCTION quiz_content_guard();
+CREATE OR REPLACE TRIGGER quiz_answer_archetype_score_no_truncate
+  BEFORE TRUNCATE ON quiz_answer_archetype_score FOR EACH STATEMENT EXECUTE FUNCTION quiz_content_guard();
+
+-- Part C — the seed asserts versions instead of overwriting. Each function
+-- compares the wanted content with the current row of the business key:
+-- none → INSERT; identical → nothing; different → close + INSERT a new
+-- version. Against unchanged content they insert nothing and close nothing.
+
+-- Close a current answer and insert its successor with the given content.
+-- Score rows are copied to the new id (one archetype's score replaced when
+-- p_score_archetype_id is given); the old row keeps its own score rows.
+CREATE OR REPLACE FUNCTION quiz_answer_new_version(
+  p_old_id UUID, p_question_id UUID, p_answer_text TEXT, p_resulting_archetype_id UUID,
+  p_is_experimental_gate BOOLEAN, p_sort_order INT,
+  p_score_archetype_id UUID DEFAULT NULL, p_score NUMERIC DEFAULT NULL
+) RETURNS UUID
+LANGUAGE plpgsql AS $fn$
+DECLARE
+  prev quiz_answer%ROWTYPE;
+  v_new_id UUID;
+BEGIN
+  SELECT * INTO prev FROM quiz_answer WHERE id = p_old_id AND is_current;
+  IF NOT FOUND THEN RAISE EXCEPTION 'quiz_answer % is not a current row', p_old_id; END IF;
+
+  UPDATE quiz_answer SET valid_to = now(), is_current = false WHERE id = prev.id;
+  INSERT INTO quiz_answer (question_id, answer_text, next_question_id, resulting_archetype_id, vector_impact,
+                           weight, is_experimental_gate, answer_code, sort_order)
+  VALUES (p_question_id, p_answer_text, prev.next_question_id, p_resulting_archetype_id, prev.vector_impact,
+          prev.weight, p_is_experimental_gate, prev.answer_code, p_sort_order)
+  RETURNING id INTO v_new_id;
+
+  INSERT INTO quiz_answer_archetype_score (answer_id, question_id, archetype_id, score)
+  SELECT v_new_id, p_question_id, s.archetype_id,
+         CASE WHEN p_score IS NOT NULL AND s.archetype_id IS NOT DISTINCT FROM p_score_archetype_id
+              THEN p_score ELSE s.score END
+  FROM quiz_answer_archetype_score s WHERE s.answer_id = prev.id;
+  IF p_score IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM quiz_answer_archetype_score
+    WHERE answer_id = v_new_id AND archetype_id IS NOT DISTINCT FROM p_score_archetype_id
+  ) THEN
+    INSERT INTO quiz_answer_archetype_score (answer_id, question_id, archetype_id, score)
+    VALUES (v_new_id, p_question_id, p_score_archetype_id, p_score);
+  END IF;
+  RETURN v_new_id;
+END $fn$;
+
+-- Assert a question. A changed question is re-versioned AND so is every
+-- current answer of it (same content, same code, same sort_order, score rows
+-- copied), so an old answer id always leads to the stem the person saw.
+CREATE OR REPLACE FUNCTION quiz_assert_question(p_quiz_id UUID, p_q_number INT, p_q_text TEXT, p_weight NUMERIC)
+RETURNS UUID
+LANGUAGE plpgsql AS $fn$
+DECLARE
+  cur quiz_question%ROWTYPE;
+  ans quiz_answer%ROWTYPE;
+  v_new_id UUID;
+BEGIN
+  SELECT * INTO cur FROM quiz_question WHERE quiz_id = p_quiz_id AND q_number = p_q_number AND is_current;
+  IF FOUND AND cur.q_text = p_q_text AND cur.weight IS NOT DISTINCT FROM p_weight THEN
+    RETURN cur.id;
+  END IF;
+  IF FOUND THEN
+    UPDATE quiz_question SET valid_to = now(), is_current = false WHERE id = cur.id;
+  END IF;
+  INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
+  VALUES (p_quiz_id, p_q_number, p_q_text, p_weight)
+  RETURNING id INTO v_new_id;
+  IF cur.id IS NOT NULL THEN
+    FOR ans IN SELECT * FROM quiz_answer WHERE question_id = cur.id AND is_current ORDER BY sort_order, id LOOP
+      PERFORM quiz_answer_new_version(ans.id, v_new_id, ans.answer_text, ans.resulting_archetype_id,
+                                      ans.is_experimental_gate, ans.sort_order);
+    END LOOP;
+  END IF;
+  RETURN v_new_id;
+END $fn$;
+
+-- Assert an answer, keyed on answer_code. A sort_order change alone is also
+-- a new version.
+CREATE OR REPLACE FUNCTION quiz_assert_answer(
+  p_answer_code TEXT, p_question_id UUID, p_answer_text TEXT, p_resulting_archetype_id UUID,
+  p_is_experimental_gate BOOLEAN, p_sort_order INT
+) RETURNS UUID
+LANGUAGE plpgsql AS $fn$
+DECLARE
+  cur quiz_answer%ROWTYPE;
+  v_new_id UUID;
+BEGIN
+  SELECT * INTO cur FROM quiz_answer WHERE answer_code = p_answer_code AND is_current;
+  IF NOT FOUND THEN
+    INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id, is_experimental_gate, answer_code, sort_order)
+    VALUES (p_question_id, p_answer_text, p_resulting_archetype_id, p_is_experimental_gate, p_answer_code, p_sort_order)
+    RETURNING id INTO v_new_id;
+    RETURN v_new_id;
+  END IF;
+  IF cur.question_id IS NOT DISTINCT FROM p_question_id
+     AND cur.answer_text = p_answer_text
+     AND cur.resulting_archetype_id IS NOT DISTINCT FROM p_resulting_archetype_id
+     AND cur.is_experimental_gate IS NOT DISTINCT FROM p_is_experimental_gate
+     AND cur.sort_order IS NOT DISTINCT FROM p_sort_order THEN
+    RETURN cur.id;
+  END IF;
+  RETURN quiz_answer_new_version(cur.id, p_question_id, p_answer_text, p_resulting_archetype_id,
+                                 p_is_experimental_gate, p_sort_order);
+END $fn$;
+
+-- Assert one score row of the CURRENT answer for a code. Missing → INSERT.
+-- Same score → nothing. A different score → a new answer version carrying
+-- the new score (score rows are never updated). Score rows the list does not
+-- name are left alone and reported by quizIntegrity.ts (checks 4 and 7).
+CREATE OR REPLACE FUNCTION quiz_assert_answer_score(p_answer_code TEXT, p_archetype_id UUID, p_score NUMERIC)
+RETURNS UUID
+LANGUAGE plpgsql AS $fn$
+DECLARE
+  cur quiz_answer%ROWTYPE;
+  v_score NUMERIC;
+BEGIN
+  SELECT * INTO cur FROM quiz_answer WHERE answer_code = p_answer_code AND is_current;
+  IF NOT FOUND THEN RETURN NULL; END IF;
+  SELECT score INTO v_score FROM quiz_answer_archetype_score
+  WHERE answer_id = cur.id AND archetype_id IS NOT DISTINCT FROM p_archetype_id;
+  IF NOT FOUND THEN
+    INSERT INTO quiz_answer_archetype_score (answer_id, question_id, archetype_id, score)
+    VALUES (cur.id, cur.question_id, p_archetype_id, p_score);
+    RETURN cur.id;
+  END IF;
+  IF v_score = p_score THEN RETURN cur.id; END IF;
+  RETURN quiz_answer_new_version(cur.id, cur.question_id, cur.answer_text, cur.resulting_archetype_id,
+                                 cur.is_experimental_gate, cur.sort_order, p_archetype_id, p_score);
+END $fn$;
+
+-- Retiring an answer is an explicit seed line, never a side effect of a code
+-- disappearing from the list: close the current row, no successor. Its score
+-- rows stay. Nothing calls this as of Prompt 4A.
+CREATE OR REPLACE FUNCTION quiz_retire_answer(p_answer_code TEXT) RETURNS UUID
+LANGUAGE plpgsql AS $fn$
+DECLARE
+  v_id UUID;
+BEGIN
+  UPDATE quiz_answer SET valid_to = now(), is_current = false
+  WHERE answer_code = p_answer_code AND is_current
+  RETURNING id INTO v_id;
+  RETURN v_id;
+END $fn$;
+
+REVOKE ALL ON FUNCTION quiz_answer_new_version(UUID, UUID, TEXT, UUID, BOOLEAN, INT, UUID, NUMERIC) FROM PUBLIC;
+REVOKE ALL ON FUNCTION quiz_assert_question(UUID, INT, TEXT, NUMERIC) FROM PUBLIC;
+REVOKE ALL ON FUNCTION quiz_assert_answer(TEXT, UUID, TEXT, UUID, BOOLEAN, INT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION quiz_assert_answer_score(TEXT, UUID, NUMERIC) FROM PUBLIC;
+REVOKE ALL ON FUNCTION quiz_retire_answer(TEXT) FROM PUBLIC;
 
 DO $v7$
 DECLARE
@@ -3052,79 +3314,20 @@ BEGIN
     WHERE id = v_earthy_bq_id;
   END IF;
 
-  -- ── Question rows — create if absent; always re-assert q_text/weight,
-  -- keyed on (quiz_id, q_number). ───────────────────────────────────────────
-  SELECT id INTO v_q1_id FROM quiz_question WHERE quiz_id = v_quiz_id AND q_number = 1;
-  IF v_q1_id IS NULL THEN
-    INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
-      VALUES (v_quiz_id, 1, 'How would you describe your relationship with coffee?', 1)
-      RETURNING id INTO v_q1_id;
-  ELSE
-    UPDATE quiz_question SET q_text = 'How would you describe your relationship with coffee?', weight = 1 WHERE id = v_q1_id;
-  END IF;
+  -- ── Question rows — asserted as versions, keyed on (quiz_id, q_number)
+  -- (Prompt 4A): no current row → insert; same text and weight → nothing;
+  -- different → the current row is closed, a new version is inserted and its
+  -- current answers are re-versioned onto it (quiz_assert_question). The
+  -- returned id is always the current question. ─────────────────────────────
+  v_q1_id := quiz_assert_question(v_quiz_id, 1, 'How would you describe your relationship with coffee?', 1);
+  v_q2_id := quiz_assert_question(v_quiz_id, 2, 'When you finish a really good cup of coffee, what made it good?', 2);
+  v_q3_id := quiz_assert_question(v_quiz_id, 3, 'When someone gives you a cup of black coffee, what might be your first reaction?', 1);
+  v_q4_id := quiz_assert_question(v_quiz_id, 4, 'Which of these would bother you most about a cup of coffee?', 2);
+  v_q5_id := quiz_assert_question(v_quiz_id, 5, 'Someone hands you a coffee that''s a little more bitter than expected. What''s your honest reaction?', 3);
+  v_q6_id := quiz_assert_question(v_quiz_id, 6, 'Someone places a small treat next to your coffee. Without thinking, which do you grab?', 0);
 
-  SELECT id INTO v_q2_id FROM quiz_question WHERE quiz_id = v_quiz_id AND q_number = 2;
-  IF v_q2_id IS NULL THEN
-    INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
-      VALUES (v_quiz_id, 2, 'When you finish a really good cup of coffee, what made it good?', 2)
-      RETURNING id INTO v_q2_id;
-  ELSE
-    UPDATE quiz_question SET q_text = 'When you finish a really good cup of coffee, what made it good?', weight = 2 WHERE id = v_q2_id;
-  END IF;
-
-  SELECT id INTO v_q3_id FROM quiz_question WHERE quiz_id = v_quiz_id AND q_number = 3;
-  IF v_q3_id IS NULL THEN
-    INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
-      VALUES (v_quiz_id, 3, 'When someone gives you a cup of black coffee, what might be your first reaction?', 1)
-      RETURNING id INTO v_q3_id;
-  ELSE
-    UPDATE quiz_question SET q_text = 'When someone gives you a cup of black coffee, what might be your first reaction?', weight = 1 WHERE id = v_q3_id;
-  END IF;
-
-  SELECT id INTO v_q4_id FROM quiz_question WHERE quiz_id = v_quiz_id AND q_number = 4;
-  IF v_q4_id IS NULL THEN
-    INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
-      VALUES (v_quiz_id, 4, 'Which of these would bother you most about a cup of coffee?', 2)
-      RETURNING id INTO v_q4_id;
-  ELSE
-    UPDATE quiz_question SET q_text = 'Which of these would bother you most about a cup of coffee?', weight = 2 WHERE id = v_q4_id;
-  END IF;
-
-  SELECT id INTO v_q5_id FROM quiz_question WHERE quiz_id = v_quiz_id AND q_number = 5;
-  IF v_q5_id IS NULL THEN
-    INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
-      VALUES (v_quiz_id, 5, 'Someone hands you a coffee that''s a little more bitter than expected. What''s your honest reaction?', 3)
-      RETURNING id INTO v_q5_id;
-  ELSE
-    UPDATE quiz_question SET q_text = 'Someone hands you a coffee that''s a little more bitter than expected. What''s your honest reaction?', weight = 3 WHERE id = v_q5_id;
-  END IF;
-
-  SELECT id INTO v_q6_id FROM quiz_question WHERE quiz_id = v_quiz_id AND q_number = 6;
-  IF v_q6_id IS NULL THEN
-    INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
-      VALUES (v_quiz_id, 6, 'Someone places a small treat next to your coffee. Without thinking, which do you grab?', 0)
-      RETURNING id INTO v_q6_id;
-  ELSE
-    UPDATE quiz_question SET q_text = 'Someone places a small treat next to your coffee. Without thinking, which do you grab?', weight = 0 WHERE id = v_q6_id;
-  END IF;
-
-  SELECT id INTO v_fbq1_id FROM quiz_question WHERE quiz_id = v_floral_bq_id AND q_number = 1;
-  IF v_fbq1_id IS NULL THEN
-    INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
-      VALUES (v_floral_bq_id, 1, 'One last thing. When coffee is really at its best for you, which is closer?', 1)
-      RETURNING id INTO v_fbq1_id;
-  ELSE
-    UPDATE quiz_question SET q_text = 'One last thing. When coffee is really at its best for you, which is closer?', weight = 1 WHERE id = v_fbq1_id;
-  END IF;
-
-  SELECT id INTO v_ebq1_id FROM quiz_question WHERE quiz_id = v_earthy_bq_id AND q_number = 1;
-  IF v_ebq1_id IS NULL THEN
-    INSERT INTO quiz_question (quiz_id, q_number, q_text, weight)
-      VALUES (v_earthy_bq_id, 1, 'Your profile is rich and bold. How do you like to take it?', 1)
-      RETURNING id INTO v_ebq1_id;
-  ELSE
-    UPDATE quiz_question SET q_text = 'Your profile is rich and bold. How do you like to take it?', weight = 1 WHERE id = v_ebq1_id;
-  END IF;
+  v_fbq1_id := quiz_assert_question(v_floral_bq_id, 1, 'One last thing. When coffee is really at its best for you, which is closer?', 1);
+  v_ebq1_id := quiz_assert_question(v_earthy_bq_id, 1, 'Your profile is rich and bold. How do you like to take it?', 1);
 
   -- ── Change 2 — backfill: adopt the code onto an existing row that matches
   -- by exact (question_id, answer_text) and doesn't have one yet. Runs before
@@ -3168,54 +3371,53 @@ BEGIN
     AND a.answer_text = coded.answer_text
     AND a.answer_code IS NULL;
 
-  -- ── Change 3 — content sync, keyed on answer_code. UPDATE in place if the
-  -- code already exists (via backfill above or a prior run); INSERT a new row
-  -- only if the code has no row at all anywhere (Change 3.4 — genuinely new
-  -- content, not yet in the DB). Never delete-and-reinsert — this is the hard
-  -- rule the whole prompt is built around.
+  -- ── Change 3 — content, asserted as versions keyed on answer_code (Prompt
+  -- 4A, quiz_assert_answer): no current row for the code → insert; identical
+  -- → nothing; any difference (text, archetype, gate, question, sort_order) →
+  -- the current row is closed and a new version inserted with its score rows
+  -- copied. Never updated in place, never deleted. A copy edit is a new value
+  -- on its line here. A code removed from this list is NOT retired; retiring
+  -- is an explicit quiz_retire_answer('<code>') line. The last column,
+  -- sort_order, is the display position inside the question, taken from the
+  -- production order on 2026-10-09 (which was ORDER BY id).
   FOR rec IN
     SELECT * FROM (VALUES
-      ('v7_q1_a', v_q1_id, 'It''s a daily ritual. I''m particular about it.',                v_choc_id,  FALSE),
-      ('v7_q1_b', v_q1_id, 'It''s a reliable habit. I just like having it.',                 v_bal_id,   FALSE),
-      ('v7_q1_c', v_q1_id, 'It''s something I''m still discovering. I''m curious about it.', v_fruit_id, FALSE),
-      ('v7_q2_a', v_q2_id, 'It was strong and satisfying — I felt it.',                              v_choc_id,  FALSE),
-      ('v7_q2_b', v_q2_id, 'It was smooth and easy the whole way through — nothing got in the way.', v_bal_id,   FALSE),
-      ('v7_q2_c', v_q2_id, 'It felt alive — bright and changing. Every sip was a little different.', v_fruit_id, FALSE),
-      ('v7_q3_a', v_q3_id, 'I''d take a sip first, then decide if I want to add anything to make it even richer.', v_choc_id,  FALSE),
-      ('v7_q3_b', v_q3_id, 'I''d probably add milk or something to smooth it before trying it.',          v_bal_id,   FALSE),
-      ('v7_q3_c', v_q3_id, 'Interesting… what flavors am I getting here?',                                v_fruit_id, TRUE),
-      ('v7_q4_a', v_q4_id, 'It has no bitterness or intensity.', v_choc_id,  FALSE),
-      ('v7_q4_b', v_q4_id, 'It''s too bitter or too intense.',   v_bal_id,   FALSE),
-      ('v7_q4_c', v_q4_id, 'Every sip tastes exactly the same.', v_fruit_id, FALSE),
-      ('v7_q5_a', v_q5_id, 'I don''t mind. Actually I kind of like it. It tastes serious.',           v_choc_id,  FALSE),
-      ('v7_q5_b', v_q5_id, 'I''d rather have something gentler and smoother.',                         v_bal_id,   FALSE),
-      ('v7_q5_c', v_q5_id, 'It feels burnt to me. I''d rather have something fresher or more alive.', v_fruit_id, FALSE),
-      ('v7_q6_a', v_q6_id, 'Something rich and comforting. Dark chocolate, roasted nuts, a warm brownie.', v_choc_id,  FALSE),
-      ('v7_q6_b', v_q6_id, 'Something soft and sweet. A vanilla or a caramel biscuit.',          v_bal_id,   FALSE),
-      ('v7_q6_c', v_q6_id, 'Something fresh and lively. A green apple, fresh berries, citrus.',            v_fruit_id, FALSE),
-      ('v7_branch_fruity_stay',   v_fbq1_id, 'It''s complex and alive. A lot happening — I want to explore every sip.',          v_fruit_id,  FALSE),
-      ('v7_branch_fruity_floral', v_fbq1_id, 'It''s so light and delicate it barely feels like coffee. Almost like drinking tea.', v_floral_id, FALSE),
-      ('v7_branch_cn_stay',       v_ebq1_id, 'Rich and comforting. Coffee that feels like a reward at the end of the day.',        v_choc_id,   FALSE),
-      ('v7_branch_cn_earthy',     v_ebq1_id, 'Deep and intense. Complex, almost challenging. The more serious the better.',        v_earthy_id, FALSE)
-    ) AS t(answer_code, question_id, answer_text, resulting_archetype_id, is_experimental_gate)
+      ('v7_q1_a', v_q1_id, 'It''s a daily ritual. I''m particular about it.',                v_choc_id,  FALSE, 2),
+      ('v7_q1_b', v_q1_id, 'It''s a reliable habit. I just like having it.',                 v_bal_id,   FALSE, 1),
+      ('v7_q1_c', v_q1_id, 'It''s something I''m still discovering. I''m curious about it.', v_fruit_id, FALSE, 3),
+      ('v7_q2_a', v_q2_id, 'It was strong and satisfying — I felt it.',                              v_choc_id,  FALSE, 2),
+      ('v7_q2_b', v_q2_id, 'It was smooth and easy the whole way through — nothing got in the way.', v_bal_id,   FALSE, 3),
+      ('v7_q2_c', v_q2_id, 'It felt alive — bright and changing. Every sip was a little different.', v_fruit_id, FALSE, 1),
+      ('v7_q3_a', v_q3_id, 'I''d take a sip first, then decide if I want to add anything to make it even richer.', v_choc_id,  FALSE, 2),
+      ('v7_q3_b', v_q3_id, 'I''d probably add milk or something to smooth it before trying it.',          v_bal_id,   FALSE, 1),
+      ('v7_q3_c', v_q3_id, 'Interesting… what flavors am I getting here?',                                v_fruit_id, TRUE,  3),
+      ('v7_q4_a', v_q4_id, 'It has no bitterness or intensity.', v_choc_id,  FALSE, 3),
+      ('v7_q4_b', v_q4_id, 'It''s too bitter or too intense.',   v_bal_id,   FALSE, 1),
+      ('v7_q4_c', v_q4_id, 'Every sip tastes exactly the same.', v_fruit_id, FALSE, 2),
+      ('v7_q5_a', v_q5_id, 'I don''t mind. Actually I kind of like it. It tastes serious.',           v_choc_id,  FALSE, 1),
+      ('v7_q5_b', v_q5_id, 'I''d rather have something gentler and smoother.',                         v_bal_id,   FALSE, 3),
+      ('v7_q5_c', v_q5_id, 'It feels burnt to me. I''d rather have something fresher or more alive.', v_fruit_id, FALSE, 2),
+      ('v7_q6_a', v_q6_id, 'Something rich and comforting. Dark chocolate, roasted nuts, a warm brownie.', v_choc_id,  FALSE, 1),
+      ('v7_q6_b', v_q6_id, 'Something soft and sweet. A vanilla or a caramel biscuit.',          v_bal_id,   FALSE, 3),
+      ('v7_q6_c', v_q6_id, 'Something fresh and lively. A green apple, fresh berries, citrus.',            v_fruit_id, FALSE, 2),
+      ('v7_branch_fruity_stay',   v_fbq1_id, 'It''s complex and alive. A lot happening — I want to explore every sip.',          v_fruit_id,  FALSE, 1),
+      ('v7_branch_fruity_floral', v_fbq1_id, 'It''s so light and delicate it barely feels like coffee. Almost like drinking tea.', v_floral_id, FALSE, 2),
+      ('v7_branch_cn_stay',       v_ebq1_id, 'Rich and comforting. Coffee that feels like a reward at the end of the day.',        v_choc_id,   FALSE, 1),
+      ('v7_branch_cn_earthy',     v_ebq1_id, 'Deep and intense. Complex, almost challenging. The more serious the better.',        v_earthy_id, FALSE, 2)
+    ) AS t(answer_code, question_id, answer_text, resulting_archetype_id, is_experimental_gate, sort_order)
   LOOP
-    IF EXISTS (SELECT 1 FROM quiz_answer WHERE answer_code = rec.answer_code) THEN
-      UPDATE quiz_answer
-      SET answer_text = rec.answer_text,
-          resulting_archetype_id = rec.resulting_archetype_id,
-          is_experimental_gate = rec.is_experimental_gate
-      WHERE answer_code = rec.answer_code;
-    ELSE
-      INSERT INTO quiz_answer (question_id, answer_text, resulting_archetype_id, is_experimental_gate, answer_code)
-      VALUES (rec.question_id, rec.answer_text, rec.resulting_archetype_id, rec.is_experimental_gate, rec.answer_code);
-    END IF;
+    PERFORM quiz_assert_answer(rec.answer_code, rec.question_id, rec.answer_text, rec.resulting_archetype_id,
+                               rec.is_experimental_gate, rec.sort_order);
   END LOOP;
 
-  -- ── Score rows — Q1–Q5 only, one per answer, upserted on the existing
-  -- UNIQUE (answer_id, archetype_id) constraint, keyed via answer_code rather
-  -- than answer_text so an in-place copy edit never orphans a score again.
-  -- Any OTHER score row the file doesn't list for that answer is deleted —
-  -- this is what makes the sync self-healing against a stray hand-added row.
+  -- ── Score rows — Q1–Q5 only, one per answer, keyed via answer_code and
+  -- resolved to the CURRENT answer row (quiz_assert_answer_score): missing →
+  -- insert; same → nothing; a different score → a new answer version with
+  -- the new score row (score rows are never updated). Old answer versions
+  -- keep their score rows forever. Prompt 4A removed the two DELETEs that
+  -- used to run here: a stray score row (a row this list does not name, or
+  -- any score row on a Q6 or branch answer) is now reported by
+  -- quizIntegrity.ts checks 4 and 7, never removed.
   FOR rec IN
     SELECT * FROM (VALUES
       ('v7_q1_a', 'Chocolate & Nutty', 1::numeric),
@@ -3235,32 +3437,48 @@ BEGIN
       ('v7_q5_c', 'Fruity',            3::numeric)
     ) AS t(answer_code, archetype_name, score)
   LOOP
-    SELECT a.id, a.question_id INTO v_answer_id, v_question_id FROM quiz_answer a WHERE a.answer_code = rec.answer_code;
-    IF v_answer_id IS NULL THEN CONTINUE; END IF; -- defensive — content loop above should have set this
-
     SELECT id INTO v_archetype_id FROM coffee_archetype WHERE name = rec.archetype_name;
-
-    INSERT INTO quiz_answer_archetype_score (answer_id, question_id, archetype_id, score)
-    VALUES (v_answer_id, v_question_id, v_archetype_id, rec.score)
-    ON CONFLICT (answer_id, archetype_id) DO UPDATE SET score = EXCLUDED.score;
-
-    DELETE FROM quiz_answer_archetype_score
-    WHERE answer_id = v_answer_id AND archetype_id IS DISTINCT FROM v_archetype_id;
+    -- NULL when the code has no current row (defensive; the content loop above always creates one).
+    PERFORM quiz_assert_answer_score(rec.answer_code, v_archetype_id, rec.score);
   END LOOP;
 
-  -- Q6 and branch answers are never scored (Q6 is weight 0 — food signal
-  -- only; branch answers only ever change archetype, not score). The file
-  -- lists zero score rows for any of them, so remove any that exist —
-  -- defensive, also catches a hand-added row that shouldn't be there.
-  DELETE FROM quiz_answer_archetype_score
-  WHERE answer_id IN (
-    SELECT id FROM quiz_answer
-    WHERE answer_code IN ('v7_q6_a', 'v7_q6_b', 'v7_q6_c',
-                           'v7_branch_fruity_stay', 'v7_branch_fruity_floral',
-                           'v7_branch_cn_stay', 'v7_branch_cn_earthy')
-  );
+  -- Q6 and branch answers are never scored (Q6 is weight 0, food signal only;
+  -- branch answers only change the archetype). This list names no score row
+  -- for them; integrity checks 4 and 7 report one if it ever appears.
 
 END $v7$;
+
+-- Full quiz scoring matrix — one row per (question, answer, archetype)
+-- Shows all three scoring levels: question weight, answer weight, archetype-specific score.
+-- Lambda formula: q_weight × ans_weight × ans_score = effective contribution per archetype.
+-- Moved below the V7 seed by Prompt 4A (2026-10-08) because it reads the SCD2
+-- columns added above. Every version is listed: a_number follows sort_order,
+-- and the answer's is_current / valid_from / valid_to say which one is live.
+DROP VIEW IF EXISTS v_quiz_scoring_matrix;
+CREATE VIEW v_quiz_scoring_matrix AS
+SELECT
+  qz.version                                                        AS quiz_version,
+  qt.name                                                           AS quiz_type,
+  q.q_number,
+  q.q_text,
+  ROW_NUMBER() OVER (PARTITION BY q.id ORDER BY a.sort_order NULLS LAST, a.id) AS a_number,
+  a.answer_text,
+  q.weight                                                          AS q_weight,
+  a.weight                                                          AS ans_weight,
+  ar_ans.name                                                       AS resulting_archetype,
+  ar_score.name                                                     AS scored_archetype,
+  aas.score                                                         AS ans_score,
+  a.is_current                                                      AS is_current,
+  a.valid_from                                                      AS valid_from,
+  a.valid_to                                                        AS valid_to
+FROM quiz_answer a
+JOIN quiz_question q    ON q.id  = a.question_id
+JOIN quiz      qz      ON qz.id = q.quiz_id
+LEFT JOIN quiz_type qt ON qt.id = qz.quiz_type_id
+LEFT JOIN coffee_archetype ar_ans   ON ar_ans.id = a.resulting_archetype_id
+LEFT JOIN quiz_answer_archetype_score aas ON aas.answer_id = a.id
+LEFT JOIN coffee_archetype ar_score ON ar_score.id = aas.archetype_id
+ORDER BY quiz_version, q_number, a_number, ans_score DESC NULLS LAST;
 
 -- Archetype dimension vectors — one row per archetype × dimension.
 -- Joins archetype_vector to archetype (by FK) and dimensions (via md5(name)::uuid match).
@@ -6330,6 +6548,22 @@ DO $$ DECLARE t text; BEGIN
       )
   LOOP
     EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON %I TO ab_app', t);
+  END LOOP;
+END $$;
+
+-- Quiz content is master data with one writer, the V7 seed in this file,
+-- running as the owner (Prompt 4A, 2026-10-08). The request pool only ever
+-- reads it: SELECT and nothing else on the quiz content tables and the
+-- 2026-10-08 snapshot tables, overriding the operating grant just above.
+-- quizIntegrity.ts check 16 fails if this ever drifts.
+DO $$ DECLARE t text; BEGIN
+  FOR t IN
+    SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+      AND (tablename IN ('quiz', 'quiz_type', 'quiz_question', 'quiz_answer', 'quiz_answer_archetype_score')
+           OR tablename LIKE 'quiz\_backup\_20261008\_%' ESCAPE '\')
+  LOOP
+    EXECUTE format('REVOKE ALL ON %I FROM ab_app', t);
+    EXECUTE format('GRANT SELECT ON %I TO ab_app', t);
   END LOOP;
 END $$;
 

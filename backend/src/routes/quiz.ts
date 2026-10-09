@@ -14,6 +14,7 @@ const router = Router();
 
 // ─── GET /api/quiz/questions ─────────────────────────────────────────────────
 // Returns the active quiz with all questions and answers from the DB.
+// Current versions only (quiz content is SCD Type 2, Prompt 4A); answers in sort_order.
 // No auth required — public endpoint.
 router.get('/questions', async (_req, res) => {
   try {
@@ -40,12 +41,12 @@ router.get('/questions', async (_req, res) => {
              'archetype_id',   a.resulting_archetype_id,
              'archetype_name', ar.name
            )
-           ORDER BY a.id
+           ORDER BY a.sort_order, a.id
          ) AS answers
        FROM quiz_question q
-       JOIN quiz_answer a ON a.question_id = q.id
+       JOIN quiz_answer a ON a.question_id = q.id AND a.is_current
        LEFT JOIN coffee_archetype ar ON ar.id = a.resulting_archetype_id
-       WHERE q.quiz_id = $1
+       WHERE q.quiz_id = $1 AND q.is_current
        GROUP BY q.id, q.q_number, q.q_text
        ORDER BY q.q_number`,
       [quizId]
@@ -243,11 +244,11 @@ router.get('/branch', async (req, res) => {
              'archetypeId', a.resulting_archetype_id,
              'archetypeName', ar.name
            )
-           ORDER BY a.id
+           ORDER BY a.sort_order, a.id
          ) AS answers
        FROM quiz         bq
-       JOIN quiz_question  q  ON q.quiz_id = bq.id
-       JOIN quiz_answer   a  ON a.question_id = q.id
+       JOIN quiz_question  q  ON q.quiz_id = bq.id AND q.is_current
+       JOIN quiz_answer   a  ON a.question_id = q.id AND a.is_current
        LEFT JOIN coffee_archetype ar ON ar.id = a.resulting_archetype_id
        WHERE bq.parent_quiz_id = $1
          AND bq.trigger_archetype_id = $2

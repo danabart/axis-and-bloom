@@ -116,6 +116,56 @@ server-side from `answerIds`, so the table never depends on the browser bundle. 
 row and fall back to `context_data` only when a session has no rows. Interpretation version is independent
 of quiz version (`v7`).
 
+## Quiz content is SCD Type 2 (2026-10-08)
+
+Brief: `CLAUDE_CODE_PROMPT_4A_QUIZ_CONTENT_SCD2.md` (run before 4B). Decided by Dana on 2026-10-08.
+
+**The rule.** `quiz_question` and `quiz_answer` keep every version of their content. A change closes the
+current row (`valid_to = now()`, `is_current = false`) and inserts a new row with a new id. Nothing is updated
+in place and nothing is deleted: retire, never delete. Sessions store answer ids, so an old id must keep the
+words the person saw and keep its score rows; before this, a copy edit made an old session look as if it had
+picked the new wording. Quiz rows (`quiz`) are not versioned; a whole quiz still retires through `is_active`.
+
+**Columns.** Both tables: `valid_from` (when the version went into service; existing rows dated from their
+quiz's `created_at`), `valid_to` (NULL while current), `is_current`, with
+`CHECK ((is_current AND valid_to IS NULL) OR (NOT is_current AND valid_to IS NOT NULL))`. `quiz_answer.sort_order`
+is the display position inside the question; it replaced `ORDER BY a.id`, and its first values are exactly that
+old order, so nothing moved on screen.
+
+**Business keys.** Question: `(quiz_id, q_number)`, partial unique index `quiz_question_current_unique`
+`WHERE is_current`. Answer: `answer_code`, `quiz_answer_code_current_unique` `WHERE answer_code IS NOT NULL AND
+is_current` (replaces `quiz_answer_code_unique`).
+
+**Question-to-answers rule.** A new question version re-versions every current answer of the old question onto
+the new question row (same text, code, sort_order; score rows copied). So an old answer id always leads to the
+stem the person actually saw, and a new session only ever picks answers hanging off the current stem.
+
+**Scores.** Keyed by `answer_code`, resolved to the current answer row. A missing score row is inserted; a
+different score is a new answer version carrying the new score row. Score rows are never updated or deleted, and
+old answer versions keep theirs forever. The seed's two DELETEs of stray score rows are gone; a stray is reported
+by the integrity checks (4 and 7) and left for a human.
+
+**Only writer.** The V7 seed in `schema.sql` (`DO $v7$`), running as the owner, through four functions:
+`quiz_assert_question`, `quiz_assert_answer`, `quiz_assert_answer_score` (none → insert, identical → nothing,
+different → close + insert) and `quiz_answer_new_version`. A code that disappears from the list is not retired;
+retiring is an explicit `quiz_retire_answer('<code>')` line (none so far). Triggers refuse `DELETE`, `TRUNCATE` and
+any in-place `UPDATE` on `quiz_question`, `quiz_answer` and `quiz_answer_archetype_score`, for every role. The only
+updates they let through: retiring a current row (`valid_to`, `is_current`), and filling `answer_code` or
+`sort_order` where still NULL. A retired row never changes again. `ab_app` has SELECT only on the quiz content
+tables and the snapshot tables.
+
+**How to change quiz copy from now on.** Edit the value on that code's line in the seed lists and deploy. The next
+boot creates the new version. "UPDATE in place by answer_code" (the 2026-08-11 drift-prevention rule) no longer
+applies, and Cloud SQL Studio cannot edit quiz content at all.
+
+**Snapshot.** The first boot with SCD2 copied the pre-SCD2 content, production-minted ids included, into
+`quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_question`, `quiz_backup_20261008_quiz_answer` and
+`quiz_backup_20261008_quiz_answer_archetype_score`. They are never written again and never dropped.
+
+**Known limit.** `v7_q3_a`, `v7_q3_b`, `v7_q6_b` and the Q3 stem were edited in place on 2026-08-15. Sessions
+before that date saw the earlier wording; it survives only in the seed's adoption list (Change 2). No historical
+rows were fabricated for it.
+
 ## Scope boundary (Dana, 2026-09-25)
 
 The three briefs change how a scored quiz is interpreted (secondary, mode, pair confidence, explore hint,
