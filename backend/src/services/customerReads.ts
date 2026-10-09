@@ -77,6 +77,19 @@ export interface QuizCurrentRow {
   archetypeChangeCount: number;
   quizCount: number;
   archetypeChangedLastTwoQuizzes: boolean;
+  // Interpretation v2.2 (Prompt 4B): where on the Bloom Dial they are matched (never null: = archetypeName before
+  // v2.2), the lean ('delicate' | null) and the raw branch answer. Carried through; nothing acts on them yet.
+  matchArchetype: string | null;
+  matchArchetypeCode: string | null;
+  intensityLean: string | null;
+  branchAnswerCode: string | null;
+}
+
+// A secondary equal to the shown archetype says nothing (a branch-match customer is shown Balanced with secondary
+// Balanced, match Fruity/Floral). Every reader that prints or pairs "primary + secondary" goes through this, so no
+// one reads "Balanced; second: Balanced" (Prompt 4B, Part B.4).
+export function distinctSecondary(shown: string | null | undefined, secondary: string | null | undefined): string | null {
+  return secondary && secondary !== shown ? secondary : null;
 }
 
 // v_customer_quiz_current — the latest quiz across every linked profile.
@@ -96,6 +109,8 @@ export async function getQuizCurrent(uid: string, runner: Runner = db): Promise<
     interpretationValidFrom: row.interpretation_valid_from,
     archetypeChangeCount: Number(row.archetype_change_count), quizCount: Number(row.quiz_count),
     archetypeChangedLastTwoQuizzes: row.archetype_changed_last_two_quizzes,
+    matchArchetype: row.match_archetype ?? null, matchArchetypeCode: row.match_archetype_code ?? null,
+    intensityLean: row.intensity_lean ?? null, branchAnswerCode: row.branch_answer_code ?? null,
   };
 }
 

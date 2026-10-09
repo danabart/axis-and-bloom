@@ -1,5 +1,5 @@
 import { db } from '../db/client.js';
-import { getQuizCurrent, getFeedbackCurrent, getThreads } from './customerReads.js';
+import { getQuizCurrent, getFeedbackCurrent, getThreads, distinctSecondary } from './customerReads.js';
 import { archetypeCode } from './catalogReads.js';
 import { computeBehavioralConfidence } from './behavioralConfidence.js';
 
@@ -41,6 +41,10 @@ export interface UserSignals {
   // valid_from (not an older, superseded interpretation's question). Once
   // true, isProfileAmbiguous() stops re-firing PROFILE_AMBIGUOUS for this thread.
   threadAskedForCurrentInterpretation: boolean;
+  // Interpretation v2.2 (Prompt 4B): the match layer, carried through only — no rule reads these yet.
+  matchArchetype: string | null;
+  intensityLean: string | null;
+  branchAnswerCode: string | null;
   quizCount: number;
   archetypeChangeCount: number;              // changes across full quiz history
   archetypeChangedLastTwoQuizzes: boolean;    // Sommelier's TASTE_EVOLUTION trigger — last two sessions only
@@ -112,7 +116,8 @@ export async function getUserSignals(uid: string): Promise<UserSignals> {
   const archetypeChangedLastTwoQuizzes = quizCurrent?.archetypeChangedLastTwoQuizzes ?? false;
 
   const archetype = quizCurrent?.archetypeName ?? null;
-  const secondaryArchetype = quizCurrent?.secondaryArchetype ?? null;
+  // A secondary equal to the shown archetype (v2.2 branch-match) pairs nothing: treated as none.
+  const secondaryArchetype = distinctSecondary(archetype, quizCurrent?.secondaryArchetype);
   const branchedFrom = quizCurrent?.branchedFrom ?? null;
   const foodSignal = quizCurrent?.foodSignal ?? null;
   const experimental = quizCurrent?.experimental ?? false;
@@ -307,6 +312,9 @@ export async function getUserSignals(uid: string): Promise<UserSignals> {
     exploreArchetype: interp.exploreArchetype,
     exploreReason: interp.exploreReason,
     threadAskedForCurrentInterpretation,
+    matchArchetype: quizCurrent?.matchArchetype ?? null,
+    intensityLean: quizCurrent?.intensityLean ?? null,
+    branchAnswerCode: quizCurrent?.branchAnswerCode ?? null,
     quizCount,
     archetypeChangeCount,
     archetypeChangedLastTwoQuizzes,

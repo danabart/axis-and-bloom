@@ -12,7 +12,7 @@ interface Case {
   case_id: string;
   input: { answerIds: string[]; scores: Record<string, number>; archetype: string; foodSignal: string | null; experimental: boolean; branchedFrom: string | null };
   stored_v1: { secondaryArchetype: string | null; recommendationMode: string; foodSignalAlignment: string };
-  expected_v2_1: { secondaryArchetype: string | null; recommendationMode: string; pairConfidence: string; exploreArchetype: string | null; primaryMargin: number };
+  expected_v2_2: { secondaryArchetype: string | null; recommendationMode: string; pairConfidence: string; exploreArchetype: string | null; primaryMargin: number; matchArchetype: string; intensityLean: string | null };
 }
 const fixture = JSON.parse(readFileSync(
   new URL('../fixtures/quiz_calibration/hoboken-crawl-2026.calibration.json', import.meta.url), 'utf8')
@@ -35,11 +35,14 @@ const NEW_COLUMNS = [
   'interpretation_version', 'interpretation_computed_by', 'interpretation_valid_from',
   'secondary_archetype_as_scored', 'recommendation_mode_as_scored', 'food_signal_alignment_as_scored',
   'branched_from', 'food_signal_raw',
+  // Prompt 4B (interpretation v2.2) — appended
+  'match_archetype', 'intensity_lean', 'branch_answer_code',
 ];
 const HISTORY_COLUMNS = [
   'quiz_session_id', 'user_id', 'completed_at', 'final_archetype', 'branched_from', 'interpretation_version',
   'is_current', 'valid_from', 'valid_to', 'computed_by', 'secondary_archetype', 'secondary_path',
   'recommendation_mode', 'food_signal_alignment', 'pair_confidence', 'explore_archetype', 'explore_reason', 'primary_margin',
+  'match_archetype', 'intensity_lean', 'branch_answer_code',
 ];
 
 async function archetypeId(name: string): Promise<string> {
@@ -104,7 +107,7 @@ describe('the 37 crawl subscribers through the views', { timeout: 120_000 }, () 
     `SELECT * FROM v_subscriber_quiz_results WHERE campaign = 'hoboken-crawl-2026' AND email LIKE $1 ORDER BY quiz_completed_at`,
     [`${prefix}-%`])).rows;
 
-  it('current-row columns = expected_v2_1 and _as_scored columns = stored_v1, 37/37 both ways', async () => {
+  it('current-row columns = expected_v2_2 and _as_scored columns = stored_v1, 37/37 both ways', async () => {
     await seedCrawl('vitest-qrv');
     const rows = await rowsFor('vitest-qrv');
     expect(rows).toHaveLength(37);
@@ -113,23 +116,25 @@ describe('the 37 crawl subscribers through the views', { timeout: 120_000 }, () 
       expect({
         secondaryArchetype: r.secondary_archetype, recommendationMode: r.recommendation_mode,
         pairConfidence: r.pair_confidence, exploreArchetype: r.explore_archetype, primaryMargin: r.primary_margin,
-      }, `${c.case_id} current`).toEqual(c.expected_v2_1);
+        matchArchetype: r.match_archetype, intensityLean: r.intensity_lean,
+      }, `${c.case_id} current`).toEqual(c.expected_v2_2);
+      expect(r.branch_answer_code, c.case_id).toBeNull();   // historical sessions never get branch_answer_id
       expect({
         secondaryArchetype: r.secondary_archetype_as_scored, recommendationMode: r.recommendation_mode_as_scored,
         foodSignalAlignment: r.food_signal_alignment_as_scored,
       }, `${c.case_id} as scored`).toEqual(c.stored_v1);
-      expect(r.interpretation_version, c.case_id).toBe('v2.1');
+      expect(r.interpretation_version, c.case_id).toBe('v2.2');
       expect(r.interpretation_computed_by, c.case_id).toBe('backfill');
     }
   });
 
-  it('every subscriber with a linked session has an interpretation_version, and no v2.1 row is ai_agent', async () => {
+  it('every subscriber with a linked session has an interpretation_version, and no v2.1/v2.2 row is ai_agent', async () => {
     await seedCrawl('vitest-qrv');
     const missing = await client.query(
       `SELECT COUNT(*)::int AS n FROM v_subscriber_quiz_results WHERE quiz_session_id IS NOT NULL AND interpretation_version IS NULL`);
     expect(missing.rows[0].n).toBe(0);
     const ai = await client.query(
-      `SELECT COUNT(*)::int AS n FROM v_subscriber_quiz_results WHERE recommendation_mode = 'ai_agent' AND interpretation_version = 'v2.1'`);
+      `SELECT COUNT(*)::int AS n FROM v_subscriber_quiz_results WHERE recommendation_mode = 'ai_agent' AND interpretation_version IN ('v2.1', 'v2.2')`);
     expect(ai.rows[0].n).toBe(0);
   });
 

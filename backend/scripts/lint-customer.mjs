@@ -138,6 +138,10 @@ for (const relPath of files) {
 // reminder the brief itself asks for: C2 removes that statement.
 const RULE2_ALLOWLIST = [
   { file: 'services/customerIntegrity.ts', table: 'quiz_session', verb: 'UPDATE', note: 'check 3, the live immutability probe — always WHERE false, always rolled back, permanent' },
+  // Prompt 4B (interpretation v2.2, 2026-10-09): the SCD2 flip. closeCurrentInterpretation() sets exactly
+  // (valid_to, is_current) on a superseded current row — the column-level grant in schema.sql — and is called only
+  // by the interpretation backfill (owner role, same transaction as the successor INSERT). Live path: INSERT-only.
+  { file: 'services/quizSession.ts', table: 'quiz_session_interpretation', verb: 'UPDATE', note: 'Prompt 4B Part E: closeCurrentInterpretation, columns valid_to + is_current only, backfill only' },
 ];
 function buildDmlPattern(table, verb) {
   const verbPattern = verb.replace(' ', '\\s+');

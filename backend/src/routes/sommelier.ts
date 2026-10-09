@@ -18,7 +18,7 @@ import { getSommelierConfig } from '../services/sommelierConfig.js';
 import { routeTopic } from '../services/topicRouter.js';
 import { record } from '../services/customerFacts.js';
 import { recordTurn, recordReplyForOpenQuestion, type AliasCandidate } from '../services/liamWriteBack.js';
-import { getPreviousQuizArchetype, getFeedbackCurrent, getBrewProfileCurrent, getSlotCandidates, getFactsWatermark } from '../services/customerReads.js';
+import { getPreviousQuizArchetype, getFeedbackCurrent, getBrewProfileCurrent, getSlotCandidates, getFactsWatermark, distinctSecondary } from '../services/customerReads.js';
 import {
   getBrewProfileFieldsConfig,
   validateSingleValue,
@@ -638,7 +638,9 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, requi
     const archetypeKey = userArchetype ? await archetypeCode(userArchetype) : null;
     // interpretationSource-gated the same way the old pair-confidence/thread
     // prose was — a pre-v2.1 interpretation has no meaningful explore concept.
-    const secondaryArchetype = quizCurrent?.secondaryArchetype ?? null;
+    // Interpretation v2.2 (Prompt 4B): a secondary equal to the shown archetype (branch-match) pairs nothing.
+    // The match fields ride on quizCurrent untouched; nothing here acts on them yet (Part G).
+    const secondaryArchetype = distinctSecondary(userArchetype, quizCurrent?.secondaryArchetype);
     const exploreArchetype = quizCurrent?.interpretationSource === 'table' ? quizCurrent.exploreArchetype : null;
 
     // Liam L2, Part D — openingContext is now the register-based tone

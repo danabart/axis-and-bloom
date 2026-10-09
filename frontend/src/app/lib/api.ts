@@ -18,6 +18,9 @@ export async function saveQuizResult(payload: {
   decaf: boolean;
   answerIds?: string[];
   branchedFrom?: string | null;
+  // Interpretation v2.2 (Prompt 4B): the quiz_answer id of the branch answer the person picked; the server
+  // validates it against its own scoring and derives match / lean / secondary itself.
+  branchAnswerId?: string | null;
   secondaryArchetype?: string | null;
   foodSignal?: string | null;
   foodSignalAlignment?: string;

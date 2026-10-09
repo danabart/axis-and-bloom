@@ -13,6 +13,8 @@
 - **Prod backfill applied** (`--apply --expect-db axisandbloom`): **121 `v1` + 70 `v2.1`** rows inserted.
 - **`v2.1` is current for every session with `answerIds`** (70 backfilled + new sessions, which are scored live). The 51 sessions without `answerIds` (cross-device match claims, pre-August rows) keep their `v1` row as current, because no `v2.1` can be computed for them. Every one of the 122 sessions has exactly one current row.
 - Verified on prod, read-only: the 37 crawl rows match `hoboken-crawl-2026.calibration.json` both ways (current row = `expected_v2_1`, `_as_scored` = `stored_v1`); no `v2.1` row is `ai_agent`; `quiz_session` and `newsletter_subscriber` count + md5 unchanged through every step.
+- **2026-10-09: superseded by v2.2** (see "v2.2 (2026-10-09)" below): the Balanced branch, the match layer, and
+  confidence from scored answers and the branch answer only. v2.1 rows stay as history.
 - Next: the caveat below stands. Treat v2.1 as a hypothesis and use `v_quiz_session_interpretation_history` and the next event's export (`backend/scripts/quizRecalibrate.ts`) to test it against what people order, save on the dial and say to Liam.
 
 Decided by Dana, 2026-09-20 to 2026-09-25, from the Hoboken Crawl results review (37 real completions,
@@ -165,6 +167,92 @@ applies, and Cloud SQL Studio cannot edit quiz content at all.
 **Known limit.** `v7_q3_a`, `v7_q3_b`, `v7_q6_b` and the Q3 stem were edited in place on 2026-08-15. Sessions
 before that date saw the earlier wording; it survives only in the seed's adoption list (Change 2). No historical
 rows were fabricated for it.
+
+## v2.2 (2026-10-09)
+
+Brief: `CLAUDE_CODE_PROMPT_4B_V2_2_BALANCED_BRANCH_AND_MATCH.md` (replaces the superseded brief 4, kept with a
+`SUPERSEDED_` prefix). Decided by Dana 2026-10-06 to 2026-10-09. `WHAT_WE_BUILT.md` #219. The reasoning behind it,
+still a hypothesis, is `misc/palate_model/PALATE_MODEL_HYPOTHESIS.md` (direction vs intensity); it is linked here,
+not copied.
+
+**Three layers, recorded separately.**
+- **Shown**: what the screen and the email told the person. Already stored (`quiz_session.resulting_archetype_id`,
+  `transactional_email_log.archetype`); unchanged. A Balanced winner is shown Balanced whatever they answer on the
+  new Balanced branch.
+- **Match**: where on the Bloom Dial we match them. `quiz_session_interpretation.match_archetype` (every v2.2 row;
+  never null in the views, which fall back to the shown archetype) and `intensity_lean` (`delicate` or null = the
+  archetype's default position; there is no `bold`, Dana 2026-10-08).
+- **Why**: the raw branch answer, `quiz_session.branch_answer_id`, so a later explanation can quote what the person
+  actually chose. Set only in the session INSERT; never updated, never backfilled.
+
+**The branch answer (`quizScoring.ts`, `BRANCH_ANSWER_EFFECTS`; part of the ruleset, not stored on `quiz_answer`).**
+
+| branch answer code | shown | matchArchetype | intensityLean | secondaryArchetype | path |
+|---|---|---|---|---|---|
+| `v7_branch_cn_earthy` | Earthy | Earthy | null | Chocolate & Nutty (branchedFrom, as before) | as before |
+| `v7_branch_cn_stay` | Chocolate & Nutty | Chocolate & Nutty | null | rule secondary | as before |
+| `v7_branch_fruity_floral` | Floral | Floral | `delicate` | Fruity (branchedFrom, as before) | as before |
+| `v7_branch_fruity_stay` | Fruity | Fruity | null | rule secondary | as before |
+| `v7_branch_bal_cozy` | Balanced | Balanced | null | **Chocolate & Nutty** | `branch-lean` |
+| `v7_branch_bal_fruit` | Balanced | **Fruity** | `delicate` | **Balanced** | `branch-match` |
+| `v7_branch_bal_floral` | Balanced | **Floral** | `delicate` | **Balanced** | `branch-match` |
+| none | winner | = shown | null | rule secondary | as before |
+
+`branch-lean` and `branch-match` override the rule secondary and set mode `primary_plus_active_secondary`. For the
+two delicate answers the secondary is Balanced, not Fruity or Floral (Dana, 2026-10-09). The pair used by
+confidence and explore is `{matchArchetype, secondaryArchetype}`. Sessions saved before 2026-10-09 have no
+`branch_answer_id`; the backfill derives the code in memory from `branchedFrom` (Earthy → `v7_branch_cn_earthy`,
+Floral → `v7_branch_fruity_floral`, else none) and never writes it.
+
+**Confidence from scored answers and the branch answer only (Dana, 2026-10-06).** A stray is an archetype outside
+the pair with 3+ scored points: none → `high`, any → `medium`; `low` only for a near-tie where two archetypes tie for
+runner-up. The Q6 treat and the experimental gate never lower confidence; they feed Liam's explore list only
+(gate Fruity, treat, a 3+ point third archetype, a runner-up tie, each against the pair; the treat reason no longer
+counts axis steps). `ARCHETYPE_AXIS` / `axisDistance` were only used by the treat-distance rule and are removed.
+After a real branch switch the origin stays the forced secondary.
+
+**The Natalie case.** At the Joe Coffee cupping (2026-10-02) Natalie, 19 years at Joe, scored 8 of 9 Balanced, high
+confidence, no secondary; in the cup she is a delicate fruity/floral drinker. The v7 main questions measure
+intensity, not direction, so "Balanced" meant "gentle, direction unknown". The Balanced branch asks the direction
+question (a feeling, a taste, a smell), and the match carries the answer while the shown result stays Balanced.
+
+**Reversal of 2026-10-08 ("the peach answer flips the primary to Fruity").** Reversed the same day: the shown
+archetype stays true to what was scored ("it is more true than fruity or floral"), and the match carries the
+direction. "A match is a match to the Bloom Dial."
+
+**The 2026-09-24 gate-backed case moves to high.** Sebastian's shape (gate open, Fruity runner-up, treat outside the
+pair) was accepted as `medium` because the treat counted as a stray; with the treat and the gate out of
+confidence, it is `high` (crawl case 36: Balanced 7 / Fruity 2, gate open, Chocolate & Nutty treat; Chocolate &
+Nutty stays on the explore list). On the crawl set 5 of 37 rows change, all upward and all in confidence only
+(secondary, mode, margin unchanged): the four Earthy rows (02 medium→high, 10 low→medium, 11 low→high, 17
+medium→high) and case 36 (medium→high). Case 10 stays `medium` because Fruity scored 3 outside {Earthy, Chocolate
+& Nutty}. See the fixture's `expected_v2_2`.
+
+**Copy (new versions through the 4A seed functions).** Branch copy never names a flavor, never says "tea", no
+milk/dark chocolate wording (Dana, 2026-10-06/07). Balanced branch question "One last thing. Your coffee is smooth
+and gentle, just how you like it best. Which of these would you be sad to lose?" with cozy / peach / smell (sort 1–3).
+Earthy stem "Your profile is rich and bold. Which one sounds more like you?" with "Coffee that feels like a reward.
+Warm, rich, comforting." / "Coffee with a kick. Dark, strong, a bit smoky." Fruity answers "Bright and lively. Every
+sip a little different." / "Light and delicate, and more about the smell than the taste."
+
+**Storage of the flip.** A session whose current row is `v2.1` gets that row closed (`valid_to`, `is_current` only,
+`quizSession.closeCurrentInterpretation`, the backfill's only UPDATE) and a `v2.2` row inserted as current, in one
+transaction. `v1`-current sessions (no `answerIds`) are not re-interpreted. New sessions are scored `v2.2` live.
+
+### Handoff to the recommendation layer (Part G; recorded, not built)
+
+> **Match rule.** The first match comes from `match_archetype`. When `intensity_lean = 'delicate'` it is the lane's
+> first dial position (`coffee_dial_slot.sort_order = 1`: Fruity "Clean Fruit", Floral "Light Floral Edge"), not the
+> landing default. When null, today's behaviour. Read the two fields; never re-derive them.
+>
+> **Explanation owed.** A customer shown Balanced who is then recommended a delicate Fruity or Floral coffee must be
+> told why, in words built from their stored branch answer (`branch_answer_code`).
+>
+> **Until both exist**, a branch-match customer is treated as Balanced everywhere a customer can see.
+
+What 4B deliberately did not change: `v_palate_slot_candidates.in_pair` and `v_palate_evidence` still read the
+shown archetype and secondary (changing them would change what is offered, which is Part G); Liam's prompts and
+routing; the reveal and the email.
 
 ## Scope boundary (Dana, 2026-09-25)
 

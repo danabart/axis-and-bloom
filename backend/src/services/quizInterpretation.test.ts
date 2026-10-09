@@ -9,18 +9,18 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { PoolClient } from 'pg';
 import { db } from '../db/client.js';
 import {
-  saveQuizInterpretation, recordScoredInterpretation, getLatestQuizResult, resolveInterpretation,
+  saveQuizInterpretation, recordScoredInterpretation, getLatestQuizResult, resolveInterpretation, resolveBranchAnswer,
 } from './quizSession.js';
 import { isProfileAmbiguous } from './sommelierEvaluator.js';
 import {
-  runBackfill, compareToFixture, parseArgs, dbNameFromUrl,
+  runBackfill, compareToFixture, parseArgs, dbNameFromUrl, buildReportRows, toCsv,
 } from './quizInterpretationBackfill.js';
 
 interface Case {
   case_id: string;
   input: { answerIds: string[]; scores: Record<string, number>; archetype: string; foodSignal: string | null; experimental: boolean; branchedFrom: string | null };
   stored_v1: { secondaryArchetype: string | null; recommendationMode: string; foodSignalAlignment: string };
-  expected_v2_1: { secondaryArchetype: string | null; recommendationMode: string; pairConfidence: string; exploreArchetype: string | null; primaryMargin: number };
+  expected_v2_2: { secondaryArchetype: string | null; recommendationMode: string; pairConfidence: string; exploreArchetype: string | null; primaryMargin: number; matchArchetype: string; intensityLean: string | null };
 }
 const fixture = JSON.parse(readFileSync(
   new URL('../fixtures/quiz_calibration/hoboken-crawl-2026.calibration.json', import.meta.url), 'utf8')
@@ -98,23 +98,26 @@ describe('recordScoredInterpretation (live path, server-side recompute)', () => 
     expect(r.rows[0].n).toBe(c.input.answerIds.length);
   });
 
-  it('writes one current scored v2.1 row equal to the fixture, ignoring client-sent interpretation fields', async () => {
+  it('writes one current scored v2.2 row equal to the fixture, ignoring client-sent interpretation fields', async () => {
     const s = await makeSession(await makeUser(), {
       ...c.input, ...c.stored_v1, pairConfidence: 'low', exploreArchetype: 'Earthy',   // stale/wrong client fields
     }, c.input.archetype, new Date());
     const interp = await recordScoredInterpretation(client, {
       sessionId: s, answerIds: c.input.answerIds, archetype: c.input.archetype, branchedFrom: c.input.branchedFrom,
+      branchAnswerCode: 'v7_branch_cn_earthy',
     });
     expect(interp).not.toBeNull();
     const rows = (await client.query(`SELECT * FROM quiz_session_interpretation WHERE quiz_session_id = $1`, [s])).rows;
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
-      interpretation_version: 'v2.1', is_current: true, computed_by: 'scored', valid_to: null,
-      secondary_archetype: c.expected_v2_1.secondaryArchetype,
-      recommendation_mode: c.expected_v2_1.recommendationMode,
-      pair_confidence: c.expected_v2_1.pairConfidence,
-      explore_archetype: c.expected_v2_1.exploreArchetype,
-      primary_margin: c.expected_v2_1.primaryMargin,
+      interpretation_version: 'v2.2', is_current: true, computed_by: 'scored', valid_to: null,
+      secondary_archetype: c.expected_v2_2.secondaryArchetype,
+      recommendation_mode: c.expected_v2_2.recommendationMode,
+      pair_confidence: c.expected_v2_2.pairConfidence,
+      explore_archetype: c.expected_v2_2.exploreArchetype,
+      primary_margin: c.expected_v2_2.primaryMargin,
+      match_archetype: c.expected_v2_2.matchArchetype,
+      intensity_lean: c.expected_v2_2.intensityLean,
     });
   });
 
@@ -137,11 +140,13 @@ describe('recordScoredInterpretation (live path, server-side recompute)', () => 
     expect(latest.archetype_name).toBe(c.input.archetype);
     expect(latest.context_data.secondaryArchetype).toBe(c.stored_v1.secondaryArchetype);      // raw, untouched
     expect(latest).toMatchObject({
-      source: 'table', interpretationVersion: 'v2.1',
-      secondaryArchetype: c.expected_v2_1.secondaryArchetype,
-      recommendationMode: c.expected_v2_1.recommendationMode,
-      pairConfidence: c.expected_v2_1.pairConfidence,
-      exploreArchetype: c.expected_v2_1.exploreArchetype,
+      source: 'table', interpretationVersion: 'v2.2',
+      secondaryArchetype: c.expected_v2_2.secondaryArchetype,
+      recommendationMode: c.expected_v2_2.recommendationMode,
+      pairConfidence: c.expected_v2_2.pairConfidence,
+      exploreArchetype: c.expected_v2_2.exploreArchetype,
+      matchArchetype: c.expected_v2_2.matchArchetype,
+      intensityLean: c.expected_v2_2.intensityLean,
     });
     expect(Object.keys(latest).some(k => k.startsWith('interp_'))).toBe(false);
   });
@@ -197,7 +202,7 @@ describe('backfill script on the 37 crawl fixture sessions', { timeout: 120_000 
     expect(cmp.filter(x => x.agree === true)).toHaveLength(37);
   });
 
-  it('--apply: one current row per session, v2.1 = fixture 37/37, v1 = what context_data held', async () => {
+  it('--apply: one current row per session, v2.2 = fixture 37/37, v1 = what context_data held', async () => {
     const { ids, claimId, scoredId } = await seed();
     const runAt = new Date();
     const report = await runBackfill(client, { apply: true, nested: true, runAt });
@@ -212,15 +217,16 @@ describe('backfill script on the 37 crawl fixture sessions', { timeout: 120_000 
     for (const [i, c] of fixture.cases.entries()) {
       const rows = (await client.query(
         `SELECT * FROM quiz_session_interpretation WHERE quiz_session_id = $1 ORDER BY interpretation_version`, [ids[i]])).rows;
-      expect(rows.map(r => r.interpretation_version), c.case_id).toEqual(['v1', 'v2.1']);
+      expect(rows.map(r => r.interpretation_version), c.case_id).toEqual(['v1', 'v2.2']);
       const [v1, v2] = rows;
-      // v2.1 = the fixture
+      // v2.2 = the fixture
       expect({
         secondaryArchetype: v2.secondary_archetype, recommendationMode: v2.recommendation_mode,
         pairConfidence: v2.pair_confidence, exploreArchetype: v2.explore_archetype, primaryMargin: v2.primary_margin,
-      }, c.case_id).toEqual(c.expected_v2_1);
+        matchArchetype: v2.match_archetype, intensityLean: v2.intensity_lean,
+      }, c.case_id).toEqual(c.expected_v2_2);
       expect(v2).toMatchObject({ is_current: true, computed_by: 'backfill', valid_to: null });
-      // v1 = context_data verbatim, closed at the run timestamp (= v2.1's valid_from)
+      // v1 = context_data verbatim, closed at the run timestamp (= v2.2's valid_from)
       expect({
         secondaryArchetype: v1.secondary_archetype, recommendationMode: v1.recommendation_mode,
         foodSignalAlignment: v1.food_signal_alignment,
@@ -235,10 +241,18 @@ describe('backfill script on the 37 crawl fixture sessions', { timeout: 120_000 
     expect(claim).toHaveLength(1);
     expect(claim[0]).toMatchObject({ interpretation_version: 'v1', is_current: true, valid_to: null, computed_by: 'seed', recommendation_mode: 'primary_only', food_signal_alignment: 'high' });
 
-    // a session that already holds a scored v2.1 row is skipped entirely: no v1 seed, no second v2.1
-    const scored = (await client.query(`SELECT * FROM quiz_session_interpretation WHERE quiz_session_id = $1`, [scoredId])).rows;
-    expect(scored).toHaveLength(1);
-    expect(scored[0]).toMatchObject({ interpretation_version: 'v2.1', computed_by: 'scored', secondary_archetype: 'Chocolate & Nutty' });
+    // Prompt 4B: a session whose current row is v2.1 is re-interpreted. The v2.1 row is closed at the run timestamp
+    // with its content intact (only valid_to / is_current moved); the v2.2 row is current from that same instant.
+    // No v1 seed for it.
+    const scored = (await client.query(
+      `SELECT * FROM quiz_session_interpretation WHERE quiz_session_id = $1 ORDER BY interpretation_version`, [scoredId])).rows;
+    expect(scored.map(r => r.interpretation_version)).toEqual(['v2.1', 'v2.2']);
+    expect(scored[0]).toMatchObject({ computed_by: 'scored', secondary_archetype: 'Chocolate & Nutty', is_current: false });
+    expect(new Date(scored[0].valid_to).getTime()).toBe(runAt.getTime());
+    expect(scored[1]).toMatchObject({ computed_by: 'backfill', is_current: true, valid_to: null });
+    expect(new Date(scored[1].valid_from).getTime()).toBe(runAt.getTime());
+    expect(scored[1].match_archetype).toBe(fixture.cases[0].expected_v2_2.matchArchetype);
+    expect(report.closedRows).toBeGreaterThanOrEqual(1);
 
     expect(report.v2Rows).toBeGreaterThanOrEqual(37);
     expect(compareToFixture(report.plans, fixture).filter(x => x.agree === true)).toHaveLength(37);
@@ -255,10 +269,95 @@ describe('backfill script on the 37 crawl fixture sessions', { timeout: 120_000 
     expect(n2).toBe(n1);
   });
 
+  it('a v1-current session and a v2.2-current session are not touched; the data guard holds', async () => {
+    const { claimId } = await seed();
+    await runBackfill(client, { apply: true, nested: true });
+    const before = (await client.query(`SELECT md5(string_agg(t::text, '|' ORDER BY t.id)) AS m FROM quiz_session_interpretation t`)).rows[0].m;
+    const report = await runBackfill(client, { apply: true, nested: true });
+    const after = (await client.query(`SELECT md5(string_agg(t::text, '|' ORDER BY t.id)) AS m FROM quiz_session_interpretation t`)).rows[0].m;
+    expect(report.sessionsProcessed).toBe(0);
+    expect(after).toBe(before);
+    expect((await client.query(`SELECT interpretation_version, is_current FROM quiz_session_interpretation WHERE quiz_session_id = $1`, [claimId])).rows)
+      .toEqual([{ interpretation_version: 'v1', is_current: true }]);
+    expect(report.guard!.before).toEqual(report.guard!.after);
+  });
+
+  it('the report: one row per re-interpreted session, with the v2.1 and v2.2 sides and the re-askable thread flag', async () => {
+    const userId = await makeUser();
+    const c = fixture.cases[0];
+    const s = await makeSession(userId, { ...c.input, ...c.stored_v1 }, c.input.archetype, new Date(Date.now() - 3_600_000));
+    const asOf = new Date(Date.now() - 1_800_000);
+    await saveQuizInterpretation(client, s, { ...V21, exploreArchetype: 'Fruity' }, 'scored', { validFrom: asOf });
+    // Liam asked the Fruity thread after that v2.1 row became current.
+    const uid = (await client.query(`SELECT firebase_uid FROM user_profile WHERE id = $1`, [userId])).rows[0].firebase_uid;
+    const sommelierSession = (await client.query(
+      `INSERT INTO sommelier_sessions (uid, intent) VALUES ($1, 'MATCHED') RETURNING id`, [uid])).rows[0].id;
+    await client.query(
+      `INSERT INTO customer_liam_question (user_id, occurred_at, source, source_id, session_id, turn, message_id, kind, archetype_code, question)
+       VALUES ($1, now(), 'liam', $2, $3, 1, 'vitest-msg', 'thread', 'fruity', 'Does a brighter cup ever appeal?')`,
+      [userId, `vitest-qsi-${Date.now()}`, sommelierSession]
+    );
+    const report = await runBackfill(client, { apply: false, nested: true });
+    const rows = await buildReportRows(client, report.plans.filter(p => p.sessionId === s));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      quiz_session_id: s, shown_archetype: c.input.archetype, v2_1_explore: 'Fruity',
+      v2_2_secondary: c.expected_v2_2.secondaryArchetype, v2_2_pair_confidence: c.expected_v2_2.pairConfidence,
+      v2_2_match_archetype: c.expected_v2_2.matchArchetype, explore_thread_already_asked: true, changed: true,
+    });
+    expect(toCsv(rows).split('\n')[0]).toContain('explore_thread_already_asked');
+  });
+
   it('--limit processes only that many sessions', async () => {
     await seed();
     const report = await runBackfill(client, { apply: false, limit: 5, nested: true });
     expect(report.sessionsProcessed).toBe(5);
+  });
+});
+
+describe('the branch answer on the live path (Prompt 4B, B.2)', () => {
+  const ids = async (codes: string[]) => {
+    const r = await client.query(`SELECT answer_code, id FROM quiz_answer WHERE answer_code = ANY($1) AND is_current`, [codes]);
+    return codes.map(c => r.rows.find(x => x.answer_code === c)!.id as string);
+  };
+  const BALANCED_RUN = ['v7_q1_b', 'v7_q2_b', 'v7_q3_b', 'v7_q4_b', 'v7_q5_b', 'v7_q6_b'];   // Balanced 9
+  const CN_RUN = ['v7_q1_a', 'v7_q2_a', 'v7_q3_a', 'v7_q4_a', 'v7_q5_a', 'v7_q6_a'];         // Chocolate & Nutty 9
+
+  it('accepts an answer of the branch the server-scored winner triggers', async () => {
+    const [fruit] = await ids(['v7_branch_bal_fruit']);
+    expect(await resolveBranchAnswer(client, { branchAnswerId: fruit, answerIds: await ids(BALANCED_RUN) }))
+      .toEqual({ id: fruit, code: 'v7_branch_bal_fruit' });
+  });
+
+  it('refuses (null, warning, no throw) another archetype\'s branch, a main-quiz answer, garbage, and no answerIds', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const [fruit, q1b, earthy] = await ids(['v7_branch_bal_fruit', 'v7_q1_b', 'v7_branch_cn_earthy']);
+    expect(await resolveBranchAnswer(client, { branchAnswerId: fruit, answerIds: await ids(CN_RUN) })).toBeNull();
+    expect(await resolveBranchAnswer(client, { branchAnswerId: earthy, answerIds: await ids(BALANCED_RUN) })).toBeNull();
+    expect(await resolveBranchAnswer(client, { branchAnswerId: q1b, answerIds: await ids(BALANCED_RUN) })).toBeNull();
+    expect(await resolveBranchAnswer(client, { branchAnswerId: "x' OR 1=1", answerIds: await ids(BALANCED_RUN) })).toBeNull();
+    expect(await resolveBranchAnswer(client, { branchAnswerId: fruit, answerIds: null })).toBeNull();
+    expect(await resolveBranchAnswer(client, { branchAnswerId: null, answerIds: await ids(BALANCED_RUN) })).toBeNull();
+    expect(warn).toHaveBeenCalledTimes(5);
+    warn.mockRestore();
+  });
+
+  it('the peach answer: shown Balanced, match Fruity, delicate, secondary Balanced; branch_answer_id on the session', async () => {
+    const answerIds = await ids(BALANCED_RUN);
+    const [fruit] = await ids(['v7_branch_bal_fruit']);
+    const branch = await resolveBranchAnswer(client, { branchAnswerId: fruit, answerIds });
+    // Same INSERT shape as saveQuizSession (which runs on the pool, outside this rolled-back transaction).
+    const s = (await client.query(
+      `INSERT INTO quiz_session (user_id, resulting_archetype_id, context_data, branch_answer_id) VALUES ($1, $2, $3, $4) RETURNING id`,
+      [await makeUser(), await archetypeId('Balanced'), JSON.stringify({ answerIds }), branch!.id])).rows[0].id;
+    await recordScoredInterpretation(client, { sessionId: s, answerIds, archetype: 'Balanced', branchedFrom: null, branchAnswerCode: branch!.code });
+    const v = (await client.query(
+      `SELECT archetype_name, match_archetype, intensity_lean, secondary_archetype, branch_answer_code, interpretation_version
+       FROM v_customer_quiz_current WHERE quiz_session_id = $1`, [s])).rows[0];
+    expect(v).toEqual({
+      archetype_name: 'Balanced', match_archetype: 'Fruity', intensity_lean: 'delicate', secondary_archetype: 'Balanced',
+      branch_answer_code: 'v7_branch_bal_fruit', interpretation_version: 'v2.2',
+    });
   });
 });
 

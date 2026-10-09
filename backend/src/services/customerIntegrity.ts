@@ -553,6 +553,8 @@ const EXPECTED_PALATE_VIEW_COLUMNS: Record<string, string[]> = {
     'first_recommendation_coffee', 'first_recommendation_at', 'first_recommendation_detected',
     'first_attributed_order_coffee', 'first_attributed_order_at', 'days_recommendation_to_order',
     'first_order_feedback_rating', 'thread_status', 'thread_reply',
+    // Prompt 4B (interpretation v2.2, 2026-10-09) — appended.
+    'match_archetype', 'intensity_lean',
   ],
 };
 export async function checkPalateViewColumnsMatchFixture(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
@@ -582,6 +584,75 @@ export async function checkPalateViewColumnsMatchFixture(scope: CheckScope = {})
   };
 }
 
+// ── 19. quiz_session_interpretation is a clean SCD Type 2 ──────────────────
+// Exactly one is_current row per session that has rows, and no current row with valid_to set. The partial unique
+// index already forbids two current rows; this also catches zero (a close without a successor) and a half-closed
+// row, now that the backfill really flips rows (Prompt 4B, Part E).
+export async function checkInterpretationScd2(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  const runner = scope.tx ?? db;
+  const r = await runner.query<{ quiz_session_id: string; current: number; half_closed: number }>(
+    `SELECT quiz_session_id,
+            COUNT(*) FILTER (WHERE is_current)::int AS current,
+            COUNT(*) FILTER (WHERE is_current AND valid_to IS NOT NULL)::int AS half_closed
+     FROM quiz_session_interpretation
+     GROUP BY quiz_session_id
+     HAVING COUNT(*) FILTER (WHERE is_current) <> 1 OR COUNT(*) FILTER (WHERE is_current AND valid_to IS NOT NULL) > 0`
+  );
+  const n = r.rows.length;
+  return {
+    id: 19,
+    name: 'quiz_session_interpretation: exactly one current row per session, none current with valid_to set',
+    pass: n === 0,
+    expected: '0 sessions with zero/several current rows or a current row with valid_to',
+    actual: n === 0 ? 'all sessions clean' : `${n} session(s)`,
+    details: n ? r.rows.slice(0, 10).map(x => `session ${x.quiz_session_id}: ${x.current} current, ${x.half_closed} current with valid_to`) : undefined,
+  };
+}
+
+// ── 20. v2.2 rows carry the match; the lean only on a delicate lane ───────
+export async function checkInterpretationMatchFields(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  const runner = scope.tx ?? db;
+  const r = await runner.query<{ id: string; interpretation_version: string; match_archetype: string | null; intensity_lean: string | null }>(
+    // The delicate lanes are matched by archetype code (stable), not by display label.
+    `SELECT i.id, i.interpretation_version, i.match_archetype, i.intensity_lean
+     FROM quiz_session_interpretation i
+     LEFT JOIN coffee_archetype ca ON ca.name = i.match_archetype
+     WHERE (i.interpretation_version = 'v2.2' AND i.match_archetype IS NULL)
+        OR (i.intensity_lean IS NOT NULL AND (ca.code IS NULL OR ca.code::text NOT IN ('fruity', 'floral')))`
+  );
+  const n = r.rows.length;
+  return {
+    id: 20,
+    name: "Every v2.2 interpretation has match_archetype; intensity_lean only where the match is Fruity or Floral",
+    pass: n === 0,
+    expected: '0 rows',
+    actual: n === 0 ? 'all rows correct' : `${n} row(s)`,
+    details: n ? r.rows.slice(0, 10).map(x => `${x.id} (${x.interpretation_version}): match ${x.match_archetype ?? 'null'}, lean ${x.intensity_lean ?? 'null'}`) : undefined,
+  };
+}
+
+// ── 21. quiz_session.branch_answer_id points at a branch-quiz answer ──────
+export async function checkBranchAnswerIsBranch(scope: CheckScope = {}): Promise<CustomerIntegrityCheck> {
+  const runner = scope.tx ?? db;
+  const r = await runner.query<{ id: string }>(
+    `SELECT qs.id
+     FROM quiz_session qs
+     LEFT JOIN quiz_answer a   ON a.id = qs.branch_answer_id
+     LEFT JOIN quiz_question q ON q.id = a.question_id
+     LEFT JOIN quiz bq         ON bq.id = q.quiz_id
+     WHERE qs.branch_answer_id IS NOT NULL AND bq.parent_quiz_id IS NULL`
+  );
+  const n = r.rows.length;
+  return {
+    id: 21,
+    name: 'Every non-null quiz_session.branch_answer_id is an answer of a branch quiz',
+    pass: n === 0,
+    expected: '0 sessions',
+    actual: n === 0 ? 'all correct' : `${n} session(s)`,
+    details: n ? r.rows.slice(0, 10).map(x => `session ${x.id}`) : undefined,
+  };
+}
+
 export async function runCustomerIntegrityChecks(scope: CheckScope = {}): Promise<CustomerIntegrityReport> {
   const checks = [
     await checkGrantCoverage(scope),
@@ -599,6 +670,9 @@ export async function runCustomerIntegrityChecks(scope: CheckScope = {}): Promis
     await checkActiveCoffeesHaveDimensionRange(scope),
     await checkBrewProfileReplayKnownOps(scope),
     await checkPalateViewColumnsMatchFixture(scope),
+    await checkInterpretationScd2(scope),
+    await checkInterpretationMatchFields(scope),
+    await checkBranchAnswerIsBranch(scope),
   ];
   return {
     ranAt: new Date().toISOString(),

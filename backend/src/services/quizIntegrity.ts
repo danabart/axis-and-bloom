@@ -101,11 +101,12 @@ export async function runQuizIntegrityChecks(): Promise<QuizIntegrityReport> {
     version: string; is_active: boolean; trigger_archetype_id: string | null; parent_quiz_id: string | null;
   }>(
     `SELECT version, is_active, trigger_archetype_id, parent_quiz_id
-     FROM quiz WHERE version IN ('v7-branch-floral', 'v7-branch-earthy')`
+     FROM quiz WHERE version IN ('v7-branch-floral', 'v7-branch-earthy', 'v7-branch-balanced')`
   );
   const branchRows = branchResult.rows;
   const branchDetails: string[] = [];
-  const expectedBranchVersions = ['v7-branch-floral', 'v7-branch-earthy'];
+  // v7-branch-balanced added by Prompt 4B (2026-10-09).
+  const expectedBranchVersions = ['v7-branch-floral', 'v7-branch-earthy', 'v7-branch-balanced'];
   for (const v of expectedBranchVersions) {
     const row = branchRows.find(r => r.version === v);
     if (!row) { branchDetails.push(`${v}: missing entirely`); continue; }
@@ -115,10 +116,10 @@ export async function runQuizIntegrityChecks(): Promise<QuizIntegrityReport> {
   }
   checks.push({
     id: 2,
-    name: 'Both branch quizzes present, active, triggered, parented to v7',
+    name: 'All three branch quizzes present, active, triggered, parented to v7',
     pass: branchDetails.length === 0,
-    expected: 'v7-branch-floral and v7-branch-earthy: is_active=true, trigger_archetype_id set, parent_quiz_id = v7',
-    actual: branchDetails.length === 0 ? 'both branches correct' : `${branchDetails.length} problem(s)`,
+    expected: 'v7-branch-floral, v7-branch-earthy and v7-branch-balanced: is_active=true, trigger_archetype_id set, parent_quiz_id = v7',
+    actual: branchDetails.length === 0 ? 'all three branches correct' : `${branchDetails.length} problem(s)`,
     details: branchDetails.length ? branchDetails : undefined,
   });
 
@@ -239,7 +240,7 @@ export async function runQuizIntegrityChecks(): Promise<QuizIntegrityReport> {
     details: check6Details.length ? check6Details : undefined,
   });
 
-  // ── 7. Branch outcomes — 4 branch answers, every resulting_archetype_id
+  // ── 7. Branch outcomes — 7 current branch answers (2 + 2 + 3 since Prompt 4B), every resulting_archetype_id
   // non-null, and no branch answer carries a score row (Prompt 4A: this
   // replaces the seed's old DELETE — a stray is reported, not removed) ─────
   const branchAnswerResult = await db.query<{ branch_version: string; answer_text: string; archetype_name: string | null; score_count: number }>(
@@ -253,16 +254,16 @@ export async function runQuizIntegrityChecks(): Promise<QuizIntegrityReport> {
   );
   const branchAnswerRows = branchAnswerResult.rows;
   const check7Details: string[] = [];
-  if (branchAnswerRows.length !== 4) check7Details.push(`${branchAnswerRows.length} branch answer(s) total (expected exactly 4)`);
+  if (branchAnswerRows.length !== 7) check7Details.push(`${branchAnswerRows.length} branch answer(s) total (expected exactly 7)`);
   for (const row of branchAnswerRows) {
     if (!row.archetype_name) check7Details.push(`${row.branch_version} "${row.answer_text}": null resulting archetype`);
     if (row.score_count !== 0) check7Details.push(`${row.branch_version} "${row.answer_text}": has ${row.score_count} score row(s) (expected 0 — branch answers are not scored)`);
   }
   checks.push({
     id: 7,
-    name: '4 branch answers, every resulting_archetype_id non-null, none scored',
+    name: '7 branch answers, every resulting_archetype_id non-null, none scored',
     pass: check7Details.length === 0,
-    expected: '4 rows total (2 per branch quiz), all non-null, zero score rows',
+    expected: '7 current rows (floral 2, earthy 2, balanced 3), all non-null, zero score rows',
     actual: check7Details.length === 0 ? 'branch outcomes correct' : `${check7Details.length} problem(s)`,
     details: check7Details.length ? check7Details : undefined,
   });
@@ -539,6 +540,40 @@ export async function runQuizIntegrityChecks(): Promise<QuizIntegrityReport> {
     expected: '4 non-empty snapshot tables; every snapshot id still exists in its source table',
     actual: check17Details.length === 0 ? `snapshot rows: ${snapshotCounts.join(', ')}` : `${check17Details.length} problem(s)`,
     details: check17Details.length ? check17Details : undefined,
+  });
+
+  // ── 18. The Balanced branch (Prompt 4B) — exactly three current answers, the codes below in this sort_order,
+  // every one resolving to Balanced (the person is SHOWN Balanced whatever they pick; the answer only sets the
+  // match, in quizScoring.ts) ───────────────────────────────────────────────
+  const EXPECTED_BALANCED_BRANCH = ['v7_branch_bal_cozy', 'v7_branch_bal_fruit', 'v7_branch_bal_floral'];
+  const balResult = await db.query<{ answer_code: string | null; sort_order: number | null; archetype_name: string | null }>(
+    `SELECT a.answer_code, a.sort_order, ar.name AS archetype_name
+     FROM quiz bq
+     JOIN quiz_question qq ON qq.quiz_id = bq.id AND qq.is_current
+     JOIN quiz_answer a    ON a.question_id = qq.id AND a.is_current
+     LEFT JOIN coffee_archetype ar ON ar.id = a.resulting_archetype_id
+     WHERE bq.version = 'v7-branch-balanced'
+     ORDER BY a.sort_order, a.id`
+  );
+  const check18Details: string[] = [];
+  const balRows = balResult.rows;
+  if (balRows.length !== 3) check18Details.push(`${balRows.length} current answer(s) (expected exactly 3)`);
+  EXPECTED_BALANCED_BRANCH.forEach((code, i) => {
+    const row = balRows.find(r => r.answer_code === code);
+    if (!row) { check18Details.push(`${code}: missing`); return; }
+    if (Number(row.sort_order) !== i + 1) check18Details.push(`${code}: sort_order ${row.sort_order} (expected ${i + 1})`);
+    if (row.archetype_name !== 'Balanced') check18Details.push(`${code}: resolves to ${row.archetype_name ?? 'null'} (expected Balanced)`);
+  });
+  for (const row of balRows) {
+    if (!EXPECTED_BALANCED_BRANCH.includes(row.answer_code ?? '')) check18Details.push(`unexpected answer ${row.answer_code ?? '(uncoded)'}`);
+  }
+  checks.push({
+    id: 18,
+    name: 'Balanced branch: three current answers cozy / fruit / floral in sort_order 1–3, all Balanced',
+    pass: check18Details.length === 0,
+    expected: 'v7_branch_bal_cozy=1, v7_branch_bal_fruit=2, v7_branch_bal_floral=3, each resulting in Balanced',
+    actual: check18Details.length === 0 ? 'correct' : `${check18Details.length} problem(s)`,
+    details: check18Details.length ? check18Details : undefined,
   });
 
   const allPass = checks.every(c => c.pass);

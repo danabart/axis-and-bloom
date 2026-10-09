@@ -3259,6 +3259,8 @@ DECLARE
   v_earthy_bq_id   UUID;   -- Earthy branch quiz id
   v_fbq1_id        UUID;   -- Floral branch question id
   v_ebq1_id        UUID;   -- Earthy branch question id
+  v_balanced_bq_id UUID;   -- Balanced branch quiz id (Prompt 4B)
+  v_bbq1_id        UUID;   -- Balanced branch question id (Prompt 4B)
   v_answer_id      UUID;   -- loop working var
   v_question_id    UUID;   -- loop working var
   v_archetype_id   UUID;   -- loop working var
@@ -3314,6 +3316,20 @@ BEGIN
     WHERE id = v_earthy_bq_id;
   END IF;
 
+  -- Balanced branch (Prompt 4B, 2026-10-09). Every answer resolves to Balanced: the person is SHOWN Balanced
+  -- whatever they pick; the answer only sets where on the Bloom Dial they are matched (interpret() v2.2,
+  -- quizScoring.ts BRANCH_ANSWER_EFFECTS). Same create-if-absent / re-assert pattern as the two branches above.
+  SELECT id INTO v_balanced_bq_id FROM quiz WHERE version = 'v7-branch-balanced';
+  IF v_balanced_bq_id IS NULL THEN
+    INSERT INTO quiz (version, description, is_active, quiz_type_id, trigger_archetype_id, parent_quiz_id)
+      VALUES ('v7-branch-balanced', 'V7 branch: Balanced lean', true, v_branch_type_id, v_bal_id, v_quiz_id)
+      RETURNING id INTO v_balanced_bq_id;
+  ELSE
+    UPDATE quiz SET description = 'V7 branch: Balanced lean', is_active = true, quiz_type_id = v_branch_type_id,
+      trigger_archetype_id = v_bal_id, parent_quiz_id = v_quiz_id
+    WHERE id = v_balanced_bq_id;
+  END IF;
+
   -- ── Question rows — asserted as versions, keyed on (quiz_id, q_number)
   -- (Prompt 4A): no current row → insert; same text and weight → nothing;
   -- different → the current row is closed, a new version is inserted and its
@@ -3327,7 +3343,10 @@ BEGIN
   v_q6_id := quiz_assert_question(v_quiz_id, 6, 'Someone places a small treat next to your coffee. Without thinking, which do you grab?', 0);
 
   v_fbq1_id := quiz_assert_question(v_floral_bq_id, 1, 'One last thing. When coffee is really at its best for you, which is closer?', 1);
-  v_ebq1_id := quiz_assert_question(v_earthy_bq_id, 1, 'Your profile is rich and bold. How do you like to take it?', 1);
+  -- Earthy branch stem reworded by Prompt 4B (2026-10-09): a new version; the old stem's row is closed and its
+  -- answers are re-versioned onto the new row by quiz_assert_question before the content list below runs.
+  v_ebq1_id := quiz_assert_question(v_earthy_bq_id, 1, 'Your profile is rich and bold. Which one sounds more like you?', 1);
+  v_bbq1_id := quiz_assert_question(v_balanced_bq_id, 1, 'One last thing. Your coffee is smooth and gentle, just how you like it best. Which of these would you be sad to lose?', 1);
 
   -- ── Change 2 — backfill: adopt the code onto an existing row that matches
   -- by exact (question_id, answer_text) and doesn't have one yet. Runs before
@@ -3400,10 +3419,17 @@ BEGIN
       ('v7_q6_a', v_q6_id, 'Something rich and comforting. Dark chocolate, roasted nuts, a warm brownie.', v_choc_id,  FALSE, 1),
       ('v7_q6_b', v_q6_id, 'Something soft and sweet. A vanilla or a caramel biscuit.',          v_bal_id,   FALSE, 3),
       ('v7_q6_c', v_q6_id, 'Something fresh and lively. A green apple, fresh berries, citrus.',            v_fruit_id, FALSE, 2),
-      ('v7_branch_fruity_stay',   v_fbq1_id, 'It''s complex and alive. A lot happening — I want to explore every sip.',          v_fruit_id,  FALSE, 1),
-      ('v7_branch_fruity_floral', v_fbq1_id, 'It''s so light and delicate it barely feels like coffee. Almost like drinking tea.', v_floral_id, FALSE, 2),
-      ('v7_branch_cn_stay',       v_ebq1_id, 'Rich and comforting. Coffee that feels like a reward at the end of the day.',        v_choc_id,   FALSE, 1),
-      ('v7_branch_cn_earthy',     v_ebq1_id, 'Deep and intense. Complex, almost challenging. The more serious the better.',        v_earthy_id, FALSE, 2)
+      -- Branch copy reworded by Prompt 4B (2026-10-09): new versions, archetypes and sort_order unchanged.
+      -- Branch copy never names a flavor, never says "tea", no milk/dark chocolate wording (Dana, 2026-10-06/07).
+      ('v7_branch_fruity_stay',   v_fbq1_id, 'Bright and lively. Every sip a little different.',                   v_fruit_id,  FALSE, 1),
+      ('v7_branch_fruity_floral', v_fbq1_id, 'Light and delicate, and more about the smell than the taste.',       v_floral_id, FALSE, 2),
+      ('v7_branch_cn_stay',       v_ebq1_id, 'Coffee that feels like a reward. Warm, rich, comforting.',           v_choc_id,   FALSE, 1),
+      ('v7_branch_cn_earthy',     v_ebq1_id, 'Coffee with a kick. Dark, strong, a bit smoky.',                     v_earthy_id, FALSE, 2),
+      -- Balanced branch (Prompt 4B): each answer separates on a different sense (a feeling, a taste, a smell).
+      -- Do not "improve" the floral answer into a lightness description: that makes it a second fruity answer.
+      ('v7_branch_bal_cozy',      v_bbq1_id, 'The cozy, dessert-like feeling. Soft and sweet.',                                 v_bal_id, FALSE, 1),
+      ('v7_branch_bal_fruit',     v_bbq1_id, 'A little sweetness that reminds you of fruit. Like a bite of ripe peach.',        v_bal_id, FALSE, 2),
+      ('v7_branch_bal_floral',    v_bbq1_id, 'The smell. You''d catch yourself breathing it in before you even take a sip.',    v_bal_id, FALSE, 3)
     ) AS t(answer_code, question_id, answer_text, resulting_archetype_id, is_experimental_gate, sort_order)
   LOOP
     PERFORM quiz_assert_answer(rec.answer_code, rec.question_id, rec.answer_text, rec.resulting_archetype_id,
@@ -3902,6 +3928,22 @@ CREATE TABLE IF NOT EXISTS quiz_session_interpretation (
 CREATE UNIQUE INDEX IF NOT EXISTS quiz_session_interpretation_current
   ON quiz_session_interpretation (quiz_session_id) WHERE is_current;
 CREATE INDEX IF NOT EXISTS idx_qsi_version ON quiz_session_interpretation (interpretation_version);
+
+-- Interpretation v2.2 (Prompt 4B, 2026-10-09): three layers recorded separately. SHOWN stays where it was
+-- (quiz_session.resulting_archetype_id; what the screen and email said). MATCH: where on the Bloom Dial we match
+-- the person, on the interpretation row (match_archetype; intensity_lean 'delicate' or NULL = the archetype's
+-- default position). WHY: the raw branch answer, on the session (branch_answer_id). Single writers:
+-- quizSession.saveQuizInterpretation (match/lean; every v2.2 row has match_archetype, v1/v2.1 rows stay NULL) and
+-- quizSession.saveQuizSession (branch_answer_id, set in the INSERT only, never updated, never backfilled).
+ALTER TABLE quiz_session_interpretation ADD COLUMN IF NOT EXISTS match_archetype TEXT;
+ALTER TABLE quiz_session_interpretation ADD COLUMN IF NOT EXISTS intensity_lean  TEXT;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quiz_session_interpretation_intensity_lean_check') THEN
+    ALTER TABLE quiz_session_interpretation ADD CONSTRAINT quiz_session_interpretation_intensity_lean_check
+      CHECK (intensity_lean IN ('delicate'));
+  END IF;
+END $$;
+ALTER TABLE quiz_session ADD COLUMN IF NOT EXISTS branch_answer_id UUID REFERENCES quiz_answer(id);
 -- <<< quiz_session_interpretation
 
 -- >>> quiz_interpretation_views (quiz interpretation v2.1, brief 3 — 2026-09-25)
@@ -3950,10 +3992,14 @@ WITH latest_session AS (
          i.explore_reason,
          i.primary_margin,
          i.computed_by            AS interpretation_computed_by,
-         i.valid_from             AS interpretation_valid_from
+         i.valid_from             AS interpretation_valid_from,
+         COALESCE(i.match_archetype, ca.name) AS match_archetype,
+         i.intensity_lean,
+         ba.answer_code           AS branch_answer_code
   FROM quiz_session qs
   LEFT JOIN coffee_archetype ca ON ca.id = qs.resulting_archetype_id
   LEFT JOIN quiz_session_interpretation i ON i.quiz_session_id = qs.id AND i.is_current
+  LEFT JOIN quiz_answer ba ON ba.id = qs.branch_answer_id
   WHERE qs.user_id IS NOT NULL
   ORDER BY qs.user_id, qs.completed_at DESC
 )
@@ -3999,7 +4045,12 @@ SELECT
   ls.ctx ->> 'recommendationMode'                 AS recommendation_mode_as_scored,
   ls.ctx ->> 'foodSignalAlignment'                AS food_signal_alignment_as_scored,
   quiz_archetype_canonical(ls.ctx ->> 'branchedFrom')   AS branched_from,
-  ls.ctx ->> 'foodSignal'                         AS food_signal_raw
+  ls.ctx ->> 'foodSignal'                         AS food_signal_raw,
+  -- appended by Prompt 4B (interpretation v2.2, 2026-10-09): the match layer and the raw branch answer.
+  -- match_archetype is never NULL for a session: rows before v2.2 match the shown archetype.
+  ls.match_archetype,
+  ls.intensity_lean,
+  ls.branch_answer_code
 FROM newsletter_subscriber ns
 LEFT JOIN subscriber_source ss ON ss.id = ns.source_id
 LEFT JOIN latest_session    ls ON ls.user_id = ns.user_id;
@@ -4027,10 +4078,15 @@ SELECT
   i.pair_confidence,
   i.explore_archetype,
   i.explore_reason,
-  i.primary_margin
+  i.primary_margin,
+  -- appended by Prompt 4B (interpretation v2.2, 2026-10-09)
+  COALESCE(i.match_archetype, ca.name)            AS match_archetype,
+  i.intensity_lean,
+  ba.answer_code                                  AS branch_answer_code
 FROM quiz_session_interpretation i
 JOIN quiz_session qs ON qs.id = i.quiz_session_id
-LEFT JOIN coffee_archetype ca ON ca.id = qs.resulting_archetype_id;
+LEFT JOIN coffee_archetype ca ON ca.id = qs.resulting_archetype_id
+LEFT JOIN quiz_answer ba ON ba.id = qs.branch_answer_id;
 -- <<< quiz_interpretation_views
 
 -- Read-only reporting role for Looker Studio. Created NOLOGIN — no credential
@@ -5065,16 +5121,23 @@ WITH sessions AS (
     -- (recalibration), which bumps valid_from without changing completed_at.
     -- Needed to tell whether a thread question asked in the past was asked
     -- for THIS interpretation or a since-superseded one.
-    i.valid_from AS interpretation_valid_from
+    i.valid_from AS interpretation_valid_from,
+    -- Prompt 4B (interpretation v2.2, 2026-10-09): the match layer and the raw branch answer. A row before v2.2
+    -- (or no row) matches the shown archetype; never NULL.
+    COALESCE(i.match_archetype, ca.name) AS match_archetype,
+    i.intensity_lean,
+    ba.answer_code AS branch_answer_code
   FROM quiz_session qs
   JOIN v_customer_identity vci ON vci.user_id = qs.user_id
   LEFT JOIN coffee_archetype ca ON ca.id = qs.resulting_archetype_id
   LEFT JOIN quiz_session_interpretation i ON i.quiz_session_id = qs.id AND i.is_current
+  LEFT JOIN quiz_answer ba ON ba.id = qs.branch_answer_id
 ),
 with_secondary_code AS (
-  SELECT s.*, ca2.code AS secondary_archetype_code
+  SELECT s.*, ca2.code AS secondary_archetype_code, ca3.code AS match_archetype_code
   FROM sessions s
   LEFT JOIN coffee_archetype ca2 ON ca2.name = s.secondary_archetype
+  LEFT JOIN coffee_archetype ca3 ON ca3.name = s.match_archetype
 ),
 ranked AS (
   SELECT s.*,
@@ -5101,7 +5164,8 @@ SELECT
   r.secondary_archetype, r.secondary_archetype_code, r.branched_from, r.food_signal, r.experimental,
   r.food_signal_alignment, r.recommendation_mode, r.pair_confidence, r.explore_archetype, r.explore_reason,
   r.interpretation_version, r.interpretation_source, r.completed_at, r.interpretation_valid_from,
-  ch.archetype_change_count, r.quiz_count, lt.archetype_changed_last_two_quizzes
+  ch.archetype_change_count, r.quiz_count, lt.archetype_changed_last_two_quizzes,
+  r.match_archetype, r.match_archetype_code, r.intensity_lean, r.branch_answer_code
 FROM ranked r
 JOIN changes ch ON ch.canonical_user_id = r.canonical_user_id
 JOIN last_two lt ON lt.canonical_user_id = r.canonical_user_id
@@ -5247,7 +5311,8 @@ DROP VIEW IF EXISTS v_customer_timeline CASCADE;
 CREATE VIEW v_customer_timeline AS
 SELECT vci1.canonical_user_id, qs.completed_at AS occurred_at, 'quiz'::text AS kind, qs.id::text AS ref_id,
        NULL::int AS coffee_id, NULL::int AS slot_id, ca.code AS archetype_code, NULL::int AS session_id,
-       jsonb_build_object('archetype', ca.name, 'secondary_archetype', quiz_archetype_canonical(i.secondary_archetype)) AS detail
+       jsonb_build_object('archetype', ca.name, 'secondary_archetype', quiz_archetype_canonical(i.secondary_archetype),
+                          'match_archetype', COALESCE(i.match_archetype, ca.name), 'intensity_lean', i.intensity_lean) AS detail
 FROM quiz_session qs
 JOIN v_customer_identity vci1 ON vci1.user_id = qs.user_id
 LEFT JOIN coffee_archetype ca ON ca.id = qs.resulting_archetype_id
@@ -5648,7 +5713,10 @@ SELECT
        THEN ROUND(EXTRACT(EPOCH FROM (fo.ordered_at - fr.recommended_at)) / 86400.0, 2) END AS days_recommendation_to_order,
   fo.rating AS first_order_feedback_rating,
   COALESCE(th.status, 'none') AS thread_status,
-  th.reply AS thread_reply
+  th.reply AS thread_reply,
+  -- appended by Prompt 4B (interpretation v2.2, 2026-10-09)
+  qc.match_archetype,
+  qc.intensity_lean
 FROM v_customer_quiz_current qc
 JOIN quiz_session qs ON qs.id = qc.quiz_session_id
 LEFT JOIN LATERAL (
@@ -6511,7 +6579,14 @@ DO $$ DECLARE t text; BEGIN
 END $$;
 
 -- The one sanctioned fact UPDATE, granted per D11's explicit column list.
--- Task 0 (2026-09-27) confirmed this covers NO live call site today: both
+-- UPDATE (Prompt 4B, 2026-10-09): the SCD2 flip now exists.
+-- services/quizSession.ts closeCurrentInterpretation() sets exactly
+-- (valid_to, is_current) on a session's superseded current row; its only
+-- caller is the interpretation backfill (quizInterpretationBackfill.ts,
+-- scripts/backfillQuizInterpretation.ts), which runs under the owner role and
+-- refuses ab_app, in the same transaction that inserts the successor row. The
+-- live path stays INSERT-only. Listed in lint-customer.mjs RULE2_ALLOWLIST.
+-- History of this grant, for the record: Task 0 (2026-09-27) confirmed this covered NO live call site then: both
 -- the live path (quizSession.recordScoredInterpretation ->
 -- saveQuizInterpretation) and the backfill (quizInterpretationBackfill.ts)
 -- are INSERT-only — every row is written with its final is_current/valid_to

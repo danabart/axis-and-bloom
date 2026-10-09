@@ -92,26 +92,39 @@ describe('migration: re-applying schema.sql is a no-op for quiz content', { time
     expect(await contentFingerprint()).toEqual(before);
   });
 
-  it('existing rows are current, dated from their quiz, and v7 order equals the old ORDER BY id', async () => {
-    expect(await one(`SELECT COUNT(*)::int AS n FROM quiz_answer WHERE NOT is_current OR valid_to IS NOT NULL`)).toEqual({ n: 0 });
-    expect(await one(`SELECT COUNT(*)::int AS n FROM quiz_question WHERE NOT is_current OR valid_to IS NOT NULL`)).toEqual({ n: 0 });
+  // Since Prompt 4B (2026-10-09) the seed has really versioned content (Earthy stem + four branch answers), so
+  // these check the SCD2 invariants rather than "nothing was ever closed".
+  it('rows from before SCD2 are dated from their quiz; every closed row has exactly one current successor', async () => {
     expect(await one(`SELECT COUNT(*)::int AS n FROM quiz_question qq JOIN quiz qz ON qz.id = qq.quiz_id
+                      JOIN quiz_backup_20261008_quiz_question b ON b.id = qq.id
                       WHERE qq.valid_from <> qz.created_at`)).toEqual({ n: 0 });
+    expect(await one(`SELECT COUNT(*)::int AS n FROM quiz_answer a WHERE NOT a.is_current AND a.answer_code IS NOT NULL
+                      AND (SELECT COUNT(*) FROM quiz_answer c WHERE c.answer_code = a.answer_code AND c.is_current) <> 1`)).toEqual({ n: 0 });
+    expect(await one(`SELECT COUNT(*)::int AS n FROM quiz_question q WHERE NOT q.is_current
+                      AND (SELECT COUNT(*) FROM quiz_question c WHERE c.quiz_id = q.quiz_id AND c.q_number = q.q_number AND c.is_current) <> 1`)).toEqual({ n: 0 });
+    // the six main questions were never re-versioned: their current order is still the old ORDER BY id
     const misordered = await all(`SELECT answer_code FROM (
-        SELECT answer_code, sort_order, row_number() OVER (PARTITION BY question_id ORDER BY id) AS by_id
-        FROM quiz_answer WHERE answer_code IS NOT NULL) x WHERE sort_order <> by_id`);
+        SELECT a.answer_code, a.sort_order, row_number() OVER (PARTITION BY a.question_id ORDER BY a.id) AS by_id
+        FROM quiz_answer a JOIN quiz_backup_20261008_quiz_answer b ON b.id = a.id
+        WHERE a.answer_code LIKE 'v7_q%' AND a.is_current) x WHERE sort_order <> by_id`);
     expect(misordered).toEqual([]);
   });
 
-  it('snapshot tables hold exactly the pre-SCD2 rows', async () => {
-    for (const t of ['quiz', 'quiz_question', 'quiz_answer', 'quiz_answer_archetype_score']) {
+  it('snapshot tables: every pre-SCD2 row is still live and byte-identical in its original columns', async () => {
+    const cols: Record<string, string> = {
+      quiz: 'id, version, description, is_active, created_at, quiz_type_id, trigger_archetype_id, parent_quiz_id',
+      quiz_question: 'id, quiz_id, q_number, q_text, weight',
+      quiz_answer: 'id, question_id, answer_text, next_question_id, resulting_archetype_id, vector_impact, weight, is_experimental_gate, answer_code',
+      quiz_answer_archetype_score: 'id, answer_id, question_id, archetype_id, score',
+    };
+    for (const [t, c] of Object.entries(cols)) {
       const r = await one(`SELECT (SELECT COUNT(*) FROM quiz_backup_20261008_${t})::int AS snap,
-                                  (SELECT COUNT(*) FROM ${t})::int AS live,
                                   (SELECT COUNT(*) FROM quiz_backup_20261008_${t} s
-                                    WHERE NOT EXISTS (SELECT 1 FROM ${t} l WHERE l.id = s.id))::int AS gone`);
+                                    WHERE NOT EXISTS (SELECT 1 FROM ${t} l WHERE row(${c.split(', ').map(x => 'l.' + x).join(', ')})
+                                                                       IS NOT DISTINCT FROM row(${c.split(', ').map(x => 's.' + x).join(', ')})))::int AS changed`);
       expect(r.snap, t).toBeGreaterThan(0);
-      expect(r.snap, t).toBe(r.live);
-      expect(r.gone, t).toBe(0);
+      // quiz rows are not versioned and quiz.description may be re-asserted; only content tables must be untouched
+      if (t !== 'quiz') expect(r.changed, t).toBe(0);
     }
   });
 });
@@ -282,9 +295,9 @@ describe('the database refuses in-place edits and deletes', () => {
 });
 
 describe('integrity checks on the unchanged test database', () => {
-  it('the content and SCD2 checks pass (0–8, 12–17)', async () => {
+  it('the content and SCD2 checks pass (0–8, 12–18)', async () => {
     const report = await runQuizIntegrityChecks();
-    for (const id of [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14, 15, 16, 17]) {
+    for (const id of [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14, 15, 16, 17, 18]) {
       const check = report.checks.find(c => c.id === id);
       expect(check?.pass, `check ${id}: ${check?.actual} ${JSON.stringify(check?.details ?? [])}`).toBe(true);
     }

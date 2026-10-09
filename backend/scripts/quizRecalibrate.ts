@@ -1,6 +1,6 @@
 // Offline recalibration: re-reads a v_subscriber_quiz_results CSV export through interpret() and writes a
 // calibration fixture (same shape as src/fixtures/quiz_calibration/hoboken-crawl-2026.calibration.json)
-// with `expected_v2_1` plus a diff against `stored_v1`. NO DATABASE, NO NETWORK: it reads one file and
+// with `expected_v2_2` (the current ruleset) plus a diff against `stored_v1`. NO DATABASE, NO NETWORK: it reads one file and
 // writes one file.
 //
 //   npx tsx scripts/quizRecalibrate.ts <export.csv> [out.json] [calibration-set-name]
@@ -10,7 +10,7 @@
 // from another quiz version is reported as skipped (extend fixtures/quiz_calibration/ for a v8 export).
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { interpret, INTERPRETATION_VERSION } from '../src/services/quizScoring.js';
+import { interpret, INTERPRETATION_VERSION, historicalBranchAnswerCode } from '../src/services/quizScoring.js';
 import { rebuildV7Scoring } from '../src/fixtures/quiz_calibration/v7AnswerMap.js';
 
 // RFC 4180 parser: quoted fields, doubled quotes, commas and newlines inside quotes.
@@ -58,6 +58,7 @@ const col = (name: string) => {
 const iCtx = col('quiz_result_json');
 const iPrimary = col('primary_archetype');
 const iEmail = header.indexOf('email');
+const iBranchCode = header.indexOf('branch_answer_code');   // optional; present in views since v2.2
 const iCompleted = header.indexOf('quiz_completed_at');
 
 const cases: unknown[] = [];
@@ -79,19 +80,23 @@ rows.slice(1).forEach((r, idx) => {
   }
   const finalArchetype = r[iPrimary] || ctx.archetype;
   const branchedFrom: string | null = ctx.branchedFrom ?? null;
-  const out = interpret({ ...rebuilt, finalArchetype, branchedFrom });
+  // The stored branch answer when the export has it (sessions since 2026-10-09), else derived from branchedFrom.
+  const branchAnswerCode = (iBranchCode >= 0 && r[iBranchCode]) || historicalBranchAnswerCode(finalArchetype, branchedFrom);
+  const out = interpret({ ...rebuilt, finalArchetype, branchedFrom, branchAnswerCode });
 
   const stored_v1 = {
     secondaryArchetype: ctx.secondaryArchetype ?? null,
     recommendationMode: ctx.recommendationMode ?? null,
     foodSignalAlignment: ctx.foodSignalAlignment ?? null,
   };
-  const expected_v2_1 = {
+  const expected_v2_2 = {
     secondaryArchetype: out.secondaryArchetype,
     recommendationMode: out.recommendationMode,
     pairConfidence: out.pairConfidence,
     exploreArchetype: out.exploreArchetype,
     primaryMargin: out.primaryMargin,
+    matchArchetype: out.matchArchetype,
+    intensityLean: out.intensityLean,
   };
   const diff: Record<string, { v1: unknown; v2_1: unknown }> = {};
   if (stored_v1.secondaryArchetype !== out.secondaryArchetype) {
@@ -118,7 +123,7 @@ rows.slice(1).forEach((r, idx) => {
       branchedFrom,
     },
     stored_v1,
-    expected_v2_1,
+    expected_v2_2,
     explore_reason: out.exploreReason,
     diff,
   });

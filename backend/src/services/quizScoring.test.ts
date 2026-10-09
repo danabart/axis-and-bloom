@@ -7,6 +7,7 @@ import {
   isSecondaryClose,
   legacyFoodSignalAlignment,
   interpret,
+  historicalBranchAnswerCode,
 } from './quizScoring.js';
 
 const CN = 'Chocolate & Nutty';
@@ -178,9 +179,94 @@ describe('legacyFoodSignalAlignment — secondary is null', () => {
   });
 });
 
-// ─── interpret() v2.1 — Hoboken Crawl calibration set (37 real completions) ──
+// ─── interpret() v2.2 — the branch answer (Prompt 4B, A.1) ───────────────────
+
+describe('interpret() v2.2 — every row of the A.1 branch table', () => {
+  // A plain Chocolate & Nutty 7 / Balanced 2 result, a Fruity 7 / Balanced 2 result and a Balanced 9 result.
+  const cn = { scores: { [CN]: 7, [BS]: 2 }, byQ: { 1: CN, 2: BS, 3: CN, 4: CN, 5: CN }, foodSignal: null, experimental: false };
+  const fr = { scores: { [FR]: 7, [BS]: 2 }, byQ: { 1: FR, 2: BS, 3: FR, 4: FR, 5: FR }, foodSignal: null, experimental: false };
+  const bal = { scores: { [BS]: 9 }, byQ: { 1: BS, 2: BS, 3: BS, 4: BS, 5: BS }, foodSignal: null, experimental: false };
+  const rows: [string, any, string, string | null, string, string | null, string | null, string][] = [
+    // code, base, shown, branchedFrom, | match, lean, secondary, path
+    ['v7_branch_cn_earthy', cn, 'Earthy', CN, 'Earthy', null, CN, 'runner-up'],
+    ['v7_branch_cn_stay', cn, CN, null, CN, null, BS, 'runner-up'],
+    ['v7_branch_fruity_floral', fr, 'Floral', FR, 'Floral', 'delicate', FR, 'runner-up'],
+    ['v7_branch_fruity_stay', fr, FR, null, FR, null, BS, 'runner-up'],
+    ['v7_branch_bal_cozy', bal, BS, null, BS, null, CN, 'branch-lean'],
+    ['v7_branch_bal_fruit', bal, BS, null, FR, 'delicate', BS, 'branch-match'],
+    ['v7_branch_bal_floral', bal, BS, null, 'Floral', 'delicate', BS, 'branch-match'],
+  ];
+  it.each(rows)('%s', (code, base, shown, branchedFrom, match, lean, secondary, path) => {
+    const out = interpret({ ...base, finalArchetype: shown, branchedFrom, branchAnswerCode: code });
+    expect(out.matchArchetype).toBe(match);
+    expect(out.intensityLean).toBe(lean);
+    expect(out.secondaryArchetype).toBe(secondary);
+    expect(out.secondaryPath).toBe(path);
+    expect(out.interpretationVersion).toBe('v2.2');
+    if (path === 'branch-lean' || path === 'branch-match') expect(out.recommendationMode).toBe('primary_plus_active_secondary');
+  });
+  it('no branch answer: the match is the shown archetype, no lean, rule secondary', () => {
+    const out = interpret({ ...cn, finalArchetype: CN, branchedFrom: null, branchAnswerCode: null });
+    expect(out).toMatchObject({ matchArchetype: CN, intensityLean: null, secondaryArchetype: BS, secondaryPath: 'runner-up' });
+  });
+  it('an unknown branch code is ignored (treated as none)', () => {
+    const out = interpret({ ...bal, finalArchetype: BS, branchedFrom: null, branchAnswerCode: 'v7_branch_nope' });
+    expect(out).toMatchObject({ matchArchetype: BS, intensityLean: null });
+  });
+});
+
+describe('interpret() v2.2 — pair confidence from scored answers and the branch answer only (A.2/A.3)', () => {
+  it('an Earthy result with a Fruity treat is high: the treat no longer costs confidence', () => {
+    const out = interpret({
+      scores: { [CN]: 7, [BS]: 2 }, byQ: { 1: CN, 2: BS, 3: CN, 4: CN, 5: CN }, foodSignal: FR, experimental: false,
+      finalArchetype: 'Earthy', branchedFrom: CN, branchAnswerCode: 'v7_branch_cn_earthy',
+    });
+    expect(out.pairConfidence).toBe('high');
+    expect(out.exploreArchetype).toBe(FR);
+    expect(out.exploreReason).toBe(`treat points to ${FR}`);
+  });
+  it('an experimental Earthy result with Fruity 3 is medium: Fruity counted once (scored), the gate adds nothing', () => {
+    const out = interpret({
+      scores: { [CN]: 6, [FR]: 3 }, byQ: { 1: CN, 2: FR, 3: FR, 4: CN, 5: CN }, foodSignal: null, experimental: true,
+      finalArchetype: 'Earthy', branchedFrom: CN, branchAnswerCode: 'v7_branch_cn_earthy',
+    });
+    expect(out.pairConfidence).toBe('medium');
+    expect(out.exploreArchetype).toBe(FR);
+  });
+  it('a 3/3/3 near-tie is low', () => {
+    const out = interpret({
+      scores: { [CN]: 3, [BS]: 3, [FR]: 3 }, byQ: { 1: BS, 2: BS, 3: FR, 4: FR, 5: CN }, foodSignal: null, experimental: false,
+      finalArchetype: CN, branchedFrom: null, branchAnswerCode: null,
+    });
+    expect(out.secondaryPath).toBe('near-tie');
+    expect(out.pairConfidence).toBe('low');
+  });
+  it('Balanced 8 / Fruity 1 with the peach answer: match Fruity, delicate, secondary Balanced, high', () => {
+    const out = interpret({
+      scores: { [BS]: 8, [FR]: 1 }, byQ: { 1: BS, 2: BS, 3: FR, 4: BS, 5: BS }, foodSignal: null, experimental: false,
+      finalArchetype: BS, branchedFrom: null, branchAnswerCode: 'v7_branch_bal_fruit',
+    });
+    expect(out).toMatchObject({
+      matchArchetype: FR, intensityLean: 'delicate', secondaryArchetype: BS, secondaryPath: 'branch-match',
+      recommendationMode: 'primary_plus_active_secondary', pairConfidence: 'high',
+    });
+  });
+  it('Balanced 5 / Chocolate & Nutty 4 with the smell answer: Chocolate & Nutty is a stray, medium, explore it', () => {
+    const out = interpret({
+      scores: { [BS]: 5, [CN]: 4 }, byQ: { 1: CN, 2: BS, 3: CN, 4: CN, 5: BS }, foodSignal: null, experimental: false,
+      finalArchetype: BS, branchedFrom: null, branchAnswerCode: 'v7_branch_bal_floral',
+    });
+    expect(out).toMatchObject({
+      matchArchetype: 'Floral', intensityLean: 'delicate', secondaryArchetype: BS, secondaryPath: 'branch-match',
+      pairConfidence: 'medium', exploreArchetype: CN,
+    });
+  });
+});
+
+// ─── interpret() — Hoboken Crawl calibration set (37 real completions) ──────
 // The v7 answer id map lives in fixtures/quiz_calibration/v7AnswerMap.ts (shared with scripts/quizRecalibrate.ts).
 // The 'answer map reproduces the fixture inputs' tests below prove it against all 37 recorded score maps.
+// expected_v2_1 stays in the fixture as the record; the current rules are checked against expected_v2_2.
 
 interface CalibrationCase {
   case_id: string;
@@ -192,12 +278,14 @@ interface CalibrationCase {
     experimental: boolean;
     branchedFrom: string | null;
   };
-  expected_v2_1: {
+  expected_v2_2: {
     secondaryArchetype: string | null;
     recommendationMode: string;
     pairConfidence: string;
     exploreArchetype: string | null;
     primaryMargin: number;
+    matchArchetype: string;
+    intensityLean: string | null;
   };
 }
 
@@ -207,7 +295,7 @@ const calibration = JSON.parse(
 
 const rebuild = rebuildV7Scoring;
 
-describe('interpret() v2.1 — calibration fixture', () => {
+describe('interpret() v2.2 — calibration fixture', () => {
   it('has 37 cases', () => {
     expect(calibration.cases).toHaveLength(37);
   });
@@ -219,12 +307,13 @@ describe('interpret() v2.1 — calibration fixture', () => {
     expect(r.experimental).toBe(c.input.experimental);
   });
 
-  it.each(calibration.cases.map(c => [c.case_id, c] as const))('%s: expected_v2_1', (_id, c) => {
+  it.each(calibration.cases.map(c => [c.case_id, c] as const))('%s: expected_v2_2', (_id, c) => {
     const r = rebuild(c.input.answerIds);
     const out = interpret({
       ...r,
       finalArchetype: c.input.archetype,
       branchedFrom: c.input.branchedFrom,
+      branchAnswerCode: historicalBranchAnswerCode(c.input.archetype, c.input.branchedFrom),
     });
     expect({
       secondaryArchetype: out.secondaryArchetype,
@@ -232,8 +321,10 @@ describe('interpret() v2.1 — calibration fixture', () => {
       pairConfidence: out.pairConfidence,
       exploreArchetype: out.exploreArchetype,
       primaryMargin: out.primaryMargin,
-    }).toEqual(c.expected_v2_1);
+      matchArchetype: out.matchArchetype,
+      intensityLean: out.intensityLean,
+    }).toEqual(c.expected_v2_2);
     expect(out.recommendationMode).not.toBe('ai_agent');
-    expect(out.interpretationVersion).toBe('v2.1');
+    expect(out.interpretationVersion).toBe('v2.2');
   });
 });

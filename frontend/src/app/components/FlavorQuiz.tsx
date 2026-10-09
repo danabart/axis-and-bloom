@@ -998,6 +998,7 @@ export default function FlavorQuiz() {
     score: ScoreResult,
     finalArchetype: string,
     branchedFrom: string | null = null,
+    branchAnswerId: string | null = null,
   ) {
     return {
       archetype:           finalArchetype,
@@ -1006,6 +1007,9 @@ export default function FlavorQuiz() {
       answerIds:           answerIdsRef.current, // raw quiz_answer UUIDs — makes the session replayable
       decaf:               false,
       branchedFrom,
+      // Interpretation v2.2: the branch answer picked (null when no branch was shown). The server stores it on
+      // the session and derives the Bloom Dial match from it; the screen still shows finalArchetype.
+      branchAnswerId,
       // On a real reclassification (branchedFrom non-null) the branch parent is the
       // user's most relevant second flavor — it was their single highest scorer and
       // the archetype they refined away from. The scored runner-up is intentionally
@@ -1110,38 +1114,6 @@ export default function FlavorQuiz() {
     }
   };
 
-  const handleBranchContinue = () => {
-    if (!selectedBranchAnswerId || !scoreData || !branchQuestion) return;
-
-    const selected = branchQuestion.answers.find(a => a.id === selectedBranchAnswerId);
-    const finalArchetypeName = selected?.archetypeName ?? scoreData.archetype;
-    // Quiz Resync Fix Part A3 — explicit failure, not a silent fallback to
-    // the previous (pre-branch) archetypeKey.
-    const newKey = ARCHETYPE_NAME_TO_KEY[finalArchetypeName];
-    if (!newKey) {
-      reportError('[FlavorQuiz/unknown-archetype]', new Error(`Unknown archetype name from branch: ${finalArchetypeName}`));
-      setScoreError(true);
-      setShowBranch(false);
-      return;
-    }
-    setArchetypeKey(newKey);
-    setScoredThisSession(true);
-
-    // Quiz Resync Fix Part A4 — the post-branch, on-screen result, on its own row.
-    const activeCampaignFinalBranch = getActiveCampaign();
-    logQuizFunnelEvent(sessionKeyRef.current!, 'quiz_final', finalArchetypeName, activeCampaignFinalBranch ? { campaign: activeCampaignFinalBranch.slug, vid: activeCampaignFinalBranch.vid } : undefined).catch(err => reportError('[FlavorQuiz/funnel-event]', err));
-
-    if (user) {
-      const branchedFrom = finalArchetypeName !== scoreData.archetype ? scoreData.archetype : null;
-      saveQuizResult(buildQuizResultPayload(scoreData, finalArchetypeName, branchedFrom))
-        .then(refreshUserProfile)
-        .catch(err => reportError('[FlavorQuiz/save-quiz-result]', err));
-    }
-
-    setShowBranch(false);
-    setIsWrapping(true);
-  };
-
   const handleRetake = () => {
     window.scrollTo({ top: 0 });
     document.body.style.overflow = '';
@@ -1192,8 +1164,10 @@ export default function FlavorQuiz() {
       if (!scoreData || !branchQuestion) return;
       const selected = branchQuestion.answers.find(a => a.id === answerId);
       const finalArchetypeName = selected?.archetypeName ?? scoreData.archetype;
-      // Quiz Resync Fix Part A3 — same explicit-failure treatment as
-      // handleBranchContinue (this is the auto-advance twin of that handler).
+      // Quiz Resync Fix Part A3 — explicit failure, not a silent fallback to
+      // the previous (pre-branch) archetypeKey. (The Continue-button twin of
+      // this handler, handleBranchContinue, was removed 2026-10-09: dead since
+      // the 2026-07-18 rebuild dropped its button.)
       const newKey = ARCHETYPE_NAME_TO_KEY[finalArchetypeName];
       if (!newKey) {
         reportError('[FlavorQuiz/unknown-archetype]', new Error(`Unknown archetype name from branch: ${finalArchetypeName}`));
@@ -1204,13 +1178,15 @@ export default function FlavorQuiz() {
       setArchetypeKey(newKey);
       setScoredThisSession(true);
 
-      // Quiz Resync Fix Part A4 — same as handleBranchContinue.
+      // Quiz Resync Fix Part A4 — the post-branch, on-screen result, on its own row.
       const activeCampaignFinalAuto = getActiveCampaign();
       logQuizFunnelEvent(sessionKeyRef.current!, 'quiz_final', finalArchetypeName, activeCampaignFinalAuto ? { campaign: activeCampaignFinalAuto.slug, vid: activeCampaignFinalAuto.vid } : undefined).catch(err => reportError('[FlavorQuiz/funnel-event]', err));
 
       if (user) {
+        // Every Balanced-branch answer resolves to Balanced, so branchedFrom stays null there and the screen
+        // shows Balanced; the picked answer still travels as branchAnswerId (Prompt 4B).
         const branchedFrom = finalArchetypeName !== scoreData.archetype ? scoreData.archetype : null;
-        saveQuizResult(buildQuizResultPayload(scoreData, finalArchetypeName, branchedFrom))
+        saveQuizResult(buildQuizResultPayload(scoreData, finalArchetypeName, branchedFrom, answerId))
           .then(refreshUserProfile)
           // Fire-and-forget: the results screen already shows the real,
           // independently-computed archetype match regardless of whether

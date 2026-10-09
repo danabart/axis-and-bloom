@@ -12,17 +12,18 @@
 // standalone before the timeout was added, brief C2). Check 18 added the same
 // day v_palate_slot_candidates deployed with a stale column list live in
 // production (see customerIntegrity.ts's own comment on check 18); the report
-// has 15 checks now (1-9, 13-18), not 14.
+// has 15 checks now (1-9, 13-18), not 14. Prompt 4B (2026-10-09) added 19-21 (interpretation SCD2,
+// v2.2 match fields, branch_answer_id points at a branch answer): 18 checks.
 import 'dotenv/config';
 import { describe, it, expect } from 'vitest';
 import { runCustomerIntegrityChecks } from './customerIntegrity.js';
 
 describe('runCustomerIntegrityChecks', () => {
-  it('checks 1, 4, 8, 9, 13, 14, 17, 18 pass; 2, 3, 15, 16 are informational; 13-18 present', async () => {
+  it('checks 1, 4, 8, 9, 13, 14, 17, 18, 19, 20, 21 pass; 2, 3, 15, 16 are informational; 13-21 present', async () => {
     const report = await runCustomerIntegrityChecks();
     const byId = new Map(report.checks.map(c => [c.id, c]));
 
-    for (const id of [1, 4, 8, 9, 13, 14, 17, 18]) {
+    for (const id of [1, 4, 8, 9, 13, 14, 17, 18, 19, 20, 21]) {
       const check = byId.get(id)!;
       expect(check, `check ${id} missing`).toBeDefined();
       expect(check.pass, `check ${id} (${check.name}) failed: ${check.actual}\n${(check.details ?? []).join('\n')}`).toBe(true);
@@ -33,7 +34,7 @@ describe('runCustomerIntegrityChecks', () => {
       expect(check.severity, `check ${id} should be informational`).toBe('info');
     }
 
-    expect(report.checks).toHaveLength(15);
-    expect(report.checks.map(c => c.id)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 14, 15, 16, 17, 18]);
+    expect(report.checks).toHaveLength(18);
+    expect(report.checks.map(c => c.id)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 13, 14, 15, 16, 17, 18, 19, 20, 21]);
   }, 20000);
 });

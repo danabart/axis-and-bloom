@@ -6,7 +6,7 @@ import { formatBrewProfileSummary, type BrewProfileDoc } from './brewProfile.js'
 import {
   getQuizCurrent, getBrewProfileCurrent, getFeedbackCurrent, getPalateEvidence, getSharedTraits,
   getDominantDimensions, getArchetypeSpread, getThreads, getSlotCandidates, getTimeline,
-  type QuizCurrentRow, type BrewProfileFieldEntry, type FeedbackCurrentRow, type TimelineEntry,
+  distinctSecondary, type QuizCurrentRow, type BrewProfileFieldEntry, type FeedbackCurrentRow, type TimelineEntry,
 } from './customerReads.js';
 
 // ── Liam L1, Part A (2026-09-28) — the profile line: facts, rebuilt every
@@ -110,8 +110,9 @@ function shortDate(value: string | Date): string {
 function buildMatchLine(quiz: QuizCurrentRow | null): string | null {
   if (!quiz?.archetypeName) return null;
   let line = `Match: ${quiz.archetypeName}`;
-  if (quiz.secondaryArchetype) {
-    line += `; second: ${quiz.secondaryArchetype}`;
+  const second = distinctSecondary(quiz.archetypeName, quiz.secondaryArchetype);
+  if (second) {
+    line += `; second: ${second}`;
     if (quiz.interpretationSource === 'table' && quiz.pairConfidence) {
       line += ` (pair confidence: ${quiz.pairConfidence}; interpretation ${quiz.interpretationVersion})`;
     }

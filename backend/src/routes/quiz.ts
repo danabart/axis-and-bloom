@@ -7,7 +7,7 @@ import { rankScores, findWinner, interpret } from '../services/quizScoring.js';
 import { scoreAnswerIds } from '../services/quizScorer.js';
 import { refreshLifecycleState } from '../services/userLifecycle.js';
 import { logFunnelEvent } from '../features/marketing/funnelEvents.js';
-import { saveQuizSession, recordScoredInterpretation, getLatestQuizResult } from '../services/quizSession.js';
+import { saveQuizSession, recordScoredInterpretation, getLatestQuizResult, resolveBranchAnswer } from '../services/quizSession.js';
 import { archetypeUuid } from '../services/catalogReads.js';
 
 const router = Router();
@@ -95,7 +95,7 @@ router.post('/score', async (req, res) => {
     // 3. Interpretation v2.1 (secondary, mode, pair confidence, explore hint). The branch happens in the
     //    frontend afterwards, so finalArchetype is the pre-branch winner and branchedFrom is null here.
     const interpretation = interpret({
-      scores, byQ, foodSignal, experimental, finalArchetype: winnerName, branchedFrom: null,
+      scores, byQ, foodSignal, experimental, finalArchetype: winnerName, branchedFrom: null, branchAnswerCode: null,
     });
 
     // 4. Tie detection — cascade exhausted when there was a score tie and no cascade
@@ -154,7 +154,7 @@ router.post('/event', funnelEventLimiter, async (req, res) => {
 // Saves a completed quiz session, linking the real archetype FK from the DB.
 router.post('/results', requireAuth, async (req: AuthRequest, res) => {
   const { archetype, scores, answers, decaf, experimental, secondaryArchetype, foodSignal, foodSignalAlignment, recommendationMode, answerIds, branchedFrom,
-    secondaryPath, pairConfidence, exploreArchetype, exploreReason, primaryMargin, interpretationVersion } = req.body;
+    secondaryPath, pairConfidence, exploreArchetype, exploreReason, primaryMargin, interpretationVersion, branchAnswerId } = req.body;
   if (!archetype || !scores || !answers) {
     res.status(400).json({ error: 'archetype, scores, and answers required' });
     return;
@@ -171,6 +171,16 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
     );
     const profileId = profileResult.rows[0].id;
 
+    // Interpretation v2.2 (Prompt 4B): the branch answer, accepted only if it belongs to the branch of the
+    // server-scored winner; anything else is stored as no branch answer (logged, never fails the save). An older
+    // cached bundle sends none: that session is plain, with no lean. Accepted, never inferred.
+    let branch: Awaited<ReturnType<typeof resolveBranchAnswer>> = null;
+    try {
+      branch = await resolveBranchAnswer(db, { branchAnswerId, answerIds });
+    } catch (err) {
+      console.error('[quiz/branch-answer]', err);
+    }
+
     // Resolve archetype UUID + save session with real FK — shared with the
     // Pre-Launch Reveal-in-Inbox match-claim path, see services/quizSession.ts.
     const { sessionId } = await saveQuizSession(profileId, archetype, {
@@ -183,7 +193,7 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
       secondaryPath: secondaryPath ?? null, pairConfidence: pairConfidence ?? null,
       exploreArchetype: exploreArchetype ?? null, exploreReason: exploreReason ?? null,
       primaryMargin: primaryMargin ?? null, interpretationVersion: interpretationVersion ?? null,
-    });
+    }, branch?.id ?? null);
 
     // Interpretation v2.1 (brief 2): recompute server-side from answerIds and store the current `scored` row in
     // quiz_session_interpretation (the only table this writes). saveQuizSession commits through the shared pool
@@ -191,7 +201,9 @@ router.post('/results', requireAuth, async (req: AuthRequest, res) => {
     // the same one: a failure is logged, never fails the save, and leaves the session on the context_data
     // fallback until the backfill script covers it.
     try {
-      await withTransaction(tx => recordScoredInterpretation(tx, { sessionId, answerIds, archetype, branchedFrom }));
+      await withTransaction(tx => recordScoredInterpretation(tx, {
+        sessionId, answerIds, archetype, branchedFrom, branchAnswerCode: branch?.code ?? null,
+      }));
     } catch (err) {
       console.error('[quiz/interpretation]', err);
     }

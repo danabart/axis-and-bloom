@@ -1,6 +1,6 @@
 import { archetypeUuid, archetypeCode, archetypeLabel } from './catalogReads.js';
 import { db, type Tx } from '../db/client.js';
-import { interpret, type Interpretation } from './quizScoring.js';
+import { interpret, findWinner, rankScores, type Interpretation } from './quizScoring.js';
 import { scoreAnswerIds } from './quizScorer.js';
 
 /**
@@ -21,18 +21,62 @@ import { scoreAnswerIds } from './quizScorer.js';
 export async function saveQuizSession(
   profileId: string,
   archetypeName: string,
-  contextData: Record<string, unknown>
+  contextData: Record<string, unknown>,
+  // Interpretation v2.2 (Prompt 4B): the branch answer the person chose, already validated by
+  // resolveBranchAnswer(). Set in this INSERT only; never updated, never backfilled, not copied into context_data.
+  branchAnswerId: string | null = null
 ): Promise<{ sessionId: string; archetypeId: string | null }> {
   const archetypeId = await archetypeUuid(archetypeName);
 
   const sessionResult = await db.query(
-    `INSERT INTO quiz_session (user_id, resulting_archetype_id, context_data)
-     VALUES ($1, $2, $3)
+    `INSERT INTO quiz_session (user_id, resulting_archetype_id, context_data, branch_answer_id)
+     VALUES ($1, $2, $3, $4)
      RETURNING id`,
-    [profileId, archetypeId, JSON.stringify(contextData)]
+    [profileId, archetypeId, JSON.stringify(contextData), branchAnswerId]
   );
 
   return { sessionId: sessionResult.rows[0].id, archetypeId };
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Interpretation v2.2 (Prompt 4B, Part B.2): the client-sent branchAnswerId, accepted only if it is an answer of a
+ * branch quiz whose trigger_archetype_id is the SERVER-scored winner of answerIds. Anything else (missing, malformed,
+ * unknown, a main-quiz answer, another archetype's branch, no answerIds to verify against) is treated as no branch
+ * answer and logged; it never fails the save. Any version of the answer is accepted (a person may have seen a
+ * since-retired wording). Read-only.
+ */
+export async function resolveBranchAnswer(
+  client: Runner,
+  input: { branchAnswerId: unknown; answerIds: unknown }
+): Promise<{ id: string; code: string | null } | null> {
+  const { branchAnswerId, answerIds } = input;
+  if (branchAnswerId === null || branchAnswerId === undefined || branchAnswerId === '') return null;
+  const reject = (why: string) => {
+    console.warn(`[quiz/branch-answer] ignoring branchAnswerId ${String(branchAnswerId).slice(0, 64)}: ${why}`);
+    return null;
+  };
+  if (typeof branchAnswerId !== 'string' || !UUID_RE.test(branchAnswerId)) return reject('not a UUID');
+  if (!Array.isArray(answerIds) || !answerIds.length) return reject('no answerIds to verify the winner against');
+
+  const r = await client.query(
+    `SELECT a.id, a.answer_code, ca.name AS trigger_archetype
+     FROM quiz_answer a
+     JOIN quiz_question qq ON qq.id = a.question_id
+     JOIN quiz bq          ON bq.id = qq.quiz_id
+     LEFT JOIN coffee_archetype ca ON ca.id = bq.trigger_archetype_id
+     WHERE a.id = $1 AND bq.parent_quiz_id IS NOT NULL`,
+    [branchAnswerId]
+  );
+  const row = r.rows[0];
+  if (!row) return reject('not a branch-quiz answer');
+
+  const scored = await scoreAnswerIds(answerIds as string[]);
+  if (!Object.keys(scored.scores).length) return reject('answerIds not scoreable');
+  const winner = findWinner(rankScores(scored.scores), scored.byQ);
+  if (row.trigger_archetype !== winner) return reject(`branch is for ${row.trigger_archetype}, server-scored winner is ${winner}`);
+  return { id: row.id, code: row.answer_code ?? null };
 }
 
 // ─── Interpretation (SCD Type 2) — quiz interpretation v2.1, brief 2 ─────────
@@ -54,6 +98,8 @@ export interface InterpretationInput {
   exploreArchetype?: string | null;
   exploreReason?: string | null;
   primaryMargin?: number | null;
+  matchArchetype?: string | null;      // v2.2+: always set; v1 / v2.1 rows stay null
+  intensityLean?: string | null;       // v2.2+: 'delicate' or null
 }
 
 export interface SaveInterpretationOptions {
@@ -78,8 +124,8 @@ export async function saveQuizInterpretation(
     `INSERT INTO quiz_session_interpretation
        (quiz_session_id, interpretation_version, secondary_archetype, secondary_path, recommendation_mode,
         food_signal_alignment, pair_confidence, explore_archetype, explore_reason, primary_margin,
-        is_current, valid_from, valid_to, computed_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12, now()), $13, $14)
+        is_current, valid_from, valid_to, computed_by, match_archetype, intensity_lean)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12, now()), $13, $14, $15, $16)
      ON CONFLICT (quiz_session_id, interpretation_version) DO NOTHING
      RETURNING id`,
     [
@@ -87,7 +133,24 @@ export async function saveQuizInterpretation(
       interp.recommendationMode, interp.foodSignalAlignment, interp.pairConfidence ?? null,
       interp.exploreArchetype ?? null, interp.exploreReason ?? null, interp.primaryMargin ?? null,
       opts.isCurrent ?? true, opts.validFrom ?? null, opts.validTo ?? null, computedBy,
+      interp.matchArchetype ?? null, interp.intensityLean ?? null,
     ]
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+/**
+ * The SCD2 flip (Prompt 4B, Part E): closes a session's current row of `version`. Exactly two columns, matching
+ * the column-level grant in schema.sql. Called ONLY by the interpretation backfill, under the owner role, in the
+ * same transaction that inserts the successor; the live path stays INSERT-only. Returns whether a row was closed.
+ */
+export async function closeCurrentInterpretation(
+  client: Runner, sessionId: string, version: string, at: Date
+): Promise<boolean> {
+  const result = await client.query(
+    `UPDATE quiz_session_interpretation SET valid_to = $3, is_current = false
+     WHERE quiz_session_id = $1 AND interpretation_version = $2 AND is_current`,
+    [sessionId, version, at]
   );
   return (result.rowCount ?? 0) > 0;
 }
@@ -109,7 +172,10 @@ export async function canonicalArchetypeName(name: string | null | undefined): P
  */
 export async function recordScoredInterpretation(
   client: Runner,
-  input: { sessionId: string; answerIds: unknown; archetype: string; branchedFrom: string | null | undefined }
+  input: {
+    sessionId: string; answerIds: unknown; archetype: string; branchedFrom: string | null | undefined;
+    branchAnswerCode?: string | null;   // v2.2: from resolveBranchAnswer(); never the client's own claim
+  }
 ): Promise<Interpretation | null> {
   if (!Array.isArray(input.answerIds) || !input.answerIds.length) {
     console.warn(`[quiz/interpretation] session ${input.sessionId} has no answerIds — no interpretation row written`);
@@ -125,6 +191,7 @@ export async function recordScoredInterpretation(
     ...scored,
     finalArchetype,
     branchedFrom: await canonicalArchetypeName(input.branchedFrom),
+    branchAnswerCode: input.branchAnswerCode ?? null,
   });
   await saveQuizInterpretation(client, input.sessionId, interp, 'scored');
   return interp;
@@ -143,6 +210,8 @@ export interface QuizInterpretationView {
   exploreArchetype: string | null;
   exploreReason: string | null;
   primaryMargin: number | null;
+  matchArchetype: string | null;          // v2.2 match; older rows and the fallback: the session archetype
+  intensityLean: string | null;
 }
 
 // For `SELECT ..., <COLUMNS> FROM quiz_session qs <JOIN>`: the current row's columns, aliased interp_*.
@@ -158,7 +227,9 @@ export const CURRENT_INTERPRETATION_COLUMNS = `
   i.pair_confidence        AS interp_pair_confidence,
   i.explore_archetype      AS interp_explore_archetype,
   i.explore_reason         AS interp_explore_reason,
-  i.primary_margin         AS interp_primary_margin`;
+  i.primary_margin         AS interp_primary_margin,
+  i.match_archetype        AS interp_match_archetype,
+  i.intensity_lean         AS interp_intensity_lean`;
 
 /**
  * The current interpretation row when the session has one, else the as-scored snapshot in context_data with the
@@ -178,6 +249,9 @@ export function resolveInterpretation(row: Record<string, any>, ctx: Record<stri
       exploreArchetype: row.interp_explore_archetype ?? null,
       exploreReason: row.interp_explore_reason ?? null,
       primaryMargin: row.interp_primary_margin ?? null,
+      // v1 / v2.1 rows have no match: it is the shown archetype (same COALESCE as the views).
+      matchArchetype: row.interp_match_archetype ?? row.archetype_name ?? null,
+      intensityLean: row.interp_intensity_lean ?? null,
     };
   }
   const c = ctx ?? {};
@@ -192,6 +266,8 @@ export function resolveInterpretation(row: Record<string, any>, ctx: Record<stri
     exploreArchetype: c.exploreArchetype ?? null,
     exploreReason: c.exploreReason ?? null,
     primaryMargin: c.primaryMargin ?? null,
+    matchArchetype: row.archetype_name ?? c.archetype ?? null,
+    intensityLean: null,
   };
 }
 

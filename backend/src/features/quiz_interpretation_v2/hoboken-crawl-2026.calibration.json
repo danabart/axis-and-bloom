@@ -36,6 +36,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 9
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 9,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     },
     {
@@ -70,6 +79,15 @@
         "pairConfidence": "medium",
         "exploreArchetype": "Fruity",
         "primaryMargin": 6
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": "Fruity",
+        "primaryMargin": 6,
+        "matchArchetype": "Earthy",
+        "intensityLean": null
       }
     },
     {
@@ -104,6 +122,15 @@
         "pairConfidence": "medium",
         "exploreArchetype": "Fruity",
         "primaryMargin": 2
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Balanced",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "medium",
+        "exploreArchetype": "Fruity",
+        "primaryMargin": 2,
+        "matchArchetype": "Chocolate & Nutty",
+        "intensityLean": null
       }
     },
     {
@@ -138,6 +165,15 @@
         "pairConfidence": "high",
         "exploreArchetype": "Chocolate & Nutty / Fruity",
         "primaryMargin": 6
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": null,
+        "recommendationMode": "primary_only",
+        "pairConfidence": "high",
+        "exploreArchetype": "Chocolate & Nutty / Fruity",
+        "primaryMargin": 6,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     },
     {
@@ -170,6 +206,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 9
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": null,
+        "recommendationMode": "primary_only",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 9,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     },
     {
@@ -203,6 +248,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 7
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 7,
+        "matchArchetype": "Chocolate & Nutty",
+        "intensityLean": null
       }
     },
     {
@@ -236,6 +290,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 7
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 7,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     },
     {
@@ -269,6 +332,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 1
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 1,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     },
     {
@@ -303,6 +375,15 @@
         "pairConfidence": "high",
         "exploreArchetype": "Chocolate & Nutty",
         "primaryMargin": 3
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_only",
+        "pairConfidence": "high",
+        "exploreArchetype": "Chocolate & Nutty",
+        "primaryMargin": 3,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     },
     {
@@ -336,6 +417,15 @@
         "pairConfidence": "low",
         "exploreArchetype": "Fruity",
         "primaryMargin": 3
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "medium",
+        "exploreArchetype": "Fruity",
+        "primaryMargin": 3,
+        "matchArchetype": "Earthy",
+        "intensityLean": null
       }
     },
     {
@@ -369,6 +459,15 @@
         "pairConfidence": "low",
         "exploreArchetype": "Fruity",
         "primaryMargin": 7
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": "Fruity",
+        "primaryMargin": 7,
+        "matchArchetype": "Earthy",
+        "intensityLean": null
       }
     },
     {
@@ -402,6 +501,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 1
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Balanced",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 1,
+        "matchArchetype": "Chocolate & Nutty",
+        "intensityLean": null
       }
     },
     {
@@ -435,6 +543,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 1
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 1,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     },
     {
@@ -469,6 +586,15 @@
         "pairConfidence": "medium",
         "exploreArchetype": "Fruity",
         "primaryMargin": 2
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Balanced",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "medium",
+        "exploreArchetype": "Fruity",
+        "primaryMargin": 2,
+        "matchArchetype": "Chocolate & Nutty",
+        "intensityLean": null
       }
     },
     {
@@ -502,6 +628,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 7
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 7,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     },
     {
@@ -536,6 +671,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 1
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Balanced",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 1,
+        "matchArchetype": "Chocolate & Nutty",
+        "intensityLean": null
       }
     },
     {
@@ -569,6 +713,15 @@
         "pairConfidence": "medium",
         "exploreArchetype": "Fruity",
         "primaryMargin": 7
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": "Fruity",
+        "primaryMargin": 7,
+        "matchArchetype": "Earthy",
+        "intensityLean": null
       }
     },
     {
@@ -602,6 +755,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 7
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": null,
+        "recommendationMode": "primary_only",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 7,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     },
     {
@@ -635,6 +797,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 7
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 7,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     },
     {
@@ -668,6 +839,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 3
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_note_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 3,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     },
     {
@@ -701,6 +881,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 1
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 1,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     },
     {
@@ -735,6 +924,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 1
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 1,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     },
     {
@@ -768,6 +966,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 1
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 1,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     },
     {
@@ -802,6 +1009,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 2
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_plus_note_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 2,
+        "matchArchetype": "Chocolate & Nutty",
+        "intensityLean": null
       }
     },
     {
@@ -836,6 +1052,15 @@
         "pairConfidence": "high",
         "exploreArchetype": "Fruity",
         "primaryMargin": 4
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Balanced",
+        "recommendationMode": "primary_as_starting_point",
+        "pairConfidence": "high",
+        "exploreArchetype": "Fruity",
+        "primaryMargin": 4,
+        "matchArchetype": "Chocolate & Nutty",
+        "intensityLean": null
       }
     },
     {
@@ -869,6 +1094,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 7
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 7,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     },
     {
@@ -903,6 +1137,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 1
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 1,
+        "matchArchetype": "Fruity",
+        "intensityLean": null
       }
     },
     {
@@ -936,6 +1179,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 7
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Balanced",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 7,
+        "matchArchetype": "Chocolate & Nutty",
+        "intensityLean": null
       }
     },
     {
@@ -970,6 +1222,15 @@
         "pairConfidence": "medium",
         "exploreArchetype": "Balanced",
         "primaryMargin": 1
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "medium",
+        "exploreArchetype": "Balanced",
+        "primaryMargin": 1,
+        "matchArchetype": "Earthy",
+        "intensityLean": null
       }
     },
     {
@@ -1004,6 +1265,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 4
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 4,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     },
     {
@@ -1037,6 +1307,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 5
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_only",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 5,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     },
     {
@@ -1070,6 +1349,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 5
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_only",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 5,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     },
     {
@@ -1102,6 +1390,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 9
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 9,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     },
     {
@@ -1135,6 +1432,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 5
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 5,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     },
     {
@@ -1167,6 +1473,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 9
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Chocolate & Nutty",
+        "recommendationMode": "primary_plus_introduce_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 9,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     },
     {
@@ -1200,6 +1515,15 @@
         "pairConfidence": "medium",
         "exploreArchetype": "Chocolate & Nutty",
         "primaryMargin": 5
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": "Fruity",
+        "recommendationMode": "primary_plus_active_secondary",
+        "pairConfidence": "high",
+        "exploreArchetype": "Chocolate & Nutty",
+        "primaryMargin": 5,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     },
     {
@@ -1233,6 +1557,15 @@
         "pairConfidence": "high",
         "exploreArchetype": null,
         "primaryMargin": 7
+      },
+      "expected_v2_2": {
+        "secondaryArchetype": null,
+        "recommendationMode": "primary_only",
+        "pairConfidence": "high",
+        "exploreArchetype": null,
+        "primaryMargin": 7,
+        "matchArchetype": "Balanced",
+        "intensityLean": null
       }
     }
   ]

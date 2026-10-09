@@ -79,25 +79,49 @@ function legacyConfidenceAndMode(
   return { confidence: 'high', recommendationMode: 'primary_only' };
 }
 
-// ─── Interpretation v2.1 ─────────────────────────────────────────────────────
-// Pure: reads a scored result into secondary, mode, pair confidence and explore hint.
-// Rules and rationale: features/quiz_interpretation_v2/QUIZ_INTERPRETATION_V2_DECISIONS.md
+// ─── Interpretation v2.2 ─────────────────────────────────────────────────────
+// Pure: reads a scored result into secondary, mode, pair confidence, explore hint, and (v2.2) where on the
+// Bloom Dial the person is matched. Rules and rationale:
+// features/quiz_interpretation_v2/QUIZ_INTERPRETATION_V2_DECISIONS.md ("v2.2 (2026-10-09)").
+// v2.2 changes from v2.1: the branch answer sets the match (matchArchetype, intensityLean) and can override the
+// secondary; pair confidence counts scored answers only (the Q6 treat and the experimental gate never lower it,
+// Dana 2026-10-06); the treat-distance axis is gone.
 
-export const INTERPRETATION_VERSION = 'v2.1';
-
-// Interim, hand-ordered by Dana from archetype families. Replace with hop distance from the dial graph
-// (Seam Board / bloom_dial_base_data) once that is the source of truth. Experimental is a flag, not a position.
-export const ARCHETYPE_AXIS = ['Floral', 'Fruity', 'Balanced', 'Chocolate & Nutty', 'Earthy'] as const;
-
-export function axisDistance(a: string, b: string): number {
-  const ia = (ARCHETYPE_AXIS as readonly string[]).indexOf(a);
-  const ib = (ARCHETYPE_AXIS as readonly string[]).indexOf(b);
-  if (ia < 0 || ib < 0) return Infinity;
-  return Math.abs(ia - ib);
-}
+export const INTERPRETATION_VERSION = 'v2.2';
 
 export type PairConfidence = 'high' | 'medium' | 'low';
-export type SecondaryPath = 'near-tie' | 'gate-backed' | 'food-led' | 'runner-up' | 'none';
+export type SecondaryPath = 'near-tie' | 'gate-backed' | 'food-led' | 'runner-up' | 'none' | 'branch-lean' | 'branch-match';
+export type IntensityLean = 'delicate' | null;
+
+// The effect of each branch answer, part of the ruleset (versions with INTERPRETATION_VERSION, not stored on
+// quiz_answer). `match` null = the match is the shown archetype. `secondary` set = overrides the rule secondary
+// (with `path`). Shown (finalArchetype) is never changed here: a Balanced winner is shown Balanced whatever they
+// answer on the Balanced branch (Dana, 2026-10-08/09).
+interface BranchEffect {
+  match: string | null;
+  intensityLean: IntensityLean;
+  secondary?: string;
+  path?: 'branch-lean' | 'branch-match';
+}
+export const BRANCH_ANSWER_EFFECTS: Record<string, BranchEffect> = {
+  v7_branch_cn_earthy:     { match: null, intensityLean: null },
+  v7_branch_cn_stay:       { match: null, intensityLean: null },
+  v7_branch_fruity_floral: { match: null, intensityLean: 'delicate' },
+  v7_branch_fruity_stay:   { match: null, intensityLean: null },
+  v7_branch_bal_cozy:      { match: null, intensityLean: null, secondary: 'Chocolate & Nutty', path: 'branch-lean' },
+  v7_branch_bal_fruit:     { match: 'Fruity', intensityLean: 'delicate', secondary: 'Balanced', path: 'branch-match' },
+  v7_branch_bal_floral:    { match: 'Floral', intensityLean: 'delicate', secondary: 'Balanced', path: 'branch-match' },
+};
+
+// Sessions saved before branch_answer_id existed (2026-10-09) only carry branchedFrom. A real switch can only
+// have come from the switching answer; anything else is unknown (null), never guessed. Used by the backfill and
+// the offline recalibration, never by the live path.
+export function historicalBranchAnswerCode(finalArchetype: string | null, branchedFrom: string | null): string | null {
+  if (branchedFrom === null) return null;
+  if (finalArchetype === 'Earthy') return 'v7_branch_cn_earthy';
+  if (finalArchetype === 'Floral') return 'v7_branch_fruity_floral';
+  return null;
+}
 
 export interface Interpretation {
   winner: string;
@@ -110,6 +134,8 @@ export interface Interpretation {
   exploreReason: string | null;
   primaryMargin: number;
   interpretationVersion: string;
+  matchArchetype: string;                   // where on the Bloom Dial we match them; never null
+  intensityLean: IntensityLean;             // 'delicate' or null (= the archetype's default position)
 }
 
 export interface InterpretInput {
@@ -117,12 +143,14 @@ export interface InterpretInput {
   byQ: ByQ;                  // q_number -> archetype the chosen answer scores (Q1..Q5)
   foodSignal: string | null; // Q6 resulting archetype name
   experimental: boolean;
-  finalArchetype: string;    // winner, or the branch archetype after a real switch
+  finalArchetype: string;    // shown: the winner, or the branch archetype after a real switch
   branchedFrom: string | null;
+  branchAnswerCode: string | null;   // quiz_answer.answer_code of the branch answer; null = none / unknown
 }
 
 export function interpret(input: InterpretInput): Interpretation {
-  const { scores, byQ, foodSignal, experimental, finalArchetype, branchedFrom } = input;
+  const { scores, byQ, foodSignal, experimental, finalArchetype, branchedFrom, branchAnswerCode } = input;
+  const branch = branchAnswerCode ? BRANCH_ANSWER_EFFECTS[branchAnswerCode] ?? null : null;
 
   // A.1 winner and margin
   const winner = findWinner(rankScores(scores), byQ);
@@ -155,9 +183,7 @@ export function interpret(input: InterpretInput): Interpretation {
   } else {
     path = 'none'; ruleSecondary = null;
   }
-  const secondaryArchetype = branchedFrom !== null ? branchedFrom : ruleSecondary;
-
-  // A.3 mode, from the (pre-branch) path: the branch never changes the mode
+  // A.3 mode, from the (pre-branch) path; a branch-lean/branch-match answer sets its own (below)
   let recommendationMode: RecommendationMode;
   switch (path) {
     case 'near-tie':
@@ -174,37 +200,49 @@ export function interpret(input: InterpretInput): Interpretation {
       recommendationMode = experimental ? 'primary_as_starting_point' : 'primary_only';
   }
 
-  // A.4 pair confidence
-  const pair = [finalArchetype, secondaryArchetype].filter((x): x is string => Boolean(x));
-  const treatStray = foodSignal !== null && !pair.includes(foodSignal);
-  const treatDistance = treatStray
-    ? Math.min(...pair.map(p => axisDistance(foodSignal as string, p)))
-    : 0;
-  const fruityScore = scores['Fruity'] ?? 0;
-  const gateStray = experimental && !pair.includes('Fruity') && fruityScore >= 2;
-  const thirdStrays = Object.entries(scores)
-    .filter(([n, s]) => !pair.includes(n) && s >= 3 && !(treatStray && n === foodSignal))
-    .sort(([, a], [, b]) => b - a);
-  const strayCount = (treatStray ? 1 : 0) + (gateStray ? 1 : 0) + (thirdStrays.length > 0 ? 1 : 0);
-  let pairConfidence: PairConfidence = strayCount === 0 ? 'high' : strayCount === 1 ? 'medium' : 'low';
-  if (treatStray && treatDistance >= 2) pairConfidence = 'low';
+  // A.4 the branch answer: match, lean, and (Balanced branch) the secondary
+  let secondaryArchetype = branchedFrom !== null ? branchedFrom : ruleSecondary;
+  let secondaryPath: SecondaryPath = path;
+  if (branch?.secondary) {
+    secondaryArchetype = branch.secondary;
+    secondaryPath = branch.path!;
+    recommendationMode = 'primary_plus_active_secondary';
+  }
+  const matchArchetype = branch?.match ?? finalArchetype;
+  const intensityLean: IntensityLean = branch?.intensityLean ?? null;
 
-  // A.5 explore archetype (Liam only)
+  // A.5 pair confidence: scored answers and the branch answer only. The pair is {match, secondary}; a stray is
+  // an archetype outside it with 3+ scored points. Low only for an unresolved two-way tie for runner-up.
+  const pair = [matchArchetype, secondaryArchetype].filter((x): x is string => Boolean(x));
+  const scoredStrays = Object.entries(scores)
+    .filter(([n, s]) => !pair.includes(n) && s >= 3)
+    .sort(([, a], [, b]) => b - a);
+  const pairConfidence: PairConfidence = secondaryPath === 'near-tie' && runners.length >= 2
+    ? 'low'
+    : scoredStrays.length === 0 ? 'high' : 'medium';
+
+  // A.6 explore archetype (Liam only): gate Fruity, treat, a 3+ point third archetype, a runner-up tie,
+  // each evaluated against the pair above
+  const treatStray = foodSignal !== null && !pair.includes(foodSignal);
+  const fruityScore = scores['Fruity'] ?? 0;
   const explore: { archetype: string; reason: string }[] = [];
   if (experimental && !pair.includes('Fruity') && fruityScore >= 1) {
     explore.push({ archetype: 'Fruity', reason: 'experimental gate open, Fruity outside the pair' });
   }
   if (treatStray) {
-    explore.push({
-      archetype: foodSignal as string,
-      reason: `treat points to ${foodSignal}` + (treatDistance >= 2 ? ` (${treatDistance} steps from the pair)` : ''),
-    });
+    explore.push({ archetype: foodSignal as string, reason: `treat points to ${foodSignal}` });
   }
-  if (thirdStrays.length > 0) {
-    const [n, s] = thirdStrays[0];
+  const thirdStray = scoredStrays.find(([n]) => !(treatStray && n === foodSignal));
+  if (thirdStray) {
+    const [n, s] = thirdStray;
     explore.push({ archetype: n, reason: `${n} scored ${s} outside the pair` });
   }
-  if (runners.length > 1 && branchedFrom === null) {
+  if (runners.length > 1 && branchedFrom === null && branch?.secondary) {
+    // The branch answer named the secondary: a tied runner-up outside the pair is the loose thread.
+    for (const r of [...runners].sort().filter(r => !pair.includes(r))) {
+      explore.push({ archetype: r, reason: `${r} tied for runner-up at ${runnerUpScore}, outside the pair` });
+    }
+  } else if (runners.length > 1 && branchedFrom === null) {
     if (ruleSecondary !== null && runners.includes(ruleSecondary)) {
       const other = runners.find(r => r !== ruleSecondary) as string;
       const by = path === 'gate-backed'
@@ -226,7 +264,7 @@ export function interpret(input: InterpretInput): Interpretation {
   return {
     winner,
     secondaryArchetype,
-    secondaryPath: path,
+    secondaryPath,
     recommendationMode,
     foodSignalAlignment: legacyFoodSignalAlignment(
       foodSignal, winner, ruleSecondary, experimental, isSecondaryClose(byQ, ruleSecondary)
@@ -236,5 +274,7 @@ export function interpret(input: InterpretInput): Interpretation {
     exploreReason: explore.length ? explore.map(e => e.reason).join('; ') : null,
     primaryMargin,
     interpretationVersion: INTERPRETATION_VERSION,
+    matchArchetype,
+    intensityLean,
   };
 }
