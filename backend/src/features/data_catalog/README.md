@@ -11,12 +11,12 @@ Dana, 2026-10-13: "I don't remember anything, and we keep adding more tables, mo
 | # | File | What it leaves behind |
 |---|---|---|
 | 1 | `CLAUDE_CODE_PROMPT_DATA_CATALOG_1_DICTIONARY.md` | `backend/src/db/comments.sql`: a `COMMENT ON` for every table, view and table column, applied at boot after `schema.sql`. Firestore collections inventoried in the same format. |
-| 2 | `CLAUDE_CODE_PROMPT_DATA_CATALOG_2_LINT_AND_CATALOG_MD.md` | `v_data_catalog` view, `dataCatalogIntegrity.ts` boot check with `CATALOG_LINT_MODE`, `npm run catalog:md` generating `CATALOG.md` at the repo root, System Health card, CLAUDE.md rule. |
-| 3 | `CLAUDE_CODE_PROMPT_DATA_CATALOG_3_LINEAGE.md` | `scripts/lineage-scan.mjs` (writer/reader map from code, one-writer rule enforced), `application_name` per pool, `v_data_lineage` + `v_data_table_activity` from `pg_stat_statements` / `pg_stat_user_tables`, lineage and dead-table sections in `CATALOG.md` and System Health. |
+| 2 | `CLAUDE_CODE_PROMPT_DATA_CATALOG_2_LINT_AND_CATALOG_MD.md` | `v_data_catalog` view, `dataCatalogIntegrity.ts` boot check (report only), `npm run catalog:md` generating `CATALOG.md` at the repo root, System Health card, CLAUDE.md rule. |
+| 3 | `CLAUDE_CODE_PROMPT_DATA_CATALOG_3_LINEAGE.md` | `scripts/lineage-scan.mjs` (writer/reader map from code, one-writer rule enforced in CI), `application_name` per pool, `v_data_lineage` + `v_data_table_activity` from `pg_stat_statements` / `pg_stat_user_tables`, lineage and dead-table sections in `CATALOG.md` and System Health. |
 
-## Lint mode (decided 2026-10-16)
+## Lint posture (decided 2026-10-16, revised the same day)
 
-One lint, one switch. `CATALOG_LINT_MODE=report` (default, production today): findings go to the boot log and the System Health card, boot continues. `CATALOG_LINT_MODE=strict` (the dev environment when it exists): any finding fails the boot. The one-writer rule (brief 3) fails the boot in both modes; a second writer on a table is the drift we are preventing, not a documentation gap.
+No strict mode, no environment is ever failed by the catalog. The boot check always reports: findings go to the boot log and the System Health card, boot continues, every check is `severity: 'info'`. The one rule that blocks anything is the one-writer rule (brief 3), and it lives in `scripts/lineage-scan.mjs`, run in `deploy.yml` next to the four existing lints: it fails the push before it reaches production, the same way `lint-catalog` does today. Nothing at boot ever exits.
 
 ## Dana's console steps (not in any brief)
 

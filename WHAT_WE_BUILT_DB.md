@@ -8,7 +8,9 @@ Seed files (run manually): `backend/src/db/seeds/`
 
 ---
 
-## Database Schema (69 Tables)
+## Database Schema
+
+Current table, view and column counts, and what every object is: see `CATALOG.md` (generated from the database).
 
 The schema runs automatically on every backend startup (`CREATE TABLE IF NOT EXISTS` — fully idempotent, safe to run repeatedly).
 
@@ -251,53 +253,19 @@ No enforced sequence between stages — a user can land on any stage directly fr
 
 One writer per fact, via a named service function (house rule, see `backend/src/features/catalog_blueprint/README.md`). All catalog writes now go through `backend/src/services/catalogService.ts` — the old inline SQL in `routes/admin.ts` is retired (410, `Catalog Blueprint brief 2`). **As of brief 4 (2026-09-14)**, `routes/admin.ts` itself reads only through `catalogReads`/the views — its own `dial_archetype_positions`/`coffee_alias`/`archetype_assignments` reads (the last consumer of those outside `catalogService.ts`'s roastery-lifecycle cascade) are gone, so the lint allow-list for `routes/admin.ts` (rules 3 and 4) is removed. **As of brief 5a (2026-09-15)**: `dial_archetype_config`, `dial_slot_alias`, `dial_position_vocabulary`, `dial_archetype_positions` and `coffee_alias` are dropped outright (no longer "stay live," gone from the schema entirely) — `deactivateRoastery`/`reactivateRoastery`'s `coffee_alias` cascade is removed along with the table.
 
-| Fact | table.column | Only writer | Read through |
-|---|---|---|---|
-| Archetype identity + label | `coffee_archetype.code`, `.name`, `.sort_order`, `.has_bloom_dial`, `.is_archetype`, `.dominant_dimension_id` (table renamed from `archetype` by brief 5b) | brief 1's one-time backfill (schema.sql); no runtime writer | `v_coffee_archetype` |
-| Archetype descriptor families | `coffee_archetype.descriptor_families`, `.descriptor_families_seeded_at` (brief 4, 2026-09-14 — guards the one-time seed so it never silently re-runs over an admin edit, see schema note below) | `catalogService.setArchetypeDescriptorFamilies` (validated against `DISTINCT wheel_category FROM cupping_note`; `PUT /catalog/archetypes/:code/descriptor-families` is a thin wrapper) | `v_coffee_archetype` |
-| Coffee identity + metadata | `coffees.name`, `.roaster_id` (NOT NULL as of brief 5a; the free-text `.roaster` column it lists here through brief 4 is dropped), `.origin`, `.origin_region_id`, `.process`, `.roast_level`, `.roast_shade`, `.blend_or_single`, `.flavor_descriptors_roaster`, `.is_active`/`.deactivated_at`/`.deactivation_reason` | `catalogService.createCoffee` / `.updateCoffee` / `.retireCoffee` / `.restoreCoffee` | `v_coffee` |
-| Coffee category tags | `coffee_category_assignment.coffee_id`, `.category_id` | `catalogService.updateCoffee({ categoryCodes })` (full-set upsert; `POST/DELETE /coffee-categories` are thin wrappers over it, keeping their paths) | `v_coffee.category_codes` |
-| Slot identity + name | `coffee_dial_slot.archetype`, `.sort_order`, `.name`, `.position_label`, `.position_description`, `.dimension_id` | brief 1's backfill; `catalogService.renameSlot` going forward | `v_coffee_slot`, `v_coffee_sellable_slot` |
-| Slot landing default | `coffee_dial_slot.is_landing_default` | brief 1's backfill (sort_order = 2, one per archetype); `catalogService.setLandingDefault` | `v_coffee_sellable_slot` |
-| Slot spec (band + descriptor families) | `coffee_dial_slot.spec_band_lo`, `.spec_band_hi`, `.spec_descriptor_families` | `catalogService.setSlotSpec` (NULL until brief 4's admin page starts calling it) | `v_coffee_slot` |
-| Placement (home/guest, priority, active) | `coffee_slot_assignment.slot_id`, `.coffee_id`, `.role`, `.priority`, `.is_active`, `.deactivated_at`, `.deactivation_reason` | `catalogService.placeCoffee` / `.moveCoffee` / `.addGuest` / `.removeFromSlot` / `.setPriority` | `v_coffee_slot`, `v_coffee_sellable_slot`, `v_coffee_sellable_candidate`, `v_coffee_hop` — **as of brief 3, every one of these is actually read** (`catalogReads`), no longer write-only |
-| Placement certification | `coffee_slot_assignment.certified_at`, `.certified_by`, `.certification_note`, `.placement_note` | `catalogService.certifyPlacement` (note also written by `placeCoffee`/`moveCoffee` when D6 requires one) | `v_coffee_slot` |
-| Match archetype (flavor identity, D1) | `coffee_archetype_assignment.archetype`, `.confidence`, `.source`, `.assigned_from_session_id` (current row = `superseded_at IS NULL`; table renamed from `archetype_assignments` by brief 5b) | `catalogService.setMatchArchetype` (retired `POST /coffees/:id/archetype` used to write this) | `v_coffee`, `v_coffee_slot` |
-| SKU | `coffee_sku.coffee_id`, `.weight_oz`, `.is_active`, `.roaster_sku`, `.shopify_variant_id`, `.cost_to_us`, `.quantity_available`, `.safety_stock_buffer`, `.inventory_status` (table renamed from `roaster_blend` by brief 5b) | `catalogService.upsertSku` / `.restockSku` (retired `PATCH /inventory/:id` and `POST /inventory/:id/restock` used to write this) | `v_coffee_sellable_slot` |
-| Slot price | `coffee_slot_price.slot_id` (NOT NULL + `UNIQUE (slot_id, weight_oz)` as of brief 5a), `.retail_price_cents` — the legacy `.archetype`/`.dial_sort_order` columns this row listed through brief 4 are dropped; table renamed from `dial_slot_price` by brief 5b | `catalogService.setSlotPrice` | `v_coffee_sellable_candidate`, `v_coffee_sellable_slot` |
-| Bag sizes (12 oz anchor / 2 lb / 5 lb) *(added Catalog Sizes + Visibility brief, 2026-09-28)* | `coffee_size.weight_oz` (PK, `CHECK > 0`), `.label`, `.sort_order`, `.is_anchor` (partial unique index `coffee_size_one_anchor` — exactly one), `.is_active`; FKs from `coffee_sku` / `coffee_slot_price` / `coffee_retail_price` `.weight_oz` | seed only (idempotent `INSERT … ON CONFLICT DO NOTHING` in `schema.sql`; no service verb, no admin UI; `coffee_size` is in `lint-catalog.mjs` `DML_TABLES`) | `catalogReads.getSizes` / `getAnchorSize` (60 s cache), `GET /api/admin/catalog/sizes`; sizes drive `v_coffee_sellable_candidate` |
-| Coffee retail price (category coffees with no dial slot) *(owner set 2026-09-30)* | `coffee_retail_price.coffee_id`, `.weight_oz` (FK to `coffee_size`), `.retail_price_cents`; `UNIQUE (coffee_id, weight_oz)` | `catalogService.setCoffeeRetailPrice` (size-checked → `UNKNOWN_SIZE`; was an inline route write until 2026-09-30) | `catalogReads.getCoffeeRetailPrices`; `GET /api/admin/coffee-prices`, `GET /api/coffees/other-categories` |
-| Category definitions *(owner set 2026-09-30)* | `coffee_category.code`, `.label`, `.sort_order`, `.is_active`; `.is_hoppable` and `.description` are never written by the app (manual DB decision) | `catalogService.createCategory` / `.updateCategory` / `.deleteCategory` (delete refuses with 409 `CATEGORY_IN_USE` while any `coffee_category_assignment` row exists — the schema's `ON DELETE CASCADE` never runs from the app); assignments themselves stay `catalogService.updateCoffee({ categoryCodes })` | `catalogReads.getCategories` / `getCategory` / `getCategoryAssignments` / `getCategoryCoffees` |
-| SKU availability *(2026-09-30)* | `coffee_sku.is_active` — "Available from roaster" / "Paused". The stock columns (`quantity_available`, `safety_stock_buffer`, `inventory_status`, `last_restocked_at`, `inventory_last_synced_at`) are deprecated and unused | `catalogService.upsertSku({ isActive })` (a stated `isActive` targets that size's existing row) | `v_coffee_sellable_candidate` (`is_active`), `v_coffee_visibility` (`no_active_sku`) |
-| Visibility ("visible to customers") *(added Catalog Sizes + Visibility brief, 2026-09-28)* | derived — never stored | n/a — computed | `v_coffee_visibility`, `v_coffee_visibility_summary` via `catalogReads.getCoffeeVisibility` / `getSlotVisibility` / `getNotSellable`; integrity checks 8, 9, 14 |
-| User dial position | `user_bloom_dial_current_position.slot_id` | existing write path (unchanged this brief; `slot_id` backfilled in brief 1) | — (not yet exposed through a `v_coffee_*` view) |
-| Hop physics | `coffee_hop.from_coffee_id`, `.to_coffee_id`, `.dimension_id`, `.direction`, `.delta`, `.is_recommended`, `.confidence`, `.notes` — `.hop_type` (the provisional stored value, D3) is dropped as of brief 5a; table renamed from `dial_coffee_relationships` by brief 5b | `catalogService.setHop` / `.removeHop` (retired `POST/DELETE /dial/relationships*` used to write this) | `v_coffee_hop` |
-| Hop type (derived, D3) | *(never stored — the legacy stored column/type, dropped by brief 5a, lived on the table now called `coffee_hop`, renamed from `dial_coffee_relationships` by brief 5b)* | n/a — computed from each endpoint's current active home assignment | `v_coffee_hop.hop_type_derived` (plain `TEXT` as of brief 5a, no longer `hop_type_enum`) |
-| Roastery activation state | `roaster.is_active`, `.deactivated_at`, `.deactivation_note` + the cascade onto `coffees`/`coffee_sku`/`coffee_slot_assignment` (the `coffee_alias` leg of this cascade is gone along with the table, brief 5a) | `catalogService.deactivateRoastery` / `.reactivateRoastery` (moved from inline `routes/admin.ts`, `POST /roasters/:id/deactivate`\|`reactivate` are now thin wrappers) | `v_coffee`, `v_coffee_slot`, `v_coffee_sellable_slot` |
-| Dial position signal (Phase 5, dormant) | `dial_position_signal.*` (re-keyed `.suggested_vocabulary_id` → `.suggested_slot_id` by brief 5a, A1) | `dialSuggestion.recordCuppingSignal` — unchanged this brief except moving off pool-level `BEGIN`/`COMMIT` onto `withTransaction` | `v_coffee_dial_position_consensus` (renamed from `v_dial_position_consensus` by brief 5a) |
+Ownership is generated now: see `CATALOG.md`.
 
 ### Quiz content ownership *(Prompt 4A, 2026-10-09, `WHAT_WE_BUILT.md` #218)*
 
 Quiz content is master data, SCD Type 2 (change = new row, retire never delete). Rules and rationale: `backend/src/features/quiz_interpretation_v2/QUIZ_INTERPRETATION_V2_DECISIONS.md`, "Quiz content is SCD Type 2".
 
-| Fact | table.column | Only writer | Read through |
-|---|---|---|---|
-| Quiz versions | `quiz.*` (not versioned; a quiz retires through `is_active`) | `schema.sql` V7 seed (`DO $v7$`), owner role | `routes/quiz.ts`, `quizIntegrity.ts` |
-| Questions | `quiz_question.quiz_id`, `.q_number`, `.q_text`, `.weight`; versioning `.valid_from`, `.valid_to`, `.is_current` | V7 seed via `quiz_assert_question` (re-versions the question's current answers with it) | `routes/quiz.ts` (current only), `quizScorer.ts` (by answer id, any version), `quizIntegrity.ts` |
-| Answers | `quiz_answer.answer_text`, `.resulting_archetype_id`, `.is_experimental_gate`, `.answer_code`, `.sort_order`; versioning as above | V7 seed via `quiz_assert_answer` / `quiz_retire_answer` | same, plus `v_quiz_scoring_matrix` (all versions) |
-| Scores | `quiz_answer_archetype_score.*` | V7 seed via `quiz_assert_answer_score` (insert only; a different score is a new answer version) | `quizScorer.ts` |
-| Pre-SCD2 snapshot | `quiz_backup_20261008_*` (4 tables) | first boot with SCD2 only (`CREATE TABLE IF NOT EXISTS ... AS TABLE`) | `quizIntegrity.ts` check 17 |
+Ownership is generated now: see `CATALOG.md`.
 
 `ab_app` (the request pool): SELECT only on all nine tables, enforced at the end of `schema.sql` and checked by `quizIntegrity.ts` check 16.
 
 Interpretation layers *(Prompt 4B, 2026-10-09, `WHAT_WE_BUILT.md` #219)*:
 
-| Layer | table.column | Only writer | Read through |
-|---|---|---|---|
-| Shown | `quiz_session.resulting_archetype_id` (unchanged) | `quizSession.saveQuizSession` | every view, `getLatestQuizResult` |
-| Match | `quiz_session_interpretation.match_archetype`, `.intensity_lean` | `quizSession.saveQuizInterpretation` (live: `recordScoredInterpretation`; backfill) | the five views above (COALESCE to shown), `customerReads.getQuizCurrent`, `quizSession.resolveInterpretation` |
-| Why | `quiz_session.branch_answer_id` | `quizSession.saveQuizSession` (INSERT only, after `resolveBranchAnswer`) | `branch_answer_code` in `v_customer_quiz_current`, `v_subscriber_quiz_results`, `v_quiz_session_interpretation_history` |
-| SCD2 close | `quiz_session_interpretation.valid_to`, `.is_current` | `quizSession.closeCurrentInterpretation`, backfill only | `customerIntegrity.ts` check 19 | Triggers refuse DELETE/TRUNCATE/in-place UPDATE for every role, the owner included. Integrity checks 12–15 guard the versioning (one current row per key, no current answer on a retired question, `sort_order` set and unique).
+Ownership is generated now: see `CATALOG.md`.
 
 ### Roles
 
@@ -315,22 +283,7 @@ Naming convention (Dana, 2026-09-26/27), **final** as of C3: `coffee_*` = catalo
 
 Every fact table below is live-written as of L3 (Liam Recommendation, #200, 2026-09-28) — all append-only: `INSERT ... ON CONFLICT (source, source_id) DO NOTHING`, no UPDATE or DELETE, enforced by the `ab_app` grants. **C3 retired every old Firestore/mutable-table writer these facts replace** (see WHAT_WE_BUILT.md #197) — these are no longer dual-written, they are the only write.
 
-| Table | Class | Writer | Readers |
-|---|---|---|---|
-| `customer_identity_link` | fact | `customerFacts.record.identityLink`, called from `routes/auth.ts`'s sign-up claim block (`how: 'email_match'` only — `household_claim`/`admin` supported, no caller yet) | `v_customer_identity` (recursive canonical-id walk, every other `v_customer_*`/`v_palate_*` view joins through it) |
-| `customer_feedback_event` | fact | `customerFacts.record.feedback`, called from `routes/orders.ts` POST feedback (`channel: 'onsite'`) and `services/liamSmsFeedback.ts` (`channel: 'sms'`) | `v_customer_feedback_current`, then every `v_palate_*` view that needs sentiment/rating |
-| `customer_feedback_descriptor` | fact | `customerFacts.record.feedbackDescriptor`, one per tasted note, called alongside `customer_feedback_event` from `routes/orders.ts` only (SMS feedback has no descriptors) | `v_collaborative_flavor_wheel`'s `user_flavor_feedback` UNION arm (repointed here, C3) |
-| `customer_brew_profile_change` | fact | `customerFacts.record.brewProfileChange`, called from `routes/users.ts` PATCH/DELETE `/brew-profile` (`source: 'onsite'`) and `routes/sommelier.ts`'s `resolveRemember()` (`source: 'liam'`) | `v_customer_brew_profile` (via the custom `customer_brew_profile_fold` aggregate, replays ops in `occurred_at` order) |
-| `customer_dial_event` | fact | `customerFacts.record.dialEvent`, called from `routes/users.ts` PATCH `/dial-position` | `customerReads.getRecentDialActivity` (`sommelier.ts`'s recent-dial-activity summary) |
-| `customer_liam_recommendation` | fact | `liamWriteBack.ts`'s `recordTurn()` (via `customerFacts.record.liamRecommendation`), called from `routes/sommelier.ts`'s `/start` and `/:sessionId/message` (`source: 'liam'`, `detected: false` for a marked `<<recommend:...>>` pick, `true` for an unmarked mention); `backfillLiamRecommendations.ts` for pre-L3 transcripts (`source: 'backfill_detected'`) | `v_palate_recommendation_outcome`, `v_palate_slot_candidates` (`in_pair`), `v_customer_calibration` |
-| `customer_liam_question` | fact | `liamWriteBack.ts`'s `recordTurn()`, same call sites, `<<ask:thread\|palate\|brew>>` | `v_palate_threads`, `v_customer_calibration` |
-| `customer_liam_reply` | fact | `liamWriteBack.ts`'s `recordReplyForOpenQuestion()`, called at the start of `/:sessionId/message`, before the turn's own reply is generated (the customer's incoming message, verbatim, to whatever question is still open) | `v_palate_threads`, `v_customer_calibration` |
-| `customer_liam_action` | fact | `routes/sommelier.ts`'s new `POST /:sessionId/action` (`customerFacts.record.liamAction` directly, `source: 'liam'`) | none yet |
-| `customer_bag_claim` | fact | `customerFacts.record.bagClaim`, called from `routes/qr.ts`'s coffee-token `authState === 'owner'` scan site only — the universal-token owner site has no single coffee to attribute a claim to (`coffee_id` is `NOT NULL`), deliberately skipped | `v_customer_bag_attribution` (household bag-claim fallback tier) |
-| `catalog_change` | fact (no `user_id` — about the catalog, not a customer) | `customerFacts.record.catalogChange`, called from every write verb in `catalogService.ts` | `services/customerReads.ts` (reserved; no exports yet), `services/customerIntegrity.ts` check 6 |
-| `customer_order_kind` | dimension, not a fact (D18) | seeded once in `schema.sql` | `order_line_item.order_kind` FK; `order_kind` filtering by value is a documented v2 read item, not done in v1 |
-| `user_saved_item` | operating table (new, C3) | `routes/users.ts`'s dial-slot explicit-save and Liam-recipe-save routes, plus the `migrateSavedItems.ts` backfill (12 rows, Firestore `liam_saves`/`dial_events` explicit-saves) | `routes/users.ts`'s `/flavor-memory` (journal/journey/activity, alongside `v_customer_timeline`) |
-| `sommelier_evaluation` | operating table (new, C3) | `sommelierEvaluator.ts` Stage 3, `outcomeTracker.ts` (`writeOutcome`/`updateOrderOutcomes`/`checkReturnedToSommelier`, outcome merged via JSONB `\|\|`) | `routes/admin.ts`'s `GET /sommelier/stats`/`POST /sommelier/recompute-centroids` |
+Ownership is generated now: see `CATALOG.md`.
 
 **`order_line_item.intended_for_user_id` and `.order_kind`** (C2, Part A4): now written by `routes/orders.ts` at checkout. `intended_for_user_id` defaults to the buyer's own profile id whenever the client doesn't pass one explicitly — `"order".household_id` is never set anywhere in this route (confirmed, zero references), so D7's "neither household nor company-sponsored" condition is unconditionally true today, meaning the default fires for every order. `order_kind` is always `'manual'` — no code path creates an order through a company-gift context (`companyGiftRedemption.ts` only ever writes `subscription`), so `'gift_redemption'` has no reachable writer; `'subscription_renewal'` waits for Shopify, `'liam_followed'` is L3's job (derived at read time from `customer_liam_recommendation`, never written at checkout).
 
@@ -356,17 +309,7 @@ The `ab_app` grant block (see Roles, above) lives at the true end of `schema.sql
 
 Evidence tables for what partner roasteries say about their own coffees. **Nothing here writes the catalog.** One writer (`services/roasteryPortalService.ts`, every verb in `withTransaction`), views as the read path, nothing ever deleted (deactivate, revoke, or version). The block sits in `schema.sql` before the A2 grant loops (operating-table grants and view SELECT apply on the creating boot). FKs: `roaster(id)` UUID, `coffees(id)` INT, `cupping_note(id)` UUID, `coffee_dimensions(id)` INT.
 
-| Table | Purpose |
-|---|---|
-| `roastery_portal_link` | one private, revocable link per issue: `token` (unique, at least 32 url-safe chars, minted as 32 random bytes), optional `contact_name`/`contact_email` (prefill only), `created_by_admin_id`, `last_opened_at`, `revoked_at` |
-| `roastery_portal_respondent` | who filled it in; unique `(roaster_id, email)`, email lowercased, first-recorded name wins |
-| `roastery_portal_coffee` | the lineup: `coffee_id` nullable catalog link (same roastery only), prefill columns (`origin`, `process_values`, `roast_level`, `blend_or_single`, `is_decaf`, `prefill_source` `roaster_site`/`catalog`), `added_by` `admin`/`roaster`, `sort_order`, `is_active`; unique active name per roastery, case-insensitive |
-| `roastery_portal_dimension` | which numeric dimensions are asked and how they are worded, seeded by dimension NAME: Acidity, Sweetness, Bitterness, Body, Savory / Depth ("Clean to deep"), Texture, Finish Length ("Finish length") |
-| `roastery_portal_response` | one row per coffee per version, `draft`/`submitted`; `proposed_archetype archetype_enum` (the roaster's proposal only, never an assignment); partial unique index = one open draft per coffee; unique `(portal_coffee_id, version)` |
-| `roastery_portal_response_note` | `rank` (1 = leading), `roaster_words` NOT NULL, `cupping_note_id` nullable (words-only allowed) |
-| `roastery_portal_response_dimension` | `value` 1 to 5, **relative to the roaster's own lineup**; never mixed with cupping values (0 to 15 absolute) |
-| `roastery_portal_response_brew` | `best` (one per response, partial unique) / `also_good` |
-| `roastery_portal_lineup_response` | the two lineup-wide answers (`typical_notice`, `similar_when_out`), versioned like a response; a coffee's own values are overrides, null = same as the lineup answer |
+Ownership is generated now: see `CATALOG.md`.
 
 **Immutability**: `roastery_portal_reject_submitted_change()` (before UPDATE/DELETE on `roastery_portal_response` and `_lineup_response`) and `roastery_portal_reject_submitted_child_change()` (before INSERT/UPDATE/DELETE on the three child sets) raise `integrity_constraint_violation` (SQLSTATE 23000) once the parent is `submitted`. Reopening starts a new draft at version + 1, copied from the latest submitted version.
 

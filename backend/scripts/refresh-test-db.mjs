@@ -151,9 +151,15 @@ if (createDb.status !== 0) {
 }
 
 console.log('[test:db:refresh] Importing into the test database...');
+// --user=axisbloom (data catalog brief 2, 2026-10-16): the dump ends with
+// statements for role axisbloom (the C1 grant/default-privilege block), and
+// Cloud SQL's default import user is not a member of it, so the import
+// failed with `must be member of role "axisbloom"` AFTER the test database
+// had already been deleted and recreated, leaving it empty. Importing as the
+// role that owns every object makes those statements legal.
 const importResult = run('gcloud', [
   'sql', 'import', 'sql', INSTANCE, gsUri,
-  `--database=${TEST_DB}`, `--project=${PROJECT}`, '--quiet',
+  `--database=${TEST_DB}`, '--user=axisbloom', `--project=${PROJECT}`, '--quiet',
 ]);
 if (importResult.status !== 0) {
   console.error('[test:db:refresh] gcloud sql import failed:', importResult.stderr ?? '');

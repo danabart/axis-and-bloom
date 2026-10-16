@@ -118,11 +118,23 @@ jobs:
         working-directory: backend
         run: npm run lint:roastery-portal
 
+      # Data catalog (brief 2, 2026-10-16): deliberately NO step here. Its
+      # lint needs a database (comments, CATALOG.md hash), which this job
+      # does not have; the boot check (dataCatalogIntegrity.ts, report only)
+      # covers production and shows on the admin System Health card.
+      # CATALOG.md is regenerated with `npm run catalog:md` by whoever
+      # changes a table, view, column or comment (CLAUDE.md rule).
+
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
 
+      # Data catalog brief 2 (2026-10-16): CATALOG.md lives at the repo root,
+      # outside the ./backend build context, so it is copied in first; the
+      # boot check (dataCatalogIntegrity.ts) compares its catalog-hash with
+      # the live DB. Not a new step, one line in this one.
       - name: Build & push image
         run: |
+          cp CATALOG.md backend/CATALOG.md
           docker build -t ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/axis-bloom/${{ env.SERVICE }}:${{ github.sha }} ./backend
           docker push ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/axis-bloom/${{ env.SERVICE }}:${{ github.sha }}
 

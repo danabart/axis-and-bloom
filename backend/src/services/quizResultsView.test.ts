@@ -3,6 +3,7 @@
 // vitest.config.ts + src/test/guard.ts). All seeded rows live in a transaction that is ROLLED BACK in afterEach.
 import 'dotenv/config';
 import { readFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { PoolClient } from 'pg';
 import { db } from '../db/client.js';
@@ -64,8 +65,10 @@ async function seedCrawl(prefix: string) {
       [user.rows[0].id, await archetypeId(c.input.archetype), JSON.stringify({ ...c.input, ...c.stored_v1 }), new Date(base + i * 1000)]
     );
     await client.query(
-      `INSERT INTO newsletter_subscriber (email, user_id, campaign, archetype, confidence) VALUES ($1, $2, 'hoboken-crawl-2026', $3, $4)`,
-      [email, user.rows[0].id, i === 0 ? 'Balanced & Sweet' : c.input.archetype, c.stored_v1.foodSignalAlignment]
+      // unsubscribe_token is NOT NULL (data catalog brief 2 drift fix), so
+      // the fixture mints one the way newsletter.ts does.
+      `INSERT INTO newsletter_subscriber (email, user_id, campaign, archetype, confidence, unsubscribe_token) VALUES ($1, $2, 'hoboken-crawl-2026', $3, $4, $5)`,
+      [email, user.rows[0].id, i === 0 ? 'Balanced & Sweet' : c.input.archetype, c.stored_v1.foodSignalAlignment, randomBytes(32).toString('hex')]
     );
   }
   await runBackfill(client, { apply: true, nested: true });

@@ -22,10 +22,29 @@ interface ClientErrorSignatureRow {
   lastSeen: string;
 }
 
+// Data catalog brief 2, Part D (2026-10-16) — the boot check's findings,
+// report only (no mode: nothing here ever fails the boot).
+interface DataCatalogCheckRow {
+  id: number;
+  name: string;
+  pass: boolean;
+  actual: string;
+  objects: string[];
+}
+
+interface DataCatalogData {
+  ranAt?: string;
+  counts?: { tables: number; views: number; columns: number; unverified: number };
+  catalogMdStale?: boolean;
+  checks?: DataCatalogCheckRow[];
+  error?: string;
+}
+
 interface SystemHealthData {
   callTypes: CallTypeRow[];
   clientErrorSignatures: ClientErrorSignatureRow[];
   retention: { totalRows: number; oldestRowAt: string | null };
+  dataCatalog?: DataCatalogData;
 }
 
 const RUST = '#b05642';
@@ -153,6 +172,60 @@ export default function AdminSystemHealth() {
           )}
         </div>
       </div>
+
+      {/* ── Data catalog ── */}
+      {data.dataCatalog && (
+        <div className="mb-8">
+          <p className={LABEL}>Data catalog</p>
+          <div className={`${CARD} border-stone-200`}>
+            {data.dataCatalog.error || !data.dataCatalog.counts || !data.dataCatalog.checks ? (
+              <p className="text-xs" style={{ color: RUST }}>{data.dataCatalog.error ?? 'No data catalog report'}</p>
+            ) : (
+              <>
+                <div className="flex items-center gap-8 mb-4">
+                  <div>
+                    <p className="text-2xl font-normal text-stone-800">{data.dataCatalog.counts.tables}</p>
+                    <p className="text-xs text-stone-400">tables</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-normal text-stone-800">{data.dataCatalog.counts.views}</p>
+                    <p className="text-xs text-stone-400">views</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-normal text-stone-800">{data.dataCatalog.counts.columns.toLocaleString()}</p>
+                    <p className="text-xs text-stone-400">table columns</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-normal" style={{ color: data.dataCatalog.counts.unverified > 0 ? RUST : undefined }}>{data.dataCatalog.counts.unverified}</p>
+                    <p className="text-xs text-stone-400">UNVERIFIED</p>
+                  </div>
+                  <span className="ml-auto text-xs border border-stone-200 rounded px-2 py-0.5 text-stone-500">report only</span>
+                </div>
+                <div className="space-y-2">
+                  {data.dataCatalog.checks.map(check => (
+                    <div key={check.id} className="text-xs border-b border-stone-100 last:border-b-0 pb-2 last:pb-0">
+                      {check.objects.length > 0 ? (
+                        <details>
+                          <summary className="cursor-pointer flex items-center justify-between">
+                            <span className="text-stone-700">#{check.id} {check.name}</span>
+                            <span className="whitespace-nowrap ml-4" style={{ color: check.pass ? undefined : RUST }}>{check.actual}</span>
+                          </summary>
+                          <p className="mt-2 text-stone-500 font-mono break-words">{check.objects.join(', ')}</p>
+                        </details>
+                      ) : (
+                        <div className="flex items-center justify-between">
+                          <span className="text-stone-700">#{check.id} {check.name}</span>
+                          <span className="text-stone-400 whitespace-nowrap ml-4">{check.actual}</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Client-error signatures ── */}
       <div>

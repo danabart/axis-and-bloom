@@ -1033,12 +1033,24 @@ ALTER TABLE newsletter_subscriber ADD COLUMN IF NOT EXISTS quiz_session_key TEXT
 -- step 1). subscribed is the single source of truth for marketing consent;
 -- unsubscribe_token is the capability token in the hosted unsubscribe URL
 -- (crypto.randomBytes(32) hex, minted in app code like beat_event.respond_token).
--- Nullable here on purpose: SET NOT NULL is migration step 3, run by hand only
--- after the backfill script reports zero NULLs — never on boot.
+-- SET NOT NULL was migration step 3, run by hand on production 2026-10-01
+-- after the backfill reported zero NULLs (WHAT_WE_BUILT.md #211). Data catalog
+-- brief 2 (2026-10-16) found that schema.sql never got it (drift: a fresh
+-- database had a nullable column, production a NOT NULL one), so it is applied
+-- here too, idempotently, and only when no NULL token exists, so it can never
+-- fail a boot (a NOTICE says so instead).
 ALTER TABLE newsletter_subscriber ADD COLUMN IF NOT EXISTS unsubscribe_token   TEXT;
 ALTER TABLE newsletter_subscriber ADD COLUMN IF NOT EXISTS unsubscribed_at     TIMESTAMPTZ;
 ALTER TABLE newsletter_subscriber ADD COLUMN IF NOT EXISTS unsubscribe_source  TEXT;  -- 'link' | 'one_click' | 'mailchimp' | 'admin'
 CREATE UNIQUE INDEX IF NOT EXISTS newsletter_subscriber_unsubscribe_token_idx ON newsletter_subscriber (unsubscribe_token);
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM newsletter_subscriber WHERE unsubscribe_token IS NULL) THEN
+    RAISE NOTICE 'newsletter_subscriber.unsubscribe_token NOT NULL not applied: rows with a NULL token exist (run the unsubscribe-token backfill)';
+  ELSE
+    ALTER TABLE newsletter_subscriber ALTER COLUMN unsubscribe_token SET NOT NULL;
+  END IF;
+END $$;
 
 -- Step 07 (C3): at-most-once guard for transactional sends (Resend), keyed by
 -- template so a future redesign can re-enable one send of a new version by
@@ -6551,6 +6563,70 @@ LEFT JOIN v_coffee_dimension_range rng ON rng.coffee_id = h.coffee_id AND rng.di
 -- ═══════════════════════════════════════════════════════════════════════════
 -- END ROASTERY PORTAL block
 -- ═══════════════════════════════════════════════════════════════════════════
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- DATA CATALOG brief 2, Part A (2026-10-16) — the dictionary as views
+-- (backend/src/features/data_catalog/CLAUDE_CODE_PROMPT_DATA_CATALOG_2_LINT_AND_CATALOG_MD.md).
+-- Read straight from the system catalogs, so they describe whatever exists,
+-- these two included. The comments themselves live in db/comments.sql.
+-- CREATE OR REPLACE (not DROP + CREATE) so their own comments survive a boot.
+-- Placed before the A2 grant loops so ab_app gets SELECT the boot they appear.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- One row per table, view and table column in public, with the comment and
+-- its parsed fields (comments.sql format: "Purpose: ... | Class: ... |
+-- Writer: ... | Readers: ... | Since: ..."; a column carries at most Class
+-- and Writer). A field the comment does not have is NULL.
+CREATE OR REPLACE VIEW v_data_catalog AS
+WITH obj AS (
+  SELECT CASE c.relkind WHEN 'v' THEN 'view' ELSE 'table' END AS object_type,
+         c.relname::text                    AS table_name,
+         NULL::text                         AS column_name,
+         NULL::text                         AS data_type,
+         NULL::boolean                      AS is_nullable,
+         obj_description(c.oid, 'pg_class') AS comment,
+         0                                  AS ordinal_position
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v')
+  UNION ALL
+  SELECT 'column',
+         c.relname::text,
+         a.attname::text,
+         format_type(a.atttypid, a.atttypmod),
+         NOT a.attnotnull,
+         col_description(c.oid, a.attnum),
+         a.attnum::int
+    FROM pg_attribute a
+    JOIN pg_class c     ON c.oid = a.attrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND a.attnum > 0 AND NOT a.attisdropped
+)
+SELECT object_type, table_name, column_name, data_type, is_nullable, comment,
+       NULLIF(btrim(substring(comment FROM 'Purpose: ([^|]*)')), '') AS purpose,
+       NULLIF(btrim(substring(comment FROM 'Class: ([^|]*)')), '')   AS class,
+       NULLIF(btrim(substring(comment FROM 'Writer: ([^|]*)')), '')  AS writer,
+       NULLIF(btrim(substring(comment FROM 'Readers: ([^|]*)')), '') AS readers,
+       NULLIF(btrim(substring(comment FROM 'Since: ([^|]*)')), '')   AS since,
+       COALESCE(comment LIKE 'UNVERIFIED%', false)                   AS is_unverified,
+       ordinal_position  -- column position (attnum); 0 for table and view rows
+  FROM obj;
+
+-- Which tables and views each view reads (one row per pair), from the view's
+-- rewrite rule dependencies.
+CREATE OR REPLACE VIEW v_data_view_dependency AS
+SELECT DISTINCT v.relname::text AS view_name,
+       ref.relname::text        AS depends_on,
+       CASE ref.relkind WHEN 'v' THEN 'view' ELSE 'table' END AS depends_on_type
+  FROM pg_rewrite r
+  JOIN pg_class v      ON v.oid = r.ev_class AND v.relkind = 'v'
+  JOIN pg_namespace vn ON vn.oid = v.relnamespace AND vn.nspname = 'public'
+  JOIN pg_depend d     ON d.classid = 'pg_rewrite'::regclass AND d.objid = r.oid
+                      AND d.refclassid = 'pg_class'::regclass
+  JOIN pg_class ref    ON ref.oid = d.refobjid AND ref.oid <> v.oid AND ref.relkind IN ('r', 'p', 'v')
+  JOIN pg_namespace rn ON rn.oid = ref.relnamespace AND rn.nspname = 'public';
+
+GRANT SELECT ON v_data_catalog, v_data_view_dependency TO reporting_ro;
 
 
 -- A2. Prefix-driven grants, re-run every boot. A table's name decides its

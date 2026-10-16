@@ -1,7 +1,7 @@
 # Data catalog, brief 1: the data dictionary (`COMMENT ON` for everything)
 
 > Folder: `backend/src/features/data_catalog/` · Decided: 2026-10-13 to 2026-10-16 (Dana) · Model: Sonnet is fine
-> Status: EXECUTED 2026-10-16 (not deployed). Closing report: `CLOSING_REPORT_1.md`.
+> Status: EXECUTED 2026-10-16, commit `6df9260`, deployed as revision `axis-bloom-backend-00750-2hj` (boot log `[db-comments] applied 1198 statements`). Closing report: `CLOSING_REPORT_1.md`.
 > Read `README.md` in this folder first. No schema change in this brief: no table, column, view, index or grant is created, altered or dropped. Only `COMMENT ON` statements and one boot step that applies them.
 
 ## What this is

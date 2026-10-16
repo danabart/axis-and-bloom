@@ -1,6 +1,6 @@
 # Closing report: data catalog brief 1, the data dictionary
 
-> Brief: `CLAUDE_CODE_PROMPT_DATA_CATALOG_1_DICTIONARY.md` · Executed 2026-10-16 · Not committed, not deployed (waiting for Dana's go-ahead)
+> Brief: `CLAUDE_CODE_PROMPT_DATA_CATALOG_1_DICTIONARY.md` · Executed 2026-10-16 · Commit `6df9260`, deployed 2026-10-16 as Cloud Run revision `axis-bloom-backend-00750-2hj`
 
 ## What was built
 
@@ -36,7 +36,7 @@ View columns (626) are excluded by decision 4. The schema itself carries Postgre
 
 **After, measured on `axisandbloom_test`** (a prod clone; it lacks `newsletter_subscriber_backup_20260925`, so it has 114 tables and 1,021 columns): `applyCommentsSql` applied every statement except the 15 for the missing backup table (1 table + 14 columns), which it skipped and reported. `findUncommentedObjects()` returned **0**, so tables, views and table columns are 100 percent commented. `npm run db:comments` against the test DB shows the same: `applied 1183 statements`, `skipped 15` (the backup table), `still uncommented: 0`. Counted directly afterwards: **114 / 114 tables, 48 / 48 views, 1,021 / 1,021 table columns commented**.
 
-**After, production: not yet.** `comments.sql` reaches production at the next deploy, through the boot step. It can also be applied by hand without a deploy (`npm run db:comments -- --expect-db axisandbloom`). I have done neither, since both write to production and wait on your go. The expected result is 1,198 / 1,198 with 0 skipped.
+**After, production (2026-10-16, deploy of commit `6df9260`, revision `axis-bloom-backend-00750-2hj`, 100% traffic):** both instances logged `[db-comments] applied 1198 statements` at boot (17:41:30Z and 17:41:39Z, right after `DB schema verified` and `[db-roles] schema applied as axisbloom; request pool is ab_app`), with no skipped objects and no `not applied` warning. Counted directly afterwards (read-only, through the proxy): **115 / 115 tables, 48 / 48 views, 1,035 / 1,035 table columns commented; `findUncommentedObjects()` returns 0.**
 
 ### One behaviour to know: `schema.sql` wipes view comments on every boot
 `schema.sql` has 48 `DROP VIEW` statements. A dropped view loses its comment, and the recreated view starts with none. During this run, a full-suite `globalSetup` re-applied `schema.sql` on the test DB and left only 8 of 48 views commented. Boot applies `comments.sql` immediately after `schema.sql`, which is why the brief puts it there. The consequence: **if the `[db-comments]` step ever fails at boot, view comments are gone until the next successful apply.** Table and column comments survive, because `CREATE TABLE IF NOT EXISTS` and `ADD COLUMN` do not touch them. Brief 2's lint will catch this state. Until then, watch for `[db-comments] comments.sql not applied` in the boot log.

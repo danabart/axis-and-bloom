@@ -40,6 +40,7 @@ import { initSommelierConfig } from './services/sommelierConfig.js';
 import { runQuizIntegrityChecks } from './services/quizIntegrity.js';
 import { runCatalogIntegrityChecks } from './services/catalogIntegrity.js';
 import { runCustomerIntegrityChecks } from './services/customerIntegrity.js';
+import { runDataCatalogIntegrityChecks, formatDataCatalogLog } from './services/dataCatalogIntegrity.js';
 
 // Customer Blueprint C3, Part 0 — surfaces the firestoreDb write-guard's
 // state on every boot, same visibility [db-roles] gives the Postgres split.
@@ -313,6 +314,17 @@ async function start() {
     }
   } catch (err) {
     console.error('Customer integrity check error (non-fatal):', err);
+  }
+
+  // Data catalog · brief 2 (2026-10-16) — report only, never blocks the
+  // boot (Dana, 2026-10-16: no strict mode). Undescribed objects,
+  // UNVERIFIED comments, malformed comments and a stale CATALOG.md go to
+  // the log here and to the System Health card.
+  try {
+    const report = await runDataCatalogIntegrityChecks();
+    for (const line of formatDataCatalogLog(report)) console.warn(line);
+  } catch (err) {
+    console.error('Data catalog check error (non-fatal):', err);
   }
 
   // 2026-08-15 CRON_SECRET incident hardening — every version of the secret

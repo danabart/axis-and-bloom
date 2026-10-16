@@ -239,10 +239,15 @@ describe('unsubscribe sync', () => {
     expect(row?.unsubscribe_source).toBeNull();
   });
 
-  it('(1b) a pre-backfill row with no token gets one on its next subscribe', async () => {
+  // Was "(1b) a pre-backfill row with no token gets one on its next
+  // subscribe". Since unsubscribe_token is NOT NULL (production since #211,
+  // schema.sql since data catalog brief 2, 2026-10-16) a row with no token
+  // cannot exist, so the test now pins the constraint instead.
+  it('(1b) a row with no token cannot exist: the database refuses a NULL unsubscribe_token', async () => {
     const email = U('token');
-    await db.query(`UPDATE newsletter_subscriber SET unsubscribe_token = NULL WHERE email = $1`, [email]);
-    await subscribe({ email, firstName: 'Unsub', source: 'newsletter' });
+    await expect(
+      db.query(`UPDATE newsletter_subscriber SET unsubscribe_token = NULL WHERE email = $1`, [email])
+    ).rejects.toThrow(/null value in column "unsubscribe_token"/);
     expect((await getRow(email))?.unsubscribe_token).toMatch(/^[0-9a-f]{64}$/);
   });
 

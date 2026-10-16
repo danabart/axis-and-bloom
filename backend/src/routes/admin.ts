@@ -18,6 +18,7 @@ import { getEffectiveAiControls, envCeilingUsd, parseUsdMicros } from '../servic
 import { runQuizIntegrityChecks } from '../services/quizIntegrity.js';
 import { runCatalogIntegrityChecks } from '../services/catalogIntegrity.js';
 import { runCustomerIntegrityChecks } from '../services/customerIntegrity.js';
+import { runDataCatalogIntegrityChecks } from '../services/dataCatalogIntegrity.js';
 import {
   CatalogError, type Ctx, type ArchetypeCode,
   createCoffee, updateCoffee, retireCoffee, restoreCoffee,
@@ -1888,6 +1889,25 @@ router.get('/customer/integrity', async (_req, res) => {
 // No configuration here by policy -- alert thresholds/routing live in GCP
 // Cloud Logging, not this portal. Reuses the AdminAIOps card pattern (plain
 // SQL, no new tables) rather than inventing a new one.
+// Data catalog · brief 2, Part D (2026-10-16) — the same checks the boot
+// runs (dataCatalogIntegrity.ts), full object lists included. Report only:
+// no mode, nothing here can fail. A failure to compute it is reported in
+// place rather than failing the whole page.
+async function dataCatalogSection() {
+  try {
+    const r = await runDataCatalogIntegrityChecks();
+    return {
+      ranAt: r.ranAt,
+      counts: r.counts,
+      catalogMdStale: r.catalogMdStale,
+      checks: r.checks.map(c => ({ id: c.id, name: c.name, pass: c.pass, actual: c.actual, objects: c.details ?? [] })),
+    };
+  } catch (err) {
+    console.error('[admin/system-health/data-catalog]', err);
+    return { error: 'Failed to run data catalog checks' };
+  }
+}
+
 router.get('/system-health', async (_req, res) => {
   try {
     const [callTypeResult, clientErrorResult, retentionResult] = await Promise.all([
@@ -1935,6 +1955,7 @@ router.get('/system-health', async (_req, res) => {
         totalRows: Number(retentionResult.rows[0]?.total_rows ?? 0),
         oldestRowAt: retentionResult.rows[0]?.oldest_row_at ?? null,
       },
+      dataCatalog: await dataCatalogSection(),
     });
   } catch (err) {
     console.error('[admin/system-health]', err);

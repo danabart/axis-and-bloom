@@ -1466,6 +1466,12 @@ COMMENT ON VIEW v_roastery_portal_cousin_hint IS $c$Purpose: Per lineup coffee w
 -- ── v_roastery_portal_dimension_match ──
 COMMENT ON VIEW v_roastery_portal_dimension_match IS $c$Purpose: Per catalog coffee with a submitted response: the roaster's dominant dimension next to ours (from its placed slot, else its match archetype), a matches flag and the merged cupping range; display and evidence only, never a gate. | Class: view | Writer: none (derived) | Readers: roasteryPortalReads | Since: 2026-10-05 (Roastery portal part 2 #210)$c$;
 
+-- ── v_data_catalog ──
+COMMENT ON VIEW v_data_catalog IS $c$Purpose: The data dictionary as rows: every table, view and table column in public with its comment and the parsed Purpose, Class, Writer, Readers and Since fields. | Class: view | Writer: none (derived) | Readers: dataCatalogIntegrity, dataCatalogMd (npm run catalog:md), admin.GET /api/admin/system-health, reporting_ro | Since: data catalog brief 2 (2026-10-16)$c$;
+
+-- ── v_data_view_dependency ──
+COMMENT ON VIEW v_data_view_dependency IS $c$Purpose: Which tables and views each view reads, one row per pair, from pg_depend on the view's rewrite rule. | Class: view | Writer: none (derived) | Readers: dataCatalogMd (CATALOG.md reads: lines), reporting_ro | Since: data catalog brief 2 (2026-10-16)$c$;
+
 -- ── liam_sms_feedback ──
 COMMENT ON TABLE liam_sms_feedback IS $c$UNVERIFIED: not in schema.sql | Purpose: Original Sommelier Task 5 table for one-row-per-SMS Liam feedback messages; renamed to sommelier_sms_feedback in code (eff1d98) but this old empty table (0 rows) was never dropped. | Class: deprecated | Writer: none | Readers: none | Since: 2026-06-26 (Sommelier Task 5, commit 78c62f4)$c$;
 COMMENT ON COLUMN liam_sms_feedback.id IS $c$UNVERIFIED: not in schema.sql | Primary key (UUID); described from the Task 5 brief DDL, not from schema.sql.$c$;
