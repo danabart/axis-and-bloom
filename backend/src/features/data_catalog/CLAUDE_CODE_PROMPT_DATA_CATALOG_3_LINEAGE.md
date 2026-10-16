@@ -1,7 +1,7 @@
 # Data catalog, brief 3: lineage (who writes, who reads), one-writer rule, table activity
 
 > Folder: `backend/src/features/data_catalog/` · Decided: 2026-10-16 (Dana) · Model: Sonnet is fine
-> Status: NOT EXECUTED · Depends on brief 1 (comments carry the declared `Writer:`); brief 2 is expected but not required (if brief 2 has not run, write the lineage sections to `LINEAGE.md` in this folder instead of `CATALOG.md`, and skip the System Health part). Decided 2026-10-16: no strict mode, nothing at boot ever exits; the one-writer rule blocks in CI only
+> Status: EXECUTED 2026-10-16 (not deployed; set match + Writer format decided by Dana at Task 0, see CLOSING_REPORT_3.md) · Depends on brief 1 (comments carry the declared `Writer:`); brief 2 is expected but not required (if brief 2 has not run, write the lineage sections to `LINEAGE.md` in this folder instead of `CATALOG.md`, and skip the System Health part). Decided 2026-10-16: no strict mode, nothing at boot ever exits; the one-writer rule blocks in CI only
 > Read `README.md` in this folder first.
 
 ## What this is
@@ -20,12 +20,12 @@ The one-writer rule: every table has exactly one writer. Declared and static mus
 2. A "writer" is a file (service module) that holds an `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE` or `COPY` against the table, or calls a SQL function that does (the `quiz_assert_*` / `quiz_retire_answer` family; list them explicitly). `schema.sql` seeds and `backend/scripts/*` backfills are writers too, named `seed` and `backfill:<script>`; a table may declare `Writer: <service>; seed` to allow both, and that counts as one declared set, not two writers.
 3. A "reader" is any file with a `SELECT ... FROM|JOIN <table>` on the table or on a view that depends on it (`v_data_view_dependency`, brief 2). Readers are informational; no rule limits them. The existing per-domain lints (`lint-catalog` rule on reading tables instead of views, etc.) keep their own stricter rules untouched.
 4. `application_name` per pool: `axis-bloom-backend` for `db` (the request pool), `axis-bloom-backend-owner` for `ownerPool()`, `script:<basename>` for anything under `backend/scripts` and `backend/src/scripts`, `cloud-function:<name>` for cloud functions. Set via the `application_name` option on `new Pool(...)`, not via the connection string, so Cloud SQL socket URLs stay as they are.
-5. Observed data is advisory. It needs `pg_stat_statements` (Dana's console flag) and resets on instance restart, so it is reported with its `stats_reset` timestamp and never used to fail anything.
+5. Observed data is advisory. It needs the `pg_stat_statements` extension (created by Part C) and resets on instance restart, so it is reported with its `stats_reset` timestamp and never used to fail anything.
 6. The deprecated stock columns rule (`lint-catalog` rule 6) and every existing lint stay as they are. This brief does not replace them; it is the general case over every table.
 
 ## Task 0 (report, read-only)
 
-- `SHOW shared_preload_libraries` includes `pg_stat_statements` and `SELECT * FROM pg_extension WHERE extname='pg_stat_statements'` returns a row. If the flag is on but the extension is missing, create it (`CREATE EXTENSION IF NOT EXISTS pg_stat_statements`, owner pool, in `schema.sql`, idempotent). If the flag is off, STOP after Parts A and B and report; Parts C and D need it.
+- `SHOW shared_preload_libraries` includes `pg_stat_statements` (Cloud SQL for PostgreSQL preloads it; no instance flag exists or is needed, corrected 2026-10-16). Report whether `SELECT * FROM pg_extension WHERE extname='pg_stat_statements'` returns a row; if not, Part C creates it with `CREATE EXTENSION IF NOT EXISTS pg_stat_statements` in `schema.sql` on the owner pool, idempotent. Only if `shared_preload_libraries` does NOT include it, STOP after Parts A and B and report; Parts C and D need it.
 - Every table's declared `Writer:` field from `v_data_catalog` (or from `comments.sql` if brief 2 has not run).
 - The list of every `.ts`/`.mjs` file under `backend/src`, `backend/scripts`, `cloud-functions` that contains a SQL verb against a table (first pass of the scanner, dry). Report tables with more than one static writer NOW, before enforcement, so Dana sees the real state up front. Expected offenders are the ones `WHAT_WE_BUILT_DB.md` already admits (e.g. `user_bloom_dial_current_position`, `newsletter_subscriber`, `sommelier_evaluation` with two writer modules).
 
@@ -49,7 +49,7 @@ STOP and report after Task 0 if more than ten tables have two or more static wri
 
 ## Part C: observed lineage and activity (needs `pg_stat_statements`)
 
-Two views in `schema.sql`, SELECT to `ab_app` and `reporting_ro`:
+`CREATE EXTENSION IF NOT EXISTS pg_stat_statements;` at the top of the block, then two views in `schema.sql`, SELECT to `ab_app` and `reporting_ro`:
 
 - `v_data_lineage_observed`: from `pg_stat_statements` joined to `pg_stat_statements_info` for `stats_reset`: `application_name` is not stored there, so use the `userid` + a parse of the query text for the table name and verb; one row per `(table_name, verb, application_name_or_role, calls, last_seen = now())`. If parsing `pg_stat_statements.query` for the table name proves unreliable, fall back to per-role only and say so in the closing report. Do not spend more than a bounded effort on the parser; advisory data (decision 5).
 - `v_data_table_activity`: from `pg_stat_user_tables`: `table_name, n_tup_ins, n_tup_upd, n_tup_del, seq_scan, idx_scan, last_autoanalyze, stats_reset`, plus `is_dead_candidate` = no inserts, updates, deletes or scans since the reset and the reset is older than 30 days.

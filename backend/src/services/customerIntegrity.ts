@@ -141,6 +141,7 @@ export async function checkLiveImmutability(scope: CheckScope = {}): Promise<Cus
     await client.query('BEGIN');
     let raised = false;
     try {
+      // lineage: probe, not a write
       await client.query('UPDATE quiz_session SET id = id WHERE false');
     } catch {
       raised = true;

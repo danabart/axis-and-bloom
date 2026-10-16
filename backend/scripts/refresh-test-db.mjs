@@ -84,7 +84,7 @@ if (!toolOnPath('gcloud')) {
 const TABLES = ['coffees', 'coffee_slot_assignment', 'user_profile'];
 
 async function countRows(connectionString, label) {
-  const pool = new pg.Pool({ connectionString });
+  const pool = new pg.Pool({ connectionString, application_name: 'script:refresh-test-db' }); // data catalog brief 3
   const counts = {};
   try {
     for (const t of TABLES) {

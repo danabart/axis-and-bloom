@@ -1,7 +1,7 @@
 # Data catalog, brief 2: the lint, `v_data_catalog`, `CATALOG.md`, System Health
 
 > Folder: `backend/src/features/data_catalog/` · Decided: 2026-10-16 (Dana) · Model: Sonnet is fine
-> Status: EXECUTED 2026-10-16 (not deployed; strict mode removed by Dana at Task 0, see CLOSING_REPORT_2.md) · Depends on brief 1 (comments exist)
+> Status: EXECUTED 2026-10-16, commit `5fbfba0`, deployed as revision `axis-bloom-backend-00751-rb9` (strict mode removed by Dana at Task 0, see CLOSING_REPORT_2.md) · Depends on brief 1 (comments exist)
 > Read `README.md` in this folder first.
 
 ## What this is

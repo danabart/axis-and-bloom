@@ -1901,6 +1901,8 @@ async function dataCatalogSection() {
       counts: r.counts,
       catalogMdStale: r.catalogMdStale,
       checks: r.checks.map(c => ({ id: c.id, name: c.name, pass: c.pass, actual: c.actual, objects: c.details ?? [] })),
+      // Data catalog brief 3, Part D: who writes what (lineage.json in the image) + dead tables.
+      lineage: r.lineage,
     };
   } catch (err) {
     console.error('[admin/system-health/data-catalog]', err);

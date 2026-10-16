@@ -95,7 +95,10 @@ describe('comments.sql format', () => {
     expect(schema.split(/\r?\n/).filter(l => /^\s*COMMENT ON /i.test(l))).toEqual([]);
   });
 
-  it('a table comment stays one short line (aim < 300 chars; hard stop at 600)', () => {
-    expect(statements.filter(s => s.kind !== 'COLUMN' && s.text.length > 600).map(s => `${s.relation} (${s.text.length})`)).toEqual([]);
+  // Hard stop raised 600 -> 1000 by data catalog brief 3 (2026-10-16): Dana
+  // chose to keep every module.function in Writer:, so the widest multi-writer
+  // tables (user_profile ~780) run long; the stop still catches a runaway line.
+  it('a table comment stays one line (aim < 300 chars; hard stop at 1000)', () => {
+    expect(statements.filter(s => s.kind !== 'COLUMN' && s.text.length > 1000).map(s => `${s.relation} (${s.text.length})`)).toEqual([]);
   });
 });

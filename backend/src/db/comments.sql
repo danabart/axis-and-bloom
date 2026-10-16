@@ -51,7 +51,7 @@ COMMENT ON TABLE quiz_type IS $c$Purpose: Lookup that classifies a quiz row as t
 COMMENT ON COLUMN quiz_type.id IS $c$Surrogate primary key (UUID); referenced by quiz.quiz_type_id.$c$;
 COMMENT ON COLUMN quiz_type.name IS $c$Quiz kind, unique. One of: main, branch.$c$;
 -- ── coffee_archetype ──
-COMMENT ON TABLE coffee_archetype IS $c$Purpose: The six named flavor-profile archetypes (Chocolate & Nutty, Balanced, Fruity, Earthy, Floral, Experimental) with their catalog identity and Bloom Dial config | Class: master | Writer: seed, catalogService.setArchetypeDescriptorFamilies | Readers: v_coffee_archetype, v_archetype_vectors, v_quiz_scoring_matrix, v_customer_quiz_current, quizScorer, quizSession, catalogService, +10 more | Since: 2026-05-22 (as archetype; renamed 2026-09-16 by Catalog Blueprint brief 5b)$c$;
+COMMENT ON TABLE coffee_archetype IS $c$Purpose: The six named flavor-profile archetypes (Chocolate & Nutty, Balanced, Fruity, Earthy, Floral, Experimental) with their catalog identity and Bloom Dial config | Class: master | Writer: catalogService.setArchetypeDescriptorFamilies; seed | Readers: v_coffee_archetype, v_archetype_vectors, v_quiz_scoring_matrix, v_customer_quiz_current, quizScorer, quizSession, catalogService, +10 more | Since: 2026-05-22 (as archetype; renamed 2026-09-16 by Catalog Blueprint brief 5b)$c$;
 COMMENT ON COLUMN coffee_archetype.id IS $c$Surrogate primary key (UUID); the FK target for quiz answers, quiz sessions, archetype_vector and similar quiz-side tables (catalog tables key on code instead).$c$;
 COMMENT ON COLUMN coffee_archetype.name IS $c$Display name of the archetype, unique; still the natural key inside the quiz seed blocks. Balanced was renamed from Balanced & Sweet on 2026-09-19.$c$;
 COMMENT ON COLUMN coffee_archetype.description IS $c$Customer-facing one-sentence profile text for the archetype.$c$;
@@ -66,7 +66,7 @@ COMMENT ON COLUMN coffee_archetype.dominant_dimension_id IS $c$References coffee
 COMMENT ON COLUMN coffee_archetype.descriptor_families IS $c$Array of cupping_note.wheel_category strings that count as on family for this archetype (D6 placement check); seeded by schema.sql, admin-editable | Writer: catalogService.setArchetypeDescriptorFamilies$c$;
 COMMENT ON COLUMN coffee_archetype.descriptor_families_seeded_at IS $c$UTC timestamp when descriptor_families was seeded; guards the one-time seed so an admin edit is never reset on the next boot | Writer: seed, catalogService.setArchetypeDescriptorFamilies$c$;
 -- ── roaster ──
-COMMENT ON TABLE roaster IS $c$Purpose: Drop-ship roastery partners that supply the coffees, with contact details and an active or deactivated state | Class: operating | Writer: admin.POST /roasters, admin.PATCH /roasters/:id, catalogService.deactivateRoastery, catalogService.reactivateRoastery | Readers: v_coffee, v_cupping_scores_readable, admin, coffees, catalogService, catalogImport, roasteryPortalReads, +1 more | Since: 2026-05-22$c$;
+COMMENT ON TABLE roaster IS $c$Purpose: Drop-ship roastery partners that supply the coffees, with contact details and an active or deactivated state | Class: operating | Writer: admin.POST /api/admin/roasters, admin.PATCH /api/admin/roasters/:id, catalogService.deactivateRoastery, catalogService.reactivateRoastery | Readers: v_coffee, v_cupping_scores_readable, admin, coffees, catalogService, catalogImport, roasteryPortalReads, +1 more | Since: 2026-05-22$c$;
 COMMENT ON COLUMN roaster.id IS $c$Surrogate primary key (UUID); referenced by coffees.roaster_id, coffee_sku.roaster_id and the roastery portal tables.$c$;
 COMMENT ON COLUMN roaster.name IS $c$Roastery display name; catalogImport matches manifests to a roaster by this name, case and whitespace insensitive (no unique constraint).$c$;
 COMMENT ON COLUMN roaster.api_endpoint IS $c$Optional URL of the roaster's order-submission API; admin-entered, no code outside the admin form reads it.$c$;
@@ -116,7 +116,7 @@ COMMENT ON COLUMN sensory_source.year IS $c$Publication year of the edition (int
 COMMENT ON COLUMN sensory_source.url IS $c$Public URL of the standard; NULL for platform.$c$;
 COMMENT ON COLUMN sensory_source.notes IS $c$Free-text note on what Axis & Bloom takes from this source.$c$;
 -- ── sensory_lexicon_attribute ──
-COMMENT ON TABLE sensory_lexicon_attribute IS $c$Purpose: Full WCR Sensory Lexicon 2.0 reference set (113 rows) kept apart from the active cupping_note wheel, with provenance links | Class: operating | Writer: seed (db/seeds/sensory_lexicon_attributes_wcr.sql, run manually) | Readers: none (FK target of coffee_dimensions.sensory_lexicon_attribute_id) | Since: 2026-07-13$c$;
+COMMENT ON TABLE sensory_lexicon_attribute IS $c$Purpose: Full WCR Sensory Lexicon 2.0 reference set (113 rows) kept apart from the active cupping_note wheel, with provenance links | Class: operating | Writer: seed | Readers: none (FK target of coffee_dimensions.sensory_lexicon_attribute_id) | Since: 2026-07-13$c$;
 COMMENT ON COLUMN sensory_lexicon_attribute.id IS $c$Serial integer primary key; referenced by coffee_dimensions.sensory_lexicon_attribute_id.$c$;
 COMMENT ON COLUMN sensory_lexicon_attribute.name IS $c$WCR lexicon attribute name, e.g. Jasmine; unique together with section.$c$;
 COMMENT ON COLUMN sensory_lexicon_attribute.section IS $c$The lexicon's own section (17 sections, e.g. Taste Basics, Amplitude, Mouthfeel); Sweet, Sour, Bitter and Salty appear in two sections by design.$c$;
@@ -127,14 +127,14 @@ COMMENT ON COLUMN sensory_lexicon_attribute.edition IS $c$Lexicon edition label,
 COMMENT ON COLUMN sensory_lexicon_attribute.definition IS $c$Attribute definition text; deliberately left NULL because the WCR text is copyrighted.$c$;
 COMMENT ON COLUMN sensory_lexicon_attribute.cupping_note_id IS $c$References cupping_note.id: the active descriptor this attribute corresponds to; set for all 84 active descriptors by the seed's explicit mapping, NULL otherwise.$c$;
 -- ── household ──
-COMMENT ON TABLE household IS $c$Purpose: A Family Bundle household grouping several user profiles under one shared account | Class: operating | Writer: household.POST /create, household.DELETE /leave | Readers: household | Since: 2026-05-22$c$;
+COMMENT ON TABLE household IS $c$Purpose: A Family Bundle household grouping several user profiles under one shared account | Class: operating | Writer: household.POST /api/household/create, household.DELETE /api/household/leave | Readers: household | Since: 2026-05-22$c$;
 COMMENT ON COLUMN household.id IS $c$Surrogate primary key (UUID); referenced by user_profile.household_id and household_invitation.household_id.$c$;
 COMMENT ON COLUMN household.household_name IS $c$Optional household display name chosen by the creator.$c$;
 COMMENT ON COLUMN household.primary_billing_user_id IS $c$References user_profile.id: the household creator, set at creation; no code changes it afterward.$c$;
 COMMENT ON COLUMN household.created_at IS $c$UTC timestamp when the household was created.$c$;
 COMMENT ON COLUMN household.updated_at IS $c$Timestamp set only at insert (default now()); no code updates the household row afterward.$c$;
 -- ── user_profile ──
-COMMENT ON TABLE user_profile IS $c$Purpose: Core customer record keyed to a Firebase uid (real or anonymous guest), holding name, household, role and consent flags | Class: operating | Writer: auth.POST /sync, users.GET /profile, quiz.POST /results, users.PATCH /profile, household routes, admin.POST /grant-admin, companyGiftRedemption | Readers: v_customer_identity, v_customer_bag_attribution, middleware/auth, users, household, orders, cron, sommelier, +N more | Since: 2026-05-22$c$;
+COMMENT ON TABLE user_profile IS $c$Purpose: Core customer record keyed to a Firebase uid (real or anonymous guest), holding name, household, role and consent flags | Class: operating | Writer: admin.POST /api/admin/grant-admin, admin.DELETE /api/admin/revoke-admin, auth.POST /api/auth/sync, companyGiftRedemption.POST /api/company-gift-redemption/:code/redeem, household.DELETE /api/household/leave, household.DELETE /api/household/members/:userId, household.POST /api/household/create, household.POST /api/household/join/:token, quiz.POST /api/quiz/results, staleGuestCleanup.purgeStaleAnonymousGuests, users.GET /api/users/profile, users.PATCH /api/users/profile; seed | Readers: v_customer_identity, v_customer_bag_attribution, middleware/auth, users, household, orders, cron, sommelier, +N more | Since: 2026-05-22$c$;
 COMMENT ON COLUMN user_profile.id IS $c$Surrogate primary key (UUID); the user_id referenced by nearly every user-scoped table.$c$;
 COMMENT ON COLUMN user_profile.firebase_uid IS $c$Firebase Auth uid, unique; may be an anonymous-auth uid, and the same uid carries forward when a guest converts to a real account.$c$;
 COMMENT ON COLUMN user_profile.first_name IS $c$Customer first name | Writer: auth.POST /sync, users.PATCH /profile$c$;
@@ -149,7 +149,7 @@ COMMENT ON COLUMN user_profile.created_at IS $c$UTC timestamp when the profile w
 COMMENT ON COLUMN user_profile.updated_at IS $c$UTC timestamp of last profile touch; refreshed by the lazy upserts and PATCH.$c$;
 COMMENT ON COLUMN user_profile.company_gift_id IS $c$References company_gift.id: the company-sponsored gift this user redeemed; NULL otherwise | Writer: companyGiftRedemption.POST /:code/redeem$c$;
 -- ── household_invitation ──
-COMMENT ON TABLE household_invitation IS $c$Purpose: Token-based invitations to join a household, valid 7 days | Class: operating | Writer: household.POST /invite, household.POST /join/:token, household.DELETE /invitations/:invitationId | Readers: household | Since: 2026-06-08$c$;
+COMMENT ON TABLE household_invitation IS $c$Purpose: Token-based invitations to join a household, valid 7 days | Class: operating | Writer: household.POST /api/household/invite, household.POST /api/household/join/:token, household.DELETE /api/household/invitations/:invitationId | Readers: household | Since: 2026-06-08$c$;
 COMMENT ON COLUMN household_invitation.id IS $c$Surrogate primary key (UUID).$c$;
 COMMENT ON COLUMN household_invitation.household_id IS $c$References household.id; invitation is deleted with the household (ON DELETE CASCADE).$c$;
 COMMENT ON COLUMN household_invitation.invited_email IS $c$Lower-cased email address the invitation was sent to; acceptance requires the joiner's email to match.$c$;
@@ -159,7 +159,7 @@ COMMENT ON COLUMN household_invitation.status IS $c$Invitation state, no CHECK c
 COMMENT ON COLUMN household_invitation.created_at IS $c$UTC timestamp when the invitation was created.$c$;
 COMMENT ON COLUMN household_invitation.expires_at IS $c$UTC timestamp after which the invitation is rejected; defaults to created time plus 7 days.$c$;
 -- ── user_email ──
-COMMENT ON TABLE user_email IS $c$Purpose: Email addresses attached to a user profile, one flagged primary | Class: operating | Writer: auth.POST /sync, users.GET /profile | Readers: users, household, cron, admin, roasteryPortalReads, staleGuestCleanup, SQL fns grant_admin, revoke_admin, list_admins | Since: 2026-05-22$c$;
+COMMENT ON TABLE user_email IS $c$Purpose: Email addresses attached to a user profile, one flagged primary | Class: operating | Writer: auth.POST /api/auth/sync, users.GET /api/users/profile | Readers: users, household, cron, admin, roasteryPortalReads, staleGuestCleanup, SQL fns grant_admin, revoke_admin, list_admins | Since: 2026-05-22$c$;
 COMMENT ON COLUMN user_email.id IS $c$Surrogate primary key (UUID).$c$;
 COMMENT ON COLUMN user_email.user_id IS $c$References user_profile.id; row is deleted with the profile (ON DELETE CASCADE).$c$;
 COMMENT ON COLUMN user_email.email_address IS $c$Email address, globally unique; taken from the Firebase token email.$c$;
@@ -168,7 +168,7 @@ COMMENT ON COLUMN user_email.is_verified IS $c$True when the address is verified
 COMMENT ON COLUMN user_email.created_at IS $c$UTC timestamp when the row was created.$c$;
 COMMENT ON COLUMN user_email.updated_at IS $c$Timestamp set only at insert (default); no code updates the row afterward.$c$;
 -- ── user_phone ──
-COMMENT ON TABLE user_phone IS $c$Purpose: Phone numbers for a user with SMS consent flags for post-delivery feedback and beat messages | Class: operating | Writer: users.PATCH /profile | Readers: users, cron, beatEngine, liamSmsFeedback | Since: 2026-05-22$c$;
+COMMENT ON TABLE user_phone IS $c$Purpose: Phone numbers for a user with SMS consent flags for post-delivery feedback and beat messages | Class: operating | Writer: users.PATCH /api/users/profile | Readers: users, cron, beatEngine, liamSmsFeedback | Since: 2026-05-22$c$;
 COMMENT ON COLUMN user_phone.id IS $c$Surrogate primary key (UUID).$c$;
 COMMENT ON COLUMN user_phone.user_id IS $c$References user_profile.id; row is deleted with the profile (ON DELETE CASCADE).$c$;
 COMMENT ON COLUMN user_phone.phone_number IS $c$Phone number in normalized form, globally unique across users.$c$;
@@ -181,7 +181,7 @@ COMMENT ON COLUMN user_phone.sms_opt_in_at IS $c$UTC timestamp when sms_opt_in w
 COMMENT ON COLUMN user_phone.sms_beats_opt_in IS $c$UNVERIFIED: read by beatEngine and cron but no code writes it (docs: no UI toggle built yet) | Extended consent for beat SMS, default false.$c$;
 COMMENT ON COLUMN user_phone.sms_beats_opt_in_at IS $c$UNVERIFIED: no code writes it | UTC timestamp when sms_beats_opt_in was granted.$c$;
 -- ── address ──
-COMMENT ON TABLE address IS $c$Purpose: Saved shipping and billing addresses per user | Class: operating | Writer: users.POST /addresses, users.PATCH /addresses/:id/default, users.DELETE /addresses/:id | Readers: users (+ order.shipping_address_id FK) | Since: 2026-05-22$c$;
+COMMENT ON TABLE address IS $c$Purpose: Saved shipping and billing addresses per user | Class: operating | Writer: users.POST /api/users/addresses, users.PATCH /api/users/addresses/:id/default, users.DELETE /api/users/addresses/:id | Readers: users (+ order.shipping_address_id FK) | Since: 2026-05-22$c$;
 COMMENT ON COLUMN address.id IS $c$Surrogate primary key (UUID); order.shipping_address_id points here as a convenience pointer.$c$;
 COMMENT ON COLUMN address.user_id IS $c$References user_profile.id; row is deleted with the profile (ON DELETE CASCADE).$c$;
 COMMENT ON COLUMN address.address_type IS $c$Address purpose, address_type_enum. One of: shipping, billing.$c$;
@@ -207,14 +207,14 @@ COMMENT ON COLUMN user_payment_detail.is_active IS $c$Boolean, default true: whe
 COMMENT ON COLUMN user_payment_detail.created_at IS $c$UTC timestamp when the row was created.$c$;
 COMMENT ON COLUMN user_payment_detail.updated_at IS $c$UTC timestamp of last update.$c$;
 -- ── user_tokens ──
-COMMENT ON TABLE user_tokens IS $c$Purpose: Per-user Liam token balance and lifetime totals; source of truth for token balance | Class: operating | Writer: auth.POST /sync, orders.POST /, tokenService.spendToken, tokenService.grantTokens, SQL fn grant_tokens | Readers: tokens, users, orders, tokenService, admin | Since: 2026-06-23$c$;
+COMMENT ON TABLE user_tokens IS $c$Purpose: Per-user Liam token balance and lifetime totals; source of truth for token balance | Class: operating | Writer: auth.POST /api/auth/sync, orders.POST /api/orders, tokenService.spendToken, tokenService.grantTokens; manual:grant_tokens | Readers: tokens, users, orders, tokenService, admin | Since: 2026-06-23$c$;
 COMMENT ON COLUMN user_tokens.uid IS $c$Firebase uid, primary key; references user_profile.firebase_uid (ON DELETE CASCADE).$c$;
 COMMENT ON COLUMN user_tokens.balance IS $c$Current token balance (integer tokens); never driven negative by spendToken.$c$;
 COMMENT ON COLUMN user_tokens.lifetime_earned IS $c$Total tokens ever granted (integer tokens): signup bonus, order bonus, grants.$c$;
 COMMENT ON COLUMN user_tokens.lifetime_spent IS $c$Total tokens ever spent (integer tokens) | Writer: tokenService.spendToken$c$;
 COMMENT ON COLUMN user_tokens.updated_at IS $c$UTC timestamp of last balance change.$c$;
 -- ── token_events ──
-COMMENT ON TABLE token_events IS $c$Purpose: Append-only audit log of every token earn, spend and usage-log event | Class: operating | Writer: auth.POST /sync, orders.POST /, tokenService.spendToken, tokenService.logUsage, tokenService.grantTokens, SQL fn grant_tokens | Readers: sommelierGuards, admin, sommelier | Since: 2026-06-23$c$;
+COMMENT ON TABLE token_events IS $c$Purpose: Append-only audit log of every token earn, spend and usage-log event | Class: operating | Writer: auth.POST /api/auth/sync, orders.POST /api/orders, tokenService.spendToken, tokenService.logUsage, tokenService.grantTokens; manual:grant_tokens | Readers: sommelierGuards, admin, sommelier | Since: 2026-06-23$c$;
 COMMENT ON COLUMN token_events.id IS $c$Serial integer primary key.$c$;
 COMMENT ON COLUMN token_events.uid IS $c$Firebase uid of the user (text); no FK constraint to user_profile.$c$;
 COMMENT ON COLUMN token_events.delta IS $c$Signed token change (integer tokens): positive earn, negative spend, 0 for usage_log.$c$;
@@ -224,7 +224,7 @@ COMMENT ON COLUMN token_events.balance_after IS $c$user_tokens.balance after thi
 COMMENT ON COLUMN token_events.created_at IS $c$UTC timestamp when the event was recorded.$c$;
 COMMENT ON COLUMN token_events.model IS $c$Claude model that handled a sommelier_turn or usage_log turn, used for the monthly spend estimate; NULL for bonus rows and older rows | Writer: tokenService.logUsage$c$;
 -- ── archetype_vector ──
-COMMENT ON TABLE archetype_vector IS $c$Purpose: Target score range per archetype per flavor dimension (ideal, min, max) | Class: operating | Writer: seed (db/seeds/archetype_vectors.sql, run manually) | Readers: v_archetype_vectors, v_archetype_dimension_comparison | Since: 2026-05-22$c$;
+COMMENT ON TABLE archetype_vector IS $c$Purpose: Target score range per archetype per flavor dimension (ideal, min, max) | Class: operating | Writer: seed | Readers: v_archetype_vectors, v_archetype_dimension_comparison | Since: 2026-05-22$c$;
 COMMENT ON COLUMN archetype_vector.archetype_id IS $c$References coffee_archetype.id; part of the primary key (ON DELETE CASCADE).$c$;
 COMMENT ON COLUMN archetype_vector.dimension_id IS $c$UUID derived as md5(dimension name)::uuid from the dimension name; no FK; part of the primary key.$c$;
 COMMENT ON COLUMN archetype_vector.ideal_score IS $c$Ideal score for the archetype on this dimension, 0-15 scale, the midpoint of the range.$c$;
@@ -265,7 +265,7 @@ COMMENT ON COLUMN user_archetype_tuning.user_selected_offset IS $c$Offset the us
 COMMENT ON COLUMN user_archetype_tuning.updated_at IS $c$UTC timestamp of last update.$c$;
 
 -- ── user_coffee_profile ──
-COMMENT ON TABLE user_coffee_profile IS $c$UNVERIFIED: no reader or writer found in backend/src or backend/scripts, docs only call it "their ranked archetype matches" | Purpose: Ranked coffee-archetype matches per user, one row per rank. | Class: operating | Writer: none found | Readers: none found | Since: 2026-05-22$c$;
+COMMENT ON TABLE user_coffee_profile IS $c$UNVERIFIED: no reader or writer found in backend/src or backend/scripts, docs only call it "their ranked archetype matches" | Purpose: Ranked coffee-archetype matches per user, one row per rank. | Class: operating | Writer: none | Readers: none found | Since: 2026-05-22$c$;
 COMMENT ON COLUMN user_coffee_profile.id IS $c$Surrogate UUID primary key.$c$;
 COMMENT ON COLUMN user_coffee_profile.user_id IS $c$FK to user_profile(id), ON DELETE CASCADE; the user the match belongs to.$c$;
 COMMENT ON COLUMN user_coffee_profile.archetype_id IS $c$FK to coffee_archetype(id); the matched archetype.$c$;
@@ -274,7 +274,7 @@ COMMENT ON COLUMN user_coffee_profile.match_confidence IS $c$UNVERIFIED: no code
 COMMENT ON COLUMN user_coffee_profile.is_active IS $c$True while this match row is the live one for the user; default true.$c$;
 COMMENT ON COLUMN user_coffee_profile.assigned_at IS $c$UTC timestamp when the match was assigned; defaults to insert time.$c$;
 -- ── coffee_sku ──
-COMMENT ON TABLE coffee_sku IS $c$Purpose: Sellable bag-size variant (SKU) of one coffee at one roaster, carrying Shopify variant, roaster SKU and wholesale cost. | Class: master | Writer: catalogService.upsertSkuInTx, catalogService.retireCoffee, catalogService.restoreCoffee, catalogService.deactivateRoastery, catalogService.reactivateRoastery | Readers: v_coffee_sellable_candidate, v_coffee_visibility, v_customer_bag_attribution, v_customer_timeline, catalogReads, blendResolver, orders, qrDoor, +6 more | Since: 2026-05-22 (as blend then roaster_blend; renamed coffee_sku 2026-09-16, Catalog Blueprint brief 5b)$c$;
+COMMENT ON TABLE coffee_sku IS $c$Purpose: Sellable bag-size variant (SKU) of one coffee at one roaster, carrying Shopify variant, roaster SKU and wholesale cost. | Class: master | Writer: catalogService.upsertSkuInTx, catalogService.retireCoffee, catalogService.restoreCoffee, catalogService.deactivateRoastery, catalogService.reactivateRoastery; seed | Readers: v_coffee_sellable_candidate, v_coffee_visibility, v_customer_bag_attribution, v_customer_timeline, catalogReads, blendResolver, orders, qrDoor, +6 more | Since: 2026-05-22 (as blend then roaster_blend; renamed coffee_sku 2026-09-16, Catalog Blueprint brief 5b)$c$;
 COMMENT ON COLUMN coffee_sku.id IS $c$Surrogate UUID primary key; referenced by order_line_item.blend_id, roastery_blend_vector.blend_id and sommelier_sms_feedback.blend_id.$c$;
 COMMENT ON COLUMN coffee_sku.roaster_id IS $c$FK to roaster(id); the roastery that fulfils this SKU, copied from coffees.roaster_id when the SKU is created.$c$;
 COMMENT ON COLUMN coffee_sku.blend_name IS $c$Display name of the SKU; defaults to the coffee's name on insert and is used by the coffee_id name-match backfill.$c$;
@@ -295,18 +295,18 @@ COMMENT ON COLUMN coffee_sku.last_restocked_at IS $c$Class: deprecated | DEPRECA
 COMMENT ON COLUMN coffee_sku.deactivated_at IS $c$UTC timestamp when the SKU was deactivated; NULL while active.$c$;
 COMMENT ON COLUMN coffee_sku.deactivation_reason IS $c$Why the SKU was deactivated. One of: roaster, manual. NULL while active; roaster = cascaded from roastery deactivation, manual = coffee retired by an admin.$c$;
 -- ── roastery_blend_vector ──
-COMMENT ON TABLE roastery_blend_vector IS $c$UNVERIFIED: no reader or writer found in backend/src or backend/scripts, docs only say where each blend sits in flavor-dimension space | Purpose: Score of each SKU on each flavor dimension. | Class: operating | Writer: none found | Readers: none found | Since: 2026-05-22 (as blend_vector)$c$;
+COMMENT ON TABLE roastery_blend_vector IS $c$UNVERIFIED: no reader or writer found in backend/src or backend/scripts, docs only say where each blend sits in flavor-dimension space | Purpose: Score of each SKU on each flavor dimension. | Class: operating | Writer: none | Readers: none found | Since: 2026-05-22 (as blend_vector)$c$;
 COMMENT ON COLUMN roastery_blend_vector.blend_id IS $c$FK to coffee_sku(id), ON DELETE CASCADE; part of the primary key.$c$;
 COMMENT ON COLUMN roastery_blend_vector.dimension_id IS $c$UNVERIFIED: no FK declared | Flavor dimension the score is for (presumably coffee_dimensions.id); part of the primary key.$c$;
 COMMENT ON COLUMN roastery_blend_vector.score IS $c$UNVERIFIED: scale not stated | Numeric score of the SKU on that dimension.$c$;
 -- ── user_roaster_link ──
-COMMENT ON TABLE user_roaster_link IS $c$UNVERIFIED: no reader or writer found in backend/src or backend/scripts, docs only call it "roastery staff accounts" | Purpose: Links a user account to the roastery they work at. | Class: operating | Writer: none found | Readers: none found | Since: 2026-05-22$c$;
+COMMENT ON TABLE user_roaster_link IS $c$UNVERIFIED: no reader or writer found in backend/src or backend/scripts, docs only call it "roastery staff accounts" | Purpose: Links a user account to the roastery they work at. | Class: operating | Writer: none | Readers: none found | Since: 2026-05-22$c$;
 COMMENT ON COLUMN user_roaster_link.user_id IS $c$FK to user_profile(id), ON DELETE CASCADE; part of the primary key.$c$;
 COMMENT ON COLUMN user_roaster_link.roaster_id IS $c$FK to roaster(id), ON DELETE CASCADE; part of the primary key.$c$;
 COMMENT ON COLUMN user_roaster_link.role_at_roastery IS $c$Free-text role of the user at that roastery; NULL if not set.$c$;
 COMMENT ON COLUMN user_roaster_link.created_at IS $c$UTC timestamp when the link was created.$c$;
 -- ── quiz_question ──
-COMMENT ON TABLE quiz_question IS $c$Purpose: Versioned (SCD Type 2) questions of each quiz, one row per question version. | Class: operating | Writer: seed (schema.sql V7 seed via quiz_assert_question) | Readers: routes/quiz, quizScorer, quizIntegrity, v_quiz_scoring_matrix, quiz_answer joins | Since: 2026-05-22 (as question; SCD2 versioning 2026-10-09, Prompt 4A)$c$;
+COMMENT ON TABLE quiz_question IS $c$Purpose: Versioned (SCD Type 2) questions of each quiz, one row per question version. | Class: operating | Writer: seed | Readers: routes/quiz, quizScorer, quizIntegrity, v_quiz_scoring_matrix, quiz_answer joins | Since: 2026-05-22 (as question; SCD2 versioning 2026-10-09, Prompt 4A)$c$;
 COMMENT ON COLUMN quiz_question.id IS $c$Surrogate UUID primary key; one per question version, referenced by quiz_answer.question_id.$c$;
 COMMENT ON COLUMN quiz_question.quiz_id IS $c$FK to quiz(id), ON DELETE CASCADE; the quiz (main or branch) this question belongs to.$c$;
 COMMENT ON COLUMN quiz_question.q_number IS $c$Position of the question within its quiz; with quiz_id it is the business key (one current row per quiz_id and q_number).$c$;
@@ -316,7 +316,7 @@ COMMENT ON COLUMN quiz_question.valid_from IS $c$UTC timestamp when this questio
 COMMENT ON COLUMN quiz_question.valid_to IS $c$UTC timestamp when this version was retired; NULL while current.$c$;
 COMMENT ON COLUMN quiz_question.is_current IS $c$True for the live version of the question, false once retired; CHECK ties it to valid_to being NULL.$c$;
 -- ── quiz_answer ──
-COMMENT ON TABLE quiz_answer IS $c$Purpose: Versioned (SCD Type 2) answer options for each quiz question, with the archetype each maps to. | Class: operating | Writer: seed (schema.sql V7 seed via quiz_assert_answer and quiz_retire_answer) | Readers: routes/quiz, quizScorer, quizIntegrity, v_quiz_scoring_matrix, v_customer_quiz_current, v_subscriber_quiz_results, +1 more | Since: 2026-05-22 (as answer; SCD2 versioning 2026-10-09, Prompt 4A)$c$;
+COMMENT ON TABLE quiz_answer IS $c$Purpose: Versioned (SCD Type 2) answer options for each quiz question, with the archetype each maps to. | Class: operating | Writer: seed | Readers: routes/quiz, quizScorer, quizIntegrity, v_quiz_scoring_matrix, v_customer_quiz_current, v_subscriber_quiz_results, +1 more | Since: 2026-05-22 (as answer; SCD2 versioning 2026-10-09, Prompt 4A)$c$;
 COMMENT ON COLUMN quiz_answer.id IS $c$Surrogate UUID primary key; one per answer version, persisted in sessions as answerIds and referenced by quiz_answer_archetype_score and quiz_session.branch_answer_id.$c$;
 COMMENT ON COLUMN quiz_answer.question_id IS $c$FK to quiz_question(id), ON DELETE CASCADE; the question version this answer belongs to.$c$;
 COMMENT ON COLUMN quiz_answer.answer_text IS $c$Answer wording shown to the customer.$c$;
@@ -339,14 +339,14 @@ COMMENT ON COLUMN quiz_session.context_data IS $c$JSONB of the scored result as 
 COMMENT ON COLUMN quiz_session.completed_at IS $c$UTC timestamp when the session was saved; defaults to insert time.$c$;
 COMMENT ON COLUMN quiz_session.branch_answer_id IS $c$FK to quiz_answer(id); the branch-quiz answer the person picked (WHY layer); NULL for sessions without a branch answer and all historical sessions.$c$;
 -- ── quiz_vector ──
-COMMENT ON TABLE quiz_vector IS $c$UNVERIFIED: no reader or writer found in backend/src or backend/scripts, docs only say "dimension scores from a quiz session" | Purpose: Per-dimension scores computed for a quiz session. | Class: operating | Writer: none found | Readers: none found | Since: 2026-05-22$c$;
+COMMENT ON TABLE quiz_vector IS $c$UNVERIFIED: no reader or writer found in backend/src or backend/scripts, docs only say "dimension scores from a quiz session" | Purpose: Per-dimension scores computed for a quiz session. | Class: operating | Writer: none | Readers: none found | Since: 2026-05-22$c$;
 COMMENT ON COLUMN quiz_vector.id IS $c$Surrogate UUID primary key.$c$;
 COMMENT ON COLUMN quiz_vector.user_id IS $c$FK to user_profile(id), ON DELETE CASCADE; the user the scores belong to.$c$;
 COMMENT ON COLUMN quiz_vector.quiz_session_id IS $c$FK to quiz_session(id), ON DELETE CASCADE; the session the scores came from.$c$;
 COMMENT ON COLUMN quiz_vector.dimension_id IS $c$UNVERIFIED: no FK declared | Flavor dimension the score is for (presumably coffee_dimensions.id).$c$;
 COMMENT ON COLUMN quiz_vector.score IS $c$UNVERIFIED: scale not stated | Numeric score on that dimension.$c$;
 -- ── quiz_answer_archetype_score ──
-COMMENT ON TABLE quiz_answer_archetype_score IS $c$Purpose: Scoring matrix, points each answer version awards to an archetype (insert-only, a different score means a new answer version). | Class: operating | Writer: seed (schema.sql V7 seed via quiz_assert_answer_score and quiz_answer_new_version) | Readers: quizScorer, quizIntegrity, v_quiz_scoring_matrix | Since: 2026-05-25 (as answer_archetype_score)$c$;
+COMMENT ON TABLE quiz_answer_archetype_score IS $c$Purpose: Scoring matrix, points each answer version awards to an archetype (insert-only, a different score means a new answer version). | Class: operating | Writer: seed | Readers: quizScorer, quizIntegrity, v_quiz_scoring_matrix | Since: 2026-05-25 (as answer_archetype_score)$c$;
 COMMENT ON COLUMN quiz_answer_archetype_score.id IS $c$Surrogate UUID primary key.$c$;
 COMMENT ON COLUMN quiz_answer_archetype_score.answer_id IS $c$FK to quiz_answer(id), ON DELETE CASCADE; the answer version being scored; UNIQUE with archetype_id.$c$;
 COMMENT ON COLUMN quiz_answer_archetype_score.question_id IS $c$FK to quiz_question(id), ON DELETE CASCADE; the question version the answer belongs to (denormalized from the answer).$c$;
@@ -388,7 +388,7 @@ COMMENT ON COLUMN "order".shipping_postal_code IS $c$Postal or ZIP code of the s
 COMMENT ON COLUMN "order".shipping_country IS $c$Country of the shipping address snapshot copied at checkout.$c$;
 COMMENT ON COLUMN "order".shipping_address_id IS $c$FK to address(id); the saved address the snapshot was copied from (convenience pointer only, the snapshot columns are the source of truth).$c$;
 -- ── roastery_shipment_details ──
-COMMENT ON TABLE roastery_shipment_details IS $c$UNVERIFIED: no reader or writer found in backend/src or backend/scripts, only a Stripe brief proposes an admin shipped endpoint that writes it | Purpose: Tracking and postage details of a roastery shipment for an order. | Class: operating | Writer: none found | Readers: none found | Since: 2026-05-22 (as shipment)$c$;
+COMMENT ON TABLE roastery_shipment_details IS $c$UNVERIFIED: no reader or writer found in backend/src or backend/scripts, only a Stripe brief proposes an admin shipped endpoint that writes it | Purpose: Tracking and postage details of a roastery shipment for an order. | Class: operating | Writer: none | Readers: none found | Since: 2026-05-22 (as shipment)$c$;
 COMMENT ON COLUMN roastery_shipment_details.id IS $c$Surrogate UUID primary key; referenced by order_line_item.shipment_id.$c$;
 COMMENT ON COLUMN roastery_shipment_details.order_id IS $c$FK to "order"(id); the order being shipped.$c$;
 COMMENT ON COLUMN roastery_shipment_details.roaster_id IS $c$FK to roaster(id); the roastery that ships it.$c$;
@@ -401,7 +401,7 @@ COMMENT ON COLUMN roastery_shipment_details.estimated_delivery IS $c$UTC timesta
 COMMENT ON COLUMN roastery_shipment_details.created_at IS $c$UTC timestamp when the row was created.$c$;
 COMMENT ON COLUMN roastery_shipment_details.updated_at IS $c$UTC timestamp of the last change.$c$;
 -- ── order_line_item ──
-COMMENT ON TABLE order_line_item IS $c$Purpose: One purchased SKU line of an order, with price paid and who it is for (immutable fact). | Class: fact | Writer: orders.POST /api/orders | Readers: v_customer_bag_attribution, v_customer_timeline, v_palate_evidence, v_palate_recommendation_outcome, orders, qrDoor, users, customerReads, +5 more | Since: 2026-05-22$c$;
+COMMENT ON TABLE order_line_item IS $c$Purpose: One purchased SKU line of an order, with price paid and who it is for (immutable fact). | Class: fact | Writer: orders.POST /api/orders; seed | Readers: v_customer_bag_attribution, v_customer_timeline, v_palate_evidence, v_palate_recommendation_outcome, orders, qrDoor, users, customerReads, +5 more | Since: 2026-05-22$c$;
 COMMENT ON COLUMN order_line_item.id IS $c$Surrogate UUID primary key; referenced by customer fact tables as order_line_item_id.$c$;
 COMMENT ON COLUMN order_line_item.order_id IS $c$FK to "order"(id), ON DELETE CASCADE; the parent order.$c$;
 COMMENT ON COLUMN order_line_item.blend_id IS $c$FK to coffee_sku(id); the SKU purchased (the column keeps its pre-rename name).$c$;
@@ -417,7 +417,7 @@ COMMENT ON COLUMN order_line_item.created_at IS $c$UTC timestamp when the line w
 COMMENT ON COLUMN order_line_item.updated_at IS $c$UTC timestamp of the last change; no code updates the row after insert.$c$;
 COMMENT ON COLUMN order_line_item.order_kind IS $c$FK to customer_order_kind(code); how the line originated, default manual. Code only ever writes manual (gift_redemption, subscription_renewal and liam_followed have no writer yet).$c$;
 -- ── user_lifecycle_stage ──
-COMMENT ON TABLE user_lifecycle_stage IS $c$Purpose: Lookup of business/marketing lifecycle stages a user can be in (flat classification, no enforced sequence). | Class: operating | Writer: seed (schema.sql INSERT and UPDATE) | Readers: userLifecycle.refreshLifecycleState, users.GET /api/users/homepage-state | Since: 2026-07-07$c$;
+COMMENT ON TABLE user_lifecycle_stage IS $c$Purpose: Lookup of business/marketing lifecycle stages a user can be in (flat classification, no enforced sequence). | Class: operating | Writer: seed | Readers: userLifecycle.refreshLifecycleState, users.GET /api/users/homepage-state | Since: 2026-07-07$c$;
 COMMENT ON COLUMN user_lifecycle_stage.id IS $c$Serial integer primary key; referenced by user_lifecycle_state.stage_id and user_lifecycle_event.from_stage_id and to_stage_id.$c$;
 COMMENT ON COLUMN user_lifecycle_stage.code IS $c$Unique stage code in upper snake case (for example QUIZ_TAKEN_FRESH_NO_ORDER); the key code looks stages up by.$c$;
 COMMENT ON COLUMN user_lifecycle_stage.label IS $c$Admin-facing name of the stage.$c$;
@@ -451,7 +451,7 @@ COMMENT ON COLUMN notification_log.external_provider_id IS $c$Provider message I
 COMMENT ON COLUMN notification_log.metadata IS $c$JSONB of extra context; code writes liamSmsFeedbackId, the sommelier_sms_feedback row id.$c$;
 COMMENT ON COLUMN notification_log.sent_at IS $c$UTC timestamp when the log row was written (default now), not a provider delivery time.$c$;
 -- ── sommelier_sms_feedback ──
-COMMENT ON TABLE sommelier_sms_feedback IS $c$Purpose: One row per SMS message (outbound and inbound) of the post-delivery and dial-in beat feedback loop, with scheduling and parsed reply. | Class: operating | Writer: cron.GET /api/cron/beat-dial-in-send, cron.POST /api/webhooks/sms/inbound, liamSmsFeedback.processPendingMessages, liamSmsFeedback.parseInboundReply | Readers: liamSmsFeedback, cron | Since: 2026-06-26$c$;
+COMMENT ON TABLE sommelier_sms_feedback IS $c$Purpose: One row per SMS message (outbound and inbound) of the post-delivery and dial-in beat feedback loop, with scheduling and parsed reply. | Class: operating | Writer: cron.GET /api/cron/beat-dial-in-send, cron.POST /api/webhooks/sms/inbound, cron.processDueDialInBeats, liamSmsFeedback.processPendingMessages, liamSmsFeedback.parseInboundReply, liamSmsFeedback.schedulePostDeliveryMessage | Readers: liamSmsFeedback, cron | Since: 2026-06-26$c$;
 COMMENT ON COLUMN sommelier_sms_feedback.id IS $c$Surrogate UUID primary key.$c$;
 COMMENT ON COLUMN sommelier_sms_feedback.user_id IS $c$FK to user_profile(id), ON DELETE CASCADE; the user the SMS is to or from.$c$;
 COMMENT ON COLUMN sommelier_sms_feedback.order_id IS $c$FK to "order"(id); the order the message is about; only set on legacy post-delivery rows and inbound replies copied from them. | Writer: liamSmsFeedback.schedulePostDeliveryMessage (no live caller), cron.POST /api/webhooks/sms/inbound$c$;
@@ -486,7 +486,7 @@ COMMENT ON COLUMN sommelier_sessions.close_reason IS $c$Why the session closed. 
 COMMENT ON COLUMN sommelier_sessions.context_data IS $c$JSONB session state (intent, archetype, openingContext, ragFocus, coffeeIds, catalogText, evaluationId, topicLog and more), rewritten each turn.$c$;
 
 -- ── sommelier_messages ──
-COMMENT ON TABLE sommelier_messages IS $c$Purpose: Legacy pre-Firestore transcript of Liam chat turns, read only as a fallback for sessions created before 2026-06-27 | Class: deprecated | Writer: none (no INSERT remains in code) | Readers: sommelier.GET /:sessionId/messages (fallback), customerIntegrity | Since: 2026-06-23 (Liam v1)$c$;
+COMMENT ON TABLE sommelier_messages IS $c$Purpose: Legacy pre-Firestore transcript of Liam chat turns, read only as a fallback for sessions created before 2026-06-27 | Class: deprecated | Writer: none | Readers: sommelier.GET /:sessionId/messages (fallback), customerIntegrity | Since: 2026-06-23 (Liam v1)$c$;
 COMMENT ON COLUMN sommelier_messages.id IS $c$Surrogate primary key.$c$;
 COMMENT ON COLUMN sommelier_messages.session_id IS $c$References sommelier_sessions.id (ON DELETE CASCADE): the Liam session this turn belonged to.$c$;
 COMMENT ON COLUMN sommelier_messages.role IS $c$Who spoke this turn; code treats it as user or assistant (no CHECK constraint).$c$;
@@ -508,7 +508,7 @@ COMMENT ON COLUMN user_brew_card.arrival_email_sent_at IS $c$UTC timestamp the a
 COMMENT ON COLUMN user_brew_card.created_at IS $c$UTC timestamp the card row was created.$c$;
 COMMENT ON COLUMN user_brew_card.updated_at IS $c$UTC timestamp of the last in-place adjustment (set to NOW by adjustCard; equals created_at until then) | Writer: brewCard.adjustCard$c$;
 -- ── beat_event ──
-COMMENT ON TABLE beat_event IS $c$Purpose: Dispatch and response ledger of Liam beats (order_placed, arrival_note, dial_in), one row per user, order and beat type | Class: operating | Writer: beatEngine.dispatchOrderPlacedBeat, beatEngine.dispatchDelayedBeats, beatEngine.respondToDialInBeat, cron.processDueDialInBeats, backfill (scripts/backfill-beat-respond-tokens.ts) | Readers: beatEngine, cron, beats, engagementMetrics | Since: 2026-08-02 (HOME_TASK_8)$c$;
+COMMENT ON TABLE beat_event IS $c$Purpose: Dispatch and response ledger of Liam beats (order_placed, arrival_note, dial_in), one row per user, order and beat type | Class: operating | Writer: beatEngine.dispatchOrderPlacedBeat, beatEngine.dispatchDelayedBeats, beatEngine.respondToDialInBeat, cron.processDueDialInBeats; backfill:backfill-beat-respond-tokens | Readers: beatEngine, cron, beats, engagementMetrics | Since: 2026-08-02 (HOME_TASK_8)$c$;
 COMMENT ON COLUMN beat_event.id IS $c$Surrogate primary key; never exposed in URLs (respond_token is the public handle).$c$;
 COMMENT ON COLUMN beat_event.user_id IS $c$References user_profile.id (uuid, ON DELETE CASCADE): the customer the beat is for.$c$;
 COMMENT ON COLUMN beat_event.order_id IS $c$References order.id (uuid, ON DELETE CASCADE): the order that triggered the beat.$c$;
@@ -523,18 +523,18 @@ COMMENT ON COLUMN beat_event.created_at IS $c$UTC timestamp the row was created.
 COMMENT ON COLUMN beat_event.updated_at IS $c$UTC timestamp defaulted to row creation; no code path updates it, so it does not track sent_at or responded_at changes.$c$;
 COMMENT ON COLUMN beat_event.respond_token IS $c$Unguessable capability token (32 random bytes as hex) used in the public dial-in respond link instead of the id; unique | Writer: beatEngine (generateBeatRespondToken at insert), backfill (scripts/backfill-beat-respond-tokens.ts)$c$;
 -- ── brew_card_view_event ──
-COMMENT ON TABLE brew_card_view_event IS $c$Purpose: Coarse log of each render of a brew card in the Flavor Memory section, feeding the per-bag engagement rate | Class: operating | Writer: users.GET /flavor-memory (fire-and-forget insert) | Readers: engagementMetrics | Since: 2026-08-04 (HOME_TASK_9)$c$;
+COMMENT ON TABLE brew_card_view_event IS $c$Purpose: Coarse log of each render of a brew card in the Flavor Memory section, feeding the per-bag engagement rate | Class: operating | Writer: users.GET /api/users/flavor-memory (fire-and-forget insert) | Readers: engagementMetrics | Since: 2026-08-04 (HOME_TASK_9)$c$;
 COMMENT ON COLUMN brew_card_view_event.id IS $c$Surrogate primary key.$c$;
 COMMENT ON COLUMN brew_card_view_event.user_id IS $c$References user_profile.id (uuid, ON DELETE CASCADE): the customer who viewed the card.$c$;
 COMMENT ON COLUMN brew_card_view_event.card_id IS $c$References user_brew_card.id (ON DELETE CASCADE): the card that was rendered.$c$;
 COMMENT ON COLUMN brew_card_view_event.viewed_at IS $c$UTC timestamp of the render; deliberately not deduplicated, so rows are a per-render count and not unique viewers.$c$;
 -- ── subscriber_source ──
-COMMENT ON TABLE subscriber_source IS $c$Purpose: Reference list of where a newsletter signup came from (pre_launch, newsletter, post_quiz, footer) | Class: operating | Writer: seed (schema.sql INSERT ON CONFLICT) | Readers: newsletter, admin, v_newsletter_subscribers, v_subscribers_weekly, v_subscriber_quiz_results, +1 more | Since: 2026-06-01$c$;
+COMMENT ON TABLE subscriber_source IS $c$Purpose: Reference list of where a newsletter signup came from (pre_launch, newsletter, post_quiz, footer) | Class: operating | Writer: seed | Readers: newsletter, admin, v_newsletter_subscribers, v_subscribers_weekly, v_subscriber_quiz_results, +1 more | Since: 2026-06-01$c$;
 COMMENT ON COLUMN subscriber_source.id IS $c$Surrogate primary key; referenced by newsletter_subscriber.source_id.$c$;
 COMMENT ON COLUMN subscriber_source.name IS $c$Machine key, unique. Seeded values: pre_launch, newsletter, post_quiz, footer.$c$;
 COMMENT ON COLUMN subscriber_source.label IS $c$Human-readable label for reports, for example Pre-Launch Popup; re-applied from the seed on every schema run.$c$;
 -- ── newsletter_subscriber ──
-COMMENT ON TABLE newsletter_subscriber IS $c$Purpose: One row per marketing email address: consent state, signup source, quiz result and campaign attribution | Class: operating | Writer: newsletter.handleSubscribe, unsubscribe.unsubscribeByToken, unsubscribe.unsubscribeByEmail, backfill (src/scripts/backfillUnsubscribeTokens.ts) | Readers: v_newsletter_subscribers, v_subscriber_quiz_results, campaign_funnel_v, v_customer_calibration, newsletter, +9 more | Since: 2026-05-22$c$;
+COMMENT ON TABLE newsletter_subscriber IS $c$Purpose: One row per marketing email address: consent state, signup source, quiz result and campaign attribution | Class: operating | Writer: newsletter.handleSubscribe, unsubscribe.unsubscribeByToken, unsubscribe.unsubscribeByEmail, unsubscribe.flip; seed; backfill:backfillUnsubscribeTokens; backfill:correct-subscriber-archetypes | Readers: v_newsletter_subscribers, v_subscriber_quiz_results, campaign_funnel_v, v_customer_calibration, newsletter, +9 more | Since: 2026-05-22$c$;
 COMMENT ON COLUMN newsletter_subscriber.email IS $c$Primary key: the subscriber's address, lowercased and trimmed.$c$;
 COMMENT ON COLUMN newsletter_subscriber.user_id IS $c$References user_profile.id (ON DELETE SET NULL): the signed-in account at signup time; the first non-null value is kept.$c$;
 COMMENT ON COLUMN newsletter_subscriber.subscribed IS $c$Marketing consent and the single source of truth for suppression; true on signup, set false by unsubscribe, NULL is treated as subscribed | Writer: newsletter.handleSubscribe, unsubscribe.unsubscribeByToken, unsubscribe.unsubscribeByEmail$c$;
@@ -559,7 +559,7 @@ COMMENT ON COLUMN transactional_email_log.sent_at IS $c$UTC timestamp the send w
 COMMENT ON COLUMN transactional_email_log.archetype IS $c$Server-verified archetype baked into the sent quiz email; NULL for rows before 2026-09-25 and for non-quiz templates | Writer: newsletter.sendQuizCompleteEmailOnce$c$;
 COMMENT ON COLUMN transactional_email_log.resend_message_id IS $c$Resend's message id for the delivered email; NULL for rows before 2026-09-25 or when Resend returned no id.$c$;
 -- ── coffees ──
-COMMENT ON TABLE coffees IS $c$Purpose: Coffee catalogue master: one row per coffee, owned by one roaster, with metadata, lifecycle flags, QR token and cached AI and story text | Class: master | Writer: catalogService.createCoffee, catalogService.updateCoffee, catalogService.retireCoffee, coffees.generateAndStoreAllContent, qrDoor.mintTokenForCoffee, +4 more | Readers: v_coffee, catalogReads, coffees, sommelier, +11 more | Since: 2026-05-25$c$;
+COMMENT ON TABLE coffees IS $c$Purpose: Coffee catalogue master: one row per coffee, owned by one roaster, with metadata, lifecycle flags, QR token and cached AI and story text | Class: master | Writer: admin.PATCH /api/admin/coffees/:id/story, catalogService.createCoffee, catalogService.updateCoffee, catalogService.retireCoffee, catalogService.createCoffeeInTx, catalogService.deactivateRoastery, catalogService.reactivateRoastery, catalogService.restoreCoffee, catalogService.updateCoffeeInTx, coffees.generateAndStoreAllContent, coffees.generateAndStoreSummary, coffees.guardGenerated, coffees.sanitizeStoredField, qrDoor.mintTokenForCoffee; seed | Readers: v_coffee, catalogReads, coffees, sommelier, +11 more | Since: 2026-05-25$c$;
 COMMENT ON COLUMN coffees.id IS $c$Surrogate primary key; the coffee id used across the catalog, cupping and customer tables.$c$;
 COMMENT ON COLUMN coffees.name IS $c$Roaster's own raw coffee name (never shown to customers, who see platform aliases); unique per roaster among active coffees, compared trimmed and case-insensitively (coffees_active_natural_key).$c$;
 COMMENT ON COLUMN coffees.origin IS $c$Free-text origin string (for example a country or blend description); kept server-side only.$c$;
@@ -588,7 +588,7 @@ COMMENT ON COLUMN coffees.is_active IS $c$False when the coffee is retired, eith
 COMMENT ON COLUMN coffees.deactivated_at IS $c$UTC timestamp the coffee was deactivated; NULL while active | Writer: catalogService.retireCoffee, catalogService.restoreCoffee, catalogService.deactivateRoastery, catalogService.reactivateRoastery$c$;
 COMMENT ON COLUMN coffees.deactivation_reason IS $c$Why the coffee is inactive. One of: roaster (cascade from a roastery deactivation), manual; NULL while active | Writer: catalogService.retireCoffee, catalogService.restoreCoffee, catalogService.deactivateRoastery, catalogService.reactivateRoastery$c$;
 -- ── cupping_sessions ──
-COMMENT ON TABLE cupping_sessions IS $c$Purpose: Header row for one internal cupping session (date, brew method, place, notes) | Class: operating | Writer: admin.POST /sessions, seed (db/seeds/session_001_path_2026_05_27.sql) | Readers: v_cupping_scores_readable, admin.GET /sessions, coffees | Since: 2026-05-25$c$;
+COMMENT ON TABLE cupping_sessions IS $c$Purpose: Header row for one internal cupping session (date, brew method, place, notes) | Class: operating | Writer: admin.POST /api/admin/sessions, admin.DELETE /api/admin/sessions/:id; seed | Readers: v_cupping_scores_readable, admin.GET /sessions, coffees | Since: 2026-05-25$c$;
 COMMENT ON COLUMN cupping_sessions.id IS $c$Surrogate primary key; referenced by cupping_session_coffees.session_id and coffee_archetype_assignment.assigned_from_session_id.$c$;
 COMMENT ON COLUMN cupping_sessions.session_date IS $c$Calendar date the session was held.$c$;
 COMMENT ON COLUMN cupping_sessions.brew_method IS $c$Brew method used, as free text. Values follow the lookup_value category brew_method (cupping, filter, pour-over, espresso, french-press, aeropress, other); no enum since the TEXT migration.$c$;
@@ -596,13 +596,13 @@ COMMENT ON COLUMN cupping_sessions.location IS $c$Free-text place where the sess
 COMMENT ON COLUMN cupping_sessions.session_notes IS $c$Free-text notes about the session as a whole.$c$;
 COMMENT ON COLUMN cupping_sessions.created_at IS $c$UTC timestamp the session row was created.$c$;
 -- ── cupping_session_coffees ──
-COMMENT ON TABLE cupping_session_coffees IS $c$Purpose: Junction listing which coffees were cupped in a session and in what order | Class: operating | Writer: admin.POST /sessions/:id/coffees, seed (session_001_path_2026_05_27.sql) | Readers: v_cupping_scores_readable, v_coffee_dimension_range, brewCard, dialSuggestion, +4 more | Since: 2026-05-25 (as session_coffees)$c$;
+COMMENT ON TABLE cupping_session_coffees IS $c$Purpose: Junction listing which coffees were cupped in a session and in what order | Class: operating | Writer: admin.POST /api/admin/sessions/:id/coffees, admin.DELETE /api/admin/sessions/:sessionId/coffees/:scId; seed | Readers: v_cupping_scores_readable, v_coffee_dimension_range, brewCard, dialSuggestion, +4 more | Since: 2026-05-25 (as session_coffees)$c$;
 COMMENT ON COLUMN cupping_session_coffees.id IS $c$Surrogate primary key; referenced as session_coffee_id by cupping_scores and cupping_brew_params.$c$;
 COMMENT ON COLUMN cupping_session_coffees.session_id IS $c$References cupping_sessions.id (ON DELETE CASCADE): the session.$c$;
 COMMENT ON COLUMN cupping_session_coffees.coffee_id IS $c$References coffees.id (ON DELETE CASCADE): the coffee cupped.$c$;
 COMMENT ON COLUMN cupping_session_coffees.display_order IS $c$1-based position of the coffee within the session; the next value is MAX plus 1 when a coffee is added.$c$;
 -- ── coffee_dimensions ──
-COMMENT ON TABLE coffee_dimensions IS $c$Purpose: Catalogue of the 12 cupping dimensions that scores, archetype targets and the Bloom Dial are measured on | Class: master | Writer: seed (schema.sql, db/seeds/sensory_lexicon_attributes_wcr.sql) | Readers: v_cupping_scores_readable, v_archetype_vectors, v_coffee_archetype, v_coffee_dimension_range, +8 more | Since: 2026-05-25 (as dimensions)$c$;
+COMMENT ON TABLE coffee_dimensions IS $c$Purpose: Catalogue of the 12 cupping dimensions that scores, archetype targets and the Bloom Dial are measured on | Class: master | Writer: seed | Readers: v_cupping_scores_readable, v_archetype_vectors, v_coffee_archetype, v_coffee_dimension_range, +8 more | Since: 2026-05-25 (as dimensions)$c$;
 COMMENT ON COLUMN coffee_dimensions.id IS $c$Surrogate primary key with explicit seeded ids 1 to 12; referenced by scores, coffee_hop and archetype dominant_dimension_id.$c$;
 COMMENT ON COLUMN coffee_dimensions.name IS $c$Raw SCA-style dimension name, unique (for example Acidity, Body, Savory / Depth).$c$;
 COMMENT ON COLUMN coffee_dimensions.description IS $c$Short explanation of what the dimension measures.$c$;
@@ -616,7 +616,7 @@ COMMENT ON COLUMN coffee_dimensions.platform_name IS $c$Consumer-facing word rep
 COMMENT ON COLUMN coffee_dimensions.source_id IS $c$References sensory_source.id: the standard that defines this dimension (sca_cva, wcr_lexicon or platform); backfilled by schema.sql.$c$;
 COMMENT ON COLUMN coffee_dimensions.sensory_lexicon_attribute_id IS $c$References sensory_lexicon_attribute.id: the single WCR Lexicon attribute this dimension corresponds to, where one applies; NULL otherwise | Writer: seed (db/seeds/sensory_lexicon_attributes_wcr.sql)$c$;
 -- ── cupping_scores ──
-COMMENT ON TABLE cupping_scores IS $c$Purpose: Score header per cupped coffee and taster, plus a merged row combining all tasters; values live in cupping_score_values | Class: operating | Writer: admin.POST /scores, seed (session_001_path_2026_05_27.sql) | Readers: v_cupping_scores_readable, v_coffee_dimension_range, brewCard, dialSuggestion, +5 more | Since: 2026-05-25$c$;
+COMMENT ON TABLE cupping_scores IS $c$Purpose: Score header per cupped coffee and taster, plus a merged row combining all tasters; values live in cupping_score_values | Class: operating | Writer: admin.POST /api/admin/scores, admin.DELETE /api/admin/scores/:scoreId; seed | Readers: v_cupping_scores_readable, v_coffee_dimension_range, brewCard, dialSuggestion, +5 more | Since: 2026-05-25$c$;
 COMMENT ON COLUMN cupping_scores.id IS $c$Surrogate primary key; referenced by cupping_score_values and cupping_score_descriptors.$c$;
 COMMENT ON COLUMN cupping_scores.session_coffee_id IS $c$References cupping_session_coffees.id (ON DELETE CASCADE): which coffee in which session was scored. UNIQUE together with taster_name.$c$;
 COMMENT ON COLUMN cupping_scores.taster_name IS $c$Name of the taster, or a label for the combined row (the seed uses session_1_merged).$c$;
@@ -624,7 +624,7 @@ COMMENT ON COLUMN cupping_scores.is_merged IS $c$True for the combined row produ
 COMMENT ON COLUMN cupping_scores.overall_notes IS $c$Free-text overall impressions for this score row.$c$;
 COMMENT ON COLUMN cupping_scores.created_at IS $c$UTC timestamp the score row was created.$c$;
 -- ── cupping_score_values ──
-COMMENT ON TABLE cupping_score_values IS $c$Purpose: One normalised score per cupping_scores row and dimension, as a numeric range or free-text note | Class: operating | Writer: admin.POST /scores (upsert) | Readers: v_cupping_scores_readable, v_coffee_dimension_range, brewCard, dialSuggestion, +3 more | Since: 2026-05-25$c$;
+COMMENT ON TABLE cupping_score_values IS $c$Purpose: One normalised score per cupping_scores row and dimension, as a numeric range or free-text note | Class: operating | Writer: admin.POST /api/admin/scores (upsert) | Readers: v_cupping_scores_readable, v_coffee_dimension_range, brewCard, dialSuggestion, +3 more | Since: 2026-05-25$c$;
 COMMENT ON COLUMN cupping_score_values.id IS $c$Surrogate primary key.$c$;
 COMMENT ON COLUMN cupping_score_values.cupping_score_id IS $c$References cupping_scores.id (ON DELETE CASCADE): the score row this value belongs to. UNIQUE together with dimension_id.$c$;
 COMMENT ON COLUMN cupping_score_values.dimension_id IS $c$References coffee_dimensions.id (ON DELETE CASCADE): the dimension scored.$c$;
@@ -632,14 +632,14 @@ COMMENT ON COLUMN cupping_score_values.value_min IS $c$Low end of the scored ran
 COMMENT ON COLUMN cupping_score_values.value_max IS $c$High end of the scored range on the dimension's scale (0 to 15 for numeric dimensions); equals value_min for a point score; NULL for text-only dimensions.$c$;
 COMMENT ON COLUMN cupping_score_values.notes IS $c$Free-text note for the dimension, used for non-numeric dimensions.$c$;
 -- ── cupping_score_descriptors ──
-COMMENT ON TABLE cupping_score_descriptors IS $c$Purpose: Flavor-wheel descriptors a taster selected for a score row, with optional intensity or custom wording | Class: operating | Writer: admin.POST /scores (delete and re-insert), seed (db/seeds/internal_descriptors_session_001.sql) | Readers: v_collaborative_flavor_wheel, admin | Since: 2026-05-27$c$;
+COMMENT ON TABLE cupping_score_descriptors IS $c$Purpose: Flavor-wheel descriptors a taster selected for a score row, with optional intensity or custom wording | Class: operating | Writer: admin.POST /api/admin/scores (delete and re-insert); seed | Readers: v_collaborative_flavor_wheel, admin | Since: 2026-05-27$c$;
 COMMENT ON COLUMN cupping_score_descriptors.id IS $c$Surrogate primary key.$c$;
 COMMENT ON COLUMN cupping_score_descriptors.cupping_score_id IS $c$References cupping_scores.id (ON DELETE CASCADE): the score row. UNIQUE together with cupping_note_id.$c$;
 COMMENT ON COLUMN cupping_score_descriptors.cupping_note_id IS $c$References cupping_note.id (uuid, ON DELETE CASCADE): the SCA flavor-wheel descriptor chosen.$c$;
 COMMENT ON COLUMN cupping_score_descriptors.intensity IS $c$How prominent the descriptor was, 0 to 15 (same scale as dimensions); NULL for all 47 prod rows as of 2026-07-13 per the docs.$c$;
 COMMENT ON COLUMN cupping_score_descriptors.custom_notes IS $c$Escape-hatch free text for wording not on the SCA wheel.$c$;
 -- ── cupping_brew_params ──
-COMMENT ON TABLE cupping_brew_params IS $c$UNVERIFIED: no code, seed or script reads or writes this table, so it may be unused or hand-entered | Purpose: Intended per-session-coffee brew parameters (dose, water, yield, temperature, grind, time, pressure, device) | Class: operating | Writer: none found | Readers: none | Since: 2026-05-25 (as brew_params)$c$;
+COMMENT ON TABLE cupping_brew_params IS $c$UNVERIFIED: no code, seed or script reads or writes this table, so it may be unused or hand-entered | Purpose: Intended per-session-coffee brew parameters (dose, water, yield, temperature, grind, time, pressure, device) | Class: operating | Writer: none | Readers: none | Since: 2026-05-25 (as brew_params)$c$;
 COMMENT ON COLUMN cupping_brew_params.id IS $c$Surrogate primary key.$c$;
 COMMENT ON COLUMN cupping_brew_params.session_coffee_id IS $c$References cupping_session_coffees.id (ON DELETE CASCADE): the cupped coffee the parameters belong to.$c$;
 COMMENT ON COLUMN cupping_brew_params.dose_grams IS $c$Coffee dose in grams.$c$;
@@ -654,7 +654,7 @@ COMMENT ON COLUMN cupping_brew_params.steep_time_minutes IS $c$Steep time in min
 COMMENT ON COLUMN cupping_brew_params.brew_device IS $c$Free-text name of the brewing device.$c$;
 COMMENT ON COLUMN cupping_brew_params.notes IS $c$Free-text notes about the brew.$c$;
 -- ── roastery_coffee_descriptors ──
-COMMENT ON TABLE roastery_coffee_descriptors IS $c$Purpose: Roaster bag tasting notes mapped to flavor-wheel terms, one row per coffee and term, retired not deleted | Class: operating | Writer: catalogService.setRoasterDescriptorsInTx, seed (roastery_descriptors_path_tcr.sql) | Readers: v_collaborative_flavor_wheel, roasteryPortalReads, admin.GET /stats | Since: 2026-05-27 (as coffee_roastery_descriptors)$c$;
+COMMENT ON TABLE roastery_coffee_descriptors IS $c$Purpose: Roaster bag tasting notes mapped to flavor-wheel terms, one row per coffee and term, retired not deleted | Class: operating | Writer: catalogService.setRoasterDescriptorsInTx; seed | Readers: v_collaborative_flavor_wheel, roasteryPortalReads, admin.GET /stats | Since: 2026-05-27 (as coffee_roastery_descriptors)$c$;
 COMMENT ON COLUMN roastery_coffee_descriptors.id IS $c$Surrogate primary key.$c$;
 COMMENT ON COLUMN roastery_coffee_descriptors.coffee_id IS $c$References coffees.id (ON DELETE CASCADE): the coffee. UNIQUE together with cupping_note_id.$c$;
 COMMENT ON COLUMN roastery_coffee_descriptors.cupping_note_id IS $c$References cupping_note.id (uuid, ON DELETE CASCADE): the flavor-wheel term the roaster's note maps to.$c$;
@@ -665,7 +665,7 @@ COMMENT ON COLUMN roastery_coffee_descriptors.accepted_by_admin_id IS $c$Referen
 COMMENT ON COLUMN roastery_coffee_descriptors.accepted_at IS $c$UTC timestamp the row was last accepted from the portal; NULL for legacy seed rows | Writer: catalogService.setRoasterDescriptorsInTx$c$;
 COMMENT ON COLUMN roastery_coffee_descriptors.retired_at IS $c$UTC timestamp the row was retired; NULL while active | Writer: catalogService.setRoasterDescriptorsInTx$c$;
 -- ── user_flavor_feedback ──
-COMMENT ON TABLE user_flavor_feedback IS $c$Purpose: Retired post-delivery customer feedback per flavor descriptor, replaced by customer_feedback_descriptor | Class: deprecated | Writer: none (orders feedback route stopped writing in Customer Blueprint C3, 2026-09-27) | Readers: users.GET /flavor-memory (count), admin.GET /stats, axis, backfillCustomerFacts | Since: 2026-05-27 (as client_flavor_feedback)$c$;
+COMMENT ON TABLE user_flavor_feedback IS $c$Purpose: Retired post-delivery customer feedback per flavor descriptor, replaced by customer_feedback_descriptor | Class: deprecated | Writer: none | Readers: users.GET /flavor-memory (count), admin.GET /stats, axis, backfillCustomerFacts | Since: 2026-05-27 (as client_flavor_feedback)$c$;
 COMMENT ON COLUMN user_flavor_feedback.id IS $c$Surrogate primary key.$c$;
 COMMENT ON COLUMN user_flavor_feedback.user_id IS $c$References user_profile.id (uuid, ON DELETE CASCADE): the customer who gave the feedback.$c$;
 COMMENT ON COLUMN user_flavor_feedback.coffee_id IS $c$References coffees.id (ON DELETE CASCADE): the coffee tasted.$c$;
@@ -675,7 +675,7 @@ COMMENT ON COLUMN user_flavor_feedback.intensity IS $c$How strongly the customer
 COMMENT ON COLUMN user_flavor_feedback.notes IS $c$Free-text note from the customer.$c$;
 COMMENT ON COLUMN user_flavor_feedback.created_at IS $c$UTC timestamp the feedback row was created.$c$;
 -- ── coffee_archetype_assignment ──
-COMMENT ON TABLE coffee_archetype_assignment IS $c$Purpose: Match-archetype tag per coffee with confidence and history; current row has superseded_at NULL | Class: master | Writer: catalogService.setMatchArchetypeInTx, seed (session_001_path_2026_05_27.sql) | Readers: v_coffee, v_archetype_dimension_comparison, catalogIntegrity, dialSuggestion, +4 more | Since: 2026-05-25 (as archetype_assignments)$c$;
+COMMENT ON TABLE coffee_archetype_assignment IS $c$Purpose: Match-archetype tag per coffee with confidence and history; current row has superseded_at NULL | Class: master | Writer: catalogService.setMatchArchetypeInTx; seed | Readers: v_coffee, v_archetype_dimension_comparison, catalogIntegrity, dialSuggestion, +4 more | Since: 2026-05-25 (as archetype_assignments)$c$;
 COMMENT ON COLUMN coffee_archetype_assignment.id IS $c$Surrogate primary key.$c$;
 COMMENT ON COLUMN coffee_archetype_assignment.coffee_id IS $c$References coffees.id (ON DELETE CASCADE): the coffee being tagged.$c$;
 COMMENT ON COLUMN coffee_archetype_assignment.archetype IS $c$Flavor archetype of the coffee. One of: chocolate_nutty, balanced_sweet, fruity, earthy, floral, experimental.$c$;
@@ -686,7 +686,7 @@ COMMENT ON COLUMN coffee_archetype_assignment.notes IS $c$Free-text rationale fo
 COMMENT ON COLUMN coffee_archetype_assignment.created_at IS $c$UTC timestamp the assignment row was created.$c$;
 COMMENT ON COLUMN coffee_archetype_assignment.source IS $c$How the assignment was made. One of: cupping, manual, import; NULL only on rows predating the column that had no backfill match.$c$;
 -- ── coffee_hop ──
-COMMENT ON TABLE coffee_hop IS $c$Purpose: Directional hop graph (more or less of a dimension) between coffees, or a coffee and a category | Class: master | Writer: catalogService.setHop, catalogService.removeHop, seed (_retired/dial_relationships_base.sql) | Readers: v_coffee_hop, catalogService, qrDoor, axis | Since: 2026-06-23 (as dial_coffee_relationships)$c$;
+COMMENT ON TABLE coffee_hop IS $c$Purpose: Directional hop graph (more or less of a dimension) between coffees, or a coffee and a category | Class: master | Writer: catalogService.setHop, catalogService.removeHop | Readers: v_coffee_hop, catalogService, qrDoor, axis | Since: 2026-06-23 (as dial_coffee_relationships)$c$;
 COMMENT ON COLUMN coffee_hop.id IS $c$Surrogate primary key.$c$;
 COMMENT ON COLUMN coffee_hop.from_coffee_id IS $c$References coffees.id (ON DELETE CASCADE): the starting coffee; NULL when the starting endpoint is a category (exactly one of from_coffee_id and from_category_id is set).$c$;
 COMMENT ON COLUMN coffee_hop.to_coffee_id IS $c$References coffees.id (ON DELETE CASCADE): the destination coffee; NULL when the destination endpoint is a category (exactly one of to_coffee_id and to_category_id is set).$c$;
@@ -700,7 +700,7 @@ COMMENT ON COLUMN coffee_hop.created_at IS $c$UTC timestamp the hop row was crea
 COMMENT ON COLUMN coffee_hop.from_category_id IS $c$References coffee_category.id: category as the starting endpoint instead of a coffee; set only by SQL seed or manual SQL, setHop cannot write it | Writer: seed (db/seeds/_retired/dial_relationships_base.sql) or manual SQL$c$;
 COMMENT ON COLUMN coffee_hop.to_category_id IS $c$References coffee_category.id: category as the destination endpoint instead of a coffee; set only by SQL seed or manual SQL, setHop cannot write it | Writer: seed (db/seeds/_retired/dial_relationships_base.sql) or manual SQL$c$;
 -- ── coffee_category ──
-COMMENT ON TABLE coffee_category IS $c$Purpose: Cross-cutting coffee categories orthogonal to archetype (experimental, decaf, half_caf, flavored) | Class: master | Writer: catalogService.createCategory, updateCategory, deleteCategory, seed (schema.sql) | Readers: v_coffee, catalogReads, roasteryPortal | Since: 2026-07-10 (#78)$c$;
+COMMENT ON TABLE coffee_category IS $c$Purpose: Cross-cutting coffee categories orthogonal to archetype (experimental, decaf, half_caf, flavored) | Class: master | Writer: catalogService.createCategory, catalogService.deleteCategory, catalogService.updateCategory; seed | Readers: v_coffee, catalogReads, roasteryPortal | Since: 2026-07-10 (#78)$c$;
 COMMENT ON COLUMN coffee_category.id IS $c$Surrogate primary key; referenced by coffee_category_assignment and coffee_hop category endpoints.$c$;
 COMMENT ON COLUMN coffee_category.code IS $c$Stable machine key, unique (seeded: experimental, decaf, half_caf, flavored).$c$;
 COMMENT ON COLUMN coffee_category.label IS $c$Display label such as Half-Caf.$c$;
@@ -711,21 +711,21 @@ COMMENT ON COLUMN coffee_category.is_hoppable IS $c$True if coffees with this ca
 COMMENT ON COLUMN coffee_category.created_at IS $c$UTC timestamp the category row was created.$c$;
 
 -- ── coffee_category_assignment ──
-COMMENT ON TABLE coffee_category_assignment IS $c$Purpose: Many-to-many join tagging coffees with cross-cutting categories (experimental, decaf, half_caf, flavored), independent of archetype or dial slot. | Class: master | Writer: catalogService.applyCategoryCodes (via createCoffee and updateCoffee), seed (schema.sql tag backfill for 6 known coffees) | Readers: v_coffee, catalogReads.getCategoryAssignments, catalogReads.getCategoryCoffees, catalogService.deleteCategory, routes/admin | Since: 2026-07-10 (#78)$c$;
+COMMENT ON TABLE coffee_category_assignment IS $c$Purpose: Many-to-many join tagging coffees with cross-cutting categories (experimental, decaf, half_caf, flavored), independent of archetype or dial slot. | Class: master | Writer: catalogService.applyCategoryCodes (via createCoffee and updateCoffee); seed | Readers: v_coffee, catalogReads.getCategoryAssignments, catalogReads.getCategoryCoffees, catalogService.deleteCategory, routes/admin | Since: 2026-07-10 (#78)$c$;
 COMMENT ON COLUMN coffee_category_assignment.id IS $c$Surrogate key for the tag row.$c$;
 COMMENT ON COLUMN coffee_category_assignment.coffee_id IS $c$References coffees.id, the tagged coffee (ON DELETE CASCADE); UNIQUE together with category_id.$c$;
 COMMENT ON COLUMN coffee_category_assignment.category_id IS $c$References coffee_category.id, the category applied (ON DELETE CASCADE); the app refuses to delete a category while rows exist.$c$;
 COMMENT ON COLUMN coffee_category_assignment.assigned_at IS $c$UTC timestamp the tag was applied.$c$;
 
 -- ── user_bloom_dial_current_position ──
-COMMENT ON TABLE user_bloom_dial_current_position IS $c$Purpose: Current dial setting per user+archetype, overwritten in place on every dial turn (silent, no history); movement history (explicit saves and add-to-cart positions only) lives in Postgres customer_dial_event (the old Firestore users/{uid}/dial_events store is retired). | Class: operating | Writer: users.PATCH /api/users/dial-position | Readers: users.GET /api/users/dial-position, sommelier (recent dial position), catalogIntegrity (check 12), catalogService.previewPlacement | Since: 2026-07-11 (#83, renamed #102)$c$;
+COMMENT ON TABLE user_bloom_dial_current_position IS $c$Purpose: Current dial setting per user+archetype, overwritten in place on every dial turn (silent, no history); movement history (explicit saves and add-to-cart positions only) lives in Postgres customer_dial_event (the old Firestore users/{uid}/dial_events store is retired). | Class: operating | Writer: users.PATCH /api/users/dial-position; seed | Readers: users.GET /api/users/dial-position, sommelier (recent dial position), catalogIntegrity (check 12), catalogService.previewPlacement | Since: 2026-07-11 (#83, renamed #102)$c$;
 COMMENT ON COLUMN user_bloom_dial_current_position.user_id IS $c$References user_profile.id (ON DELETE CASCADE); first half of the primary key.$c$;
 COMMENT ON COLUMN user_bloom_dial_current_position.archetype IS $c$archetype_enum dial this position belongs to (chocolate_nutty, balanced_sweet, fruity, earthy, floral, experimental); second half of the primary key.$c$;
 COMMENT ON COLUMN user_bloom_dial_current_position.updated_at IS $c$UTC timestamp of the last dial turn that overwrote this row.$c$;
 COMMENT ON COLUMN user_bloom_dial_current_position.slot_id IS $c$References coffee_dial_slot.id, the slot the dial currently sits on; the only position reference (dial_sort_order was dropped, the API derives it by joining coffee_dial_slot.sort_order).$c$;
 
 -- ── coffee_slot_price ──
-COMMENT ON TABLE coffee_slot_price IS $c$Purpose: Retail price in cents for one Bloom Dial slot at one bag size, so every roaster fulfilling a slot shows the same price; a slot with no row renders Unpriced. | Class: master | Writer: catalogService.setSlotPrice, backfill (db/migrations/pricing_update_2026_07_24.sql, run under the old name dial_slot_price) | Readers: v_coffee_sellable_candidate, v_coffee_sellable_slot, v_coffee_visibility, catalogReads, catalogService, catalogIntegrity | Since: 2026-07-11 as dial_slot_price (#80), renamed 2026-09-16$c$;
+COMMENT ON TABLE coffee_slot_price IS $c$Purpose: Retail price in cents for one Bloom Dial slot at one bag size, so every roaster fulfilling a slot shows the same price; a slot with no row renders Unpriced. | Class: master | Writer: catalogService.setSlotPrice, catalogService.setSlotPriceInTx; seed | Readers: v_coffee_sellable_candidate, v_coffee_sellable_slot, v_coffee_visibility, catalogReads, catalogService, catalogIntegrity | Since: 2026-07-11 as dial_slot_price (#80), renamed 2026-09-16$c$;
 COMMENT ON COLUMN coffee_slot_price.id IS $c$Surrogate key; the default sequence is still named dial_slot_price_id_seq after the rename.$c$;
 COMMENT ON COLUMN coffee_slot_price.weight_oz IS $c$Bag size in ounces (12, 32 or 80 today); references coffee_size.weight_oz; UNIQUE together with slot_id.$c$;
 COMMENT ON COLUMN coffee_slot_price.retail_price_cents IS $c$Customer retail price for this slot and size, in US cents (3200 = $32.00).$c$;
@@ -733,7 +733,7 @@ COMMENT ON COLUMN coffee_slot_price.updated_at IS $c$UTC timestamp of the last p
 COMMENT ON COLUMN coffee_slot_price.slot_id IS $c$References coffee_dial_slot.id, the priced slot; NOT NULL since Catalog Blueprint brief 5a, replacing the dropped archetype and dial_sort_order columns.$c$;
 
 -- ── coffee_retail_price ──
-COMMENT ON TABLE coffee_retail_price IS $c$Purpose: Retail price in cents per coffee and bag size for category coffees with no dial slot (Decaf, Half-Caf, Flavored, Experimental); a coffee with no row renders Unpriced. | Class: master | Writer: catalogService.setCoffeeRetailPrice, backfill (db/migrations/pricing_update_2026_07_24.sql) | Readers: catalogReads.getCoffeeRetailPrices, catalogReads.getSizeIntegrity, catalogIntegrity, routes/coffees (GET /api/coffees/other-categories), routes/admin (GET /api/admin/coffee-prices) | Since: 2026-07-14 (#95)$c$;
+COMMENT ON TABLE coffee_retail_price IS $c$Purpose: Retail price in cents per coffee and bag size for category coffees with no dial slot (Decaf, Half-Caf, Flavored, Experimental); a coffee with no row renders Unpriced. | Class: master | Writer: catalogService.setCoffeeRetailPrice | Readers: catalogReads.getCoffeeRetailPrices, catalogReads.getSizeIntegrity, catalogIntegrity, routes/coffees (GET /api/coffees/other-categories), routes/admin (GET /api/admin/coffee-prices) | Since: 2026-07-14 (#95)$c$;
 COMMENT ON COLUMN coffee_retail_price.id IS $c$Surrogate key for the price row.$c$;
 COMMENT ON COLUMN coffee_retail_price.coffee_id IS $c$References coffees.id, the priced coffee (ON DELETE CASCADE); UNIQUE together with weight_oz.$c$;
 COMMENT ON COLUMN coffee_retail_price.weight_oz IS $c$Bag size in ounces (12, 32 or 80 today); references coffee_size.weight_oz.$c$;
@@ -741,7 +741,7 @@ COMMENT ON COLUMN coffee_retail_price.retail_price_cents IS $c$Customer retail p
 COMMENT ON COLUMN coffee_retail_price.updated_at IS $c$UTC timestamp of the last price write.$c$;
 
 -- ── dial_position_signal ──
-COMMENT ON TABLE dial_position_signal IS $c$Purpose: One row per source's opinion about where a coffee sits on its dial (cupping, roastery_wheel, client_wheel, sms_feedback, onsite_feedback), read only by the dormant consensus view and an admin stats count; never auto-moves a placement. | Class: operating | Writer: dialSuggestion.recordCuppingSignal, dialPositionSignal.writeDialPositionSignal, orders.POST /:orderId/feedback (supersede only) | Readers: v_coffee_dial_position_consensus, axis (GET /stats) | Since: 2026-07-09 (#75)$c$;
+COMMENT ON TABLE dial_position_signal IS $c$Purpose: One row per source's opinion about where a coffee sits on its dial (cupping, roastery_wheel, client_wheel, sms_feedback, onsite_feedback), read only by the dormant consensus view and an admin stats count; never auto-moves a placement. | Class: operating | Writer: dialPositionSignal.writeDialPositionSignal, dialSuggestion.recordCuppingSignal, orders.POST /api/orders/:orderId/feedback (supersede only); seed | Readers: v_coffee_dial_position_consensus, axis (GET /stats) | Since: 2026-07-09 (#75)$c$;
 COMMENT ON COLUMN dial_position_signal.id IS $c$Surrogate key for the signal row.$c$;
 COMMENT ON COLUMN dial_position_signal.coffee_id IS $c$References coffees.id, the coffee the signal is about (ON DELETE CASCADE); nullable in the schema but always set by the writers.$c$;
 COMMENT ON COLUMN dial_position_signal.archetype IS $c$archetype_enum dial the signal applies to; taken from the coffee's current match archetype.$c$;
@@ -757,7 +757,7 @@ COMMENT ON COLUMN dial_position_signal.notes IS $c$For feedback rows a match key
 COMMENT ON COLUMN dial_position_signal.suggested_slot_id IS $c$References coffee_dial_slot.id, the slot the source suggests (replaced the dropped suggested_vocabulary_id in brief 5a); set only on cupping rows, NULL for feedback rows. | Writer: dialSuggestion.recordCuppingSignal$c$;
 
 -- ── cupping_note_dimension_weight ──
-COMMENT ON TABLE cupping_note_dimension_weight IS $c$Purpose: Reserved mapping from a cupping descriptor to a dimension and direction (for example Citrus raises Acidity), deliberately empty until enough cupping volume exists to validate a mapping. | Class: operating | Writer: none (never written, empty by design) | Readers: none | Since: 2026-07-09 (#75)$c$;
+COMMENT ON TABLE cupping_note_dimension_weight IS $c$Purpose: Reserved mapping from a cupping descriptor to a dimension and direction (for example Citrus raises Acidity), deliberately empty until enough cupping volume exists to validate a mapping. | Class: operating | Writer: none | Readers: none | Since: 2026-07-09 (#75)$c$;
 COMMENT ON COLUMN cupping_note_dimension_weight.id IS $c$Surrogate key for the mapping row.$c$;
 COMMENT ON COLUMN cupping_note_dimension_weight.cupping_note_id IS $c$References cupping_note.id (UUID), the descriptor being mapped; UNIQUE together with dimension_id.$c$;
 COMMENT ON COLUMN cupping_note_dimension_weight.dimension_id IS $c$References coffee_dimensions.id, the dimension the descriptor moves.$c$;
@@ -765,12 +765,12 @@ COMMENT ON COLUMN cupping_note_dimension_weight.direction IS $c$Direction the de
 COMMENT ON COLUMN cupping_note_dimension_weight.weight IS $c$UNVERIFIED: no rows and no code, so the scale and range are not defined anywhere | Strength of the descriptor-to-dimension association, default 0 (best guess: a non-negative multiplier).$c$;
 
 -- ── dial_source_weight ──
-COMMENT ON TABLE dial_source_weight IS $c$Purpose: Reliability weight per dial_position_signal source, used to weight signals in the consensus view (cupping 3, sms_feedback and onsite_feedback 1, roastery_wheel and client_wheel 0). | Class: operating | Writer: seed (schema.sql INSERT ... ON CONFLICT DO NOTHING) | Readers: v_coffee_dial_position_consensus | Since: 2026-07-09 (#75)$c$;
+COMMENT ON TABLE dial_source_weight IS $c$Purpose: Reliability weight per dial_position_signal source, used to weight signals in the consensus view (cupping 3, sms_feedback and onsite_feedback 1, roastery_wheel and client_wheel 0). | Class: operating | Writer: seed | Readers: v_coffee_dial_position_consensus | Since: 2026-07-09 (#75)$c$;
 COMMENT ON COLUMN dial_source_weight.source IS $c$Signal source, primary key. One of: cupping, roastery_wheel, client_wheel, sms_feedback, onsite_feedback (CHECK).$c$;
 COMMENT ON COLUMN dial_source_weight.reliability_weight IS $c$Relative weight of this source in the consensus, a unitless multiplier; 0 means the source is ignored.$c$;
 
 -- ── lookup_value ──
-COMMENT ON TABLE lookup_value IS $c$Purpose: Controlled vocabulary for admin dropdowns and coded fields, one row per (category, value) with a display label and order. | Class: operating | Writer: seed (schema.sql INSERTs), admin.POST /api/admin/lookups, admin.PATCH /api/admin/lookups/:id, admin.DELETE /api/admin/lookups/:id | Readers: admin.GET /api/admin/lookups, routes/coffees (origin region), catalogService.updateCoffee, roasteryPortalReads, coffees.origin_region_id FK | Since: 2026-05-27$c$;
+COMMENT ON TABLE lookup_value IS $c$Purpose: Controlled vocabulary for admin dropdowns and coded fields, one row per (category, value) with a display label and order. | Class: operating | Writer: admin.POST /api/admin/lookups, admin.PATCH /api/admin/lookups/:id, admin.DELETE /api/admin/lookups/:id; seed | Readers: admin.GET /api/admin/lookups, routes/coffees (origin region), catalogService.updateCoffee, roasteryPortalReads, coffees.origin_region_id FK | Since: 2026-05-27$c$;
 COMMENT ON COLUMN lookup_value.id IS $c$Surrogate key; coffees.origin_region_id references it.$c$;
 COMMENT ON COLUMN lookup_value.category IS $c$Vocabulary group, for example roast_level, process, blend_or_single, brew_method, origin_region and the roastery_portal_* groups; UNIQUE together with value.$c$;
 COMMENT ON COLUMN lookup_value.value IS $c$Stored code within the category (what other tables and the API hold).$c$;
@@ -778,7 +778,7 @@ COMMENT ON COLUMN lookup_value.label IS $c$Display text shown in the UI; may dif
 COMMENT ON COLUMN lookup_value.sort_order IS $c$Display position within the category, ascending.$c$;
 
 -- ── coffee_dial_slot ──
-COMMENT ON TABLE coffee_dial_slot IS $c$Purpose: The 24 Bloom Dial slots (archetype x sort_order 1-4): each slot's customer-facing name, position label and optional spec band, independent of which coffee fulfils it. | Class: master | Writer: seed (schema.sql static 24-row seed), catalogService.renameSlot, catalogService.setSlotSpec, catalogService.setLandingDefault | Readers: v_coffee_slot, v_coffee_sellable_slot, v_coffee_sellable_candidate, v_coffee_visibility, v_roastery_portal_dimension_match, catalogReads.getSlots, +3 more | Since: 2026-09-13 (#178)$c$;
+COMMENT ON TABLE coffee_dial_slot IS $c$Purpose: The 24 Bloom Dial slots (archetype x sort_order 1-4): each slot's customer-facing name, position label and optional spec band, independent of which coffee fulfils it. | Class: master | Writer: catalogService.renameSlot, catalogService.setSlotSpec, catalogService.setLandingDefault; seed | Readers: v_coffee_slot, v_coffee_sellable_slot, v_coffee_sellable_candidate, v_coffee_visibility, v_roastery_portal_dimension_match, catalogReads.getSlots, +3 more | Since: 2026-09-13 (#178)$c$;
 COMMENT ON COLUMN coffee_dial_slot.id IS $c$Surrogate key; referenced by coffee_slot_assignment, coffee_slot_price, user_bloom_dial_current_position, dial_position_signal, customer_dial_event and customer_liam_recommendation.$c$;
 COMMENT ON COLUMN coffee_dial_slot.archetype IS $c$archetype_enum dial the slot belongs to; references coffee_archetype.code; UNIQUE together with sort_order.$c$;
 COMMENT ON COLUMN coffee_dial_slot.sort_order IS $c$Position on the dial from 1 to 4 (CHECK), lightest or first to fullest; UNIQUE together with archetype.$c$;
@@ -795,7 +795,7 @@ COMMENT ON COLUMN coffee_dial_slot.created_at IS $c$UTC timestamp the slot row w
 COMMENT ON COLUMN coffee_dial_slot.updated_at IS $c$UTC timestamp of the last slot edit; feeds the catalog version stamp.$c$;
 
 -- ── coffee_slot_assignment ──
-COMMENT ON TABLE coffee_slot_assignment IS $c$Purpose: Placement of a coffee in a Bloom Dial slot as home or guest, with priority, activity and certification, kept as history (inactive rows stay). | Class: master | Writer: catalogService.placeCoffee, catalogService.addGuest, catalogService.moveCoffee, catalogService.removeFromSlot, catalogService.setPriority, catalogService.certifyPlacement, catalogService.retireCoffee, catalogService.deactivateRoastery | Readers: v_coffee_slot, v_coffee_sellable_slot, v_coffee_sellable_candidate, v_coffee_visibility, v_coffee_hop, v_palate_recommendation_outcome, +3 more | Since: 2026-09-13 (#178)$c$;
+COMMENT ON TABLE coffee_slot_assignment IS $c$Purpose: Placement of a coffee in a Bloom Dial slot as home or guest, with priority, activity and certification, kept as history (inactive rows stay). | Class: master | Writer: catalogService.placeCoffee, catalogService.addGuest, catalogService.moveCoffee, catalogService.removeFromSlot, catalogService.setPriority, catalogService.certifyPlacement, catalogService.retireCoffee, catalogService.deactivateRoastery, catalogService.certifyPlacementInTx, catalogService.placeCoffeeInTx | Readers: v_coffee_slot, v_coffee_sellable_slot, v_coffee_sellable_candidate, v_coffee_visibility, v_coffee_hop, v_palate_recommendation_outcome, +3 more | Since: 2026-09-13 (#178)$c$;
 COMMENT ON COLUMN coffee_slot_assignment.id IS $c$Surrogate key; a re-placement of the same coffee in the same slot reuses the row.$c$;
 COMMENT ON COLUMN coffee_slot_assignment.slot_id IS $c$References coffee_dial_slot.id, the slot occupied; UNIQUE together with coffee_id.$c$;
 COMMENT ON COLUMN coffee_slot_assignment.coffee_id IS $c$References coffees.id, the placed coffee; one active home slot per coffee (partial unique index).$c$;
@@ -819,7 +819,7 @@ COMMENT ON VIEW v_cupping_scores_readable IS $c$Purpose: One row per cupping sco
 COMMENT ON VIEW v_collaborative_flavor_wheel IS $c$Purpose: Every flavor-descriptor observation per coffee, one row each, labelled by source (internal cupping, roastery bag notes, client feedback). | Class: view | Writer: none (derived) | Readers: v_coffee_descriptor, admin, coffees, cron, orders, beatEngine, catalogService, sommelierRag | Since: 2026-05-27$c$;
 
 -- ── quiz_backup_20261008_quiz ──
-COMMENT ON TABLE quiz_backup_20261008_quiz IS $c$Purpose: Frozen copy of the quiz table taken at the first boot with SCD Type 2 quiz content, kept as a rollback reference and never written again. | Class: snapshot | Writer: backfill (schema.sql Part A CREATE TABLE IF NOT EXISTS AS TABLE, one-time, Prompt 4A) | Readers: quizIntegrity (check 17) | Since: 2026-10-09 (#218, content as of 2026-10-08)$c$;
+COMMENT ON TABLE quiz_backup_20261008_quiz IS $c$Purpose: Frozen copy of the quiz table taken at the first boot with SCD Type 2 quiz content, kept as a rollback reference and never written again. | Class: snapshot | Writer: seed | Readers: quizIntegrity (check 17) | Since: 2026-10-09 (#218, content as of 2026-10-08)$c$;
 COMMENT ON COLUMN quiz_backup_20261008_quiz.id IS $c$Snapshot of quiz.id (UUID).$c$;
 COMMENT ON COLUMN quiz_backup_20261008_quiz.version IS $c$Snapshot of quiz.version, the quiz version label (for example v7).$c$;
 COMMENT ON COLUMN quiz_backup_20261008_quiz.description IS $c$Snapshot of quiz.description.$c$;
@@ -830,7 +830,7 @@ COMMENT ON COLUMN quiz_backup_20261008_quiz.trigger_archetype_id IS $c$Snapshot 
 COMMENT ON COLUMN quiz_backup_20261008_quiz.parent_quiz_id IS $c$Snapshot of quiz.parent_quiz_id, the main quiz a branch quiz belongs to; NULL for main quizzes.$c$;
 
 -- ── quiz_backup_20261008_quiz_question ──
-COMMENT ON TABLE quiz_backup_20261008_quiz_question IS $c$Purpose: Frozen copy of the quiz_question table taken before SCD Type 2 versioning, kept as a rollback reference and never written again. | Class: snapshot | Writer: backfill (schema.sql Part A CREATE TABLE IF NOT EXISTS AS TABLE, one-time, Prompt 4A) | Readers: quizIntegrity (check 17) | Since: 2026-10-09 (#218, content as of 2026-10-08)$c$;
+COMMENT ON TABLE quiz_backup_20261008_quiz_question IS $c$Purpose: Frozen copy of the quiz_question table taken before SCD Type 2 versioning, kept as a rollback reference and never written again. | Class: snapshot | Writer: seed | Readers: quizIntegrity (check 17) | Since: 2026-10-09 (#218, content as of 2026-10-08)$c$;
 COMMENT ON COLUMN quiz_backup_20261008_quiz_question.id IS $c$Snapshot of quiz_question.id (UUID).$c$;
 COMMENT ON COLUMN quiz_backup_20261008_quiz_question.quiz_id IS $c$Snapshot of quiz_question.quiz_id, references quiz.id.$c$;
 COMMENT ON COLUMN quiz_backup_20261008_quiz_question.q_number IS $c$Snapshot of quiz_question.q_number, the question's position number within its quiz.$c$;
@@ -838,7 +838,7 @@ COMMENT ON COLUMN quiz_backup_20261008_quiz_question.q_text IS $c$Snapshot of qu
 COMMENT ON COLUMN quiz_backup_20261008_quiz_question.weight IS $c$Snapshot of quiz_question.weight, the question's scoring multiplier (0 means food signal only).$c$;
 
 -- ── quiz_backup_20261008_quiz_answer ──
-COMMENT ON TABLE quiz_backup_20261008_quiz_answer IS $c$Purpose: Frozen copy of the quiz_answer table taken before SCD Type 2 versioning, preserving the production-minted answer ids, never written again. | Class: snapshot | Writer: backfill (schema.sql Part A CREATE TABLE IF NOT EXISTS AS TABLE, one-time, Prompt 4A) | Readers: quizIntegrity (check 17) | Since: 2026-10-09 (#218, content as of 2026-10-08)$c$;
+COMMENT ON TABLE quiz_backup_20261008_quiz_answer IS $c$Purpose: Frozen copy of the quiz_answer table taken before SCD Type 2 versioning, preserving the production-minted answer ids, never written again. | Class: snapshot | Writer: seed | Readers: quizIntegrity (check 17) | Since: 2026-10-09 (#218, content as of 2026-10-08)$c$;
 COMMENT ON COLUMN quiz_backup_20261008_quiz_answer.id IS $c$Snapshot of quiz_answer.id (UUID), the answer id sessions store.$c$;
 COMMENT ON COLUMN quiz_backup_20261008_quiz_answer.question_id IS $c$Snapshot of quiz_answer.question_id, references quiz_question.id.$c$;
 COMMENT ON COLUMN quiz_backup_20261008_quiz_answer.answer_text IS $c$Snapshot of quiz_answer.answer_text, the answer wording shown to customers.$c$;
@@ -850,7 +850,7 @@ COMMENT ON COLUMN quiz_backup_20261008_quiz_answer.is_experimental_gate IS $c$Sn
 COMMENT ON COLUMN quiz_backup_20261008_quiz_answer.answer_code IS $c$Snapshot of quiz_answer.answer_code, the stable version-scoped code such as v7_q1_a; NULL for older content.$c$;
 
 -- ── quiz_backup_20261008_quiz_answer_archetype_score ──
-COMMENT ON TABLE quiz_backup_20261008_quiz_answer_archetype_score IS $c$Purpose: Frozen copy of the quiz_answer_archetype_score table taken before SCD Type 2 versioning, never written again. | Class: snapshot | Writer: backfill (schema.sql Part A CREATE TABLE IF NOT EXISTS AS TABLE, one-time, Prompt 4A) | Readers: quizIntegrity (check 17) | Since: 2026-10-09 (#218, content as of 2026-10-08)$c$;
+COMMENT ON TABLE quiz_backup_20261008_quiz_answer_archetype_score IS $c$Purpose: Frozen copy of the quiz_answer_archetype_score table taken before SCD Type 2 versioning, never written again. | Class: snapshot | Writer: seed | Readers: quizIntegrity (check 17) | Since: 2026-10-09 (#218, content as of 2026-10-08)$c$;
 COMMENT ON COLUMN quiz_backup_20261008_quiz_answer_archetype_score.id IS $c$Snapshot of quiz_answer_archetype_score.id (UUID).$c$;
 COMMENT ON COLUMN quiz_backup_20261008_quiz_answer_archetype_score.answer_id IS $c$Snapshot of quiz_answer_archetype_score.answer_id, references quiz_answer.id.$c$;
 COMMENT ON COLUMN quiz_backup_20261008_quiz_answer_archetype_score.question_id IS $c$Snapshot of quiz_answer_archetype_score.question_id, references quiz_question.id.$c$;
@@ -873,7 +873,7 @@ COMMENT ON VIEW v_coffee_dial_position_consensus IS $c$Purpose: Weighted consens
 COMMENT ON VIEW v_newsletter_subscribers IS $c$Purpose: All newsletter signups with a human-readable source label, newest first. | Class: view | Writer: none (derived) | Readers: none (manual SQL, no TypeScript consumer) | Since: 2026-06-03$c$;
 
 -- ── company_gift ──
-COMMENT ON TABLE company_gift IS $c$Purpose: One purchased company gift batch (a sponsored few-month coffee perk for employees), a purchase event rather than a company profile. | Class: operating | Writer: companyGiftsAdmin.POST /api/admin/company-gifts, companyGiftsAdmin.POST /:id/confirm-payment, companyGiftsAdmin.PATCH /:id/email-template | Readers: companyGiftRedemption, companyGiftsAdmin, cron (expire-company-gift-codes) | Since: 2026-07-12$c$;
+COMMENT ON TABLE company_gift IS $c$Purpose: One purchased company gift batch (a sponsored few-month coffee perk for employees), a purchase event rather than a company profile. | Class: operating | Writer: companyGiftsAdmin.POST /api/admin/company-gifts, companyGiftsAdmin.POST /api/admin/company-gifts/:id/confirm-payment, companyGiftsAdmin.PATCH /api/admin/company-gifts/:id/email-template | Readers: companyGiftRedemption, companyGiftsAdmin, cron (expire-company-gift-codes) | Since: 2026-07-12$c$;
 COMMENT ON COLUMN company_gift.id IS $c$Surrogate key (UUID) for the gift batch.$c$;
 COMMENT ON COLUMN company_gift.company_name IS $c$Company name as typed at purchase time, a snapshot that is not updated if company.company_name changes.$c$;
 COMMENT ON COLUMN company_gift.seat_count IS $c$Number of employee seats purchased, which is also the number of company_gift_code rows generated; must be greater than 0.$c$;
@@ -890,7 +890,7 @@ COMMENT ON COLUMN company_gift.email_template_override IS $c$Admin-edited wordin
 COMMENT ON COLUMN company_gift.company_id IS $c$References company.id, the stable employer identity across repeat purchases; NULL for rows created before the company table existed.$c$;
 
 -- ── company_gift_code ──
-COMMENT ON TABLE company_gift_code IS $c$Purpose: One redeemable code per seat of a company gift batch, tracking whether it is unredeemed, redeemed or expired. | Class: operating | Writer: companyGiftsAdmin.POST /api/admin/company-gifts, companyGiftRedemption.POST /:code/redeem, cron.GET /expire-company-gift-codes | Readers: companyGiftRedemption, companyGiftsAdmin, cron | Since: 2026-07-12$c$;
+COMMENT ON TABLE company_gift_code IS $c$Purpose: One redeemable code per seat of a company gift batch, tracking whether it is unredeemed, redeemed or expired. | Class: operating | Writer: companyGiftRedemption.POST /api/company-gift-redemption/:code/redeem, companyGiftsAdmin.POST /api/admin/company-gifts, cron.GET /api/cron/expire-company-gift-codes | Readers: companyGiftRedemption, companyGiftsAdmin, cron | Since: 2026-07-12$c$;
 COMMENT ON COLUMN company_gift_code.id IS $c$Surrogate key (UUID) for the code row.$c$;
 COMMENT ON COLUMN company_gift_code.company_gift_id IS $c$References company_gift.id, the batch this code belongs to (ON DELETE CASCADE).$c$;
 COMMENT ON COLUMN company_gift_code.code IS $c$Unique redemption token, 8 human-friendly uppercase characters without ambiguous 0/O or 1/I.$c$;
@@ -976,7 +976,7 @@ COMMENT ON VIEW v_subscriber_quiz_results IS $c$Purpose: One row per newsletter 
 COMMENT ON VIEW v_quiz_session_interpretation_history IS $c$Purpose: One row per quiz session per interpretation version (current and superseded), the calibration surface for before/after comparisons | Class: view | Writer: none (derived) | Readers: reporting_ro (Looker Studio), manual calibration exports, no app code | Since: 2026-09-25$c$;
 
 -- ── marketing_config ──
-COMMENT ON TABLE marketing_config IS $c$Purpose: Admin-editable key/value store for the Looker Studio, Mailchimp audience and ad-spend sheet URLs shown on the admin Marketing cards | Class: operating | Writer: seed, reportingConfig.setMarketingConfigValue | Readers: reportingConfig.getMarketingConfig (admin GET /api/admin/marketing/config) | Since: 2026-07-21$c$;
+COMMENT ON TABLE marketing_config IS $c$Purpose: Admin-editable key/value store for the Looker Studio, Mailchimp audience and ad-spend sheet URLs shown on the admin Marketing cards | Class: operating | Writer: reportingConfig.setMarketingConfigValue; seed | Readers: reportingConfig.getMarketingConfig (admin GET /api/admin/marketing/config) | Since: 2026-07-21$c$;
 COMMENT ON COLUMN marketing_config.key IS $c$Config key and primary key; one of looker_studio_url, mailchimp_audience_url, adspend_sheet_url (the three seeded rows, enforced in reportingConfig.ts not by a CHECK). | Writer: seed$c$;
 COMMENT ON COLUMN marketing_config.value IS $c$The URL for that key, or NULL while unset; blank input is stored as NULL.$c$;
 COMMENT ON COLUMN marketing_config.updated_at IS $c$UTC timestamp of the last edit through the admin Marketing card; set on every UPDATE.$c$;
@@ -1001,7 +1001,7 @@ COMMENT ON COLUMN qr_universal_token.source IS $c$Unique print-run label the tok
 COMMENT ON COLUMN qr_universal_token.created_at IS $c$UTC timestamp the token was minted.$c$;
 
 -- ── claude_daily_spend ──
-COMMENT ON TABLE claude_daily_spend IS $c$Purpose: Atomic per-UTC-day, per-feature running total of Anthropic API spend that drives the global and per-feature Claude kill-switch caps | Class: operating | Writer: anthropicGuard.recordSpendMicros (via guardClaudeCall) | Readers: anthropicGuard.getTodaySpend, admin GET /api/admin/ai-ops | Since: 2026-08-08$c$;
+COMMENT ON TABLE claude_daily_spend IS $c$Purpose: Atomic per-UTC-day, per-feature running total of Anthropic API spend that drives the global and per-feature Claude kill-switch caps | Class: operating | Writer: anthropicGuard.recordSpendMicros (via guardClaudeCall); seed | Readers: anthropicGuard.getTodaySpend, admin GET /api/admin/ai-ops | Since: 2026-08-08$c$;
 COMMENT ON COLUMN claude_daily_spend.date IS $c$UTC calendar date of the spend; part of the primary key (date, feature).$c$;
 COMMENT ON COLUMN claude_daily_spend.cents IS $c$Class: deprecated | FROZEN 2026-10-01: superseded by usd_micros (Liam access & cost brief). Not read or written by the app; kept for history. Removal tracked in OPEN_TASKS.md OT-30. (docs say never read, code does: no app TypeScript touches it, only the schema.sql boot-time backfill UPDATE reads it to seed usd_micros)$c$;
 COMMENT ON COLUMN claude_daily_spend.updated_at IS $c$UTC timestamp of the last spend increment for that date and feature.$c$;
@@ -1009,7 +1009,7 @@ COMMENT ON COLUMN claude_daily_spend.feature IS $c$AI feature bucket the spend i
 COMMENT ON COLUMN claude_daily_spend.usd_micros IS $c$Accumulated spend in micro-dollars (1 USD = 1,000,000), the only spend column the app writes and reads; each call is rounded up to the next micro-dollar.$c$;
 
 -- ── api_event ──
-COMMENT ON TABLE api_event IS $c$Purpose: Append-only capture-first log of every mutating API request (redacted body, status, duration), also carrying client-side errors from POST /api/client-errors | Class: operating | Writer: apiEventLog.apiEventLog (INSERT before the handler, UPDATE at response finish) | Readers: admin GET /system-health, catalogReads.getChanges, quizIntegrity, customerIntegrity, scripts/audit-quiz-emails.mjs | Since: 2026-08-13$c$;
+COMMENT ON TABLE api_event IS $c$Purpose: Append-only capture-first log of every mutating API request (redacted body, status, duration), also carrying client-side errors from POST /api/client-errors | Class: operating | Writer: apiEventLog.apiEventLog (INSERT before the handler, UPDATE at response finish), apiEventLog.writeOutcome | Readers: admin GET /system-health, catalogReads.getChanges, quizIntegrity, customerIntegrity, scripts/audit-quiz-emails.mjs | Since: 2026-08-13$c$;
 COMMENT ON COLUMN api_event.id IS $c$UUID primary key generated by the middleware per request (also exposed to handlers as res.locals.apiEventId).$c$;
 COMMENT ON COLUMN api_event.occurred_at IS $c$UTC timestamp the request was captured (database now() at insert).$c$;
 COMMENT ON COLUMN api_event.call_type IS $c$Route-pattern label such as POST /api/orders/:id/cancel, stable across ids; provisional at insert and corrected at finish.$c$;
@@ -1061,7 +1061,7 @@ COMMENT ON VIEW v_coffee_hop IS $c$Purpose: One row per coffee_hop with endpoint
 COMMENT ON VIEW v_coffee_archetype_adjacency IS $c$Purpose: Cross-archetype bridge-hop summary (hop counts, more/less split, average confidence) between archetype pairs, from active coffees only | Class: view | Writer: none (derived) | Readers: routes/axis (GET /api/axis/adjacency and stats), sommelierRag | Since: 2026-09-13$c$;
 
 -- ── customer_identity_link ──
-COMMENT ON TABLE customer_identity_link IS $c$Purpose: Append-only fact linking an older or guest user profile to the surviving profile it merged into, walked at read time to find a customer's canonical id | Class: fact | Writer: customerFacts.identityLink (called from auth.POST /sync), backfill (scripts/backfillClaimedSessionLinks.ts) | Readers: v_customer_identity, v_customer_timeline, customerReads.getFactsWatermark, customerIntegrity | Since: 2026-09-27$c$;
+COMMENT ON TABLE customer_identity_link IS $c$Purpose: Append-only fact linking an older or guest user profile to the surviving profile it merged into, walked at read time to find a customer's canonical id | Class: fact | Writer: customerFacts.identityLink (called from auth.POST /sync), customerFacts.identityLinkBackfill | Readers: v_customer_identity, v_customer_timeline, customerReads.getFactsWatermark, customerIntegrity | Since: 2026-09-27$c$;
 COMMENT ON COLUMN customer_identity_link.id IS $c$Surrogate UUID primary key of this fact row.$c$;
 COMMENT ON COLUMN customer_identity_link.user_id IS $c$References user_profile.id; set equal to from_user_id (the profile being linked away).$c$;
 COMMENT ON COLUMN customer_identity_link.occurred_at IS $c$UTC timestamp the link happened; database clock at insert, set explicitly only by backfill.$c$;
@@ -1074,7 +1074,7 @@ COMMENT ON COLUMN customer_identity_link.to_user_id IS $c$References user_profil
 COMMENT ON COLUMN customer_identity_link.how IS $c$How the link was established. One of: email_match, household_claim, admin (only email_match has a caller today).$c$;
 
 -- ── customer_feedback_event ──
-COMMENT ON TABLE customer_feedback_event IS $c$Purpose: Append-only fact of a customer rating and expectation feedback on a coffee they received, revised by new rows that supersede old ones | Class: fact | Writer: customerFacts.feedback (called from orders.POST /:orderId/feedback and liamSmsFeedback.parseInboundReply), backfill (scripts/backfillCustomerFacts.ts) | Readers: v_customer_feedback_current, v_customer_timeline, v_collaborative_flavor_wheel, customerReads.latestFeedbackEventForOrder, customerReads.getFactsWatermark | Since: 2026-09-27$c$;
+COMMENT ON TABLE customer_feedback_event IS $c$Purpose: Append-only fact of a customer rating and expectation feedback on a coffee they received, revised by new rows that supersede old ones | Class: fact | Writer: customerFacts.feedback (called from orders.POST /:orderId/feedback and liamSmsFeedback.parseInboundReply), customerFacts.feedbackBackfill | Readers: v_customer_feedback_current, v_customer_timeline, v_collaborative_flavor_wheel, customerReads.latestFeedbackEventForOrder, customerReads.getFactsWatermark | Since: 2026-09-27$c$;
 COMMENT ON COLUMN customer_feedback_event.id IS $c$Surrogate UUID primary key of this fact row.$c$;
 COMMENT ON COLUMN customer_feedback_event.user_id IS $c$References user_profile.id of the customer giving feedback; never firebase_uid or email.$c$;
 COMMENT ON COLUMN customer_feedback_event.occurred_at IS $c$UTC timestamp the feedback happened; database clock at insert, set explicitly only by backfill.$c$;
@@ -1091,7 +1091,7 @@ COMMENT ON COLUMN customer_feedback_event.supersedes_id IS $c$References custome
 COMMENT ON COLUMN customer_feedback_event.channel IS $c$Channel the feedback arrived through. One of: onsite, sms, liam (no writer uses liam today).$c$;
 
 -- ── customer_feedback_descriptor ──
-COMMENT ON TABLE customer_feedback_descriptor IS $c$Purpose: Append-only fact linking a feedback event to each tasted flavor note (cupping_note) the customer picked | Class: fact | Writer: customerFacts.feedbackDescriptor (called from orders.POST /:orderId/feedback), backfill (scripts/backfillCustomerFacts.ts) | Readers: v_customer_feedback_current, v_collaborative_flavor_wheel | Since: 2026-09-27$c$;
+COMMENT ON TABLE customer_feedback_descriptor IS $c$Purpose: Append-only fact linking a feedback event to each tasted flavor note (cupping_note) the customer picked | Class: fact | Writer: customerFacts.feedbackDescriptor (called from orders.POST /:orderId/feedback), customerFacts.feedbackDescriptorBackfill | Readers: v_customer_feedback_current, v_collaborative_flavor_wheel | Since: 2026-09-27$c$;
 COMMENT ON COLUMN customer_feedback_descriptor.id IS $c$Surrogate UUID primary key of this fact row.$c$;
 COMMENT ON COLUMN customer_feedback_descriptor.user_id IS $c$References user_profile.id of the customer who tasted the note; never firebase_uid or email.$c$;
 COMMENT ON COLUMN customer_feedback_descriptor.occurred_at IS $c$UTC timestamp the descriptor was chosen; database clock at insert, set explicitly only by backfill.$c$;
@@ -1102,7 +1102,7 @@ COMMENT ON COLUMN customer_feedback_descriptor.feedback_event_id IS $c$Reference
 COMMENT ON COLUMN customer_feedback_descriptor.cupping_note_id IS $c$References cupping_note.id, the flavor note the customer said they tasted.$c$;
 
 -- ── customer_brew_profile_change ──
-COMMENT ON TABLE customer_brew_profile_change IS $c$Purpose: Append-only log of changes to a customer's brew profile (methods, grinder, preferences), replayed in order to produce the current profile | Class: fact | Writer: customerFacts.brewProfileChange (called from users.PATCH /brew-profile, users.DELETE /brew-profile and sommelier.resolveRemember), backfill (scripts/backfillCustomerFacts.ts) | Readers: v_customer_brew_profile, v_customer_timeline, customerReads.getFactsWatermark, customerIntegrity | Since: 2026-09-27$c$;
+COMMENT ON TABLE customer_brew_profile_change IS $c$Purpose: Append-only log of changes to a customer's brew profile (methods, grinder, preferences), replayed in order to produce the current profile | Class: fact | Writer: customerFacts.brewProfileChange (called from users.PATCH /brew-profile, users.DELETE /brew-profile and sommelier.resolveRemember), customerFacts.brewProfileChangeBackfill | Readers: v_customer_brew_profile, v_customer_timeline, customerReads.getFactsWatermark, customerIntegrity | Since: 2026-09-27$c$;
 COMMENT ON COLUMN customer_brew_profile_change.id IS $c$Surrogate UUID primary key of this fact row.$c$;
 COMMENT ON COLUMN customer_brew_profile_change.user_id IS $c$References user_profile.id of the customer whose profile changed; never firebase_uid or email.$c$;
 COMMENT ON COLUMN customer_brew_profile_change.occurred_at IS $c$UTC timestamp the change happened; database clock at insert, set explicitly only by backfill; ops are replayed in this order.$c$;
@@ -1116,7 +1116,7 @@ COMMENT ON COLUMN customer_brew_profile_change.op IS $c$How the value applies to
 COMMENT ON COLUMN customer_brew_profile_change.session_id IS $c$References sommelier_sessions.id when the change came from a Liam conversation; NULL for onsite edits.$c$;
 
 -- ── customer_dial_event ──
-COMMENT ON TABLE customer_dial_event IS $c$Purpose: Append-only fact of a customer explicitly saving a dial position or adding a dial coffee to cart | Class: fact | Writer: customerFacts.dialEvent (called from users.PATCH /dial-position), backfill (scripts/backfillCustomerFacts.ts) | Readers: v_customer_timeline, customerReads.getRecentDialActivity, customerReads.getFactsWatermark | Since: 2026-09-27$c$;
+COMMENT ON TABLE customer_dial_event IS $c$Purpose: Append-only fact of a customer explicitly saving a dial position or adding a dial coffee to cart | Class: fact | Writer: customerFacts.dialEvent (called from users.PATCH /dial-position), customerFacts.dialEventBackfill | Readers: v_customer_timeline, customerReads.getRecentDialActivity, customerReads.getFactsWatermark | Since: 2026-09-27$c$;
 COMMENT ON COLUMN customer_dial_event.id IS $c$Surrogate UUID primary key of this fact row.$c$;
 COMMENT ON COLUMN customer_dial_event.user_id IS $c$References user_profile.id of the customer; never firebase_uid or email.$c$;
 COMMENT ON COLUMN customer_dial_event.occurred_at IS $c$UTC timestamp the event happened; database clock at insert, set explicitly only by backfill.$c$;
@@ -1130,7 +1130,7 @@ COMMENT ON COLUMN customer_dial_event.coffee_id IS $c$References coffees.id of t
 COMMENT ON COLUMN customer_dial_event.archetype_code IS $c$Archetype of the dial the event happened on, as an archetype_enum code; NULL if unknown.$c$;
 
 -- ── customer_liam_recommendation ──
-COMMENT ON TABLE customer_liam_recommendation IS $c$Purpose: Append-only fact of a coffee Liam recommended in a chat turn (marked pick or detected mention) with the candidate pool it chose from | Class: fact | Writer: customerFacts.liamRecommendation (called from liamWriteBack.recordTurn via recordRecommendation), backfill (scripts/backfillLiamRecommendations.ts) | Readers: v_customer_timeline, v_palate_evidence, v_palate_recommendation_outcome, v_customer_calibration, customerReads.getFactsWatermark | Since: 2026-09-27$c$;
+COMMENT ON TABLE customer_liam_recommendation IS $c$Purpose: Append-only fact of a coffee Liam recommended in a chat turn (marked pick or detected mention) with the candidate pool it chose from | Class: fact | Writer: customerFacts.liamRecommendation (called from liamWriteBack.recordTurn via recordRecommendation), customerFacts.liamRecommendationBackfill | Readers: v_customer_timeline, v_palate_evidence, v_palate_recommendation_outcome, v_customer_calibration, customerReads.getFactsWatermark | Since: 2026-09-27$c$;
 COMMENT ON COLUMN customer_liam_recommendation.id IS $c$Surrogate UUID primary key of this fact row.$c$;
 COMMENT ON COLUMN customer_liam_recommendation.user_id IS $c$References user_profile.id of the customer Liam was talking to; never firebase_uid or email.$c$;
 COMMENT ON COLUMN customer_liam_recommendation.occurred_at IS $c$UTC timestamp the recommendation was made; database clock at insert, set explicitly only by backfill.$c$;
@@ -1148,7 +1148,7 @@ COMMENT ON COLUMN customer_liam_recommendation.palate_read_version IS $c$Version
 COMMENT ON COLUMN customer_liam_recommendation.detected IS $c$False when Liam marked the pick explicitly, true when it was inferred from an unmarked mention in the reply (lower grade).$c$;
 
 -- ── customer_liam_question ──
-COMMENT ON TABLE customer_liam_question IS $c$Purpose: Append-only fact of a clarifying question Liam asked the customer in a chat turn (thread, palate or brew) | Class: fact | Writer: customerFacts.liamQuestion (called from liamWriteBack.recordTurn via recordQuestion) | Readers: v_customer_timeline, v_palate_evidence, v_palate_threads, customerReads.getFactsWatermark | Since: 2026-09-27$c$;
+COMMENT ON TABLE customer_liam_question IS $c$Purpose: Append-only fact of a clarifying question Liam asked the customer in a chat turn (thread, palate or brew) | Class: fact | Writer: customerFacts.liamQuestion (called from liamWriteBack.recordTurn via recordQuestion), customerFacts.liamQuestionBackfill | Readers: v_customer_timeline, v_palate_evidence, v_palate_threads, customerReads.getFactsWatermark | Since: 2026-09-27$c$;
 COMMENT ON COLUMN customer_liam_question.id IS $c$Surrogate UUID primary key of this fact row; referenced by customer_liam_reply.question_id.$c$;
 COMMENT ON COLUMN customer_liam_question.user_id IS $c$References user_profile.id of the customer Liam was talking to; never firebase_uid or email.$c$;
 COMMENT ON COLUMN customer_liam_question.occurred_at IS $c$UTC timestamp the question was asked; database clock at insert.$c$;
@@ -1164,7 +1164,7 @@ COMMENT ON COLUMN customer_liam_question.archetype_code IS $c$Archetype being ex
 COMMENT ON COLUMN customer_liam_question.question IS $c$The question text extracted from Liam's reply.$c$;
 
 -- ── customer_liam_reply ──
-COMMENT ON TABLE customer_liam_reply IS $c$Purpose: Append-only fact of the customer's answer to an open Liam question, stored as its own row so the question row is never updated | Class: fact | Writer: customerFacts.liamReply (called from liamWriteBack.recordReplyForOpenQuestion) | Readers: v_customer_timeline, v_palate_evidence, v_palate_threads, customerReads.getFactsWatermark | Since: 2026-09-27$c$;
+COMMENT ON TABLE customer_liam_reply IS $c$Purpose: Append-only fact of the customer's answer to an open Liam question, stored as its own row so the question row is never updated | Class: fact | Writer: customerFacts.liamReply (called from liamWriteBack.recordReplyForOpenQuestion), customerFacts.liamReplyBackfill | Readers: v_customer_timeline, v_palate_evidence, v_palate_threads, customerReads.getFactsWatermark | Since: 2026-09-27$c$;
 COMMENT ON COLUMN customer_liam_reply.id IS $c$Surrogate UUID primary key of this fact row.$c$;
 COMMENT ON COLUMN customer_liam_reply.user_id IS $c$References user_profile.id of the customer who replied; never firebase_uid or email.$c$;
 COMMENT ON COLUMN customer_liam_reply.occurred_at IS $c$UTC timestamp the reply was recorded as happening; database clock at insert.$c$;
@@ -1177,7 +1177,7 @@ COMMENT ON COLUMN customer_liam_reply.reply IS $c$The customer's incoming messag
 COMMENT ON COLUMN customer_liam_reply.message_id IS $c$Id of the customer's own message (Firestore message id) that answered the question.$c$;
 
 -- ── customer_liam_action ──
-COMMENT ON TABLE customer_liam_action IS $c$Purpose: Append-only fact of a customer tapping an action offered in a Liam chat (open dial, retake quiz, save recipe) | Class: fact | Writer: customerFacts.liamAction (called from sommelier.POST /:sessionId/action) | Readers: v_customer_timeline, customerReads.getFactsWatermark | Since: 2026-09-27$c$;
+COMMENT ON TABLE customer_liam_action IS $c$Purpose: Append-only fact of a customer tapping an action offered in a Liam chat (open dial, retake quiz, save recipe) | Class: fact | Writer: customerFacts.liamAction (called from sommelier.POST /:sessionId/action), customerFacts.liamActionBackfill | Readers: v_customer_timeline, customerReads.getFactsWatermark | Since: 2026-09-27$c$;
 COMMENT ON COLUMN customer_liam_action.id IS $c$Surrogate UUID primary key of this fact row.$c$;
 COMMENT ON COLUMN customer_liam_action.user_id IS $c$References user_profile.id of the customer who acted; never firebase_uid or email.$c$;
 COMMENT ON COLUMN customer_liam_action.occurred_at IS $c$UTC timestamp of the action; database clock at insert.$c$;
@@ -1190,7 +1190,7 @@ COMMENT ON COLUMN customer_liam_action.message_id IS $c$Id of the Liam message t
 COMMENT ON COLUMN customer_liam_action.action_type IS $c$Which action was tapped. One of: open_dial, retake_quiz, save_recipe.$c$;
 
 -- ── customer_bag_claim ──
-COMMENT ON TABLE customer_bag_claim IS $c$Purpose: Append-only fact of a signed-in customer scanning a coffee-token QR on a bag they own, claiming that bag | Class: fact | Writer: customerFacts.bagClaim (called from qr.GET /:token/resolve, coffee-token owner scans only) | Readers: v_customer_bag_attribution, v_customer_timeline, customerReads.getFactsWatermark | Since: 2026-09-27$c$;
+COMMENT ON TABLE customer_bag_claim IS $c$Purpose: Append-only fact of a signed-in customer scanning a coffee-token QR on a bag they own, claiming that bag | Class: fact | Writer: customerFacts.bagClaim (called from qr.GET /:token/resolve, coffee-token owner scans only), customerFacts.bagClaimBackfill | Readers: v_customer_bag_attribution, v_customer_timeline, customerReads.getFactsWatermark | Since: 2026-09-27$c$;
 COMMENT ON COLUMN customer_bag_claim.id IS $c$Surrogate UUID primary key of this fact row.$c$;
 COMMENT ON COLUMN customer_bag_claim.user_id IS $c$References user_profile.id of the customer claiming the bag; never firebase_uid or email.$c$;
 COMMENT ON COLUMN customer_bag_claim.occurred_at IS $c$UTC timestamp of the claim; database clock at insert.$c$;
@@ -1203,7 +1203,7 @@ COMMENT ON COLUMN customer_bag_claim.order_line_item_id IS $c$References order_l
 COMMENT ON COLUMN customer_bag_claim.coffee_id IS $c$References coffees.id of the coffee on the scanned bag.$c$;
 
 -- ── catalog_change ──
-COMMENT ON TABLE catalog_change IS $c$Purpose: Append-only fact of every catalog write (before and after row snapshots with actor), the only customer-less fact table | Class: fact | Writer: catalogService.logCatalogChange (called by every catalogService write verb) | Readers: customerIntegrity (check 6 and informational comparison with api_event), customerReads (reserved, no reader yet) | Since: 2026-09-27$c$;
+COMMENT ON TABLE catalog_change IS $c$Purpose: Append-only fact of every catalog write (before and after row snapshots with actor), the only customer-less fact table | Class: fact | Writer: customerFacts.catalogChange (via catalogService.logCatalogChange, every catalog write verb), customerFacts.catalogChangeBackfill | Readers: customerIntegrity (check 6 and informational comparison with api_event), customerReads (reserved, no reader yet) | Since: 2026-09-27$c$;
 COMMENT ON COLUMN catalog_change.id IS $c$Surrogate UUID primary key of this fact row.$c$;
 COMMENT ON COLUMN catalog_change.occurred_at IS $c$UTC timestamp of the catalog change; database clock at insert, set explicitly only by backfill.$c$;
 COMMENT ON COLUMN catalog_change.recorded_at IS $c$UTC timestamp the row was recorded; normally equal to occurred_at.$c$;
@@ -1223,7 +1223,7 @@ COMMENT ON COLUMN customer_order_kind.code IS $c$Primary key code. One of: manua
 COMMENT ON COLUMN customer_order_kind.label IS $c$Human-readable label for the kind, such as Manual or Subscription renewal.$c$;
 
 -- ── user_saved_item ──
-COMMENT ON TABLE user_saved_item IS $c$Purpose: A customer's current saved dial positions and Liam recipes, edited by tombstone (removed_at) rather than deletion | Class: operating | Writer: users.PATCH /dial-position (dial_slot saves), users.POST /flavor-memory/liam-saves, users.PATCH /flavor-memory/saved/:docId/remove, users.PATCH /flavor-memory/recipes/:docId/remove, backfill (scripts/migrateSavedItems.ts) | Readers: users.GET /flavor-memory, migrateSavedItems | Since: 2026-09-27$c$;
+COMMENT ON TABLE user_saved_item IS $c$Purpose: A customer's current saved dial positions and Liam recipes, edited by tombstone (removed_at) rather than deletion | Class: operating | Writer: users.PATCH /api/users/dial-position (dial_slot saves), users.POST /api/users/flavor-memory/liam-saves, users.PATCH /api/users/flavor-memory/saved/:docId/remove, users.PATCH /api/users/flavor-memory/recipes/:docId/remove; backfill:migrateSavedItems | Readers: users.GET /flavor-memory, migrateSavedItems | Since: 2026-09-27$c$;
 COMMENT ON COLUMN user_saved_item.id IS $c$Surrogate UUID primary key of the saved item.$c$;
 COMMENT ON COLUMN user_saved_item.user_id IS $c$References user_profile.id of the owner.$c$;
 COMMENT ON COLUMN user_saved_item.kind IS $c$Type of saved item. One of: dial_slot, recipe.$c$;
@@ -1234,7 +1234,7 @@ COMMENT ON COLUMN user_saved_item.created_at IS $c$UTC timestamp the item was sa
 COMMENT ON COLUMN user_saved_item.removed_at IS $c$UTC timestamp the customer removed the item; NULL while the item is still saved.$c$;
 
 -- ── sommelier_evaluation ──
-COMMENT ON TABLE sommelier_evaluation IS $c$Purpose: One row per Liam sommelier evaluation of a user (intent, 13-dim feature vector, state snapshot) plus a JSONB outcome merged in later; replaced Firestore sommelier_evaluations. | Class: operating | Writer: sommelierEvaluator.evaluateSommelier, sommelier.POST /start, outcomeTracker.writeOutcome | Readers: admin.GET /sommelier/stats, admin.POST /sommelier/recompute-centroids, outcomeTracker +2 fns | Since: 2026-09-27 (Customer Blueprint C3 Part B6)$c$;
+COMMENT ON TABLE sommelier_evaluation IS $c$Purpose: One row per Liam sommelier evaluation of a user (intent, 13-dim feature vector, state snapshot) plus a JSONB outcome merged in later; replaced Firestore sommelier_evaluations. | Class: operating | Writer: outcomeTracker.writeOutcome, sommelier.POST /api/sommelier/start, sommelierEvaluator.evaluateSommelier | Readers: admin.GET /sommelier/stats, admin.POST /sommelier/recompute-centroids, outcomeTracker +2 fns | Since: 2026-09-27 (Customer Blueprint C3 Part B6)$c$;
 COMMENT ON COLUMN sommelier_evaluation.id IS $c$Primary key (UUID); returned to the session as evaluationId and stored on the Liam session context.$c$;
 COMMENT ON COLUMN sommelier_evaluation.user_id IS $c$FK to user_profile(id) (the profile id, not the Firebase uid the evaluator receives; resolved once at insert).$c$;
 COMMENT ON COLUMN sommelier_evaluation.intent IS $c$Name of the first matched intent rule (highest-priority trigger that fired and is active in config).$c$;
@@ -1320,7 +1320,7 @@ COMMENT ON COLUMN roastery_portal_respondent.email IS $c$Respondent's email, alw
 COMMENT ON COLUMN roastery_portal_respondent.created_at IS $c$Timestamp when the respondent was first recorded.$c$;
 
 -- ── roastery_portal_coffee ──
-COMMENT ON TABLE roastery_portal_coffee IS $c$Purpose: A roastery's lineup as shown in the portal (managed in admin or added by the roaster), optionally linked to a catalog coffee, with prefill values; the catalog is never written from here. | Class: operating | Writer: roasteryPortalService.addLineupCoffee, bulkAddLineupCoffees, updateLineupCoffee, linkLineupCoffeeToCatalog, deactivateLineupCoffee, reorderLineupCoffees, acceptResponse | Readers: roasteryPortalReads, v_roastery_portal_coffee, v_roastery_portal_progress, +2 more views | Since: 2026-10-05 (Roastery portal #209)$c$;
+COMMENT ON TABLE roastery_portal_coffee IS $c$Purpose: A roastery's lineup as shown in the portal (managed in admin or added by the roaster), optionally linked to a catalog coffee, with prefill values; the catalog is never written from here. | Class: operating | Writer: roasteryPortalService.addLineupCoffee, roasteryPortalService.acceptResponse, roasteryPortalService.bulkAddLineupCoffees, roasteryPortalService.deactivateLineupCoffee, roasteryPortalService.linkLineupCoffeeToCatalog, roasteryPortalService.reorderLineupCoffees | Readers: roasteryPortalReads, v_roastery_portal_coffee, v_roastery_portal_progress, +2 more views | Since: 2026-10-05 (Roastery portal #209)$c$;
 COMMENT ON COLUMN roastery_portal_coffee.id IS $c$Primary key (UUID); referenced as portal_coffee_id by responses, acceptances and best-seller rows.$c$;
 COMMENT ON COLUMN roastery_portal_coffee.roaster_id IS $c$FK to roaster(id): the roastery that owns this lineup row.$c$;
 COMMENT ON COLUMN roastery_portal_coffee.name IS $c$Coffee name as the roastery calls it; unique case-insensitively among active rows per roastery.$c$;
@@ -1472,6 +1472,12 @@ COMMENT ON VIEW v_data_catalog IS $c$Purpose: The data dictionary as rows: every
 -- ── v_data_view_dependency ──
 COMMENT ON VIEW v_data_view_dependency IS $c$Purpose: Which tables and views each view reads, one row per pair, from pg_depend on the view's rewrite rule. | Class: view | Writer: none (derived) | Readers: dataCatalogMd (CATALOG.md reads: lines), reporting_ro | Since: data catalog brief 2 (2026-10-16)$c$;
 
+-- ── v_data_lineage_observed ──
+COMMENT ON VIEW v_data_lineage_observed IS $c$Purpose: What actually ran against each table since stats_reset, one row per table, verb and role, parsed from pg_stat_statements query text (advisory, best effort; pg_stat_statements has no application_name, so the role stands in). | Class: view | Writer: none (derived) | Readers: dataCatalogMd (CATALOG.md Lineage), admin.GET /api/admin/system-health, reporting_ro | Since: data catalog brief 3 (2026-10-16)$c$;
+
+-- ── v_data_table_activity ──
+COMMENT ON VIEW v_data_table_activity IS $c$Purpose: Per-table inserts, updates, deletes and scans since the database stats_reset (pg_stat_user_tables), with is_dead_candidate for tables nothing has touched in over 30 days. | Class: view | Writer: none (derived) | Readers: dataCatalogIntegrity (check 6), dataCatalogMd (CATALOG.md Activity), admin.GET /api/admin/system-health, reporting_ro | Since: data catalog brief 3 (2026-10-16)$c$;
+
 -- ── liam_sms_feedback ──
 COMMENT ON TABLE liam_sms_feedback IS $c$UNVERIFIED: not in schema.sql | Purpose: Original Sommelier Task 5 table for one-row-per-SMS Liam feedback messages; renamed to sommelier_sms_feedback in code (eff1d98) but this old empty table (0 rows) was never dropped. | Class: deprecated | Writer: none | Readers: none | Since: 2026-06-26 (Sommelier Task 5, commit 78c62f4)$c$;
 COMMENT ON COLUMN liam_sms_feedback.id IS $c$UNVERIFIED: not in schema.sql | Primary key (UUID); described from the Task 5 brief DDL, not from schema.sql.$c$;
@@ -1495,7 +1501,7 @@ COMMENT ON COLUMN liam_sms_feedback.firestore_feedback_doc_id IS $c$UNVERIFIED: 
 COMMENT ON COLUMN liam_sms_feedback.created_at IS $c$UNVERIFIED: not in schema.sql | UTC timestamp when the row was created.$c$;
 
 -- ── newsletter_subscriber_backup_20260925 ──
-COMMENT ON TABLE newsletter_subscriber_backup_20260925 IS $c$UNVERIFIED: not in schema.sql | Purpose: Pre-correction copy of the 8 newsletter_subscriber rows whose archetype was fixed by the quiz resync correction on 2026-09-25, kept as a never-dropped backup. | Class: snapshot | Writer: backfill (scripts/correct-subscriber-archetypes.ts) | Readers: none | Since: 2026-09-25 (quiz resync fix, WHAT_WE_BUILT.md)$c$;
+COMMENT ON TABLE newsletter_subscriber_backup_20260925 IS $c$UNVERIFIED: not in schema.sql | Purpose: Pre-correction copy of the 8 newsletter_subscriber rows whose archetype was fixed by the quiz resync correction on 2026-09-25, kept as a never-dropped backup. | Class: snapshot | Writer: backfill:correct-subscriber-archetypes | Readers: none | Since: 2026-09-25 (quiz resync fix, WHAT_WE_BUILT.md)$c$;
 COMMENT ON COLUMN newsletter_subscriber_backup_20260925.email IS $c$UNVERIFIED: not in schema.sql | Subscriber email as it was in newsletter_subscriber at backup time (that table's primary key).$c$;
 COMMENT ON COLUMN newsletter_subscriber_backup_20260925.user_id IS $c$UNVERIFIED: not in schema.sql | user_profile id linked to the subscriber at backup time; NULL if none.$c$;
 COMMENT ON COLUMN newsletter_subscriber_backup_20260925.subscribed IS $c$UNVERIFIED: not in schema.sql | Subscribed flag at backup time.$c$;

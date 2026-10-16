@@ -17,7 +17,9 @@ COPY --from=builder /app/dist ./dist
 # context by deploy.yml before `docker build`; the boot check compares its
 # catalog-hash with the live DB. The [d] glob plus package.json keeps a local
 # build that has no CATALOG.md working (the check then reports "skipped").
-COPY package.json CATALOG.m[d] ./
+# Brief 3: lineage.json, written by `npm run lint:lineage` in the deploy job
+# just before this build, ships the same way (check 5, one writer).
+COPY package.json CATALOG.m[d] lineage.jso[n] ./
 EXPOSE 4000
 ENV NODE_ENV=production
 CMD ["node", "dist/index.js"]

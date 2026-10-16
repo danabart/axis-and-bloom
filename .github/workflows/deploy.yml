@@ -118,6 +118,15 @@ jobs:
         working-directory: backend
         run: npm run lint:roastery-portal
 
+      # Data catalog brief 3 (2026-10-16) — the one-writer rule: every
+      # table's writers in code must equal the Writer set declared in
+      # backend/src/db/comments.sql, so a second, undeclared writer fails the
+      # deploy here. No database needed. Also writes backend/lineage.json,
+      # which the Docker build below ships in the image for the boot check.
+      - name: Lint lineage
+        working-directory: backend
+        run: npm run lint:lineage
+
       # Data catalog (brief 2, 2026-10-16): deliberately NO step here. Its
       # lint needs a database (comments, CATALOG.md hash), which this job
       # does not have; the boot check (dataCatalogIntegrity.ts, report only)

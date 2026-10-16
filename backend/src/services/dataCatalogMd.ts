@@ -4,7 +4,8 @@
 // only moving part is `generatedOn`; scripts/catalogMd.ts leaves an existing
 // file untouched when its catalog-hash already matches, so a regenerate with
 // no schema or comment change produces no diff.
-import type { CatalogRow, ViewDependency } from './dataCatalogQueries.js';
+import { createHash } from 'crypto';
+import type { CatalogRow, LineageJson, TableActivity, ViewDependency } from './dataCatalogQueries.js';
 import { computeCatalogHash, parseRelationComment } from './dataCatalogQueries.js';
 
 export const CATALOG_MD_FIRST_LINE =
@@ -33,9 +34,77 @@ export interface RenderInput {
   firestoreBlock: string;
   databaseName: string;
   generatedOn: string; // YYYY-MM-DD (UTC)
+  // Brief 3. lineage: lineage.json (npm run lint:lineage), or null if absent.
+  // activity: v_data_table_activity rows, only when generated from production
+  // (null otherwise: another database's activity would mislead).
+  lineage?: LineageJson | null;
+  activity?: TableActivity[] | null;
 }
 
-export function renderCatalogMd({ rows, dependencies, firestoreBlock, databaseName, generatedOn }: RenderInput): string {
+export const LINEAGE_HASH_FOOTER = /^lineage-hash: ([0-9a-f]{64})\s*$/m;
+
+const isoDate = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString().slice(0, 10) : 'unknown');
+const stem = (f: string) => f.split('/').pop()!.replace(/\.(ts|mjs|js|sql)$/, '');
+const code = (s: string) => '`' + s + '`';
+
+// What the Lineage and Activity sections show, reduced to what should
+// trigger a rewrite: static lineage (not its generated_at) and which tables
+// are dead or active (not their live counts).
+export function lineageKey(lineage: LineageJson | null | undefined, activity: TableActivity[] | null | undefined): string {
+  const key = {
+    tables: lineage?.tables ?? null,
+    probes: lineage?.probes ?? null,
+    activity: activity
+      ? { stats_reset: isoDate(activity[0]?.stats_reset), dead: activity.filter(a => a.is_dead_candidate).map(a => a.table_name).sort() }
+      : null,
+  };
+  return createHash('sha256').update(JSON.stringify(key), 'utf8').digest('hex');
+}
+
+function renderLineage(lineage: LineageJson | null | undefined, activity: TableActivity[] | null | undefined, databaseName: string): string[] {
+  const out: string[] = [];
+  out.push('## Lineage', '');
+  if (!lineage) {
+    out.push('_lineage.json not found: run `npm run lint:lineage` in backend/, then regenerate._', '');
+  } else {
+    out.push('Who writes and who reads each table, from the code (`backend/scripts/lineage-scan.mjs`, `npm run lint:lineage`). ' +
+      "**Declared** is the module set in the table's `Writer:` comment; **static writers** are the modules whose code writes it. " +
+      'CI fails a deploy when a static writer is not declared (one-writer rule, set match). Readers are informational.', '');
+    out.push('| table | declared | static writers | readers (code) | read by views |', '|---|---|---|---|---|');
+    for (const [table, t] of Object.entries(lineage.tables).sort(([a], [b]) => a.localeCompare(b))) {
+      const byMod = new Map<string, Set<string>>();
+      for (const w of t.writers) for (const v of w.verbs) (byMod.get(w.module) ?? byMod.set(w.module, new Set()).get(w.module)!).add(v);
+      const writers = [...byMod].map(([m, v]) => `${m} (${[...v].sort().join(', ')})`).join(', ') || '—';
+      const readers = [...new Set(t.readers.map(r => stem(r.file)))].sort().join(', ') || '—';
+      out.push(`| ${code(table)} | ${cell(t.declared.modules.join(', ') || 'none')} | ${cell(writers)} | ${cell(readers)} | ${cell(t.view_readers.join(', ') || '—')} |`);
+    }
+    out.push('');
+    if (lineage.probes.length) {
+      out.push('Probe markers (`// lineage: probe, not a write`), each a write the rule does not count:', '');
+      for (const p of lineage.probes) out.push(`- ${code(`${p.file}:${p.line}`)} ${p.verb} ${p.table}`);
+      out.push('');
+    }
+  }
+  out.push('## Activity', '');
+  const staticDead = lineage?.findings.dead_candidates ?? [];
+  const list = (ts: string[]) => (ts.length ? ts.map(code).join(', ') : 'none');
+  if (!activity) {
+    out.push(`_Activity is read from production only; this file was generated from ${code(databaseName)}. ` +
+      `Regenerate with ${code('npm run catalog:md -- --expect-db axisandbloom')}. Live numbers: admin System Health or ${code('v_data_table_activity')}._`, '');
+    out.push(`**Dead candidates, static (${staticDead.length}):** ${list(staticDead)}.`, '');
+    return out;
+  }
+  const dead = activity.filter(a => a.is_dead_candidate).map(a => a.table_name).sort();
+  const rest = activity.filter(a => !a.is_dead_candidate).map(a => a.table_name).sort();
+  out.push(`Since the database stats_reset (${isoDate(activity[0]?.stats_reset)}), from ${code('v_data_table_activity')}; live counts are on admin System Health. ` +
+    'A dead candidate has had no insert, update, delete or scan since a reset older than 30 days. Any full export (such as a test-database clone) scans every table and clears the list.', '');
+  out.push(`**Dead candidates, observed (${dead.length}):** ${list(dead)}.`, '');
+  out.push(`**Dead candidates, static (${staticDead.length}):** ${list(staticDead)}.`, '');
+  out.push(`**Touched since the reset (${rest.length}):** ${list(rest)}.`, '');
+  return out;
+}
+
+export function renderCatalogMd({ rows, dependencies, firestoreBlock, databaseName, generatedOn, lineage, activity }: RenderInput): string {
   const hash = computeCatalogHash(rows);
   const relations = rows.filter(r => r.object_type !== 'column');
   const tables = relations.filter(r => r.object_type === 'table');
@@ -91,6 +160,7 @@ export function renderCatalogMd({ rows, dependencies, firestoreBlock, databaseNa
   }
 
   out.push(LINEAGE_INSERTION_POINT, '');
-  out.push('---', '', `catalog-hash: ${hash}`, '');
+  out.push(...renderLineage(lineage, activity, databaseName));
+  out.push('---', '', `catalog-hash: ${hash}`, `lineage-hash: ${lineageKey(lineage, activity)}`, '');
   return out.join('\n');
 }

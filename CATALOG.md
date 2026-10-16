@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-10-16 from database `axisandbloom_test` · 115 tables · 50 views · 1035 table columns · 84 UNVERIFIED · lint: report only · catalog-hash `4779a3d7a148` (full value in the footer).
+Generated 2026-10-16 from database `axisandbloom_test` · 115 tables · 52 views · 1035 table columns · 84 UNVERIFIED · lint: report only · catalog-hash `9e1c53cc3341` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -49,7 +49,7 @@ Copied verbatim from the top of `backend/src/db/comments.sql`.
 
 The six named flavor-profile archetypes (Chocolate & Nutty, Balanced, Fruity, Earthy, Floral, Experimental) with their catalog identity and Bloom Dial config
 
-- **Writer:** seed, catalogService.setArchetypeDescriptorFamilies
+- **Writer:** catalogService.setArchetypeDescriptorFamilies; seed
 - **Readers:** v_coffee_archetype, v_archetype_vectors, v_quiz_scoring_matrix, v_customer_quiz_current, quizScorer, quizSession, catalogService, +10 more
 - **Since:** 2026-05-22 (as archetype; renamed 2026-09-16 by Catalog Blueprint brief 5b)
 
@@ -73,7 +73,7 @@ The six named flavor-profile archetypes (Chocolate & Nutty, Balanced, Fruity, Ea
 
 Match-archetype tag per coffee with confidence and history; current row has superseded_at NULL
 
-- **Writer:** catalogService.setMatchArchetypeInTx, seed (session_001_path_2026_05_27.sql)
+- **Writer:** catalogService.setMatchArchetypeInTx; seed
 - **Readers:** v_coffee, v_archetype_dimension_comparison, catalogIntegrity, dialSuggestion, +4 more
 - **Since:** 2026-05-25 (as archetype_assignments)
 
@@ -93,7 +93,7 @@ Match-archetype tag per coffee with confidence and history; current row has supe
 
 Cross-cutting coffee categories orthogonal to archetype (experimental, decaf, half_caf, flavored)
 
-- **Writer:** catalogService.createCategory, updateCategory, deleteCategory, seed (schema.sql)
+- **Writer:** catalogService.createCategory, catalogService.deleteCategory, catalogService.updateCategory; seed
 - **Readers:** v_coffee, catalogReads, roasteryPortal
 - **Since:** 2026-07-10 (#78)
 
@@ -112,7 +112,7 @@ Cross-cutting coffee categories orthogonal to archetype (experimental, decaf, ha
 
 Many-to-many join tagging coffees with cross-cutting categories (experimental, decaf, half_caf, flavored), independent of archetype or dial slot.
 
-- **Writer:** catalogService.applyCategoryCodes (via createCoffee and updateCoffee), seed (schema.sql tag backfill for 6 known coffees)
+- **Writer:** catalogService.applyCategoryCodes (via createCoffee and updateCoffee); seed
 - **Readers:** v_coffee, catalogReads.getCategoryAssignments, catalogReads.getCategoryCoffees, catalogService.deleteCategory, routes/admin
 - **Since:** 2026-07-10 (#78)
 
@@ -127,7 +127,7 @@ Many-to-many join tagging coffees with cross-cutting categories (experimental, d
 
 The 24 Bloom Dial slots (archetype x sort_order 1-4): each slot's customer-facing name, position label and optional spec band, independent of which coffee fulfils it.
 
-- **Writer:** seed (schema.sql static 24-row seed), catalogService.renameSlot, catalogService.setSlotSpec, catalogService.setLandingDefault
+- **Writer:** catalogService.renameSlot, catalogService.setSlotSpec, catalogService.setLandingDefault; seed
 - **Readers:** v_coffee_slot, v_coffee_sellable_slot, v_coffee_sellable_candidate, v_coffee_visibility, v_roastery_portal_dimension_match, catalogReads.getSlots, +3 more
 - **Since:** 2026-09-13 (#178)
 
@@ -152,7 +152,7 @@ The 24 Bloom Dial slots (archetype x sort_order 1-4): each slot's customer-facin
 
 Catalogue of the 12 cupping dimensions that scores, archetype targets and the Bloom Dial are measured on
 
-- **Writer:** seed (schema.sql, db/seeds/sensory_lexicon_attributes_wcr.sql)
+- **Writer:** seed
 - **Readers:** v_cupping_scores_readable, v_archetype_vectors, v_coffee_archetype, v_coffee_dimension_range, +8 more
 - **Since:** 2026-05-25 (as dimensions)
 
@@ -175,7 +175,7 @@ Catalogue of the 12 cupping dimensions that scores, archetype targets and the Bl
 
 Directional hop graph (more or less of a dimension) between coffees, or a coffee and a category
 
-- **Writer:** catalogService.setHop, catalogService.removeHop, seed (_retired/dial_relationships_base.sql)
+- **Writer:** catalogService.setHop, catalogService.removeHop
 - **Readers:** v_coffee_hop, catalogService, qrDoor, axis
 - **Since:** 2026-06-23 (as dial_coffee_relationships)
 
@@ -198,7 +198,7 @@ Directional hop graph (more or less of a dimension) between coffees, or a coffee
 
 Retail price in cents per coffee and bag size for category coffees with no dial slot (Decaf, Half-Caf, Flavored, Experimental); a coffee with no row renders Unpriced.
 
-- **Writer:** catalogService.setCoffeeRetailPrice, backfill (db/migrations/pricing_update_2026_07_24.sql)
+- **Writer:** catalogService.setCoffeeRetailPrice
 - **Readers:** catalogReads.getCoffeeRetailPrices, catalogReads.getSizeIntegrity, catalogIntegrity, routes/coffees (GET /api/coffees/other-categories), routes/admin (GET /api/admin/coffee-prices)
 - **Since:** 2026-07-14 (#95)
 
@@ -232,7 +232,7 @@ The list of sellable bag sizes (12 oz anchor, 2 lb, 5 lb) that every weight in S
 
 Sellable bag-size variant (SKU) of one coffee at one roaster, carrying Shopify variant, roaster SKU and wholesale cost.
 
-- **Writer:** catalogService.upsertSkuInTx, catalogService.retireCoffee, catalogService.restoreCoffee, catalogService.deactivateRoastery, catalogService.reactivateRoastery
+- **Writer:** catalogService.upsertSkuInTx, catalogService.retireCoffee, catalogService.restoreCoffee, catalogService.deactivateRoastery, catalogService.reactivateRoastery; seed
 - **Readers:** v_coffee_sellable_candidate, v_coffee_visibility, v_customer_bag_attribution, v_customer_timeline, catalogReads, blendResolver, orders, qrDoor, +6 more
 - **Since:** 2026-05-22 (as blend then roaster_blend; renamed coffee_sku 2026-09-16, Catalog Blueprint brief 5b)
 
@@ -262,7 +262,7 @@ Sellable bag-size variant (SKU) of one coffee at one roaster, carrying Shopify v
 
 Placement of a coffee in a Bloom Dial slot as home or guest, with priority, activity and certification, kept as history (inactive rows stay).
 
-- **Writer:** catalogService.placeCoffee, catalogService.addGuest, catalogService.moveCoffee, catalogService.removeFromSlot, catalogService.setPriority, catalogService.certifyPlacement, catalogService.retireCoffee, catalogService.deactivateRoastery
+- **Writer:** catalogService.placeCoffee, catalogService.addGuest, catalogService.moveCoffee, catalogService.removeFromSlot, catalogService.setPriority, catalogService.certifyPlacement, catalogService.retireCoffee, catalogService.deactivateRoastery, catalogService.certifyPlacementInTx, catalogService.placeCoffeeInTx
 - **Readers:** v_coffee_slot, v_coffee_sellable_slot, v_coffee_sellable_candidate, v_coffee_visibility, v_coffee_hop, v_palate_recommendation_outcome, +3 more
 - **Since:** 2026-09-13 (#178)
 
@@ -288,7 +288,7 @@ Placement of a coffee in a Bloom Dial slot as home or guest, with priority, acti
 
 Retail price in cents for one Bloom Dial slot at one bag size, so every roaster fulfilling a slot shows the same price; a slot with no row renders Unpriced.
 
-- **Writer:** catalogService.setSlotPrice, backfill (db/migrations/pricing_update_2026_07_24.sql, run under the old name dial_slot_price)
+- **Writer:** catalogService.setSlotPrice, catalogService.setSlotPriceInTx; seed
 - **Readers:** v_coffee_sellable_candidate, v_coffee_sellable_slot, v_coffee_visibility, catalogReads, catalogService, catalogIntegrity
 - **Since:** 2026-07-11 as dial_slot_price (#80), renamed 2026-09-16
 
@@ -304,7 +304,7 @@ Retail price in cents for one Bloom Dial slot at one bag size, so every roaster 
 
 Coffee catalogue master: one row per coffee, owned by one roaster, with metadata, lifecycle flags, QR token and cached AI and story text
 
-- **Writer:** catalogService.createCoffee, catalogService.updateCoffee, catalogService.retireCoffee, coffees.generateAndStoreAllContent, qrDoor.mintTokenForCoffee, +4 more
+- **Writer:** admin.PATCH /api/admin/coffees/:id/story, catalogService.createCoffee, catalogService.updateCoffee, catalogService.retireCoffee, catalogService.createCoffeeInTx, catalogService.deactivateRoastery, catalogService.reactivateRoastery, catalogService.restoreCoffee, catalogService.updateCoffeeInTx, coffees.generateAndStoreAllContent, coffees.generateAndStoreSummary, coffees.guardGenerated, coffees.sanitizeStoredField, qrDoor.mintTokenForCoffee; seed
 - **Readers:** v_coffee, catalogReads, coffees, sommelier, +11 more
 - **Since:** 2026-05-25
 
@@ -357,7 +357,7 @@ Lookup of order kinds (manual, subscription_renewal, gift_redemption, liam_follo
 
 Append-only fact of every catalog write (before and after row snapshots with actor), the only customer-less fact table
 
-- **Writer:** catalogService.logCatalogChange (called by every catalogService write verb)
+- **Writer:** customerFacts.catalogChange (via catalogService.logCatalogChange, every catalog write verb), customerFacts.catalogChangeBackfill
 - **Readers:** customerIntegrity (check 6 and informational comparison with api_event), customerReads (reserved, no reader yet)
 - **Since:** 2026-09-27
 
@@ -380,7 +380,7 @@ Append-only fact of every catalog write (before and after row snapshots with act
 
 Append-only fact of a signed-in customer scanning a coffee-token QR on a bag they own, claiming that bag
 
-- **Writer:** customerFacts.bagClaim (called from qr.GET /:token/resolve, coffee-token owner scans only)
+- **Writer:** customerFacts.bagClaim (called from qr.GET /:token/resolve, coffee-token owner scans only), customerFacts.bagClaimBackfill
 - **Readers:** v_customer_bag_attribution, v_customer_timeline, customerReads.getFactsWatermark
 - **Since:** 2026-09-27
 
@@ -401,7 +401,7 @@ Append-only fact of a signed-in customer scanning a coffee-token QR on a bag the
 
 Append-only log of changes to a customer's brew profile (methods, grinder, preferences), replayed in order to produce the current profile
 
-- **Writer:** customerFacts.brewProfileChange (called from users.PATCH /brew-profile, users.DELETE /brew-profile and sommelier.resolveRemember), backfill (scripts/backfillCustomerFacts.ts)
+- **Writer:** customerFacts.brewProfileChange (called from users.PATCH /brew-profile, users.DELETE /brew-profile and sommelier.resolveRemember), customerFacts.brewProfileChangeBackfill
 - **Readers:** v_customer_brew_profile, v_customer_timeline, customerReads.getFactsWatermark, customerIntegrity
 - **Since:** 2026-09-27
 
@@ -423,7 +423,7 @@ Append-only log of changes to a customer's brew profile (methods, grinder, prefe
 
 Append-only fact of a customer explicitly saving a dial position or adding a dial coffee to cart
 
-- **Writer:** customerFacts.dialEvent (called from users.PATCH /dial-position), backfill (scripts/backfillCustomerFacts.ts)
+- **Writer:** customerFacts.dialEvent (called from users.PATCH /dial-position), customerFacts.dialEventBackfill
 - **Readers:** v_customer_timeline, customerReads.getRecentDialActivity, customerReads.getFactsWatermark
 - **Since:** 2026-09-27
 
@@ -445,7 +445,7 @@ Append-only fact of a customer explicitly saving a dial position or adding a dia
 
 Append-only fact linking a feedback event to each tasted flavor note (cupping_note) the customer picked
 
-- **Writer:** customerFacts.feedbackDescriptor (called from orders.POST /:orderId/feedback), backfill (scripts/backfillCustomerFacts.ts)
+- **Writer:** customerFacts.feedbackDescriptor (called from orders.POST /:orderId/feedback), customerFacts.feedbackDescriptorBackfill
 - **Readers:** v_customer_feedback_current, v_collaborative_flavor_wheel
 - **Since:** 2026-09-27
 
@@ -464,7 +464,7 @@ Append-only fact linking a feedback event to each tasted flavor note (cupping_no
 
 Append-only fact of a customer rating and expectation feedback on a coffee they received, revised by new rows that supersede old ones
 
-- **Writer:** customerFacts.feedback (called from orders.POST /:orderId/feedback and liamSmsFeedback.parseInboundReply), backfill (scripts/backfillCustomerFacts.ts)
+- **Writer:** customerFacts.feedback (called from orders.POST /:orderId/feedback and liamSmsFeedback.parseInboundReply), customerFacts.feedbackBackfill
 - **Readers:** v_customer_feedback_current, v_customer_timeline, v_collaborative_flavor_wheel, customerReads.latestFeedbackEventForOrder, customerReads.getFactsWatermark
 - **Since:** 2026-09-27
 
@@ -489,7 +489,7 @@ Append-only fact of a customer rating and expectation feedback on a coffee they 
 
 Append-only fact linking an older or guest user profile to the surviving profile it merged into, walked at read time to find a customer's canonical id
 
-- **Writer:** customerFacts.identityLink (called from auth.POST /sync), backfill (scripts/backfillClaimedSessionLinks.ts)
+- **Writer:** customerFacts.identityLink (called from auth.POST /sync), customerFacts.identityLinkBackfill
 - **Readers:** v_customer_identity, v_customer_timeline, customerReads.getFactsWatermark, customerIntegrity
 - **Since:** 2026-09-27
 
@@ -510,7 +510,7 @@ Append-only fact linking an older or guest user profile to the surviving profile
 
 Append-only fact of a customer tapping an action offered in a Liam chat (open dial, retake quiz, save recipe)
 
-- **Writer:** customerFacts.liamAction (called from sommelier.POST /:sessionId/action)
+- **Writer:** customerFacts.liamAction (called from sommelier.POST /:sessionId/action), customerFacts.liamActionBackfill
 - **Readers:** v_customer_timeline, customerReads.getFactsWatermark
 - **Since:** 2026-09-27
 
@@ -531,7 +531,7 @@ Append-only fact of a customer tapping an action offered in a Liam chat (open di
 
 Append-only fact of a clarifying question Liam asked the customer in a chat turn (thread, palate or brew)
 
-- **Writer:** customerFacts.liamQuestion (called from liamWriteBack.recordTurn via recordQuestion)
+- **Writer:** customerFacts.liamQuestion (called from liamWriteBack.recordTurn via recordQuestion), customerFacts.liamQuestionBackfill
 - **Readers:** v_customer_timeline, v_palate_evidence, v_palate_threads, customerReads.getFactsWatermark
 - **Since:** 2026-09-27
 
@@ -555,7 +555,7 @@ Append-only fact of a clarifying question Liam asked the customer in a chat turn
 
 Append-only fact of a coffee Liam recommended in a chat turn (marked pick or detected mention) with the candidate pool it chose from
 
-- **Writer:** customerFacts.liamRecommendation (called from liamWriteBack.recordTurn via recordRecommendation), backfill (scripts/backfillLiamRecommendations.ts)
+- **Writer:** customerFacts.liamRecommendation (called from liamWriteBack.recordTurn via recordRecommendation), customerFacts.liamRecommendationBackfill
 - **Readers:** v_customer_timeline, v_palate_evidence, v_palate_recommendation_outcome, v_customer_calibration, customerReads.getFactsWatermark
 - **Since:** 2026-09-27
 
@@ -581,7 +581,7 @@ Append-only fact of a coffee Liam recommended in a chat turn (marked pick or det
 
 Append-only fact of the customer's answer to an open Liam question, stored as its own row so the question row is never updated
 
-- **Writer:** customerFacts.liamReply (called from liamWriteBack.recordReplyForOpenQuestion)
+- **Writer:** customerFacts.liamReply (called from liamWriteBack.recordReplyForOpenQuestion), customerFacts.liamReplyBackfill
 - **Readers:** v_customer_timeline, v_palate_evidence, v_palate_threads, customerReads.getFactsWatermark
 - **Since:** 2026-09-27
 
@@ -634,7 +634,7 @@ One checkout order placed through the site and mirrored to Shopify, with a shipp
 
 One purchased SKU line of an order, with price paid and who it is for (immutable fact).
 
-- **Writer:** orders.POST /api/orders
+- **Writer:** orders.POST /api/orders; seed
 - **Readers:** v_customer_bag_attribution, v_customer_timeline, v_palate_evidence, v_palate_recommendation_outcome, orders, qrDoor, users, customerReads, +5 more
 - **Since:** 2026-05-22
 
@@ -707,7 +707,7 @@ SCD Type 2 interpretation of each quiz session per interpretation version; one i
 
 Saved shipping and billing addresses per user
 
-- **Writer:** users.POST /addresses, users.PATCH /addresses/:id/default, users.DELETE /addresses/:id
+- **Writer:** users.POST /api/users/addresses, users.PATCH /api/users/addresses/:id/default, users.DELETE /api/users/addresses/:id
 - **Readers:** users (+ order.shipping_address_id FK)
 - **Since:** 2026-05-22
 
@@ -729,7 +729,7 @@ Saved shipping and billing addresses per user
 
 Append-only capture-first log of every mutating API request (redacted body, status, duration), also carrying client-side errors from POST /api/client-errors
 
-- **Writer:** apiEventLog.apiEventLog (INSERT before the handler, UPDATE at response finish)
+- **Writer:** apiEventLog.apiEventLog (INSERT before the handler, UPDATE at response finish), apiEventLog.writeOutcome
 - **Readers:** admin GET /system-health, catalogReads.getChanges, quizIntegrity, customerIntegrity, scripts/audit-quiz-emails.mjs
 - **Since:** 2026-08-13
 
@@ -770,7 +770,7 @@ Reserved for dials a user can adjust within an archetype (min and max offset per
 
 Target score range per archetype per flavor dimension (ideal, min, max)
 
-- **Writer:** seed (db/seeds/archetype_vectors.sql, run manually)
+- **Writer:** seed
 - **Readers:** v_archetype_vectors, v_archetype_dimension_comparison
 - **Since:** 2026-05-22
 
@@ -787,7 +787,7 @@ Target score range per archetype per flavor dimension (ideal, min, max)
 
 Dispatch and response ledger of Liam beats (order_placed, arrival_note, dial_in), one row per user, order and beat type
 
-- **Writer:** beatEngine.dispatchOrderPlacedBeat, beatEngine.dispatchDelayedBeats, beatEngine.respondToDialInBeat, cron.processDueDialInBeats, backfill (scripts/backfill-beat-respond-tokens.ts)
+- **Writer:** beatEngine.dispatchOrderPlacedBeat, beatEngine.dispatchDelayedBeats, beatEngine.respondToDialInBeat, cron.processDueDialInBeats; backfill:backfill-beat-respond-tokens
 - **Readers:** beatEngine, cron, beats, engagementMetrics
 - **Since:** 2026-08-02 (HOME_TASK_8)
 
@@ -811,7 +811,7 @@ Dispatch and response ledger of Liam beats (order_placed, arrival_note, dial_in)
 
 Coarse log of each render of a brew card in the Flavor Memory section, feeding the per-bag engagement rate
 
-- **Writer:** users.GET /flavor-memory (fire-and-forget insert)
+- **Writer:** users.GET /api/users/flavor-memory (fire-and-forget insert)
 - **Readers:** engagementMetrics
 - **Since:** 2026-08-04 (HOME_TASK_9)
 
@@ -846,7 +846,7 @@ One row per campaign landing-page scan, minting the anonymous visitor key that j
 
 Atomic per-UTC-day, per-feature running total of Anthropic API spend that drives the global and per-feature Claude kill-switch caps
 
-- **Writer:** anthropicGuard.recordSpendMicros (via guardClaudeCall)
+- **Writer:** anthropicGuard.recordSpendMicros (via guardClaudeCall); seed
 - **Readers:** anthropicGuard.getTodaySpend, admin GET /api/admin/ai-ops
 - **Since:** 2026-08-08
 
@@ -879,7 +879,7 @@ Stable employer identity so repeat company_gift purchases can be recognized as t
 
 One purchased company gift batch (a sponsored few-month coffee perk for employees), a purchase event rather than a company profile.
 
-- **Writer:** companyGiftsAdmin.POST /api/admin/company-gifts, companyGiftsAdmin.POST /:id/confirm-payment, companyGiftsAdmin.PATCH /:id/email-template
+- **Writer:** companyGiftsAdmin.POST /api/admin/company-gifts, companyGiftsAdmin.POST /api/admin/company-gifts/:id/confirm-payment, companyGiftsAdmin.PATCH /api/admin/company-gifts/:id/email-template
 - **Readers:** companyGiftRedemption, companyGiftsAdmin, cron (expire-company-gift-codes)
 - **Since:** 2026-07-12
 
@@ -904,7 +904,7 @@ One purchased company gift batch (a sponsored few-month coffee perk for employee
 
 One redeemable code per seat of a company gift batch, tracking whether it is unredeemed, redeemed or expired.
 
-- **Writer:** companyGiftsAdmin.POST /api/admin/company-gifts, companyGiftRedemption.POST /:code/redeem, cron.GET /expire-company-gift-codes
+- **Writer:** companyGiftRedemption.POST /api/company-gift-redemption/:code/redeem, companyGiftsAdmin.POST /api/admin/company-gifts, cron.GET /api/cron/expire-company-gift-codes
 - **Readers:** companyGiftRedemption, companyGiftsAdmin, cron
 - **Since:** 2026-07-12
 
@@ -924,7 +924,7 @@ One redeemable code per seat of a company gift batch, tracking whether it is unr
 
 Intended per-session-coffee brew parameters (dose, water, yield, temperature, grind, time, pressure, device)
 
-- **Writer:** none found
+- **Writer:** none
 - **Readers:** none
 - **Since:** 2026-05-25 (as brew_params)
 
@@ -970,7 +970,7 @@ The 84-descriptor SCA Coffee Taster's Flavor Wheel vocabulary used to tag coffee
 
 Reserved mapping from a cupping descriptor to a dimension and direction (for example Citrus raises Acidity), deliberately empty until enough cupping volume exists to validate a mapping.
 
-- **Writer:** none (never written, empty by design)
+- **Writer:** none
 - **Readers:** none
 - **Since:** 2026-07-09 (#75)
 
@@ -986,7 +986,7 @@ Reserved mapping from a cupping descriptor to a dimension and direction (for exa
 
 Flavor-wheel descriptors a taster selected for a score row, with optional intensity or custom wording
 
-- **Writer:** admin.POST /scores (delete and re-insert), seed (db/seeds/internal_descriptors_session_001.sql)
+- **Writer:** admin.POST /api/admin/scores (delete and re-insert); seed
 - **Readers:** v_collaborative_flavor_wheel, admin
 - **Since:** 2026-05-27
 
@@ -1002,7 +1002,7 @@ Flavor-wheel descriptors a taster selected for a score row, with optional intens
 
 One normalised score per cupping_scores row and dimension, as a numeric range or free-text note
 
-- **Writer:** admin.POST /scores (upsert)
+- **Writer:** admin.POST /api/admin/scores (upsert)
 - **Readers:** v_cupping_scores_readable, v_coffee_dimension_range, brewCard, dialSuggestion, +3 more
 - **Since:** 2026-05-25
 
@@ -1019,7 +1019,7 @@ One normalised score per cupping_scores row and dimension, as a numeric range or
 
 Score header per cupped coffee and taster, plus a merged row combining all tasters; values live in cupping_score_values
 
-- **Writer:** admin.POST /scores, seed (session_001_path_2026_05_27.sql)
+- **Writer:** admin.POST /api/admin/scores, admin.DELETE /api/admin/scores/:scoreId; seed
 - **Readers:** v_cupping_scores_readable, v_coffee_dimension_range, brewCard, dialSuggestion, +5 more
 - **Since:** 2026-05-25
 
@@ -1036,7 +1036,7 @@ Score header per cupped coffee and taster, plus a merged row combining all taste
 
 Junction listing which coffees were cupped in a session and in what order
 
-- **Writer:** admin.POST /sessions/:id/coffees, seed (session_001_path_2026_05_27.sql)
+- **Writer:** admin.POST /api/admin/sessions/:id/coffees, admin.DELETE /api/admin/sessions/:sessionId/coffees/:scId; seed
 - **Readers:** v_cupping_scores_readable, v_coffee_dimension_range, brewCard, dialSuggestion, +4 more
 - **Since:** 2026-05-25 (as session_coffees)
 
@@ -1051,7 +1051,7 @@ Junction listing which coffees were cupped in a session and in what order
 
 Header row for one internal cupping session (date, brew method, place, notes)
 
-- **Writer:** admin.POST /sessions, seed (db/seeds/session_001_path_2026_05_27.sql)
+- **Writer:** admin.POST /api/admin/sessions, admin.DELETE /api/admin/sessions/:id; seed
 - **Readers:** v_cupping_scores_readable, admin.GET /sessions, coffees
 - **Since:** 2026-05-25
 
@@ -1068,7 +1068,7 @@ Header row for one internal cupping session (date, brew method, place, notes)
 
 One row per source's opinion about where a coffee sits on its dial (cupping, roastery_wheel, client_wheel, sms_feedback, onsite_feedback), read only by the dormant consensus view and an admin stats count; never auto-moves a placement.
 
-- **Writer:** dialSuggestion.recordCuppingSignal, dialPositionSignal.writeDialPositionSignal, orders.POST /:orderId/feedback (supersede only)
+- **Writer:** dialPositionSignal.writeDialPositionSignal, dialSuggestion.recordCuppingSignal, orders.POST /api/orders/:orderId/feedback (supersede only); seed
 - **Readers:** v_coffee_dial_position_consensus, axis (GET /stats)
 - **Since:** 2026-07-09 (#75)
 
@@ -1092,7 +1092,7 @@ One row per source's opinion about where a coffee sits on its dial (cupping, roa
 
 Reliability weight per dial_position_signal source, used to weight signals in the consensus view (cupping 3, sms_feedback and onsite_feedback 1, roastery_wheel and client_wheel 0).
 
-- **Writer:** seed (schema.sql INSERT ... ON CONFLICT DO NOTHING)
+- **Writer:** seed
 - **Readers:** v_coffee_dial_position_consensus
 - **Since:** 2026-07-09 (#75)
 
@@ -1105,7 +1105,7 @@ Reliability weight per dial_position_signal source, used to weight signals in th
 
 A Family Bundle household grouping several user profiles under one shared account
 
-- **Writer:** household.POST /create, household.DELETE /leave
+- **Writer:** household.POST /api/household/create, household.DELETE /api/household/leave
 - **Readers:** household
 - **Since:** 2026-05-22
 
@@ -1121,7 +1121,7 @@ A Family Bundle household grouping several user profiles under one shared accoun
 
 Token-based invitations to join a household, valid 7 days
 
-- **Writer:** household.POST /invite, household.POST /join/:token, household.DELETE /invitations/:invitationId
+- **Writer:** household.POST /api/household/invite, household.POST /api/household/join/:token, household.DELETE /api/household/invitations/:invitationId
 - **Readers:** household
 - **Since:** 2026-06-08
 
@@ -1140,7 +1140,7 @@ Token-based invitations to join a household, valid 7 days
 
 Controlled vocabulary for admin dropdowns and coded fields, one row per (category, value) with a display label and order.
 
-- **Writer:** seed (schema.sql INSERTs), admin.POST /api/admin/lookups, admin.PATCH /api/admin/lookups/:id, admin.DELETE /api/admin/lookups/:id
+- **Writer:** admin.POST /api/admin/lookups, admin.PATCH /api/admin/lookups/:id, admin.DELETE /api/admin/lookups/:id; seed
 - **Readers:** admin.GET /api/admin/lookups, routes/coffees (origin region), catalogService.updateCoffee, roasteryPortalReads, coffees.origin_region_id FK
 - **Since:** 2026-05-27
 
@@ -1156,7 +1156,7 @@ Controlled vocabulary for admin dropdowns and coded fields, one row per (categor
 
 Admin-editable key/value store for the Looker Studio, Mailchimp audience and ad-spend sheet URLs shown on the admin Marketing cards
 
-- **Writer:** seed, reportingConfig.setMarketingConfigValue
+- **Writer:** reportingConfig.setMarketingConfigValue; seed
 - **Readers:** reportingConfig.getMarketingConfig (admin GET /api/admin/marketing/config)
 - **Since:** 2026-07-21
 
@@ -1170,7 +1170,7 @@ Admin-editable key/value store for the Looker Studio, Mailchimp audience and ad-
 
 One row per marketing email address: consent state, signup source, quiz result and campaign attribution
 
-- **Writer:** newsletter.handleSubscribe, unsubscribe.unsubscribeByToken, unsubscribe.unsubscribeByEmail, backfill (src/scripts/backfillUnsubscribeTokens.ts)
+- **Writer:** newsletter.handleSubscribe, unsubscribe.unsubscribeByToken, unsubscribe.unsubscribeByEmail, unsubscribe.flip; seed; backfill:backfillUnsubscribeTokens; backfill:correct-subscriber-archetypes
 - **Readers:** v_newsletter_subscribers, v_subscriber_quiz_results, campaign_funnel_v, v_customer_calibration, newsletter, +9 more
 - **Since:** 2026-05-22
 
@@ -1272,7 +1272,7 @@ One row per quiz version, main or branch; branch quizzes link to a triggering ar
 
 Versioned (SCD Type 2) answer options for each quiz question, with the archetype each maps to.
 
-- **Writer:** seed (schema.sql V7 seed via quiz_assert_answer and quiz_retire_answer)
+- **Writer:** seed
 - **Readers:** routes/quiz, quizScorer, quizIntegrity, v_quiz_scoring_matrix, v_customer_quiz_current, v_subscriber_quiz_results, +1 more
 - **Since:** 2026-05-22 (as answer; SCD2 versioning 2026-10-09, Prompt 4A)
 
@@ -1296,7 +1296,7 @@ Versioned (SCD Type 2) answer options for each quiz question, with the archetype
 
 Scoring matrix, points each answer version awards to an archetype (insert-only, a different score means a new answer version).
 
-- **Writer:** seed (schema.sql V7 seed via quiz_assert_answer_score and quiz_answer_new_version)
+- **Writer:** seed
 - **Readers:** quizScorer, quizIntegrity, v_quiz_scoring_matrix
 - **Since:** 2026-05-25 (as answer_archetype_score)
 
@@ -1330,7 +1330,7 @@ First-party log of quiz funnel steps (start, complete, email submitted, final), 
 
 Versioned (SCD Type 2) questions of each quiz, one row per question version.
 
-- **Writer:** seed (schema.sql V7 seed via quiz_assert_question)
+- **Writer:** seed
 - **Readers:** routes/quiz, quizScorer, quizIntegrity, v_quiz_scoring_matrix, quiz_answer joins
 - **Since:** 2026-05-22 (as question; SCD2 versioning 2026-10-09, Prompt 4A)
 
@@ -1364,7 +1364,7 @@ Lookup that classifies a quiz row as the main quiz or a branch (reclassification
 
 Per-dimension scores computed for a quiz session.
 
-- **Writer:** none found
+- **Writer:** none
 - **Readers:** none found
 - **Since:** 2026-05-22
 
@@ -1380,7 +1380,7 @@ Per-dimension scores computed for a quiz session.
 
 Drop-ship roastery partners that supply the coffees, with contact details and an active or deactivated state
 
-- **Writer:** admin.POST /roasters, admin.PATCH /roasters/:id, catalogService.deactivateRoastery, catalogService.reactivateRoastery
+- **Writer:** admin.POST /api/admin/roasters, admin.PATCH /api/admin/roasters/:id, catalogService.deactivateRoastery, catalogService.reactivateRoastery
 - **Readers:** v_coffee, v_cupping_scores_readable, admin, coffees, catalogService, catalogImport, roasteryPortalReads, +1 more
 - **Since:** 2026-05-22
 
@@ -1408,7 +1408,7 @@ Drop-ship roastery partners that supply the coffees, with contact details and an
 
 Score of each SKU on each flavor dimension.
 
-- **Writer:** none found
+- **Writer:** none
 - **Readers:** none found
 - **Since:** 2026-05-22 (as blend_vector)
 
@@ -1422,7 +1422,7 @@ Score of each SKU on each flavor dimension.
 
 Roaster bag tasting notes mapped to flavor-wheel terms, one row per coffee and term, retired not deleted
 
-- **Writer:** catalogService.setRoasterDescriptorsInTx, seed (roastery_descriptors_path_tcr.sql)
+- **Writer:** catalogService.setRoasterDescriptorsInTx; seed
 - **Readers:** v_collaborative_flavor_wheel, roasteryPortalReads, admin.GET /stats
 - **Since:** 2026-05-27 (as coffee_roastery_descriptors)
 
@@ -1461,7 +1461,7 @@ Insert-only log of every time an admin accepted a submitted roaster response int
 
 A roastery's lineup as shown in the portal (managed in admin or added by the roaster), optionally linked to a catalog coffee, with prefill values; the catalog is never written from here.
 
-- **Writer:** roasteryPortalService.addLineupCoffee, bulkAddLineupCoffees, updateLineupCoffee, linkLineupCoffeeToCatalog, deactivateLineupCoffee, reorderLineupCoffees, acceptResponse
+- **Writer:** roasteryPortalService.addLineupCoffee, roasteryPortalService.acceptResponse, roasteryPortalService.bulkAddLineupCoffees, roasteryPortalService.deactivateLineupCoffee, roasteryPortalService.linkLineupCoffeeToCatalog, roasteryPortalService.reorderLineupCoffees
 - **Readers:** roasteryPortalReads, v_roastery_portal_coffee, v_roastery_portal_progress, +2 more views
 - **Since:** 2026-10-05 (Roastery portal #209)
 
@@ -1684,7 +1684,7 @@ A response's ranked tasting notes: the roaster's own words plus the optional clo
 
 Tracking and postage details of a roastery shipment for an order.
 
-- **Writer:** none found
+- **Writer:** none
 - **Readers:** none found
 - **Since:** 2026-05-22 (as shipment)
 
@@ -1706,7 +1706,7 @@ Tracking and postage details of a roastery shipment for an order.
 
 Full WCR Sensory Lexicon 2.0 reference set (113 rows) kept apart from the active cupping_note wheel, with provenance links
 
-- **Writer:** seed (db/seeds/sensory_lexicon_attributes_wcr.sql, run manually)
+- **Writer:** seed
 - **Readers:** none (FK target of coffee_dimensions.sensory_lexicon_attribute_id)
 - **Since:** 2026-07-13
 
@@ -1745,7 +1745,7 @@ Registry of the sensory standards the vocabulary and scales come from (WCR Lexic
 
 One row per Liam sommelier evaluation of a user (intent, 13-dim feature vector, state snapshot) plus a JSONB outcome merged in later; replaced Firestore sommelier_evaluations.
 
-- **Writer:** sommelierEvaluator.evaluateSommelier, sommelier.POST /start, outcomeTracker.writeOutcome
+- **Writer:** outcomeTracker.writeOutcome, sommelier.POST /api/sommelier/start, sommelierEvaluator.evaluateSommelier
 - **Readers:** admin.GET /sommelier/stats, admin.POST /sommelier/recompute-centroids, outcomeTracker +2 fns
 - **Since:** 2026-09-27 (Customer Blueprint C3 Part B6)
 
@@ -1790,7 +1790,7 @@ One row per Liam (sommelier) chat session; messages live in Firestore.
 
 One row per SMS message (outbound and inbound) of the post-delivery and dial-in beat feedback loop, with scheduling and parsed reply.
 
-- **Writer:** cron.GET /api/cron/beat-dial-in-send, cron.POST /api/webhooks/sms/inbound, liamSmsFeedback.processPendingMessages, liamSmsFeedback.parseInboundReply
+- **Writer:** cron.GET /api/cron/beat-dial-in-send, cron.POST /api/webhooks/sms/inbound, cron.processDueDialInBeats, liamSmsFeedback.processPendingMessages, liamSmsFeedback.parseInboundReply, liamSmsFeedback.schedulePostDeliveryMessage
 - **Readers:** liamSmsFeedback, cron
 - **Since:** 2026-06-26
 
@@ -1822,7 +1822,7 @@ One row per SMS message (outbound and inbound) of the post-delivery and dial-in 
 
 Reference list of where a newsletter signup came from (pre_launch, newsletter, post_quiz, footer)
 
-- **Writer:** seed (schema.sql INSERT ON CONFLICT)
+- **Writer:** seed
 - **Readers:** newsletter, admin, v_newsletter_subscribers, v_subscribers_weekly, v_subscriber_quiz_results, +1 more
 - **Since:** 2026-06-01
 
@@ -1857,7 +1857,7 @@ Recurring-delivery subscription of a user; in current code only company-sponsore
 
 Append-only audit log of every token earn, spend and usage-log event
 
-- **Writer:** auth.POST /sync, orders.POST /, tokenService.spendToken, tokenService.logUsage, tokenService.grantTokens, SQL fn grant_tokens
+- **Writer:** auth.POST /api/auth/sync, orders.POST /api/orders, tokenService.spendToken, tokenService.logUsage, tokenService.grantTokens; manual:grant_tokens
 - **Readers:** sommelierGuards, admin, sommelier
 - **Since:** 2026-06-23
 
@@ -1908,7 +1908,7 @@ Reserved for a user's personal offset per archetype dimension, held for a future
 
 Current dial setting per user+archetype, overwritten in place on every dial turn (silent, no history); movement history (explicit saves and add-to-cart positions only) lives in Postgres customer_dial_event (the old Firestore users/{uid}/dial_events store is retired).
 
-- **Writer:** users.PATCH /api/users/dial-position
+- **Writer:** users.PATCH /api/users/dial-position; seed
 - **Readers:** users.GET /api/users/dial-position, sommelier (recent dial position), catalogIntegrity (check 12), catalogService.previewPlacement
 - **Since:** 2026-07-11 (#83, renamed #102)
 
@@ -1948,7 +1948,7 @@ One durable brew recipe card per customer, coffee and brew method that sharpens 
 
 Ranked coffee-archetype matches per user, one row per rank.
 
-- **Writer:** none found
+- **Writer:** none
 - **Readers:** none found
 - **Since:** 2026-05-22
 
@@ -1966,7 +1966,7 @@ Ranked coffee-archetype matches per user, one row per rank.
 
 Email addresses attached to a user profile, one flagged primary
 
-- **Writer:** auth.POST /sync, users.GET /profile
+- **Writer:** auth.POST /api/auth/sync, users.GET /api/users/profile
 - **Readers:** users, household, cron, admin, roasteryPortalReads, staleGuestCleanup, SQL fns grant_admin, revoke_admin, list_admins
 - **Since:** 2026-05-22
 
@@ -2000,7 +2000,7 @@ Append-only history of lifecycle stage changes per user, for funnels and cohorts
 
 Lookup of business/marketing lifecycle stages a user can be in (flat classification, no enforced sequence).
 
-- **Writer:** seed (schema.sql INSERT and UPDATE)
+- **Writer:** seed
 - **Readers:** userLifecycle.refreshLifecycleState, users.GET /api/users/homepage-state
 - **Since:** 2026-07-07
 
@@ -2057,7 +2057,7 @@ Intended store of per-user payment accounts
 
 Phone numbers for a user with SMS consent flags for post-delivery feedback and beat messages
 
-- **Writer:** users.PATCH /profile
+- **Writer:** users.PATCH /api/users/profile
 - **Readers:** users, cron, beatEngine, liamSmsFeedback
 - **Since:** 2026-05-22
 
@@ -2079,7 +2079,7 @@ Phone numbers for a user with SMS consent flags for post-delivery feedback and b
 
 Core customer record keyed to a Firebase uid (real or anonymous guest), holding name, household, role and consent flags
 
-- **Writer:** auth.POST /sync, users.GET /profile, quiz.POST /results, users.PATCH /profile, household routes, admin.POST /grant-admin, companyGiftRedemption
+- **Writer:** admin.POST /api/admin/grant-admin, admin.DELETE /api/admin/revoke-admin, auth.POST /api/auth/sync, companyGiftRedemption.POST /api/company-gift-redemption/:code/redeem, household.DELETE /api/household/leave, household.DELETE /api/household/members/:userId, household.POST /api/household/create, household.POST /api/household/join/:token, quiz.POST /api/quiz/results, staleGuestCleanup.purgeStaleAnonymousGuests, users.GET /api/users/profile, users.PATCH /api/users/profile; seed
 - **Readers:** v_customer_identity, v_customer_bag_attribution, middleware/auth, users, household, orders, cron, sommelier, +N more
 - **Since:** 2026-05-22
 
@@ -2105,7 +2105,7 @@ Core customer record keyed to a Firebase uid (real or anonymous guest), holding 
 
 Links a user account to the roastery they work at.
 
-- **Writer:** none found
+- **Writer:** none
 - **Readers:** none found
 - **Since:** 2026-05-22
 
@@ -2120,7 +2120,7 @@ Links a user account to the roastery they work at.
 
 A customer's current saved dial positions and Liam recipes, edited by tombstone (removed_at) rather than deletion
 
-- **Writer:** users.PATCH /dial-position (dial_slot saves), users.POST /flavor-memory/liam-saves, users.PATCH /flavor-memory/saved/:docId/remove, users.PATCH /flavor-memory/recipes/:docId/remove, backfill (scripts/migrateSavedItems.ts)
+- **Writer:** users.PATCH /api/users/dial-position (dial_slot saves), users.POST /api/users/flavor-memory/liam-saves, users.PATCH /api/users/flavor-memory/saved/:docId/remove, users.PATCH /api/users/flavor-memory/recipes/:docId/remove; backfill:migrateSavedItems
 - **Readers:** users.GET /flavor-memory, migrateSavedItems
 - **Since:** 2026-09-27
 
@@ -2139,7 +2139,7 @@ A customer's current saved dial positions and Liam recipes, edited by tombstone 
 
 Per-user Liam token balance and lifetime totals; source of truth for token balance
 
-- **Writer:** auth.POST /sync, orders.POST /, tokenService.spendToken, tokenService.grantTokens, SQL fn grant_tokens
+- **Writer:** auth.POST /api/auth/sync, orders.POST /api/orders, tokenService.spendToken, tokenService.grantTokens; manual:grant_tokens
 - **Readers:** tokens, users, orders, tokenService, admin
 - **Since:** 2026-06-23
 
@@ -2193,7 +2193,7 @@ Per-user position in flavor-dimension space, declared and behavioral
 
 Pre-correction copy of the 8 newsletter_subscriber rows whose archetype was fixed by the quiz resync correction on 2026-09-25, kept as a never-dropped backup.
 
-- **Writer:** backfill (scripts/correct-subscriber-archetypes.ts)
+- **Writer:** backfill:correct-subscriber-archetypes
 - **Readers:** none
 - **Since:** 2026-09-25 (quiz resync fix, WHAT_WE_BUILT.md)
 
@@ -2218,7 +2218,7 @@ Pre-correction copy of the 8 newsletter_subscriber rows whose archetype was fixe
 
 Frozen copy of the quiz table taken at the first boot with SCD Type 2 quiz content, kept as a rollback reference and never written again.
 
-- **Writer:** backfill (schema.sql Part A CREATE TABLE IF NOT EXISTS AS TABLE, one-time, Prompt 4A)
+- **Writer:** seed
 - **Readers:** quizIntegrity (check 17)
 - **Since:** 2026-10-09 (#218, content as of 2026-10-08)
 
@@ -2237,7 +2237,7 @@ Frozen copy of the quiz table taken at the first boot with SCD Type 2 quiz conte
 
 Frozen copy of the quiz_answer table taken before SCD Type 2 versioning, preserving the production-minted answer ids, never written again.
 
-- **Writer:** backfill (schema.sql Part A CREATE TABLE IF NOT EXISTS AS TABLE, one-time, Prompt 4A)
+- **Writer:** seed
 - **Readers:** quizIntegrity (check 17)
 - **Since:** 2026-10-09 (#218, content as of 2026-10-08)
 
@@ -2257,7 +2257,7 @@ Frozen copy of the quiz_answer table taken before SCD Type 2 versioning, preserv
 
 Frozen copy of the quiz_answer_archetype_score table taken before SCD Type 2 versioning, never written again.
 
-- **Writer:** backfill (schema.sql Part A CREATE TABLE IF NOT EXISTS AS TABLE, one-time, Prompt 4A)
+- **Writer:** seed
 - **Readers:** quizIntegrity (check 17)
 - **Since:** 2026-10-09 (#218, content as of 2026-10-08)
 
@@ -2273,7 +2273,7 @@ Frozen copy of the quiz_answer_archetype_score table taken before SCD Type 2 ver
 
 Frozen copy of the quiz_question table taken before SCD Type 2 versioning, kept as a rollback reference and never written again.
 
-- **Writer:** backfill (schema.sql Part A CREATE TABLE IF NOT EXISTS AS TABLE, one-time, Prompt 4A)
+- **Writer:** seed
 - **Readers:** quizIntegrity (check 17)
 - **Since:** 2026-10-09 (#218, content as of 2026-10-08)
 
@@ -2341,7 +2341,7 @@ Original Sommelier Task 5 table for one-row-per-SMS Liam feedback messages; rena
 
 Legacy pre-Firestore transcript of Liam chat turns, read only as a fallback for sessions created before 2026-06-27
 
-- **Writer:** none (no INSERT remains in code)
+- **Writer:** none
 - **Readers:** sommelier.GET /:sessionId/messages (fallback), customerIntegrity
 - **Since:** 2026-06-23 (Liam v1)
 
@@ -2358,7 +2358,7 @@ Legacy pre-Firestore transcript of Liam chat turns, read only as a fallback for 
 
 Retired post-delivery customer feedback per flavor descriptor, replaced by customer_feedback_descriptor
 
-- **Writer:** none (orders feedback route stopped writing in Customer Blueprint C3, 2026-09-27)
+- **Writer:** none
 - **Readers:** users.GET /flavor-memory (count), admin.GET /stats, axis, backfillCustomerFacts
 - **Since:** 2026-05-27 (as client_flavor_feedback)
 
@@ -2618,6 +2618,24 @@ The data dictionary as rows: every table, view and table column in public with i
 - **Since:** data catalog brief 2 (2026-10-16)
 - **reads:** —
 
+#### `v_data_lineage_observed`
+
+What actually ran against each table since stats_reset, one row per table, verb and role, parsed from pg_stat_statements query text (advisory, best effort; pg_stat_statements has no application_name, so the role stands in).
+
+- **Writer:** none (derived)
+- **Readers:** dataCatalogMd (CATALOG.md Lineage), admin.GET /api/admin/system-health, reporting_ro
+- **Since:** data catalog brief 3 (2026-10-16)
+- **reads:** —
+
+#### `v_data_table_activity`
+
+Per-table inserts, updates, deletes and scans since the database stats_reset (pg_stat_user_tables), with is_dead_candidate for tables nothing has touched in over 30 days.
+
+- **Writer:** none (derived)
+- **Readers:** dataCatalogIntegrity (check 6), dataCatalogMd (CATALOG.md Activity), admin.GET /api/admin/system-health, reporting_ro
+- **Since:** data catalog brief 3 (2026-10-16)
+- **reads:** —
+
 #### `v_data_view_dependency`
 
 Which tables and views each view reads, one row per pair, from pg_depend on the view's rewrite rule.
@@ -2827,6 +2845,139 @@ Weekly new newsletter subscriber counts broken down by signup source, for the ma
 
 <!-- catalog:brief-3-insertion-point — data catalog brief 3 appends its "Lineage" and "Table activity" sections here. -->
 
+## Lineage
+
+Who writes and who reads each table, from the code (`backend/scripts/lineage-scan.mjs`, `npm run lint:lineage`). **Declared** is the module set in the table's `Writer:` comment; **static writers** are the modules whose code writes it. CI fails a deploy when a static writer is not declared (one-writer rule, set match). Readers are informational.
+
+| table | declared | static writers | readers (code) | read by views |
+|---|---|---|---|---|
+| `address` | users | users (DELETE, INSERT, UPDATE) | users | — |
+| `api_event` | apiEventLog | apiEventLog (INSERT, UPDATE) | admin, audit-quiz-emails, catalogReads, customerIntegrity, quizIntegrity | — |
+| `archetype_relationship` | none | — | — | — |
+| `archetype_tunable_variable` | none | — | — | — |
+| `archetype_vector` | seed | seed (INSERT) | axis, coffees, dialSuggestion | v_archetype_dimension_comparison, v_archetype_vectors |
+| `beat_event` | backfill:backfill-beat-respond-tokens, beatEngine, cron | backfill:backfill-beat-respond-tokens (UPDATE), beatEngine (INSERT, UPDATE), cron (UPDATE) | backfill-beat-respond-tokens, beatEngine, cron, engagementMetrics | — |
+| `brew_card_view_event` | users | users (INSERT) | engagementMetrics | — |
+| `campaign_landing_event` | campaign | campaign (INSERT) | — | campaign_funnel_v |
+| `catalog_change` | customerFacts | customerFacts (INSERT) | customerIntegrity | — |
+| `claude_daily_spend` | anthropicGuard, seed | anthropicGuard (INSERT), seed (UPDATE) | admin, anthropicGuard | — |
+| `coffee_archetype` | catalogService, seed | catalogService (UPDATE), seed (INSERT, UPDATE) | axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, coffees, correct-subscriber-archetypes, customerIntegrity, customerReads, dialSuggestion, exportCalibration, index, quiz, quizIntegrity, quizInterpretationBackfill, quizScorer, quizSession, roasteryPortalReads, sommelierRag, users | v_archetype_dimension_comparison, v_archetype_vectors, v_coffee_archetype, v_customer_quiz_current, v_customer_timeline, v_quiz_scoring_matrix, v_quiz_session_interpretation_history, v_roastery_portal_dimension_match, v_subscriber_quiz_results |
+| `coffee_archetype_assignment` | catalogService, seed | catalogService (INSERT, UPDATE), seed (UPDATE) | admin, axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, coffees, customerReads, dialSuggestion, roasteryPortalReads | v_archetype_dimension_comparison, v_coffee, v_cupping_scores_readable, v_roastery_portal_dimension_match |
+| `coffee_category` | catalogService, seed | catalogService (DELETE, INSERT, UPDATE), seed (INSERT) | admin, axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, customerReads, roasteryPortalReads, roasteryPortalService | v_coffee |
+| `coffee_category_assignment` | catalogService, seed | catalogService (DELETE, INSERT), seed (INSERT) | admin, axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, customerReads, roasteryPortalReads | v_coffee |
+| `coffee_dial_slot` | catalogService, seed | catalogService (UPDATE), seed (INSERT) | admin, axis, backfillCustomerFacts, catalogImport, catalogIntegrity, catalogReads, catalogService, customerReads, dialSuggestion, roasteryPortalReads, sommelier, sommelierRag, users | v_coffee_hop, v_coffee_sellable_candidate, v_coffee_slot, v_coffee_visibility, v_roastery_portal_dimension_match |
+| `coffee_dimensions` | seed | seed (INSERT, UPDATE) | admin, axis, brewCard, catalogReads, catalogService, coffees, customerIntegrity, customerReads, dialSuggestion, roasteryPortalReads, sommelierRag | v_archetype_dimension_comparison, v_archetype_vectors, v_coffee_archetype, v_coffee_dimension_range, v_cupping_scores_readable, v_roastery_portal_dimension_match |
+| `coffee_hop` | catalogService | catalogService (DELETE, INSERT) | admin, axis, catalogIntegrity, catalogReads, catalogService, dialSuggestion, qrDoor, sommelierRag | v_coffee_hop |
+| `coffee_retail_price` | catalogService | catalogService (INSERT) | catalogReads, catalogService | — |
+| `coffee_size` | seed | seed (INSERT) | catalogReads, catalogService, customerReads, roasteryPortalReads | v_coffee_sellable_candidate, v_coffee_visibility, v_palate_slot_candidates |
+| `coffee_sku` | catalogService, seed | catalogService (INSERT, UPDATE), seed (UPDATE) | admin, backfillCustomerFacts, behavioralConfidence, blendResolver, brewCard, catalogReads, catalogService, coffees, customerReads, engagementMetrics, exportCalibration, index, liamSmsFeedback, orders, qrDoor, roasteryPortalReads, users | v_coffee_sellable_candidate, v_coffee_visibility, v_customer_bag_attribution, v_customer_timeline |
+| `coffee_slot_assignment` | catalogService | catalogService (INSERT, UPDATE) | admin, axis, catalogIntegrity, catalogReads, catalogService, customerReads, dialSuggestion, roasteryPortalReads, sommelierRag | v_coffee_hop, v_coffee_sellable_candidate, v_coffee_slot, v_coffee_visibility, v_coffee_visibility_summary, v_palate_recommendation_outcome, v_roastery_portal_dimension_match |
+| `coffee_slot_price` | catalogService, seed | catalogService (INSERT), seed (UPDATE) | catalogIntegrity, catalogReads, catalogService, customerReads, roasteryPortalReads | v_coffee_sellable_candidate, v_coffee_visibility |
+| `coffees` | admin, catalogService, coffees, qrDoor, seed | admin (UPDATE), catalogService (INSERT, UPDATE), coffees (UPDATE), qrDoor (UPDATE), seed (INSERT) | activeCatalog, admin, axis, beatEngine, behavioralConfidence, blendResolver, catalogImport, catalogIntegrity, catalogReads, catalogService, coffees, cron, customerIntegrity, customerReads, dialSuggestion, index, orders, qrDoor, roasteryPortalReads, roasteryPortalService, sommelier, sommelierRag | v_archetype_dimension_comparison, v_coffee, v_coffee_dimension_range, v_coffee_hop, v_collaborative_flavor_wheel, v_cupping_scores_readable |
+| `company` | companyGiftsAdmin | companyGiftsAdmin (INSERT) | companiesAdmin, companyGiftsAdmin | — |
+| `company_gift` | companyGiftsAdmin | companyGiftsAdmin (INSERT, UPDATE) | companyGiftRedemption, companyGiftsAdmin, cron | — |
+| `company_gift_code` | companyGiftRedemption, companyGiftsAdmin, cron | companyGiftRedemption (UPDATE), companyGiftsAdmin (INSERT), cron (UPDATE) | companyGiftRedemption, companyGiftsAdmin | — |
+| `cupping_brew_params` | none | — | — | — |
+| `cupping_note` | seed | seed (INSERT, UPDATE) | admin, beatEngine, catalogService, coffees, cron, customerReads, orders, roasteryPortalReads, roasteryPortalService, sommelierRag | v_collaborative_flavor_wheel |
+| `cupping_note_dimension_weight` | none | — | — | — |
+| `cupping_score_descriptors` | admin, seed | admin (DELETE, INSERT), seed (INSERT) | admin, beatEngine, catalogService, coffees, cron, customerReads, orders, sommelierRag | v_collaborative_flavor_wheel |
+| `cupping_score_values` | admin | admin (INSERT) | admin, brewCard, coffees, customerIntegrity, customerReads, dialSuggestion, roasteryPortalReads | v_archetype_dimension_comparison, v_coffee_dimension_range, v_cupping_scores_readable |
+| `cupping_scores` | admin, seed | admin (DELETE, INSERT), seed (INSERT) | admin, beatEngine, brewCard, catalogService, coffees, cron, customerIntegrity, customerReads, dialSuggestion, orders, roasteryPortalReads, sommelierRag | v_archetype_dimension_comparison, v_coffee_dimension_range, v_collaborative_flavor_wheel, v_cupping_scores_readable |
+| `cupping_session_coffees` | admin, seed | admin (DELETE, INSERT), seed (INSERT) | admin, beatEngine, brewCard, catalogService, coffees, cron, customerIntegrity, customerReads, dialSuggestion, orders, roasteryPortalReads, sommelierRag | v_archetype_dimension_comparison, v_coffee_dimension_range, v_collaborative_flavor_wheel, v_cupping_scores_readable |
+| `cupping_sessions` | admin, seed | admin (DELETE, INSERT), seed (INSERT) | admin, coffees | v_cupping_scores_readable |
+| `customer_bag_claim` | customerFacts | customerFacts (INSERT) | admin, customerReads, exportCalibration | v_customer_bag_attribution, v_customer_timeline |
+| `customer_brew_profile_change` | customerFacts | customerFacts (INSERT) | backfillCustomerFacts, customerIntegrity, customerReads, engagementMetrics | v_customer_brew_profile, v_customer_timeline |
+| `customer_dial_event` | customerFacts | customerFacts (INSERT) | backfillCustomerFacts, customerReads | v_customer_timeline |
+| `customer_feedback_descriptor` | customerFacts | customerFacts (INSERT) | admin, backfillCustomerFacts, beatEngine, catalogService, coffees, cron, customerReads, exportCalibration, orders, sommelierRag | v_collaborative_flavor_wheel, v_customer_feedback_current |
+| `customer_feedback_event` | customerFacts | customerFacts (INSERT) | admin, backfillCustomerFacts, beatEngine, catalogService, coffees, cron, customerReads, exportCalibration, orders, sommelierRag | v_collaborative_flavor_wheel, v_customer_feedback_current, v_customer_timeline |
+| `customer_identity_link` | customerFacts | customerFacts (INSERT) | admin, backfillClaimedSessionLinks, customerIntegrity, customerReads, engagementMetrics, exportCalibration, quizInterpretationBackfill | v_customer_identity, v_customer_timeline |
+| `customer_liam_action` | customerFacts | customerFacts (INSERT) | customerReads | v_customer_timeline |
+| `customer_liam_question` | customerFacts | customerFacts (INSERT) | admin, customerReads, exportCalibration, quizInterpretationBackfill | v_customer_timeline, v_palate_evidence, v_palate_threads |
+| `customer_liam_recommendation` | customerFacts | customerFacts (INSERT) | admin, backfillLiamRecommendations, customerReads, exportCalibration | v_customer_calibration, v_customer_timeline, v_palate_evidence, v_palate_recommendation_outcome |
+| `customer_liam_reply` | customerFacts | customerFacts (INSERT) | admin, customerReads, exportCalibration, quizInterpretationBackfill | v_customer_timeline, v_palate_evidence, v_palate_threads |
+| `customer_order_kind` | seed | seed (INSERT) | — | — |
+| `dial_position_signal` | dialPositionSignal, dialSuggestion, orders, seed | dialPositionSignal (INSERT), dialSuggestion (INSERT, UPDATE), orders (UPDATE), seed (UPDATE) | admin, axis | v_coffee_dial_position_consensus |
+| `dial_source_weight` | seed | seed (INSERT) | admin | v_coffee_dial_position_consensus |
+| `household` | household | household (DELETE, INSERT) | household | — |
+| `household_invitation` | household | household (INSERT, UPDATE) | household | — |
+| `liam_sms_feedback` | none | — | — | — |
+| `lookup_value` | admin, seed | admin (DELETE, INSERT, UPDATE), seed (INSERT, UPDATE) | admin, catalogService, coffees, roasteryPortalReads | — |
+| `marketing_config` | reportingConfig, seed | reportingConfig (UPDATE), seed (INSERT) | reportingConfig | — |
+| `newsletter_subscriber` | backfill:backfillUnsubscribeTokens, backfill:correct-subscriber-archetypes, newsletter, seed, unsubscribe | backfill:backfillUnsubscribeTokens (UPDATE), backfill:correct-subscriber-archetypes (UPDATE), newsletter (INSERT), seed (UPDATE), unsubscribe (UPDATE) | admin, audit-quiz-emails, auth, backfillClaimedSessionLinks, backfillUnsubscribeTokens, correct-subscriber-archetypes, exportCalibration, mailchimp-backfill, newsletter, newsletterReconcile, quizIntegrity, quizInterpretationBackfill, unsubscribe, users | campaign_funnel_v, campaign_subscriber_archetype_v, v_archetype_distribution, v_customer_calibration, v_newsletter_subscribers, v_subscriber_quiz_results, v_subscribers_weekly |
+| `newsletter_subscriber_backup_20260925` | backfill:correct-subscriber-archetypes | — | — | — |
+| `notification_log` | smsProvider | smsProvider (INSERT) | — | — |
+| `order` | orders | orders (INSERT) | admin, behavioralConfidence, brewCard, catalogService, customerReads, engagementMetrics, exportCalibration, orders, qrDoor, staleGuestCleanup, userSignals, users | v_customer_bag_attribution, v_customer_calibration, v_customer_timeline, v_orders_weekly, v_palate_evidence, v_palate_recommendation_outcome |
+| `order_line_item` | orders, seed | orders (INSERT), seed (UPDATE) | admin, backfillCustomerFacts, behavioralConfidence, brewCard, catalogService, customerIntegrity, customerReads, engagementMetrics, exportCalibration, orders, qrDoor, userSignals, users | v_customer_bag_attribution, v_customer_calibration, v_customer_timeline, v_palate_evidence, v_palate_recommendation_outcome |
+| `qr_scan_event` | qr | qr (INSERT) | engagementMetrics | — |
+| `qr_universal_token` | qrDoor | qrDoor (INSERT) | qrDoor | — |
+| `quiz` | seed | seed (INSERT, UPDATE) | customerIntegrity, quiz, quizIntegrity, quizSession | campaign_funnel_v, v_quiz_scoring_matrix |
+| `quiz_answer` | seed | seed (INSERT, UPDATE) | customerIntegrity, customerReads, exportCalibration, quiz, quizIntegrity, quizInterpretationBackfill, quizScorer, quizSession | v_customer_quiz_current, v_quiz_scoring_matrix, v_quiz_session_interpretation_history, v_subscriber_quiz_results |
+| `quiz_answer_archetype_score` | seed | seed (INSERT) | quizIntegrity, quizScorer | v_quiz_scoring_matrix |
+| `quiz_backup_20261008_quiz` | seed | seed (CREATE AS) | — | — |
+| `quiz_backup_20261008_quiz_answer` | seed | seed (CREATE AS) | — | — |
+| `quiz_backup_20261008_quiz_answer_archetype_score` | seed | seed (CREATE AS) | — | — |
+| `quiz_backup_20261008_quiz_question` | seed | seed (CREATE AS) | — | — |
+| `quiz_funnel_event` | funnelEvents | funnelEvents (INSERT) | audit-quiz-emails, newsletter, quizIntegrity | campaign_funnel_v, v_quiz_funnel_weekly |
+| `quiz_question` | seed | seed (INSERT, UPDATE) | customerIntegrity, quiz, quizIntegrity, quizScorer, quizSession | v_quiz_scoring_matrix |
+| `quiz_session` | quizSession | quizSession (INSERT) | auth, backfillClaimedSessionLinks, behavioralConfidence, correct-subscriber-archetypes, customerIntegrity, customerReads, exportCalibration, quizIntegrity, quizInterpretationBackfill, quizSession, staleGuestCleanup, users | v_customer_calibration, v_customer_quiz_current, v_customer_timeline, v_quiz_session_interpretation_history, v_subscriber_quiz_results |
+| `quiz_session_interpretation` | quizSession | quizSession (INSERT, UPDATE) | customerIntegrity, customerReads, exportCalibration, quizInterpretationBackfill, quizSession | v_customer_quiz_current, v_customer_timeline, v_quiz_session_interpretation_history, v_subscriber_quiz_results |
+| `quiz_type` | seed | seed (INSERT) | — | v_quiz_scoring_matrix |
+| `quiz_vector` | none | — | — | — |
+| `roaster` | admin, catalogService | admin (INSERT, UPDATE), catalogService (UPDATE) | admin, axis, behavioralConfidence, catalogImport, catalogIntegrity, catalogReads, catalogService, coffees, customerReads, roasteryPortalReads, roasteryPortalService | v_coffee, v_cupping_scores_readable |
+| `roastery_blend_vector` | none | — | — | — |
+| `roastery_coffee_descriptors` | catalogService, seed | catalogService (INSERT, UPDATE), seed (INSERT) | admin, beatEngine, catalogService, coffees, cron, customerReads, orders, roasteryPortalReads, sommelierRag | v_collaborative_flavor_wheel |
+| `roastery_portal_acceptance` | roasteryPortalService | roasteryPortalService (INSERT) | roasteryPortalReads | v_roastery_portal_progress |
+| `roastery_portal_coffee` | roasteryPortalService | roasteryPortalService (INSERT, UPDATE) | roasteryPortalReads, roasteryPortalService | v_roastery_portal_coffee, v_roastery_portal_coffee_hint, v_roastery_portal_cousin_hint, v_roastery_portal_progress |
+| `roastery_portal_dimension` | seed | seed (INSERT, UPDATE) | roasteryPortalReads | v_roastery_portal_coffee_hint, v_roastery_portal_cousin_hint |
+| `roastery_portal_lineup_response` | roasteryPortalService | roasteryPortalService (INSERT, UPDATE) | roasteryPortalReads, roasteryPortalService | v_roastery_portal_lineup_current_response |
+| `roastery_portal_lineup_response_best_seller` | roasteryPortalService | roasteryPortalService (DELETE, INSERT) | roasteryPortalReads, roasteryPortalService | — |
+| `roastery_portal_link` | roasteryPortalService | roasteryPortalService (INSERT, UPDATE) | roasteryPortalReads, roasteryPortalService | — |
+| `roastery_portal_note_mapping` | roasteryPortalService | roasteryPortalService (INSERT, UPDATE) | roasteryPortalReads, roasteryPortalService | — |
+| `roastery_portal_respondent` | roasteryPortalService | roasteryPortalService (INSERT) | roasteryPortalReads, roasteryPortalService | v_roastery_portal_coffee_hint, v_roastery_portal_progress |
+| `roastery_portal_response` | roasteryPortalService | roasteryPortalService (INSERT, UPDATE) | roasteryPortalReads, roasteryPortalService | v_roastery_portal_coffee_hint, v_roastery_portal_cousin_hint, v_roastery_portal_progress, v_roastery_portal_response |
+| `roastery_portal_response_brew` | roasteryPortalService | roasteryPortalService (DELETE, INSERT) | roasteryPortalReads, roasteryPortalService | v_roastery_portal_progress |
+| `roastery_portal_response_dimension` | roasteryPortalService | roasteryPortalService (DELETE, INSERT) | roasteryPortalReads, roasteryPortalService | v_roastery_portal_coffee_hint, v_roastery_portal_progress |
+| `roastery_portal_response_note` | roasteryPortalService | roasteryPortalService (DELETE, INSERT) | roasteryPortalReads, roasteryPortalService | v_roastery_portal_progress |
+| `roastery_shipment_details` | none | — | — | — |
+| `sensory_lexicon_attribute` | seed | seed (INSERT, UPDATE) | — | — |
+| `sensory_source` | seed | seed (INSERT) | — | — |
+| `sommelier_evaluation` | outcomeTracker, sommelier, sommelierEvaluator | outcomeTracker (UPDATE), sommelier (UPDATE), sommelierEvaluator (INSERT) | admin, outcomeTracker | — |
+| `sommelier_messages` | none | — | sommelier | — |
+| `sommelier_sessions` | sommelier | sommelier (DELETE, INSERT, UPDATE) | admin, backfillLiamRecommendations, engagementMetrics, sommelier | — |
+| `sommelier_sms_feedback` | cron, liamSmsFeedback | cron (INSERT, UPDATE), liamSmsFeedback (INSERT, UPDATE) | cron, liamSmsFeedback | — |
+| `subscriber_source` | seed | seed (INSERT) | admin, mailchimp-backfill, newsletter | v_newsletter_subscribers, v_subscriber_quiz_results, v_subscribers_weekly |
+| `subscription` | companyGiftRedemption, cron | companyGiftRedemption (INSERT), cron (UPDATE) | catalogService, companyGiftRedemption, cron, liamAccess, userSignals, users | — |
+| `token_events` | auth, manual:grant_tokens, orders, tokenService | auth (INSERT), orders (INSERT), tokenService (INSERT) | admin, sommelier, sommelierGuards | — |
+| `transactional_email_log` | newsletter, roasteryPortalNotify | newsletter (DELETE, INSERT, UPDATE), roasteryPortalNotify (DELETE, INSERT, UPDATE) | audit-quiz-emails, newsletter, quizIntegrity, roasteryPortalNotify | — |
+| `user_archetype_tuning` | none | — | — | — |
+| `user_bloom_dial_current_position` | seed, users | seed (UPDATE), users (INSERT) | catalogIntegrity, catalogService, sommelier, users | — |
+| `user_brew_card` | brewCard, cron | brewCard (INSERT, UPDATE), cron (UPDATE) | brewCard, cron, engagementMetrics | — |
+| `user_coffee_profile` | none | — | — | — |
+| `user_email` | auth, users | auth (INSERT), users (INSERT) | admin, cron, household, roasteryPortalReads, staleGuestCleanup, users | — |
+| `user_flavor_feedback` | none | — | admin, axis, backfillCustomerFacts, users | — |
+| `user_lifecycle_event` | userLifecycle | userLifecycle (INSERT) | — | — |
+| `user_lifecycle_stage` | seed | seed (INSERT, UPDATE) | userLifecycle, users | — |
+| `user_lifecycle_state` | userLifecycle | userLifecycle (INSERT, UPDATE) | userLifecycle, users | — |
+| `user_payment_detail` | none | — | — | — |
+| `user_phone` | users | users (INSERT, UPDATE) | beatEngine, cron, liamSmsFeedback, users | — |
+| `user_profile` | admin, auth, companyGiftRedemption, household, quiz, seed, staleGuestCleanup, users | admin (UPDATE), auth (INSERT), companyGiftRedemption (UPDATE), household (UPDATE), quiz (INSERT), seed (UPDATE), staleGuestCleanup (DELETE), users (INSERT, UPDATE) | admin, auth, backfillCustomerFacts, backfillLiamRecommendations, behavioralConfidence, catalogService, companyGiftRedemption, companyGiftsAdmin, correct-subscriber-archetypes, cron, customerReads, engagementMetrics, exportCalibration, household, liamAccess, liamSmsFeedback, liamWriteBack, migrateSavedItems, newsletter, orders, outcomeTracker, qr, qrDoor, quizIntegrity, quizInterpretationBackfill, quizSession, roasteryPortalReads, roasteryPortalService, sommelier, sommelierEvaluator, staleGuestCleanup, userSignals, users | v_customer_bag_attribution, v_customer_identity |
+| `user_roaster_link` | none | — | — | — |
+| `user_saved_item` | backfill:migrateSavedItems, users | backfill:migrateSavedItems (INSERT), users (INSERT, UPDATE) | migrateSavedItems, users | — |
+| `user_tokens` | auth, manual:grant_tokens, orders, tokenService | auth (INSERT), orders (UPDATE), tokenService (UPDATE) | admin, orders, tokenService, tokens, users | — |
+| `user_type` | seed | seed (INSERT) | admin, auth, liamAccess, roasteryPortalReads, users | — |
+| `user_vector_state` | none | — | — | — |
+
+Probe markers (`// lineage: probe, not a write`), each a write the rule does not count:
+
+- `backend/src/services/customerIntegrity.ts:145` UPDATE quiz_session
+
+## Activity
+
+_Activity is read from production only; this file was generated from `axisandbloom_test`. Regenerate with `npm run catalog:md -- --expect-db axisandbloom`. Live numbers: admin System Health or `v_data_table_activity`._
+
+**Dead candidates, static (23):** `archetype_relationship`, `archetype_tunable_variable`, `cupping_brew_params`, `cupping_note_dimension_weight`, `customer_order_kind`, `liam_sms_feedback`, `newsletter_subscriber_backup_20260925`, `notification_log`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_vector`, `roastery_blend_vector`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `user_archetype_tuning`, `user_coffee_profile`, `user_lifecycle_event`, `user_payment_detail`, `user_roaster_link`, `user_vector_state`.
+
 ---
 
-catalog-hash: 4779a3d7a148d8406341bc65f4939ccaba411c0ef1714975c5fab0b2381a35f9
+catalog-hash: 9e1c53cc334137c73886ec0eaab986534fa470c9ecf16e56d3e8c45b95c5cf99
+lineage-hash: e58584cb55e2eaa50d9e56117b43346e9f0b790ef1b2798f1af8222b57ae52e4

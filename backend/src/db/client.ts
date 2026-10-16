@@ -2,6 +2,16 @@ import pg from 'pg';
 
 const { Pool } = pg;
 
+// Data catalog brief 3, Part B (2026-10-16) — every connection says who it
+// is (pg_stat_activity, pg_stat_statements roles, Cloud SQL insights). Set
+// through the Pool option, not the connection string, so Cloud SQL socket
+// URLs stay untouched. Anything launched from backend/scripts or
+// backend/src/scripts is `script:<basename>`, on both pools; the server is
+// axis-bloom-backend (request pool) / axis-bloom-backend-owner (owner pool).
+const entryScript = /[\\/]scripts[\\/]([^\\/]+?)\.(?:ts|mjs|js)$/.exec(process.argv[1] ?? '')?.[1];
+export const APPLICATION_NAME = entryScript ? `script:${entryScript}` : 'axis-bloom-backend';
+export const OWNER_APPLICATION_NAME = entryScript ? `script:${entryScript}` : 'axis-bloom-backend-owner';
+
 const connectionString = process.env.DATABASE_URL ?? '';
 const isUnixSocket = connectionString.includes('host=/cloudsql/');
 
@@ -9,6 +19,7 @@ export const db = new Pool({
   connectionString,
   ssl: process.env.NODE_ENV === 'production' && !isUnixSocket ? { rejectUnauthorized: false } : false,
   max: 10,
+  application_name: APPLICATION_NAME,
 });
 
 // Customer Blueprint · brief C1, Part B (2026-09-27) — the owner/app pool
@@ -25,6 +36,7 @@ export function ownerPool(): pg.Pool {
     connectionString: ownerConnectionString,
     ssl: process.env.NODE_ENV === 'production' && !isOwnerUnixSocket ? { rejectUnauthorized: false } : false,
     max: 2,
+    application_name: OWNER_APPLICATION_NAME,
   });
 }
 

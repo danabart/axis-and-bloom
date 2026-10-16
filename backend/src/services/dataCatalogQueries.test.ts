@@ -1,7 +1,13 @@
 // Data catalog · brief 2, Part E (2026-10-16) — parser and hash, no
 // database query.
 import { describe, it, expect } from 'vitest';
-import { computeCatalogHash, parseRelationComment, readCatalogMdHash, CATALOG_HASH_FOOTER } from './dataCatalogQueries.js';
+import { execFile } from 'child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { fileURLToPath } from 'url';
+import { promisify } from 'util';
+import { computeCatalogHash, declaredWriterModules, parseRelationComment, readCatalogMdHash, CATALOG_HASH_FOOTER } from './dataCatalogQueries.js';
 import { extractFirestoreBlock, renderCatalogMd } from './dataCatalogMd.js';
 import type { CatalogRow } from './dataCatalogQueries.js';
 
@@ -97,5 +103,38 @@ describe('CATALOG.md rendering', () => {
   it('extractFirestoreBlock copies the -- block under the Firestore header verbatim', () => {
     const sql = '-- header\n\n-- ── Firestore (x) ──\n-- a\n-- firestore: b | c\n\n-- ── next ──\n';
     expect(extractFirestoreBlock(sql)).toBe('-- ── Firestore (x) ──\n-- a\n-- firestore: b | c');
+  });
+});
+
+// Data catalog brief 3 (2026-10-16) — the Writer field parser. The TS twin
+// (boot check 5) must agree with the CI scanner (lineage-scan.mjs) on every
+// table, or the boot check and CI could disagree about the one-writer rule.
+describe('declaredWriterModules', () => {
+  it('takes the module before the dot, splits on , and ; outside parentheses', () => {
+    expect(declaredWriterModules('catalogService.createCoffee, catalogService.updateCoffee; seed; backfill:migrateSavedItems'))
+      .toEqual(['backfill:migrateSavedItems', 'catalogService', 'seed']);
+    expect(declaredWriterModules('apiEventLog.apiEventLog (INSERT before the handler, UPDATE at response finish), apiEventLog.writeOutcome'))
+      .toEqual(['apiEventLog']);
+    expect(declaredWriterModules('users.PATCH /api/users/dial-position; seed')).toEqual(['seed', 'users']);
+    expect(declaredWriterModules('tokenService.spendToken; manual:grant_tokens')).toEqual(['manual:grant_tokens', 'tokenService']);
+  });
+
+  it('none, none (derived) and empty mean no writer', () => {
+    expect(declaredWriterModules('none')).toEqual([]);
+    expect(declaredWriterModules('none (derived)')).toEqual([]);
+    expect(declaredWriterModules(null)).toEqual([]);
+  });
+
+  it('agrees with lineage-scan.mjs on every table in comments.sql', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lineage-agree-'));
+    try {
+      const out = join(dir, 'lineage.json');
+      await promisify(execFile)('node', [fileURLToPath(new URL('../../scripts/lineage-scan.mjs', import.meta.url))], { env: { ...process.env, LINEAGE_OUT: out } });
+      const tables = JSON.parse(readFileSync(out, 'utf8')).tables as Record<string, { declared: { field: string; modules: string[] } }>;
+      expect(Object.keys(tables).length).toBeGreaterThan(100);
+      for (const [t, v] of Object.entries(tables)) expect(declaredWriterModules(v.declared.field), t).toEqual(v.declared.modules);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

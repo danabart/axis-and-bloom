@@ -1,6 +1,6 @@
 # Closing report: data catalog brief 2 (lint, `v_data_catalog`, `CATALOG.md`, System Health)
 
-> Brief: `CLAUDE_CODE_PROMPT_DATA_CATALOG_2_LINT_AND_CATALOG_MD.md` · Executed 2026-10-16 · Not committed, not deployed (waiting for Dana's go-ahead)
+> Brief: `CLAUDE_CODE_PROMPT_DATA_CATALOG_2_LINT_AND_CATALOG_MD.md` · Executed 2026-10-16 · Commit `5fbfba0`, deployed 2026-10-16 as Cloud Run revision `axis-bloom-backend-00751-rb9`
 
 ## Change of decision: no strict mode (Dana, 2026-10-16, after Task 0)
 
@@ -114,7 +114,22 @@ Produced by the same function the route calls, against the test DB, with the obj
 - **Fixed in this commit (Dana, 2026-10-16).** `scripts/refresh-test-db.mjs` now passes `--user=axisbloom` to `gcloud sql import sql`, with a comment explaining why.
 - **Transfer bucket confirmed empty.** `gcloud storage ls -r gs://axis-bloom-db-transfers/` lists nothing: no production dump remains, from either the failed run or the manual re-clone.
 
+## Production verification (2026-10-16)
+
+Commit `5fbfba0`, revision `axis-bloom-backend-00751-rb9` at 100% (image tag = the commit SHA). Boot log, both instances:
+
+```
+18:24:53Z  DB schema verified
+18:24:53Z  [db-comments] applied 1200 statements
+18:24:56Z  [data-catalog] report only: 115 tables, 50 views, 1035 columns; 1 of 4 checks with findings
+18:24:56Z  [data-catalog] check #2 No comment is UNVERIFIED: 84 UNVERIFIED — coffee_archetype.is_active, … (+34 more)
+(second instance: same lines at 18:25:05 to 18:25:09)
+```
+
+- There is no check #4 line, so production's `CATALOG.md` hash matched. A missing file would have printed a `skipped` line, so the copy into the image worked.
+- No `unsubscribe_token` NOTICE: the drift fix was a no-op on production, as expected.
+- `npm run catalog:md -- --expect-db axisandbloom` printed `CATALOG.md already matches axisandbloom (catalog-hash 4779a3d7a148); left untouched.`, and `git status` shows no change to `CATALOG.md`.
+
 ## Not done
 
-- Production verification: boot log on the next revision, and `catalog:md --expect-db axisandbloom` reporting `left untouched`. Pending commit and deploy.
 - The 84 `UNVERIFIED`s (check 2 will list them on every boot until they are resolved).

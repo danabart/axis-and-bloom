@@ -8,7 +8,9 @@
 //     left out, the same way applyCommentsSql skips them);
 //   check 4: passes against a CATALOG.md rendered from this same database.
 import 'dotenv/config';
+import { execFile } from 'child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { promisify } from 'util';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
@@ -19,6 +21,7 @@ import { runDataCatalogIntegrityChecks, formatDataCatalogLog } from './dataCatal
 import { fetchCatalogRows, fetchViewDependencies } from './dataCatalogQueries.js';
 import { extractFirestoreBlock, renderCatalogMd } from './dataCatalogMd.js';
 
+const execFileAsync = promisify(execFile);
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 const dir = mkdtempSync(join(tmpdir(), 'catalog-md-'));
 
@@ -40,11 +43,22 @@ describe('runDataCatalogIntegrityChecks on the test database (report only)', () 
       databaseName: 'axisandbloom_test', generatedOn: '2026-10-16',
     }));
 
-    const report = await runDataCatalogIntegrityChecks({ runner: db, catalogMdPath });
+    // Brief 3: a fresh lineage.json from the scanner (no DB), to a temp path.
+    const lineagePath = join(dir, 'lineage.json');
+    await execFileAsync('node', [fileURLToPath(new URL('../../scripts/lineage-scan.mjs', import.meta.url))], { env: { ...process.env, LINEAGE_OUT: lineagePath } });
+
+    const report = await runDataCatalogIntegrityChecks({ runner: db, catalogMdPath, lineagePath });
     console.log(formatDataCatalogLog(report).join('\n'));
     const byId = (id: number) => report.checks.find(c => c.id === id)!;
 
-    expect(report.checks.map(c => c.severity)).toEqual(['info', 'info', 'info', 'info']);
+    expect(report.checks.map(c => c.severity)).toEqual(['info', 'info', 'info', 'info', 'info', 'info']);
+    // check 5 (one writer): the same set match CI enforces, zero undeclared
+    expect(byId(5).details).toEqual([]);
+    expect(report.lineage.available).toBe(true);
+    expect(report.lineage.multiWriter.map(m => m.table)).toContain('user_profile');
+    // check 6 lists at least every static dead candidate from lineage.json
+    const staticDead = JSON.parse(readFileSync(lineagePath, 'utf8')).findings.dead_candidates as string[];
+    for (const t of staticDead) expect(byId(6).details!.some(d => d.startsWith(`${t} (`))).toBe(true);
     expect(byId(1).details).toEqual([]);
     expect(byId(3).details).toEqual([]);
 
@@ -64,11 +78,12 @@ describe('runDataCatalogIntegrityChecks on the test database (report only)', () 
   it('reports CATALOG.md stale when the file does not match, and skipped when there is none', async () => {
     const stalePath = join(dir, 'STALE.md');
     writeFileSync(stalePath, `stale\n\ncatalog-hash: ${'0'.repeat(64)}\n`);
-    const stale = await runDataCatalogIntegrityChecks({ runner: db, catalogMdPath: stalePath });
+    const stale = await runDataCatalogIntegrityChecks({ runner: db, catalogMdPath: stalePath, lineagePath: null });
     expect(stale.checks[3].actual).toBe('CATALOG.md stale');
     expect(stale.catalogMdStale).toBe(true);
 
-    const none = await runDataCatalogIntegrityChecks({ runner: db, catalogMdPath: null });
+    const none = await runDataCatalogIntegrityChecks({ runner: db, catalogMdPath: null, lineagePath: null });
+    expect(none.checks[4].actual).toMatch(/^skipped/); // check 5 with no lineage.json
     expect(none.checks[3].pass).toBe(true);
     expect(none.checks[3].actual).toMatch(/^skipped/);
   }, 120_000);

@@ -21,7 +21,7 @@ No strict mode, no environment is ever failed by the catalog. The boot check alw
 ## Dana's console steps (not in any brief)
 
 1. Cloud SQL instance → Dataplex / Knowledge Catalog integration → enable. One toggle. Reads table and view comments from brief 1 as descriptions. Do not create a "connector job" (that path bills Dataproc Serverless); the instance toggle is enough.
-2. Cloud SQL instance → Flags → add `cloudsql.enable_pg_stat_statements = on`. Requires a restart. Brief 3 Task 0 checks this and stops if it is off.
+2. ~~pg_stat_statements flag~~ Not needed (corrected 2026-10-16): on Cloud SQL for PostgreSQL the `pg_stat_statements` library is preloaded; brief 3 enables it with `CREATE EXTENSION IF NOT EXISTS pg_stat_statements` in `schema.sql`, no flag, no restart. The flag name `cloudsql.enable_pg_stat_statements` does not exist and the patch was rejected.
 
 ## Division with `WHAT_WE_BUILT_DB.md`
 

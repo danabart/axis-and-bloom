@@ -6628,6 +6628,93 @@ SELECT DISTINCT v.relname::text AS view_name,
 
 GRANT SELECT ON v_data_catalog, v_data_view_dependency TO reporting_ro;
 
+-- DATA CATALOG brief 3, Part C (2026-10-16) — observed lineage and table
+-- activity. Advisory only: these never fail anything (decision 5).
+-- pg_stat_statements is preloaded on Cloud SQL for PostgreSQL; the extension
+-- goes in its own schema so its views do not land in public (where they
+-- would be uncommented objects for the data catalog check). Wrapped so a
+-- database without it logs a NOTICE instead of failing the boot.
+CREATE SCHEMA IF NOT EXISTS extensions;
+DO $$
+BEGIN
+  CREATE EXTENSION IF NOT EXISTS pg_stat_statements SCHEMA extensions;
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'pg_stat_statements not available (%); v_data_lineage_observed not created', SQLERRM;
+END $$;
+
+-- What actually ran, per table: one row per (table, verb, role) with the
+-- call count since stats_reset. pg_stat_statements does not store
+-- application_name, so the role is the closest attribution
+-- (application_name_or_role holds the role name). Table names are parsed
+-- from the normalized query text by regex: INSERT INTO / UPDATE ... SET /
+-- DELETE FROM targets, and every other FROM / JOIN as a SELECT. Best effort.
+-- A caller without pg_read_all_stats (ab_app) sees only its own statements.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements') THEN
+    EXECUTE $v$
+      CREATE OR REPLACE VIEW v_data_lineage_observed AS
+      WITH s AS (
+        SELECT st.userid, st.calls, st.query
+          FROM extensions.pg_stat_statements st
+         WHERE st.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+           AND st.query <> '<insufficient privilege>'
+      ), refs AS (
+        SELECT userid, calls, 'INSERT' AS verb,
+               lower((regexp_match(query, '\mINSERT\s+INTO\s+(?:public\.)?"?([A-Za-z_][A-Za-z0-9_]*)', 'i'))[1]) AS table_name
+          FROM s
+        UNION ALL
+        SELECT userid, calls, 'UPDATE',
+               lower((regexp_match(query, '\mUPDATE\s+(?:ONLY\s+)?(?:public\.)?"?([A-Za-z_][A-Za-z0-9_]*)"?\s+(?:AS\s+)?(?:[A-Za-z_][A-Za-z0-9_]*\s+)?SET\M', 'i'))[1])
+          FROM s
+        UNION ALL
+        SELECT userid, calls, 'DELETE',
+               lower((regexp_match(query, '\mDELETE\s+FROM\s+(?:ONLY\s+)?(?:public\.)?"?([A-Za-z_][A-Za-z0-9_]*)', 'i'))[1])
+          FROM s
+        UNION ALL
+        SELECT s.userid, s.calls, 'SELECT', lower(m[1])
+          FROM s,
+               regexp_matches(regexp_replace(s.query, '\mDELETE\s+FROM\M', 'DELETE', 'gi'),
+                              '\m(?:FROM|JOIN)\s+(?:public\.)?"?([A-Za-z_][A-Za-z0-9_]*)', 'gi') AS m
+      )
+      SELECT r.table_name,
+             r.verb,
+             a.rolname::text                         AS application_name_or_role,
+             sum(r.calls)::bigint                    AS calls,
+             (SELECT stats_reset FROM extensions.pg_stat_statements_info) AS stats_reset,
+             now()                                   AS last_seen
+        FROM refs r
+        JOIN pg_class c      ON c.relname = r.table_name AND c.relkind IN ('r', 'p', 'v')
+        JOIN pg_namespace n  ON n.oid = c.relnamespace AND n.nspname = 'public'
+        JOIN pg_roles a      ON a.oid = r.userid
+       WHERE r.table_name IS NOT NULL
+       GROUP BY r.table_name, r.verb, a.rolname
+    $v$;
+    EXECUTE 'GRANT SELECT ON v_data_lineage_observed TO reporting_ro';
+  END IF;
+END $$;
+
+-- Per-table activity since the database's stats_reset (pg_stat_user_tables).
+-- is_dead_candidate: no insert, update, delete or scan of any kind since the
+-- reset, and the reset is older than 30 days (or unknown). Any full export
+-- (e.g. a test-database clone) scans every table and so clears it.
+CREATE OR REPLACE VIEW v_data_table_activity AS
+SELECT t.relname::text      AS table_name,
+       t.n_tup_ins,
+       t.n_tup_upd,
+       t.n_tup_del,
+       t.seq_scan,
+       t.idx_scan,
+       t.last_autoanalyze,
+       d.stats_reset,
+       (t.n_tup_ins + t.n_tup_upd + t.n_tup_del + t.seq_scan + COALESCE(t.idx_scan, 0)) = 0
+         AND COALESCE(d.stats_reset < now() - interval '30 days', true) AS is_dead_candidate
+  FROM pg_stat_user_tables t
+  JOIN pg_stat_database d ON d.datname = current_database()
+ WHERE t.schemaname = 'public';
+
+GRANT SELECT ON v_data_table_activity TO reporting_ro;
+
 
 -- A2. Prefix-driven grants, re-run every boot. A table's name decides its
 -- privileges, so a customer_* table added later (C2) is immutable from the

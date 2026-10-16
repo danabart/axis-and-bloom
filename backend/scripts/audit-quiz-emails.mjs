@@ -26,6 +26,7 @@ const db = new Pool({
   connectionString,
   ssl: { rejectUnauthorized: false },
   max: 5,
+  application_name: 'script:audit-quiz-emails', // data catalog brief 3
 });
 
 const MC_API_KEY = (process.env.MAILCHIMP_API_KEY ?? '').trim();

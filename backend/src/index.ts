@@ -6,7 +6,7 @@ import rateLimit from 'express-rate-limit';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { db, ownerPool, whoAmI } from './db/client.js';
+import { db, ownerPool, whoAmI, APPLICATION_NAME, OWNER_APPLICATION_NAME } from './db/client.js';
 import { applyCommentsSql } from './db/commentsFile.js';
 import { getRealClientIp } from './middleware/clientIp.js';
 import { appCheckGate } from './middleware/appCheck.js';
@@ -156,6 +156,9 @@ app.use((err: any, req: express.Request, res: express.Response, _next: express.N
 });
 
 async function start() {
+  // Data catalog brief 3, Part B — so the pool names are visible in Cloud Run logs.
+  console.log(`[db] application_name=${APPLICATION_NAME} (owner pool: ${OWNER_APPLICATION_NAME})`);
+
   // Customer Blueprint · brief C1, Part B (2026-09-27) — schema.sql now
   // applies through ownerPool(), not the request pool `db`. Every boot check
   // after this block stays on `db` unchanged. Never blocks startup: the pool

@@ -141,3 +141,70 @@ export function readCatalogMdHash(path: string): string | null {
   if (!existsSync(path)) return null;
   return CATALOG_HASH_FOOTER.exec(readFileSync(path, 'utf8'))?.[1] ?? null;
 }
+
+// ── Lineage (brief 3) ──────────────────────────────────────────────────────
+// TS twin of declaredModules() in backend/scripts/lineage-scan.mjs (the CI
+// rule). Writer field format: `module.function` entries separated by
+// commas, groups by semicolons, split only outside parentheses; the module
+// is the part before the first dot/space/paren; `seed...` is `seed`.
+// dataCatalogQueries.test.ts checks the two agree on every table.
+export function declaredWriterModules(field: string | null): string[] {
+  if (!field || /^none\b/i.test(field.trim())) return [];
+  const entries: string[] = [];
+  let depth = 0, cur = '';
+  for (const ch of field) {
+    if (ch === '(') depth++;
+    else if (ch === ')') depth = Math.max(0, depth - 1);
+    if (depth === 0 && (ch === ',' || ch === ';')) { entries.push(cur); cur = ''; } else cur += ch;
+  }
+  entries.push(cur);
+  const mods = entries.map(e => e.trim()).filter(Boolean).map(e => (/^seed\b/.test(e) ? 'seed' : e.split(/[.\s(]/)[0]));
+  return [...new Set(mods)].sort();
+}
+
+export interface LineageWriter { module: string; file: string; verbs: string[]; lines: number[] }
+export interface LineageReader { file: string; via_view?: string }
+export interface LineageTable {
+  declared: { field: string; modules: string[] };
+  writers: LineageWriter[];
+  readers: LineageReader[];
+  view_readers: string[];
+}
+export interface LineageJson {
+  generated_at: string;
+  summary: { tables: number; multi_writer_tables: string[]; undeclared_writers: number; dead_doors: number; dead_candidates: number; probes: number };
+  tables: Record<string, LineageTable>;
+  probes: { file: string; line: number; table: string; verb: string }[];
+  findings: { dead_candidates: string[] };
+}
+
+export function readLineageJson(path: string | null): LineageJson | null {
+  if (!path || !existsSync(path)) return null;
+  return JSON.parse(readFileSync(path, 'utf8')) as LineageJson;
+}
+
+// Module set of a table's static writers that are app code (not seed or a
+// backfill script): more than one is a multi-writer table.
+export const appWriterModules = (t: LineageTable) =>
+  [...new Set(t.writers.map(w => w.module))].filter(m => m !== 'seed' && !m.startsWith('backfill:')).sort();
+
+export interface TableActivity {
+  table_name: string;
+  n_tup_ins: string; n_tup_upd: string; n_tup_del: string; seq_scan: string; idx_scan: string | null;
+  last_autoanalyze: Date | null;
+  stats_reset: Date | null;
+  is_dead_candidate: boolean;
+}
+
+export async function fetchTableActivity(runner: pg.Pool | pg.PoolClient): Promise<TableActivity[]> {
+  return (await runner.query<TableActivity>(`SELECT * FROM v_data_table_activity ORDER BY table_name`)).rows;
+}
+
+// Observed lineage needs the pg_stat_statements extension; null when the view is absent.
+export async function fetchObservedLineage(runner: pg.Pool | pg.PoolClient): Promise<
+  { table_name: string; verb: string; application_name_or_role: string; calls: string; stats_reset: Date | null }[] | null
+> {
+  const exists = (await runner.query(`SELECT to_regclass('public.v_data_lineage_observed') IS NOT NULL AS ok`)).rows[0].ok;
+  if (!exists) return null;
+  return (await runner.query(`SELECT * FROM v_data_lineage_observed ORDER BY table_name, verb, application_name_or_role`)).rows;
+}

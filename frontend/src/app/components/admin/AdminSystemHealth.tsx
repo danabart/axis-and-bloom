@@ -32,13 +32,28 @@ interface DataCatalogCheckRow {
   objects: string[];
 }
 
+// Data catalog brief 3, Part D (2026-10-16) — lineage from lineage.json.
+interface DataCatalogLineage {
+  available: boolean;
+  generatedAt: string | null;
+  multiWriter: { table: string; modules: string[] }[];
+  undeclared: { table: string; module: string; file: string; line: number }[];
+  deadDoors: { table: string; module: string }[];
+  deadCandidates: { table: string; static: boolean; observed: boolean }[];
+  probes: number;
+  statsReset: string | null;
+}
+
 interface DataCatalogData {
   ranAt?: string;
   counts?: { tables: number; views: number; columns: number; unverified: number };
   catalogMdStale?: boolean;
   checks?: DataCatalogCheckRow[];
+  lineage?: DataCatalogLineage;
   error?: string;
 }
+
+const AMBER = '#b7791f';
 
 interface SystemHealthData {
   callTypes: CallTypeRow[];
@@ -221,6 +236,52 @@ export default function AdminSystemHealth() {
                     </div>
                   ))}
                 </div>
+                {data.dataCatalog.lineage && (
+                  <div className="mt-4 pt-3 border-t border-stone-100 space-y-2 text-xs">
+                    {!data.dataCatalog.lineage.available ? (
+                      <p className="text-stone-400">Lineage: lineage.json is not on this image.</p>
+                    ) : (
+                      <>
+                        <details>
+                          <summary className="cursor-pointer flex items-center justify-between">
+                            <span className="text-stone-700">Tables with more than one writer (declared, candidates to consolidate)</span>
+                            <span className="whitespace-nowrap ml-4" style={{ color: RUST }}>{data.dataCatalog.lineage.multiWriter.length}</span>
+                          </summary>
+                          <div className="mt-2 space-y-1 font-mono text-stone-500">
+                            {data.dataCatalog.lineage.multiWriter.map(m => (
+                              <p key={m.table} style={{ color: RUST }}>{m.table}: {m.modules.join(', ')}</p>
+                            ))}
+                          </div>
+                        </details>
+                        <details>
+                          <summary className="cursor-pointer flex items-center justify-between">
+                            <span className="text-stone-700">Declared writers with no code (dead doors)</span>
+                            <span className="whitespace-nowrap ml-4" style={{ color: data.dataCatalog.lineage.deadDoors.length ? AMBER : undefined }}>{data.dataCatalog.lineage.deadDoors.length}</span>
+                          </summary>
+                          <div className="mt-2 space-y-1 font-mono" style={{ color: AMBER }}>
+                            {data.dataCatalog.lineage.deadDoors.map(d => <p key={`${d.table}:${d.module}`}>{d.table}: {d.module}</p>)}
+                          </div>
+                        </details>
+                        <details>
+                          <summary className="cursor-pointer flex items-center justify-between">
+                            <span className="text-stone-700">Dead table candidates</span>
+                            <span className="text-stone-400 whitespace-nowrap ml-4">{data.dataCatalog.lineage.deadCandidates.length}</span>
+                          </summary>
+                          <div className="mt-2 space-y-1 font-mono text-stone-400">
+                            {data.dataCatalog.lineage.deadCandidates.map(d => (
+                              <p key={d.table}>{d.table} ({[d.static ? 'no reader in code' : null, d.observed ? 'untouched 30+ days' : null].filter(Boolean).join(', ')})</p>
+                            ))}
+                          </div>
+                        </details>
+                        <p className="text-stone-400">
+                          Table activity since {data.dataCatalog.lineage.statsReset ? new Date(data.dataCatalog.lineage.statsReset).toLocaleDateString() : '—'} (stats_reset)
+                          {' · '}lineage scanned {data.dataCatalog.lineage.generatedAt ? daysAgo(data.dataCatalog.lineage.generatedAt) : '—'}
+                          {data.dataCatalog.lineage.probes > 0 && ` · ${data.dataCatalog.lineage.probes} probe marker(s)`}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                )}
               </>
             )}
           </div>
