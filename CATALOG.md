@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-10-16 from database `axisandbloom` · 115 tables · 52 views · 1035 table columns · 84 UNVERIFIED · lint: report only · catalog-hash `9e1c53cc3341` (full value in the footer).
+Generated 2026-10-16 from database `axisandbloom_test` · 115 tables · 52 views · 1035 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `6493f8131b12` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -58,7 +58,7 @@ The six named flavor-profile archetypes (Chocolate & Nutty, Balanced, Fruity, Ea
 | `id` | uuid | no | Surrogate primary key (UUID); the FK target for quiz answers, quiz sessions, archetype_vector and similar quiz-side tables (catalog tables key on code instead). |
 | `name` | text | no | Display name of the archetype, unique; still the natural key inside the quiz seed blocks. Balanced was renamed from Balanced & Sweet on 2026-09-19. |
 | `description` | text | yes | Customer-facing one-sentence profile text for the archetype. |
-| `is_active` | boolean | yes | UNVERIFIED: no code or view reads or writes this flag \| Boolean, default true; apparently inert for archetypes. |
+| `is_active` | boolean | yes | Class: deprecated \| DEPRECATED 2026-10-16: boolean default true that no code or view reads or writes; all six archetypes are live and retiring one is a code change, not a flag. |
 | `created_at` | timestamp with time zone | yes | UTC timestamp when the row was created. |
 | `updated_at` | timestamp with time zone | yes | UTC timestamp of last update; set by the seed rename UPDATEs in schema.sql. |
 | `code` | archetype_enum | no | Stable catalog identity of the archetype, unique; archetype_enum (chocolate_nutty, balanced_sweet, fruity, earthy, floral, experimental). Backfilled once from name in schema.sql, no runtime writer. |
@@ -243,9 +243,9 @@ Sellable bag-size variant (SKU) of one coffee at one roaster, carrying Shopify v
 | `blend_name` | text | no | Display name of the SKU; defaults to the coffee's name on insert and is used by the coffee_id name-match backfill. |
 | `shopify_variant_id` | text | yes | Shopify variant ID passed to Shopify when an order for this SKU is placed; NULL until mapped. |
 | `roaster_sku` | text | yes | The roaster's own SKU code for this bag size; NULL if not set. |
-| `cost_to_us` | numeric | yes | UNVERIFIED: unit not stated in code or docs \| Wholesale cost to Axis and Bloom for one bag, presumably dollars per bag (not cents). |
+| `cost_to_us` | numeric | yes | Wholesale cost to Axis and Bloom for one bag of this SKU in USD dollars (admin field "Cost to us ($)", two decimals); written by catalogService.upsertSkuInTx from Admin Supply and Inventory and from catalog import, shown in Admin Supply and Inventory, read by no customer-facing path. |
 | `is_active` | boolean | yes | True while the SKU is available from the roaster (the only availability lever; false = Paused); set false by coffee or roastery retirement. |
-| `coffee_type` | text | yes | UNVERIFIED: no code reads or writes it, only the schema default \| Kind of coffee, default blend. |
+| `coffee_type` | text | yes | Class: deprecated \| DEPRECATED 2026-10-16: never read or written, always the default blend; the kind of coffee is coffees.blend_or_single. |
 | `weight_oz` | numeric | yes | Bag size in ounces; FK to coffee_size(weight_oz) (sizes 12 oz anchor, 2 lb, 5 lb); at most one active SKU per coffee_id and size. |
 | `inventory_status` | text | yes | Class: deprecated \| DEPRECATED 2026-09-30: drop-ship model, stock not tracked; not read or written by the app. |
 | `quantity_available` | integer | yes | Class: deprecated \| DEPRECATED 2026-09-30: drop-ship model, stock not tracked; not read or written by the app. |
@@ -316,7 +316,7 @@ Coffee catalogue master: one row per coffee, owned by one roaster, with metadata
 | `blend_or_single` | text | yes | Blend or single origin. Values follow the lookup_value category blend_or_single: single, blend (no CHECK constraint). |
 | `process` | text | yes | Processing method. Values follow the lookup_value category process: washed, natural, honey, anaerobic, wet-hulled, other (no CHECK constraint). |
 | `roast_level` | text | yes | Roast level. Values follow the lookup_value category roast_level: light, light-medium, medium, medium-dark, dark (no CHECK constraint). |
-| `roast_shade` | text | yes | UNVERIFIED: no vocabulary or CHECK defines the allowed values \| Free-text roast shade qualifier supplied by the roaster or import manifest. |
+| `roast_shade` | text | yes | Roaster-supplied roast shade slug from the original catalog matrix, finer than roast_level (seed values light, light-medium, medium, medium-dark, dark, ultra-dark; NULL for flavored coffees); free text with no CHECK, carried through catalog import and the admin coffee save, not editable in the admin form, read by no customer-facing path. |
 | `flavor_descriptors_roaster` | text[] | yes | Array of the roaster's own bag tasting notes as text; the structured one-row-per-descriptor form lives in roastery_coffee_descriptors. |
 | `created_at` | timestamp with time zone | yes | UTC timestamp the coffee row was created. |
 | `ai_summary` | text | yes | Cached Claude-generated tasting summary, generated once and refreshed only by admin action; NULLed if a stored value looks like a refusal \| Writer: coffees.generateAndStoreAllContent, coffees.generateAndStoreSummary, coffees.sanitizeStoredField |
@@ -612,15 +612,15 @@ One checkout order placed through the site and mirrored to Shopify, with a shipp
 | `user_id` | uuid | yes | FK to user_profile(id); the buyer. |
 | `household_id` | uuid | yes | FK to household(id); never set by any code path (confirmed in Customer Blueprint C2 Task 0), always NULL. |
 | `external_shopify_order_id` | text | yes | ID of the matching order in Shopify, returned when the order was created there. |
-| `fulfillment_status` | text | yes | UNVERIFIED: no code updates it after insert and no CHECK exists \| Fulfilment state, written as pending at checkout; catalogService treats delivered and cancelled as closed. |
-| `is_subscription` | boolean | yes | UNVERIFIED: no code writes it \| True if the order is a subscription renewal; default false. |
+| `fulfillment_status` | text | yes | Fulfilment state as free text, written as pending at checkout and never updated today; catalogService (open orders per roaster) treats delivered and cancelled as closed, while the Stripe brief plans pending, awaiting_manual, placed, shipped, delivered, canceled, needs_attention; that brief must settle the canceled vs cancelled spelling before any CHECK is added. |
+| `is_subscription` | boolean | yes | True if the order is a subscription renewal, default false; reserved for the Stripe brief (createSubscriptionOrder sets it), never written today. |
 | `subtotal` | numeric | yes | Sum of line prices times quantity in dollars (numeric, not cents), computed at checkout. |
-| `shipping_fee_charged` | numeric | yes | UNVERIFIED: no code writes it, always the default \| Shipping fee charged to the customer in dollars; default 0.00. |
-| `taxes_collected` | numeric | yes | UNVERIFIED: no code writes it, always the default \| Tax collected in dollars; default 0.00. |
-| `transaction_fee` | numeric | yes | UNVERIFIED: no code writes it, always the default \| Payment processing fee in dollars; default 0.00. |
+| `shipping_fee_charged` | numeric | yes | Shipping fee charged to the customer in USD dollars (same unit as total_amount_paid), default 0.00; reserved for the Stripe brief, never written today. |
+| `taxes_collected` | numeric | yes | Sales tax collected in USD dollars (same unit as total_amount_paid), default 0.00; reserved for the Stripe brief (automatic tax), never written today. |
+| `transaction_fee` | numeric | yes | Payment-processing fee in USD dollars (same unit as total_amount_paid), default 0.00; reserved for the Stripe brief (from the balance transaction), never written today. |
 | `total_amount_paid` | numeric | yes | Amount paid in dollars; at checkout it is set equal to subtotal (no shipping or tax added). |
 | `currency` | text | yes | ISO currency code of the amounts; always the default USD, never set by code. |
-| `promo_code` | text | yes | UNVERIFIED: no code writes it \| Promo code applied to the order; NULL. |
+| `promo_code` | text | yes | Promo code applied to the order; reserved, never written today (NULL); the Stripe brief decides whether Stripe promotion codes are mirrored here. |
 | `created_at` | timestamp with time zone | yes | UTC timestamp when the order row was created. |
 | `updated_at` | timestamp with time zone | yes | UTC timestamp of the last change; no code updates the row after insert. |
 | `shipping_street` | text | yes | Street line of the shipping address snapshot copied at checkout. |
@@ -644,13 +644,13 @@ One purchased SKU line of an order, with price paid and who it is for (immutable
 | `order_id` | uuid | yes | FK to "order"(id), ON DELETE CASCADE; the parent order. |
 | `blend_id` | uuid | yes | FK to coffee_sku(id); the SKU purchased (the column keeps its pre-rename name). |
 | `intended_for_user_id` | uuid | yes | FK to user_profile(id); the person the bag is for, defaults to the buyer unless the client passes another user. |
-| `shipment_id` | uuid | yes | UNVERIFIED: no code writes it \| FK to roastery_shipment_details(id); the shipment carrying this line. |
+| `shipment_id` | uuid | yes | FK to roastery_shipment_details(id), the shipment carrying this line; reserved for the Stripe brief, never written today. |
 | `quantity` | integer | no | Number of bags on this line; NOT NULL, default 1. |
 | `unit_price_charged` | numeric | yes | Price per bag charged, in dollars (numeric, not cents). |
-| `wholesale_cost` | numeric | yes | UNVERIFIED: no code writes it \| Wholesale cost of the line, presumably dollars. |
+| `wholesale_cost` | numeric | yes | Wholesale cost of the line in USD dollars (same unit as coffee_sku.cost_to_us); reserved for roaster payout reconciliation, never written today. |
 | `discount_amount` | numeric | yes | Discount applied to this line, in dollars; only collection bundle member lines carry a non-zero value (10 percent bundle discount split across members); default 0.00. |
-| `tax_amount_charged` | numeric | yes | UNVERIFIED: no code writes it, always the default \| Tax charged on the line in dollars; default 0.00. |
-| `vendor_payout_status` | text | yes | UNVERIFIED: no code writes it and no CHECK exists \| Roastery payout state, default pending_invoice. |
+| `tax_amount_charged` | numeric | yes | Sales tax charged on the line in USD dollars, default 0.00; reserved for the Stripe brief, never written today. |
+| `vendor_payout_status` | text | yes | Roastery payout state as free text, default pending_invoice; reserved for roaster payout reconciliation, no CHECK until that vocabulary exists, never written today. |
 | `created_at` | timestamp with time zone | yes | UTC timestamp when the line was created. |
 | `updated_at` | timestamp with time zone | yes | UTC timestamp of the last change; no code updates the row after insert. |
 | `order_kind` | text | yes | FK to customer_order_kind(code); how the line originated, default manual. Code only ever writes manual (gift_redemption, subscription_renewal and liam_followed have no writer yet). |
@@ -701,7 +701,7 @@ SCD Type 2 interpretation of each quiz session per interpretation version; one i
 | `match_archetype` | text | yes | coffee_archetype.name text of where on the Bloom Dial the person is matched (v2.2 MATCH layer); set on every v2.2 row, NULL on v1 and v2.1 rows. |
 | `intensity_lean` | text | yes | Position lean within the match archetype. One of: delicate (CHECK); NULL means the archetype's default position. |
 
-### operating (77)
+### operating (71)
 
 #### `address`
 
@@ -920,9 +920,7 @@ One redeemable code per seat of a company gift batch, tracking whether it is unr
 
 #### `cupping_brew_params`
 
-**UNVERIFIED:** no code, seed or script reads or writes this table, so it may be unused or hand-entered
-
-Intended per-session-coffee brew parameters (dose, water, yield, temperature, grind, time, pressure, device)
+Reserved per-session-coffee brew parameters (dose, water, yield, temperature, grind, time, pressure, device) for the cupping tool; not written by any code, seed or script yet (0 rows), counted in the cupping-evidence design (DESIGN_CUPPING_EVIDENCE.md)
 
 - **Writer:** none
 - **Readers:** none
@@ -935,7 +933,7 @@ Intended per-session-coffee brew parameters (dose, water, yield, temperature, gr
 | `dose_grams` | numeric | yes | Coffee dose in grams. |
 | `water_grams` | numeric | yes | Water used in grams. |
 | `yield_grams` | numeric | yes | Liquid yield in grams (espresso-style methods). |
-| `ratio` | numeric | yes | UNVERIFIED: the definition is not documented (water per coffee or coffee per water) \| Brew ratio as a number. |
+| `ratio` | numeric | yes | Brew ratio as a bare number; direction (water per coffee or coffee per water) undefined, table unused. |
 | `water_temperature_celsius` | numeric | yes | Water temperature in degrees Celsius. |
 | `grind_size` | text | yes | Free-text grind size description. |
 | `extraction_time_seconds` | numeric | yes | Extraction or brew time in seconds. |
@@ -958,8 +956,8 @@ The 84-descriptor SCA Coffee Taster's Flavor Wheel vocabulary used to tag coffee
 | `wheel_category` | text | yes | Top-level SCA wheel category, e.g. Floral, Fruity, Sour / Fermented, Green / Vegetative, Other, Roasted, Spices, Nutty / Cocoa, Sweet. |
 | `wheel_subcategory` | text | yes | SCA wheel subcategory within the category (about 25 values). |
 | `descriptor` | text | no | The flavor descriptor word or phrase itself, e.g. Jasmine. |
-| `intensity_score` | numeric | yes | UNVERIFIED: no code reads or writes it; docs say it is NULL by default and assigned per cupping session \| Numeric descriptor-level intensity, apparently unused. |
-| `ai_metadata` | jsonb | yes | UNVERIFIED: no code, doc or seed mentions this column \| JSONB reserved for AI-generated metadata, apparently unused. |
+| `intensity_score` | numeric | yes | Class: deprecated \| DEPRECATED 2026-10-16: never written; cupping_note is the descriptor vocabulary, and the intensity a descriptor showed in a cupping lives on cupping_score_descriptors.intensity (0-15). |
+| `ai_metadata` | jsonb | yes | Class: deprecated \| DEPRECATED 2026-10-16: JSONB never written, read or documented. |
 | `is_active` | boolean | yes | True when the descriptor is part of the active wheel; catalogService and the roastery portal only accept active descriptors. |
 | `created_at` | timestamp with time zone | yes | UTC timestamp when the row was created. |
 | `updated_at` | timestamp with time zone | yes | UTC timestamp of last update; no code path updates it after seeding. |
@@ -980,7 +978,7 @@ Reserved mapping from a cupping descriptor to a dimension and direction (for exa
 | `cupping_note_id` | uuid | no | References cupping_note.id (UUID), the descriptor being mapped; UNIQUE together with dimension_id. |
 | `dimension_id` | integer | no | References coffee_dimensions.id, the dimension the descriptor moves. |
 | `direction` | text | no | Direction the descriptor pushes the dimension. One of: more, less (CHECK). |
-| `weight` | numeric | no | UNVERIFIED: no rows and no code, so the scale and range are not defined anywhere \| Strength of the descriptor-to-dimension association, default 0 (best guess: a non-negative multiplier). |
+| `weight` | numeric | no | Strength of the descriptor-to-dimension association, default 0; scale and range undefined by design until Stage 2 of BLOOM_DIAL_ALLOCATION_SPEC (needs cupping volume), table empty on purpose. |
 
 #### `cupping_score_descriptors`
 
@@ -1281,9 +1279,9 @@ Versioned (SCD Type 2) answer options for each quiz question, with the archetype
 | `id` | uuid | no | Surrogate UUID primary key; one per answer version, persisted in sessions as answerIds and referenced by quiz_answer_archetype_score and quiz_session.branch_answer_id. |
 | `question_id` | uuid | yes | FK to quiz_question(id), ON DELETE CASCADE; the question version this answer belongs to. |
 | `answer_text` | text | no | Answer wording shown to the customer. |
-| `next_question_id` | uuid | yes | UNVERIFIED: no code reads it \| FK to quiz_question(id); presumably the question to jump to after this answer (legacy branching). |
+| `next_question_id` | uuid | yes | Class: deprecated \| DEPRECATED 2026-10-16: legacy branching pointer (FK to quiz_question) that no seed ever set and no code reads, always NULL; the SCD2 version function only copies it forward; branching is quiz.trigger_archetype_id and quiz.parent_quiz_id. |
 | `resulting_archetype_id` | uuid | yes | FK to coffee_archetype(id); the archetype this answer maps to; NULL if none. |
-| `vector_impact` | jsonb | yes | UNVERIFIED: no code reads or writes it \| JSONB of per-dimension impact, superseded by quiz_answer_archetype_score. |
+| `vector_impact` | jsonb | yes | Class: deprecated \| DEPRECATED 2026-10-16: legacy JSONB per-dimension impact that no seed ever set and no code reads, always NULL; the SCD2 version function only copies it forward; scoring is quiz_answer_archetype_score. |
 | `weight` | numeric | yes | Answer-level multiplier used in scoring (q_weight x answer weight x score); default 1. |
 | `is_experimental_gate` | boolean | yes | Flags an answer that counts toward the Experimental archetype gate in scoring; default false. |
 | `answer_code` | text | yes | Stable version-scoped code (for example v7_q1_a) that decouples scoring from answer copy; unique among current rows; NULL on retired v5/v6 rows. |
@@ -1358,24 +1356,6 @@ Lookup that classifies a quiz row as the main quiz or a branch (reclassification
 | `id` | uuid | no | Surrogate primary key (UUID); referenced by quiz.quiz_type_id. |
 | `name` | text | no | Quiz kind, unique. One of: main, branch. |
 
-#### `quiz_vector`
-
-**UNVERIFIED:** no reader or writer found in backend/src or backend/scripts, docs only say "dimension scores from a quiz session"
-
-Per-dimension scores computed for a quiz session.
-
-- **Writer:** none
-- **Readers:** none found
-- **Since:** 2026-05-22
-
-| column | type | null | comment |
-|---|---|---|---|
-| `id` | uuid | no | Surrogate UUID primary key. |
-| `user_id` | uuid | yes | FK to user_profile(id), ON DELETE CASCADE; the user the scores belong to. |
-| `quiz_session_id` | uuid | yes | FK to quiz_session(id), ON DELETE CASCADE; the session the scores came from. |
-| `dimension_id` | uuid | yes | UNVERIFIED: no FK declared \| Flavor dimension the score is for (presumably coffee_dimensions.id). |
-| `score` | numeric | no | UNVERIFIED: scale not stated \| Numeric score on that dimension. |
-
 #### `roaster`
 
 Drop-ship roastery partners that supply the coffees, with contact details and an active or deactivated state
@@ -1401,22 +1381,6 @@ Drop-ship roastery partners that supply the coffees, with contact details and an
 | `website` | text | yes | Roaster website URL; admin-entered. |
 | `deactivated_at` | timestamp with time zone | yes | UTC timestamp when the roastery was deactivated; NULL while active \| Writer: catalogService.deactivateRoastery, catalogService.reactivateRoastery |
 | `deactivation_note` | text | yes | Free-text reason an admin typed in the deactivate confirm dialog; cleared on reactivation \| Writer: catalogService.deactivateRoastery, catalogService.reactivateRoastery |
-
-#### `roastery_blend_vector`
-
-**UNVERIFIED:** no reader or writer found in backend/src or backend/scripts, docs only say where each blend sits in flavor-dimension space
-
-Score of each SKU on each flavor dimension.
-
-- **Writer:** none
-- **Readers:** none found
-- **Since:** 2026-05-22 (as blend_vector)
-
-| column | type | null | comment |
-|---|---|---|---|
-| `blend_id` | uuid | no | FK to coffee_sku(id), ON DELETE CASCADE; part of the primary key. |
-| `dimension_id` | uuid | no | UNVERIFIED: no FK declared \| Flavor dimension the score is for (presumably coffee_dimensions.id); part of the primary key. |
-| `score` | numeric | no | UNVERIFIED: scale not stated \| Numeric score of the SKU on that dimension. |
 
 #### `roastery_coffee_descriptors`
 
@@ -1680,12 +1644,10 @@ A response's ranked tasting notes: the roaster's own words plus the optional clo
 
 #### `roastery_shipment_details`
 
-**UNVERIFIED:** no reader or writer found in backend/src or backend/scripts, only a Stripe brief proposes an admin shipped endpoint that writes it
-
-Tracking and postage details of a roastery shipment for an order.
+Reserved for the Stripe payment-capture brief (features/commerce): tracking and postage details of a roastery shipment for an order, to be written by the admin shipped endpoint; not written yet (0 rows), no code today
 
 - **Writer:** none
-- **Readers:** none found
+- **Readers:** none
 - **Since:** 2026-05-22 (as shipment)
 
 | column | type | null | comment |
@@ -1695,8 +1657,8 @@ Tracking and postage details of a roastery shipment for an order.
 | `roaster_id` | uuid | yes | FK to roaster(id); the roastery that ships it. |
 | `tracking_number` | text | yes | Carrier tracking number. |
 | `carrier` | text | yes | Carrier name. |
-| `status` | text | yes | UNVERIFIED: no code writes it and no CHECK exists \| Shipment state, default label_created. |
-| `postage_cost` | numeric | yes | UNVERIFIED: unit not stated \| Postage cost, presumably dollars. |
+| `status` | text | yes | Shipment state as free text, default label_created; reserved for the Stripe brief's admin shipped endpoint (sets shipped), no CHECK until that vocabulary is settled, never written today. |
+| `postage_cost` | numeric | yes | Postage cost in USD dollars (the unit every money column in this schema uses); reserved, never written today. |
 | `shipped_at` | timestamp with time zone | yes | UTC timestamp when the shipment left the roastery. |
 | `estimated_delivery` | timestamp with time zone | yes | UTC timestamp of the carrier's estimated delivery. |
 | `created_at` | timestamp with time zone | yes | UTC timestamp when the row was created. |
@@ -1844,10 +1806,10 @@ Recurring-delivery subscription of a user; in current code only company-sponsore
 |---|---|---|---|
 | `id` | uuid | no | Surrogate UUID primary key. |
 | `user_id` | uuid | yes | FK to user_profile(id), ON DELETE CASCADE; the subscriber (matched directly, never via household). |
-| `household_id` | uuid | yes | UNVERIFIED: no code writes it \| FK to household(id); the household the subscription belongs to. |
+| `household_id` | uuid | yes | FK to household(id), the household the subscription belongs to; reserved, not written yet (only company-sponsored subscriptions are inserted today, by companyGiftRedemption). |
 | `status` | text | yes | Subscription state, default active. Code writes only: active, lapsed (cron flips expired sponsored rows to lapsed); no CHECK constraint. |
-| `frequency_days` | integer | yes | UNVERIFIED: no code writes it \| Days between deliveries, default 30. |
-| `next_delivery_date` | date | yes | UNVERIFIED: no code writes it \| Calendar date of the next scheduled delivery. |
+| `frequency_days` | integer | yes | Days between deliveries, default 30; reserved for the Stripe subscription flow, not written yet (sponsored subscriptions keep the default). |
+| `next_delivery_date` | date | yes | Calendar date of the next scheduled delivery; reserved for the Stripe subscription flow, not written yet (NULL today). |
 | `created_at` | timestamp with time zone | yes | Timestamp when the subscription row was created (timestamptz, default now()). |
 | `updated_at` | timestamp with time zone | yes | Timestamp of the last change (timestamptz); set by the sponsored-subscription cron when a row lapses. |
 | `company_gift_id` | uuid | yes | FK to company_gift(id); the sponsoring company for a gifted subscription; NULL for normal subscriptions. |
@@ -1942,26 +1904,6 @@ One durable brew recipe card per customer, coffee and brew method that sharpens 
 | `created_at` | timestamp with time zone | yes | UTC timestamp the card row was created. |
 | `updated_at` | timestamp with time zone | yes | UTC timestamp of the last in-place adjustment (set to NOW by adjustCard; equals created_at until then) \| Writer: brewCard.adjustCard |
 
-#### `user_coffee_profile`
-
-**UNVERIFIED:** no reader or writer found in backend/src or backend/scripts, docs only call it "their ranked archetype matches"
-
-Ranked coffee-archetype matches per user, one row per rank.
-
-- **Writer:** none
-- **Readers:** none found
-- **Since:** 2026-05-22
-
-| column | type | null | comment |
-|---|---|---|---|
-| `id` | uuid | no | Surrogate UUID primary key. |
-| `user_id` | uuid | yes | FK to user_profile(id), ON DELETE CASCADE; the user the match belongs to. |
-| `archetype_id` | uuid | yes | FK to coffee_archetype(id); the matched archetype. |
-| `match_rank` | integer | no | UNVERIFIED: no code uses it \| Rank of this archetype among the user's matches (presumably 1 = best match). |
-| `match_confidence` | numeric | yes | UNVERIFIED: no code uses it, scale not defined \| Confidence of the match, numeric (presumably 0-1 score). |
-| `is_active` | boolean | yes | True while this match row is the live one for the user; default true. |
-| `assigned_at` | timestamp with time zone | yes | UTC timestamp when the match was assigned; defaults to insert time. |
-
 #### `user_email`
 
 Email addresses attached to a user profile, one flagged primary
@@ -2029,30 +1971,6 @@ Current lifecycle stage of each user, one row per user, read at page view time.
 | `stage_id` | integer | yes | FK to user_lifecycle_stage(id); the user's current stage. |
 | `computed_at` | timestamp with time zone | yes | UTC timestamp of the last recompute, refreshed even when the stage did not change. |
 
-#### `user_payment_detail`
-
-**UNVERIFIED:** no code reads or writes it, docs only say Stripe customer links and payment info
-
-Intended store of per-user payment accounts
-
-- **Writer:** none
-- **Readers:** none
-- **Since:** 2026-05-22 (as payment_detail, renamed user_payment_detail)
-
-| column | type | null | comment |
-|---|---|---|---|
-| `id` | uuid | no | Surrogate primary key (UUID). |
-| `user_id` | uuid | yes | References user_profile.id; row is deleted with the profile (ON DELETE CASCADE). |
-| `account_type` | text | no | UNVERIFIED: never written or documented \| Required free-text kind of payment account. |
-| `provider` | text | no | UNVERIFIED: never written or documented \| Required payment provider name, presumably Stripe. |
-| `payment_terms` | text | yes | UNVERIFIED: never written or documented \| Free-text payment terms. |
-| `external_provider_id` | text | yes | UNVERIFIED: never written or documented \| Provider-side id of the account or customer. |
-| `routing_info` | jsonb | yes | UNVERIFIED: never written or documented \| JSONB provider routing details. |
-| `is_default` | boolean | yes | Boolean, default false: marks the user's default payment account. |
-| `is_active` | boolean | yes | Boolean, default true: whether the payment account is usable. |
-| `created_at` | timestamp with time zone | yes | UTC timestamp when the row was created. |
-| `updated_at` | timestamp with time zone | yes | UTC timestamp of last update. |
-
 #### `user_phone`
 
 Phone numbers for a user with SMS consent flags for post-delivery feedback and beat messages
@@ -2072,8 +1990,8 @@ Phone numbers for a user with SMS consent flags for post-delivery feedback and b
 | `updated_at` | timestamp with time zone | yes | UTC timestamp of last change to the number or opt-in. |
 | `sms_opt_in` | boolean | yes | Consent to the post-delivery feedback SMS ask (legacy consent); read by liamSmsFeedback. |
 | `sms_opt_in_at` | timestamp with time zone | yes | UTC timestamp when sms_opt_in was last switched on. |
-| `sms_beats_opt_in` | boolean | yes | UNVERIFIED: read by beatEngine and cron but no code writes it (docs: no UI toggle built yet) \| Extended consent for beat SMS, default false. |
-| `sms_beats_opt_in_at` | timestamp with time zone | yes | UNVERIFIED: no code writes it \| UTC timestamp when sms_beats_opt_in was granted. |
+| `sms_beats_opt_in` | boolean | yes | Extended consent for beat SMS, default false; read live by beatEngine and the beats cron, written by nothing until the A2P consent UI exists (HOME_TASK_8 scope note in schema.sql). |
+| `sms_beats_opt_in_at` | timestamp with time zone | yes | UTC timestamp when sms_beats_opt_in was granted; written by nothing until the A2P consent UI exists. |
 
 #### `user_profile`
 
@@ -2092,29 +2010,12 @@ Core customer record keyed to a Firebase uid (real or anonymous guest), holding 
 | `household_id` | uuid | yes | References household.id; NULL when the user is in no household \| Writer: household.POST /create, household.POST /join/:token, household.DELETE /leave, household.DELETE /members/:userId |
 | `is_household_admin` | boolean | yes | True when the user administers their household (the creator); false otherwise \| Writer: household.POST /create, household.DELETE /leave, household.DELETE /members/:userId |
 | `user_type_id` | uuid | yes | References user_type.id (admin or customer); NULL is treated as a regular customer \| Writer: admin.POST /grant-admin, admin.DELETE /revoke-admin, SQL fns grant_admin and revoke_admin |
-| `stripe_customer_id` | text | yes | UNVERIFIED: no code reads or writes it; the Stripe payment-capture brief plans to use it \| Stripe customer id for the user, currently unused. |
-| `accepts_marketing` | boolean | yes | UNVERIFIED: no code reads or writes it (newsletter consent lives on newsletter_subscriber) \| Boolean marketing-consent flag, default false. |
+| `stripe_customer_id` | text | yes | Stripe customer id for the user; reserved for the Stripe payment-capture brief (getOrCreateStripeCustomer reads and writes it), not written yet. |
+| `accepts_marketing` | boolean | yes | Class: deprecated \| DEPRECATED 2026-10-16: never read or written; marketing consent lives on newsletter_subscriber (subscribed, unsubscribed_at). |
 | `date_of_birth` | date | yes | Customer date of birth (date, no time zone); used to derive generation for Liam \| Writer: users.PATCH /profile |
 | `created_at` | timestamp with time zone | yes | UTC timestamp when the profile was created; stale guest cleanup keys on it. |
 | `updated_at` | timestamp with time zone | yes | UTC timestamp of last profile touch; refreshed by the lazy upserts and PATCH. |
 | `company_gift_id` | uuid | yes | References company_gift.id: the company-sponsored gift this user redeemed; NULL otherwise \| Writer: companyGiftRedemption.POST /:code/redeem |
-
-#### `user_roaster_link`
-
-**UNVERIFIED:** no reader or writer found in backend/src or backend/scripts, docs only call it "roastery staff accounts"
-
-Links a user account to the roastery they work at.
-
-- **Writer:** none
-- **Readers:** none found
-- **Since:** 2026-05-22
-
-| column | type | null | comment |
-|---|---|---|---|
-| `user_id` | uuid | no | FK to user_profile(id), ON DELETE CASCADE; part of the primary key. |
-| `roaster_id` | uuid | no | FK to roaster(id), ON DELETE CASCADE; part of the primary key. |
-| `role_at_roastery` | text | yes | Free-text role of the user at that roastery; NULL if not set. |
-| `created_at` | timestamp with time zone | yes | UTC timestamp when the link was created. |
 
 #### `user_saved_item`
 
@@ -2167,31 +2068,11 @@ Lookup of account roles that user_profile.user_type_id points to (admin, custome
 | `created_at` | timestamp with time zone | yes | UTC timestamp when the row was created. |
 | `updated_at` | timestamp with time zone | yes | UTC timestamp of last update; no code path updates it after seeding. |
 
-#### `user_vector_state`
-
-**UNVERIFIED:** no code, view or seed reads or writes it
-
-Per-user position in flavor-dimension space, declared and behavioral
-
-- **Writer:** none
-- **Readers:** none
-- **Since:** 2026-05-22
-
-| column | type | null | comment |
-|---|---|---|---|
-| `user_id` | uuid | no | References user_profile.id; part of the primary key (ON DELETE CASCADE). |
-| `dimension_id` | uuid | no | UUID of the flavor dimension (md5-derived style, no FK); part of the primary key. |
-| `declared_score` | numeric | yes | Score the user stated, presumably 0-15 scale. |
-| `behavior_score` | numeric | yes | Score inferred from behavior, presumably 0-15 scale. |
-| `updated_at` | timestamp with time zone | yes | UTC timestamp of last update. |
-
 ### snapshot (5)
 
 #### `newsletter_subscriber_backup_20260925`
 
-**UNVERIFIED:** not in schema.sql
-
-Pre-correction copy of the 8 newsletter_subscriber rows whose archetype was fixed by the quiz resync correction on 2026-09-25, kept as a never-dropped backup.
+Not in schema.sql. Pre-correction copy of the 8 newsletter_subscriber rows whose archetype was fixed by the quiz resync correction on 2026-09-25, kept as the record of that fix and never dropped (decided 2026-09-25, reaffirmed 2026-10-16)
 
 - **Writer:** backfill:correct-subscriber-archetypes
 - **Readers:** none
@@ -2199,20 +2080,20 @@ Pre-correction copy of the 8 newsletter_subscriber rows whose archetype was fixe
 
 | column | type | null | comment |
 |---|---|---|---|
-| `email` | text | yes | UNVERIFIED: not in schema.sql \| Subscriber email as it was in newsletter_subscriber at backup time (that table's primary key). |
-| `user_id` | uuid | yes | UNVERIFIED: not in schema.sql \| user_profile id linked to the subscriber at backup time; NULL if none. |
-| `subscribed` | boolean | yes | UNVERIFIED: not in schema.sql \| Subscribed flag at backup time. |
-| `created_at` | timestamp with time zone | yes | UNVERIFIED: not in schema.sql \| UTC timestamp the subscriber originally signed up. |
-| `source_id` | integer | yes | UNVERIFIED: not in schema.sql \| subscriber_source id at backup time. |
-| `first_name` | text | yes | UNVERIFIED: not in schema.sql \| First name at backup time. |
-| `archetype` | text | yes | UNVERIFIED: not in schema.sql \| The pre-correction (wrong, Balanced-placeholder) archetype value that the script replaced with the real latest quiz_session archetype. |
-| `experimental` | boolean | yes | UNVERIFIED: not in schema.sql \| Experimental quiz flag at backup time. |
-| `confidence` | text | yes | UNVERIFIED: not in schema.sql \| Quiz confidence label at backup time. |
-| `quiz_session_key` | text | yes | UNVERIFIED: not in schema.sql \| Quiz session key that carried the subscribe call at backup time. |
-| `campaign` | text | yes | UNVERIFIED: not in schema.sql \| Campaign attribution at backup time (the script backfilled hoboken-crawl-2026 for three rows afterward). |
-| `campaign_vid` | uuid | yes | UNVERIFIED: not in schema.sql \| Campaign visitor id (UUID) at backup time. |
-| `campaign_attributed_at` | timestamp with time zone | yes | UNVERIFIED: not in schema.sql \| UTC timestamp campaign attribution was recorded, at backup time. |
-| `backed_up_at` | timestamp with time zone | yes | UNVERIFIED: not in schema.sql \| UTC timestamp the backup copy was taken (now() when the script ran). |
+| `email` | text | yes | Subscriber email as it was in newsletter_subscriber at backup time (that table's primary key). |
+| `user_id` | uuid | yes | user_profile id linked to the subscriber at backup time; NULL if none. |
+| `subscribed` | boolean | yes | Subscribed flag at backup time. |
+| `created_at` | timestamp with time zone | yes | UTC timestamp the subscriber originally signed up. |
+| `source_id` | integer | yes | subscriber_source id at backup time. |
+| `first_name` | text | yes | First name at backup time. |
+| `archetype` | text | yes | The pre-correction (wrong, Balanced-placeholder) archetype value that the script replaced with the real latest quiz_session archetype. |
+| `experimental` | boolean | yes | Experimental quiz flag at backup time. |
+| `confidence` | text | yes | Quiz confidence label at backup time. |
+| `quiz_session_key` | text | yes | Quiz session key that carried the subscribe call at backup time. |
+| `campaign` | text | yes | Campaign attribution at backup time (the script backfilled hoboken-crawl-2026 for three rows afterward). |
+| `campaign_vid` | uuid | yes | Campaign visitor id (UUID) at backup time. |
+| `campaign_attributed_at` | timestamp with time zone | yes | UTC timestamp campaign attribution was recorded, at backup time. |
+| `backed_up_at` | timestamp with time zone | yes | UTC timestamp the backup copy was taken (now() when the script ran). |
 
 #### `quiz_backup_20261008_quiz`
 
@@ -2285,7 +2166,7 @@ Frozen copy of the quiz_question table taken before SCD Type 2 versioning, kept 
 | `q_text` | text | yes | Snapshot of quiz_question.q_text, the question wording shown to customers. |
 | `weight` | numeric | yes | Snapshot of quiz_question.weight, the question's scoring multiplier (0 means food signal only). |
 
-### deprecated (4)
+### deprecated (10)
 
 #### `archetype_relationship`
 
@@ -2307,9 +2188,7 @@ Planned adjacency between archetypes per dimension, superseded by v_archetype_ad
 
 #### `liam_sms_feedback`
 
-**UNVERIFIED:** not in schema.sql
-
-Original Sommelier Task 5 table for one-row-per-SMS Liam feedback messages; renamed to sommelier_sms_feedback in code (eff1d98) but this old empty table (0 rows) was never dropped.
+Not in schema.sql. Retired: original Sommelier Task 5 table for one-row-per-SMS Liam feedback messages, renamed to sommelier_sms_feedback in code (eff1d98); this old empty table (0 rows) was never dropped; the SMS feedback feature is not live yet and will be built on sommelier_sms_feedback, never here; drop-later, decided 2026-10-16
 
 - **Writer:** none
 - **Readers:** none
@@ -2317,25 +2196,55 @@ Original Sommelier Task 5 table for one-row-per-SMS Liam feedback messages; rena
 
 | column | type | null | comment |
 |---|---|---|---|
-| `id` | uuid | no | UNVERIFIED: not in schema.sql \| Primary key (UUID); described from the Task 5 brief DDL, not from schema.sql. |
-| `user_id` | uuid | yes | UNVERIFIED: not in schema.sql \| Per the Task 5 DDL, FK to user_profile(id) ON DELETE CASCADE: the customer the message belongs to. |
-| `order_id` | uuid | yes | UNVERIFIED: not in schema.sql \| Per the Task 5 DDL, FK to "order"(id): the order that triggered the feedback request. |
-| `blend_id` | uuid | yes | UNVERIFIED: not in schema.sql \| Per the Task 5 DDL, FK to roaster_blend(id) (since renamed in the catalog; current target not checked): the bag the message asks about. |
-| `phone_number` | text | no | UNVERIFIED: not in schema.sql \| Per the Task 5 brief, the E.164 phone number the SMS was sent to or received from. |
-| `direction` | text | no | UNVERIFIED: not in schema.sql \| Per the Task 5 DDL CHECK, one of: outbound, inbound. |
-| `body` | text | no | UNVERIFIED: not in schema.sql \| The SMS text, outbound request or inbound reply. |
-| `status` | text | no | UNVERIFIED: not in schema.sql \| Per the Task 5 DDL CHECK, one of: scheduled, sent, delivered, failed, replied, opted_out (default scheduled). |
-| `scheduled_for` | timestamp with time zone | yes | UNVERIFIED: not in schema.sql \| UTC timestamp an outbound message was due to send (Task 5 set order time plus 10 days). |
-| `sent_at` | timestamp with time zone | yes | UNVERIFIED: not in schema.sql \| UTC timestamp the message was handed to the SMS provider; NULL if not sent. |
-| `provider_message_id` | text | yes | UNVERIFIED: not in schema.sql \| Message id returned by the SMS provider; NULL if none. |
-| `reply_to_id` | uuid | yes | UNVERIFIED: not in schema.sql \| Per the Task 5 DDL, self FK to liam_sms_feedback(id): the outbound message an inbound reply answers. |
-| `haiku_parsed` | boolean | yes | UNVERIFIED: not in schema.sql \| True once the inbound reply was parsed by the Haiku model (default false). |
-| `parsed_signal_type` | text | yes | UNVERIFIED: not in schema.sql \| Free-text signal type extracted from the reply; allowed values not documented. |
-| `parsed_rating` | integer | yes | UNVERIFIED: not in schema.sql \| Rating integer extracted from the reply (scale not documented in the DDL). |
-| `parsed_sentiment` | text | yes | UNVERIFIED: not in schema.sql \| Per the Task 5 DDL CHECK, one of: positive, negative, neutral. |
-| `parsed_descriptors` | jsonb | yes | UNVERIFIED: not in schema.sql \| JSONB of flavor descriptors extracted from the reply. |
-| `firestore_feedback_doc_id` | text | yes | UNVERIFIED: not in schema.sql \| Id of the Firestore users/{uid}/feedback_events doc created from the reply. |
-| `created_at` | timestamp with time zone | yes | UNVERIFIED: not in schema.sql \| UTC timestamp when the row was created. |
+| `id` | uuid | no | Primary key (UUID); described from the Task 5 brief DDL, not from schema.sql. |
+| `user_id` | uuid | yes | Per the Task 5 DDL, FK to user_profile(id) ON DELETE CASCADE: the customer the message belongs to. |
+| `order_id` | uuid | yes | Per the Task 5 DDL, FK to "order"(id): the order that triggered the feedback request. |
+| `blend_id` | uuid | yes | Per the Task 5 DDL, FK to roaster_blend(id) (since renamed in the catalog; current target not checked): the bag the message asks about. |
+| `phone_number` | text | no | Per the Task 5 brief, the E.164 phone number the SMS was sent to or received from. |
+| `direction` | text | no | Per the Task 5 DDL CHECK, one of: outbound, inbound. |
+| `body` | text | no | The SMS text, outbound request or inbound reply. |
+| `status` | text | no | Per the Task 5 DDL CHECK, one of: scheduled, sent, delivered, failed, replied, opted_out (default scheduled). |
+| `scheduled_for` | timestamp with time zone | yes | UTC timestamp an outbound message was due to send (Task 5 set order time plus 10 days). |
+| `sent_at` | timestamp with time zone | yes | UTC timestamp the message was handed to the SMS provider; NULL if not sent. |
+| `provider_message_id` | text | yes | Message id returned by the SMS provider; NULL if none. |
+| `reply_to_id` | uuid | yes | Per the Task 5 DDL, self FK to liam_sms_feedback(id): the outbound message an inbound reply answers. |
+| `haiku_parsed` | boolean | yes | True once the inbound reply was parsed by the Haiku model (default false). |
+| `parsed_signal_type` | text | yes | Free-text signal type extracted from the reply; allowed values not documented. |
+| `parsed_rating` | integer | yes | Rating integer extracted from the reply (scale not documented in the DDL). |
+| `parsed_sentiment` | text | yes | Per the Task 5 DDL CHECK, one of: positive, negative, neutral. |
+| `parsed_descriptors` | jsonb | yes | JSONB of flavor descriptors extracted from the reply. |
+| `firestore_feedback_doc_id` | text | yes | Id of the Firestore users/{uid}/feedback_events doc created from the reply. |
+| `created_at` | timestamp with time zone | yes | UTC timestamp when the row was created. |
+
+#### `quiz_vector`
+
+Retired 2026-10-16: per-dimension scores for a quiz session from the original 2026-05 design; never written (0 rows), no code, and dimension_id is a UUID that cannot join coffee_dimensions (integer id); quiz scoring is quiz_answer_archetype_score and the result lives in quiz_session.context_data and quiz_session_interpretation; drop-later
+
+- **Writer:** none
+- **Readers:** none
+- **Since:** 2026-05-22
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | uuid | no | Surrogate UUID primary key. |
+| `user_id` | uuid | yes | FK to user_profile(id), ON DELETE CASCADE; the user the scores belong to. |
+| `quiz_session_id` | uuid | yes | FK to quiz_session(id), ON DELETE CASCADE; the session the scores came from. |
+| `dimension_id` | uuid | yes | Class: deprecated \| DEPRECATED 2026-10-16 with its table: UUID with no FK that cannot join coffee_dimensions (integer id). |
+| `score` | numeric | no | Class: deprecated \| DEPRECATED 2026-10-16 with its table: numeric score on that dimension; scale undefined, table unused. |
+
+#### `roastery_blend_vector`
+
+Retired 2026-10-16: per-SKU score on each flavor dimension from the original 2026-05 design; never written (0 rows), no code, and dimension_id is a UUID that cannot join coffee_dimensions (integer id); the live model scores coffees, not SKUs, through the cupping tables and the Bloom Dial placement (coffee_dial_slot); drop-later
+
+- **Writer:** none
+- **Readers:** none
+- **Since:** 2026-05-22 (as blend_vector)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `blend_id` | uuid | no | FK to coffee_sku(id), ON DELETE CASCADE; part of the primary key. |
+| `dimension_id` | uuid | no | Class: deprecated \| DEPRECATED 2026-10-16 with its table: UUID with no FK that cannot join coffee_dimensions (integer id); part of the primary key. |
+| `score` | numeric | no | Class: deprecated \| DEPRECATED 2026-10-16 with its table: numeric score of the SKU on that dimension; scale undefined, table unused. |
 
 #### `sommelier_messages`
 
@@ -2351,8 +2260,26 @@ Legacy pre-Firestore transcript of Liam chat turns, read only as a fallback for 
 | `session_id` | integer | no | References sommelier_sessions.id (ON DELETE CASCADE): the Liam session this turn belonged to. |
 | `role` | text | no | Who spoke this turn; code treats it as user or assistant (no CHECK constraint). |
 | `content` | text | no | Full text of the turn. |
-| `model_used` | text | yes | UNVERIFIED: no code writes or reads this column and its values in prod are unknown \| Claude model id that produced an assistant turn, presumably. |
+| `model_used` | text | yes | Class: deprecated \| DEPRECATED with its table (legacy pre-Firestore transcript): label of the model that produced an assistant turn in Liam v1, nine legacy rows, nothing writes it since the move to Firestore on 2026-06-27. |
 | `created_at` | timestamp with time zone | yes | UTC timestamp the turn was stored; the fallback read orders by it. |
+
+#### `user_coffee_profile`
+
+Retired 2026-10-16: ranked coffee-archetype matches per user from the original 2026-05 design; never written (0 rows), no code; the live equivalent is quiz_session plus quiz_session_interpretation (primary, secondary, explore); drop-later
+
+- **Writer:** none
+- **Readers:** none
+- **Since:** 2026-05-22
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | uuid | no | Surrogate UUID primary key. |
+| `user_id` | uuid | yes | FK to user_profile(id), ON DELETE CASCADE; the user the match belongs to. |
+| `archetype_id` | uuid | yes | FK to coffee_archetype(id); the matched archetype. |
+| `match_rank` | integer | no | Class: deprecated \| DEPRECATED 2026-10-16 with its table: rank of this archetype among the user's matches, never written. |
+| `match_confidence` | numeric | yes | Class: deprecated \| DEPRECATED 2026-10-16 with its table: numeric confidence of the match; scale undefined, table unused. |
+| `is_active` | boolean | yes | True while this match row is the live one for the user; default true. |
+| `assigned_at` | timestamp with time zone | yes | UTC timestamp when the match was assigned; defaults to insert time. |
 
 #### `user_flavor_feedback`
 
@@ -2372,6 +2299,59 @@ Retired post-delivery customer feedback per flavor descriptor, replaced by custo
 | `intensity` | numeric | yes | How strongly the customer perceived the descriptor, 0 to 15; optional. |
 | `notes` | text | yes | Free-text note from the customer. |
 | `created_at` | timestamp with time zone | yes | UTC timestamp the feedback row was created. |
+
+#### `user_payment_detail`
+
+Retired 2026-10-16: intended store of per-user payment accounts from the original 2026-05 design; never written (0 rows), no code, and the Stripe payment-capture brief does not use it (Stripe Checkout holds payment methods); drop-later
+
+- **Writer:** none
+- **Readers:** none
+- **Since:** 2026-05-22 (as payment_detail, renamed user_payment_detail)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | uuid | no | Surrogate primary key (UUID). |
+| `user_id` | uuid | yes | References user_profile.id; row is deleted with the profile (ON DELETE CASCADE). |
+| `account_type` | text | no | Class: deprecated \| DEPRECATED 2026-10-16 with its table: required free-text kind of payment account, never written. |
+| `provider` | text | no | Class: deprecated \| DEPRECATED 2026-10-16 with its table: required payment provider name, never written. |
+| `payment_terms` | text | yes | Class: deprecated \| DEPRECATED 2026-10-16 with its table: free-text payment terms, never written. |
+| `external_provider_id` | text | yes | Class: deprecated \| DEPRECATED 2026-10-16 with its table: provider-side id of the account or customer, never written. |
+| `routing_info` | jsonb | yes | Class: deprecated \| DEPRECATED 2026-10-16 with its table: JSONB provider routing details, never written. |
+| `is_default` | boolean | yes | Boolean, default false: marks the user's default payment account. |
+| `is_active` | boolean | yes | Boolean, default true: whether the payment account is usable. |
+| `created_at` | timestamp with time zone | yes | UTC timestamp when the row was created. |
+| `updated_at` | timestamp with time zone | yes | UTC timestamp of last update. |
+
+#### `user_roaster_link`
+
+Retired 2026-10-16: link from a user account to the roastery they work at, from the original 2026-05 design; never written (0 rows), no code; roastery people reach us through roastery_portal_link tokens and roastery_portal_respondent, not accounts; drop-later
+
+- **Writer:** none
+- **Readers:** none
+- **Since:** 2026-05-22
+
+| column | type | null | comment |
+|---|---|---|---|
+| `user_id` | uuid | no | FK to user_profile(id), ON DELETE CASCADE; part of the primary key. |
+| `roaster_id` | uuid | no | FK to roaster(id), ON DELETE CASCADE; part of the primary key. |
+| `role_at_roastery` | text | yes | Free-text role of the user at that roastery; NULL if not set. |
+| `created_at` | timestamp with time zone | yes | UTC timestamp when the link was created. |
+
+#### `user_vector_state`
+
+Retired 2026-10-16: per-user declared and behavioral score per flavor dimension from the original 2026-05 design; never written (0 rows), no code, and dimension_id is a UUID that cannot join coffee_dimensions (integer id); the live customer position is quiz_session_interpretation and user_bloom_dial_current_position; drop-later
+
+- **Writer:** none
+- **Readers:** none
+- **Since:** 2026-05-22
+
+| column | type | null | comment |
+|---|---|---|---|
+| `user_id` | uuid | no | References user_profile.id; part of the primary key (ON DELETE CASCADE). |
+| `dimension_id` | uuid | no | UUID of the flavor dimension (md5-derived style, no FK); part of the primary key. |
+| `declared_score` | numeric | yes | Score the user stated, presumably 0-15 scale. |
+| `behavior_score` | numeric | yes | Score inferred from behavior, presumably 0-15 scale. |
+| `updated_at` | timestamp with time zone | yes | UTC timestamp of last update. |
 
 ## Views
 
@@ -2973,15 +2953,11 @@ Probe markers (`// lineage: probe, not a write`), each a write the rule does not
 
 ## Activity
 
-Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live counts are on admin System Health. A dead candidate has had no insert, update, delete or scan since a reset older than 30 days. Any full export (such as a test-database clone) scans every table and clears the list.
-
-**Dead candidates, observed (0):** none.
+_Activity is read from production only; this file was generated from `axisandbloom_test`. Regenerate with `npm run catalog:md -- --expect-db axisandbloom`. Live numbers: admin System Health or `v_data_table_activity`._
 
 **Dead candidates, static (23):** `archetype_relationship`, `archetype_tunable_variable`, `cupping_brew_params`, `cupping_note_dimension_weight`, `customer_order_kind`, `liam_sms_feedback`, `newsletter_subscriber_backup_20260925`, `notification_log`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_vector`, `roastery_blend_vector`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `user_archetype_tuning`, `user_coffee_profile`, `user_lifecycle_event`, `user_payment_detail`, `user_roaster_link`, `user_vector_state`.
 
-**Touched since the reset (115):** `address`, `api_event`, `archetype_relationship`, `archetype_tunable_variable`, `archetype_vector`, `beat_event`, `brew_card_view_event`, `campaign_landing_event`, `catalog_change`, `claude_daily_spend`, `coffee_archetype`, `coffee_archetype_assignment`, `coffee_category`, `coffee_category_assignment`, `coffee_dial_slot`, `coffee_dimensions`, `coffee_hop`, `coffee_retail_price`, `coffee_size`, `coffee_sku`, `coffee_slot_assignment`, `coffee_slot_price`, `coffees`, `company`, `company_gift`, `company_gift_code`, `cupping_brew_params`, `cupping_note`, `cupping_note_dimension_weight`, `cupping_score_descriptors`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`, `cupping_sessions`, `customer_bag_claim`, `customer_brew_profile_change`, `customer_dial_event`, `customer_feedback_descriptor`, `customer_feedback_event`, `customer_identity_link`, `customer_liam_action`, `customer_liam_question`, `customer_liam_recommendation`, `customer_liam_reply`, `customer_order_kind`, `dial_position_signal`, `dial_source_weight`, `household`, `household_invitation`, `liam_sms_feedback`, `lookup_value`, `marketing_config`, `newsletter_subscriber`, `newsletter_subscriber_backup_20260925`, `notification_log`, `order`, `order_line_item`, `qr_scan_event`, `qr_universal_token`, `quiz`, `quiz_answer`, `quiz_answer_archetype_score`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_funnel_event`, `quiz_question`, `quiz_session`, `quiz_session_interpretation`, `quiz_type`, `quiz_vector`, `roaster`, `roastery_blend_vector`, `roastery_coffee_descriptors`, `roastery_portal_acceptance`, `roastery_portal_coffee`, `roastery_portal_dimension`, `roastery_portal_lineup_response`, `roastery_portal_lineup_response_best_seller`, `roastery_portal_link`, `roastery_portal_note_mapping`, `roastery_portal_respondent`, `roastery_portal_response`, `roastery_portal_response_brew`, `roastery_portal_response_dimension`, `roastery_portal_response_note`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `sommelier_evaluation`, `sommelier_messages`, `sommelier_sessions`, `sommelier_sms_feedback`, `subscriber_source`, `subscription`, `token_events`, `transactional_email_log`, `user_archetype_tuning`, `user_bloom_dial_current_position`, `user_brew_card`, `user_coffee_profile`, `user_email`, `user_flavor_feedback`, `user_lifecycle_event`, `user_lifecycle_stage`, `user_lifecycle_state`, `user_payment_detail`, `user_phone`, `user_profile`, `user_roaster_link`, `user_saved_item`, `user_tokens`, `user_type`, `user_vector_state`.
-
 ---
 
-catalog-hash: 9e1c53cc334137c73886ec0eaab986534fa470c9ecf16e56d3e8c45b95c5cf99
-lineage-hash: 47617e65da20aa9c783e6bdbec04b00792cfaec889ffa75b72639b65c918cabd
+catalog-hash: 6493f8131b12e7d990fce7e03086beead6972d7573c50d7c33aef7dfa4f4abfe
+lineage-hash: e58584cb55e2eaa50d9e56117b43346e9f0b790ef1b2798f1af8222b57ae52e4

@@ -13,6 +13,7 @@ Dana, 2026-10-13: "I don't remember anything, and we keep adding more tables, mo
 | 1 | `CLAUDE_CODE_PROMPT_DATA_CATALOG_1_DICTIONARY.md` | `backend/src/db/comments.sql`: a `COMMENT ON` for every table, view and table column, applied at boot after `schema.sql`. Firestore collections inventoried in the same format. |
 | 2 | `CLAUDE_CODE_PROMPT_DATA_CATALOG_2_LINT_AND_CATALOG_MD.md` | `v_data_catalog` view, `dataCatalogIntegrity.ts` boot check (report only), `npm run catalog:md` generating `CATALOG.md` at the repo root, System Health card, CLAUDE.md rule. |
 | 3 | `CLAUDE_CODE_PROMPT_DATA_CATALOG_3_LINEAGE.md` | `scripts/lineage-scan.mjs` (writer/reader map from code, one-writer rule enforced in CI), `application_name` per pool, `v_data_lineage` + `v_data_table_activity` from `pg_stat_statements` / `pg_stat_user_tables`, lineage and dead-table sections in `CATALOG.md` and System Health. |
+| 4 | `CLAUDE_CODE_PROMPT_DATA_CATALOG_4_RESOLVE_UNVERIFIED.md` | The 84 `UNVERIFIED` comments rewritten with Dana's decisions (retired tables `deprecated`/drop-later, commerce columns reserved for the Stripe brief, units defined or stated undefined); check #2 at 0. Comments only, no schema change. |
 
 ## Lint posture (decided 2026-10-16, revised the same day)
 

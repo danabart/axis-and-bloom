@@ -5658,6 +5658,12 @@ Brief: `backend/src/features/data_catalog/CLAUDE_CODE_PROMPT_DATA_CATALOG_3_LINE
 
 **Not done in this pass:** consolidating the 15 multi-writer tables; the 84 `UNVERIFIED`s; production verification (next deploy).
 
+### 223. Data catalog, brief 4: the 84 UNVERIFIED comments resolved, 0 left (2026-10-16)
+
+Brief: `backend/src/features/data_catalog/CLAUDE_CODE_PROMPT_DATA_CATALOG_4_RESOLVE_UNVERIFIED.md`. Closing report: `CLOSING_REPORT_4.md` in the same folder. All 84 statements in `comments.sql` (10 tables, 74 columns) rewritten with Dana's decided text; `grep -c UNVERIFIED comments.sql` is 1 (the header rule), check #2 reads 0.
+**Split:** 7 tables retired as `Class: deprecated` with `drop-later` in the Purpose (six never-written 2026-05 design tables plus `liam_sms_feedback`) and 19 columns `DEPRECATED 2026-10-16`; the commerce placeholders kept as reserved for the Stripe payment-capture brief (`roastery_shipment_details` plus 16 columns, money in USD dollars like `total_amount_paid`); `cupping_brew_params` reserved for the cupping tool; units and vocabularies defined where code backs them (`coffee_sku.cost_to_us`, `coffees.roast_shade`, `sms_beats_opt_in`), "undefined" where nothing does; the 2 prod-only tables say `Not in schema.sql.` in their Purpose and their 33 columns lost the prefix.
+**Nothing dropped, no `schema.sql` change, no data change.** Tests: the format test now requires a not-in-schema table to say so and be `deprecated` or `snapshot`; the integrity test expects 0 UNVERIFIED. `CATALOG.md` regenerated from the test DB (header `0 UNVERIFIED`).
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

@@ -81,12 +81,17 @@ describe('comments.sql format', () => {
     expect([...new Set(statements.filter(s => s.kind === 'COLUMN' && !rels.has(s.relation)).map(s => s.relation))]).toEqual([]);
   });
 
-  it('every table comment for an object not created in schema.sql starts UNVERIFIED: not in schema.sql', () => {
+  // Data catalog brief 4 (2026-10-16): the two prod-only tables are resolved;
+  // their Purpose says so and they are deprecated or snapshot, never UNVERIFIED.
+  it('every table comment for an object not created in schema.sql says so and is deprecated or snapshot', () => {
     const created = new Set([...schema.toLowerCase().matchAll(
       /create\s+(?:table|(?:or\s+replace\s+)?view)\s+(?:if\s+not\s+exists\s+)?(?:public\.)?"?([a-z0-9_]+)/g,
     )].map(m => m[1]));
     const bad = statements
-      .filter(s => s.kind !== 'COLUMN' && !created.has(s.relation) && !s.text.startsWith('UNVERIFIED: not in schema.sql'))
+      .filter(s => s.kind !== 'COLUMN' && !created.has(s.relation))
+      .filter(s => s.text.startsWith('UNVERIFIED')
+        || !s.text.startsWith('Purpose: Not in schema.sql.')
+        || !['deprecated', 'snapshot'].includes(/\| Class: ([a-z]+) \|/.exec(s.text)?.[1] ?? ''))
       .map(s => s.relation);
     expect(bad).toEqual([]);
   });

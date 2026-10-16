@@ -68,7 +68,7 @@ describe('runDataCatalogIntegrityChecks on the test database (report only)', () 
       .map(s => (s.column === undefined ? s.relation : `${s.relation}.${s.column}`))
       .filter(name => !skippedSet.has(name));
     expect([...byId(2).details!].sort()).toEqual(expectedUnverified.sort());
-    if (skipped.length === 0) expect(byId(2).details!.length).toBe(84);
+    if (skipped.length === 0) expect(byId(2).details!.length).toBe(0);
 
     expect(byId(4).pass).toBe(true);
     expect(byId(4).actual).toBe('hash match');

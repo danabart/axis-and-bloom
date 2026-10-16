@@ -55,7 +55,7 @@ COMMENT ON TABLE coffee_archetype IS $c$Purpose: The six named flavor-profile ar
 COMMENT ON COLUMN coffee_archetype.id IS $c$Surrogate primary key (UUID); the FK target for quiz answers, quiz sessions, archetype_vector and similar quiz-side tables (catalog tables key on code instead).$c$;
 COMMENT ON COLUMN coffee_archetype.name IS $c$Display name of the archetype, unique; still the natural key inside the quiz seed blocks. Balanced was renamed from Balanced & Sweet on 2026-09-19.$c$;
 COMMENT ON COLUMN coffee_archetype.description IS $c$Customer-facing one-sentence profile text for the archetype.$c$;
-COMMENT ON COLUMN coffee_archetype.is_active IS $c$UNVERIFIED: no code or view reads or writes this flag | Boolean, default true; apparently inert for archetypes.$c$;
+COMMENT ON COLUMN coffee_archetype.is_active IS $c$Class: deprecated | DEPRECATED 2026-10-16: boolean default true that no code or view reads or writes; all six archetypes are live and retiring one is a code change, not a flag.$c$;
 COMMENT ON COLUMN coffee_archetype.created_at IS $c$UTC timestamp when the row was created.$c$;
 COMMENT ON COLUMN coffee_archetype.updated_at IS $c$UTC timestamp of last update; set by the seed rename UPDATEs in schema.sql.$c$;
 COMMENT ON COLUMN coffee_archetype.code IS $c$Stable catalog identity of the archetype, unique; archetype_enum (chocolate_nutty, balanced_sweet, fruity, earthy, floral, experimental). Backfilled once from name in schema.sql, no runtime writer.$c$;
@@ -98,8 +98,8 @@ COMMENT ON COLUMN cupping_note.id IS $c$Surrogate primary key (UUID); referenced
 COMMENT ON COLUMN cupping_note.wheel_category IS $c$Top-level SCA wheel category, e.g. Floral, Fruity, Sour / Fermented, Green / Vegetative, Other, Roasted, Spices, Nutty / Cocoa, Sweet.$c$;
 COMMENT ON COLUMN cupping_note.wheel_subcategory IS $c$SCA wheel subcategory within the category (about 25 values).$c$;
 COMMENT ON COLUMN cupping_note.descriptor IS $c$The flavor descriptor word or phrase itself, e.g. Jasmine.$c$;
-COMMENT ON COLUMN cupping_note.intensity_score IS $c$UNVERIFIED: no code reads or writes it; docs say it is NULL by default and assigned per cupping session | Numeric descriptor-level intensity, apparently unused.$c$;
-COMMENT ON COLUMN cupping_note.ai_metadata IS $c$UNVERIFIED: no code, doc or seed mentions this column | JSONB reserved for AI-generated metadata, apparently unused.$c$;
+COMMENT ON COLUMN cupping_note.intensity_score IS $c$Class: deprecated | DEPRECATED 2026-10-16: never written; cupping_note is the descriptor vocabulary, and the intensity a descriptor showed in a cupping lives on cupping_score_descriptors.intensity (0-15).$c$;
+COMMENT ON COLUMN cupping_note.ai_metadata IS $c$Class: deprecated | DEPRECATED 2026-10-16: JSONB never written, read or documented.$c$;
 COMMENT ON COLUMN cupping_note.is_active IS $c$True when the descriptor is part of the active wheel; catalogService and the roastery portal only accept active descriptors.$c$;
 COMMENT ON COLUMN cupping_note.created_at IS $c$UTC timestamp when the row was created.$c$;
 COMMENT ON COLUMN cupping_note.updated_at IS $c$UTC timestamp of last update; no code path updates it after seeding.$c$;
@@ -142,8 +142,8 @@ COMMENT ON COLUMN user_profile.last_name IS $c$Customer last name | Writer: auth
 COMMENT ON COLUMN user_profile.household_id IS $c$References household.id; NULL when the user is in no household | Writer: household.POST /create, household.POST /join/:token, household.DELETE /leave, household.DELETE /members/:userId$c$;
 COMMENT ON COLUMN user_profile.is_household_admin IS $c$True when the user administers their household (the creator); false otherwise | Writer: household.POST /create, household.DELETE /leave, household.DELETE /members/:userId$c$;
 COMMENT ON COLUMN user_profile.user_type_id IS $c$References user_type.id (admin or customer); NULL is treated as a regular customer | Writer: admin.POST /grant-admin, admin.DELETE /revoke-admin, SQL fns grant_admin and revoke_admin$c$;
-COMMENT ON COLUMN user_profile.stripe_customer_id IS $c$UNVERIFIED: no code reads or writes it; the Stripe payment-capture brief plans to use it | Stripe customer id for the user, currently unused.$c$;
-COMMENT ON COLUMN user_profile.accepts_marketing IS $c$UNVERIFIED: no code reads or writes it (newsletter consent lives on newsletter_subscriber) | Boolean marketing-consent flag, default false.$c$;
+COMMENT ON COLUMN user_profile.stripe_customer_id IS $c$Stripe customer id for the user; reserved for the Stripe payment-capture brief (getOrCreateStripeCustomer reads and writes it), not written yet.$c$;
+COMMENT ON COLUMN user_profile.accepts_marketing IS $c$Class: deprecated | DEPRECATED 2026-10-16: never read or written; marketing consent lives on newsletter_subscriber (subscribed, unsubscribed_at).$c$;
 COMMENT ON COLUMN user_profile.date_of_birth IS $c$Customer date of birth (date, no time zone); used to derive generation for Liam | Writer: users.PATCH /profile$c$;
 COMMENT ON COLUMN user_profile.created_at IS $c$UTC timestamp when the profile was created; stale guest cleanup keys on it.$c$;
 COMMENT ON COLUMN user_profile.updated_at IS $c$UTC timestamp of last profile touch; refreshed by the lazy upserts and PATCH.$c$;
@@ -178,8 +178,8 @@ COMMENT ON COLUMN user_phone.created_at IS $c$UTC timestamp when the row was cre
 COMMENT ON COLUMN user_phone.updated_at IS $c$UTC timestamp of last change to the number or opt-in.$c$;
 COMMENT ON COLUMN user_phone.sms_opt_in IS $c$Consent to the post-delivery feedback SMS ask (legacy consent); read by liamSmsFeedback.$c$;
 COMMENT ON COLUMN user_phone.sms_opt_in_at IS $c$UTC timestamp when sms_opt_in was last switched on.$c$;
-COMMENT ON COLUMN user_phone.sms_beats_opt_in IS $c$UNVERIFIED: read by beatEngine and cron but no code writes it (docs: no UI toggle built yet) | Extended consent for beat SMS, default false.$c$;
-COMMENT ON COLUMN user_phone.sms_beats_opt_in_at IS $c$UNVERIFIED: no code writes it | UTC timestamp when sms_beats_opt_in was granted.$c$;
+COMMENT ON COLUMN user_phone.sms_beats_opt_in IS $c$Extended consent for beat SMS, default false; read live by beatEngine and the beats cron, written by nothing until the A2P consent UI exists (HOME_TASK_8 scope note in schema.sql).$c$;
+COMMENT ON COLUMN user_phone.sms_beats_opt_in_at IS $c$UTC timestamp when sms_beats_opt_in was granted; written by nothing until the A2P consent UI exists.$c$;
 -- ── address ──
 COMMENT ON TABLE address IS $c$Purpose: Saved shipping and billing addresses per user | Class: operating | Writer: users.POST /api/users/addresses, users.PATCH /api/users/addresses/:id/default, users.DELETE /api/users/addresses/:id | Readers: users (+ order.shipping_address_id FK) | Since: 2026-05-22$c$;
 COMMENT ON COLUMN address.id IS $c$Surrogate primary key (UUID); order.shipping_address_id points here as a convenience pointer.$c$;
@@ -194,14 +194,14 @@ COMMENT ON COLUMN address.is_default IS $c$True for the default address of its t
 COMMENT ON COLUMN address.created_at IS $c$UTC timestamp when the address was saved.$c$;
 COMMENT ON COLUMN address.updated_at IS $c$Timestamp set only at insert (default now()); the default-flag UPDATEs do not refresh it.$c$;
 -- ── user_payment_detail ──
-COMMENT ON TABLE user_payment_detail IS $c$UNVERIFIED: no code reads or writes it, docs only say Stripe customer links and payment info | Purpose: Intended store of per-user payment accounts | Class: operating | Writer: none | Readers: none | Since: 2026-05-22 (as payment_detail, renamed user_payment_detail)$c$;
+COMMENT ON TABLE user_payment_detail IS $c$Purpose: Retired 2026-10-16: intended store of per-user payment accounts from the original 2026-05 design; never written (0 rows), no code, and the Stripe payment-capture brief does not use it (Stripe Checkout holds payment methods); drop-later | Class: deprecated | Writer: none | Readers: none | Since: 2026-05-22 (as payment_detail, renamed user_payment_detail)$c$;
 COMMENT ON COLUMN user_payment_detail.id IS $c$Surrogate primary key (UUID).$c$;
 COMMENT ON COLUMN user_payment_detail.user_id IS $c$References user_profile.id; row is deleted with the profile (ON DELETE CASCADE).$c$;
-COMMENT ON COLUMN user_payment_detail.account_type IS $c$UNVERIFIED: never written or documented | Required free-text kind of payment account.$c$;
-COMMENT ON COLUMN user_payment_detail.provider IS $c$UNVERIFIED: never written or documented | Required payment provider name, presumably Stripe.$c$;
-COMMENT ON COLUMN user_payment_detail.payment_terms IS $c$UNVERIFIED: never written or documented | Free-text payment terms.$c$;
-COMMENT ON COLUMN user_payment_detail.external_provider_id IS $c$UNVERIFIED: never written or documented | Provider-side id of the account or customer.$c$;
-COMMENT ON COLUMN user_payment_detail.routing_info IS $c$UNVERIFIED: never written or documented | JSONB provider routing details.$c$;
+COMMENT ON COLUMN user_payment_detail.account_type IS $c$Class: deprecated | DEPRECATED 2026-10-16 with its table: required free-text kind of payment account, never written.$c$;
+COMMENT ON COLUMN user_payment_detail.provider IS $c$Class: deprecated | DEPRECATED 2026-10-16 with its table: required payment provider name, never written.$c$;
+COMMENT ON COLUMN user_payment_detail.payment_terms IS $c$Class: deprecated | DEPRECATED 2026-10-16 with its table: free-text payment terms, never written.$c$;
+COMMENT ON COLUMN user_payment_detail.external_provider_id IS $c$Class: deprecated | DEPRECATED 2026-10-16 with its table: provider-side id of the account or customer, never written.$c$;
+COMMENT ON COLUMN user_payment_detail.routing_info IS $c$Class: deprecated | DEPRECATED 2026-10-16 with its table: JSONB provider routing details, never written.$c$;
 COMMENT ON COLUMN user_payment_detail.is_default IS $c$Boolean, default false: marks the user's default payment account.$c$;
 COMMENT ON COLUMN user_payment_detail.is_active IS $c$Boolean, default true: whether the payment account is usable.$c$;
 COMMENT ON COLUMN user_payment_detail.created_at IS $c$UTC timestamp when the row was created.$c$;
@@ -250,7 +250,7 @@ COMMENT ON COLUMN archetype_tunable_variable.min_offset IS $c$Lowest allowed off
 COMMENT ON COLUMN archetype_tunable_variable.max_offset IS $c$Highest allowed offset from the archetype ideal, score points, default 2.0.$c$;
 COMMENT ON COLUMN archetype_tunable_variable.created_at IS $c$UTC timestamp when the row was created.$c$;
 -- ── user_vector_state ──
-COMMENT ON TABLE user_vector_state IS $c$UNVERIFIED: no code, view or seed reads or writes it | Purpose: Per-user position in flavor-dimension space, declared and behavioral | Class: operating | Writer: none | Readers: none | Since: 2026-05-22$c$;
+COMMENT ON TABLE user_vector_state IS $c$Purpose: Retired 2026-10-16: per-user declared and behavioral score per flavor dimension from the original 2026-05 design; never written (0 rows), no code, and dimension_id is a UUID that cannot join coffee_dimensions (integer id); the live customer position is quiz_session_interpretation and user_bloom_dial_current_position; drop-later | Class: deprecated | Writer: none | Readers: none | Since: 2026-05-22$c$;
 COMMENT ON COLUMN user_vector_state.user_id IS $c$References user_profile.id; part of the primary key (ON DELETE CASCADE).$c$;
 COMMENT ON COLUMN user_vector_state.dimension_id IS $c$UUID of the flavor dimension (md5-derived style, no FK); part of the primary key.$c$;
 COMMENT ON COLUMN user_vector_state.declared_score IS $c$Score the user stated, presumably 0-15 scale.$c$;
@@ -265,12 +265,12 @@ COMMENT ON COLUMN user_archetype_tuning.user_selected_offset IS $c$Offset the us
 COMMENT ON COLUMN user_archetype_tuning.updated_at IS $c$UTC timestamp of last update.$c$;
 
 -- ── user_coffee_profile ──
-COMMENT ON TABLE user_coffee_profile IS $c$UNVERIFIED: no reader or writer found in backend/src or backend/scripts, docs only call it "their ranked archetype matches" | Purpose: Ranked coffee-archetype matches per user, one row per rank. | Class: operating | Writer: none | Readers: none found | Since: 2026-05-22$c$;
+COMMENT ON TABLE user_coffee_profile IS $c$Purpose: Retired 2026-10-16: ranked coffee-archetype matches per user from the original 2026-05 design; never written (0 rows), no code; the live equivalent is quiz_session plus quiz_session_interpretation (primary, secondary, explore); drop-later | Class: deprecated | Writer: none | Readers: none | Since: 2026-05-22$c$;
 COMMENT ON COLUMN user_coffee_profile.id IS $c$Surrogate UUID primary key.$c$;
 COMMENT ON COLUMN user_coffee_profile.user_id IS $c$FK to user_profile(id), ON DELETE CASCADE; the user the match belongs to.$c$;
 COMMENT ON COLUMN user_coffee_profile.archetype_id IS $c$FK to coffee_archetype(id); the matched archetype.$c$;
-COMMENT ON COLUMN user_coffee_profile.match_rank IS $c$UNVERIFIED: no code uses it | Rank of this archetype among the user's matches (presumably 1 = best match).$c$;
-COMMENT ON COLUMN user_coffee_profile.match_confidence IS $c$UNVERIFIED: no code uses it, scale not defined | Confidence of the match, numeric (presumably 0-1 score).$c$;
+COMMENT ON COLUMN user_coffee_profile.match_rank IS $c$Class: deprecated | DEPRECATED 2026-10-16 with its table: rank of this archetype among the user's matches, never written.$c$;
+COMMENT ON COLUMN user_coffee_profile.match_confidence IS $c$Class: deprecated | DEPRECATED 2026-10-16 with its table: numeric confidence of the match; scale undefined, table unused.$c$;
 COMMENT ON COLUMN user_coffee_profile.is_active IS $c$True while this match row is the live one for the user; default true.$c$;
 COMMENT ON COLUMN user_coffee_profile.assigned_at IS $c$UTC timestamp when the match was assigned; defaults to insert time.$c$;
 -- ── coffee_sku ──
@@ -280,9 +280,9 @@ COMMENT ON COLUMN coffee_sku.roaster_id IS $c$FK to roaster(id); the roastery th
 COMMENT ON COLUMN coffee_sku.blend_name IS $c$Display name of the SKU; defaults to the coffee's name on insert and is used by the coffee_id name-match backfill.$c$;
 COMMENT ON COLUMN coffee_sku.shopify_variant_id IS $c$Shopify variant ID passed to Shopify when an order for this SKU is placed; NULL until mapped.$c$;
 COMMENT ON COLUMN coffee_sku.roaster_sku IS $c$The roaster's own SKU code for this bag size; NULL if not set.$c$;
-COMMENT ON COLUMN coffee_sku.cost_to_us IS $c$UNVERIFIED: unit not stated in code or docs | Wholesale cost to Axis and Bloom for one bag, presumably dollars per bag (not cents).$c$;
+COMMENT ON COLUMN coffee_sku.cost_to_us IS $c$Wholesale cost to Axis and Bloom for one bag of this SKU in USD dollars (admin field "Cost to us ($)", two decimals); written by catalogService.upsertSkuInTx from Admin Supply and Inventory and from catalog import, shown in Admin Supply and Inventory, read by no customer-facing path.$c$;
 COMMENT ON COLUMN coffee_sku.is_active IS $c$True while the SKU is available from the roaster (the only availability lever; false = Paused); set false by coffee or roastery retirement.$c$;
-COMMENT ON COLUMN coffee_sku.coffee_type IS $c$UNVERIFIED: no code reads or writes it, only the schema default | Kind of coffee, default blend.$c$;
+COMMENT ON COLUMN coffee_sku.coffee_type IS $c$Class: deprecated | DEPRECATED 2026-10-16: never read or written, always the default blend; the kind of coffee is coffees.blend_or_single.$c$;
 COMMENT ON COLUMN coffee_sku.weight_oz IS $c$Bag size in ounces; FK to coffee_size(weight_oz) (sizes 12 oz anchor, 2 lb, 5 lb); at most one active SKU per coffee_id and size.$c$;
 COMMENT ON COLUMN coffee_sku.inventory_status IS $c$Class: deprecated | DEPRECATED 2026-09-30: drop-ship model, stock not tracked; not read or written by the app.$c$;
 COMMENT ON COLUMN coffee_sku.quantity_available IS $c$Class: deprecated | DEPRECATED 2026-09-30: drop-ship model, stock not tracked; not read or written by the app.$c$;
@@ -295,12 +295,12 @@ COMMENT ON COLUMN coffee_sku.last_restocked_at IS $c$Class: deprecated | DEPRECA
 COMMENT ON COLUMN coffee_sku.deactivated_at IS $c$UTC timestamp when the SKU was deactivated; NULL while active.$c$;
 COMMENT ON COLUMN coffee_sku.deactivation_reason IS $c$Why the SKU was deactivated. One of: roaster, manual. NULL while active; roaster = cascaded from roastery deactivation, manual = coffee retired by an admin.$c$;
 -- ── roastery_blend_vector ──
-COMMENT ON TABLE roastery_blend_vector IS $c$UNVERIFIED: no reader or writer found in backend/src or backend/scripts, docs only say where each blend sits in flavor-dimension space | Purpose: Score of each SKU on each flavor dimension. | Class: operating | Writer: none | Readers: none found | Since: 2026-05-22 (as blend_vector)$c$;
+COMMENT ON TABLE roastery_blend_vector IS $c$Purpose: Retired 2026-10-16: per-SKU score on each flavor dimension from the original 2026-05 design; never written (0 rows), no code, and dimension_id is a UUID that cannot join coffee_dimensions (integer id); the live model scores coffees, not SKUs, through the cupping tables and the Bloom Dial placement (coffee_dial_slot); drop-later | Class: deprecated | Writer: none | Readers: none | Since: 2026-05-22 (as blend_vector)$c$;
 COMMENT ON COLUMN roastery_blend_vector.blend_id IS $c$FK to coffee_sku(id), ON DELETE CASCADE; part of the primary key.$c$;
-COMMENT ON COLUMN roastery_blend_vector.dimension_id IS $c$UNVERIFIED: no FK declared | Flavor dimension the score is for (presumably coffee_dimensions.id); part of the primary key.$c$;
-COMMENT ON COLUMN roastery_blend_vector.score IS $c$UNVERIFIED: scale not stated | Numeric score of the SKU on that dimension.$c$;
+COMMENT ON COLUMN roastery_blend_vector.dimension_id IS $c$Class: deprecated | DEPRECATED 2026-10-16 with its table: UUID with no FK that cannot join coffee_dimensions (integer id); part of the primary key.$c$;
+COMMENT ON COLUMN roastery_blend_vector.score IS $c$Class: deprecated | DEPRECATED 2026-10-16 with its table: numeric score of the SKU on that dimension; scale undefined, table unused.$c$;
 -- ── user_roaster_link ──
-COMMENT ON TABLE user_roaster_link IS $c$UNVERIFIED: no reader or writer found in backend/src or backend/scripts, docs only call it "roastery staff accounts" | Purpose: Links a user account to the roastery they work at. | Class: operating | Writer: none | Readers: none found | Since: 2026-05-22$c$;
+COMMENT ON TABLE user_roaster_link IS $c$Purpose: Retired 2026-10-16: link from a user account to the roastery they work at, from the original 2026-05 design; never written (0 rows), no code; roastery people reach us through roastery_portal_link tokens and roastery_portal_respondent, not accounts; drop-later | Class: deprecated | Writer: none | Readers: none | Since: 2026-05-22$c$;
 COMMENT ON COLUMN user_roaster_link.user_id IS $c$FK to user_profile(id), ON DELETE CASCADE; part of the primary key.$c$;
 COMMENT ON COLUMN user_roaster_link.roaster_id IS $c$FK to roaster(id), ON DELETE CASCADE; part of the primary key.$c$;
 COMMENT ON COLUMN user_roaster_link.role_at_roastery IS $c$Free-text role of the user at that roastery; NULL if not set.$c$;
@@ -320,9 +320,9 @@ COMMENT ON TABLE quiz_answer IS $c$Purpose: Versioned (SCD Type 2) answer option
 COMMENT ON COLUMN quiz_answer.id IS $c$Surrogate UUID primary key; one per answer version, persisted in sessions as answerIds and referenced by quiz_answer_archetype_score and quiz_session.branch_answer_id.$c$;
 COMMENT ON COLUMN quiz_answer.question_id IS $c$FK to quiz_question(id), ON DELETE CASCADE; the question version this answer belongs to.$c$;
 COMMENT ON COLUMN quiz_answer.answer_text IS $c$Answer wording shown to the customer.$c$;
-COMMENT ON COLUMN quiz_answer.next_question_id IS $c$UNVERIFIED: no code reads it | FK to quiz_question(id); presumably the question to jump to after this answer (legacy branching).$c$;
+COMMENT ON COLUMN quiz_answer.next_question_id IS $c$Class: deprecated | DEPRECATED 2026-10-16: legacy branching pointer (FK to quiz_question) that no seed ever set and no code reads, always NULL; the SCD2 version function only copies it forward; branching is quiz.trigger_archetype_id and quiz.parent_quiz_id.$c$;
 COMMENT ON COLUMN quiz_answer.resulting_archetype_id IS $c$FK to coffee_archetype(id); the archetype this answer maps to; NULL if none.$c$;
-COMMENT ON COLUMN quiz_answer.vector_impact IS $c$UNVERIFIED: no code reads or writes it | JSONB of per-dimension impact, superseded by quiz_answer_archetype_score.$c$;
+COMMENT ON COLUMN quiz_answer.vector_impact IS $c$Class: deprecated | DEPRECATED 2026-10-16: legacy JSONB per-dimension impact that no seed ever set and no code reads, always NULL; the SCD2 version function only copies it forward; scoring is quiz_answer_archetype_score.$c$;
 COMMENT ON COLUMN quiz_answer.weight IS $c$Answer-level multiplier used in scoring (q_weight x answer weight x score); default 1.$c$;
 COMMENT ON COLUMN quiz_answer.is_experimental_gate IS $c$Flags an answer that counts toward the Experimental archetype gate in scoring; default false.$c$;
 COMMENT ON COLUMN quiz_answer.answer_code IS $c$Stable version-scoped code (for example v7_q1_a) that decouples scoring from answer copy; unique among current rows; NULL on retired v5/v6 rows.$c$;
@@ -339,12 +339,12 @@ COMMENT ON COLUMN quiz_session.context_data IS $c$JSONB of the scored result as 
 COMMENT ON COLUMN quiz_session.completed_at IS $c$UTC timestamp when the session was saved; defaults to insert time.$c$;
 COMMENT ON COLUMN quiz_session.branch_answer_id IS $c$FK to quiz_answer(id); the branch-quiz answer the person picked (WHY layer); NULL for sessions without a branch answer and all historical sessions.$c$;
 -- ── quiz_vector ──
-COMMENT ON TABLE quiz_vector IS $c$UNVERIFIED: no reader or writer found in backend/src or backend/scripts, docs only say "dimension scores from a quiz session" | Purpose: Per-dimension scores computed for a quiz session. | Class: operating | Writer: none | Readers: none found | Since: 2026-05-22$c$;
+COMMENT ON TABLE quiz_vector IS $c$Purpose: Retired 2026-10-16: per-dimension scores for a quiz session from the original 2026-05 design; never written (0 rows), no code, and dimension_id is a UUID that cannot join coffee_dimensions (integer id); quiz scoring is quiz_answer_archetype_score and the result lives in quiz_session.context_data and quiz_session_interpretation; drop-later | Class: deprecated | Writer: none | Readers: none | Since: 2026-05-22$c$;
 COMMENT ON COLUMN quiz_vector.id IS $c$Surrogate UUID primary key.$c$;
 COMMENT ON COLUMN quiz_vector.user_id IS $c$FK to user_profile(id), ON DELETE CASCADE; the user the scores belong to.$c$;
 COMMENT ON COLUMN quiz_vector.quiz_session_id IS $c$FK to quiz_session(id), ON DELETE CASCADE; the session the scores came from.$c$;
-COMMENT ON COLUMN quiz_vector.dimension_id IS $c$UNVERIFIED: no FK declared | Flavor dimension the score is for (presumably coffee_dimensions.id).$c$;
-COMMENT ON COLUMN quiz_vector.score IS $c$UNVERIFIED: scale not stated | Numeric score on that dimension.$c$;
+COMMENT ON COLUMN quiz_vector.dimension_id IS $c$Class: deprecated | DEPRECATED 2026-10-16 with its table: UUID with no FK that cannot join coffee_dimensions (integer id).$c$;
+COMMENT ON COLUMN quiz_vector.score IS $c$Class: deprecated | DEPRECATED 2026-10-16 with its table: numeric score on that dimension; scale undefined, table unused.$c$;
 -- ── quiz_answer_archetype_score ──
 COMMENT ON TABLE quiz_answer_archetype_score IS $c$Purpose: Scoring matrix, points each answer version awards to an archetype (insert-only, a different score means a new answer version). | Class: operating | Writer: seed | Readers: quizScorer, quizIntegrity, v_quiz_scoring_matrix | Since: 2026-05-25 (as answer_archetype_score)$c$;
 COMMENT ON COLUMN quiz_answer_archetype_score.id IS $c$Surrogate UUID primary key.$c$;
@@ -356,10 +356,10 @@ COMMENT ON COLUMN quiz_answer_archetype_score.score IS $c$Points added to the ar
 COMMENT ON TABLE subscription IS $c$Purpose: Recurring-delivery subscription of a user; in current code only company-sponsored subscriptions are created. | Class: operating | Writer: companyGiftRedemption.POST /api/company-gift-redemption/:code/redeem, cron.GET /api/cron/sponsored-subscription-check | Readers: userSignals, liamAccess, users, catalogService, cron | Since: 2026-05-22$c$;
 COMMENT ON COLUMN subscription.id IS $c$Surrogate UUID primary key.$c$;
 COMMENT ON COLUMN subscription.user_id IS $c$FK to user_profile(id), ON DELETE CASCADE; the subscriber (matched directly, never via household).$c$;
-COMMENT ON COLUMN subscription.household_id IS $c$UNVERIFIED: no code writes it | FK to household(id); the household the subscription belongs to.$c$;
+COMMENT ON COLUMN subscription.household_id IS $c$FK to household(id), the household the subscription belongs to; reserved, not written yet (only company-sponsored subscriptions are inserted today, by companyGiftRedemption).$c$;
 COMMENT ON COLUMN subscription.status IS $c$Subscription state, default active. Code writes only: active, lapsed (cron flips expired sponsored rows to lapsed); no CHECK constraint.$c$;
-COMMENT ON COLUMN subscription.frequency_days IS $c$UNVERIFIED: no code writes it | Days between deliveries, default 30.$c$;
-COMMENT ON COLUMN subscription.next_delivery_date IS $c$UNVERIFIED: no code writes it | Calendar date of the next scheduled delivery.$c$;
+COMMENT ON COLUMN subscription.frequency_days IS $c$Days between deliveries, default 30; reserved for the Stripe subscription flow, not written yet (sponsored subscriptions keep the default).$c$;
+COMMENT ON COLUMN subscription.next_delivery_date IS $c$Calendar date of the next scheduled delivery; reserved for the Stripe subscription flow, not written yet (NULL today).$c$;
 COMMENT ON COLUMN subscription.created_at IS $c$Timestamp when the subscription row was created (timestamptz, default now()).$c$;
 COMMENT ON COLUMN subscription.updated_at IS $c$Timestamp of the last change (timestamptz); set by the sponsored-subscription cron when a row lapses.$c$;
 COMMENT ON COLUMN subscription.company_gift_id IS $c$FK to company_gift(id); the sponsoring company for a gifted subscription; NULL for normal subscriptions.$c$;
@@ -370,15 +370,15 @@ COMMENT ON COLUMN "order".id IS $c$Surrogate UUID primary key; referenced by ord
 COMMENT ON COLUMN "order".user_id IS $c$FK to user_profile(id); the buyer.$c$;
 COMMENT ON COLUMN "order".household_id IS $c$FK to household(id); never set by any code path (confirmed in Customer Blueprint C2 Task 0), always NULL.$c$;
 COMMENT ON COLUMN "order".external_shopify_order_id IS $c$ID of the matching order in Shopify, returned when the order was created there.$c$;
-COMMENT ON COLUMN "order".fulfillment_status IS $c$UNVERIFIED: no code updates it after insert and no CHECK exists | Fulfilment state, written as pending at checkout; catalogService treats delivered and cancelled as closed.$c$;
-COMMENT ON COLUMN "order".is_subscription IS $c$UNVERIFIED: no code writes it | True if the order is a subscription renewal; default false.$c$;
+COMMENT ON COLUMN "order".fulfillment_status IS $c$Fulfilment state as free text, written as pending at checkout and never updated today; catalogService (open orders per roaster) treats delivered and cancelled as closed, while the Stripe brief plans pending, awaiting_manual, placed, shipped, delivered, canceled, needs_attention; that brief must settle the canceled vs cancelled spelling before any CHECK is added.$c$;
+COMMENT ON COLUMN "order".is_subscription IS $c$True if the order is a subscription renewal, default false; reserved for the Stripe brief (createSubscriptionOrder sets it), never written today.$c$;
 COMMENT ON COLUMN "order".subtotal IS $c$Sum of line prices times quantity in dollars (numeric, not cents), computed at checkout.$c$;
-COMMENT ON COLUMN "order".shipping_fee_charged IS $c$UNVERIFIED: no code writes it, always the default | Shipping fee charged to the customer in dollars; default 0.00.$c$;
-COMMENT ON COLUMN "order".taxes_collected IS $c$UNVERIFIED: no code writes it, always the default | Tax collected in dollars; default 0.00.$c$;
-COMMENT ON COLUMN "order".transaction_fee IS $c$UNVERIFIED: no code writes it, always the default | Payment processing fee in dollars; default 0.00.$c$;
+COMMENT ON COLUMN "order".shipping_fee_charged IS $c$Shipping fee charged to the customer in USD dollars (same unit as total_amount_paid), default 0.00; reserved for the Stripe brief, never written today.$c$;
+COMMENT ON COLUMN "order".taxes_collected IS $c$Sales tax collected in USD dollars (same unit as total_amount_paid), default 0.00; reserved for the Stripe brief (automatic tax), never written today.$c$;
+COMMENT ON COLUMN "order".transaction_fee IS $c$Payment-processing fee in USD dollars (same unit as total_amount_paid), default 0.00; reserved for the Stripe brief (from the balance transaction), never written today.$c$;
 COMMENT ON COLUMN "order".total_amount_paid IS $c$Amount paid in dollars; at checkout it is set equal to subtotal (no shipping or tax added).$c$;
 COMMENT ON COLUMN "order".currency IS $c$ISO currency code of the amounts; always the default USD, never set by code.$c$;
-COMMENT ON COLUMN "order".promo_code IS $c$UNVERIFIED: no code writes it | Promo code applied to the order; NULL.$c$;
+COMMENT ON COLUMN "order".promo_code IS $c$Promo code applied to the order; reserved, never written today (NULL); the Stripe brief decides whether Stripe promotion codes are mirrored here.$c$;
 COMMENT ON COLUMN "order".created_at IS $c$UTC timestamp when the order row was created.$c$;
 COMMENT ON COLUMN "order".updated_at IS $c$UTC timestamp of the last change; no code updates the row after insert.$c$;
 COMMENT ON COLUMN "order".shipping_street IS $c$Street line of the shipping address snapshot copied at checkout.$c$;
@@ -388,14 +388,14 @@ COMMENT ON COLUMN "order".shipping_postal_code IS $c$Postal or ZIP code of the s
 COMMENT ON COLUMN "order".shipping_country IS $c$Country of the shipping address snapshot copied at checkout.$c$;
 COMMENT ON COLUMN "order".shipping_address_id IS $c$FK to address(id); the saved address the snapshot was copied from (convenience pointer only, the snapshot columns are the source of truth).$c$;
 -- ── roastery_shipment_details ──
-COMMENT ON TABLE roastery_shipment_details IS $c$UNVERIFIED: no reader or writer found in backend/src or backend/scripts, only a Stripe brief proposes an admin shipped endpoint that writes it | Purpose: Tracking and postage details of a roastery shipment for an order. | Class: operating | Writer: none | Readers: none found | Since: 2026-05-22 (as shipment)$c$;
+COMMENT ON TABLE roastery_shipment_details IS $c$Purpose: Reserved for the Stripe payment-capture brief (features/commerce): tracking and postage details of a roastery shipment for an order, to be written by the admin shipped endpoint; not written yet (0 rows), no code today | Class: operating | Writer: none | Readers: none | Since: 2026-05-22 (as shipment)$c$;
 COMMENT ON COLUMN roastery_shipment_details.id IS $c$Surrogate UUID primary key; referenced by order_line_item.shipment_id.$c$;
 COMMENT ON COLUMN roastery_shipment_details.order_id IS $c$FK to "order"(id); the order being shipped.$c$;
 COMMENT ON COLUMN roastery_shipment_details.roaster_id IS $c$FK to roaster(id); the roastery that ships it.$c$;
 COMMENT ON COLUMN roastery_shipment_details.tracking_number IS $c$Carrier tracking number.$c$;
 COMMENT ON COLUMN roastery_shipment_details.carrier IS $c$Carrier name.$c$;
-COMMENT ON COLUMN roastery_shipment_details.status IS $c$UNVERIFIED: no code writes it and no CHECK exists | Shipment state, default label_created.$c$;
-COMMENT ON COLUMN roastery_shipment_details.postage_cost IS $c$UNVERIFIED: unit not stated | Postage cost, presumably dollars.$c$;
+COMMENT ON COLUMN roastery_shipment_details.status IS $c$Shipment state as free text, default label_created; reserved for the Stripe brief's admin shipped endpoint (sets shipped), no CHECK until that vocabulary is settled, never written today.$c$;
+COMMENT ON COLUMN roastery_shipment_details.postage_cost IS $c$Postage cost in USD dollars (the unit every money column in this schema uses); reserved, never written today.$c$;
 COMMENT ON COLUMN roastery_shipment_details.shipped_at IS $c$UTC timestamp when the shipment left the roastery.$c$;
 COMMENT ON COLUMN roastery_shipment_details.estimated_delivery IS $c$UTC timestamp of the carrier's estimated delivery.$c$;
 COMMENT ON COLUMN roastery_shipment_details.created_at IS $c$UTC timestamp when the row was created.$c$;
@@ -406,13 +406,13 @@ COMMENT ON COLUMN order_line_item.id IS $c$Surrogate UUID primary key; reference
 COMMENT ON COLUMN order_line_item.order_id IS $c$FK to "order"(id), ON DELETE CASCADE; the parent order.$c$;
 COMMENT ON COLUMN order_line_item.blend_id IS $c$FK to coffee_sku(id); the SKU purchased (the column keeps its pre-rename name).$c$;
 COMMENT ON COLUMN order_line_item.intended_for_user_id IS $c$FK to user_profile(id); the person the bag is for, defaults to the buyer unless the client passes another user.$c$;
-COMMENT ON COLUMN order_line_item.shipment_id IS $c$UNVERIFIED: no code writes it | FK to roastery_shipment_details(id); the shipment carrying this line.$c$;
+COMMENT ON COLUMN order_line_item.shipment_id IS $c$FK to roastery_shipment_details(id), the shipment carrying this line; reserved for the Stripe brief, never written today.$c$;
 COMMENT ON COLUMN order_line_item.quantity IS $c$Number of bags on this line; NOT NULL, default 1.$c$;
 COMMENT ON COLUMN order_line_item.unit_price_charged IS $c$Price per bag charged, in dollars (numeric, not cents).$c$;
-COMMENT ON COLUMN order_line_item.wholesale_cost IS $c$UNVERIFIED: no code writes it | Wholesale cost of the line, presumably dollars.$c$;
+COMMENT ON COLUMN order_line_item.wholesale_cost IS $c$Wholesale cost of the line in USD dollars (same unit as coffee_sku.cost_to_us); reserved for roaster payout reconciliation, never written today.$c$;
 COMMENT ON COLUMN order_line_item.discount_amount IS $c$Discount applied to this line, in dollars; only collection bundle member lines carry a non-zero value (10 percent bundle discount split across members); default 0.00.$c$;
-COMMENT ON COLUMN order_line_item.tax_amount_charged IS $c$UNVERIFIED: no code writes it, always the default | Tax charged on the line in dollars; default 0.00.$c$;
-COMMENT ON COLUMN order_line_item.vendor_payout_status IS $c$UNVERIFIED: no code writes it and no CHECK exists | Roastery payout state, default pending_invoice.$c$;
+COMMENT ON COLUMN order_line_item.tax_amount_charged IS $c$Sales tax charged on the line in USD dollars, default 0.00; reserved for the Stripe brief, never written today.$c$;
+COMMENT ON COLUMN order_line_item.vendor_payout_status IS $c$Roastery payout state as free text, default pending_invoice; reserved for roaster payout reconciliation, no CHECK until that vocabulary exists, never written today.$c$;
 COMMENT ON COLUMN order_line_item.created_at IS $c$UTC timestamp when the line was created.$c$;
 COMMENT ON COLUMN order_line_item.updated_at IS $c$UTC timestamp of the last change; no code updates the row after insert.$c$;
 COMMENT ON COLUMN order_line_item.order_kind IS $c$FK to customer_order_kind(code); how the line originated, default manual. Code only ever writes manual (gift_redemption, subscription_renewal and liam_followed have no writer yet).$c$;
@@ -491,7 +491,7 @@ COMMENT ON COLUMN sommelier_messages.id IS $c$Surrogate primary key.$c$;
 COMMENT ON COLUMN sommelier_messages.session_id IS $c$References sommelier_sessions.id (ON DELETE CASCADE): the Liam session this turn belonged to.$c$;
 COMMENT ON COLUMN sommelier_messages.role IS $c$Who spoke this turn; code treats it as user or assistant (no CHECK constraint).$c$;
 COMMENT ON COLUMN sommelier_messages.content IS $c$Full text of the turn.$c$;
-COMMENT ON COLUMN sommelier_messages.model_used IS $c$UNVERIFIED: no code writes or reads this column and its values in prod are unknown | Claude model id that produced an assistant turn, presumably.$c$;
+COMMENT ON COLUMN sommelier_messages.model_used IS $c$Class: deprecated | DEPRECATED with its table (legacy pre-Firestore transcript): label of the model that produced an assistant turn in Liam v1, nine legacy rows, nothing writes it since the move to Firestore on 2026-06-27.$c$;
 COMMENT ON COLUMN sommelier_messages.created_at IS $c$UTC timestamp the turn was stored; the fallback read orders by it.$c$;
 -- ── user_brew_card ──
 COMMENT ON TABLE user_brew_card IS $c$Purpose: One durable brew recipe card per customer, coffee and brew method that sharpens in place as the customer adjusts it | Class: operating | Writer: brewCard.generateCard, brewCard.createArrivalCard, brewCard.adjustCard, cron.processArrivalNotes | Readers: brewCard, users, engagementMetrics, cron | Since: 2026-08-02 (HOME_TASK_6)$c$;
@@ -566,7 +566,7 @@ COMMENT ON COLUMN coffees.origin IS $c$Free-text origin string (for example a co
 COMMENT ON COLUMN coffees.blend_or_single IS $c$Blend or single origin. Values follow the lookup_value category blend_or_single: single, blend (no CHECK constraint).$c$;
 COMMENT ON COLUMN coffees.process IS $c$Processing method. Values follow the lookup_value category process: washed, natural, honey, anaerobic, wet-hulled, other (no CHECK constraint).$c$;
 COMMENT ON COLUMN coffees.roast_level IS $c$Roast level. Values follow the lookup_value category roast_level: light, light-medium, medium, medium-dark, dark (no CHECK constraint).$c$;
-COMMENT ON COLUMN coffees.roast_shade IS $c$UNVERIFIED: no vocabulary or CHECK defines the allowed values | Free-text roast shade qualifier supplied by the roaster or import manifest.$c$;
+COMMENT ON COLUMN coffees.roast_shade IS $c$Roaster-supplied roast shade slug from the original catalog matrix, finer than roast_level (seed values light, light-medium, medium, medium-dark, dark, ultra-dark; NULL for flavored coffees); free text with no CHECK, carried through catalog import and the admin coffee save, not editable in the admin form, read by no customer-facing path.$c$;
 COMMENT ON COLUMN coffees.flavor_descriptors_roaster IS $c$Array of the roaster's own bag tasting notes as text; the structured one-row-per-descriptor form lives in roastery_coffee_descriptors.$c$;
 COMMENT ON COLUMN coffees.created_at IS $c$UTC timestamp the coffee row was created.$c$;
 COMMENT ON COLUMN coffees.ai_summary IS $c$Cached Claude-generated tasting summary, generated once and refreshed only by admin action; NULLed if a stored value looks like a refusal | Writer: coffees.generateAndStoreAllContent, coffees.generateAndStoreSummary, coffees.sanitizeStoredField$c$;
@@ -639,13 +639,13 @@ COMMENT ON COLUMN cupping_score_descriptors.cupping_note_id IS $c$References cup
 COMMENT ON COLUMN cupping_score_descriptors.intensity IS $c$How prominent the descriptor was, 0 to 15 (same scale as dimensions); NULL for all 47 prod rows as of 2026-07-13 per the docs.$c$;
 COMMENT ON COLUMN cupping_score_descriptors.custom_notes IS $c$Escape-hatch free text for wording not on the SCA wheel.$c$;
 -- ── cupping_brew_params ──
-COMMENT ON TABLE cupping_brew_params IS $c$UNVERIFIED: no code, seed or script reads or writes this table, so it may be unused or hand-entered | Purpose: Intended per-session-coffee brew parameters (dose, water, yield, temperature, grind, time, pressure, device) | Class: operating | Writer: none | Readers: none | Since: 2026-05-25 (as brew_params)$c$;
+COMMENT ON TABLE cupping_brew_params IS $c$Purpose: Reserved per-session-coffee brew parameters (dose, water, yield, temperature, grind, time, pressure, device) for the cupping tool; not written by any code, seed or script yet (0 rows), counted in the cupping-evidence design (DESIGN_CUPPING_EVIDENCE.md) | Class: operating | Writer: none | Readers: none | Since: 2026-05-25 (as brew_params)$c$;
 COMMENT ON COLUMN cupping_brew_params.id IS $c$Surrogate primary key.$c$;
 COMMENT ON COLUMN cupping_brew_params.session_coffee_id IS $c$References cupping_session_coffees.id (ON DELETE CASCADE): the cupped coffee the parameters belong to.$c$;
 COMMENT ON COLUMN cupping_brew_params.dose_grams IS $c$Coffee dose in grams.$c$;
 COMMENT ON COLUMN cupping_brew_params.water_grams IS $c$Water used in grams.$c$;
 COMMENT ON COLUMN cupping_brew_params.yield_grams IS $c$Liquid yield in grams (espresso-style methods).$c$;
-COMMENT ON COLUMN cupping_brew_params.ratio IS $c$UNVERIFIED: the definition is not documented (water per coffee or coffee per water) | Brew ratio as a number.$c$;
+COMMENT ON COLUMN cupping_brew_params.ratio IS $c$Brew ratio as a bare number; direction (water per coffee or coffee per water) undefined, table unused.$c$;
 COMMENT ON COLUMN cupping_brew_params.water_temperature_celsius IS $c$Water temperature in degrees Celsius.$c$;
 COMMENT ON COLUMN cupping_brew_params.grind_size IS $c$Free-text grind size description.$c$;
 COMMENT ON COLUMN cupping_brew_params.extraction_time_seconds IS $c$Extraction or brew time in seconds.$c$;
@@ -762,7 +762,7 @@ COMMENT ON COLUMN cupping_note_dimension_weight.id IS $c$Surrogate key for the m
 COMMENT ON COLUMN cupping_note_dimension_weight.cupping_note_id IS $c$References cupping_note.id (UUID), the descriptor being mapped; UNIQUE together with dimension_id.$c$;
 COMMENT ON COLUMN cupping_note_dimension_weight.dimension_id IS $c$References coffee_dimensions.id, the dimension the descriptor moves.$c$;
 COMMENT ON COLUMN cupping_note_dimension_weight.direction IS $c$Direction the descriptor pushes the dimension. One of: more, less (CHECK).$c$;
-COMMENT ON COLUMN cupping_note_dimension_weight.weight IS $c$UNVERIFIED: no rows and no code, so the scale and range are not defined anywhere | Strength of the descriptor-to-dimension association, default 0 (best guess: a non-negative multiplier).$c$;
+COMMENT ON COLUMN cupping_note_dimension_weight.weight IS $c$Strength of the descriptor-to-dimension association, default 0; scale and range undefined by design until Stage 2 of BLOOM_DIAL_ALLOCATION_SPEC (needs cupping volume), table empty on purpose.$c$;
 
 -- ── dial_source_weight ──
 COMMENT ON TABLE dial_source_weight IS $c$Purpose: Reliability weight per dial_position_signal source, used to weight signals in the consensus view (cupping 3, sms_feedback and onsite_feedback 1, roastery_wheel and client_wheel 0). | Class: operating | Writer: seed | Readers: v_coffee_dial_position_consensus | Since: 2026-07-09 (#75)$c$;
@@ -1479,40 +1479,40 @@ COMMENT ON VIEW v_data_lineage_observed IS $c$Purpose: What actually ran against
 COMMENT ON VIEW v_data_table_activity IS $c$Purpose: Per-table inserts, updates, deletes and scans since the database stats_reset (pg_stat_user_tables), with is_dead_candidate for tables nothing has touched in over 30 days. | Class: view | Writer: none (derived) | Readers: dataCatalogIntegrity (check 6), dataCatalogMd (CATALOG.md Activity), admin.GET /api/admin/system-health, reporting_ro | Since: data catalog brief 3 (2026-10-16)$c$;
 
 -- ── liam_sms_feedback ──
-COMMENT ON TABLE liam_sms_feedback IS $c$UNVERIFIED: not in schema.sql | Purpose: Original Sommelier Task 5 table for one-row-per-SMS Liam feedback messages; renamed to sommelier_sms_feedback in code (eff1d98) but this old empty table (0 rows) was never dropped. | Class: deprecated | Writer: none | Readers: none | Since: 2026-06-26 (Sommelier Task 5, commit 78c62f4)$c$;
-COMMENT ON COLUMN liam_sms_feedback.id IS $c$UNVERIFIED: not in schema.sql | Primary key (UUID); described from the Task 5 brief DDL, not from schema.sql.$c$;
-COMMENT ON COLUMN liam_sms_feedback.user_id IS $c$UNVERIFIED: not in schema.sql | Per the Task 5 DDL, FK to user_profile(id) ON DELETE CASCADE: the customer the message belongs to.$c$;
-COMMENT ON COLUMN liam_sms_feedback.order_id IS $c$UNVERIFIED: not in schema.sql | Per the Task 5 DDL, FK to "order"(id): the order that triggered the feedback request.$c$;
-COMMENT ON COLUMN liam_sms_feedback.blend_id IS $c$UNVERIFIED: not in schema.sql | Per the Task 5 DDL, FK to roaster_blend(id) (since renamed in the catalog; current target not checked): the bag the message asks about.$c$;
-COMMENT ON COLUMN liam_sms_feedback.phone_number IS $c$UNVERIFIED: not in schema.sql | Per the Task 5 brief, the E.164 phone number the SMS was sent to or received from.$c$;
-COMMENT ON COLUMN liam_sms_feedback.direction IS $c$UNVERIFIED: not in schema.sql | Per the Task 5 DDL CHECK, one of: outbound, inbound.$c$;
-COMMENT ON COLUMN liam_sms_feedback.body IS $c$UNVERIFIED: not in schema.sql | The SMS text, outbound request or inbound reply.$c$;
-COMMENT ON COLUMN liam_sms_feedback.status IS $c$UNVERIFIED: not in schema.sql | Per the Task 5 DDL CHECK, one of: scheduled, sent, delivered, failed, replied, opted_out (default scheduled).$c$;
-COMMENT ON COLUMN liam_sms_feedback.scheduled_for IS $c$UNVERIFIED: not in schema.sql | UTC timestamp an outbound message was due to send (Task 5 set order time plus 10 days).$c$;
-COMMENT ON COLUMN liam_sms_feedback.sent_at IS $c$UNVERIFIED: not in schema.sql | UTC timestamp the message was handed to the SMS provider; NULL if not sent.$c$;
-COMMENT ON COLUMN liam_sms_feedback.provider_message_id IS $c$UNVERIFIED: not in schema.sql | Message id returned by the SMS provider; NULL if none.$c$;
-COMMENT ON COLUMN liam_sms_feedback.reply_to_id IS $c$UNVERIFIED: not in schema.sql | Per the Task 5 DDL, self FK to liam_sms_feedback(id): the outbound message an inbound reply answers.$c$;
-COMMENT ON COLUMN liam_sms_feedback.haiku_parsed IS $c$UNVERIFIED: not in schema.sql | True once the inbound reply was parsed by the Haiku model (default false).$c$;
-COMMENT ON COLUMN liam_sms_feedback.parsed_signal_type IS $c$UNVERIFIED: not in schema.sql | Free-text signal type extracted from the reply; allowed values not documented.$c$;
-COMMENT ON COLUMN liam_sms_feedback.parsed_rating IS $c$UNVERIFIED: not in schema.sql | Rating integer extracted from the reply (scale not documented in the DDL).$c$;
-COMMENT ON COLUMN liam_sms_feedback.parsed_sentiment IS $c$UNVERIFIED: not in schema.sql | Per the Task 5 DDL CHECK, one of: positive, negative, neutral.$c$;
-COMMENT ON COLUMN liam_sms_feedback.parsed_descriptors IS $c$UNVERIFIED: not in schema.sql | JSONB of flavor descriptors extracted from the reply.$c$;
-COMMENT ON COLUMN liam_sms_feedback.firestore_feedback_doc_id IS $c$UNVERIFIED: not in schema.sql | Id of the Firestore users/{uid}/feedback_events doc created from the reply.$c$;
-COMMENT ON COLUMN liam_sms_feedback.created_at IS $c$UNVERIFIED: not in schema.sql | UTC timestamp when the row was created.$c$;
+COMMENT ON TABLE liam_sms_feedback IS $c$Purpose: Not in schema.sql. Retired: original Sommelier Task 5 table for one-row-per-SMS Liam feedback messages, renamed to sommelier_sms_feedback in code (eff1d98); this old empty table (0 rows) was never dropped; the SMS feedback feature is not live yet and will be built on sommelier_sms_feedback, never here; drop-later, decided 2026-10-16 | Class: deprecated | Writer: none | Readers: none | Since: 2026-06-26 (Sommelier Task 5, commit 78c62f4)$c$;
+COMMENT ON COLUMN liam_sms_feedback.id IS $c$Primary key (UUID); described from the Task 5 brief DDL, not from schema.sql.$c$;
+COMMENT ON COLUMN liam_sms_feedback.user_id IS $c$Per the Task 5 DDL, FK to user_profile(id) ON DELETE CASCADE: the customer the message belongs to.$c$;
+COMMENT ON COLUMN liam_sms_feedback.order_id IS $c$Per the Task 5 DDL, FK to "order"(id): the order that triggered the feedback request.$c$;
+COMMENT ON COLUMN liam_sms_feedback.blend_id IS $c$Per the Task 5 DDL, FK to roaster_blend(id) (since renamed in the catalog; current target not checked): the bag the message asks about.$c$;
+COMMENT ON COLUMN liam_sms_feedback.phone_number IS $c$Per the Task 5 brief, the E.164 phone number the SMS was sent to or received from.$c$;
+COMMENT ON COLUMN liam_sms_feedback.direction IS $c$Per the Task 5 DDL CHECK, one of: outbound, inbound.$c$;
+COMMENT ON COLUMN liam_sms_feedback.body IS $c$The SMS text, outbound request or inbound reply.$c$;
+COMMENT ON COLUMN liam_sms_feedback.status IS $c$Per the Task 5 DDL CHECK, one of: scheduled, sent, delivered, failed, replied, opted_out (default scheduled).$c$;
+COMMENT ON COLUMN liam_sms_feedback.scheduled_for IS $c$UTC timestamp an outbound message was due to send (Task 5 set order time plus 10 days).$c$;
+COMMENT ON COLUMN liam_sms_feedback.sent_at IS $c$UTC timestamp the message was handed to the SMS provider; NULL if not sent.$c$;
+COMMENT ON COLUMN liam_sms_feedback.provider_message_id IS $c$Message id returned by the SMS provider; NULL if none.$c$;
+COMMENT ON COLUMN liam_sms_feedback.reply_to_id IS $c$Per the Task 5 DDL, self FK to liam_sms_feedback(id): the outbound message an inbound reply answers.$c$;
+COMMENT ON COLUMN liam_sms_feedback.haiku_parsed IS $c$True once the inbound reply was parsed by the Haiku model (default false).$c$;
+COMMENT ON COLUMN liam_sms_feedback.parsed_signal_type IS $c$Free-text signal type extracted from the reply; allowed values not documented.$c$;
+COMMENT ON COLUMN liam_sms_feedback.parsed_rating IS $c$Rating integer extracted from the reply (scale not documented in the DDL).$c$;
+COMMENT ON COLUMN liam_sms_feedback.parsed_sentiment IS $c$Per the Task 5 DDL CHECK, one of: positive, negative, neutral.$c$;
+COMMENT ON COLUMN liam_sms_feedback.parsed_descriptors IS $c$JSONB of flavor descriptors extracted from the reply.$c$;
+COMMENT ON COLUMN liam_sms_feedback.firestore_feedback_doc_id IS $c$Id of the Firestore users/{uid}/feedback_events doc created from the reply.$c$;
+COMMENT ON COLUMN liam_sms_feedback.created_at IS $c$UTC timestamp when the row was created.$c$;
 
 -- ── newsletter_subscriber_backup_20260925 ──
-COMMENT ON TABLE newsletter_subscriber_backup_20260925 IS $c$UNVERIFIED: not in schema.sql | Purpose: Pre-correction copy of the 8 newsletter_subscriber rows whose archetype was fixed by the quiz resync correction on 2026-09-25, kept as a never-dropped backup. | Class: snapshot | Writer: backfill:correct-subscriber-archetypes | Readers: none | Since: 2026-09-25 (quiz resync fix, WHAT_WE_BUILT.md)$c$;
-COMMENT ON COLUMN newsletter_subscriber_backup_20260925.email IS $c$UNVERIFIED: not in schema.sql | Subscriber email as it was in newsletter_subscriber at backup time (that table's primary key).$c$;
-COMMENT ON COLUMN newsletter_subscriber_backup_20260925.user_id IS $c$UNVERIFIED: not in schema.sql | user_profile id linked to the subscriber at backup time; NULL if none.$c$;
-COMMENT ON COLUMN newsletter_subscriber_backup_20260925.subscribed IS $c$UNVERIFIED: not in schema.sql | Subscribed flag at backup time.$c$;
-COMMENT ON COLUMN newsletter_subscriber_backup_20260925.created_at IS $c$UNVERIFIED: not in schema.sql | UTC timestamp the subscriber originally signed up.$c$;
-COMMENT ON COLUMN newsletter_subscriber_backup_20260925.source_id IS $c$UNVERIFIED: not in schema.sql | subscriber_source id at backup time.$c$;
-COMMENT ON COLUMN newsletter_subscriber_backup_20260925.first_name IS $c$UNVERIFIED: not in schema.sql | First name at backup time.$c$;
-COMMENT ON COLUMN newsletter_subscriber_backup_20260925.archetype IS $c$UNVERIFIED: not in schema.sql | The pre-correction (wrong, Balanced-placeholder) archetype value that the script replaced with the real latest quiz_session archetype.$c$;
-COMMENT ON COLUMN newsletter_subscriber_backup_20260925.experimental IS $c$UNVERIFIED: not in schema.sql | Experimental quiz flag at backup time.$c$;
-COMMENT ON COLUMN newsletter_subscriber_backup_20260925.confidence IS $c$UNVERIFIED: not in schema.sql | Quiz confidence label at backup time.$c$;
-COMMENT ON COLUMN newsletter_subscriber_backup_20260925.quiz_session_key IS $c$UNVERIFIED: not in schema.sql | Quiz session key that carried the subscribe call at backup time.$c$;
-COMMENT ON COLUMN newsletter_subscriber_backup_20260925.campaign IS $c$UNVERIFIED: not in schema.sql | Campaign attribution at backup time (the script backfilled hoboken-crawl-2026 for three rows afterward).$c$;
-COMMENT ON COLUMN newsletter_subscriber_backup_20260925.campaign_vid IS $c$UNVERIFIED: not in schema.sql | Campaign visitor id (UUID) at backup time.$c$;
-COMMENT ON COLUMN newsletter_subscriber_backup_20260925.campaign_attributed_at IS $c$UNVERIFIED: not in schema.sql | UTC timestamp campaign attribution was recorded, at backup time.$c$;
-COMMENT ON COLUMN newsletter_subscriber_backup_20260925.backed_up_at IS $c$UNVERIFIED: not in schema.sql | UTC timestamp the backup copy was taken (now() when the script ran).$c$;
+COMMENT ON TABLE newsletter_subscriber_backup_20260925 IS $c$Purpose: Not in schema.sql. Pre-correction copy of the 8 newsletter_subscriber rows whose archetype was fixed by the quiz resync correction on 2026-09-25, kept as the record of that fix and never dropped (decided 2026-09-25, reaffirmed 2026-10-16) | Class: snapshot | Writer: backfill:correct-subscriber-archetypes | Readers: none | Since: 2026-09-25 (quiz resync fix, WHAT_WE_BUILT.md)$c$;
+COMMENT ON COLUMN newsletter_subscriber_backup_20260925.email IS $c$Subscriber email as it was in newsletter_subscriber at backup time (that table's primary key).$c$;
+COMMENT ON COLUMN newsletter_subscriber_backup_20260925.user_id IS $c$user_profile id linked to the subscriber at backup time; NULL if none.$c$;
+COMMENT ON COLUMN newsletter_subscriber_backup_20260925.subscribed IS $c$Subscribed flag at backup time.$c$;
+COMMENT ON COLUMN newsletter_subscriber_backup_20260925.created_at IS $c$UTC timestamp the subscriber originally signed up.$c$;
+COMMENT ON COLUMN newsletter_subscriber_backup_20260925.source_id IS $c$subscriber_source id at backup time.$c$;
+COMMENT ON COLUMN newsletter_subscriber_backup_20260925.first_name IS $c$First name at backup time.$c$;
+COMMENT ON COLUMN newsletter_subscriber_backup_20260925.archetype IS $c$The pre-correction (wrong, Balanced-placeholder) archetype value that the script replaced with the real latest quiz_session archetype.$c$;
+COMMENT ON COLUMN newsletter_subscriber_backup_20260925.experimental IS $c$Experimental quiz flag at backup time.$c$;
+COMMENT ON COLUMN newsletter_subscriber_backup_20260925.confidence IS $c$Quiz confidence label at backup time.$c$;
+COMMENT ON COLUMN newsletter_subscriber_backup_20260925.quiz_session_key IS $c$Quiz session key that carried the subscribe call at backup time.$c$;
+COMMENT ON COLUMN newsletter_subscriber_backup_20260925.campaign IS $c$Campaign attribution at backup time (the script backfilled hoboken-crawl-2026 for three rows afterward).$c$;
+COMMENT ON COLUMN newsletter_subscriber_backup_20260925.campaign_vid IS $c$Campaign visitor id (UUID) at backup time.$c$;
+COMMENT ON COLUMN newsletter_subscriber_backup_20260925.campaign_attributed_at IS $c$UTC timestamp campaign attribution was recorded, at backup time.$c$;
+COMMENT ON COLUMN newsletter_subscriber_backup_20260925.backed_up_at IS $c$UTC timestamp the backup copy was taken (now() when the script ran).$c$;
