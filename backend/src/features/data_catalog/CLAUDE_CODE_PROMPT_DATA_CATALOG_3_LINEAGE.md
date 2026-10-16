@@ -1,7 +1,7 @@
 # Data catalog, brief 3: lineage (who writes, who reads), one-writer rule, table activity
 
 > Folder: `backend/src/features/data_catalog/` · Decided: 2026-10-16 (Dana) · Model: Sonnet is fine
-> Status: EXECUTED 2026-10-16 (not deployed; set match + Writer format decided by Dana at Task 0, see CLOSING_REPORT_3.md) · Depends on brief 1 (comments carry the declared `Writer:`); brief 2 is expected but not required (if brief 2 has not run, write the lineage sections to `LINEAGE.md` in this folder instead of `CATALOG.md`, and skip the System Health part). Decided 2026-10-16: no strict mode, nothing at boot ever exits; the one-writer rule blocks in CI only
+> Status: EXECUTED 2026-10-16, commit `92a3a02`, deployed as revision `axis-bloom-backend-00752-w54` (set match + Writer format decided by Dana at Task 0, see CLOSING_REPORT_3.md) · Depends on brief 1 (comments carry the declared `Writer:`); brief 2 is expected but not required (if brief 2 has not run, write the lineage sections to `LINEAGE.md` in this folder instead of `CATALOG.md`, and skip the System Health part). Decided 2026-10-16: no strict mode, nothing at boot ever exits; the one-writer rule blocks in CI only
 > Read `README.md` in this folder first.
 
 ## What this is
