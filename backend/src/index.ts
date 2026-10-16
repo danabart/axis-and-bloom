@@ -7,6 +7,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { db, ownerPool, whoAmI } from './db/client.js';
+import { applyCommentsSql } from './db/commentsFile.js';
 import { getRealClientIp } from './middleware/clientIp.js';
 import { appCheckGate } from './middleware/appCheck.js';
 import { apiEventLog } from './middleware/apiEventLog.js';
@@ -171,6 +172,19 @@ async function start() {
         console.log(`[db-roles] schema applied as ${ownerUser}; request pool is ab_app`);
       } else {
         console.warn(`[db-roles] OWNER_DATABASE_URL not set — schema applied by the request pool role (${ownerUser}); fact grants are written but NOT enforcing until the cutover (Customer Blueprint C1, Part G)`);
+      }
+      // Data catalog · brief 1 (2026-10-16) — every COMMENT ON lives in
+      // db/comments.sql, applied right after schema.sql on the same owner
+      // pool and before any integrity check. Idempotent (COMMENT ON
+      // replaces). Never blocks boot: a failure logs and continues, same
+      // posture as the [db-roles] warning above.
+      try {
+        const comments = readFileSync(join(__dirname, 'db', 'comments.sql'), 'utf-8');
+        const { applied, skipped } = await applyCommentsSql(owner, comments);
+        console.log(`[db-comments] applied ${applied} statements`);
+        if (skipped.length) console.warn(`[db-comments] skipped ${skipped.length} (object not in this database): ${skipped.join(', ')}`);
+      } catch (err) {
+        console.warn('[db-comments] comments.sql not applied (non-fatal):', err);
       }
     } finally {
       await owner.end();

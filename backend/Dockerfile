@@ -8,7 +8,7 @@ WORKDIR /app
 COPY package.json package-lock.json* tsconfig.json ./
 RUN npm ci
 COPY src ./src
-RUN npm run build && cp src/db/schema.sql dist/db/schema.sql
+RUN npm run build && cp src/db/schema.sql dist/db/schema.sql && cp src/db/comments.sql dist/db/comments.sql
 
 FROM base AS runner
 WORKDIR /app

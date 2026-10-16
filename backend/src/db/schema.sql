@@ -1668,8 +1668,7 @@ CREATE TABLE IF NOT EXISTS user_bloom_dial_current_position (
   PRIMARY KEY (user_id, archetype)
 );
 
-COMMENT ON TABLE user_bloom_dial_current_position IS
-  'Current dial setting per user+archetype, overwritten in place on every dial turn (silent, no history). Movement history — explicit saves and cart-anchored positions only — lives in Firestore users/{uid}/dial_events.';
+-- Table comment lives in db/comments.sql (data catalog brief 1, 2026-10-16).
 
 -- Retail price for a Bloom Dial slot, per weight. Not on roaster_blend (would
 -- let two roasters fulfilling the same slot show two different prices for the
@@ -4271,8 +4270,7 @@ ALTER TABLE claude_daily_spend ADD COLUMN IF NOT EXISTS feature TEXT NOT NULL DE
 -- usd_micros > 0.
 ALTER TABLE claude_daily_spend ADD COLUMN IF NOT EXISTS usd_micros BIGINT NOT NULL DEFAULT 0;
 UPDATE claude_daily_spend SET usd_micros = cents::BIGINT * 10000 WHERE usd_micros = 0 AND cents > 0;
-COMMENT ON COLUMN claude_daily_spend.cents IS
-  'FROZEN 2026-10-01: superseded by usd_micros (Liam access & cost brief). Not read or written by the app; kept for history. Removal tracked in OPEN_TASKS.md OT-30.';
+-- cents is frozen; its comment lives in db/comments.sql (data catalog brief 1, 2026-10-16).
 
 ALTER TABLE qr_scan_event ADD COLUMN IF NOT EXISTS source TEXT;
 
@@ -4483,12 +4481,8 @@ END $$;
 -- inventory (roasters drop-ship every order); a SKU's availability is its
 -- is_active switch ("Available from roaster" / "Paused"). The columns stay
 -- (no DROP, no UPDATE of existing values) but are marked deprecated, and
--- lint-catalog.mjs rule 6 fails any app reference to them.
-COMMENT ON COLUMN coffee_sku.quantity_available IS 'DEPRECATED 2026-09-30: drop-ship model, stock not tracked; not read or written by the app.';
-COMMENT ON COLUMN coffee_sku.safety_stock_buffer IS 'DEPRECATED 2026-09-30: drop-ship model, stock not tracked; not read or written by the app.';
-COMMENT ON COLUMN coffee_sku.inventory_status IS 'DEPRECATED 2026-09-30: drop-ship model, stock not tracked; not read or written by the app.';
-COMMENT ON COLUMN coffee_sku.last_restocked_at IS 'DEPRECATED 2026-09-30: drop-ship model, stock not tracked; not read or written by the app.';
-COMMENT ON COLUMN coffee_sku.inventory_last_synced_at IS 'DEPRECATED 2026-09-30: drop-ship model, stock not tracked; not read or written by the app.';
+-- lint-catalog.mjs rule 6 fails any app reference to them. The deprecation
+-- comments moved to db/comments.sql (data catalog brief 1, 2026-10-16).
 
 -- Catalog Blueprint brief 3 (2026-09-14) — the pre-DISTINCT-ON candidate list
 -- v_coffee_sellable_slot picks its winner from, exposed on its own so the
