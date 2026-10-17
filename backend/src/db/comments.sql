@@ -253,8 +253,8 @@ COMMENT ON COLUMN archetype_tunable_variable.created_at IS $c$UTC timestamp when
 COMMENT ON TABLE user_vector_state IS $c$Purpose: Retired 2026-10-16: per-user declared and behavioral score per flavor dimension from the original 2026-05 design; never written (0 rows), no code, and dimension_id is a UUID that cannot join coffee_dimensions (integer id); the live customer position is quiz_session_interpretation and user_bloom_dial_current_position; drop-later | Class: deprecated | Writer: none | Readers: none | Since: 2026-05-22$c$;
 COMMENT ON COLUMN user_vector_state.user_id IS $c$References user_profile.id; part of the primary key (ON DELETE CASCADE).$c$;
 COMMENT ON COLUMN user_vector_state.dimension_id IS $c$UUID of the flavor dimension (md5-derived style, no FK); part of the primary key.$c$;
-COMMENT ON COLUMN user_vector_state.declared_score IS $c$Score the user stated, presumably 0-15 scale.$c$;
-COMMENT ON COLUMN user_vector_state.behavior_score IS $c$Score inferred from behavior, presumably 0-15 scale.$c$;
+COMMENT ON COLUMN user_vector_state.declared_score IS $c$Score the user stated; scale undefined, table unused.$c$;
+COMMENT ON COLUMN user_vector_state.behavior_score IS $c$Score inferred from behavior; scale undefined, table unused.$c$;
 COMMENT ON COLUMN user_vector_state.updated_at IS $c$UTC timestamp of last update.$c$;
 -- ── user_archetype_tuning ──
 COMMENT ON TABLE user_archetype_tuning IS $c$Purpose: Reserved for a user's personal offset per archetype dimension, held for a future computed signal; unused today | Class: operating | Writer: none | Readers: none | Since: 2026-05-22$c$;

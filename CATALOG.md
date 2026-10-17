@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-10-16 from database `axisandbloom_test` · 115 tables · 52 views · 1035 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `6493f8131b12` (full value in the footer).
+Generated 2026-10-17 from database `axisandbloom` · 115 tables · 52 views · 1035 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `597966599217` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -2349,8 +2349,8 @@ Retired 2026-10-16: per-user declared and behavioral score per flavor dimension 
 |---|---|---|---|
 | `user_id` | uuid | no | References user_profile.id; part of the primary key (ON DELETE CASCADE). |
 | `dimension_id` | uuid | no | UUID of the flavor dimension (md5-derived style, no FK); part of the primary key. |
-| `declared_score` | numeric | yes | Score the user stated, presumably 0-15 scale. |
-| `behavior_score` | numeric | yes | Score inferred from behavior, presumably 0-15 scale. |
+| `declared_score` | numeric | yes | Score the user stated; scale undefined, table unused. |
+| `behavior_score` | numeric | yes | Score inferred from behavior; scale undefined, table unused. |
 | `updated_at` | timestamp with time zone | yes | UTC timestamp of last update. |
 
 ## Views
@@ -2953,11 +2953,15 @@ Probe markers (`// lineage: probe, not a write`), each a write the rule does not
 
 ## Activity
 
-_Activity is read from production only; this file was generated from `axisandbloom_test`. Regenerate with `npm run catalog:md -- --expect-db axisandbloom`. Live numbers: admin System Health or `v_data_table_activity`._
+Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live counts are on admin System Health. A dead candidate has had no insert, update, delete or scan since a reset older than 30 days. Any full export (such as a test-database clone) scans every table and clears the list.
+
+**Dead candidates, observed (0):** none.
 
 **Dead candidates, static (23):** `archetype_relationship`, `archetype_tunable_variable`, `cupping_brew_params`, `cupping_note_dimension_weight`, `customer_order_kind`, `liam_sms_feedback`, `newsletter_subscriber_backup_20260925`, `notification_log`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_vector`, `roastery_blend_vector`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `user_archetype_tuning`, `user_coffee_profile`, `user_lifecycle_event`, `user_payment_detail`, `user_roaster_link`, `user_vector_state`.
 
+**Touched since the reset (115):** `address`, `api_event`, `archetype_relationship`, `archetype_tunable_variable`, `archetype_vector`, `beat_event`, `brew_card_view_event`, `campaign_landing_event`, `catalog_change`, `claude_daily_spend`, `coffee_archetype`, `coffee_archetype_assignment`, `coffee_category`, `coffee_category_assignment`, `coffee_dial_slot`, `coffee_dimensions`, `coffee_hop`, `coffee_retail_price`, `coffee_size`, `coffee_sku`, `coffee_slot_assignment`, `coffee_slot_price`, `coffees`, `company`, `company_gift`, `company_gift_code`, `cupping_brew_params`, `cupping_note`, `cupping_note_dimension_weight`, `cupping_score_descriptors`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`, `cupping_sessions`, `customer_bag_claim`, `customer_brew_profile_change`, `customer_dial_event`, `customer_feedback_descriptor`, `customer_feedback_event`, `customer_identity_link`, `customer_liam_action`, `customer_liam_question`, `customer_liam_recommendation`, `customer_liam_reply`, `customer_order_kind`, `dial_position_signal`, `dial_source_weight`, `household`, `household_invitation`, `liam_sms_feedback`, `lookup_value`, `marketing_config`, `newsletter_subscriber`, `newsletter_subscriber_backup_20260925`, `notification_log`, `order`, `order_line_item`, `qr_scan_event`, `qr_universal_token`, `quiz`, `quiz_answer`, `quiz_answer_archetype_score`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_funnel_event`, `quiz_question`, `quiz_session`, `quiz_session_interpretation`, `quiz_type`, `quiz_vector`, `roaster`, `roastery_blend_vector`, `roastery_coffee_descriptors`, `roastery_portal_acceptance`, `roastery_portal_coffee`, `roastery_portal_dimension`, `roastery_portal_lineup_response`, `roastery_portal_lineup_response_best_seller`, `roastery_portal_link`, `roastery_portal_note_mapping`, `roastery_portal_respondent`, `roastery_portal_response`, `roastery_portal_response_brew`, `roastery_portal_response_dimension`, `roastery_portal_response_note`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `sommelier_evaluation`, `sommelier_messages`, `sommelier_sessions`, `sommelier_sms_feedback`, `subscriber_source`, `subscription`, `token_events`, `transactional_email_log`, `user_archetype_tuning`, `user_bloom_dial_current_position`, `user_brew_card`, `user_coffee_profile`, `user_email`, `user_flavor_feedback`, `user_lifecycle_event`, `user_lifecycle_stage`, `user_lifecycle_state`, `user_payment_detail`, `user_phone`, `user_profile`, `user_roaster_link`, `user_saved_item`, `user_tokens`, `user_type`, `user_vector_state`.
+
 ---
 
-catalog-hash: 6493f8131b12e7d990fce7e03086beead6972d7573c50d7c33aef7dfa4f4abfe
-lineage-hash: e58584cb55e2eaa50d9e56117b43346e9f0b790ef1b2798f1af8222b57ae52e4
+catalog-hash: 59796659921704116de117d8121657b4bb3355a500dff6134eaf840399c8cbde
+lineage-hash: 47617e65da20aa9c783e6bdbec04b00792cfaec889ffa75b72639b65c918cabd
