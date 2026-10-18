@@ -78,7 +78,7 @@ export default function EvidencePanel({ coffeeId, apiFetch, onDecideMatch, onDec
   );
 }
 
-function DimensionsTab({ rows }: { rows: Row[] }) {
+export function DimensionsTab({ rows }: { rows: Row[] }) {
   if (!rows.length) return <p className="text-stone-400">No numeric cupping rows for this coffee.</p>;
   const cuppers = [...new Map(rows.map(r => [r.cupper_id, r.cupper_name])).entries()];
   const dims = [...new Map(rows.map(r => [r.dimension_id, r])).values()];
@@ -124,7 +124,7 @@ function DimensionsTab({ rows }: { rows: Row[] }) {
   );
 }
 
-function DescriptorsTab({ rows }: { rows: Row[] }) {
+export function DescriptorsTab({ rows }: { rows: Row[] }) {
   if (!rows.length) return <p className="text-stone-400">No family named by anyone yet.</p>;
   const who = (r: Row) => [
     ...(r.named_by_cuppers ?? []),
@@ -153,8 +153,11 @@ function DescriptorsTab({ rows }: { rows: Row[] }) {
   );
 }
 
-function ArchetypeTab({ archetype: a, calls, onDecideMatch, onDecidePlace }: {
-  archetype: Row | null; calls: Row[]; onDecideMatch: () => void; onDecidePlace: () => void;
+// Cupping evidence brief 4: the three tabs are exported so the Calibration
+// workbench reuses them as its centre column; there the decision cards sit
+// beside them, so the Decide links are optional.
+export function ArchetypeTab({ archetype: a, calls, onDecideMatch, onDecidePlace }: {
+  archetype: Row | null; calls: Row[]; onDecideMatch?: () => void; onDecidePlace?: () => void;
 }) {
   if (!a) return <p className="text-stone-400">No row for this coffee.</p>;
   const line = (k: string, v: React.ReactNode) => (
@@ -186,10 +189,12 @@ function ArchetypeTab({ archetype: a, calls, onDecideMatch, onDecidePlace }: {
         {line('Newer evidence than decision', a.evidence_newer_than_decision === null ? '—' : a.evidence_newer_than_decision ? 'yes' : 'no')}
         {line('Roaster agrees with catalog', a.roaster_agrees_with_catalog === null ? '—' : a.roaster_agrees_with_catalog ? 'yes' : 'no')}
         {line('Flag', <span className={FLAG_STYLE[a.flag] ?? ''}>{flagLabel(a.flag)}</span>)}
-        <div className="flex gap-3 mt-3">
-          <button onClick={onDecideMatch} className="underline text-stone-600 hover:text-stone-900">Decide archetype…</button>
-          <button onClick={onDecidePlace} className="underline text-stone-600 hover:text-stone-900">Decide placement…</button>
-        </div>
+        {(onDecideMatch || onDecidePlace) && (
+          <div className="flex gap-3 mt-3">
+            {onDecideMatch && <button onClick={onDecideMatch} className="underline text-stone-600 hover:text-stone-900">Decide archetype…</button>}
+            {onDecidePlace && <button onClick={onDecidePlace} className="underline text-stone-600 hover:text-stone-900">Decide placement…</button>}
+          </div>
+        )}
       </div>
     </div>
   );

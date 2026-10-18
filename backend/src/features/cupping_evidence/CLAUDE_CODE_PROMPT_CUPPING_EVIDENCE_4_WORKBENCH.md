@@ -2,7 +2,7 @@
 
 > Folder: `backend/src/features/cupping_evidence/` · Written 2026-10-16 (CTO session; decisions by Dana) · Model: Sonnet is fine
 > **v3 (2026-10-17):** the basis is stored twice, as the text line and as `basis JSONB`; placements record `placed_from_session_id`; the page shows `evidence_newer_than_decision`; no cupper name is hard-coded anywhere in the page or in `composeBasis`. The v2 text is kept as `SUPERSEDED_…_4_WORKBENCH_v2.md`.
-> Status: NOT EXECUTED · Depends on briefs 1 v3, 2 v3 and 3 v3 being deployed.
+> Status: **DONE 2026-10-18**: backend `e425aff`, frontend + docs in the commit after it. Built and smoke-tested on the test DB; nothing assigned, placed or accepted on prod (Dana's calibration pass is DESIGN §12 row 5). Closing report: `CLOSING_REPORT_4.md`. `WHAT_WE_BUILT.md` #227.
 > Contract: `DESIGN_CUPPING_EVIDENCE.md` v2 §8 (decision rules, §8.4 in particular). Read it first. This brief adds one admin page and one reads extension. **No schema, no new table, no new view, no new writer.** Every write goes through an existing `catalogService` or `roasteryPortalService` door over an existing `/api/admin` endpoint.
 
 ## What this is

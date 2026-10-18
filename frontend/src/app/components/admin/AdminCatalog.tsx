@@ -7,6 +7,7 @@ import { useArchetypes } from './useArchetypes';
 import LookupSelect from './LookupSelect';
 import StoryEditorModal from './StoryEditorModal';
 import EvidencePanel from './EvidencePanel';
+import { setMatch, previewPlacement, placeCoffee } from '../../lib/catalogWrites';
 import CategoryAdmin, { toggleCoffeeCategory, type CategoryOption } from './CategoryAdmin';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -597,12 +598,7 @@ function SetMatchModal({ coffee, archetypes, apiFetch, onClose, onSaved }: {
     if (!archetype) { setErr('Match archetype is required'); return; }
     setSaving(true); setErr('');
     try {
-      const res = await apiFetch(`/api/admin/catalog/coffees/${coffee.id}/match`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ archetype, confidence, source: 'manual' }),
-      });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.message ?? 'Failed to save');
+      const body = await setMatch(apiFetch, coffee.id, { archetype, confidence, source: 'manual' });
       onSaved(body.warnings ?? []); onClose();
     } catch (e) { setErr(e instanceof Error ? e.message : 'Failed to save'); } finally { setSaving(false); }
   }
@@ -700,10 +696,7 @@ function PlaceModal({ coffeeId, role, archetypes, slots, apiFetch, onClose, onSa
     if (!slotId) { setErr('Pick a slot first'); return; }
     setPreviewing(true); setErr('');
     try {
-      const res = await apiFetch(`/api/admin/catalog/placement-preview?coffeeId=${coffeeId}&slotId=${slotId}&role=${role}`);
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.message ?? 'Preview failed');
-      setPreview(body);
+      setPreview(await previewPlacement(apiFetch, coffeeId, Number(slotId), role));
     } catch (e) { setErr(e instanceof Error ? e.message : 'Preview failed'); } finally { setPreviewing(false); }
   }
 
@@ -711,12 +704,7 @@ function PlaceModal({ coffeeId, role, archetypes, slots, apiFetch, onClose, onSa
     if (blocking && !note.trim()) { setErr('A placement note is required for this warning'); return; }
     setSaving(true); setErr('');
     try {
-      const res = await apiFetch(`/api/admin/catalog/coffees/${coffeeId}/placements`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slotId: Number(slotId), role, placementNote: note || undefined }),
-      });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.message ?? 'Failed to place');
+      const body = await placeCoffee(apiFetch, coffeeId, { slotId: Number(slotId), role, placementNote: note || undefined });
       onSaved(body.warnings ?? []); onClose();
     } catch (e) { setErr(e instanceof Error ? e.message : 'Failed to place'); } finally { setSaving(false); }
   }

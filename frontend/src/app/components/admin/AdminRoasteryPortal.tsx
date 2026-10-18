@@ -5,6 +5,8 @@ import { reportError } from '../../lib/errorReporter';
 import LookupSelect from './LookupSelect';
 import { useArchetypes } from './useArchetypes';
 import CalibrationPanel from './CalibrationPanel';
+import AdminCalibrationWorkbench from './AdminCalibrationWorkbench';
+import { acceptResponse } from '../../lib/catalogWrites';
 
 // Roastery Portal (2026-10-05) — admin page, "Roastery Feedback". Create and
 // revoke the private link each partner roastery gets, manage its lineup, watch
@@ -126,11 +128,18 @@ export default function AdminRoasteryPortal() {
         <CalibrationPanel key={`cal-${roasterId}`} roasterId={roasterId} roasterName={null} apiFetch={apiFetch}
           onBack={() => go({ roastery: roasterId })} />
       )}
-      {roasterId && !coffeeId && !acceptId && view !== 'calibration' && vocab && (
+      {/* Cupping evidence brief 4: ?roastery=<id>&view=workbench, the Calibration workbench. */}
+      {roasterId && view === 'workbench' && !acceptId && (
+        <AdminCalibrationWorkbench key={`wb-${roasterId}`} roasterId={roasterId} apiFetch={apiFetch}
+          onBack={() => go({ roastery: roasterId })}
+          onOpenAcceptance={portalCoffeeId => go({ roastery: roasterId, accept: portalCoffeeId })} />
+      )}
+      {roasterId && !coffeeId && !acceptId && view !== 'calibration' && view !== 'workbench' && vocab && (
         <RoasteryDetailView key={roasterId} roasterId={roasterId} apiFetch={apiFetch} vocab={vocab}
           onBack={() => go({})} onOpenCoffee={id => go({ roastery: roasterId, coffee: id })}
           onAccept={id => go({ roastery: roasterId, accept: id })}
-          onCalibration={() => go({ roastery: roasterId, view: 'calibration' })} />
+          onCalibration={() => go({ roastery: roasterId, view: 'calibration' })}
+          onWorkbench={() => go({ roastery: roasterId, view: 'workbench' })} />
       )}
       {roasterId && coffeeId && !acceptId && vocab && (
         <CoffeeResponsePanel key={coffeeId} roasterId={roasterId} coffeeId={coffeeId} apiFetch={apiFetch} vocab={vocab}
@@ -200,9 +209,9 @@ function RoasteryList({ apiFetch, onOpen }: { apiFetch: (u: string, o?: RequestI
 }
 
 // ── One roastery: links, lineup, progress, lineup answers ───────────────────
-function RoasteryDetailView({ roasterId, apiFetch, vocab, onBack, onOpenCoffee, onAccept, onCalibration }: {
+function RoasteryDetailView({ roasterId, apiFetch, vocab, onBack, onOpenCoffee, onAccept, onCalibration, onWorkbench }: {
   roasterId: string; apiFetch: (u: string, o?: RequestInit) => Promise<Response>; vocab: Vocabulary;
-  onBack: () => void; onOpenCoffee: (id: string) => void; onAccept: (id: string) => void; onCalibration: () => void;
+  onBack: () => void; onOpenCoffee: (id: string) => void; onAccept: (id: string) => void; onCalibration: () => void; onWorkbench: () => void;
 }) {
   const [data, setData] = useState<RoasteryDetail | null>(null);
   const [error, setError] = useState('');
@@ -243,7 +252,8 @@ function RoasteryDetailView({ roasterId, apiFetch, vocab, onBack, onOpenCoffee, 
         {activeLineup.length > 0 && (
           <Link className={`${BTN} mt-2 mr-2 inline-block`} to={`/admin/roastery-portal/${roasterId}/preview`}>Preview form</Link>
         )}
-        <button className={`${BTN} mt-2 inline-block`} onClick={onCalibration}>Calibration</button>
+        <button className={`${BTN} mt-2 mr-2 inline-block`} onClick={onCalibration}>Calibration</button>
+        <button className={`${BTN} mt-2 inline-block`} onClick={onWorkbench}>Workbench</button>
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
 
@@ -783,18 +793,10 @@ function AcceptPanel({ roasterId, portalCoffeeId, apiFetch, vocab, onBack }: {
         basics[b.field] = { include: !!basicTick[b.field] };
         if (b.field === 'process' && basicTick.process) basics.process.value = processChoice;
       }
-      const res = await apiFetch(`/api/admin/roastery-portal/responses/${preview!.response.id}/accept`, {
-        method: 'POST',
-        body: JSON.stringify({
-          items: {
-            basics,
-            notes: preview!.notes.map(n => ({ rank: n.rank, include: noteState[n.rank].include, cuppingNoteId: noteState[n.rank].term, remember: noteState[n.rank].remember })),
-          },
-        }),
-      });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.message ?? body.error ?? 'Could not accept');
-      setResult(body);
+      setResult(await acceptResponse<AcceptResultView>(apiFetch, preview!.response.id, {
+        basics,
+        notes: preview!.notes.map(n => ({ rank: n.rank, include: noteState[n.rank].include, cuppingNoteId: noteState[n.rank].term, remember: noteState[n.rank].remember })),
+      }));
     } catch (err) {
       reportError('[AdminRoasteryPortal/accept]', err);
       setError(err instanceof Error ? err.message : 'Could not accept');
