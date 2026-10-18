@@ -129,7 +129,7 @@ async function loadFixtures(client: Tx): Promise<void> {
   async function noteIdFor(descriptor: string): Promise<string> {
     if (noteCache[descriptor]) return noteCache[descriptor];
     const r = await client.query<{ id: string }>(
-      `INSERT INTO cupping_note (wheel_category, wheel_subcategory, descriptor) VALUES ('Vitest', 'Vitest', $1) RETURNING id`,
+      `INSERT INTO cupping_note (wheel_category, wheel_subcategory, descriptor, tier) VALUES ('Vitest', NULL, $1, 1) RETURNING id`,
       [descriptor]
     );
     noteCache[descriptor] = r.rows[0].id;
@@ -145,7 +145,7 @@ async function loadFixtures(client: Tx): Promise<void> {
     );
     const sessionCoffeeId = sc.rows[0].id;
     const score = await client.query<{ id: number }>(
-      `INSERT INTO cupping_scores (session_coffee_id, taster_name, is_merged) VALUES ($1, 'Vitest Merged', true) RETURNING id`,
+      `INSERT INTO cupping_scores (session_coffee_id, is_merged, merge_rule) VALUES ($1, true, 'union_v1') RETURNING id`,
       [sessionCoffeeId]
     );
     const cuppingScoreId = score.rows[0].id;

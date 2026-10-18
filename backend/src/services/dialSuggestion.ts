@@ -1,5 +1,6 @@
 import { db, withTransaction } from '../db/client.js';
 import { archetypeLabel, getArchetypes, getSlots, getCoffee } from './catalogReads.js';
+import { getMergedRange, getAllMergedRanges } from './cuppingReads.js';
 
 // Archetype's dominant-dimension bucket width — (target_max - target_min) / N dial
 // slots. Shared meaningfulness threshold used by getDialSuggestion and the Phase 5
@@ -47,6 +48,11 @@ export interface DialSuggestion {
   is_outlier: boolean;
   dimension_name: string;
   hop_conflict?: HopConflict;
+  // Cupping evidence brief 1 (Dana, 2026-10-17): what the suggested slot rests
+  // on — 'spec_band' when every active slot of the archetype has
+  // spec_band_lo/hi, else the archetype_vector targets split evenly across the
+  // slots. Written into dial_position_signal.notes by recordCuppingSignal.
+  basis: string;
 }
 
 export interface AvgCuppingScore {
@@ -54,44 +60,32 @@ export interface AvgCuppingScore {
   session_count: number;
 }
 
+export const BASIS_SPEC_BAND = 'spec_band';
+export const BASIS_ARCHETYPE_VECTOR = 'archetype_vector (May 2026 targets)';
+
 // Shared by getDialSuggestion, findHopConflict, hop validation, and hop suggestions —
-// one query shape for "what does this coffee's merged cupping data say about this dimension."
+// one answer to "what does this coffee's merged cupping data say about this dimension."
+// Cupping evidence brief 1 (2026-10-18): the midpoint of the LATEST current
+// merged range (v_coffee_dimension_range through cuppingReads), converted to
+// 0 to 15. It used to average every merged row of every session; for one
+// session the two agree, for several the latest session now wins.
+// session_count = sessions with a current merged row. Unmerged evidence
+// (cupper rows only) still answers null, as before.
 export async function getAvgCuppingScore(coffeeId: number, dimensionId: number): Promise<AvgCuppingScore | null> {
-  const result = await db.query(
-    `SELECT ROUND(AVG((csv.value_min + csv.value_max) / 2.0), 2) AS avg_score,
-            COUNT(DISTINCT cs.session_coffee_id) AS session_count
-     FROM cupping_score_values csv
-     JOIN cupping_scores cs ON cs.id = csv.cupping_score_id AND cs.is_merged = true
-     JOIN cupping_session_coffees scc ON scc.id = cs.session_coffee_id
-     WHERE scc.coffee_id = $1 AND csv.dimension_id = $2`,
-    [coffeeId, dimensionId]
-  );
-  const avgScore = result.rows[0]?.avg_score;
-  if (avgScore === null || avgScore === undefined) return null;
-  return { avg_score: Number(avgScore), session_count: Number(result.rows[0].session_count) };
+  const range = await getMergedRange(coffeeId, dimensionId);
+  if (!range || range.basis !== 'merged' || range.midpoint === null) return null;
+  return { avg_score: range.midpoint, session_count: range.n_sessions };
 }
 
-// Batched counterpart to getAvgCuppingScore — identical AVG/join shape (same score
-// definition, not a fork), computed for every (coffee, dimension) pair with merged
-// cupping data in one query instead of N+1 per-pair calls. Used by the dial graph
-// endpoint (GET /api/admin/dial/graph) to annotate every hop's from/to cupping
-// average without a query per relationship.
+// Batched counterpart to getAvgCuppingScore — same definition, every coffee
+// and dimension in one read. Used by the dial graph endpoint (GET
+// /api/admin/dial/graph) to annotate every hop's from/to cupping average
+// without a query per relationship.
 export async function getAvgCuppingScoresBatch(): Promise<Map<string, AvgCuppingScore>> {
-  const result = await db.query(
-    `SELECT scc.coffee_id, csv.dimension_id,
-            ROUND(AVG((csv.value_min + csv.value_max) / 2.0), 2) AS avg_score,
-            COUNT(DISTINCT cs.session_coffee_id) AS session_count
-     FROM cupping_score_values csv
-     JOIN cupping_scores cs ON cs.id = csv.cupping_score_id AND cs.is_merged = true
-     JOIN cupping_session_coffees scc ON scc.id = cs.session_coffee_id
-     GROUP BY scc.coffee_id, csv.dimension_id`
-  );
   const map = new Map<string, AvgCuppingScore>();
-  for (const row of result.rows) {
-    map.set(`${row.coffee_id}-${row.dimension_id}`, {
-      avg_score: Number(row.avg_score),
-      session_count: Number(row.session_count),
-    });
+  for (const r of await getAllMergedRanges()) {
+    if (r.basis !== 'merged' || r.midpoint === null) continue;
+    map.set(`${r.coffee_id}-${r.dimension_id}`, { avg_score: r.midpoint, session_count: r.n_sessions });
   }
   return map;
 }
@@ -180,17 +174,6 @@ export async function getDialSuggestion(coffeeId: number): Promise<DialSuggestio
   if (!score) return null;
   const avgScore = score.avg_score;
 
-  const rangeResult = await db.query(
-    `SELECT vc.target_min, vc.target_max
-     FROM v_archetype_dimension_comparison vc
-     JOIN coffee_dimensions cd ON cd.name = vc.dimension
-     WHERE vc.archetype = $1 AND cd.id = $2`,
-    [await archetypeLabel(archetype), dimensionId]
-  );
-  if (rangeResult.rowCount === 0) return null;
-  const { target_min: targetMin, target_max: targetMax } = rangeResult.rows[0];
-  if (targetMin === null || targetMax === null) return null;
-
   // Slot count/labels now come from this archetype's dial slots
   // (coffee_dial_slot, via getSlots) rather than dial_position_vocabulary —
   // the two have a 1:1 correspondence, one dial position per slot.
@@ -198,12 +181,48 @@ export async function getDialSuggestion(coffeeId: number): Promise<DialSuggestio
   const n = slots.length;
   if (n === 0) return null;
 
-  const bucketWidth = (Number(targetMax) - Number(targetMin)) / n;
-  const rawBucket = Math.floor((Number(avgScore) - Number(targetMin)) / bucketWidth) + 1;
-  const suggestedSortOrder = Math.min(Math.max(rawBucket, 1), n);
-  const isOutlier = rawBucket < 1 || rawBucket > n;
+  let suggestedSlot: (typeof slots)[number] | undefined;
+  let suggestedSortOrder: number;
+  let isOutlier: boolean;
+  let basis: string;
 
-  const suggestedSlot = slots.find((s) => s.sort_order === suggestedSortOrder);
+  // Cupping evidence brief 1, decision 8 (Dana, 2026-10-17): band-first. When
+  // every active slot of the archetype carries spec_band_lo/hi, the suggestion
+  // is the slot whose band contains the midpoint (the nearest band when none
+  // does, flagged as an outlier). Otherwise the archetype_vector targets
+  // (v_archetype_dimension_comparison, the May 2026 targets) split evenly
+  // across the slots, unchanged. brief 3's slot_spec_check reads the bands
+  // only, so the two readings differ until the bands are set, then agree.
+  const active = slots.filter((s) => s.is_active);
+  const banded = active.length > 0 && active.every((s) => s.spec_band_lo !== null && s.spec_band_hi !== null);
+  if (banded) {
+    const distance = (s: (typeof active)[number]) =>
+      avgScore < Number(s.spec_band_lo) ? Number(s.spec_band_lo) - avgScore
+        : avgScore > Number(s.spec_band_hi) ? avgScore - Number(s.spec_band_hi) : 0;
+    const ranked = [...active].sort((a, b) => distance(a) - distance(b) || a.sort_order - b.sort_order);
+    suggestedSlot = ranked[0];
+    suggestedSortOrder = suggestedSlot.sort_order;
+    isOutlier = distance(suggestedSlot) > 0;
+    basis = BASIS_SPEC_BAND;
+  } else {
+    const rangeResult = await db.query(
+      `SELECT vc.target_min, vc.target_max
+       FROM v_archetype_dimension_comparison vc
+       JOIN coffee_dimensions cd ON cd.name = vc.dimension
+       WHERE vc.archetype = $1 AND cd.id = $2`,
+      [await archetypeLabel(archetype), dimensionId]
+    );
+    if (rangeResult.rowCount === 0) return null;
+    const { target_min: targetMin, target_max: targetMax } = rangeResult.rows[0];
+    if (targetMin === null || targetMax === null) return null;
+
+    const bucketWidth = (Number(targetMax) - Number(targetMin)) / n;
+    const rawBucket = Math.floor((Number(avgScore) - Number(targetMin)) / bucketWidth) + 1;
+    suggestedSortOrder = Math.min(Math.max(rawBucket, 1), n);
+    isOutlier = rawBucket < 1 || rawBucket > n;
+    suggestedSlot = slots.find((s) => s.sort_order === suggestedSortOrder);
+    basis = BASIS_ARCHETYPE_VECTOR;
+  }
   if (!suggestedSlot) return null;
 
   const hopConflict = await findHopConflict(coffeeId, archetype, dimensionId, Number(avgScore));
@@ -216,6 +235,7 @@ export async function getDialSuggestion(coffeeId: number): Promise<DialSuggestio
     session_count: score.session_count,
     is_outlier: isOutlier,
     dimension_name: dimensionName,
+    basis,
     ...(hopConflict ? { hop_conflict: hopConflict } : {}),
   };
 }
@@ -224,20 +244,30 @@ export async function getDialSuggestion(coffeeId: number): Promise<DialSuggestio
 // dial_position_signal so it accumulates history as new sessions get merged.
 // Never writes to coffee_slot_assignment — reuses getDialSuggestion so all
 // of its null-guards (no archetype, is_archetype = false, no cupping data,
-// no archetype_vector coverage, no slot found) apply here as no-ops too.
-export async function recordCuppingSignal(coffeeId: number): Promise<void> {
-  const suggestion = await getDialSuggestion(coffeeId);
-  if (!suggestion) return;
+// no archetype_vector coverage, no slot found) apply here too.
+//
+// Cupping evidence brief 1 (2026-10-18): called only by
+// cuppingService.refreshDialSignal (lint:cupping). Every call first
+// supersedes the coffee's current cupping signal(s), whatever archetype they
+// were recorded under (an archetype change must not leave the old one
+// current), then inserts the new one when there is a suggestion; with
+// { retract: true }, or when there is no suggestion, it inserts nothing.
+// notes carries the suggestion's basis.
+export async function recordCuppingSignal(coffeeId: number, opts: { retract?: boolean } = {}): Promise<void> {
+  const suggestion = opts.retract ? null : await getDialSuggestion(coffeeId);
 
-  // Catalog Blueprint brief 3: same getCoffee/getArchetypes resolution
-  // getDialSuggestion above already used, instead of raw archetype_assignments
-  // / dial_archetype_config queries.
-  const coffee = await getCoffee(coffeeId);
-  const archetype = coffee?.match_archetype ?? undefined;
-  if (!archetype) return;
-
-  const dimensionId = (await getArchetypes()).find((a) => a.code === archetype)?.dominant_dimension_id ?? undefined;
-  if (!dimensionId) return;
+  let archetype: string | undefined;
+  let dimensionId: number | undefined;
+  if (suggestion) {
+    // Catalog Blueprint brief 3: same getCoffee/getArchetypes resolution
+    // getDialSuggestion above already used, instead of raw archetype_assignments
+    // / dial_archetype_config queries.
+    const coffee = await getCoffee(coffeeId);
+    archetype = coffee?.match_archetype ?? undefined;
+    dimensionId = archetype
+      ? (await getArchetypes()).find((a) => a.code === archetype)?.dominant_dimension_id ?? undefined
+      : undefined;
+  }
 
   // Catalog Blueprint brief 2 (2026-09-14) — last pool-level BEGIN/COMMIT in
   // the codebase, moved onto withTransaction (backend/src/db/client.ts,
@@ -246,15 +276,15 @@ export async function recordCuppingSignal(coffeeId: number): Promise<void> {
     await tx.query(
       `UPDATE dial_position_signal
        SET superseded_at = now()
-       WHERE coffee_id = $1 AND archetype = $2 AND dimension_id = $3
-         AND source = 'cupping' AND superseded_at IS NULL`,
-      [coffeeId, archetype, dimensionId]
+       WHERE coffee_id = $1 AND source = 'cupping' AND superseded_at IS NULL`,
+      [coffeeId]
     );
+    if (!suggestion || !archetype || !dimensionId) return;
     await tx.query(
       `INSERT INTO dial_position_signal
-         (coffee_id, archetype, dimension_id, source, suggested_slot_id, raw_value, sample_size)
-       VALUES ($1, $2, $3, 'cupping', $4, $5, $6)`,
-      [coffeeId, archetype, dimensionId, suggestion.suggested_slot_id, suggestion.avg_score, suggestion.session_count]
+         (coffee_id, archetype, dimension_id, source, suggested_slot_id, raw_value, sample_size, notes)
+       VALUES ($1, $2, $3, 'cupping', $4, $5, $6, $7)`,
+      [coffeeId, archetype, dimensionId, suggestion.suggested_slot_id, suggestion.avg_score, suggestion.session_count, suggestion.basis]
     );
   });
 }

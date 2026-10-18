@@ -3,7 +3,16 @@ import { requireAdmin, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 import { generateAndStoreSummary, generateAndStoreAllContent } from './coffees.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
-import { recordCuppingSignal, getAvgCuppingScore, getArchetypeBucketWidth, getAvgCuppingScoresBatch } from '../services/dialSuggestion.js';
+import { getAvgCuppingScore, getArchetypeBucketWidth, getAvgCuppingScoresBatch } from '../services/dialSuggestion.js';
+import {
+  CuppingError, createSession, updateSessionHeader, removeEmptySession, addSessionCoffee, updateSessionCoffee,
+  saveBrewParams, removeEmptySessionCoffee, saveCupperScore, saveManualMerge, mergeByRule, listCuppers, addCupper,
+  type BrewParams, type SessionHeaderPatch, type ScoreValueInput, type DescriptorInput,
+} from '../services/cuppingService.js';
+import {
+  listSessions as listCuppingSessions, getSession as getCuppingSession, listSessionCoffees, getSessionCoffee,
+  getScoresForSessionCoffee, getCuppingCounts, listScales, listSheetFormats,
+} from '../services/cuppingReads.js';
 import { getMarketingConfig, setMarketingConfigValue } from '../features/marketing/reportingConfig.js';
 import { MC_ENABLED, getMailchimpMemberStatus } from '../features/marketing/mailchimp.js';
 import { unsubscribeByEmail } from '../features/marketing/unsubscribe.js';
@@ -160,13 +169,13 @@ router.get('/stats', async (_req, res) => {
     const result = await db.query(`
       SELECT
         (SELECT COUNT(*) FROM coffees)                    AS coffees,
-        (SELECT COUNT(*) FROM cupping_sessions)           AS sessions,
-        (SELECT COUNT(*) FROM cupping_score_descriptors)  AS internal_descriptors,
         (SELECT COUNT(*) FROM roastery_coffee_descriptors)AS roastery_descriptors,
         (SELECT COUNT(*) FROM user_flavor_feedback)     AS client_feedback,
         (SELECT COUNT(*) FROM cupping_note)               AS sca_descriptors
     `);
-    res.json(result.rows[0]);
+    // Cupping counts through cuppingReads (cupping evidence brief 1); current rows only.
+    const cupping = await getCuppingCounts();
+    res.json({ ...result.rows[0], sessions: String(cupping.sessions), internal_descriptors: String(cupping.internal_descriptors) });
   } catch (err) {
     console.error('[admin/stats]', err);
     res.status(500).json({ error: 'Failed to fetch stats' });
@@ -218,58 +227,118 @@ router.patch('/coffees/:id', (_req, res) => {
   res.status(410).json({ error: 'RETIRED', message: 'Replaced by /api/admin/catalog/* (Catalog Blueprint brief 2)' });
 });
 
+// ── Score Entry (cupping evidence brief 1, 2026-10-18) ───────────────────────
+// Every handler below is a thin caller: writes go through cuppingService (the
+// only writer of the cupping_* tables), reads through cuppingReads (views).
+// URLs and response shapes are the ones AdminCupping/AdminSessions already use.
+function handleCuppingError(err: unknown, res: import('express').Response, label: string): void {
+  if (err instanceof CuppingError) {
+    res.status(err.status).json({ error: err.code, message: err.message, details: err.details });
+    return;
+  }
+  console.error(`[admin/${label}]`, err);
+  res.status(500).json({ error: `Failed: ${label}`, detail: err instanceof Error ? err.message : String(err) });
+}
+
+const optNum = (v: unknown): number | null =>
+  v === null || v === undefined || v === '' ? null : Number(v);
+
+function brewFromBody(b: any): BrewParams | null {
+  if (!b || typeof b !== 'object') return null;
+  return {
+    doseGrams: optNum(b.dose_grams ?? b.doseGrams), waterGrams: optNum(b.water_grams ?? b.waterGrams),
+    yieldGrams: optNum(b.yield_grams ?? b.yieldGrams), ratio: optNum(b.ratio),
+    waterTemperatureCelsius: optNum(b.water_temperature_celsius ?? b.waterTemperatureCelsius),
+    grindSize: b.grind_size ?? b.grindSize ?? null, extractionTimeSeconds: optNum(b.extraction_time_seconds ?? b.extractionTimeSeconds),
+    pressureBar: optNum(b.pressure_bar ?? b.pressureBar), steepTimeMinutes: optNum(b.steep_time_minutes ?? b.steepTimeMinutes),
+    brewDevice: b.brew_device ?? b.brewDevice ?? null, notes: b.notes ?? null,
+  };
+}
+
+const headerPatchFromBody = (b: any): SessionHeaderPatch => {
+  const p: SessionHeaderPatch = {};
+  if (b.session_date !== undefined) p.sessionDate = b.session_date;
+  if (b.session_date_precision !== undefined) p.sessionDatePrecision = b.session_date_precision;
+  if (b.location !== undefined) p.location = b.location;
+  if (b.session_notes !== undefined) p.sessionNotes = b.session_notes;
+  if (b.sheet_format !== undefined) p.sheetFormat = b.sheet_format || null;
+  if (b.is_blind !== undefined) p.isBlind = b.is_blind;
+  if (b.roaster_present !== undefined) p.roasterPresent = b.roaster_present;
+  if (b.transcribed_by !== undefined) p.transcribedBy = b.transcribed_by;
+  if (b.transcribed_at !== undefined) p.transcribedAt = b.transcribed_at || null;
+  if (b.checked_by !== undefined) p.checkedBy = b.checked_by;
+  if (b.brew_defaults !== undefined) p.brewDefaults = brewFromBody(b.brew_defaults);
+  return p;
+};
+
 // ── GET /api/admin/sessions ───────────────────────────────────────────────────
 router.get('/sessions', async (_req, res) => {
   try {
-    const result = await db.query(`
-      SELECT cs.id, cs.session_date, cs.location, cs.brew_method, cs.session_notes,
-             COUNT(sc.id) AS coffee_count
-      FROM cupping_sessions cs
-      LEFT JOIN cupping_session_coffees sc ON sc.session_id = cs.id
-      GROUP BY cs.id
-      ORDER BY cs.session_date DESC
-    `);
-    res.json(result.rows);
+    res.json(await listCuppingSessions());
   } catch (err) {
-    console.error('[admin/sessions]', err);
-    res.status(500).json({ error: 'Failed to fetch sessions' });
+    handleCuppingError(err, res, 'sessions');
   }
 });
 
 // ── POST /api/admin/sessions ──────────────────────────────────────────────────
+// brew_method is no longer taken (deprecated column): the brew is brew_defaults,
+// applied to every coffee added to the session.
 router.post('/sessions', async (req, res) => {
-  const { session_date, brew_method, location, session_notes } = req.body;
-  if (!session_date) { res.status(400).json({ error: 'session_date is required' }); return; }
+  const b = req.body ?? {};
   try {
-    const result = await db.query(
-      `INSERT INTO cupping_sessions (session_date, brew_method, location, session_notes)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [session_date, brew_method || null, location || null, session_notes || null]
-    );
-    res.status(201).json(result.rows[0]);
-  } catch (err: any) {
-    console.error('[admin/sessions POST]', err);
-    res.status(500).json({ error: 'Failed to create session', detail: err?.message ?? String(err) });
+    const id = await createSession({
+      sessionDate: b.session_date,
+      sessionDatePrecision: b.session_date_precision ?? 'exact',
+      location: b.location ?? null,
+      sessionNotes: b.session_notes ?? null,
+      recordSource: 'score_entry',
+      sheetFormat: b.sheet_format || 'score_entry',
+      isBlind: b.is_blind ?? null,
+      roasterPresent: b.roaster_present ?? null,
+      brewDefaults: brewFromBody(b.brew_defaults),
+    });
+    res.status(201).json(await getCuppingSession(id));
+  } catch (err) {
+    handleCuppingError(err, res, 'sessions POST');
+  }
+});
+
+// ── PATCH /api/admin/sessions/:id ─────────────────────────────────────────────
+// Header metadata only (date, place, notes, sheet format, blind, roaster present, brew defaults).
+router.patch('/sessions/:id', async (req, res) => {
+  try {
+    await updateSessionHeader(Number(req.params.id), headerPatchFromBody(req.body ?? {}));
+    res.json(await getCuppingSession(Number(req.params.id)));
+  } catch (err) {
+    handleCuppingError(err, res, 'sessions PATCH');
   }
 });
 
 // ── DELETE /api/admin/sessions/:id ───────────────────────────────────────────
-// Deletes a session and its session_coffee links (CASCADE). Scores must be removed first.
+// Only an empty session (no coffee) can go; 409 otherwise.
 router.delete('/sessions/:id', async (req, res) => {
-  const { id } = req.params;
   try {
-    const result = await db.query(
-      `DELETE FROM cupping_sessions WHERE id = $1 RETURNING id`,
-      [id]
-    );
-    if (result.rowCount === 0) {
-      res.status(404).json({ error: 'Session not found' }); return;
-    }
-    res.json({ ok: true, deleted: result.rows[0].id });
+    await removeEmptySession(Number(req.params.id));
+    res.json({ ok: true, deleted: Number(req.params.id) });
   } catch (err) {
-    console.error('[admin/sessions DELETE]', err);
-    res.status(500).json({ error: 'Failed to delete session' });
+    handleCuppingError(err, res, 'sessions DELETE');
   }
+});
+
+// ── Cuppers, scales, sheet formats (reference rows) ──────────────────────────
+router.get('/cuppers', async (_req, res) => {
+  try { res.json(await listCuppers()); } catch (err) { handleCuppingError(err, res, 'cuppers'); }
+});
+router.post('/cuppers', async (req, res) => {
+  try {
+    res.status(201).json(await addCupper(req.body?.name, { since: req.body?.since ?? null, note: req.body?.note ?? null }));
+  } catch (err) { handleCuppingError(err, res, 'cuppers POST'); }
+});
+router.get('/scales', async (_req, res) => {
+  try { res.json(await listScales()); } catch (err) { handleCuppingError(err, res, 'scales'); }
+});
+router.get('/sheet-formats', async (_req, res) => {
+  try { res.json(await listSheetFormats()); } catch (err) { handleCuppingError(err, res, 'sheet-formats'); }
 });
 
 // ── GET /api/admin/flavor-wheel/:coffeeId ────────────────────────────────────
@@ -464,56 +533,72 @@ router.delete('/coffees/:id', (_req, res) => {
 
 // ── GET /api/admin/sessions/:id/coffees ──────────────────────────────────────
 router.get('/sessions/:id/coffees', async (req, res) => {
-  const { id } = req.params;
   try {
-    const result = await db.query(
-      `SELECT sc.id AS session_coffee_id, sc.display_order,
-              c.id AS coffee_id, c.name, r.name AS roaster, c.origin, c.process, c.roast_level
-       FROM cupping_session_coffees sc
-       JOIN coffees c ON c.id = sc.coffee_id
-       LEFT JOIN roaster r ON r.id = c.roaster_id
-       WHERE sc.session_id = $1
-       ORDER BY sc.display_order NULLS LAST, c.name`,
-      [id]
-    );
-    res.json(result.rows);
+    res.json(await listSessionCoffees(Number(req.params.id)));
   } catch (err) {
-    console.error('[admin/sessions coffees GET]', err);
-    res.status(500).json({ error: 'Failed to fetch session coffees' });
+    handleCuppingError(err, res, 'sessions coffees GET');
   }
 });
 
 // ── POST /api/admin/sessions/:id/coffees ─────────────────────────────────────
+// The session's brew defaults become this coffee's brew params unless `brew` is sent.
 router.post('/sessions/:id/coffees', async (req, res) => {
-  const { id } = req.params;
-  const { coffee_id } = req.body;
-  if (!coffee_id) { res.status(400).json({ error: 'coffee_id is required' }); return; }
+  const b = req.body ?? {};
+  if (!b.coffee_id) { res.status(400).json({ error: 'coffee_id is required' }); return; }
   try {
-    const orderResult = await db.query(
-      `SELECT COALESCE(MAX(display_order), 0) + 1 AS next_order FROM cupping_session_coffees WHERE session_id = $1`,
-      [id]
-    );
-    const result = await db.query(
-      `INSERT INTO cupping_session_coffees (session_id, coffee_id, display_order)
-       VALUES ($1, $2, $3) RETURNING *`,
-      [id, coffee_id, orderResult.rows[0].next_order]
-    );
-    res.status(201).json(result.rows[0]);
+    const scId = await addSessionCoffee(Number(req.params.id), Number(b.coffee_id), {
+      roastDate: b.roast_date || null, blindCode: b.blind_code ?? null, sampleNote: b.sample_note ?? null,
+      isControl: Boolean(b.is_control), brew: brewFromBody(b.brew),
+    });
+    res.status(201).json(await getSessionCoffee(scId));
   } catch (err) {
-    console.error('[admin/sessions coffees POST]', err);
-    res.status(500).json({ error: 'Failed to add coffee to session' });
+    handleCuppingError(err, res, 'sessions coffees POST');
+  }
+});
+
+// ── PATCH /api/admin/sessions/:sessionId/coffees/:scId ───────────────────────
+// Sample metadata (roast date, blind code, sample note, control) and, while
+// nothing is scored yet, its brew params (`brew`).
+router.patch('/sessions/:sessionId/coffees/:scId', async (req, res) => {
+  const b = req.body ?? {};
+  const scId = Number(req.params.scId);
+  try {
+    const patch: Record<string, unknown> = {};
+    if (b.display_order !== undefined) patch.displayOrder = b.display_order;
+    if (b.roast_date !== undefined) patch.roastDate = b.roast_date || null;
+    if (b.blind_code !== undefined) patch.blindCode = b.blind_code;
+    if (b.sample_note !== undefined) patch.sampleNote = b.sample_note;
+    if (b.is_control !== undefined) patch.isControl = Boolean(b.is_control);
+    if (Object.keys(patch).length) await updateSessionCoffee(scId, patch);
+    if (b.brew !== undefined) await saveBrewParams(scId, brewFromBody(b.brew) ?? {});
+    res.json(await getSessionCoffee(scId));
+  } catch (err) {
+    handleCuppingError(err, res, 'sessions coffees PATCH');
   }
 });
 
 // ── DELETE /api/admin/sessions/:sessionId/coffees/:scId ──────────────────────
+// Only an unscored sample can be removed; 409 once a score exists.
 router.delete('/sessions/:sessionId/coffees/:scId', async (req, res) => {
-  const { scId } = req.params;
   try {
-    await db.query(`DELETE FROM cupping_session_coffees WHERE id = $1`, [scId]);
+    await removeEmptySessionCoffee(Number(req.params.scId));
     res.json({ ok: true });
   } catch (err) {
-    console.error('[admin/sessions coffees DELETE]', err);
-    res.status(500).json({ error: 'Failed to remove coffee from session' });
+    handleCuppingError(err, res, 'sessions coffees DELETE');
+  }
+});
+
+// ── POST /api/admin/sessions/:sessionId/coffees/:scId/merge ──────────────────
+// The merged row by rule (union_v1); supersedes the previous merged row.
+router.post('/sessions/:sessionId/coffees/:scId/merge', async (req, res) => {
+  try {
+    const result = await mergeByRule(Number(req.params.scId));
+    res.status(201).json({
+      id: result.mergedScoreId, merge_note: result.union.mergeNote,
+      disagreements: result.union.disagreements, all_ab_scale: result.union.allAbScale,
+    });
+  } catch (err) {
+    handleCuppingError(err, res, 'sessions coffees merge');
   }
 });
 
@@ -771,120 +856,57 @@ router.get('/dimensions', async (_req, res) => {
 // ── GET /api/admin/scores/session-coffee/:scId ───────────────────────────────
 // Returns all scores for a session_coffee, with their dimension values and descriptors
 router.get('/scores/session-coffee/:scId', async (req, res) => {
-  const { scId } = req.params;
   try {
-    const scores = await db.query(
-      `SELECT id, taster_name, is_merged, overall_notes FROM cupping_scores
-       WHERE session_coffee_id = $1 ORDER BY created_at`,
-      [scId]
-    );
-    const values = await db.query(
-      `SELECT csv.cupping_score_id, csv.dimension_id, csv.value_min, csv.value_max, csv.notes
-       FROM cupping_score_values csv
-       JOIN cupping_scores cs ON cs.id = csv.cupping_score_id
-       WHERE cs.session_coffee_id = $1`,
-      [scId]
-    );
-    const descriptors = await db.query(
-      `SELECT csd.cupping_score_id, csd.cupping_note_id, csd.intensity, csd.custom_notes
-       FROM cupping_score_descriptors csd
-       JOIN cupping_scores cs ON cs.id = csd.cupping_score_id
-       WHERE cs.session_coffee_id = $1`,
-      [scId]
-    );
-    res.json({ scores: scores.rows, values: values.rows, descriptors: descriptors.rows });
+    res.json(await getScoresForSessionCoffee(Number(req.params.scId)));
   } catch (err) {
-    console.error('[admin/scores]', err);
-    res.status(500).json({ error: 'Failed to fetch scores' });
+    handleCuppingError(err, res, 'scores');
   }
 });
 
 // ── POST /api/admin/scores ────────────────────────────────────────────────────
-// Upserts a full score (header + dimension values + descriptors) in one call.
-// values: { [dimensionId]: { value_min?, value_max?, notes? } }
+// One cupper's row (cupper_id, the scale used, calls, values as written,
+// descriptors). Saving the same cupper again supersedes the current row and
+// re-merges; nothing is updated in place. is_merged=true is a hand merge
+// (merge_note = the reason).
+// values: { [dimensionId]: { value_min?, value_max?, raw_value?, notes? } }
 // descriptors: [{ cupping_note_id, intensity?, custom_notes? }]
 router.post('/scores', async (req, res) => {
-  const { session_coffee_id, taster_name, is_merged, overall_notes, values, descriptors } = req.body;
-  if (!session_coffee_id || !taster_name) {
-    res.status(400).json({ error: 'session_coffee_id and taster_name are required' }); return;
-  }
+  const b = req.body ?? {};
+  if (!b.session_coffee_id) { res.status(400).json({ error: 'session_coffee_id is required' }); return; }
+  const values: ScoreValueInput[] = Object.entries((b.values ?? {}) as Record<string, any>).map(([dimId, v]) => ({
+    dimensionId: Number(dimId), valueMin: optNum(v?.value_min), valueMax: optNum(v?.value_max),
+    rawValue: v?.raw_value ?? null, notes: v?.notes ?? null,
+  }));
+  const descriptors: DescriptorInput[] = ((b.descriptors ?? []) as any[]).map(d => ({
+    cuppingNoteId: d.cupping_note_id, intensity: optNum(d.intensity), customNotes: d.custom_notes ?? null,
+  }));
+  const calls = {
+    archetypeCall: b.archetype_call || null, archetypeCallSecondary: b.archetype_call_secondary || null,
+    positionCall: b.position_call ?? null, slotCallId: optNum(b.slot_call_id), callNote: b.call_note ?? null,
+  };
   try {
-    // Upsert score header
-    const scoreResult = await db.query(
-      `INSERT INTO cupping_scores (session_coffee_id, taster_name, is_merged, overall_notes)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (session_coffee_id, taster_name) DO UPDATE
-         SET is_merged = EXCLUDED.is_merged, overall_notes = EXCLUDED.overall_notes
-       RETURNING id`,
-      [session_coffee_id, taster_name, is_merged ?? false, overall_notes ?? null]
-    );
-    const scoreId = scoreResult.rows[0].id;
-
-    // Upsert dimension values
-    if (values) {
-      for (const [dimId, val] of Object.entries(values as Record<string, { value_min?: number; value_max?: number; notes?: string }>)) {
-        await db.query(
-          `INSERT INTO cupping_score_values (cupping_score_id, dimension_id, value_min, value_max, notes)
-           VALUES ($1, $2, $3, $4, $5)
-           ON CONFLICT (cupping_score_id, dimension_id) DO UPDATE
-             SET value_min = EXCLUDED.value_min, value_max = EXCLUDED.value_max, notes = EXCLUDED.notes`,
-          [scoreId, dimId, val.value_min ?? null, val.value_max ?? null, val.notes ?? null]
-        );
-      }
+    if (b.is_merged) {
+      const id = await saveManualMerge(Number(b.session_coffee_id), { ...calls, overallNotes: b.overall_notes ?? null, values, descriptors },
+        b.merge_note || 'manual merge in Score Entry');
+      res.status(201).json({ id });
+      return;
     }
-
-    // Replace descriptors
-    await db.query(`DELETE FROM cupping_score_descriptors WHERE cupping_score_id = $1`, [scoreId]);
-    if (descriptors?.length) {
-      for (const d of descriptors as { cupping_note_id: string; intensity?: number; custom_notes?: string }[]) {
-        await db.query(
-          `INSERT INTO cupping_score_descriptors (cupping_score_id, cupping_note_id, intensity, custom_notes)
-           VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
-          [scoreId, d.cupping_note_id, d.intensity ?? null, d.custom_notes ?? null]
-        );
-      }
-    }
-
-    // Non-critical: record the cupping source's dial-position signal (Phase 5 — dormant
-    // infra, never writes to the live position). A failure here shouldn't fail the score save.
-    if (is_merged) {
-      try {
-        const scRes = await db.query(
-          `SELECT coffee_id FROM cupping_session_coffees WHERE id = $1`,
-          [session_coffee_id]
-        );
-        if (scRes.rows[0]?.coffee_id) {
-          await recordCuppingSignal(scRes.rows[0].coffee_id);
-        }
-      } catch (signalErr) {
-        console.error('[admin/scores POST] recordCuppingSignal failed (non-critical)', signalErr);
-      }
-    }
-
-    res.status(201).json({ id: scoreId });
+    if (!b.cupper_id) { res.status(400).json({ error: 'cupper_id is required' }); return; }
+    const id = await saveCupperScore({
+      sessionCoffeeId: Number(b.session_coffee_id), cupperId: Number(b.cupper_id), scaleCode: b.scale_code || 'ab_0_15',
+      ...calls, overallNotes: b.overall_notes ?? null, values, descriptors,
+      supersedeReason: b.supersede_reason || undefined,
+    });
+    res.status(201).json({ id });
   } catch (err) {
-    console.error('[admin/scores POST]', err);
-    res.status(500).json({ error: 'Failed to save score' });
+    handleCuppingError(err, res, 'scores POST');
   }
 });
 
 // ── DELETE /api/admin/scores/:scoreId ────────────────────────────────────────
-// Deletes a cupping score and all its values + descriptors (CASCADE).
-router.delete('/scores/:scoreId', async (req, res) => {
-  const { scoreId } = req.params;
-  try {
-    const result = await db.query(
-      `DELETE FROM cupping_scores WHERE id = $1 RETURNING id`,
-      [scoreId]
-    );
-    if (result.rowCount === 0) {
-      res.status(404).json({ error: 'Score not found' }); return;
-    }
-    res.json({ ok: true, deleted: result.rows[0].id });
-  } catch (err) {
-    console.error('[admin/scores DELETE]', err);
-    res.status(500).json({ error: 'Failed to delete score' });
-  }
+// Cupping evidence is immutable (brief 1): a score row is never deleted.
+router.delete('/scores/:scoreId', (_req, res) => {
+  res.status(405).json({ error: 'CUPPING_IMMUTABLE', message: 'cupping evidence is immutable; save again to supersede' });
 });
 
 // ── POST /api/admin/grant-admin ───────────────────────────────────────────────

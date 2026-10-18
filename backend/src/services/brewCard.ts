@@ -1,6 +1,7 @@
 import { db } from '../db/client.js';
 import { getSommelierConfig, type SommelierConfig } from './sommelierConfig.js';
 import { getCoffee } from './catalogReads.js';
+import { getMergedRanges } from './cuppingReads.js';
 import type { BrewProfileDoc } from './brewProfile.js';
 
 // HOME_TASK_6 (§3.2, §3.1) — "Your Uganda · V60 · 1:16 · medium-coarse · 94°C —
@@ -81,27 +82,20 @@ export interface DimensionAverage {
   avgMax: number;
 }
 
-// Same numeric-dimension query shape coffees.ts's GET /:id/dimensions already
-// uses — not reinvented, just scoped to what the recipe generator needs.
+// Same numeric-dimension read coffees.ts's GET /:id/dimensions uses. Cupping
+// evidence brief 1 (2026-10-18): the coffee's latest merged range
+// (cuppingReads → v_coffee_dimension_range, converted to 0 to 15) instead of
+// an average over every score row of every session.
 export async function getCuppingDimensionAverages(coffeeId: number): Promise<DimensionAverage[]> {
-  const result = await db.query(
-    `SELECT d.name AS dimension,
-            ROUND(AVG(csv.value_min)::numeric, 1) AS avg_min,
-            ROUND(AVG(csv.value_max)::numeric, 1) AS avg_max
-     FROM cupping_score_values csv
-     JOIN cupping_scores cs  ON cs.id  = csv.cupping_score_id
-     JOIN cupping_session_coffees sc ON sc.id = cs.session_coffee_id
-     JOIN coffee_dimensions d       ON d.id  = csv.dimension_id
-     WHERE sc.coffee_id = $1 AND d.is_numeric = true AND csv.value_min IS NOT NULL
-     GROUP BY d.id, d.name
-     ORDER BY d.id`,
-    [coffeeId]
-  );
-  return result.rows.map((r: { dimension: string; avg_min: string; avg_max: string }) => ({
-    dimensionName: r.dimension,
-    avgMin: Number(r.avg_min),
-    avgMax: Number(r.avg_max),
-  }));
+  const ranges = await getMergedRanges(coffeeId);
+  return ranges
+    .filter(r => r.is_numeric && r.value_min !== null && r.value_max !== null)
+    .sort((a, b) => a.dimension_id - b.dimension_id)
+    .map(r => ({
+      dimensionName: r.dimension_name,
+      avgMin: Math.round(Number(r.value_min) * 10) / 10,
+      avgMax: Math.round(Number(r.value_max) * 10) / 10,
+    }));
 }
 
 // Pure — the determinism the task cares about most. Same methodKey +

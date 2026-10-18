@@ -93,17 +93,19 @@ COMMENT ON COLUMN quiz.quiz_type_id IS $c$References quiz_type.id (main or branc
 COMMENT ON COLUMN quiz.trigger_archetype_id IS $c$Branch quizzes only: references coffee_archetype.id, the primary archetype whose result triggers this branch; NULL for main quizzes.$c$;
 COMMENT ON COLUMN quiz.parent_quiz_id IS $c$Branch quizzes only: self-reference to quiz.id of the main quiz this branch belongs to; NULL for main quizzes.$c$;
 -- ── cupping_note ──
-COMMENT ON TABLE cupping_note IS $c$Purpose: The 84-descriptor SCA Coffee Taster's Flavor Wheel vocabulary used to tag coffees and tasting notes | Class: operating | Writer: seed | Readers: v_collaborative_flavor_wheel, catalogService, roasteryPortalReads, roasteryPortalService, admin, +FKs from descriptor and note tables | Since: 2026-05-22$c$;
+COMMENT ON TABLE cupping_note IS $c$Purpose: The SCA Coffee Taster's Flavor Wheel as a tree (tier 1 family, 2 sub-group, 3 leaf; parent_id), the vocabulary every source of descriptors resolves to | Class: operating | Writer: seed | Readers: v_collaborative_flavor_wheel, v_roastery_remark, v_cupping_score_descriptor, catalogService, cuppingService, noteMappingService, roasteryRemarkService, roasteryPortalReads, +3 more | Since: 2026-05-22 (tree: 2026-10-18, cupping evidence brief 1)$c$;
 COMMENT ON COLUMN cupping_note.id IS $c$Surrogate primary key (UUID); referenced by coffee descriptor, cupping score descriptor, portal note mapping and sensory_lexicon_attribute rows.$c$;
-COMMENT ON COLUMN cupping_note.wheel_category IS $c$Top-level SCA wheel category, e.g. Floral, Fruity, Sour / Fermented, Green / Vegetative, Other, Roasted, Spices, Nutty / Cocoa, Sweet.$c$;
-COMMENT ON COLUMN cupping_note.wheel_subcategory IS $c$SCA wheel subcategory within the category (about 25 values).$c$;
+COMMENT ON COLUMN cupping_note.wheel_category IS $c$Top-level SCA wheel category, e.g. Floral, Fruity, Sour / Fermented, Green / Vegetative, Other, Roasted, Spices, Nutty / Cocoa, Sweet; a denormalised display column since cupping evidence brief 1 (2026-10-18): a family roll-up joins parent_id, never this label.$c$;
+COMMENT ON COLUMN cupping_note.wheel_subcategory IS $c$SCA wheel sub-group within the category (about 25 values); NULL on tier-1 rows and on tier-2 nodes without children (Black Tea, Vanilla, Pepper); a denormalised display column, the tree is parent_id.$c$;
+COMMENT ON COLUMN cupping_note.tier IS $c$SCA wheel level of the node: 1 family (Fruity), 2 sub-group (Berry, or a childless node such as Black Tea), 3 leaf (Blueberry). A word is stored at the tier the person named, never deeper | Writer: seed$c$;
+COMMENT ON COLUMN cupping_note.parent_id IS $c$References cupping_note.id: the node one tier up (leaf to sub-group, sub-group to family); NULL exactly on tier-1 rows (CHECK cupping_note_tier_parent); backfilled from the labels by schema.sql | Writer: seed$c$;
 COMMENT ON COLUMN cupping_note.descriptor IS $c$The flavor descriptor word or phrase itself, e.g. Jasmine.$c$;
 COMMENT ON COLUMN cupping_note.intensity_score IS $c$Class: deprecated | DEPRECATED 2026-10-16: never written; cupping_note is the descriptor vocabulary, and the intensity a descriptor showed in a cupping lives on cupping_score_descriptors.intensity (0-15).$c$;
 COMMENT ON COLUMN cupping_note.ai_metadata IS $c$Class: deprecated | DEPRECATED 2026-10-16: JSONB never written, read or documented.$c$;
 COMMENT ON COLUMN cupping_note.is_active IS $c$True when the descriptor is part of the active wheel; catalogService and the roastery portal only accept active descriptors.$c$;
 COMMENT ON COLUMN cupping_note.created_at IS $c$UTC timestamp when the row was created.$c$;
 COMMENT ON COLUMN cupping_note.updated_at IS $c$UTC timestamp of last update; no code path updates it after seeding.$c$;
-COMMENT ON COLUMN cupping_note.descriptor_source_id IS $c$References sensory_source.id: where the term comes from; all 84 rows point at wcr_lexicon (set by schema.sql UPDATE).$c$;
+COMMENT ON COLUMN cupping_note.descriptor_source_id IS $c$References sensory_source.id: where the term comes from; the 84 original rows point at wcr_lexicon (set by schema.sql UPDATE), the tier-1 and tier-2 nodes added by cupping evidence brief 1 at sca_flavor_wheel.$c$;
 COMMENT ON COLUMN cupping_note.lexicon_section IS $c$Name of the WCR Sensory Lexicon section the descriptor maps to; backfilled from sensory_lexicon_attribute.section.$c$;
 -- ── sensory_source ──
 COMMENT ON TABLE sensory_source IS $c$Purpose: Registry of the sensory standards the vocabulary and scales come from (WCR Lexicon, SCA flavor wheel, SCA CVA, platform) | Class: operating | Writer: seed | Readers: none (FK target of cupping_note, coffee_dimensions, sensory_lexicon_attribute) | Since: 2026-07-13$c$;
@@ -588,19 +590,32 @@ COMMENT ON COLUMN coffees.is_active IS $c$False when the coffee is retired, eith
 COMMENT ON COLUMN coffees.deactivated_at IS $c$UTC timestamp the coffee was deactivated; NULL while active | Writer: catalogService.retireCoffee, catalogService.restoreCoffee, catalogService.deactivateRoastery, catalogService.reactivateRoastery$c$;
 COMMENT ON COLUMN coffees.deactivation_reason IS $c$Why the coffee is inactive. One of: roaster (cascade from a roastery deactivation), manual; NULL while active | Writer: catalogService.retireCoffee, catalogService.restoreCoffee, catalogService.deactivateRoastery, catalogService.reactivateRoastery$c$;
 -- ── cupping_sessions ──
-COMMENT ON TABLE cupping_sessions IS $c$Purpose: Header row for one internal cupping session (date, brew method, place, notes) | Class: operating | Writer: admin.POST /api/admin/sessions, admin.DELETE /api/admin/sessions/:id; seed | Readers: v_cupping_scores_readable, admin.GET /sessions, coffees | Since: 2026-05-25$c$;
-COMMENT ON COLUMN cupping_sessions.id IS $c$Surrogate primary key; referenced by cupping_session_coffees.session_id and coffee_archetype_assignment.assigned_from_session_id.$c$;
-COMMENT ON COLUMN cupping_sessions.session_date IS $c$Calendar date the session was held.$c$;
-COMMENT ON COLUMN cupping_sessions.brew_method IS $c$Brew method used, as free text. Values follow the lookup_value category brew_method (cupping, filter, pour-over, espresso, french-press, aeropress, other); no enum since the TEXT migration.$c$;
+COMMENT ON TABLE cupping_sessions IS $c$Purpose: Header of one Axis & Bloom cupping session (cupping evidence): date and its precision, place, blind, roaster present, printed sheet, where the rows came from, who transcribed and checked them, the brew protocol; metadata may change, never deleted while it has coffees | Class: fact | Writer: cuppingService.createSession, cuppingService.updateSessionHeader, cuppingService.removeEmptySession; seed | Readers: v_cupping_session, v_cupping_scores_readable, v_coffee_dimension_range, v_coffee_dimension_history, cuppingService | Since: 2026-05-25$c$;
+COMMENT ON COLUMN cupping_sessions.id IS $c$Surrogate primary key; referenced by cupping_session_coffees.session_id, coffee_archetype_assignment.assigned_from_session_id and coffee_slot_assignment.placed_from_session_id.$c$;
+COMMENT ON COLUMN cupping_sessions.session_date IS $c$Calendar date the session was held (business time); NOT NULL since cupping evidence brief 1, see session_date_precision.$c$;
+COMMENT ON COLUMN cupping_sessions.brew_method IS $c$Class: deprecated | DEPRECATED since 2026-10 (cupping evidence brief 1): the brew lives in cupping_brew_params.brew_device; kept for the legacy rows, nothing writes it.$c$;
 COMMENT ON COLUMN cupping_sessions.location IS $c$Free-text place where the session was held.$c$;
 COMMENT ON COLUMN cupping_sessions.session_notes IS $c$Free-text notes about the session as a whole.$c$;
-COMMENT ON COLUMN cupping_sessions.created_at IS $c$UTC timestamp the session row was created.$c$;
+COMMENT ON COLUMN cupping_sessions.created_at IS $c$UTC timestamp the session row was created (system time).$c$;
+COMMENT ON COLUMN cupping_sessions.record_source IS $c$Where the rows came from: score_entry (typed in admin Score Entry), seed:<file>, paper:<files>, or legacy for every session that existed when the column was added (2026-10-18, tagged by the column default, not by date).$c$;
+COMMENT ON COLUMN cupping_sessions.sheet_format IS $c$References cupping_sheet_format.code: the printed sheet (or score_entry) the cuppers used; legacy_wide on the Path seed session; NULL on legacy Score Entry sessions.$c$;
+COMMENT ON COLUMN cupping_sessions.session_date_precision IS $c$How sure session_date is. One of: exact, estimated (a date not written on the sheets, or backfilled from created_at).$c$;
+COMMENT ON COLUMN cupping_sessions.is_blind IS $c$True when the cuppers did not know which coffee was in which cup; NULL when not recorded.$c$;
+COMMENT ON COLUMN cupping_sessions.roaster_present IS $c$True when a roaster's person was at the table (their remarks could anchor our calls); NULL when not recorded.$c$;
+COMMENT ON COLUMN cupping_sessions.transcribed_by IS $c$Who transcribed the paper sheets into rows; NULL for Score Entry sessions.$c$;
+COMMENT ON COLUMN cupping_sessions.transcribed_at IS $c$Date the paper sheets were transcribed; NULL for Score Entry sessions.$c$;
+COMMENT ON COLUMN cupping_sessions.checked_by IS $c$Who checked the transcription (for example a blind second read); NULL when unchecked or typed in Score Entry.$c$;
+COMMENT ON COLUMN cupping_sessions.brew_defaults IS $c$The session's brew protocol as JSON (doseGrams, waterGrams, ratio, waterTemperatureCelsius, steepTimeMinutes, brewDevice, notes); copied into each new session coffee's cupping_brew_params unless that coffee brings its own; NULL when none was given.$c$;
 -- ── cupping_session_coffees ──
-COMMENT ON TABLE cupping_session_coffees IS $c$Purpose: Junction listing which coffees were cupped in a session and in what order | Class: operating | Writer: admin.POST /api/admin/sessions/:id/coffees, admin.DELETE /api/admin/sessions/:sessionId/coffees/:scId; seed | Readers: v_cupping_scores_readable, v_coffee_dimension_range, brewCard, dialSuggestion, +4 more | Since: 2026-05-25 (as session_coffees)$c$;
-COMMENT ON COLUMN cupping_session_coffees.id IS $c$Surrogate primary key; referenced as session_coffee_id by cupping_scores and cupping_brew_params.$c$;
-COMMENT ON COLUMN cupping_session_coffees.session_id IS $c$References cupping_sessions.id (ON DELETE CASCADE): the session.$c$;
-COMMENT ON COLUMN cupping_session_coffees.coffee_id IS $c$References coffees.id (ON DELETE CASCADE): the coffee cupped.$c$;
+COMMENT ON TABLE cupping_session_coffees IS $c$Purpose: One sample in a cupping session: which coffee, in what order, its roast date, blind code, condition and whether it is the session's control coffee | Class: fact | Writer: cuppingService.addSessionCoffee, cuppingService.updateSessionCoffee, cuppingService.removeEmptySessionCoffee; seed | Readers: v_cupping_session_coffee, v_cupping_scores_readable, v_coffee_dimension_range, v_coffee_dimension_history, cuppingService, roastery_remark_guard | Since: 2026-05-25 (as session_coffees)$c$;
+COMMENT ON COLUMN cupping_session_coffees.id IS $c$Surrogate primary key; referenced as session_coffee_id by cupping_scores and cupping_brew_params, and by roastery_remark.cupping_session_coffee_id.$c$;
+COMMENT ON COLUMN cupping_session_coffees.session_id IS $c$References cupping_sessions.id (ON DELETE RESTRICT): the session.$c$;
+COMMENT ON COLUMN cupping_session_coffees.coffee_id IS $c$References coffees.id (ON DELETE RESTRICT): the coffee cupped.$c$;
 COMMENT ON COLUMN cupping_session_coffees.display_order IS $c$1-based position of the coffee within the session; the next value is MAX plus 1 when a coffee is added.$c$;
+COMMENT ON COLUMN cupping_session_coffees.roast_date IS $c$Date the sample was roasted, where known.$c$;
+COMMENT ON COLUMN cupping_session_coffees.blind_code IS $c$The code written on the cup in a blind session (for example TIGER).$c$;
+COMMENT ON COLUMN cupping_session_coffees.sample_note IS $c$Sample condition as noted (for example end-of-run lot, last cup of the day).$c$;
+COMMENT ON COLUMN cupping_session_coffees.is_control IS $c$True for the session's control coffee: an already-placed catalog coffee cupped to anchor the cuppers against the catalog (protocol from 2026-10).$c$;
 -- ── coffee_dimensions ──
 COMMENT ON TABLE coffee_dimensions IS $c$Purpose: Catalogue of the 12 cupping dimensions that scores, archetype targets and the Bloom Dial are measured on | Class: master | Writer: seed | Readers: v_cupping_scores_readable, v_archetype_vectors, v_coffee_archetype, v_coffee_dimension_range, +8 more | Since: 2026-05-25 (as dimensions)$c$;
 COMMENT ON COLUMN coffee_dimensions.id IS $c$Surrogate primary key with explicit seeded ids 1 to 12; referenced by scores, coffee_hop and archetype dominant_dimension_id.$c$;
@@ -610,38 +625,51 @@ COMMENT ON COLUMN coffee_dimensions.scale_min_label IS $c$Label for the low end 
 COMMENT ON COLUMN coffee_dimensions.scale_max_label IS $c$Label for the high end of the scale (for example very bright / sharp); NULL for text-only dimensions.$c$;
 COMMENT ON COLUMN coffee_dimensions.scale_min IS $c$Lowest scale value, 0 for numeric dimensions; NULL for text-only dimensions in the seed.$c$;
 COMMENT ON COLUMN coffee_dimensions.scale_max IS $c$Highest scale value, 15 for numeric dimensions (0 to 15 scale); NULL for text-only dimensions in the seed.$c$;
-COMMENT ON COLUMN coffee_dimensions.is_numeric IS $c$True when the dimension is scored numerically on the scale; false when it takes free-text notes only.$c$;
+COMMENT ON COLUMN coffee_dimensions.is_numeric IS $c$True when the dimension is scored numerically on the scale; false when it takes free-text notes only. Dimensions 1 to 3 (Fragrance, Aroma, Flavor) numeric since cupping evidence brief 1, 2026-10.$c$;
 COMMENT ON COLUMN coffee_dimensions.display_order IS $c$Position of the dimension in admin and report listings, 1 to 12.$c$;
 COMMENT ON COLUMN coffee_dimensions.platform_name IS $c$Consumer-facing word replacing the raw name (Acidity to Brightness, Bitterness to Boldness, Body to Intensity, Savory / Depth to Complexity, Finish Length to Finish); NULL means use name. Set by schema.sql seed UPDATEs and direct SQL, no admin UI.$c$;
 COMMENT ON COLUMN coffee_dimensions.source_id IS $c$References sensory_source.id: the standard that defines this dimension (sca_cva, wcr_lexicon or platform); backfilled by schema.sql.$c$;
 COMMENT ON COLUMN coffee_dimensions.sensory_lexicon_attribute_id IS $c$References sensory_lexicon_attribute.id: the single WCR Lexicon attribute this dimension corresponds to, where one applies; NULL otherwise | Writer: seed (db/seeds/sensory_lexicon_attributes_wcr.sql)$c$;
 -- ── cupping_scores ──
-COMMENT ON TABLE cupping_scores IS $c$Purpose: Score header per cupped coffee and taster, plus a merged row combining all tasters; values live in cupping_score_values | Class: operating | Writer: admin.POST /api/admin/scores, admin.DELETE /api/admin/scores/:scoreId; seed | Readers: v_cupping_scores_readable, v_coffee_dimension_range, brewCard, dialSuggestion, +5 more | Since: 2026-05-25$c$;
-COMMENT ON COLUMN cupping_scores.id IS $c$Surrogate primary key; referenced by cupping_score_values and cupping_score_descriptors.$c$;
-COMMENT ON COLUMN cupping_scores.session_coffee_id IS $c$References cupping_session_coffees.id (ON DELETE CASCADE): which coffee in which session was scored. UNIQUE together with taster_name.$c$;
-COMMENT ON COLUMN cupping_scores.taster_name IS $c$Name of the taster, or a label for the combined row (the seed uses session_1_merged).$c$;
-COMMENT ON COLUMN cupping_scores.is_merged IS $c$True for the combined row produced after all tasters submit; only merged rows feed dial suggestions and archetype comparisons.$c$;
-COMMENT ON COLUMN cupping_scores.overall_notes IS $c$Free-text overall impressions for this score row.$c$;
-COMMENT ON COLUMN cupping_scores.created_at IS $c$UTC timestamp the score row was created.$c$;
+COMMENT ON TABLE cupping_scores IS $c$Purpose: One row per Axis & Bloom cupper per sample (cupper_id, the scale used, her calls) plus the merged row (is_merged, merge_rule); values in cupping_score_values. Never edited: exactly one supersede transition per row (guard trigger), deletes raise | Class: fact | Writer: cuppingService.saveCupperScore, cuppingService.mergeByRule, cuppingService.saveManualMerge; seed | Readers: v_cupping_scores_readable, v_cupping_score, v_coffee_dimension_range, v_coffee_dimension_history, v_collaborative_flavor_wheel, cuppingService, +4 more | Since: 2026-05-25$c$;
+COMMENT ON COLUMN cupping_scores.id IS $c$Surrogate primary key; referenced by cupping_score_values, cupping_score_descriptors and superseded_by_id.$c$;
+COMMENT ON COLUMN cupping_scores.session_coffee_id IS $c$References cupping_session_coffees.id (ON DELETE RESTRICT): which sample was scored. One current cupper row per (session coffee, cupper) and one current merged row per session coffee (partial unique indexes).$c$;
+COMMENT ON COLUMN cupping_scores.taster_name IS $c$Class: deprecated | DEPRECATED since cupping evidence brief 1 (2026-10-18): cupper_id is the key and is_merged the only merged flag; kept on the legacy rows (Dana, Camila, the seed's session_1_merged), NULL on every row written since.$c$;
+COMMENT ON COLUMN cupping_scores.is_merged IS $c$True for the merged row of a sample (made by rule or by hand, never by a cupper); only current merged rows feed the dial, the public flavor wheel and the catalog reads.$c$;
+COMMENT ON COLUMN cupping_scores.overall_notes IS $c$Free-text overall impressions for this score row; on a merged row the cuppers' notes, each prefixed with her name.$c$;
+COMMENT ON COLUMN cupping_scores.created_at IS $c$UTC timestamp the score row was created (valid-from; superseded_at is the valid-to).$c$;
+COMMENT ON COLUMN cupping_scores.cupper_id IS $c$References cupper.id: whose row this is; NULL on merged rows and on legacy rows whose taster name matched no cupper (CHECK cupping_scores_row_shape).$c$;
+COMMENT ON COLUMN cupping_scores.scale_code IS $c$References cupping_scale.code: the scale the cupper actually used (ab_0_15, grid_0_5, word_3); legacy on every row that existed when the column was added (tagged by the column default); a merged row is always ab_0_15.$c$;
+COMMENT ON COLUMN cupping_scores.archetype_call IS $c$The cupper's archetype call as written (archetype_enum); on a merged row only when every cupper who made a call made the same one; NULL when none was written.$c$;
+COMMENT ON COLUMN cupping_scores.archetype_call_secondary IS $c$A second archetype the cupper wrote, when she wrote two; same merge rule as archetype_call.$c$;
+COMMENT ON COLUMN cupping_scores.position_call IS $c$The cupper's own words for the position on the dial (for example light, med-strong, delicate).$c$;
+COMMENT ON COLUMN cupping_scores.slot_call_id IS $c$References coffee_dial_slot.id: only when the call names a slot unambiguously.$c$;
+COMMENT ON COLUMN cupping_scores.call_note IS $c$What the calls look like on the paper (a family ticked, a call crossed out, DEF); on a merged row the differing calls.$c$;
+COMMENT ON COLUMN cupping_scores.merge_rule IS $c$How the merged row was made. One of: union_v1 (cuppingService.mergeByRule), manual (a hand merge), legacy (the Path seed's merged rows); NULL on cupper rows.$c$;
+COMMENT ON COLUMN cupping_scores.merge_note IS $c$Merged rows: the scales merged, the dimensions the cuppers disagree on (gap greater than param cupper_gap), one-cupper dimensions and whether the dial signal was withheld; for a hand merge the reason.$c$;
+COMMENT ON COLUMN cupping_scores.superseded_at IS $c$UTC timestamp a newer row replaced this one (a re-save, a transcription correction or a re-merge); NULL marks the current row. Set once, together with superseded_by_id and supersede_reason.$c$;
+COMMENT ON COLUMN cupping_scores.superseded_by_id IS $c$References cupping_scores.id (deferred to commit): the row that replaced this one; NULL while current.$c$;
+COMMENT ON COLUMN cupping_scores.supersede_reason IS $c$Why the row was replaced (edited in Score Entry, transcription correction: ..., merged by rule again, replaced by a manual merge); NULL while current.$c$;
 -- ── cupping_score_values ──
-COMMENT ON TABLE cupping_score_values IS $c$Purpose: One normalised score per cupping_scores row and dimension, as a numeric range or free-text note | Class: operating | Writer: admin.POST /api/admin/scores (upsert) | Readers: v_cupping_scores_readable, v_coffee_dimension_range, brewCard, dialSuggestion, +3 more | Since: 2026-05-25$c$;
+COMMENT ON TABLE cupping_score_values IS $c$Purpose: One value per score row and dimension, on the scale the cupper used, with the paper verbatim in raw_value and her words in notes; immutable (trigger), converted to 0 to 15 only in the views through cupping_to_ab() | Class: fact | Writer: cuppingService.saveCupperScore, cuppingService.mergeByRule, cuppingService.saveManualMerge | Readers: v_cupping_scores_readable, v_coffee_dimension_range, v_coffee_dimension_history, v_coffee_dimension_range_calibrated, cuppingService | Since: 2026-05-25$c$;
 COMMENT ON COLUMN cupping_score_values.id IS $c$Surrogate primary key.$c$;
-COMMENT ON COLUMN cupping_score_values.cupping_score_id IS $c$References cupping_scores.id (ON DELETE CASCADE): the score row this value belongs to. UNIQUE together with dimension_id.$c$;
-COMMENT ON COLUMN cupping_score_values.dimension_id IS $c$References coffee_dimensions.id (ON DELETE CASCADE): the dimension scored.$c$;
-COMMENT ON COLUMN cupping_score_values.value_min IS $c$Low end of the scored range on the dimension's scale (0 to 15 for numeric dimensions); NULL for text-only dimensions.$c$;
-COMMENT ON COLUMN cupping_score_values.value_max IS $c$High end of the scored range on the dimension's scale (0 to 15 for numeric dimensions); equals value_min for a point score; NULL for text-only dimensions.$c$;
-COMMENT ON COLUMN cupping_score_values.notes IS $c$Free-text note for the dimension, used for non-numeric dimensions.$c$;
+COMMENT ON COLUMN cupping_score_values.cupping_score_id IS $c$References cupping_scores.id (ON DELETE RESTRICT): the score row this value belongs to. UNIQUE together with dimension_id.$c$;
+COMMENT ON COLUMN cupping_score_values.dimension_id IS $c$References coffee_dimensions.id (ON DELETE RESTRICT): the dimension scored.$c$;
+COMMENT ON COLUMN cupping_score_values.value_min IS $c$Low end of the value on the scale the row's scale_code names (grid_0_5: 4; ab_0_15: as written); NULL for words-only dimensions and for word_3 rows, whose word is raw_value.$c$;
+COMMENT ON COLUMN cupping_score_values.value_max IS $c$High end of the value on the row's own scale; equals value_min for a point score; NULL for words-only dimensions and word_3 rows.$c$;
+COMMENT ON COLUMN cupping_score_values.notes IS $c$The words written next to the dimension; a struck word is kept as ~word and never becomes a descriptor row.$c$;
+COMMENT ON COLUMN cupping_score_values.raw_value IS $c$Exactly what is on the paper for this dimension (7-9, marks at 2,4,5; 4 struck, low, grid 0-5: 4); on a merged row the union it came from; NULL on legacy rows.$c$;
 -- ── cupping_score_descriptors ──
-COMMENT ON TABLE cupping_score_descriptors IS $c$Purpose: Flavor-wheel descriptors a taster selected for a score row, with optional intensity or custom wording | Class: operating | Writer: admin.POST /api/admin/scores (delete and re-insert); seed | Readers: v_collaborative_flavor_wheel, admin | Since: 2026-05-27$c$;
+COMMENT ON TABLE cupping_score_descriptors IS $c$Purpose: Flavor-wheel nodes a cupper named on a score row, at the SCA tier she used, with her words in custom_notes; on a merged row the union; immutable (trigger) | Class: fact | Writer: cuppingService.saveCupperScore, cuppingService.mergeByRule, cuppingService.saveManualMerge; seed | Readers: v_collaborative_flavor_wheel, v_cupping_score_descriptor, cuppingService | Since: 2026-05-27$c$;
 COMMENT ON COLUMN cupping_score_descriptors.id IS $c$Surrogate primary key.$c$;
-COMMENT ON COLUMN cupping_score_descriptors.cupping_score_id IS $c$References cupping_scores.id (ON DELETE CASCADE): the score row. UNIQUE together with cupping_note_id.$c$;
-COMMENT ON COLUMN cupping_score_descriptors.cupping_note_id IS $c$References cupping_note.id (uuid, ON DELETE CASCADE): the SCA flavor-wheel descriptor chosen.$c$;
-COMMENT ON COLUMN cupping_score_descriptors.intensity IS $c$How prominent the descriptor was, 0 to 15 (same scale as dimensions); NULL for all 47 prod rows as of 2026-07-13 per the docs.$c$;
-COMMENT ON COLUMN cupping_score_descriptors.custom_notes IS $c$Escape-hatch free text for wording not on the SCA wheel.$c$;
+COMMENT ON COLUMN cupping_score_descriptors.cupping_score_id IS $c$References cupping_scores.id (ON DELETE RESTRICT): the score row. UNIQUE together with cupping_note_id.$c$;
+COMMENT ON COLUMN cupping_score_descriptors.cupping_note_id IS $c$References cupping_note.id (uuid, ON DELETE RESTRICT): the SCA node named, at the tier named (berries is Berry, never Blueberry).$c$;
+COMMENT ON COLUMN cupping_score_descriptors.intensity IS $c$How prominent the descriptor was, 0 to 15 (same scale as dimensions); on a merged row the highest of the cuppers'; NULL when not given.$c$;
+COMMENT ON COLUMN cupping_score_descriptors.custom_notes IS $c$The cupper's own words for the node; on a merged row each cupper's words prefixed with her name.$c$;
 -- ── cupping_brew_params ──
-COMMENT ON TABLE cupping_brew_params IS $c$Purpose: Reserved per-session-coffee brew parameters (dose, water, yield, temperature, grind, time, pressure, device) for the cupping tool; not written by any code, seed or script yet (0 rows), counted in the cupping-evidence design (DESIGN_CUPPING_EVIDENCE.md) | Class: operating | Writer: none | Readers: none | Since: 2026-05-25 (as brew_params)$c$;
+COMMENT ON TABLE cupping_brew_params IS $c$Purpose: How each sample was brewed (dose, water, ratio, temperature, grind, steep, device; 8.5 g / 150 g standard); one row per session coffee, from the session's brew_defaults unless given; editable until a score exists under the sample, then immutable (trigger) | Class: fact | Writer: cuppingService.addSessionCoffee, cuppingService.saveBrewParams, cuppingService.removeEmptySessionCoffee | Readers: v_cupping_session_coffee, v_cupping_session | Since: 2026-05-25 (as brew_params)$c$;
 COMMENT ON COLUMN cupping_brew_params.id IS $c$Surrogate primary key.$c$;
-COMMENT ON COLUMN cupping_brew_params.session_coffee_id IS $c$References cupping_session_coffees.id (ON DELETE CASCADE): the cupped coffee the parameters belong to.$c$;
+COMMENT ON COLUMN cupping_brew_params.session_coffee_id IS $c$References cupping_session_coffees.id (ON DELETE RESTRICT): the sample the parameters belong to; unique (one brew row per sample).$c$;
 COMMENT ON COLUMN cupping_brew_params.dose_grams IS $c$Coffee dose in grams.$c$;
 COMMENT ON COLUMN cupping_brew_params.water_grams IS $c$Water used in grams.$c$;
 COMMENT ON COLUMN cupping_brew_params.yield_grams IS $c$Liquid yield in grams (espresso-style methods).$c$;
@@ -653,6 +681,72 @@ COMMENT ON COLUMN cupping_brew_params.pressure_bar IS $c$Brew pressure in bar (e
 COMMENT ON COLUMN cupping_brew_params.steep_time_minutes IS $c$Steep time in minutes (immersion methods).$c$;
 COMMENT ON COLUMN cupping_brew_params.brew_device IS $c$Free-text name of the brewing device.$c$;
 COMMENT ON COLUMN cupping_brew_params.notes IS $c$Free-text notes about the brew.$c$;
+-- ── Cupping evidence brief 1 (2026-10-18): reference tables (Class: master) ──
+-- Two SQL functions live beside these tables (the parser takes TABLE, VIEW and
+-- COLUMN comments only, so they are documented here):
+--   param(key) -> numeric: the current value of an evidence_parameter key (NULL if none); read by the v_evidence_* views (brief 3) and cuppingService (cupper_gap).
+--   cupping_to_ab(scale_code, value_min, value_max, raw_value) -> (ab_min, ab_max): a native value converted to the 0 to 15 line through cupping_scale_step (identity scales pass through; stepped numeric spans floor(min)..floor(max); ordinal looks up lower(trim(raw))); NULL pair when the scale or label is unknown. Read by v_cupping_scores_readable, v_coffee_dimension_range, v_coffee_dimension_history, v_coffee_dimension_range_calibrated and cuppingService.mergeByRule.
+-- ── cupper ──
+COMMENT ON TABLE cupper IS $c$Purpose: Who cups for Axis & Bloom; cupping_scores.cupper_id points here, so a new cupper is a row, never code | Class: master | Writer: cuppingService.addCupper; seed | Readers: cuppingReads, cuppingService, v_cupping_scores_readable, v_cupping_score, v_cupping_session, v_cupping_session_coffee | Since: 2026-10-18 (cupping evidence brief 1)$c$;
+COMMENT ON COLUMN cupper.id IS $c$Surrogate primary key; referenced by cupping_scores.cupper_id and cupper_calibration_offset.cupper_id.$c$;
+COMMENT ON COLUMN cupper.name IS $c$The cupper's name as shown in Score Entry and on merged-row notes; unique.$c$;
+COMMENT ON COLUMN cupper.is_active IS $c$True while the cupper can be chosen for a new score row; an inactive cupper keeps her rows.$c$;
+COMMENT ON COLUMN cupper.since IS $c$Date the person started cupping for Axis & Bloom; NULL when not recorded.$c$;
+COMMENT ON COLUMN cupper.note IS $c$Free-text note about the cupper (for example a guest cupper).$c$;
+-- ── cupping_scale ──
+COMMENT ON TABLE cupping_scale IS $c$Purpose: The scales a cupper can score on (ab_0_15, grid_0_5, word_3, legacy); a value is stored on its own scale and converted in the views | Class: master | Writer: seed | Readers: cupping_to_ab, cuppingService, cuppingReads, v_cupping_scores_readable | Since: 2026-10-18 (cupping evidence brief 1)$c$;
+COMMENT ON COLUMN cupping_scale.id IS $c$Surrogate primary key; code is the natural key.$c$;
+COMMENT ON COLUMN cupping_scale.code IS $c$Unique scale code referenced by cupping_scores.scale_code and cupping_scale_step.scale_code.$c$;
+COMMENT ON COLUMN cupping_scale.label IS $c$Human label shown in Score Entry.$c$;
+COMMENT ON COLUMN cupping_scale.kind IS $c$numeric (values in value_min/max) or ordinal (a word in raw_value).$c$;
+COMMENT ON COLUMN cupping_scale.scale_min IS $c$Lowest value a numeric scale allows; NULL for ordinal scales.$c$;
+COMMENT ON COLUMN cupping_scale.scale_max IS $c$Highest value a numeric scale allows; NULL for ordinal scales.$c$;
+COMMENT ON COLUMN cupping_scale.note IS $c$What the scale is and where it is used.$c$;
+-- ── cupping_scale_step ──
+COMMENT ON TABLE cupping_scale_step IS $c$Purpose: How each native value of a converted scale maps to a span on the 0 to 15 line (grid 4 is 11 to 13, low is 0 to 5); changing a row changes the conversion without touching any evidence row | Class: master | Writer: seed | Readers: cupping_to_ab, cuppingReads | Since: 2026-10-18 (cupping evidence brief 1)$c$;
+COMMENT ON COLUMN cupping_scale_step.id IS $c$Surrogate primary key; (scale_code, raw_label) is the natural key.$c$;
+COMMENT ON COLUMN cupping_scale_step.scale_code IS $c$References cupping_scale.code: the scale this step belongs to.$c$;
+COMMENT ON COLUMN cupping_scale_step.raw_label IS $c$The native value as text: a digit for a numeric scale (0 to 5), a word for an ordinal one (low, medium, high).$c$;
+COMMENT ON COLUMN cupping_scale_step.ab_min IS $c$Low end of the 0 to 15 span this step stands for.$c$;
+COMMENT ON COLUMN cupping_scale_step.ab_max IS $c$High end of the 0 to 15 span this step stands for (at least ab_min).$c$;
+-- ── cupping_sheet_format ──
+COMMENT ON TABLE cupping_sheet_format IS $c$Purpose: Versions of the printed cupping sheet (and Score Entry) a session was recorded on; the next sheet is an INSERT | Class: master | Writer: seed | Readers: cuppingReads, cuppingService, v_cupping_session, v_cupping_scores_readable | Since: 2026-10-18 (cupping evidence brief 1)$c$;
+COMMENT ON COLUMN cupping_sheet_format.id IS $c$Surrogate primary key; code is the natural key.$c$;
+COMMENT ON COLUMN cupping_sheet_format.code IS $c$Unique format code referenced by cupping_sessions.sheet_format and cupping_sheet_line.sheet_format.$c$;
+COMMENT ON COLUMN cupping_sheet_format.label IS $c$Human label shown in the session form.$c$;
+COMMENT ON COLUMN cupping_sheet_format.since IS $c$Date the format came into use; NULL when not recorded.$c$;
+COMMENT ON COLUMN cupping_sheet_format.note IS $c$What distinguishes the format.$c$;
+-- ── cupping_sheet_line ──
+COMMENT ON TABLE cupping_sheet_line IS $c$Purpose: Which dimension each printed line of a sheet format feeds (Mouthfeel light to heavy is Body; Aftertaste words is Finish Character), so a loader never hard-codes the mapping | Class: master | Writer: seed | Readers: cuppingReads | Since: 2026-10-18 (cupping evidence brief 1)$c$;
+COMMENT ON COLUMN cupping_sheet_line.id IS $c$Surrogate primary key; (sheet_format, line_label) is the natural key.$c$;
+COMMENT ON COLUMN cupping_sheet_line.sheet_format IS $c$References cupping_sheet_format.code: the sheet the line is printed on.$c$;
+COMMENT ON COLUMN cupping_sheet_line.line_label IS $c$The line as printed (Fragrance, Mouthfeel light to heavy, Aftertaste words).$c$;
+COMMENT ON COLUMN cupping_sheet_line.dimension_id IS $c$References coffee_dimensions.id: the dimension the line feeds.$c$;
+COMMENT ON COLUMN cupping_sheet_line.is_numeric IS $c$True when the line is a scale (values), false when it takes words (notes).$c$;
+COMMENT ON COLUMN cupping_sheet_line.display_order IS $c$Position of the line on the sheet.$c$;
+-- ── evidence_parameter ──
+COMMENT ON TABLE evidence_parameter IS $c$Purpose: Thresholds the evidence rules use (cupper_gap, roaster_rank_gap, spearman_min_n, spearman_rho_cut, rank_corr_min_n, calibration_min_n), with history; read through param(key), never typed into a view | Class: master | Writer: seed; manual:direct SQL with supersede | Readers: param, cuppingService | Since: 2026-10-18 (cupping evidence brief 1)$c$;
+COMMENT ON COLUMN evidence_parameter.id IS $c$Surrogate primary key; (key, since) is the natural key.$c$;
+COMMENT ON COLUMN evidence_parameter.key IS $c$Parameter name; one current row per key (partial unique index).$c$;
+COMMENT ON COLUMN evidence_parameter.value IS $c$The threshold value (numeric).$c$;
+COMMENT ON COLUMN evidence_parameter.since IS $c$UTC timestamp the value took effect.$c$;
+COMMENT ON COLUMN evidence_parameter.superseded_at IS $c$UTC timestamp a newer value replaced this one; NULL marks the current value.$c$;
+COMMENT ON COLUMN evidence_parameter.note IS $c$What the threshold decides.$c$;
+-- ── evidence_stop_word ──
+COMMENT ON TABLE evidence_stop_word IS $c$Purpose: Words the unmapped-words view ignores because they name a dimension or a texture, not a flavor (sweet, acidity, juicy) | Class: master | Writer: seed | Readers: none yet (v_evidence_unmapped_words, brief 3) | Since: 2026-10-18 (cupping evidence brief 1)$c$;
+COMMENT ON COLUMN evidence_stop_word.id IS $c$Surrogate primary key; word is the natural key.$c$;
+COMMENT ON COLUMN evidence_stop_word.word IS $c$The word, lower-cased; unique.$c$;
+COMMENT ON COLUMN evidence_stop_word.since IS $c$Date the word was added.$c$;
+COMMENT ON COLUMN evidence_stop_word.note IS $c$Why the word is ignored, when not obvious.$c$;
+-- ── cupper_calibration_offset ──
+COMMENT ON TABLE cupper_calibration_offset IS $c$Purpose: Per cupper and dimension correction to apply to her range, with its basis and history; empty on purpose until the calibration views show enough comparisons (param calibration_min_n) | Class: master | Writer: manual:direct SQL with supersede (none yet) | Readers: v_coffee_dimension_range_calibrated | Since: 2026-10-18 (cupping evidence brief 1)$c$;
+COMMENT ON COLUMN cupper_calibration_offset.id IS $c$Surrogate primary key; (cupper_id, dimension_id, since) is the natural key.$c$;
+COMMENT ON COLUMN cupper_calibration_offset.cupper_id IS $c$References cupper.id: whose ranges the offset corrects.$c$;
+COMMENT ON COLUMN cupper_calibration_offset.dimension_id IS $c$References coffee_dimensions.id: the dimension corrected.$c$;
+COMMENT ON COLUMN cupper_calibration_offset.offset_value IS $c$Points added to the cupper's converted range on the 0 to 15 line (negative lowers it).$c$;
+COMMENT ON COLUMN cupper_calibration_offset.basis IS $c$What the offset rests on (the calibration view rows, n, date).$c$;
+COMMENT ON COLUMN cupper_calibration_offset.since IS $c$UTC timestamp the offset took effect.$c$;
+COMMENT ON COLUMN cupper_calibration_offset.superseded_at IS $c$UTC timestamp a newer offset replaced this one; NULL marks the current offset.$c$;
 -- ── roastery_coffee_descriptors ──
 COMMENT ON TABLE roastery_coffee_descriptors IS $c$Purpose: Roaster bag tasting notes mapped to flavor-wheel terms, one row per coffee and term, retired not deleted | Class: operating | Writer: catalogService.setRoasterDescriptorsInTx; seed | Readers: v_collaborative_flavor_wheel, roasteryPortalReads, admin.GET /stats | Since: 2026-05-27 (as coffee_roastery_descriptors)$c$;
 COMMENT ON COLUMN roastery_coffee_descriptors.id IS $c$Surrogate primary key.$c$;
@@ -677,7 +771,7 @@ COMMENT ON COLUMN user_flavor_feedback.created_at IS $c$UTC timestamp the feedba
 -- ── coffee_archetype_assignment ──
 COMMENT ON TABLE coffee_archetype_assignment IS $c$Purpose: Match-archetype tag per coffee with confidence and history; current row has superseded_at NULL | Class: master | Writer: catalogService.setMatchArchetypeInTx; seed | Readers: v_coffee, v_archetype_dimension_comparison, catalogIntegrity, dialSuggestion, +4 more | Since: 2026-05-25 (as archetype_assignments)$c$;
 COMMENT ON COLUMN coffee_archetype_assignment.id IS $c$Surrogate primary key.$c$;
-COMMENT ON COLUMN coffee_archetype_assignment.coffee_id IS $c$References coffees.id (ON DELETE CASCADE): the coffee being tagged.$c$;
+COMMENT ON COLUMN coffee_archetype_assignment.coffee_id IS $c$References coffees.id (ON DELETE RESTRICT since cupping evidence brief 1): the coffee being tagged.$c$;
 COMMENT ON COLUMN coffee_archetype_assignment.archetype IS $c$Flavor archetype of the coffee. One of: chocolate_nutty, balanced_sweet, fruity, earthy, floral, experimental.$c$;
 COMMENT ON COLUMN coffee_archetype_assignment.confidence IS $c$How sure the assignment is. One of: low, medium, high.$c$;
 COMMENT ON COLUMN coffee_archetype_assignment.assigned_from_session_id IS $c$References cupping_sessions.id (ON DELETE SET NULL): the cupping session the assignment came from; NULL for manual or import assignments.$c$;
@@ -685,6 +779,7 @@ COMMENT ON COLUMN coffee_archetype_assignment.superseded_at IS $c$UTC timestamp 
 COMMENT ON COLUMN coffee_archetype_assignment.notes IS $c$Free-text rationale for the assignment.$c$;
 COMMENT ON COLUMN coffee_archetype_assignment.created_at IS $c$UTC timestamp the assignment row was created.$c$;
 COMMENT ON COLUMN coffee_archetype_assignment.source IS $c$How the assignment was made. One of: cupping, manual, import; NULL only on rows predating the column that had no backfill match.$c$;
+COMMENT ON COLUMN coffee_archetype_assignment.basis IS $c$The evidence the decision rests on as JSON (sessions, calls per cupper, roaster form, roaster remarks, website, merged range, band, rule), the same facts as the basis line in notes; NULL until the Calibration workbench (cupping evidence brief 4) writes it.$c$;
 -- ── coffee_hop ──
 COMMENT ON TABLE coffee_hop IS $c$Purpose: Directional hop graph (more or less of a dimension) between coffees, or a coffee and a category | Class: master | Writer: catalogService.setHop, catalogService.removeHop | Readers: v_coffee_hop, catalogService, qrDoor, axis | Since: 2026-06-23 (as dial_coffee_relationships)$c$;
 COMMENT ON COLUMN coffee_hop.id IS $c$Surrogate primary key.$c$;
@@ -743,17 +838,17 @@ COMMENT ON COLUMN coffee_retail_price.updated_at IS $c$UTC timestamp of the last
 -- ── dial_position_signal ──
 COMMENT ON TABLE dial_position_signal IS $c$Purpose: One row per source's opinion about where a coffee sits on its dial (cupping, roastery_wheel, client_wheel, sms_feedback, onsite_feedback), read only by the dormant consensus view and an admin stats count; never auto-moves a placement. | Class: operating | Writer: dialPositionSignal.writeDialPositionSignal, dialSuggestion.recordCuppingSignal, orders.POST /api/orders/:orderId/feedback (supersede only); seed | Readers: v_coffee_dial_position_consensus, axis (GET /stats) | Since: 2026-07-09 (#75)$c$;
 COMMENT ON COLUMN dial_position_signal.id IS $c$Surrogate key for the signal row.$c$;
-COMMENT ON COLUMN dial_position_signal.coffee_id IS $c$References coffees.id, the coffee the signal is about (ON DELETE CASCADE); nullable in the schema but always set by the writers.$c$;
+COMMENT ON COLUMN dial_position_signal.coffee_id IS $c$References coffees.id, the coffee the signal is about (ON DELETE RESTRICT since cupping evidence brief 1); nullable in the schema but always set by the writers.$c$;
 COMMENT ON COLUMN dial_position_signal.archetype IS $c$archetype_enum dial the signal applies to; taken from the coffee's current match archetype.$c$;
 COMMENT ON COLUMN dial_position_signal.dimension_id IS $c$References coffee_dimensions.id, the archetype's dominant dimension that the signal speaks to.$c$;
 COMMENT ON COLUMN dial_position_signal.source IS $c$Where the opinion came from. One of: cupping, roastery_wheel, client_wheel, sms_feedback, onsite_feedback (CHECK); joins dial_source_weight.source.$c$;
 COMMENT ON COLUMN dial_position_signal.direction IS $c$Which way the source says the coffee should move on the dimension. One of: more, less (CHECK); NULL for cupping rows. | Writer: dialPositionSignal.writeDialPositionSignal$c$;
-COMMENT ON COLUMN dial_position_signal.raw_value IS $c$Average merged cupping score on dimension_id (the dimension's own numeric scale); NULL for feedback rows. | Writer: dialSuggestion.recordCuppingSignal$c$;
-COMMENT ON COLUMN dial_position_signal.sample_size IS $c$Number of observations behind the row: merged cupping sessions for cupping rows, 1 for each feedback row.$c$;
+COMMENT ON COLUMN dial_position_signal.raw_value IS $c$Cupping rows: the midpoint of the coffee's latest merged range on dimension_id, 0 to 15 (v_coffee_dimension_range, cupping evidence brief 1; was an average over every merged row); NULL for feedback rows. | Writer: dialSuggestion.recordCuppingSignal$c$;
+COMMENT ON COLUMN dial_position_signal.sample_size IS $c$Number of observations behind the row: sessions with a current merged row for cupping rows, 1 for each feedback row.$c$;
 COMMENT ON COLUMN dial_position_signal.confidence IS $c$Confidence in the signal. One of: low, medium, high (confidence_enum); defaults to medium and no writer sets any other value.$c$;
 COMMENT ON COLUMN dial_position_signal.computed_at IS $c$UTC timestamp the signal was recorded.$c$;
 COMMENT ON COLUMN dial_position_signal.superseded_at IS $c$UTC timestamp a newer signal replaced this one; NULL means current, and only current rows feed the consensus view. | Writer: dialSuggestion.recordCuppingSignal, orders.POST /:orderId/feedback$c$;
-COMMENT ON COLUMN dial_position_signal.notes IS $c$For feedback rows a match key such as "onsite feedback for order <id>" that the order-feedback revision path uses to supersede the prior row; NULL for cupping rows. | Writer: dialPositionSignal.writeDialPositionSignal$c$;
+COMMENT ON COLUMN dial_position_signal.notes IS $c$For feedback rows a match key such as "onsite feedback for order <id>" that the order-feedback revision path uses to supersede the prior row; for cupping rows written since cupping evidence brief 1 the basis of the suggested slot (spec_band, or archetype_vector (May 2026 targets) while any slot of the archetype lacks a band); NULL on older cupping rows. | Writer: dialPositionSignal.writeDialPositionSignal, dialSuggestion.recordCuppingSignal$c$;
 COMMENT ON COLUMN dial_position_signal.suggested_slot_id IS $c$References coffee_dial_slot.id, the slot the source suggests (replaced the dropped suggested_vocabulary_id in brief 5a); set only on cupping rows, NULL for feedback rows. | Writer: dialSuggestion.recordCuppingSignal$c$;
 
 -- ── cupping_note_dimension_weight ──
@@ -798,7 +893,7 @@ COMMENT ON COLUMN coffee_dial_slot.updated_at IS $c$UTC timestamp of the last sl
 COMMENT ON TABLE coffee_slot_assignment IS $c$Purpose: Placement of a coffee in a Bloom Dial slot as home or guest, with priority, activity and certification, kept as history (inactive rows stay). | Class: master | Writer: catalogService.placeCoffee, catalogService.addGuest, catalogService.moveCoffee, catalogService.removeFromSlot, catalogService.setPriority, catalogService.certifyPlacement, catalogService.retireCoffee, catalogService.deactivateRoastery, catalogService.certifyPlacementInTx, catalogService.placeCoffeeInTx | Readers: v_coffee_slot, v_coffee_sellable_slot, v_coffee_sellable_candidate, v_coffee_visibility, v_coffee_hop, v_palate_recommendation_outcome, +3 more | Since: 2026-09-13 (#178)$c$;
 COMMENT ON COLUMN coffee_slot_assignment.id IS $c$Surrogate key; a re-placement of the same coffee in the same slot reuses the row.$c$;
 COMMENT ON COLUMN coffee_slot_assignment.slot_id IS $c$References coffee_dial_slot.id, the slot occupied; UNIQUE together with coffee_id.$c$;
-COMMENT ON COLUMN coffee_slot_assignment.coffee_id IS $c$References coffees.id, the placed coffee; one active home slot per coffee (partial unique index).$c$;
+COMMENT ON COLUMN coffee_slot_assignment.coffee_id IS $c$References coffees.id (ON DELETE RESTRICT), the placed coffee; one active home slot per coffee (partial unique index).$c$;
 COMMENT ON COLUMN coffee_slot_assignment.role IS $c$Placement kind (coffee_slot_role_enum). One of: home, guest.$c$;
 COMMENT ON COLUMN coffee_slot_assignment.priority IS $c$Rank within the slot, 1 is first choice (CHECK >= 1); unique among active rows of a slot.$c$;
 COMMENT ON COLUMN coffee_slot_assignment.is_active IS $c$True while the placement is live; set false (with deactivated_at and deactivation_reason) instead of deleting.$c$;
@@ -811,12 +906,18 @@ COMMENT ON COLUMN coffee_slot_assignment.certification_note IS $c$Optional note 
 COMMENT ON COLUMN coffee_slot_assignment.created_by IS $c$Actor (admin Firebase uid, or unknown) that made the placement; overwritten when an inactive row is re-placed. | Writer: catalogService.placeCoffee, catalogService.addGuest, catalogService.moveCoffee$c$;
 COMMENT ON COLUMN coffee_slot_assignment.created_at IS $c$UTC timestamp the row was first created.$c$;
 COMMENT ON COLUMN coffee_slot_assignment.updated_at IS $c$UTC timestamp of the last change to the placement; feeds the catalog version stamp.$c$;
+COMMENT ON COLUMN coffee_slot_assignment.basis IS $c$The evidence the placement rests on as JSON (same shape as coffee_archetype_assignment.basis); NULL until the Calibration workbench (cupping evidence brief 4) writes it.$c$;
+COMMENT ON COLUMN coffee_slot_assignment.placed_from_session_id IS $c$References cupping_sessions.id (ON DELETE SET NULL): the cupping session the placement was decided from, so a newer session shows as newer evidence instead of silently moving the range; NULL until brief 4 writes it.$c$;
 
 -- ── v_cupping_scores_readable ──
-COMMENT ON VIEW v_cupping_scores_readable IS $c$Purpose: One row per cupping score value (taster x coffee x dimension) with session, coffee, roaster and current archetype context for readable manual queries. | Class: view | Writer: none (derived) | Readers: none (manual SQL, no TypeScript consumer) | Since: 2026-05-29$c$;
+COMMENT ON VIEW v_cupping_session IS $c$Purpose: One row per cupping session for Score Entry: header and evidence columns, brew device (first sample's brew params), coffee count, current merged count and the names of the cuppers with a current row. | Class: view | Writer: none (derived) | Readers: cuppingReads | Since: 2026-10-18 (cupping evidence brief 1)$c$;
+COMMENT ON VIEW v_cupping_session_coffee IS $c$Purpose: One row per sample for Score Entry: the coffee (from v_coffee), roast date, blind code, sample note, control flag, its brew params, its current merged score id, the cuppers with a current row and whether anything is scored. | Class: view | Writer: none (derived) | Readers: cuppingReads | Since: 2026-10-18 (cupping evidence brief 1)$c$;
+COMMENT ON VIEW v_cupping_score IS $c$Purpose: One row per CURRENT score header (cupper or merged) with or without values: cupper name, scale, calls, merge rule and note; Score Entry lists a sample's rows from here. | Class: view | Writer: none (derived) | Readers: cuppingReads | Since: 2026-10-18 (cupping evidence brief 1)$c$;
+COMMENT ON VIEW v_cupping_score_descriptor IS $c$Purpose: One row per descriptor on a CURRENT score row (cupper or merged), with the SCA node, its tier and the cupper's words. | Class: view | Writer: none (derived) | Readers: cuppingReads | Since: 2026-10-18 (cupping evidence brief 1)$c$;
+COMMENT ON VIEW v_cupping_scores_readable IS $c$Purpose: One row per CURRENT score value (cupper or merged row x dimension) with session, sample, coffee, roaster and archetype (from v_coffee); value_min/max converted to 0 to 15 through cupping_to_ab(), native_min/max and raw_value as written, conversion_error, the calls and the evidence columns | Class: view | Writer: none (derived) | Readers: cuppingReads | Since: 2026-05-29 (current rows, converted: 2026-10-18)$c$;
 
 -- ── v_collaborative_flavor_wheel ──
-COMMENT ON VIEW v_collaborative_flavor_wheel IS $c$Purpose: Every flavor-descriptor observation per coffee, one row each, labelled by source (internal cupping, roastery bag notes, client feedback). | Class: view | Writer: none (derived) | Readers: v_coffee_descriptor, admin, coffees, cron, orders, beatEngine, catalogService, sommelierRag | Since: 2026-05-27$c$;
+COMMENT ON VIEW v_collaborative_flavor_wheel IS $c$Purpose: Every decision-layer flavor-descriptor observation per coffee, one row each, labelled by source (internal = current merged cupping rows only since cupping evidence brief 1, roastery = accepted bag notes, client = customer feedback), with the SCA tier of each node. | Class: view | Writer: none (derived) | Readers: v_coffee_descriptor, admin, coffees, cron, orders, beatEngine, catalogService, sommelierRag | Since: 2026-05-27$c$;
 
 -- ── quiz_backup_20261008_quiz ──
 COMMENT ON TABLE quiz_backup_20261008_quiz IS $c$Purpose: Frozen copy of the quiz table taken at the first boot with SCD Type 2 quiz content, kept as a rollback reference and never written again. | Class: snapshot | Writer: seed | Readers: quizIntegrity (check 17) | Since: 2026-10-09 (#218, content as of 2026-10-08)$c$;
@@ -864,7 +965,7 @@ COMMENT ON VIEW v_quiz_scoring_matrix IS $c$Purpose: Full quiz scoring matrix, o
 COMMENT ON VIEW v_archetype_vectors IS $c$Purpose: Target flavor vector per archetype, one row per archetype x dimension with min, ideal and max score. | Class: view | Writer: none (derived) | Readers: axis (GET /vectors), coffees (archetype-order distance) | Since: 2026-06-12$c$;
 
 -- ── v_archetype_dimension_comparison ──
-COMMENT ON VIEW v_archetype_dimension_comparison IS $c$Purpose: Archetype target range (min, ideal, max) beside the average actual cupping score and coffee count per archetype x dimension. | Class: view | Writer: none (derived) | Readers: coffees (GET /archetype-stats), dialSuggestion | Since: 2026-06-12$c$;
+COMMENT ON VIEW v_archetype_dimension_comparison IS $c$Purpose: Archetype target range (min, ideal, max, the May 2026 archetype_vector targets) beside the average midpoint of the latest merged cupping range (v_coffee_dimension_range) of the active coffees matched to the archetype, and their count, per archetype x dimension. | Class: view | Writer: none (derived) | Readers: coffees (GET /archetype-stats), dialSuggestion | Since: 2026-06-12 (latest merged range: 2026-10-18)$c$;
 
 -- ── v_coffee_dial_position_consensus ──
 COMMENT ON VIEW v_coffee_dial_position_consensus IS $c$Purpose: Weighted consensus of current dial_position_signal rows per coffee and archetype using dial_source_weight, a dormant advisory that never writes a placement. | Class: view | Writer: none (derived) | Readers: admin (GET /api/admin/dial/consensus/:coffeeId) | Since: 2026-07-09 (#75), renamed and re-keyed 2026-09-15$c$;
@@ -1269,10 +1370,14 @@ COMMENT ON VIEW v_customer_bag_attribution IS $c$Purpose: One row per order line
 COMMENT ON VIEW v_customer_timeline IS $c$Purpose: Union of every customer fact (quiz, order line, feedback, brew profile change, dial event, bag claim, Liam recommendation/question/action, identity link) as one time-ordered stream per canonical customer. | Class: view | Writer: none (derived) | Readers: customerReads.getTimeline | Since: 2026-09-27 (Customer Blueprint C3 Part A3)$c$;
 
 -- ── v_coffee_dimension_range ──
-COMMENT ON VIEW v_coffee_dimension_range IS $c$Purpose: Per active coffee and cupping dimension, the min/max score range across merged cupping scores (falling back to all tasters when none merged), with n_scores and basis; no row if never cupped. | Class: view | Writer: none (derived) | Readers: roasteryPortalReads, customerIntegrity, v_palate_shared_traits, v_palate_dominant_dimensions, v_palate_slot_candidates, v_roastery_portal_dimension_match | Since: 2026-09-27 (Customer Blueprint C3 Part A4)$c$;
+COMMENT ON VIEW v_coffee_dimension_range IS $c$Purpose: Per active coffee and cupping dimension, the range of the LATEST current merged row (by session date), converted to 0 to 15, with session_id, session_date, n_sessions, midpoint and all_ab_scale (falling back to the latest session's cupper rows when the coffee has no merged row); never unions sessions; no row if never cupped. | Class: view | Writer: none (derived) | Readers: cuppingReads, roasteryPortalReads, customerIntegrity, v_archetype_dimension_comparison, v_coffee_dimension_range_calibrated, v_palate_shared_traits, +3 more | Since: 2026-09-27 (latest session: 2026-10-18)$c$;
+-- ── v_coffee_dimension_history ──
+COMMENT ON VIEW v_coffee_dimension_history IS $c$Purpose: Every session's current merged range per coffee x dimension x sample, converted to 0 to 15, with session date, blind and control flags and the scales behind it; what calibration and repeatability read (the catalog reads the latest session only). | Class: view | Writer: none (derived) | Readers: cuppingReads | Since: 2026-10-18 (cupping evidence brief 1)$c$;
+-- ── v_coffee_dimension_range_calibrated ──
+COMMENT ON VIEW v_coffee_dimension_range_calibrated IS $c$Purpose: v_coffee_dimension_range with each cupper's current cupper_calibration_offset applied to her converted range behind the latest merge; calibrated_min/max/midpoint and n_offsets_applied. Unread on purpose until Dana decides offsets apply. | Class: view | Writer: none (derived) | Readers: none yet | Since: 2026-10-18 (cupping evidence brief 1)$c$;
 
 -- ── v_coffee_descriptor ──
-COMMENT ON VIEW v_coffee_descriptor IS $c$Purpose: v_collaborative_flavor_wheel grouped to one row per coffee and descriptor with wheel category/subcategory and n_sources (distinct source channels that observed it). | Class: view | Writer: none (derived) | Readers: v_palate_shared_traits | Since: 2026-09-27 (Customer Blueprint C3 Part A4)$c$;
+COMMENT ON VIEW v_coffee_descriptor IS $c$Purpose: v_collaborative_flavor_wheel grouped to one row per coffee and descriptor with wheel category/subcategory, the SCA tier and n_sources (distinct source channels that observed it). | Class: view | Writer: none (derived) | Readers: v_palate_shared_traits, cuppingReads | Since: 2026-09-27 (Customer Blueprint C3 Part A4)$c$;
 
 -- ── v_palate_evidence ──
 COMMENT ON VIEW v_palate_evidence IS $c$Purpose: One row per canonical customer with counts of what we know about their palate (attributed bags, distinct coffees, feedback by sentiment, Liam questions/answers/recommendations, brew fields, has_quiz); read_version v1. | Class: view | Writer: none (derived) | Readers: customerReads.getPalateEvidence | Since: 2026-09-27 (Customer Blueprint C3 Part A5)$c$;
@@ -1428,13 +1533,36 @@ COMMENT ON COLUMN roastery_portal_acceptance.accepted_by_admin_id IS $c$FK to us
 COMMENT ON COLUMN roastery_portal_acceptance.accepted_at IS $c$Timestamp when the response was accepted.$c$;
 
 -- ── roastery_portal_note_mapping ──
-COMMENT ON TABLE roastery_portal_note_mapping IS $c$Purpose: Remembered translations from a roaster's normalized tasting words to a flavor-wheel term, offered as a suggestion next time (never auto-applied); changing one supersedes the old row and inserts a new one. | Class: operating | Writer: roasteryPortalService.rememberMapping, roasteryPortalService.supersedeNoteMapping | Readers: roasteryPortalReads, roasteryPortalService | Since: 2026-10-05 (Roastery portal part 2 #210)$c$;
+COMMENT ON TABLE roastery_portal_note_mapping IS $c$Purpose: Remembered translations from a roaster's or a cupper's normalized words to an SCA node (source_kind keeps the two apart), offered as a suggestion next time and looked up by the cupping loader; changing one supersedes the old row and inserts a new one. | Class: operating | Writer: noteMappingService.setNoteMappingInTx, noteMappingService.retireNoteMappingInTx | Readers: roasteryPortalReads, roasteryPortalService, noteMappingReads, noteMappingService | Since: 2026-10-05 (Roastery portal part 2 #210)$c$;
 COMMENT ON COLUMN roastery_portal_note_mapping.id IS $c$Primary key (UUID).$c$;
-COMMENT ON COLUMN roastery_portal_note_mapping.normalized_words IS $c$The roaster's words lowercased, trimmed and whitespace-collapsed; unique among rows where superseded_at IS NULL.$c$;
+COMMENT ON COLUMN roastery_portal_note_mapping.normalized_words IS $c$The roaster's or cupper's words lowercased, trimmed and whitespace-collapsed; unique per source_kind among rows where superseded_at IS NULL.$c$;
 COMMENT ON COLUMN roastery_portal_note_mapping.cupping_note_id IS $c$FK to cupping_note(id): the flavor-wheel term these words map to.$c$;
 COMMENT ON COLUMN roastery_portal_note_mapping.created_by_admin_id IS $c$FK to user_profile(id) of the admin who set the mapping; NULL if unknown.$c$;
 COMMENT ON COLUMN roastery_portal_note_mapping.created_at IS $c$Timestamp when the mapping was created.$c$;
-COMMENT ON COLUMN roastery_portal_note_mapping.superseded_at IS $c$Timestamp when the mapping was replaced or withdrawn; NULL while it is the active one for its words. | Writer: roasteryPortalService.rememberMapping, roasteryPortalService.supersedeNoteMapping$c$;
+COMMENT ON COLUMN roastery_portal_note_mapping.superseded_at IS $c$Timestamp when the mapping was replaced or withdrawn; NULL while it is the active one for its words and kind. | Writer: noteMappingService.setNoteMappingInTx, noteMappingService.retireNoteMappingInTx$c$;
+COMMENT ON COLUMN roastery_portal_note_mapping.source_kind IS $c$Whose vocabulary the words are. One of: roaster (portal and remark words), cupper (an Axis & Bloom cupper's words, mapped at the SCA tier she named) | Writer: noteMappingService.setNoteMappingInTx$c$;
+COMMENT ON COLUMN roastery_portal_note_mapping.note IS $c$Why the words map to this node, when not obvious (for example berries is Berry, tier 2, not a berry leaf).$c$;
+-- ── roastery_remark ──
+COMMENT ON TABLE roastery_remark IS $c$Purpose: What a roaster said outside the portal form (cupping table, email, call, visit, website), one statement per row, verbatim, with who said it, when, through which channel and on which topic; insert-only, a correction is a new row with supersedes_id | Class: fact | Writer: roasteryRemarkService.recordRemarks | Readers: v_roastery_remark | Since: 2026-10-18 (cupping evidence brief 1)$c$;
+COMMENT ON COLUMN roastery_remark.id IS $c$Primary key (UUID); referenced by supersedes_id.$c$;
+COMMENT ON COLUMN roastery_remark.roaster_id IS $c$References roaster.id: the roastery that said it; every other reference on the row must belong to it (roastery_remark_guard).$c$;
+COMMENT ON COLUMN roastery_remark.coffee_id IS $c$References coffees.id: the catalog coffee the remark is about; NULL when it is about the lineup or the roastery.$c$;
+COMMENT ON COLUMN roastery_remark.portal_coffee_id IS $c$References roastery_portal_coffee.id: the lineup row the remark is about, when known.$c$;
+COMMENT ON COLUMN roastery_remark.cupping_session_coffee_id IS $c$References cupping_session_coffees.id: the sample at whose cupping the remark was made; must be the same coffee as coffee_id when both are set.$c$;
+COMMENT ON COLUMN roastery_remark.said_by IS $c$Who said it, as written (a person and role, or the roastery and its website).$c$;
+COMMENT ON COLUMN roastery_remark.said_by_respondent_id IS $c$References roastery_portal_respondent.id: when the speaker is a known portal respondent of the same roaster.$c$;
+COMMENT ON COLUMN roastery_remark.said_on IS $c$Business date the remark was made, or the capture date of a website page; never shifted by a timezone.$c$;
+COMMENT ON COLUMN roastery_remark.channel IS $c$How it reached us. One of: cupping_table, email, call, visit, website, other.$c$;
+COMMENT ON COLUMN roastery_remark.topic IS $c$What it is about. One of: classification, descriptor, dimension, brewing, availability, process, origin, roast, general.$c$;
+COMMENT ON COLUMN roastery_remark.remark IS $c$Their words as captured, verbatim.$c$;
+COMMENT ON COLUMN roastery_remark.cupping_note_id IS $c$References cupping_note.id: the SCA node a descriptor remark translates to, when the translation is clear; only on descriptor remarks (CHECK).$c$;
+COMMENT ON COLUMN roastery_remark.proposed_archetype IS $c$The archetype a classification remark proposes (archetype_enum); a proposal, never an assignment; only on classification remarks (CHECK).$c$;
+COMMENT ON COLUMN roastery_remark.recorded_by IS $c$Who wrote the remark down.$c$;
+COMMENT ON COLUMN roastery_remark.record_source IS $c$Where the row came from (the paper file, the email date, the page and the file it was copied from).$c$;
+COMMENT ON COLUMN roastery_remark.supersedes_id IS $c$References roastery_remark.id: the row this one corrects (same roaster); the old row is never touched, and is_current in v_roastery_remark is false for it.$c$;
+COMMENT ON COLUMN roastery_remark.load_dts IS $c$UTC timestamp the row was loaded (system time).$c$;
+-- ── v_roastery_remark ──
+COMMENT ON VIEW v_roastery_remark IS $c$Purpose: Every roaster remark with roaster, coffee and lineup names, the SCA node (descriptor, category, sub-group, tier) and is_current (no newer row supersedes it). | Class: view | Writer: none (derived) | Readers: roasteryRemarkReads | Since: 2026-10-18 (cupping evidence brief 1)$c$;
 
 -- ── roastery_portal_lineup_response_best_seller ──
 COMMENT ON TABLE roastery_portal_lineup_response_best_seller IS $c$Purpose: Up to three of the roastery's own lineup coffees picked as best sellers, in rank order, per lineup response; immutable once that lineup response is submitted. | Class: operating | Writer: roasteryPortalService.saveLineupDraft | Readers: roasteryPortalReads, roasteryPortalService | Since: 2026-10-06 (Roastery portal part 3 #212)$c$;

@@ -36,6 +36,7 @@ import clientErrorsRouter from './routes/clientErrors.js';
 import campaignRouter from './routes/campaign.js';
 import roasteryPortalRouter from './routes/roasteryPortal.js';
 import roasteryPortalAdminRouter from './routes/roasteryPortalAdmin.js';
+import roasteryRemarkAdminRouter from './routes/roasteryRemarkAdmin.js';
 import { initSommelierConfig } from './services/sommelierConfig.js';
 import { runQuizIntegrityChecks } from './services/quizIntegrity.js';
 import { runCatalogIntegrityChecks } from './services/catalogIntegrity.js';
@@ -133,6 +134,8 @@ app.use('/api/campaign', campaignRouter);
 // Roastery Portal (2026-10-05) — public token-gated partner surface + its admin side.
 app.use('/api/roastery-portal', roasteryPortalRouter);
 app.use('/api/admin/roastery-portal', roasteryPortalAdminRouter);
+// Cupping evidence brief 1 (2026-10-18): roaster remarks outside the portal form.
+app.use('/api/admin/roastery-remarks', roasteryRemarkAdminRouter);
 
 // Observability Foundation Part B -- central boundary handler, mounted AFTER
 // every router so it only sees what Express itself routes here: a

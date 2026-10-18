@@ -629,7 +629,7 @@ export async function listNoteMappings(opts: { includeSuperseded?: boolean } = {
   const r = await runner.query(
     `SELECT m.id, m.normalized_words, m.cupping_note_id, cn.descriptor, cn.wheel_category, m.created_at, m.superseded_at
      FROM roastery_portal_note_mapping m JOIN cupping_note cn ON cn.id = m.cupping_note_id
-     ${opts.includeSuperseded ? '' : 'WHERE m.superseded_at IS NULL'}
+     WHERE m.source_kind = 'roaster' ${opts.includeSuperseded ? '' : 'AND m.superseded_at IS NULL'}
      ORDER BY m.normalized_words, m.created_at DESC`
   );
   return r.rows.map((x: any) => ({
@@ -646,7 +646,7 @@ export async function getMappingSuggestions(words: string[], runner: Runner = db
   const r = await runner.query(
     `SELECT m.normalized_words, m.cupping_note_id, cn.descriptor, cn.wheel_category
      FROM roastery_portal_note_mapping m JOIN cupping_note cn ON cn.id = m.cupping_note_id AND cn.is_active
-     WHERE m.superseded_at IS NULL AND m.normalized_words = ANY($1::text[])`,
+     WHERE m.superseded_at IS NULL AND m.source_kind = 'roaster' AND m.normalized_words = ANY($1::text[])`,
     [keys]
   );
   for (const x of r.rows) out.set(x.normalized_words, { cuppingNoteId: x.cupping_note_id, descriptor: x.descriptor, wheelCategory: x.wheel_category });

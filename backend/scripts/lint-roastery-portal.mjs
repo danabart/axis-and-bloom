@@ -74,6 +74,12 @@ function lineNumberAt(text, index) {
 }
 
 const WRITER = 'services/roasteryPortalService.ts';
+// Cupping evidence brief 1 (2026-10-18), B8: roastery_portal_note_mapping is
+// the words → SCA node table for roaster AND cupper words; its one writer is
+// noteMappingService.ts (roasteryPortalService calls it), and its readers
+// outside the portal are noteMappingService.ts / noteMappingReads.ts.
+const TABLE_WRITERS = { roastery_portal_note_mapping: 'services/noteMappingService.ts' };
+const NOTE_MAPPING_FILES = new Set(['services/noteMappingService.ts', 'services/noteMappingReads.ts']);
 const PORTAL_FILES = new Set([
   'services/roasteryPortalService.ts',
   'services/roasteryPortalReads.ts',
@@ -97,15 +103,18 @@ const violations = [];
 for (const relPath of walk(SRC_ROOT, [])) {
   const text = stripComments(readFileSync(path.join(SRC_ROOT, relPath), 'utf8'));
   let m;
-  if (relPath !== WRITER) {
-    RULE1.lastIndex = 0;
-    while ((m = RULE1.exec(text))) {
-      violations.push({ file: relPath, line: lineNumberAt(text, m.index), message: `${m[1].toUpperCase()} on '${m[2]}' outside ${WRITER}` });
+  RULE1.lastIndex = 0;
+  while ((m = RULE1.exec(text))) {
+    const table = m[2].toLowerCase();
+    const writer = TABLE_WRITERS[table] ?? WRITER;
+    if (relPath !== writer) {
+      violations.push({ file: relPath, line: lineNumberAt(text, m.index), message: `${m[1].toUpperCase()} on '${m[2]}' outside ${writer}` });
     }
   }
   if (!RULE3_ALLOWED.has(relPath)) {
     RULE3.lastIndex = 0;
     while ((m = RULE3.exec(text))) {
+      if (NOTE_MAPPING_FILES.has(relPath) && m[0] === 'roastery_portal_note_mapping') continue;
       violations.push({ file: relPath, line: lineNumberAt(text, m.index), message: `reference to '${m[0]}' outside roasteryPortalService.ts / roasteryPortalReads.ts: read portal data through roasteryPortalReads functions` });
     }
   }

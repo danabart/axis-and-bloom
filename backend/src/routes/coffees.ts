@@ -9,6 +9,28 @@ import {
   getArchetypes, archetypeLabel, getCoffee, getCoffees, getHomeSlot, getSlots, getSellableSlots, getHops, getSizes, getAnchorSize,
   getCategoryCoffees, getCoffeeRetailPrices,
 } from '../services/catalogReads.js';
+import { getMergedRanges, getOverallNotes } from '../services/cuppingReads.js';
+
+// Cupping evidence brief 1 (2026-10-18): the numeric dimensions of a coffee's
+// latest merged range (cuppingReads → v_coffee_dimension_range, converted to
+// 0 to 15), in the row shape the dimension readers here have always returned
+// (numeric strings, as pg returned them). Was an average over every score row
+// of every session; session_count is now the score rows the range rests on.
+// v_coffee_dimension_range covers active coffees only.
+async function numericDimensionRows(coffeeId: number) {
+  const ranges = await getMergedRanges(coffeeId);
+  return ranges
+    .filter(r => r.is_numeric && r.value_min !== null && r.value_max !== null)
+    .map(r => ({
+      dimension: r.dimension_name,
+      scale_min_label: r.scale_min_label,
+      scale_max_label: r.scale_max_label,
+      display_order: r.display_order,
+      avg_min: Number(r.value_min).toFixed(1),
+      avg_max: Number(r.value_max).toFixed(1),
+      session_count: String(r.n_scores),
+    }));
+}
 
 // C2 Part 1 — a blocked generation call (global kill-switch / daily ceiling)
 // must degrade to "nothing new, keep whatever's cached" — never to "write
@@ -82,19 +104,9 @@ export async function fetchCoffeeDataForContent(coffeeId: string | number) {
   const [coffee, displayName, dimsResult, descriptorResult, roasterBlendResult] = await Promise.all([
     getCoffee(Number(coffeeId)),
     resolveDisplayName(coffeeId),
-    db.query(
-      `SELECT d.name AS dimension, d.scale_min_label, d.scale_max_label,
-              ROUND(AVG(csv.value_min)::numeric, 1) AS avg_min,
-              ROUND(AVG(csv.value_max)::numeric, 1) AS avg_max
-       FROM cupping_score_values csv
-       JOIN cupping_scores cs  ON cs.id = csv.cupping_score_id
-       JOIN cupping_session_coffees sc ON sc.id = cs.session_coffee_id
-       JOIN coffee_dimensions d       ON d.id  = csv.dimension_id
-       WHERE sc.coffee_id = $1 AND d.is_numeric = true AND csv.value_min IS NOT NULL
-       GROUP BY d.id, d.name, d.scale_min_label, d.scale_max_label, d.display_order
-       ORDER BY d.display_order`,
-      [coffeeId]
-    ),
+    // Cupping evidence brief 1 (2026-10-18): the latest merged range through
+    // cuppingReads (v_coffee_dimension_range), same row shape as before.
+    numericDimensionRows(Number(coffeeId)).then(rows => ({ rows })),
     db.query(
       `SELECT descriptor, source, COUNT(*) AS mentions
        FROM v_collaborative_flavor_wheel
@@ -113,13 +125,7 @@ export async function fetchCoffeeDataForContent(coffeeId: string | number) {
 
   if (!coffee) throw new Error('Coffee not found');
 
-  const notesResult = await db.query(
-    `SELECT cs.overall_notes FROM cupping_scores cs
-     JOIN cupping_session_coffees sc ON sc.id = cs.session_coffee_id
-     WHERE sc.coffee_id = $1 AND cs.overall_notes IS NOT NULL
-     ORDER BY cs.id DESC LIMIT 1`,
-    [coffeeId]
-  );
+  const notesResult = { rows: (await getOverallNotes(Number(coffeeId))).slice(0, 1) };
 
   const roasterNames = [
     ...new Set([
@@ -1031,38 +1037,12 @@ router.get('/:id/flavor-wheel', async (req, res) => {
 router.get('/:id/dimensions', async (req, res) => {
   const { id } = req.params;
   try {
-    const [dimsResult, notesResult] = await Promise.all([
-      db.query(
-        `SELECT d.name AS dimension,
-                d.scale_min_label,
-                d.scale_max_label,
-                d.display_order,
-                ROUND(AVG(csv.value_min)::numeric, 1) AS avg_min,
-                ROUND(AVG(csv.value_max)::numeric, 1) AS avg_max,
-                COUNT(DISTINCT cs.id) AS session_count
-         FROM cupping_score_values csv
-         JOIN cupping_scores cs    ON cs.id  = csv.cupping_score_id
-         JOIN cupping_session_coffees sc   ON sc.id  = cs.session_coffee_id
-         JOIN coffee_dimensions d         ON d.id   = csv.dimension_id
-         WHERE sc.coffee_id = $1
-           AND d.is_numeric = true
-           AND csv.value_min IS NOT NULL
-         GROUP BY d.id, d.name, d.scale_min_label, d.scale_max_label, d.display_order
-         ORDER BY d.display_order`,
-        [id]
-      ),
-      db.query(
-        `SELECT cs.overall_notes, css.session_date
-         FROM cupping_scores cs
-         JOIN cupping_session_coffees sc   ON sc.id  = cs.session_coffee_id
-         JOIN cupping_sessions css ON css.id = sc.session_id
-         WHERE sc.coffee_id = $1
-           AND cs.overall_notes IS NOT NULL
-         ORDER BY css.session_date DESC`,
-        [id]
-      ),
-    ]);
-    res.json({ dimensions: dimsResult.rows, notes: notesResult.rows });
+    // Cupping evidence brief 1 (2026-10-18): the coffee's latest merged range
+    // and its current rows' notes, through cuppingReads. Same response shape.
+    const coffeeId = Number(id);
+    if (!Number.isInteger(coffeeId)) { res.json({ dimensions: [], notes: [] }); return; }
+    const [dimensions, notes] = await Promise.all([numericDimensionRows(coffeeId), getOverallNotes(coffeeId)]);
+    res.json({ dimensions, notes });
   } catch (err) {
     console.error('[coffees/dimensions]', err);
     res.status(500).json({ error: 'Failed to fetch dimension data' });

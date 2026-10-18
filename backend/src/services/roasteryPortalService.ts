@@ -13,6 +13,7 @@ import { randomBytes } from 'node:crypto';
 import { withTransaction, type Tx } from '../db/client.js';
 import { getVocabulary, getRespondent, normalizeWords, getMappingSuggestions, type PortalVocabulary } from './roasteryPortalReads.js';
 import { getCoffee as getCatalogCoffee } from './catalogReads.js';
+import { setNoteMappingInTx, retireNoteMappingInTx } from './noteMappingService.js';
 import {
   createCoffeeInTx, updateCoffeeInTx, setRoasterDescriptorsInTx, snapshotRow, logCatalogChange, scopedIntegrity,
   type UpdateCoffeeInput,
@@ -794,18 +795,10 @@ async function assertWheelTerms(tx: Tx, ids: string[]): Promise<Map<string, { de
   return out;
 }
 
-/** Create, supersede or leave alone the remembered mapping for these words. */
+/** Create, supersede or leave alone the remembered mapping for these (roaster) words.
+ *  Cupping evidence brief 1 (2026-10-18): the write is noteMappingService's, the table's one writer. */
 async function rememberMapping(tx: Tx, words: string, cuppingNoteId: string, adminProfileId: string | null): Promise<'created' | 'superseded' | 'unchanged'> {
-  const key = normalizeWords(words);
-  if (!key) return 'unchanged';
-  const cur = await tx.query(`SELECT id, cupping_note_id FROM roastery_portal_note_mapping WHERE normalized_words = $1 AND superseded_at IS NULL`, [key]);
-  if (cur.rows[0]?.cupping_note_id === cuppingNoteId) return 'unchanged';
-  if (cur.rows[0]) await tx.query(`UPDATE roastery_portal_note_mapping SET superseded_at = now() WHERE id = $1`, [cur.rows[0].id]);
-  await tx.query(
-    `INSERT INTO roastery_portal_note_mapping (normalized_words, cupping_note_id, created_by_admin_id) VALUES ($1, $2, $3)`,
-    [key, cuppingNoteId, adminProfileId]
-  );
-  return cur.rows[0] ? 'superseded' : 'created';
+  return setNoteMappingInTx(tx, { normalizedWords: words, cuppingNoteId, sourceKind: 'roaster', adminId: adminProfileId });
 }
 
 export async function acceptResponse(input: { responseId: string; items: unknown; actorUid: string }): Promise<AcceptResult> {
@@ -982,10 +975,9 @@ export async function setNoteMapping(input: { words: unknown; cuppingNoteId: unk
 export async function supersedeNoteMapping(input: { mappingId: string }): Promise<{ superseded: boolean }> {
   if (!isUuid(input.mappingId)) throw notFound('mapping');
   return withTransaction(async tx => {
-    const exists = await tx.query(`SELECT id FROM roastery_portal_note_mapping WHERE id = $1`, [input.mappingId]);
+    const exists = await tx.query(`SELECT id FROM roastery_portal_note_mapping WHERE id = $1 AND source_kind = 'roaster'`, [input.mappingId]);
     if (!exists.rows[0]) throw notFound('mapping');
-    const r = await tx.query(`UPDATE roastery_portal_note_mapping SET superseded_at = now() WHERE id = $1 AND superseded_at IS NULL`, [input.mappingId]);
-    return { superseded: (r.rowCount ?? 0) > 0 };
+    return retireNoteMappingInTx(tx, input.mappingId);
   });
 }
 
@@ -994,7 +986,7 @@ export async function changeNoteMapping(input: { mappingId: string; cuppingNoteI
   if (!isUuid(input.mappingId)) throw notFound('mapping');
   if (!isUuid(input.cuppingNoteId)) throw invalid('choose a flavor wheel term');
   return withTransaction(async tx => {
-    const cur = await tx.query(`SELECT normalized_words FROM roastery_portal_note_mapping WHERE id = $1 AND superseded_at IS NULL`, [input.mappingId]);
+    const cur = await tx.query(`SELECT normalized_words FROM roastery_portal_note_mapping WHERE id = $1 AND source_kind = 'roaster' AND superseded_at IS NULL`, [input.mappingId]);
     if (!cur.rows[0]) throw notFound('mapping');
     await assertWheelTerms(tx, [input.cuppingNoteId as string]);
     return { result: await rememberMapping(tx, cur.rows[0].normalized_words, input.cuppingNoteId as string, await adminProfileIdFor(tx, input.actorUid)) };

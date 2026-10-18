@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db, withTransaction, type Tx } from '../db/client.js';
 import { getAvgCuppingScore } from './dialSuggestion.js';
+import { refreshDialSignal } from './cuppingService.js';
 import { getSizes, getAnchorSize } from './catalogReads.js';
 import { record } from './customerFacts.js';
 import {
@@ -818,14 +819,24 @@ export async function setMatchArchetypeInTx(tx: Tx, input: SetMatchArchetypeInpu
 }
 
 export async function setMatchArchetype(input: SetMatchArchetypeInput, ctx: Ctx): Promise<CatalogWriteResult<{ coffeeId: number }>> {
-  return withTransaction(async (tx) => {
+  let archetypeChanged = false;
+  const result = await withTransaction(async (tx) => {
     const { coffeeId, warnings, before } = await setMatchArchetypeInTx(tx, input);
+    archetypeChanged = (before as { archetype?: string } | null)?.archetype !== input.archetype;
     const afterResult = await tx.query(`SELECT * FROM coffee_archetype_assignment WHERE coffee_id = $1 AND superseded_at IS NULL`, [coffeeId]);
     await logCatalogChange(tx, { entity: 'coffee', entityId: coffeeId, action: 'setMatchArchetype', before, after: afterResult.rows[0] ?? null, changedBy: ctx.actor });
     const integrity = await scopedIntegrity(tx, { coffeeId });
     console.info('[catalog] setMatchArchetype', { actor: ctx.actor, coffeeId, archetype: input.archetype, warnings: warnings.map(w => w.kind) });
     return { result: { coffeeId }, warnings, integrity };
   });
+  // Cupping evidence brief 1, B6: an archetype change recomputes the coffee's
+  // cupping dial signal (after commit, so the signal reads the new archetype).
+  // Advisory only: a failure is logged, never undoes the catalog write.
+  if (archetypeChanged) {
+    await refreshDialSignal(input.coffeeId).catch(err =>
+      console.error(`[catalog] refreshDialSignal(${input.coffeeId}) after setMatchArchetype failed (non-critical)`, err));
+  }
+  return result;
 }
 
 // Catalog Blueprint brief 4 — the only new write verb this brief adds

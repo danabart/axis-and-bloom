@@ -23,11 +23,9 @@ afterAll(async () => {
   await db.query(`DELETE FROM coffee_sku WHERE blend_name LIKE 'Vitest%' OR coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
   await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM roaster WHERE name LIKE 'Vitest%'`);
-  // Cupping fixtures for the D6 band test (dependency order: values -> scores -> session_coffees -> sessions).
-  await db.query(`DELETE FROM cupping_score_values WHERE cupping_score_id IN (SELECT id FROM cupping_scores WHERE taster_name LIKE 'Vitest%')`);
-  await db.query(`DELETE FROM cupping_scores WHERE taster_name LIKE 'Vitest%'`);
-  await db.query(`DELETE FROM cupping_session_coffees WHERE session_id IN (SELECT id FROM cupping_sessions WHERE location LIKE 'Vitest%')`);
-  await db.query(`DELETE FROM cupping_sessions WHERE location LIKE 'Vitest%'`);
+  // Cupping evidence brief 1 (2026-10-18): the D6 band test's cupping fixture
+  // is immutable evidence now (triggers + RESTRICT), so it is no longer
+  // deleted here; it lives on the persistent 'Zzz D6 Band Fixture' coffee.
 });
 
 const ACTOR = { actor: 'vitest' };
@@ -44,6 +42,39 @@ async function makeCoffee(name: string, roasterId: string) {
 async function slotId(archetype: string, sortOrder: number): Promise<number> {
   return (await db.query<{ id: number }>(`SELECT id FROM coffee_dial_slot WHERE archetype = $1 AND sort_order = $2`, [archetype, sortOrder])).rows[0].id;
 }
+// Cupping evidence brief 1 (2026-10-18): the D6 band test needs a coffee whose
+// latest merged range on Body (dimension 7) is 12-13. Evidence is immutable,
+// so this is one persistent fixture, found or created once under a marked Zzz
+// roastery, with a match archetype, cupped once through cuppingService. It
+// rests INACTIVE (roastery too) so no other test sees an extra active coffee;
+// setD6FixtureActive switches it on only for the test
+// (v_coffee_dimension_range covers active coffees).
+async function d6BandFixtureCoffee(): Promise<number> {
+  const name = 'Zzz D6 Band Fixture Coffee';
+  let roaster = (await db.query<{ id: string }>(`SELECT id FROM roaster WHERE name = 'Zzz D6 Band Fixture Roastery'`)).rows[0];
+  if (!roaster) roaster = (await db.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ('Zzz D6 Band Fixture Roastery', false) RETURNING id`)).rows[0];
+  let coffee = (await db.query<{ id: number }>(`SELECT id FROM coffees WHERE name = $1 AND roaster_id = $2`, [name, roaster.id])).rows[0];
+  if (!coffee) {
+    coffee = (await db.query<{ id: number }>(`INSERT INTO coffees (name, roaster_id, is_active) VALUES ($1, $2, false) RETURNING id`, [name, roaster.id])).rows[0];
+    await setMatchArchetype({ coffeeId: coffee.id, archetype: 'chocolate_nutty', confidence: 'low', source: 'manual', notes: 'test fixture' }, ACTOR);
+  }
+  const range = (await db.query(`SELECT 1 FROM v_coffee_dimension_history WHERE coffee_id = $1 AND dimension_id = 7`, [coffee.id])).rows[0];
+  if (!range) {
+    const { createSession, addSessionCoffee, saveCupperScore, mergeByRule, addCupper } = await import('./cuppingService.js');
+    const cupper = (await db.query<{ id: number }>(`SELECT id FROM cupper WHERE name = 'Zzz Cupper A'`)).rows[0]?.id
+      ?? (await addCupper('Zzz Cupper A', { note: 'test fixture (cupping evidence brief 1 tests)' })).id;
+    const session = await createSession({ sessionDate: '2026-10-18', recordSource: 'test:catalogService.test.ts D6 band fixture', location: 'Zzz test' });
+    const sc = await addSessionCoffee(session, coffee.id);
+    await saveCupperScore({ sessionCoffeeId: sc, cupperId: cupper, values: [{ dimensionId: 7, valueMin: 12, valueMax: 13, rawValue: '12-13' }] });
+    await mergeByRule(sc);
+  }
+  return coffee.id;
+}
+async function setD6FixtureActive(coffeeId: number, active: boolean): Promise<void> {
+  await db.query(`UPDATE roaster SET is_active = $2 WHERE id = (SELECT roaster_id FROM coffees WHERE id = $1)`, [coffeeId, active]);
+  await db.query(`UPDATE coffees SET is_active = $2 WHERE id = $1`, [coffeeId, active]);
+}
+
 async function cleanupRoasterAndCoffees(roaster: { id: string } | undefined, coffeeIds: number[]) {
   if (coffeeIds.length) {
     await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
@@ -199,27 +230,20 @@ describe('setPriority', () => {
 
 describe('D6 — placement guardrail evidence (warn + record)', () => {
   it('band_out_of_spec requires a note; inside the band does not; band clears after the test', async () => {
-    let roaster: { id: string } | undefined;
     let coffeeId: number | undefined;
     const slotArchetype = 'chocolate_nutty', slotSortOrder = 1; // dimension_id 7 (Body), unpriced/unbanded slot
-    let session: { id: number } | undefined;
-    let sessionCoffee: { id: number } | undefined;
-    let score: { id: number } | undefined;
     try {
       const cnSlot = await slotId(slotArchetype, slotSortOrder);
       const originalBand = (await db.query<{ spec_band_lo: number | null; spec_band_hi: number | null }>(
         `SELECT spec_band_lo, spec_band_hi FROM coffee_dial_slot WHERE id = $1`, [cnSlot]
       )).rows[0];
 
-      roaster = await makeRoaster('Vitest D6 Roastery');
-      coffeeId = (await makeCoffee('Vitest D6 Coffee', roaster.id)).id;
-
       // Merged cupping fixture: Body (dimension 7) scored high (12-13), well
-      // outside a deliberately low band.
-      session = (await db.query<{ id: number }>(`INSERT INTO cupping_sessions (session_date, location) VALUES (now(), 'Vitest D6 Session') RETURNING id`)).rows[0];
-      sessionCoffee = (await db.query<{ id: number }>(`INSERT INTO cupping_session_coffees (session_id, coffee_id) VALUES ($1, $2) RETURNING id`, [session.id, coffeeId])).rows[0];
-      score = (await db.query<{ id: number }>(`INSERT INTO cupping_scores (session_coffee_id, taster_name, is_merged) VALUES ($1, 'Vitest Taster', true) RETURNING id`, [sessionCoffee.id])).rows[0];
-      await db.query(`INSERT INTO cupping_score_values (cupping_score_id, dimension_id, value_min, value_max) VALUES ($1, 7, 12, 13)`, [score.id]);
+      // outside a deliberately low band. Cupping evidence brief 1: evidence is
+      // immutable and written only by cuppingService, so the fixture is one
+      // persistent coffee (found or created once, its evidence reused).
+      coffeeId = await d6BandFixtureCoffee();
+      await setD6FixtureActive(coffeeId, true);
 
       await db.query(`UPDATE coffee_dial_slot SET spec_band_lo = 1, spec_band_hi = 3 WHERE id = $1`, [cnSlot]);
 
@@ -238,15 +262,13 @@ describe('D6 — placement guardrail evidence (warn + record)', () => {
 
       await db.query(`UPDATE coffee_dial_slot SET spec_band_lo = $1, spec_band_hi = $2 WHERE id = $3`, [originalBand.spec_band_lo, originalBand.spec_band_hi, cnSlot]);
     } finally {
-      if (score) await db.query(`DELETE FROM cupping_score_values WHERE cupping_score_id = $1`, [score.id]);
-      if (score) await db.query(`DELETE FROM cupping_scores WHERE id = $1`, [score.id]);
-      if (sessionCoffee) await db.query(`DELETE FROM cupping_session_coffees WHERE id = $1`, [sessionCoffee.id]);
-      if (session) await db.query(`DELETE FROM cupping_sessions WHERE id = $1`, [session.id]);
       const cnSlot = await slotId(slotArchetype, slotSortOrder);
       await db.query(`UPDATE coffee_dial_slot SET spec_band_lo = NULL, spec_band_hi = NULL WHERE id = $1`, [cnSlot]);
-      await cleanupRoasterAndCoffees(roaster, coffeeId ? [coffeeId] : []);
+      // The placements go; the fixture coffee and its evidence stay (RESTRICT).
+      if (coffeeId) await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id = $1`, [coffeeId]);
+      if (coffeeId) await setD6FixtureActive(coffeeId, false);
     }
-  });
+  }, 60_000);
 
   it('descriptor_off_family: three Nutty / Cocoa descriptors placed on a floral slot', async () => {
     let roaster: { id: string } | undefined;

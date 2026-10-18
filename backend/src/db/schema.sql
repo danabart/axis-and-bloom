@@ -2353,6 +2353,79 @@ BEGIN
   ('Sweet', NULL,          'Sweet Aromatics');
 END $sca$;
 
+-- ── Cupping evidence v3, brief 1, A1 (2026-10-18): cupping_note is a tree ──
+-- backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENCE_1_FOUNDATION.md.
+-- tier 1 = SCA family (Fruity), 2 = SCA sub-group (Berry), 3 = leaf
+-- (Blueberry); parent_id points one tier up, so a family roll-up is a join,
+-- never a label match. Derived from the seed's own labels, nothing typed:
+--   * a row with a NULL wheel_subcategory is an SCA tier-2 node with no
+--     children (Black Tea, Vanilla, Pepper, Tobacco, ...): tier 2;
+--   * a tier-1 row is (category, NULL, descriptor = category); none existed,
+--     one is added per category;
+--   * a tier-2 parent row is (category, subcategory, descriptor = subcategory);
+--     one is added per (category, subcategory) the leaves name.
+-- (The brief expected tier-1 rows shaped (Fruity, Fruity, Fruity); prod had
+-- none, and that shape would collide with the tier-2 Floral node, so tier 1
+-- carries a NULL subcategory instead. Task 0, 2026-10-18.) New nodes are
+-- tagged sca_flavor_wheel so the WCR provenance backfill above leaves them be.
+-- wheel_category / wheel_subcategory stay as denormalised display columns.
+ALTER TABLE cupping_note ADD COLUMN IF NOT EXISTS tier SMALLINT NOT NULL DEFAULT 3 CHECK (tier IN (1, 2, 3));
+ALTER TABLE cupping_note ADD COLUMN IF NOT EXISTS parent_id UUID REFERENCES cupping_note(id);
+
+UPDATE cupping_note SET tier = 2
+ WHERE tier = 3 AND wheel_subcategory IS NULL AND descriptor <> wheel_category;
+
+INSERT INTO cupping_note (wheel_category, wheel_subcategory, descriptor, tier, descriptor_source_id)
+SELECT DISTINCT n.wheel_category, NULL::text, n.wheel_category, 1::smallint,
+       (SELECT id FROM sensory_source WHERE code = 'sca_flavor_wheel')
+  FROM cupping_note n
+ WHERE n.wheel_category IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM cupping_note t
+                    WHERE t.wheel_category = n.wheel_category AND t.wheel_subcategory IS NULL
+                      AND t.descriptor = n.wheel_category);
+
+INSERT INTO cupping_note (wheel_category, wheel_subcategory, descriptor, tier, descriptor_source_id)
+SELECT DISTINCT n.wheel_category, n.wheel_subcategory, n.wheel_subcategory, 2::smallint,
+       (SELECT id FROM sensory_source WHERE code = 'sca_flavor_wheel')
+  FROM cupping_note n
+ WHERE n.wheel_subcategory IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM cupping_note t
+                    WHERE t.wheel_category = n.wheel_category AND t.wheel_subcategory = n.wheel_subcategory
+                      AND t.descriptor = n.wheel_subcategory);
+
+UPDATE cupping_note SET tier = 1
+ WHERE tier <> 1 AND wheel_subcategory IS NULL AND descriptor = wheel_category;
+UPDATE cupping_note SET tier = 2
+ WHERE tier = 3 AND wheel_subcategory IS NOT NULL AND descriptor = wheel_subcategory;
+
+UPDATE cupping_note c SET parent_id = p.id
+  FROM cupping_note p
+ WHERE c.parent_id IS NULL AND c.tier = 3
+   AND p.tier = 2 AND p.wheel_category = c.wheel_category
+   AND p.wheel_subcategory = c.wheel_subcategory AND p.descriptor = c.wheel_subcategory;
+UPDATE cupping_note c SET parent_id = p.id
+  FROM cupping_note p
+ WHERE c.parent_id IS NULL AND c.tier = 2
+   AND p.tier = 1 AND p.wheel_category = c.wheel_category AND p.wheel_subcategory IS NULL;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cupping_note_tier_parent') THEN
+    ALTER TABLE cupping_note ADD CONSTRAINT cupping_note_tier_parent CHECK ((tier = 1) = (parent_id IS NULL)) NOT VALID;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cupping_note_tier_parent' AND NOT convalidated) THEN
+    ALTER TABLE cupping_note VALIDATE CONSTRAINT cupping_note_tier_parent;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS cupping_note_parent_idx ON cupping_note (parent_id);
+
+-- A1: dimensions 1 Fragrance, 2 Aroma, 3 Flavor are scored 0 to 15 on the
+-- printed sheet (Dana, 2026-09-18). Existing text-only rows on them stay valid.
+UPDATE coffee_dimensions
+   SET is_numeric = true, scale_min = 0, scale_max = 15,
+       scale_min_label = COALESCE(scale_min_label, 'faint'),
+       scale_max_label = COALESCE(scale_max_label, 'intense')
+ WHERE id IN (1, 2, 3) AND is_numeric = false;
+
 -- ─────────────────────────────────────────────
 -- INDEXES
 -- ─────────────────────────────────────────────
@@ -2621,6 +2694,384 @@ DO $$ BEGIN
 EXCEPTION WHEN unique_violation THEN NULL; END $$;
 CREATE INDEX IF NOT EXISTS coffee_slot_assignment_slot_active_idx ON coffee_slot_assignment(slot_id) WHERE is_active = true;
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- CUPPING EVIDENCE v3, brief 1 (2026-10-18): reference tables, evidence
+-- columns, one supersede transition, RESTRICT, immutability.
+-- backend/src/features/cupping_evidence/ (DESIGN_CUPPING_EVIDENCE.md §4,
+-- CLAUDE_CODE_PROMPT_CUPPING_EVIDENCE_1_FOUNDATION.md Part A). Placed here,
+-- after coffee_dial_slot / coffee_slot_assignment, because slot_call_id and
+-- the decision-table columns reference them. Writers: services/cuppingService.ts
+-- only (lint:cupping); reference tables are seed-only except cupper.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- A1. Reference tables (Class: master). Nothing hard-coded: cuppers, scales,
+-- sheet formats, thresholds and stop words are rows.
+CREATE TABLE IF NOT EXISTS cupper (
+  id         SERIAL PRIMARY KEY,
+  name       TEXT NOT NULL UNIQUE,
+  is_active  BOOLEAN NOT NULL DEFAULT true,
+  since      DATE,
+  note       TEXT
+);
+INSERT INTO cupper (name) VALUES ('Dana'), ('Camila') ON CONFLICT (name) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS cupping_scale (
+  id         SERIAL PRIMARY KEY,
+  code       TEXT NOT NULL UNIQUE,
+  label      TEXT NOT NULL,
+  kind       TEXT NOT NULL CHECK (kind IN ('numeric', 'ordinal')),
+  scale_min  NUMERIC,
+  scale_max  NUMERIC,
+  note       TEXT
+);
+INSERT INTO cupping_scale (code, label, kind, scale_min, scale_max, note) VALUES
+  ('ab_0_15',  'Axis & Bloom 0 to 15',            'numeric', 0, 15,   'The printed sheet and Score Entry. Identity: no steps.'),
+  ('legacy',   'Legacy, before cupping evidence', 'numeric', 0, 15,   'Rows written before 2026-10 (Path seed, early Score Entry). Read as 0 to 15, never counted as native ab_0_15.'),
+  ('grid_0_5', '0 to 5 grid',                     'numeric', 0, 5,    'A cupper''s own 0 to 5 grid; converted through cupping_scale_step.'),
+  ('word_3',   'low / medium / high',             'ordinal', NULL, NULL, 'A word per dimension; value_min/max stay null, the word is raw_value.')
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS cupping_scale_step (
+  id         SERIAL PRIMARY KEY,
+  scale_code TEXT NOT NULL REFERENCES cupping_scale(code),
+  raw_label  TEXT NOT NULL,
+  ab_min     NUMERIC NOT NULL CHECK (ab_min BETWEEN 0 AND 15),
+  ab_max     NUMERIC NOT NULL CHECK (ab_max BETWEEN 0 AND 15 AND ab_max >= ab_min),
+  UNIQUE (scale_code, raw_label)
+);
+INSERT INTO cupping_scale_step (scale_code, raw_label, ab_min, ab_max) VALUES
+  ('grid_0_5', '0', 0, 1), ('grid_0_5', '1', 2, 4), ('grid_0_5', '2', 5, 7),
+  ('grid_0_5', '3', 8, 10), ('grid_0_5', '4', 11, 13), ('grid_0_5', '5', 14, 15),
+  ('word_3', 'low', 0, 5), ('word_3', 'medium', 5, 10), ('word_3', 'high', 10, 15)
+ON CONFLICT (scale_code, raw_label) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS cupping_sheet_format (
+  id       SERIAL PRIMARY KEY,
+  code     TEXT NOT NULL UNIQUE,
+  label    TEXT NOT NULL,
+  since    DATE,
+  note     TEXT
+);
+INSERT INTO cupping_sheet_format (code, label, note) VALUES
+  ('ab_0_15_9dim',  'A&B printed sheet, 9 dimensions (with Depth)', 'The next printed sheet: the 8-dimension sheet plus Depth.'),
+  ('ab_0_15_8dim',  'A&B printed sheet, 8 dimensions',              'The current printed sheet.'),
+  ('ab_0_15_6dim',  'A&B printed sheet, 6 dimensions',              'An earlier short sheet; its lines are not mapped yet.'),
+  ('freeform_grid', 'Free-form grid',                               'A cupper''s own grid on blank paper.'),
+  ('legacy_wide',   'Legacy wide seed',                             'The Path seed session (session_001), one wide merged row per coffee.'),
+  ('score_entry',   'Score Entry (admin)',                          'Typed straight into the admin Score Entry page; no paper.')
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS cupping_sheet_line (
+  id            SERIAL PRIMARY KEY,
+  sheet_format  TEXT NOT NULL REFERENCES cupping_sheet_format(code),
+  line_label    TEXT NOT NULL,
+  dimension_id  INT  NOT NULL REFERENCES coffee_dimensions(id),
+  is_numeric    BOOLEAN NOT NULL,
+  display_order INT,
+  UNIQUE (sheet_format, line_label)
+);
+INSERT INTO cupping_sheet_line (sheet_format, line_label, dimension_id, is_numeric, display_order) VALUES
+  ('ab_0_15_8dim', 'Fragrance', 1, true, 1), ('ab_0_15_8dim', 'Aroma', 2, true, 2), ('ab_0_15_8dim', 'Flavor', 3, true, 3),
+  ('ab_0_15_8dim', 'Sweetness', 4, true, 4), ('ab_0_15_8dim', 'Acidity', 5, true, 5), ('ab_0_15_8dim', 'Bitterness', 6, true, 6),
+  ('ab_0_15_8dim', 'Mouthfeel light to heavy', 7, true, 7), ('ab_0_15_8dim', 'Mouthfeel words', 12, false, 8),
+  ('ab_0_15_8dim', 'Aftertaste short to long', 10, true, 9), ('ab_0_15_8dim', 'Aftertaste words', 11, false, 10),
+  ('ab_0_15_9dim', 'Fragrance', 1, true, 1), ('ab_0_15_9dim', 'Aroma', 2, true, 2), ('ab_0_15_9dim', 'Flavor', 3, true, 3),
+  ('ab_0_15_9dim', 'Sweetness', 4, true, 4), ('ab_0_15_9dim', 'Acidity', 5, true, 5), ('ab_0_15_9dim', 'Bitterness', 6, true, 6),
+  ('ab_0_15_9dim', 'Mouthfeel light to heavy', 7, true, 7), ('ab_0_15_9dim', 'Mouthfeel words', 12, false, 8),
+  ('ab_0_15_9dim', 'Depth', 9, true, 9),
+  ('ab_0_15_9dim', 'Aftertaste short to long', 10, true, 10), ('ab_0_15_9dim', 'Aftertaste words', 11, false, 11),
+  ('freeform_grid', 'Frag', 1, false, 1), ('freeform_grid', 'Aroma', 2, false, 2), ('freeform_grid', 'Flavor', 3, false, 3),
+  ('freeform_grid', 'Acidity', 5, true, 4), ('freeform_grid', 'Mouth', 12, false, 5), ('freeform_grid', 'Bitter', 6, true, 6),
+  ('freeform_grid', 'Sweet', 4, true, 7), ('freeform_grid', 'After', 11, false, 8)
+ON CONFLICT (sheet_format, line_label) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS evidence_parameter (
+  id            SERIAL PRIMARY KEY,
+  key           TEXT NOT NULL,
+  value         NUMERIC NOT NULL,
+  since         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  superseded_at TIMESTAMPTZ,
+  note          TEXT,
+  UNIQUE (key, since)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS evidence_parameter_current ON evidence_parameter (key) WHERE superseded_at IS NULL;
+-- Seeded once per key (since = now() differs every boot, so ON CONFLICT
+-- cannot be the guard); a changed threshold is a new row that supersedes.
+INSERT INTO evidence_parameter (key, value, note)
+SELECT v.key, v.value, v.note FROM (VALUES
+  ('cupper_gap',        2,    'Two cuppers disagree when the gap between their ranges on a dimension is greater than this.'),
+  ('roaster_rank_gap',  2,    'Our rank and the roaster''s rank within one lineup disagree when they differ by this or more.'),
+  ('spearman_min_n',    5,    'Smallest lineup for which the inverted flag is shown.'),
+  ('spearman_rho_cut',  -0.5, 'Rank correlation below which a roastery calibration is flagged inverted.'),
+  ('rank_corr_min_n',   3,    'Smallest lineup for which a rank correlation is computed at all.'),
+  ('calibration_min_n', 20,   'Comparisons a cupper needs on a dimension before a calibration offset is considered.')
+) AS v(key, value, note)
+WHERE NOT EXISTS (SELECT 1 FROM evidence_parameter p WHERE p.key = v.key);
+
+CREATE OR REPLACE FUNCTION param(p_key TEXT) RETURNS NUMERIC AS $$
+  SELECT value FROM evidence_parameter WHERE key = p_key AND superseded_at IS NULL;
+$$ LANGUAGE sql STABLE;
+
+CREATE TABLE IF NOT EXISTS evidence_stop_word (
+  id    SERIAL PRIMARY KEY,
+  word  TEXT NOT NULL UNIQUE,
+  since DATE NOT NULL DEFAULT current_date,
+  note  TEXT
+);
+INSERT INTO evidence_stop_word (word) VALUES
+  ('sweet'), ('sweetness'), ('fruits'), ('fruit'), ('fruity'), ('light'), ('acid'), ('acidity'),
+  ('bitter'), ('bitterness'), ('dry'), ('creamy'), ('juicy'), ('silky'), ('tea like'), ('intensity')
+ON CONFLICT (word) DO NOTHING;
+
+-- Empty on purpose: the named home for a per-cupper correction (DESIGN §7.5).
+CREATE TABLE IF NOT EXISTS cupper_calibration_offset (
+  id            SERIAL PRIMARY KEY,
+  cupper_id     INT NOT NULL REFERENCES cupper(id),
+  dimension_id  INT NOT NULL REFERENCES coffee_dimensions(id),
+  offset_value  NUMERIC NOT NULL,
+  basis         TEXT NOT NULL,
+  since         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  superseded_at TIMESTAMPTZ,
+  UNIQUE (cupper_id, dimension_id, since)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS cupper_calibration_offset_current
+  ON cupper_calibration_offset (cupper_id, dimension_id) WHERE superseded_at IS NULL;
+
+-- A5. Native value → 0 to 15 pair. Identity scales pass through; a stepped
+-- numeric scale spans the steps floor(min)..floor(max); an ordinal scale
+-- resolves lower(trim(raw)). Unknown scale or label → (null, null), which the
+-- readable view reports as conversion_error.
+CREATE OR REPLACE FUNCTION cupping_to_ab(p_scale TEXT, p_min NUMERIC, p_max NUMERIC, p_raw TEXT)
+RETURNS TABLE (ab_min NUMERIC, ab_max NUMERIC) AS $$
+  WITH s AS (
+    SELECT sc.kind,
+           EXISTS (SELECT 1 FROM cupping_scale_step st WHERE st.scale_code = sc.code) AS stepped
+      FROM cupping_scale sc WHERE sc.code = p_scale
+  ),
+  num AS (
+    SELECT MIN(st.ab_min) AS lo, MAX(st.ab_max) AS hi
+      FROM cupping_scale_step st
+     WHERE st.scale_code = p_scale
+       AND (CASE WHEN st.raw_label ~ '^[0-9]+$' THEN st.raw_label::numeric END)
+           BETWEEN floor(p_min) AND floor(COALESCE(p_max, p_min))
+  ),
+  ord AS (
+    SELECT st.ab_min AS lo, st.ab_max AS hi
+      FROM cupping_scale_step st
+     WHERE st.scale_code = p_scale AND st.raw_label = lower(trim(p_raw))
+  )
+  SELECT CASE WHEN s.kind = 'numeric' AND NOT s.stepped THEN p_min
+              WHEN s.kind = 'numeric' THEN (SELECT lo FROM num)
+              WHEN s.kind = 'ordinal' THEN (SELECT lo FROM ord) END,
+         CASE WHEN s.kind = 'numeric' AND NOT s.stepped THEN p_max
+              WHEN s.kind = 'numeric' THEN (SELECT hi FROM num)
+              WHEN s.kind = 'ordinal' THEN (SELECT hi FROM ord) END
+    FROM (SELECT 1) one LEFT JOIN s ON true;
+$$ LANGUAGE sql STABLE;
+
+-- A2. Sessions. record_source arrives with DEFAULT 'legacy' so every row
+-- that exists when the column is added is tagged legacy (date-free), then
+-- the default becomes 'score_entry' for everything written afterwards.
+ALTER TABLE cupping_sessions ADD COLUMN IF NOT EXISTS record_source          TEXT NOT NULL DEFAULT 'legacy';
+ALTER TABLE cupping_sessions ALTER COLUMN record_source SET DEFAULT 'score_entry';
+ALTER TABLE cupping_sessions ADD COLUMN IF NOT EXISTS sheet_format           TEXT REFERENCES cupping_sheet_format(code);
+ALTER TABLE cupping_sessions ADD COLUMN IF NOT EXISTS session_date_precision TEXT NOT NULL DEFAULT 'exact' CHECK (session_date_precision IN ('exact', 'estimated'));
+ALTER TABLE cupping_sessions ADD COLUMN IF NOT EXISTS is_blind               BOOLEAN;
+ALTER TABLE cupping_sessions ADD COLUMN IF NOT EXISTS roaster_present        BOOLEAN;
+ALTER TABLE cupping_sessions ADD COLUMN IF NOT EXISTS transcribed_by         TEXT;
+ALTER TABLE cupping_sessions ADD COLUMN IF NOT EXISTS transcribed_at         DATE;
+ALTER TABLE cupping_sessions ADD COLUMN IF NOT EXISTS checked_by             TEXT;
+-- The session's brew protocol (createSession's brewDefaults): copied by
+-- cuppingService.addSessionCoffee into each new session coffee's
+-- cupping_brew_params row unless that coffee carries its own brew. Kept on
+-- the header so a session filled over several runs (brief 2's resumable
+-- loader) still applies it. Header metadata, editable.
+ALTER TABLE cupping_sessions ADD COLUMN IF NOT EXISTS brew_defaults          JSONB;
+UPDATE cupping_sessions SET session_date = created_at::date, session_date_precision = 'estimated'
+ WHERE session_date IS NULL;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_name = 'cupping_sessions' AND column_name = 'session_date' AND is_nullable = 'YES') THEN
+    ALTER TABLE cupping_sessions ALTER COLUMN session_date SET NOT NULL;
+  END IF;
+END $$;
+-- The Path seed session: keyed on its session_1_merged child, as in v2.
+UPDATE cupping_sessions s
+   SET record_source = 'seed:session_001_path_2026_05_27.sql', sheet_format = 'legacy_wide'
+ WHERE s.record_source = 'legacy'
+   AND EXISTS (SELECT 1 FROM cupping_session_coffees sc JOIN cupping_scores cs ON cs.session_coffee_id = sc.id
+                WHERE sc.session_id = s.id AND cs.taster_name = 'session_1_merged');
+
+-- A3. Session coffees.
+ALTER TABLE cupping_session_coffees ADD COLUMN IF NOT EXISTS roast_date  DATE;
+ALTER TABLE cupping_session_coffees ADD COLUMN IF NOT EXISTS blind_code  TEXT;
+ALTER TABLE cupping_session_coffees ADD COLUMN IF NOT EXISTS sample_note TEXT;
+ALTER TABLE cupping_session_coffees ADD COLUMN IF NOT EXISTS is_control  BOOLEAN NOT NULL DEFAULT false;
+
+-- A4. Scores. scale_code: same DEFAULT swap as record_source.
+ALTER TABLE cupping_scores ADD COLUMN IF NOT EXISTS cupper_id                INT REFERENCES cupper(id);
+ALTER TABLE cupping_scores ADD COLUMN IF NOT EXISTS scale_code               TEXT NOT NULL DEFAULT 'legacy' REFERENCES cupping_scale(code);
+ALTER TABLE cupping_scores ALTER COLUMN scale_code SET DEFAULT 'ab_0_15';
+ALTER TABLE cupping_scores ADD COLUMN IF NOT EXISTS archetype_call           archetype_enum;
+ALTER TABLE cupping_scores ADD COLUMN IF NOT EXISTS archetype_call_secondary archetype_enum;
+ALTER TABLE cupping_scores ADD COLUMN IF NOT EXISTS position_call            TEXT;
+ALTER TABLE cupping_scores ADD COLUMN IF NOT EXISTS slot_call_id             INT REFERENCES coffee_dial_slot(id);
+ALTER TABLE cupping_scores ADD COLUMN IF NOT EXISTS call_note                TEXT;
+ALTER TABLE cupping_scores ADD COLUMN IF NOT EXISTS merge_rule               TEXT CHECK (merge_rule IS NULL OR merge_rule IN ('union_v1', 'manual', 'legacy'));
+ALTER TABLE cupping_scores ADD COLUMN IF NOT EXISTS merge_note               TEXT;
+ALTER TABLE cupping_scores ADD COLUMN IF NOT EXISTS superseded_at            TIMESTAMPTZ;
+ALTER TABLE cupping_scores ADD COLUMN IF NOT EXISTS superseded_by_id         INT REFERENCES cupping_scores(id);
+ALTER TABLE cupping_scores ADD COLUMN IF NOT EXISTS supersede_reason         TEXT;
+-- taster_name is deprecated (cupper_id is the key); new rows leave it null.
+ALTER TABLE cupping_scores ALTER COLUMN taster_name DROP NOT NULL;
+UPDATE cupping_scores SET is_merged = false WHERE is_merged IS NULL;
+ALTER TABLE cupping_scores ALTER COLUMN is_merged SET NOT NULL;
+-- Legacy backfill (date-free; matches nothing after the first boot). These
+-- two UPDATEs run before cupping_scores_guard below exists on the first boot;
+-- on later boots they touch no row, so the guard never fires on them.
+UPDATE cupping_scores SET merge_rule = 'legacy'
+ WHERE is_merged AND merge_rule IS NULL AND scale_code = 'legacy';
+UPDATE cupping_scores s SET cupper_id = c.id
+  FROM cupper c
+ WHERE s.cupper_id IS NULL AND NOT s.is_merged AND s.taster_name = c.name;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cupping_scores_row_shape') THEN
+    ALTER TABLE cupping_scores ADD CONSTRAINT cupping_scores_row_shape CHECK (
+      (is_merged AND cupper_id IS NULL AND merge_rule IS NOT NULL)
+      OR (NOT is_merged AND merge_rule IS NULL AND (cupper_id IS NOT NULL OR scale_code = 'legacy'))
+    ) NOT VALID;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cupping_scores_row_shape' AND NOT convalidated) THEN
+    ALTER TABLE cupping_scores VALIDATE CONSTRAINT cupping_scores_row_shape;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cupping_scores_supersede_shape') THEN
+    ALTER TABLE cupping_scores ADD CONSTRAINT cupping_scores_supersede_shape CHECK (
+      (superseded_at IS NULL) = (superseded_by_id IS NULL) AND (superseded_at IS NULL) = (supersede_reason IS NULL)
+    );
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cupping_scores_session_coffee_id_taster_name_key') THEN
+    ALTER TABLE cupping_scores DROP CONSTRAINT cupping_scores_session_coffee_id_taster_name_key;
+  END IF;
+  -- The supersede pointer is checked at COMMIT: the one-current-row indexes
+  -- below forbid inserting the replacement while the old row is still
+  -- current, so cuppingService takes the replacement's id from the sequence,
+  -- supersedes the old row pointing at it, then inserts it, in one transaction.
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cupping_scores_superseded_by_id_fkey' AND NOT condeferrable) THEN
+    ALTER TABLE cupping_scores ALTER CONSTRAINT cupping_scores_superseded_by_id_fkey DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS cupping_scores_one_current_cupper
+  ON cupping_scores (session_coffee_id, cupper_id) WHERE superseded_at IS NULL AND NOT is_merged;
+CREATE UNIQUE INDEX IF NOT EXISTS cupping_scores_one_current_merged
+  ON cupping_scores (session_coffee_id) WHERE superseded_at IS NULL AND is_merged;
+
+-- A5. The paper, verbatim; value_min/max hold the value on the scale used.
+ALTER TABLE cupping_score_values ADD COLUMN IF NOT EXISTS raw_value TEXT;
+
+-- A8. Decision tables, columns only (brief 4 writes them).
+ALTER TABLE coffee_archetype_assignment ADD COLUMN IF NOT EXISTS basis JSONB;
+ALTER TABLE coffee_slot_assignment      ADD COLUMN IF NOT EXISTS basis JSONB;
+ALTER TABLE coffee_slot_assignment      ADD COLUMN IF NOT EXISTS placed_from_session_id INT REFERENCES cupping_sessions(id) ON DELETE SET NULL;
+
+-- A6. Every ON DELETE that is not RESTRICT on these foreign keys becomes
+-- RESTRICT (one DELETE FROM coffees must never erase evidence or decisions).
+-- Keyed on table + column, not on the constraint name: the auto-generated
+-- names differ between an old database (session_coffees_*) and a fresh one.
+DO $$
+DECLARE
+  r RECORD;
+  fk RECORD;
+BEGIN
+  FOR r IN SELECT * FROM (VALUES
+      ('cupping_session_coffees',     'session_id'),
+      ('cupping_session_coffees',     'coffee_id'),
+      ('cupping_brew_params',         'session_coffee_id'),
+      ('cupping_scores',              'session_coffee_id'),
+      ('cupping_score_values',        'cupping_score_id'),
+      ('cupping_score_values',        'dimension_id'),
+      ('cupping_score_descriptors',   'cupping_score_id'),
+      ('cupping_score_descriptors',   'cupping_note_id'),
+      ('coffee_archetype_assignment', 'coffee_id'),
+      ('coffee_slot_assignment',      'coffee_id'),
+      ('dial_position_signal',        'coffee_id')
+    ) AS t(tbl, col)
+  LOOP
+    FOR fk IN
+      SELECT con.conname, con.confrelid::regclass AS ref, a2.attname AS ref_col
+        FROM pg_constraint con
+        JOIN pg_attribute a  ON a.attrelid = con.conrelid AND a.attnum = con.conkey[1]
+        JOIN pg_attribute a2 ON a2.attrelid = con.confrelid AND a2.attnum = con.confkey[1]
+       WHERE con.contype = 'f' AND con.conrelid = r.tbl::regclass
+         AND array_length(con.conkey, 1) = 1 AND a.attname = r.col
+         AND con.confdeltype <> 'r'
+    LOOP
+      EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', r.tbl, fk.conname);
+      EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %s(%I) ON DELETE RESTRICT',
+                     r.tbl, fk.conname, r.col, fk.ref, fk.ref_col);
+    END LOOP;
+  END LOOP;
+END $$;
+
+-- A6. Immutability. Values and descriptors never change; a score row allows
+-- exactly one transition (superseded_at + superseded_by_id + reason, nothing
+-- else, compared as jsonb so a column added later is guarded too); deletes
+-- raise. Same RAISE shape as roastery_portal_*_immutable.
+CREATE OR REPLACE FUNCTION cupping_evidence_immutable() RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION 'cupping evidence is immutable (% on %, id %)', TG_OP, TG_TABLE_NAME, OLD.id
+    USING ERRCODE = 'integrity_constraint_violation';
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS cupping_score_values_immutable ON cupping_score_values;
+CREATE TRIGGER cupping_score_values_immutable
+  BEFORE UPDATE OR DELETE ON cupping_score_values
+  FOR EACH ROW EXECUTE FUNCTION cupping_evidence_immutable();
+DROP TRIGGER IF EXISTS cupping_score_descriptors_immutable ON cupping_score_descriptors;
+CREATE TRIGGER cupping_score_descriptors_immutable
+  BEFORE UPDATE OR DELETE ON cupping_score_descriptors
+  FOR EACH ROW EXECUTE FUNCTION cupping_evidence_immutable();
+
+CREATE OR REPLACE FUNCTION cupping_scores_guard() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'cupping evidence is immutable (DELETE on cupping_scores, id %); save again to supersede', OLD.id
+      USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  IF OLD.superseded_at IS NULL AND NEW.superseded_at IS NOT NULL
+     AND NEW.superseded_by_id IS NOT NULL AND NEW.supersede_reason IS NOT NULL
+     AND (to_jsonb(OLD) - 'superseded_at' - 'superseded_by_id' - 'supersede_reason')
+       = (to_jsonb(NEW) - 'superseded_at' - 'superseded_by_id' - 'supersede_reason') THEN
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION 'cupping evidence is immutable (UPDATE on cupping_scores, id %): the only change allowed is one supersede', OLD.id
+    USING ERRCODE = 'integrity_constraint_violation';
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS cupping_scores_guard ON cupping_scores;
+CREATE TRIGGER cupping_scores_guard
+  BEFORE UPDATE OR DELETE ON cupping_scores
+  FOR EACH ROW EXECUTE FUNCTION cupping_scores_guard();
+
+-- Brew params are header-like: editable while no score exists under the
+-- session coffee, immutable once one does. DELETE follows the same rule
+-- (not an unconditional raise) so cuppingService.removeEmptySessionCoffee can
+-- still remove a sample nobody scored: addSessionCoffee always writes a brew
+-- row, and with RESTRICT an unconditional raise would make every session
+-- coffee undeletable. Reported in the brief 1 closing report.
+CREATE OR REPLACE FUNCTION cupping_brew_params_guard() RETURNS trigger AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM cupping_scores WHERE session_coffee_id = OLD.session_coffee_id) THEN
+    RAISE EXCEPTION 'cupping brew params are immutable once a score exists (% on cupping_brew_params, id %)', TG_OP, OLD.id
+      USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS cupping_brew_params_guard ON cupping_brew_params;
+CREATE TRIGGER cupping_brew_params_guard
+  BEFORE UPDATE OR DELETE ON cupping_brew_params
+  FOR EACH ROW EXECUTE FUNCTION cupping_brew_params_guard();
+CREATE UNIQUE INDEX IF NOT EXISTS cupping_brew_params_one_per_session_coffee
+  ON cupping_brew_params (session_coffee_id);
+
 -- B4. Tighten what stays. Every partial unique index below is wrapped in the
 -- same self-healing DO/EXCEPTION pattern as coffees_active_natural_key
 -- on purpose: if inactive history somehow violates one, boot must not roll
@@ -2737,42 +3188,10 @@ EXCEPTION WHEN others THEN NULL; END $$;
 -- was c.roaster (free text) through brief 4; Catalog Blueprint brief 5a
 -- dropped that column, so this now joins the real roaster table instead —
 -- same output column name, no known TS consumer of this view either way.
-DROP VIEW IF EXISTS v_cupping_scores_readable;
-CREATE VIEW v_cupping_scores_readable AS
-  SELECT
-    cs_sess.session_date,
-    cs_sess.brew_method,
-    cs_sess.location,
-    c.name               AS coffee,
-    r.name               AS roaster,
-    c.origin,
-    c.blend_or_single,
-    c.roast_level,
-    cs.taster_name,
-    cs.is_merged,
-    d.name               AS dimension,
-    d.is_numeric,
-    d.display_order      AS dimension_order,
-    csv.value_min,
-    csv.value_max,
-    CASE
-      WHEN d.is_numeric AND csv.value_min IS NOT NULL AND csv.value_max IS NOT NULL
-      THEN ROUND((csv.value_min + csv.value_max) / 2.0, 1)
-      ELSE NULL
-    END                  AS value_midpoint,
-    csv.notes,
-    sc.display_order     AS coffee_order,
-    aa.archetype,
-    aa.confidence        AS archetype_confidence
-  FROM cupping_score_values csv
-  JOIN cupping_scores        cs      ON cs.id      = csv.cupping_score_id
-  JOIN cupping_session_coffees        sc      ON sc.id      = cs.session_coffee_id
-  JOIN cupping_sessions       cs_sess ON cs_sess.id = sc.session_id
-  JOIN coffees                c       ON c.id       = sc.coffee_id
-  JOIN coffee_dimensions            d       ON d.id       = csv.dimension_id
-  LEFT JOIN roaster r ON r.id = c.roaster_id
-  LEFT JOIN coffee_archetype_assignment aa  ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
-  ORDER BY cs_sess.session_date, sc.display_order, cs.taster_name, d.display_order;
+-- v_cupping_scores_readable moved (cupping evidence brief 1, 2026-10-18) to
+-- the cupping evidence views block after v_coffee_dimension_range: it now
+-- takes archetype from v_coffee (defined further down), converts values
+-- through cupping_to_ab() and shows current rows only.
 
 -- Collaborative flavor wheel — all descriptor observations per coffee, with source label.
 -- Sources: 'internal' (cupping sessions), 'roastery' (bag notes), 'client' (post-delivery feedback).
@@ -2785,6 +3204,11 @@ CREATE VIEW v_cupping_scores_readable AS
 -- is CREATE OR REPLACE, not DROP+CREATE, same as every other view below with
 -- a same-run dependent. Column list is unchanged; if a future column rename
 -- is ever needed here, drop the whole dependent chain explicitly first.
+-- Cupping evidence brief 1 (2026-10-18): the internal branch reads current
+-- merged rows only (evidence reaches customers through decisions only; a
+-- cupper's own row, or a superseded merge, never shows on the public wheel),
+-- and every branch exposes cupping_note.tier (appended last, so CREATE OR
+-- REPLACE keeps working with the dependent chain).
 CREATE OR REPLACE VIEW v_collaborative_flavor_wheel AS
   SELECT sc.coffee_id,
          c.name            AS coffee_name,
@@ -2793,9 +3217,10 @@ CREATE OR REPLACE VIEW v_collaborative_flavor_wheel AS
          cn.wheel_subcategory,
          cn.descriptor,
          'internal'        AS source,
-         csd.intensity
+         csd.intensity,
+         cn.tier
   FROM cupping_score_descriptors csd
-  JOIN cupping_scores  cs ON cs.id = csd.cupping_score_id
+  JOIN cupping_scores  cs ON cs.id = csd.cupping_score_id AND cs.is_merged AND cs.superseded_at IS NULL
   JOIN cupping_session_coffees sc ON sc.id = cs.session_coffee_id
   JOIN coffees          c ON c.id  = sc.coffee_id
   JOIN cupping_note    cn ON cn.id = csd.cupping_note_id
@@ -2807,7 +3232,8 @@ UNION ALL
          cn.wheel_subcategory,
          cn.descriptor,
          'roastery'        AS source,
-         NULL              AS intensity
+         NULL              AS intensity,
+         cn.tier
   FROM roastery_coffee_descriptors crd
   JOIN coffees      c  ON c.id  = crd.coffee_id
   JOIN cupping_note cn ON cn.id = crd.cupping_note_id
@@ -2825,7 +3251,8 @@ UNION ALL
          cn.wheel_subcategory,
          cn.descriptor,
          'client'          AS source,
-         NULL::numeric     AS intensity
+         NULL::numeric     AS intensity,
+         cn.tier
   FROM customer_feedback_descriptor cfd
   JOIN customer_feedback_event cfe ON cfe.id = cfd.feedback_event_id
   JOIN coffees      c  ON c.id  = cfe.coffee_id
@@ -3535,48 +3962,11 @@ JOIN coffee_archetype  a ON a.id = av.archetype_id
 JOIN coffee_dimensions d ON md5(d.name)::uuid = av.dimension_id
 ORDER BY a.name, d.display_order;
 
--- Archetype vector vs actual cupping scores — one row per archetype × dimension.
--- Shows the target range (from archetype_vector) alongside the average actual score
--- from cupping data for coffees currently assigned to that archetype.
--- avg_actual is NULL when no cupping data exists for that archetype yet.
--- archetype_enum → archetype.name bridged via CASE so no schema change needed.
-DROP VIEW IF EXISTS v_archetype_dimension_comparison;
-CREATE VIEW v_archetype_dimension_comparison AS
-SELECT
-  a.name                                                          AS archetype,
-  d.name                                                          AS dimension,
-  d.display_order,
-  av.min_score                                                    AS target_min,
-  av.ideal_score                                                  AS target_ideal,
-  av.max_score                                                    AS target_max,
-  ROUND(AVG((csv.value_min + csv.value_max) / 2.0), 2)           AS avg_actual,
-  COUNT(DISTINCT c.id)                                            AS coffee_count
-FROM archetype_vector av
-JOIN coffee_archetype  a ON a.id = av.archetype_id
-JOIN coffee_dimensions d ON md5(d.name)::uuid = av.dimension_id
-LEFT JOIN coffee_archetype_assignment aa
-  ON aa.superseded_at IS NULL
-  AND CASE aa.archetype
-        WHEN 'chocolate_nutty' THEN 'Chocolate & Nutty'
-        WHEN 'balanced_sweet'  THEN 'Balanced'
-        WHEN 'fruity'          THEN 'Fruity'
-        WHEN 'earthy'          THEN 'Earthy'
-        WHEN 'floral'          THEN 'Floral'
-        WHEN 'experimental'    THEN 'Experimental'
-      END = a.name
--- Roastery lifecycle (2026-08-25): this view feeds the public archetype-stats
--- browse surface (GET /api/coffees/archetype-stats) — an inactive coffee's
--- cupping data must not move avg_actual/coffee_count for a customer browsing
--- an archetype. LEFT JOIN kept (not INNER) so a NULL aa.coffee_id — no
--- archetype match at all yet — still passes the AND cleanly.
-LEFT JOIN coffees c ON c.id = aa.coffee_id AND c.is_active = true
-LEFT JOIN cupping_session_coffees      sc  ON sc.coffee_id = c.id
-LEFT JOIN cupping_scores       cs  ON cs.session_coffee_id = sc.id
-LEFT JOIN cupping_score_values csv ON csv.cupping_score_id = cs.id
-                                   AND csv.dimension_id = d.id
-GROUP BY a.name, d.name, d.display_order,
-         av.min_score, av.ideal_score, av.max_score
-ORDER BY a.name, d.display_order;
+-- v_archetype_dimension_comparison moved (cupping evidence brief 1,
+-- 2026-10-18) below v_coffee_dimension_range: its avg_actual now reads the
+-- latest merged, converted range per coffee instead of averaging every
+-- cupping_score_values row (cupper rows, merged rows and, from brief 2,
+-- native grid values) straight off the base tables.
 
 -- v_dial_positions (coffee positions on each archetype's dial, keyed on
 -- dial_archetype_positions/dial_position_vocabulary/dial_archetype_config)
@@ -5400,48 +5790,343 @@ JOIN v_customer_identity vci10 ON vci10.user_id = cil.to_user_id
 ORDER BY occurred_at, kind;
 
 -- ── Part A4 — Coffee facts for the reads ─────────────────────────────────
--- Per active coffee/dimension: min(value_min)/max(value_max) across merged
--- (is_merged) cupping_scores rows; falls back to all tasters' rows
--- (basis='unmerged') when no merged row exists; no rows at all when a
--- coffee has never been cupped (never a default range).
+-- Cupping evidence brief 1 (2026-10-18): the LATEST session, history kept.
+-- Per active coffee/dimension: the latest current merged row of the coffee
+-- (by session_date, then the session's created_at, then the row id),
+-- converted to 0 to 15 through cupping_to_ab(); it never unions sessions, so
+-- a re-cupping can narrow a range, not only widen it. Falls back
+-- (basis='unmerged') to the current cupper rows of the latest session when
+-- the coffee has no current merged row at all; no rows when a coffee has
+-- never been cupped (never a default range). Column names before session_id
+-- are unchanged (roasteryPortalReads, customerIntegrity read them).
+-- n_scores = score rows the range rests on (the cupper rows behind the
+-- merge, 1 for a legacy merged row without cupper rows). all_ab_scale =
+-- every one of those cupper rows is scale ab_0_15 (a legacy merge with no
+-- cupper rows is false): the dial signal fires only on true.
 
 DROP VIEW IF EXISTS v_coffee_dimension_range CASCADE;
 CREATE VIEW v_coffee_dimension_range AS
-WITH merged AS (
-  SELECT sc.coffee_id, csv.dimension_id, MIN(csv.value_min) AS value_min, MAX(csv.value_max) AS value_max, COUNT(*) AS n_scores
-  FROM cupping_score_values csv
-  JOIN cupping_scores cs ON cs.id = csv.cupping_score_id AND cs.is_merged = true
+WITH cur AS (
+  SELECT cs.id AS score_id, cs.session_coffee_id, cs.is_merged, cs.scale_code,
+         sc.coffee_id, sc.session_id, sess.session_date, sess.created_at AS session_created_at
+  FROM cupping_scores cs
   JOIN cupping_session_coffees sc ON sc.id = cs.session_coffee_id
-  GROUP BY sc.coffee_id, csv.dimension_id
+  JOIN cupping_sessions sess      ON sess.id = sc.session_id
+  WHERE cs.superseded_at IS NULL
+),
+latest_merged AS (
+  SELECT DISTINCT ON (coffee_id) coffee_id, score_id, session_coffee_id, session_id, session_date
+  FROM cur WHERE is_merged
+  ORDER BY coffee_id, session_date DESC, session_created_at DESC, score_id DESC
+),
+behind_merged AS (
+  SELECT lm.coffee_id,
+         COUNT(cu.score_id)                        AS n_cupper_rows,
+         COALESCE(bool_and(cu.scale_code = 'ab_0_15'), false) AS all_ab_scale
+  FROM latest_merged lm
+  LEFT JOIN cur cu ON cu.session_coffee_id = lm.session_coffee_id AND NOT cu.is_merged
+  GROUP BY lm.coffee_id
+),
+merged_sessions AS (
+  SELECT coffee_id, COUNT(DISTINCT session_id) AS n_sessions FROM cur WHERE is_merged GROUP BY coffee_id
+),
+merged AS (
+  SELECT lm.coffee_id, csv.dimension_id, ab.ab_min AS value_min, ab.ab_max AS value_max,
+         GREATEST(bm.n_cupper_rows, 1) AS n_scores, lm.session_id, lm.session_date,
+         ms.n_sessions, bm.all_ab_scale
+  FROM latest_merged lm
+  JOIN cupping_scores cs        ON cs.id = lm.score_id
+  JOIN cupping_score_values csv ON csv.cupping_score_id = lm.score_id
+  JOIN behind_merged bm         ON bm.coffee_id = lm.coffee_id
+  JOIN merged_sessions ms       ON ms.coffee_id = lm.coffee_id
+  CROSS JOIN LATERAL cupping_to_ab(cs.scale_code, csv.value_min, csv.value_max, csv.raw_value) ab
+),
+latest_unmerged_session AS (
+  SELECT DISTINCT ON (coffee_id) coffee_id, session_id, session_date
+  FROM cur
+  WHERE NOT is_merged AND coffee_id NOT IN (SELECT coffee_id FROM latest_merged)
+  ORDER BY coffee_id, session_date DESC, session_created_at DESC, score_id DESC
 ),
 unmerged AS (
-  SELECT sc.coffee_id, csv.dimension_id, MIN(csv.value_min) AS value_min, MAX(csv.value_max) AS value_max, COUNT(*) AS n_scores
-  FROM cupping_score_values csv
-  JOIN cupping_scores cs ON cs.id = csv.cupping_score_id
-  JOIN cupping_session_coffees sc ON sc.id = cs.session_coffee_id
-  GROUP BY sc.coffee_id, csv.dimension_id
+  SELECT lu.coffee_id, csv.dimension_id, MIN(ab.ab_min) AS value_min, MAX(ab.ab_max) AS value_max,
+         COUNT(DISTINCT cu.score_id) AS n_scores, lu.session_id, lu.session_date,
+         bool_and(cu.scale_code = 'ab_0_15') AS all_ab_scale
+  FROM latest_unmerged_session lu
+  JOIN cur cu ON cu.coffee_id = lu.coffee_id AND cu.session_id = lu.session_id AND NOT cu.is_merged
+  JOIN cupping_score_values csv ON csv.cupping_score_id = cu.score_id
+  CROSS JOIN LATERAL cupping_to_ab(cu.scale_code, csv.value_min, csv.value_max, csv.raw_value) ab
+  GROUP BY lu.coffee_id, csv.dimension_id, lu.session_id, lu.session_date
 )
 SELECT
   c.id AS coffee_id, d.id AS dimension_id, d.name AS dimension_name,
   COALESCE(m.value_min, u.value_min) AS value_min,
   COALESCE(m.value_max, u.value_max) AS value_max,
   COALESCE(m.n_scores, u.n_scores) AS n_scores,
-  CASE WHEN m.coffee_id IS NOT NULL THEN 'merged' ELSE 'unmerged' END AS basis
+  CASE WHEN m.coffee_id IS NOT NULL THEN 'merged' ELSE 'unmerged' END AS basis,
+  COALESCE(m.session_id, u.session_id) AS session_id,
+  COALESCE(m.session_date, u.session_date) AS session_date,
+  COALESCE(m.n_sessions, 0) AS n_sessions,
+  ROUND((COALESCE(m.value_min, u.value_min) + COALESCE(m.value_max, u.value_max)) / 2.0, 2) AS midpoint,
+  COALESCE(m.all_ab_scale, u.all_ab_scale, false) AS all_ab_scale
 FROM coffees c
 CROSS JOIN coffee_dimensions d
 LEFT JOIN merged   m ON m.coffee_id = c.id AND m.dimension_id = d.id
 LEFT JOIN unmerged u ON u.coffee_id = c.id AND u.dimension_id = d.id
 WHERE c.is_active = true AND (m.coffee_id IS NOT NULL OR u.coffee_id IS NOT NULL);
 
+-- Every session's current merged range, one row per coffee × dimension ×
+-- session coffee (a coffee cupped twice in one session has two rows),
+-- converted. Calibration and repeatability (brief 3) read this; the catalog
+-- reads v_coffee_dimension_range (latest only).
+DROP VIEW IF EXISTS v_coffee_dimension_history CASCADE;
+CREATE VIEW v_coffee_dimension_history AS
+SELECT sc.coffee_id, csv.dimension_id, d.name AS dimension_name,
+       sc.session_id, sc.id AS session_coffee_id, sess.session_date, sess.session_date_precision,
+       sess.is_blind, sc.is_control, cs.id AS merged_score_id, cs.merge_rule,
+       ab.ab_min AS value_min, ab.ab_max AS value_max,
+       ROUND((ab.ab_min + ab.ab_max) / 2.0, 2) AS midpoint,
+       COALESCE(bc.scale_codes, ARRAY[]::text[]) AS scale_codes,
+       COALESCE(bc.all_ab_scale, false) AS all_ab_scale
+FROM cupping_scores cs
+JOIN cupping_session_coffees sc ON sc.id = cs.session_coffee_id
+JOIN cupping_sessions sess      ON sess.id = sc.session_id
+JOIN cupping_score_values csv   ON csv.cupping_score_id = cs.id
+JOIN coffee_dimensions d        ON d.id = csv.dimension_id
+CROSS JOIN LATERAL cupping_to_ab(cs.scale_code, csv.value_min, csv.value_max, csv.raw_value) ab
+LEFT JOIN LATERAL (
+  SELECT array_agg(DISTINCT cu.scale_code ORDER BY cu.scale_code) AS scale_codes,
+         bool_and(cu.scale_code = 'ab_0_15') AS all_ab_scale
+  FROM cupping_scores cu
+  WHERE cu.session_coffee_id = cs.session_coffee_id AND NOT cu.is_merged AND cu.superseded_at IS NULL
+) bc ON true
+WHERE cs.is_merged AND cs.superseded_at IS NULL;
+
+-- v_coffee_dimension_range with the current cupper_calibration_offset of
+-- each cupper behind the merge applied to that cupper's converted range.
+-- Documented and unread on purpose (Readers: none yet) until Dana decides
+-- offsets are worth applying (DESIGN §7.5). With no offset rows it equals the
+-- range's own min/max over the cupper rows.
+DROP VIEW IF EXISTS v_coffee_dimension_range_calibrated CASCADE;
+CREATE VIEW v_coffee_dimension_range_calibrated AS
+WITH latest AS (
+  SELECT DISTINCT r.coffee_id, r.session_id FROM v_coffee_dimension_range r WHERE r.basis = 'merged'
+),
+cupper_vals AS (
+  SELECT l.coffee_id, csv.dimension_id, cu.cupper_id,
+         ab.ab_min + COALESCE(o.offset_value, 0) AS cal_min,
+         ab.ab_max + COALESCE(o.offset_value, 0) AS cal_max,
+         (o.id IS NOT NULL) AS has_offset
+  FROM latest l
+  JOIN cupping_session_coffees sc ON sc.session_id = l.session_id AND sc.coffee_id = l.coffee_id
+  JOIN cupping_scores cu          ON cu.session_coffee_id = sc.id AND NOT cu.is_merged AND cu.superseded_at IS NULL
+  JOIN cupping_score_values csv   ON csv.cupping_score_id = cu.id
+  CROSS JOIN LATERAL cupping_to_ab(cu.scale_code, csv.value_min, csv.value_max, csv.raw_value) ab
+  LEFT JOIN cupper_calibration_offset o
+         ON o.cupper_id = cu.cupper_id AND o.dimension_id = csv.dimension_id AND o.superseded_at IS NULL
+)
+SELECT r.coffee_id, r.dimension_id, r.dimension_name, r.session_id, r.value_min, r.value_max, r.midpoint,
+       MIN(cv.cal_min) AS calibrated_min,
+       MAX(cv.cal_max) AS calibrated_max,
+       ROUND((MIN(cv.cal_min) + MAX(cv.cal_max)) / 2.0, 2) AS calibrated_midpoint,
+       COUNT(*) FILTER (WHERE cv.has_offset) AS n_offsets_applied
+FROM v_coffee_dimension_range r
+LEFT JOIN cupper_vals cv ON cv.coffee_id = r.coffee_id AND cv.dimension_id = r.dimension_id
+WHERE r.basis = 'merged'
+GROUP BY r.coffee_id, r.dimension_id, r.dimension_name, r.session_id, r.value_min, r.value_max, r.midpoint;
+
+-- Archetype vector vs actual cupping — one row per archetype × dimension:
+-- the target range (archetype_vector, the May 2026 targets) beside the
+-- average midpoint of the latest merged range (v_coffee_dimension_range) of
+-- the active coffees currently matched to that archetype. avg_actual is NULL
+-- when none of them has been cupped. Moved here and repointed by cupping
+-- evidence brief 1 (2026-10-18); before, it averaged every
+-- cupping_score_values row of those coffees off the base tables. Feeds GET
+-- /api/coffees/archetype-stats and dialSuggestion's archetype_vector basis.
+-- coffee_archetype.code is the archetype_enum value (Catalog Blueprint), so
+-- no hand-typed label map is needed any more.
+DROP VIEW IF EXISTS v_archetype_dimension_comparison;
+CREATE VIEW v_archetype_dimension_comparison AS
+SELECT
+  a.name                                                AS archetype,
+  d.name                                                AS dimension,
+  d.display_order,
+  av.min_score                                          AS target_min,
+  av.ideal_score                                        AS target_ideal,
+  av.max_score                                          AS target_max,
+  ROUND(AVG(r.midpoint), 2)                             AS avg_actual,
+  COUNT(DISTINCT r.coffee_id)                           AS coffee_count
+FROM archetype_vector av
+JOIN coffee_archetype  a ON a.id = av.archetype_id
+JOIN coffee_dimensions d ON md5(d.name)::uuid = av.dimension_id
+LEFT JOIN coffee_archetype_assignment aa
+  ON aa.superseded_at IS NULL AND aa.archetype = a.code
+LEFT JOIN coffees c ON c.id = aa.coffee_id AND c.is_active = true
+LEFT JOIN v_coffee_dimension_range r ON r.coffee_id = c.id AND r.dimension_id = d.id
+GROUP BY a.name, d.name, d.display_order,
+         av.min_score, av.ideal_score, av.max_score
+ORDER BY a.name, d.display_order;
+
 -- v_collaborative_flavor_wheel grouped; n_sources = number of distinct
 -- source channels ('internal'/'roastery'/'client') this descriptor was
--- observed under for that coffee, not a total observation count.
+-- observed under for that coffee, not a total observation count. tier
+-- (cupping evidence brief 1) says how generic the word is: 1 family, 2
+-- sub-group, 3 leaf.
 
 DROP VIEW IF EXISTS v_coffee_descriptor CASCADE;
 CREATE VIEW v_coffee_descriptor AS
-SELECT coffee_id, descriptor, wheel_category, wheel_subcategory, COUNT(DISTINCT source) AS n_sources
+SELECT coffee_id, descriptor, wheel_category, wheel_subcategory, COUNT(DISTINCT source) AS n_sources, tier
 FROM v_collaborative_flavor_wheel
-GROUP BY coffee_id, descriptor, wheel_category, wheel_subcategory;
+GROUP BY coffee_id, descriptor, wheel_category, wheel_subcategory, tier;
+
+-- ── Cupping evidence brief 1 (2026-10-18): Score Entry's read views ───────
+-- Current rows only (superseded_at IS NULL), values converted to 0 to 15
+-- through cupping_to_ab() (value_min/max) with the value as written kept
+-- beside it (native_min/max, raw_value). Every column name of the old view
+-- is kept; archetype now comes from v_coffee (catalog reads go through the
+-- catalog views). cupper_name: the cupper row's name, 'merged' for a merged
+-- row, taster_name for a legacy row without a cupper.
+DROP VIEW IF EXISTS v_cupping_scores_readable;
+CREATE VIEW v_cupping_scores_readable AS
+  SELECT
+    cs_sess.session_date,
+    cs_sess.brew_method,
+    cs_sess.location,
+    c.name               AS coffee,
+    vc.roaster_name      AS roaster,
+    c.origin,
+    c.blend_or_single,
+    c.roast_level,
+    cs.taster_name,
+    cs.is_merged,
+    d.name               AS dimension,
+    d.is_numeric,
+    d.display_order      AS dimension_order,
+    ab.ab_min            AS value_min,
+    ab.ab_max            AS value_max,
+    CASE
+      WHEN d.is_numeric AND ab.ab_min IS NOT NULL AND ab.ab_max IS NOT NULL
+      THEN ROUND((ab.ab_min + ab.ab_max) / 2.0, 1)
+      ELSE NULL
+    END                  AS value_midpoint,
+    csv.notes,
+    sc.display_order     AS coffee_order,
+    vc.match_archetype   AS archetype,
+    vc.match_confidence  AS archetype_confidence,
+    csv.value_min        AS native_min,
+    csv.value_max        AS native_max,
+    csv.raw_value,
+    (d.is_numeric AND ab.ab_min IS NULL
+       AND (csv.value_min IS NOT NULL OR (scl.kind = 'ordinal' AND csv.raw_value IS NOT NULL))) AS conversion_error,
+    sc.session_id,
+    sc.id                AS session_coffee_id,
+    cs.id                AS score_id,
+    csv.dimension_id,
+    cs.cupper_id,
+    CASE WHEN cs.is_merged THEN 'merged' ELSE COALESCE(cu.name, cs.taster_name) END AS cupper_name,
+    cs_sess.record_source,
+    cs_sess.sheet_format,
+    cs_sess.session_date_precision,
+    cs_sess.is_blind,
+    cs_sess.roaster_present,
+    sc.is_control,
+    sc.blind_code,
+    sc.sample_note,
+    cs.scale_code,
+    cs.archetype_call,
+    cs.archetype_call_secondary,
+    cs.position_call,
+    cs.slot_call_id,
+    cs.call_note,
+    cs.merge_rule,
+    cs.merge_note,
+    cs.overall_notes,
+    cs_sess.transcribed_by,
+    cs_sess.checked_by,
+    sc.coffee_id
+  FROM cupping_score_values csv
+  JOIN cupping_scores          cs      ON cs.id      = csv.cupping_score_id AND cs.superseded_at IS NULL
+  JOIN cupping_session_coffees sc      ON sc.id      = cs.session_coffee_id
+  JOIN cupping_sessions        cs_sess ON cs_sess.id = sc.session_id
+  JOIN coffees                 c       ON c.id       = sc.coffee_id
+  JOIN v_coffee                vc      ON vc.id      = c.id
+  JOIN coffee_dimensions       d       ON d.id       = csv.dimension_id
+  JOIN cupping_scale           scl     ON scl.code   = cs.scale_code
+  LEFT JOIN cupper             cu      ON cu.id      = cs.cupper_id
+  CROSS JOIN LATERAL cupping_to_ab(cs.scale_code, csv.value_min, csv.value_max, csv.raw_value) ab
+  ORDER BY cs_sess.session_date, sc.display_order, cs.is_merged, cupper_name, d.display_order;
+
+-- One row per session: Score Entry's session list. brew_device comes from
+-- the first session coffee's cupping_brew_params; brew_method is the
+-- deprecated header column, kept for the legacy rows.
+DROP VIEW IF EXISTS v_cupping_session;
+CREATE VIEW v_cupping_session AS
+SELECT s.id, s.session_date, s.session_date_precision, s.location, s.session_notes,
+       s.brew_method, bp.brew_device,
+       s.record_source, s.sheet_format, s.is_blind, s.roaster_present,
+       s.transcribed_by, s.transcribed_at, s.checked_by, s.created_at, s.brew_defaults,
+       (SELECT COUNT(*) FROM cupping_session_coffees x WHERE x.session_id = s.id) AS coffee_count,
+       (SELECT COUNT(*) FROM cupping_session_coffees x
+          JOIN cupping_scores m ON m.session_coffee_id = x.id AND m.is_merged AND m.superseded_at IS NULL
+         WHERE x.session_id = s.id) AS merged_count,
+       COALESCE((SELECT array_agg(DISTINCT COALESCE(cu.name, k.taster_name) ORDER BY COALESCE(cu.name, k.taster_name))
+                   FROM cupping_session_coffees x
+                   JOIN cupping_scores k ON k.session_coffee_id = x.id AND NOT k.is_merged AND k.superseded_at IS NULL
+                   LEFT JOIN cupper cu ON cu.id = k.cupper_id
+                  WHERE x.session_id = s.id), ARRAY[]::text[]) AS cupper_names
+FROM cupping_sessions s
+LEFT JOIN LATERAL (
+  SELECT b.brew_device FROM cupping_session_coffees x
+  JOIN cupping_brew_params b ON b.session_coffee_id = x.id
+  WHERE x.session_id = s.id
+  ORDER BY x.display_order NULLS LAST, x.id LIMIT 1
+) bp ON true;
+
+-- One row per session coffee: the coffee, its sample metadata, its brew
+-- params and its current merged score.
+DROP VIEW IF EXISTS v_cupping_session_coffee;
+CREATE VIEW v_cupping_session_coffee AS
+SELECT sc.id AS session_coffee_id, sc.session_id, sc.display_order,
+       sc.coffee_id, vc.name, vc.roaster_name AS roaster, vc.origin, vc.process, vc.roast_level,
+       sc.roast_date, sc.blind_code, sc.sample_note, sc.is_control,
+       bp.id AS brew_params_id, bp.dose_grams, bp.water_grams, bp.yield_grams, bp.ratio,
+       bp.water_temperature_celsius, bp.grind_size, bp.extraction_time_seconds, bp.pressure_bar,
+       bp.steep_time_minutes, bp.brew_device, bp.notes AS brew_notes,
+       (SELECT m.id FROM cupping_scores m
+         WHERE m.session_coffee_id = sc.id AND m.is_merged AND m.superseded_at IS NULL) AS merged_score_id,
+       COALESCE((SELECT array_agg(COALESCE(cu.name, k.taster_name) ORDER BY COALESCE(cu.name, k.taster_name))
+                   FROM cupping_scores k LEFT JOIN cupper cu ON cu.id = k.cupper_id
+                  WHERE k.session_coffee_id = sc.id AND NOT k.is_merged AND k.superseded_at IS NULL), ARRAY[]::text[]) AS cupper_names,
+       EXISTS (SELECT 1 FROM cupping_scores k WHERE k.session_coffee_id = sc.id) AS has_scores
+FROM cupping_session_coffees sc
+JOIN v_coffee vc ON vc.id = sc.coffee_id
+LEFT JOIN cupping_brew_params bp ON bp.session_coffee_id = sc.id;
+
+-- One row per CURRENT score header (cupper or merged), with or without
+-- values: Score Entry lists a session coffee's rows from here (a header with
+-- descriptors only never shows in v_cupping_scores_readable).
+DROP VIEW IF EXISTS v_cupping_score;
+CREATE VIEW v_cupping_score AS
+SELECT cs.id, cs.session_coffee_id, sc.session_id, sc.coffee_id, cs.is_merged, cs.cupper_id,
+       CASE WHEN cs.is_merged THEN 'merged' ELSE COALESCE(cu.name, cs.taster_name) END AS cupper_name,
+       cs.taster_name, cs.scale_code, cs.overall_notes,
+       cs.archetype_call, cs.archetype_call_secondary, cs.position_call, cs.slot_call_id, cs.call_note,
+       cs.merge_rule, cs.merge_note, cs.created_at
+FROM cupping_scores cs
+JOIN cupping_session_coffees sc ON sc.id = cs.session_coffee_id
+LEFT JOIN cupper cu ON cu.id = cs.cupper_id
+WHERE cs.superseded_at IS NULL;
+
+-- One row per descriptor on a CURRENT score row (cupper or merged), with the
+-- SCA node and its tier.
+DROP VIEW IF EXISTS v_cupping_score_descriptor;
+CREATE VIEW v_cupping_score_descriptor AS
+SELECT csd.id, csd.cupping_score_id, cs.session_coffee_id, sc.coffee_id, cs.is_merged,
+       csd.cupping_note_id, cn.descriptor, cn.wheel_category, cn.wheel_subcategory, cn.tier,
+       csd.intensity, csd.custom_notes
+FROM cupping_score_descriptors csd
+JOIN cupping_scores cs          ON cs.id = csd.cupping_score_id AND cs.superseded_at IS NULL
+JOIN cupping_session_coffees sc ON sc.id = cs.session_coffee_id
+JOIN cupping_note cn            ON cn.id = csd.cupping_note_id;
 
 -- ── Part A5 — The reads (v_palate_*, read_version = 'v1') ────────────────
 
@@ -6194,6 +6879,113 @@ CREATE TABLE IF NOT EXISTS roastery_portal_note_mapping (
 CREATE UNIQUE INDEX IF NOT EXISTS roastery_portal_note_mapping_active
   ON roastery_portal_note_mapping (normalized_words) WHERE superseded_at IS NULL;
 
+-- Cupping evidence brief 1 (2026-10-18), A1/B8: the one words → SCA node
+-- table for roaster words AND cupper words. source_kind keeps the two apart
+-- (the same words may map differently); one current row per (words, kind).
+-- Written only by services/noteMappingService.ts.
+ALTER TABLE roastery_portal_note_mapping ADD COLUMN IF NOT EXISTS source_kind TEXT NOT NULL DEFAULT 'roaster'
+  CHECK (source_kind IN ('roaster', 'cupper'));
+ALTER TABLE roastery_portal_note_mapping ADD COLUMN IF NOT EXISTS note TEXT;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'roastery_portal_note_mapping_active'
+              AND indexdef NOT LIKE '%source_kind%') THEN
+    DROP INDEX roastery_portal_note_mapping_active;
+  END IF;
+END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS roastery_portal_note_mapping_active
+  ON roastery_portal_note_mapping (normalized_words, source_kind) WHERE superseded_at IS NULL;
+
+-- ── Cupping evidence brief 1 (2026-10-18), A7: roastery_remark ────────────
+-- What a roaster says outside the portal form (at the cupping table, by
+-- email, on a call or visit, on their website), one statement per row,
+-- verbatim (DESIGN_CUPPING_EVIDENCE.md §3 says why no existing table fits).
+-- Insert-only; a correction is a new row pointing at the old one through
+-- supersedes_id (the old row is never touched). Writer:
+-- services/roasteryRemarkService.ts only (lint:roastery-portal).
+CREATE TABLE IF NOT EXISTS roastery_remark (
+  id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  roaster_id                UUID NOT NULL REFERENCES roaster(id),
+  coffee_id                 INTEGER REFERENCES coffees(id),
+  portal_coffee_id          UUID REFERENCES roastery_portal_coffee(id),
+  cupping_session_coffee_id INTEGER REFERENCES cupping_session_coffees(id),
+  said_by                   TEXT NOT NULL,
+  said_by_respondent_id     UUID REFERENCES roastery_portal_respondent(id),
+  said_on                   DATE NOT NULL,
+  channel                   TEXT NOT NULL CHECK (channel IN ('cupping_table','email','call','visit','website','other')),
+  topic                     TEXT NOT NULL CHECK (topic IN ('classification','descriptor','dimension','brewing','availability','process','origin','roast','general')),
+  remark                    TEXT NOT NULL,
+  cupping_note_id           UUID REFERENCES cupping_note(id),
+  proposed_archetype        archetype_enum,
+  recorded_by               TEXT NOT NULL,
+  record_source             TEXT NOT NULL,
+  supersedes_id             UUID REFERENCES roastery_remark(id),
+  load_dts                  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (cupping_note_id IS NULL OR topic = 'descriptor'),
+  CHECK (proposed_archetype IS NULL OR topic = 'classification')
+);
+CREATE INDEX IF NOT EXISTS roastery_remark_coffee_idx     ON roastery_remark (coffee_id);
+CREATE INDEX IF NOT EXISTS roastery_remark_roaster_idx    ON roastery_remark (roaster_id, said_on);
+CREATE INDEX IF NOT EXISTS roastery_remark_supersedes_idx ON roastery_remark (supersedes_id);
+
+CREATE OR REPLACE FUNCTION roastery_remark_immutable() RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION 'roastery_remark is insert-only (% on id %); record a correction with supersedes_id', TG_OP, OLD.id
+    USING ERRCODE = 'integrity_constraint_violation';
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS roastery_remark_immutable ON roastery_remark;
+CREATE TRIGGER roastery_remark_immutable
+  BEFORE UPDATE OR DELETE ON roastery_remark
+  FOR EACH ROW EXECUTE FUNCTION roastery_remark_immutable();
+
+-- Ownership: everything a remark points at belongs to the same roaster.
+CREATE OR REPLACE FUNCTION roastery_remark_guard() RETURNS trigger AS $$
+BEGIN
+  IF NEW.coffee_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM coffees WHERE id = NEW.coffee_id AND roaster_id = NEW.roaster_id) THEN
+    RAISE EXCEPTION 'roastery_remark: coffee % does not belong to roaster %', NEW.coffee_id, NEW.roaster_id
+      USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  IF NEW.portal_coffee_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM roastery_portal_coffee WHERE id = NEW.portal_coffee_id AND roaster_id = NEW.roaster_id) THEN
+    RAISE EXCEPTION 'roastery_remark: portal coffee % does not belong to roaster %', NEW.portal_coffee_id, NEW.roaster_id
+      USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  IF NEW.said_by_respondent_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM roastery_portal_respondent WHERE id = NEW.said_by_respondent_id AND roaster_id = NEW.roaster_id) THEN
+    RAISE EXCEPTION 'roastery_remark: respondent % does not belong to roaster %', NEW.said_by_respondent_id, NEW.roaster_id
+      USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  IF NEW.supersedes_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM roastery_remark WHERE id = NEW.supersedes_id AND roaster_id = NEW.roaster_id) THEN
+    RAISE EXCEPTION 'roastery_remark: superseded remark % is not a remark of roaster %', NEW.supersedes_id, NEW.roaster_id
+      USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  IF NEW.cupping_session_coffee_id IS NOT NULL AND NEW.coffee_id IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM cupping_session_coffees WHERE id = NEW.cupping_session_coffee_id AND coffee_id = NEW.coffee_id) THEN
+    RAISE EXCEPTION 'roastery_remark: session coffee % is not coffee %', NEW.cupping_session_coffee_id, NEW.coffee_id
+      USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS roastery_remark_guard ON roastery_remark;
+CREATE TRIGGER roastery_remark_guard
+  BEFORE INSERT ON roastery_remark
+  FOR EACH ROW EXECUTE FUNCTION roastery_remark_guard();
+
+DROP VIEW IF EXISTS v_roastery_remark;
+CREATE VIEW v_roastery_remark AS
+SELECT r.*,
+       ro.name          AS roaster_name,
+       c.name           AS coffee_name,
+       pc.name          AS portal_coffee_name,
+       cn.descriptor    AS cupping_note_descriptor,
+       cn.wheel_category,
+       cn.wheel_subcategory,
+       cn.tier,
+       NOT EXISTS (SELECT 1 FROM roastery_remark n WHERE n.supersedes_id = r.id) AS is_current
+FROM roastery_remark r
+JOIN roaster ro                  ON ro.id = r.roaster_id
+LEFT JOIN coffees c              ON c.id  = r.coffee_id
+LEFT JOIN roastery_portal_coffee pc ON pc.id = r.portal_coffee_id
+LEFT JOIN cupping_note cn        ON cn.id = r.cupping_note_id
+ORDER BY r.said_on, r.coffee_id, r.topic;
+
 -- The one definition of "the roaster's dominant dimension matches ours" (display only,
 -- never a gate): either side missing = unknown (null).
 CREATE OR REPLACE FUNCTION roastery_portal_dimension_matches(roaster_dim INTEGER, our_dim INTEGER) RETURNS BOOLEAN AS $$
@@ -6782,6 +7574,19 @@ DO $$ DECLARE t text; BEGIN
     EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON %I TO ab_app', t);
   END LOOP;
 END $$;
+
+-- Cupping evidence brief 1 (2026-10-18), A6/A7: the evidence tables are
+-- immutable at the trigger level; the grant is belt and braces (the
+-- customer-table pattern), overriding the operating grant just above.
+-- cupping_scores keeps UPDATE for its one supersede transition (the guard
+-- trigger allows nothing else); cupping_brew_params keeps DELETE because
+-- cuppingService.removeEmptySessionCoffee removes an unscored sample's brew
+-- row (its guard trigger refuses once a score exists).
+REVOKE UPDATE, DELETE, TRUNCATE ON cupping_score_values, cupping_score_descriptors FROM ab_app;
+REVOKE DELETE, TRUNCATE ON cupping_scores FROM ab_app;
+REVOKE TRUNCATE ON cupping_brew_params FROM ab_app;
+REVOKE UPDATE, DELETE, TRUNCATE ON roastery_remark FROM ab_app;
+GRANT SELECT ON v_roastery_remark, v_cupping_session, v_cupping_session_coffee TO reporting_ro;
 
 -- Quiz content is master data with one writer, the V7 seed in this file,
 -- running as the owner (Prompt 4A, 2026-10-08). The request pool only ever

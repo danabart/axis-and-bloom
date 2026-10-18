@@ -4,13 +4,25 @@ import { useAuth } from '../../context/AuthContext';
 import { useAdminLookups } from '../../hooks/useAdminLookups';
 import { reportError } from '../../lib/errorReporter';
 
+// Cupping evidence brief 1 (2026-10-18): a session records whether the cuppers
+// were blind, whether a roaster's person was at the table, which printed sheet
+// was used, and its brew protocol (brew_defaults, 8.5 g / 150 g standard),
+// which every coffee added to it inherits as its brew params. Each sample
+// carries roast date, blind code, a sample note and the control flag. A sample
+// with scores is evidence and can no longer be removed.
 interface Session {
   id: number;
   session_date: string;
+  session_date_precision: string;
   location: string | null;
   brew_method: string | null;
+  brew_device: string | null;
   session_notes: string | null;
   coffee_count: string;
+  sheet_format: string | null;
+  is_blind: boolean | null;
+  roaster_present: boolean | null;
+  record_source: string;
 }
 
 interface SessionCoffee {
@@ -22,7 +34,18 @@ interface SessionCoffee {
   origin: string | null;
   process: string | null;
   roast_level: string | null;
+  roast_date: string | null;
+  blind_code: string | null;
+  sample_note: string | null;
+  is_control: boolean;
+  has_scores: boolean;
+  dose_grams: string | null;
+  water_grams: string | null;
 }
+
+interface SheetFormat { code: string; label: string; }
+type SampleEdit = { roast_date: string; blind_code: string; sample_note: string; is_control: boolean };
+const triState = (v: string) => (v === '' ? null : v === 'yes');
 
 interface Coffee { id: number; name: string; roaster: string | null; is_active?: boolean; }
 interface RoasterOption { id: string; name: string; }
@@ -33,7 +56,11 @@ function toCoffee(c: { id: number; name: string; roaster_name: string | null; is
   return { id: c.id, name: c.name, roaster: c.roaster_name, is_active: c.is_active };
 }
 
-const EMPTY_FORM = { session_date: '', brew_method: '', location: '', session_notes: '' };
+const EMPTY_FORM = {
+  session_date: '', session_date_precision: 'exact', location: '', session_notes: '',
+  sheet_format: 'score_entry', is_blind: '', roaster_present: '',
+  brew_device: '', dose_grams: '8.5', water_grams: '150',
+};
 
 export default function AdminSessions() {
   const { user } = useAuth();
@@ -65,6 +92,8 @@ export default function AdminSessions() {
   const [addingCoffeeId, setAddingCoffeeId] = useState('');
   const [linking, setLinking]           = useState(false);
   const [removing, setRemoving]         = useState<number | null>(null);
+  const [sheetFormats, setSheetFormats] = useState<SheetFormat[]>([]);
+  const [sampleEdits, setSampleEdits]   = useState<Record<number, SampleEdit>>({});
 
   async function getToken() { return user!.getIdToken(); }
 
@@ -129,9 +158,35 @@ export default function AdminSessions() {
   async function loadSessionCoffees(sessionId: number) {
     try {
       const res = await apiFetch(`/api/admin/sessions/${sessionId}/coffees`);
-      if (res.ok) setSessionCoffees(await res.json());
-      else setSessionCoffees([]);
+      const rows: SessionCoffee[] = res.ok ? await res.json() : [];
+      setSessionCoffees(rows);
+      setSampleEdits(Object.fromEntries(rows.map(r => [r.session_coffee_id, {
+        roast_date: r.roast_date ? r.roast_date.slice(0, 10) : '', blind_code: r.blind_code ?? '',
+        sample_note: r.sample_note ?? '', is_control: r.is_control,
+      }])));
     } catch (err) { reportError('[AdminSessions/load-session-coffees]', err); setSessionCoffees([]); }
+  }
+
+  async function loadSheetFormats() {
+    if (sheetFormats.length > 0) return;
+    try {
+      const res = await apiFetch('/api/admin/sheet-formats');
+      if (res.ok) setSheetFormats(await res.json());
+    } catch (err) { reportError('[AdminSessions/load-sheet-formats]', err); }
+  }
+
+  async function saveSample(sc: SessionCoffee, sessionId: number) {
+    const edit = sampleEdits[sc.session_coffee_id];
+    if (!edit) return;
+    try {
+      const res = await apiFetch(`/api/admin/sessions/${sessionId}/coffees/${sc.session_coffee_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roast_date: edit.roast_date || null, blind_code: edit.blind_code, sample_note: edit.sample_note, is_control: edit.is_control }),
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); setError(e.message ?? e.error ?? 'Failed to save sample'); return; }
+      await loadSessionCoffees(sessionId);
+    } catch (err) { reportError('[AdminSessions/save-sample]', err); setError('Failed to save sample'); }
   }
 
   useEffect(() => { load(); }, [user]);
@@ -161,12 +216,23 @@ export default function AdminSessions() {
     e.preventDefault(); setSaving(true); setSaveError('');
     try {
       // 1. Create session
+      const dose = form.dose_grams ? Number(form.dose_grams) : null;
+      const water = form.water_grams ? Number(form.water_grams) : null;
       const res = await apiFetch('/api/admin/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          session_date: form.session_date, session_date_precision: form.session_date_precision,
+          location: form.location, session_notes: form.session_notes, sheet_format: form.sheet_format,
+          is_blind: triState(form.is_blind), roaster_present: triState(form.roaster_present),
+          brew_defaults: {
+            dose_grams: dose, water_grams: water,
+            ratio: dose && water ? Math.round((water / dose) * 100) / 100 : null,
+            brew_device: form.brew_device || null,
+          },
+        }),
       });
-      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed to create session');
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message ?? e.error ?? 'Failed to create session'); }
       const session = await res.json();
 
       // 2. Link pre-selected coffees. Best-effort per item, matching the
@@ -218,7 +284,7 @@ export default function AdminSessions() {
       const res = await apiFetch(`/api/admin/sessions/${sessionId}/coffees/${scId}`, { method: 'DELETE' });
       // Fake-success fix (Observability Foundation Part D) — same gap as
       // handleAddCoffee above.
-      if (!res.ok) { setError((await res.json().catch(() => ({}))).error ?? 'Failed to remove coffee'); return; }
+      if (!res.ok) { const e = await res.json().catch(() => ({})); setError(e.message ?? e.error ?? 'Failed to remove coffee'); return; }
       await Promise.all([loadSessionCoffees(sessionId), load()]);
     } catch (err) { reportError('[AdminSessions/remove-coffee]', err); setError('Failed to remove coffee'); }
     finally { setRemoving(null); }
@@ -265,7 +331,7 @@ export default function AdminSessions() {
             className="px-4 py-2 rounded text-sm font-normal text-stone-600 border border-stone-200 hover:bg-stone-50">
             Score Entry →
           </Link>
-          <button onClick={() => { setShowForm(v => !v); if (!showForm) { loadAllCoffees(); loadRoasters(); } }}
+          <button onClick={() => { setShowForm(v => !v); if (!showForm) { loadAllCoffees(); loadRoasters(); loadSheetFormats(); } }}
             className="px-4 py-2 rounded text-sm font-normal text-white hover:opacity-80"
             style={{ backgroundColor: '#b05642' }}>
             {showForm ? 'Cancel' : '+ New Session'}
@@ -285,13 +351,61 @@ export default function AdminSessions() {
                 className="w-full border border-stone-300 rounded px-3 py-2 text-sm" />
             </div>
             <div>
-              <label className="block text-xs text-stone-500 mb-1">Brew Method</label>
-              <select value={form.brew_method}
-                onChange={e => setForm(f => ({ ...f, brew_method: e.target.value }))}
+              <label className="block text-xs text-stone-500 mb-1">Date precision</label>
+              <select value={form.session_date_precision}
+                onChange={e => setForm(f => ({ ...f, session_date_precision: e.target.value }))}
                 className="w-full border border-stone-300 rounded px-3 py-2 text-sm">
-                <option value="">— select —</option>
-                {brewMethods.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                <option value="exact">exact</option>
+                <option value="estimated">estimated</option>
               </select>
+            </div>
+            <div>
+              <label className="block text-xs text-stone-500 mb-1">Sheet format</label>
+              <select value={form.sheet_format}
+                onChange={e => setForm(f => ({ ...f, sheet_format: e.target.value }))}
+                className="w-full border border-stone-300 rounded px-3 py-2 text-sm">
+                {sheetFormats.length === 0 && <option value="score_entry">Score Entry (admin)</option>}
+                {sheetFormats.map(sf => <option key={sf.code} value={sf.code}>{sf.label}</option>)}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-stone-500 mb-1">Blind</label>
+                <select value={form.is_blind} onChange={e => setForm(f => ({ ...f, is_blind: e.target.value }))}
+                  className="w-full border border-stone-300 rounded px-3 py-2 text-sm">
+                  <option value="">—</option><option value="yes">yes</option><option value="no">no</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-stone-500 mb-1">Roaster present</label>
+                <select value={form.roaster_present} onChange={e => setForm(f => ({ ...f, roaster_present: e.target.value }))}
+                  className="w-full border border-stone-300 rounded px-3 py-2 text-sm">
+                  <option value="">—</option><option value="yes">yes</option><option value="no">no</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs text-stone-500 mb-1">Dose (g)</label>
+                <input type="number" step="0.1" value={form.dose_grams}
+                  onChange={e => setForm(f => ({ ...f, dose_grams: e.target.value }))}
+                  className="w-full border border-stone-300 rounded px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs text-stone-500 mb-1">Water (g)</label>
+                <input type="number" step="1" value={form.water_grams}
+                  onChange={e => setForm(f => ({ ...f, water_grams: e.target.value }))}
+                  className="w-full border border-stone-300 rounded px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs text-stone-500 mb-1">Brew device</label>
+                <select value={form.brew_device}
+                  onChange={e => setForm(f => ({ ...f, brew_device: e.target.value }))}
+                  className="w-full border border-stone-300 rounded px-3 py-2 text-sm">
+                  <option value="">— select —</option>
+                  {brewMethods.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
             </div>
             <div>
               <label className="block text-xs text-stone-500 mb-1">Roastery</label>
@@ -385,7 +499,11 @@ export default function AdminSessions() {
                     {formatDate(s.session_date)}
                   </td>
                   <td className="py-3 pr-4 text-stone-500">{s.location ?? '—'}</td>
-                  <td className="py-3 pr-4 text-stone-500">{brewLabel(s.brew_method)}</td>
+                  <td className="py-3 pr-4 text-stone-500">
+                    {s.brew_device ? brewLabel(s.brew_device) : brewLabel(s.brew_method)}
+                    {s.is_blind && <span className="ml-1 text-xs text-stone-400">· blind</span>}
+                    {s.roaster_present && <span className="ml-1 text-xs text-stone-400">· roaster present</span>}
+                  </td>
                   <td className="py-3 pr-4 text-stone-500">{Number(s.coffee_count)}</td>
                   <td className="py-3 text-stone-400 max-w-xs truncate">{s.session_notes ?? '—'}</td>
                 </tr>
@@ -397,21 +515,48 @@ export default function AdminSessions() {
                         ? <p className="text-stone-400 text-xs mb-3">No coffees in this session yet.</p>
                         : (
                           <ul className="mb-3 space-y-1.5">
-                            {sessionCoffees.map((sc, i) => (
-                              <li key={sc.session_coffee_id} className="flex items-center justify-between gap-4 text-sm text-stone-700">
-                                <span>
-                                  <span className="text-stone-400 text-xs mr-2">#{i + 1}</span>
-                                  <span className="font-normal">{sc.name}</span>
-                                  {sc.roaster && <span className="text-stone-400 ml-1">· {sc.roaster}</span>}
-                                </span>
-                                <button
-                                  onClick={e => { e.stopPropagation(); handleRemoveCoffee(sc.session_coffee_id, s.id); }}
-                                  disabled={removing === sc.session_coffee_id}
-                                  className="text-stone-300 hover:text-red-400 text-xs transition-colors disabled:opacity-40">
-                                  {removing === sc.session_coffee_id ? '…' : '✕ remove'}
-                                </button>
+                            {sessionCoffees.map((sc, i) => {
+                              const edit = sampleEdits[sc.session_coffee_id];
+                              const setEdit = (patch: Partial<SampleEdit>) =>
+                                setSampleEdits(prev => ({ ...prev, [sc.session_coffee_id]: { ...prev[sc.session_coffee_id], ...patch } }));
+                              return (
+                              <li key={sc.session_coffee_id} className="text-sm text-stone-700" onClick={e => e.stopPropagation()}>
+                                <div className="flex items-center justify-between gap-4">
+                                  <span>
+                                    <span className="text-stone-400 text-xs mr-2">#{i + 1}</span>
+                                    <span className="font-normal">{sc.name}</span>
+                                    {sc.roaster && <span className="text-stone-400 ml-1">· {sc.roaster}</span>}
+                                    {sc.dose_grams && <span className="text-stone-400 text-xs ml-2">{Number(sc.dose_grams)} g / {Number(sc.water_grams)} g</span>}
+                                    {sc.has_scores && <span className="text-stone-400 text-xs ml-2">· scored</span>}
+                                  </span>
+                                  {!sc.has_scores && (
+                                    <button
+                                      onClick={() => handleRemoveCoffee(sc.session_coffee_id, s.id)}
+                                      disabled={removing === sc.session_coffee_id}
+                                      className="text-stone-300 hover:text-red-400 text-xs transition-colors disabled:opacity-40">
+                                      {removing === sc.session_coffee_id ? '…' : '✕ remove'}
+                                    </button>
+                                  )}
+                                </div>
+                                {edit && (
+                                  <div className="flex items-center gap-2 mt-1 ml-6 text-xs">
+                                    <input type="date" value={edit.roast_date} onChange={e => setEdit({ roast_date: e.target.value })}
+                                      title="Roast date" className="border border-stone-300 rounded px-2 py-1" />
+                                    <input value={edit.blind_code} onChange={e => setEdit({ blind_code: e.target.value })}
+                                      placeholder="blind code" className="border border-stone-300 rounded px-2 py-1 w-28" />
+                                    <input value={edit.sample_note} onChange={e => setEdit({ sample_note: e.target.value })}
+                                      placeholder="sample note" className="border border-stone-300 rounded px-2 py-1 flex-1" />
+                                    <label className="flex items-center gap-1 text-stone-500">
+                                      <input type="checkbox" checked={edit.is_control} onChange={e => setEdit({ is_control: e.target.checked })} />
+                                      control
+                                    </label>
+                                    <button onClick={() => saveSample(sc, s.id)}
+                                      className="px-2 py-1 rounded border border-stone-300 text-stone-600 hover:bg-stone-100">save</button>
+                                  </div>
+                                )}
                               </li>
-                            ))}
+                              );
+                            })}
                           </ul>
                         )
                       }
