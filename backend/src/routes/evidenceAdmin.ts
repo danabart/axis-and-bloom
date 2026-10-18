@@ -4,7 +4,7 @@
 // evidenceIntegrity. GET only: nothing here writes.
 import { Router } from 'express';
 import { requireAdmin } from '../middleware/auth.js';
-import { getCoffeeEvidence, getRoasteryEvidence, getEvidenceSummary, getUnmappedWords } from '../services/evidenceReads.js';
+import { getCoffeeEvidence, getRoasteryEvidence, getEvidenceSummary, getUnmappedWords, getWorkbenchQueue, getWorkbenchCoffee } from '../services/evidenceReads.js';
 import { runEvidenceIntegrityChecks } from '../services/evidenceIntegrity.js';
 
 const router = Router();
@@ -29,6 +29,30 @@ router.get('/roastery/:roasterId', async (req, res) => {
   } catch (err) {
     console.error('[admin/evidence/roastery]', err);
     res.status(500).json({ error: 'Failed to read the roastery evidence' });
+  }
+});
+
+// Cupping evidence brief 4, Part A: the Calibration workbench reads.
+router.get('/workbench/coffee/:coffeeId', async (req, res) => {
+  const coffeeId = Number(req.params.coffeeId);
+  if (!Number.isInteger(coffeeId) || coffeeId <= 0) return res.status(400).json({ error: 'coffeeId must be a positive integer' });
+  try {
+    const bundle = await getWorkbenchCoffee(coffeeId);
+    if (!bundle.coffee) return res.status(404).json({ error: 'coffee not found' });
+    res.json(bundle);
+  } catch (err) {
+    console.error('[admin/evidence/workbench/coffee]', err);
+    res.status(500).json({ error: 'Failed to read the workbench coffee' });
+  }
+});
+
+router.get('/workbench/:roasterId', async (req, res) => {
+  if (!UUID.test(req.params.roasterId)) return res.status(400).json({ error: 'roasterId must be a UUID' });
+  try {
+    res.json(await getWorkbenchQueue(req.params.roasterId));
+  } catch (err) {
+    console.error('[admin/evidence/workbench]', err);
+    res.status(500).json({ error: 'Failed to read the workbench queue' });
   }
 });
 

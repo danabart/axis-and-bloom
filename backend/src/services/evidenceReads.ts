@@ -4,6 +4,7 @@
 // view writes the catalog; Dana decides through the existing catalog doors.
 // backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENCE_3_RECONCILIATION.md
 import { db } from '../db/client.js';
+import { getCoffeeHint } from './roasteryPortalReads.js';
 
 type Row = Record<string, unknown>;
 
@@ -64,6 +65,74 @@ export async function getEvidenceSummary(): Promise<EvidenceSummary> {
     placedWithoutCupping: Number(c.placed_uncupped),
     assignmentsWithoutBasis: Number(c.no_basis),
     unmappedWords: Number(words.rows[0]?.n ?? 0),
+  };
+}
+
+// ── Cupping evidence brief 4, Part A (2026-10-18): the Calibration workbench ──
+
+export interface WorkbenchQueueRow {
+  coffee_id: number; coffee_name: string; is_placed: boolean;
+  catalog_archetype: string | null; catalog_confidence: string | null; catalog_home_slot_name: string | null;
+  assignment_basis_present: boolean | null; evidence_newer_than_decision: boolean | null;
+  flag_unreconciled: boolean; n_sources: number; last_cupped: string | null;
+}
+
+/** One row per active coffee of the roastery: flagged first, then stale decisions, then no basis, then by name. */
+export async function getWorkbenchQueue(roasterId: string): Promise<WorkbenchQueueRow[]> {
+  const r = await db.query<WorkbenchQueueRow>(
+    `SELECT c.coffee_id, c.coffee_name, c.is_placed, c.catalog_archetype, c.catalog_confidence,
+            a.catalog_home_slot_name, c.assignment_basis_present, a.evidence_newer_than_decision,
+            c.flag_unreconciled, c.n_sources, c.last_cupped
+       FROM v_evidence_coverage c
+       JOIN v_evidence_archetype a ON a.coffee_id = c.coffee_id
+      WHERE c.roaster_id = $1
+      ORDER BY c.flag_unreconciled DESC,
+               COALESCE(a.evidence_newer_than_decision, false) DESC,
+               (c.assignment_basis_present IS FALSE) DESC,
+               c.coffee_name`,
+    [roasterId]
+  );
+  return r.rows;
+}
+
+/**
+ * The brief 3 per-coffee bundle plus what the three decision cards need: the
+ * coffee's catalog basics (category codes for the decaf rule), its sessions
+ * (for the session select), the roaster's current submitted response (id,
+ * version, respondent; the descriptor card loads its notes and their mapping
+ * through the existing acceptance-preview read), the latest website capture's
+ * descriptor remarks, and the descriptors already accepted into the catalog.
+ */
+export async function getWorkbenchCoffee(coffeeId: number): Promise<{
+  coffee: Row | null; dimensions: Row[]; descriptors: Row[]; archetype: Row | null; calls: Row[];
+  sessions: Row[]; roasterResponse: Row | null; websiteDescriptors: Row[]; accepted: Row[];
+}> {
+  const [base, coffee, sessions, response, website, accepted] = await Promise.all([
+    getCoffeeEvidence(coffeeId),
+    db.query(`SELECT id, name, roaster_id, roaster_name, match_archetype, match_confidence, match_source, match_session_id,
+                     category_codes, is_active FROM v_coffee WHERE id = $1`, [coffeeId]),
+    db.query(`SELECT DISTINCT s.session_id, ss.session_date, ss.is_blind, ss.roaster_present
+                FROM v_cupping_score s JOIN v_cupping_session ss ON ss.id = s.session_id
+               WHERE s.coffee_id = $1 ORDER BY ss.session_date DESC, s.session_id DESC`, [coffeeId]),
+    // the roaster's current submitted response, through the portal's own read door (lint:roastery-portal)
+    getCoffeeHint(coffeeId),
+    db.query(`SELECT r.id, r.remark, r.said_on, r.said_by, r.cupping_note_descriptor
+                FROM v_roastery_remark r
+               WHERE r.coffee_id = $1 AND r.channel = 'website' AND r.topic = 'descriptor' AND r.is_current
+                 AND r.said_on = (SELECT max(x.said_on) FROM v_roastery_remark x
+                                   WHERE x.coffee_id = r.coffee_id AND x.channel = 'website' AND x.is_current)
+               ORDER BY r.load_dts, r.id`, [coffeeId]),
+    db.query(`SELECT DISTINCT w.cupping_note_id, w.descriptor, w.wheel_category, w.tier
+                FROM v_collaborative_flavor_wheel w WHERE w.coffee_id = $1 AND w.source = 'roastery'
+               ORDER BY w.descriptor`, [coffeeId]),
+  ]);
+  const roasterResponse = response
+    ? { response_id: response.responseId, portal_coffee_id: response.portalCoffeeId, version: response.version,
+        submitted_at: response.submittedAt, respondent_name: response.respondentName, proposed_archetype: response.proposedArchetype }
+    : null;
+  return {
+    coffee: coffee.rows[0] ?? null, ...base, sessions: sessions.rows,
+    roasterResponse, websiteDescriptors: website.rows, accepted: accepted.rows,
   };
 }
 

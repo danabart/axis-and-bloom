@@ -2067,11 +2067,12 @@ catalogRouter.post('/coffees/:id/restore', async (req: AuthRequest, res) => {
 });
 
 catalogRouter.put('/coffees/:id/match', async (req: AuthRequest, res) => {
-  const { archetype, confidence, source, sessionId, notes } = req.body;
+  // basis: cupping evidence brief 4 (composeBasis's json, from the Calibration workbench).
+  const { archetype, confidence, source, sessionId, notes, basis } = req.body;
   if (!archetype || !confidence || !source) { res.status(400).json({ error: 'INVALID_INPUT', message: 'archetype, confidence, and source are required' }); return; }
   try {
     const { result, warnings } = await setMatchArchetype(
-      { coffeeId: Number(req.params.id), archetype, confidence, source, sessionId, notes },
+      { coffeeId: Number(req.params.id), archetype, confidence, source, sessionId, notes, basis },
       { actor: req.uid ?? 'unknown' }
     );
     res.json({ ...result, warnings });
@@ -2083,11 +2084,12 @@ catalogRouter.put('/coffees/:id/match', async (req: AuthRequest, res) => {
 });
 
 catalogRouter.post('/coffees/:id/placements', async (req: AuthRequest, res) => {
-  const { slotId, role, priority, placementNote, certify } = req.body;
+  // basis + placedFromSessionId: cupping evidence brief 4 (the Calibration workbench).
+  const { slotId, role, priority, placementNote, certify, basis, placedFromSessionId } = req.body;
   if (!slotId || (role !== 'home' && role !== 'guest')) { res.status(400).json({ error: 'INVALID_INPUT', message: 'slotId and role (home|guest) are required' }); return; }
   try {
     const { result, warnings } = await placeCoffee(
-      { coffeeId: Number(req.params.id), slotId, role, priority, placementNote, certify },
+      { coffeeId: Number(req.params.id), slotId, role, priority, placementNote, certify, basis, placedFromSessionId },
       { actor: req.uid ?? 'unknown' }
     );
     res.status(201).json({ ...result, warnings });
@@ -2099,11 +2101,12 @@ catalogRouter.post('/coffees/:id/placements', async (req: AuthRequest, res) => {
 });
 
 catalogRouter.post('/coffees/:id/move', async (req: AuthRequest, res) => {
-  const { toSlotId, priority, placementNote, certify } = req.body;
+  // basis + placedFromSessionId: cupping evidence brief 4 (the Calibration workbench).
+  const { toSlotId, priority, placementNote, certify, basis, placedFromSessionId } = req.body;
   if (!toSlotId) { res.status(400).json({ error: 'INVALID_INPUT', message: 'toSlotId is required' }); return; }
   try {
     const { result, warnings } = await moveCoffee(
-      { coffeeId: Number(req.params.id), toSlotId, priority, placementNote, certify },
+      { coffeeId: Number(req.params.id), toSlotId, priority, placementNote, certify, basis, placedFromSessionId },
       { actor: req.uid ?? 'unknown' }
     );
     res.json({ ...result, warnings });

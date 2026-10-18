@@ -90,6 +90,101 @@ describe('GET /api/admin/evidence/*', () => {
   });
 });
 
+// Cupping evidence brief 4 (2026-10-18): the Calibration workbench reads, and a
+// write from the page's helpers through the existing catalog endpoints carrying
+// the new fields (basis on match and placements, placedFromSessionId). The
+// write runs on a Vitest coffee on a free slot, cleaned up after; no brief 2
+// coffee is touched.
+describe('GET /api/admin/evidence/workbench/*', () => {
+  it('queue: one row per active coffee, flagged first, then stale, then no basis, then by name', async () => {
+    const res = await fetch(`${base}/evidence/workbench/${JOE_BEAN}`);
+    expect(res.status).toBe(200);
+    const rows = await res.json();
+    expect(rows.map((r: any) => r.coffee_name).sort()).toEqual(['Blossom Dark Roast', 'Fabricator House Roast', 'Geometric Filter Coffee', 'Tiger Stripe Espresso']);
+    const key = (r: any) => [r.flag_unreconciled ? 0 : 1, r.evidence_newer_than_decision ? 0 : 1, r.assignment_basis_present === false ? 0 : 1, r.coffee_name];
+    const sorted = [...rows].sort((a: any, b: any) => {
+      const ka = key(a), kb = key(b);
+      for (let i = 0; i < ka.length; i++) if (ka[i] !== kb[i]) return ka[i] < kb[i] ? -1 : 1;
+      return 0;
+    });
+    expect(rows.map((r: any) => r.coffee_id)).toEqual(sorted.map((r: any) => r.coffee_id));
+    expect((await fetch(`${base}/evidence/workbench/not-a-uuid`)).status).toBe(400);
+  });
+
+  it('coffee: the brief 3 bundle plus sessions, the roaster response, website descriptors and accepted descriptors', async () => {
+    const blossomId = (await db.query<{ id: number }>(`SELECT id FROM coffees WHERE name = 'Blossom Dark Roast' AND roaster_id = $1`, [JOE_BEAN])).rows[0].id;
+    const res = await fetch(`${base}/evidence/workbench/coffee/${blossomId}`);
+    expect(res.status).toBe(200);
+    const b = await res.json();
+    expect(Object.keys(b).sort()).toEqual(['accepted', 'archetype', 'calls', 'coffee', 'descriptors', 'dimensions', 'roasterResponse', 'sessions', 'websiteDescriptors']);
+    expect(b.coffee.name).toBe('Blossom Dark Roast');
+    expect(b.sessions.map((s: any) => s.session_id)).toContain(b.archetype.latest_session_id);
+    expect(b.roasterResponse.response_id).toBeTruthy();
+    expect(b.websiteDescriptors.length).toBeGreaterThan(0);
+    expect((await fetch(`${base}/evidence/workbench/coffee/999999999`)).status).toBe(404);
+  });
+});
+
+describe('a workbench write through the existing endpoints (brief 4 fields)', () => {
+  it('match carries notes "basis: …", basis JSON and the session; a placement carries basis and placed_from_session_id', async () => {
+    const { freeSlotsInOneArchetype } = await import('../test/freeSlots.js');
+    const { createCoffee, upsertSku } = await import('../services/catalogService.js');
+    const roaster = (await db.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Workbench Roastery', true) RETURNING id`)).rows[0];
+    let coffeeId: number | undefined;
+    try {
+      ({ result: { coffeeId } } = await createCoffee({ roasterId: roaster.id, name: 'Vitest Workbench Coffee' }, { actor: 'vitest' }));
+      await upsertSku({ coffeeId: coffeeId!, weightOz: 12 }, { actor: 'vitest' });
+      const sessionId = (await db.query<{ id: number }>(`SELECT id FROM cupping_sessions ORDER BY id DESC LIMIT 1`)).rows[0].id;
+      const basis = { sessions: [sessionId], calls: {}, rule: 'vitest rule' };
+      const put = await fetch(`${base}/catalog/coffees/${coffeeId}/match`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archetype: 'earthy', confidence: 'low', source: 'cupping', sessionId, notes: 'basis: cupping: none; rule: vitest rule', basis }),
+      });
+      expect(put.status).toBe(200);
+      const a = (await db.query(`SELECT notes, basis, assigned_from_session_id FROM coffee_archetype_assignment WHERE coffee_id = $1 AND superseded_at IS NULL`, [coffeeId])).rows[0];
+      expect(a.notes.startsWith('basis:')).toBe(true);
+      expect(a.basis).toEqual(basis);
+      expect(a.assigned_from_session_id).toBe(sessionId);
+
+      // the same archetype and confidence with a new basis writes a new row; the identical call is a no-op
+      const again = { ...basis, rule: 'confirmed' };
+      await fetch(`${base}/catalog/coffees/${coffeeId}/match`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archetype: 'earthy', confidence: 'low', source: 'cupping', sessionId, notes: 'basis: cupping: none; rule: confirmed', basis: again }) });
+      await fetch(`${base}/catalog/coffees/${coffeeId}/match`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archetype: 'earthy', confidence: 'low', source: 'cupping', sessionId, notes: 'basis: cupping: none; rule: confirmed', basis: again }) });
+      const rows = (await db.query(`SELECT basis FROM coffee_archetype_assignment WHERE coffee_id = $1 ORDER BY id`, [coffeeId])).rows;
+      expect(rows.length).toBe(2);
+      expect(rows[1].basis).toEqual(again);
+
+      const bad = await fetch(`${base}/catalog/coffees/${coffeeId}/match`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archetype: 'earthy', confidence: 'low', source: 'cupping', basis: ['not', 'an', 'object'] }) });
+      expect(bad.status).toBe(400);
+
+      const [slot] = await freeSlotsInOneArchetype(1, { archetype: 'earthy' });
+      const pBasis = { sessions: [sessionId], band: { slot_id: slot.id, lo: null, hi: null, check: 'no_band' }, rule: 'confirmed' };
+      const post = await fetch(`${base}/catalog/coffees/${coffeeId}/placements`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slotId: slot.id, role: 'home', placementNote: 'basis: cupping: none; rule: confirmed', basis: pBasis, placedFromSessionId: sessionId }),
+      });
+      expect(post.status).toBe(201);
+      const p = (await db.query(`SELECT basis, placed_from_session_id FROM coffee_slot_assignment WHERE coffee_id = $1 AND is_active`, [coffeeId])).rows[0];
+      expect(p.basis).toEqual(pBasis);
+      expect(p.placed_from_session_id).toBe(sessionId);
+
+      const cov = (await db.query(`SELECT assignment_basis_present FROM v_evidence_coverage WHERE coffee_id = $1`, [coffeeId])).rows[0];
+      expect(cov.assignment_basis_present).toBe(true);
+    } finally {
+      if (coffeeId) {
+        await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id = $1`, [coffeeId]);
+        await db.query(`DELETE FROM coffee_archetype_assignment WHERE coffee_id = $1`, [coffeeId]);
+        await db.query(`DELETE FROM coffee_sku WHERE coffee_id = $1`, [coffeeId]);
+        await db.query(`DELETE FROM coffees WHERE id = $1`, [coffeeId]);
+      }
+      await db.query(`DELETE FROM roaster WHERE id = $1`, [roaster.id]);
+    }
+  }, 30000);
+});
+
 describe('evidenceReads.getFamilies (the D6 input)', () => {
   it('lists the families named by us or by the roaster, most sources first', async () => {
     const families = await getFamilies(benchmarkId);

@@ -234,9 +234,15 @@ export async function evaluatePlacement(runner: Tx | typeof db, coffeeId: number
 // already hold).
 export async function placeCoffeeInTx(
   tx: Tx,
-  input: { coffeeId: number; slotId: number; role: SlotRole; priority?: number; placementNote?: string; certify?: { by: string; note?: string } },
+  input: { coffeeId: number; slotId: number; role: SlotRole; priority?: number; placementNote?: string; certify?: { by: string; note?: string }; basis?: Record<string, unknown>; placedFromSessionId?: number | null },
   ctx: Ctx
 ): Promise<{ assignmentId: number; warnings: PlacementWarning[]; before: Record<string, unknown> | null }> {
+  // Cupping evidence brief 4: basis (composeBasis's json) and placedFromSessionId, stored as given.
+  assertBasis(input.basis);
+  if (input.placedFromSessionId != null && (!Number.isInteger(input.placedFromSessionId) || input.placedFromSessionId <= 0)) {
+    throw new CatalogError(400, 'INVALID_INPUT', 'placedFromSessionId must be a positive integer');
+  }
+  const basisJson = input.basis === undefined || input.basis === null ? null : JSON.stringify(input.basis);
   await fetchActiveSlot(tx, input.slotId);
   await fetchActiveCoffee(tx, input.coffeeId);
 
@@ -293,16 +299,16 @@ export async function placeCoffeeInTx(
     await tx.query(
       `UPDATE coffee_slot_assignment
        SET role = $1, priority = $2, is_active = true, deactivated_at = NULL, deactivation_reason = NULL,
-           placement_note = $3, created_by = $4, updated_at = now()
+           placement_note = $3, created_by = $4, updated_at = now(), basis = $6, placed_from_session_id = $7
        WHERE id = $5`,
-      [input.role, priority, note, ctx.actor, existing.id]
+      [input.role, priority, note, ctx.actor, existing.id, basisJson, input.placedFromSessionId ?? null]
     );
     assignmentId = existing.id;
   } else {
     const insertResult = await tx.query<{ id: number }>(
-      `INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role, priority, placement_note, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      [input.slotId, input.coffeeId, input.role, priority, note, ctx.actor]
+      `INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role, priority, placement_note, created_by, basis, placed_from_session_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+      [input.slotId, input.coffeeId, input.role, priority, note, ctx.actor, basisJson, input.placedFromSessionId ?? null]
     );
     assignmentId = insertResult.rows[0].id;
   }
@@ -323,7 +329,7 @@ export async function placeCoffeeInTx(
 }
 
 export async function placeCoffee(
-  input: { coffeeId: number; slotId: number; role: SlotRole; priority?: number; placementNote?: string; certify?: { by: string; note?: string } },
+  input: { coffeeId: number; slotId: number; role: SlotRole; priority?: number; placementNote?: string; certify?: { by: string; note?: string }; basis?: Record<string, unknown>; placedFromSessionId?: number | null },
   ctx: Ctx
 ): Promise<CatalogWriteResult<{ assignmentId: number }>> {
   return withTransaction(async (tx) => {
@@ -346,7 +352,7 @@ export async function addGuest(
 }
 
 export async function moveCoffee(
-  input: { coffeeId: number; toSlotId: number; priority?: number; placementNote?: string; certify?: { by: string; note?: string } },
+  input: { coffeeId: number; toSlotId: number; priority?: number; placementNote?: string; certify?: { by: string; note?: string }; basis?: Record<string, unknown>; placedFromSessionId?: number | null },
   ctx: Ctx
 ): Promise<CatalogWriteResult<{ assignmentId: number }>> {
   return withTransaction(async (tx) => {
@@ -366,7 +372,8 @@ export async function moveCoffee(
     }
     const { assignmentId, warnings, before } = await placeCoffeeInTx(
       tx,
-      { coffeeId: input.coffeeId, slotId: input.toSlotId, role: 'home', priority: input.priority, placementNote: input.placementNote, certify: input.certify },
+      { coffeeId: input.coffeeId, slotId: input.toSlotId, role: 'home', priority: input.priority, placementNote: input.placementNote, certify: input.certify,
+        basis: input.basis, placedFromSessionId: input.placedFromSessionId },
       ctx
     );
     const after = await snapshotRow(tx, 'coffee_slot_assignment', 'id', assignmentId);
@@ -789,21 +796,50 @@ export async function restoreCoffee(input: { coffeeId: number }, ctx: Ctx): Prom
 export interface SetMatchArchetypeInput {
   coffeeId: number; archetype: ArchetypeCode; confidence: ConfidenceLevel; source: AssignmentSource;
   sessionId?: number; notes?: string;
+  // Cupping evidence brief 4 (2026-10-18): the structured basis composed by
+  // composeBasis (evidenceBasis.ts), stored as given in coffee_archetype_assignment.basis.
+  basis?: Record<string, unknown>;
 }
+
+// Cupping evidence brief 4: a basis is a JSON object (composeBasis's json), never
+// an array, a scalar or a string. Stored as given.
+export function assertBasis(basis: unknown): void {
+  if (basis === undefined || basis === null) return;
+  if (typeof basis !== 'object' || Array.isArray(basis)) {
+    throw new CatalogError(400, 'INVALID_INPUT', 'basis must be a JSON object');
+  }
+}
+
+// JSON with object keys sorted: jsonb stores keys in its own order, so a basis
+// read back compares equal to the same basis sent again.
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value as Record<string, unknown>).sort()
+      .map(k => `${JSON.stringify(k)}:${canonicalJson((value as Record<string, unknown>)[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
 export async function setMatchArchetypeInTx(tx: Tx, input: SetMatchArchetypeInput): Promise<{ coffeeId: number; warnings: PlacementWarning[]; before: Record<string, unknown> | null }> {
+  assertBasis(input.basis);
   await fetchCoffeeRow(tx, input.coffeeId);
-  const currentResult = await tx.query<{ id: number; archetype: string; confidence: string }>(
-    `SELECT id, archetype, confidence FROM coffee_archetype_assignment WHERE coffee_id = $1 AND superseded_at IS NULL`,
+  const currentResult = await tx.query<{ id: number; archetype: string; confidence: string; basis: unknown }>(
+    `SELECT id, archetype, confidence, basis FROM coffee_archetype_assignment WHERE coffee_id = $1 AND superseded_at IS NULL`,
     [input.coffeeId]
   );
   const current = currentResult.rows[0];
-  const isNoOp = current && current.archetype === input.archetype && current.confidence === input.confidence;
+  // No-op when nothing would change. Brief 4: a basis that differs from the
+  // current row's is a change (a confirmation with its basis writes a new row).
+  const sameBasis = input.basis === undefined || canonicalJson(input.basis) === canonicalJson(current?.basis ?? null);
+  const isNoOp = current && current.archetype === input.archetype && current.confidence === input.confidence && sameBasis;
   if (!isNoOp) {
     if (current) await tx.query(`UPDATE coffee_archetype_assignment SET superseded_at = now() WHERE id = $1`, [current.id]);
     await tx.query(
-      `INSERT INTO coffee_archetype_assignment (coffee_id, archetype, confidence, source, assigned_from_session_id, notes)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [input.coffeeId, input.archetype, input.confidence, input.source, input.sessionId ?? null, input.notes ?? null]
+      `INSERT INTO coffee_archetype_assignment (coffee_id, archetype, confidence, source, assigned_from_session_id, notes, basis)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [input.coffeeId, input.archetype, input.confidence, input.source, input.sessionId ?? null, input.notes ?? null,
+       input.basis === undefined || input.basis === null ? null : JSON.stringify(input.basis)]
     );
   }
 
