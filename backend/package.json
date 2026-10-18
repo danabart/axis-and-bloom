@@ -21,6 +21,7 @@
     "lint:customer": "node scripts/lint-customer.mjs",
     "lint:lineage": "node scripts/lineage-scan.mjs",
     "lint:roastery-portal": "node scripts/lint-roastery-portal.mjs",
+    "lint:cupping": "node scripts/lint-cupping.mjs",
     "test": "vitest run",
     "test:db:refresh": "node scripts/refresh-test-db.mjs"
   },

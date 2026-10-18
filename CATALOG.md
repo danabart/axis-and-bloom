@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-10-17 from database `axisandbloom` · 115 tables · 52 views · 1035 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `597966599217` (full value in the footer).
+Generated 2026-10-18 from database `axisandbloom` · 124 tables · 59 views · 1130 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `6eff21284bc2` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -43,7 +43,7 @@ Copied verbatim from the top of `backend/src/db/comments.sql`.
 
 ## Tables
 
-### master (14)
+### master (22)
 
 #### `coffee_archetype`
 
@@ -80,7 +80,7 @@ Match-archetype tag per coffee with confidence and history; current row has supe
 | column | type | null | comment |
 |---|---|---|---|
 | `id` | integer | no | Surrogate primary key. |
-| `coffee_id` | integer | no | References coffees.id (ON DELETE CASCADE): the coffee being tagged. |
+| `coffee_id` | integer | no | References coffees.id (ON DELETE RESTRICT since cupping evidence brief 1): the coffee being tagged. |
 | `archetype` | archetype_enum | no | Flavor archetype of the coffee. One of: chocolate_nutty, balanced_sweet, fruity, earthy, floral, experimental. |
 | `confidence` | confidence_enum | no | How sure the assignment is. One of: low, medium, high. |
 | `assigned_from_session_id` | integer | yes | References cupping_sessions.id (ON DELETE SET NULL): the cupping session the assignment came from; NULL for manual or import assignments. |
@@ -88,6 +88,7 @@ Match-archetype tag per coffee with confidence and history; current row has supe
 | `notes` | text | yes | Free-text rationale for the assignment. |
 | `created_at` | timestamp with time zone | yes | UTC timestamp the assignment row was created. |
 | `source` | assignment_source_enum | yes | How the assignment was made. One of: cupping, manual, import; NULL only on rows predating the column that had no backfill match. |
+| `basis` | jsonb | yes | The evidence the decision rests on as JSON (sessions, calls per cupper, roaster form, roaster remarks, website, merged range, band, rule), the same facts as the basis line in notes; NULL until the Calibration workbench (cupping evidence brief 4) writes it. |
 
 #### `coffee_category`
 
@@ -165,7 +166,7 @@ Catalogue of the 12 cupping dimensions that scores, archetype targets and the Bl
 | `scale_max_label` | text | yes | Label for the high end of the scale (for example very bright / sharp); NULL for text-only dimensions. |
 | `scale_min` | numeric | yes | Lowest scale value, 0 for numeric dimensions; NULL for text-only dimensions in the seed. |
 | `scale_max` | numeric | yes | Highest scale value, 15 for numeric dimensions (0 to 15 scale); NULL for text-only dimensions in the seed. |
-| `is_numeric` | boolean | yes | True when the dimension is scored numerically on the scale; false when it takes free-text notes only. |
+| `is_numeric` | boolean | yes | True when the dimension is scored numerically on the scale; false when it takes free-text notes only. Dimensions 1 to 3 (Fragrance, Aroma, Flavor) numeric since cupping evidence brief 1, 2026-10. |
 | `display_order` | integer | yes | Position of the dimension in admin and report listings, 1 to 12. |
 | `platform_name` | text | yes | Consumer-facing word replacing the raw name (Acidity to Brightness, Bitterness to Boldness, Body to Intensity, Savory / Depth to Complexity, Finish Length to Finish); NULL means use name. Set by schema.sql seed UPDATEs and direct SQL, no admin UI. |
 | `source_id` | integer | yes | References sensory_source.id: the standard that defines this dimension (sca_cva, wcr_lexicon or platform); backfilled by schema.sql. |
@@ -270,7 +271,7 @@ Placement of a coffee in a Bloom Dial slot as home or guest, with priority, acti
 |---|---|---|---|
 | `id` | integer | no | Surrogate key; a re-placement of the same coffee in the same slot reuses the row. |
 | `slot_id` | integer | no | References coffee_dial_slot.id, the slot occupied; UNIQUE together with coffee_id. |
-| `coffee_id` | integer | no | References coffees.id, the placed coffee; one active home slot per coffee (partial unique index). |
+| `coffee_id` | integer | no | References coffees.id (ON DELETE RESTRICT), the placed coffee; one active home slot per coffee (partial unique index). |
 | `role` | coffee_slot_role_enum | no | Placement kind (coffee_slot_role_enum). One of: home, guest. |
 | `priority` | integer | no | Rank within the slot, 1 is first choice (CHECK >= 1); unique among active rows of a slot. |
 | `is_active` | boolean | no | True while the placement is live; set false (with deactivated_at and deactivation_reason) instead of deleting. |
@@ -283,6 +284,8 @@ Placement of a coffee in a Bloom Dial slot as home or guest, with priority, acti
 | `created_by` | text | yes | Actor (admin Firebase uid, or unknown) that made the placement; overwritten when an inactive row is re-placed. \| Writer: catalogService.placeCoffee, catalogService.addGuest, catalogService.moveCoffee |
 | `created_at` | timestamp with time zone | yes | UTC timestamp the row was first created. |
 | `updated_at` | timestamp with time zone | yes | UTC timestamp of the last change to the placement; feeds the catalog version stamp. |
+| `basis` | jsonb | yes | The evidence the placement rests on as JSON (same shape as coffee_archetype_assignment.basis); NULL until the Calibration workbench (cupping evidence brief 4) writes it. |
+| `placed_from_session_id` | integer | yes | References cupping_sessions.id (ON DELETE SET NULL): the cupping session the placement was decided from, so a newer session shows as newer evidence instead of silently moving the range; NULL until brief 4 writes it. |
 
 #### `coffee_slot_price`
 
@@ -338,6 +341,107 @@ Coffee catalogue master: one row per coffee, owned by one roaster, with metadata
 | `deactivated_at` | timestamp with time zone | yes | UTC timestamp the coffee was deactivated; NULL while active \| Writer: catalogService.retireCoffee, catalogService.restoreCoffee, catalogService.deactivateRoastery, catalogService.reactivateRoastery |
 | `deactivation_reason` | text | yes | Why the coffee is inactive. One of: roaster (cascade from a roastery deactivation), manual; NULL while active \| Writer: catalogService.retireCoffee, catalogService.restoreCoffee, catalogService.deactivateRoastery, catalogService.reactivateRoastery |
 
+#### `cupper`
+
+Who cups for Axis & Bloom; cupping_scores.cupper_id points here, so a new cupper is a row, never code
+
+- **Writer:** cuppingService.addCupper; seed
+- **Readers:** cuppingReads, cuppingService, v_cupping_scores_readable, v_cupping_score, v_cupping_session, v_cupping_session_coffee
+- **Since:** 2026-10-18 (cupping evidence brief 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; referenced by cupping_scores.cupper_id and cupper_calibration_offset.cupper_id. |
+| `name` | text | no | The cupper's name as shown in Score Entry and on merged-row notes; unique. |
+| `is_active` | boolean | no | True while the cupper can be chosen for a new score row; an inactive cupper keeps her rows. |
+| `since` | date | yes | Date the person started cupping for Axis & Bloom; NULL when not recorded. |
+| `note` | text | yes | Free-text note about the cupper (for example a guest cupper). |
+
+#### `cupper_calibration_offset`
+
+Per cupper and dimension correction to apply to her range, with its basis and history; empty on purpose until the calibration views show enough comparisons (param calibration_min_n)
+
+- **Writer:** manual:direct SQL with supersede (none yet)
+- **Readers:** v_coffee_dimension_range_calibrated
+- **Since:** 2026-10-18 (cupping evidence brief 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; (cupper_id, dimension_id, since) is the natural key. |
+| `cupper_id` | integer | no | References cupper.id: whose ranges the offset corrects. |
+| `dimension_id` | integer | no | References coffee_dimensions.id: the dimension corrected. |
+| `offset_value` | numeric | no | Points added to the cupper's converted range on the 0 to 15 line (negative lowers it). |
+| `basis` | text | no | What the offset rests on (the calibration view rows, n, date). |
+| `since` | timestamp with time zone | no | UTC timestamp the offset took effect. |
+| `superseded_at` | timestamp with time zone | yes | UTC timestamp a newer offset replaced this one; NULL marks the current offset. |
+
+#### `cupping_scale`
+
+The scales a cupper can score on (ab_0_15, grid_0_5, word_3, legacy); a value is stored on its own scale and converted in the views
+
+- **Writer:** seed
+- **Readers:** cupping_to_ab, cuppingService, cuppingReads, v_cupping_scores_readable
+- **Since:** 2026-10-18 (cupping evidence brief 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; code is the natural key. |
+| `code` | text | no | Unique scale code referenced by cupping_scores.scale_code and cupping_scale_step.scale_code. |
+| `label` | text | no | Human label shown in Score Entry. |
+| `kind` | text | no | numeric (values in value_min/max) or ordinal (a word in raw_value). |
+| `scale_min` | numeric | yes | Lowest value a numeric scale allows; NULL for ordinal scales. |
+| `scale_max` | numeric | yes | Highest value a numeric scale allows; NULL for ordinal scales. |
+| `note` | text | yes | What the scale is and where it is used. |
+
+#### `cupping_scale_step`
+
+How each native value of a converted scale maps to a span on the 0 to 15 line (grid 4 is 11 to 13, low is 0 to 5); changing a row changes the conversion without touching any evidence row
+
+- **Writer:** seed
+- **Readers:** cupping_to_ab, cuppingReads
+- **Since:** 2026-10-18 (cupping evidence brief 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; (scale_code, raw_label) is the natural key. |
+| `scale_code` | text | no | References cupping_scale.code: the scale this step belongs to. |
+| `raw_label` | text | no | The native value as text: a digit for a numeric scale (0 to 5), a word for an ordinal one (low, medium, high). |
+| `ab_min` | numeric | no | Low end of the 0 to 15 span this step stands for. |
+| `ab_max` | numeric | no | High end of the 0 to 15 span this step stands for (at least ab_min). |
+
+#### `cupping_sheet_format`
+
+Versions of the printed cupping sheet (and Score Entry) a session was recorded on; the next sheet is an INSERT
+
+- **Writer:** seed
+- **Readers:** cuppingReads, cuppingService, v_cupping_session, v_cupping_scores_readable
+- **Since:** 2026-10-18 (cupping evidence brief 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; code is the natural key. |
+| `code` | text | no | Unique format code referenced by cupping_sessions.sheet_format and cupping_sheet_line.sheet_format. |
+| `label` | text | no | Human label shown in the session form. |
+| `since` | date | yes | Date the format came into use; NULL when not recorded. |
+| `note` | text | yes | What distinguishes the format. |
+
+#### `cupping_sheet_line`
+
+Which dimension each printed line of a sheet format feeds (Mouthfeel light to heavy is Body; Aftertaste words is Finish Character), so a loader never hard-codes the mapping
+
+- **Writer:** seed
+- **Readers:** cuppingReads
+- **Since:** 2026-10-18 (cupping evidence brief 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; (sheet_format, line_label) is the natural key. |
+| `sheet_format` | text | no | References cupping_sheet_format.code: the sheet the line is printed on. |
+| `line_label` | text | no | The line as printed (Fragrance, Mouthfeel light to heavy, Aftertaste words). |
+| `dimension_id` | integer | no | References coffee_dimensions.id: the dimension the line feeds. |
+| `is_numeric` | boolean | no | True when the line is a scale (values), false when it takes words (notes). |
+| `display_order` | integer | yes | Position of the line on the sheet. |
+
 #### `customer_order_kind`
 
 Lookup of order kinds (manual, subscription_renewal, gift_redemption, liam_followed) referenced by order_line_item.order_kind, a dimension not a fact
@@ -351,7 +455,39 @@ Lookup of order kinds (manual, subscription_renewal, gift_redemption, liam_follo
 | `code` | text | no | Primary key code. One of: manual, subscription_renewal, gift_redemption, liam_followed; referenced by order_line_item.order_kind. |
 | `label` | text | no | Human-readable label for the kind, such as Manual or Subscription renewal. |
 
-### fact (15)
+#### `evidence_parameter`
+
+Thresholds the evidence rules use (cupper_gap, roaster_rank_gap, spearman_min_n, spearman_rho_cut, rank_corr_min_n, calibration_min_n), with history; read through param(key), never typed into a view
+
+- **Writer:** seed; manual:direct SQL with supersede
+- **Readers:** param, cuppingService
+- **Since:** 2026-10-18 (cupping evidence brief 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; (key, since) is the natural key. |
+| `key` | text | no | Parameter name; one current row per key (partial unique index). |
+| `value` | numeric | no | The threshold value (numeric). |
+| `since` | timestamp with time zone | no | UTC timestamp the value took effect. |
+| `superseded_at` | timestamp with time zone | yes | UTC timestamp a newer value replaced this one; NULL marks the current value. |
+| `note` | text | yes | What the threshold decides. |
+
+#### `evidence_stop_word`
+
+Words the unmapped-words view ignores because they name a dimension or a texture, not a flavor (sweet, acidity, juicy)
+
+- **Writer:** seed
+- **Readers:** none yet (v_evidence_unmapped_words, brief 3)
+- **Since:** 2026-10-18 (cupping evidence brief 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; word is the natural key. |
+| `word` | text | no | The word, lower-cased; unique. |
+| `since` | date | no | Date the word was added. |
+| `note` | text | yes | Why the word is ignored, when not obvious. |
+
+### fact (22)
 
 #### `catalog_change`
 
@@ -375,6 +511,138 @@ Append-only fact of every catalog write (before and after row snapshots with act
 | `before` | jsonb | yes | JSON snapshot of the whole entity row before the change; NULL for creates. |
 | `after` | jsonb | yes | JSON snapshot of the whole entity row after the change; NULL for deletes. |
 | `changed_by` | text | yes | Actor who made the change: an admin uid, or import or system for non-interactive writes. |
+
+#### `cupping_brew_params`
+
+How each sample was brewed (dose, water, ratio, temperature, grind, steep, device; 8.5 g / 150 g standard); one row per session coffee, from the session's brew_defaults unless given; editable until a score exists under the sample, then immutable (trigger)
+
+- **Writer:** cuppingService.addSessionCoffee, cuppingService.saveBrewParams, cuppingService.removeEmptySessionCoffee
+- **Readers:** v_cupping_session_coffee, v_cupping_session
+- **Since:** 2026-05-25 (as brew_params)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key. |
+| `session_coffee_id` | integer | no | References cupping_session_coffees.id (ON DELETE RESTRICT): the sample the parameters belong to; unique (one brew row per sample). |
+| `dose_grams` | numeric | yes | Coffee dose in grams. |
+| `water_grams` | numeric | yes | Water used in grams. |
+| `yield_grams` | numeric | yes | Liquid yield in grams (espresso-style methods). |
+| `ratio` | numeric | yes | Brew ratio as a bare number; direction (water per coffee or coffee per water) undefined, table unused. |
+| `water_temperature_celsius` | numeric | yes | Water temperature in degrees Celsius. |
+| `grind_size` | text | yes | Free-text grind size description. |
+| `extraction_time_seconds` | numeric | yes | Extraction or brew time in seconds. |
+| `pressure_bar` | numeric | yes | Brew pressure in bar (espresso). |
+| `steep_time_minutes` | numeric | yes | Steep time in minutes (immersion methods). |
+| `brew_device` | text | yes | Free-text name of the brewing device. |
+| `notes` | text | yes | Free-text notes about the brew. |
+
+#### `cupping_score_descriptors`
+
+Flavor-wheel nodes a cupper named on a score row, at the SCA tier she used, with her words in custom_notes; on a merged row the union; immutable (trigger)
+
+- **Writer:** cuppingService.saveCupperScore, cuppingService.mergeByRule, cuppingService.saveManualMerge; seed
+- **Readers:** v_collaborative_flavor_wheel, v_cupping_score_descriptor, cuppingService
+- **Since:** 2026-05-27
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key. |
+| `cupping_score_id` | integer | no | References cupping_scores.id (ON DELETE RESTRICT): the score row. UNIQUE together with cupping_note_id. |
+| `cupping_note_id` | uuid | no | References cupping_note.id (uuid, ON DELETE RESTRICT): the SCA node named, at the tier named (berries is Berry, never Blueberry). |
+| `intensity` | numeric | yes | How prominent the descriptor was, 0 to 15 (same scale as dimensions); on a merged row the highest of the cuppers'; NULL when not given. |
+| `custom_notes` | text | yes | The cupper's own words for the node; on a merged row each cupper's words prefixed with her name. |
+
+#### `cupping_score_values`
+
+One value per score row and dimension, on the scale the cupper used, with the paper verbatim in raw_value and her words in notes; immutable (trigger), converted to 0 to 15 only in the views through cupping_to_ab()
+
+- **Writer:** cuppingService.saveCupperScore, cuppingService.mergeByRule, cuppingService.saveManualMerge
+- **Readers:** v_cupping_scores_readable, v_coffee_dimension_range, v_coffee_dimension_history, v_coffee_dimension_range_calibrated, cuppingService
+- **Since:** 2026-05-25
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key. |
+| `cupping_score_id` | integer | no | References cupping_scores.id (ON DELETE RESTRICT): the score row this value belongs to. UNIQUE together with dimension_id. |
+| `dimension_id` | integer | no | References coffee_dimensions.id (ON DELETE RESTRICT): the dimension scored. |
+| `value_min` | numeric | yes | Low end of the value on the scale the row's scale_code names (grid_0_5: 4; ab_0_15: as written); NULL for words-only dimensions and for word_3 rows, whose word is raw_value. |
+| `value_max` | numeric | yes | High end of the value on the row's own scale; equals value_min for a point score; NULL for words-only dimensions and word_3 rows. |
+| `notes` | text | yes | The words written next to the dimension; a struck word is kept as ~word and never becomes a descriptor row. |
+| `raw_value` | text | yes | Exactly what is on the paper for this dimension (7-9, marks at 2,4,5; 4 struck, low, grid 0-5: 4); on a merged row the union it came from; NULL on legacy rows. |
+
+#### `cupping_scores`
+
+One row per Axis & Bloom cupper per sample (cupper_id, the scale used, her calls) plus the merged row (is_merged, merge_rule); values in cupping_score_values. Never edited: exactly one supersede transition per row (guard trigger), deletes raise
+
+- **Writer:** cuppingService.saveCupperScore, cuppingService.mergeByRule, cuppingService.saveManualMerge; seed
+- **Readers:** v_cupping_scores_readable, v_cupping_score, v_coffee_dimension_range, v_coffee_dimension_history, v_collaborative_flavor_wheel, cuppingService, +4 more
+- **Since:** 2026-05-25
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; referenced by cupping_score_values, cupping_score_descriptors and superseded_by_id. |
+| `session_coffee_id` | integer | no | References cupping_session_coffees.id (ON DELETE RESTRICT): which sample was scored. One current cupper row per (session coffee, cupper) and one current merged row per session coffee (partial unique indexes). |
+| `taster_name` | text | yes | Class: deprecated \| DEPRECATED since cupping evidence brief 1 (2026-10-18): cupper_id is the key and is_merged the only merged flag; kept on the legacy rows (Dana, Camila, the seed's session_1_merged), NULL on every row written since. |
+| `is_merged` | boolean | no | True for the merged row of a sample (made by rule or by hand, never by a cupper); only current merged rows feed the dial, the public flavor wheel and the catalog reads. |
+| `overall_notes` | text | yes | Free-text overall impressions for this score row; on a merged row the cuppers' notes, each prefixed with her name. |
+| `created_at` | timestamp with time zone | yes | UTC timestamp the score row was created (valid-from; superseded_at is the valid-to). |
+| `cupper_id` | integer | yes | References cupper.id: whose row this is; NULL on merged rows and on legacy rows whose taster name matched no cupper (CHECK cupping_scores_row_shape). |
+| `scale_code` | text | no | References cupping_scale.code: the scale the cupper actually used (ab_0_15, grid_0_5, word_3); legacy on every row that existed when the column was added (tagged by the column default); a merged row is always ab_0_15. |
+| `archetype_call` | archetype_enum | yes | The cupper's archetype call as written (archetype_enum); on a merged row only when every cupper who made a call made the same one; NULL when none was written. |
+| `archetype_call_secondary` | archetype_enum | yes | A second archetype the cupper wrote, when she wrote two; same merge rule as archetype_call. |
+| `position_call` | text | yes | The cupper's own words for the position on the dial (for example light, med-strong, delicate). |
+| `slot_call_id` | integer | yes | References coffee_dial_slot.id: only when the call names a slot unambiguously. |
+| `call_note` | text | yes | What the calls look like on the paper (a family ticked, a call crossed out, DEF); on a merged row the differing calls. |
+| `merge_rule` | text | yes | How the merged row was made. One of: union_v1 (cuppingService.mergeByRule), manual (a hand merge), legacy (the Path seed's merged rows); NULL on cupper rows. |
+| `merge_note` | text | yes | Merged rows: the scales merged, the dimensions the cuppers disagree on (gap greater than param cupper_gap), one-cupper dimensions and whether the dial signal was withheld; for a hand merge the reason. |
+| `superseded_at` | timestamp with time zone | yes | UTC timestamp a newer row replaced this one (a re-save, a transcription correction or a re-merge); NULL marks the current row. Set once, together with superseded_by_id and supersede_reason. |
+| `superseded_by_id` | integer | yes | References cupping_scores.id (deferred to commit): the row that replaced this one; NULL while current. |
+| `supersede_reason` | text | yes | Why the row was replaced (edited in Score Entry, transcription correction: ..., merged by rule again, replaced by a manual merge); NULL while current. |
+
+#### `cupping_session_coffees`
+
+One sample in a cupping session: which coffee, in what order, its roast date, blind code, condition and whether it is the session's control coffee
+
+- **Writer:** cuppingService.addSessionCoffee, cuppingService.updateSessionCoffee, cuppingService.removeEmptySessionCoffee; seed
+- **Readers:** v_cupping_session_coffee, v_cupping_scores_readable, v_coffee_dimension_range, v_coffee_dimension_history, cuppingService, roastery_remark_guard
+- **Since:** 2026-05-25 (as session_coffees)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; referenced as session_coffee_id by cupping_scores and cupping_brew_params, and by roastery_remark.cupping_session_coffee_id. |
+| `session_id` | integer | no | References cupping_sessions.id (ON DELETE RESTRICT): the session. |
+| `coffee_id` | integer | no | References coffees.id (ON DELETE RESTRICT): the coffee cupped. |
+| `display_order` | integer | yes | 1-based position of the coffee within the session; the next value is MAX plus 1 when a coffee is added. |
+| `roast_date` | date | yes | Date the sample was roasted, where known. |
+| `blind_code` | text | yes | The code written on the cup in a blind session (for example TIGER). |
+| `sample_note` | text | yes | Sample condition as noted (for example end-of-run lot, last cup of the day). |
+| `is_control` | boolean | no | True for the session's control coffee: an already-placed catalog coffee cupped to anchor the cuppers against the catalog (protocol from 2026-10). |
+
+#### `cupping_sessions`
+
+Header of one Axis & Bloom cupping session (cupping evidence): date and its precision, place, blind, roaster present, printed sheet, where the rows came from, who transcribed and checked them, the brew protocol; metadata may change, never deleted while it has coffees
+
+- **Writer:** cuppingService.createSession, cuppingService.updateSessionHeader, cuppingService.removeEmptySession; seed
+- **Readers:** v_cupping_session, v_cupping_scores_readable, v_coffee_dimension_range, v_coffee_dimension_history, cuppingService
+- **Since:** 2026-05-25
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; referenced by cupping_session_coffees.session_id, coffee_archetype_assignment.assigned_from_session_id and coffee_slot_assignment.placed_from_session_id. |
+| `session_date` | date | no | Calendar date the session was held (business time); NOT NULL since cupping evidence brief 1, see session_date_precision. |
+| `brew_method` | text | yes | Class: deprecated \| DEPRECATED since 2026-10 (cupping evidence brief 1): the brew lives in cupping_brew_params.brew_device; kept for the legacy rows, nothing writes it. |
+| `location` | text | yes | Free-text place where the session was held. |
+| `session_notes` | text | yes | Free-text notes about the session as a whole. |
+| `created_at` | timestamp with time zone | yes | UTC timestamp the session row was created (system time). |
+| `record_source` | text | no | Where the rows came from: score_entry (typed in admin Score Entry), seed:<file>, paper:<files>, or legacy for every session that existed when the column was added (2026-10-18, tagged by the column default, not by date). |
+| `sheet_format` | text | yes | References cupping_sheet_format.code: the printed sheet (or score_entry) the cuppers used; legacy_wide on the Path seed session; NULL on legacy Score Entry sessions. |
+| `session_date_precision` | text | no | How sure session_date is. One of: exact, estimated (a date not written on the sheets, or backfilled from created_at). |
+| `is_blind` | boolean | yes | True when the cuppers did not know which coffee was in which cup; NULL when not recorded. |
+| `roaster_present` | boolean | yes | True when a roaster's person was at the table (their remarks could anchor our calls); NULL when not recorded. |
+| `transcribed_by` | text | yes | Who transcribed the paper sheets into rows; NULL for Score Entry sessions. |
+| `transcribed_at` | date | yes | Date the paper sheets were transcribed; NULL for Score Entry sessions. |
+| `checked_by` | text | yes | Who checked the transcription (for example a blind second read); NULL when unchecked or typed in Score Entry. |
+| `brew_defaults` | jsonb | yes | The session's brew protocol as JSON (doseGrams, waterGrams, ratio, waterTemperatureCelsius, steepTimeMinutes, brewDevice, notes); copied into each new session coffee's cupping_brew_params unless that coffee brings its own; NULL when none was given. |
 
 #### `customer_bag_claim`
 
@@ -701,7 +969,35 @@ SCD Type 2 interpretation of each quiz session per interpretation version; one i
 | `match_archetype` | text | yes | coffee_archetype.name text of where on the Bloom Dial the person is matched (v2.2 MATCH layer); set on every v2.2 row, NULL on v1 and v2.1 rows. |
 | `intensity_lean` | text | yes | Position lean within the match archetype. One of: delicate (CHECK); NULL means the archetype's default position. |
 
-### operating (71)
+#### `roastery_remark`
+
+What a roaster said outside the portal form (cupping table, email, call, visit, website), one statement per row, verbatim, with who said it, when, through which channel and on which topic; insert-only, a correction is a new row with supersedes_id
+
+- **Writer:** roasteryRemarkService.recordRemarks
+- **Readers:** v_roastery_remark
+- **Since:** 2026-10-18 (cupping evidence brief 1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | uuid | no | Primary key (UUID); referenced by supersedes_id. |
+| `roaster_id` | uuid | no | References roaster.id: the roastery that said it; every other reference on the row must belong to it (roastery_remark_guard). |
+| `coffee_id` | integer | yes | References coffees.id: the catalog coffee the remark is about; NULL when it is about the lineup or the roastery. |
+| `portal_coffee_id` | uuid | yes | References roastery_portal_coffee.id: the lineup row the remark is about, when known. |
+| `cupping_session_coffee_id` | integer | yes | References cupping_session_coffees.id: the sample at whose cupping the remark was made; must be the same coffee as coffee_id when both are set. |
+| `said_by` | text | no | Who said it, as written (a person and role, or the roastery and its website). |
+| `said_by_respondent_id` | uuid | yes | References roastery_portal_respondent.id: when the speaker is a known portal respondent of the same roaster. |
+| `said_on` | date | no | Business date the remark was made, or the capture date of a website page; never shifted by a timezone. |
+| `channel` | text | no | How it reached us. One of: cupping_table, email, call, visit, website, other. |
+| `topic` | text | no | What it is about. One of: classification, descriptor, dimension, brewing, availability, process, origin, roast, general. |
+| `remark` | text | no | Their words as captured, verbatim. |
+| `cupping_note_id` | uuid | yes | References cupping_note.id: the SCA node a descriptor remark translates to, when the translation is clear; only on descriptor remarks (CHECK). |
+| `proposed_archetype` | archetype_enum | yes | The archetype a classification remark proposes (archetype_enum); a proposal, never an assignment; only on classification remarks (CHECK). |
+| `recorded_by` | text | no | Who wrote the remark down. |
+| `record_source` | text | no | Where the row came from (the paper file, the email date, the page and the file it was copied from). |
+| `supersedes_id` | uuid | yes | References roastery_remark.id: the row this one corrects (same roaster); the old row is never touched, and is_current in v_roastery_remark is false for it. |
+| `load_dts` | timestamp with time zone | no | UTC timestamp the row was loaded (system time). |
+
+### operating (65)
 
 #### `address`
 
@@ -918,51 +1214,29 @@ One redeemable code per seat of a company gift batch, tracking whether it is unr
 | `redeemed_at` | timestamp with time zone | yes | UTC timestamp of redemption; NULL until redeemed. \| Writer: companyGiftRedemption.POST /:code/redeem |
 | `created_at` | timestamp with time zone | yes | UTC timestamp the code was generated. |
 
-#### `cupping_brew_params`
-
-Reserved per-session-coffee brew parameters (dose, water, yield, temperature, grind, time, pressure, device) for the cupping tool; not written by any code, seed or script yet (0 rows), counted in the cupping-evidence design (DESIGN_CUPPING_EVIDENCE.md)
-
-- **Writer:** none
-- **Readers:** none
-- **Since:** 2026-05-25 (as brew_params)
-
-| column | type | null | comment |
-|---|---|---|---|
-| `id` | integer | no | Surrogate primary key. |
-| `session_coffee_id` | integer | no | References cupping_session_coffees.id (ON DELETE CASCADE): the cupped coffee the parameters belong to. |
-| `dose_grams` | numeric | yes | Coffee dose in grams. |
-| `water_grams` | numeric | yes | Water used in grams. |
-| `yield_grams` | numeric | yes | Liquid yield in grams (espresso-style methods). |
-| `ratio` | numeric | yes | Brew ratio as a bare number; direction (water per coffee or coffee per water) undefined, table unused. |
-| `water_temperature_celsius` | numeric | yes | Water temperature in degrees Celsius. |
-| `grind_size` | text | yes | Free-text grind size description. |
-| `extraction_time_seconds` | numeric | yes | Extraction or brew time in seconds. |
-| `pressure_bar` | numeric | yes | Brew pressure in bar (espresso). |
-| `steep_time_minutes` | numeric | yes | Steep time in minutes (immersion methods). |
-| `brew_device` | text | yes | Free-text name of the brewing device. |
-| `notes` | text | yes | Free-text notes about the brew. |
-
 #### `cupping_note`
 
-The 84-descriptor SCA Coffee Taster's Flavor Wheel vocabulary used to tag coffees and tasting notes
+The SCA Coffee Taster's Flavor Wheel as a tree (tier 1 family, 2 sub-group, 3 leaf; parent_id), the vocabulary every source of descriptors resolves to
 
 - **Writer:** seed
-- **Readers:** v_collaborative_flavor_wheel, catalogService, roasteryPortalReads, roasteryPortalService, admin, +FKs from descriptor and note tables
-- **Since:** 2026-05-22
+- **Readers:** v_collaborative_flavor_wheel, v_roastery_remark, v_cupping_score_descriptor, catalogService, cuppingService, noteMappingService, roasteryRemarkService, roasteryPortalReads, +3 more
+- **Since:** 2026-05-22 (tree: 2026-10-18, cupping evidence brief 1)
 
 | column | type | null | comment |
 |---|---|---|---|
 | `id` | uuid | no | Surrogate primary key (UUID); referenced by coffee descriptor, cupping score descriptor, portal note mapping and sensory_lexicon_attribute rows. |
-| `wheel_category` | text | yes | Top-level SCA wheel category, e.g. Floral, Fruity, Sour / Fermented, Green / Vegetative, Other, Roasted, Spices, Nutty / Cocoa, Sweet. |
-| `wheel_subcategory` | text | yes | SCA wheel subcategory within the category (about 25 values). |
+| `wheel_category` | text | yes | Top-level SCA wheel category, e.g. Floral, Fruity, Sour / Fermented, Green / Vegetative, Other, Roasted, Spices, Nutty / Cocoa, Sweet; a denormalised display column since cupping evidence brief 1 (2026-10-18): a family roll-up joins parent_id, never this label. |
+| `wheel_subcategory` | text | yes | SCA wheel sub-group within the category (about 25 values); NULL on tier-1 rows and on tier-2 nodes without children (Black Tea, Vanilla, Pepper); a denormalised display column, the tree is parent_id. |
 | `descriptor` | text | no | The flavor descriptor word or phrase itself, e.g. Jasmine. |
 | `intensity_score` | numeric | yes | Class: deprecated \| DEPRECATED 2026-10-16: never written; cupping_note is the descriptor vocabulary, and the intensity a descriptor showed in a cupping lives on cupping_score_descriptors.intensity (0-15). |
 | `ai_metadata` | jsonb | yes | Class: deprecated \| DEPRECATED 2026-10-16: JSONB never written, read or documented. |
 | `is_active` | boolean | yes | True when the descriptor is part of the active wheel; catalogService and the roastery portal only accept active descriptors. |
 | `created_at` | timestamp with time zone | yes | UTC timestamp when the row was created. |
 | `updated_at` | timestamp with time zone | yes | UTC timestamp of last update; no code path updates it after seeding. |
-| `descriptor_source_id` | integer | yes | References sensory_source.id: where the term comes from; all 84 rows point at wcr_lexicon (set by schema.sql UPDATE). |
+| `descriptor_source_id` | integer | yes | References sensory_source.id: where the term comes from; the 84 original rows point at wcr_lexicon (set by schema.sql UPDATE), the tier-1 and tier-2 nodes added by cupping evidence brief 1 at sca_flavor_wheel. |
 | `lexicon_section` | text | yes | Name of the WCR Sensory Lexicon section the descriptor maps to; backfilled from sensory_lexicon_attribute.section. |
+| `tier` | smallint | no | SCA wheel level of the node: 1 family (Fruity), 2 sub-group (Berry, or a childless node such as Black Tea), 3 leaf (Blueberry). A word is stored at the tier the person named, never deeper \| Writer: seed |
+| `parent_id` | uuid | yes | References cupping_note.id: the node one tier up (leaf to sub-group, sub-group to family); NULL exactly on tier-1 rows (CHECK cupping_note_tier_parent); backfilled from the labels by schema.sql \| Writer: seed |
 
 #### `cupping_note_dimension_weight`
 
@@ -980,88 +1254,6 @@ Reserved mapping from a cupping descriptor to a dimension and direction (for exa
 | `direction` | text | no | Direction the descriptor pushes the dimension. One of: more, less (CHECK). |
 | `weight` | numeric | no | Strength of the descriptor-to-dimension association, default 0; scale and range undefined by design until Stage 2 of BLOOM_DIAL_ALLOCATION_SPEC (needs cupping volume), table empty on purpose. |
 
-#### `cupping_score_descriptors`
-
-Flavor-wheel descriptors a taster selected for a score row, with optional intensity or custom wording
-
-- **Writer:** admin.POST /api/admin/scores (delete and re-insert); seed
-- **Readers:** v_collaborative_flavor_wheel, admin
-- **Since:** 2026-05-27
-
-| column | type | null | comment |
-|---|---|---|---|
-| `id` | integer | no | Surrogate primary key. |
-| `cupping_score_id` | integer | no | References cupping_scores.id (ON DELETE CASCADE): the score row. UNIQUE together with cupping_note_id. |
-| `cupping_note_id` | uuid | no | References cupping_note.id (uuid, ON DELETE CASCADE): the SCA flavor-wheel descriptor chosen. |
-| `intensity` | numeric | yes | How prominent the descriptor was, 0 to 15 (same scale as dimensions); NULL for all 47 prod rows as of 2026-07-13 per the docs. |
-| `custom_notes` | text | yes | Escape-hatch free text for wording not on the SCA wheel. |
-
-#### `cupping_score_values`
-
-One normalised score per cupping_scores row and dimension, as a numeric range or free-text note
-
-- **Writer:** admin.POST /api/admin/scores (upsert)
-- **Readers:** v_cupping_scores_readable, v_coffee_dimension_range, brewCard, dialSuggestion, +3 more
-- **Since:** 2026-05-25
-
-| column | type | null | comment |
-|---|---|---|---|
-| `id` | integer | no | Surrogate primary key. |
-| `cupping_score_id` | integer | no | References cupping_scores.id (ON DELETE CASCADE): the score row this value belongs to. UNIQUE together with dimension_id. |
-| `dimension_id` | integer | no | References coffee_dimensions.id (ON DELETE CASCADE): the dimension scored. |
-| `value_min` | numeric | yes | Low end of the scored range on the dimension's scale (0 to 15 for numeric dimensions); NULL for text-only dimensions. |
-| `value_max` | numeric | yes | High end of the scored range on the dimension's scale (0 to 15 for numeric dimensions); equals value_min for a point score; NULL for text-only dimensions. |
-| `notes` | text | yes | Free-text note for the dimension, used for non-numeric dimensions. |
-
-#### `cupping_scores`
-
-Score header per cupped coffee and taster, plus a merged row combining all tasters; values live in cupping_score_values
-
-- **Writer:** admin.POST /api/admin/scores, admin.DELETE /api/admin/scores/:scoreId; seed
-- **Readers:** v_cupping_scores_readable, v_coffee_dimension_range, brewCard, dialSuggestion, +5 more
-- **Since:** 2026-05-25
-
-| column | type | null | comment |
-|---|---|---|---|
-| `id` | integer | no | Surrogate primary key; referenced by cupping_score_values and cupping_score_descriptors. |
-| `session_coffee_id` | integer | no | References cupping_session_coffees.id (ON DELETE CASCADE): which coffee in which session was scored. UNIQUE together with taster_name. |
-| `taster_name` | text | no | Name of the taster, or a label for the combined row (the seed uses session_1_merged). |
-| `is_merged` | boolean | yes | True for the combined row produced after all tasters submit; only merged rows feed dial suggestions and archetype comparisons. |
-| `overall_notes` | text | yes | Free-text overall impressions for this score row. |
-| `created_at` | timestamp with time zone | yes | UTC timestamp the score row was created. |
-
-#### `cupping_session_coffees`
-
-Junction listing which coffees were cupped in a session and in what order
-
-- **Writer:** admin.POST /api/admin/sessions/:id/coffees, admin.DELETE /api/admin/sessions/:sessionId/coffees/:scId; seed
-- **Readers:** v_cupping_scores_readable, v_coffee_dimension_range, brewCard, dialSuggestion, +4 more
-- **Since:** 2026-05-25 (as session_coffees)
-
-| column | type | null | comment |
-|---|---|---|---|
-| `id` | integer | no | Surrogate primary key; referenced as session_coffee_id by cupping_scores and cupping_brew_params. |
-| `session_id` | integer | no | References cupping_sessions.id (ON DELETE CASCADE): the session. |
-| `coffee_id` | integer | no | References coffees.id (ON DELETE CASCADE): the coffee cupped. |
-| `display_order` | integer | yes | 1-based position of the coffee within the session; the next value is MAX plus 1 when a coffee is added. |
-
-#### `cupping_sessions`
-
-Header row for one internal cupping session (date, brew method, place, notes)
-
-- **Writer:** admin.POST /api/admin/sessions, admin.DELETE /api/admin/sessions/:id; seed
-- **Readers:** v_cupping_scores_readable, admin.GET /sessions, coffees
-- **Since:** 2026-05-25
-
-| column | type | null | comment |
-|---|---|---|---|
-| `id` | integer | no | Surrogate primary key; referenced by cupping_session_coffees.session_id and coffee_archetype_assignment.assigned_from_session_id. |
-| `session_date` | date | yes | Calendar date the session was held. |
-| `brew_method` | text | yes | Brew method used, as free text. Values follow the lookup_value category brew_method (cupping, filter, pour-over, espresso, french-press, aeropress, other); no enum since the TEXT migration. |
-| `location` | text | yes | Free-text place where the session was held. |
-| `session_notes` | text | yes | Free-text notes about the session as a whole. |
-| `created_at` | timestamp with time zone | yes | UTC timestamp the session row was created. |
-
 #### `dial_position_signal`
 
 One row per source's opinion about where a coffee sits on its dial (cupping, roastery_wheel, client_wheel, sms_feedback, onsite_feedback), read only by the dormant consensus view and an admin stats count; never auto-moves a placement.
@@ -1073,17 +1265,17 @@ One row per source's opinion about where a coffee sits on its dial (cupping, roa
 | column | type | null | comment |
 |---|---|---|---|
 | `id` | integer | no | Surrogate key for the signal row. |
-| `coffee_id` | integer | yes | References coffees.id, the coffee the signal is about (ON DELETE CASCADE); nullable in the schema but always set by the writers. |
+| `coffee_id` | integer | yes | References coffees.id, the coffee the signal is about (ON DELETE RESTRICT since cupping evidence brief 1); nullable in the schema but always set by the writers. |
 | `archetype` | archetype_enum | no | archetype_enum dial the signal applies to; taken from the coffee's current match archetype. |
 | `dimension_id` | integer | no | References coffee_dimensions.id, the archetype's dominant dimension that the signal speaks to. |
 | `source` | text | no | Where the opinion came from. One of: cupping, roastery_wheel, client_wheel, sms_feedback, onsite_feedback (CHECK); joins dial_source_weight.source. |
 | `direction` | text | yes | Which way the source says the coffee should move on the dimension. One of: more, less (CHECK); NULL for cupping rows. \| Writer: dialPositionSignal.writeDialPositionSignal |
-| `raw_value` | numeric | yes | Average merged cupping score on dimension_id (the dimension's own numeric scale); NULL for feedback rows. \| Writer: dialSuggestion.recordCuppingSignal |
-| `sample_size` | integer | no | Number of observations behind the row: merged cupping sessions for cupping rows, 1 for each feedback row. |
+| `raw_value` | numeric | yes | Cupping rows: the midpoint of the coffee's latest merged range on dimension_id, 0 to 15 (v_coffee_dimension_range, cupping evidence brief 1; was an average over every merged row); NULL for feedback rows. \| Writer: dialSuggestion.recordCuppingSignal |
+| `sample_size` | integer | no | Number of observations behind the row: sessions with a current merged row for cupping rows, 1 for each feedback row. |
 | `confidence` | confidence_enum | yes | Confidence in the signal. One of: low, medium, high (confidence_enum); defaults to medium and no writer sets any other value. |
 | `computed_at` | timestamp with time zone | yes | UTC timestamp the signal was recorded. |
 | `superseded_at` | timestamp with time zone | yes | UTC timestamp a newer signal replaced this one; NULL means current, and only current rows feed the consensus view. \| Writer: dialSuggestion.recordCuppingSignal, orders.POST /:orderId/feedback |
-| `notes` | text | yes | For feedback rows a match key such as "onsite feedback for order <id>" that the order-feedback revision path uses to supersede the prior row; NULL for cupping rows. \| Writer: dialPositionSignal.writeDialPositionSignal |
+| `notes` | text | yes | For feedback rows a match key such as "onsite feedback for order <id>" that the order-feedback revision path uses to supersede the prior row; for cupping rows written since cupping evidence brief 1 the basis of the suggested slot (spec_band, or archetype_vector (May 2026 targets) while any slot of the archetype lacks a band); NULL on older cupping rows. \| Writer: dialPositionSignal.writeDialPositionSignal, dialSuggestion.recordCuppingSignal |
 | `suggested_slot_id` | integer | yes | References coffee_dial_slot.id, the slot the source suggests (replaced the dropped suggested_vocabulary_id in brief 5a); set only on cupping rows, NULL for feedback rows. \| Writer: dialSuggestion.recordCuppingSignal |
 
 #### `dial_source_weight`
@@ -1523,20 +1715,22 @@ One private, revocable partner-roastery portal link per issue, identified by an 
 
 #### `roastery_portal_note_mapping`
 
-Remembered translations from a roaster's normalized tasting words to a flavor-wheel term, offered as a suggestion next time (never auto-applied); changing one supersedes the old row and inserts a new one.
+Remembered translations from a roaster's or a cupper's normalized words to an SCA node (source_kind keeps the two apart), offered as a suggestion next time and looked up by the cupping loader; changing one supersedes the old row and inserts a new one.
 
-- **Writer:** roasteryPortalService.rememberMapping, roasteryPortalService.supersedeNoteMapping
-- **Readers:** roasteryPortalReads, roasteryPortalService
+- **Writer:** noteMappingService.setNoteMappingInTx, noteMappingService.retireNoteMappingInTx
+- **Readers:** roasteryPortalReads, roasteryPortalService, noteMappingReads, noteMappingService
 - **Since:** 2026-10-05 (Roastery portal part 2 #210)
 
 | column | type | null | comment |
 |---|---|---|---|
 | `id` | uuid | no | Primary key (UUID). |
-| `normalized_words` | text | no | The roaster's words lowercased, trimmed and whitespace-collapsed; unique among rows where superseded_at IS NULL. |
+| `normalized_words` | text | no | The roaster's or cupper's words lowercased, trimmed and whitespace-collapsed; unique per source_kind among rows where superseded_at IS NULL. |
 | `cupping_note_id` | uuid | no | FK to cupping_note(id): the flavor-wheel term these words map to. |
 | `created_by_admin_id` | uuid | yes | FK to user_profile(id) of the admin who set the mapping; NULL if unknown. |
 | `created_at` | timestamp with time zone | no | Timestamp when the mapping was created. |
-| `superseded_at` | timestamp with time zone | yes | Timestamp when the mapping was replaced or withdrawn; NULL while it is the active one for its words. \| Writer: roasteryPortalService.rememberMapping, roasteryPortalService.supersedeNoteMapping |
+| `superseded_at` | timestamp with time zone | yes | Timestamp when the mapping was replaced or withdrawn; NULL while it is the active one for its words and kind. \| Writer: noteMappingService.setNoteMappingInTx, noteMappingService.retireNoteMappingInTx |
+| `source_kind` | text | no | Whose vocabulary the words are. One of: roaster (portal and remark words), cupper (an Axis & Bloom cupper's words, mapped at the SCA tier she named) \| Writer: noteMappingService.setNoteMappingInTx |
+| `note` | text | yes | Why the words map to this node, when not obvious (for example berries is Berry, tier 2, not a berry leaf). |
 
 #### `roastery_portal_respondent`
 
@@ -2375,12 +2569,12 @@ Per-archetype split of newsletter subscribers attributed to each campaign, for f
 
 #### `v_archetype_dimension_comparison`
 
-Archetype target range (min, ideal, max) beside the average actual cupping score and coffee count per archetype x dimension.
+Archetype target range (min, ideal, max, the May 2026 archetype_vector targets) beside the average midpoint of the latest merged cupping range (v_coffee_dimension_range) of the active coffees matched to the archetype, and their count, per archetype x dimension.
 
 - **Writer:** none (derived)
 - **Readers:** coffees (GET /archetype-stats), dialSuggestion
-- **Since:** 2026-06-12
-- **reads:** `archetype_vector`, `coffee_archetype`, `coffee_archetype_assignment`, `coffee_dimensions`, `coffees`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`
+- **Since:** 2026-06-12 (latest merged range: 2026-10-18)
+- **reads:** `archetype_vector`, `coffee_archetype`, `coffee_archetype_assignment`, `coffee_dimensions`, `coffees`, `v_coffee_dimension_range`
 
 #### `v_archetype_distribution`
 
@@ -2429,10 +2623,10 @@ Cross-archetype bridge-hop summary (hop counts, more/less split, average confide
 
 #### `v_coffee_descriptor`
 
-v_collaborative_flavor_wheel grouped to one row per coffee and descriptor with wheel category/subcategory and n_sources (distinct source channels that observed it).
+v_collaborative_flavor_wheel grouped to one row per coffee and descriptor with wheel category/subcategory, the SCA tier and n_sources (distinct source channels that observed it).
 
 - **Writer:** none (derived)
-- **Readers:** v_palate_shared_traits
+- **Readers:** v_palate_shared_traits, cuppingReads
 - **Since:** 2026-09-27 (Customer Blueprint C3 Part A4)
 - **reads:** `v_collaborative_flavor_wheel`
 
@@ -2445,14 +2639,32 @@ Weighted consensus of current dial_position_signal rows per coffee and archetype
 - **Since:** 2026-07-09 (#75), renamed and re-keyed 2026-09-15
 - **reads:** `dial_position_signal`, `dial_source_weight`
 
-#### `v_coffee_dimension_range`
+#### `v_coffee_dimension_history`
 
-Per active coffee and cupping dimension, the min/max score range across merged cupping scores (falling back to all tasters when none merged), with n_scores and basis; no row if never cupped.
+Every session's current merged range per coffee x dimension x sample, converted to 0 to 15, with session date, blind and control flags and the scales behind it; what calibration and repeatability read (the catalog reads the latest session only).
 
 - **Writer:** none (derived)
-- **Readers:** roasteryPortalReads, customerIntegrity, v_palate_shared_traits, v_palate_dominant_dimensions, v_palate_slot_candidates, v_roastery_portal_dimension_match
-- **Since:** 2026-09-27 (Customer Blueprint C3 Part A4)
-- **reads:** `coffee_dimensions`, `coffees`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`
+- **Readers:** cuppingReads
+- **Since:** 2026-10-18 (cupping evidence brief 1)
+- **reads:** `coffee_dimensions`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`, `cupping_sessions`
+
+#### `v_coffee_dimension_range`
+
+Per active coffee and cupping dimension, the range of the LATEST current merged row (by session date), converted to 0 to 15, with session_id, session_date, n_sessions, midpoint and all_ab_scale (falling back to the latest session's cupper rows when the coffee has no merged row); never unions sessions; no row if never cupped.
+
+- **Writer:** none (derived)
+- **Readers:** cuppingReads, roasteryPortalReads, customerIntegrity, v_archetype_dimension_comparison, v_coffee_dimension_range_calibrated, v_palate_shared_traits, +3 more
+- **Since:** 2026-09-27 (latest session: 2026-10-18)
+- **reads:** `coffee_dimensions`, `coffees`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`, `cupping_sessions`
+
+#### `v_coffee_dimension_range_calibrated`
+
+v_coffee_dimension_range with each cupper's current cupper_calibration_offset applied to her converted range behind the latest merge; calibrated_min/max/midpoint and n_offsets_applied. Unread on purpose until Dana decides offsets apply.
+
+- **Writer:** none (derived)
+- **Readers:** none yet
+- **Since:** 2026-10-18 (cupping evidence brief 1)
+- **reads:** `cupper_calibration_offset`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`, `v_coffee_dimension_range`
 
 #### `v_coffee_hop`
 
@@ -2510,21 +2722,57 @@ One row per coffee saying whether it is visible to customers at any size, is pla
 
 #### `v_collaborative_flavor_wheel`
 
-Every flavor-descriptor observation per coffee, one row each, labelled by source (internal cupping, roastery bag notes, client feedback).
+Every decision-layer flavor-descriptor observation per coffee, one row each, labelled by source (internal = current merged cupping rows only since cupping evidence brief 1, roastery = accepted bag notes, client = customer feedback), with the SCA tier of each node.
 
 - **Writer:** none (derived)
 - **Readers:** v_coffee_descriptor, admin, coffees, cron, orders, beatEngine, catalogService, sommelierRag
 - **Since:** 2026-05-27
 - **reads:** `coffees`, `cupping_note`, `cupping_score_descriptors`, `cupping_scores`, `cupping_session_coffees`, `customer_feedback_descriptor`, `customer_feedback_event`, `roastery_coffee_descriptors`
 
-#### `v_cupping_scores_readable`
+#### `v_cupping_score`
 
-One row per cupping score value (taster x coffee x dimension) with session, coffee, roaster and current archetype context for readable manual queries.
+One row per CURRENT score header (cupper or merged) with or without values: cupper name, scale, calls, merge rule and note; Score Entry lists a sample's rows from here.
 
 - **Writer:** none (derived)
-- **Readers:** none (manual SQL, no TypeScript consumer)
-- **Since:** 2026-05-29
-- **reads:** `coffee_archetype_assignment`, `coffee_dimensions`, `coffees`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`, `cupping_sessions`, `roaster`
+- **Readers:** cuppingReads
+- **Since:** 2026-10-18 (cupping evidence brief 1)
+- **reads:** `cupper`, `cupping_scores`, `cupping_session_coffees`
+
+#### `v_cupping_score_descriptor`
+
+One row per descriptor on a CURRENT score row (cupper or merged), with the SCA node, its tier and the cupper's words.
+
+- **Writer:** none (derived)
+- **Readers:** cuppingReads
+- **Since:** 2026-10-18 (cupping evidence brief 1)
+- **reads:** `cupping_note`, `cupping_score_descriptors`, `cupping_scores`, `cupping_session_coffees`
+
+#### `v_cupping_scores_readable`
+
+One row per CURRENT score value (cupper or merged row x dimension) with session, sample, coffee, roaster and archetype (from v_coffee); value_min/max converted to 0 to 15 through cupping_to_ab(), native_min/max and raw_value as written, conversion_error, the calls and the evidence columns
+
+- **Writer:** none (derived)
+- **Readers:** cuppingReads
+- **Since:** 2026-05-29 (current rows, converted: 2026-10-18)
+- **reads:** `coffee_dimensions`, `coffees`, `cupper`, `cupping_scale`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`, `cupping_sessions`, `v_coffee`
+
+#### `v_cupping_session`
+
+One row per cupping session for Score Entry: header and evidence columns, brew device (first sample's brew params), coffee count, current merged count and the names of the cuppers with a current row.
+
+- **Writer:** none (derived)
+- **Readers:** cuppingReads
+- **Since:** 2026-10-18 (cupping evidence brief 1)
+- **reads:** `cupper`, `cupping_brew_params`, `cupping_scores`, `cupping_session_coffees`, `cupping_sessions`
+
+#### `v_cupping_session_coffee`
+
+One row per sample for Score Entry: the coffee (from v_coffee), roast date, blind code, sample note, control flag, its brew params, its current merged score id, the cuppers with a current row and whether anything is scored.
+
+- **Writer:** none (derived)
+- **Readers:** cuppingReads
+- **Since:** 2026-10-18 (cupping evidence brief 1)
+- **reads:** `cupper`, `cupping_brew_params`, `cupping_scores`, `cupping_session_coffees`, `v_coffee`
 
 #### `v_customer_bag_attribution`
 
@@ -2805,6 +3053,15 @@ Every roastery_portal_response version with one effective caffeine_level (the ne
 - **Since:** 2026-10-06 (Roastery portal part 3 #212)
 - **reads:** `roastery_portal_response`
 
+#### `v_roastery_remark`
+
+Every roaster remark with roaster, coffee and lineup names, the SCA node (descriptor, category, sub-group, tier) and is_current (no newer row supersedes it).
+
+- **Writer:** none (derived)
+- **Readers:** roasteryRemarkReads
+- **Since:** 2026-10-18 (cupping evidence brief 1)
+- **reads:** `coffees`, `cupping_note`, `roaster`, `roastery_portal_coffee`, `roastery_remark`
+
 #### `v_subscriber_quiz_results`
 
 One row per newsletter subscriber joined to their most recent quiz session and its current interpretation, for Looker Studio and calibration exports
@@ -2842,34 +3099,40 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `catalog_change` | customerFacts | customerFacts (INSERT) | customerIntegrity | — |
 | `claude_daily_spend` | anthropicGuard, seed | anthropicGuard (INSERT), seed (UPDATE) | admin, anthropicGuard | — |
 | `coffee_archetype` | catalogService, seed | catalogService (UPDATE), seed (INSERT, UPDATE) | axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, coffees, correct-subscriber-archetypes, customerIntegrity, customerReads, dialSuggestion, exportCalibration, index, quiz, quizIntegrity, quizInterpretationBackfill, quizScorer, quizSession, roasteryPortalReads, sommelierRag, users | v_archetype_dimension_comparison, v_archetype_vectors, v_coffee_archetype, v_customer_quiz_current, v_customer_timeline, v_quiz_scoring_matrix, v_quiz_session_interpretation_history, v_roastery_portal_dimension_match, v_subscriber_quiz_results |
-| `coffee_archetype_assignment` | catalogService, seed | catalogService (INSERT, UPDATE), seed (UPDATE) | admin, axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, coffees, customerReads, dialSuggestion, roasteryPortalReads | v_archetype_dimension_comparison, v_coffee, v_cupping_scores_readable, v_roastery_portal_dimension_match |
-| `coffee_category` | catalogService, seed | catalogService (DELETE, INSERT, UPDATE), seed (INSERT) | admin, axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, customerReads, roasteryPortalReads, roasteryPortalService | v_coffee |
-| `coffee_category_assignment` | catalogService, seed | catalogService (DELETE, INSERT), seed (INSERT) | admin, axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, customerReads, roasteryPortalReads | v_coffee |
-| `coffee_dial_slot` | catalogService, seed | catalogService (UPDATE), seed (INSERT) | admin, axis, backfillCustomerFacts, catalogImport, catalogIntegrity, catalogReads, catalogService, customerReads, dialSuggestion, roasteryPortalReads, sommelier, sommelierRag, users | v_coffee_hop, v_coffee_sellable_candidate, v_coffee_slot, v_coffee_visibility, v_roastery_portal_dimension_match |
-| `coffee_dimensions` | seed | seed (INSERT, UPDATE) | admin, axis, brewCard, catalogReads, catalogService, coffees, customerIntegrity, customerReads, dialSuggestion, roasteryPortalReads, sommelierRag | v_archetype_dimension_comparison, v_archetype_vectors, v_coffee_archetype, v_coffee_dimension_range, v_cupping_scores_readable, v_roastery_portal_dimension_match |
+| `coffee_archetype_assignment` | catalogService, seed | catalogService (INSERT, UPDATE), seed (UPDATE) | admin, axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, coffees, cuppingReads, customerReads, dialSuggestion, roasteryPortalReads | v_archetype_dimension_comparison, v_coffee, v_roastery_portal_dimension_match |
+| `coffee_category` | catalogService, seed | catalogService (DELETE, INSERT, UPDATE), seed (INSERT) | admin, axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, cuppingReads, customerReads, roasteryPortalReads, roasteryPortalService | v_coffee |
+| `coffee_category_assignment` | catalogService, seed | catalogService (DELETE, INSERT), seed (INSERT) | admin, axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, cuppingReads, customerReads, roasteryPortalReads | v_coffee |
+| `coffee_dial_slot` | catalogService, seed | catalogService (UPDATE), seed (INSERT) | admin, axis, backfillCustomerFacts, catalogImport, catalogIntegrity, catalogReads, catalogService, cuppingService, customerReads, dialSuggestion, roasteryPortalReads, sommelier, sommelierRag, users | v_coffee_hop, v_coffee_sellable_candidate, v_coffee_slot, v_coffee_visibility, v_roastery_portal_dimension_match |
+| `coffee_dimensions` | seed | seed (INSERT, UPDATE) | admin, axis, catalogReads, catalogService, coffees, cuppingReads, cuppingService, customerIntegrity, customerReads, dialSuggestion, roasteryPortalReads, sommelierRag | v_archetype_dimension_comparison, v_archetype_vectors, v_coffee_archetype, v_coffee_dimension_history, v_coffee_dimension_range, v_cupping_scores_readable, v_roastery_portal_dimension_match |
 | `coffee_hop` | catalogService | catalogService (DELETE, INSERT) | admin, axis, catalogIntegrity, catalogReads, catalogService, dialSuggestion, qrDoor, sommelierRag | v_coffee_hop |
 | `coffee_retail_price` | catalogService | catalogService (INSERT) | catalogReads, catalogService | — |
 | `coffee_size` | seed | seed (INSERT) | catalogReads, catalogService, customerReads, roasteryPortalReads | v_coffee_sellable_candidate, v_coffee_visibility, v_palate_slot_candidates |
 | `coffee_sku` | catalogService, seed | catalogService (INSERT, UPDATE), seed (UPDATE) | admin, backfillCustomerFacts, behavioralConfidence, blendResolver, brewCard, catalogReads, catalogService, coffees, customerReads, engagementMetrics, exportCalibration, index, liamSmsFeedback, orders, qrDoor, roasteryPortalReads, users | v_coffee_sellable_candidate, v_coffee_visibility, v_customer_bag_attribution, v_customer_timeline |
 | `coffee_slot_assignment` | catalogService | catalogService (INSERT, UPDATE) | admin, axis, catalogIntegrity, catalogReads, catalogService, customerReads, dialSuggestion, roasteryPortalReads, sommelierRag | v_coffee_hop, v_coffee_sellable_candidate, v_coffee_slot, v_coffee_visibility, v_coffee_visibility_summary, v_palate_recommendation_outcome, v_roastery_portal_dimension_match |
 | `coffee_slot_price` | catalogService, seed | catalogService (INSERT), seed (UPDATE) | catalogIntegrity, catalogReads, catalogService, customerReads, roasteryPortalReads | v_coffee_sellable_candidate, v_coffee_visibility |
-| `coffees` | admin, catalogService, coffees, qrDoor, seed | admin (UPDATE), catalogService (INSERT, UPDATE), coffees (UPDATE), qrDoor (UPDATE), seed (INSERT) | activeCatalog, admin, axis, beatEngine, behavioralConfidence, blendResolver, catalogImport, catalogIntegrity, catalogReads, catalogService, coffees, cron, customerIntegrity, customerReads, dialSuggestion, index, orders, qrDoor, roasteryPortalReads, roasteryPortalService, sommelier, sommelierRag | v_archetype_dimension_comparison, v_coffee, v_coffee_dimension_range, v_coffee_hop, v_collaborative_flavor_wheel, v_cupping_scores_readable |
+| `coffees` | admin, catalogService, coffees, qrDoor, seed | admin (UPDATE), catalogService (INSERT, UPDATE), coffees (UPDATE), qrDoor (UPDATE), seed (INSERT) | activeCatalog, admin, axis, beatEngine, behavioralConfidence, blendResolver, catalogImport, catalogIntegrity, catalogReads, catalogService, coffees, cron, cuppingReads, cuppingService, customerIntegrity, customerReads, dialSuggestion, index, orders, qrDoor, roasteryPortalReads, roasteryPortalService, roasteryRemarkReads, sommelier, sommelierRag | v_archetype_dimension_comparison, v_coffee, v_coffee_dimension_range, v_coffee_hop, v_collaborative_flavor_wheel, v_cupping_scores_readable, v_roastery_remark |
 | `company` | companyGiftsAdmin | companyGiftsAdmin (INSERT) | companiesAdmin, companyGiftsAdmin | — |
 | `company_gift` | companyGiftsAdmin | companyGiftsAdmin (INSERT, UPDATE) | companyGiftRedemption, companyGiftsAdmin, cron | — |
 | `company_gift_code` | companyGiftRedemption, companyGiftsAdmin, cron | companyGiftRedemption (UPDATE), companyGiftsAdmin (INSERT), cron (UPDATE) | companyGiftRedemption, companyGiftsAdmin | — |
-| `cupping_brew_params` | none | — | — | — |
-| `cupping_note` | seed | seed (INSERT, UPDATE) | admin, beatEngine, catalogService, coffees, cron, customerReads, orders, roasteryPortalReads, roasteryPortalService, sommelierRag | v_collaborative_flavor_wheel |
+| `cupper` | cuppingService, seed | cuppingService (INSERT), seed (INSERT) | cuppingReads, cuppingService | v_cupping_score, v_cupping_scores_readable, v_cupping_session, v_cupping_session_coffee |
+| `cupper_calibration_offset` | manual:direct | — | — | v_coffee_dimension_range_calibrated |
+| `cupping_brew_params` | cuppingService | cuppingService (DELETE, INSERT) | cuppingReads, cuppingService | v_cupping_session, v_cupping_session_coffee |
+| `cupping_note` | seed | seed (INSERT, UPDATE) | admin, beatEngine, catalogService, coffees, cron, cuppingReads, cuppingService, customerReads, noteMappingReads, noteMappingService, orders, roasteryPortalReads, roasteryPortalService, roasteryRemarkReads, roasteryRemarkService, sommelierRag | v_collaborative_flavor_wheel, v_cupping_score_descriptor, v_roastery_remark |
 | `cupping_note_dimension_weight` | none | — | — | — |
-| `cupping_score_descriptors` | admin, seed | admin (DELETE, INSERT), seed (INSERT) | admin, beatEngine, catalogService, coffees, cron, customerReads, orders, sommelierRag | v_collaborative_flavor_wheel |
-| `cupping_score_values` | admin | admin (INSERT) | admin, brewCard, coffees, customerIntegrity, customerReads, dialSuggestion, roasteryPortalReads | v_archetype_dimension_comparison, v_coffee_dimension_range, v_cupping_scores_readable |
-| `cupping_scores` | admin, seed | admin (DELETE, INSERT), seed (INSERT) | admin, beatEngine, brewCard, catalogService, coffees, cron, customerIntegrity, customerReads, dialSuggestion, orders, roasteryPortalReads, sommelierRag | v_archetype_dimension_comparison, v_coffee_dimension_range, v_collaborative_flavor_wheel, v_cupping_scores_readable |
-| `cupping_session_coffees` | admin, seed | admin (DELETE, INSERT), seed (INSERT) | admin, beatEngine, brewCard, catalogService, coffees, cron, customerIntegrity, customerReads, dialSuggestion, orders, roasteryPortalReads, sommelierRag | v_archetype_dimension_comparison, v_coffee_dimension_range, v_collaborative_flavor_wheel, v_cupping_scores_readable |
-| `cupping_sessions` | admin, seed | admin (DELETE, INSERT), seed (INSERT) | admin, coffees | v_cupping_scores_readable |
+| `cupping_scale` | seed | seed (INSERT) | cuppingReads, cuppingService | v_cupping_scores_readable |
+| `cupping_scale_step` | seed | seed (INSERT) | cuppingReads | — |
+| `cupping_score_descriptors` | cuppingService, seed | cuppingService (INSERT), seed (INSERT) | admin, beatEngine, catalogService, coffees, cron, cuppingReads, cuppingService, customerReads, orders, sommelierRag | v_collaborative_flavor_wheel, v_cupping_score_descriptor |
+| `cupping_score_values` | cuppingService | cuppingService (INSERT) | coffees, cuppingReads, cuppingService, customerIntegrity, customerReads, dialSuggestion, roasteryPortalReads | v_coffee_dimension_history, v_coffee_dimension_range, v_coffee_dimension_range_calibrated, v_cupping_scores_readable |
+| `cupping_scores` | cuppingService, seed | cuppingService (INSERT, UPDATE), seed (INSERT, UPDATE) | admin, beatEngine, catalogService, coffees, cron, cuppingReads, cuppingService, customerIntegrity, customerReads, dialSuggestion, orders, roasteryPortalReads, sommelierRag | v_coffee_dimension_history, v_coffee_dimension_range, v_coffee_dimension_range_calibrated, v_collaborative_flavor_wheel, v_cupping_score, v_cupping_score_descriptor, v_cupping_scores_readable, v_cupping_session, v_cupping_session_coffee |
+| `cupping_session_coffees` | cuppingService, seed | cuppingService (DELETE, INSERT, UPDATE), seed (INSERT) | admin, beatEngine, catalogService, coffees, cron, cuppingReads, cuppingService, customerIntegrity, customerReads, dialSuggestion, orders, roasteryPortalReads, sommelierRag | v_coffee_dimension_history, v_coffee_dimension_range, v_coffee_dimension_range_calibrated, v_collaborative_flavor_wheel, v_cupping_score, v_cupping_score_descriptor, v_cupping_scores_readable, v_cupping_session, v_cupping_session_coffee |
+| `cupping_sessions` | cuppingService, seed | cuppingService (DELETE, INSERT, UPDATE), seed (INSERT, UPDATE) | coffees, cuppingReads, cuppingService, customerIntegrity, customerReads, dialSuggestion, roasteryPortalReads | v_coffee_dimension_history, v_coffee_dimension_range, v_cupping_scores_readable, v_cupping_session |
+| `cupping_sheet_format` | seed | seed (INSERT) | cuppingReads, cuppingService | — |
+| `cupping_sheet_line` | seed | seed (INSERT) | cuppingReads | — |
 | `customer_bag_claim` | customerFacts | customerFacts (INSERT) | admin, customerReads, exportCalibration | v_customer_bag_attribution, v_customer_timeline |
 | `customer_brew_profile_change` | customerFacts | customerFacts (INSERT) | backfillCustomerFacts, customerIntegrity, customerReads, engagementMetrics | v_customer_brew_profile, v_customer_timeline |
 | `customer_dial_event` | customerFacts | customerFacts (INSERT) | backfillCustomerFacts, customerReads | v_customer_timeline |
-| `customer_feedback_descriptor` | customerFacts | customerFacts (INSERT) | admin, backfillCustomerFacts, beatEngine, catalogService, coffees, cron, customerReads, exportCalibration, orders, sommelierRag | v_collaborative_flavor_wheel, v_customer_feedback_current |
-| `customer_feedback_event` | customerFacts | customerFacts (INSERT) | admin, backfillCustomerFacts, beatEngine, catalogService, coffees, cron, customerReads, exportCalibration, orders, sommelierRag | v_collaborative_flavor_wheel, v_customer_feedback_current, v_customer_timeline |
+| `customer_feedback_descriptor` | customerFacts | customerFacts (INSERT) | admin, backfillCustomerFacts, beatEngine, catalogService, coffees, cron, cuppingReads, customerReads, exportCalibration, orders, sommelierRag | v_collaborative_flavor_wheel, v_customer_feedback_current |
+| `customer_feedback_event` | customerFacts | customerFacts (INSERT) | admin, backfillCustomerFacts, beatEngine, catalogService, coffees, cron, cuppingReads, customerReads, exportCalibration, orders, sommelierRag | v_collaborative_flavor_wheel, v_customer_feedback_current, v_customer_timeline |
 | `customer_identity_link` | customerFacts | customerFacts (INSERT) | admin, backfillClaimedSessionLinks, customerIntegrity, customerReads, engagementMetrics, exportCalibration, quizInterpretationBackfill | v_customer_identity, v_customer_timeline |
 | `customer_liam_action` | customerFacts | customerFacts (INSERT) | customerReads | v_customer_timeline |
 | `customer_liam_question` | customerFacts | customerFacts (INSERT) | admin, customerReads, exportCalibration, quizInterpretationBackfill | v_customer_timeline, v_palate_evidence, v_palate_threads |
@@ -2878,6 +3141,8 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `customer_order_kind` | seed | seed (INSERT) | — | — |
 | `dial_position_signal` | dialPositionSignal, dialSuggestion, orders, seed | dialPositionSignal (INSERT), dialSuggestion (INSERT, UPDATE), orders (UPDATE), seed (UPDATE) | admin, axis | v_coffee_dial_position_consensus |
 | `dial_source_weight` | seed | seed (INSERT) | admin | v_coffee_dial_position_consensus |
+| `evidence_parameter` | manual:direct, seed | seed (INSERT) | — | — |
+| `evidence_stop_word` | seed | seed (INSERT) | — | — |
 | `household` | household | household (DELETE, INSERT) | household | — |
 | `household_invitation` | household | household (INSERT, UPDATE) | household | — |
 | `liam_sms_feedback` | none | — | — | — |
@@ -2903,21 +3168,22 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `quiz_session_interpretation` | quizSession | quizSession (INSERT, UPDATE) | customerIntegrity, customerReads, exportCalibration, quizInterpretationBackfill, quizSession | v_customer_quiz_current, v_customer_timeline, v_quiz_session_interpretation_history, v_subscriber_quiz_results |
 | `quiz_type` | seed | seed (INSERT) | — | v_quiz_scoring_matrix |
 | `quiz_vector` | none | — | — | — |
-| `roaster` | admin, catalogService | admin (INSERT, UPDATE), catalogService (UPDATE) | admin, axis, behavioralConfidence, catalogImport, catalogIntegrity, catalogReads, catalogService, coffees, customerReads, roasteryPortalReads, roasteryPortalService | v_coffee, v_cupping_scores_readable |
+| `roaster` | admin, catalogService | admin (INSERT, UPDATE), catalogService (UPDATE) | admin, axis, behavioralConfidence, catalogImport, catalogIntegrity, catalogReads, catalogService, coffees, cuppingReads, customerReads, roasteryPortalReads, roasteryPortalService, roasteryRemarkReads | v_coffee, v_roastery_remark |
 | `roastery_blend_vector` | none | — | — | — |
-| `roastery_coffee_descriptors` | catalogService, seed | catalogService (INSERT, UPDATE), seed (INSERT) | admin, beatEngine, catalogService, coffees, cron, customerReads, orders, roasteryPortalReads, sommelierRag | v_collaborative_flavor_wheel |
+| `roastery_coffee_descriptors` | catalogService, seed | catalogService (INSERT, UPDATE), seed (INSERT) | admin, beatEngine, catalogService, coffees, cron, cuppingReads, customerReads, orders, roasteryPortalReads, sommelierRag | v_collaborative_flavor_wheel |
 | `roastery_portal_acceptance` | roasteryPortalService | roasteryPortalService (INSERT) | roasteryPortalReads | v_roastery_portal_progress |
-| `roastery_portal_coffee` | roasteryPortalService | roasteryPortalService (INSERT, UPDATE) | roasteryPortalReads, roasteryPortalService | v_roastery_portal_coffee, v_roastery_portal_coffee_hint, v_roastery_portal_cousin_hint, v_roastery_portal_progress |
+| `roastery_portal_coffee` | roasteryPortalService | roasteryPortalService (INSERT, UPDATE) | roasteryPortalReads, roasteryPortalService, roasteryRemarkReads | v_roastery_portal_coffee, v_roastery_portal_coffee_hint, v_roastery_portal_cousin_hint, v_roastery_portal_progress, v_roastery_remark |
 | `roastery_portal_dimension` | seed | seed (INSERT, UPDATE) | roasteryPortalReads | v_roastery_portal_coffee_hint, v_roastery_portal_cousin_hint |
 | `roastery_portal_lineup_response` | roasteryPortalService | roasteryPortalService (INSERT, UPDATE) | roasteryPortalReads, roasteryPortalService | v_roastery_portal_lineup_current_response |
 | `roastery_portal_lineup_response_best_seller` | roasteryPortalService | roasteryPortalService (DELETE, INSERT) | roasteryPortalReads, roasteryPortalService | — |
 | `roastery_portal_link` | roasteryPortalService | roasteryPortalService (INSERT, UPDATE) | roasteryPortalReads, roasteryPortalService | — |
-| `roastery_portal_note_mapping` | roasteryPortalService | roasteryPortalService (INSERT, UPDATE) | roasteryPortalReads, roasteryPortalService | — |
+| `roastery_portal_note_mapping` | noteMappingService | noteMappingService (INSERT, UPDATE) | noteMappingReads, noteMappingService, roasteryPortalReads, roasteryPortalService | — |
 | `roastery_portal_respondent` | roasteryPortalService | roasteryPortalService (INSERT) | roasteryPortalReads, roasteryPortalService | v_roastery_portal_coffee_hint, v_roastery_portal_progress |
 | `roastery_portal_response` | roasteryPortalService | roasteryPortalService (INSERT, UPDATE) | roasteryPortalReads, roasteryPortalService | v_roastery_portal_coffee_hint, v_roastery_portal_cousin_hint, v_roastery_portal_progress, v_roastery_portal_response |
 | `roastery_portal_response_brew` | roasteryPortalService | roasteryPortalService (DELETE, INSERT) | roasteryPortalReads, roasteryPortalService | v_roastery_portal_progress |
 | `roastery_portal_response_dimension` | roasteryPortalService | roasteryPortalService (DELETE, INSERT) | roasteryPortalReads, roasteryPortalService | v_roastery_portal_coffee_hint, v_roastery_portal_progress |
 | `roastery_portal_response_note` | roasteryPortalService | roasteryPortalService (DELETE, INSERT) | roasteryPortalReads, roasteryPortalService | v_roastery_portal_progress |
+| `roastery_remark` | roasteryRemarkService | roasteryRemarkService (INSERT) | roasteryRemarkReads | v_roastery_remark |
 | `roastery_shipment_details` | none | — | — | — |
 | `sensory_lexicon_attribute` | seed | seed (INSERT, UPDATE) | — | — |
 | `sensory_source` | seed | seed (INSERT) | — | — |
@@ -2957,11 +3223,11 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 **Dead candidates, observed (0):** none.
 
-**Dead candidates, static (23):** `archetype_relationship`, `archetype_tunable_variable`, `cupping_brew_params`, `cupping_note_dimension_weight`, `customer_order_kind`, `liam_sms_feedback`, `newsletter_subscriber_backup_20260925`, `notification_log`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_vector`, `roastery_blend_vector`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `user_archetype_tuning`, `user_coffee_profile`, `user_lifecycle_event`, `user_payment_detail`, `user_roaster_link`, `user_vector_state`.
+**Dead candidates, static (24):** `archetype_relationship`, `archetype_tunable_variable`, `cupping_note_dimension_weight`, `customer_order_kind`, `evidence_parameter`, `evidence_stop_word`, `liam_sms_feedback`, `newsletter_subscriber_backup_20260925`, `notification_log`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_vector`, `roastery_blend_vector`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `user_archetype_tuning`, `user_coffee_profile`, `user_lifecycle_event`, `user_payment_detail`, `user_roaster_link`, `user_vector_state`.
 
-**Touched since the reset (115):** `address`, `api_event`, `archetype_relationship`, `archetype_tunable_variable`, `archetype_vector`, `beat_event`, `brew_card_view_event`, `campaign_landing_event`, `catalog_change`, `claude_daily_spend`, `coffee_archetype`, `coffee_archetype_assignment`, `coffee_category`, `coffee_category_assignment`, `coffee_dial_slot`, `coffee_dimensions`, `coffee_hop`, `coffee_retail_price`, `coffee_size`, `coffee_sku`, `coffee_slot_assignment`, `coffee_slot_price`, `coffees`, `company`, `company_gift`, `company_gift_code`, `cupping_brew_params`, `cupping_note`, `cupping_note_dimension_weight`, `cupping_score_descriptors`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`, `cupping_sessions`, `customer_bag_claim`, `customer_brew_profile_change`, `customer_dial_event`, `customer_feedback_descriptor`, `customer_feedback_event`, `customer_identity_link`, `customer_liam_action`, `customer_liam_question`, `customer_liam_recommendation`, `customer_liam_reply`, `customer_order_kind`, `dial_position_signal`, `dial_source_weight`, `household`, `household_invitation`, `liam_sms_feedback`, `lookup_value`, `marketing_config`, `newsletter_subscriber`, `newsletter_subscriber_backup_20260925`, `notification_log`, `order`, `order_line_item`, `qr_scan_event`, `qr_universal_token`, `quiz`, `quiz_answer`, `quiz_answer_archetype_score`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_funnel_event`, `quiz_question`, `quiz_session`, `quiz_session_interpretation`, `quiz_type`, `quiz_vector`, `roaster`, `roastery_blend_vector`, `roastery_coffee_descriptors`, `roastery_portal_acceptance`, `roastery_portal_coffee`, `roastery_portal_dimension`, `roastery_portal_lineup_response`, `roastery_portal_lineup_response_best_seller`, `roastery_portal_link`, `roastery_portal_note_mapping`, `roastery_portal_respondent`, `roastery_portal_response`, `roastery_portal_response_brew`, `roastery_portal_response_dimension`, `roastery_portal_response_note`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `sommelier_evaluation`, `sommelier_messages`, `sommelier_sessions`, `sommelier_sms_feedback`, `subscriber_source`, `subscription`, `token_events`, `transactional_email_log`, `user_archetype_tuning`, `user_bloom_dial_current_position`, `user_brew_card`, `user_coffee_profile`, `user_email`, `user_flavor_feedback`, `user_lifecycle_event`, `user_lifecycle_stage`, `user_lifecycle_state`, `user_payment_detail`, `user_phone`, `user_profile`, `user_roaster_link`, `user_saved_item`, `user_tokens`, `user_type`, `user_vector_state`.
+**Touched since the reset (124):** `address`, `api_event`, `archetype_relationship`, `archetype_tunable_variable`, `archetype_vector`, `beat_event`, `brew_card_view_event`, `campaign_landing_event`, `catalog_change`, `claude_daily_spend`, `coffee_archetype`, `coffee_archetype_assignment`, `coffee_category`, `coffee_category_assignment`, `coffee_dial_slot`, `coffee_dimensions`, `coffee_hop`, `coffee_retail_price`, `coffee_size`, `coffee_sku`, `coffee_slot_assignment`, `coffee_slot_price`, `coffees`, `company`, `company_gift`, `company_gift_code`, `cupper`, `cupper_calibration_offset`, `cupping_brew_params`, `cupping_note`, `cupping_note_dimension_weight`, `cupping_scale`, `cupping_scale_step`, `cupping_score_descriptors`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`, `cupping_sessions`, `cupping_sheet_format`, `cupping_sheet_line`, `customer_bag_claim`, `customer_brew_profile_change`, `customer_dial_event`, `customer_feedback_descriptor`, `customer_feedback_event`, `customer_identity_link`, `customer_liam_action`, `customer_liam_question`, `customer_liam_recommendation`, `customer_liam_reply`, `customer_order_kind`, `dial_position_signal`, `dial_source_weight`, `evidence_parameter`, `evidence_stop_word`, `household`, `household_invitation`, `liam_sms_feedback`, `lookup_value`, `marketing_config`, `newsletter_subscriber`, `newsletter_subscriber_backup_20260925`, `notification_log`, `order`, `order_line_item`, `qr_scan_event`, `qr_universal_token`, `quiz`, `quiz_answer`, `quiz_answer_archetype_score`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_funnel_event`, `quiz_question`, `quiz_session`, `quiz_session_interpretation`, `quiz_type`, `quiz_vector`, `roaster`, `roastery_blend_vector`, `roastery_coffee_descriptors`, `roastery_portal_acceptance`, `roastery_portal_coffee`, `roastery_portal_dimension`, `roastery_portal_lineup_response`, `roastery_portal_lineup_response_best_seller`, `roastery_portal_link`, `roastery_portal_note_mapping`, `roastery_portal_respondent`, `roastery_portal_response`, `roastery_portal_response_brew`, `roastery_portal_response_dimension`, `roastery_portal_response_note`, `roastery_remark`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `sommelier_evaluation`, `sommelier_messages`, `sommelier_sessions`, `sommelier_sms_feedback`, `subscriber_source`, `subscription`, `token_events`, `transactional_email_log`, `user_archetype_tuning`, `user_bloom_dial_current_position`, `user_brew_card`, `user_coffee_profile`, `user_email`, `user_flavor_feedback`, `user_lifecycle_event`, `user_lifecycle_stage`, `user_lifecycle_state`, `user_payment_detail`, `user_phone`, `user_profile`, `user_roaster_link`, `user_saved_item`, `user_tokens`, `user_type`, `user_vector_state`.
 
 ---
 
-catalog-hash: 59796659921704116de117d8121657b4bb3355a500dff6134eaf840399c8cbde
-lineage-hash: 47617e65da20aa9c783e6bdbec04b00792cfaec889ffa75b72639b65c918cabd
+catalog-hash: 6eff21284bc2e00fd084986bc0e20774b165beb2bfa89891d4bf44f8c27c9abc
+lineage-hash: 89a243b1712a371be7255827ff5bf2a62353d2d58086be616e481a272d6198f9

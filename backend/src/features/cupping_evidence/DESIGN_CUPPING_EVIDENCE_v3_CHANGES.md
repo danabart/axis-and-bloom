@@ -1,0 +1,77 @@
+# Cupping Evidence v3: what changes from v2, and the design that results
+
+> Written 2026-10-16 (review session; decisions by Dana the same evening). Status: DESIGN. Input to the design session for `DESIGN_CUPPING_EVIDENCE.md` v3 and briefs 1 to 4. Sources: `REVIEW_CUPPING_EVIDENCE_v2_2026-10-16.md` (findings and Dana's answers), `TRANSCRIPTION_CHECK_BRIEF_2_2026-10-16.md` (what the paper says).
+
+## 0. What stays from v2
+
+Everything structural: observe / reconcile / decide; one table per source; evidence insert-only with DB-level immutability; `scale_code` + `raw_value`; blind and roaster-present as columns; `roastery_remark`; translation at the SCA family level through one mapping table; archetype and slot are Axis & Bloom decisions only; flags never gates; every decision states its basis; supersede never delete; not a Data Vault; brief sequence 1 to 4. v3 changes shapes inside that frame. No row has been loaded under v1 or v2, so nothing migrates.
+
+## 1. The three principles v3 adds
+
+1. **Evidence is stored as observed, converted only in reads.** A grid "4" is stored as 4 on the `grid_0_5` scale; the 0 to 15 reading is a function of a conversion table. A cupper's word is stored at the SCA level she used ("berries" is Berry, tier 2), never at a more specific one.
+2. **Nothing hard-coded.** Cuppers, scales, sheet formats, thresholds, stop words and word mappings are rows. A view that compares cuppers has one row per cupper. A new cupper, sheet or threshold is an INSERT.
+3. **Evidence reaches customers only through a decision.** The one existing shortcut (`v_collaborative_flavor_wheel` reading raw cupping descriptors) is closed: it reads current merged rows only and carries the SCA tier so a generic word displays as generic.
+
+## 2. Change table (v2 → v3)
+
+| # | Area | v2 | v3 | Why | Brief |
+|---|---|---|---|---|---|
+| 1 | Cuppers | `taster_name` text: 'Dana', 'Camila', 'merged'; views with `dana_*` / `camila_*` columns | `cupper (id, name, is_active, since)`; `cupping_scores.cupper_id` FK (null only on the legacy seed row); `is_merged` is the only merged flag, no sentinel name; two partial unique indexes: one current cupper row per (session coffee, cupper), one current merged row per session coffee. Every `v_evidence_*` view is one row per cupper; the UI pivots | Nothing hard-coded; a guest cupper or a third partner must not break a view | 1, 3 |
+| 2 | Scales | `scale_code` CHECK list; converted 0 to 15 values stored in `value_min/max`; conversion in the loader | `cupping_scale (code, label, min, max, kind)`, `cupping_scale_step (scale_code, raw_label, ab_min, ab_max)`; `scale_code` FK; `value_min/max` hold the native value (grid 4 → 4/4; word 'low' → null/null, `raw_value = 'low'`); `cupping_to_ab(scale_code, min, max, raw)` SQL function used by `v_cupping_scores_readable` and `v_coffee_dimension_range` | Conversion is a reconciliation rule, not an observation; changing it must not need re-transcription | 1 |
+| 3 | Sheet formats | `sheet_format` CHECK list; sheet line → dimension mapping in the loader | `cupping_sheet_format (code, since, note)`, `cupping_sheet_line (sheet_format, line_label, dimension_id, is_numeric)`; `sheet_format` FK; Score Entry and the loader read the mapping | The 9-dim sheet, and the next one, become INSERTs | 1 |
+| 4 | Thresholds and lists | Gap 2, rank gap 2, Spearman n ≥ 5, rho < −0.5, n ≥ 3, stop list: literals in view definitions | `evidence_parameter (key, value, since, note, superseded_at)` read through `param(key)`; `evidence_stop_word (word, since, note)` | Changing a threshold is a row with history, visible in `CATALOG.md` | 1, 3 |
+| 5 | SCA vocabulary | `cupping_note` holds tier-3 leaves plus three tier-1 rows; generic cupper words mapped to a chosen leaf (berries → Blueberry) | `cupping_note.tier SMALLINT NOT NULL` (1, 2, 3); the SCA wheel seeded in full at all three tiers, as published, nothing invented; existing tier-1 rows backfilled; a word maps to the most specific SCA node it names and never to a more specific one (berries → Berry, nuts → Nutty, citrus → Citrus Fruit, spice → Brown Spice, dried fruits → Dried Fruit, tea → Black Tea since it is a leaf). Readers show the tier, so a generic word displays as generic | Show what is in SCA; when we wrote it more generic, show that (Dana, 2026-10-16) | 1, 2 |
+| 6 | Word mappings | Conventions listed in brief 2 text; `roastery_portal_note_mapping` for roaster words only | `roastery_portal_note_mapping` gains `source_kind CHECK IN ('roaster','cupper')` and is the one words → node table for both; the loader looks words up and refuses to load an unmapped convention. (Governance: the table already is a words → leaf map with supersede; only its name is narrow. Rename to `note_word_mapping` with a compatibility view is optional, later) | One home for translation | 1, 2 |
+| 7 | Cupper rows | Immutable, never superseded; a transcription error fixed by a new session coffee row | Any `cupping_scores` row (cupper or merged) allows exactly one transition: set `superseded_at`, `superseded_by_id`, `supersede_reason` (required: 'transcription correction', 're-merged', 're-cupped'); values never change. §6.4 becomes: new cupper row in the same session coffee, old row superseded, re-merge | A wrong cupper row must leave the calibration views; superseding does not change a value | 1 |
+| 8 | Sessions over time | `v_coffee_dimension_range` = MIN / MAX over every current merged row of the coffee, all sessions | `v_coffee_dimension_range` = the **latest** current merged row per coffee (by `session_date`, then `created_at`), with `session_id`, `session_date`, `n_sessions`, `all_ab_scale`; new `v_coffee_dimension_history` = one row per coffee × dimension × session; `coffee_slot_assignment.placed_from_session_id` beside the archetype's `assigned_from_session_id`; `v_evidence_archetype.evidence_newer_than_decision` | Re-cuppings must be able to narrow, not only widen; the catalog pins the session it decided from | 1, 3, 4 |
+| 9 | Session dates | Nullable | `session_date NOT NULL`; `session_date_precision CHECK IN ('exact','estimated') NOT NULL DEFAULT 'exact'`. Utopian flights B and C: 2026-09-20, estimated | NULL sorts first under DESC and silently becomes "latest" | 1, 2 |
+| 10 | Transcription provenance | Inside the `record_source` string | `cupping_sessions.transcribed_by, transcribed_at, checked_by` (null for Score Entry); `record_source` names files only | Transcription is a source with its own error rate (the check found 12 struck marks counted as live) | 1, 2 |
+| 11 | Controls | None | `cupping_session_coffees.is_control BOOLEAN NOT NULL DEFAULT false`; protocol: one already-placed catalog coffee in every session; `v_evidence_cupper_calibration` gains `n_control`, `mean_signed_gap_to_catalog`, `repeatability` (from the history view) | Agreement between two untrained cuppers is not accuracy; no trained cupper is available, so the catalog itself is the anchor | 1, 3 |
+| 12 | Brew protocol | `cupping_brew_params` exists, no writer, never filled | `cuppingService.saveBrewParams`, session-level brew defaults applied to each session coffee; Score Entry prefills 8.5 g / 150 g; brief 2 writes 8.5 / 150 / ratio 17.65 / bowl on every session coffee, unrecorded fields null | A confounder as large as blindness; the standard protocol was used and should be on the row | 1, 2 |
+| 13 | Calibration correction | Promised in §7.5, no home | `cupper_calibration_offset (cupper_id, dimension_id, offset, basis, since, superseded_at)`, empty; `v_coffee_dimension_range_calibrated` applies it, unread until Dana says | Names the home so "merged range only" is a current rule, not a load-bearing one | 1 |
+| 14 | Dial signal | Fired from `mergeByRule` only; returns silently when the coffee has no archetype | `cuppingService.refreshDialSignal(coffeeId)`: recompute from the latest merged row, fire only when `all_ab_scale`, else supersede the current cupping signal; called by `mergeByRule`, by the loader after the manifest, and by `catalogService.setMatchArchetype` on an archetype change | Brief 2's order lost the signal for all 21 coffees; an archetype change left a stale signal | 1, 2 |
+| 15 | Customer-facing wheel | `v_collaborative_flavor_wheel` internal branch reads every `cupping_score_descriptors` row (cupper, merged, superseded) | Internal branch = `is_merged AND superseded_at IS NULL`; exposes `tier` | Evidence was reaching `GET /api/coffees/:id/flavor-wheel`, the sommelier and the beat engine directly | 1 |
+| 16 | Basis | `notes` string in a fixed shape; presence = `LIKE 'basis:%'` | `basis JSONB` on `coffee_archetype_assignment` and `coffee_slot_assignment` (column in brief 1, written in brief 4); `composeBasis` returns `{ text, json }`; presence = `basis IS NOT NULL`; the string stays for humans | Deterministic already; a string parser later would be the expensive version | 1, 4 |
+| 17 | Decision-layer FKs | `coffee_archetype_assignment.coffee_id`, `dial_position_signal.coffee_id` CASCADE | RESTRICT, same `DO` block as the cupping FKs | One `DELETE FROM coffees` on an uncupped coffee still erased decisions | 1 |
+| 18 | Legacy tagging | `WHERE created_at < '<deploy day>'` | `ADD COLUMN … DEFAULT 'legacy'` then `ALTER COLUMN … SET DEFAULT 'ab_0_15'` (same for `merge_rule`) | Date-free, restore-safe | 1 |
+| 19 | Guard trigger | Column-by-column comparison | `to_jsonb(OLD) - 'superseded_at' - 'superseded_by_id' - 'supersede_reason' = to_jsonb(NEW) - …` | The next `ADD COLUMN` must not fall outside the guard | 1 |
+| 20 | Tests | Fixtures left in a test session | Immutability tests inside a rolled-back transaction; count tests filter by roastery id | Immutable rows on a shared test DB drift the counts | 1, 3 |
+| 21 | Rank correlation | `corr()` over `DENSE_RANK()` | Average-rank ties, or the column is named `rank_corr` | Not Spearman under ties | 3 |
+| 22 | Brief 2 data | Tables as transcribed 10-11 to 10-16 | Corrected per `TRANSCRIPTION_CHECK_BRIEF_2_2026-10-16.md` §A; rule: a crossed-out or scribbled mark is never counted and is named in `raw_value`; a struck word is `~word` in `notes` and never a descriptor row; decision 4 ("two readings are one span") withdrawn; `said_on = '2026-10-06'` literal; load order sessions → cupper rows → merges → manifest → `refreshDialSignal`; `IMG_3752` noted as a second photo of `IMG_3751`; `transcribed_by = 'Claude (CTO session)'`, `checked_by = 'Dana; blind second read 2026-10-16'` | What the paper says | 2 |
+
+## 2b. Naming (decided 2026-10-17)
+Domain word first, `cupping_` stays, nothing renamed; `Class:` carries the layer. New tables singular. Alignment issues with existing writers and readers are listed in `DESIGN_CUPPING_EVIDENCE_v3_SKETCH.md`.
+
+## 3. The resulting design, layer by layer
+
+**Reference data (rows, not code):** `cupper`, `cupping_scale` + `cupping_scale_step`, `cupping_sheet_format` + `cupping_sheet_line`, `evidence_parameter`, `evidence_stop_word`, `cupping_note` (full SCA wheel, three tiers), `roastery_portal_note_mapping` (roaster and cupper words → SCA node, superseded never deleted), `coffee_dimensions`.
+
+**Evidence (insert-only, immutable values, one supersede transition):**
+- `cupping_sessions` (date + precision, blind, roaster present, sheet format, record source files, transcribed by / at, checked by) → `cupping_session_coffees` (roast date, blind code, sample note, is_control) → `cupping_brew_params` (dose, water, ratio, …) and `cupping_scores` (cupper_id or is_merged, scale_code, native values in `cupping_score_values` with `raw_value`, descriptors in `cupping_score_descriptors` at the SCA tier the cupper used, calls, merge rule and note, supersede columns).
+- `roastery_portal_*` (unchanged), `roastery_remark` (unchanged from v2).
+- `customer_feedback_*`, `dial_position_signal` (unchanged; signal refreshed by `refreshDialSignal`).
+
+**Writers (one per source, lint-enforced):** `cuppingService` (sessions, coffees, brew params, cupper scores, merges, supersede, `refreshDialSignal`), `roasteryRemarkService`, `roasteryPortalService`, the customer writer. Reads over views only through `cuppingReads`, `evidenceReads`.
+
+**Reconciliation (views, nothing stored):** `v_cupping_scores_readable` (converted through `cupping_to_ab`, current rows), `v_coffee_dimension_range` (latest session), `v_coffee_dimension_history` (all sessions), `v_coffee_dimension_range_calibrated` (offsets, unread), `v_collaborative_flavor_wheel` (current merged descriptors + roaster accepted + customer, with tier), the seven `v_evidence_*` views one row per cupper, thresholds from `evidence_parameter`, controls and repeatability in cupper calibration, `evidence_newer_than_decision` in the archetype view.
+
+**Decision (catalog, through `catalogService` only):** `coffee_archetype_assignment` (+ `basis JSONB`, `assigned_from_session_id`), `coffee_slot_assignment` (+ `basis JSONB`, `placed_from_session_id`), `roastery_coffee_descriptors`. Written from the Calibration workbench with the basis composed from the rows on screen. FKs RESTRICT.
+
+**Protocol (people, not schema):** 8.5 g / 150 g standard; one control coffee per session; Depth scored from the next sheet; paper sessions are transcribed, blind re-transcribed in a fresh session, diffed, and only the diff goes to Dana.
+
+## 4. Defaults for the open transcription items (so brief 2 can proceed; Dana overrides any line)
+
+One rule covers them: **a crossed-out or scribbled-over mark or word is never counted; the strike is named in `raw_value` or kept as `~word`.** Applied:
+- Joel Silva (Dana) acidity 4–6, `raw_value = '4-6; second reading 6-8 overwritten, read as struck (lemon)'`; sweetness 4–5, `raw_value = '4-5; the 5 overwritten'`.
+- Fabricator (Dana) acidity 5–7, body 5–7 (`raw_value` names the scribbled 4); `archetype_call = fruity`, `position_call = light`, `archetype_call_secondary` null, `call_note = '"Balance" scribbled out before "Fruity, light"'`.
+- Pearl (Dana) acidity 3, `raw_value = '3; 7 struck'`; body 7, `raw_value = '7; 5 struck'`.
+- Union (Dana) fragrance 7–9 (the max glyph read as 9; `raw_value = 'boxes 7 / 9 (max glyph could be 5)'`); acidity 5, `raw_value = '5; 4 struck'`.
+- Lime / Lemon descriptor rows from struck second readings: not loaded; `~lime` / `~lemon` stay in the acidity `notes`.
+- Amsterdam (Dana): `archetype_call = chocolate_nutty`, `call_note = 'can be earthy'` (a remark on the line, not a second call).
+- Union (both cuppers): calls null; Dana `call_note = 'wrote balanced, struck'`; Camila `call_note = 'Floral and Fruity boxed together, "limit of floral and fruity"; wrote BALANCED in the margin and struck it'`; manifest `confidence = low`, basis line names both strikes.
+
+## 5. Brief impact in one line each
+- **Brief 1** grows by the reference tables (§2 rows 1 to 6), the supersede change, the session and control columns, brew params writer, `refreshDialSignal`, the two view changes (8, 15), basis / session columns on the decision tables, FK and tagging mechanics. Still no data.
+- **Brief 2** is the same data with the §4 corrections, native-scale values, tier-2 mappings looked up from the mapping table, brew params, dated flights, provenance columns, the new load order.
+- **Brief 3** builds the views one row per cupper over `evidence_parameter`, adds the history-based repeatability and control columns, and the `evidence_newer_than_decision` flag.
+- **Brief 4** writes `basis JSONB` and `placed_from_session_id` through the existing doors; otherwise unchanged.

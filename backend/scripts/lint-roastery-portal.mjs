@@ -15,6 +15,10 @@
 // Rule 4 (part 2, F1): inside roasteryPortalReads.ts, "current response" and progress come
 //         from the views, not from re-derived queries: no DISTINCT ON and no
 //         status = 'draft' ordering in that file (the views own that logic).
+// Rule 5 (cupping evidence brief 1, 2026-10-18): roastery_remark (what a roaster
+//         says outside the form) is written only by services/roasteryRemarkService.ts
+//         and read from the base table only there and in roasteryRemarkReads.ts
+//         (everyone else reads v_roastery_remark through roasteryRemarkReads).
 // Rule 2: the portal's own files (the service, the reads, both route files) must
 //         not contain DML on `coffees`, any `coffee_*` table, or
 //         `roastery_coffee_descriptors` — the portal collects evidence, it never
@@ -99,6 +103,11 @@ const RULE4 = [
   { re: /status\s*=\s*'draft'/i, what: "status = 'draft'" },
 ];
 
+const REMARK_WRITER = 'services/roasteryRemarkService.ts';
+const REMARK_READERS = new Set([REMARK_WRITER, 'services/roasteryRemarkReads.ts']);
+const RULE5_DML = /\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?)\s+(?:ONLY\s+)?"?roastery_remark(?![a-z0-9_])/gi;
+const RULE5_READ = /\b(FROM|JOIN)\s+"?roastery_remark(?![a-z0-9_])/gi;
+
 const violations = [];
 for (const relPath of walk(SRC_ROOT, [])) {
   const text = stripComments(readFileSync(path.join(SRC_ROOT, relPath), 'utf8'));
@@ -124,6 +133,18 @@ for (const relPath of walk(SRC_ROOT, [])) {
       while ((m = re.exec(text))) {
         violations.push({ file: relPath, line: lineNumberAt(text, m.index), message: `${r.what} in roasteryPortalReads.ts: current response and progress come from the views, not re-derived queries` });
       }
+    }
+  }
+  if (relPath !== REMARK_WRITER) {
+    RULE5_DML.lastIndex = 0;
+    while ((m = RULE5_DML.exec(text))) {
+      violations.push({ file: relPath, line: lineNumberAt(text, m.index), message: `${m[1].toUpperCase()} on 'roastery_remark' outside ${REMARK_WRITER}` });
+    }
+  }
+  if (!REMARK_READERS.has(relPath)) {
+    RULE5_READ.lastIndex = 0;
+    while ((m = RULE5_READ.exec(text))) {
+      violations.push({ file: relPath, line: lineNumberAt(text, m.index), message: `${m[1].toUpperCase()} roastery_remark outside roasteryRemarkService.ts / roasteryRemarkReads.ts: read v_roastery_remark through roasteryRemarkReads` });
     }
   }
   if (PORTAL_FILES.has(relPath)) {

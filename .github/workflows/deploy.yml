@@ -118,6 +118,16 @@ jobs:
         working-directory: backend
         run: npm run lint:roastery-portal
 
+      # Cupping evidence brief 1 (2026-10-18) — fails the deploy on DML on a
+      # cupping_* evidence table outside cuppingService.ts (reference tables
+      # are seed-only, cupper via cuppingService.addCupper), on reading those
+      # base tables outside cuppingService.ts / cuppingReads.ts, and on calling
+      # recordCuppingSignal / refreshDialSignal from anywhere but their doors.
+      # Same placement/rationale as Lint customer above.
+      - name: Lint cupping
+        working-directory: backend
+        run: npm run lint:cupping
+
       # Data catalog brief 3 (2026-10-16) — the one-writer rule: every
       # table's writers in code must equal the Writer set declared in
       # backend/src/db/comments.sql, so a second, undeclared writer fails the
