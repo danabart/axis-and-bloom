@@ -16,6 +16,7 @@ import {
 import { importCatalog, type Manifest } from './catalogImport.js';
 import { computeCollectionOffer, resolveBlendForSlot, resolveCoffeeBlend } from './blendResolver.js';
 import { runCatalogIntegrityChecks } from './catalogIntegrity.js';
+import { freeSlotsInOneArchetype, liveSellableArchetypes, type FreeSlot } from '../test/freeSlots.js';
 import {
   getSizes, getAnchorSize, getCoffeeVisibility, getSlotVisibility, getNotSellable, getSellableSlots, clearSizeCache,
 } from './catalogReads.js';
@@ -30,18 +31,20 @@ let baseUrl: string;
 
 // Slot prices that already exist on the slots these tests use (the test DB is
 // a prod clone) — captured up front and restored, never deleted for good.
-const USED_SLOTS: Array<[string, number]> = [['floral', 2], ['floral', 3], ['balanced_sweet', 1], ['balanced_sweet', 2], ['balanced_sweet', 3]];
+// Cupping evidence brief 3, Part 0: the slots are picked at run time from the
+// free ones (no live placement, no 12 oz price): two floral slots (floralA,
+// floralB) and three of an archetype with no real sellable coffee for the
+// collection test, never a slot a real coffee holds.
 let savedPrices: Array<{ slot_id: number; weight_oz: string; retail_price_cents: number }> = [];
 const slotIds = new Map<string, number>();
-
-async function slotId(archetype: string, sortOrder: number): Promise<number> {
-  return slotIds.get(`${archetype}/${sortOrder}`)!;
-}
+let floralA: FreeSlot;
+let floralB: FreeSlot;
+let collection: FreeSlot[] = [];
 
 beforeAll(async () => {
-  for (const [a, n] of USED_SLOTS) {
-    slotIds.set(`${a}/${n}`, (await db.query<{ id: number }>(`SELECT id FROM coffee_dial_slot WHERE archetype = $1 AND sort_order = $2`, [a, n])).rows[0].id);
-  }
+  [floralA, floralB] = await freeSlotsInOneArchetype(2, { archetype: 'floral' });
+  collection = await freeSlotsInOneArchetype(3, { notArchetypes: [...await liveSellableArchetypes(), 'floral'] });
+  for (const s of [floralA, floralB, ...collection]) slotIds.set(`${s.archetype}/${s.sortOrder}`, s.id);
   const ids = [...slotIds.values()];
   savedPrices = (await db.query(`SELECT slot_id, weight_oz::text AS weight_oz, retail_price_cents FROM coffee_slot_price WHERE slot_id = ANY($1::int[])`, [ids])).rows;
   await db.query(`DELETE FROM coffee_slot_price WHERE slot_id = ANY($1::int[])`, [ids]);
@@ -111,7 +114,7 @@ describe('coffee_size', () => {
   });
 
   it('refuses a SKU / slot price weight outside coffee_size at the database (FK)', async () => {
-    await expect(db.query(`INSERT INTO coffee_slot_price (slot_id, weight_oz, retail_price_cents) VALUES ($1, 48, 100)`, [await slotId('floral', 2)])).rejects.toThrow(/foreign key/i);
+    await expect(db.query(`INSERT INTO coffee_slot_price (slot_id, weight_oz, retail_price_cents) VALUES ($1, 48, 100)`, [floralA.id])).rejects.toThrow(/foreign key/i);
   });
 
   it('integrity check 14 passes', async () => {
@@ -126,7 +129,7 @@ describe('UNKNOWN_SIZE hard block', () => {
   it('setSlotPrice and upsertSku at 48 oz are refused with UNKNOWN_SIZE', async () => {
     await reset();
     const coffeeId = await makeCoffee({ name: 'Vitest Sizes Unknown', archetype: 'floral', skus: [OZ_12] });
-    await expect(setSlotPrice({ slotId: await slotId('floral', 2), weightOz: 48, retailPriceCents: 1000 }, ACTOR))
+    await expect(setSlotPrice({ slotId: floralA.id, weightOz: 48, retailPriceCents: 1000 }, ACTOR))
       .rejects.toMatchObject({ code: 'UNKNOWN_SIZE', status: 400 });
     await expect(upsertSku({ coffeeId, weightOz: 48, isActive: true }, ACTOR))
       .rejects.toBeInstanceOf(CatalogError);
@@ -143,7 +146,7 @@ describe('importCatalog — sizes', () => {
         { name: 'Vitest Sizes Import NoAnchor', match: { archetype: 'floral', confidence: 'high', source: 'manual' }, skus: [{ weightOz: OZ_2LB }] },
         { name: 'Vitest Sizes Import BadSize', match: { archetype: 'floral', confidence: 'high', source: 'manual' }, skus: [{ weightOz: OZ_12 }, { weightOz: 48 }] },
       ],
-      slotPrices: [{ slot: 'floral/2', weightOz: 48, retailPriceCents: 1000 }],
+      slotPrices: [{ slot: `floral/${floralA.sortOrder}`, weightOz: 48, retailPriceCents: 1000 }],
     };
     const report = await importCatalog(manifest, { dryRun: true, actor: 'vitest' });
     expect(report.coffees[0].errors).toContain('Missing a 12 oz SKU');
@@ -155,7 +158,7 @@ describe('importCatalog — sizes', () => {
 describe('v_coffee_visibility', () => {
   it('12 oz SKU with no slot price is hidden (no_slot_price); adding the price makes it visible', async () => {
     await reset();
-    const slot = await slotId('floral', 2);
+    const slot = floralA.id;
     const coffeeId = await makeCoffee({ name: 'Vitest Sizes Hidden', archetype: 'floral', skus: [OZ_12], slot });
 
     let vis = (await getCoffeeVisibility([coffeeId])).get(coffeeId)!;
@@ -187,7 +190,7 @@ describe('v_coffee_visibility', () => {
 
   it('a lower-ranked guest is outranked, and the reason names the winner', async () => {
     await reset();
-    const slot = await slotId('floral', 3);
+    const slot = floralB.id;
     const homeId = await makeCoffee({ name: 'Vitest Sizes Home Winner', archetype: 'floral', skus: [OZ_12], slot });
     const guestId = await makeCoffee({ name: 'Vitest Sizes Guest Loser', archetype: 'floral', skus: [OZ_12], slot, role: 'guest', priority: 2 });
     await setSlotPrice({ slotId: slot, weightOz: OZ_12, retailPriceCents: 1800 }, ACTOR);
@@ -209,7 +212,7 @@ describe('v_coffee_visibility', () => {
 
   it('S3: 12 oz + 2 lb SKUs with only a 2 lb slot price is visible, but Liam\'s anchor-size reader excludes it (S2)', async () => {
     await reset();
-    const slot = await slotId('floral', 2);
+    const slot = floralA.id;
     const coffeeId = await makeCoffee({ name: 'Vitest Sizes TwoLb Only', archetype: 'floral', skus: [OZ_12, OZ_2LB], slot });
     await setSlotPrice({ slotId: slot, weightOz: OZ_2LB, retailPriceCents: 4200 }, ACTOR);
 
@@ -227,14 +230,14 @@ describe('v_coffee_visibility', () => {
 describe('public /api/coffees/archetypes — sizes', () => {
   it('returns prices in 12 oz / 2 lb / 5 lb order with labels, coffeeId = the anchor winner', async () => {
     await reset();
-    const slot = await slotId('floral', 2);
+    const slot = floralA.id;
     const coffeeId = await makeCoffee({ name: 'Vitest Sizes Public', archetype: 'floral', skus: [OZ_5LB, OZ_12, OZ_2LB], slot });
     await setSlotPrice({ slotId: slot, weightOz: OZ_5LB, retailPriceCents: 17000 }, ACTOR);
     await setSlotPrice({ slotId: slot, weightOz: OZ_2LB, retailPriceCents: 4200 }, ACTOR);
     await setSlotPrice({ slotId: slot, weightOz: OZ_12, retailPriceCents: 1800 }, ACTOR);
 
     const archetypes = await (await fetch(`${baseUrl}/archetypes`)).json();
-    const s = archetypes.find((a: any) => a.archetype === 'floral').slots.find((x: any) => x.dialSortOrder === 2);
+    const s = archetypes.find((a: any) => a.archetype === 'floral').slots.find((x: any) => x.dialSortOrder === floralA.sortOrder);
     expect(s.isActive).toBe(true);
     expect(s.coffeeId).toBe(coffeeId);
     expect(s.prices).toEqual([
@@ -247,11 +250,11 @@ describe('public /api/coffees/archetypes — sizes', () => {
 
   it('a slot that wins only at 2 lb is active, coffeeId = the first size with a winner', async () => {
     await reset();
-    const slot = await slotId('floral', 3);
+    const slot = floralB.id;
     const coffeeId = await makeCoffee({ name: 'Vitest Sizes Public TwoLb', archetype: 'floral', skus: [OZ_2LB], slot });
     await setSlotPrice({ slotId: slot, weightOz: OZ_2LB, retailPriceCents: 4200 }, ACTOR);
     const archetypes = await (await fetch(`${baseUrl}/archetypes`)).json();
-    const s = archetypes.find((a: any) => a.archetype === 'floral').slots.find((x: any) => x.dialSortOrder === 3);
+    const s = archetypes.find((a: any) => a.archetype === 'floral').slots.find((x: any) => x.dialSortOrder === floralB.sortOrder);
     expect(s.isActive).toBe(true);
     expect(s.coffeeId).toBe(coffeeId);
     expect(s.prices.map((p: any) => p.label)).toEqual(['2 lb']);
@@ -264,12 +267,12 @@ describe('computeCollectionOffer — sizes', () => {
     await reset();
     const prices12 = [1200, 1500, 1800];
     for (let i = 0; i < 3; i++) {
-      const slot = await slotId('balanced_sweet', i + 1);
-      await makeCoffee({ name: `Vitest Sizes Collection ${i + 1}`, archetype: 'balanced_sweet', skus: [OZ_5LB, OZ_12], slot });
+      const slot = collection[i].id;
+      await makeCoffee({ name: `Vitest Sizes Collection ${i + 1}`, archetype: collection[i].archetype, skus: [OZ_5LB, OZ_12], slot });
       await setSlotPrice({ slotId: slot, weightOz: OZ_5LB, retailPriceCents: 16000 + i }, ACTOR);
       await setSlotPrice({ slotId: slot, weightOz: OZ_12, retailPriceCents: prices12[i] }, ACTOR);
     }
-    const offer = await computeCollectionOffer('balanced_sweet');
+    const offer = await computeCollectionOffer(collection[0].archetype);
     expect(offer).not.toBeNull();
     expect(offer!.members.map(m => m.weightOz)).toEqual([OZ_12, OZ_12, OZ_12]);
     expect(offer!.sumCents).toBe(prices12.reduce((a, b) => a + b, 0));
@@ -280,14 +283,14 @@ describe('computeCollectionOffer — sizes', () => {
 describe('order-time resolution accepts a 2 lb (32 oz) line', () => {
   it('resolveBlendForSlot / resolveCoffeeBlend resolve at 32 oz (what POST /api/orders validates through)', async () => {
     await reset();
-    const slot = await slotId('floral', 2);
+    const slot = floralA.id;
     const coffeeId = await makeCoffee({ name: 'Vitest Sizes Order TwoLb', archetype: 'floral', skus: [OZ_12, OZ_2LB], slot });
     await setSlotPrice({ slotId: slot, weightOz: OZ_2LB, retailPriceCents: 4200 }, ACTOR);
 
-    const resolved = await resolveBlendForSlot('floral', 2, OZ_2LB);
+    const resolved = await resolveBlendForSlot('floral', floralA.sortOrder, OZ_2LB);
     expect(resolved?.coffee_id).toBe(coffeeId);
     expect(Number(resolved?.weight_oz)).toBe(OZ_2LB);
-    expect(await resolveBlendForSlot('floral', 2, OZ_12)).toBeNull(); // no 12 oz price -> not orderable at 12 oz
+    expect(await resolveBlendForSlot('floral', floralA.sortOrder, OZ_12)).toBeNull(); // no 12 oz price -> not orderable at 12 oz
     expect((await resolveCoffeeBlend(coffeeId, OZ_2LB))?.blend_id).toBeTruthy();
     await reset();
   }, 30000);

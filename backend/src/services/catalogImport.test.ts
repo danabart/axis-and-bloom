@@ -5,9 +5,10 @@
 import 'dotenv/config';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { db } from '../db/client.js';
 import { importCatalog, type Manifest } from './catalogImport.js';
+import { freeSlots, type FreeSlot } from '../test/freeSlots.js';
 
 // Resolved from process.cwd() (always `backend/`, whether vitest picked up
 // this file from src/ or the compiled dist/ copy), not import.meta.url —
@@ -18,6 +19,32 @@ const manifest: Manifest = JSON.parse(
 );
 const ROASTER_NAME = manifest.roaster.name; // "Vitest Import Roastery"
 
+// Cupping evidence brief 3, Part 0: the example manifest names fixed slots
+// (floral/2, fruity/1, earthy/3, prices on floral/3 and floral/4); real coffees
+// now hold some of them. The test rewrites every slot reference to a free slot
+// of the same archetype (no live placement, no 12 oz price) before the first
+// import, so the cleanup's 12 oz price delete can only touch rows it created.
+const priceSlotIds: number[] = [];
+beforeAll(async () => {
+  const label = (s: FreeSlot) => `${s.archetype}/${s.sortOrder}`;
+  const taken = new Set<number>();
+  const pick = async (archetype: string) => {
+    const slot = (await freeSlots({ archetype })).find(s => !taken.has(s.id));
+    if (!slot) throw new Error(`no free ${archetype} slot for the import fixture`);
+    taken.add(slot.id);
+    return slot;
+  };
+  for (const coffee of manifest.coffees) {
+    if (coffee.home) coffee.home.slot = label(await pick(coffee.home.slot.split('/')[0]));
+    for (const guest of coffee.guests ?? []) guest.slot = label(await pick(guest.slot.split('/')[0]));
+  }
+  for (const price of manifest.slotPrices ?? []) {
+    const slot = await pick(price.slot.split('/')[0]);
+    price.slot = label(slot);
+    priceSlotIds.push(slot.id);
+  }
+});
+
 afterAll(async () => {
   await db.query(`DELETE FROM coffee_hop WHERE from_coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%') OR to_coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
   await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
@@ -25,7 +52,7 @@ afterAll(async () => {
   await db.query(`DELETE FROM coffee_sku WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
   await db.query(`DELETE FROM coffees WHERE name LIKE 'Vitest%'`);
   await db.query(`DELETE FROM roaster WHERE name = $1`, [ROASTER_NAME]);
-  await db.query(`DELETE FROM coffee_slot_price WHERE slot_id IN (SELECT id FROM coffee_dial_slot WHERE archetype = 'floral' AND sort_order IN (3, 4))`);
+  if (priceSlotIds.length) await db.query(`DELETE FROM coffee_slot_price WHERE slot_id = ANY($1::int[]) AND weight_oz = 12`, [priceSlotIds]);
 });
 
 async function countManifestRows() {

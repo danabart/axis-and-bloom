@@ -15,6 +15,8 @@
 import 'dotenv/config';
 import { describe, it, expect, afterAll } from 'vitest';
 import { db, withTransaction } from './client.js';
+import { withRollback, type RollbackTx } from '../test/withRollback.js';
+import { freeSlots, freeSlotsInOneArchetype } from '../test/freeSlots.js';
 
 afterAll(async () => {
   await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id IN (SELECT id FROM coffees WHERE name LIKE 'Vitest%')`);
@@ -75,89 +77,68 @@ describe('coffee_dial_slot', () => {
   });
 });
 
+// Cupping evidence brief 3, Part 0: the slot tests below run inside a
+// rolled-back transaction on slots with no live placement (src/test/freeSlots.ts),
+// never on a hard-coded slot a real coffee may hold.
 describe('coffee_slot_assignment (D1/D5)', () => {
-  async function makeVitestRoasterAndCoffees(count: number) {
-    const roaster = (await db.query<{ id: string }>(
+  async function makeVitestRoasterAndCoffees(tx: RollbackTx, count: number) {
+    const roaster = (await tx.client.query<{ id: string }>(
       `INSERT INTO roaster (name, is_active) VALUES ('Vitest CSA Roastery', true) RETURNING id`
     )).rows[0];
     const coffees: { id: number }[] = [];
     for (let i = 0; i < count; i++) {
-      coffees.push((await db.query<{ id: number }>(
+      coffees.push((await tx.client.query<{ id: number }>(
         `INSERT INTO coffees (name, roaster_id, is_active) VALUES ($1, $2, true) RETURNING id`,
         [`Vitest CSA Coffee ${i}`, roaster.id]
       )).rows[0]);
     }
     return { roaster, coffees };
   }
-  async function cleanup(roaster: { id: string } | undefined, coffees: { id: number }[]) {
-    const ids = coffees.map(c => c.id);
-    if (ids.length) {
-      await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id = ANY($1::int[])`, [ids]);
-      await db.query(`DELETE FROM coffees WHERE id = ANY($1::int[])`, [ids]);
-    }
-    if (roaster) await db.query(`DELETE FROM roaster WHERE id = $1`, [roaster.id]);
-  }
-  async function slotId(archetype: string, sortOrder: number) {
-    return (await db.query<{ id: number }>(`SELECT id FROM coffee_dial_slot WHERE archetype = $1 AND sort_order = $2`, [archetype, sortOrder])).rows[0].id;
-  }
 
   it('rejects a second active home for the same coffee (across different slots)', async () => {
-    let ctx: Awaited<ReturnType<typeof makeVitestRoasterAndCoffees>> | undefined;
-    try {
-      ctx = await makeVitestRoasterAndCoffees(1);
-      const floral2 = await slotId('floral', 2);
-      const fruity2 = await slotId('fruity', 2);
-      await db.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role) VALUES ($1, $2, 'home')`, [floral2, ctx.coffees[0].id]);
-      await expect(
-        db.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role) VALUES ($1, $2, 'home')`, [fruity2, ctx.coffees[0].id])
-      ).rejects.toThrow(/duplicate key value violates unique constraint "coffee_slot_assignment_one_active_home"/);
-    } finally {
-      if (ctx) await cleanup(ctx.roaster, ctx.coffees);
-    }
+    await withRollback(async (tx) => {
+      const ctx = await makeVitestRoasterAndCoffees(tx, 1);
+      const [first, second] = await freeSlots({}, tx.client);
+      await tx.client.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role) VALUES ($1, $2, 'home')`, [first.id, ctx.coffees[0].id]);
+      await expect(tx.savepoint(() =>
+        tx.client.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role) VALUES ($1, $2, 'home')`, [second.id, ctx.coffees[0].id])
+      )).rejects.toThrow(/duplicate key value violates unique constraint "coffee_slot_assignment_one_active_home"/);
+    });
   });
 
   it('rejects the same (slot, coffee) twice', async () => {
-    let ctx: Awaited<ReturnType<typeof makeVitestRoasterAndCoffees>> | undefined;
-    try {
-      ctx = await makeVitestRoasterAndCoffees(1);
-      const floral1 = await slotId('floral', 1);
-      await db.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role) VALUES ($1, $2, 'guest')`, [floral1, ctx.coffees[0].id]);
-      await expect(
-        db.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role) VALUES ($1, $2, 'guest')`, [floral1, ctx.coffees[0].id])
-      ).rejects.toThrow(/duplicate key value violates unique constraint "coffee_slot_assignment_slot_id_coffee_id_key"/);
-    } finally {
-      if (ctx) await cleanup(ctx.roaster, ctx.coffees);
-    }
+    await withRollback(async (tx) => {
+      const ctx = await makeVitestRoasterAndCoffees(tx, 1);
+      const [slot] = await freeSlots({}, tx.client);
+      await tx.client.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role) VALUES ($1, $2, 'guest')`, [slot.id, ctx.coffees[0].id]);
+      await expect(tx.savepoint(() =>
+        tx.client.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role) VALUES ($1, $2, 'guest')`, [slot.id, ctx.coffees[0].id])
+      )).rejects.toThrow(/duplicate key value violates unique constraint "coffee_slot_assignment_slot_id_coffee_id_key"/);
+    });
   });
 
   it('rejects two active rows at the same (slot, priority)', async () => {
-    let ctx: Awaited<ReturnType<typeof makeVitestRoasterAndCoffees>> | undefined;
-    try {
-      ctx = await makeVitestRoasterAndCoffees(2);
-      const earthy3 = await slotId('earthy', 3);
-      await db.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role, priority) VALUES ($1, $2, 'guest', 1)`, [earthy3, ctx.coffees[0].id]);
-      await expect(
-        db.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role, priority) VALUES ($1, $2, 'guest', 1)`, [earthy3, ctx.coffees[1].id])
-      ).rejects.toThrow(/duplicate key value violates unique constraint "coffee_slot_assignment_one_active_per_priority"/);
-    } finally {
-      if (ctx) await cleanup(ctx.roaster, ctx.coffees);
-    }
+    await withRollback(async (tx) => {
+      const ctx = await makeVitestRoasterAndCoffees(tx, 2);
+      const [slot] = await freeSlots({}, tx.client);
+      await tx.client.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role, priority) VALUES ($1, $2, 'guest', 1)`, [slot.id, ctx.coffees[0].id]);
+      await expect(tx.savepoint(() =>
+        tx.client.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role, priority) VALUES ($1, $2, 'guest', 1)`, [slot.id, ctx.coffees[1].id])
+      )).rejects.toThrow(/duplicate key value violates unique constraint "coffee_slot_assignment_one_active_per_priority"/);
+    });
   });
 
   it('allows a guest row alongside a home row on the same slot', async () => {
-    let ctx: Awaited<ReturnType<typeof makeVitestRoasterAndCoffees>> | undefined;
-    try {
-      ctx = await makeVitestRoasterAndCoffees(2);
-      const earthy4 = await slotId('earthy', 4);
-      await db.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role, priority) VALUES ($1, $2, 'home', 1)`, [earthy4, ctx.coffees[0].id]);
-      await db.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role, priority) VALUES ($1, $2, 'guest', 2)`, [earthy4, ctx.coffees[1].id]);
+    await withRollback(async (tx) => {
+      const ctx = await makeVitestRoasterAndCoffees(tx, 2);
+      const [slot] = await freeSlots({}, tx.client);
+      await tx.client.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role, priority) VALUES ($1, $2, 'home', 1)`, [slot.id, ctx.coffees[0].id]);
+      await tx.client.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role, priority) VALUES ($1, $2, 'guest', 2)`, [slot.id, ctx.coffees[1].id]);
       // coffee_slot_role_enum is declared ('home', 'guest') — Postgres enums sort
       // by declaration order, not alphabetically, so ORDER BY role gives 'home' first.
-      const { rows } = await db.query(`SELECT role FROM coffee_slot_assignment WHERE slot_id = $1 AND coffee_id = ANY($2::int[]) ORDER BY role`, [earthy4, ctx.coffees.map(c => c.id)]);
+      const { rows } = await tx.client.query(`SELECT role FROM coffee_slot_assignment WHERE slot_id = $1 AND coffee_id = ANY($2::int[]) ORDER BY role`, [slot.id, ctx.coffees.map(c => c.id)]);
       expect(rows.map(r => r.role)).toEqual(['home', 'guest']);
-    } finally {
-      if (ctx) await cleanup(ctx.roaster, ctx.coffees);
-    }
+    });
   });
 });
 
@@ -187,140 +168,96 @@ describe('archetype_assignments (Slot Truth Map F4)', () => {
 
 describe('v_coffee_sellable_slot (D5)', () => {
   it('resolves the home coffee, drops on deactivated blend, falls to a guest, and excludes decaf', async () => {
-    let roaster: { id: string } | undefined;
-    let homeCoffee: { id: number } | undefined;
-    let guestCoffee: { id: number } | undefined;
-    let homeBlend: { id: string } | undefined;
-    let guestBlend: { id: string } | undefined;
-    let createdPriceRow = false;
-    let slot: { id: number } | undefined;
-    const slotArchetype = 'floral';
-    const slotSortOrder = 2;
-    try {
-      slot = (await db.query<{ id: number }>(
-        `SELECT id FROM coffee_dial_slot WHERE archetype = $1 AND sort_order = $2`, [slotArchetype, slotSortOrder]
-      )).rows[0];
+    await withRollback(async ({ client }) => {
+      const [slot] = await freeSlots({}, client);
+      const slotArchetype = slot.archetype;
 
-      roaster = (await db.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Sellable Roastery', true) RETURNING id`)).rows[0];
-      homeCoffee = (await db.query<{ id: number }>(
+      const roaster = (await client.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Sellable Roastery', true) RETURNING id`)).rows[0];
+      const homeCoffee = (await client.query<{ id: number }>(
         `INSERT INTO coffees (name, roaster_id, is_active) VALUES ('Vitest Sellable Home Coffee', $1, true) RETURNING id`,
         [roaster.id]
       )).rows[0];
-      await db.query(`INSERT INTO coffee_archetype_assignment (coffee_id, archetype, confidence) VALUES ($1, $2, 'high')`, [homeCoffee.id, slotArchetype]);
-      await db.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role, priority) VALUES ($1, $2, 'home', 1)`, [slot.id, homeCoffee.id]);
-      homeBlend = (await db.query<{ id: string }>(
+      await client.query(`INSERT INTO coffee_archetype_assignment (coffee_id, archetype, confidence) VALUES ($1, $2, 'high')`, [homeCoffee.id, slotArchetype]);
+      await client.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role, priority) VALUES ($1, $2, 'home', 1)`, [slot.id, homeCoffee.id]);
+      const homeBlend = (await client.query<{ id: string }>(
         `INSERT INTO coffee_sku (roaster_id, coffee_id, blend_name, weight_oz, is_active) VALUES ($1, $2, 'Vitest Sellable Home Blend', 12, true) RETURNING id`,
         [roaster.id, homeCoffee.id]
       )).rows[0];
+      // A free slot has no 12 oz price by construction; this one rolls back with the rest.
+      await client.query(`INSERT INTO coffee_slot_price (slot_id, weight_oz, retail_price_cents) VALUES ($1, 12, 3200)`, [slot.id]);
 
-      // dial_slot_price already has real admin-set rows for many slots (verified
-      // live before writing this test) — reuse whatever is there rather than
-      // risk colliding with the UNIQUE (slot_id, weight_oz) constraint
-      // (Catalog Blueprint brief 5a — slot_id is the only key now).
-      const priceInsert = await db.query(
-        `INSERT INTO coffee_slot_price (slot_id, weight_oz, retail_price_cents)
-         VALUES ($1, 12, 3200)
-         ON CONFLICT (slot_id, weight_oz) DO NOTHING`,
-        [slot.id]
-      );
-      createdPriceRow = (priceInsert.rowCount ?? 0) > 0;
-
-      let sellable = await db.query<{ blend_id: string }>(
+      let sellable = await client.query<{ blend_id: string }>(
         `SELECT blend_id FROM v_coffee_sellable_slot WHERE slot_id = $1 AND weight_oz = 12`, [slot.id]
       );
       expect(sellable.rows.length).toBe(1);
       expect(sellable.rows[0].blend_id).toBe(homeBlend.id);
 
       // Deactivate the home blend -> no active 12oz SKU -> slot drops out entirely.
-      await db.query(`UPDATE coffee_sku SET is_active = false WHERE id = $1`, [homeBlend.id]);
-      sellable = await db.query(`SELECT blend_id FROM v_coffee_sellable_slot WHERE slot_id = $1 AND weight_oz = 12`, [slot.id]);
+      await client.query(`UPDATE coffee_sku SET is_active = false WHERE id = $1`, [homeBlend.id]);
+      sellable = await client.query(`SELECT blend_id FROM v_coffee_sellable_slot WHERE slot_id = $1 AND weight_oz = 12`, [slot.id]);
       expect(sellable.rows.length).toBe(0);
 
       // Add a guest with its own SKU, then deactivate the home coffee entirely -> guest resolves (D5).
-      guestCoffee = (await db.query<{ id: number }>(
+      const guestCoffee = (await client.query<{ id: number }>(
         `INSERT INTO coffees (name, roaster_id, is_active) VALUES ('Vitest Sellable Guest Coffee', $1, true) RETURNING id`,
         [roaster.id]
       )).rows[0];
-      await db.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role, priority) VALUES ($1, $2, 'guest', 2)`, [slot.id, guestCoffee.id]);
-      guestBlend = (await db.query<{ id: string }>(
+      await client.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role, priority) VALUES ($1, $2, 'guest', 2)`, [slot.id, guestCoffee.id]);
+      const guestBlend = (await client.query<{ id: string }>(
         `INSERT INTO coffee_sku (roaster_id, coffee_id, blend_name, weight_oz, is_active) VALUES ($1, $2, 'Vitest Sellable Guest Blend', 12, true) RETURNING id`,
         [roaster.id, guestCoffee.id]
       )).rows[0];
-      await db.query(`UPDATE coffees SET is_active = false WHERE id = $1`, [homeCoffee.id]);
+      await client.query(`UPDATE coffees SET is_active = false WHERE id = $1`, [homeCoffee.id]);
 
-      sellable = await db.query(`SELECT blend_id FROM v_coffee_sellable_slot WHERE slot_id = $1 AND weight_oz = 12`, [slot.id]);
+      sellable = await client.query(`SELECT blend_id FROM v_coffee_sellable_slot WHERE slot_id = $1 AND weight_oz = 12`, [slot.id]);
       expect(sellable.rows.length).toBe(1);
       expect(sellable.rows[0].blend_id).toBe(guestBlend.id);
 
       // Tag the (now resolving) guest coffee decaf -> excluded, slot drops out again.
-      const decafCategory = (await db.query<{ id: number }>(`SELECT id FROM coffee_category WHERE code = 'decaf'`)).rows[0];
-      await db.query(`INSERT INTO coffee_category_assignment (coffee_id, category_id) VALUES ($1, $2)`, [guestCoffee.id, decafCategory.id]);
-      sellable = await db.query(`SELECT blend_id FROM v_coffee_sellable_slot WHERE slot_id = $1 AND weight_oz = 12`, [slot.id]);
+      const decafCategory = (await client.query<{ id: number }>(`SELECT id FROM coffee_category WHERE code = 'decaf'`)).rows[0];
+      await client.query(`INSERT INTO coffee_category_assignment (coffee_id, category_id) VALUES ($1, $2)`, [guestCoffee.id, decafCategory.id]);
+      sellable = await client.query(`SELECT blend_id FROM v_coffee_sellable_slot WHERE slot_id = $1 AND weight_oz = 12`, [slot.id]);
       expect(sellable.rows.length).toBe(0);
-    } finally {
-      const coffeeIds = [homeCoffee?.id, guestCoffee?.id].filter((id): id is number => id != null);
-      if (coffeeIds.length) {
-        await db.query(`DELETE FROM coffee_category_assignment WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
-        await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
-        await db.query(`DELETE FROM coffee_archetype_assignment WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
-      }
-      const blendIds = [homeBlend?.id, guestBlend?.id].filter((id): id is string => id != null);
-      if (blendIds.length) await db.query(`DELETE FROM coffee_sku WHERE id = ANY($1::uuid[])`, [blendIds]);
-      if (coffeeIds.length) await db.query(`DELETE FROM coffees WHERE id = ANY($1::int[])`, [coffeeIds]);
-      if (roaster) await db.query(`DELETE FROM roaster WHERE id = $1`, [roaster.id]);
-      if (createdPriceRow && slot) await db.query(`DELETE FROM coffee_slot_price WHERE slot_id = $1 AND weight_oz = 12`, [slot.id]);
-    }
+    });
   });
 });
 
 describe('v_coffee_hop (D3)', () => {
   it('derives bridge_archetype across two archetypes, within_archetype once homes match', async () => {
-    let roaster: { id: string } | undefined;
-    let coffeeA: { id: number } | undefined;
-    let coffeeB: { id: number } | undefined;
-    let hop: { id: number } | undefined;
-    try {
-      roaster = (await db.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Hop Roastery', true) RETURNING id`)).rows[0];
-      coffeeA = (await db.query<{ id: number }>(
+    await withRollback(async ({ client }) => {
+      const roaster = (await client.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Hop Roastery', true) RETURNING id`)).rows[0];
+      const coffeeA = (await client.query<{ id: number }>(
         `INSERT INTO coffees (name, roaster_id, is_active) VALUES ('Vitest Hop Coffee A', $1, true) RETURNING id`,
         [roaster.id]
       )).rows[0];
-      coffeeB = (await db.query<{ id: number }>(
+      const coffeeB = (await client.query<{ id: number }>(
         `INSERT INTO coffees (name, roaster_id, is_active) VALUES ('Vitest Hop Coffee B', $1, true) RETURNING id`,
         [roaster.id]
       )).rows[0];
 
-      const floral2 = (await db.query<{ id: number }>(`SELECT id FROM coffee_dial_slot WHERE archetype = 'floral' AND sort_order = 2`)).rows[0];
-      const fruity3 = (await db.query<{ id: number }>(`SELECT id FROM coffee_dial_slot WHERE archetype = 'fruity' AND sort_order = 3`)).rows[0];
-      const floral1 = (await db.query<{ id: number }>(`SELECT id FROM coffee_dial_slot WHERE archetype = 'floral' AND sort_order = 1`)).rows[0];
+      // Two free slots in one archetype (A's home, then B's), one free slot in another (B's first home).
+      const [homeA, homeB2] = await freeSlotsInOneArchetype(2, {}, client);
+      const [otherB] = await freeSlotsInOneArchetype(1, { notArchetypes: [homeA.archetype] }, client);
 
-      await db.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role) VALUES ($1, $2, 'home')`, [floral2.id, coffeeA.id]);
-      await db.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role) VALUES ($1, $2, 'home')`, [fruity3.id, coffeeB.id]);
+      await client.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role) VALUES ($1, $2, 'home')`, [homeA.id, coffeeA.id]);
+      await client.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role) VALUES ($1, $2, 'home')`, [otherB.id, coffeeB.id]);
 
-      hop = (await db.query<{ id: number }>(
+      const hop = (await client.query<{ id: number }>(
         `INSERT INTO coffee_hop (from_coffee_id, to_coffee_id, dimension_id, direction)
          VALUES ($1, $2, 9, 'more') RETURNING id`,
         [coffeeA.id, coffeeB.id]
       )).rows[0];
 
-      let derived = (await db.query<{ hop_type_derived: string }>(`SELECT hop_type_derived FROM v_coffee_hop WHERE id = $1`, [hop.id])).rows[0];
+      let derived = (await client.query<{ hop_type_derived: string }>(`SELECT hop_type_derived FROM v_coffee_hop WHERE id = $1`, [hop.id])).rows[0];
       expect(derived.hop_type_derived).toBe('bridge_archetype');
 
-      // Move coffee B's home onto floral too (deactivate old, insert new) -> both match.
-      await db.query(`UPDATE coffee_slot_assignment SET is_active = false WHERE slot_id = $1 AND coffee_id = $2`, [fruity3.id, coffeeB.id]);
-      await db.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role) VALUES ($1, $2, 'home')`, [floral1.id, coffeeB.id]);
+      // Move coffee B's home into A's archetype too (deactivate old, insert new) -> both match.
+      await client.query(`UPDATE coffee_slot_assignment SET is_active = false WHERE slot_id = $1 AND coffee_id = $2`, [otherB.id, coffeeB.id]);
+      await client.query(`INSERT INTO coffee_slot_assignment (slot_id, coffee_id, role) VALUES ($1, $2, 'home')`, [homeB2.id, coffeeB.id]);
 
-      derived = (await db.query<{ hop_type_derived: string }>(`SELECT hop_type_derived FROM v_coffee_hop WHERE id = $1`, [hop.id])).rows[0];
+      derived = (await client.query<{ hop_type_derived: string }>(`SELECT hop_type_derived FROM v_coffee_hop WHERE id = $1`, [hop.id])).rows[0];
       expect(derived.hop_type_derived).toBe('within_archetype');
-    } finally {
-      if (hop) await db.query(`DELETE FROM coffee_hop WHERE id = $1`, [hop.id]);
-      const coffeeIds = [coffeeA?.id, coffeeB?.id].filter((id): id is number => id != null);
-      if (coffeeIds.length) {
-        await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id = ANY($1::int[])`, [coffeeIds]);
-        await db.query(`DELETE FROM coffees WHERE id = ANY($1::int[])`, [coffeeIds]);
-      }
-      if (roaster) await db.query(`DELETE FROM roaster WHERE id = $1`, [roaster.id]);
-    }
+    });
   });
 });
 

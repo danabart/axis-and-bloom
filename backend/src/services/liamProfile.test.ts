@@ -146,6 +146,10 @@ async function loadFixtures(client: Tx): Promise<void> {
   }
 
   const slotArchetypes = [...new Set(Object.values(fixture.coffees).filter(c => c.is_slot).map(c => c.archetype))];
+  // Cupping evidence brief 3, Part 0: real coffees now hold placements (brief
+  // 2), so every active placement is deactivated for this transaction (which
+  // always rolls back): the profile line sees the fixture's coffees only.
+  await client.query(`UPDATE coffee_slot_assignment SET is_active = false WHERE is_active`);
   for (const archetype of slotArchetypes) {
     const slot = await client.query<{ id: number }>(
       `SELECT id FROM coffee_dial_slot WHERE archetype = $1 AND sort_order = 1`,

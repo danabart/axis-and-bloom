@@ -51,8 +51,16 @@ afterAll(async () => {
 async function makeRoaster(name: string) {
   return (await db.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ($1, true) RETURNING id`, [name])).rows[0];
 }
-async function slotId(archetype: string, sortOrder: number): Promise<number> {
-  return (await db.query<{ id: number }>(`SELECT id FROM coffee_dial_slot WHERE archetype = $1 AND sort_order = $2`, [archetype, sortOrder])).rows[0].id;
+// Cupping evidence brief 3, Part 0: fixtures use free slots (no live
+// placement, no 12 oz price; src/test/freeSlots.ts), and the "every other slot
+// is empty" assertion skips the slots a real coffee fills.
+const { freeSlots, freeSlotsInOneArchetype } = await import('../test/freeSlots.js');
+async function liveSlotKeys(): Promise<Set<string>> {
+  const { rows } = await db.query<{ archetype: string; sort_order: number }>(
+    `SELECT DISTINCT ss.archetype::text AS archetype, ss.sort_order FROM v_coffee_sellable_slot ss JOIN coffees c ON c.id = ss.coffee_id
+      WHERE c.name NOT LIKE 'Vitest%'`
+  );
+  return new Set(rows.map(r => `${r.archetype}/${r.sort_order}`));
 }
 async function cleanup(roaster: { id: string } | undefined, coffeeIds: number[], slotIds: number[] = []) {
   await db.query(`DELETE FROM coffee_hop WHERE from_coffee_id = ANY($1::int[]) OR to_coffee_id = ANY($1::int[])`, [coffeeIds]);
@@ -73,11 +81,15 @@ describe('GET /api/coffees/archetypes', () => {
     let guestId: number | undefined;
     let slot: number | undefined;
     try {
+      // floral/2 is floral's landing default (isDefault below); it must be free.
+      const floral2 = (await freeSlots({ archetype: 'floral' })).find(s => s.sortOrder === 2);
+      if (!floral2) throw new Error('floral/2 holds a live placement or a 12 oz price; this contract test needs it free');
+      const live = await liveSlotKeys();
       roaster = await makeRoaster('Vitest Contract Roastery');
       const { result: created } = await createCoffee({ roasterId: roaster.id, name: 'Vitest Contract Home Coffee' }, ACTOR);
       homeId = created.coffeeId;
       await setMatchArchetype({ coffeeId: homeId, archetype: 'floral', confidence: 'high', source: 'manual' }, ACTOR);
-      slot = await slotId('floral', 2);
+      slot = floral2.id;
       await upsertSku({ coffeeId: homeId, weightOz: WEIGHT_OZ, blendName: 'Vitest Contract Home Blend', isActive: true }, ACTOR);
       await placeCoffee({ coffeeId: homeId, slotId: slot, role: 'home' }, ACTOR);
       await setSlotPrice({ slotId: slot, weightOz: WEIGHT_OZ, retailPriceCents: 1900 }, ACTOR);
@@ -104,6 +116,7 @@ describe('GET /api/coffees/archetypes', () => {
       for (const entry of body1) {
         for (const s of entry.slots) {
           if (entry.archetype === 'floral' && s.dialSortOrder === 2) continue;
+          if (live.has(`${entry.archetype}/${s.dialSortOrder}`)) continue; // a real coffee fills it
           expect(s.isActive).toBe(false);
         }
       }
@@ -145,11 +158,13 @@ describe('GET /api/coffees/:id/hops and /:id/legacy-slot', () => {
     const slotIds: number[] = [];
     try {
       roaster = await makeRoaster('Vitest Hops Roastery');
+      const [from, to] = await freeSlotsInOneArchetype(2);
+      const archetype = from.archetype as Parameters<typeof setMatchArchetype>[0]['archetype'];
 
       const { result: fromCreated } = await createCoffee({ roasterId: roaster.id, name: 'Vitest Hops From Coffee' }, ACTOR);
       fromId = fromCreated.coffeeId;
-      await setMatchArchetype({ coffeeId: fromId, archetype: 'fruity', confidence: 'high', source: 'manual' }, ACTOR);
-      const fromSlot = await slotId('fruity', 1);
+      await setMatchArchetype({ coffeeId: fromId, archetype, confidence: 'high', source: 'manual' }, ACTOR);
+      const fromSlot = from.id;
       slotIds.push(fromSlot);
       await upsertSku({ coffeeId: fromId, weightOz: WEIGHT_OZ, blendName: 'Vitest Hops From Blend', isActive: true }, ACTOR);
       await placeCoffee({ coffeeId: fromId, slotId: fromSlot, role: 'home' }, ACTOR);
@@ -157,8 +172,8 @@ describe('GET /api/coffees/:id/hops and /:id/legacy-slot', () => {
 
       const { result: toCreated } = await createCoffee({ roasterId: roaster.id, name: 'Vitest Hops To Coffee' }, ACTOR);
       toId = toCreated.coffeeId;
-      await setMatchArchetype({ coffeeId: toId, archetype: 'fruity', confidence: 'high', source: 'manual' }, ACTOR);
-      const toSlot = await slotId('fruity', 2);
+      await setMatchArchetype({ coffeeId: toId, archetype, confidence: 'high', source: 'manual' }, ACTOR);
+      const toSlot = to.id;
       slotIds.push(toSlot);
       await upsertSku({ coffeeId: toId, weightOz: WEIGHT_OZ, blendName: 'Vitest Hops To Blend', isActive: true }, ACTOR);
       await placeCoffee({ coffeeId: toId, slotId: toSlot, role: 'home' }, ACTOR);
@@ -173,15 +188,15 @@ describe('GET /api/coffees/:id/hops and /:id/legacy-slot', () => {
       const hop = hops[0];
       expect(Object.keys(hop).sort()).toEqual(['confidence', 'dimensionName', 'direction', 'hopType', 'target'].sort());
       expect(Object.keys(hop.target).sort()).toEqual(['archetype', 'archetypeLabel', 'dialSortOrder', 'platformName', 'positionLabel'].sort());
-      expect(hop.target.archetype).toBe('fruity');
-      expect(hop.target.dialSortOrder).toBe(2);
+      expect(hop.target.archetype).toBe(archetype);
+      expect(hop.target.dialSortOrder).toBe(to.sortOrder);
 
       const legacyRes = await fetch(`${baseUrl}/${fromId}/legacy-slot`);
       expect(legacyRes.status).toBe(200);
       const legacy = await legacyRes.json();
       expect(Object.keys(legacy).sort()).toEqual(['archetype', 'dialSortOrder']);
-      expect(legacy.archetype).toBe('fruity');
-      expect(legacy.dialSortOrder).toBe(1);
+      expect(legacy.archetype).toBe(archetype);
+      expect(legacy.dialSortOrder).toBe(from.sortOrder);
 
       // A coffee with no active home resolves to the same "no slot" 404 shape as today.
       await retireCoffee({ coffeeId: fromId, reason: 'manual' }, ACTOR);

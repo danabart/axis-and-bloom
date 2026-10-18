@@ -19,6 +19,7 @@ import { db } from '../db/client.js';
 import { createCoffee, setMatchArchetype, upsertSku, placeCoffee, addGuest, setSlotPrice, retireCoffee } from './catalogService.js';
 import { resolveBlendForSlot, resolveCoffeeBlend, computeCollectionOffer } from './blendResolver.js';
 import { getSellableCandidates } from './catalogReads.js';
+import { freeSlotsInOneArchetype, liveSellableArchetypes, type FreeSlot } from '../test/freeSlots.js';
 
 const ACTOR = { actor: 'vitest' };
 const WEIGHT_OZ = 12;
@@ -50,11 +51,11 @@ async function cleanup(roaster: { id: string } | undefined, coffeeIds: number[],
 
 // Full happy-path chain: createCoffee -> setMatchArchetype -> upsertSku ->
 // placeCoffee(home) -> setSlotPrice.
-async function placeHomeFixture(opts: { roasterId: string; name: string; archetype: string; sortOrder: number; priceCents: number }) {
+async function placeHomeFixture(opts: { roasterId: string; name: string; archetype: string; sortOrder?: number; slot?: FreeSlot; priceCents: number }) {
   const { result: created } = await createCoffee({ roasterId: opts.roasterId, name: opts.name }, ACTOR);
   const coffeeId = created.coffeeId;
   await setMatchArchetype({ coffeeId, archetype: opts.archetype as any, confidence: 'high', source: 'manual' }, ACTOR);
-  const slot = await slotId(opts.archetype, opts.sortOrder);
+  const slot = opts.slot ? opts.slot.id : await slotId(opts.archetype, opts.sortOrder!);
   await upsertSku({ coffeeId, weightOz: WEIGHT_OZ, blendName: opts.name, isActive: true }, ACTOR);
   await placeCoffee({ coffeeId, slotId: slot, role: 'home' }, ACTOR);
   await setSlotPrice({ slotId: slot, weightOz: WEIGHT_OZ, retailPriceCents: opts.priceCents }, ACTOR);
@@ -224,16 +225,18 @@ describe('computeCollectionOffer', () => {
     try {
       roaster = await makeRoaster('Vitest Collection Roastery');
       const prices = [1200, 1500, 1800];
+      // Cupping evidence brief 3, Part 0: three free slots of one archetype (no live placement, no 12 oz price).
+      const slots = await freeSlotsInOneArchetype(prices.length);
       for (let i = 0; i < prices.length; i++) {
         const fixture = await placeHomeFixture({
           roasterId: roaster.id, name: `Vitest Collection Coffee ${i + 1}`,
-          archetype: 'chocolate_nutty', sortOrder: i + 1, priceCents: prices[i],
+          archetype: slots[i].archetype, slot: slots[i], priceCents: prices[i],
         });
         coffeeIds.push(fixture.coffeeId);
         slotIds.push(fixture.slotId);
       }
 
-      const offer = await computeCollectionOffer('chocolate_nutty');
+      const offer = await computeCollectionOffer(slots[0].archetype);
       expect(offer).not.toBeNull();
       expect(offer!.members.length).toBeGreaterThanOrEqual(3);
       const sum = prices.reduce((a, b) => a + b, 0);
@@ -250,16 +253,20 @@ describe('computeCollectionOffer', () => {
     const slotIds: number[] = [];
     try {
       roaster = await makeRoaster('Vitest Collection Floor Roastery');
+      // Cupping evidence brief 3, Part 0: two free slots of an archetype with no
+      // real sellable coffee, so the fixture's two positions are the only ones
+      // counted (balanced_sweet/2 holds Benchmark at $29 since brief 2).
+      const slots = await freeSlotsInOneArchetype(2, { notArchetypes: await liveSellableArchetypes() });
       for (let i = 0; i < 2; i++) {
         const fixture = await placeHomeFixture({
           roasterId: roaster.id, name: `Vitest Collection Floor Coffee ${i + 1}`,
-          archetype: 'balanced_sweet', sortOrder: i + 1, priceCents: 1500,
+          archetype: slots[i].archetype, slot: slots[i], priceCents: 1500,
         });
         coffeeIds.push(fixture.coffeeId);
         slotIds.push(fixture.slotId);
       }
 
-      const offer = await computeCollectionOffer('balanced_sweet');
+      const offer = await computeCollectionOffer(slots[0].archetype);
       expect(offer).toBeNull();
     } finally {
       await cleanup(roaster, coffeeIds, slotIds);

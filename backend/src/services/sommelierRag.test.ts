@@ -14,6 +14,7 @@ import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { db } from '../db/client.js';
 import { createCoffee, setMatchArchetype, upsertSku, placeCoffee, setSlotPrice, retireCoffee, type ArchetypeCode } from './catalogService.js';
 import { fetchSommelierCoffees, getAliases, type SlotCandidate } from './sommelierRag.js';
+import { freeSlots, freeSlotsInOneArchetype, liveSellableCoffeeIds, type FreeSlot } from '../test/freeSlots.js';
 
 const ACTOR = { actor: 'vitest' };
 const WEIGHT_OZ = 12;
@@ -29,8 +30,11 @@ afterAll(async () => {
 async function makeRoaster(name: string) {
   return (await db.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ($1, true) RETURNING id`, [name])).rows[0];
 }
-async function slotId(archetype: string, sortOrder: number): Promise<number> {
-  return (await db.query<{ id: number }>(`SELECT id FROM coffee_dial_slot WHERE archetype = $1 AND sort_order = $2`, [archetype, sortOrder])).rows[0].id;
+// Cupping evidence brief 3, Part 0: fixtures use free slots (no live
+// placement, no 12 oz price), so cleanup's 12 oz price delete only removes
+// prices the fixture set; see src/test/freeSlots.ts.
+async function slotId(archetype: string): Promise<number> {
+  return (await freeSlotsInOneArchetype(1, { archetype }))[0].id;
 }
 async function cleanup(roaster: { id: string } | undefined, coffeeIds: number[], slotIds: number[] = []) {
   if (coffeeIds.length) {
@@ -53,7 +57,7 @@ describe('fetchSommelierCoffees — candidate pool is v_coffee_sellable_slot at 
       const { result: created } = await createCoffee({ roasterId: roaster.id, name: 'Vitest Rag Coffee' }, ACTOR);
       coffeeId = created.coffeeId;
       await setMatchArchetype({ coffeeId, archetype: 'chocolate_nutty', confidence: 'high', source: 'manual' }, ACTOR);
-      slot = await slotId('chocolate_nutty', 1);
+      slot = await slotId('chocolate_nutty');
       await upsertSku({ coffeeId, weightOz: WEIGHT_OZ, blendName: 'Vitest Rag Blend', isActive: true }, ACTOR);
       await placeCoffee({ coffeeId, slotId: slot, role: 'home' }, ACTOR);
       await setSlotPrice({ slotId: slot, weightOz: WEIGHT_OZ, retailPriceCents: 1600 }, ACTOR);
@@ -81,7 +85,7 @@ describe('fetchSommelierCoffees — candidate pool is v_coffee_sellable_slot at 
       const target = await createCoffee({ roasterId: roaster.id, name: 'Vitest Rag Exact Target' }, ACTOR);
       coffeeIds.push(target.result.coffeeId);
       await setMatchArchetype({ coffeeId: target.result.coffeeId, archetype: targetArchetype, confidence: 'high', source: 'manual' }, ACTOR);
-      const targetSlot = await slotId(targetArchetype, 2);
+      const targetSlot = await slotId(targetArchetype);
       slotIds.push(targetSlot);
       await upsertSku({ coffeeId: target.result.coffeeId, weightOz: WEIGHT_OZ, blendName: 'Vitest Rag Exact Target Blend', isActive: true }, ACTOR);
       await placeCoffee({ coffeeId: target.result.coffeeId, slotId: targetSlot, role: 'home' }, ACTOR);
@@ -90,7 +94,7 @@ describe('fetchSommelierCoffees — candidate pool is v_coffee_sellable_slot at 
       const other = await createCoffee({ roasterId: roaster.id, name: 'Vitest Rag Exact Other' }, ACTOR);
       coffeeIds.push(other.result.coffeeId);
       await setMatchArchetype({ coffeeId: other.result.coffeeId, archetype: otherArchetype, confidence: 'high', source: 'manual' }, ACTOR);
-      const otherSlot = await slotId(otherArchetype, 2);
+      const otherSlot = await slotId(otherArchetype);
       slotIds.push(otherSlot);
       await upsertSku({ coffeeId: other.result.coffeeId, weightOz: WEIGHT_OZ, blendName: 'Vitest Rag Exact Other Blend', isActive: true }, ACTOR);
       await placeCoffee({ coffeeId: other.result.coffeeId, slotId: otherSlot, role: 'home' }, ACTOR);
@@ -108,35 +112,46 @@ describe('fetchSommelierCoffees — candidate pool is v_coffee_sellable_slot at 
 describe('fetchSommelierCoffees — Liam L1, Part B: thread/secondary/palate slices', () => {
   // One shared fixture for this whole block (read-only assertions — nothing
   // here mutates), so 5 tests don't each pay for their own coffee/slot setup.
-  // Distinct slot archetypes/sort_orders from the other describe blocks in
-  // this file, to avoid any cross-test slot contention.
+  // Cupping evidence brief 3, Part 0: every fixture coffee sits on its own
+  // free slot (a live coffee may hold the others), the secondary archetype is
+  // whichever real archetype still has three free slots, and every call below
+  // passes the live sellable coffees as dislikes so the pool is the fixture's
+  // own coffees only (fetchIsolated).
   const state: {
     roaster?: { id: string };
     floral: number[]; // 3 coffees, archetype 'floral' — the thread candidates
-    fruity: number[]; // 3 coffees, archetype 'fruity' — the secondary candidates
+    secondary: number[]; // 3 coffees, archetype state.secondaryArchetype — the secondary candidates
+    secondaryArchetype: string;
     earthy: number[]; // 1 coffee, archetype 'earthy' — the disliked-but-would-be-picked fill target
+    live: number[];
     coffeeIds: number[];
     slotIds: number[];
-  } = { floral: [], fruity: [], earthy: [], coffeeIds: [], slotIds: [] };
+  } = { floral: [], secondary: [], secondaryArchetype: '', earthy: [], live: [], coffeeIds: [], slotIds: [] };
 
-  async function makeFixtureCoffee(name: string, archetype: ArchetypeCode, sortOrder: number): Promise<number> {
+  async function makeFixtureCoffee(name: string, slot: FreeSlot, role: 'home' | 'guest'): Promise<number> {
     const { result: created } = await createCoffee({ roasterId: state.roaster!.id, name }, ACTOR);
     const coffeeId = created.coffeeId;
-    await setMatchArchetype({ coffeeId, archetype, confidence: 'high', source: 'manual' }, ACTOR);
-    const slot = await slotId(archetype, sortOrder);
+    await setMatchArchetype({ coffeeId, archetype: slot.archetype as ArchetypeCode, confidence: 'high', source: 'manual' }, ACTOR);
     await upsertSku({ coffeeId, weightOz: WEIGHT_OZ, blendName: `${name} Blend`, isActive: true }, ACTOR);
-    await placeCoffee({ coffeeId, slotId: slot, role: sortOrder === 1 ? 'home' : 'guest' }, ACTOR);
-    await setSlotPrice({ slotId: slot, weightOz: WEIGHT_OZ, retailPriceCents: 1800 }, ACTOR);
+    await placeCoffee({ coffeeId, slotId: slot.id, role }, ACTOR);
+    await setSlotPrice({ slotId: slot.id, weightOz: WEIGHT_OZ, retailPriceCents: 1800 }, ACTOR);
     state.coffeeIds.push(coffeeId);
-    state.slotIds.push(slot);
+    state.slotIds.push(slot.id);
     return coffeeId;
   }
+  const fetchIsolated = (params: Parameters<typeof fetchSommelierCoffees>[0]) =>
+    fetchSommelierCoffees({ ...params, dislikedCoffeeIds: [...state.live, ...(params.dislikedCoffeeIds ?? [])] });
 
   beforeAll(async () => {
+    state.live = await liveSellableCoffeeIds();
     state.roaster = await makeRoaster('Vitest Rag Composition Roastery');
-    for (let i = 0; i < 3; i++) state.floral.push(await makeFixtureCoffee(`Vitest Rag Floral ${i + 1}`, 'floral', i + 1));
-    for (let i = 0; i < 3; i++) state.fruity.push(await makeFixtureCoffee(`Vitest Rag Fruity ${i + 1}`, 'fruity', i + 1));
-    state.earthy.push(await makeFixtureCoffee('Vitest Rag Earthy 1', 'earthy', 3));
+    const floralSlots = await freeSlotsInOneArchetype(3, { archetype: 'floral' });
+    const secondarySlots = await freeSlotsInOneArchetype(3, { notArchetypes: ['floral', 'earthy'] });
+    state.secondaryArchetype = secondarySlots[0].archetype;
+    const [earthySlot] = await freeSlotsInOneArchetype(1, { archetype: 'earthy' });
+    for (let i = 0; i < 3; i++) state.floral.push(await makeFixtureCoffee(`Vitest Rag Floral ${i + 1}`, floralSlots[i], i === 0 ? 'home' : 'guest'));
+    for (let i = 0; i < 3; i++) state.secondary.push(await makeFixtureCoffee(`Vitest Rag Secondary ${i + 1}`, secondarySlots[i], i === 0 ? 'home' : 'guest'));
+    state.earthy.push(await makeFixtureCoffee('Vitest Rag Earthy 1', earthySlot, 'guest'));
   }, 30000);
 
   afterAll(async () => {
@@ -144,18 +159,18 @@ describe('fetchSommelierCoffees — Liam L1, Part B: thread/secondary/palate sli
   });
 
   it('reserves a thread slice and a secondary slice in every focus, both before focus fill', async () => {
-    const result = await fetchSommelierCoffees({
+    const result = await fetchIsolated({
       ragFocus: 'curated_mix',
       userArchetype: null,
       exploreArchetype: 'floral',
-      secondaryArchetype: 'fruity',
+      secondaryArchetype: state.secondaryArchetype,
     });
     const threadSlices = result.slices.filter(s => s.slice === 'thread');
     const secondarySlices = result.slices.filter(s => s.slice === 'secondary');
     expect(threadSlices.length).toBe(2); // capped at 2, from 3 floral candidates
     expect(threadSlices.every(s => state.floral.includes(s.coffeeId))).toBe(true);
-    expect(secondarySlices.length).toBe(2); // capped at 2, from 3 fruity candidates
-    expect(secondarySlices.every(s => state.fruity.includes(s.coffeeId))).toBe(true);
+    expect(secondarySlices.length).toBe(2); // capped at 2, from 3 secondary candidates
+    expect(secondarySlices.every(s => state.secondary.includes(s.coffeeId))).toBe(true);
     expect(result.catalogText).toContain('[thread: Floral]');
     expect(result.catalogText).toContain('[second archetype]');
 
@@ -175,9 +190,9 @@ describe('fetchSommelierCoffees — Liam L1, Part B: thread/secondary/palate sli
     // reclassified 'palate'/'had' by the later palate step.
     const slotCandidates: SlotCandidate[] = [
       { coffee_id: state.floral[0], already_bought: false, last_rating: null },
-      { coffee_id: state.fruity[2], already_bought: true, last_rating: 5 },
+      { coffee_id: state.secondary[2], already_bought: true, last_rating: 5 },
     ];
-    const result = await fetchSommelierCoffees({
+    const result = await fetchIsolated({
       ragFocus: 'curated_mix',
       userArchetype: null,
       exploreArchetype: 'floral',
@@ -187,29 +202,29 @@ describe('fetchSommelierCoffees — Liam L1, Part B: thread/secondary/palate sli
     const floral0Slice = result.slices.find(s => s.coffeeId === state.floral[0]);
     expect(floral0Slice?.slice).toBe('thread'); // kept its first label, not overwritten to 'palate'
 
-    const fruity2Slice = result.slices.find(s => s.coffeeId === state.fruity[2]);
-    expect(fruity2Slice?.slice).toBe('had'); // already_bought -> 'had', not plain 'palate'
+    const secondary2Slice = result.slices.find(s => s.coffeeId === state.secondary[2]);
+    expect(secondary2Slice?.slice).toBe('had'); // already_bought -> 'had', not plain 'palate'
     expect(result.catalogText).toContain('[palate match] [had before, rated 5]');
 
-    // Palate slice (index of fruity[2]) precedes any focus-fill coffee.
-    const palateIndex = result.slices.findIndex(s => s.coffeeId === state.fruity[2]);
+    // Palate slice (index of secondary[2]) precedes any focus-fill coffee.
+    const palateIndex = result.slices.findIndex(s => s.coffeeId === state.secondary[2]);
     const firstFillIndex = result.slices.findIndex(s => s.slice === 'focus' || s.slice === 'primary');
     if (firstFillIndex !== -1) expect(palateIndex).toBeLessThan(firstFillIndex);
   }, 20000);
 
   it('caps the palate slice at 4 even when given more slot candidates', async () => {
-    const slotCandidates: SlotCandidate[] = [...state.floral, ...state.fruity, state.earthy[0]]
+    const slotCandidates: SlotCandidate[] = [...state.floral, ...state.secondary, state.earthy[0]]
       .map(coffee_id => ({ coffee_id, already_bought: false, last_rating: null }));
-    const result = await fetchSommelierCoffees({ ragFocus: 'curated_mix', userArchetype: null, slotCandidates });
+    const result = await fetchIsolated({ ragFocus: 'curated_mix', userArchetype: null, slotCandidates });
     const palateSlices = result.slices.filter(s => s.slice === 'palate' || s.slice === 'had');
     expect(palateSlices.length).toBe(4);
   }, 20000);
 
   it('excludes a disliked coffee even when the focus would otherwise pick it', async () => {
-    const withoutDislike = await fetchSommelierCoffees({ ragFocus: 'curated_mix', userArchetype: 'earthy' });
+    const withoutDislike = await fetchIsolated({ ragFocus: 'curated_mix', userArchetype: 'earthy' });
     expect(withoutDislike.coffeeIds).toContain(state.earthy[0]); // curated_mix picks 1 per archetype in the pool
 
-    const withDislike = await fetchSommelierCoffees({
+    const withDislike = await fetchIsolated({
       ragFocus: 'curated_mix', userArchetype: 'earthy', dislikedCoffeeIds: [state.earthy[0]],
     });
     expect(withDislike.coffeeIds).not.toContain(state.earthy[0]);
@@ -217,8 +232,8 @@ describe('fetchSommelierCoffees — Liam L1, Part B: thread/secondary/palate sli
 
   // Liam L2, Part C — the new 'matched' focus.
   it('matched focus: a quiz-only customer with a secondary gets primary coffees before secondary', async () => {
-    const result = await fetchSommelierCoffees({
-      ragFocus: 'matched', userArchetype: 'floral', secondaryArchetype: 'fruity',
+    const result = await fetchIsolated({
+      ragFocus: 'matched', userArchetype: 'floral', secondaryArchetype: state.secondaryArchetype,
     });
     const primaryIndexes = result.slices.map((s, i) => (s.slice === 'primary' ? i : -1)).filter(i => i !== -1);
     const secondaryIndexes = result.slices.map((s, i) => (s.slice === 'secondary' ? i : -1)).filter(i => i !== -1);
@@ -230,8 +245,8 @@ describe('fetchSommelierCoffees — Liam L1, Part B: thread/secondary/palate sli
   }, 20000);
 
   it('matched focus: a customer with slot candidates gets [palate match] first', async () => {
-    const result = await fetchSommelierCoffees({
-      ragFocus: 'matched', userArchetype: 'floral', secondaryArchetype: 'fruity',
+    const result = await fetchIsolated({
+      ragFocus: 'matched', userArchetype: 'floral', secondaryArchetype: state.secondaryArchetype,
       slotCandidates: [{ coffee_id: state.earthy[0], already_bought: false, last_rating: null }],
     });
     expect(result.slices[0]).toEqual({ coffeeId: state.earthy[0], slice: 'palate' });
@@ -247,7 +262,7 @@ describe('getAliases', () => {
       roaster = await makeRoaster('Vitest Rag Alias Roastery');
       const { result: created } = await createCoffee({ roasterId: roaster.id, name: 'Vitest Rag Alias Raw Name' }, ACTOR);
       coffeeId = created.coffeeId;
-      slot = await slotId('balanced_sweet', 1);
+      slot = await slotId('balanced_sweet');
       await placeCoffee({ coffeeId, slotId: slot, role: 'home' }, ACTOR);
       const slotName = (await db.query<{ name: string | null }>(`SELECT name FROM coffee_dial_slot WHERE id = $1`, [slot])).rows[0].name;
 

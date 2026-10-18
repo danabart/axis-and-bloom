@@ -10,6 +10,7 @@
 import 'dotenv/config';
 import { describe, it, expect, afterAll } from 'vitest';
 import { db } from '../db/client.js';
+import { freeSlotsInOneArchetype } from '../test/freeSlots.js';
 import {
   CatalogError, createCoffee, placeCoffee, moveCoffee, addGuest, setPriority, setMatchArchetype,
   retireCoffee, restoreCoffee, deactivateRoastery, reactivateRoastery, setHop, upsertSku, setSlotPrice,
@@ -132,8 +133,8 @@ describe('placeCoffee / moveCoffee (D5)', () => {
     try {
       roaster = await makeRoaster('Vitest Place Roastery');
       coffeeId = (await makeCoffee('Vitest Place Coffee', roaster.id)).id;
-      const floral1 = await slotId('floral', 1);
-      const floral3 = await slotId('floral', 3);
+      // Cupping evidence brief 3, Part 0: free slots, never one a real coffee holds.
+      const [{ id: floral1 }, { id: floral3 }] = await freeSlotsInOneArchetype(2, { archetype: 'floral' });
 
       await placeCoffee({ coffeeId, slotId: floral1, role: 'home' }, ACTOR);
       await expect(placeCoffee({ coffeeId, slotId: floral3, role: 'home' }, ACTOR)).rejects.toMatchObject({ status: 409, code: 'HOME_EXISTS' });
@@ -325,7 +326,7 @@ describe('retireCoffee / restoreCoffee', () => {
     try {
       roaster = await makeRoaster('Vitest Retire Roastery');
       coffeeId = (await makeCoffee('Vitest Retire Coffee', roaster.id)).id;
-      const fruity4 = await slotId('fruity', 4);
+      const [{ id: fruity4 }] = await freeSlotsInOneArchetype(1, { archetype: 'fruity' }); // free slot (brief 3 Part 0); fruity/4 holds Flying Jewel
       await placeCoffee({ coffeeId, slotId: fruity4, role: 'home' }, ACTOR);
       await upsertSku({ coffeeId, weightOz: 12 }, ACTOR);
 
@@ -355,7 +356,7 @@ describe('deactivateRoastery / reactivateRoastery', () => {
     try {
       roaster = await makeRoaster('Vitest Lifecycle Roastery');
       coffeeId = (await makeCoffee('Vitest Lifecycle Coffee', roaster.id)).id;
-      const balanced2 = await slotId('balanced_sweet', 2);
+      const [{ id: balanced2 }] = await freeSlotsInOneArchetype(1, { archetype: 'balanced_sweet' }); // free slot (brief 3 Part 0); balanced_sweet/2 holds Benchmark
       await placeCoffee({ coffeeId, slotId: balanced2, role: 'home' }, ACTOR);
 
       await deactivateRoastery({ roasterId: roaster.id, note: 'vitest pause' }, ACTOR);

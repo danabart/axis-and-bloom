@@ -2676,6 +2676,20 @@ ALTER TABLE dial_position_signal DROP COLUMN IF EXISTS suggested_vocabulary_id C
 -- no actual pg_depend dependency on any of these five tables — v_dial_navigation
 -- is dropped anyway (zero readers, brief 3 Task 0); v_dial_position_consensus
 -- is kept and rebuilt (below) since GET /dial/consensus/:coffeeId reads it.
+-- Cupping evidence brief 3 (2026-10-18): the reconciliation views (block
+-- near the end of this file) read v_coffee, v_coffee_slot, the portal hint,
+-- the cupping and remark views; dropped here, before any of those drop and
+-- recreate themselves below, so no base view ever meets a dependent on a
+-- second boot. Recreated by their own block every boot.
+DROP VIEW IF EXISTS v_evidence_coverage;
+DROP VIEW IF EXISTS v_evidence_roastery_calibration;
+DROP VIEW IF EXISTS v_evidence_cupper_calibration;
+DROP VIEW IF EXISTS v_evidence_unmapped_words;
+DROP VIEW IF EXISTS v_evidence_archetype;
+DROP VIEW IF EXISTS v_evidence_archetype_call;
+DROP VIEW IF EXISTS v_evidence_descriptor;
+DROP VIEW IF EXISTS v_evidence_dimension;
+
 DROP VIEW IF EXISTS v_dial_positions;
 DROP VIEW IF EXISTS v_dial_navigation;
 DROP TABLE IF EXISTS dial_archetype_positions CASCADE;
@@ -4821,7 +4835,12 @@ SELECT
   aa.assigned_from_session_id     AS match_session_id,
   COALESCE(cat.category_codes, ARRAY[]::TEXT[]) AS category_codes,
   c.story_published               AS has_story,
-  c.is_active, c.deactivated_at, c.deactivation_reason
+  c.is_active, c.deactivated_at, c.deactivation_reason,
+  -- Cupping evidence brief 3, A0: the current assignment's basis (text line
+  -- and JSON) for v_evidence_archetype / v_evidence_coverage. Appended last:
+  -- this view is CREATE OR REPLACE only (see above).
+  aa.notes                        AS match_notes,
+  aa.basis                        AS match_basis
 FROM coffees c
 LEFT JOIN roaster r              ON r.id = c.roaster_id
 LEFT JOIN coffee_archetype_assignment aa ON aa.coffee_id = c.id AND aa.superseded_at IS NULL
@@ -4855,7 +4874,14 @@ SELECT
   csa.certified_at,
   csa.placement_note,
   vc.match_archetype,
-  (cds.archetype = vc.match_archetype) AS placement_matches_match
+  (cds.archetype = vc.match_archetype) AS placement_matches_match,
+  -- Cupping evidence brief 3, A0: the placement's session and basis, and the
+  -- slot's band (dimension, lo, hi) for v_evidence_archetype's band check.
+  csa.placed_from_session_id,
+  csa.basis                    AS placement_basis,
+  cds.dimension_id             AS slot_dimension_id,
+  cds.spec_band_lo,
+  cds.spec_band_hi
 FROM coffee_slot_assignment csa
 JOIN coffee_dial_slot cds ON cds.id = csa.slot_id
 JOIN v_coffee         vc  ON vc.id  = csa.coffee_id;
@@ -7293,7 +7319,16 @@ SELECT
     FROM roastery_portal_response_dimension rd
     JOIN roastery_portal_dimension d ON d.dimension_id = rd.dimension_id
     WHERE rd.response_id = l.response_id
-  ), '[]'::jsonb) AS dimensions
+  ), '[]'::jsonb) AS dimensions,
+  -- Cupping evidence brief 3, A0: the ranked notes of the same response
+  -- (their words and the node they picked, if any) for v_evidence_descriptor
+  -- and v_evidence_unmapped_words.
+  COALESCE((
+    SELECT jsonb_agg(jsonb_build_object(
+             'rank', n.rank, 'roaster_words', n.roaster_words, 'cupping_note_id', n.cupping_note_id) ORDER BY n.rank)
+    FROM roastery_portal_response_note n
+    WHERE n.response_id = l.response_id
+  ), '[]'::jsonb) AS notes
 FROM latest l
 LEFT JOIN roastery_portal_respondent resp ON resp.id = l.submitted_by_respondent_id
 LEFT JOIN roastery_portal_dimension pd ON pd.dimension_id = l.dominant_dimension_id;
@@ -7532,6 +7567,633 @@ SELECT t.relname::text      AS table_name,
 
 GRANT SELECT ON v_data_table_activity TO reporting_ro;
 
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- CUPPING EVIDENCE brief 3, Part A (2026-10-18): the reconciliation views
+-- (backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENCE_3_RECONCILIATION.md,
+-- DESIGN_CUPPING_EVIDENCE.md §7). Views only: nothing stored, nothing written.
+-- No cupper name, number or label in any definition: cuppers come from the
+-- `cupper` rows through the base views (one row per cupper), thresholds from
+-- param(), the stop list from evidence_stop_word, SCA families from
+-- cupping_note.parent_id (v_cupping_note_family). They read evidence through
+-- views only (A0 below adds the three small views and the columns the
+-- existing ones lacked). Pre-dropped near the top of this file (before the
+-- first view drop), so every base view they read can drop and recreate itself
+-- on each boot without meeting a dependent.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- ── A0. Base views the evidence views need ───────────────────────────────────
+
+-- Each SCA node with its tier-1 ancestor (the family), walked up parent_id.
+-- A family is a join, never a match on wheel_category text (decision 4).
+DROP VIEW IF EXISTS v_cupping_note_family;
+CREATE VIEW v_cupping_note_family AS
+WITH RECURSIVE up AS (
+  SELECT n.id AS cupping_note_id, n.id AS ancestor_id, n.parent_id, n.tier
+  FROM cupping_note n
+  UNION ALL
+  SELECT up.cupping_note_id, p.id, p.parent_id, p.tier
+  FROM up JOIN cupping_note p ON p.id = up.parent_id
+)
+SELECT n.id AS cupping_note_id, n.descriptor, n.tier, n.is_active,
+       f.id AS family_id, f.descriptor AS family
+FROM cupping_note n
+JOIN up ON up.cupping_note_id = n.id AND up.tier = 1
+JOIN cupping_note f ON f.id = up.ancestor_id;
+
+-- The printed sheets' lines (which dimension each line feeds, numbers or words).
+DROP VIEW IF EXISTS v_cupping_sheet_line;
+CREATE VIEW v_cupping_sheet_line AS
+SELECT l.id, l.sheet_format, l.line_label, l.dimension_id, l.is_numeric, l.display_order
+FROM cupping_sheet_line l;
+
+-- The current word → SCA node mappings, roaster and cupper (one writer:
+-- noteMappingService). Superseded rows stay in the table.
+DROP VIEW IF EXISTS v_note_mapping_current;
+CREATE VIEW v_note_mapping_current AS
+SELECT m.id, m.normalized_words, m.cupping_note_id, m.source_kind, m.note, m.created_at
+FROM roastery_portal_note_mapping m
+WHERE m.superseded_at IS NULL;
+
+-- The current cupping dial signal per coffee and its basis line.
+DROP VIEW IF EXISTS v_dial_position_signal_current;
+CREATE VIEW v_dial_position_signal_current AS
+SELECT s.id, s.coffee_id, s.archetype, s.dimension_id, s.source, s.suggested_slot_id,
+       s.raw_value, s.sample_size, s.notes, s.computed_at
+FROM dial_position_signal s
+WHERE s.superseded_at IS NULL;
+
+-- ── A1. v_evidence_dimension: coffee × numeric dimension × cupper ───────────
+CREATE VIEW v_evidence_dimension AS
+WITH cupper_latest AS (
+  -- each cupper's latest current row per coffee and dimension, converted
+  SELECT DISTINCT ON (r.coffee_id, r.dimension_id, r.cupper_id)
+         r.coffee_id, r.dimension_id, r.cupper_id, r.cupper_name,
+         r.value_min AS cupper_min, r.value_max AS cupper_max,
+         ROUND((r.value_min + r.value_max) / 2.0, 2) AS cupper_midpoint,
+         r.scale_code AS cupper_scale_code, r.session_id AS cupper_session_id, r.session_date AS cupper_session_date
+  FROM v_cupping_scores_readable r
+  WHERE NOT r.is_merged AND r.cupper_id IS NOT NULL AND r.is_numeric
+    AND r.value_min IS NOT NULL AND r.value_max IS NOT NULL
+  ORDER BY r.coffee_id, r.dimension_id, r.cupper_id, r.session_date DESC, r.score_id DESC
+),
+cupper_pairs AS (
+  -- agree when every pair of ranges overlaps or gaps by <= param('cupper_gap'); null with one cupper
+  SELECT a.coffee_id, a.dimension_id,
+         bool_and(GREATEST(a.cupper_min - b.cupper_max, b.cupper_min - a.cupper_max, 0) <= param('cupper_gap')) AS cuppers_agree
+  FROM cupper_latest a
+  JOIN cupper_latest b ON b.coffee_id = a.coffee_id AND b.dimension_id = a.dimension_id AND b.cupper_id > a.cupper_id
+  GROUP BY a.coffee_id, a.dimension_id
+),
+merged AS (
+  SELECT r.coffee_id, r.dimension_id, r.dimension_name, r.value_min, r.value_max, r.midpoint,
+         r.session_id, r.session_date, r.n_sessions, r.all_ab_scale
+  FROM v_coffee_dimension_range r
+  WHERE r.basis = 'merged'
+),
+roaster_value AS (
+  -- the current submitted portal response's 1 to 5 value (portal dimension ids are coffee_dimensions ids)
+  SELECT h.coffee_id, (d->>'dimension_id')::int AS dimension_id, (d->>'value')::numeric AS roaster_value_1_5
+  FROM v_roastery_portal_coffee_hint h
+  CROSS JOIN LATERAL jsonb_array_elements(h.dimensions) d
+  WHERE d->>'value' IS NOT NULL
+),
+both_sides AS (
+  SELECT vc.roaster_id, m.coffee_id, m.dimension_id, m.midpoint, rv.roaster_value_1_5
+  FROM merged m
+  JOIN roaster_value rv ON rv.coffee_id = m.coffee_id AND rv.dimension_id = m.dimension_id
+  JOIN v_coffee vc ON vc.id = m.coffee_id
+  WHERE m.midpoint IS NOT NULL
+),
+ranked AS (
+  -- average ranks within the roastery's coffees that have both sides (ties share the mean position)
+  SELECT b.coffee_id, b.dimension_id,
+         COUNT(*) OVER (PARTITION BY b.roaster_id, b.dimension_id) AS lineup_n,
+         RANK() OVER (PARTITION BY b.roaster_id, b.dimension_id ORDER BY b.midpoint)
+           + (COUNT(*) OVER (PARTITION BY b.roaster_id, b.dimension_id, b.midpoint) - 1) / 2.0 AS ab_rank,
+         RANK() OVER (PARTITION BY b.roaster_id, b.dimension_id ORDER BY b.roaster_value_1_5)
+           + (COUNT(*) OVER (PARTITION BY b.roaster_id, b.dimension_id, b.roaster_value_1_5) - 1) / 2.0 AS roaster_rank
+  FROM both_sides b
+),
+ranks AS (
+  SELECT k.coffee_id, k.dimension_id, k.lineup_n,
+         CASE WHEN k.lineup_n >= 2 THEN ROUND(k.roaster_rank, 1) END AS roaster_rank_in_lineup,
+         CASE WHEN k.lineup_n >= 2 THEN ROUND(k.ab_rank, 1) END AS ab_rank_in_lineup,
+         CASE WHEN k.lineup_n >= 2 THEN ROUND(abs(k.ab_rank - k.roaster_rank), 1) END AS rank_gap
+  FROM ranked k
+),
+assembled AS (
+  SELECT
+    vc.id AS coffee_id, vc.name AS coffee_name, vc.roaster_id, vc.roaster_name,
+    cl.dimension_id, d.name AS dimension_name,
+    cl.cupper_id, cl.cupper_name,
+    cl.cupper_min, cl.cupper_max, cl.cupper_midpoint, cl.cupper_scale_code, cl.cupper_session_id, cl.cupper_session_date,
+    m.value_min AS merged_min, m.value_max AS merged_max, m.midpoint AS merged_midpoint,
+    m.session_id AS merged_session_id, m.session_date AS merged_session_date, m.n_sessions, m.all_ab_scale,
+    h.scale_codes,
+    cp.cuppers_agree,
+    rv.roaster_value_1_5,
+    rk.roaster_rank_in_lineup, rk.ab_rank_in_lineup, rk.lineup_n, rk.rank_gap,
+    CASE WHEN rk.rank_gap IS NULL THEN NULL ELSE rk.rank_gap < param('roaster_rank_gap') END AS roaster_agrees,
+    s.is_blind, s.roaster_present, sc.is_control
+  FROM cupper_latest cl
+  JOIN v_coffee vc ON vc.id = cl.coffee_id
+  JOIN coffee_dimensions d ON d.id = cl.dimension_id
+  LEFT JOIN merged m ON m.coffee_id = cl.coffee_id AND m.dimension_id = cl.dimension_id
+  LEFT JOIN v_coffee_dimension_history h ON h.coffee_id = m.coffee_id AND h.dimension_id = m.dimension_id AND h.session_id = m.session_id
+  LEFT JOIN cupper_pairs cp ON cp.coffee_id = cl.coffee_id AND cp.dimension_id = cl.dimension_id
+  LEFT JOIN roaster_value rv ON rv.coffee_id = cl.coffee_id AND rv.dimension_id = cl.dimension_id
+  LEFT JOIN ranks rk ON rk.coffee_id = cl.coffee_id AND rk.dimension_id = cl.dimension_id
+  LEFT JOIN v_cupping_session s ON s.id = m.session_id
+  LEFT JOIN v_cupping_session_coffee sc ON sc.session_id = m.session_id AND sc.coffee_id = m.coffee_id
+)
+SELECT a.*,
+  CASE
+    WHEN a.cuppers_agree IS FALSE AND a.roaster_agrees IS FALSE THEN 'both'
+    WHEN a.cuppers_agree IS FALSE THEN 'cuppers_disagree'
+    WHEN a.roaster_agrees IS FALSE THEN 'roaster_disagrees'
+    WHEN a.cuppers_agree IS NULL AND a.roaster_agrees IS NULL THEN 'one_source'
+    ELSE 'none'
+  END AS flag
+FROM assembled a;
+
+-- ── A2. v_evidence_descriptor: coffee × SCA family ───────────────────────────
+CREATE VIEW v_evidence_descriptor AS
+WITH portal_note AS (
+  -- the current submitted response's notes, at their own node or through a current roaster mapping
+  SELECT h.coffee_id, COALESCE((n->>'cupping_note_id')::uuid, mp.cupping_note_id) AS cupping_note_id
+  FROM v_roastery_portal_coffee_hint h
+  CROSS JOIN LATERAL jsonb_array_elements(h.notes) n
+  LEFT JOIN v_note_mapping_current mp
+    ON mp.source_kind = 'roaster'
+   AND mp.normalized_words = regexp_replace(lower(btrim(n->>'roaster_words')), '\s+', ' ', 'g')
+),
+website_latest AS (
+  -- the latest capture of each roaster × coffee website (an earlier capture stays in v_roastery_remark)
+  SELECT roaster_id, coffee_id, max(said_on) AS said_on
+  FROM v_roastery_remark
+  WHERE channel = 'website' AND is_current AND coffee_id IS NOT NULL
+  GROUP BY roaster_id, coffee_id
+),
+named AS (
+  SELECT d.coffee_id, d.cupping_note_id, 'cupper'::text AS src, s.cupper_name
+  FROM v_cupping_score_descriptor d
+  JOIN v_cupping_score s ON s.id = d.cupping_score_id
+  WHERE NOT d.is_merged AND s.cupper_id IS NOT NULL
+  UNION ALL
+  SELECT pn.coffee_id, pn.cupping_note_id, 'roaster_form', NULL FROM portal_note pn WHERE pn.cupping_note_id IS NOT NULL
+  UNION ALL
+  SELECT r.coffee_id, r.cupping_note_id, 'roaster_remark', NULL
+  FROM v_roastery_remark r
+  WHERE r.is_current AND r.topic = 'descriptor' AND r.channel <> 'website' AND r.cupping_note_id IS NOT NULL AND r.coffee_id IS NOT NULL
+  UNION ALL
+  SELECT r.coffee_id, r.cupping_note_id, 'roaster_website', NULL
+  FROM v_roastery_remark r
+  JOIN website_latest wl ON wl.roaster_id = r.roaster_id AND wl.coffee_id = r.coffee_id AND wl.said_on = r.said_on
+  WHERE r.is_current AND r.topic = 'descriptor' AND r.channel = 'website' AND r.cupping_note_id IS NOT NULL
+  UNION ALL
+  SELECT f.coffee_id, unnest(f.descriptor_note_ids), 'customer', NULL
+  FROM v_customer_feedback_current f
+  WHERE f.coffee_id IS NOT NULL
+  UNION ALL
+  SELECT w.coffee_id, w.cupping_note_id, 'accepted', NULL
+  FROM v_collaborative_flavor_wheel w
+  WHERE w.source = 'roastery'
+),
+per_family AS (
+  SELECT nm.coffee_id, fam.family_id, fam.family,
+         array_agg(DISTINCT nm.cupper_name ORDER BY nm.cupper_name) FILTER (WHERE nm.src = 'cupper') AS named_by_cuppers,
+         bool_or(nm.src = 'cupper')          AS named_by_ab,
+         bool_or(nm.src = 'roaster_form')    AS named_by_roaster_form,
+         bool_or(nm.src = 'roaster_remark')  AS named_by_roaster_remark,
+         bool_or(nm.src = 'roaster_website') AS named_by_roaster_website,
+         bool_or(nm.src = 'customer')        AS named_by_customer,
+         bool_or(nm.src = 'accepted')        AS accepted_in_catalog,
+         count(DISTINCT CASE WHEN nm.src = 'cupper' THEN 'cupper:' || nm.cupper_name ELSE nm.src END) AS n_sources
+  FROM named nm
+  JOIN v_cupping_note_family fam ON fam.cupping_note_id = nm.cupping_note_id AND fam.is_active
+  GROUP BY nm.coffee_id, fam.family_id, fam.family
+)
+SELECT vc.id AS coffee_id, vc.name AS coffee_name, vc.roaster_id,
+       pf.family_id, pf.family,
+       COALESCE(pf.named_by_cuppers, ARRAY[]::text[]) AS named_by_cuppers,
+       pf.named_by_ab, pf.named_by_roaster_form, pf.named_by_roaster_remark, pf.named_by_roaster_website,
+       pf.named_by_customer, pf.accepted_in_catalog,
+       (pf.named_by_roaster_form OR pf.named_by_roaster_remark OR pf.named_by_roaster_website) AS named_by_roaster,
+       (pf.named_by_ab AND (pf.named_by_roaster_form OR pf.named_by_roaster_remark OR pf.named_by_roaster_website)) AS hit,
+       (NOT pf.named_by_ab AND (pf.named_by_roaster_form OR pf.named_by_roaster_remark OR pf.named_by_roaster_website)) AS miss,
+       (pf.named_by_ab AND NOT (pf.named_by_roaster_form OR pf.named_by_roaster_remark OR pf.named_by_roaster_website)) AS extra,
+       pf.n_sources
+FROM per_family pf
+JOIN v_coffee vc ON vc.id = pf.coffee_id;
+
+-- ── A3. v_evidence_archetype_call (coffee × cupper) and v_evidence_archetype (coffee) ──
+CREATE VIEW v_evidence_archetype_call AS
+SELECT DISTINCT ON (s.coffee_id, s.cupper_id)
+       s.coffee_id, s.cupper_id, s.cupper_name, s.session_id, ss.session_date, ss.is_blind,
+       s.archetype_call, s.archetype_call_secondary, s.position_call, s.slot_call_id, s.call_note
+FROM v_cupping_score s
+JOIN v_cupping_session ss ON ss.id = s.session_id
+WHERE NOT s.is_merged AND s.cupper_id IS NOT NULL
+ORDER BY s.coffee_id, s.cupper_id, ss.session_date DESC, s.id DESC;
+
+CREATE VIEW v_evidence_archetype AS
+WITH calls AS (
+  SELECT c.coffee_id,
+         jsonb_object_agg(c.cupper_name, c.archetype_call) AS cupper_calls,
+         count(c.archetype_call) AS n_cuppers_called,
+         CASE WHEN count(c.archetype_call) < 2 THEN NULL
+              ELSE count(DISTINCT c.archetype_call) = 1 END AS cupper_calls_agree
+  FROM v_evidence_archetype_call c
+  GROUP BY c.coffee_id
+),
+merged_call AS (
+  SELECT DISTINCT ON (s.coffee_id) s.coffee_id, s.archetype_call AS merged_call, s.call_note AS merged_call_note
+  FROM v_cupping_score s
+  JOIN v_cupping_session ss ON ss.id = s.session_id
+  WHERE s.is_merged
+  ORDER BY s.coffee_id, ss.session_date DESC, s.id DESC
+),
+latest_session AS (
+  SELECT DISTINCT ON (s.coffee_id) s.coffee_id, ss.id AS session_id, ss.session_date, ss.is_blind, ss.roaster_present
+  FROM v_cupping_score s
+  JOIN v_cupping_session ss ON ss.id = s.session_id
+  ORDER BY s.coffee_id, ss.session_date DESC, ss.id DESC
+),
+remark_proposals AS (
+  SELECT r.coffee_id, array_agg(DISTINCT r.proposed_archetype::text ORDER BY r.proposed_archetype::text) AS proposals
+  FROM v_roastery_remark r
+  WHERE r.is_current AND r.topic = 'classification' AND r.proposed_archetype IS NOT NULL AND r.coffee_id IS NOT NULL
+  GROUP BY r.coffee_id
+),
+home AS (
+  SELECT DISTINCT ON (s.coffee_id) s.coffee_id, s.slot_id, s.slot_name, s.placement_note, s.placed_from_session_id,
+         s.slot_dimension_id, s.spec_band_lo, s.spec_band_hi, s.placement_archetype
+  FROM v_coffee_slot s
+  WHERE s.role = 'home' AND s.assignment_is_active
+  ORDER BY s.coffee_id, s.priority, s.assignment_id
+),
+signal AS (
+  SELECT DISTINCT ON (g.coffee_id) g.coffee_id, g.notes
+  FROM v_dial_position_signal_current g
+  WHERE g.source = 'cupping'
+  ORDER BY g.coffee_id, g.computed_at DESC, g.id DESC
+),
+assembled AS (
+  SELECT
+    vc.id AS coffee_id, vc.name AS coffee_name, vc.roaster_id, vc.roaster_name,
+    ca.cupper_calls, COALESCE(ca.n_cuppers_called, 0) AS n_cuppers_called, ca.cupper_calls_agree,
+    mc.merged_call, mc.merged_call_note,
+    hint.proposed_archetype AS roaster_form_proposal,
+    rp.proposals AS roaster_remark_proposals,
+    vc.match_archetype AS catalog_archetype, vc.match_confidence AS catalog_confidence, vc.match_source AS catalog_source,
+    vc.match_session_id AS assigned_from_session_id, vc.match_notes AS basis, vc.match_basis AS basis_json,
+    hm.slot_id AS catalog_home_slot_id, hm.slot_name AS catalog_home_slot_name, hm.placement_note, hm.placed_from_session_id,
+    ls.session_id AS latest_session_id, ls.session_date AS latest_session_date,
+    CASE WHEN vc.match_session_id IS NULL AND hm.placed_from_session_id IS NULL THEN NULL
+         ELSE ls.session_date > LEAST(sa.session_date, sp.session_date) END AS evidence_newer_than_decision,
+    CASE
+      WHEN hm.slot_id IS NULL THEN NULL
+      WHEN hm.spec_band_lo IS NULL AND hm.spec_band_hi IS NULL THEN 'no_band'
+      WHEN rng.midpoint IS NULL THEN 'no_merged_range'
+      WHEN (hm.spec_band_lo IS NOT NULL AND rng.midpoint < hm.spec_band_lo)
+        OR (hm.spec_band_hi IS NOT NULL AND rng.midpoint > hm.spec_band_hi) THEN 'out_of_band'
+      ELSE 'in_band'
+    END AS slot_spec_check,
+    sig.notes AS dial_signal_basis,
+    CASE WHEN hint.proposed_archetype IS NULL AND rp.proposals IS NULL THEN NULL
+         ELSE vc.match_archetype::text = ANY (array_remove(COALESCE(rp.proposals, ARRAY[]::text[]) || hint.proposed_archetype::text, NULL)) END
+      AS roaster_agrees_with_catalog,
+    ls.is_blind, ls.roaster_present, ls.session_date AS last_cupped
+  FROM v_coffee vc
+  LEFT JOIN calls ca ON ca.coffee_id = vc.id
+  LEFT JOIN merged_call mc ON mc.coffee_id = vc.id
+  LEFT JOIN latest_session ls ON ls.coffee_id = vc.id
+  LEFT JOIN v_roastery_portal_coffee_hint hint ON hint.coffee_id = vc.id
+  LEFT JOIN remark_proposals rp ON rp.coffee_id = vc.id
+  LEFT JOIN home hm ON hm.coffee_id = vc.id
+  LEFT JOIN v_cupping_session sa ON sa.id = vc.match_session_id
+  LEFT JOIN v_cupping_session sp ON sp.id = hm.placed_from_session_id
+  LEFT JOIN v_coffee_archetype ar ON ar.code = hm.placement_archetype
+  LEFT JOIN v_coffee_dimension_range rng
+    ON rng.coffee_id = vc.id AND rng.basis = 'merged' AND rng.dimension_id = COALESCE(hm.slot_dimension_id, ar.dominant_dimension_id)
+  LEFT JOIN signal sig ON sig.coffee_id = vc.id
+)
+SELECT a.*,
+  CASE
+    WHEN a.cupper_calls_agree IS FALSE AND a.roaster_agrees_with_catalog IS FALSE THEN 'both'
+    WHEN a.cupper_calls_agree IS FALSE THEN 'cuppers_disagree'
+    WHEN a.roaster_agrees_with_catalog IS FALSE THEN 'roaster_disagrees'
+    WHEN a.catalog_archetype IS NOT NULL AND a.basis_json IS NULL AND COALESCE(btrim(a.basis), '') = '' THEN 'no_basis'
+    WHEN a.slot_spec_check = 'out_of_band' THEN 'out_of_band'
+    WHEN a.evidence_newer_than_decision THEN 'stale_decision'
+    ELSE 'none'
+  END AS flag
+FROM assembled a;
+
+-- ── A4. v_evidence_roastery_calibration: roastery × numeric dimension ───────
+CREATE VIEW v_evidence_roastery_calibration AS
+WITH latest_ab AS (
+  -- each coffee's latest merged session per dimension, native A&B scale only (decision 5)
+  SELECT DISTINCT ON (h.coffee_id, h.dimension_id) h.coffee_id, h.dimension_id, h.midpoint, h.session_id, h.is_blind
+  FROM v_coffee_dimension_history h
+  ORDER BY h.coffee_id, h.dimension_id, h.session_date DESC, h.merged_score_id DESC
+),
+roaster_value AS (
+  SELECT h.coffee_id, (d->>'dimension_id')::int AS dimension_id, (d->>'value')::numeric AS value_1_5
+  FROM v_roastery_portal_coffee_hint h
+  CROSS JOIN LATERAL jsonb_array_elements(h.dimensions) d
+  WHERE d->>'value' IS NOT NULL
+),
+both_sides AS (
+  SELECT vc.roaster_id, l.coffee_id, l.dimension_id, l.midpoint, rv.value_1_5, l.is_blind, s.roaster_present
+  FROM latest_ab l
+  JOIN v_coffee_dimension_history hh ON hh.coffee_id = l.coffee_id AND hh.dimension_id = l.dimension_id AND hh.session_id = l.session_id AND hh.all_ab_scale
+  JOIN roaster_value rv ON rv.coffee_id = l.coffee_id AND rv.dimension_id = l.dimension_id
+  JOIN v_coffee vc ON vc.id = l.coffee_id
+  LEFT JOIN v_cupping_session s ON s.id = l.session_id
+  WHERE l.midpoint IS NOT NULL
+),
+ranked AS (
+  SELECT b.*,
+         RANK() OVER (PARTITION BY b.roaster_id, b.dimension_id ORDER BY b.midpoint)
+           + (COUNT(*) OVER (PARTITION BY b.roaster_id, b.dimension_id, b.midpoint) - 1) / 2.0 AS ab_rank,
+         RANK() OVER (PARTITION BY b.roaster_id, b.dimension_id ORDER BY b.value_1_5)
+           + (COUNT(*) OVER (PARTITION BY b.roaster_id, b.dimension_id, b.value_1_5) - 1) / 2.0 AS roaster_rank
+  FROM both_sides b
+),
+per_dim AS (
+  SELECT k.roaster_id, k.dimension_id, count(*) AS n,
+         corr(k.ab_rank, k.roaster_rank) AS rho,
+         avg(abs(k.ab_rank - k.roaster_rank)) AS mean_rank_gap,
+         count(*) FILTER (WHERE k.is_blind) AS n_blind,
+         count(*) FILTER (WHERE k.roaster_present) AS n_roaster_present
+  FROM ranked k
+  GROUP BY k.roaster_id, k.dimension_id
+),
+crosstab_cells AS (
+  SELECT ea.roaster_id, COALESCE(ea.merged_call::text, 'no_call') AS ours,
+         COALESCE(ea.roaster_form_proposal::text, 'no_proposal') AS theirs, count(*) AS n
+  FROM v_evidence_archetype ea
+  WHERE ea.merged_call IS NOT NULL OR ea.roaster_form_proposal IS NOT NULL
+  GROUP BY 1, 2, 3
+),
+crosstab_rows AS (
+  SELECT roaster_id, ours, jsonb_object_agg(theirs, n) AS cells FROM crosstab_cells GROUP BY roaster_id, ours
+),
+crosstab AS (
+  SELECT roaster_id, jsonb_object_agg(ours, cells) AS archetype_crosstab FROM crosstab_rows GROUP BY roaster_id
+),
+descriptor_counts AS (
+  SELECT ed.roaster_id,
+         count(*) FILTER (WHERE ed.hit) AS descriptor_hit,
+         count(*) FILTER (WHERE ed.miss) AS descriptor_miss,
+         count(*) FILTER (WHERE ed.extra) AS descriptor_extra
+  FROM v_evidence_descriptor ed
+  GROUP BY ed.roaster_id
+),
+roaster_dims AS (
+  -- every roastery × numeric dimension where either side has a value
+  SELECT DISTINCT vc.roaster_id, l.dimension_id FROM latest_ab l JOIN v_coffee vc ON vc.id = l.coffee_id
+  UNION
+  SELECT DISTINCT vc.roaster_id, rv.dimension_id FROM roaster_value rv JOIN v_coffee vc ON vc.id = rv.coffee_id
+)
+SELECT rd.roaster_id, vr.roaster_name, rd.dimension_id, d.name AS dimension_name,
+       COALESCE(pd.n, 0) AS n,
+       CASE WHEN COALESCE(pd.n, 0) >= param('rank_corr_min_n') THEN ROUND(pd.rho::numeric, 3) END AS rank_corr,
+       ROUND(pd.mean_rank_gap, 2) AS mean_rank_gap,
+       CASE WHEN COALESCE(pd.n, 0) >= param('spearman_min_n') AND pd.rho IS NOT NULL THEN pd.rho < param('spearman_rho_cut') END AS inverted,
+       CASE WHEN COALESCE(pd.n, 0) < param('spearman_min_n') THEN 'n too small' END AS note,
+       COALESCE(pd.n_blind, 0) AS n_blind, COALESCE(pd.n_roaster_present, 0) AS n_roaster_present,
+       COALESCE(ct.archetype_crosstab, '{}'::jsonb) AS archetype_crosstab,
+       COALESCE(dc.descriptor_hit, 0) AS descriptor_hit, COALESCE(dc.descriptor_miss, 0) AS descriptor_miss,
+       COALESCE(dc.descriptor_extra, 0) AS descriptor_extra
+FROM roaster_dims rd
+JOIN coffee_dimensions d ON d.id = rd.dimension_id AND d.is_numeric
+JOIN (SELECT DISTINCT roaster_id, roaster_name FROM v_coffee) vr ON vr.roaster_id = rd.roaster_id
+LEFT JOIN per_dim pd ON pd.roaster_id = rd.roaster_id AND pd.dimension_id = rd.dimension_id
+LEFT JOIN crosstab ct ON ct.roaster_id = rd.roaster_id
+LEFT JOIN descriptor_counts dc ON dc.roaster_id = rd.roaster_id;
+
+-- ── A5. v_evidence_cupper_calibration: cupper × numeric dimension × blind ──
+CREATE VIEW v_evidence_cupper_calibration AS
+WITH rows_ab AS (
+  -- every current cupper row on the native A&B scale, all sessions (calibration reads history)
+  SELECT r.cupper_id, r.cupper_name, r.dimension_id, r.coffee_id, r.session_id, r.session_coffee_id, r.session_date,
+         r.is_blind, r.is_control, r.value_min, r.value_max,
+         (r.value_min + r.value_max) / 2.0 AS midpoint
+  FROM v_cupping_scores_readable r
+  WHERE NOT r.is_merged AND r.cupper_id IS NOT NULL AND r.scale_code = 'ab_0_15' AND r.is_numeric
+    AND r.value_min IS NOT NULL AND r.value_max IS NOT NULL
+),
+vs_other AS (
+  SELECT a.cupper_id, a.dimension_id, a.session_coffee_id, a.is_blind,
+         a.midpoint - avg(b.midpoint) AS signed_gap,
+         bool_or(GREATEST(a.value_min - b.value_max, b.value_min - a.value_max, 0) > param('cupper_gap')) AS disagrees
+  FROM rows_ab a
+  JOIN rows_ab b ON b.session_coffee_id = a.session_coffee_id AND b.dimension_id = a.dimension_id AND b.cupper_id <> a.cupper_id
+  GROUP BY a.cupper_id, a.dimension_id, a.session_coffee_id, a.is_blind, a.midpoint
+),
+cupper_latest AS (
+  SELECT DISTINCT ON (r.cupper_id, r.dimension_id, r.coffee_id) r.*
+  FROM rows_ab r
+  ORDER BY r.cupper_id, r.dimension_id, r.coffee_id, r.session_date DESC, r.session_id DESC
+),
+roaster_value AS (
+  SELECT h.coffee_id, (d->>'dimension_id')::int AS dimension_id, (d->>'value')::numeric AS value_1_5
+  FROM v_roastery_portal_coffee_hint h
+  CROSS JOIN LATERAL jsonb_array_elements(h.dimensions) d
+  WHERE d->>'value' IS NOT NULL
+),
+vs_roaster AS (
+  -- this cupper's average rank and the roaster's within the roastery's lineup, where both exist
+  -- (a signed mean of their difference is zero by construction, so A5 reports
+  -- the mean absolute gap and the correlation of the two rank vectors)
+  SELECT x.cupper_id, x.dimension_id, x.is_blind, x.cupper_rank, x.roaster_rank
+  FROM (
+    SELECT cl.cupper_id, cl.dimension_id, cl.is_blind, vc.roaster_id,
+           COUNT(*) OVER (PARTITION BY cl.cupper_id, cl.dimension_id, vc.roaster_id) AS lineup_n,
+           RANK() OVER (PARTITION BY cl.cupper_id, cl.dimension_id, vc.roaster_id ORDER BY cl.midpoint)
+             + (COUNT(*) OVER (PARTITION BY cl.cupper_id, cl.dimension_id, vc.roaster_id, cl.midpoint) - 1) / 2.0 AS cupper_rank,
+           RANK() OVER (PARTITION BY cl.cupper_id, cl.dimension_id, vc.roaster_id ORDER BY rv.value_1_5)
+             + (COUNT(*) OVER (PARTITION BY cl.cupper_id, cl.dimension_id, vc.roaster_id, rv.value_1_5) - 1) / 2.0 AS roaster_rank
+    FROM cupper_latest cl
+    JOIN roaster_value rv ON rv.coffee_id = cl.coffee_id AND rv.dimension_id = cl.dimension_id
+    JOIN v_coffee vc ON vc.id = cl.coffee_id
+  ) x
+  WHERE x.lineup_n >= 2
+),
+vs_catalog AS (
+  -- control samples: this cupper's midpoint minus the coffee's latest merged midpoint before the control session
+  SELECT c.cupper_id, c.dimension_id, c.is_blind, c.midpoint - prior.midpoint AS signed_gap
+  FROM rows_ab c
+  CROSS JOIN LATERAL (
+    SELECT h.midpoint FROM v_coffee_dimension_history h
+    WHERE h.coffee_id = c.coffee_id AND h.dimension_id = c.dimension_id AND h.session_date < c.session_date
+    ORDER BY h.session_date DESC, h.merged_score_id DESC LIMIT 1
+  ) prior
+  WHERE c.is_control
+),
+repeats AS (
+  -- coffees this cupper scored in two or more sessions: mean absolute gap between her midpoints, over session pairs
+  SELECT a.cupper_id, a.dimension_id, a.is_blind, a.coffee_id, avg(abs(a.midpoint - b.midpoint)) AS mean_gap
+  FROM rows_ab a
+  JOIN rows_ab b ON b.cupper_id = a.cupper_id AND b.dimension_id = a.dimension_id AND b.coffee_id = a.coffee_id AND b.session_id > a.session_id
+  GROUP BY a.cupper_id, a.dimension_id, a.is_blind, a.coffee_id
+),
+base AS (
+  SELECT r.cupper_id, r.cupper_name, r.dimension_id, r.is_blind,
+         count(*) AS n, avg(r.value_max - r.value_min) AS mean_range_width
+  FROM rows_ab r
+  GROUP BY r.cupper_id, r.cupper_name, r.dimension_id, r.is_blind
+)
+SELECT b.cupper_id, b.cupper_name, b.dimension_id, d.name AS dimension_name, b.is_blind,
+       b.n, ROUND(b.mean_range_width, 2) AS mean_range_width,
+       (SELECT count(*) FROM vs_other o WHERE o.cupper_id = b.cupper_id AND o.dimension_id = b.dimension_id AND o.is_blind IS NOT DISTINCT FROM b.is_blind) AS n_with_other_cupper,
+       (SELECT ROUND(avg(o.signed_gap), 2) FROM vs_other o WHERE o.cupper_id = b.cupper_id AND o.dimension_id = b.dimension_id AND o.is_blind IS NOT DISTINCT FROM b.is_blind) AS mean_signed_gap_to_other,
+       (SELECT count(*) FILTER (WHERE o.disagrees) FROM vs_other o WHERE o.cupper_id = b.cupper_id AND o.dimension_id = b.dimension_id AND o.is_blind IS NOT DISTINCT FROM b.is_blind) AS n_disagreements,
+       (SELECT count(*) FROM vs_roaster v WHERE v.cupper_id = b.cupper_id AND v.dimension_id = b.dimension_id AND v.is_blind IS NOT DISTINCT FROM b.is_blind) AS n_with_roaster,
+       (SELECT ROUND(avg(abs(v.cupper_rank - v.roaster_rank)), 2) FROM vs_roaster v WHERE v.cupper_id = b.cupper_id AND v.dimension_id = b.dimension_id AND v.is_blind IS NOT DISTINCT FROM b.is_blind) AS mean_abs_gap_to_roaster_rank,
+       (SELECT CASE WHEN count(*) >= param('rank_corr_min_n') THEN ROUND(corr(v.cupper_rank, v.roaster_rank)::numeric, 3) END
+          FROM vs_roaster v WHERE v.cupper_id = b.cupper_id AND v.dimension_id = b.dimension_id AND v.is_blind IS NOT DISTINCT FROM b.is_blind) AS rank_corr_to_roaster,
+       (SELECT count(*) FROM vs_catalog c WHERE c.cupper_id = b.cupper_id AND c.dimension_id = b.dimension_id AND c.is_blind IS NOT DISTINCT FROM b.is_blind) AS n_control,
+       (SELECT ROUND(avg(c.signed_gap), 2) FROM vs_catalog c WHERE c.cupper_id = b.cupper_id AND c.dimension_id = b.dimension_id AND c.is_blind IS NOT DISTINCT FROM b.is_blind) AS mean_signed_gap_to_catalog,
+       (SELECT count(*) FROM repeats p WHERE p.cupper_id = b.cupper_id AND p.dimension_id = b.dimension_id AND p.is_blind IS NOT DISTINCT FROM b.is_blind) AS n_repeat,
+       (SELECT ROUND(avg(p.mean_gap), 2) FROM repeats p WHERE p.cupper_id = b.cupper_id AND p.dimension_id = b.dimension_id AND p.is_blind IS NOT DISTINCT FROM b.is_blind) AS repeatability
+FROM base b
+JOIN coffee_dimensions d ON d.id = b.dimension_id;
+
+-- ── A6. v_evidence_coverage: one row per active catalog coffee ───────────────
+CREATE VIEW v_evidence_coverage AS
+WITH cupping AS (
+  SELECT s.coffee_id,
+         array_agg(DISTINCT s.cupper_name ORDER BY s.cupper_name) FILTER (WHERE NOT s.is_merged AND s.cupper_id IS NOT NULL) AS cuppers_with_rows,
+         count(DISTINCT s.cupper_id) FILTER (WHERE NOT s.is_merged) AS n_cuppers,
+         bool_or(s.is_merged) AS has_merged,
+         array_agg(DISTINCT s.scale_code ORDER BY s.scale_code) FILTER (WHERE NOT s.is_merged) AS scale_codes
+  FROM v_cupping_score s
+  GROUP BY s.coffee_id
+),
+sessions AS (
+  SELECT sc.coffee_id, count(DISTINCT sc.session_id) AS n_sessions,
+         count(DISTINCT sc.session_id) FILTER (WHERE sc.is_control) AS n_control_sessions
+  FROM v_cupping_session_coffee sc
+  WHERE sc.has_scores
+  GROUP BY sc.coffee_id
+),
+remarks AS (
+  SELECT r.coffee_id,
+         bool_or(r.channel <> 'website') AS has_remark_table,
+         bool_or(r.channel = 'website') AS has_remark_website,
+         count(*) AS n_remarks
+  FROM v_roastery_remark r
+  WHERE r.is_current AND r.coffee_id IS NOT NULL
+  GROUP BY r.coffee_id
+),
+feedback AS (
+  SELECT f.coffee_id, count(*) AS n_customer_feedback
+  FROM v_customer_feedback_current f
+  WHERE f.coffee_id IS NOT NULL
+  GROUP BY f.coffee_id
+),
+placed AS (
+  SELECT DISTINCT s.coffee_id FROM v_coffee_slot s WHERE s.assignment_is_active
+),
+unreconciled AS (
+  SELECT coffee_id FROM v_evidence_dimension WHERE flag <> 'none'
+  UNION
+  SELECT coffee_id FROM v_evidence_archetype WHERE flag <> 'none'
+)
+SELECT vc.id AS coffee_id, vc.name AS coffee_name, vc.roaster_id, vc.roaster_name,
+       (pl.coffee_id IS NOT NULL) AS is_placed,
+       COALESCE(cu.cuppers_with_rows, ARRAY[]::text[]) AS cuppers_with_rows,
+       COALESCE(cu.n_cuppers, 0) AS n_cuppers,
+       COALESCE(cu.has_merged, false) AS has_merged,
+       COALESCE(se.n_sessions, 0) AS n_sessions,
+       ea.last_cupped, ea.latest_session_id,
+       COALESCE(cu.scale_codes, ARRAY[]::text[]) AS scale_codes,
+       COALESCE(se.n_control_sessions, 0) AS n_control_sessions,
+       (hint.coffee_id IS NOT NULL) AS has_portal_submitted, hint.version AS portal_version, hint.submitted_at AS portal_submitted_at,
+       COALESCE(rm.has_remark_table, false) AS has_remark_table,
+       COALESCE(rm.has_remark_website, false) AS has_remark_website,
+       COALESCE(rm.n_remarks, 0) AS n_remarks,
+       (fb.coffee_id IS NOT NULL) AS has_customer_feedback,
+       COALESCE(fb.n_customer_feedback, 0) AS n_customer_feedback,
+       ((cu.coffee_id IS NOT NULL)::int + (hint.coffee_id IS NOT NULL)::int + COALESCE(rm.has_remark_table, false)::int
+         + COALESCE(rm.has_remark_website, false)::int + (fb.coffee_id IS NOT NULL)::int) AS n_sources,
+       vc.match_archetype AS catalog_archetype, vc.match_confidence AS catalog_confidence,
+       CASE WHEN vc.match_archetype IS NULL THEN NULL
+            ELSE (vc.match_basis IS NOT NULL OR COALESCE(vc.match_notes LIKE 'basis:%', false)) END AS assignment_basis_present,
+       ea.evidence_newer_than_decision,
+       (ur.coffee_id IS NOT NULL) AS flag_unreconciled
+FROM v_coffee vc
+LEFT JOIN cupping cu ON cu.coffee_id = vc.id
+LEFT JOIN sessions se ON se.coffee_id = vc.id
+LEFT JOIN remarks rm ON rm.coffee_id = vc.id
+LEFT JOIN feedback fb ON fb.coffee_id = vc.id
+LEFT JOIN placed pl ON pl.coffee_id = vc.id
+LEFT JOIN v_roastery_portal_coffee_hint hint ON hint.coffee_id = vc.id
+LEFT JOIN v_evidence_archetype ea ON ea.coffee_id = vc.id
+LEFT JOIN unreconciled ur ON ur.coffee_id = vc.id
+WHERE vc.is_active;
+
+-- ── A7. v_evidence_unmapped_words: one row per distinct word × source ───────
+CREATE VIEW v_evidence_unmapped_words AS
+WITH word_dimensions AS (
+  -- the dimensions a printed sheet records as words (rows, not a list)
+  SELECT DISTINCT l.dimension_id FROM v_cupping_sheet_line l WHERE NOT l.is_numeric
+),
+raw AS (
+  SELECT regexp_replace(lower(btrim(n->>'roaster_words')), '\s+', ' ', 'g') AS word,
+         'roaster_form'::text AS source, h.coffee_id, h.submitted_at::date AS seen_on
+  FROM v_roastery_portal_coffee_hint h
+  CROSS JOIN LATERAL jsonb_array_elements(h.notes) n
+  WHERE n->>'cupping_note_id' IS NULL
+  UNION ALL
+  SELECT regexp_replace(lower(btrim(r.remark)), '\s+', ' ', 'g'),
+         CASE WHEN r.channel = 'website' THEN 'roaster_website' ELSE 'roaster_remark' END,
+         r.coffee_id, r.said_on
+  FROM v_roastery_remark r
+  WHERE r.is_current AND r.topic = 'descriptor' AND r.cupping_note_id IS NULL
+  UNION ALL
+  SELECT regexp_replace(lower(btrim(w.word)), '\s+', ' ', 'g'), 'cupper_notes', r.coffee_id, r.session_date
+  FROM v_cupping_scores_readable r
+  JOIN word_dimensions wd ON wd.dimension_id = r.dimension_id
+  CROSS JOIN LATERAL regexp_split_to_table(r.notes, ',') AS w(word)
+  WHERE NOT r.is_merged AND r.cupper_id IS NOT NULL AND r.notes IS NOT NULL
+),
+cleaned AS (
+  -- a transcriber's parenthesis ("apple (marked x)", "light (~tea)") is not the
+  -- cupper's word; edge punctuation off ("spice?" is "spice"); struck words
+  -- (~word) are never words
+  SELECT regexp_replace(
+           btrim(regexp_replace(rw.word, '\([^)]*(\)|$)', ' ', 'g')),
+           '^[^[:alnum:]~]+|[^[:alnum:]]+$', '', 'g') AS word,
+         rw.source, rw.coffee_id, rw.seen_on
+  FROM raw rw
+  WHERE rw.word IS NOT NULL
+)
+SELECT c.word, c.source,
+       count(DISTINCT c.coffee_id) AS n_coffees,
+       min(c.coffee_id) AS example_coffee_id,
+       (SELECT vc.name FROM v_coffee vc WHERE vc.id = min(c.coffee_id)) AS example_coffee_name,
+       min(c.seen_on) AS first_seen, max(c.seen_on) AS last_seen
+FROM cleaned c
+WHERE c.word <> '' AND c.word NOT LIKE '~%'
+  AND NOT EXISTS (SELECT 1 FROM evidence_stop_word sw WHERE lower(sw.word) = c.word)
+  -- portal notes and cupper words: minus the current mapping of their kind
+  -- (a remark's own cupping_note_id is its mapping, filtered in raw)
+  AND (c.source NOT IN ('roaster_form', 'cupper_notes')
+       OR NOT EXISTS (SELECT 1 FROM v_note_mapping_current mp WHERE mp.normalized_words = c.word
+                        AND mp.source_kind = CASE WHEN c.source = 'cupper_notes' THEN 'cupper' ELSE 'roaster' END))
+  AND (c.source <> 'cupper_notes'
+       OR NOT EXISTS (SELECT 1 FROM v_cupping_note_family f WHERE f.is_active AND lower(f.descriptor) = c.word))
+GROUP BY c.word, c.source;
+
+GRANT SELECT ON v_cupping_note_family, v_cupping_sheet_line, v_note_mapping_current, v_dial_position_signal_current,
+  v_evidence_dimension, v_evidence_descriptor, v_evidence_archetype_call, v_evidence_archetype,
+  v_evidence_roastery_calibration, v_evidence_cupper_calibration, v_evidence_coverage, v_evidence_unmapped_words
+  TO reporting_ro;
 
 -- A2. Prefix-driven grants, re-run every boot. A table's name decides its
 -- privileges, so a customer_* table added later (C2) is immutable from the

@@ -9,7 +9,8 @@ import express from 'express';
 import type { Server } from 'http';
 import coffeesRouter, { computeDoorMap, assertDoorMapInvariants } from './coffees.js';
 import { db } from '../db/client.js';
-import { createCoffee, setMatchArchetype, upsertSku, placeCoffee, setSlotPrice, setHop } from '../services/catalogService.js';
+import { createCoffee, setMatchArchetype, upsertSku, placeCoffee, setSlotPrice, setHop, type ArchetypeCode } from '../services/catalogService.js';
+import { freeSlotsInOneArchetype, type FreeSlot } from '../test/freeSlots.js';
 
 let server: Server;
 let baseUrl: string;
@@ -38,11 +39,13 @@ beforeAll(async () => {
   const roaster = (await db.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Coffees Shared Roastery', true) RETURNING id`)).rows[0];
   const { result: created } = await createCoffee({ roasterId: roaster.id, name: 'Vitest Coffees Shared Coffee' }, CATALOG_ACTOR);
   await setMatchArchetype({ coffeeId: created.coffeeId, archetype: 'floral', confidence: 'high', source: 'manual' }, CATALOG_ACTOR);
-  const slot = (await db.query<{ id: number }>(`SELECT id FROM coffee_dial_slot WHERE archetype = 'floral' AND sort_order = 1`)).rows[0];
+  // Cupping evidence brief 3, Part 0: a free floral slot (no live placement,
+  // no 12 oz price), so afterAll's 12 oz price delete never removes a real one.
+  const [slot] = await freeSlotsInOneArchetype(1, { archetype: 'floral' });
   await upsertSku({ coffeeId: created.coffeeId, weightOz: CATALOG_WEIGHT_OZ, blendName: 'Vitest Coffees Shared Blend', isActive: true }, CATALOG_ACTOR);
   await placeCoffee({ coffeeId: created.coffeeId, slotId: slot.id, role: 'home' }, CATALOG_ACTOR);
   await setSlotPrice({ slotId: slot.id, weightOz: CATALOG_WEIGHT_OZ, retailPriceCents: 1800 }, CATALOG_ACTOR);
-  sharedFixture = { roasterId: roaster.id, coffeeId: created.coffeeId, slotId: slot.id, archetype: 'floral', sortOrder: 1 };
+  sharedFixture = { roasterId: roaster.id, coffeeId: created.coffeeId, slotId: slot.id, archetype: 'floral', sortOrder: slot.sortOrder };
 }, 20000);
 
 afterAll(async () => {
@@ -206,17 +209,18 @@ describe('GET /api/coffees/:id/content', () => {
 describe('GET /api/coffees/archetypes — inactive coffees', () => {
   it('an inactive coffee never fills a slot, even one it would otherwise occupy alone', async () => {
     // Catalog Blueprint brief 3 — placed through catalogService onto a slot
-    // of its own (earthy/2, distinct from sharedFixture's floral/1), not the
+    // of its own (a free earthy slot, distinct from sharedFixture's floral one), not the
     // retired coffee_alias/dial_archetype_positions tables.
     let roaster: { id: string } | undefined;
     let coffeeId: number | undefined;
-    let slot: { id: number } | undefined;
+    let slot: FreeSlot | undefined;
     try {
       roaster = (await db.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Open-Slot Roastery', true) RETURNING id`)).rows[0];
       const { result: created } = await createCoffee({ roasterId: roaster.id, name: 'Vitest Open-Slot Coffee' }, CATALOG_ACTOR);
       coffeeId = created.coffeeId;
       await setMatchArchetype({ coffeeId, archetype: 'earthy', confidence: 'high', source: 'manual' }, CATALOG_ACTOR);
-      slot = (await db.query<{ id: number }>(`SELECT id FROM coffee_dial_slot WHERE archetype = 'earthy' AND sort_order = 2`)).rows[0];
+      slot = (await freeSlotsInOneArchetype(1, { archetype: 'earthy' }))[0];
+      const sortOrder = slot.sortOrder;
       await upsertSku({ coffeeId, weightOz: CATALOG_WEIGHT_OZ, blendName: 'Vitest Open-Slot Blend', isActive: true }, CATALOG_ACTOR);
       await placeCoffee({ coffeeId, slotId: slot.id, role: 'home' }, CATALOG_ACTOR);
       await setSlotPrice({ slotId: slot.id, weightOz: CATALOG_WEIGHT_OZ, retailPriceCents: 1800 }, CATALOG_ACTOR);
@@ -225,7 +229,7 @@ describe('GET /api/coffees/archetypes — inactive coffees', () => {
         const res = await fetch(`${baseUrl}/archetypes`);
         const archetypes = await res.json();
         const arch = archetypes.find((a: any) => a.archetype === 'earthy');
-        return arch?.slots?.find((s: any) => s.dialSortOrder === 2);
+        return arch?.slots?.find((s: any) => s.dialSortOrder === sortOrder);
       };
 
       const whileActive = await findSlot();
@@ -277,11 +281,14 @@ describe('GET /api/coffees/:coffeeId/hops — inactive targets', () => {
     // Catalog Blueprint brief 3 — source and each target placed+priced through
     // catalogService (v_coffee_hop/getHops, not dial_coffee_relationships
     // directly; a target must be home + sellable at 12oz to surface at all —
-    // D2). Four targets across four distinct fruity slots so each resolves
-    // its own home placement.
+    // D2). Four targets across four distinct slots of one archetype so each
+    // resolves its own home placement. Cupping evidence brief 3, Part 0: four
+    // free slots (no live placement, no 12 oz price) of whichever archetype
+    // still has four, so the cleanup's price delete never removes a real one.
     let roaster: { id: string } | undefined;
     let sourceId: number | undefined;
     const targets: Array<{ coffeeId: number; slotId: number; hopId: number; sortOrder: number }> = [];
+    let targetArchetype = '';
     try {
       const dimension = (await db.query<{ id: number }>(`SELECT id FROM coffee_dimensions LIMIT 1`)).rows[0];
       roaster = (await db.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ('Vitest Hop Roastery', true) RETURNING id`)).rows[0];
@@ -289,10 +296,12 @@ describe('GET /api/coffees/:coffeeId/hops — inactive targets', () => {
       const { result: sourceCreated } = await createCoffee({ roasterId: roaster.id, name: 'Vitest Hop Source' }, CATALOG_ACTOR);
       sourceId = sourceCreated.coffeeId;
 
-      for (let sortOrder = 1; sortOrder <= 4; sortOrder++) {
+      const slots = await freeSlotsInOneArchetype(4);
+      targetArchetype = slots[0].archetype;
+      for (const slot of slots) {
+        const sortOrder = slot.sortOrder;
         const { result: targetCreated } = await createCoffee({ roasterId: roaster.id, name: `Vitest Hop Target ${sortOrder}` }, CATALOG_ACTOR);
-        await setMatchArchetype({ coffeeId: targetCreated.coffeeId, archetype: 'fruity', confidence: 'high', source: 'manual' }, CATALOG_ACTOR);
-        const slot = (await db.query<{ id: number }>(`SELECT id FROM coffee_dial_slot WHERE archetype = 'fruity' AND sort_order = $1`, [sortOrder])).rows[0];
+        await setMatchArchetype({ coffeeId: targetCreated.coffeeId, archetype: targetArchetype as ArchetypeCode, confidence: 'high', source: 'manual' }, CATALOG_ACTOR);
         await upsertSku({ coffeeId: targetCreated.coffeeId, weightOz: CATALOG_WEIGHT_OZ, blendName: `Vitest Hop Target ${sortOrder} Blend`, isActive: true }, CATALOG_ACTOR);
         await placeCoffee({ coffeeId: targetCreated.coffeeId, slotId: slot.id, role: 'home' }, CATALOG_ACTOR);
         await setSlotPrice({ slotId: slot.id, weightOz: CATALOG_WEIGHT_OZ, retailPriceCents: 1600 }, CATALOG_ACTOR);
@@ -312,7 +321,7 @@ describe('GET /api/coffees/:coffeeId/hops — inactive targets', () => {
       const hops = await res.json();
       expect(hops.length).toBe(3);
       // The inactive target's own (archetype, dialSortOrder) must not appear among the returned hops.
-      expect(hops.some((h: any) => h.target.archetype === 'fruity' && h.target.dialSortOrder === targets[0].sortOrder)).toBe(false);
+      expect(hops.some((h: any) => h.target.archetype === targetArchetype && h.target.dialSortOrder === targets[0].sortOrder)).toBe(false);
     } finally {
       const targetIds = targets.map(t => t.coffeeId);
       const slotIds = targets.map(t => t.slotId);
