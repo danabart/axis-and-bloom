@@ -38,6 +38,21 @@ describe('cupping_note tree', () => {
     ]);
   });
 
+  it('SCA parent fixes (brief 2, Part 0.3): Anise under Brown Spice, the Green/Vegetative leaves under the Green/Vegetative sub-group', async () => {
+    const parents = await db.query<{ descriptor: string; parent: string; parent_tier: number }>(`
+      SELECT c.descriptor, p.descriptor AS parent, p.tier AS parent_tier FROM cupping_note c JOIN cupping_note p ON p.id = c.parent_id
+      WHERE c.tier = 3 AND c.descriptor IN ('Anise','Under-ripe','Peapod','Fresh','Dark Green','Vegetative','Hay-like','Herb-like')`);
+    expect(parents.rows).toHaveLength(8);
+    for (const r of parents.rows) {
+      expect(r.parent_tier).toBe(2);
+      expect(r.parent).toBe(r.descriptor === 'Anise' ? 'Brown Spice' : 'Green / Vegetative');
+    }
+    const childless = await db.query(`
+      SELECT p.descriptor FROM cupping_note p WHERE p.tier = 2 AND p.descriptor IN ('Raw','Pungent')
+        AND NOT EXISTS (SELECT 1 FROM cupping_note c WHERE c.parent_id = p.id)`);
+    expect(childless.rows.map(r => r.descriptor).sort()).toEqual(['Pungent', 'Raw']);
+  });
+
   it('parent_id agrees with the text labels on every row', async () => {
     const bad = await db.query(`
       SELECT c.descriptor FROM cupping_note c JOIN cupping_note p ON p.id = c.parent_id

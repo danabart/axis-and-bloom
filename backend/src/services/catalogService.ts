@@ -839,6 +839,18 @@ export async function setMatchArchetype(input: SetMatchArchetypeInput, ctx: Ctx)
   return result;
 }
 
+// Cupping evidence brief 2, Part 0.2 (2026-10-18): catalogImport sets a match
+// archetype through setMatchArchetypeInTx inside its batch transaction; after
+// that transaction commits it calls this for every coffee it created, so the
+// import path refreshes the cupping dial signal like setMatchArchetype does.
+// Advisory: a failure is logged, never undoes the import.
+export async function refreshDialSignalsAfterImport(coffeeIds: number[]): Promise<void> {
+  for (const coffeeId of coffeeIds) {
+    await refreshDialSignal(coffeeId).catch(err =>
+      console.error(`[catalog] refreshDialSignal(${coffeeId}) after import failed (non-critical)`, err));
+  }
+}
+
 // Catalog Blueprint brief 4 — the only new write verb this brief adds
 // (Don'ts §3). Validates every requested family against the real,
 // currently-seeded DISTINCT wheel_category values in cupping_note (D6's own

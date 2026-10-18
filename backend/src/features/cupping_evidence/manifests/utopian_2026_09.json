@@ -1,0 +1,59 @@
+{
+  "roaster": { "name": "Utopian" },
+  "coffees": [
+    {
+      "name": "Espresso Volo", "blendOrSingle": "blend", "roastLevel": "medium-dark", "process": "washed, natural", "flavorDescriptorsRoaster": [], "categoryCodes": [],
+      "match": { "archetype": "earthy", "confidence": "medium", "source": "cupping",
+        "notes": "basis: cupping flight B s<id> (Dana=earthy \"Light Earth\"; Camila=earthy; not blind); roaster portal submitted, see v_roastery_portal_current_response; website: Fragrant Berries, Cocoa, Sweet Tobacco; provisional, pending the calibration pass" },
+      "skus": [{ "weightOz": 12 }]
+    },
+    {
+      "name": "Peru Chirinos Geisha", "blendOrSingle": "single", "roastLevel": "light", "process": "washed", "origin": "Chirinos, Cajamarca, Peru", "flavorDescriptorsRoaster": [], "categoryCodes": [],
+      "match": { "archetype": "floral", "confidence": "low", "source": "cupping",
+        "notes": "basis: cupping flight A s<id> 2026-09-13 (Dana=no call, jasmine/tea; Camila=floral; not blind); roaster portal: not submitted as of 2026-10-18; website: Mango Puree, Narcissi, Honeycomb; provisional, pending the calibration pass" },
+      "skus": [{ "weightOz": 12 }]
+    },
+    {
+      "name": "Obsidian", "blendOrSingle": "blend", "roastLevel": "dark", "process": "washed", "flavorDescriptorsRoaster": [], "categoryCodes": [],
+      "match": { "archetype": "earthy", "confidence": "medium", "source": "cupping",
+        "notes": "basis: cupping flight B s<id> (Dana=earthy; Camila=earthy \"Standard\"; not blind); roaster portal submitted, see v_roastery_portal_current_response; website: Palo Santo, Campfire 'Mallows, Mrs. Buttersworth; provisional, pending the calibration pass" },
+      "skus": [{ "weightOz": 12 }]
+    },
+    {
+      "name": "Decaf Mexico Veracruz", "blendOrSingle": "single", "roastLevel": "medium", "process": "washed", "origin": "Veracruz, Mexico", "flavorDescriptorsRoaster": [], "categoryCodes": ["decaf"],
+      "match": { "archetype": "balanced_sweet", "confidence": "low", "source": "cupping",
+        "notes": "basis: cupping flight B s<id> (Dana=balanced_sweet, \"choc & nut\" struck; Camila=chocolate_nutty; cuppers disagree); roaster portal submitted, see v_roastery_portal_current_response; website: Red Apple, Flaky Croissant, Walnut Butter; provisional, pending the calibration pass" },
+      "skus": [{ "weightOz": 12 }]
+    },
+    {
+      "name": "Peru Joel Silva Chirinos", "blendOrSingle": "single", "roastLevel": "light-medium", "process": "natural", "origin": "Chirinos, Cajamarca, Peru", "flavorDescriptorsRoaster": [], "categoryCodes": [],
+      "match": { "archetype": "fruity", "confidence": "low", "source": "cupping",
+        "notes": "basis: cupping flight A s<id> 2026-09-13 (Dana=no call, citrus/orange; Camila=fruity); roaster portal submitted, see v_roastery_portal_current_response; website: Ground Cherry, Ube Halo Halo, Crunchy Sweetness; provisional, pending the calibration pass" },
+      "skus": [{ "weightOz": 12 }]
+    },
+    {
+      "name": "Mexico Alva Flores", "blendOrSingle": "single", "roastLevel": "medium", "process": "washed", "origin": "Santa Cruz Ozolotepec, Oaxaca, Mexico", "flavorDescriptorsRoaster": [], "categoryCodes": [],
+      "match": { "archetype": "fruity", "confidence": "low", "source": "cupping",
+        "notes": "basis: cupping flight A s<id> 2026-09-13 (no call from either cupper; both wrote berries / black tea); roaster portal: not submitted as of 2026-10-18; website: Black Plum, Honeycomb, Champorado; sample was an end-of-run lot; provisional, pending the calibration pass" },
+      "skus": [{ "weightOz": 12 }]
+    },
+    {
+      "name": "Pearl", "blendOrSingle": "blend", "roastLevel": "light", "process": "washed, natural", "flavorDescriptorsRoaster": [], "categoryCodes": [],
+      "match": { "archetype": "fruity", "confidence": "low", "source": "cupping",
+        "notes": "basis: cupping flight C s<id> (Dana=fruity, \"Bloom dial: light fruity\"; Camila=no call, Floral family ticked); largest cupper disagreement of the session; roaster portal submitted, see v_roastery_portal_current_response; website: Citrusy, Bright, Sweet, juicy fruit with a backbone of chocolate; provisional, pending the calibration pass" },
+      "skus": [{ "weightOz": 12 }]
+    },
+    {
+      "name": "Union", "blendOrSingle": "blend", "roastLevel": "medium", "process": "washed", "flavorDescriptorsRoaster": [], "categoryCodes": [],
+      "match": { "archetype": "balanced_sweet", "confidence": "low", "source": "cupping",
+        "notes": "basis: cupping flight C s<id> (Dana=no call, wrote \"balanced\" and struck it; Camila=no call, Floral and Fruity boxed together, \"limit of floral and fruity\", wrote BALANCED in the margin and struck it; not blind); roaster portal submitted, see v_roastery_portal_current_response; website: Smooth, caramel sauce, buttered pastry, pistachio (roaster reads it Balanced; Dana unsure, 2026-10-16); zero descriptor overlap; provisional, pending the calibration pass" },
+      "skus": [{ "weightOz": 12 }]
+    },
+    {
+      "name": "Colombia Andres Martinez", "blendOrSingle": "single", "roastLevel": "light-medium", "process": "other", "origin": "Cauca, Colombia", "flavorDescriptorsRoaster": [], "categoryCodes": [],
+      "match": { "archetype": "fruity", "confidence": "low", "source": "cupping",
+        "notes": "basis: cupping flight A s<id> 2026-09-13 (no call from either cupper; both wrote dried fruit / berries / citrus); roaster portal: not submitted as of 2026-10-18; website: Fragrant Jasmine, Green Melon, Almond Butter; sample was an end-of-run lot; provisional, pending the calibration pass" },
+      "skus": [{ "weightOz": 12 }]
+    }
+  ]
+}

@@ -1,200 +1,110 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- Seed: Session 001 — Path Coffee Roasters, 2026-05-27
--- Run once in Cloud SQL Studio. Do NOT add to schema.sql (it is not idempotent).
+-- Seed: Session 001 — Path Coffee Roasters (first cupping; Dana + Camila,
+-- merged into one result set). Not part of schema.sql; run by hand.
+--
+-- Rewritten 2026-10-18 (cupping evidence brief 2, Part 0.1) for the current
+-- schema: the original wrote the long-gone wide score columns, the
+-- archetype_assignments table, brew_method_enum and coffees.roaster, and would
+-- also have failed cupping_scores_row_shape. The values are the rows production
+-- holds for session 1 (session_date 2026-05-22, as stored).
+--
+-- Idempotent: does nothing when a session with this record_source exists.
+-- Needs the roaster 'Path Coffee Roasters' and its coffees Crosshatch,
+-- Ethiopia and Feather In Cap to exist (they come from the catalog seed);
+-- otherwise it raises a NOTICE and writes nothing. The merged rows are tagged
+-- legacy (scale_code, merge_rule) exactly as brief 1's backfill tagged them.
+-- An archetype assignment is added only for a coffee that has none.
 -- ─────────────────────────────────────────────────────────────────────────────
+DO $seed$
+DECLARE
+  v_roaster  UUID;
+  v_session  INT;
+  v_coffee   INT;
+  v_sc       INT;
+  v_score    INT;
+  c          RECORD;
+  v          RECORD;
+BEGIN
+  IF EXISTS (SELECT 1 FROM cupping_sessions WHERE record_source = 'seed:session_001_path_2026_05_27.sql') THEN
+    RAISE NOTICE 'session_001 seed: already loaded';
+    RETURN;
+  END IF;
+  SELECT id INTO v_roaster FROM roaster WHERE name = 'Path Coffee Roasters';
+  IF v_roaster IS NULL OR (SELECT count(*) FROM coffees WHERE roaster_id = v_roaster
+                            AND name IN ('Crosshatch', 'Ethiopia', 'Feather In Cap')) < 3 THEN
+    RAISE NOTICE 'session_001 seed: Path Coffee Roasters or its three coffees missing; nothing written';
+    RETURN;
+  END IF;
 
-WITH
+  INSERT INTO cupping_sessions (session_date, session_date_precision, brew_method, location, session_notes, record_source, sheet_format)
+  VALUES ('2026-05-22', 'exact', 'filter', 'Path Coffee Roasters',
+          'First cupping session. Two tasters: Dana and Camila. First time cupping — scores treated as directional. Merged into one result set.',
+          'seed:session_001_path_2026_05_27.sql', 'legacy_wide')
+  RETURNING id INTO v_session;
 
--- 1. Session header
-ins_session AS (
-  INSERT INTO cupping_sessions (session_date, brew_method, location, session_notes)
-  VALUES (
-    '2026-05-27',
-    'filter'::brew_method_enum,
-    'Path Coffee Roasters',
-    'First cupping session. Two tasters: Dana and Camila. First time cupping — scores treated as directional. Merged into one result set.'
-  )
-  RETURNING id AS session_id
-),
+  FOR c IN SELECT * FROM (VALUES
+    (1, 'Crosshatch',
+        'Sweetest of the three. Most universally accessible. Soft round acidity. No bitterness edge. Strong agreement between tasters on sweetness. Fragrance diverged between tasters — Camila read fruity/honey, Dana read dark choc/smoky. Camila''s read adopted as more consistent with the coffee''s profile.',
+        'balanced_sweet', 'high',
+        'Classic balanced profile. Both tasters independently ranked sweetest. Soft round acidity reads as coconut. No bitterness edge. Most universally accessible cup. Crosshatch is the clearest Balanced & Sweet match.'),
+    (2, 'Ethiopia',
+        'Most distinctive and delicate. Strongest taster agreement of the session — both independently said black tea and dried fruit. Zero bitterness scored by Dana. Light body. Pineapple acidity. Every signal points to fruity/floral archetype.',
+        'floral', 'high',
+        'Black tea, dried fruit, pineapple acidity, zero bitterness, delicate body. Both tasters in strong agreement — independently said black tea and dried fruit with no prompting. Every dimension points to fruity/floral. Most distinctive and readable character of the three.'),
+    (3, 'Feather In Cap',
+        'Most complex but most polarizing. Tobacco and burnt agreed by both tasters. Sweet on the nose but dark in the cup — gap between fragrance and flavor notable. Drying finish. Bitterness adjusted down from Dana raw score of 7–9 — tobacco/smoke character may have read as bitter. Needs Nocturnal in next session to confirm position on bold end of scale.',
+        'chocolate_nutty', 'medium',
+        'Tobacco, smoke, cocoa, drying finish. Sits at lighter end of chocolate archetype. Bitterness score adjusted down — tobacco character may have inflated initial read. Needs Nocturnal in next session to confirm position on bold end of scale. Could also sit at bold end of Balanced & Sweet pending further cupping.')
+  ) AS t(display_order, name, overall_notes, archetype, confidence, assignment_notes)
+  LOOP
+    SELECT id INTO v_coffee FROM coffees WHERE roaster_id = v_roaster AND name = c.name ORDER BY id LIMIT 1;
+    INSERT INTO cupping_session_coffees (session_id, coffee_id, display_order)
+    VALUES (v_session, v_coffee, c.display_order) RETURNING id INTO v_sc;
+    INSERT INTO cupping_scores (session_coffee_id, taster_name, is_merged, scale_code, merge_rule, overall_notes)
+    VALUES (v_sc, 'session_1_merged', true, 'legacy', 'legacy', c.overall_notes) RETURNING id INTO v_score;
 
--- 2. Coffees
-ins_crosshatch AS (
-  INSERT INTO coffees (name, roaster, origin, blend_or_single, process, roast_level, flavor_descriptors_roaster)
-  VALUES (
-    'Crosshatch',
-    'Path Coffee Roasters',
-    'Nicaragua & Ethiopia',
-    'blend',
-    'washed',
-    'light-medium',
-    ARRAY['Caramel', 'Dried Fruit', 'Citrus']
-  )
-  RETURNING id AS coffee_id
-),
+    FOR v IN SELECT * FROM (VALUES
+      ('Crosshatch', 1, NULL::numeric, NULL::numeric, 'fruity, honey, sweet, cocoa'),
+      ('Crosshatch', 2, NULL, NULL, 'cocoa, sweet'),
+      ('Crosshatch', 3, NULL, NULL, 'dark chocolate, dried fruit, citrus, sweet'),
+      ('Crosshatch', 4, 9, 10.5, 'honey, sweet'),
+      ('Crosshatch', 5, 6, 8, 'apple, banana, coconut — soft and round'),
+      ('Crosshatch', 6, 3, 5, 'present but not a feature'),
+      ('Crosshatch', 7, NULL, NULL, NULL), ('Crosshatch', 8, NULL, NULL, NULL), ('Crosshatch', 9, NULL, NULL, NULL),
+      ('Crosshatch', 10, NULL, NULL, NULL), ('Crosshatch', 11, NULL, NULL, NULL), ('Crosshatch', 12, NULL, NULL, NULL),
+      ('Ethiopia', 1, NULL, NULL, 'berries, dried fruits, citrus, black tea'),
+      ('Ethiopia', 2, NULL, NULL, 'fruit, floral, citrus, lemon, black tea'),
+      ('Ethiopia', 3, NULL, NULL, 'black tea, dry, floral'),
+      ('Ethiopia', 4, 6, 8, 'fruit-driven brightness, not sugar'),
+      ('Ethiopia', 5, 8, 10, 'pineapple — brightest of the three'),
+      ('Ethiopia', 6, 0, 2, 'trace only — Dana scored zero, lowest of the three'),
+      ('Ethiopia', 7, 3, 5, 'delicate, tea-like'),
+      ('Ethiopia', 8, 2, 4, NULL), ('Ethiopia', 9, 4, 6, NULL), ('Ethiopia', 10, 3, 5, NULL),
+      ('Ethiopia', 11, NULL, NULL, NULL),
+      ('Ethiopia', 12, NULL, NULL, 'tea-like, clean'),
+      ('Feather In Cap', 1, NULL, NULL, 'cocoa, sweet, earthy, tobacco'),
+      ('Feather In Cap', 2, NULL, NULL, 'earthy, smoky, spices, tobacco, burnt'),
+      ('Feather In Cap', 3, NULL, NULL, 'tobacco, burnt'),
+      ('Feather In Cap', 4, 7, 9, 'sweet on nose, tobacco took over in cup'),
+      ('Feather In Cap', 5, 2, 4, 'low — not noted by either taster'),
+      ('Feather In Cap', 6, 5, 7, 'tobacco and burnt — adjusted down from raw, smoke may have read as bitter'),
+      ('Feather In Cap', 7, 8, 11, NULL),
+      ('Feather In Cap', 8, 7, 9, 'drying'),
+      ('Feather In Cap', 9, 8, 11, NULL),
+      ('Feather In Cap', 10, 7, 10, NULL),
+      ('Feather In Cap', 11, NULL, NULL, 'drying, lingers'),
+      ('Feather In Cap', 12, NULL, NULL, 'drying')
+    ) AS x(coffee, dimension_id, value_min, value_max, notes) WHERE x.coffee = c.name
+    LOOP
+      INSERT INTO cupping_score_values (cupping_score_id, dimension_id, value_min, value_max, notes)
+      VALUES (v_score, v.dimension_id, v.value_min, v.value_max, v.notes);
+    END LOOP;
 
-ins_ethiopia AS (
-  INSERT INTO coffees (name, roaster, origin, blend_or_single, process, roast_level, flavor_descriptors_roaster)
-  VALUES (
-    'Ethiopia',
-    'Path Coffee Roasters',
-    'Ethiopia',
-    'single',
-    'washed',
-    'light-medium',
-    ARRAY['Stone Fruit', 'Floral', 'Citrus']
-  )
-  RETURNING id AS coffee_id
-),
-
-ins_feather AS (
-  INSERT INTO coffees (name, roaster, origin, blend_or_single, process, roast_level, flavor_descriptors_roaster)
-  VALUES (
-    'Feather In Cap',
-    'Path Coffee Roasters',
-    'Colombia & Ethiopia',
-    'blend',
-    'washed',
-    'medium-dark',
-    ARRAY['Brown Sugar', 'Cocoa', 'Dried Fruit']
-  )
-  RETURNING id AS coffee_id
-),
-
--- 3. Session–coffee junctions (display_order = tasting order)
-ins_sc_crosshatch AS (
-  INSERT INTO cupping_session_coffees (session_id, coffee_id, display_order)
-  SELECT session_id, coffee_id, 1 FROM ins_session, ins_crosshatch
-  RETURNING id AS sc_id
-),
-
-ins_sc_ethiopia AS (
-  INSERT INTO cupping_session_coffees (session_id, coffee_id, display_order)
-  SELECT session_id, coffee_id, 2 FROM ins_session, ins_ethiopia
-  RETURNING id AS sc_id
-),
-
-ins_sc_feather AS (
-  INSERT INTO cupping_session_coffees (session_id, coffee_id, display_order)
-  SELECT session_id, coffee_id, 3 FROM ins_session, ins_feather
-  RETURNING id AS sc_id
-),
-
--- 4. Merged cupping scores
-ins_score_crosshatch AS (
-  INSERT INTO cupping_scores (
-    session_coffee_id, taster_name, is_merged,
-    sweetness_min, sweetness_max, sweetness_notes,
-    acidity_min,   acidity_max,   acidity_notes,
-    bitterness_min, bitterness_max, bitterness_notes,
-    fragrance_notes, aroma_notes, flavor_notes
-  )
-  SELECT
-    sc_id, 'session_1_merged', true,
-    9, 11, 'honey, sweet',
-    6,  8, 'apple, banana, coconut — soft and round',
-    3,  5, 'present but not a feature',
-    'fruity, honey, sweet, cocoa',
-    'cocoa, sweet',
-    'dark chocolate, dried fruit, citrus, sweet'
-  FROM ins_sc_crosshatch
-  RETURNING id
-),
-
-ins_score_ethiopia AS (
-  INSERT INTO cupping_scores (
-    session_coffee_id, taster_name, is_merged,
-    sweetness_min, sweetness_max, sweetness_notes,
-    acidity_min,   acidity_max,   acidity_notes,
-    bitterness_min, bitterness_max, bitterness_notes,
-    body_notes,
-    fragrance_notes, aroma_notes, flavor_notes, mouthfeel_notes
-  )
-  SELECT
-    sc_id, 'session_1_merged', true,
-    6,  8, 'fruit-driven brightness not sugar',
-    8, 10, 'pineapple — brightest of the three',
-    0,  2, 'trace only — Dana scored zero',
-    'delicate, tea-like',
-    'berries, dried fruits, citrus, black tea',
-    'fruit, floral, citrus, lemon, black tea',
-    'black tea, dry, floral',
-    'tea-like, clean'
-  FROM ins_sc_ethiopia
-  RETURNING id
-),
-
-ins_score_feather AS (
-  INSERT INTO cupping_scores (
-    session_coffee_id, taster_name, is_merged,
-    sweetness_min,  sweetness_max,  sweetness_notes,
-    acidity_min,    acidity_max,    acidity_notes,
-    bitterness_min, bitterness_max, bitterness_notes,
-    texture_notes,
-    fragrance_notes, aroma_notes, flavor_notes, mouthfeel_notes
-  )
-  SELECT
-    sc_id, 'session_1_merged', true,
-    7, 9, 'sweet on nose, tobacco took over in cup',
-    2, 4, 'low — not noted by either taster',
-    5, 7, 'tobacco and burnt character — adjusted down from raw scores, tobacco/smoke may have read as bitter',
-    'drying',
-    'cocoa, sweet, earthy, tobacco',
-    'earthy, smoky, spices, tobacco, burnt',
-    'tobacco, burnt',
-    'drying'
-  FROM ins_sc_feather
-  RETURNING id
-),
-
--- 5. Archetype assignments (superseded_at = NULL = current)
-ins_arch_crosshatch AS (
-  INSERT INTO archetype_assignments (coffee_id, archetype, confidence, assigned_from_session_id, notes)
-  SELECT
-    coffee_id,
-    'balanced_sweet'::archetype_enum,
-    'high'::confidence_enum,
-    session_id,
-    'Classic balanced profile. Both tasters independently ranked sweetest. Soft round acidity. No bitterness edge.'
-  FROM ins_crosshatch, ins_session
-  RETURNING id
-),
-
-ins_arch_ethiopia AS (
-  INSERT INTO archetype_assignments (coffee_id, archetype, confidence, assigned_from_session_id, notes)
-  SELECT
-    coffee_id,
-    'fruity'::archetype_enum,
-    'high'::confidence_enum,
-    session_id,
-    'Black tea, dried fruit, pineapple acidity, zero bitterness, delicate body. Both tasters in strong agreement on character.'
-  FROM ins_ethiopia, ins_session
-  RETURNING id
-),
-
-ins_arch_feather AS (
-  INSERT INTO archetype_assignments (coffee_id, archetype, confidence, assigned_from_session_id, notes)
-  SELECT
-    coffee_id,
-    'chocolate_nutty'::archetype_enum,
-    'medium'::confidence_enum,
-    session_id,
-    'Tobacco, smoke, cocoa, drying finish. Sits at lighter end of chocolate archetype. Bitterness score adjusted — tobacco character may have inflated initial read. Needs Nocturnal in next session to confirm position.'
-  FROM ins_feather, ins_session
-  RETURNING id
-)
-
--- Final SELECT just to confirm everything ran
-SELECT
-  (SELECT session_id FROM ins_session)         AS session_id,
-  (SELECT coffee_id  FROM ins_crosshatch)      AS crosshatch_id,
-  (SELECT coffee_id  FROM ins_ethiopia)        AS ethiopia_id,
-  (SELECT coffee_id  FROM ins_feather)         AS feather_id,
-  (SELECT sc_id      FROM ins_sc_crosshatch)   AS sc_crosshatch_id,
-  (SELECT sc_id      FROM ins_sc_ethiopia)     AS sc_ethiopia_id,
-  (SELECT sc_id      FROM ins_sc_feather)      AS sc_feather_id,
-  (SELECT id         FROM ins_score_crosshatch) AS score_crosshatch_id,
-  (SELECT id         FROM ins_score_ethiopia)   AS score_ethiopia_id,
-  (SELECT id         FROM ins_score_feather)    AS score_feather_id,
-  (SELECT id         FROM ins_arch_crosshatch)  AS arch_crosshatch_id,
-  (SELECT id         FROM ins_arch_ethiopia)    AS arch_ethiopia_id,
-  (SELECT id         FROM ins_arch_feather)     AS arch_feather_id;
+    IF NOT EXISTS (SELECT 1 FROM coffee_archetype_assignment WHERE coffee_id = v_coffee) THEN
+      INSERT INTO coffee_archetype_assignment (coffee_id, archetype, confidence, source, assigned_from_session_id, notes)
+      VALUES (v_coffee, c.archetype::archetype_enum, c.confidence::confidence_enum, 'cupping', v_session, c.assignment_notes);
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'session_001 seed: loaded session %', v_session;
+END
+$seed$;

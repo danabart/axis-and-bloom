@@ -1,0 +1,29 @@
+{
+  "roaster": { "name": "Joe Bean Roasters" },
+  "coffees": [
+    {
+      "name": "Tiger Stripe Espresso", "blendOrSingle": "blend", "flavorDescriptorsRoaster": [], "categoryCodes": [],
+      "match": { "archetype": "chocolate_nutty", "confidence": "low", "source": "cupping",
+        "notes": "basis: cupping s<id> 2026-09-30 blind (Dana=chocolate_nutty \"DEF\"; Camila=no call, Nutty/Cocoa circled); roaster portal (Kathy Turiano 2026-10-14) see v_roastery_portal_current_response; A&B rule 2026-10-14: C&N blend with a fruity accent is plain C&N; provisional, pending the calibration pass" },
+      "skus": [{ "weightOz": 12 }]
+    },
+    {
+      "name": "Geometric Filter Coffee", "blendOrSingle": "blend", "flavorDescriptorsRoaster": [], "categoryCodes": [],
+      "match": { "archetype": "balanced_sweet", "confidence": "medium", "source": "cupping",
+        "notes": "basis: cupping s<id> 2026-09-30 blind (Dana=balanced_sweet \"DEF\"; Camila=balanced_sweet); provisional, pending the calibration pass" },
+      "skus": [{ "weightOz": 12 }]
+    },
+    {
+      "name": "Blossom Dark Roast", "blendOrSingle": "blend", "roastLevel": "dark", "flavorDescriptorsRoaster": [], "categoryCodes": [],
+      "match": { "archetype": "earthy", "confidence": "low", "source": "cupping",
+        "notes": "basis: cupping s<id> 2026-09-30 blind (Dana=earthy, med-strong; Camila=no call, wrote Earthy under Other); roaster classifies bean-driven as C&N; A&B family rule is roast-driven (2026-10-16); Earthy vs C&N-bold left open 2026-10-14; provisional, pending the calibration pass" },
+      "skus": [{ "weightOz": 12 }]
+    },
+    {
+      "name": "Fabricator House Roast", "blendOrSingle": "blend", "origin": "Colombia and Brazil (Mogiana)", "flavorDescriptorsRoaster": [], "categoryCodes": [],
+      "match": { "archetype": "fruity", "confidence": "low", "source": "cupping",
+        "notes": "basis: cupping s<id> 2026-09-30 blind (Dana=fruity light, \"Balance\" partly crossed out; Camila=no call, Fruity family ticked); provisional, pending the calibration pass" },
+      "skus": [{ "weightOz": 12 }]
+    }
+  ]
+}

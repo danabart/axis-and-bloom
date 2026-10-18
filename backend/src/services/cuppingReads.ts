@@ -174,6 +174,14 @@ export async function getCuppingCounts(runner: Runner = db): Promise<{ sessions:
 
 // ── Reference tables (rows, not code) ─────────────────────────────────────
 
+/** The whole SCA wheel (every tier, every family including Other), for loaders that resolve a node by name. */
+export async function listWheelNodes(runner: Runner = db): Promise<Array<{ id: string; descriptor: string; tier: number; wheel_category: string; wheel_subcategory: string | null; is_active: boolean }>> {
+  const result = await runner.query(
+    `SELECT id, descriptor, tier, wheel_category, wheel_subcategory, is_active FROM cupping_note ORDER BY wheel_category, tier, descriptor`
+  );
+  return result.rows.map(r => ({ ...r, tier: Number(r.tier) }));
+}
+
 export async function listCuppers(filter: { activeOnly?: boolean } = {}, runner: Runner = db) {
   const result = await runner.query(
     `SELECT id, name, is_active, since, note FROM cupper ${filter.activeOnly ? 'WHERE is_active' : ''} ORDER BY name`

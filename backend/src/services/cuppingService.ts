@@ -65,6 +65,7 @@ export interface SessionInput {
 
 export interface SessionHeaderPatch {
   sessionDate?: string;
+  recordSource?: string;
   sessionDatePrecision?: 'exact' | 'estimated';
   location?: string | null;
   sessionNotes?: string | null;
@@ -411,7 +412,7 @@ export async function createSession(input: SessionInput): Promise<number> {
 }
 
 const HEADER_COLUMNS: Record<keyof SessionHeaderPatch, string> = {
-  sessionDate: 'session_date', sessionDatePrecision: 'session_date_precision', location: 'location',
+  sessionDate: 'session_date', recordSource: 'record_source', sessionDatePrecision: 'session_date_precision', location: 'location',
   sessionNotes: 'session_notes', sheetFormat: 'sheet_format', isBlind: 'is_blind', roasterPresent: 'roaster_present',
   transcribedBy: 'transcribed_by', transcribedAt: 'transcribed_at', checkedBy: 'checked_by', brewDefaults: 'brew_defaults',
 };
@@ -512,12 +513,18 @@ async function writeBrewRow(tx: Tx, sessionCoffeeId: number, row: NonNullable<Re
   );
 }
 
-/** The brew of one session coffee; editable until a score exists under it (CUPPING_HAS_EVIDENCE after). */
+/**
+ * The brew of one session coffee; editable until a score exists under it
+ * (CUPPING_HAS_EVIDENCE after). A sample scored before it had any brew row
+ * (a Score Entry session from before brief 1) may still get its first one:
+ * recording the protocol is an insert, not a change (brief 2, flight C).
+ */
 export async function saveBrewParams(sessionCoffeeId: number, params: BrewParams): Promise<void> {
   await withTransaction(async tx => {
     await lockSessionCoffee(tx, sessionCoffeeId);
     const scored = await tx.query(`SELECT 1 FROM cupping_scores WHERE session_coffee_id = $1 LIMIT 1`, [sessionCoffeeId]);
-    if (scored.rowCount) throw hasEvidence('brew params are fixed once a score exists for this sample');
+    const existing = await tx.query(`SELECT 1 FROM cupping_brew_params WHERE session_coffee_id = $1`, [sessionCoffeeId]);
+    if (scored.rowCount && existing.rowCount) throw hasEvidence('brew params are fixed once a score exists for this sample');
     const row = brewRow(params);
     if (row) await writeBrewRow(tx, sessionCoffeeId, row);
   });

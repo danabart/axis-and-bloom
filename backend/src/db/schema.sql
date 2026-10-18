@@ -2372,6 +2372,20 @@ END $sca$;
 ALTER TABLE cupping_note ADD COLUMN IF NOT EXISTS tier SMALLINT NOT NULL DEFAULT 3 CHECK (tier IN (1, 2, 3));
 ALTER TABLE cupping_note ADD COLUMN IF NOT EXISTS parent_id UUID REFERENCES cupping_note(id);
 
+-- Cupping evidence brief 2, Part 0.3 (2026-10-18): two SCA parent fixes in
+-- the original seed's labels. Anise belongs under Brown Spice, not Pungent;
+-- the seven Green / Vegetative leaves belong under the tier-2 node
+-- "Green / Vegetative" (created by the tier-2 insert below), not Raw. Raw and
+-- Pungent stay as childless tier-2 nodes, as on the SCA wheel. The "Brown,
+-- Roast" split into two leaves is left as is (logged in brief 2's report).
+-- Idempotent: matches nothing once applied; the parent realignment after the
+-- backfill below moves parent_id to follow the labels.
+UPDATE cupping_note SET wheel_subcategory = 'Brown Spice'
+ WHERE descriptor = 'Anise' AND wheel_category = 'Spices' AND wheel_subcategory = 'Pungent';
+UPDATE cupping_note SET wheel_subcategory = 'Green / Vegetative'
+ WHERE wheel_category = 'Green / Vegetative' AND wheel_subcategory = 'Raw'
+   AND descriptor IN ('Under-ripe', 'Peapod', 'Fresh', 'Dark Green', 'Vegetative', 'Hay-like', 'Herb-like');
+
 UPDATE cupping_note SET tier = 2
  WHERE tier = 3 AND wheel_subcategory IS NULL AND descriptor <> wheel_category;
 
@@ -2384,9 +2398,14 @@ SELECT DISTINCT n.wheel_category, NULL::text, n.wheel_category, 1::smallint,
                     WHERE t.wheel_category = n.wheel_category AND t.wheel_subcategory IS NULL
                       AND t.descriptor = n.wheel_category);
 
-INSERT INTO cupping_note (wheel_category, wheel_subcategory, descriptor, tier, descriptor_source_id)
+-- parent_id is set at insert (the tier-1 row of the category, inserted just
+-- above): once cupping_note_tier_parent exists, a tier-2 row cannot arrive
+-- without one (brief 2's Green / Vegetative node is added on a live tree).
+INSERT INTO cupping_note (wheel_category, wheel_subcategory, descriptor, tier, descriptor_source_id, parent_id)
 SELECT DISTINCT n.wheel_category, n.wheel_subcategory, n.wheel_subcategory, 2::smallint,
-       (SELECT id FROM sensory_source WHERE code = 'sca_flavor_wheel')
+       (SELECT id FROM sensory_source WHERE code = 'sca_flavor_wheel'),
+       (SELECT t1.id FROM cupping_note t1 WHERE t1.wheel_category = n.wheel_category
+          AND t1.wheel_subcategory IS NULL AND t1.descriptor = n.wheel_category LIMIT 1)
   FROM cupping_note n
  WHERE n.wheel_subcategory IS NOT NULL
    AND NOT EXISTS (SELECT 1 FROM cupping_note t
@@ -2407,6 +2426,12 @@ UPDATE cupping_note c SET parent_id = p.id
   FROM cupping_note p
  WHERE c.parent_id IS NULL AND c.tier = 2
    AND p.tier = 1 AND p.wheel_category = c.wheel_category AND p.wheel_subcategory IS NULL;
+-- A leaf whose labels were corrected (brief 2, Part 0.3) follows its labels.
+UPDATE cupping_note c SET parent_id = p.id
+  FROM cupping_note p
+ WHERE c.tier = 3 AND p.tier = 2 AND p.wheel_category = c.wheel_category
+   AND p.wheel_subcategory = c.wheel_subcategory AND p.descriptor = c.wheel_subcategory
+   AND c.parent_id IS DISTINCT FROM p.id;
 
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cupping_note_tier_parent') THEN

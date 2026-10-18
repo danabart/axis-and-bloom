@@ -1,0 +1,69 @@
+{
+  "roaster": { "name": "Joe Coffee Company" },
+  "coffees": [
+    {
+      "name": "Cafè Feminista: Montze Olvera", "blendOrSingle": "single", "origin": "Sierra de Tenango, Hidalgo, Mexico (Montze Olvera)",
+      "process": "honey", "roastLevel": "light", "flavorDescriptorsRoaster": [], "categoryCodes": [],
+      "match": { "archetype": "fruity", "confidence": "medium", "source": "cupping",
+        "notes": "basis: cupping s<id> 2026-10-02 (Dana=no call written; roaster present, not blind); roaster table (Joe staff)=fruity; rule: delicate fruity, Joe lineup → fruity/1" },
+      "home": { "slot": "fruity/1", "placementNote": "delicate fruity, cupped 2026-10-02 at Joe Coffee" },
+      "certify": { "by": "dana", "note": "cupped 2026-10-02" },
+      "skus": [{ "weightOz": 12 }]
+    },
+    {
+      "name": "Colombia La Familia Guarnizo", "blendOrSingle": "single", "origin": "Huila, Colombia (The Guarnizo Family)",
+      "process": "washed", "roastLevel": "light", "flavorDescriptorsRoaster": [], "categoryCodes": [],
+      "match": { "archetype": "floral", "confidence": "medium", "source": "manual",
+        "notes": "basis: cupping s<id> 2026-10-02 (Dana=balanced_sweet; roaster present, not blind); roaster table (Natalie)=floral; rule 2026-10-11: go with what Joe says → floral/1" },
+      "home": { "slot": "floral/1", "placementNote": "delicate floral, cupped 2026-10-02 at Joe Coffee; roaster's classification" },
+      "certify": { "by": "dana", "note": "cupped 2026-10-02" },
+      "skus": [{ "weightOz": 12 }]
+    },
+    {
+      "name": "The Village", "blendOrSingle": "single", "origin": "Ngozi, Burundi (Turihamwe Women's Group)",
+      "process": "washed", "roastLevel": "light", "flavorDescriptorsRoaster": [], "categoryCodes": [],
+      "match": { "archetype": "fruity", "confidence": "medium", "source": "cupping",
+        "notes": "basis: cupping s<id> 2026-10-02 (Dana=balanced_sweet or fruity; roaster present); roaster table=fruity; rule 2026-10-08: delicate fruity → fruity/1" },
+      "home": { "slot": "fruity/1", "placementNote": "delicate fruity, cupped 2026-10-02 at Joe Coffee" },
+      "certify": { "by": "dana", "note": "cupped 2026-10-02" },
+      "skus": [{ "weightOz": 12 }]
+    },
+    {
+      "name": "Benchmark", "blendOrSingle": "blend", "origin": "San Ignacio, Cajamarca, Peru",
+      "process": "washed", "roastLevel": "medium", "flavorDescriptorsRoaster": [], "categoryCodes": [],
+      "match": { "archetype": "balanced_sweet", "confidence": "high", "source": "cupping",
+        "notes": "basis: cupping s<id> 2026-10-02 (Dana=balanced_sweet); roaster table=balanced; rule 2026-10-13: Balanced default → balanced_sweet/2 priority 1" },
+      "home": { "slot": "balanced_sweet/2", "priority": 1, "placementNote": "classic balanced and sweet, Balanced default from 2026-10-13 (Dana)" },
+      "certify": { "by": "dana", "note": "cupped 2026-10-02" },
+      "skus": [{ "weightOz": 12 }]
+    },
+    {
+      "name": "Amsterdam", "blendOrSingle": "blend", "origin": "Cerrado, Minas Gerais, Brazil",
+      "process": "natural", "roastLevel": "medium", "flavorDescriptorsRoaster": [], "categoryCodes": [],
+      "match": { "archetype": "chocolate_nutty", "confidence": "medium", "source": "cupping",
+        "notes": "basis: cupping s<id> 2026-10-02 (Dana=chocolate_nutty); roaster table=chocolate and nutty; not placed (Dana 2026-10-11)" },
+      "skus": [{ "weightOz": 12 }]
+    },
+    {
+      "name": "The Daily", "blendOrSingle": "blend", "origin": "Chiapas, Mexico and Huila, Colombia",
+      "process": "washed", "roastLevel": "medium", "flavorDescriptorsRoaster": [], "categoryCodes": [],
+      "match": { "archetype": "chocolate_nutty", "confidence": "medium", "source": "manual",
+        "notes": "basis: cupping s<id> 2026-10-02 (Dana=no call written); roaster table=chocolate and nutty; not placed" },
+      "skus": [{ "weightOz": 12 }]
+    },
+    {
+      "name": "Big City", "blendOrSingle": "blend", "origin": "Cerrado, Minas Gerais, Brazil and Nicaragua",
+      "process": "natural, washed", "roastLevel": "dark", "flavorDescriptorsRoaster": [], "categoryCodes": [],
+      "match": { "archetype": "earthy", "confidence": "medium", "source": "cupping",
+        "notes": "basis: cupping s<id> 2026-10-02 (Dana=earthy, delicate earthy); roaster table=earth (delicate earth); not placed" },
+      "skus": [{ "weightOz": 12 }]
+    },
+    {
+      "name": "Nightcap Decaf", "blendOrSingle": "single", "origin": "Tapachula, Chiapas, Mexico (Muguira Family)",
+      "process": "washed", "roastLevel": "medium", "flavorDescriptorsRoaster": [], "categoryCodes": ["decaf"],
+      "match": { "archetype": "fruity", "confidence": "low", "source": "manual",
+        "notes": "basis: cupping s<id> 2026-10-02 (Dana=no call; last cup of the day, provisional); roaster table=fruity decaf; decaf category, not placed" },
+      "skus": [{ "weightOz": 12 }]
+    }
+  ]
+}

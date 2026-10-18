@@ -1,7 +1,7 @@
 import { withTransaction, type Tx } from '../db/client.js';
 import {
   CatalogError, createCoffeeInTx, setMatchArchetypeInTx, upsertSkuInTx, placeCoffeeInTx, certifyPlacementInTx,
-  setSlotPriceInTx, type Ctx, type PlacementWarning, type ArchetypeCode, type ConfidenceLevel, type AssignmentSource,
+  setSlotPriceInTx, refreshDialSignalsAfterImport, type Ctx, type PlacementWarning, type ArchetypeCode, type ConfidenceLevel, type AssignmentSource,
 } from './catalogService.js';
 import { runCatalogIntegrityChecks, type CatalogIntegrityReport } from './catalogIntegrity.js';
 import { getSizes, getAnchorSize } from './catalogReads.js';
@@ -24,7 +24,10 @@ export interface ManifestPlacement {
 export interface ManifestCoffee {
   name: string; origin?: string; process?: string; roastLevel?: string; roastShade?: string; blendOrSingle?: string;
   flavorDescriptorsRoaster?: string[]; categoryCodes?: string[];
-  match: { archetype: ArchetypeCode; confidence: ConfidenceLevel; source: AssignmentSource };
+  // notes / sessionId (cupping evidence brief 2, 2026-10-18): the decision's
+  // basis line and the cupping session it was decided from
+  // (coffee_archetype_assignment.notes / assigned_from_session_id); optional.
+  match: { archetype: ArchetypeCode; confidence: ConfidenceLevel; source: AssignmentSource; notes?: string; sessionId?: number };
   home?: ManifestPlacement;
   guests?: ManifestPlacement[];
   skus?: ManifestSku[];
@@ -175,6 +178,7 @@ async function runImportInTx(tx: Tx, manifest: Manifest, options: ImportOptions)
 
     const { warnings: matchWarnings } = await setMatchArchetypeInTx(tx, {
       coffeeId, archetype: coffee.match.archetype, confidence: coffee.match.confidence, source: coffee.match.source,
+      notes: coffee.match.notes, sessionId: coffee.match.sessionId,
     });
     report.warnings.push(...matchWarnings);
 
@@ -225,14 +229,21 @@ async function runImportInTx(tx: Tx, manifest: Manifest, options: ImportOptions)
 }
 
 export async function importCatalog(manifest: Manifest, options: ImportOptions): Promise<ImportReport> {
+  let report: ImportReport;
   try {
-    return await withTransaction(async (tx) => {
-      const report = await runImportInTx(tx, manifest, options);
-      if (options.dryRun) throw new ImportAbort(report);
-      return report;
+    report = await withTransaction(async (tx) => {
+      const r = await runImportInTx(tx, manifest, options);
+      if (options.dryRun) throw new ImportAbort(r);
+      return r;
     });
   } catch (err) {
     if (err instanceof ImportAbort) return err.report;
     throw err;
   }
+  // Cupping evidence brief 2, Part 0.2: every coffee the import created got a
+  // match archetype, so its cupping dial signal is refreshed after commit
+  // (brief 1 decision 8: every archetype change refreshes it). Advisory only.
+  const created = report.coffees.filter(c => c.status === 'created' && c.coffeeId).map(c => c.coffeeId!);
+  if (created.length) await refreshDialSignalsAfterImport(created);
+  return report;
 }
