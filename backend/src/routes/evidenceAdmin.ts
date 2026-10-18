@@ -1,0 +1,59 @@
+// Cupping evidence brief 3, B4 (2026-10-18): the read-only evidence routes,
+// mounted at /api/admin/evidence behind requireAdmin. Thin callers of
+// evidenceReads (the only reader of the v_evidence_* views) and
+// evidenceIntegrity. GET only: nothing here writes.
+import { Router } from 'express';
+import { requireAdmin } from '../middleware/auth.js';
+import { getCoffeeEvidence, getRoasteryEvidence, getEvidenceSummary, getUnmappedWords } from '../services/evidenceReads.js';
+import { runEvidenceIntegrityChecks } from '../services/evidenceIntegrity.js';
+
+const router = Router();
+router.use(requireAdmin);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+router.get('/coffee/:coffeeId', async (req, res) => {
+  const coffeeId = Number(req.params.coffeeId);
+  if (!Number.isInteger(coffeeId) || coffeeId <= 0) return res.status(400).json({ error: 'coffeeId must be a positive integer' });
+  try {
+    res.json(await getCoffeeEvidence(coffeeId));
+  } catch (err) {
+    console.error('[admin/evidence/coffee]', err);
+    res.status(500).json({ error: 'Failed to read the coffee evidence' });
+  }
+});
+
+router.get('/roastery/:roasterId', async (req, res) => {
+  if (!UUID.test(req.params.roasterId)) return res.status(400).json({ error: 'roasterId must be a UUID' });
+  try {
+    res.json(await getRoasteryEvidence(req.params.roasterId));
+  } catch (err) {
+    console.error('[admin/evidence/roastery]', err);
+    res.status(500).json({ error: 'Failed to read the roastery evidence' });
+  }
+});
+
+router.get('/summary', async (_req, res) => {
+  try {
+    res.json(await evidenceSummaryWithIntegrity());
+  } catch (err) {
+    console.error('[admin/evidence/summary]', err);
+    res.status(500).json({ error: 'Failed to read the evidence summary' });
+  }
+});
+
+router.get('/unmapped-words', async (_req, res) => {
+  try {
+    res.json(await getUnmappedWords());
+  } catch (err) {
+    console.error('[admin/evidence/unmapped-words]', err);
+    res.status(500).json({ error: 'Failed to read the unmapped words' });
+  }
+});
+
+/** B3: what the System Health card shows (also embedded in GET /api/admin/system-health). */
+export async function evidenceSummaryWithIntegrity() {
+  const [summary, integrity] = await Promise.all([getEvidenceSummary(), runEvidenceIntegrityChecks()]);
+  return { summary, integrity: integrity.checks };
+}
+
+export default router;

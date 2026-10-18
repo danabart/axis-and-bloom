@@ -3,6 +3,7 @@ import { db, withTransaction, type Tx } from '../db/client.js';
 import { getAvgCuppingScore } from './dialSuggestion.js';
 import { refreshDialSignal } from './cuppingService.js';
 import { getSizes, getAnchorSize } from './catalogReads.js';
+import { getFamilies } from './evidenceReads.js';
 import { record } from './customerFacts.js';
 import {
   checkActiveAssignmentsValid,
@@ -198,16 +199,16 @@ export async function evaluatePlacement(runner: Tx | typeof db, coffeeId: number
     }
   }
 
-  // Descriptors
+  // Descriptors. Cupping evidence brief 3, B0 (2026-10-18): the coffee's
+  // families come from v_evidence_descriptor through evidenceReads.getFamilies
+  // (named by our cuppers or by the roaster, SCA families by the tree, most
+  // sources first) instead of counting rows of the wheel view. Still a flag,
+  // never a gate. The descriptors never change inside a placement's own
+  // transaction, so the committed read is the right one.
   const families = slot.spec_descriptor_families?.length ? slot.spec_descriptor_families : (slot.descriptor_families ?? []);
   if (families.length) {
-    const topResult = await runner.query<{ wheel_category: string }>(
-      `SELECT wheel_category FROM v_collaborative_flavor_wheel WHERE coffee_id = $1
-       GROUP BY wheel_category ORDER BY COUNT(*) DESC LIMIT 3`,
-      [coffeeId]
-    );
-    if (topResult.rows.length) {
-      const top = topResult.rows.map(r => r.wheel_category);
+    const top = (await getFamilies(coffeeId)).slice(0, 3);
+    if (top.length) {
       if (!top.some(t => families.includes(t))) {
         warnings.push({ kind: 'descriptor_off_family', families, coffeeTop: top });
       }

@@ -172,6 +172,22 @@ export async function getCuppingCounts(runner: Runner = db): Promise<{ sessions:
   return { sessions: Number(result.rows[0].sessions), internal_descriptors: Number(result.rows[0].internal_descriptors) };
 }
 
+// ── Integrity (cupping evidence brief 3, B00) ─────────────────────────────
+
+/**
+ * Superseded score rows whose replacement is missing or itself gone: the one
+ * evidenceIntegrity check that needs superseded rows, which no view shows.
+ */
+export async function getSupersededWithoutTarget(runner: Runner = db): Promise<Array<{ id: number; superseded_by_id: number | null }>> {
+  const result = await runner.query<{ id: number; superseded_by_id: number | null }>(
+    `SELECT cs.id, cs.superseded_by_id FROM cupping_scores cs
+      WHERE cs.superseded_at IS NOT NULL
+        AND (cs.superseded_by_id IS NULL OR NOT EXISTS (SELECT 1 FROM cupping_scores t WHERE t.id = cs.superseded_by_id))
+      ORDER BY cs.id`
+  );
+  return result.rows;
+}
+
 // ── Reference tables (rows, not code) ─────────────────────────────────────
 
 /** The whole SCA wheel (every tier, every family including Other), for loaders that resolve a node by name. */

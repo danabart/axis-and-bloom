@@ -20,7 +20,8 @@
 //         definition in dialSuggestion.ts is allowed); refreshDialSignal( is
 //         called only from cuppingService.ts, catalogService.ts and the brief 2
 //         loader (features/cupping_evidence/load/).
-// Rule 4 (brief 3 adds it): FROM v_evidence_ only in evidenceReads.ts.
+// Rule 4 (cupping evidence brief 3, 2026-10-18): FROM / JOIN v_evidence_* (the
+//         reconciliation views) only in services/evidenceReads.ts.
 // Tests (*.test.ts) and db/migrations are exempt; schema.sql and the .sql
 // seeds are not scanned.
 
@@ -105,6 +106,9 @@ const REFRESH_SIGNAL = /\brefreshDialSignal\s*\(/g;
 const REFRESH_SIGNAL_ALLOWED = (relPath) =>
   relPath === SERVICE || relPath === 'services/catalogService.ts' || relPath.startsWith('features/cupping_evidence/load/');
 
+const EVIDENCE_VIEW = /\b(FROM|JOIN)\s+"?(v_evidence_[a-z_]+)/gi;
+const EVIDENCE_READS = 'services/evidenceReads.ts';
+
 const violations = [];
 for (const relPath of walk(SRC_ROOT, [])) {
   const text = stripComments(readFileSync(path.join(SRC_ROOT, relPath), 'utf8'));
@@ -134,6 +138,14 @@ for (const relPath of walk(SRC_ROOT, [])) {
     if (relPath === RECORD_SIGNAL_DEFINITION && /function\s+$/.test(text.slice(Math.max(0, m.index - 20), m.index))) continue;
     violations.push({ file: relPath, line: lineNumberAt(text, m.index),
       message: 'recordCuppingSignal( outside cuppingService.ts: call cuppingService.refreshDialSignal instead' });
+  }
+
+  if (relPath !== EVIDENCE_READS) {
+    EVIDENCE_VIEW.lastIndex = 0;
+    while ((m = EVIDENCE_VIEW.exec(text))) {
+      violations.push({ file: relPath, line: lineNumberAt(text, m.index),
+        message: `${m[1].toUpperCase()} '${m[2].toLowerCase()}' outside evidenceReads.ts: read the reconciliation views through evidenceReads` });
+    }
   }
 
   REFRESH_SIGNAL.lastIndex = 0;

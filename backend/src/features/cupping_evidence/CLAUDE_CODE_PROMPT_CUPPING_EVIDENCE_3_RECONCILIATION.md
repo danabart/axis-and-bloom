@@ -2,7 +2,7 @@
 
 > Folder: `backend/src/features/cupping_evidence/` · Written 2026-10-16 (CTO session; decisions by Dana) · Model: Sonnet for the views and tests; Dana reads the view definitions in the closing report before anything is built on them
 > **v3 (2026-10-17):** views are one row per cupper (nothing hard-coded), thresholds come from `evidence_parameter` through `param()`, the stop list from `evidence_stop_word`, calibration reads `v_coffee_dimension_history`, and the D6 family warning moves onto `v_evidence_descriptor`. The v2 text is kept as `SUPERSEDED_…_3_RECONCILIATION_v2.md`.
-> Status: NOT EXECUTED · Depends on briefs 1 v3 and 2 v3 being deployed (the views are tested against the loaded rows).
+> Status: **DONE 2026-10-18** on test and prod: Part A `911f3a6` + `3589c7b` (CATALOG.md), Parts B + C in the commit after them. Closing report: `CLOSING_REPORT_3.md`. `WHAT_WE_BUILT.md` #226.
 > Contract: `DESIGN_CUPPING_EVIDENCE.md` v2 §7 and §8. Read it first. This brief stores nothing: seven views, their tests, grants, comments, and three read-only admin surfaces. No view writes the catalog. No write path of any kind is added.
 
 ## What this is
@@ -21,6 +21,12 @@ The evidence is in (brief 2). This brief lines it up: per coffee per dimension, 
 8. The admin surfaces are read-only. The existing assignment and placement dialogs are not changed; the evidence panel links to them.
 9. The data-driven proposal column (DESIGN §8.5) is **not** built. If the view work makes it obvious, write one paragraph in the closing report; do not add the column.
 10. One catalog-side change is allowed here, because the input moves: `catalogService`'s D6 `descriptor_off_family` warning reads families through `evidenceReads.getFamilies(coffeeId)` (over `v_evidence_descriptor`, `named_by_ab OR named_by_roaster`) instead of counting rows of the wheel view. Still a flag, never a gate.
+
+## Part 0: leftovers from brief 2 (before Task 0's row counts mean anything)
+
+1. **Test DB state.** Brief 2's closing report: the test DB was refreshed from prod *before* the prod load, so it holds neither the brief 2 rows nor brief 1's Zzz fixtures. Refresh the test DB from prod again (prod now holds the brief 2 rows), or run `npm run load:cupping-evidence-2 -- --target test`; either way the counts in Task 0 must equal the prod counts in `CLOSING_REPORT_2.md` (5 sessions incl. 35, 22 session coffees, 36 cupper rows, 22 merged, 223 remarks, 98 mappings, 21 coffees, 3 slot prices).
+2. **Nine catalog tests assume `fruity/1`, `floral/1` and `balanced_sweet/2` are empty.** Prod now has coffees in them, so every refresh brings the failures back. Fix the nine tests to use slots of a fixture archetype or an inactive Zzz roastery's placements inside rolled-back transactions, never the three live slots. Name the nine files in the closing report. Tests green before Part A starts.
+3. Logged, not done: the loader file is `loadCuppingEvidence2.ts` (the brief said `load_cupping_evidence_2.ts`; the name in the repo stands); `schema.sql` cannot build an empty database (brief 2 Part 0.0; its own small brief).
 
 ## Task 0 (report, read-only)
 
@@ -55,7 +61,7 @@ A roastery with fewer than two coffees scored on both sides gives null ranks. No
 ### A2. `v_evidence_descriptor`: one row per coffee × SCA family
 ```
 coffee_id, coffee_name, roaster_id, family,
-named_by_dana, named_by_camila,                        -- any current cupper row of that cupper has a leaf in the family
+named_by_cuppers,                                      -- text[] of cupper names (from the cupper rows) with a current node in the family; no cupper-named column
 named_by_roaster_form,                                 -- current submitted response note mapped (cupping_note_id or mapping table) to the family
 named_by_roaster_remark,                               -- v_roastery_remark, channel <> 'website', is_current, topic = 'descriptor', leaf in family
 named_by_roaster_website,                              -- same, channel = 'website', **latest capture only**: the rows whose said_on is the max said_on for that roaster × coffee × 'website' (a later capture of the page replaces, in this view, what an earlier one said; every capture stays in v_roastery_remark and in the history)
@@ -112,7 +118,7 @@ n,                                                     -- ab_0_15 cupper rows of
 mean_range_width,
 n_with_other_cupper, mean_signed_gap_to_other,         -- this cupper's midpoint minus the mean of the other cuppers' midpoints on the same session coffee
 n_disagreements,                                       -- gap > param('cupper_gap')
-n_with_roaster, mean_signed_gap_to_roaster_rank,       -- this cupper's rank within the lineup minus the roaster's rank, where both exist
+n_with_roaster, mean_abs_gap_to_roaster_rank, rank_corr_to_roaster,   -- mean |cupper average rank − roaster average rank| over the same coffees, and the average-rank correlation (null below param('rank_corr_min_n')); a signed mean is zero by construction over full rankings (found 2026-10-18)
 n_control, mean_signed_gap_to_catalog,                 -- on session coffees with is_control: this cupper's midpoint minus the catalog's latest merged midpoint for that coffee as it stood before the control session
 n_repeat, repeatability                                -- coffees this cupper scored in two or more sessions; mean absolute gap between her midpoints across sessions
 ```

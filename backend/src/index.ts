@@ -37,6 +37,8 @@ import campaignRouter from './routes/campaign.js';
 import roasteryPortalRouter from './routes/roasteryPortal.js';
 import roasteryPortalAdminRouter from './routes/roasteryPortalAdmin.js';
 import roasteryRemarkAdminRouter from './routes/roasteryRemarkAdmin.js';
+import evidenceAdminRouter from './routes/evidenceAdmin.js';
+import { runEvidenceIntegrityChecks, formatEvidenceIntegrityLog } from './services/evidenceIntegrity.js';
 import { initSommelierConfig } from './services/sommelierConfig.js';
 import { runQuizIntegrityChecks } from './services/quizIntegrity.js';
 import { runCatalogIntegrityChecks } from './services/catalogIntegrity.js';
@@ -136,6 +138,8 @@ app.use('/api/roastery-portal', roasteryPortalRouter);
 app.use('/api/admin/roastery-portal', roasteryPortalAdminRouter);
 // Cupping evidence brief 1 (2026-10-18): roaster remarks outside the portal form.
 app.use('/api/admin/roastery-remarks', roasteryRemarkAdminRouter);
+// Cupping evidence brief 3 (2026-10-18): read-only reconciliation reads.
+app.use('/api/admin/evidence', evidenceAdminRouter);
 
 // Observability Foundation Part B -- central boundary handler, mounted AFTER
 // every router so it only sees what Express itself routes here: a
@@ -331,6 +335,16 @@ async function start() {
     for (const line of formatDataCatalogLog(report)) console.warn(line);
   } catch (err) {
     console.error('Data catalog check error (non-fatal):', err);
+  }
+
+  // Cupping evidence brief 3, B00 (2026-10-18) — report only, never blocks
+  // the boot: the evidence layer's integrity checks go to the log here and
+  // to the System Health card.
+  try {
+    const report = await runEvidenceIntegrityChecks();
+    for (const line of formatEvidenceIntegrityLog(report)) console.warn(line);
+  } catch (err) {
+    console.error('Evidence integrity check error (non-fatal):', err);
   }
 
   // 2026-08-15 CRON_SECRET incident hardening — every version of the secret

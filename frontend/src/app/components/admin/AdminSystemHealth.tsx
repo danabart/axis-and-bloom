@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
 import { reportError } from '../../lib/errorReporter';
 
@@ -55,11 +56,23 @@ interface DataCatalogData {
 
 const AMBER = '#b7791f';
 
+// Cupping evidence brief 3, B3 (2026-10-18): v_evidence_coverage / _unmapped_words
+// numbers and the evidenceIntegrity checks. Report only.
+interface CuppingEvidenceData {
+  summary?: {
+    activeCoffees: number; coffeesWithTwoOrMoreSources: number; coffeesUnreconciled: number;
+    placedWithoutCupping: number; assignmentsWithoutBasis: number; unmappedWords: number;
+  };
+  integrity?: { id: number; name: string; ok: boolean; count: number; sample: string[] }[];
+  error?: string;
+}
+
 interface SystemHealthData {
   callTypes: CallTypeRow[];
   clientErrorSignatures: ClientErrorSignatureRow[];
   retention: { totalRows: number; oldestRowAt: string | null };
   dataCatalog?: DataCatalogData;
+  cuppingEvidence?: CuppingEvidenceData;
 }
 
 const RUST = '#b05642';
@@ -187,6 +200,53 @@ export default function AdminSystemHealth() {
           )}
         </div>
       </div>
+
+      {/* ── Cupping evidence (cupping evidence brief 3, B3) ── */}
+      {data.cuppingEvidence && (
+        <div className="mb-8">
+          <p className={LABEL}>Cupping evidence</p>
+          <Link to="/admin/roastery-portal" className={`${CARD} border-stone-200 block hover:bg-stone-50`}>
+            {data.cuppingEvidence.error || !data.cuppingEvidence.summary ? (
+              <p className="text-xs" style={{ color: RUST }}>{data.cuppingEvidence.error ?? 'No cupping evidence report'}</p>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-8">
+                  <div>
+                    <p className="text-2xl font-normal text-stone-800">
+                      {data.cuppingEvidence.summary.coffeesWithTwoOrMoreSources} / {data.cuppingEvidence.summary.activeCoffees}
+                    </p>
+                    <p className="text-xs text-stone-400">active coffees with evidence from 2+ sources</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-normal" style={{ color: data.cuppingEvidence.summary.coffeesUnreconciled ? AMBER : undefined }}>{data.cuppingEvidence.summary.coffeesUnreconciled}</p>
+                    <p className="text-xs text-stone-400">with a flag to reconcile</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-normal" style={{ color: data.cuppingEvidence.summary.placedWithoutCupping ? RUST : undefined }}>{data.cuppingEvidence.summary.placedWithoutCupping}</p>
+                    <p className="text-xs text-stone-400">placed, never cupped</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-normal" style={{ color: data.cuppingEvidence.summary.assignmentsWithoutBasis ? AMBER : undefined }}>{data.cuppingEvidence.summary.assignmentsWithoutBasis}</p>
+                    <p className="text-xs text-stone-400">assignments without a basis line</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-normal text-stone-800">{data.cuppingEvidence.summary.unmappedWords}</p>
+                    <p className="text-xs text-stone-400">unmapped words</p>
+                  </div>
+                </div>
+                <div className="mt-3 text-xs text-stone-500">
+                  {(data.cuppingEvidence.integrity ?? []).filter(c => !c.ok).length === 0
+                    ? 'Evidence integrity: all checks pass.'
+                    : (data.cuppingEvidence.integrity ?? []).filter(c => !c.ok).map(c => (
+                      <p key={c.id}><span style={{ color: AMBER }}>#{c.id}</span> {c.name}: {c.count}{c.sample.length ? ` (e.g. ${c.sample.slice(0, 3).join('; ')})` : ''}</p>
+                    ))}
+                </div>
+                <p className="mt-2 text-xs text-stone-400">Report only. Open Roastery Feedback, then a roastery's Calibration.</p>
+              </>
+            )}
+          </Link>
+        </div>
+      )}
 
       {/* ── Data catalog ── */}
       {data.dataCatalog && (

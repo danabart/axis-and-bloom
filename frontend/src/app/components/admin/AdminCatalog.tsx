@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
 import { useAdminLookups } from '../../hooks/useAdminLookups';
@@ -6,6 +6,7 @@ import { reportError } from '../../lib/errorReporter';
 import { useArchetypes } from './useArchetypes';
 import LookupSelect from './LookupSelect';
 import StoryEditorModal from './StoryEditorModal';
+import EvidencePanel from './EvidencePanel';
 import CategoryAdmin, { toggleCoffeeCategory, type CategoryOption } from './CategoryAdmin';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -266,6 +267,8 @@ function CoffeeList(props: {
   const [placeModal, setPlaceModal] = useState<{ coffeeId: number; role: 'home' | 'guest' } | null>(null);
   const [skuModal, setSkuModal] = useState<{ coffeeId: number; weightOz?: number } | null>(null);
   const [storyCoffeeId, setStoryCoffeeId] = useState<number | null>(null);
+  // Cupping evidence brief 3, B1: one coffee's evidence panel open at a time (collapsed by default).
+  const [evidenceId, setEvidenceId] = useState<number | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
 
   function archetypeLabel(code: string | null): string {
@@ -353,7 +356,8 @@ function CoffeeList(props: {
             const guestsExpanded = expandedGuestsId === coffee.id;
             const isBusy = busyId === coffee.id;
             return (
-              <tr key={coffee.id} className={`border-b border-stone-50 hover:bg-stone-50/60 align-top ${!coffee.is_active ? 'opacity-50' : ''}`}>
+              <Fragment key={coffee.id}>
+              <tr className={`border-b border-stone-50 hover:bg-stone-50/60 align-top ${!coffee.is_active ? 'opacity-50' : ''}`}>
                 <td className="py-2 px-3 text-stone-700">{coffee.name}</td>
                 <td className="py-2 px-3 text-xs text-stone-500">{coffee.roaster_name ?? '—'}</td>
                 <td className="py-2 px-3 text-xs text-stone-500">
@@ -428,12 +432,24 @@ function CoffeeList(props: {
                       {home ? 'Add guest' : 'Place'}
                     </button>
                     <button onClick={() => setSkuModal({ coffeeId: coffee.id })} className="text-xs text-stone-400 hover:text-stone-700">SKUs</button>
+                    <button onClick={() => setEvidenceId(evidenceId === coffee.id ? null : coffee.id)}
+                      className={`text-xs hover:text-stone-700 ${evidenceId === coffee.id ? 'text-stone-700' : 'text-stone-400'}`}>Evidence</button>
                     <button onClick={() => handleRetireRestore(coffee)} disabled={isBusy} className="text-xs text-stone-400 hover:text-red-500 disabled:opacity-40">
                       {isBusy ? '…' : coffee.is_active ? 'Retire' : 'Restore'}
                     </button>
                   </div>
                 </td>
               </tr>
+              {evidenceId === coffee.id && (
+                <tr className="border-b border-stone-100">
+                  <td colSpan={10} className="px-3 pb-3">
+                    <EvidencePanel coffeeId={coffee.id} apiFetch={apiFetch}
+                      onDecideMatch={() => setMatchModalId(coffee.id)}
+                      onDecidePlace={() => setPlaceModal({ coffeeId: coffee.id, role: home ? 'guest' : 'home' })} />
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             );
           })}
           {coffees.length === 0 && (

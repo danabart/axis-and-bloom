@@ -28,6 +28,7 @@ import { runQuizIntegrityChecks } from '../services/quizIntegrity.js';
 import { runCatalogIntegrityChecks } from '../services/catalogIntegrity.js';
 import { runCustomerIntegrityChecks } from '../services/customerIntegrity.js';
 import { runDataCatalogIntegrityChecks } from '../services/dataCatalogIntegrity.js';
+import { evidenceSummaryWithIntegrity } from './evidenceAdmin.js';
 import {
   CatalogError, type Ctx, type ArchetypeCode,
   createCoffee, updateCoffee, retireCoffee, restoreCoffee,
@@ -1932,6 +1933,18 @@ async function dataCatalogSection() {
   }
 }
 
+// Cupping evidence brief 3, B3 (2026-10-18): coverage, unmapped words and the
+// evidence integrity checks for the System Health card. Report only; a failure
+// is reported in place, never failing the page.
+async function cuppingEvidenceSection() {
+  try {
+    return await evidenceSummaryWithIntegrity();
+  } catch (err) {
+    console.error('[admin/system-health/cupping-evidence]', err);
+    return { error: 'Failed to read the cupping evidence summary' };
+  }
+}
+
 router.get('/system-health', async (_req, res) => {
   try {
     const [callTypeResult, clientErrorResult, retentionResult] = await Promise.all([
@@ -1980,6 +1993,7 @@ router.get('/system-health', async (_req, res) => {
         oldestRowAt: retentionResult.rows[0]?.oldest_row_at ?? null,
       },
       dataCatalog: await dataCatalogSection(),
+      cuppingEvidence: await cuppingEvidenceSection(),
     });
   } catch (err) {
     console.error('[admin/system-health]', err);

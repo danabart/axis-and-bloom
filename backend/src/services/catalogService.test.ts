@@ -71,6 +71,29 @@ async function d6BandFixtureCoffee(): Promise<number> {
   }
   return coffee.id;
 }
+// Cupping evidence brief 3, B0: a persistent fixture coffee whose roaster's
+// website names three Nutty / Cocoa notes (roastery_remark is insert-only, so
+// the rows are written once and reused). Rests inactive, like the band fixture.
+async function d6DescriptorFixtureCoffee(): Promise<number> {
+  const name = 'Zzz D6 Descriptor Fixture Coffee';
+  let roaster = (await db.query<{ id: string }>(`SELECT id FROM roaster WHERE name = 'Zzz D6 Descriptor Fixture Roastery'`)).rows[0];
+  if (!roaster) roaster = (await db.query<{ id: string }>(`INSERT INTO roaster (name, is_active) VALUES ('Zzz D6 Descriptor Fixture Roastery', false) RETURNING id`)).rows[0];
+  let coffee = (await db.query<{ id: number }>(`SELECT id FROM coffees WHERE name = $1 AND roaster_id = $2`, [name, roaster.id])).rows[0];
+  if (!coffee) coffee = (await db.query<{ id: number }>(`INSERT INTO coffees (name, roaster_id, is_active) VALUES ($1, $2, false) RETURNING id`, [name, roaster.id])).rows[0];
+  const has = (await db.query(`SELECT 1 FROM v_roastery_remark WHERE coffee_id = $1 AND channel = 'website'`, [coffee.id])).rowCount;
+  if (!has) {
+    const notes = (await db.query<{ cupping_note_id: string; descriptor: string }>(
+      `SELECT cupping_note_id, descriptor FROM v_cupping_note_family WHERE family = 'Nutty / Cocoa' AND tier = 3 AND is_active ORDER BY descriptor LIMIT 3`)).rows;
+    const { recordRemarks } = await import('./roasteryRemarkService.js');
+    await recordRemarks(notes.map(n => ({
+      roasterId: roaster.id, coffeeId: coffee.id, saidBy: 'Zzz fixture website', saidOn: '2026-10-18', channel: 'website' as const,
+      topic: 'descriptor' as const, remark: n.descriptor, cuppingNoteId: n.cupping_note_id,
+      recordedBy: 'vitest', recordSource: 'test:catalogService.test.ts D6 descriptor fixture',
+    })), { actor: 'vitest' });
+  }
+  return coffee.id;
+}
+
 async function setD6FixtureActive(coffeeId: number, active: boolean): Promise<void> {
   await db.query(`UPDATE roaster SET is_active = $2 WHERE id = (SELECT roaster_id FROM coffees WHERE id = $1)`, [coffeeId, active]);
   await db.query(`UPDATE coffees SET is_active = $2 WHERE id = $1`, [coffeeId, active]);
@@ -271,23 +294,42 @@ describe('D6 — placement guardrail evidence (warn + record)', () => {
     }
   }, 60_000);
 
-  it('descriptor_off_family: three Nutty / Cocoa descriptors placed on a floral slot', async () => {
+  // Cupping evidence brief 3, B0: the families come from v_evidence_descriptor
+  // (named by our cuppers or by the roaster). The roaster's three Nutty / Cocoa
+  // words are website remarks on a persistent Zzz fixture coffee (remarks are
+  // insert-only), resting inactive like the band fixture above.
+  it('descriptor_off_family: the roaster names three Nutty / Cocoa notes, placed on a floral slot', async () => {
+    let coffeeId: number | undefined;
+    try {
+      coffeeId = await d6DescriptorFixtureCoffee();
+      await setD6FixtureActive(coffeeId, true);
+      const [{ id: floralSlot }] = await freeSlotsInOneArchetype(1, { archetype: 'floral' });
+      await expect(placeCoffee({ coffeeId, slotId: floralSlot, role: 'home' }, ACTOR)).rejects.toMatchObject({ status: 400, code: 'NOTE_REQUIRED' });
+      const { warnings } = await placeCoffee({ coffeeId, slotId: floralSlot, role: 'home', placementNote: 'roastery notes lean cocoa, placing on floral per cupping call' }, ACTOR);
+      const off = warnings.find(w => w.kind === 'descriptor_off_family');
+      expect(off).toBeDefined();
+      expect(off && 'coffeeTop' in off ? off.coffeeTop : []).toEqual(['Nutty / Cocoa']);
+    } finally {
+      if (coffeeId) await db.query(`DELETE FROM coffee_slot_assignment WHERE coffee_id = $1`, [coffeeId]);
+      if (coffeeId) await setD6FixtureActive(coffeeId, false);
+    }
+  });
+
+  it('descriptor_off_family: descriptors accepted into the catalog alone no longer drive the warning (B0)', async () => {
     let roaster: { id: string } | undefined;
     let coffeeId: number | undefined;
     try {
-      roaster = await makeRoaster('Vitest D6 Descriptor Roastery');
-      coffeeId = (await makeCoffee('Vitest D6 Descriptor Coffee', roaster.id)).id;
-
-      const notes = (await db.query<{ id: string }>(`SELECT id FROM cupping_note WHERE wheel_category = 'Nutty / Cocoa' LIMIT 3`)).rows;
+      roaster = await makeRoaster('Vitest D6 Accepted Roastery');
+      coffeeId = (await makeCoffee('Vitest D6 Accepted Coffee', roaster.id)).id;
+      const notes = (await db.query<{ cupping_note_id: string }>(
+        `SELECT cupping_note_id FROM v_cupping_note_family WHERE family = 'Nutty / Cocoa' AND tier = 3 AND is_active ORDER BY descriptor LIMIT 3`)).rows;
       expect(notes.length).toBe(3);
       for (const note of notes) {
-        await db.query(`INSERT INTO roastery_coffee_descriptors (coffee_id, cupping_note_id) VALUES ($1, $2)`, [coffeeId, note.id]);
+        await db.query(`INSERT INTO roastery_coffee_descriptors (coffee_id, cupping_note_id) VALUES ($1, $2)`, [coffeeId, note.cupping_note_id]);
       }
-
-      const floral2 = await slotId('floral', 2);
-      await expect(placeCoffee({ coffeeId, slotId: floral2, role: 'home' }, ACTOR)).rejects.toMatchObject({ status: 400, code: 'NOTE_REQUIRED' });
-      const { warnings } = await placeCoffee({ coffeeId, slotId: floral2, role: 'home', placementNote: 'roastery notes lean cocoa, placing on floral per cupping call' }, ACTOR);
-      expect(warnings.some(w => w.kind === 'descriptor_off_family')).toBe(true);
+      const [{ id: floralSlot }] = await freeSlotsInOneArchetype(1, { archetype: 'floral' });
+      const { warnings } = await placeCoffee({ coffeeId, slotId: floralSlot, role: 'home' }, ACTOR);
+      expect(warnings.some(w => w.kind === 'descriptor_off_family')).toBe(false);
     } finally {
       if (coffeeId) await db.query(`DELETE FROM roastery_coffee_descriptors WHERE coffee_id = $1`, [coffeeId]);
       await cleanupRoasterAndCoffees(roaster, coffeeId ? [coffeeId] : []);

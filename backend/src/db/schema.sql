@@ -2843,7 +2843,10 @@ SELECT v.key, v.value, v.note FROM (VALUES
   ('spearman_min_n',    5,    'Smallest lineup for which the inverted flag is shown.'),
   ('spearman_rho_cut',  -0.5, 'Rank correlation below which a roastery calibration is flagged inverted.'),
   ('rank_corr_min_n',   3,    'Smallest lineup for which a rank correlation is computed at all.'),
-  ('calibration_min_n', 20,   'Comparisons a cupper needs on a dimension before a calibration offset is considered.')
+  ('calibration_min_n', 20,   'Comparisons a cupper needs on a dimension before a calibration offset is considered.'),
+  -- cupping evidence brief 3, B00 (2026-10-18): read by evidenceIntegrity
+  ('estimated_date_review_days', 90,  'An estimated session date older than this many days, with no session note, is reported by evidenceIntegrity.'),
+  ('website_recapture_days',     180, 'A roaster x coffee website capture older than this many days is reported by evidenceIntegrity (the page may have changed).')
 ) AS v(key, value, note)
 WHERE NOT EXISTS (SELECT 1 FROM evidence_parameter p WHERE p.key = v.key);
 

@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { reportError } from '../../lib/errorReporter';
 import LookupSelect from './LookupSelect';
 import { useArchetypes } from './useArchetypes';
+import CalibrationPanel from './CalibrationPanel';
 
 // Roastery Portal (2026-10-05) — admin page, "Roastery Feedback". Create and
 // revoke the private link each partner roastery gets, manage its lineup, watch
@@ -80,6 +81,8 @@ export default function AdminRoasteryPortal() {
   const roasterId = params.get('roastery');
   const coffeeId = params.get('coffee');
   const acceptId = params.get('accept');
+  // Cupping evidence brief 3, B2: ?roastery=<id>&view=calibration opens the read-only Calibration tab.
+  const view = params.get('view');
 
   const apiFetch = useCallback(async (url: string, options: RequestInit = {}) => {
     const token = await user!.getIdToken();
@@ -98,11 +101,12 @@ export default function AdminRoasteryPortal() {
     })();
   }, [user, apiFetch]);
 
-  const go = (next: { roastery?: string | null; coffee?: string | null; accept?: string | null }) => {
+  const go = (next: { roastery?: string | null; coffee?: string | null; accept?: string | null; view?: string | null }) => {
     const p = new URLSearchParams();
     if (next.roastery) p.set('roastery', next.roastery);
     if (next.coffee) p.set('coffee', next.coffee);
     if (next.accept) p.set('accept', next.accept);
+    if (next.view) p.set('view', next.view);
     setParams(p);
   };
 
@@ -118,10 +122,15 @@ export default function AdminRoasteryPortal() {
         <AcceptPanel key={acceptId} roasterId={roasterId} portalCoffeeId={acceptId} apiFetch={apiFetch} vocab={vocab}
           onBack={() => go({ roastery: roasterId })} />
       )}
-      {roasterId && !coffeeId && !acceptId && vocab && (
+      {roasterId && view === 'calibration' && (
+        <CalibrationPanel key={`cal-${roasterId}`} roasterId={roasterId} roasterName={null} apiFetch={apiFetch}
+          onBack={() => go({ roastery: roasterId })} />
+      )}
+      {roasterId && !coffeeId && !acceptId && view !== 'calibration' && vocab && (
         <RoasteryDetailView key={roasterId} roasterId={roasterId} apiFetch={apiFetch} vocab={vocab}
           onBack={() => go({})} onOpenCoffee={id => go({ roastery: roasterId, coffee: id })}
-          onAccept={id => go({ roastery: roasterId, accept: id })} />
+          onAccept={id => go({ roastery: roasterId, accept: id })}
+          onCalibration={() => go({ roastery: roasterId, view: 'calibration' })} />
       )}
       {roasterId && coffeeId && !acceptId && vocab && (
         <CoffeeResponsePanel key={coffeeId} roasterId={roasterId} coffeeId={coffeeId} apiFetch={apiFetch} vocab={vocab}
@@ -191,9 +200,9 @@ function RoasteryList({ apiFetch, onOpen }: { apiFetch: (u: string, o?: RequestI
 }
 
 // ── One roastery: links, lineup, progress, lineup answers ───────────────────
-function RoasteryDetailView({ roasterId, apiFetch, vocab, onBack, onOpenCoffee, onAccept }: {
+function RoasteryDetailView({ roasterId, apiFetch, vocab, onBack, onOpenCoffee, onAccept, onCalibration }: {
   roasterId: string; apiFetch: (u: string, o?: RequestInit) => Promise<Response>; vocab: Vocabulary;
-  onBack: () => void; onOpenCoffee: (id: string) => void; onAccept: (id: string) => void;
+  onBack: () => void; onOpenCoffee: (id: string) => void; onAccept: (id: string) => void; onCalibration: () => void;
 }) {
   const [data, setData] = useState<RoasteryDetail | null>(null);
   const [error, setError] = useState('');
@@ -232,8 +241,9 @@ function RoasteryDetailView({ roasterId, apiFetch, vocab, onBack, onOpenCoffee, 
         <button className="text-xs uppercase tracking-wide text-stone-500 mb-2" onClick={onBack}>← All roasteries</button>
         <h2 className="text-lg">{roaster.name}{!roaster.isActive && <span className="ml-2 text-xs text-stone-400">inactive</span>}</h2>
         {activeLineup.length > 0 && (
-          <Link className={`${BTN} mt-2 inline-block`} to={`/admin/roastery-portal/${roasterId}/preview`}>Preview form</Link>
+          <Link className={`${BTN} mt-2 mr-2 inline-block`} to={`/admin/roastery-portal/${roasterId}/preview`}>Preview form</Link>
         )}
+        <button className={`${BTN} mt-2 inline-block`} onClick={onCalibration}>Calibration</button>
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
 
