@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-10-18 from database `axisandbloom` · 124 tables · 71 views · 1130 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `e961430fbf36` (full value in the footer).
+Generated 2026-10-18 from database `axisandbloom` · 124 tables · 71 views · 1130 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `41dec51b9916` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -2734,7 +2734,7 @@ Every decision-layer flavor-descriptor observation per coffee, one row each, lab
 Each SCA node (cupping_note) with its tier and its tier-1 ancestor (the family), walked up parent_id; a family is this join, never a match on wheel_category text.
 
 - **Writer:** none (derived)
-- **Readers:** v_evidence_descriptor, v_evidence_unmapped_words
+- **Readers:** v_evidence_descriptor, v_evidence_unmapped_words, evidenceIntegrity
 - **Since:** 2026-10-18 (cupping evidence brief 3)
 - **reads:** `cupping_note`
 
@@ -2905,7 +2905,7 @@ The current dial position signals per coffee and source, with the basis line in 
 One row per coffee: every cupper call (JSON, from v_evidence_archetype_call), the merged call, the roaster's form and remark proposals, the catalog's assignment with its basis and session, the home placement with its session, evidence_newer_than_decision, the band check on the latest merged range (in_band, out_of_band, no_band, no_merged_range), the dial signal's basis and a flag.
 
 - **Writer:** none (derived)
-- **Readers:** evidenceReads (brief 3 Part B), reporting_ro
+- **Readers:** evidenceReads.getCoffeeEvidence, evidenceReads.getRoasteryEvidence (stale decisions), v_evidence_coverage, v_evidence_roastery_calibration, reporting_ro
 - **Since:** 2026-10-18 (cupping evidence brief 3)
 - **reads:** `v_coffee`, `v_coffee_archetype`, `v_coffee_dimension_range`, `v_coffee_slot`, `v_cupping_score`, `v_cupping_session`, `v_dial_position_signal_current`, `v_evidence_archetype_call`, `v_roastery_portal_coffee_hint`, `v_roastery_remark`
 
@@ -2914,7 +2914,7 @@ One row per coffee: every cupper call (JSON, from v_evidence_archetype_call), th
 One row per coffee x cupper: the cupper's archetype, position and slot calls and call note from her latest current row, with the session, date and blind flag.
 
 - **Writer:** none (derived)
-- **Readers:** v_evidence_archetype, evidenceReads (brief 3 Part B), reporting_ro
+- **Readers:** v_evidence_archetype, evidenceReads.getCoffeeEvidence, reporting_ro
 - **Since:** 2026-10-18 (cupping evidence brief 3)
 - **reads:** `v_cupping_score`, `v_cupping_session`
 
@@ -2923,7 +2923,7 @@ One row per coffee x cupper: the cupper's archetype, position and slot calls and
 One row per active catalog coffee: which evidence exists (cuppers, sessions, portal, table and website remarks, customer feedback), n_sources (0 to 5), the catalog assignment and whether it states a basis, evidence_newer_than_decision and flag_unreconciled. What the System Health card reads.
 
 - **Writer:** none (derived)
-- **Readers:** evidenceReads (brief 3 Part B), reporting_ro
+- **Readers:** evidenceReads.getRoasteryEvidence, evidenceReads.getEvidenceSummary (admin System Health), reporting_ro
 - **Since:** 2026-10-18 (cupping evidence brief 3)
 - **reads:** `v_coffee`, `v_coffee_slot`, `v_cupping_score`, `v_cupping_session_coffee`, `v_customer_feedback_current`, `v_evidence_archetype`, `v_evidence_dimension`, `v_roastery_portal_coffee_hint`, `v_roastery_remark`
 
@@ -2932,7 +2932,7 @@ One row per active catalog coffee: which evidence exists (cuppers, sessions, por
 One row per cupper x numeric dimension x blind flag, over every current native-scale cupper row: n, mean range width, signed gap to the other cuppers and disagreements, mean absolute gap to the roaster's rank and the correlation of the two rank vectors (null below param rank_corr_min_n), gap to the catalog on control samples, repeatability across sessions.
 
 - **Writer:** none (derived)
-- **Readers:** evidenceReads (brief 3 Part B), reporting_ro
+- **Readers:** evidenceReads.getRoasteryEvidence (admin Roastery Feedback, Calibration), reporting_ro
 - **Since:** 2026-10-18 (cupping evidence brief 3)
 - **reads:** `coffee_dimensions`, `v_coffee`, `v_coffee_dimension_history`, `v_cupping_scores_readable`, `v_roastery_portal_coffee_hint`
 
@@ -2941,7 +2941,7 @@ One row per cupper x numeric dimension x blind flag, over every current native-s
 One row per coffee x SCA family (tier-1 ancestor by parent_id): which cuppers named it (from the cupper rows), the roaster's form, remarks and latest website capture, customers, accepted in the catalog, and hit / miss / extra.
 
 - **Writer:** none (derived)
-- **Readers:** evidenceReads (brief 3 Part B; also the D6 family warning), reporting_ro
+- **Readers:** evidenceReads.getCoffeeEvidence, evidenceReads.getFamilies (catalogService D6 descriptor_off_family), v_evidence_roastery_calibration, reporting_ro
 - **Since:** 2026-10-18 (cupping evidence brief 3)
 - **reads:** `v_coffee`, `v_collaborative_flavor_wheel`, `v_cupping_note_family`, `v_cupping_score`, `v_cupping_score_descriptor`, `v_customer_feedback_current`, `v_note_mapping_current`, `v_roastery_portal_coffee_hint`, `v_roastery_remark`
 
@@ -2950,7 +2950,7 @@ One row per coffee x SCA family (tier-1 ancestor by parent_id): which cuppers na
 One row per coffee x numeric dimension x cupper: the cupper's latest current range (converted to 0 to 15), the latest merged range repeated, the scales behind it, whether the cuppers agree (gap <= param cupper_gap), the roaster's 1 to 5 value and both average ranks within the roastery's lineup, and a flag (none, cuppers_disagree, roaster_disagrees, both, one_source). No cupper named in the definition.
 
 - **Writer:** none (derived)
-- **Readers:** evidenceReads (brief 3 Part B), reporting_ro
+- **Readers:** evidenceReads.getCoffeeEvidence (admin Coffees page evidence panel), v_evidence_coverage, reporting_ro
 - **Since:** 2026-10-18 (cupping evidence brief 3)
 - **reads:** `coffee_dimensions`, `v_coffee`, `v_coffee_dimension_history`, `v_coffee_dimension_range`, `v_cupping_scores_readable`, `v_cupping_session`, `v_cupping_session_coffee`, `v_roastery_portal_coffee_hint`
 
@@ -2959,7 +2959,7 @@ One row per coffee x numeric dimension x cupper: the cupper's latest current ran
 One row per roastery x numeric dimension: average-rank correlation between our latest native-scale merged midpoints and the roaster's 1 to 5 values, mean rank gap, inverted (only when n >= param spearman_min_n), the archetype crosstab (our merged call x their form proposal) and descriptor hit / miss / extra counts.
 
 - **Writer:** none (derived)
-- **Readers:** evidenceReads (brief 3 Part B), reporting_ro
+- **Readers:** evidenceReads.getRoasteryEvidence (admin Roastery Feedback, Calibration), reporting_ro
 - **Since:** 2026-10-18 (cupping evidence brief 3)
 - **reads:** `coffee_dimensions`, `v_coffee`, `v_coffee_dimension_history`, `v_cupping_session`, `v_evidence_archetype`, `v_evidence_descriptor`, `v_roastery_portal_coffee_hint`
 
@@ -2968,7 +2968,7 @@ One row per roastery x numeric dimension: average-rank correlation between our l
 One row per distinct word x source (roaster form, roaster remark, roaster website, cupper notes) that reaches no SCA node: not mapped, not a node's name, not a stop word, never a struck word. The mapping queue.
 
 - **Writer:** none (derived)
-- **Readers:** evidenceReads (brief 3 Part B), reporting_ro
+- **Readers:** evidenceReads.getUnmappedWords, evidenceReads.getEvidenceSummary (admin System Health), reporting_ro
 - **Since:** 2026-10-18 (cupping evidence brief 3)
 - **reads:** `evidence_stop_word`, `v_coffee`, `v_cupping_note_family`, `v_cupping_scores_readable`, `v_cupping_sheet_line`, `v_note_mapping_current`, `v_roastery_portal_coffee_hint`, `v_roastery_remark`
 
@@ -2986,7 +2986,7 @@ All newsletter signups with a human-readable source label, newest first.
 The current word to SCA node mappings, roaster and cupper (source_kind); superseded rows stay in the table.
 
 - **Writer:** none (derived)
-- **Readers:** v_evidence_descriptor, v_evidence_unmapped_words
+- **Readers:** v_evidence_descriptor, v_evidence_unmapped_words, evidenceIntegrity
 - **Since:** 2026-10-18 (cupping evidence brief 3)
 - **reads:** `roastery_portal_note_mapping`
 
@@ -3229,18 +3229,18 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `cupping_note_dimension_weight` | none | — | — | — |
 | `cupping_scale` | seed | seed (INSERT) | cuppingReads, cuppingService, evidenceReads | v_cupping_scores_readable |
 | `cupping_scale_step` | seed | seed (INSERT) | cuppingReads | — |
-| `cupping_score_descriptors` | cuppingService, seed | cuppingService (INSERT), seed (INSERT) | admin, beatEngine, catalogService, coffees, cron, cuppingReads, cuppingService, customerReads, evidenceIntegrity, evidenceReads, orders, sommelierRag | v_collaborative_flavor_wheel, v_cupping_score_descriptor |
+| `cupping_score_descriptors` | cuppingService, seed | cuppingService (INSERT), seed (INSERT) | admin, beatEngine, coffees, cron, cuppingReads, cuppingService, customerReads, evidenceIntegrity, evidenceReads, orders, sommelierRag | v_collaborative_flavor_wheel, v_cupping_score_descriptor |
 | `cupping_score_values` | cuppingService, seed | cuppingService (INSERT), seed (INSERT) | coffees, cuppingReads, cuppingService, customerIntegrity, customerReads, dialSuggestion, evidenceReads, roasteryPortalReads | v_coffee_dimension_history, v_coffee_dimension_range, v_coffee_dimension_range_calibrated, v_cupping_scores_readable |
-| `cupping_scores` | cuppingService, seed | cuppingService (INSERT, UPDATE), seed (INSERT, UPDATE) | admin, beatEngine, catalogService, coffees, cron, cuppingReads, cuppingService, customerIntegrity, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, orders, roasteryPortalReads, sommelierRag | v_coffee_dimension_history, v_coffee_dimension_range, v_coffee_dimension_range_calibrated, v_collaborative_flavor_wheel, v_cupping_score, v_cupping_score_descriptor, v_cupping_scores_readable, v_cupping_session, v_cupping_session_coffee |
-| `cupping_session_coffees` | cuppingService, seed | cuppingService (DELETE, INSERT, UPDATE), seed (INSERT) | admin, beatEngine, catalogService, coffees, cron, cuppingReads, cuppingService, customerIntegrity, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, orders, roasteryPortalReads, sommelierRag | v_coffee_dimension_history, v_coffee_dimension_range, v_coffee_dimension_range_calibrated, v_collaborative_flavor_wheel, v_cupping_score, v_cupping_score_descriptor, v_cupping_scores_readable, v_cupping_session, v_cupping_session_coffee |
+| `cupping_scores` | cuppingService, seed | cuppingService (INSERT, UPDATE), seed (INSERT, UPDATE) | admin, beatEngine, coffees, cron, cuppingReads, cuppingService, customerIntegrity, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, orders, roasteryPortalReads, sommelierRag | v_coffee_dimension_history, v_coffee_dimension_range, v_coffee_dimension_range_calibrated, v_collaborative_flavor_wheel, v_cupping_score, v_cupping_score_descriptor, v_cupping_scores_readable, v_cupping_session, v_cupping_session_coffee |
+| `cupping_session_coffees` | cuppingService, seed | cuppingService (DELETE, INSERT, UPDATE), seed (INSERT) | admin, beatEngine, coffees, cron, cuppingReads, cuppingService, customerIntegrity, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, orders, roasteryPortalReads, sommelierRag | v_coffee_dimension_history, v_coffee_dimension_range, v_coffee_dimension_range_calibrated, v_collaborative_flavor_wheel, v_cupping_score, v_cupping_score_descriptor, v_cupping_scores_readable, v_cupping_session, v_cupping_session_coffee |
 | `cupping_sessions` | cuppingService, seed | cuppingService (DELETE, INSERT, UPDATE), seed (INSERT, UPDATE) | coffees, cuppingReads, cuppingService, customerIntegrity, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, roasteryPortalReads | v_coffee_dimension_history, v_coffee_dimension_range, v_cupping_scores_readable, v_cupping_session |
 | `cupping_sheet_format` | seed | seed (INSERT) | cuppingReads, cuppingService | — |
 | `cupping_sheet_line` | seed | seed (INSERT) | cuppingReads, evidenceReads | v_cupping_sheet_line |
 | `customer_bag_claim` | customerFacts | customerFacts (INSERT) | admin, customerReads, exportCalibration | v_customer_bag_attribution, v_customer_timeline |
 | `customer_brew_profile_change` | customerFacts | customerFacts (INSERT) | backfillCustomerFacts, customerIntegrity, customerReads, engagementMetrics | v_customer_brew_profile, v_customer_timeline |
 | `customer_dial_event` | customerFacts | customerFacts (INSERT) | backfillCustomerFacts, customerReads | v_customer_timeline |
-| `customer_feedback_descriptor` | customerFacts | customerFacts (INSERT) | admin, backfillCustomerFacts, beatEngine, catalogService, coffees, cron, cuppingReads, customerReads, evidenceReads, exportCalibration, orders, sommelierRag | v_collaborative_flavor_wheel, v_customer_feedback_current |
-| `customer_feedback_event` | customerFacts | customerFacts (INSERT) | admin, backfillCustomerFacts, beatEngine, catalogService, coffees, cron, cuppingReads, customerReads, evidenceReads, exportCalibration, orders, sommelierRag | v_collaborative_flavor_wheel, v_customer_feedback_current, v_customer_timeline |
+| `customer_feedback_descriptor` | customerFacts | customerFacts (INSERT) | admin, backfillCustomerFacts, beatEngine, coffees, cron, cuppingReads, customerReads, evidenceReads, exportCalibration, orders, sommelierRag | v_collaborative_flavor_wheel, v_customer_feedback_current |
+| `customer_feedback_event` | customerFacts | customerFacts (INSERT) | admin, backfillCustomerFacts, beatEngine, coffees, cron, cuppingReads, customerReads, evidenceReads, exportCalibration, orders, sommelierRag | v_collaborative_flavor_wheel, v_customer_feedback_current, v_customer_timeline |
 | `customer_identity_link` | customerFacts | customerFacts (INSERT) | admin, backfillClaimedSessionLinks, customerIntegrity, customerReads, engagementMetrics, evidenceReads, exportCalibration, quizInterpretationBackfill | v_customer_identity, v_customer_timeline |
 | `customer_liam_action` | customerFacts | customerFacts (INSERT) | customerReads | v_customer_timeline |
 | `customer_liam_question` | customerFacts | customerFacts (INSERT) | admin, customerReads, exportCalibration, quizInterpretationBackfill | v_customer_timeline, v_palate_evidence, v_palate_threads |
@@ -3337,5 +3337,5 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 ---
 
-catalog-hash: e961430fbf3652150019b44dc0f5af25b51c611633f43f6aa2ab4d6b693a2651
-lineage-hash: 84cb1b5fa55c9145c27edf3545d30be4da195ce9e756f270922828f6eccdee5e
+catalog-hash: 41dec51b99169153b0d1d8f0036e79ba7e43648f10c8a25ea794905a3f4f8ac6
+lineage-hash: 1ae8f484a1e05b6457ed35721db78a8c8ecafe25cfebf8436ebabeee54d4fe84
