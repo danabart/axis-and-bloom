@@ -19,6 +19,10 @@ const { runEvidenceIntegrityChecks } = await import('../services/evidenceIntegri
 
 const JOE_COFFEE = 'f42ad179-9ef4-410a-a92e-464eae1d84ce';
 const JOE_BEAN = '19098f5c-99b9-4d7c-90ef-ee33d1e896b7';
+const S36 = 36, S37 = 37; // Joe Coffee and Joe Bean sessions (brief 2)
+const LA_FAMILIA = 2903; // cupped only in s36
+const TIGER_STRIPE = 2914; // one session (s37)
+const GEOMETRIC = 2915; // two sessions (s37, then the Balance cupping of 2026-10-21)
 
 let server: Server;
 let base: string;
@@ -47,7 +51,9 @@ describe('GET /api/admin/evidence/*', () => {
     expect(body.dimensions.length).toBeGreaterThan(0);
     expect(body.descriptors.map((d: any) => d.family)).toEqual(expect.arrayContaining(['Sweet', 'Nutty / Cocoa', 'Spices']));
     expect(body.archetype.catalog_archetype).toBe('balanced_sweet');
-    expect(body.calls.length).toBe(1);
+    // calls are pinned to a coffee cupped only in session 36 (Brief 5: no test reads "the latest session")
+    const familia = await (await fetch(`${base}/evidence/coffee/${LA_FAMILIA}`)).json();
+    expect(familia.calls.map((c: any) => [c.cupper_name, c.session_id, c.archetype_call])).toEqual([['Dana', S36, 'balanced_sweet']]);
   });
 
   it('roastery: calibration, cuppers, coverage and the stale-decision count', async () => {
@@ -57,7 +63,10 @@ describe('GET /api/admin/evidence/*', () => {
     expect(body.calibration.length).toBeGreaterThan(0);
     expect(body.coverage.length).toBe(4);
     expect(body.cuppers.length).toBeGreaterThan(0);
-    expect(body.staleDecisions).toBe(0);
+    // by id: Tiger Stripe cupped once (not stale), Geometric cupped again after its decision (stale)
+    const newer = (id: number) => body.coverage.find((c: any) => c.coffee_id === id)?.evidence_newer_than_decision;
+    expect([newer(TIGER_STRIPE), newer(GEOMETRIC)]).toEqual([false, true]);
+    expect(body.staleDecisions).toBe(body.coverage.filter((c: any) => c.evidence_newer_than_decision).length);
   });
 
   it('summary: the System Health numbers and the eight integrity checks', async () => {
@@ -134,7 +143,7 @@ describe('a workbench write through the existing endpoints (brief 4 fields)', ()
     try {
       ({ result: { coffeeId } } = await createCoffee({ roasterId: roaster.id, name: 'Vitest Workbench Coffee' }, { actor: 'vitest' }));
       await upsertSku({ coffeeId: coffeeId!, weightOz: 12 }, { actor: 'vitest' });
-      const sessionId = (await db.query<{ id: number }>(`SELECT id FROM cupping_sessions ORDER BY id DESC LIMIT 1`)).rows[0].id;
+      const sessionId = S37; // any existing session; pinned, never "the latest" (brief 5)
       const basis = { sessions: [sessionId], calls: {}, rule: 'vitest rule' };
       const put = await fetch(`${base}/catalog/coffees/${coffeeId}/match`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },

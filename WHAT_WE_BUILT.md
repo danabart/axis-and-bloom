@@ -5705,6 +5705,26 @@ Brief: `backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENC
 **What it is.** The workbench lays out by its own width (`data-workbench-mode`): **wide** (≥1,440 px: queue | evidence | cards), **mid** (≥1,024 px: queue as a chip strip above evidence | cards), **narrow** (one column). `EvidencePanel` text is 14 px with 12 px uppercase labels. The Archetype & slot tab is one column of label/value rows in two sections. Dimensions is a scrolling table, and Descriptors has a "Who named it" table. `BasisText` sets the `; rule:` part of a basis on its own line. The cards have a title line with the current value, two-column inputs, an amber band on a required rule, and a submit button that says why it is disabled. `AdminRoasteryPortal.tsx` drops its `max-w-6xl` cap for the workbench view only.
 **Verified:** Playwright at 1366 / 1440 / 1920 against the local backend on the test DB as a marked Zzz Test admin. The in-page audit found 0 text under 12 px, 0 clipped, 0 overprint and 0 word-per-line runs on all three tabs at every width. Six lints, both builds, `evidenceBasis` + `evidenceAdmin` tests 34/34.
 
+### 229. Cupping evidence, brief 5: the Balance cupping of 2026-10-21 (2026-10-21)
+
+Brief: `backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENCE_5_BALANCE_CUPPING.md`. Closing report: `CLOSING_REPORT_5.md`. Transcription check: `TRANSCRIPTION_CHECK_BRIEF_5_2026-10-21.md`. Data only, plus a test-only change.
+**What it is.** Dana and Camila cupped Union (Utopian), Benchmark (Joe Coffee), Fabricator and Geometric (Joe Bean) side by side, to compare the balanced end of the dial. It is loaded on prod as **session 40**, the first session with no roaster: each sample names its coffee by (roaster, name).
+- The loader is `load/loadCuppingEvidence5.ts` (`npm run load:cupping-evidence-5`). It uses loader 2's shapes and only the services, and is idempotent: a second run says `already loaded` at every step.
+- It wrote 12 cupper word mappings, 4 session coffees with brew rows (grind 21), 8 cupper rows and 4 rule merges.
+- Disagreements: Union Bitterness, Fabricator Flavor, Geometric Sweetness and Bitterness. No archetype call on any sample.
+- Dana's "banana" on Benchmark is an acidity note (Acidity `notes`), not a descriptor (Dana's ruling).
+- Every cupper word resolved through the mapping table now has its own `cupper` row, even where a roaster row exists (caramel, honey, strawberry, fruity tea).
+- The four coffees now read this session in `v_coffee_dimension_range`. They show `evidence_newer_than_decision` and sit in the workbench queue as newer evidence than the decision. Their dial signals were re-recorded by the merges; no suggested slot moved. Nothing in the catalog changed.
+**Tests pinned.** Brief 3's `evidenceViews` and `evidenceAdmin` tests had read whatever session was latest:
+- Assertions on session 36 / 37 values now name that session (`cupper_session_id`, `session_id`). A pinned assertion uses a coffee cupped only in that session (Blossom, Tiger Stripe, La Familia).
+- "No newer evidence" and "no repeat" became positive tests by coffee id: Tiger Stripe 2914 is false and has 1 session; Geometric 2915 is true and has 2.
+- The workbench write test uses session 37 instead of `ORDER BY id DESC LIMIT 1`.
+**Verified:** the test DB was refreshed from prod, then the loader ran twice on test and twice on prod with identical logs.
+- Sessions 35–39 are unchanged.
+- Catalog integrity passes. `evidenceIntegrity` shows only the two known fails (#2 the Path seed, #6 Flying Jewel).
+- Six lints and the build are clean.
+- Full suite: 799 passed, only the six OT-19 `quizScoring` failures.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

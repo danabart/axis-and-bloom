@@ -23,18 +23,27 @@ async function rows<T = Record<string, any>>(sql: string, params: unknown[] = []
   return (await db.query(sql, params)).rows as T[];
 }
 
+// Brief 5 (2026-10-21): a test that asserts a session's values names that
+// session (36 Joe Coffee, 37 Joe Bean); none reads "the latest session in the
+// DB". The views keep each cupper's latest session, so a pinned assertion uses
+// a coffee whose rows still come from that session (Blossom, Tiger Stripe:
+// cupped only in s37), and the later sessions' effect is tested by coffee id.
+const S36 = 36, S37 = 37;
+const TIGER_STRIPE = 2914; // one session (s37)
+const GEOMETRIC = 2915; // two sessions (s37, then the Balance cupping of 2026-10-21)
+
 describe('v_evidence_dimension (A1)', () => {
-  it('Joe Bean Geometric Acidity: the cuppers disagree (Dana 4-7, Camila 1)', async () => {
+  it('Joe Bean Blossom Aroma, session 37: the cuppers disagree (Dana 6, Camila 11)', async () => {
     const r = await rows(
       `SELECT cupper_name, cupper_min::float AS lo, cupper_max::float AS hi, cuppers_agree, flag FROM v_evidence_dimension
-        WHERE roaster_id = $1 AND coffee_name = 'Geometric Filter Coffee' AND dimension_name = 'Acidity' ORDER BY cupper_name`, [JOE_BEAN]);
-    expect(r.map(x => [x.cupper_name, x.lo, x.hi])).toEqual([['Camila', 1, 1], ['Dana', 4, 7]]);
+        WHERE roaster_id = $1 AND coffee_name = 'Blossom Dark Roast' AND dimension_name = 'Aroma' AND cupper_session_id = $2 ORDER BY cupper_name`, [JOE_BEAN, S37]);
+    expect(r.map(x => [x.cupper_name, x.lo, x.hi])).toEqual([['Camila', 11, 11], ['Dana', 6, 6]]);
     expect(r.every(x => x.cuppers_agree === false)).toBe(true);
     expect(r.every(x => ['cuppers_disagree', 'both'].includes(x.flag))).toBe(true);
   });
 
-  it('Joe Bean Tiger Stripe Acidity: the cuppers agree (Dana 4-6, Camila 3)', async () => {
-    const r = await rows(`SELECT cuppers_agree FROM v_evidence_dimension WHERE roaster_id = $1 AND coffee_name = 'Tiger Stripe Espresso' AND dimension_name = 'Acidity'`, [JOE_BEAN]);
+  it('Joe Bean Tiger Stripe Acidity, session 37: the cuppers agree (Dana 4-6, Camila 3)', async () => {
+    const r = await rows(`SELECT cuppers_agree FROM v_evidence_dimension WHERE roaster_id = $1 AND coffee_name = 'Tiger Stripe Espresso' AND dimension_name = 'Acidity' AND cupper_session_id = $2`, [JOE_BEAN, S37]);
     expect(r.length).toBe(2);
     expect(r.every(x => x.cuppers_agree === true)).toBe(true);
   });
@@ -47,11 +56,11 @@ describe('v_evidence_dimension (A1)', () => {
     for (const x of r) expect(x.scale_codes).toContain('word_3');
   });
 
-  it('Joe Coffee: one row per coffee x dimension (one cupper), cuppers_agree null', async () => {
+  it('Joe Coffee, session 36: one row per coffee x dimension (one cupper), cuppers_agree null', async () => {
     const [c] = await rows(
       `SELECT count(*)::int AS n, count(DISTINCT (coffee_id, dimension_id))::int AS keys, count(DISTINCT cupper_id)::int AS cuppers,
               count(*) FILTER (WHERE cuppers_agree IS NOT NULL)::int AS agree_set
-         FROM v_evidence_dimension WHERE roaster_id = $1`, [JOE_COFFEE]);
+         FROM v_evidence_dimension WHERE roaster_id = $1 AND cupper_session_id = $2`, [JOE_COFFEE, S36]);
     expect(c.n).toBeGreaterThan(0);
     expect(c.n).toBe(c.keys);
     expect(c.cuppers).toBe(1);
@@ -111,10 +120,10 @@ describe('v_evidence_descriptor (A2)', () => {
 });
 
 describe('v_evidence_archetype (A3)', () => {
-  it('Blossom: Dana earthy, Camila no call; catalog earthy low; the flag follows the form proposal', async () => {
+  it('Blossom, session 37: Dana earthy, Camila no call; catalog earthy low; the flag follows the form proposal', async () => {
     const calls = await rows(
       `SELECT c.cupper_name, c.archetype_call FROM v_evidence_archetype_call c JOIN v_coffee vc ON vc.id = c.coffee_id
-        WHERE vc.roaster_id = $1 AND vc.name = 'Blossom Dark Roast' ORDER BY c.cupper_name`, [JOE_BEAN]);
+        WHERE vc.roaster_id = $1 AND vc.name = 'Blossom Dark Roast' AND c.session_id = $2 ORDER BY c.cupper_name`, [JOE_BEAN, S37]);
     expect(calls).toEqual([{ cupper_name: 'Camila', archetype_call: null }, { cupper_name: 'Dana', archetype_call: 'earthy' }]);
     const [a] = await rows(`SELECT cupper_calls, catalog_archetype, catalog_confidence, roaster_form_proposal, flag FROM v_evidence_archetype WHERE roaster_id = $1 AND coffee_name = 'Blossom Dark Roast'`, [JOE_BEAN]);
     expect(a.cupper_calls).toEqual({ Dana: 'earthy', Camila: null });
@@ -134,13 +143,18 @@ describe('v_evidence_archetype (A3)', () => {
     expect(a.basis).toMatch(/^basis: /);
   });
 
-  it('every brief 2 coffee has a basis and no newer evidence than its decision', async () => {
+  it('every brief 2 coffee has a basis', async () => {
     const r = await rows(
-      `SELECT coffee_name, flag, evidence_newer_than_decision FROM v_evidence_archetype
+      `SELECT coffee_name, flag FROM v_evidence_archetype
         WHERE roaster_id = ANY($1::uuid[]) AND coffee_id <> $2`, [THREE, FLYING_JEWEL]);
     expect(r.length).toBe(21);
     expect(r.filter(x => x.flag === 'no_basis')).toEqual([]);
-    expect(r.filter(x => x.evidence_newer_than_decision !== false)).toEqual([]);
+  });
+
+  it('evidence newer than the decision: false for a coffee cupped once (Tiger Stripe), true for one cupped again after it (Geometric)', async () => {
+    const r = await rows(
+      `SELECT coffee_id, evidence_newer_than_decision FROM v_evidence_archetype WHERE coffee_id = ANY($1::int[]) ORDER BY coffee_id`, [[TIGER_STRIPE, GEOMETRIC]]);
+    expect(r).toEqual([{ coffee_id: TIGER_STRIPE, evidence_newer_than_decision: false }, { coffee_id: GEOMETRIC, evidence_newer_than_decision: true }]);
   });
 });
 
@@ -209,13 +223,17 @@ describe('v_evidence_cupper_calibration (A5)', () => {
     expect(cols).not.toContain('mean_signed_gap_to_roaster_rank');
   });
 
-  it('no control sample and no repeat yet for the A&B cuppers', async () => {
-    const r = await rows(`SELECT n_control, repeatability FROM v_evidence_cupper_calibration WHERE cupper_name IN ('Dana', 'Camila')`);
+  it('no control sample yet for the A&B cuppers', async () => {
+    const r = await rows(`SELECT n_control FROM v_evidence_cupper_calibration WHERE cupper_name IN ('Dana', 'Camila')`);
     expect(r.length).toBeGreaterThan(0);
-    for (const x of r) {
-      expect(Number(x.n_control)).toBe(0);
-      expect(x.repeatability).toBeNull();
-    }
+    for (const x of r) expect(Number(x.n_control)).toBe(0);
+  });
+
+  it('repeat cupping: Tiger Stripe has one session, Geometric two, and a repeat gives the cuppers a repeatability', async () => {
+    const r = await rows(`SELECT coffee_id, n_sessions::int FROM v_evidence_coverage WHERE coffee_id = ANY($1::int[]) ORDER BY coffee_id`, [[TIGER_STRIPE, GEOMETRIC]]);
+    expect(r).toEqual([{ coffee_id: TIGER_STRIPE, n_sessions: 1 }, { coffee_id: GEOMETRIC, n_sessions: 2 }]);
+    const rep = await rows(`SELECT 1 FROM v_evidence_cupper_calibration WHERE cupper_name IN ('Dana', 'Camila') AND n_repeat > 0 AND repeatability IS NOT NULL`);
+    expect(rep.length).toBeGreaterThan(0);
   });
 });
 
