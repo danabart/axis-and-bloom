@@ -113,7 +113,8 @@ export default function AdminRoasteryPortal() {
   };
 
   return (
-    <div className="p-8 max-w-6xl">
+    // Brief 4b (display only): the workbench uses the full content width; the 6xl cap would keep it below its 1440 px three-pane layout.
+    <div className={`p-8 ${view === 'workbench' ? '' : 'max-w-6xl'}`}>
       <h1 className="text-xl mb-1">Roastery Feedback</h1>
       <p className="text-sm text-stone-500 mb-6">
         The private page each partner roastery fills in to describe its own coffees. What they submit lands here as evidence; nothing reaches the catalog from this page.

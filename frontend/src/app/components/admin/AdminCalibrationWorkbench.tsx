@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { reportError } from '../../lib/errorReporter';
 import { useArchetypes } from './useArchetypes';
-import { DimensionsTab, DescriptorsTab, ArchetypeTab } from './EvidencePanel';
+import { DimensionsTab, DescriptorsTab, ArchetypeTab, BasisText } from './EvidencePanel';
 import {
   setMatch, previewPlacement, placeCoffee, moveCoffee, certifyPlacement, getAcceptancePreview, acceptResponse,
   type ApiFetch, type CatalogWarning,
@@ -11,13 +11,18 @@ import { composeBasis, finalizeBasis, ruleRequired, bandCheck, type BasisInput, 
 
 // Cupping evidence brief 4 (2026-10-18): the Calibration workbench, under
 // Roastery Feedback (?roastery=<id>&view=workbench). One roastery at a time:
-// the queue on the left, the brief 3 evidence tabs in the centre (reused, not
-// reimplemented), three decision cards on the right. The page never computes
-// or suggests a decision: the only default is the current catalog value. Every
-// write goes through an existing endpoint (lib/catalogWrites.ts); archetype and
-// placement writes carry the basis composed from the rows on screen
-// (lib/evidenceBasis.ts) as text (notes / placement_note) and JSON (basis).
-// Cupper labels come from the rows; no cupper is named in this file.
+// the queue, the brief 3 evidence tabs (reused, not reimplemented), three
+// decision cards. The page never computes or suggests a decision: the only
+// default is the current catalog value. Every write goes through an existing
+// endpoint (lib/catalogWrites.ts); archetype and placement writes carry the
+// basis composed from the rows on screen (lib/evidenceBasis.ts) as text
+// (notes / placement_note) and JSON (basis). Cupper labels come from the rows;
+// no cupper is named in this file.
+// Brief 4b (2026-10-21): readability only. The layout follows the workbench's
+// own measured width (not the window): >= 1440 px three panes (queue 260,
+// evidence >= 560, decisions 380); 1024 to 1440 the queue becomes a strip of
+// chips above evidence | decisions (360); below 1024 one column. Body text-sm,
+// labels text-xs uppercase, numbers tabular. Same reads, same writes.
 
 type Row = Record<string, any>;
 interface QueueRow {
@@ -35,19 +40,39 @@ interface Slot {
   occupants: { coffee_id: number; role: string; priority: number }[];
 }
 
-const BTN = 'px-3 py-1.5 rounded text-xs uppercase tracking-wide border border-stone-300 text-stone-600 hover:bg-stone-50 disabled:opacity-40';
-const BTN_PRIMARY = 'px-3 py-1.5 rounded text-xs uppercase tracking-wide text-white disabled:opacity-40';
+const BTN = 'px-3 py-1.5 rounded text-xs uppercase tracking-wide border border-stone-300 text-stone-600 hover:bg-stone-50 disabled:opacity-50';
+const BTN_PRIMARY = 'px-4 py-1.5 rounded text-xs uppercase tracking-wide text-white disabled:opacity-50';
 const ACCENT = '#a33726';
-const INPUT = 'border border-stone-200 rounded px-2 py-1 text-xs w-full bg-transparent';
-const CARD = 'border border-stone-200 rounded p-3 bg-white';
+const EYEBROW = 'text-xs uppercase tracking-wide text-stone-400';
+const INPUT = 'border border-stone-300 rounded px-2 py-1.5 text-sm w-full bg-white';
+const LABEL = 'block text-xs uppercase tracking-wide text-stone-500 mb-1';
+const CARD = 'border border-stone-200 rounded p-4 bg-white text-sm text-stone-700';
+const CHIP = 'inline-block rounded px-2 py-0.5 text-xs whitespace-nowrap';
+const FLAG_COLOR = '#b7791f';
+const NO_BASIS_COLOR = '#b05642';
 
 function dot(color: string, title: string) {
-  return <span title={title} className="inline-block w-2 h-2 rounded-full mr-1 align-middle" style={{ backgroundColor: color }} />;
+  return <span title={title} aria-label={title} className="inline-block w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />;
 }
 function warningText(w: CatalogWarning): string {
   return w.kind.replace(/_/g, ' ') + (typeof w.dimension === 'string' ? ` (${w.dimension})` : '');
 }
 const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+
+/** The workbench's own width, so the layout follows the content area, not the window. */
+function useWidth<T extends HTMLElement>(): [React.RefObject<T>, number] {
+  const ref = useRef<T>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(entries => setWidth(Math.round(entries[0].contentRect.width)));
+    ro.observe(el);
+    setWidth(Math.round(el.getBoundingClientRect().width));
+    return () => ro.disconnect();
+  }, []);
+  return [ref as React.RefObject<T>, width];
+}
 
 export default function AdminCalibrationWorkbench({ roasterId, apiFetch, onBack, onOpenAcceptance }: {
   roasterId: string; apiFetch: ApiFetch; onBack: () => void; onOpenAcceptance: (portalCoffeeId: string) => void;
@@ -59,6 +84,8 @@ export default function AdminCalibrationWorkbench({ roasterId, apiFetch, onBack,
   const [slots, setSlots] = useState<Slot[]>([]);
   const [tab, setTab] = useState<'dimensions' | 'descriptors' | 'archetype'>('archetype');
   const [error, setError] = useState('');
+  const [rootRef, width] = useWidth<HTMLDivElement>();
+  const mode: 'wide' | 'mid' | 'narrow' = width >= 1440 ? 'wide' : width >= 1024 ? 'mid' : 'narrow';
 
   const loadQueue = useCallback(async () => {
     try {
@@ -96,94 +123,132 @@ export default function AdminCalibrationWorkbench({ roasterId, apiFetch, onBack,
     placedUncupped: (queue ?? []).filter(q => q.is_placed && !q.last_cupped).length,
   }), [queue]);
 
-  if (!queue) return <p className="text-sm text-stone-400">{error || 'Loading…'}</p>;
   const roasterName = bundle?.coffee?.roaster_name ?? '';
+  const explanation = 'Evidence beside the decision. Nothing here suggests an answer: each form starts from the current catalog value, and every archetype or placement write carries a basis composed from the rows on screen. The writes are the catalog\'s own.';
+
+  const counterLine = (
+    <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-stone-600">
+      <span className="inline-flex items-center gap-1.5">{dot(FLAG_COLOR, 'flagged to reconcile')}flagged <strong className="tabular-nums">{counters.flagged}</strong></span>
+      <span className="inline-flex items-center gap-1.5">{dot(NO_BASIS_COLOR, 'no basis')}no basis <strong className="tabular-nums">{counters.noBasis}</strong></span>
+      <span>placed, uncupped <strong className="tabular-nums">{counters.placedUncupped}</strong></span>
+    </div>
+  );
+  const dots = (q: QueueRow) => (
+    <>
+      {dot(q.flag_unreconciled ? FLAG_COLOR : '#d6d3d1', q.flag_unreconciled ? 'flagged to reconcile' : 'no flag')}
+      {dot(q.assignment_basis_present === true ? '#15803d' : q.assignment_basis_present === false ? NO_BASIS_COLOR : '#d6d3d1',
+        q.assignment_basis_present === true ? 'basis present' : q.assignment_basis_present === false ? 'no basis' : 'no assignment')}
+    </>
+  );
+  const subLine = (q: QueueRow) =>
+    `${q.catalog_archetype ?? 'no archetype'}${q.catalog_confidence ? ` · ${q.catalog_confidence}` : ''} · ${q.catalog_home_slot_name ?? 'not placed'} · ${q.n_sources} sources`;
+
+  // ── queue: a list (wide) or a strip of chips (mid, narrow) ──
+  const queueList = queue && (
+    <div className="space-y-3">
+      {counterLine}
+      <ul className="border border-stone-200 rounded bg-white divide-y divide-stone-100">
+        {queue.map(q => (
+          <li key={q.coffee_id}>
+            <button onClick={() => setSelected(q.coffee_id)}
+              className={`w-full text-left pl-3 pr-2 py-2 border-l-4 hover:bg-stone-50 ${selected === q.coffee_id ? 'bg-stone-50' : 'border-transparent'}`}
+              style={selected === q.coffee_id ? { borderLeftColor: ACCENT } : undefined}>
+              <div className="flex items-center gap-1.5">{dots(q)}<span className="text-sm font-medium text-stone-800">{q.coffee_name}</span></div>
+              <div className="text-xs text-stone-500 mt-0.5 ml-[26px]">
+                {subLine(q)}{q.evidence_newer_than_decision && <span style={{ color: FLAG_COLOR }}> · newer evidence</span>}
+              </div>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+  const queueStrip = queue && (
+    <div className="flex items-start gap-4">
+      <div className="shrink-0 pt-2 w-36">{counterLine}</div>
+      <div className="flex gap-2 overflow-x-auto pb-2 min-w-0">
+        {queue.map(q => (
+          <button key={q.coffee_id} onClick={() => setSelected(q.coffee_id)}
+            className="shrink-0 text-left border border-stone-200 rounded bg-white px-3 py-2 border-l-4 hover:bg-stone-50"
+            style={{ borderLeftColor: selected === q.coffee_id ? ACCENT : '#e7e5e4', width: '15rem' }}>
+            <div className="flex items-center gap-1.5">{dots(q)}<span className="text-sm font-medium text-stone-800 truncate" title={q.coffee_name}>{q.coffee_name}</span></div>
+            <div className="text-xs text-stone-500 mt-0.5 truncate" title={subLine(q)}>{subLine(q)}</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  const homeSlot = bundle ? slots.find(s => s.occupants.some(o => o.coffee_id === Number(bundle.coffee.id) && o.role === 'home')) : undefined;
+  const homePriority = bundle && homeSlot ? homeSlot.occupants.find(o => o.coffee_id === Number(bundle.coffee.id))?.priority ?? null : null;
+  const websiteRows = bundle?.websiteDescriptors ?? [];
+
+  const evidence = (
+    <div className="min-w-0">
+      {!bundle ? <p className="text-sm text-stone-400">Loading…</p> : (
+        <div className="bg-stone-50 border border-stone-200 rounded p-4 text-sm text-stone-700">
+          <div className="flex flex-wrap items-baseline gap-1 mb-4">
+            <span className="text-base text-stone-800 mr-3">{bundle.coffee.name}</span>
+            {(['archetype', 'dimensions', 'descriptors'] as const).map(t => (
+              <button key={t} onClick={() => setTab(t)}
+                className={`px-3 py-1.5 text-xs uppercase tracking-wide border-b-2 ${tab === t ? 'border-stone-700 text-stone-800' : 'border-transparent text-stone-400 hover:text-stone-700'}`}>
+                {t === 'archetype' ? 'Archetype & slot' : t[0].toUpperCase() + t.slice(1)}
+              </button>
+            ))}
+          </div>
+          {tab === 'dimensions' && <DimensionsTab rows={bundle.dimensions} />}
+          {tab === 'descriptors' && (
+            <DescriptorsTab rows={bundle.descriptors}
+              website={websiteRows.map(w => ({ id: w.id, remark: String(w.remark), node: w.cupping_note_descriptor ?? null }))}
+              websiteSource={websiteRows.length ? `${websiteRows[0].said_by}, ${String(websiteRows[0].said_on).slice(0, 10)}` : null} />
+          )}
+          {tab === 'archetype' && (
+            <ArchetypeTab archetype={bundle.archetype} calls={bundle.calls} homePriority={homePriority}
+              roasterForm={bundle.roasterResponse ? { version: num(bundle.roasterResponse.version), respondent: bundle.roasterResponse.respondent_name ?? null } : null}
+              website={websiteRows.map(w => String(w.remark))} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  const decisions = (
+    <div className="space-y-4 min-w-0">
+      {bundle && bundle.archetype && (
+        <>
+          <ArchetypeCard key={`a-${bundle.coffee.id}`} bundle={bundle} archetypes={archetypes} apiFetch={apiFetch} onWritten={refresh} />
+          <SlotCard key={`s-${bundle.coffee.id}`} bundle={bundle} slots={slots} archetypes={archetypes} apiFetch={apiFetch} onWritten={refresh} />
+          <DescriptorCard key={`d-${bundle.coffee.id}`} bundle={bundle} apiFetch={apiFetch} onWritten={refresh} onOpenAcceptance={onOpenAcceptance} />
+        </>
+      )}
+    </div>
+  );
 
   return (
-    <div className="space-y-4">
+    <div ref={rootRef} className="space-y-4" data-workbench-mode={mode}>
       <div>
-        <button className="text-xs uppercase tracking-wide text-stone-500 mb-2" onClick={onBack}>← Back to the roastery</button>
-        <h2 className="text-lg">Calibration workbench{roasterName ? `: ${roasterName}` : ''}</h2>
-        <p className="text-xs text-stone-500">
-          Evidence beside the decision. Nothing here suggests an answer: each form starts from the current catalog value, and
-          every archetype or placement write carries a basis composed from the rows on screen. The writes are the catalog's own.
-        </p>
+        <button className="text-xs uppercase tracking-wide text-stone-500 mb-1" onClick={onBack}>← Back to the roastery</button>
+        <h2 className="text-lg flex items-center gap-2">
+          Calibration workbench{roasterName ? `: ${roasterName}` : ''}
+          <span title={explanation} aria-label={explanation}
+            className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-stone-300 text-xs text-stone-500 cursor-help">i</span>
+        </h2>
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
-
-      <div className="grid gap-4" style={{ gridTemplateColumns: 'minmax(220px, 1fr) minmax(360px, 2fr) minmax(320px, 1.4fr)' }}>
-        {/* ── Left: queue ── */}
-        <div>
-          <div className="flex gap-3 text-xs text-stone-500 mb-2">
-            <span>{dot('#b7791f', 'flagged')}flagged <strong>{counters.flagged}</strong></span>
-            <span>{dot('#b05642', 'no basis')}no basis <strong>{counters.noBasis}</strong></span>
-            <span>placed, uncupped <strong>{counters.placedUncupped}</strong></span>
+      {!queue ? <p className="text-sm text-stone-400">{error || 'Loading…'}</p> : mode === 'wide' ? (
+        <div className="grid items-start" style={{ gridTemplateColumns: '260px minmax(560px, 1fr) 380px', gap: 24 }}>
+          {queueList}{evidence}{decisions}
+        </div>
+      ) : mode === 'mid' ? (
+        <div className="space-y-4">
+          {queueStrip}
+          <div className="grid items-start" style={{ gridTemplateColumns: 'minmax(560px, 1fr) 360px', gap: 24 }}>
+            {evidence}{decisions}
           </div>
-          <ul className="text-xs border border-stone-200 rounded divide-y divide-stone-100 bg-white">
-            {queue.map(q => (
-              <li key={q.coffee_id}>
-                <button onClick={() => setSelected(q.coffee_id)}
-                  className={`w-full text-left px-2 py-2 hover:bg-stone-50 ${selected === q.coffee_id ? 'bg-stone-100' : ''}`}>
-                  <div className="flex items-center">
-                    {dot(q.flag_unreconciled ? '#b7791f' : '#d6d3d1', q.flag_unreconciled ? 'flag to reconcile' : 'no flag')}
-                    {dot(q.assignment_basis_present === true ? '#15803d' : q.assignment_basis_present === false ? '#b05642' : '#d6d3d1',
-                      q.assignment_basis_present === true ? 'basis present' : q.assignment_basis_present === false ? 'no basis' : 'no assignment')}
-                    <span className="text-stone-800">{q.coffee_name}</span>
-                  </div>
-                  <div className="text-stone-400 ml-5">
-                    {q.catalog_archetype ?? 'no archetype'}{q.catalog_confidence ? ` · ${q.catalog_confidence}` : ''} · {q.catalog_home_slot_name ?? 'not placed'} · {q.n_sources} sources
-                    {q.evidence_newer_than_decision && <span style={{ color: '#b7791f' }}> · newer evidence</span>}
-                  </div>
-                </button>
-              </li>
-            ))}
-          </ul>
         </div>
-
-        {/* ── Centre: the brief 3 evidence ── */}
-        <div className="text-xs text-stone-700">
-          {!bundle ? <p className="text-stone-400">Loading…</p> : (
-            <div className="bg-stone-50 border border-stone-200 rounded p-3">
-              <div className="flex gap-1 mb-3">
-                {(['archetype', 'dimensions', 'descriptors'] as const).map(t => (
-                  <button key={t} onClick={() => setTab(t)}
-                    className={`px-3 py-1 text-xs uppercase tracking-wide border-b-2 ${tab === t ? 'border-stone-700 text-stone-800' : 'border-transparent text-stone-400'}`}>
-                    {t === 'archetype' ? 'Archetype & slot' : t[0].toUpperCase() + t.slice(1)}
-                  </button>
-                ))}
-              </div>
-              {tab === 'dimensions' && <DimensionsTab rows={bundle.dimensions} />}
-              {tab === 'descriptors' && (
-                <>
-                  <DescriptorsTab rows={bundle.descriptors} />
-                  {bundle.websiteDescriptors.length > 0 && (
-                    <div className="mt-3">
-                      <p className="text-stone-400 uppercase tracking-wide mb-1">Website, latest capture</p>
-                      <ul className="space-y-0.5">
-                        {bundle.websiteDescriptors.map(w => (
-                          <li key={w.id}>{w.remark} <span className="text-stone-400">· website · {w.said_by} · {String(w.said_on).slice(0, 10)}{w.cupping_note_descriptor ? ` → ${w.cupping_note_descriptor}` : ''}</span></li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </>
-              )}
-              {tab === 'archetype' && <ArchetypeTab archetype={bundle.archetype} calls={bundle.calls} />}
-            </div>
-          )}
-        </div>
-
-        {/* ── Right: decisions ── */}
-        <div className="space-y-3">
-          {bundle && bundle.archetype && (
-            <>
-              <ArchetypeCard key={`a-${bundle.coffee.id}`} bundle={bundle} archetypes={archetypes} apiFetch={apiFetch} onWritten={refresh} />
-              <SlotCard key={`s-${bundle.coffee.id}`} bundle={bundle} slots={slots} archetypes={archetypes} apiFetch={apiFetch} onWritten={refresh} />
-              <DescriptorCard key={`d-${bundle.coffee.id}`} bundle={bundle} apiFetch={apiFetch} onWritten={refresh} onOpenAcceptance={onOpenAcceptance} />
-            </>
-          )}
-        </div>
-      </div>
+      ) : (
+        <div className="space-y-4">{queueStrip}{evidence}{decisions}</div>
+      )}
     </div>
   );
 }
@@ -216,11 +281,27 @@ function SessionSelect({ bundle, value, onChange }: { bundle: Bundle; value: num
   );
 }
 
-function Basis({ note, needed, rule }: { note: string; needed: boolean; rule: string }) {
+function CardTitle({ title, current }: { title: string; current: React.ReactNode }) {
   return (
-    <div className="text-[11px] text-stone-500 bg-stone-50 border border-stone-200 rounded p-2 break-words">
-      <span className="text-stone-400 uppercase tracking-wide">Basis</span> {note}
-      {needed && !rule.trim() && <p className="mt-1" style={{ color: ACCENT }}>A rule is required: the decision is not what every source said.</p>}
+    <p className="mb-3 leading-snug">
+      <span className={EYEBROW}>{title}</span>
+      <span className="text-stone-300"> · </span>
+      <span className="text-sm text-stone-800">{current}</span>
+    </p>
+  );
+}
+
+/** Amber band above the rule input when the decision is not what every source said. */
+function RuleInput({ rule, setRule, needed }: { rule: string; setRule: (v: string) => void; needed: boolean }) {
+  return (
+    <div className="mt-3">
+      {needed && !rule.trim() && (
+        <p className="mb-1.5 rounded px-2 py-1 text-sm bg-amber-50 text-amber-800 border border-amber-200">
+          A rule is required: the decision is not what every source said.
+        </p>
+      )}
+      <label className={LABEL}>Rule (your words)</label>
+      <input className={INPUT} value={rule} onChange={e => setRule(e.target.value)} placeholder={needed ? 'required' : 'optional: empty means "confirmed"'} />
     </div>
   );
 }
@@ -228,9 +309,18 @@ function Basis({ note, needed, rule }: { note: string; needed: boolean; rule: st
 function Warnings({ warnings, message }: { warnings: CatalogWarning[]; message: string }) {
   if (!warnings.length && !message) return null;
   return (
-    <div className="text-xs">
-      {message && <p className="text-red-600">{message}</p>}
-      {warnings.length > 0 && <p className="text-amber-700">Warnings: {warnings.map(warningText).join(', ')}</p>}
+    <div className="mt-2 text-sm">
+      {message && <p className="text-red-700">{message}</p>}
+      {warnings.length > 0 && <p className="text-amber-800">Warnings: {warnings.map(warningText).join(', ')}</p>}
+    </div>
+  );
+}
+
+function SubmitRow({ reason, children }: { reason: string | null; children: React.ReactNode }) {
+  return (
+    <div className="mt-3 flex items-center justify-end gap-3 flex-wrap">
+      {reason && <span className="text-sm text-stone-500">{reason}</span>}
+      {children}
     </div>
   );
 }
@@ -254,6 +344,7 @@ function ArchetypeCard({ bundle, archetypes, apiFetch, onWritten }: {
   const final = finalizeBasis(composed, rule);
   const source = sessionId ? 'cupping' : 'manual';
   const label = (code: string | null) => (code ? archetypes.find(x => x.code === code)?.label ?? code : '—');
+  const reason = !archetype ? 'pick an archetype' : needed && !rule.trim() ? 'type a rule' : null;
 
   async function submit() {
     setSaving(true); setMessage(''); setWarnings([]);
@@ -266,38 +357,35 @@ function ArchetypeCard({ bundle, archetypes, apiFetch, onWritten }: {
 
   return (
     <div className={CARD}>
-      <p className="text-xs text-stone-400 uppercase tracking-wide">Archetype</p>
-      <p className="text-sm text-stone-800 mb-2">
+      <CardTitle title="Archetype" current={<>
         {label(current || null)}{a.catalog_confidence ? ` · ${a.catalog_confidence}` : ''}{a.catalog_source ? ` · ${a.catalog_source}` : ''}
         {a.assigned_from_session_id ? ` · s${a.assigned_from_session_id}` : ''}
-      </p>
-      {bundle.calls.length === 0 && <p className="text-xs mb-2" style={{ color: ACCENT }}>No Axis &amp; Bloom cupping; assignment is a guess until cupped.</p>}
-      {a.evidence_newer_than_decision && <p className="text-xs text-amber-700 mb-2">Newer evidence since this decision (s{a.latest_session_id}).</p>}
-      <div className="grid grid-cols-2 gap-2 text-xs">
-        <label>Archetype
+      </>} />
+      {bundle.calls.length === 0 && <p className="mb-2" style={{ color: ACCENT }}>No Axis &amp; Bloom cupping; assignment is a guess until cupped.</p>}
+      {a.evidence_newer_than_decision && <p className="mb-2 text-amber-800">Newer evidence since this decision (s{a.latest_session_id}).</p>}
+      <div className="grid grid-cols-2" style={{ gap: 12 }}>
+        <label className="min-w-0"><span className={LABEL}>Archetype</span>
           <select className={INPUT} value={archetype} onChange={e => setArchetype(e.target.value)}>
             <option value="">— select —</option>
             {archetypes.map(x => <option key={x.code} value={x.code}>{x.label}</option>)}
           </select>
         </label>
-        <label>Confidence
+        <label className="min-w-0"><span className={LABEL}>Confidence</span>
           <select className={INPUT} value={confidence} onChange={e => setConfidence(e.target.value)}>
             <option value="low">low</option><option value="medium">medium</option><option value="high">high</option>
           </select>
         </label>
-        <label>Session<SessionSelect bundle={bundle} value={sessionId} onChange={setSessionId} /></label>
-        <div>Source<p className="py-1 text-stone-600">{source}</p></div>
+        <label className="min-w-0"><span className={LABEL}>Session</span><SessionSelect bundle={bundle} value={sessionId} onChange={setSessionId} /></label>
+        <div className="min-w-0"><span className={LABEL}>Source</span><p className="py-1.5 text-stone-700">{source}</p></div>
       </div>
-      <label className="block text-xs mt-2">Rule (your words)
-        <input className={INPUT} value={rule} onChange={e => setRule(e.target.value)} placeholder={needed ? 'required' : 'optional: empty means "confirmed"'} />
-      </label>
-      <div className="mt-2"><Basis note={final.note} needed={needed} rule={rule} /></div>
-      <div className="mt-2 flex items-center gap-2">
-        <button className={BTN_PRIMARY} style={{ backgroundColor: ACCENT }} disabled={saving || !archetype || (needed && !rule.trim())} onClick={submit}>
+      <RuleInput rule={rule} setRule={setRule} needed={needed} />
+      <div className="mt-3"><p className={`${EYEBROW} mb-1`}>Basis</p><BasisText text={final.note} /></div>
+      <SubmitRow reason={reason}>
+        <button className={BTN_PRIMARY} style={{ backgroundColor: ACCENT }} disabled={saving || !!reason} onClick={submit}>
           {saving ? '…' : archetype === current ? 'Confirm' : 'Change'}
         </button>
-      </div>
-      <div className="mt-2"><Warnings warnings={warnings} message={message} /></div>
+      </SubmitRow>
+      <Warnings warnings={warnings} message={message} />
     </div>
   );
 }
@@ -340,6 +428,7 @@ function SlotCard({ bundle, slots, archetypes, apiFetch, onWritten }: {
   const check = placement ? bandCheck(placement.mergedMin, placement.mergedMax, placement.bandLo, placement.bandHi) : null;
   const needed = ruleRequired(input, archetype, check);
   const final = finalizeBasis(composed, rule);
+  const reason = !slotId ? 'pick a slot' : home?.id === slotId ? 'already its home' : needed && !rule.trim() ? 'type a rule' : null;
 
   async function run(fn: () => Promise<{ warnings?: CatalogWarning[] } | unknown>) {
     setSaving(true); setMessage(''); setWarnings([]);
@@ -359,56 +448,61 @@ function SlotCard({ bundle, slots, archetypes, apiFetch, onWritten }: {
     priority: priority ? Number(priority) : undefined, placementNote: final.note,
     basis: final.json as unknown as Record<string, unknown>, placedFromSessionId: sessionId,
   };
+  const checkChip = (c: string) => (
+    <span className={`${CHIP} ${c === 'out_of_band' ? 'bg-red-100 text-red-800' : c === 'in_band' ? 'bg-green-100 text-green-800' : 'bg-stone-100 text-stone-500'}`}>
+      {c.replace(/_/g, ' ')}
+    </span>
+  );
 
   return (
     <div className={CARD}>
-      <p className="text-xs text-stone-400 uppercase tracking-wide">Dial slot</p>
-      <p className="text-sm text-stone-800 mb-2">
-        {home ? `${home.name ?? home.position_label} (${home.archetype}/${home.sort_order})${homePriority ? ` · priority ${homePriority}` : ''}` : 'not placed'}
-      </p>
+      <CardTitle title="Dial slot" current={home ? `${home.name ?? home.position_label} (${home.archetype}/${home.sort_order})${homePriority ? ` · priority ${homePriority}` : ''}` : 'not placed'} />
       {decaf ? (
-        <p className="text-xs text-stone-500">Decaf: decaf coffees are left out of the dial's sellable slots by the category rule, so this card is closed.</p>
+        <p className="text-stone-500">Decaf: decaf coffees are left out of the dial's sellable slots by the category rule, so this card is closed.</p>
       ) : !archetype ? (
-        <p className="text-xs text-stone-500">Set the archetype first; the slots are that archetype's.</p>
+        <p className="text-stone-500">Set the archetype first; the slots are that archetype's.</p>
       ) : (
         <>
-          <div className="text-xs space-y-1">
+          <div className="space-y-1">
             {choices.map(s => {
               const p = placementFor(s)!;
               const c = bandCheck(p.mergedMin, p.mergedMax, p.bandLo, p.bandHi);
+              const slotName = `${s.sort_order} · ${s.name ?? s.position_label}`;
+              const noBand = p.bandLo === null && p.bandHi === null;
               return (
-                <label key={s.id} className="flex items-center gap-2">
+                // radio · name (never wraps: truncated with a title, and it is the column that gives way) ·
+                // band and merged on one line at their natural width, the check as a chip when there is a band
+                <label key={s.id} className="grid items-center gap-2 py-0.5 cursor-pointer" style={{ gridTemplateColumns: '1.5rem minmax(0, 12rem) auto' }}>
                   <input type="radio" name={`slot-${coffeeId}`} checked={slotId === s.id} onChange={() => { setSlotId(s.id); setPreviewed(null); }} />
-                  <span>{s.sort_order} · {s.name ?? s.position_label}</span>
-                  <span className="text-stone-400">
-                    {p.dimensionName ?? 'dimension'} band {p.bandLo ?? '—'}–{p.bandHi ?? '—'} · merged {p.mergedMin ?? '—'}–{p.mergedMax ?? '—'} ·{' '}
-                    <span className={c === 'out_of_band' ? 'text-red-700' : c === 'in_band' ? 'text-green-700' : ''}>{c.replace(/_/g, ' ')}</span>
-                    {s.occupants.length > 0 && ` · ${s.occupants.length} here`}
+                  <span className="truncate" title={slotName}>{slotName}</span>
+                  <span className="flex items-center gap-1.5 tabular-nums whitespace-nowrap justify-self-end">
+                    <span className={noBand ? 'text-stone-400' : ''}>{noBand ? 'no band' : `band ${num(p.bandLo) ?? '—'}–${num(p.bandHi) ?? '—'}`}</span>
+                    <span className="text-stone-500">· merged {p.mergedMin ?? '—'}–{p.mergedMax ?? '—'}</span>
+                    {!noBand && checkChip(c)}
                   </span>
                 </label>
               );
             })}
+            {choices.length > 0 && <p className="text-xs text-stone-500">Band and merged range on {placementFor(choices[0])?.dimensionName ?? 'the slot\'s dimension'}.</p>}
           </div>
-          <div className="grid grid-cols-2 gap-2 text-xs mt-2">
-            <label>Session<SessionSelect bundle={bundle} value={sessionId} onChange={setSessionId} /></label>
-            <label>Priority<input className={INPUT} value={priority} onChange={e => setPriority(e.target.value.replace(/\D/g, ''))} placeholder="next free" /></label>
+          <div className="grid grid-cols-2 mt-3" style={{ gap: 12 }}>
+            <label className="min-w-0"><span className={LABEL}>Session</span><SessionSelect bundle={bundle} value={sessionId} onChange={setSessionId} /></label>
+            <label className="min-w-0"><span className={LABEL}>Priority</span><input className={INPUT} value={priority} onChange={e => setPriority(e.target.value.replace(/\D/g, ''))} placeholder="next free" /></label>
           </div>
-          <label className="block text-xs mt-2">Rule (your words)
-            <input className={INPUT} value={rule} onChange={e => setRule(e.target.value)} placeholder={needed ? 'required' : 'optional: empty means "confirmed"'} />
-          </label>
-          <div className="mt-2"><Basis note={final.note} needed={needed} rule={rule} /></div>
-          {previewed && <p className="text-xs mt-1 text-stone-500">Preview: {previewed.length ? previewed.map(warningText).join(', ') : 'no warnings'}</p>}
-          <div className="mt-2 flex flex-wrap items-center gap-2">
+          <RuleInput rule={rule} setRule={setRule} needed={needed} />
+          <div className="mt-3"><p className={`${EYEBROW} mb-1`}>Placement basis</p><BasisText text={final.note} /></div>
+          {previewed && <p className="mt-2 text-stone-500">Preview: {previewed.length ? previewed.map(warningText).join(', ') : 'no warnings'}</p>}
+          <SubmitRow reason={reason}>
             <button className={BTN} disabled={!slotId} onClick={preview}>Preview</button>
-            <button className={BTN_PRIMARY} style={{ backgroundColor: ACCENT }} disabled={saving || !slotId || (needed && !rule.trim()) || (home?.id === slotId)}
+            <button className={BTN_PRIMARY} style={{ backgroundColor: ACCENT }} disabled={saving || !!reason}
               onClick={() => run(() => home
                 ? moveCoffee(apiFetch, coffeeId, { toSlotId: slotId!, ...body })
                 : placeCoffee(apiFetch, coffeeId, { slotId: slotId!, role: 'home', ...body }))}>
               {saving ? '…' : home ? 'Move' : 'Place'}
             </button>
-          </div>
+          </SubmitRow>
           {home && (
-            <div className="mt-2 flex items-center gap-2 text-xs">
+            <div className="mt-3 flex items-center gap-2">
               <input className={INPUT} value={certifiedBy} onChange={e => setCertifiedBy(e.target.value)} placeholder="certified by" />
               <button className={BTN} disabled={saving || !certifiedBy.trim()}
                 onClick={() => run(() => certifyPlacement(apiFetch, coffeeId, home.id, { by: certifiedBy.trim(), note: final.note }))}>Certify</button>
@@ -416,7 +510,7 @@ function SlotCard({ bundle, slots, archetypes, apiFetch, onWritten }: {
           )}
         </>
       )}
-      <div className="mt-2"><Warnings warnings={warnings} message={message} /></div>
+      <Warnings warnings={warnings} message={message} />
     </div>
   );
 }
@@ -457,6 +551,9 @@ function DescriptorCard({ bundle, apiFetch, onWritten, onOpenAcceptance }: {
 
   const familyOf = (category: string | undefined) => bundle.descriptors.find(d => d.family === category);
   const ours = bundle.descriptors.filter(d => d.extra);
+  const kindChip = (kind: string) => (
+    <span className={`${CHIP} ${kind === 'hit' ? 'bg-green-100 text-green-800' : kind === 'miss' ? 'bg-amber-100 text-amber-800' : 'bg-stone-200 text-stone-700'}`}>{kind}</span>
+  );
 
   async function accept() {
     if (!preview) return;
@@ -479,46 +576,45 @@ function DescriptorCard({ bundle, apiFetch, onWritten, onOpenAcceptance }: {
 
   return (
     <div className={CARD}>
-      <p className="text-xs text-stone-400 uppercase tracking-wide">Descriptors (the roaster's, accepted into the catalog)</p>
-      {!responseId ? <p className="text-xs text-stone-500 mt-1">No submitted response from the roaster for this coffee.</p> : !preview ? (
-        <p className="text-xs text-stone-400 mt-1">{message || 'Loading…'}</p>
+      <CardTitle title="Descriptors" current={preview ? `the roaster's, response v${preview.response.version}` : 'the roaster\'s, accepted into the catalog'} />
+      {!responseId ? <p className="text-stone-500">No submitted response from the roaster for this coffee.</p> : !preview ? (
+        <p className="text-stone-400">{message || 'Loading…'}</p>
       ) : (
         <>
-          <p className="text-xs text-stone-500 mb-1">Response v{preview.response.version}. Ticked and greyed are already accepted.</p>
-          <ul className="text-xs space-y-1">
+          <ul className="space-y-1.5">
             {preview.notes.map(n => {
               const term = n.roasterPick ?? n.suggestion;
               const fam = familyOf(term?.wheelCategory);
               const kind = fam ? (fam.hit ? 'hit' : fam.miss ? 'miss' : fam.extra ? 'extra' : '') : '';
               return (
-                <li key={n.rank} className="flex items-center gap-2">
+                <li key={n.rank} className="grid items-start gap-2" style={{ gridTemplateColumns: '1.25rem minmax(0, 1fr) auto' }}>
                   {n.defaultCuppingNoteId ? (
-                    <input type="checkbox" checked={!!checked[n.rank]} disabled={n.alreadyActive}
+                    <input type="checkbox" className="mt-1" checked={!!checked[n.rank]} disabled={n.alreadyActive}
+                      title={n.alreadyActive ? 'already accepted' : 'accept'}
                       onChange={e => setChecked(c => ({ ...c, [n.rank]: e.target.checked }))} />
-                  ) : <span className="w-3" />}
-                  <span className={n.alreadyActive ? 'text-stone-400' : 'text-stone-800'}>{n.roasterWords}</span>
-                  <span className="text-stone-400">
-                    {term ? `→ ${term.descriptor} (${term.wheelCategory})` : '→ no mapping'}{kind ? ` · ${kind}` : ''}
+                  ) : <span />}
+                  <span className="min-w-0 break-words">
+                    <span className={n.alreadyActive ? 'text-stone-400' : 'text-stone-800'}>{n.roasterWords}</span>{' '}
+                    {term ? <span className="text-stone-500">→ {term.descriptor} ({term.wheelCategory})</span> : (
+                      <span className="text-stone-400">unmapped · <button className="underline text-stone-600" onClick={() => onOpenAcceptance(preview.response.portalCoffeeId)}>map</button></span>
+                    )}
                   </span>
-                  {!n.defaultCuppingNoteId && (
-                    <button className="underline text-stone-600" onClick={() => onOpenAcceptance(preview.response.portalCoffeeId)}>map</button>
-                  )}
+                  <span>{kind && kindChip(kind)}</span>
                 </li>
               );
             })}
           </ul>
+          <SubmitRow reason={null}>
+            {done && <span className="text-green-700">{done}</span>}
+            <Link className="text-sm underline text-stone-500" to={`/admin/roastery-portal?roastery=${bundle.coffee.roaster_id}&accept=${preview.response.portalCoffeeId}`}>full acceptance view</Link>
+            <button className={BTN_PRIMARY} style={{ backgroundColor: ACCENT }} disabled={saving} onClick={accept}>{saving ? '…' : 'Accept'}</button>
+          </SubmitRow>
           {ours.length > 0 && (
-            <p className="text-xs text-stone-400 mt-2">Ours only (evidence, never accepted from here): {ours.map(d => d.family).join(', ')}</p>
+            <p className="mt-3 text-xs text-stone-500">Ours only (evidence, never accepted from here): {ours.map(d => d.family).join(', ')}</p>
           )}
-          <div className="mt-2 flex items-center gap-2">
-            <button className={BTN_PRIMARY} style={{ backgroundColor: ACCENT }} disabled={saving}
-              onClick={accept}>{saving ? '…' : 'Accept'}</button>
-            <Link className="text-xs underline text-stone-500" to={`/admin/roastery-portal?roastery=${bundle.coffee.roaster_id}&accept=${preview.response.portalCoffeeId}`}>full acceptance view</Link>
-            {done && <span className="text-xs text-green-700">{done}</span>}
-          </div>
         </>
       )}
-      {message && preview && <p className="text-xs text-red-600 mt-1">{message}</p>}
+      {message && preview && <p className="mt-2 text-red-700">{message}</p>}
     </div>
   );
 }
