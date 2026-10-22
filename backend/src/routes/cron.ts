@@ -6,6 +6,7 @@ import { refreshLifecycleState } from '../services/userLifecycle.js';
 import { purgeStaleAnonymousGuests } from '../services/staleGuestCleanup.js';
 import { getAliases } from '../services/sommelierRag.js';
 import { getCoffee } from '../services/catalogReads.js';
+import { getCustomerDescriptors } from '../services/cuppingReads.js';
 import { generateBrewNoteSentence } from '../services/storyLayer.js';
 import { getBagNumberForCoffee, getArrivalNoteConfig, getMostRecentCard, type BrewCardParams } from '../services/brewCard.js';
 import { buildDialInSmsBody, respondToDialInBeat } from '../services/beatEngine.js';
@@ -294,19 +295,18 @@ export async function processArrivalNotes(): Promise<{ processed: number; sent: 
         // (D1's flavor identity) instead of a raw archetype_assignments query.
         // Brief 5a: the separate raw name/roaster query is gone too — getCoffee()
         // (v_coffee) already carries name and roaster_name.
-        const [coffee, descriptorResult] = await Promise.all([
+        // Cupping evidence brief 6, C3 (2026-10-21): the words are the
+        // customer voice (roaster's, then customers'), never our cupping
+        // words; the first four, as before.
+        const [coffee, descriptorRows] = await Promise.all([
           getCoffee(row.coffee_id),
-          db.query(
-            `SELECT descriptor FROM v_collaborative_flavor_wheel WHERE coffee_id = $1
-             GROUP BY descriptor ORDER BY COUNT(*) DESC LIMIT 4`,
-            [row.coffee_id]
-          ),
+          getCustomerDescriptors(row.coffee_id),
         ]);
         // First-ever bag gets the fullest note (§3.1) — the one-sentence
         // content-pipeline hook; later bags skip it (isFirstBag false), same
         // "shorter note" rule the length itself already implements below.
         warmSentence = await generateBrewNoteSentence(
-          { displayName: alias, archetype: coffee?.match_archetype ?? null, topDescriptors: descriptorResult.rows.map((r: { descriptor: string }) => r.descriptor) },
+          { displayName: alias, archetype: coffee?.match_archetype ?? null, topDescriptors: descriptorRows.slice(0, 4).map(r => r.descriptor) },
           { rawCoffeeName: coffee?.name ?? null, roasterNames: coffee?.roaster_name ? [coffee.roaster_name] : [] }
         );
       }

@@ -13,6 +13,7 @@ import { dispatchOrderPlacedBeat, dispatchDelayedBeats } from '../services/beatE
 import { getBrewProfile } from './sommelier.js';
 import { record } from '../services/customerFacts.js';
 import { latestFeedbackEventForOrder, orderLineForOrder } from '../services/customerReads.js';
+import { getCustomerDescriptors } from '../services/cuppingReads.js';
 import { randomUUID } from 'node:crypto';
 
 const router = Router();
@@ -426,11 +427,10 @@ router.post('/:orderId/feedback', requireAuth, blockAnonymousAuth, async (req: A
         res.status(400).json({ error: "Cannot resolve this order's coffee for tastedNoteIds" });
         return;
       }
-      const wheelResult = await db.query(
-        `SELECT DISTINCT cupping_note_id FROM v_collaborative_flavor_wheel WHERE coffee_id = $1`,
-        [coffeeId]
-      );
-      const validNoteIds = new Set(wheelResult.rows.map((r: any) => r.cupping_note_id));
+      // Cupping evidence brief 6, C3 (2026-10-21): the chips now come from the
+      // customer voice (GET /api/coffees/:id/flavor-wheel), so the valid ids
+      // are the same read's nodes.
+      const validNoteIds = new Set((await getCustomerDescriptors(coffeeId)).map(r => r.node_id));
       for (const id of noteIds) {
         if (!validNoteIds.has(id)) {
           res.status(400).json({ error: `tastedNoteIds contains an id not offered for this coffee: ${id}` });

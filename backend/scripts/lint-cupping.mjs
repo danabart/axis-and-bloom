@@ -22,6 +22,10 @@
 //         loader (features/cupping_evidence/load/).
 // Rule 4 (cupping evidence brief 3, 2026-10-18): FROM / JOIN v_evidence_* (the
 //         reconciliation views) only in services/evidenceReads.ts.
+// Brief 6 (2026-10-21): evidence_parameter is written by
+//         services/evidenceParameterService.ts (rule 1) and read there and in
+//         services/evidenceReads.ts (rule 2); every other reference table
+//         stays seed-only.
 // Tests (*.test.ts) and db/migrations are exempt; schema.sql and the .sql
 // seeds are not scanned.
 
@@ -89,15 +93,20 @@ const REFERENCE_TABLES = [
   'evidence_parameter', 'evidence_stop_word', 'cupper_calibration_offset',
 ];
 // Who may write each table; null = nobody in TS (seed only).
+// Brief 6 (2026-10-21): evidence_parameter's admin door is
+// evidenceParameterService.setParameter (a new row superseding the current
+// one); evidenceReads.getParameters reads it for the admin card.
+const PARAMETER_SERVICE = 'services/evidenceParameterService.ts';
 const WRITERS = Object.fromEntries([
   ...EVIDENCE_TABLES.map(t => [t, SERVICE]),
-  ...REFERENCE_TABLES.map(t => [t, t === 'cupper' ? SERVICE : null]),
+  ...REFERENCE_TABLES.map(t => [t, t === 'cupper' ? SERVICE : t === 'evidence_parameter' ? PARAMETER_SERVICE : null]),
 ]);
 const TABLES = [...EVIDENCE_TABLES, ...REFERENCE_TABLES].sort((a, b) => b.length - a.length).join('|');
 
 const RULE1 = new RegExp(`\\b(INSERT\\s+INTO|UPDATE|DELETE\\s+FROM|TRUNCATE(?:\\s+TABLE)?)\\s+(?:ONLY\\s+)?"?(${TABLES})(?![a-z0-9_])`, 'gi');
 const RULE2 = new RegExp(`\\b(FROM|JOIN)\\s+"?(${TABLES})(?![a-z0-9_])`, 'gi');
 const RULE2_ALLOWED = new Set([SERVICE, READS]);
+const RULE2_ALLOWED_FOR = { evidence_parameter: new Set([PARAMETER_SERVICE, 'services/evidenceReads.ts']) };
 
 const RECORD_SIGNAL = /\brecordCuppingSignal\s*\(/g;
 const RECORD_SIGNAL_ALLOWED = new Set([SERVICE]);
@@ -127,6 +136,7 @@ for (const relPath of walk(SRC_ROOT, [])) {
   if (!RULE2_ALLOWED.has(relPath)) {
     RULE2.lastIndex = 0;
     while ((m = RULE2.exec(text))) {
+      if (RULE2_ALLOWED_FOR[m[2].toLowerCase()]?.has(relPath)) continue;
       violations.push({ file: relPath, line: lineNumberAt(text, m.index),
         message: `${m[1].toUpperCase()} '${m[2].toLowerCase()}' outside cuppingService.ts / cuppingReads.ts: read cupping evidence through cuppingReads (views)` });
     }

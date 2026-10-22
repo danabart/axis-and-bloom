@@ -29,6 +29,7 @@ import { runCatalogIntegrityChecks } from '../services/catalogIntegrity.js';
 import { runCustomerIntegrityChecks } from '../services/customerIntegrity.js';
 import { runDataCatalogIntegrityChecks } from '../services/dataCatalogIntegrity.js';
 import { evidenceSummaryWithIntegrity } from './evidenceAdmin.js';
+import { getDescriptorConsensus } from '../services/evidenceReads.js';
 import {
   CatalogError, type Ctx, type ArchetypeCode,
   createCoffee, updateCoffee, retireCoffee, restoreCoffee,
@@ -343,19 +344,32 @@ router.get('/sheet-formats', async (_req, res) => {
 });
 
 // ── GET /api/admin/flavor-wheel/:coffeeId ────────────────────────────────────
+// Cupping evidence brief 6, B2 (2026-10-21): the internal branch is our
+// cupping notes as a consensus per node (evidenceReads.getDescriptorConsensus:
+// "cocoa · 2 of 2 sessions · Dana, Camila"), not one row per merged row; the
+// roastery and client branches are the wheel's, unchanged. Admin only.
 router.get('/flavor-wheel/:coffeeId', async (req, res) => {
   const { coffeeId } = req.params;
   try {
-    const result = await db.query(
-      `SELECT coffee_name, wheel_category, wheel_subcategory, descriptor, source,
-              COUNT(*) AS mentions, AVG(intensity) AS avg_intensity
-       FROM v_collaborative_flavor_wheel
-       WHERE coffee_id = $1
-       GROUP BY coffee_name, wheel_category, wheel_subcategory, descriptor, source
-       ORDER BY wheel_category, mentions DESC`,
-      [coffeeId]
-    );
-    res.json(result.rows);
+    const [result, consensus] = await Promise.all([
+      db.query(
+        `SELECT coffee_name, wheel_category, wheel_subcategory, descriptor, source,
+                COUNT(*) AS mentions, AVG(intensity) AS avg_intensity
+         FROM v_collaborative_flavor_wheel
+         WHERE coffee_id = $1 AND source <> 'internal'
+         GROUP BY coffee_name, wheel_category, wheel_subcategory, descriptor, source
+         ORDER BY wheel_category, mentions DESC`,
+        [coffeeId]
+      ),
+      getDescriptorConsensus(Number(coffeeId)),
+    ]);
+    const internal = consensus.map(c => ({
+      wheel_category: c.family, wheel_subcategory: null, descriptor: c.descriptor,
+      source: 'internal', mentions: String(c.sessions_named), avg_intensity: null,
+      sessions_named: c.sessions_named, sessions_total: c.sessions_total, share: Number(c.share),
+      cuppers: c.cuppers, words: c.words, tier: c.tier,
+    }));
+    res.json([...internal, ...result.rows]);
   } catch (err) {
     console.error('[admin/flavor-wheel]', err);
     res.status(500).json({ error: 'Failed to fetch flavor wheel' });

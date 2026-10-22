@@ -17,6 +17,13 @@ interface WheelRow {
   source: 'internal' | 'roastery' | 'client';
   mentions: string;
   avg_intensity: string | null;
+  // Cupping evidence brief 6, B2 (2026-10-21): internal rows are our cupping
+  // notes as a consensus per node (one row per node, not per cupping).
+  sessions_named?: number;
+  sessions_total?: number;
+  share?: number;
+  cuppers?: string[];
+  words?: string[];
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -174,6 +181,49 @@ export default function AdminFlavorWheel() {
           {['internal', 'roastery', 'client'].map(source => {
             const sourceRows = bySource[source];
             if (!sourceRows?.length) return null;
+
+            if (source === 'internal') {
+              // Brief 6, B2: one row per node, k of n sessions, most shared first
+              const consensus = [...sourceRows].sort((a, b) =>
+                (b.share ?? 0) - (a.share ?? 0) || (b.sessions_named ?? 0) - (a.sessions_named ?? 0) || a.descriptor.localeCompare(b.descriptor));
+              return (
+                <div key={source}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: SOURCE_COLORS[source] }} />
+                    <h2 className="text-sm font-normal text-stone-700">{SOURCE_LABELS[source]}</h2>
+                    <span className="text-xs text-stone-400">({consensus.length} nodes, from the cupper rows of every session)</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead>
+                        <tr className="border-b border-stone-200 text-xs text-stone-400 uppercase tracking-wide">
+                          <th className="pb-2 pr-4">Descriptor</th>
+                          <th className="pb-2 pr-4">Sessions</th>
+                          <th className="pb-2 pr-4">Cuppers</th>
+                          <th className="pb-2 pr-4">Category</th>
+                          <th className="pb-2">Words written</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {consensus.map(row => (
+                          <tr key={row.descriptor} className="border-b border-stone-100 hover:bg-stone-50">
+                            <td className="py-2.5 pr-4 text-stone-800">{row.descriptor}</td>
+                            <td className="py-2.5 pr-4 whitespace-nowrap tabular-nums">
+                              <span className="px-2 py-0.5 rounded-full text-xs text-white" style={{ backgroundColor: SOURCE_COLORS[source] }}>
+                                {row.sessions_named} of {row.sessions_total}
+                              </span>
+                            </td>
+                            <td className="py-2.5 pr-4 text-stone-600">{(row.cuppers ?? []).join(', ')}</td>
+                            <td className="py-2.5 pr-4 text-stone-500">{row.wheel_category}</td>
+                            <td className="py-2.5 text-stone-400">{(row.words ?? []).join(', ')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            }
 
             // Group by category
             const byCategory = sourceRows.reduce<Record<string, WheelRow[]>>((acc, row) => {

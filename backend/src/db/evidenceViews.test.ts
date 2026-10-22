@@ -17,6 +17,7 @@ const FLYING_JEWEL = 2891; // placed before brief 2; its assignment predates the
 const EVIDENCE_VIEWS = [
   'v_evidence_dimension', 'v_evidence_descriptor', 'v_evidence_archetype_call', 'v_evidence_archetype',
   'v_evidence_roastery_calibration', 'v_evidence_cupper_calibration', 'v_evidence_coverage', 'v_evidence_unmapped_words',
+  'v_evidence_descriptor_consensus', // brief 6
 ];
 
 async function rows<T = Record<string, any>>(sql: string, params: unknown[] = []): Promise<T[]> {

@@ -2689,6 +2689,11 @@ DROP VIEW IF EXISTS v_evidence_archetype;
 DROP VIEW IF EXISTS v_evidence_archetype_call;
 DROP VIEW IF EXISTS v_evidence_descriptor;
 DROP VIEW IF EXISTS v_evidence_dimension;
+-- brief 6 (2026-10-21): the customer voice reads the consensus; v_palate_shared_traits
+-- (replaced late in this file) reads the customer voice, so CASCADE: both palate views
+-- are recreated below before anything reads them.
+DROP VIEW IF EXISTS v_coffee_customer_descriptor CASCADE;
+DROP VIEW IF EXISTS v_evidence_descriptor_consensus;
 
 DROP VIEW IF EXISTS v_dial_positions;
 DROP VIEW IF EXISTS v_dial_navigation;
@@ -2846,7 +2851,15 @@ SELECT v.key, v.value, v.note FROM (VALUES
   ('calibration_min_n', 20,   'Comparisons a cupper needs on a dimension before a calibration offset is considered.'),
   -- cupping evidence brief 3, B00 (2026-10-18): read by evidenceIntegrity
   ('estimated_date_review_days', 90,  'An estimated session date older than this many days, with no session note, is reported by evidenceIntegrity.'),
-  ('website_recapture_days',     180, 'A roaster x coffee website capture older than this many days is reported by evidenceIntegrity (the page may have changed).')
+  ('website_recapture_days',     180, 'A roaster x coffee website capture older than this many days is reported by evidenceIntegrity (the page may have changed).'),
+  -- cupping evidence brief 6 (2026-10-21): the pooled range and the customer
+  -- voice. Each note ends with the sane range evidenceParameterService.setParameter
+  -- enforces ("Range: …"); a key whose note has no range is shown, not edited.
+  ('session_rank_ratio',       0.667, 'Pooled range: each older session of a coffee weighs this times the next newer one (rank weight ratio^rank, latest first); two sessions come out 60 / 40, three 47 / 32 / 21. Range: 0 < value <= 1.'),
+  ('session_half_life_days',   365,   'Pooled range: a session this many days older than the coffee''s latest session counts half again (time weight 0.5^(days / half-life)). Range: 1 <= value.'),
+  ('session_gap',              2,     'Two sessions of one coffee disagree on a dimension when their midpoints differ by more than this (same unit as cupper_gap); a flag, never a gate. Range: 0 <= value.'),
+  ('customer_voice_hit_tier',  2,     'Customer voice: a roaster node and a node we named confirm each other when the more general of the two sits at this SCA tier or deeper (1 family, 2 sub-group, 3 leaf). Range: integer 1 <= value <= 3.'),
+  ('customer_voice_max_words', 8,     'Customer voice: the most descriptor words a customer surface shows for one coffee (applied by cuppingReads.getCustomerDescriptors). Range: integer 1 <= value <= 20.')
 ) AS v(key, value, note)
 WHERE NOT EXISTS (SELECT 1 FROM evidence_parameter p WHERE p.key = v.key);
 
@@ -5844,19 +5857,32 @@ JOIN v_customer_identity vci10 ON vci10.user_id = cil.to_user_id
 ORDER BY occurred_at, kind;
 
 -- ── Part A4 — Coffee facts for the reads ─────────────────────────────────
--- Cupping evidence brief 1 (2026-10-18): the LATEST session, history kept.
--- Per active coffee/dimension: the latest current merged row of the coffee
--- (by session_date, then the session's created_at, then the row id),
--- converted to 0 to 15 through cupping_to_ab(); it never unions sessions, so
--- a re-cupping can narrow a range, not only widen it. Falls back
--- (basis='unmerged') to the current cupper rows of the latest session when
--- the coffee has no current merged row at all; no rows when a coffee has
--- never been cupped (never a default range). Column names before session_id
--- are unchanged (roasteryPortalReads, customerIntegrity read them).
--- n_scores = score rows the range rests on (the cupper rows behind the
--- merge, 1 for a legacy merged row without cupper rows). all_ab_scale =
--- every one of those cupper rows is scale ab_0_15 (a legacy merge with no
--- cupper rows is false): the dial signal fires only on true.
+-- Cupping evidence brief 6 (2026-10-21): the POOLED range, history kept.
+-- Replaces brief 1's "latest session only" (DESIGN v4). Per active
+-- coffee/dimension, every current merged row (every session) contributes its
+-- range converted to 0 to 15 through cupping_to_ab(), weighted by
+--   rank weight  param('session_rank_ratio') ^ rank   (sessions latest first:
+--                rank 0, 1, 2, …; two sessions → 60 / 40 at 0.667)
+--   time weight  0.5 ^ (days before the latest pooled session /
+--                param('session_half_life_days'))
+-- multiplied and normalised over the coffee's sessions; value_min / value_max
+-- / midpoint are the weighted averages (two decimals). A session's weight is
+-- shared between its rows when the coffee was cupped twice in it (a control).
+-- Only rows with a value enter the pool; a dimension written as words only
+-- keeps its row with a null value, as before. session_id / session_date stay
+-- the coffee's LATEST merged session (what evidence_newer_than_decision and
+-- placed_from_session_id compare against); n_sessions stays the coffee's
+-- count of merged sessions. New: n_sessions_pooled, weight_latest_share,
+-- session_weights (JSON, latest first), sessions_disagree (two pooled
+-- sessions' midpoints differ by more than param('session_gap'); a flag, never
+-- a gate), rank_ratio, half_life_days. n_scores = cupper rows behind every
+-- pooled session (1 for a legacy merged row without cupper rows);
+-- all_ab_scale = every one of those rows is ab_0_15 (the dial signal fires
+-- only on true). Falls back (basis='unmerged') to the current cupper rows of
+-- the latest session when the coffee has no current merged row at all,
+-- unchanged; no rows when a coffee has never been cupped. Column names and
+-- order before n_sessions_pooled are unchanged (roasteryPortalReads,
+-- customerIntegrity and the palate views read them).
 
 DROP VIEW IF EXISTS v_coffee_dimension_range CASCADE;
 CREATE VIEW v_coffee_dimension_range AS
@@ -5874,26 +5900,91 @@ latest_merged AS (
   ORDER BY coffee_id, session_date DESC, session_created_at DESC, score_id DESC
 ),
 behind_merged AS (
-  SELECT lm.coffee_id,
-         COUNT(cu.score_id)                        AS n_cupper_rows,
-         COALESCE(bool_and(cu.scale_code = 'ab_0_15'), false) AS all_ab_scale
-  FROM latest_merged lm
-  LEFT JOIN cur cu ON cu.session_coffee_id = lm.session_coffee_id AND NOT cu.is_merged
-  GROUP BY lm.coffee_id
+  -- per merged row (session coffee): the cupper rows behind it and their scales
+  SELECT m.session_coffee_id,
+         COUNT(cu.score_id)                                    AS n_cupper_rows,
+         COALESCE(bool_and(cu.scale_code = 'ab_0_15'), false)  AS all_ab_scale
+  FROM cur m
+  LEFT JOIN cur cu ON cu.session_coffee_id = m.session_coffee_id AND NOT cu.is_merged
+  WHERE m.is_merged
+  GROUP BY m.session_coffee_id
 ),
 merged_sessions AS (
   SELECT coffee_id, COUNT(DISTINCT session_id) AS n_sessions FROM cur WHERE is_merged GROUP BY coffee_id
 ),
-merged AS (
-  SELECT lm.coffee_id, csv.dimension_id, ab.ab_min AS value_min, ab.ab_max AS value_max,
-         GREATEST(bm.n_cupper_rows, 1) AS n_scores, lm.session_id, lm.session_date,
-         ms.n_sessions, bm.all_ab_scale
-  FROM latest_merged lm
-  JOIN cupping_scores cs        ON cs.id = lm.score_id
-  JOIN cupping_score_values csv ON csv.cupping_score_id = lm.score_id
-  JOIN behind_merged bm         ON bm.coffee_id = lm.coffee_id
-  JOIN merged_sessions ms       ON ms.coffee_id = lm.coffee_id
+merged_rows AS (
+  -- every current merged row's converted value, one per session coffee x dimension
+  SELECT m.coffee_id, csv.dimension_id, m.session_id, m.session_date, m.session_coffee_id,
+         ab.ab_min, ab.ab_max, bm.n_cupper_rows, bm.all_ab_scale
+  FROM cur m
+  JOIN cupping_scores cs        ON cs.id = m.score_id
+  JOIN cupping_score_values csv ON csv.cupping_score_id = m.score_id
+  JOIN behind_merged bm         ON bm.session_coffee_id = m.session_coffee_id
   CROSS JOIN LATERAL cupping_to_ab(cs.scale_code, csv.value_min, csv.value_max, csv.raw_value) ab
+  WHERE m.is_merged
+),
+pool_rows AS (
+  -- the rows that carry a value, ranked by session within the coffee x dimension
+  SELECT r.*,
+         dense_rank() OVER (PARTITION BY r.coffee_id, r.dimension_id ORDER BY r.session_date DESC, r.session_id DESC) - 1 AS session_rank,
+         max(r.session_date) OVER (PARTITION BY r.coffee_id, r.dimension_id) AS latest_date,
+         count(*) OVER (PARTITION BY r.coffee_id, r.dimension_id, r.session_id) AS rows_in_session
+  FROM merged_rows r
+  WHERE r.ab_min IS NOT NULL AND r.ab_max IS NOT NULL
+),
+pool_sessions AS (
+  -- one row per pooled session: its weight (rank x time, shared by its rows) and its weighted sums
+  SELECT p.coffee_id, p.dimension_id, p.session_id, p.session_date, p.session_rank,
+         sum(p.w)              AS w,
+         sum(p.w * p.ab_min)   AS w_min,
+         sum(p.w * p.ab_max)   AS w_max,
+         avg((p.ab_min + p.ab_max) / 2.0) AS session_midpoint
+  FROM (
+    SELECT pr.*,
+           power(param('session_rank_ratio'), pr.session_rank)
+             * power(0.5, (pr.latest_date - pr.session_date) / param('session_half_life_days'))
+             / pr.rows_in_session AS w
+    FROM pool_rows pr
+  ) p
+  GROUP BY p.coffee_id, p.dimension_id, p.session_id, p.session_date, p.session_rank
+),
+pooled AS (
+  SELECT ps.coffee_id, ps.dimension_id,
+         sum(ps.w_min) / sum(ps.w) AS value_min,
+         sum(ps.w_max) / sum(ps.w) AS value_max,
+         count(*)::int AS n_sessions_pooled,
+         sum(ps.w) FILTER (WHERE ps.session_rank = 0) / sum(ps.w) AS weight_latest_share,
+         (max(ps.session_midpoint) - min(ps.session_midpoint)) > param('session_gap') AS sessions_disagree,
+         jsonb_agg(jsonb_build_object('session_id', ps.session_id, 'session_date', ps.session_date,
+                                      'weight', ROUND(ps.w / t.total_w, 4)) ORDER BY ps.session_rank) AS session_weights
+  FROM pool_sessions ps
+  JOIN (SELECT coffee_id, dimension_id, sum(w) AS total_w FROM pool_sessions GROUP BY coffee_id, dimension_id) t
+    ON t.coffee_id = ps.coffee_id AND t.dimension_id = ps.dimension_id
+  GROUP BY ps.coffee_id, ps.dimension_id
+),
+contributing AS (
+  -- the session coffees behind a dimension: the pooled ones, or every merged row when no session has a value
+  SELECT r.coffee_id, r.dimension_id,
+         GREATEST(sum(r.n_cupper_rows), 1) AS n_scores,
+         bool_and(r.all_ab_scale)          AS all_ab_scale
+  FROM merged_rows r
+  WHERE (r.ab_min IS NOT NULL AND r.ab_max IS NOT NULL)
+     OR NOT EXISTS (SELECT 1 FROM pool_rows p WHERE p.coffee_id = r.coffee_id AND p.dimension_id = r.dimension_id)
+  GROUP BY r.coffee_id, r.dimension_id
+),
+merged AS (
+  SELECT c.coffee_id, c.dimension_id,
+         -- two decimals, trailing zeros trimmed: a whole value reads 10, as before the pool
+         trim_scale(ROUND(po.value_min, 2)) AS value_min, trim_scale(ROUND(po.value_max, 2)) AS value_max,
+         ROUND((po.value_min + po.value_max) / 2.0, 2) AS midpoint,
+         c.n_scores, lm.session_id, lm.session_date, ms.n_sessions, c.all_ab_scale,
+         COALESCE(po.n_sessions_pooled, 0) AS n_sessions_pooled,
+         ROUND(po.weight_latest_share, 4) AS weight_latest_share,
+         po.session_weights, po.sessions_disagree
+  FROM contributing c
+  JOIN latest_merged lm     ON lm.coffee_id = c.coffee_id
+  JOIN merged_sessions ms   ON ms.coffee_id = c.coffee_id
+  LEFT JOIN pooled po       ON po.coffee_id = c.coffee_id AND po.dimension_id = c.dimension_id
 ),
 latest_unmerged_session AS (
   SELECT DISTINCT ON (coffee_id) coffee_id, session_id, session_date
@@ -5920,8 +6011,15 @@ SELECT
   COALESCE(m.session_id, u.session_id) AS session_id,
   COALESCE(m.session_date, u.session_date) AS session_date,
   COALESCE(m.n_sessions, 0) AS n_sessions,
-  ROUND((COALESCE(m.value_min, u.value_min) + COALESCE(m.value_max, u.value_max)) / 2.0, 2) AS midpoint,
-  COALESCE(m.all_ab_scale, u.all_ab_scale, false) AS all_ab_scale
+  CASE WHEN m.coffee_id IS NOT NULL THEN m.midpoint
+       ELSE ROUND((u.value_min + u.value_max) / 2.0, 2) END AS midpoint,
+  COALESCE(m.all_ab_scale, u.all_ab_scale, false) AS all_ab_scale,
+  m.n_sessions_pooled,
+  m.weight_latest_share,
+  m.session_weights,
+  m.sessions_disagree,
+  param('session_rank_ratio')     AS rank_ratio,
+  param('session_half_life_days') AS half_life_days
 FROM coffees c
 CROSS JOIN coffee_dimensions d
 LEFT JOIN merged   m ON m.coffee_id = c.id AND m.dimension_id = d.id
@@ -5931,7 +6029,8 @@ WHERE c.is_active = true AND (m.coffee_id IS NOT NULL OR u.coffee_id IS NOT NULL
 -- Every session's current merged range, one row per coffee × dimension ×
 -- session coffee (a coffee cupped twice in one session has two rows),
 -- converted. Calibration and repeatability (brief 3) read this; the catalog
--- reads v_coffee_dimension_range (latest only).
+-- reads the pooled range (v_coffee_dimension_range, brief 6), and this is
+-- where one sees which session pulled it.
 DROP VIEW IF EXISTS v_coffee_dimension_history CASCADE;
 CREATE VIEW v_coffee_dimension_history AS
 SELECT sc.coffee_id, csv.dimension_id, d.name AS dimension_name,
@@ -5960,10 +6059,22 @@ WHERE cs.is_merged AND cs.superseded_at IS NULL;
 -- Documented and unread on purpose (Readers: none yet) until Dana decides
 -- offsets are worth applying (DESIGN §7.5). With no offset rows it equals the
 -- range's own min/max over the cupper rows.
+-- Brief 6 (2026-10-21): LATEST-SESSION BY DESIGN, pooled-unaware, until Dana
+-- decides on offsets. It takes the latest session from the range's
+-- session_id column and that session's own merged range from
+-- v_coffee_dimension_history, so its output did not change when the range
+-- became the pool.
 DROP VIEW IF EXISTS v_coffee_dimension_range_calibrated CASCADE;
 CREATE VIEW v_coffee_dimension_range_calibrated AS
 WITH latest AS (
   SELECT DISTINCT r.coffee_id, r.session_id FROM v_coffee_dimension_range r WHERE r.basis = 'merged'
+),
+latest_range AS (
+  -- the latest session's own merged range (two rows when the coffee was cupped twice in it)
+  SELECT h.coffee_id, h.dimension_id, h.session_id, MIN(h.value_min) AS value_min, MAX(h.value_max) AS value_max
+  FROM v_coffee_dimension_history h
+  JOIN latest l ON l.coffee_id = h.coffee_id AND l.session_id = h.session_id
+  GROUP BY h.coffee_id, h.dimension_id, h.session_id
 ),
 cupper_vals AS (
   SELECT l.coffee_id, csv.dimension_id, cu.cupper_id,
@@ -5978,15 +6089,17 @@ cupper_vals AS (
   LEFT JOIN cupper_calibration_offset o
          ON o.cupper_id = cu.cupper_id AND o.dimension_id = csv.dimension_id AND o.superseded_at IS NULL
 )
-SELECT r.coffee_id, r.dimension_id, r.dimension_name, r.session_id, r.value_min, r.value_max, r.midpoint,
+SELECT r.coffee_id, r.dimension_id, r.dimension_name, r.session_id,
+       lr.value_min, lr.value_max, ROUND((lr.value_min + lr.value_max) / 2.0, 2) AS midpoint,
        MIN(cv.cal_min) AS calibrated_min,
        MAX(cv.cal_max) AS calibrated_max,
        ROUND((MIN(cv.cal_min) + MAX(cv.cal_max)) / 2.0, 2) AS calibrated_midpoint,
        COUNT(*) FILTER (WHERE cv.has_offset) AS n_offsets_applied
 FROM v_coffee_dimension_range r
+LEFT JOIN latest_range lr ON lr.coffee_id = r.coffee_id AND lr.dimension_id = r.dimension_id AND lr.session_id = r.session_id
 LEFT JOIN cupper_vals cv ON cv.coffee_id = r.coffee_id AND cv.dimension_id = r.dimension_id
 WHERE r.basis = 'merged'
-GROUP BY r.coffee_id, r.dimension_id, r.dimension_name, r.session_id, r.value_min, r.value_max, r.midpoint;
+GROUP BY r.coffee_id, r.dimension_id, r.dimension_name, r.session_id, lr.value_min, lr.value_max;
 
 -- Archetype vector vs actual cupping — one row per archetype × dimension:
 -- the target range (archetype_vector, the May 2026 targets) beside the
@@ -6260,6 +6373,13 @@ LEFT JOIN (
 -- descriptor here. A customer whose only bag is disliked gets zero rows.
 -- These are v1 rules (read_version stays 'v1' everywhere) — order_kind
 -- filtering is the first named v2 item, not done here.
+-- !! Cupping evidence brief 6 (2026-10-21): this is NOT the live definition.
+-- v_palate_shared_traits is redefined (CREATE OR REPLACE, same columns) after
+-- v_coffee_customer_descriptor further down this file, so its descriptor
+-- traits come from the customer voice (the roaster's words, never our cupping
+-- words; it feeds Liam's profile line). This early definition only exists
+-- because v_palate_slot_candidates below depends on the view and the customer
+-- voice is created later in the file. Do not edit it: change the late one.
 DROP VIEW IF EXISTS v_palate_shared_traits CASCADE;
 CREATE VIEW v_palate_shared_traits AS
 WITH attributed_coffees AS (
@@ -7022,9 +7142,23 @@ CREATE TRIGGER roastery_remark_guard
   BEFORE INSERT ON roastery_remark
   FOR EACH ROW EXECUTE FUNCTION roastery_remark_guard();
 
+-- Cupping evidence brief 6, C0 (2026-10-21): a descriptor remark resolves to
+-- its SCA node at read time: the node stored on the row, else the current
+-- roaster mapping of its normalised words (the same normalisation as
+-- roasteryPortalReads.normalizeWords and v_evidence_descriptor's portal
+-- notes). Mapping a word in the admin portal therefore resolves every remark
+-- that says it, the ones loaded before the mapping existed too; superseding
+-- the mapping takes the node away again. cupping_note_id is the resolved node
+-- (every reader inherits it), stored_cupping_note_id the row's own value,
+-- node_source 'stored' | 'mapping' | null. The remark rows are never updated.
+-- The current mappings are read from the table here (v_note_mapping_current
+-- is defined further down this file).
 DROP VIEW IF EXISTS v_roastery_remark;
 CREATE VIEW v_roastery_remark AS
-SELECT r.*,
+SELECT r.id, r.roaster_id, r.coffee_id, r.portal_coffee_id, r.cupping_session_coffee_id,
+       r.said_by, r.said_by_respondent_id, r.said_on, r.channel, r.topic, r.remark,
+       COALESCE(r.cupping_note_id, mp.cupping_note_id) AS cupping_note_id,
+       r.proposed_archetype, r.recorded_by, r.record_source, r.supersedes_id, r.load_dts,
        ro.name          AS roaster_name,
        c.name           AS coffee_name,
        pc.name          AS portal_coffee_name,
@@ -7032,12 +7166,19 @@ SELECT r.*,
        cn.wheel_category,
        cn.wheel_subcategory,
        cn.tier,
-       NOT EXISTS (SELECT 1 FROM roastery_remark n WHERE n.supersedes_id = r.id) AS is_current
+       NOT EXISTS (SELECT 1 FROM roastery_remark n WHERE n.supersedes_id = r.id) AS is_current,
+       r.cupping_note_id AS stored_cupping_note_id,
+       CASE WHEN r.cupping_note_id IS NOT NULL THEN 'stored'
+            WHEN mp.cupping_note_id IS NOT NULL THEN 'mapping' END AS node_source
 FROM roastery_remark r
 JOIN roaster ro                  ON ro.id = r.roaster_id
 LEFT JOIN coffees c              ON c.id  = r.coffee_id
 LEFT JOIN roastery_portal_coffee pc ON pc.id = r.portal_coffee_id
-LEFT JOIN cupping_note cn        ON cn.id = r.cupping_note_id
+LEFT JOIN roastery_portal_note_mapping mp
+       ON r.cupping_note_id IS NULL AND r.topic = 'descriptor'
+      AND mp.source_kind = 'roaster' AND mp.superseded_at IS NULL
+      AND mp.normalized_words = regexp_replace(lower(btrim(r.remark)), '\s+', ' ', 'g')
+LEFT JOIN cupping_note cn        ON cn.id = COALESCE(r.cupping_note_id, mp.cupping_note_id)
 ORDER BY r.said_on, r.coffee_id, r.topic;
 
 -- The one definition of "the roaster's dominant dimension matches ours" (display only,
@@ -7649,8 +7790,10 @@ cupper_pairs AS (
   GROUP BY a.coffee_id, a.dimension_id
 ),
 merged AS (
+  -- brief 6: the pooled range (every session, recency-weighted); session_id is the latest
   SELECT r.coffee_id, r.dimension_id, r.dimension_name, r.value_min, r.value_max, r.midpoint,
-         r.session_id, r.session_date, r.n_sessions, r.all_ab_scale
+         r.session_id, r.session_date, r.n_sessions, r.all_ab_scale,
+         r.n_sessions_pooled, r.session_weights, r.sessions_disagree
   FROM v_coffee_dimension_range r
   WHERE r.basis = 'merged'
 ),
@@ -7698,7 +7841,9 @@ assembled AS (
     rv.roaster_value_1_5,
     rk.roaster_rank_in_lineup, rk.ab_rank_in_lineup, rk.lineup_n, rk.rank_gap,
     CASE WHEN rk.rank_gap IS NULL THEN NULL ELSE rk.rank_gap < param('roaster_rank_gap') END AS roaster_agrees,
-    s.is_blind, s.roaster_present, sc.is_control
+    s.is_blind, s.roaster_present, sc.is_control,
+    m.n_sessions_pooled, m.session_weights AS merged_session_weights,
+    COALESCE(m.sessions_disagree, false) AS sessions_disagree
   FROM cupper_latest cl
   JOIN v_coffee vc ON vc.id = cl.coffee_id
   JOIN coffee_dimensions d ON d.id = cl.dimension_id
@@ -7715,6 +7860,9 @@ SELECT a.*,
     WHEN a.cuppers_agree IS FALSE AND a.roaster_agrees IS FALSE THEN 'both'
     WHEN a.cuppers_agree IS FALSE THEN 'cuppers_disagree'
     WHEN a.roaster_agrees IS FALSE THEN 'roaster_disagrees'
+    -- brief 6: two pooled sessions' midpoints differ by more than param('session_gap');
+    -- the boolean column carries it too, so the tab shows one pill per true flag
+    WHEN a.sessions_disagree THEN 'sessions_disagree'
     WHEN a.cuppers_agree IS NULL AND a.roaster_agrees IS NULL THEN 'one_source'
     ELSE 'none'
   END AS flag
@@ -7789,6 +7937,150 @@ SELECT vc.id AS coffee_id, vc.name AS coffee_name, vc.roaster_id,
        pf.n_sources
 FROM per_family pf
 JOIN v_coffee vc ON vc.id = pf.coffee_id;
+
+-- ── Brief 6, B1 (2026-10-21). v_evidence_descriptor_consensus: coffee × SCA node ──
+-- Our cupping notes rolled up per node, from the current CUPPER rows (not the
+-- merged rows), at the tier the cupper used: in how many of the sessions that
+-- cupped the coffee the node was named, by whom, first and last, and the
+-- words written. Twenty cuppings of a coffee are one row per node, not twenty.
+CREATE VIEW v_evidence_descriptor_consensus AS
+WITH cupper_rows AS (
+  SELECT s.coffee_id, s.session_id, s.cupper_id, s.cupper_name, ss.session_date, s.id AS score_id
+  FROM v_cupping_score s
+  JOIN v_cupping_session ss ON ss.id = s.session_id
+  WHERE NOT s.is_merged AND s.cupper_id IS NOT NULL
+),
+sessions_total AS (
+  SELECT coffee_id, count(DISTINCT session_id) AS sessions_total FROM cupper_rows GROUP BY coffee_id
+),
+named AS (
+  SELECT cr.coffee_id, cr.session_id, cr.session_date, cr.cupper_name, d.cupping_note_id, d.custom_notes,
+         d.descriptor, d.tier, fam.family
+  FROM cupper_rows cr
+  JOIN v_cupping_score_descriptor d ON d.cupping_score_id = cr.score_id
+  LEFT JOIN v_cupping_note_family fam ON fam.cupping_note_id = d.cupping_note_id
+)
+SELECT n.coffee_id, n.cupping_note_id, n.descriptor, n.tier, n.family,
+       count(DISTINCT n.session_id)::int AS sessions_named,
+       st.sessions_total::int AS sessions_total,
+       ROUND(count(DISTINCT n.session_id)::numeric / st.sessions_total, 4) AS share,
+       array_agg(DISTINCT n.cupper_name ORDER BY n.cupper_name) AS cuppers,
+       min(n.session_date) AS first_named,
+       max(n.session_date) AS last_named,
+       COALESCE(array_agg(DISTINCT n.custom_notes ORDER BY n.custom_notes) FILTER (WHERE n.custom_notes IS NOT NULL), ARRAY[]::text[]) AS words
+FROM named n
+JOIN sessions_total st ON st.coffee_id = n.coffee_id
+GROUP BY n.coffee_id, n.cupping_note_id, n.descriptor, n.tier, n.family, st.sessions_total;
+
+-- ── Brief 6, C1 (2026-10-21). v_coffee_customer_descriptor: what a customer may hear ──
+-- One row per coffee × flavor-wheel node: the roaster's words, as wheel nodes
+-- only (descriptor is always cupping_note.descriptor; a roaster note with no
+-- node is not here), then the customers'. Our cupping never adds a row; it
+-- adds confidence: a roaster row is confirmed_by_cupping when a node of our
+-- consensus is the same node, an ancestor or a descendant of it (parent_id
+-- walked both ways) and the more general of the two sits at
+-- param('customer_voice_hit_tier') or deeper. rank 1 roaster_accepted (the
+-- active roastery_coffee_descriptors, the wheel's roastery branch), rank 2
+-- roaster_website (the latest capture per roaster × coffee, node resolved per
+-- C0), rank 3 customer (the wheel's client branch); one row per node, the
+-- lowest rank wins. No cap here: cuppingReads.getCustomerDescriptors applies
+-- param('customer_voice_max_words'). The depth guard of the tree walk is a
+-- recursion guard, not a threshold (the tree is three tiers).
+CREATE VIEW v_coffee_customer_descriptor AS
+WITH RECURSIVE ancestry AS (
+  -- every node with itself and each of its ancestors
+  SELECT n.id AS node_id, n.id AS ancestor_id, 0 AS depth FROM cupping_note n
+  UNION ALL
+  SELECT a.node_id, p.parent_id, a.depth + 1
+  FROM ancestry a
+  JOIN cupping_note p ON p.id = a.ancestor_id
+  WHERE p.parent_id IS NOT NULL AND a.depth < 5
+),
+website_latest AS (
+  SELECT roaster_id, coffee_id, max(said_on) AS said_on
+  FROM v_roastery_remark
+  WHERE channel = 'website' AND is_current AND coffee_id IS NOT NULL
+  GROUP BY roaster_id, coffee_id
+),
+voices AS (
+  SELECT w.coffee_id, w.cupping_note_id, 1 AS rank, 'roaster_accepted'::text AS voice
+  FROM v_collaborative_flavor_wheel w WHERE w.source = 'roastery'
+  UNION ALL
+  SELECT r.coffee_id, r.cupping_note_id, 2, 'roaster_website'
+  FROM v_roastery_remark r
+  JOIN website_latest wl ON wl.roaster_id = r.roaster_id AND wl.coffee_id = r.coffee_id AND wl.said_on = r.said_on
+  WHERE r.is_current AND r.topic = 'descriptor' AND r.channel = 'website' AND r.cupping_note_id IS NOT NULL
+  UNION ALL
+  SELECT w.coffee_id, w.cupping_note_id, 3, 'customer'
+  FROM v_collaborative_flavor_wheel w WHERE w.source = 'client'
+),
+best AS (
+  SELECT DISTINCT ON (v.coffee_id, v.cupping_note_id) v.coffee_id, v.cupping_note_id, v.rank, v.voice
+  FROM voices v
+  ORDER BY v.coffee_id, v.cupping_note_id, v.rank
+),
+hits AS (
+  -- the consensus row that confirms a roaster row (the most-named one when several do)
+  SELECT DISTINCT ON (b.coffee_id, b.cupping_note_id)
+         b.coffee_id, b.cupping_note_id, c.sessions_named, c.sessions_total
+  FROM best b
+  JOIN v_evidence_descriptor_consensus c ON c.coffee_id = b.coffee_id
+  JOIN ancestry a ON (a.node_id = b.cupping_note_id AND a.ancestor_id = c.cupping_note_id)
+                  OR (a.node_id = c.cupping_note_id AND a.ancestor_id = b.cupping_note_id)
+  JOIN cupping_note shared ON shared.id = a.ancestor_id
+  WHERE b.rank IN (1, 2) AND shared.tier >= param('customer_voice_hit_tier')
+  ORDER BY b.coffee_id, b.cupping_note_id, c.sessions_named DESC, c.share DESC
+)
+SELECT b.coffee_id, b.cupping_note_id AS node_id, cn.descriptor, cn.wheel_category, cn.wheel_subcategory, cn.tier,
+       b.voice, b.rank,
+       (h.coffee_id IS NOT NULL) AS confirmed_by_cupping,
+       h.sessions_named AS cupping_sessions_named,
+       h.sessions_total AS cupping_sessions_total,
+       row_number() OVER (PARTITION BY b.coffee_id ORDER BY b.rank, (h.coffee_id IS NOT NULL) DESC, cn.descriptor)::int AS display_order
+FROM best b
+JOIN cupping_note cn ON cn.id = b.cupping_note_id AND cn.is_active
+LEFT JOIN hits h ON h.coffee_id = b.coffee_id AND h.cupping_note_id = b.cupping_note_id;
+
+-- Brief 6, decision 7 (2026-10-21): v_palate_shared_traits feeds Liam's
+-- profile line (customerReads.getSharedTraits → liamProfile), so its
+-- descriptor traits are customer-facing and now come from the customer voice
+-- instead of v_coffee_descriptor (which held our cupping words). Same columns,
+-- same dimension half; CREATE OR REPLACE here, after the customer voice
+-- exists, over the definition in the palate block above (that block runs
+-- first on every boot and v_palate_slot_candidates depends on this view).
+CREATE OR REPLACE VIEW v_palate_shared_traits AS
+WITH attributed_coffees AS (
+  SELECT DISTINCT vci_i.canonical_user_id, vba.coffee_id
+  FROM v_customer_bag_attribution vba
+  JOIN v_customer_identity vci_i ON vci_i.user_id = vba.drinker_user_id
+  LEFT JOIN v_customer_feedback_current vfc
+    ON vfc.order_line_item_id = vba.order_line_item_id AND vfc.canonical_user_id = vci_i.canonical_user_id
+  WHERE vba.attribution <> 'unattributed' AND (vfc.rating IS NULL OR vfc.rating >= 3)
+),
+dim AS (
+  SELECT ac.canonical_user_id, 'dimension'::text AS kind, cdr.dimension_id::text AS trait_key, cdr.dimension_name AS trait_label,
+    MAX(cdr.value_min) AS value_min, MIN(cdr.value_max) AS value_max, COUNT(*) AS n_coffees
+  FROM attributed_coffees ac
+  JOIN v_coffee_dimension_range cdr ON cdr.coffee_id = ac.coffee_id
+  GROUP BY ac.canonical_user_id, cdr.dimension_id, cdr.dimension_name
+),
+total_coffees AS (
+  SELECT canonical_user_id, COUNT(*) AS n_total FROM attributed_coffees GROUP BY canonical_user_id
+),
+desc_agg AS (
+  SELECT ac.canonical_user_id, 'descriptor'::text AS kind, ccd.descriptor AS trait_key, ccd.descriptor AS trait_label,
+    NULL::numeric AS value_min, NULL::numeric AS value_max, COUNT(DISTINCT ac.coffee_id) AS n_coffees
+  FROM attributed_coffees ac
+  JOIN v_coffee_customer_descriptor ccd ON ccd.coffee_id = ac.coffee_id
+  GROUP BY ac.canonical_user_id, ccd.descriptor
+)
+SELECT canonical_user_id, kind, trait_key, trait_label, value_min, value_max,
+       (value_min IS NOT NULL AND value_max IS NOT NULL AND value_min <= value_max) AS overlaps, n_coffees
+FROM dim
+UNION ALL
+SELECT d.canonical_user_id, d.kind, d.trait_key, d.trait_label, d.value_min, d.value_max, NULL::boolean AS overlaps, d.n_coffees
+FROM desc_agg d
+JOIN total_coffees t ON t.canonical_user_id = d.canonical_user_id AND d.n_coffees = t.n_total;
 
 -- ── A3. v_evidence_archetype_call (coffee × cupper) and v_evidence_archetype (coffee) ──
 CREATE VIEW v_evidence_archetype_call AS
@@ -8195,7 +8487,8 @@ GROUP BY c.word, c.source;
 
 GRANT SELECT ON v_cupping_note_family, v_cupping_sheet_line, v_note_mapping_current, v_dial_position_signal_current,
   v_evidence_dimension, v_evidence_descriptor, v_evidence_archetype_call, v_evidence_archetype,
-  v_evidence_roastery_calibration, v_evidence_cupper_calibration, v_evidence_coverage, v_evidence_unmapped_words
+  v_evidence_roastery_calibration, v_evidence_cupper_calibration, v_evidence_coverage, v_evidence_unmapped_words,
+  v_evidence_descriptor_consensus, v_coffee_customer_descriptor
   TO reporting_ro;
 
 -- A2. Prefix-driven grants, re-run every boot. A table's name decides its

@@ -156,11 +156,14 @@ async function loadFixtures(client: Tx): Promise<void> {
         [cuppingScoreId, dimensionIdByName[dimName], min, max]
       );
     }
+    // Cupping evidence brief 6 (2026-10-21): a coffee's customer-facing words
+    // are the roaster's (v_coffee_customer_descriptor), never our cupping's, so
+    // the fixture's descriptors are the roaster's accepted notes.
     for (const descriptor of c.descriptors) {
       const noteId = await noteIdFor(descriptor);
       await client.query(
-        `INSERT INTO cupping_score_descriptors (cupping_score_id, cupping_note_id) VALUES ($1, $2)`,
-        [cuppingScoreId, noteId]
+        `INSERT INTO roastery_coffee_descriptors (coffee_id, cupping_note_id) VALUES ($1, $2)`,
+        [coffeeId, noteId]
       );
     }
   }

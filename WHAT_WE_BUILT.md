@@ -5725,6 +5725,30 @@ Brief: `backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENC
 - Six lints and the build are clean.
 - Full suite: 799 passed, only the six OT-19 `quizScoring` failures.
 
+### 230. Cupping evidence, brief 6: pooled ranges, cupping-note consensus, the customer hears the roaster (2026-10-21)
+
+Brief: `backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENCE_6_POOLED_RANGE_CUSTOMER_VOICE.md`. Closing report: `CLOSING_REPORT_6.md`, with Dana's rulings and the prod verification. Replaces one design rule (DESIGN v4): the catalog reads every session, weighted by recency, not the latest session alone.
+
+**Pooled range.** `v_coffee_dimension_range` pools every session's merged range.
+- Rank weight `session_rank_ratio` ^ rank, latest first: two sessions come out 60 / 40.
+- Time weight with a 365-day half-life.
+- Same name and columns, `session_id` still the latest session; new `session_weights` and `sessions_disagree` (a flag, never a gate).
+- Every reader inherits it. Only the four twice-cupped coffees moved (Fabricator, Geometric, Benchmark, Union), and no suggested dial slot changed.
+- The dial signal's notes say what was pooled. No signal was re-recorded.
+
+**Consensus.** `v_evidence_descriptor_consensus` gives our cupping notes per node ("cocoa · 2 of 2 sessions · Dana, Camila"). The admin Flavor Wheel's internal branch and the Descriptors tab read it.
+
+**Customer voice.** `v_coffee_customer_descriptor` holds the roaster's words as flavor-wheel nodes (accepted, then the latest website capture, resolved through the mapping table at read time), then customers'. Our cupping adds no word; it marks a roaster word `confirmed_by_cupping` when we named the same node, an ancestor or a descendant at tier 2 or deeper.
+- Every customer surface reads it through `cuppingReads.getCustomerDescriptors` (capped at `customer_voice_max_words`): the content prompts and story (`routes/coffees.ts`), the public flavor wheel and feedback chips, the chip validation (`routes/orders.ts`), the arrival email (`routes/cron.ts`), `beatEngine`, Liam's catalog context (`sommelierRag`) and Liam's profile line (`v_palate_shared_traits`).
+- **Dana's ruling 7:** our cuppers' prose (`overall_notes`) left the summary and surprise-note prompts, and the public `GET /api/coffees/:id/dimensions` no longer returns it.
+
+**Admin.**
+- Dimensions tab: per-cupper cells tagged with their session; `Pooled · n sessions` with each session's weight on click; a `sessions disagree` pill.
+- Five new `evidence_parameter` rows, editable from **Sommelier AI → Configuration** through `evidenceParameterService.setParameter` (new row supersedes; the sane range is read from each note). System Health stays read-only by policy.
+- `lint:cupping` allows that one writer.
+
+**Verified:** test then prod; the closing report has the numbers. Full suite: only the six OT-19 failures. Six lints and both builds are clean, catalog integrity passes, and `evidenceIntegrity` shows the two known failures only.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

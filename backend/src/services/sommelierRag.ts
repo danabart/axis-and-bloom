@@ -1,6 +1,7 @@
 import { db } from '../db/client.js';
 import type { Tx } from '../db/client.js';
 import { getSommelierConfig } from './sommelierConfig.js';
+import { getCustomerDescriptors } from './cuppingReads.js';
 import {
   archetypeCode, archetypeLabel, getCoffees, getSellableSlots, getSlotsForCoffees, getHops, getAnchorSize,
 } from './catalogReads.js';
@@ -71,24 +72,18 @@ function editorialSort(a: CoffeeRow, b: CoffeeRow): number {
   return score(b) - score(a) || a.id - b.id;
 }
 
+// Cupping evidence brief 6, C3 (2026-10-21): Liam hears what a customer may
+// hear, the customer voice (cuppingReads.getCustomerDescriptors: the
+// roaster's words as wheel nodes, then customers'), never our cupping words;
+// the first four per coffee, as before.
 async function getDescriptors(coffeeIds: number[]): Promise<Map<number, string[]>> {
   if (!coffeeIds.length) return new Map();
-  const result = await db.query(
-    `SELECT coffee_id, descriptor
-     FROM v_collaborative_flavor_wheel
-     WHERE coffee_id = ANY($1::int[])
-     GROUP BY coffee_id, descriptor
-     ORDER BY coffee_id, COUNT(*) DESC`,
-    [coffeeIds]
-  );
   const map = new Map<number, string[]>();
-  for (const row of result.rows) {
-    const existing = map.get(row.coffee_id) ?? [];
-    if (existing.length < 4) {
-      existing.push(row.descriptor);
-      map.set(row.coffee_id, existing);
-    }
-  }
+  const rows = await Promise.all(coffeeIds.map(id => getCustomerDescriptors(id)));
+  coffeeIds.forEach((id, i) => {
+    const words = rows[i].slice(0, 4).map(r => r.descriptor);
+    if (words.length) map.set(id, words);
+  });
   return map;
 }
 

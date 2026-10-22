@@ -1,11 +1,15 @@
 // Cupping evidence brief 3, B4 (2026-10-18): the read-only evidence routes,
 // mounted at /api/admin/evidence behind requireAdmin. Thin callers of
 // evidenceReads (the only reader of the v_evidence_* views) and
-// evidenceIntegrity. GET only: nothing here writes.
+// evidenceIntegrity. Brief 6, E3 (2026-10-21): one write, PUT
+// /parameters/:key, a thin caller of evidenceParameterService.setParameter
+// (a new evidence_parameter row superseding the current one). Nothing else
+// here writes.
 import { Router } from 'express';
-import { requireAdmin } from '../middleware/auth.js';
-import { getCoffeeEvidence, getRoasteryEvidence, getEvidenceSummary, getUnmappedWords, getWorkbenchQueue, getWorkbenchCoffee } from '../services/evidenceReads.js';
+import { requireAdmin, type AuthRequest } from '../middleware/auth.js';
+import { getCoffeeEvidence, getRoasteryEvidence, getEvidenceSummary, getUnmappedWords, getWorkbenchQueue, getWorkbenchCoffee, getParameters } from '../services/evidenceReads.js';
 import { runEvidenceIntegrityChecks } from '../services/evidenceIntegrity.js';
+import { setParameter, EvidenceParameterError } from '../services/evidenceParameterService.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -71,6 +75,27 @@ router.get('/unmapped-words', async (_req, res) => {
   } catch (err) {
     console.error('[admin/evidence/unmapped-words]', err);
     res.status(500).json({ error: 'Failed to read the unmapped words' });
+  }
+});
+
+// Brief 6, E2/E3: the evidence parameters card (System Health).
+router.get('/parameters', async (_req, res) => {
+  try {
+    res.json(await getParameters());
+  } catch (err) {
+    console.error('[admin/evidence/parameters]', err);
+    res.status(500).json({ error: 'Failed to read the evidence parameters' });
+  }
+});
+
+router.put('/parameters/:key', async (req: AuthRequest, res) => {
+  try {
+    const result = await setParameter(req.params.key, req.body?.value, req.body?.note ?? null, req.uid ?? null);
+    res.json(result);
+  } catch (err) {
+    if (err instanceof EvidenceParameterError) return res.status(err.status).json({ error: err.message, code: err.code });
+    console.error('[admin/evidence/parameters PUT]', err);
+    res.status(500).json({ error: 'Failed to save the evidence parameter' });
   }
 });
 

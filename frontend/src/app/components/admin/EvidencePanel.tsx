@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { reportError } from '../../lib/errorReporter';
 
@@ -15,8 +15,13 @@ import { reportError } from '../../lib/errorReporter';
 // display props (roaster form, website notes, home priority); nothing here
 // reads or writes anything new.
 
+// Brief 6 (2026-10-21): the merged column is the pooled range over every
+// session (recency-weighted); each cupper cell names the session it comes
+// from; a merged cell opens the per-session history with each session's
+// weight; sessions_disagree is a pill. The Descriptors tab shows our cupping
+// notes as a consensus per node (k of n sessions) under the family table.
 type Row = Record<string, any>;
-interface CoffeeEvidence { dimensions: Row[]; descriptors: Row[]; archetype: Row | null; calls: Row[] }
+interface CoffeeEvidence { dimensions: Row[]; descriptors: Row[]; archetype: Row | null; calls: Row[]; consensus?: Row[]; history?: Row[] }
 
 const TAB = 'px-3 py-1.5 text-xs uppercase tracking-wide border-b-2';
 const EYEBROW = 'text-xs uppercase tracking-wide text-stone-400';
@@ -26,6 +31,7 @@ const FLAG_CHIP: Record<string, string> = {
   cuppers_disagree: 'bg-amber-100 text-amber-800', roaster_disagrees: 'bg-amber-100 text-amber-800',
   no_basis: 'bg-amber-100 text-amber-800', stale_decision: 'bg-amber-100 text-amber-800',
   both: 'bg-red-100 text-red-800', out_of_band: 'bg-red-100 text-red-800',
+  sessions_disagree: 'bg-amber-100 text-amber-800',
 };
 
 function num(v: unknown): string {
@@ -78,8 +84,8 @@ export default function EvidencePanel({ coffeeId, apiFetch, onDecideMatch, onDec
         ))}
         <span className="ml-auto text-xs text-stone-400">Read-only. Decisions go through the existing dialogs.</span>
       </div>
-      {tab === 'dimensions' && <DimensionsTab rows={data.dimensions} />}
-      {tab === 'descriptors' && <DescriptorsTab rows={data.descriptors} />}
+      {tab === 'dimensions' && <DimensionsTab rows={data.dimensions} history={data.history} />}
+      {tab === 'descriptors' && <DescriptorsTab rows={data.descriptors} consensus={data.consensus} />}
       {tab === 'archetype' && (
         <ArchetypeTab archetype={data.archetype} calls={data.calls} onDecideMatch={onDecideMatch} onDecidePlace={onDecidePlace} />
       )}
@@ -88,13 +94,26 @@ export default function EvidencePanel({ coffeeId, apiFetch, onDecideMatch, onDec
 }
 
 // ── Dimensions ─────────────────────────────────────────────────────────────
-export function DimensionsTab({ rows }: { rows: Row[] }) {
+export function DimensionsTab({ rows, history = [] }: { rows: Row[]; history?: Row[] }) {
+  const [open, setOpen] = useState<number | null>(null);
   if (!rows.length) return <p className="text-stone-400">No numeric cupping rows for this coffee.</p>;
   const cuppers = [...new Map(rows.map(r => [r.cupper_id, r.cupper_name])).entries()];
   const dims = [...new Map(rows.map(r => [r.dimension_id, r])).values()];
   const cell = (dimensionId: number, cupperId: number) => rows.find(r => r.dimension_id === dimensionId && r.cupper_id === cupperId);
+  const nSessions = Math.max(0, ...dims.map(d => Number(d.n_sessions ?? 0)));
+  /** each pooled session with its date, weight and its own merged range (from the history rows) */
+  const sessionsOf = (d: Row) => ((d.merged_session_weights ?? []) as Row[]).map(w => {
+    const own = history.filter(h => h.dimension_id === d.dimension_id && h.session_id === w.session_id);
+    return {
+      session_id: w.session_id, date: String(w.session_date).slice(0, 10), weight: Number(w.weight),
+      lo: own.length ? Math.min(...own.map(h => Number(h.value_min))) : null,
+      hi: own.length ? Math.max(...own.map(h => Number(h.value_max))) : null,
+    };
+  });
+  const pct = (w: number) => `${Math.round(w * 100)}%`;
   const TH = 'py-1.5 pr-4 font-normal text-xs uppercase tracking-wide text-stone-400 align-bottom';
   const TD = 'py-1.5 pr-4 align-top';
+  const nCols = cuppers.length + 5;
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm tabular-nums">
@@ -102,49 +121,87 @@ export function DimensionsTab({ rows }: { rows: Row[] }) {
           <tr className="text-left">
             <th className={TH}>Dimension</th>
             {cuppers.map(([id, name]) => <th key={id} className={`${TH} min-w-[56px]`}>{name}</th>)}
-            <th className={`${TH} min-w-[56px]`}>Merged</th>
+            <th className={`${TH} min-w-[56px] whitespace-nowrap`}>Pooled · {nSessions} {nSessions === 1 ? 'session' : 'sessions'}</th>
             <th className={`${TH} min-w-[56px]`}>Roaster 1–5</th>
             <th className={TH}>Rank (ours / theirs) of n</th>
             <th className={TH}>Flag</th>
           </tr>
         </thead>
         <tbody>
-          {dims.map(d => (
-            <tr key={d.dimension_id} className="border-t border-stone-200">
-              <td className={`${TD} whitespace-nowrap`}>{d.dimension_name}</td>
-              {cuppers.map(([id]) => {
-                const c = cell(d.dimension_id, id);
-                return (
-                  <td key={id} className={`${TD} whitespace-nowrap`}>
-                    {c ? range(c.cupper_min, c.cupper_max) : '—'}
-                    {c && c.cupper_scale_code !== 'ab_0_15' && <span className="block text-xs text-stone-400">{c.cupper_scale_code}</span>}
+          {dims.map(d => {
+            const sessions = sessionsOf(d);
+            const isOpen = open === d.dimension_id;
+            const title = sessions.map(s => `s${s.session_id} · ${s.date} · weight ${pct(s.weight)}${s.lo === null ? '' : ` · ${range(s.lo, s.hi)}`}`).join('\n');
+            return (
+              <Fragment key={d.dimension_id}>
+                <tr className="border-t border-stone-200">
+                  <td className={`${TD} whitespace-nowrap`}>{d.dimension_name}</td>
+                  {cuppers.map(([id]) => {
+                    const c = cell(d.dimension_id, id);
+                    return (
+                      <td key={id} className={`${TD} whitespace-nowrap`}>
+                        {c ? range(c.cupper_min, c.cupper_max) : '—'}
+                        {c && (
+                          <span className="block text-xs text-stone-400">
+                            s{c.cupper_session_id}{c.cupper_scale_code !== 'ab_0_15' ? ` · ${c.cupper_scale_code}` : ''}
+                          </span>
+                        )}
+                      </td>
+                    );
+                  })}
+                  <td className={`${TD} whitespace-nowrap`}>
+                    {sessions.length ? (
+                      <button type="button" onClick={() => setOpen(isOpen ? null : d.dimension_id)} title={title}
+                        className="text-left hover:text-stone-900" aria-expanded={isOpen}>
+                        {range(d.merged_min, d.merged_max)}
+                        <span className="block text-xs text-stone-400 underline">
+                          {sessions.length === 1 ? `s${sessions[0].session_id}` : `${sessions.length} sessions · ${sessions.map(s => pct(s.weight)).join(' / ')}`}
+                          {d.all_ab_scale === false ? ' · converted' : ''}
+                        </span>
+                      </button>
+                    ) : range(d.merged_min, d.merged_max)}
                   </td>
-                );
-              })}
-              <td className={`${TD} whitespace-nowrap`}>
-                {range(d.merged_min, d.merged_max)}
-                {d.merged_session_id && (
-                  <Link to="/admin/cupping" className="block text-xs text-stone-400 underline">s{d.merged_session_id}{d.all_ab_scale === false ? ' · converted' : ''}</Link>
+                  <td className={TD}>{num(d.roaster_value_1_5)}</td>
+                  <td className={`${TD} whitespace-nowrap`}>
+                    {d.rank_gap === null || d.rank_gap === undefined ? '—' : `${num(d.ab_rank_in_lineup)} / ${num(d.roaster_rank_in_lineup)} of ${d.lineup_n}`}
+                  </td>
+                  <td className={TD}>
+                    <span className="flex flex-wrap gap-1">
+                      <FlagChip flag={d.flag} />
+                      {d.sessions_disagree && d.flag !== 'sessions_disagree' && <FlagChip flag="sessions_disagree" />}
+                    </span>
+                  </td>
+                </tr>
+                {isOpen && (
+                  <tr>
+                    <td colSpan={nCols} className="pb-2 pl-4">
+                      <ul className="text-xs text-stone-600 space-y-0.5">
+                        {sessions.map(s => (
+                          <li key={s.session_id}>
+                            <Link to="/admin/cupping" className="underline">s{s.session_id}</Link> · {s.date} · weight {pct(s.weight)}
+                            {s.lo !== null && <> · this session {range(s.lo, s.hi)}</>}
+                          </li>
+                        ))}
+                      </ul>
+                    </td>
+                  </tr>
                 )}
-              </td>
-              <td className={TD}>{num(d.roaster_value_1_5)}</td>
-              <td className={`${TD} whitespace-nowrap`}>
-                {d.rank_gap === null || d.rank_gap === undefined ? '—' : `${num(d.ab_rank_in_lineup)} / ${num(d.roaster_rank_in_lineup)} of ${d.lineup_n}`}
-              </td>
-              <td className={TD}><FlagChip flag={d.flag} /></td>
-            </tr>
-          ))}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
-      <p className="mt-2 text-xs text-stone-500">Rank: among this roastery's coffees scored by both sides; a gap of 2 or more flags. Values on the 0 to 15 line; the roaster's 1 to 5 is relative to its own lineup.</p>
+      <p className="mt-2 text-xs text-stone-500">Pooled: every session's merged range, the latest counting most (weights from the evidence parameters); open a pooled cell for each session. Cupper cells show that cupper's latest session. Rank: among this roastery's coffees scored by both sides; a gap of 2 or more flags. Values on the 0 to 15 line; the roaster's 1 to 5 is relative to its own lineup.</p>
     </div>
   );
 }
 
 // ── Descriptors ────────────────────────────────────────────────────────────
 export interface WebsiteNote { id: string | number; remark: string; node: string | null }
-export function DescriptorsTab({ rows, website, websiteSource }: {
+export function DescriptorsTab({ rows, website, websiteSource, consensus }: {
   rows: Row[]; website?: WebsiteNote[]; websiteSource?: string | null;
+  /** brief 6: our cupping notes per SCA node (v_evidence_descriptor_consensus) */
+  consensus?: Row[];
 }) {
   const style = (r: Row) => r.hit ? 'bg-green-100 text-green-800' : r.miss ? 'bg-amber-100 text-amber-800' : r.extra ? 'bg-stone-200 text-stone-700' : 'bg-white text-stone-500 border border-stone-200';
   const kind = (r: Row) => r.hit ? 'hit' : r.miss ? 'miss' : r.extra ? 'extra' : 'other';
@@ -187,6 +244,21 @@ export function DescriptorsTab({ rows, website, websiteSource }: {
             <p className="mt-1 text-xs text-stone-500">hit: we and the roaster · miss: roaster only · extra: we only. Families by the SCA tree.</p>
           </div>
         </>
+      )}
+      {consensus && consensus.length > 0 && (
+        <div>
+          <p className={`${EYEBROW} mb-1`}>Our cupping, per node</p>
+          <ul className="space-y-0.5">
+            {consensus.map(c => (
+              <li key={c.cupping_note_id}>
+                <span className="text-stone-800">{c.descriptor}</span>
+                <span className="text-stone-600"> · {c.sessions_named} of {c.sessions_total} {Number(c.sessions_total) === 1 ? 'session' : 'sessions'} · {(c.cuppers ?? []).join(', ')}</span>
+                {(c.words ?? []).length > 0 && <span className="text-stone-400"> · {(c.words as string[]).join(', ')}</span>}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-xs text-stone-500">From every session's cupper rows, at the node the cupper named. Inside only: a customer hears the roaster's words, with ours as confirmation.</p>
+        </div>
       )}
       {website && website.length > 0 && (
         <div>

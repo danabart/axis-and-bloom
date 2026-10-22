@@ -33,6 +33,7 @@ interface QueueRow {
 interface Bundle {
   coffee: Row; dimensions: Row[]; descriptors: Row[]; archetype: Row | null; calls: Row[];
   sessions: Row[]; roasterResponse: Row | null; websiteDescriptors: Row[]; accepted: Row[];
+  consensus?: Row[]; history?: Row[]; // brief 6: display only
 }
 interface Slot {
   id: number; archetype: string; sort_order: number; name: string | null; position_label: string; dimension_id: number | null;
@@ -196,9 +197,9 @@ export default function AdminCalibrationWorkbench({ roasterId, apiFetch, onBack,
               </button>
             ))}
           </div>
-          {tab === 'dimensions' && <DimensionsTab rows={bundle.dimensions} />}
+          {tab === 'dimensions' && <DimensionsTab rows={bundle.dimensions} history={bundle.history} />}
           {tab === 'descriptors' && (
-            <DescriptorsTab rows={bundle.descriptors}
+            <DescriptorsTab rows={bundle.descriptors} consensus={bundle.consensus}
               website={websiteRows.map(w => ({ id: w.id, remark: String(w.remark), node: w.cupping_note_descriptor ?? null }))}
               websiteSource={websiteRows.length ? `${websiteRows[0].said_by}, ${String(websiteRows[0].said_on).slice(0, 10)}` : null} />
           )}

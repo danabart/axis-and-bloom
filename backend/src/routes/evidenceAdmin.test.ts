@@ -85,6 +85,20 @@ describe('GET /api/admin/evidence/*', () => {
     expect(words).toContain('ube halo halo');
   });
 
+  it('parameters (brief 6): every current key with its note; a bad value or an unknown key is refused, nothing written', async () => {
+    const list = await (await fetch(`${base}/evidence/parameters`)).json();
+    const keys = list.map((p: any) => p.key);
+    for (const k of ['session_rank_ratio', 'session_half_life_days', 'session_gap', 'customer_voice_hit_tier', 'customer_voice_max_words', 'cupper_gap']) expect(keys).toContain(k);
+    expect(list.find((p: any) => p.key === 'session_rank_ratio').note).toMatch(/Range: /);
+    const put = (key: string, value: unknown) => fetch(`${base}/evidence/parameters/${key}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value, note: 'vitest' }) });
+    expect((await put('session_rank_ratio', 2)).status).toBe(400);
+    expect((await put('session_rank_ratio', 'x')).status).toBe(400);
+    expect((await put('no_such_key', 1)).status).toBe(404);
+    const after = await (await fetch(`${base}/evidence/parameters`)).json();
+    expect(after).toEqual(list);
+  });
+
   it('refuses a malformed id with 400', async () => {
     expect((await fetch(`${base}/evidence/coffee/abc`)).status).toBe(400);
     expect((await fetch(`${base}/evidence/roastery/not-a-uuid`)).status).toBe(400);
@@ -125,7 +139,7 @@ describe('GET /api/admin/evidence/workbench/*', () => {
     const res = await fetch(`${base}/evidence/workbench/coffee/${blossomId}`);
     expect(res.status).toBe(200);
     const b = await res.json();
-    expect(Object.keys(b).sort()).toEqual(['accepted', 'archetype', 'calls', 'coffee', 'descriptors', 'dimensions', 'roasterResponse', 'sessions', 'websiteDescriptors']);
+    expect(Object.keys(b).sort()).toEqual(['accepted', 'archetype', 'calls', 'coffee', 'consensus', 'descriptors', 'dimensions', 'history', 'roasterResponse', 'sessions', 'websiteDescriptors']);
     expect(b.coffee.name).toBe('Blossom Dark Roast');
     expect(b.sessions.map((s: any) => s.session_id)).toContain(b.archetype.latest_session_id);
     expect(b.roasterResponse.response_id).toBeTruthy();

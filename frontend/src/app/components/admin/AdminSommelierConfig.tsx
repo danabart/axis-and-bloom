@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { reportError } from '../../lib/errorReporter';
+import EvidenceParametersCard from './EvidenceParametersCard';
 
 interface ConfigDiff {
   path: string;
@@ -236,6 +237,9 @@ export default function AdminSommelierConfig() {
           {toast}
         </div>
       )}
+
+      {/* ── Cupping evidence brief 6, E3: evidence parameters (System Health is read-only by policy) ── */}
+      <EvidenceParametersCard />
 
       {/* ── Section 0: Config Source of Truth ── */}
       <section className="mb-8">

@@ -5,20 +5,30 @@
 // backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENCE_3_RECONCILIATION.md
 import { db } from '../db/client.js';
 import { getCoffeeHint } from './roasteryPortalReads.js';
+import { getDimensionHistory } from './cuppingReads.js';
 
 type Row = Record<string, unknown>;
 
-/** A1 + A2 + A3 for one coffee: the Coffees page evidence panel. */
+/**
+ * A1 + A2 + A3 for one coffee: the Coffees page evidence panel. Brief 6: plus
+ * the cupping-note consensus (Descriptors tab) and each session's own merged
+ * range (Dimensions tab, the pooled cell's history), both display only.
+ */
 export async function getCoffeeEvidence(coffeeId: number): Promise<{
-  dimensions: Row[]; descriptors: Row[]; archetype: Row | null; calls: Row[];
+  dimensions: Row[]; descriptors: Row[]; archetype: Row | null; calls: Row[]; consensus: Row[]; history: Row[];
 }> {
-  const [dimensions, descriptors, archetype, calls] = await Promise.all([
+  const [dimensions, descriptors, archetype, calls, consensus, history] = await Promise.all([
     db.query(`SELECT * FROM v_evidence_dimension WHERE coffee_id = $1 ORDER BY dimension_id, cupper_name`, [coffeeId]),
     db.query(`SELECT * FROM v_evidence_descriptor WHERE coffee_id = $1 ORDER BY n_sources DESC, family`, [coffeeId]),
     db.query(`SELECT * FROM v_evidence_archetype WHERE coffee_id = $1`, [coffeeId]),
     db.query(`SELECT * FROM v_evidence_archetype_call WHERE coffee_id = $1 ORDER BY cupper_name`, [coffeeId]),
+    getDescriptorConsensus(coffeeId),
+    getDimensionHistory(coffeeId),
   ]);
-  return { dimensions: dimensions.rows, descriptors: descriptors.rows, archetype: archetype.rows[0] ?? null, calls: calls.rows };
+  return {
+    dimensions: dimensions.rows, descriptors: descriptors.rows, archetype: archetype.rows[0] ?? null, calls: calls.rows,
+    consensus, history,
+  };
 }
 
 /** A4 + A5 + A6 for one roastery, and its stale decisions from A3: the Calibration tab. */
@@ -104,7 +114,7 @@ export async function getWorkbenchQueue(roasterId: string): Promise<WorkbenchQue
  * descriptor remarks, and the descriptors already accepted into the catalog.
  */
 export async function getWorkbenchCoffee(coffeeId: number): Promise<{
-  coffee: Row | null; dimensions: Row[]; descriptors: Row[]; archetype: Row | null; calls: Row[];
+  coffee: Row | null; dimensions: Row[]; descriptors: Row[]; archetype: Row | null; calls: Row[]; consensus: Row[]; history: Row[];
   sessions: Row[]; roasterResponse: Row | null; websiteDescriptors: Row[]; accepted: Row[];
 }> {
   const [base, coffee, sessions, response, website, accepted] = await Promise.all([
@@ -134,6 +144,38 @@ export async function getWorkbenchCoffee(coffeeId: number): Promise<{
     coffee: coffee.rows[0] ?? null, ...base, sessions: sessions.rows,
     roasterResponse, websiteDescriptors: website.rows, accepted: accepted.rows,
   };
+}
+
+/**
+ * Brief 6, B (2026-10-21): our cupping notes per SCA node for one coffee,
+ * "cocoa · 2 of 2 sessions · Dana, Camila", most shared first. The admin
+ * Flavor Wheel's internal branch and the workbench Descriptors tab read this.
+ */
+export async function getDescriptorConsensus(coffeeId: number): Promise<Row[]> {
+  return (await db.query(
+    `SELECT * FROM v_evidence_descriptor_consensus WHERE coffee_id = $1
+      ORDER BY share DESC, sessions_named DESC, descriptor`, [coffeeId])).rows;
+}
+
+/**
+ * Brief 6, E2: the evidence parameters for the admin card: each key's current
+ * value, since, note (with its sane range) and the value and date it replaced.
+ */
+export async function getParameters(): Promise<Array<{ key: string; value: number; since: string; note: string | null; previous_value: number | null; previous_since: string | null }>> {
+  const r = await db.query(
+    `SELECT cur.key, cur.value, cur.since, cur.note, prev.value AS previous_value, prev.since AS previous_since
+       FROM evidence_parameter cur
+       LEFT JOIN LATERAL (
+         SELECT p.value, p.since FROM evidence_parameter p
+          WHERE p.key = cur.key AND p.superseded_at IS NOT NULL
+          ORDER BY p.superseded_at DESC LIMIT 1
+       ) prev ON true
+      WHERE cur.superseded_at IS NULL
+      ORDER BY cur.key`);
+  return r.rows.map((x: any) => ({
+    key: x.key, value: Number(x.value), since: x.since, note: x.note,
+    previous_value: x.previous_value === null ? null : Number(x.previous_value), previous_since: x.previous_since,
+  }));
 }
 
 /** A7: the mapping queue. */

@@ -9,7 +9,7 @@ import {
   getArchetypes, archetypeLabel, getCoffee, getCoffees, getHomeSlot, getSlots, getSellableSlots, getHops, getSizes, getAnchorSize,
   getCategoryCoffees, getCoffeeRetailPrices,
 } from '../services/catalogReads.js';
-import { getMergedRanges, getOverallNotes } from '../services/cuppingReads.js';
+import { getMergedRanges, getCustomerDescriptors } from '../services/cuppingReads.js';
 
 // Cupping evidence brief 1 (2026-10-18): the numeric dimensions of a coffee's
 // latest merged range (cuppingReads → v_coffee_dimension_range, converted to
@@ -101,20 +101,17 @@ async function resolveDisplayName(coffeeId: string | number): Promise<string | n
 }
 
 export async function fetchCoffeeDataForContent(coffeeId: string | number) {
-  const [coffee, displayName, dimsResult, descriptorResult, roasterBlendResult] = await Promise.all([
+  const [coffee, displayName, dimsResult, descriptorRows, roasterBlendResult] = await Promise.all([
     getCoffee(Number(coffeeId)),
     resolveDisplayName(coffeeId),
-    // Cupping evidence brief 1 (2026-10-18): the latest merged range through
-    // cuppingReads (v_coffee_dimension_range), same row shape as before.
+    // Cupping evidence brief 1 (2026-10-18): the merged range through
+    // cuppingReads (v_coffee_dimension_range), same row shape as before;
+    // brief 6: that range is pooled over every session.
     numericDimensionRows(Number(coffeeId)).then(rows => ({ rows })),
-    db.query(
-      `SELECT descriptor, source, COUNT(*) AS mentions
-       FROM v_collaborative_flavor_wheel
-       WHERE coffee_id = $1
-       GROUP BY descriptor, source
-       ORDER BY mentions DESC`,
-      [coffeeId]
-    ),
+    // Cupping evidence brief 6, C4 (2026-10-21): the customer voice: the
+    // roaster's words as wheel nodes, then customers'; our cupping only
+    // marks a roaster word confirmed_by_cupping. No inline SQL here.
+    getCustomerDescriptors(Number(coffeeId)),
     db.query(
       `SELECT DISTINCT r.name FROM coffee_sku rb
        JOIN roaster r ON r.id = rb.roaster_id
@@ -124,8 +121,8 @@ export async function fetchCoffeeDataForContent(coffeeId: string | number) {
   ]);
 
   if (!coffee) throw new Error('Coffee not found');
-
-  const notesResult = { rows: (await getOverallNotes(Number(coffeeId))).slice(0, 1) };
+  // Cupping evidence brief 6, ruling 7 (2026-10-21): our cuppers' overall
+  // notes are no longer read here; nothing of ours reaches a customer prompt.
 
   const roasterNames = [
     ...new Set([
@@ -138,8 +135,7 @@ export async function fetchCoffeeDataForContent(coffeeId: string | number) {
     coffee: { name: coffee.name, origin: coffee.origin, process: coffee.process, archetype: coffee.match_archetype },
     displayName,
     dimensions:   dimsResult.rows,
-    descriptors:  descriptorResult.rows,
-    overallNotes: notesResult.rows[0]?.overall_notes ?? null,
+    descriptors:  descriptorRows,
     roasterNames,
   };
 }
@@ -213,18 +209,22 @@ export async function generateAndStoreAllContent(
     scale_max_label: r.scale_max_label,
   }));
 
-  const topDescriptors = [...new Set(data.descriptors.map((r: any) => r.descriptor as string))].slice(0, 8);
+  // Cupping evidence brief 6, C4 (2026-10-21): the words come from the
+  // customer voice (getCustomerDescriptors, already capped and in display
+  // order): the roaster's first, then customers'; never our cupping words.
+  const topDescriptors = data.descriptors.map(r => r.descriptor);
 
-  // Build per-source descriptor lists for three-voice story
-  const sourceMap: Record<string, string[]> = {};
-  for (const row of data.descriptors) {
-    if (!sourceMap[row.source]) sourceMap[row.source] = [];
-    if (sourceMap[row.source].length < 5) sourceMap[row.source].push(row.descriptor);
+  // The story's voices: roaster (accepted + website, ranks 1 and 2) and
+  // customers (rank 3). There is no internal voice any more; a roaster word
+  // we tasted too carries confirmed, so the story may say so.
+  const roasterRows = data.descriptors.filter(r => r.voice !== 'customer');
+  const clientRows = data.descriptors.filter(r => r.voice === 'customer');
+  const sourceData: Array<{ source: 'roastery' | 'client'; descriptors: string[]; confirmed: string[] }> = [];
+  if (roasterRows.length) {
+    sourceData.push({ source: 'roastery', descriptors: roasterRows.map(r => r.descriptor),
+      confirmed: roasterRows.filter(r => r.confirmed_by_cupping).map(r => r.descriptor) });
   }
-  const sourceData = Object.entries(sourceMap).map(([source, descriptors]) => ({
-    source: source as 'internal' | 'roastery' | 'client',
-    descriptors,
-  }));
+  if (clientRows.length) sourceData.push({ source: 'client', descriptors: clientRows.map(r => r.descriptor), confirmed: [] });
 
   // HOME_TASK_5 — skip gracefully when there's truly no usable signal (the
   // coffee-16 "Chocolate" case from S38: no archetype, no cupping data). No
@@ -255,9 +255,14 @@ export async function generateAndStoreAllContent(
   // (ai_summary, unchanged) stays OR-based; surprise_note gets its own,
   // stricter bar — dimensions or descriptors only, per Dana's literal spec
   // ("no descriptors AND no cupping dimensions... regardless of other fields").
-  const hasSufficientData = dimensionParams.length > 0 || topDescriptors.length > 0 || !!data.overallNotes;
+  // Cupping evidence brief 6, ruling 7 (2026-10-21): overallNotes is no longer
+  // an input (our cuppers' prose never reaches a customer prompt), so the
+  // summary needs dimensions or the customer voice's words, like the surprise.
+  const hasSufficientData = dimensionParams.length > 0 || topDescriptors.length > 0;
   const hasSufficientSurpriseData = dimensionParams.length > 0 || topDescriptors.length > 0;
-  const hasSufficientVoices = sourceData.length >= 2;
+  // Brief 6: two voices (roaster and customers), or the roaster alone with at
+  // least one word our cupping confirmed (see getCoffeeThreeVoiceStory).
+  const hasSufficientVoices = sourceData.length >= 2 || (sourceData[0]?.source === 'roastery' && sourceData[0].confirmed.length > 0);
   if (needsSummary && !hasSufficientData) {
     console.warn(`[coffees/content] insufficient data to generate ai_summary for coffee ${coffeeId}`);
   }
@@ -291,11 +296,11 @@ export async function generateAndStoreAllContent(
   // Run only what is needed, in parallel
   const [newSummary, newSurprise, newStory, storyResult] = await Promise.all([
     needsSummary && hasSufficientData
-      ? toNullIfBlocked(getCoffeeSummary({ coffeeName: safeName, archetype: archetypeLabelStr, dimensions: dimensionParams, topDescriptors, overallNotes: data.overallNotes }).then(text => guardGenerated('ai_summary', text)))
+      ? toNullIfBlocked(getCoffeeSummary({ coffeeName: safeName, archetype: archetypeLabelStr, dimensions: dimensionParams, topDescriptors }).then(text => guardGenerated('ai_summary', text)))
           .then(text => { if (text === null) summaryBlocked = true; return text; })
       : Promise.resolve<string | null>(null),
     needsSurprise && hasSufficientSurpriseData
-      ? toNullIfBlocked(getCoffeeSurpriseNote({ coffeeName: safeName, archetype: archetypeLabelStr, dimensions: dimensionParams, topDescriptors, overallNotes: data.overallNotes }).then(text => guardGenerated('surprise_note', text)))
+      ? toNullIfBlocked(getCoffeeSurpriseNote({ coffeeName: safeName, archetype: archetypeLabelStr, dimensions: dimensionParams, topDescriptors }).then(text => guardGenerated('surprise_note', text)))
           .then(text => { if (text === null) surpriseBlocked = true; return text; })
       : Promise.resolve<string | null>(null),
     needsStory && hasSufficientVoices
@@ -469,8 +474,8 @@ export async function generateAndStoreSummary(coffeeId: string | number): Promis
       scale_min_label: r.scale_min_label,
       scale_max_label: r.scale_max_label,
     })),
-    topDescriptors:  [...new Set(data.descriptors.map((r: any) => r.descriptor as string))].slice(0, 8),
-    overallNotes:    data.overallNotes,
+    // brief 6: the customer voice (already capped); no overall notes (ruling 7)
+    topDescriptors:  data.descriptors.map(r => r.descriptor),
   });
 
   await db.query(`UPDATE coffees SET ai_summary = $1 WHERE id = $2`, [summary, coffeeId]);
@@ -1012,20 +1017,21 @@ router.get('/:coffeeId/hops', async (req, res) => {
 // cupping_note_id added (Profile Part 2 §C, additive) — Profile Part 3's tasted-
 // notes chips need a stable id to submit, not just the descriptor label; every
 // existing consumer (the bubble cloud) already ignores unknown fields.
-// Unchanged this brief — cupping data, not a placement question (D2).
+// Cupping evidence brief 6, C3 (2026-10-21): customer-facing (the public
+// wheel, the Bloom page, the feedback chips), so it reads the customer voice
+// (cuppingReads.getCustomerDescriptors): the roaster's words as wheel nodes,
+// then customers'; never our cupping words. Same row shape as before: source
+// is 'roastery' for the roaster's voice and 'client' for customers', one row
+// per node (mentions 1, avg_intensity null); confirmed_by_cupping is added.
 router.get('/:id/flavor-wheel', async (req, res) => {
-  const { id } = req.params;
+  const id = Number(req.params.id);
   try {
-    const result = await db.query(
-      `SELECT cupping_note_id, wheel_category, wheel_subcategory, descriptor, source,
-              COUNT(*) AS mentions, AVG(intensity) AS avg_intensity
-       FROM v_collaborative_flavor_wheel
-       WHERE coffee_id = $1
-       GROUP BY cupping_note_id, wheel_category, wheel_subcategory, descriptor, source
-       ORDER BY wheel_category, mentions DESC`,
-      [id]
-    );
-    res.json(result.rows);
+    const rows = await getCustomerDescriptors(id);
+    res.json(rows.map(r => ({
+      cupping_note_id: r.node_id, wheel_category: r.wheel_category, wheel_subcategory: r.wheel_subcategory,
+      descriptor: r.descriptor, source: r.voice === 'customer' ? 'client' : 'roastery',
+      mentions: '1', avg_intensity: null, confirmed_by_cupping: r.confirmed_by_cupping,
+    })));
   } catch (err) {
     console.error('[coffees/flavor-wheel]', err);
     res.status(500).json({ error: 'Failed to fetch flavor wheel' });
@@ -1037,12 +1043,15 @@ router.get('/:id/flavor-wheel', async (req, res) => {
 router.get('/:id/dimensions', async (req, res) => {
   const { id } = req.params;
   try {
-    // Cupping evidence brief 1 (2026-10-18): the coffee's latest merged range
-    // and its current rows' notes, through cuppingReads. Same response shape.
+    // Cupping evidence brief 1 (2026-10-18): the coffee's merged range through
+    // cuppingReads (pooled since brief 6). Brief 6, ruling 7 (2026-10-21):
+    // this endpoint is public, so it no longer returns our cuppers' overall
+    // notes; `notes` stays in the shape, always empty (the page renders
+    // nothing for an empty list).
     const coffeeId = Number(id);
     if (!Number.isInteger(coffeeId)) { res.json({ dimensions: [], notes: [] }); return; }
-    const [dimensions, notes] = await Promise.all([numericDimensionRows(coffeeId), getOverallNotes(coffeeId)]);
-    res.json({ dimensions, notes });
+    const dimensions = await numericDimensionRows(coffeeId);
+    res.json({ dimensions, notes: [] });
   } catch (err) {
     console.error('[coffees/dimensions]', err);
     res.status(500).json({ error: 'Failed to fetch dimension data' });

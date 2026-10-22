@@ -545,14 +545,17 @@ export async function getRecommendation(
   return block.type === 'text' ? block.text : '';
 }
 
+// Cupping evidence brief 6, ruling 7 (Dana, 2026-10-21): our cuppers' prose
+// (cupping_scores.overall_notes) no longer goes into a customer-facing prompt.
+// The summary and the surprise note are built from the pooled dimensions and
+// the customer voice (the roaster's words) only.
 export async function getCoffeeSummary(params: {
   coffeeName: string;
   archetype: string | null;
   dimensions: Array<{ dimension: string; avg_min: number; avg_max: number; scale_min_label: string; scale_max_label: string }>;
   topDescriptors: string[];
-  overallNotes: string | null;
 }): Promise<string> {
-  const { coffeeName, archetype, dimensions, topDescriptors, overallNotes } = params;
+  const { coffeeName, archetype, dimensions, topDescriptors } = params;
 
   const dimLines = dimensions
     .map(d => `  ${d.dimension}: ${d.avg_min}–${d.avg_max}/15 (${d.scale_min_label} → ${d.scale_max_label})`)
@@ -564,7 +567,6 @@ Cupping data:
 ${dimLines || '  (no numeric data)'}
 
 Top flavor descriptors: ${topDescriptors.length ? topDescriptors.join(', ') : 'none recorded'}
-${overallNotes ? `\nCupper's notes: "${overallNotes}"` : ''}
 
 Be warm and specific. Name actual flavors and textures. No marketing language. Under 80 words. If the data above is genuinely insufficient to write this honestly, respond with exactly: INSUFFICIENT_DATA`;
 
@@ -588,9 +590,8 @@ export async function getCoffeeSurpriseNote(params: {
   archetype: string | null;
   dimensions: Array<{ dimension: string; avg_min: number; avg_max: number; scale_min_label: string; scale_max_label: string }>;
   topDescriptors: string[];
-  overallNotes: string | null;
 }): Promise<string> {
-  const { coffeeName, archetype, dimensions, topDescriptors, overallNotes } = params;
+  const { coffeeName, archetype, dimensions, topDescriptors } = params;
   const dimLines = dimensions
     .map(d => `  ${d.dimension}: ${d.avg_min}–${d.avg_max}/15 (${d.scale_min_label} → ${d.scale_max_label})`)
     .join('\n');
@@ -601,7 +602,7 @@ This is NOT a tasting note. It is a hook that makes a curious person want to try
 
 Cupping dimensions:
 ${dimLines || '  (no numeric data)'}
-Top flavor descriptors: ${topDescriptors.length ? topDescriptors.join(', ') : 'none recorded'}${overallNotes ? `\nCupper's notes: "${overallNotes}"` : ''}
+Top flavor descriptors: ${topDescriptors.length ? topDescriptors.join(', ') : 'none recorded'}
 
 Be direct and editorial. Do not start with the coffee name. Do not use marketing language. Under 50 words. If the data above is genuinely insufficient to write this honestly, respond with exactly: INSUFFICIENT_DATA`;
 
@@ -618,27 +619,36 @@ Be direct and editorial. Do not start with the coffee name. Do not use marketing
   return surpriseBlock.type === 'text' ? surpriseBlock.text : '';
 }
 
+// Cupping evidence brief 6, C4 (2026-10-21): the voices are the roaster's
+// (accepted and website notes, as flavor-wheel words) and customers'. Our
+// cupping is no longer a voice: a roaster word we tasted too is listed in
+// `confirmed`, and the story may say "the roaster's note, and we tasted it
+// too", never present it as our own note. Enough to write: two voices, or the
+// roaster alone with at least one confirmed word.
 export async function getCoffeeThreeVoiceStory(params: {
   coffeeName: string;
-  sourceData: Array<{ source: 'internal' | 'roastery' | 'client'; descriptors: string[] }>;
+  sourceData: Array<{ source: 'roastery' | 'client'; descriptors: string[]; confirmed?: string[] }>;
 }): Promise<string | null> {
   const { coffeeName, sourceData } = params;
-  if (sourceData.length < 2) return null;
+  const roaster = sourceData.find(s => s.source === 'roastery');
+  if (sourceData.length < 2 && !(roaster && (roaster.confirmed ?? []).length > 0)) return null;
 
   const SOURCE_NAME: Record<string, string> = {
-    internal: 'Our cupping team',
     roastery: 'The roaster',
     client:   'Customers',
   };
   const lines = sourceData
     .map(s => `  ${SOURCE_NAME[s.source] ?? s.source}: ${s.descriptors.join(', ')}`)
+    .concat(roaster && (roaster.confirmed ?? []).length
+      ? [`  Of the roaster's notes, Axis & Bloom's cupping table tasted these too: ${(roaster.confirmed ?? []).join(', ')}`]
+      : [])
     .join('\n');
 
-  const content = `Write 2–4 sentences narrating how the flavor sources see "${coffeeName}". Where do they agree? Where do they diverge?
+  const content = `Write 2–4 sentences narrating how "${coffeeName}" tastes to the people who know it. The roaster's notes lead; customers add what they notice.
 
 ${lines}
 
-Write this as editorial storytelling — not a list. Name the agreement and divergence naturally. Example style: "Our team kept coming back to blueberry and black tea. The roaster's bag notes said stone fruit and floral — closer than it sounds. Customers have been landing on citrus." Under 80 words. If the data above is genuinely insufficient to write this honestly, respond with exactly: INSUFFICIENT_DATA`;
+Write this as editorial storytelling — not a list. Use only the flavor words above. Where our cupping table tasted one of the roaster's notes too, you may say so ("the roaster's note, and we tasted it too"); never present a word as our own note. Example style: "The roaster calls it stone fruit and floral, and the stone fruit is one we tasted too. Customers have been landing on citrus." Under 80 words. If the data above is genuinely insufficient to write this honestly, respond with exactly: INSUFFICIENT_DATA`;
 
   // C2 Part 2 — public, unauthenticated surface (see M2). Haiku, unconditionally.
   const storyResponse = await guardClaudeCall('coffee_content', 'claude-haiku-4-5-20251001', () =>

@@ -30,6 +30,14 @@ export interface MergedRange {
   scale_max_label: string | null;
   display_order: number | null;
   is_numeric: boolean;
+  // Brief 6 (2026-10-21): the range is pooled over every session, weighted by
+  // rank and recency; session_id / session_date stay the latest session.
+  n_sessions_pooled?: number | null;
+  weight_latest_share?: number | null;
+  session_weights?: Array<{ session_id: number; session_date: string; weight: number }> | null;
+  sessions_disagree?: boolean | null;
+  rank_ratio?: number | null;
+  half_life_days?: number | null;
 }
 
 function toRange(r: Record<string, unknown>): MergedRange {
@@ -51,6 +59,12 @@ function toRange(r: Record<string, unknown>): MergedRange {
     scale_max_label: (r.scale_max_label as string | null) ?? null,
     display_order: num(r.display_order),
     is_numeric: Boolean(r.is_numeric),
+    n_sessions_pooled: num(r.n_sessions_pooled),
+    weight_latest_share: num(r.weight_latest_share),
+    session_weights: (r.session_weights as MergedRange['session_weights']) ?? null,
+    sessions_disagree: r.sessions_disagree === null || r.sessions_disagree === undefined ? null : Boolean(r.sessions_disagree),
+    rank_ratio: num(r.rank_ratio),
+    half_life_days: num(r.half_life_days),
   };
 }
 
@@ -59,7 +73,7 @@ const RANGE_SELECT = `
   FROM v_coffee_dimension_range r
   JOIN coffee_dimensions d ON d.id = r.dimension_id`;
 
-/** The latest merged range (or the unmerged fallback) of one coffee on one dimension. */
+/** The pooled merged range (or the unmerged fallback) of one coffee on one dimension. */
 export async function getMergedRange(coffeeId: number, dimensionId: number, runner: Runner = db): Promise<MergedRange | null> {
   const result = await runner.query(`${RANGE_SELECT} WHERE r.coffee_id = $1 AND r.dimension_id = $2`, [coffeeId, dimensionId]);
   return result.rows[0] ? toRange(result.rows[0]) : null;
@@ -95,6 +109,42 @@ export async function getDescriptors(coffeeId: number, runner: Runner = db) {
     [coffeeId]
   );
   return result.rows;
+}
+
+// Cupping evidence brief 6, C2 (2026-10-21): what a customer may hear about a
+// coffee: the roaster's words as flavor-wheel nodes (accepted, then the latest
+// website capture), then customers'; never our cupping words, which add
+// confirmed_by_cupping instead. Every customer-facing surface reads this
+// (story, public wheel and feedback chips, lifecycle email, beats, Liam).
+export interface CustomerDescriptor {
+  node_id: string;
+  descriptor: string;
+  wheel_category: string | null;
+  wheel_subcategory: string | null;
+  tier: number;
+  voice: 'roaster_accepted' | 'roaster_website' | 'customer';
+  rank: number;
+  confirmed_by_cupping: boolean;
+  cupping_sessions_named: number | null;
+  cupping_sessions_total: number | null;
+}
+
+/** One coffee's customer voice in display order, capped at param('customer_voice_max_words'). */
+export async function getCustomerDescriptors(coffeeId: number, runner: Runner = db): Promise<CustomerDescriptor[]> {
+  const result = await runner.query(
+    `SELECT node_id, descriptor, wheel_category, wheel_subcategory, tier, voice, rank,
+            confirmed_by_cupping, cupping_sessions_named, cupping_sessions_total
+       FROM v_coffee_customer_descriptor WHERE coffee_id = $1
+      ORDER BY display_order
+      LIMIT (SELECT param('customer_voice_max_words'))::int`,
+    [coffeeId]
+  );
+  return result.rows.map((r: any) => ({
+    node_id: r.node_id, descriptor: r.descriptor, wheel_category: r.wheel_category, wheel_subcategory: r.wheel_subcategory,
+    tier: Number(r.tier), voice: r.voice, rank: Number(r.rank), confirmed_by_cupping: Boolean(r.confirmed_by_cupping),
+    cupping_sessions_named: r.cupping_sessions_named === null ? null : Number(r.cupping_sessions_named),
+    cupping_sessions_total: r.cupping_sessions_total === null ? null : Number(r.cupping_sessions_total),
+  }));
 }
 
 /** Overall notes written on a coffee's current score rows, newest session first. */

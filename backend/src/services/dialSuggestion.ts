@@ -65,10 +65,10 @@ export const BASIS_ARCHETYPE_VECTOR = 'archetype_vector (May 2026 targets)';
 
 // Shared by getDialSuggestion, findHopConflict, hop validation, and hop suggestions —
 // one answer to "what does this coffee's merged cupping data say about this dimension."
-// Cupping evidence brief 1 (2026-10-18): the midpoint of the LATEST current
-// merged range (v_coffee_dimension_range through cuppingReads), converted to
-// 0 to 15. It used to average every merged row of every session; for one
-// session the two agree, for several the latest session now wins.
+// Cupping evidence brief 1 (2026-10-18): the midpoint of the current merged
+// range (v_coffee_dimension_range through cuppingReads), converted to 0 to
+// 15. Brief 6 (2026-10-21): that range is now pooled over every session,
+// weighted by rank and recency (evidence_parameter), not the latest alone.
 // session_count = sessions with a current merged row. Unmerged evidence
 // (cupper rows only) still answers null, as before.
 export async function getAvgCuppingScore(coffeeId: number, dimensionId: number): Promise<AvgCuppingScore | null> {
@@ -268,6 +268,14 @@ export async function recordCuppingSignal(coffeeId: number, opts: { retract?: bo
       ? (await getArchetypes()).find((a) => a.code === archetype)?.dominant_dimension_id ?? undefined
       : undefined;
   }
+  // Cupping evidence brief 6, decision 4 (2026-10-21): the midpoint is the
+  // pooled one (same read as before); the notes say what it was pooled from.
+  const range = suggestion && dimensionId ? await getMergedRange(coffeeId, dimensionId) : null;
+  const notes = suggestion
+    ? range && range.n_sessions_pooled
+      ? `${suggestion.basis}; pooled ${range.n_sessions_pooled} sessions (ratio ${range.rank_ratio}, half-life ${range.half_life_days} d), latest s${range.session_id}`
+      : suggestion.basis
+    : null;
 
   // Catalog Blueprint brief 2 (2026-09-14) — last pool-level BEGIN/COMMIT in
   // the codebase, moved onto withTransaction (backend/src/db/client.ts,
@@ -284,7 +292,7 @@ export async function recordCuppingSignal(coffeeId: number, opts: { retract?: bo
       `INSERT INTO dial_position_signal
          (coffee_id, archetype, dimension_id, source, suggested_slot_id, raw_value, sample_size, notes)
        VALUES ($1, $2, $3, 'cupping', $4, $5, $6, $7)`,
-      [coffeeId, archetype, dimensionId, suggestion.suggested_slot_id, suggestion.avg_score, suggestion.session_count, suggestion.basis]
+      [coffeeId, archetype, dimensionId, suggestion.suggested_slot_id, suggestion.avg_score, suggestion.session_count, notes]
     );
   });
 }
