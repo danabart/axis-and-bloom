@@ -276,3 +276,47 @@ The format test passes.
 4. Re-run the midpoint and customer-voice scripts on prod for the record.
 
 No signal is recorded by the deploy: the pooled basis enters each signal at that coffee's next merge or refresh.
+
+## Prod verification (2026-10-22 UTC, after the deploy)
+
+Commit `83efb7c` deployed (GitHub Actions run 39709605828, success). The new revision's boot applied `schema.sql` and `comments.sql` on prod. Read-only checks with `tmp/b6_verify.mts prod`:
+
+- **Parameter rows:** all five exist with their seeded values.
+- **Pooled ranges (2917, 2915, 2905, 2934):** match the test table above cell for cell. Every pooled midpoint and every sessions-disagree flag (⚑) is the same, and the weights are 61 / 39. Benchmark's printed weight line is its Fragrance row, which only session 40 scored; its two-session dimensions are 61 / 39.
+- **`getCustomerDescriptors` (Fabricator, Benchmark, Union):** match the before/after section exactly.
+- **Geometric (2915),** not in that section, reads Brown Sugar and Honey (confirmed 2 of 2; our Honey sits under the roaster's Brown Sugar), Strawberry (confirmed 1 of 2), then Caramelized, Citrus Fruit and Other Fruit (not confirmed).
+- **Integrity:** `runCatalogIntegrityChecks().allPass = true`; `evidenceIntegrity` shows the two known failures only (#2, #6).
+- **`CATALOG.md`** regenerated from prod (124 tables, 73 views, 1,130 columns), committed after this section.
+- **Signals:** none recorded; the pooled basis enters each signal at that coffee's next merge or refresh.
+
+```
+# db axisandbloom
+
+## parameter rows
+customer_voice_hit_tier = 2 (since 2026-10-22)
+customer_voice_max_words = 8 (since 2026-10-22)
+session_gap = 2 (since 2026-10-22)
+session_half_life_days = 365 (since 2026-10-22)
+session_rank_ratio = 0.667 (since 2026-10-22)
+
+## v_coffee_dimension_range (merged): dimension midpoint [min–max] weights
+Fabricator House Roast (2917): Fragrance 8.39, Aroma 6.13⚑, Flavor 6.48⚑, Sweetness 5.06⚑, Acidity 4.78, Bitterness 3.8, Body 5.8, Finish Length 5.78
+   weights: s40 0.61 / s37 0.39
+Geometric Filter Coffee (2915): Fragrance 7.83⚑, Aroma 8.3, Flavor 7.7, Sweetness 8.5, Acidity 3.39, Bitterness 2.5, Body 5.56⚑, Finish Length 3.61
+   weights: s40 0.61 / s37 0.39
+Benchmark (2905): Fragrance 5.5, Aroma 6.5, Flavor 7, Sweetness 6.57⚑, Acidity 1.28, Bitterness 2.09, Body 4.5, Finish Length 4
+   weights: s40 1.00
+Union (2934): Fragrance 8.31, Aroma 6.53⚑, Flavor 6.5, Sweetness 6.38⚑, Acidity 4.27, Bitterness 2, Body 7.07⚑, Finish Length 2
+   weights: s40 0.61 / s35 0.39
+
+## getCustomerDescriptors
+Fabricator House Roast (2917): Citrus Fruit [roaster_website, confirmed 1 of 2], Hazelnut [roaster_website, confirmed 1 of 2], Cinnamon [roaster_website]
+Geometric Filter Coffee (2915): Brown Sugar [roaster_website, confirmed 2 of 2], Honey [roaster_website, confirmed 2 of 2], Strawberry [roaster_website, confirmed 1 of 2], Caramelized [roaster_website], Citrus Fruit [roaster_website], Other Fruit [roaster_website]
+Benchmark (2905): Brown Spice [roaster_website, confirmed 2 of 2], Caramelized [roaster_website, confirmed 2 of 2], Cocoa [roaster_website, confirmed 2 of 2]
+Union (2934): Caramelized [roaster_website, confirmed 1 of 2], Nutty [roaster_website, confirmed 1 of 2]
+
+## runCatalogIntegrityChecks().allPass = true
+## evidenceIntegrity
+[evidence-integrity] check #2 — No current merged row without a current cupper row on the same sample: 3 (e.g. score 1 (sample 1, coffee 1); score 2 (sample 2, coffee 2); score 3 (sample 3, coffee 3))
+[evidence-integrity] check #6 — No coffee with a home placement and an assignment without a basis: 1 (e.g. Flying Jewel (2891))
+```
