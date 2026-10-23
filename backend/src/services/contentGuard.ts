@@ -45,6 +45,11 @@ export const REFUSAL_PATTERNS: RegExp[] = [
   // see WHAT_WE_BUILT.md #146 for the audit.
   /could you share/i,
   /that would help me/i,
+  // Coffee presentation brief 1, prod run (2026-10-23): Benchmark's surprise
+  // note came back as "Here's a hook for Classic Balanced:" on its own line,
+  // the note after a blank line; the card teaser (first sentence) showed only
+  // the preamble. A reply that opens by announcing its content.
+  /^\s*here'?s (a|an|the|my)\b[^.!?\n]*:\s*(\n|$)/i,
 ];
 
 /** True when `text` looks like Claude declining/talking about missing data

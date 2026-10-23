@@ -82,6 +82,14 @@ describe('leak guard (decision 9)', () => {
     expect(r).toEqual({ text: null, blocked: false, leakRejects: 2, styleRejects: 0, reason: 'leak: 2023' });
   });
 
+  it('a bare preamble ("Here\'s a hook for …:") is a refusal; a sentence that merely starts with "Here\'s" is not', async () => {
+    const { looksLikeRefusal } = guard;
+    expect(looksLikeRefusal("Here's a hook for Classic Balanced:")).toBe(true);
+    // the real prod reply: the preamble line, a blank line, then the note
+    expect(looksLikeRefusal("Here's a hook for Classic Balanced:\n\nMost coffees this smooth fade quietly.")).toBe(true);
+    expect(looksLikeRefusal("Here's the thing: the roaster calls it caramelized and cocoa.")).toBe(false);
+  });
+
   it('a refusal is null at once, a blocked call is blocked, a clean first text needs no retry', async () => {
     expect(await generateWithLeakGuard(async () => 'INSUFFICIENT_DATA', tokens, () => false)).toMatchObject({ text: null, reason: 'refusal', leakRejects: 0 });
     expect(await generateWithLeakGuard(async () => { throw { blocked: true }; }, tokens, (e: any) => e?.blocked)).toMatchObject({ text: null, blocked: true });

@@ -5751,7 +5751,14 @@ Brief: `backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENC
 
 ### 231. Coffee presentation, brief 1: the roaster's voice on every customer surface (2026-10-23)
 
-Brief: `backend/src/features/coffee_presentation/CLAUDE_CODE_PROMPT_COFFEE_PRESENTATION_1.md`, written after Dana's review of Coado (Tiger Stripe, coffee 2914) on the Bloom page. Closing report: `CLOSING_REPORT_1.md` in that folder. **Status: done on the test DB; prod waits for Dana's go.**
+Brief: `backend/src/features/coffee_presentation/CLAUDE_CODE_PROMPT_COFFEE_PRESENTATION_1.md`, written after Dana's review of Coado (Tiger Stripe, coffee 2914) on the Bloom page. Closing report: `CLOSING_REPORT_1.md` in that folder.
+
+**Status: done on prod (2026-10-23).**
+- Commit `c2f368b`, revision `axis-bloom-backend-00770-z88`.
+- Award row written. Backfill: 22 of 22 coffees, 66 texts, 0 rule breaks.
+- `CATALOG.md` regenerated from prod (hash `b5c758f4d477`).
+- New Cloud Scheduler job `coffee-content-backfill`, daily at 10:00 UTC, with the purge job's `x-cron-secret`; test-fired, 200.
+- Follow-up commit: the preamble refusal pattern (Benchmark's "Here's a hook for …:"), plus the report and the catalog.
 
 **Signature and accent, in the database.** `v_coffee_customer_descriptor` keeps every brief 6 column and adds how the page shows each row.
 - `is_signature`: the node's family (tier-1 ancestor via `v_cupping_note_family`) is in `coffee_archetype.descriptor_families` of the coffee's match archetype; otherwise it is an accent. No match archetype, or no families (experimental): all signature.

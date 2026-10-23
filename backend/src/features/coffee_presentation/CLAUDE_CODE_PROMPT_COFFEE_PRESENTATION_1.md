@@ -2,7 +2,7 @@
 
 > Folder: `backend/src/features/coffee_presentation/` · Written 2026-10-22 after Dana's review of Coado (Tiger Stripe, coffee 2914) on the Bloom page · Model: Opus for Part A (view logic with eleven readers) and Part D (prompts + guard), Sonnet for the rest
 > Builds on: `cupping_evidence/DESIGN_CUPPING_EVIDENCE.md` v4 and brief 6 (customer voice). Everything there stands: insert-only evidence, roaster's words lead, our cupping adds confidence only, one writer per table, `*Reads` modules over views, nothing hard-coded, flags never gates.
-> Status: run on the test DB 2026-10-23 (`CLOSING_REPORT_1.md`); prod waits for Dana's go.
+> Status: done on prod 2026-10-23 (commit `c2f368b`, rev `axis-bloom-backend-00770-z88`; `CLOSING_REPORT_1.md`).
 
 ## Why (Dana, 2026-10-22)
 
