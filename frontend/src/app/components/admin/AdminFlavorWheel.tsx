@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { reportError } from '../../lib/errorReporter';
+import { signatureText, accentClauses, type SignatureRow } from '../../lib/signatureLine';
 
 interface Coffee {
   id: number;
@@ -24,7 +25,98 @@ interface WheelRow {
   share?: number;
   cuppers?: string[];
   words?: string[];
+  // Coffee presentation brief 1 (2026-10-23), E1: roastery rows are the
+  // customer voice's roaster rows, with how the customer sees each one.
+  family?: string | null;
+  roaster_channels?: string[];
+  roaster_rank?: number | null;
+  confirmed_by_cupping?: boolean;
+  is_signature?: boolean;
+  qualifies?: boolean;
+  display_order?: number | null;
+  customer_sees?: 'signature' | 'accent' | 'hidden by cap' | 'hidden by tier';
 }
+
+interface PublicContent { aiSummary: string; surpriseNote: string | null; threeVoiceStory: string | null }
+
+/**
+ * Coffee presentation brief 1, E2 — "What the customer sees": the signature
+ * line and accent clauses from the same public read the Bloom page uses
+ * (GET /api/coffees/:id/flavor-wheel) and the three stored texts exactly as
+ * GET /api/coffees/:id/content serves them, with Regenerate (the existing
+ * POST /api/admin/coffees/:id/refresh-content), then a reload.
+ */
+function CustomerSeesBlock({ coffeeId, onRegenerated }: { coffeeId: string; onRegenerated: () => void }) {
+  const { user } = useAuth();
+  const [rows, setRows] = useState<SignatureRow[]>([]);
+  const [content, setContent] = useState<PublicContent | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      const [wheel, text] = await Promise.all([
+        fetch(`/api/coffees/${coffeeId}/flavor-wheel`).then(r => r.json()),
+        fetch(`/api/coffees/${coffeeId}/content`).then(r => r.json()),
+      ]);
+      setRows(Array.isArray(wheel) ? wheel : []);
+      setContent(text);
+    } catch (err) { reportError('[AdminFlavorWheel/customer-sees]', err); }
+  }, [coffeeId]);
+  useEffect(() => { setNote(''); load(); }, [load]);
+
+  async function regenerate() {
+    setBusy(true); setNote('');
+    try {
+      const token = await user!.getIdToken();
+      const res = await fetch(`/api/admin/coffees/${coffeeId}/refresh-content`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      setNote(res.ok ? 'Regenerated.' : `Regenerate failed (${res.status}).`);
+      await load();
+      onRegenerated();
+    } catch (err) { reportError('[AdminFlavorWheel/regenerate]', err); setNote('Regenerate failed.'); }
+    finally { setBusy(false); }
+  }
+
+  const line = signatureText(rows);
+  const clauses = accentClauses(rows);
+  const text = (label: string, value: string | null | undefined) => (
+    <div>
+      <p className="text-xs text-stone-400 uppercase tracking-wide mb-1">{label}</p>
+      {value ? <p className="text-sm text-stone-700 leading-relaxed">{value}</p> : <p className="text-sm text-stone-300">empty</p>}
+    </div>
+  );
+  return (
+    <div className="mb-8 border border-stone-200 rounded-lg p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-sm font-normal text-stone-700">What the customer sees</h2>
+        <div className="flex items-center gap-3">
+          {note && <span className="text-xs text-stone-500">{note}</span>}
+          <button onClick={regenerate} disabled={busy}
+            className="text-xs px-3 py-1.5 rounded border border-stone-300 text-stone-700 hover:bg-stone-50 disabled:opacity-50">
+            {busy ? 'Regenerating…' : 'Regenerate'}
+          </button>
+        </div>
+      </div>
+      <div className="mb-5">
+        <p className="text-xs text-stone-400 uppercase tracking-wide mb-1">Signature notes</p>
+        {line ? <p className="text-[15px] text-stone-800">{line}</p> : <p className="text-sm text-stone-300">no signature notes</p>}
+        {clauses.map(c => <p key={c} className="text-[12.5px] text-stone-500 mt-1">{c}</p>)}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        {text('Summary (ai_summary)', content?.aiSummary)}
+        {text('Surprise note', content?.surpriseNote)}
+        {text('Three voices', content?.threeVoiceStory)}
+      </div>
+    </div>
+  );
+}
+
+const SEES_STYLE: Record<string, string> = {
+  signature: 'bg-stone-800 text-white',
+  accent: 'bg-stone-200 text-stone-700',
+  'hidden by cap': 'bg-stone-100 text-stone-400',
+  'hidden by tier': 'bg-stone-100 text-stone-400',
+};
 
 const SOURCE_LABELS: Record<string, string> = {
   internal: 'Internal Cupping',
@@ -73,6 +165,7 @@ export default function AdminFlavorWheel() {
   }, [user, showInactive]);
 
   // Load wheel data when coffee changes
+  const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
     if (!selectedId) return;
     setLoading(true);
@@ -91,7 +184,7 @@ export default function AdminFlavorWheel() {
         setLoading(false);
       }
     })();
-  }, [selectedId, user]);
+  }, [selectedId, user, reloadKey]);
 
   // Group by source
   const bySource = rows.reduce<Record<string, WheelRow[]>>((acc, row) => {
@@ -126,6 +219,8 @@ export default function AdminFlavorWheel() {
       </div>
 
       {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
+
+      {selectedId && <CustomerSeesBlock coffeeId={selectedId} onRegenerated={() => setReloadKey(k => k + 1)} />}
 
       {loading && <p className="text-stone-400 text-sm">Loading…</p>}
 
@@ -216,6 +311,56 @@ export default function AdminFlavorWheel() {
                             <td className="py-2.5 pr-4 text-stone-600">{(row.cuppers ?? []).join(', ')}</td>
                             <td className="py-2.5 pr-4 text-stone-500">{row.wheel_category}</td>
                             <td className="py-2.5 text-stone-400">{(row.words ?? []).join(', ')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            }
+
+            if (source === 'roastery') {
+              // Coffee presentation brief 1, E2: the customer voice's roaster rows,
+              // in the order the customer sees them (rows the customer never sees last).
+              return (
+                <div key={source}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: SOURCE_COLORS[source] }} />
+                    <h2 className="text-sm font-normal text-stone-700">{SOURCE_LABELS[source]}</h2>
+                    <span className="text-xs text-stone-400">({sourceRows.length} nodes, accepted form notes and the latest website capture)</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead>
+                        <tr className="border-b border-stone-200 text-xs text-stone-400 uppercase tracking-wide">
+                          <th className="pb-2 pr-4">Descriptor</th>
+                          <th className="pb-2 pr-4">Family</th>
+                          <th className="pb-2 pr-4">Named on</th>
+                          <th className="pb-2 pr-4">Form rank</th>
+                          <th className="pb-2 pr-4">Cupping</th>
+                          <th className="pb-2">Customer sees</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sourceRows.map(row => (
+                          <tr key={row.descriptor} className="border-b border-stone-100 hover:bg-stone-50">
+                            <td className="py-2.5 pr-4 text-stone-800">{row.descriptor}</td>
+                            <td className="py-2.5 pr-4 text-stone-500">{row.family ?? row.wheel_category}</td>
+                            <td className="py-2.5 pr-4">
+                              <span className="flex flex-wrap gap-1">
+                                {(row.roaster_channels ?? []).map(ch => (
+                                  <span key={ch} className="px-2 py-0.5 rounded-full text-xs text-white" style={{ backgroundColor: SOURCE_COLORS[source] }}>{ch}</span>
+                                ))}
+                              </span>
+                            </td>
+                            <td className="py-2.5 pr-4 text-stone-500 tabular-nums">{row.roaster_rank ?? '—'}</td>
+                            <td className="py-2.5 pr-4 text-stone-500">{row.confirmed_by_cupping ? 'confirmed' : '—'}</td>
+                            <td className="py-2.5">
+                              {row.customer_sees && (
+                                <span className={`px-2 py-0.5 rounded text-xs ${SEES_STYLE[row.customer_sees] ?? ''}`}>{row.customer_sees}</span>
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>

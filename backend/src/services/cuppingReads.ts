@@ -127,24 +127,78 @@ export interface CustomerDescriptor {
   confirmed_by_cupping: boolean;
   cupping_sessions_named: number | null;
   cupping_sessions_total: number | null;
+  // Coffee presentation brief 1 (2026-10-23): how the page shows the row.
+  // is_signature: the node's family is on the match archetype's
+  // descriptor_families (else an accent, "a hint of ..."); strength from
+  // evidence orders each group; display_order is signature then accent.
+  family_id: string | null;
+  family: string | null;
+  is_signature: boolean;
+  n_roaster_channels: number;
+  roaster_channels: string[];
+  roaster_rank: number | null;
+  cupping_share: number | null;
+  qualifies: boolean;
+  group_order: number | null;
+  display_order: number | null;
 }
 
-/** One coffee's customer voice in display order, capped at param('customer_voice_max_words'). */
-export async function getCustomerDescriptors(coffeeId: number, runner: Runner = db): Promise<CustomerDescriptor[]> {
-  const result = await runner.query(
-    `SELECT node_id, descriptor, wheel_category, wheel_subcategory, tier, voice, rank,
-            confirmed_by_cupping, cupping_sessions_named, cupping_sessions_total
-       FROM v_coffee_customer_descriptor WHERE coffee_id = $1
-      ORDER BY display_order
-      LIMIT (SELECT param('customer_voice_max_words'))::int`,
-    [coffeeId]
-  );
-  return result.rows.map((r: any) => ({
+/** Admin only: every row, with whether and how a customer sees it. */
+export interface CustomerDescriptorAll extends CustomerDescriptor {
+  customer_sees: 'signature' | 'accent' | 'hidden by cap' | 'hidden by tier';
+}
+
+const CUSTOMER_DESCRIPTOR_SELECT = `
+  SELECT node_id, descriptor, wheel_category, wheel_subcategory, tier, voice, rank,
+         confirmed_by_cupping, cupping_sessions_named, cupping_sessions_total,
+         family_id, family, is_signature, n_roaster_channels, roaster_channels, roaster_rank,
+         cupping_share, qualifies, group_order, display_order,
+         CASE WHEN NOT qualifies THEN 'hidden by tier'
+              WHEN group_order > CASE WHEN is_signature THEN param('customer_voice_signature_max') ELSE param('customer_voice_accent_max') END THEN 'hidden by cap'
+              WHEN is_signature THEN 'signature' ELSE 'accent' END AS customer_sees
+    FROM v_coffee_customer_descriptor WHERE coffee_id = $1`;
+
+const numOrNull = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+function toCustomerDescriptor(r: any): CustomerDescriptorAll {
+  return {
     node_id: r.node_id, descriptor: r.descriptor, wheel_category: r.wheel_category, wheel_subcategory: r.wheel_subcategory,
     tier: Number(r.tier), voice: r.voice, rank: Number(r.rank), confirmed_by_cupping: Boolean(r.confirmed_by_cupping),
-    cupping_sessions_named: r.cupping_sessions_named === null ? null : Number(r.cupping_sessions_named),
-    cupping_sessions_total: r.cupping_sessions_total === null ? null : Number(r.cupping_sessions_total),
-  }));
+    cupping_sessions_named: numOrNull(r.cupping_sessions_named),
+    cupping_sessions_total: numOrNull(r.cupping_sessions_total),
+    family_id: r.family_id ?? null, family: r.family ?? null, is_signature: Boolean(r.is_signature),
+    n_roaster_channels: Number(r.n_roaster_channels), roaster_channels: r.roaster_channels ?? [],
+    roaster_rank: numOrNull(r.roaster_rank), cupping_share: numOrNull(r.cupping_share),
+    qualifies: Boolean(r.qualifies), group_order: numOrNull(r.group_order), display_order: numOrNull(r.display_order),
+    customer_sees: r.customer_sees,
+  };
+}
+
+/**
+ * One coffee's customer voice as the page shows it: qualifying rows only, the
+ * signature group capped at param('customer_voice_signature_max') and the
+ * accent group at param('customer_voice_accent_max'), in display order.
+ */
+export async function getCustomerDescriptors(coffeeId: number, runner: Runner = db): Promise<CustomerDescriptor[]> {
+  const result = await runner.query(
+    `SELECT * FROM (${CUSTOMER_DESCRIPTOR_SELECT}) v
+      WHERE customer_sees IN ('signature', 'accent')
+      ORDER BY display_order`,
+    [coffeeId]
+  );
+  return result.rows.map(r => {
+    const { customer_sees: _sees, ...row } = toCustomerDescriptor(r);
+    return row;
+  });
+}
+
+/** Admin (decision 10): every row of one coffee, each with customer_sees; shown rows first in display order. */
+export async function getCustomerDescriptorsAll(coffeeId: number, runner: Runner = db): Promise<CustomerDescriptorAll[]> {
+  const result = await runner.query(
+    `${CUSTOMER_DESCRIPTOR_SELECT}
+      ORDER BY display_order NULLS LAST, is_signature DESC, descriptor`,
+    [coffeeId]
+  );
+  return result.rows.map(toCustomerDescriptor);
 }
 
 /** Overall notes written on a coffee's current score rows, newest session first. */

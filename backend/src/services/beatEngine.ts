@@ -3,7 +3,7 @@ import { db } from '../db/client.js';
 import { getSommelierConfig, type SommelierConfig } from './sommelierConfig.js';
 import { getAliases } from './sommelierRag.js';
 import { getCoffee } from './catalogReads.js';
-import { getCustomerDescriptors } from './cuppingReads.js';
+import { getRoasterVoice, signatureWords } from './roasterVoiceReads.js';
 import { generateOrderPlacedLine } from './storyLayer.js';
 import { createArrivalCard, getBagNumberForCoffee, getMostRecentCard, adjustCard } from './brewCard.js';
 import { writeDialPositionSignal } from './dialPositionSignal.js';
@@ -150,16 +150,18 @@ export async function dispatchOrderPlacedBeat(userId: string, orderId: string, c
     // (D1's flavor identity) instead of a raw archetype_assignments query.
     // Brief 5a: the separate raw name/roaster query is gone too — getCoffee()
     // (v_coffee) already carries name and roaster_name.
-    // Cupping evidence brief 6, C3 (2026-10-21): the customer voice (the
-    // roaster's words, then customers'), never our cupping words; first four.
-    const [aliasMap, coffee, descriptorRows] = await Promise.all([
+    // Cupping evidence brief 6, C3 (2026-10-21): the customer voice, never
+    // our cupping words. Coffee presentation brief 1: through the roaster's
+    // voice read, the signature notes (capped by
+    // param('customer_voice_signature_max'); was the first four words).
+    const [aliasMap, coffee, voice] = await Promise.all([
       getAliases([coffeeId]),
       getCoffee(coffeeId),
-      getCustomerDescriptors(coffeeId),
+      getRoasterVoice(coffeeId, undefined, { descriptorsOnly: true }),
     ]);
     const alias = aliasMap.get(coffeeId) ?? 'This coffee';
     return await generateOrderPlacedLine(
-      { displayName: alias, archetype: coffee?.match_archetype ?? null, topDescriptors: descriptorRows.slice(0, 4).map(r => r.descriptor) },
+      { displayName: alias, archetype: coffee?.match_archetype ?? null, topDescriptors: signatureWords(voice) },
       { rawCoffeeName: coffee?.name ?? null, roasterNames: coffee?.roaster_name ? [coffee.roaster_name] : [] }
     );
   } catch (err) {

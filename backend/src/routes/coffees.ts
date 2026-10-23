@@ -3,34 +3,23 @@ import { db } from '../db/client.js';
 import { getCoffeeSummary, getCoffeeSurpriseNote, getCoffeeThreeVoiceStory } from '../services/claude.js';
 import { resolveBlendForSlot, resolveCoffeeBlend, COLLECTION_DISCOUNT, COLLECTION_MIN_MEMBERS } from '../services/blendResolver.js';
 import { generateCoffeeStoryWithRetry, checkStorySpecificityViolations } from '../services/storyLayer.js';
-import { looksLikeRefusal } from '../services/contentGuard.js';
+import { looksLikeRefusal, looksLikeLeak, bannedTokensFor, generateWithLeakGuard, styleViolation } from '../services/contentGuard.js';
+import { voiceHasRoasterMaterial } from '../services/claude.js';
 import { isClaudeGuardBlocked } from '../services/anthropicGuard.js';
 import {
   getArchetypes, archetypeLabel, getCoffee, getCoffees, getHomeSlot, getSlots, getSellableSlots, getHops, getSizes, getAnchorSize,
   getCategoryCoffees, getCoffeeRetailPrices,
 } from '../services/catalogReads.js';
-import { getMergedRanges, getCustomerDescriptors } from '../services/cuppingReads.js';
-
+import { getCustomerDescriptors } from '../services/cuppingReads.js';
 // Cupping evidence brief 1 (2026-10-18): the numeric dimensions of a coffee's
-// latest merged range (cuppingReads → v_coffee_dimension_range, converted to
-// 0 to 15), in the row shape the dimension readers here have always returned
-// (numeric strings, as pg returned them). Was an average over every score row
-// of every session; session_count is now the score rows the range rests on.
-// v_coffee_dimension_range covers active coffees only.
-async function numericDimensionRows(coffeeId: number) {
-  const ranges = await getMergedRanges(coffeeId);
-  return ranges
-    .filter(r => r.is_numeric && r.value_min !== null && r.value_max !== null)
-    .map(r => ({
-      dimension: r.dimension_name,
-      scale_min_label: r.scale_min_label,
-      scale_max_label: r.scale_max_label,
-      display_order: r.display_order,
-      avg_min: Number(r.value_min).toFixed(1),
-      avg_max: Number(r.value_max).toFixed(1),
-      session_count: String(r.n_scores),
-    }));
-}
+// pooled range in the row shape the dimension readers here have always
+// returned. Coffee presentation brief 1 (2026-10-23): moved to
+// roasterVoiceReads, which every content prompt now reads.
+import { getRoasterVoice, getAwardRemarks, numericDimensionRows } from '../services/roasterVoiceReads.js';
+
+// Coffee presentation brief 1, decision 9: generated texts the leak guard
+// rejected (both attempts counted), for the backfill's report.
+let leakRejectCount = 0;
 
 // C2 Part 1 — a blocked generation call (global kill-switch / daily ceiling)
 // must degrade to "nothing new, keep whatever's cached" — never to "write
@@ -101,17 +90,17 @@ async function resolveDisplayName(coffeeId: string | number): Promise<string | n
 }
 
 export async function fetchCoffeeDataForContent(coffeeId: string | number) {
-  const [coffee, displayName, dimsResult, descriptorRows, roasterBlendResult] = await Promise.all([
+  const [coffee, displayName, voice, awardRemarks, roasterBlendResult] = await Promise.all([
     getCoffee(Number(coffeeId)),
     resolveDisplayName(coffeeId),
-    // Cupping evidence brief 1 (2026-10-18): the merged range through
-    // cuppingReads (v_coffee_dimension_range), same row shape as before;
-    // brief 6: that range is pooled over every session.
-    numericDimensionRows(Number(coffeeId)).then(rows => ({ rows })),
-    // Cupping evidence brief 6, C4 (2026-10-21): the customer voice: the
-    // roaster's words as wheel nodes, then customers'; our cupping only
-    // marks a roaster word confirmed_by_cupping. No inline SQL here.
-    getCustomerDescriptors(Number(coffeeId)),
+    // Coffee presentation brief 1 (2026-10-23), Part C: the roaster's voice
+    // (customer-voice descriptors split signature / accent, the roaster's
+    // remarks and portal answers, an award count, the pooled dimensions) is
+    // the one read; this function no longer reads descriptors or dimensions
+    // on its own.
+    getRoasterVoice(Number(coffeeId)),
+    // the award text, for the leak guard only (never a prompt)
+    getAwardRemarks(Number(coffeeId)),
     db.query(
       `SELECT DISTINCT r.name FROM coffee_sku rb
        JOIN roaster r ON r.id = rb.roaster_id
@@ -134,9 +123,14 @@ export async function fetchCoffeeDataForContent(coffeeId: string | number) {
   return {
     coffee: { name: coffee.name, origin: coffee.origin, process: coffee.process, archetype: coffee.match_archetype },
     displayName,
-    dimensions:   dimsResult.rows,
-    descriptors:  descriptorRows,
+    voice,
+    dimensions:   voice.dimensions,
+    descriptors:  voice.descriptors,
     roasterNames,
+    // decision 9: built per coffee from the data at generation time
+    leakTokens:   bannedTokensFor(awardRemarks, roasterNames, coffee.name ?? null),
+    // Dana's prod-go rules: archetype names (from the database) never name a category
+    archetypeLabels: (await getArchetypes()).map(a => a.label),
   };
 }
 
@@ -210,21 +204,10 @@ export async function generateAndStoreAllContent(
   }));
 
   // Cupping evidence brief 6, C4 (2026-10-21): the words come from the
-  // customer voice (getCustomerDescriptors, already capped and in display
-  // order): the roaster's first, then customers'; never our cupping words.
+  // customer voice: the roaster's first, then customers'; never our cupping
+  // words. Coffee presentation brief 1: signature then accent, each capped by
+  // its parameter (getCustomerDescriptors); the story takes them in that order.
   const topDescriptors = data.descriptors.map(r => r.descriptor);
-
-  // The story's voices: roaster (accepted + website, ranks 1 and 2) and
-  // customers (rank 3). There is no internal voice any more; a roaster word
-  // we tasted too carries confirmed, so the story may say so.
-  const roasterRows = data.descriptors.filter(r => r.voice !== 'customer');
-  const clientRows = data.descriptors.filter(r => r.voice === 'customer');
-  const sourceData: Array<{ source: 'roastery' | 'client'; descriptors: string[]; confirmed: string[] }> = [];
-  if (roasterRows.length) {
-    sourceData.push({ source: 'roastery', descriptors: roasterRows.map(r => r.descriptor),
-      confirmed: roasterRows.filter(r => r.confirmed_by_cupping).map(r => r.descriptor) });
-  }
-  if (clientRows.length) sourceData.push({ source: 'client', descriptors: clientRows.map(r => r.descriptor), confirmed: [] });
 
   // HOME_TASK_5 — skip gracefully when there's truly no usable signal (the
   // coffee-16 "Chocolate" case from S38: no archetype, no cupping data). No
@@ -258,11 +241,15 @@ export async function generateAndStoreAllContent(
   // Cupping evidence brief 6, ruling 7 (2026-10-21): overallNotes is no longer
   // an input (our cuppers' prose never reaches a customer prompt), so the
   // summary needs dimensions or the customer voice's words, like the surprise.
-  const hasSufficientData = dimensionParams.length > 0 || topDescriptors.length > 0;
-  const hasSufficientSurpriseData = dimensionParams.length > 0 || topDescriptors.length > 0;
-  // Brief 6: two voices (roaster and customers), or the roaster alone with at
-  // least one word our cupping confirmed (see getCoffeeThreeVoiceStory).
-  const hasSufficientVoices = sourceData.length >= 2 || (sourceData[0]?.source === 'roastery' && sourceData[0].confirmed.length > 0);
+  // Coffee presentation brief 1, decision 8: with no words, the text is built
+  // from the dimensions and the roaster's remarks / portal answers alone; with
+  // none of those either, nothing is asked (INSUFFICIENT_DATA as today).
+  const hasRoasterMaterial = voiceHasRoasterMaterial(data.voice);
+  const hasSufficientData = dimensionParams.length > 0 || topDescriptors.length > 0 || hasRoasterMaterial;
+  const hasSufficientSurpriseData = hasSufficientData;
+  // D2: the three-voice story writes when there is at least one signature
+  // note, one roaster remark or one portal answer (getCoffeeThreeVoiceStory).
+  const hasSufficientVoices = hasRoasterMaterial;
   if (needsSummary && !hasSufficientData) {
     console.warn(`[coffees/content] insufficient data to generate ai_summary for coffee ${coffeeId}`);
   }
@@ -277,43 +264,53 @@ export async function generateAndStoreAllContent(
   // result that reads like Claude declining/talking about missing data (the
   // REFUSAL_PATTERNS list, or the literal INSUFFICIENT_DATA token the prompts
   // now instruct the model to return in that case) rather than store it.
-  function guardGenerated(field: string, text: string): string | null {
-    if (looksLikeRefusal(text)) {
-      console.warn(`[coffees/content] rejected generated ${field} for coffee ${coffeeId} — looks like a refusal/meta reply, not content: ${JSON.stringify(text.slice(0, 120))}`);
-      return null;
-    }
-    return text;
+  // Coffee presentation brief 1, decision 9 (D3): one generation attempt and
+  // its guards. A text that leaks (the roaster's name, the raw coffee name or
+  // an award token, per contentGuard.looksLikeLeak with this coffee's tokens)
+  // is rejected and asked for once more; a second leak resolves to null, which
+  // the persist step below marks *_generation_failed, with the reason logged
+  // here. A refusal resolves to null at once, as before. `blocked` is the C2
+  // guard (kill-switch / daily ceiling): no attempt at all, nothing written.
+  // Before this brief every null here was treated as blocked, so a refused
+  // field was neither stored nor flagged; refused and blocked are now apart.
+  async function generateGuarded(field: string, gen: () => Promise<string | null>): Promise<{ text: string | null; blocked: boolean }> {
+    const r = await generateWithLeakGuard(gen, data.leakTokens, isClaudeGuardBlocked,
+      text => styleViolation(text, data.archetypeLabels, data.voice.portal.takesIt !== null));
+    leakRejectCount += r.leakRejects;
+    if (r.leakRejects) console.warn(`[coffees/content] leak guard rejected ${field} for coffee ${coffeeId} ${r.leakRejects} time(s)`);
+    if (r.reason === 'refusal') console.warn(`[coffees/content] rejected generated ${field} for coffee ${coffeeId} — looks like a refusal/meta reply, not content`);
+    if (r.styleRejects) console.warn(`[coffees/content] style check rejected ${field} for coffee ${coffeeId} ${r.styleRejects} time(s)${r.reason?.startsWith('style') ? ` (${r.reason}), marked failed` : ''}`);
+    if (r.reason?.startsWith('leak')) console.warn(`[coffees/content] ${field} for coffee ${coffeeId} marked failed: leak guard rejected both attempts (${r.reason})`);
+    return { text: r.text, blocked: r.blocked };
   }
 
-  // C2 Part 1 — a blocked call (global kill-switch / daily ceiling) must
-  // resolve to null via toNullIfBlocked (below) just like a skipped/refused
-  // generation does, but must NOT be treated as "generation ran and came up
-  // empty" when it comes time to persist — see the blocked-flag gating on
-  // the `updates` array further down. Any other error still rejects the
-  // whole Promise.all normally (unchanged from before this task).
-  let summaryBlocked = false, surpriseBlocked = false, storyVoiceBlocked = false;
+  // Dana's prod-go rules (2026-10-23): the three texts never name the coffee
+  // by its archetype, so they take the display name, else "this coffee" (the
+  // story keeps safeName, unchanged).
+  const voiceName = data.displayName ?? 'this coffee';
 
   // Run only what is needed, in parallel
-  const [newSummary, newSurprise, newStory, storyResult] = await Promise.all([
+  const skipped = Promise.resolve({ text: null as string | null, blocked: false });
+  const [summaryRun, surpriseRun, storyVoiceRun, storyResult] = await Promise.all([
     needsSummary && hasSufficientData
-      ? toNullIfBlocked(getCoffeeSummary({ coffeeName: safeName, archetype: archetypeLabelStr, dimensions: dimensionParams, topDescriptors }).then(text => guardGenerated('ai_summary', text)))
-          .then(text => { if (text === null) summaryBlocked = true; return text; })
-      : Promise.resolve<string | null>(null),
+      ? generateGuarded('ai_summary', () => getCoffeeSummary({ coffeeName: voiceName, voice: data.voice }))
+      : skipped,
     needsSurprise && hasSufficientSurpriseData
-      ? toNullIfBlocked(getCoffeeSurpriseNote({ coffeeName: safeName, archetype: archetypeLabelStr, dimensions: dimensionParams, topDescriptors }).then(text => guardGenerated('surprise_note', text)))
-          .then(text => { if (text === null) surpriseBlocked = true; return text; })
-      : Promise.resolve<string | null>(null),
+      ? generateGuarded('surprise_note', () => getCoffeeSurpriseNote({ coffeeName: voiceName, voice: data.voice }))
+      : skipped,
     needsStory && hasSufficientVoices
-      ? toNullIfBlocked(getCoffeeThreeVoiceStory({ coffeeName: safeName, sourceData }).then(text => text === null ? null : guardGenerated('three_voice_story', text)))
-          .then(text => { if (text === null) storyVoiceBlocked = true; return text; })
-      : Promise.resolve<string | null>(null),
+      ? generateGuarded('three_voice_story', () => getCoffeeThreeVoiceStory({ coffeeName: voiceName, voice: data.voice }))
+      : skipped,
     needsStoryText && hasEnoughDataForStory
       ? toNullIfBlocked(generateCoffeeStoryWithRetry(
           { displayName: safeName, archetype: archetypeLabelStr, origin: data.coffee.origin ?? null, process: data.coffee.process ?? null, dimensions: dimensionParams, topDescriptors },
-          { rawCoffeeName: data.coffee.name ?? null, roasterNames: data.roasterNames }
+          // D4: the same per-coffee leak tokens join the story's reject list
+          { rawCoffeeName: data.coffee.name ?? null, roasterNames: data.roasterNames, leakTokens: data.leakTokens }
         ))
       : Promise.resolve(null),
   ]);
+  const newSummary = summaryRun.text, newSurprise = surpriseRun.text, newStory = storyVoiceRun.text;
+  const summaryBlocked = summaryRun.blocked, surpriseBlocked = surpriseRun.blocked, storyVoiceBlocked = storyVoiceRun.blocked;
 
   // C3 — a "refused" field is one that was genuinely attempted (needed,
   // had sufficient data, not blocked) and still came back null — the only
@@ -401,6 +398,8 @@ export interface ContentBackfillResult {
    *  unprocessed candidates are picked up again on the next cron run. */
   blocked: boolean;
   errors: Array<{ coffeeId: number; error: string }>;
+  /** Coffee presentation brief 1: texts the leak guard rejected during this run (every attempt counted). */
+  leakRejects: number;
 }
 
 // ── Out-of-band content generation — C3 (M2 fix) ───────────────────────────
@@ -437,6 +436,7 @@ export async function backfillCoffeeContent(): Promise<ContentBackfillResult> {
   let succeeded = 0;
   let blocked = false;
   const errors: Array<{ coffeeId: number; error: string }> = [];
+  const leakRejectsBefore = leakRejectCount;
 
   for (const row of candidates.rows) {
     if (blocked) break;
@@ -455,28 +455,39 @@ export async function backfillCoffeeContent(): Promise<ContentBackfillResult> {
     }
   }
 
-  return { candidateCount: candidates.rows.length, processed, succeeded, blocked, errors };
+  return { candidateCount: candidates.rows.length, processed, succeeded, blocked, errors, leakRejects: leakRejectCount - leakRejectsBefore };
+}
+
+// Coffee presentation brief 1 (2026-10-23), decision 11: after the prompts
+// change, every active coffee gets one more automatic attempt. Clears the
+// three content *_generation_failed flags on active coffees (never the story
+// flag: Dana edits stories by hand); backfillCoffeeContent then regenerates
+// what is null. Run by hand (features/coffee_presentation/load), not by a route.
+export async function clearContentGenerationFlags(): Promise<number> {
+  const r = await db.query(
+    `UPDATE coffees
+        SET ai_summary_generation_failed = false, surprise_note_generation_failed = false, three_voice_story_generation_failed = false
+      WHERE is_active
+        AND (ai_summary_generation_failed OR surprise_note_generation_failed OR three_voice_story_generation_failed)`
+  );
+  return r.rowCount ?? 0;
 }
 
 // ── Backward-compat wrapper — still used by admin refresh-summary endpoint ────
 export async function generateAndStoreSummary(coffeeId: string | number): Promise<string> {
   const data = await fetchCoffeeDataForContent(coffeeId);
-  const archetypeLabelStr = data.coffee.archetype ? await archetypeLabel(data.coffee.archetype) : null;
-  const safeName = data.displayName ?? archetypeLabelStr ?? 'This coffee';
 
-  const summary = await getCoffeeSummary({
-    coffeeName:      safeName,
-    archetype:       archetypeLabelStr,
-    dimensions:      data.dimensions.map((r: any) => ({
-      dimension:       r.dimension,
-      avg_min:         Number(r.avg_min),
-      avg_max:         Number(r.avg_max),
-      scale_min_label: r.scale_min_label,
-      scale_max_label: r.scale_max_label,
-    })),
-    // brief 6: the customer voice (already capped); no overall notes (ruling 7)
-    topDescriptors:  data.descriptors.map(r => r.descriptor),
-  });
+  // Coffee presentation brief 1: the roaster's voice, and the same leak guard
+  // (one retry) as generateAndStoreAllContent; a second leak stores nothing.
+  let summary = '';
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    summary = await getCoffeeSummary({ coffeeName: data.displayName ?? 'this coffee', voice: data.voice });
+    const leak = looksLikeLeak(summary, data.leakTokens);
+    if (!leak) break;
+    leakRejectCount++;
+    console.warn(`[coffees/refresh-summary] leak guard rejected ai_summary for coffee ${coffeeId} (attempt ${attempt}): contains "${leak}"`);
+    if (attempt === 2) throw new Error(`ai_summary for coffee ${coffeeId} rejected twice by the leak guard`);
+  }
 
   await db.query(`UPDATE coffees SET ai_summary = $1 WHERE id = $2`, [summary, coffeeId]);
   return summary;
@@ -1023,6 +1034,10 @@ router.get('/:coffeeId/hops', async (req, res) => {
 // then customers'; never our cupping words. Same row shape as before: source
 // is 'roastery' for the roaster's voice and 'client' for customers', one row
 // per node (mentions 1, avg_intensity null); confirmed_by_cupping is added.
+// Coffee presentation brief 1 (2026-10-23): the rows are what the page shows
+// (qualifying, each group capped by its parameter) in display order, with
+// family, is_signature and the order fields added; the page draws them in the
+// order given and holds no cap or label map of its own.
 router.get('/:id/flavor-wheel', async (req, res) => {
   const id = Number(req.params.id);
   try {
@@ -1031,6 +1046,7 @@ router.get('/:id/flavor-wheel', async (req, res) => {
       cupping_note_id: r.node_id, wheel_category: r.wheel_category, wheel_subcategory: r.wheel_subcategory,
       descriptor: r.descriptor, source: r.voice === 'customer' ? 'client' : 'roastery',
       mentions: '1', avg_intensity: null, confirmed_by_cupping: r.confirmed_by_cupping,
+      family: r.family, is_signature: r.is_signature, display_order: r.display_order, group_order: r.group_order,
     })));
   } catch (err) {
     console.error('[coffees/flavor-wheel]', err);

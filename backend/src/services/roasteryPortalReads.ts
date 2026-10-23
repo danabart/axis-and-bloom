@@ -312,6 +312,20 @@ export async function getCurrentResponse(portalCoffeeId: string, runner: Runner 
   return r.rows[0] ? hydrateResponse(r.rows[0], runner) : null;
 }
 
+/**
+ * Coffee presentation brief 1 (2026-10-23): the current response of the lineup
+ * coffee linked to a catalog coffee (the most recently touched one when a
+ * catalog coffee has two lineup rows), for roasterVoiceReads.getRoasterVoice.
+ */
+export async function getCurrentResponseForCoffee(coffeeId: number, runner: Runner = db): Promise<PortalResponse | null> {
+  const r = await runner.query(
+    `SELECT cr.* FROM v_roastery_portal_current_response cr
+       JOIN roastery_portal_coffee pc ON pc.id = cr.portal_coffee_id
+      WHERE pc.coffee_id = $1
+      ORDER BY cr.updated_at DESC LIMIT 1`, [coffeeId]);
+  return r.rows[0] ? hydrateResponse(r.rows[0], runner) : null;
+}
+
 export async function getResponseById(responseId: string, runner: Runner = db): Promise<PortalResponse | null> {
   const r = await runner.query(`SELECT * FROM v_roastery_portal_response WHERE id = $1`, [responseId]);
   return r.rows[0] ? hydrateResponse(r.rows[0], runner) : null;

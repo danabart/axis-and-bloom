@@ -30,6 +30,7 @@ import { runCustomerIntegrityChecks } from '../services/customerIntegrity.js';
 import { runDataCatalogIntegrityChecks } from '../services/dataCatalogIntegrity.js';
 import { evidenceSummaryWithIntegrity } from './evidenceAdmin.js';
 import { getDescriptorConsensus } from '../services/evidenceReads.js';
+import { getCustomerDescriptorsAll } from '../services/cuppingReads.js';
 import {
   CatalogError, type Ctx, type ArchetypeCode,
   createCoffee, updateCoffee, retireCoffee, restoreCoffee,
@@ -347,21 +348,28 @@ router.get('/sheet-formats', async (_req, res) => {
 // Cupping evidence brief 6, B2 (2026-10-21): the internal branch is our
 // cupping notes as a consensus per node (evidenceReads.getDescriptorConsensus:
 // "cocoa · 2 of 2 sessions · Dana, Camila"), not one row per merged row; the
-// roastery and client branches are the wheel's, unchanged. Admin only.
+// client branch is the wheel's, unchanged. Admin only.
+// Coffee presentation brief 1 (2026-10-23), E1: the roastery branch is the
+// customer voice's roaster rows (cuppingReads.getCustomerDescriptorsAll, ranks
+// 1 and 2: the accepted form notes and the latest website capture), so the
+// admin wheel and the Bloom page agree; each row carries roaster_channels,
+// is_signature, qualifies, display_order and customer_sees. source stays
+// 'roastery' for the existing page code.
 router.get('/flavor-wheel/:coffeeId', async (req, res) => {
   const { coffeeId } = req.params;
   try {
-    const [result, consensus] = await Promise.all([
+    const [result, consensus, voice] = await Promise.all([
       db.query(
         `SELECT coffee_name, wheel_category, wheel_subcategory, descriptor, source,
                 COUNT(*) AS mentions, AVG(intensity) AS avg_intensity
          FROM v_collaborative_flavor_wheel
-         WHERE coffee_id = $1 AND source <> 'internal'
+         WHERE coffee_id = $1 AND source = 'client'
          GROUP BY coffee_name, wheel_category, wheel_subcategory, descriptor, source
          ORDER BY wheel_category, mentions DESC`,
         [coffeeId]
       ),
       getDescriptorConsensus(Number(coffeeId)),
+      getCustomerDescriptorsAll(Number(coffeeId)),
     ]);
     const internal = consensus.map(c => ({
       wheel_category: c.family, wheel_subcategory: null, descriptor: c.descriptor,
@@ -369,7 +377,14 @@ router.get('/flavor-wheel/:coffeeId', async (req, res) => {
       sessions_named: c.sessions_named, sessions_total: c.sessions_total, share: Number(c.share),
       cuppers: c.cuppers, words: c.words, tier: c.tier,
     }));
-    res.json([...internal, ...result.rows]);
+    const roastery = voice.filter(r => r.rank === 1 || r.rank === 2).map(r => ({
+      wheel_category: r.wheel_category, wheel_subcategory: r.wheel_subcategory, descriptor: r.descriptor,
+      source: 'roastery', mentions: String(Math.max(r.n_roaster_channels, 1)), avg_intensity: null,
+      tier: r.tier, family: r.family, roaster_channels: r.roaster_channels, roaster_rank: r.roaster_rank,
+      confirmed_by_cupping: r.confirmed_by_cupping, is_signature: r.is_signature, qualifies: r.qualifies,
+      display_order: r.display_order, customer_sees: r.customer_sees,
+    }));
+    res.json([...internal, ...roastery, ...result.rows]);
   } catch (err) {
     console.error('[admin/flavor-wheel]', err);
     res.status(500).json({ error: 'Failed to fetch flavor wheel' });

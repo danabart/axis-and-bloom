@@ -2859,9 +2859,28 @@ SELECT v.key, v.value, v.note FROM (VALUES
   ('session_half_life_days',   365,   'Pooled range: a session this many days older than the coffee''s latest session counts half again (time weight 0.5^(days / half-life)). Range: 1 <= value.'),
   ('session_gap',              2,     'Two sessions of one coffee disagree on a dimension when their midpoints differ by more than this (same unit as cupper_gap); a flag, never a gate. Range: 0 <= value.'),
   ('customer_voice_hit_tier',  2,     'Customer voice: a roaster node and a node we named confirm each other when the more general of the two sits at this SCA tier or deeper (1 family, 2 sub-group, 3 leaf). Range: integer 1 <= value <= 3.'),
-  ('customer_voice_max_words', 8,     'Customer voice: the most descriptor words a customer surface shows for one coffee (applied by cuppingReads.getCustomerDescriptors). Range: integer 1 <= value <= 20.')
+  ('customer_voice_max_words', 8,     'Customer voice: the most descriptor words a customer surface shows for one coffee (applied by cuppingReads.getCustomerDescriptors). Range: integer 1 <= value <= 20.'),
+  -- coffee presentation brief 1 (2026-10-23): the reveal panel's one line
+  ('customer_voice_signature_max', 4, 'Customer voice: the most signature notes (family on the match archetype''s descriptor_families) a customer surface shows for one coffee, in evidence order (applied by cuppingReads.getCustomerDescriptors). Range: integer 1 <= value <= 10.'),
+  ('customer_voice_accent_max',    3, 'Customer voice: the most accent notes (family off the match archetype''s descriptor_families, shown as "a hint of ...") a customer surface shows for one coffee (applied by cuppingReads.getCustomerDescriptors). Range: integer 1 <= value <= 10.')
 ) AS v(key, value, note)
 WHERE NOT EXISTS (SELECT 1 FROM evidence_parameter p WHERE p.key = v.key);
+
+-- Coffee presentation brief 1 (2026-10-23): customer_voice_max_words is
+-- replaced by the signature and accent caps. Closed the way
+-- evidenceParameterService.setParameterInTx supersedes (the current row gets
+-- superseded_at, a new row carries the change note), except that the closing
+-- row is itself superseded at the same instant: the key has no current value
+-- afterwards and nothing reads it. Guarded on the current row, so it runs once.
+WITH cur AS (
+  UPDATE evidence_parameter SET superseded_at = clock_timestamp()
+   WHERE key = 'customer_voice_max_words' AND superseded_at IS NULL
+  RETURNING key, value, note, superseded_at
+)
+INSERT INTO evidence_parameter (key, value, since, superseded_at, note)
+SELECT key, value, superseded_at, superseded_at,
+       regexp_replace(note, ' \| changed .*$', '') || ' | closed ' || to_char(superseded_at, 'YYYY-MM-DD') || ': replaced by signature/accent caps, coffee presentation brief 1'
+FROM cur;
 
 CREATE OR REPLACE FUNCTION param(p_key TEXT) RETURNS NUMERIC AS $$
   SELECT value FROM evidence_parameter WHERE key = p_key AND superseded_at IS NULL;
@@ -7086,7 +7105,7 @@ CREATE TABLE IF NOT EXISTS roastery_remark (
   said_by_respondent_id     UUID REFERENCES roastery_portal_respondent(id),
   said_on                   DATE NOT NULL,
   channel                   TEXT NOT NULL CHECK (channel IN ('cupping_table','email','call','visit','website','other')),
-  topic                     TEXT NOT NULL CHECK (topic IN ('classification','descriptor','dimension','brewing','availability','process','origin','roast','general')),
+  topic                     TEXT NOT NULL CHECK (topic IN ('classification','descriptor','dimension','brewing','availability','process','origin','roast','general','award')),
   remark                    TEXT NOT NULL,
   cupping_note_id           UUID REFERENCES cupping_note(id),
   proposed_archetype        archetype_enum,
@@ -7097,6 +7116,19 @@ CREATE TABLE IF NOT EXISTS roastery_remark (
   CHECK (cupping_note_id IS NULL OR topic = 'descriptor'),
   CHECK (proposed_archetype IS NULL OR topic = 'classification')
 );
+-- Coffee presentation brief 1 (2026-10-23): topic gains 'award' (an award the
+-- roaster names; kept in the vault, never shown to a customer by name).
+-- Widened by dropping and re-adding the constraint by name, once.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint
+              WHERE conrelid = 'roastery_remark'::regclass AND conname = 'roastery_remark_topic_check'
+                AND pg_get_constraintdef(oid) NOT LIKE '%''award''%') THEN
+    ALTER TABLE roastery_remark DROP CONSTRAINT roastery_remark_topic_check;
+    ALTER TABLE roastery_remark ADD CONSTRAINT roastery_remark_topic_check
+      CHECK (topic IN ('classification','descriptor','dimension','brewing','availability','process','origin','roast','general','award'));
+  END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS roastery_remark_coffee_idx     ON roastery_remark (coffee_id);
 CREATE INDEX IF NOT EXISTS roastery_remark_roaster_idx    ON roastery_remark (roaster_id, said_on);
 CREATE INDEX IF NOT EXISTS roastery_remark_supersedes_idx ON roastery_remark (supersedes_id);
@@ -7983,9 +8015,18 @@ GROUP BY n.coffee_id, n.cupping_note_id, n.descriptor, n.tier, n.family, st.sess
 -- active roastery_coffee_descriptors, the wheel's roastery branch), rank 2
 -- roaster_website (the latest capture per roaster × coffee, node resolved per
 -- C0), rank 3 customer (the wheel's client branch); one row per node, the
--- lowest rank wins. No cap here: cuppingReads.getCustomerDescriptors applies
--- param('customer_voice_max_words'). The depth guard of the tree walk is a
--- recursion guard, not a threshold (the tree is three tiers).
+-- lowest rank wins. The depth guard of the tree walk is a recursion guard,
+-- not a threshold (the tree is three tiers).
+-- Coffee presentation brief 1 (2026-10-23): each row also says how the page
+-- shows it. is_signature: its family is one of the match archetype's
+-- descriptor_families (accent otherwise); qualifies: a leaf, or a sub-group
+-- with no leaf of the coffee under it (a family never); strength from evidence
+-- (n_roaster_channels, roaster_rank, cupping_share) orders each group, and
+-- display_order is signature then accent, null when the row does not qualify.
+-- No cap here: cuppingReads.getCustomerDescriptors applies
+-- param('customer_voice_signature_max') and param('customer_voice_accent_max').
+-- The view reads roastery_portal_response_note through the current response,
+-- no new view (the four views named in the brief hold every other column).
 CREATE VIEW v_coffee_customer_descriptor AS
 WITH RECURSIVE ancestry AS (
   -- every node with itself and each of its ancestors
@@ -8030,16 +8071,89 @@ hits AS (
   JOIN cupping_note shared ON shared.id = a.ancestor_id
   WHERE b.rank IN (1, 2) AND shared.tier >= param('customer_voice_hit_tier')
   ORDER BY b.coffee_id, b.cupping_note_id, c.sessions_named DESC, c.share DESC
+),
+-- Coffee presentation brief 1, decision 3: the roaster channels that name the
+-- node. The accepted portal descriptor is 'form'; a current descriptor remark
+-- counts its channel (website only from the latest capture, as voices does).
+channels AS (
+  SELECT w.coffee_id, w.cupping_note_id, 'form'::text AS channel
+  FROM v_collaborative_flavor_wheel w WHERE w.source = 'roastery'
+  UNION
+  SELECT r.coffee_id, r.cupping_note_id, r.channel
+  FROM v_roastery_remark r
+  LEFT JOIN website_latest wl ON wl.roaster_id = r.roaster_id AND wl.coffee_id = r.coffee_id
+  WHERE r.is_current AND r.topic = 'descriptor' AND r.coffee_id IS NOT NULL AND r.cupping_note_id IS NOT NULL
+    AND (r.channel <> 'website' OR r.said_on = wl.said_on)
+),
+channel_agg AS (
+  SELECT coffee_id, cupping_note_id, count(*)::int AS n_roaster_channels, array_agg(channel ORDER BY channel) AS roaster_channels
+  FROM channels GROUP BY coffee_id, cupping_note_id
+),
+-- the roaster's own rank on the current portal response of the lineup coffee
+-- linked to the catalog coffee (its best rank when a node is named twice)
+form_rank AS (
+  SELECT pc.coffee_id, n.cupping_note_id, min(n.rank)::int AS roaster_rank
+  FROM roastery_portal_response_note n
+  JOIN v_roastery_portal_current_response cr ON cr.id = n.response_id
+  JOIN roastery_portal_coffee pc ON pc.id = cr.portal_coffee_id
+  WHERE pc.coffee_id IS NOT NULL AND n.cupping_note_id IS NOT NULL
+  GROUP BY pc.coffee_id, n.cupping_note_id
+),
+-- decision 2: the coffee's match archetype and its on-family list. The
+-- families column is text[] of wheel_category labels, so this is the one place
+-- a label is compared (the family node's descriptor to the list), because that
+-- is how coffee_archetype.descriptor_families is stored.
+arch AS (
+  SELECT vc.id AS coffee_id, ca.descriptor_families
+  FROM v_coffee vc
+  JOIN coffee_archetype ca ON ca.code = vc.match_archetype
+),
+vrows AS (
+  SELECT b.coffee_id, b.cupping_note_id AS node_id, cn.descriptor, cn.wheel_category, cn.wheel_subcategory, cn.tier,
+         b.voice, b.rank,
+         (h.coffee_id IS NOT NULL) AS confirmed_by_cupping,
+         h.sessions_named AS cupping_sessions_named,
+         h.sessions_total AS cupping_sessions_total,
+         fam.family_id, fam.family,
+         -- no match archetype, or one with no families (experimental): no split, all signature
+         (a.coffee_id IS NULL OR cardinality(a.descriptor_families) = 0 OR fam.family = ANY (a.descriptor_families)) AS is_signature,
+         COALESCE(ch.n_roaster_channels, 0) AS n_roaster_channels,
+         COALESCE(ch.roaster_channels, ARRAY[]::text[]) AS roaster_channels,
+         fr.roaster_rank,
+         CASE WHEN h.coffee_id IS NOT NULL THEN ROUND(h.sessions_named::numeric / NULLIF(h.sessions_total, 0), 4) END AS cupping_share,
+         -- decision 4: a family is never a note; a sub-group only when no leaf of
+         -- this coffee (any voice) sits under it; a leaf always
+         CASE cn.tier
+           WHEN 1 THEN false
+           WHEN 2 THEN NOT EXISTS (SELECT 1 FROM best b3 JOIN cupping_note leaf ON leaf.id = b3.cupping_note_id
+                                   WHERE b3.coffee_id = b.coffee_id AND leaf.parent_id = b.cupping_note_id AND leaf.is_active)
+           ELSE true
+         END AS qualifies
+  FROM best b
+  JOIN cupping_note cn ON cn.id = b.cupping_note_id AND cn.is_active
+  LEFT JOIN hits h ON h.coffee_id = b.coffee_id AND h.cupping_note_id = b.cupping_note_id
+  LEFT JOIN v_cupping_note_family fam ON fam.cupping_note_id = b.cupping_note_id
+  LEFT JOIN arch a ON a.coffee_id = b.coffee_id
+  LEFT JOIN channel_agg ch ON ch.coffee_id = b.coffee_id AND ch.cupping_note_id = b.cupping_note_id
+  LEFT JOIN form_rank fr ON fr.coffee_id = b.coffee_id AND fr.cupping_note_id = b.cupping_note_id
+),
+-- decision 3: inside signature and inside accent, channels desc, the roaster's
+-- own rank, confirmed first, then the word
+ordered AS (
+  SELECT r.*,
+         CASE WHEN r.qualifies THEN row_number() OVER (
+           PARTITION BY r.coffee_id, r.is_signature, r.qualifies
+           ORDER BY r.n_roaster_channels DESC, r.roaster_rank ASC NULLS LAST, r.confirmed_by_cupping DESC, r.descriptor) END::int AS group_order
+  FROM vrows r
 )
-SELECT b.coffee_id, b.cupping_note_id AS node_id, cn.descriptor, cn.wheel_category, cn.wheel_subcategory, cn.tier,
-       b.voice, b.rank,
-       (h.coffee_id IS NOT NULL) AS confirmed_by_cupping,
-       h.sessions_named AS cupping_sessions_named,
-       h.sessions_total AS cupping_sessions_total,
-       row_number() OVER (PARTITION BY b.coffee_id ORDER BY b.rank, (h.coffee_id IS NOT NULL) DESC, cn.descriptor)::int AS display_order
-FROM best b
-JOIN cupping_note cn ON cn.id = b.cupping_note_id AND cn.is_active
-LEFT JOIN hits h ON h.coffee_id = b.coffee_id AND h.cupping_note_id = b.cupping_note_id;
+-- the brief 6 columns first, in their old order; then the brief 1 columns
+SELECT o.coffee_id, o.node_id, o.descriptor, o.wheel_category, o.wheel_subcategory, o.tier,
+       o.voice, o.rank, o.confirmed_by_cupping, o.cupping_sessions_named, o.cupping_sessions_total,
+       CASE WHEN o.qualifies THEN row_number() OVER (
+         PARTITION BY o.coffee_id, o.qualifies ORDER BY o.is_signature DESC, o.group_order) END::int AS display_order,
+       o.family_id, o.family, o.is_signature, o.n_roaster_channels, o.roaster_channels, o.roaster_rank,
+       o.cupping_share, o.qualifies, o.group_order
+FROM ordered o;
 
 -- Brief 6, decision 7 (2026-10-21): v_palate_shared_traits feeds Liam's
 -- profile line (customerReads.getSharedTraits → liamProfile), so its

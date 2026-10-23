@@ -21,7 +21,7 @@ import { reportError } from '../../lib/errorReporter';
 // weight; sessions_disagree is a pill. The Descriptors tab shows our cupping
 // notes as a consensus per node (k of n sessions) under the family table.
 type Row = Record<string, any>;
-interface CoffeeEvidence { dimensions: Row[]; descriptors: Row[]; archetype: Row | null; calls: Row[]; consensus?: Row[]; history?: Row[] }
+interface CoffeeEvidence { dimensions: Row[]; descriptors: Row[]; archetype: Row | null; calls: Row[]; consensus?: Row[]; history?: Row[]; customerVoice?: Row[] }
 
 const TAB = 'px-3 py-1.5 text-xs uppercase tracking-wide border-b-2';
 const EYEBROW = 'text-xs uppercase tracking-wide text-stone-400';
@@ -85,7 +85,7 @@ export default function EvidencePanel({ coffeeId, apiFetch, onDecideMatch, onDec
         <span className="ml-auto text-xs text-stone-400">Read-only. Decisions go through the existing dialogs.</span>
       </div>
       {tab === 'dimensions' && <DimensionsTab rows={data.dimensions} history={data.history} />}
-      {tab === 'descriptors' && <DescriptorsTab rows={data.descriptors} consensus={data.consensus} />}
+      {tab === 'descriptors' && <DescriptorsTab rows={data.descriptors} consensus={data.consensus} customerVoice={data.customerVoice} />}
       {tab === 'archetype' && (
         <ArchetypeTab archetype={data.archetype} calls={data.calls} onDecideMatch={onDecideMatch} onDecidePlace={onDecidePlace} />
       )}
@@ -198,11 +198,15 @@ export function DimensionsTab({ rows, history = [] }: { rows: Row[]; history?: R
 
 // ── Descriptors ────────────────────────────────────────────────────────────
 export interface WebsiteNote { id: string | number; remark: string; node: string | null }
-export function DescriptorsTab({ rows, website, websiteSource, consensus }: {
+export function DescriptorsTab({ rows, website, websiteSource, consensus, customerVoice }: {
   rows: Row[]; website?: WebsiteNote[]; websiteSource?: string | null;
   /** brief 6: our cupping notes per SCA node (v_evidence_descriptor_consensus) */
   consensus?: Row[];
+  /** coffee presentation brief 1, E3: every customer-voice row with customer_sees (signature / accent / hidden by cap / hidden by tier) */
+  customerVoice?: Row[];
 }) {
+  // the nodes of a family a customer could hear, each with how they see it
+  const sees = (familyId: unknown) => (customerVoice ?? []).filter(v => v.family_id === familyId);
   const style = (r: Row) => r.hit ? 'bg-green-100 text-green-800' : r.miss ? 'bg-amber-100 text-amber-800' : r.extra ? 'bg-stone-200 text-stone-700' : 'bg-white text-stone-500 border border-stone-200';
   const kind = (r: Row) => r.hit ? 'hit' : r.miss ? 'miss' : r.extra ? 'extra' : 'other';
   const yes = (v: unknown) => (v ? <span className="text-stone-800">yes</span> : <span className="text-stone-300">—</span>);
@@ -225,6 +229,7 @@ export function DescriptorsTab({ rows, website, websiteSource, consensus }: {
                 <thead><tr>
                   <th className={TH}>Family</th><th className={TH}>Cuppers</th><th className={TH}>Roaster form</th>
                   <th className={TH}>Roaster remark</th><th className={TH}>Roaster website</th><th className={TH}>Customer</th><th className={TH}>Accepted</th>
+                  <th className={TH}>Customer sees</th>
                 </tr></thead>
                 <tbody>
                   {rows.map(r => (
@@ -236,6 +241,15 @@ export function DescriptorsTab({ rows, website, websiteSource, consensus }: {
                       <td className="py-1.5 pr-4">{yes(r.named_by_roaster_website)}</td>
                       <td className="py-1.5 pr-4">{yes(r.named_by_customer)}</td>
                       <td className="py-1.5 pr-4">{yes(r.accepted_in_catalog)}</td>
+                      <td className="py-1.5 pr-4">
+                        {sees(r.family_id).length
+                          ? sees(r.family_id).map(v => (
+                              <span key={String(v.node_id)} className="mr-2 whitespace-nowrap">
+                                {String(v.descriptor)} <span className={v.customer_sees === 'signature' ? 'text-stone-800' : 'text-stone-400'}>· {String(v.customer_sees)}</span>
+                              </span>
+                            ))
+                          : <span className="text-stone-300">—</span>}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

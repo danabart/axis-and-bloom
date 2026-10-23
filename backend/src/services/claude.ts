@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getSommelierConfig } from './sommelierConfig.js';
 import { guardClaudeCall } from './anthropicGuard.js';
+import type { RoasterVoice } from './roasterVoiceReads.js';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -545,28 +546,97 @@ export async function getRecommendation(
   return block.type === 'text' ? block.text : '';
 }
 
-// Cupping evidence brief 6, ruling 7 (Dana, 2026-10-21): our cuppers' prose
-// (cupping_scores.overall_notes) no longer goes into a customer-facing prompt.
-// The summary and the surprise note are built from the pooled dimensions and
-// the customer voice (the roaster's words) only.
+// Coffee presentation brief 1 (2026-10-23), decisions 6 and 8: the three
+// content prompts read the roaster's voice (roasterVoiceReads.getRoasterVoice)
+// and share one rendering of it and one set of attribution rules. The
+// roaster's words lead: flavor words are the wheel nodes only (signature notes
+// as the core, accent notes as "a hint of"); the roaster's sentences and portal
+// answers are facts to paraphrase, never copied; every tasting claim is
+// attributed to the roaster; our cupping only adds "and we tasted it too".
+// Roaster-blind: the voice carries no roaster name, coffee name, origin or
+// award text (awards are a yes/no), and contentGuard.looksLikeLeak checks the
+// output. Cupping evidence brief 6, ruling 7 still holds: our cuppers' prose
+// never reaches these prompts.
+export type ContentVoice = Pick<RoasterVoice, 'descriptors' | 'remarks' | 'portal' | 'awards' | 'dimensions'>;
+
+/** True when the voice has a word, a remark or a portal answer (the three-voice story's bar, D2). */
+export function voiceHasRoasterMaterial(voice: ContentVoice): boolean {
+  return voice.descriptors.some(d => d.voice !== 'customer' && d.is_signature)
+    || Object.values(voice.remarks).some(list => list.length > 0)
+    || portalFacts(voice).length > 0;
+}
+
+function portalFacts(voice: ContentVoice): string[] {
+  const p = voice.portal;
+  return [
+    p.takesIt ? `How the roaster says it is drunk: ${p.takesIt === 'both' ? 'black or with milk' : p.takesIt === 'milk' ? 'with milk' : p.takesIt}` : null,
+    p.brewNotes ? `The roaster's brew notes: ${p.brewNotes}` : null,
+    p.anythingElse ? `Anything else the roaster added: ${p.anythingElse}` : null,
+    p.roastLevel ? `Roast level: ${p.roastLevel}` : null,
+    p.blendOrSingle ? `Blend or single origin: ${p.blendOrSingle}` : null,
+    p.isDecaf === null ? null : `Decaf: ${p.isDecaf ? 'yes' : 'no'}`,
+  ].filter((s): s is string => s !== null);
+}
+
+/** The roaster's voice as labelled prompt lines (exported for the prompt snapshot test). */
+export function renderVoice(voice: ContentVoice): string {
+  const roaster = voice.descriptors.filter(d => d.voice !== 'customer');
+  const signature = roaster.filter(d => d.is_signature).map(d => d.descriptor);
+  // accent notes, one clause per family in the order the families first appear
+  const accentFamilies: Array<{ family: string; notes: string[] }> = [];
+  for (const d of roaster.filter(r => !r.is_signature)) {
+    const family = d.family ?? d.wheel_category ?? '';
+    const group = accentFamilies.find(g => g.family === family);
+    if (group) group.notes.push(d.descriptor); else accentFamilies.push({ family, notes: [d.descriptor] });
+  }
+  const confirmed = roaster.filter(d => d.confirmed_by_cupping).map(d => d.descriptor);
+  const customers = voice.descriptors.filter(d => d.voice === 'customer').map(d => d.descriptor);
+  const remarkLines = Object.entries(voice.remarks)
+    .filter(([, list]) => list.length)
+    .map(([topic, list]) => `  ${topic}: ${list.join(' / ')}`);
+  const facts = portalFacts(voice);
+  const dimLines = voice.dimensions
+    .map(d => `  ${d.dimension}: ${d.avg_min} to ${d.avg_max} out of 15 (scale from ${d.scale_min_label} to ${d.scale_max_label})`);
+
+  return [
+    `The roaster's signature notes (the core of the cup, strongest first): ${signature.length ? signature.join(', ') : 'none'}`,
+    `The roaster's accent notes (only "a hint of", never the core): ${accentFamilies.length ? accentFamilies.map(g => `${g.family.toLowerCase()}: ${g.notes.join(', ')}`).join('; ') : 'none'}`,
+    confirmed.length ? `Of the roaster's notes, Axis & Bloom's cupping table tasted these too: ${confirmed.join(', ')}` : null,
+    customers.length ? `Customers have noticed: ${customers.join(', ')}` : null,
+    remarkLines.length ? `Facts from the roaster (paraphrase, do not quote):\n${remarkLines.join('\n')}` : null,
+    facts.length ? `The roaster's answers on our form (facts, paraphrase, do not quote):\n${facts.map(f => `  ${f}`).join('\n')}` : null,
+    `Award-winning per the roaster: ${voice.awards.count > 0 ? 'yes' : 'no'}`,
+    `Structure on a 0 to 15 scale (the labels are the two extremes; a middle value is moderate):\n${dimLines.length ? dimLines.join('\n') : '  (no numeric data)'}`,
+  ].filter((s): s is string => s !== null).join('\n\n');
+}
+
+const VOICE_RULES = `Rules:
+- The roaster's words lead. Flavor words: only the notes listed above, never one of your own.
+- The signature notes are the core of the cup; an accent note is only ever "a hint of".
+- Facts from the roaster and their form answers are to be paraphrased, never copied; only the note words may appear verbatim.
+- Attribute every tasting claim to the roaster ("the roaster calls it", "per the roaster", "the roaster recommends it with milk"). Where our cupping table tasted one of the roaster's notes too you may add "and we tasted it too"; never present a tasting as Axis & Bloom's own ("our cupping revealed", "we found", "our cuppers noticed" are not allowed).
+- Structure (body, sweetness, acidity, bitterness, finish) may be described plainly, in proportion to the scale, without saying who measured it; never exaggerate a middle value.
+- Mention customers only if a "Customers have noticed" line is given above; otherwise say nothing about customers.
+- Never name the roaster, the coffee's catalog name, a farm, a country, a region or any place, even when a fact above mentions one. If it is award-winning you may say "an award-winning blend, as the roaster tells it" (or coffee); never name an award, a competition, a medal or a year.
+- Never use an em dash or an en dash. Use commas, periods or colons instead.
+- Never use the word "archetype", and never put a category word such as floral, fruity, balanced, earthy or chocolate & nutty in front of "coffee", "blend", "cup", "style" or "profile" ("a fruity coffee", "this balanced blend"). The notes themselves may be named as flavors.
+- Mention how it is drunk (milk, black, on its own, with milk) only if "How the roaster says it is drunk" is listed above; otherwise say nothing about milk or black, even if a fact above mentions it.`;
+
+// Coffee presentation brief 1, Dana's prod-go rules (2026-10-23): no dashes,
+// no archetype as a category, milk / black only from the portal's takes_it.
+// The archetype is therefore no longer passed to these three prompts, and the
+// prompt text itself carries no dash.
 export async function getCoffeeSummary(params: {
   coffeeName: string;
-  archetype: string | null;
-  dimensions: Array<{ dimension: string; avg_min: number; avg_max: number; scale_min_label: string; scale_max_label: string }>;
-  topDescriptors: string[];
+  voice: ContentVoice;
 }): Promise<string> {
-  const { coffeeName, archetype, dimensions, topDescriptors } = params;
+  const { coffeeName, voice } = params;
 
-  const dimLines = dimensions
-    .map(d => `  ${d.dimension}: ${d.avg_min}–${d.avg_max}/15 (${d.scale_min_label} → ${d.scale_max_label})`)
-    .join('\n');
+  const content = `Write a tasting note of 2 to 3 sentences for "${coffeeName}".
 
-  const content = `Write a 2–3 sentence tasting note for "${coffeeName}"${archetype ? `, a ${archetype} coffee` : ''}.
+${renderVoice(voice)}
 
-Cupping data:
-${dimLines || '  (no numeric data)'}
-
-Top flavor descriptors: ${topDescriptors.length ? topDescriptors.join(', ') : 'none recorded'}
+${VOICE_RULES}
 
 Be warm and specific. Name actual flavors and textures. No marketing language. Under 80 words. If the data above is genuinely insufficient to write this honestly, respond with exactly: INSUFFICIENT_DATA`;
 
@@ -587,22 +657,17 @@ Be warm and specific. Name actual flavors and textures. No marketing language. U
 
 export async function getCoffeeSurpriseNote(params: {
   coffeeName: string;
-  archetype: string | null;
-  dimensions: Array<{ dimension: string; avg_min: number; avg_max: number; scale_min_label: string; scale_max_label: string }>;
-  topDescriptors: string[];
+  voice: ContentVoice;
 }): Promise<string> {
-  const { coffeeName, archetype, dimensions, topDescriptors } = params;
-  const dimLines = dimensions
-    .map(d => `  ${d.dimension}: ${d.avg_min}–${d.avg_max}/15 (${d.scale_min_label} → ${d.scale_max_label})`)
-    .join('\n');
+  const { coffeeName, voice } = params;
 
-  const content = `Write 1–2 sentences surfacing what is surprising or unusual about "${coffeeName}"${archetype ? ` (${archetype} archetype)` : ''}.
+  const content = `Write 1 or 2 sentences surfacing what is surprising or unusual about "${coffeeName}".
 
-This is NOT a tasting note. It is a hook that makes a curious person want to try it. Find the most unexpected or noteworthy thing — a contradiction, an unusual characteristic, something that defies the archetype.
+This is NOT a tasting note. It is a hook that makes a curious person want to try it. Find the most unexpected or noteworthy thing: a contradiction, an unusual characteristic, something its core notes would not lead you to expect.
 
-Cupping dimensions:
-${dimLines || '  (no numeric data)'}
-Top flavor descriptors: ${topDescriptors.length ? topDescriptors.join(', ') : 'none recorded'}
+${renderVoice(voice)}
+
+${VOICE_RULES}
 
 Be direct and editorial. Do not start with the coffee name. Do not use marketing language. Under 50 words. If the data above is genuinely insufficient to write this honestly, respond with exactly: INSUFFICIENT_DATA`;
 
@@ -619,36 +684,26 @@ Be direct and editorial. Do not start with the coffee name. Do not use marketing
   return surpriseBlock.type === 'text' ? surpriseBlock.text : '';
 }
 
-// Cupping evidence brief 6, C4 (2026-10-21): the voices are the roaster's
-// (accepted and website notes, as flavor-wheel words) and customers'. Our
-// cupping is no longer a voice: a roaster word we tasted too is listed in
-// `confirmed`, and the story may say "the roaster's note, and we tasted it
-// too", never present it as our own note. Enough to write: two voices, or the
-// roaster alone with at least one confirmed word.
+// Cupping evidence brief 6, C4 (2026-10-21): the voices are the roaster's and
+// customers'; our cupping is never a voice, only "and we tasted it too".
+// Coffee presentation brief 1 (2026-10-23), D2: it reads the roaster's voice
+// like the other two, and writes when there is at least one signature note,
+// one roaster remark or one portal answer (was: two voices, or the roaster
+// with a confirmed word).
 export async function getCoffeeThreeVoiceStory(params: {
   coffeeName: string;
-  sourceData: Array<{ source: 'roastery' | 'client'; descriptors: string[]; confirmed?: string[] }>;
+  voice: ContentVoice;
 }): Promise<string | null> {
-  const { coffeeName, sourceData } = params;
-  const roaster = sourceData.find(s => s.source === 'roastery');
-  if (sourceData.length < 2 && !(roaster && (roaster.confirmed ?? []).length > 0)) return null;
+  const { coffeeName, voice } = params;
+  if (!voiceHasRoasterMaterial(voice)) return null;
 
-  const SOURCE_NAME: Record<string, string> = {
-    roastery: 'The roaster',
-    client:   'Customers',
-  };
-  const lines = sourceData
-    .map(s => `  ${SOURCE_NAME[s.source] ?? s.source}: ${s.descriptors.join(', ')}`)
-    .concat(roaster && (roaster.confirmed ?? []).length
-      ? [`  Of the roaster's notes, Axis & Bloom's cupping table tasted these too: ${(roaster.confirmed ?? []).join(', ')}`]
-      : [])
-    .join('\n');
+  const content = `Write 2 to 4 sentences narrating how "${coffeeName}" tastes to the people who know it. The roaster's notes lead; customers add what they notice.
 
-  const content = `Write 2–4 sentences narrating how "${coffeeName}" tastes to the people who know it. The roaster's notes lead; customers add what they notice.
+${renderVoice(voice)}
 
-${lines}
+${VOICE_RULES}
 
-Write this as editorial storytelling — not a list. Use only the flavor words above. Where our cupping table tasted one of the roaster's notes too, you may say so ("the roaster's note, and we tasted it too"); never present a word as our own note. Example style: "The roaster calls it stone fruit and floral, and the stone fruit is one we tasted too. Customers have been landing on citrus." Under 80 words. If the data above is genuinely insufficient to write this honestly, respond with exactly: INSUFFICIENT_DATA`;
+Write this as editorial storytelling, not a list. Example style: "The roaster calls it chocolate and almond with a hint of cherry, and the chocolate is one we tasted too." Under 80 words. If the data above is genuinely insufficient to write this honestly, respond with exactly: INSUFFICIENT_DATA`;
 
   // C2 Part 2 — public, unauthenticated surface (see M2). Haiku, unconditionally.
   const storyResponse = await guardClaudeCall('coffee_content', 'claude-haiku-4-5-20251001', () =>

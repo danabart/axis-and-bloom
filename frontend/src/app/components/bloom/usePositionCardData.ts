@@ -4,6 +4,7 @@ import type { Slot, Hop } from './types';
 import type { ContentData } from '../coffee-info/TastingNotes';
 import type { DimensionRow } from '../coffee-info/DimensionBars';
 import type { WheelRow } from '../coffee-info/CollaborativeFlavorWheel';
+import { signatureText } from '../../lib/signatureLine';
 
 /**
  * All fetching/derived state for one position card, extracted out of the
@@ -31,6 +32,10 @@ export function usePositionCardData(slot: Slot, archetype: string, isRevealed: b
     if (!slot.isActive || !slot.coffeeId) return;
     fetch(`/api/coffees/${slot.coffeeId}/content`).then(r => r.json()).then(setContent).catch(err => reportError('[usePositionCardData/content]', err));
     fetch(`/api/coffees/${slot.coffeeId}/hops`).then(r => r.json()).then(setHops).catch(err => reportError('[usePositionCardData/hops]', err));
+    // Coffee presentation brief 1 (2026-10-23), B2: the flavor wheel moved here
+    // from the reveal-gated effect below (as hops did in Part 16 §A): the
+    // collapsed card's teaser falls back to the signature line from these rows.
+    fetch(`/api/coffees/${slot.coffeeId}/flavor-wheel`).then(r => r.json()).then(setWheelRows).catch(err => reportError('[usePositionCardData/flavor-wheel]', err));
 
     Promise.all(
       slot.prices.map(p =>
@@ -47,18 +52,14 @@ export function usePositionCardData(slot: Slot, archetype: string, isRevealed: b
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slot.coffeeId, slot.isActive]);
 
-  // Dimensions + flavor wheel, fetched lazily on first reveal only (hops no
-  // longer live here — see the effect above).
+  // Dimensions, fetched lazily on first reveal only (hops and the flavor wheel
+  // no longer live here — see the effect above).
   useEffect(() => {
     if (!isRevealed || detailLoaded || !slot.coffeeId) return;
     setDetailLoaded(true);
-    Promise.all([
-      fetch(`/api/coffees/${slot.coffeeId}/dimensions`).then(r => r.json()),
-      fetch(`/api/coffees/${slot.coffeeId}/flavor-wheel`).then(r => r.json()),
-    ]).then(([dimData, wheel]) => {
-      setDimensions(dimData.dimensions ?? []);
-      setWheelRows(wheel);
-    }).catch(err => reportError('[usePositionCardData/dimensions-wheel]', err));
+    fetch(`/api/coffees/${slot.coffeeId}/dimensions`).then(r => r.json())
+      .then(dimData => setDimensions(dimData.dimensions ?? []))
+      .catch(err => reportError('[usePositionCardData/dimensions]', err));
   }, [isRevealed, detailLoaded, slot.coffeeId]);
 
   const availableWeights = slot.prices.filter(p => availability?.[p.weightOz]);
@@ -67,7 +68,11 @@ export function usePositionCardData(slot: Slot, archetype: string, isRevealed: b
   // unavailable" (Pricing update, 2026-07-24 — no hardcoded fallback price).
   const isUnpriced = slot.isActive && slot.prices.length === 0;
   const effectivelyActive = slot.isActive && slot.prices.length > 0 && (availability === null || availableWeights.length > 0);
-  const teaser = content?.surpriseNote ? content.surpriseNote.split(/(?<=[.!?])\s/)[0] : null;
+  // B2: the surprise note's first sentence when there is one, else the
+  // signature line from the same rows the reveal panel draws.
+  const teaser = content?.surpriseNote
+    ? content.surpriseNote.split(/(?<=[.!?])\s/)[0]
+    : (signatureText(Array.isArray(wheelRows) ? wheelRows : []) || null);
   const selectedPrice = slot.prices.find(p => p.weightOz === selectedWeight);
 
   return {

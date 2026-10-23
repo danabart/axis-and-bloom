@@ -1,7 +1,7 @@
 import { db } from '../db/client.js';
 import type { Tx } from '../db/client.js';
 import { getSommelierConfig } from './sommelierConfig.js';
-import { getCustomerDescriptors } from './cuppingReads.js';
+import { getRoasterVoice, signatureWords } from './roasterVoiceReads.js';
 import {
   archetypeCode, archetypeLabel, getCoffees, getSellableSlots, getSlotsForCoffees, getHops, getAnchorSize,
 } from './catalogReads.js';
@@ -73,15 +73,17 @@ function editorialSort(a: CoffeeRow, b: CoffeeRow): number {
 }
 
 // Cupping evidence brief 6, C3 (2026-10-21): Liam hears what a customer may
-// hear, the customer voice (cuppingReads.getCustomerDescriptors: the
-// roaster's words as wheel nodes, then customers'), never our cupping words;
-// the first four per coffee, as before.
+// hear, the customer voice, never our cupping words. Coffee presentation
+// brief 1 (2026-10-23): through the roaster's voice read
+// (roasterVoiceReads.getRoasterVoice), the signature notes per coffee, which
+// the read already caps at param('customer_voice_signature_max') (was the
+// first four words, a literal).
 async function getDescriptors(coffeeIds: number[]): Promise<Map<number, string[]>> {
   if (!coffeeIds.length) return new Map();
   const map = new Map<number, string[]>();
-  const rows = await Promise.all(coffeeIds.map(id => getCustomerDescriptors(id)));
+  const voices = await Promise.all(coffeeIds.map(id => getRoasterVoice(id, undefined, { descriptorsOnly: true })));
   coffeeIds.forEach((id, i) => {
-    const words = rows[i].slice(0, 4).map(r => r.descriptor);
+    const words = signatureWords(voices[i]);
     if (words.length) map.set(id, words);
   });
   return map;

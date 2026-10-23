@@ -5749,6 +5749,44 @@ Brief: `backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENC
 
 **Verified:** test then prod; the closing report has the numbers. Full suite: only the six OT-19 failures. Six lints and both builds are clean, catalog integrity passes, and `evidenceIntegrity` shows the two known failures only.
 
+### 231. Coffee presentation, brief 1: the roaster's voice on every customer surface (2026-10-23)
+
+Brief: `backend/src/features/coffee_presentation/CLAUDE_CODE_PROMPT_COFFEE_PRESENTATION_1.md`, written after Dana's review of Coado (Tiger Stripe, coffee 2914) on the Bloom page. Closing report: `CLOSING_REPORT_1.md` in that folder. **Status: done on the test DB; prod waits for Dana's go.**
+
+**Signature and accent, in the database.** `v_coffee_customer_descriptor` keeps every brief 6 column and adds how the page shows each row.
+- `is_signature`: the node's family (tier-1 ancestor via `v_cupping_note_family`) is in `coffee_archetype.descriptor_families` of the coffee's match archetype; otherwise it is an accent. No match archetype, or no families (experimental): all signature.
+- Strength from evidence: `n_roaster_channels` / `roaster_channels` (accepted form note = `form`, plus each channel of the current descriptor remarks), `roaster_rank` (the current portal response), `cupping_share`.
+- `qualifies`: a leaf; a sub-group only with no leaf of the coffee under it; a family never.
+- `group_order` and `display_order` (signature first, then accent; null when the row does not qualify).
+
+**Caps are parameters.** `customer_voice_signature_max` 4 and `customer_voice_accent_max` 3 are seeded. `customer_voice_max_words` is closed by a superseded closing row, so it has no current value and nothing reads it. `cuppingReads.getCustomerDescriptors` applies the caps; `getCustomerDescriptorsAll` gives the admin every row with `customer_sees` (signature / accent / hidden by cap / hidden by tier).
+
+**The look.** The reveal panel's Signature notes block is now one line (`SignatureLine.tsx`, text logic in `lib/signatureLine.ts`) plus one "a hint of <family>: <notes>" clause per accent family. No bars, no "show more", no literal count: `SIGNATURE_COUNT`, `computeStrength` and the expander are gone. The collapsed card's teaser falls back to the signature line when there is no surprise note. The grouped bars (Flavor Intelligence, compare) keep their look but draw the same rows in the read's order; their per-category "+N more" cap is gone.
+
+**One read for the roaster's voice.** `services/roasterVoiceReads.getRoasterVoice` returns the descriptors, the roaster's remarks per topic (general, brewing, roast, process; website from the latest capture, plus table and email), the portal answers, an award count and the pooled dimensions.
+- Never in it: the roaster name, the raw coffee name, the origin, an origin remark or an award's text. A remark or portal answer carrying any of those is withheld whole.
+- Every LLM surface reads it: the three content prompts and the story (`routes/coffees.ts`); Liam's catalog words (`sommelierRag`); the arrival note (`routes/cron.ts`); the order beat (`beatEngine`). The one-line surfaces take the signature words, already capped by the parameter, instead of a literal first four.
+- New portal read: `roasteryPortalReads.getCurrentResponseForCoffee`.
+
+**Prompts and guard.**
+- The three prompts render the voice as labelled lists and follow decision 8's attribution rules. Awards appear only as "award-winning per the roaster: yes".
+- After the first test run: customers only when there is a customer line; structure is described plainly in proportion; no country, region or place.
+- The leak guard is `contentGuard.bannedTokensFor` / `looksLikeLeak` / `generateWithLeakGuard`. The roaster and coffee names are banned as phrases, and every 3+ character word of the coffee's award remarks alone. A leak gets one retry; a second leak marks the field `*_generation_failed`. The story's reject list gains the same tokens.
+- Fixed in passing: before this brief every null generation was treated as "blocked", so a refused field was never stored or flagged.
+- **Dana's prod-go rules (2026-10-23):** no em or en dash; never the word "archetype" or an archetype name as a category ("a fruity coffee"); milk or black only when the portal's `takes_it` is present.
+  - The prompts state the rules. The three texts take the display name, else "this coffee", and no longer pass the archetype. The prompt text carries no dash.
+  - The prompt alone left 15 breaks in 66 test texts, so `contentGuard` enforces the rules. `normalizeDashes` turns a dash between numbers into "to" and any other dash into a comma. `styleViolation` rejects the rest, with archetype names read from `v_coffee_archetype`; up to three attempts, then the field is marked failed.
+  - `getRoasterVoice` also withholds a remark that files the coffee under an archetype ("for those who love bright, fruity coffees").
+  - Final test run: 66 of 66 texts clean, 0 failed fields.
+
+**Awards.** `roastery_remark.topic` gains `award`: CHECK widened by name in a guarded DO block, the one ALTER. Tiger Stripe's award is one new row written through `roasteryRemarkService.recordRemarks` by `features/coffee_presentation/load/recordAward2914.ts` (idempotent, `--expect-db`). It is a one-off loader rather than a `schema.sql` seed because the writer is TypeScript.
+
+**Admin.** The admin Flavor Wheel's roastery branch is now the customer voice's roaster rows, tagged with channel, form rank, cupping and `customer sees`. A **What the customer sees** block shows the signature line, the accent clause and the three stored texts from the public endpoints, with Regenerate (`refresh-content`). The workbench and Coffees page Descriptors tab gain a `Customer sees` column.
+
+**Why Coado's prose was empty.** No Cloud Scheduler job exists for `/api/cron/coffee-content-backfill` (only `purge-stale-anonymous-guests` is scheduled). On test, every active coffee had null texts and no failed flag: never generated. `coffees.clearContentGenerationFlags` (decision 11) clears the three flags on active coffees before the backfill.
+
+**Verified on test:** view, read, voice, guard, prompt-snapshot and SignatureLine tests (19 new) pass, and brief 6's (a)–(g) pass with (g) rewritten for the two caps. Both builds are clean, the six lints pass, and the backfill generated all 22 active coffees with 0 leak rejects and 0 failed flags. Full suite: only the six OT-19 failures. The closing report has the rows, the texts and the reveal-panel screenshot.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

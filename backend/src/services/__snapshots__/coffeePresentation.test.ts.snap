@@ -1,0 +1,116 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`the three prompts read the roaster voice (decision 8) > snapshot: no roaster name, no award text, signature and accent lists present, remarks labelled paraphrase 1`] = `
+[
+  "Write a tasting note of 2 to 3 sentences for "The Classic".
+
+The roaster's signature notes (the core of the cup, strongest first): Chocolate, Almond
+
+The roaster's accent notes (only "a hint of", never the core): fruity: Cherry, Apple
+
+Of the roaster's notes, Axis & Bloom's cupping table tasted these too: Chocolate
+
+Facts from the roaster (paraphrase, do not quote):
+  general: perfect on its own, or with steamed milk
+  brewing: 18g in, 40g out
+
+The roaster's answers on our form (facts, paraphrase, do not quote):
+  How the roaster says it is drunk: black or with milk
+  Roast level: medium
+  Blend or single origin: blend
+  Decaf: no
+
+Award-winning per the roaster: yes
+
+Structure on a 0 to 15 scale (the labels are the two extremes; a middle value is moderate):
+  Body: 5.0 to 9.0 out of 15 (scale from light to heavy)
+
+Rules:
+- The roaster's words lead. Flavor words: only the notes listed above, never one of your own.
+- The signature notes are the core of the cup; an accent note is only ever "a hint of".
+- Facts from the roaster and their form answers are to be paraphrased, never copied; only the note words may appear verbatim.
+- Attribute every tasting claim to the roaster ("the roaster calls it", "per the roaster", "the roaster recommends it with milk"). Where our cupping table tasted one of the roaster's notes too you may add "and we tasted it too"; never present a tasting as Axis & Bloom's own ("our cupping revealed", "we found", "our cuppers noticed" are not allowed).
+- Structure (body, sweetness, acidity, bitterness, finish) may be described plainly, in proportion to the scale, without saying who measured it; never exaggerate a middle value.
+- Mention customers only if a "Customers have noticed" line is given above; otherwise say nothing about customers.
+- Never name the roaster, the coffee's catalog name, a farm, a country, a region or any place, even when a fact above mentions one. If it is award-winning you may say "an award-winning blend, as the roaster tells it" (or coffee); never name an award, a competition, a medal or a year.
+- Never use an em dash or an en dash. Use commas, periods or colons instead.
+- Never use the word "archetype", and never put a category word such as floral, fruity, balanced, earthy or chocolate & nutty in front of "coffee", "blend", "cup", "style" or "profile" ("a fruity coffee", "this balanced blend"). The notes themselves may be named as flavors.
+- Mention how it is drunk (milk, black, on its own, with milk) only if "How the roaster says it is drunk" is listed above; otherwise say nothing about milk or black, even if a fact above mentions it.
+
+Be warm and specific. Name actual flavors and textures. No marketing language. Under 80 words. If the data above is genuinely insufficient to write this honestly, respond with exactly: INSUFFICIENT_DATA",
+  "Write 1 or 2 sentences surfacing what is surprising or unusual about "The Classic".
+
+This is NOT a tasting note. It is a hook that makes a curious person want to try it. Find the most unexpected or noteworthy thing: a contradiction, an unusual characteristic, something its core notes would not lead you to expect.
+
+The roaster's signature notes (the core of the cup, strongest first): Chocolate, Almond
+
+The roaster's accent notes (only "a hint of", never the core): fruity: Cherry, Apple
+
+Of the roaster's notes, Axis & Bloom's cupping table tasted these too: Chocolate
+
+Facts from the roaster (paraphrase, do not quote):
+  general: perfect on its own, or with steamed milk
+  brewing: 18g in, 40g out
+
+The roaster's answers on our form (facts, paraphrase, do not quote):
+  How the roaster says it is drunk: black or with milk
+  Roast level: medium
+  Blend or single origin: blend
+  Decaf: no
+
+Award-winning per the roaster: yes
+
+Structure on a 0 to 15 scale (the labels are the two extremes; a middle value is moderate):
+  Body: 5.0 to 9.0 out of 15 (scale from light to heavy)
+
+Rules:
+- The roaster's words lead. Flavor words: only the notes listed above, never one of your own.
+- The signature notes are the core of the cup; an accent note is only ever "a hint of".
+- Facts from the roaster and their form answers are to be paraphrased, never copied; only the note words may appear verbatim.
+- Attribute every tasting claim to the roaster ("the roaster calls it", "per the roaster", "the roaster recommends it with milk"). Where our cupping table tasted one of the roaster's notes too you may add "and we tasted it too"; never present a tasting as Axis & Bloom's own ("our cupping revealed", "we found", "our cuppers noticed" are not allowed).
+- Structure (body, sweetness, acidity, bitterness, finish) may be described plainly, in proportion to the scale, without saying who measured it; never exaggerate a middle value.
+- Mention customers only if a "Customers have noticed" line is given above; otherwise say nothing about customers.
+- Never name the roaster, the coffee's catalog name, a farm, a country, a region or any place, even when a fact above mentions one. If it is award-winning you may say "an award-winning blend, as the roaster tells it" (or coffee); never name an award, a competition, a medal or a year.
+- Never use an em dash or an en dash. Use commas, periods or colons instead.
+- Never use the word "archetype", and never put a category word such as floral, fruity, balanced, earthy or chocolate & nutty in front of "coffee", "blend", "cup", "style" or "profile" ("a fruity coffee", "this balanced blend"). The notes themselves may be named as flavors.
+- Mention how it is drunk (milk, black, on its own, with milk) only if "How the roaster says it is drunk" is listed above; otherwise say nothing about milk or black, even if a fact above mentions it.
+
+Be direct and editorial. Do not start with the coffee name. Do not use marketing language. Under 50 words. If the data above is genuinely insufficient to write this honestly, respond with exactly: INSUFFICIENT_DATA",
+  "Write 2 to 4 sentences narrating how "The Classic" tastes to the people who know it. The roaster's notes lead; customers add what they notice.
+
+The roaster's signature notes (the core of the cup, strongest first): Chocolate, Almond
+
+The roaster's accent notes (only "a hint of", never the core): fruity: Cherry, Apple
+
+Of the roaster's notes, Axis & Bloom's cupping table tasted these too: Chocolate
+
+Facts from the roaster (paraphrase, do not quote):
+  general: perfect on its own, or with steamed milk
+  brewing: 18g in, 40g out
+
+The roaster's answers on our form (facts, paraphrase, do not quote):
+  How the roaster says it is drunk: black or with milk
+  Roast level: medium
+  Blend or single origin: blend
+  Decaf: no
+
+Award-winning per the roaster: yes
+
+Structure on a 0 to 15 scale (the labels are the two extremes; a middle value is moderate):
+  Body: 5.0 to 9.0 out of 15 (scale from light to heavy)
+
+Rules:
+- The roaster's words lead. Flavor words: only the notes listed above, never one of your own.
+- The signature notes are the core of the cup; an accent note is only ever "a hint of".
+- Facts from the roaster and their form answers are to be paraphrased, never copied; only the note words may appear verbatim.
+- Attribute every tasting claim to the roaster ("the roaster calls it", "per the roaster", "the roaster recommends it with milk"). Where our cupping table tasted one of the roaster's notes too you may add "and we tasted it too"; never present a tasting as Axis & Bloom's own ("our cupping revealed", "we found", "our cuppers noticed" are not allowed).
+- Structure (body, sweetness, acidity, bitterness, finish) may be described plainly, in proportion to the scale, without saying who measured it; never exaggerate a middle value.
+- Mention customers only if a "Customers have noticed" line is given above; otherwise say nothing about customers.
+- Never name the roaster, the coffee's catalog name, a farm, a country, a region or any place, even when a fact above mentions one. If it is award-winning you may say "an award-winning blend, as the roaster tells it" (or coffee); never name an award, a competition, a medal or a year.
+- Never use an em dash or an en dash. Use commas, periods or colons instead.
+- Never use the word "archetype", and never put a category word such as floral, fruity, balanced, earthy or chocolate & nutty in front of "coffee", "blend", "cup", "style" or "profile" ("a fruity coffee", "this balanced blend"). The notes themselves may be named as flavors.
+- Mention how it is drunk (milk, black, on its own, with milk) only if "How the roaster says it is drunk" is listed above; otherwise say nothing about milk or black, even if a fact above mentions it.
+
+Write this as editorial storytelling, not a list. Example style: "The roaster calls it chocolate and almond with a hint of cherry, and the chocolate is one we tasted too." Under 80 words. If the data above is genuinely insufficient to write this honestly, respond with exactly: INSUFFICIENT_DATA",
+]
+`;

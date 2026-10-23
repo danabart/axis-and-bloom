@@ -247,15 +247,23 @@ describe('v_coffee_customer_descriptor: the roaster leads, our cupping confirms 
     });
   });
 
-  it('(g) the cap is applied by the read (getCustomerDescriptors), not the view', async () => {
+  // Coffee presentation brief 1 (2026-10-23): customer_voice_max_words is
+  // replaced by the signature and accent caps; (g) checks the two caps. The
+  // fixture coffee has no match archetype, so every row is signature.
+  it('(g) the caps are applied by the read (getCustomerDescriptors), not the view', async () => {
     await withRollback(async ({ client: c }) => {
       const b = await base(c, 'g');
       for (const [w, n] of [['citrus', 'Citrus Fruit'], ['cinnamon', 'Cinnamon'], ['hazelnut', 'Hazelnut']] as const) await website(c, b, w, n);
       expect((await voice(c, b.coffeeId)).length).toBe(3);
-      await setParameterInTx(c, { key: 'customer_voice_max_words', value: 2, note: 'vitest, rolled back' });
+      await setParameterInTx(c, { key: 'customer_voice_signature_max', value: 2, note: 'vitest, rolled back' });
       const read = await getCustomerDescriptors(b.coffeeId, c);
       expect(read.length).toBe(2);
-      expect(read.every(r => r.voice === 'roaster_website')).toBe(true);
+      expect(read.every(r => r.voice === 'roaster_website' && r.is_signature)).toBe(true);
+      // the accent cap does not touch signature rows
+      await setParameterInTx(c, { key: 'customer_voice_accent_max', value: 1, note: 'vitest, rolled back' });
+      expect((await getCustomerDescriptors(b.coffeeId, c)).length).toBe(2);
+      // the old key is closed: nothing current, param() is null
+      expect((await c.query(`SELECT param('customer_voice_max_words') AS v`)).rows[0].v).toBeNull();
     });
   });
 });

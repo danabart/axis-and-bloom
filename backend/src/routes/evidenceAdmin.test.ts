@@ -88,7 +88,9 @@ describe('GET /api/admin/evidence/*', () => {
   it('parameters (brief 6): every current key with its note; a bad value or an unknown key is refused, nothing written', async () => {
     const list = await (await fetch(`${base}/evidence/parameters`)).json();
     const keys = list.map((p: any) => p.key);
-    for (const k of ['session_rank_ratio', 'session_half_life_days', 'session_gap', 'customer_voice_hit_tier', 'customer_voice_max_words', 'cupper_gap']) expect(keys).toContain(k);
+    for (const k of ['session_rank_ratio', 'session_half_life_days', 'session_gap', 'customer_voice_hit_tier', 'customer_voice_signature_max', 'customer_voice_accent_max', 'cupper_gap']) expect(keys).toContain(k);
+    // coffee presentation brief 1: closed, no current row, so not on the card
+    expect(keys).not.toContain('customer_voice_max_words');
     expect(list.find((p: any) => p.key === 'session_rank_ratio').note).toMatch(/Range: /);
     const put = (key: string, value: unknown) => fetch(`${base}/evidence/parameters/${key}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value, note: 'vitest' }) });
@@ -139,7 +141,7 @@ describe('GET /api/admin/evidence/workbench/*', () => {
     const res = await fetch(`${base}/evidence/workbench/coffee/${blossomId}`);
     expect(res.status).toBe(200);
     const b = await res.json();
-    expect(Object.keys(b).sort()).toEqual(['accepted', 'archetype', 'calls', 'coffee', 'consensus', 'descriptors', 'dimensions', 'history', 'roasterResponse', 'sessions', 'websiteDescriptors']);
+    expect(Object.keys(b).sort()).toEqual(['accepted', 'archetype', 'calls', 'coffee', 'consensus', 'customerVoice', 'descriptors', 'dimensions', 'history', 'roasterResponse', 'sessions', 'websiteDescriptors']);
     expect(b.coffee.name).toBe('Blossom Dark Roast');
     expect(b.sessions.map((s: any) => s.session_id)).toContain(b.archetype.latest_session_id);
     expect(b.roasterResponse.response_id).toBeTruthy();
@@ -206,6 +208,24 @@ describe('a workbench write through the existing endpoints (brief 4 fields)', ()
       await db.query(`DELETE FROM roaster WHERE id = $1`, [roaster.id]);
     }
   }, 30000);
+});
+
+// Coffee presentation brief 1 (2026-10-23), E1: the admin wheel's roastery
+// branch is the customer voice's roaster rows, so it agrees with the public
+// wheel (Dana: "we should align"). Tiger Stripe's brief 2 website capture
+// names Fruity (a family: never a note).
+describe('GET /api/admin/flavor-wheel/:coffeeId (coffee presentation brief 1)', () => {
+  it('roastery rows: what the customer sees, in the same order as the public read, plus the hidden rows tagged', async () => {
+    const { getCustomerDescriptors } = await import('../services/cuppingReads.js');
+    const rows = await (await fetch(`${base}/flavor-wheel/${TIGER_STRIPE}`)).json();
+    const roastery = rows.filter((r: any) => r.source === 'roastery');
+    const shown = roastery.filter((r: any) => r.customer_sees === 'signature' || r.customer_sees === 'accent');
+    const publicRows = (await getCustomerDescriptors(TIGER_STRIPE)).filter(r => r.voice !== 'customer');
+    expect(shown.map((r: any) => r.descriptor)).toEqual(publicRows.map(r => r.descriptor));
+    expect(roastery.find((r: any) => r.descriptor === 'Fruity')).toMatchObject({ customer_sees: 'hidden by tier', qualifies: false });
+    for (const r of roastery) expect(r.roaster_channels.length).toBeGreaterThan(0);
+    expect(rows.some((r: any) => r.source === 'internal')).toBe(true); // the consensus branch is unchanged
+  });
 });
 
 describe('evidenceReads.getFamilies (the D6 input)', () => {

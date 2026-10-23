@@ -13,7 +13,8 @@ import { withTransaction, type Tx } from '../db/client.js';
 import { archetypeCode, getCoffee } from './catalogReads.js';
 
 export const REMARK_CHANNELS = ['cupping_table', 'email', 'call', 'visit', 'website', 'other'] as const;
-export const REMARK_TOPICS = ['classification', 'descriptor', 'dimension', 'brewing', 'availability', 'process', 'origin', 'roast', 'general'] as const;
+// 'award' since coffee presentation brief 1 (2026-10-23): never shown to a customer by name.
+export const REMARK_TOPICS = ['classification', 'descriptor', 'dimension', 'brewing', 'availability', 'process', 'origin', 'roast', 'general', 'award'] as const;
 export type RemarkChannel = (typeof REMARK_CHANNELS)[number];
 export type RemarkTopic = (typeof REMARK_TOPICS)[number];
 

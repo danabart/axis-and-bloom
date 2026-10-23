@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getSommelierConfig } from './sommelierConfig.js';
 import { guardClaudeCall } from './anthropicGuard.js';
+import { looksLikeLeak } from './contentGuard.js';
 
 // HOME_TASK_5 (§4.4) — "their coffee, explained." A dedicated, independent
 // Anthropic client rather than importing from claude.ts: per the S38
@@ -25,9 +26,12 @@ function escapeRegExp(s: string): string {
 // generation prompt is the other half). Whole-word, case-insensitive. Checks
 // three independent things: the coffee's own raw internal name, any roaster
 // name linked to it, and the fixed banned-term list (farm/co-op/lot/etc.).
+// Coffee presentation brief 1 (2026-10-23), D4: `leakTokens` (built per coffee
+// by contentGuard.bannedTokensFor: names as phrases, each award word alone)
+// join the reject list; a hit is a violation like any other.
 export function checkStorySpecificityViolations(
   text: string,
-  params: { rawCoffeeName: string | null; roasterNames: string[]; bannedTerms?: string[] }
+  params: { rawCoffeeName: string | null; roasterNames: string[]; bannedTerms?: string[]; leakTokens?: string[] }
 ): string[] {
   const violations: string[] = [];
   const bannedTerms = params.bannedTerms ?? getBannedTerms();
@@ -44,6 +48,9 @@ export function checkStorySpecificityViolations(
   for (const term of bannedTerms) {
     const re = new RegExp(`\\b${escapeRegExp(term)}\\b`, 'i');
     if (re.test(text)) violations.push(`banned term "${term}"`);
+  }
+  for (const token of params.leakTokens ?? []) {
+    if (looksLikeLeak(text, [token])) violations.push(`roaster-blind term "${token}"`);
   }
   return violations;
 }
@@ -116,7 +123,7 @@ export interface StoryGenResult {
 // admin to fix, and is never promoted to the live `story` field.
 export async function generateCoffeeStoryWithRetry(
   params: StoryGenParams,
-  identity: { rawCoffeeName: string | null; roasterNames: string[] },
+  identity: { rawCoffeeName: string | null; roasterNames: string[]; leakTokens?: string[] },
   maxRetries = 2
 ): Promise<StoryGenResult> {
   let lastText = '';
@@ -151,7 +158,7 @@ async function generateOneWarmSentence(
   label: string,
   promptCore: string,
   fallback: string,
-  identity: { rawCoffeeName: string | null; roasterNames: string[] }
+  identity: { rawCoffeeName: string | null; roasterNames: string[]; leakTokens?: string[] }
 ): Promise<string> {
   async function attempt(correctionNote?: string): Promise<string> {
     const correction = correctionNote
@@ -193,7 +200,7 @@ async function generateOneWarmSentence(
 // code + config — see brewCard.ts's computeRecipe()).
 export async function generateBrewNoteSentence(
   params: { displayName: string; archetype: string | null; topDescriptors: string[] },
-  identity: { rawCoffeeName: string | null; roasterNames: string[] }
+  identity: { rawCoffeeName: string | null; roasterNames: string[]; leakTokens?: string[] }
 ): Promise<string> {
   const promptCore = `Write exactly one warm, editorial sentence (max 30 words) introducing "${params.displayName}"${params.archetype ? `, a ${params.archetype} coffee` : ''} for a customer whose bag just arrived. Refer to it only as "${params.displayName}" or "this coffee" — never invent another name.
 ${params.topDescriptors.length ? `Top flavor descriptors: ${params.topDescriptors.join(', ')}` : ''}
@@ -209,7 +216,7 @@ Rules: one sentence only, no title, no markdown. Never name a specific farm, co-
 // order-confirmation response (orders.ts), never stored beyond that response.
 export async function generateOrderPlacedLine(
   params: { displayName: string; archetype: string | null; topDescriptors: string[] },
-  identity: { rawCoffeeName: string | null; roasterNames: string[] }
+  identity: { rawCoffeeName: string | null; roasterNames: string[]; leakTokens?: string[] }
 ): Promise<string> {
   const promptCore = `Write exactly one warm, editorial sentence (max 30 words) telling a customer what's coming — they just ordered "${params.displayName}"${params.archetype ? `, a ${params.archetype} coffee` : ''} — and naming one specific thing about it worth noticing before it arrives. Refer to it only as "${params.displayName}" or "this coffee" — never invent another name.
 ${params.topDescriptors.length ? `Top flavor descriptors: ${params.topDescriptors.join(', ')}` : ''}

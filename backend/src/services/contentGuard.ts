@@ -56,3 +56,124 @@ export function looksLikeRefusal(text: string): boolean {
   if (trimmed.toUpperCase() === INSUFFICIENT_DATA_TOKEN) return true;
   return REFUSAL_PATTERNS.some(re => re.test(trimmed));
 }
+
+// Coffee presentation brief 1 (2026-10-23), decision 9 — the roaster-blind
+// guard, built per coffee from the data at generation time (never written into
+// config or code, like storyLayer.bannedTerms is config): the roaster's names
+// and the raw coffee name as whole phrases, and every word of three or more
+// characters of the coffee's award remarks on its own (so "Golden", "Bean" and
+// "2023" each reject). Award text is passed in by the caller
+// (roasterVoiceReads.getAwardRemarks); it never reaches a prompt.
+export function bannedTokensFor(awardRemarks: string[], roasterNames: string[], rawName: string | null): string[] {
+  const words = awardRemarks.flatMap(a => a.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []);
+  const phrases = [...roasterNames, rawName ?? '']
+    .map(s => s.trim().toLowerCase())
+    .filter(s => s.length > 2);
+  return [...new Set([...phrases, ...words])];
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** The first banned token `text` contains (whole word or phrase, case-insensitive), or null when it is clean. */
+export function looksLikeLeak(text: string, tokens: string[]): string | null {
+  for (const t of tokens) {
+    const re = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(t)}(?![\\p{L}\\p{N}])`, 'iu');
+    if (re.test(text)) return t;
+  }
+  return null;
+}
+
+export interface GuardedResult {
+  /** the accepted text, or null (refused, empty, leaked twice, or off-style three times) */
+  text: string | null;
+  /** the C2 guard blocked the call: no attempt, nothing to write */
+  blocked: boolean;
+  /** attempts the leak guard rejected (0, 1 or 2) */
+  leakRejects: number;
+  /** attempts the style check rejected (Dana's prod-go rules) */
+  styleRejects: number;
+  /** why text is null when it was attempted: 'refusal', 'empty', 'leak: <token>' or 'style: <why>' */
+  reason: string | null;
+}
+
+// Coffee presentation brief 1, Dana's prod-go rules (2026-10-23). The prompt
+// states them; the model does not keep them reliably (11 dashes and 4
+// archetype categories in 66 test texts), so they are enforced here.
+
+/** No em or en dash in a customer text: a dash between numbers reads "to", any other becomes a comma. */
+export function normalizeDashes(text: string): string {
+  return text
+    .replace(/(\d[\p{L}%°]*)\s*[–—]\s*(\d)/gu, '$1 to $2')
+    .replace(/\s*[–—]\s*/g, ', ')
+    .replace(/,\s*([.,;:!?])/g, '$1')
+    .replace(/^,\s*/, '');
+}
+
+const CATEGORY_NOUNS = 'coffee|coffees|blend|blends|cup|cups|category|style|profile|family|type';
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * The style check: the word "archetype", an archetype name used as a category
+ * ("a fruity coffee", "this Balanced blend"; names come from the database), or
+ * milk / latte words when the roaster gave no takes_it answer. Null when clean.
+ */
+export function styleViolation(text: string, archetypeLabels: string[], takesItPresent: boolean): string | null {
+  if (/archetype/i.test(text)) return '"archetype"';
+  if (archetypeLabels.length) {
+    const re = new RegExp(`(?<![\\p{L}])(${archetypeLabels.map(escapeRe).join('|')})\\s+(${CATEGORY_NOUNS})(?![\\p{L}])`, 'iu');
+    const m = re.exec(text);
+    if (m) return `category "${m[0]}"`;
+  }
+  if (!takesItPresent) {
+    const m = /\b(milk|latte|cortado|cappuccino|flat white)\b/i.exec(text);
+    if (m) return `"${m[0]}" without a takes_it answer`;
+  }
+  return null;
+}
+
+/**
+ * Decision 9 (D3): one generation and its guards. Dashes are normalised first.
+ * A refusal-like reply is null at once (as before). A reply that leaks a
+ * banned token is asked for once more; a second leak is null with the reason,
+ * which the caller marks *_generation_failed. A reply that breaks the style
+ * check is asked for again, up to three attempts in all. `isBlocked`
+ * recognises the C2 guard's error (kill-switch / daily ceiling), which is no
+ * attempt at all. `gen` is the model call, so a test can pass a stub.
+ */
+export async function generateWithLeakGuard(
+  gen: () => Promise<string | null>,
+  tokens: string[],
+  isBlocked: (err: unknown) => boolean,
+  style: (text: string) => string | null = () => null,
+): Promise<GuardedResult> {
+  let leakRejects = 0;
+  let styleRejects = 0;
+  let reason = '';
+  try {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const raw = await gen();
+      if (raw === null || !raw.trim()) return { text: null, blocked: false, leakRejects, styleRejects, reason: 'empty' };
+      if (looksLikeRefusal(raw)) return { text: null, blocked: false, leakRejects, styleRejects, reason: 'refusal' };
+      const text = normalizeDashes(raw.trim());
+      const leak = looksLikeLeak(text, tokens);
+      if (leak) {
+        leakRejects++;
+        reason = `leak: ${leak}`;
+        if (leakRejects === 2) break;
+        continue;
+      }
+      const off = style(text);
+      if (!off) return { text, blocked: false, leakRejects, styleRejects, reason: null };
+      styleRejects++;
+      reason = `style: ${off}`;
+    }
+    return { text: null, blocked: false, leakRejects, styleRejects, reason };
+  } catch (err) {
+    if (isBlocked(err)) return { text: null, blocked: true, leakRejects, styleRejects, reason: null };
+    throw err;
+  }
+}
