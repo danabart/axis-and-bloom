@@ -2,7 +2,7 @@
 
 > Folder: `backend/src/features/coffee_presentation/` · Written 2026-10-24 · Model: Sonnet throughout (no new view logic; Opus not needed)
 > Builds on briefs 1 and 2 (live 2026-10-23/24), `data_catalog/REVIEW_DATA_MODEL_2026-10-17.md` §3.2 and item 5.1, and Dana's calibration decisions of 2026-10-18 (bands are cut from bridge-flight data, not floated).
-> Status: done on test 2026-10-24 (`CLOSING_REPORT_3.md`, `WHAT_WE_BUILT.md` #234); prod waiting for Dana's go.
+> Status: done on prod 2026-10-24 (`d2d45a2`; `CLOSING_REPORT_3.md`, `WHAT_WE_BUILT.md` #234).
 
 ## Why (Dana, 2026-10-24)
 

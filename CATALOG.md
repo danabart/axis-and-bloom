@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-10-24 from database `axisandbloom` · 124 tables · 74 views · 1130 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `dc2b165cf089` (full value in the footer).
+Generated 2026-10-24 from database `axisandbloom` · 124 tables · 74 views · 1130 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `eecbf797c680` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -457,10 +457,10 @@ Lookup of order kinds (manual, subscription_renewal, gift_redemption, liam_follo
 
 #### `evidence_parameter`
 
-Thresholds and weights the evidence rules use (cupper_gap, roaster_rank_gap, spearman_min_n, spearman_rho_cut, rank_corr_min_n, calibration_min_n, estimated_date_review_days, website_recapture_days; brief 6: session_rank_ratio, session_half_life_days, session_gap, customer_voice_hit_tier, customer_voice_max_words (closed 2026-10-23, no current row); coffee presentation brief 1: customer_voice_signature_max, customer_voice_accent_max; brief 2: archetype_profile_min_coffees, dimension_delta_slight/_significant), with history; read through param(key), never typed into a view or a .ts file; a change is a new row superseding the current one; each note ends with the key's sane range
+Thresholds and weights the evidence rules use (cupper_gap, roaster_rank_gap, spearman_min_n, spearman_rho_cut, rank_corr_min_n, calibration_min_n, estimated_date_review_days, website_recapture_days; brief 6: session_rank_ratio, session_half_life_days, session_gap, customer_voice_hit_tier, customer_voice_max_words (closed, no current row); coffee presentation brief 1: customer_voice_signature_max, customer_voice_accent_max; brief 2: archetype_profile_min_coffees, dimension_delta_slight/_significant; brief 3: hop_suggestion_gap), with history; read through param(key), never typed into code; a change supersedes the current row; each note ends with the key's sane range
 
 - **Writer:** evidenceParameterService.setParameterInTx; seed
-- **Readers:** param, cuppingService, compatibilityReads, evidenceReads.getParameters (admin System Health, Evidence parameters card)
+- **Readers:** param, cuppingService, compatibilityReads, admin (hop suggestions), evidenceReads.getParameters (System Health, Evidence parameters card)
 - **Since:** 2026-10-18 (cupping evidence brief 1; admin-editable since brief 6, 2026-10-21)
 
 | column | type | null | comment |
@@ -1064,7 +1064,7 @@ Reserved for dials a user can adjust within an archetype (min and max offset per
 
 #### `archetype_vector`
 
-Seed hypothesis (May 2026 assumed targets): target score range per archetype per flavor dimension (ideal, min, max). No customer-facing sentence reads it since coffee presentation brief 2; read by v_archetype_vectors (GET /api/coffees/archetype-order orders the Bloom page's archetype boxes by distance over it, open), v_archetype_dimension_comparison (admin) and dialSuggestion.getDialSuggestion (review 5.1, open)
+Seed hypothesis (May 2026 assumed targets): target score range per archetype per flavor dimension (ideal, min, max). Read only by v_archetype_vectors and v_archetype_dimension_comparison (admin). No customer-facing or decision-making reader since coffee presentation brief 3.
 
 - **Writer:** seed
 - **Readers:** v_archetype_vectors, v_archetype_dimension_comparison
@@ -1275,8 +1275,8 @@ One row per source's opinion about where a coffee sits on its dial (cupping, roa
 | `confidence` | confidence_enum | yes | Confidence in the signal. One of: low, medium, high (confidence_enum); defaults to medium and no writer sets any other value. |
 | `computed_at` | timestamp with time zone | yes | UTC timestamp the signal was recorded. |
 | `superseded_at` | timestamp with time zone | yes | UTC timestamp a newer signal replaced this one; NULL means current, and only current rows feed the consensus view. \| Writer: dialSuggestion.recordCuppingSignal, orders.POST /:orderId/feedback |
-| `notes` | text | yes | For feedback rows a match key such as "onsite feedback for order <id>" that the order-feedback revision path uses to supersede the prior row; for cupping rows written since cupping evidence brief 1 the basis of the suggested slot (spec_band, or archetype_vector (May 2026 targets) while any slot of the archetype lacks a band); NULL on older cupping rows. \| Writer: dialPositionSignal.writeDialPositionSignal, dialSuggestion.recordCuppingSignal |
-| `suggested_slot_id` | integer | yes | References coffee_dial_slot.id, the slot the source suggests (replaced the dropped suggested_vocabulary_id in brief 5a); set only on cupping rows, NULL for feedback rows. \| Writer: dialSuggestion.recordCuppingSignal |
+| `notes` | text | yes | For feedback rows a match key such as "onsite feedback for order <id>" that the order-feedback revision path uses to supersede the prior row; for cupping rows written since cupping evidence brief 1 the basis of the suggested slot; since coffee presentation brief 3 either spec_band (every active slot of the archetype has a band) or "no suggestion: slot(s) <n, n> of <archetype> have no band" (no slot suggested), each followed by what the midpoint was pooled from; rows written before brief 3 may name archetype_vector (May 2026 targets), a basis no longer used; NULL on older cupping rows. \| Writer: dialPositionSignal.writeDialPositionSignal, dialSuggestion.recordCuppingSignal |
+| `suggested_slot_id` | integer | yes | References coffee_dial_slot.id, the slot the source suggests (replaced the dropped suggested_vocabulary_id in brief 5a); set only on cupping rows, NULL for feedback rows and, since coffee presentation brief 3, for a cupping row whose archetype has a slot without a band. \| Writer: dialSuggestion.recordCuppingSignal |
 
 #### `dial_source_weight`
 
@@ -2572,7 +2572,7 @@ Per-archetype split of newsletter subscribers attributed to each campaign, for f
 Archetype target range (min, ideal, max, the May 2026 archetype_vector targets) beside the average midpoint of the latest merged cupping range (v_coffee_dimension_range) of the active coffees matched to the archetype, and their count, per archetype x dimension.
 
 - **Writer:** none (derived)
-- **Readers:** coffees (GET /archetype-stats), dialSuggestion
+- **Readers:** none since coffee presentation brief 3 (GET /archetype-stats removed; getDialSuggestion reads bands, the admin hop suggestions param('hop_suggestion_gap')); kept as the admin's hypothesis-vs-actual view
 - **Since:** 2026-06-12 (latest merged range: 2026-10-18)
 - **reads:** `archetype_vector`, `coffee_archetype`, `coffee_archetype_assignment`, `coffee_dimensions`, `coffees`, `v_coffee_dimension_range`
 
@@ -2599,7 +2599,7 @@ Newsletter subscriber count and percent share per archetype, from subscribers wh
 Target flavor vector per archetype, one row per archetype x dimension with min, ideal and max score.
 
 - **Writer:** none (derived)
-- **Readers:** coffees (GET /archetype-order distance; GET /api/axis/vectors removed, coffee presentation brief 2)
+- **Readers:** none (GET /archetype-order ordered by distance over it until coffee presentation brief 3, now by adjacency; GET /api/axis/vectors removed in brief 2)
 - **Since:** 2026-06-12
 - **reads:** `archetype_vector`, `coffee_archetype`, `coffee_dimensions`
 
@@ -2617,7 +2617,7 @@ One row per coffee (active or not) with roaster name, current match archetype an
 One row per coffee archetype (all six including experimental) exposing code, label and dial metadata, replacing hand-typed archetype name maps
 
 - **Writer:** none (derived)
-- **Readers:** catalogReads.getArchetypes, routes/axis, roasteryPortalReads, v_coffee_archetype_adjacency
+- **Readers:** catalogReads.getArchetypes (and getArchetypeOrder), routes/axis, roasteryPortalReads, v_coffee_archetype_adjacency
 - **Since:** 2026-09-13
 - **reads:** `coffee_archetype`, `coffee_dimensions`
 
@@ -2626,7 +2626,7 @@ One row per coffee archetype (all six including experimental) exposing code, lab
 Cross-archetype bridge-hop summary (hop counts, more/less split, average confidence) between archetype pairs, from active coffees only
 
 - **Writer:** none (derived)
-- **Readers:** routes/axis (GET /api/axis/adjacency and stats), sommelierRag
+- **Readers:** routes/axis (GET /api/axis/adjacency and stats), sommelierRag, catalogReads.getArchetypeOrder (the Bloom's box order, coffee presentation brief 3)
 - **Since:** 2026-09-13
 - **reads:** `v_coffee_archetype`, `v_coffee_hop`
 
@@ -3227,18 +3227,18 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `api_event` | apiEventLog | apiEventLog (INSERT, UPDATE) | admin, audit-quiz-emails, catalogReads, customerIntegrity, quizIntegrity | — |
 | `archetype_relationship` | none | — | — | — |
 | `archetype_tunable_variable` | none | — | — | — |
-| `archetype_vector` | seed | seed (INSERT) | coffees, dialSuggestion | v_archetype_dimension_comparison, v_archetype_vectors |
+| `archetype_vector` | seed | seed (INSERT) | — | v_archetype_dimension_comparison, v_archetype_vectors |
 | `beat_event` | backfill:backfill-beat-respond-tokens, beatEngine, cron | backfill:backfill-beat-respond-tokens (UPDATE), beatEngine (INSERT, UPDATE), cron (UPDATE) | backfill-beat-respond-tokens, beatEngine, cron, engagementMetrics | — |
 | `brew_card_view_event` | users | users (INSERT) | engagementMetrics | — |
 | `campaign_landing_event` | campaign | campaign (INSERT) | — | campaign_funnel_v |
 | `catalog_change` | customerFacts | customerFacts (INSERT) | customerIntegrity | — |
 | `claude_daily_spend` | anthropicGuard, seed | anthropicGuard (INSERT), seed (UPDATE) | admin, anthropicGuard | — |
-| `coffee_archetype` | catalogService, seed | catalogService (UPDATE), seed (INSERT, UPDATE) | axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, coffees, correct-subscriber-archetypes, cuppingReads, customerIntegrity, customerReads, dialSuggestion, evidenceReads, exportCalibration, freeSlots, index, quiz, quizIntegrity, quizInterpretationBackfill, quizScorer, quizSession, roasteryPortalReads, sommelierRag, users | v_archetype_dimension_comparison, v_archetype_vectors, v_coffee_archetype, v_coffee_customer_descriptor, v_customer_quiz_current, v_customer_timeline, v_quiz_scoring_matrix, v_quiz_session_interpretation_history, v_roastery_portal_dimension_match, v_subscriber_quiz_results |
-| `coffee_archetype_assignment` | catalogService, seed | catalogService (INSERT, UPDATE), seed (INSERT, UPDATE) | admin, axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, coffees, compatibilityReads, cuppingReads, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, freeSlots, roasteryPortalReads, setMatch2917 | v_archetype_dimension_comparison, v_archetype_dimension_profile, v_coffee, v_roastery_portal_dimension_match |
+| `coffee_archetype` | catalogService, seed | catalogService (UPDATE), seed (INSERT, UPDATE) | axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, correct-subscriber-archetypes, cuppingReads, customerIntegrity, customerReads, evidenceReads, exportCalibration, freeSlots, index, quiz, quizIntegrity, quizInterpretationBackfill, quizScorer, quizSession, roasteryPortalReads, sommelierRag, users | v_archetype_dimension_comparison, v_archetype_vectors, v_coffee_archetype, v_coffee_customer_descriptor, v_customer_quiz_current, v_customer_timeline, v_quiz_scoring_matrix, v_quiz_session_interpretation_history, v_roastery_portal_dimension_match, v_subscriber_quiz_results |
+| `coffee_archetype_assignment` | catalogService, seed | catalogService (INSERT, UPDATE), seed (INSERT, UPDATE) | admin, axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, compatibilityReads, cuppingReads, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, freeSlots, roasteryPortalReads, setMatch2917 | v_archetype_dimension_comparison, v_archetype_dimension_profile, v_coffee, v_roastery_portal_dimension_match |
 | `coffee_category` | catalogService, seed | catalogService (DELETE, INSERT, UPDATE), seed (INSERT) | admin, axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, cuppingReads, customerReads, evidenceIntegrity, evidenceReads, freeSlots, roasteryPortalReads, roasteryPortalService, setMatch2917 | v_coffee |
 | `coffee_category_assignment` | catalogService, seed | catalogService (DELETE, INSERT), seed (INSERT) | admin, axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, cuppingReads, customerReads, evidenceIntegrity, evidenceReads, freeSlots, roasteryPortalReads, setMatch2917 | v_coffee |
 | `coffee_dial_slot` | catalogService, seed | catalogService (UPDATE), seed (INSERT) | admin, axis, backfillCustomerFacts, catalogImport, catalogIntegrity, catalogReads, catalogService, cuppingService, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, freeSlots, roasteryPortalReads, setMatch2917, sommelier, sommelierRag, users | v_coffee_hop, v_coffee_sellable_candidate, v_coffee_slot, v_coffee_visibility, v_roastery_portal_dimension_match |
-| `coffee_dimensions` | seed | seed (INSERT, UPDATE) | admin, axis, catalogReads, catalogService, coffees, compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, dialSuggestion, evidenceReads, freeSlots, roasteryPortalReads, sommelierRag | v_archetype_dimension_comparison, v_archetype_dimension_profile, v_archetype_vectors, v_coffee_archetype, v_coffee_dimension_history, v_coffee_dimension_range, v_cupping_scores_readable, v_evidence_cupper_calibration, v_evidence_dimension, v_evidence_roastery_calibration, v_roastery_portal_dimension_match |
+| `coffee_dimensions` | seed | seed (INSERT, UPDATE) | admin, axis, catalogReads, catalogService, coffees, compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, evidenceReads, freeSlots, roasteryPortalReads, sommelierRag | v_archetype_dimension_comparison, v_archetype_dimension_profile, v_archetype_vectors, v_coffee_archetype, v_coffee_dimension_history, v_coffee_dimension_range, v_cupping_scores_readable, v_evidence_cupper_calibration, v_evidence_dimension, v_evidence_roastery_calibration, v_roastery_portal_dimension_match |
 | `coffee_hop` | catalogService | catalogService (DELETE, INSERT) | admin, axis, catalogIntegrity, catalogReads, catalogService, dialSuggestion, qrDoor, sommelierRag | v_coffee_hop |
 | `coffee_retail_price` | catalogService | catalogService (INSERT) | catalogReads, catalogService | — |
 | `coffee_size` | seed | seed (INSERT) | catalogReads, catalogService, customerReads, freeSlots, roasteryPortalReads | v_coffee_sellable_candidate, v_coffee_visibility, v_palate_slot_candidates |
@@ -3257,10 +3257,10 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `cupping_scale` | seed | seed (INSERT) | cuppingReads, cuppingService, evidenceReads | v_cupping_scores_readable |
 | `cupping_scale_step` | seed | seed (INSERT) | cuppingReads | — |
 | `cupping_score_descriptors` | cuppingService, seed | cuppingService (INSERT), seed (INSERT) | admin, cuppingReads, cuppingService, customerReads, evidenceIntegrity, evidenceReads | v_collaborative_flavor_wheel, v_cupping_score_descriptor |
-| `cupping_score_values` | cuppingService, seed | cuppingService (INSERT), seed (INSERT) | coffees, compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, dialSuggestion, evidenceReads, roasteryPortalReads | v_coffee_dimension_history, v_coffee_dimension_range, v_coffee_dimension_range_calibrated, v_cupping_scores_readable |
-| `cupping_scores` | cuppingService, seed | cuppingService (INSERT, UPDATE), seed (INSERT, UPDATE) | admin, coffees, compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, roasteryPortalReads | v_coffee_dimension_history, v_coffee_dimension_range, v_coffee_dimension_range_calibrated, v_collaborative_flavor_wheel, v_cupping_score, v_cupping_score_descriptor, v_cupping_scores_readable, v_cupping_session, v_cupping_session_coffee |
-| `cupping_session_coffees` | cuppingService, seed | cuppingService (DELETE, INSERT, UPDATE), seed (INSERT) | admin, coffees, compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, roasteryPortalReads | v_coffee_dimension_history, v_coffee_dimension_range, v_coffee_dimension_range_calibrated, v_collaborative_flavor_wheel, v_cupping_score, v_cupping_score_descriptor, v_cupping_scores_readable, v_cupping_session, v_cupping_session_coffee |
-| `cupping_sessions` | cuppingService, seed | cuppingService (DELETE, INSERT, UPDATE), seed (INSERT, UPDATE) | coffees, compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, roasteryPortalReads, setMatch2917 | v_coffee_dimension_history, v_coffee_dimension_range, v_cupping_scores_readable, v_cupping_session |
+| `cupping_score_values` | cuppingService, seed | cuppingService (INSERT), seed (INSERT) | compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, evidenceReads, roasteryPortalReads | v_coffee_dimension_history, v_coffee_dimension_range, v_coffee_dimension_range_calibrated, v_cupping_scores_readable |
+| `cupping_scores` | cuppingService, seed | cuppingService (INSERT, UPDATE), seed (INSERT, UPDATE) | admin, compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, evidenceIntegrity, evidenceReads, roasteryPortalReads | v_coffee_dimension_history, v_coffee_dimension_range, v_coffee_dimension_range_calibrated, v_collaborative_flavor_wheel, v_cupping_score, v_cupping_score_descriptor, v_cupping_scores_readable, v_cupping_session, v_cupping_session_coffee |
+| `cupping_session_coffees` | cuppingService, seed | cuppingService (DELETE, INSERT, UPDATE), seed (INSERT) | admin, compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, evidenceIntegrity, evidenceReads, roasteryPortalReads | v_coffee_dimension_history, v_coffee_dimension_range, v_coffee_dimension_range_calibrated, v_collaborative_flavor_wheel, v_cupping_score, v_cupping_score_descriptor, v_cupping_scores_readable, v_cupping_session, v_cupping_session_coffee |
+| `cupping_sessions` | cuppingService, seed | cuppingService (DELETE, INSERT, UPDATE), seed (INSERT, UPDATE) | compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, evidenceIntegrity, evidenceReads, roasteryPortalReads | v_coffee_dimension_history, v_coffee_dimension_range, v_cupping_scores_readable, v_cupping_session |
 | `cupping_sheet_format` | seed | seed (INSERT) | cuppingReads, cuppingService | — |
 | `cupping_sheet_line` | seed | seed (INSERT) | cuppingReads, evidenceReads | v_cupping_sheet_line |
 | `customer_bag_claim` | customerFacts | customerFacts (INSERT) | admin, customerReads, exportCalibration | v_customer_bag_attribution, v_customer_timeline |
@@ -3364,5 +3364,5 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 ---
 
-catalog-hash: dc2b165cf089537899b635490d62126ece45cf1dfe26681ccaa6669486184200
-lineage-hash: 465dc4cbdc3c69932ad485ecf8f0f220d049bffb451e2fad1663c957e03da306
+catalog-hash: eecbf797c680e921305ddb76b2bcce3644bbec4e31aba7a8b19a5208506d8849
+lineage-hash: 5c901eadf11e62d524eaa74842c08e4331a4f1ee4f7bfaf4b1db9a60f39414d7

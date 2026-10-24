@@ -5847,7 +5847,11 @@ Brief: `backend/src/features/coffee_presentation/CLAUDE_CODE_PROMPT_COFFEE_PRESE
 
 Brief: `backend/src/features/coffee_presentation/CLAUDE_CODE_PROMPT_COFFEE_PRESENTATION_3.md`. Closing report: `CLOSING_REPORT_3.md` in that folder. No table, view or column change; no catalog write.
 
-**Status: done on test (2026-10-24), waiting for Dana's go for prod.**
+**Status: done on prod (2026-10-24).**
+- Commit `d2d45a2`, revision `axis-bloom-backend-00775-nwb`.
+- Stories regenerated on prod: 22 passed, 0 dashes, 2 rejects retried.
+- `/archetype-order?archetype=chocolate_nutty` = C&N > Floral > Fruity > Balanced > Earthy (prod has no bridge hop either); `/archetype-stats` returns 404.
+- `CATALOG.md` regenerated from prod (hash `eecbf797c680`).
 
 **Box order by adjacency (decision 1).** `GET /api/coffees/archetype-order` no longer measures Euclidean distance over `v_archetype_vectors`. New read **`catalogReads.getArchetypeOrder(match)`**:
 - A matched customer's archetype first.

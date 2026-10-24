@@ -1,7 +1,7 @@
 # Coffee presentation, brief 3: closing report
 
 > Brief: `CLAUDE_CODE_PROMPT_COFFEE_PRESENTATION_3.md` · Run 2026-10-24 on the **test DB** (`axisandbloom_test`) · `WHAT_WE_BUILT.md` #234, `WHAT_WE_BUILT_DB.md`
-> **Status: done on test, waiting for Dana's go for prod.** Nothing pushed or deployed; prod not read.
+> **Status: done on prod 2026-10-24** (commit `d2d45a2`, revision `axis-bloom-backend-00775-nwb`; prod results at the end).
 
 ## Where the code or the data differs from the brief
 
@@ -174,9 +174,41 @@ COMMENT ON VIEW v_coffee_archetype_adjacency IS $c$Purpose: Cross-archetype brid
 - `runCatalogIntegrityChecks().allPass = true` on test.
 - No `CREATE`, `ALTER` or delete; the only DB writes on test were the 22 stories (twice) through the content writer.
 
-## Prod, on your go
+## Prod (2026-10-24, on Dana's go)
 
-1. Commit this brief's files to main and push (deploy: Actions to Cloud Run).
-2. `load/regenerateStories.ts --expect-db axisandbloom --dry-run`, then the real run. Prints 2914 and 2917.
-3. Verify `GET /api/coffees/archetype-order?archetype=chocolate_nutty` (with prod's adjacency printed beside it) and 2917's story (`/api/coffees/2917/story`).
-4. `npm run catalog:md -- --expect-db axisandbloom`, commit `CATALOG.md` and the prod section of this report.
+1. **Deploy.** Commit `d2d45a2` pushed to main. The Deploy run succeeded (backend and frontend); revision `axis-bloom-backend-00775-nwb`. `evidence_parameter.hop_suggestion_gap` is seeded 0.5 on prod.
+2. **Before / after, computed on prod (read-only).** Identical to test:
+   - `v_coffee_archetype_adjacency` has **0 rows on prod too**, so the box-order table above holds for prod.
+   - All 19 coffees with a merged score went from an archetype_vector slot (18 "slot 1, outlier", 2908 slot 2) to "no band on slots 1, 2, 3, 4"; 2903, 2907 and 2928 have no merged score.
+3. **Story loader.**
+   - Dry run: 22 active coffees, none admin-edited; every current story carried 1 to 4 dashes.
+   - Real run: **22 passed, 0 failed, 0 dashes**. 2 guard rejects (2928 and 2935: "we tasted" with no confirmed note), both passed on the second try.
+4. **Live API checks** (`axis-bloom-backend-oiub7eumya-uc.a.run.app`):
+   - `GET /api/coffees/archetype-order?archetype=chocolate_nutty` returns `["chocolate_nutty","floral","fruity","balanced_sweet","earthy"]`: own, then `sort_order`, since prod has no bridge hop. It was C&N > Earthy > Balanced > Fruity > Floral.
+   - Unmatched returns `["floral","fruity","balanced_sweet","chocolate_nutty","earthy"]`.
+   - `GET /api/coffees/archetype-stats?archetype=chocolate_nutty` returns **404**.
+   - `GET /api/coffees/2914/story` and `/2917/story`: 0 dashes each; dialPosition Classic #2 and Lighter #1. Prod has home slots, so both are named by their display names (Coado, Quieta Non Movere).
+5. **`CATALOG.md`** regenerated from prod: catalog-hash `eecbf797c680…`. Rev 00775's boot log showed check #4 stale (file `dc2b165c…`, live `eecbf797…`, the hash now committed), which the next deploy clears as in brief 2. Check #6 (22 dead-table candidates) is unchanged. `archetype_vector` now lists no code reader.
+
+**2914 (Coado), prod, before** (excerpt): "the beans are washed—cleaned of fruit, then dried slowly—a process… the finish—this is worth paying attention to—lingers" (4 dashes, flavor words unattributed).
+
+**2914, prod, after:**
+> Coado comes from the highlands of Colombia, where altitude and afternoon mist create conditions that slow a coffee cherry's ripening. When the fruit reaches its peak, it's picked and then washed, a process that removes the fruit's outer layers before the beans dry. This cleaning matters: it rinses away some of what would otherwise linger in the cup, leaving behind something quieter and more deliberate.
+>
+> The roaster calls out almond, chocolate, and peanuts as the core flavors here, and we tasted those too. There's a hint of cherry and dried fruit underneath, per the roaster, though they stay restrained.
+>
+> What's worth noticing is the finish. It holds on longer than you might expect from a coffee this understated. The fragrance and aroma are both modest, the sweetness comes through lightly, and the acidity sits moderate rather than bright. The body has some weight to it without feeling heavy. All of this builds toward something that doesn't rush away. It lingers, giving you time to sit with it, to notice how the flavors settle in different parts of your mouth as it cools.
+
+**2917 (Quieta Non Movere), prod, before** (excerpt): "the fragrance leads—bright and insistent, full of hazelnut and cinnamon warmth" (1 dash, flavor words as its own).
+
+**2917, prod, after:**
+> Quieta Non Movere brings together coffees from the highlands of Colombia and the Mogiana region of Brazil, both processed naturally. That method means the fruit stays on the bean as it dries, deepening what ends up in your cup.
+>
+> The roaster calls out hazelnut as the coffee's core character, and we tasted it too. There's a hint of citrus fruit and cinnamon from the roaster's perspective, brightening what would otherwise be a more straightforward cup. The fragrance is notably present when you first open the bag or grind, though the aroma itself settles into something quieter. Flavor builds with a moderate body and restrained sweetness, with acidity that stays muted rather than sharp.
+>
+> What's worth noticing here is how the natural processing shapes the finish. It lingers just enough to let the hazelnut linger with it, a gentle persistence that doesn't demand attention but rewards it. The bitterness stays low, letting those other notes breathe. This is a coffee that doesn't announce itself loudly, but it holds your attention if you let it.
+
+**Still open:**
+- **Prod has no bridge hop between archetypes**, so the adjacency rule gives plain `sort_order` for every customer until hops are authored on the Bloom Dial admin page.
+- **No slot has a band anywhere**, so no slot is suggested until the bands are set.
+- **The story prose limits listed above** (invented claims, "other fruit", "the roaster used a washed process") apply on prod too.
