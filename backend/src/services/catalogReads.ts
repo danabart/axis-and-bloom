@@ -162,6 +162,36 @@ export async function archetypeLabel(code: string, runner: Runner = db): Promise
   return rows.find(r => r.code === code)?.label ?? code;
 }
 
+// Coffee presentation brief 3 (2026-10-24), decision 1: the order of the
+// Bloom page's archetype boxes (GET /api/coffees/archetype-order). The real
+// archetypes (is_archetype) only. A matched customer's archetype first, then
+// the archetypes adjacent to it in v_coffee_archetype_adjacency (bridge hops
+// between active coffees; the view is symmetric, so both columns are read) by
+// hop_count desc, then avg_confidence desc, then the rest; every tie and the
+// rest by coffee_archetype.sort_order. No match, or an unknown or non-flavor
+// code: sort_order. No distance and no archetype_vector.
+export async function getArchetypeOrder(matchArchetype: string | null, runner: Runner = db): Promise<ArchetypeCode[]> {
+  const real = (await getArchetypes(runner)).filter(a => a.is_archetype).sort((a, b) => a.sort_order - b.sort_order);
+  const own = real.find(a => a.code === matchArchetype);
+  if (!own) return real.map(a => a.code);
+  const adjacency = await runner.query<{ other: string; hop_count: string; avg_confidence: string | null }>(
+    `SELECT CASE WHEN archetype_a::text = $1 THEN archetype_b::text ELSE archetype_a::text END AS other, hop_count, avg_confidence
+       FROM v_coffee_archetype_adjacency
+      WHERE archetype_a::text = $1 OR archetype_b::text = $1`,
+    [own.code]
+  );
+  const edge = new Map(adjacency.rows.map(r => [r.other, { hops: Number(r.hop_count), confidence: r.avg_confidence === null ? null : Number(r.avg_confidence) }]));
+  const byConfidence = (x: number | null, y: number | null) => (x === y ? 0 : x === null ? 1 : y === null ? -1 : y - x);
+  const adjacent = real
+    .filter(a => a.code !== own.code && edge.has(a.code))
+    .sort((a, b) => {
+      const ea = edge.get(a.code)!, eb = edge.get(b.code)!;
+      return eb.hops - ea.hops || byConfidence(ea.confidence, eb.confidence) || a.sort_order - b.sort_order;
+    });
+  const rest = real.filter(a => a.code !== own.code && !edge.has(a.code));
+  return [own, ...adjacent, ...rest].map(a => a.code);
+}
+
 // Display names that older rows, emails or clients may still send. Codes, not labels,
 // on the right-hand side: archetypeCode() is the only place a legacy name is understood.
 const LEGACY_LABEL_TO_CODE: Record<string, ArchetypeCode> = {

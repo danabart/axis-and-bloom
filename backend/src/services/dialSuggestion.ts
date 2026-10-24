@@ -1,34 +1,11 @@
 import { db, withTransaction } from '../db/client.js';
-import { archetypeLabel, getArchetypes, getSlots, getCoffee } from './catalogReads.js';
+import { getArchetypes, getSlots, getCoffee } from './catalogReads.js';
 import { getMergedRange, getAllMergedRanges } from './cuppingReads.js';
 
-// Archetype's dominant-dimension bucket width — (target_max - target_min) / N dial
-// slots. Shared meaningfulness threshold used by getDialSuggestion and the Phase 5
-// hop-suggestion endpoint (a delta smaller than one bucket isn't a distinguishable
-// difference on that archetype's own scale). Returns null if any lookup misses.
-//
-// Catalog Blueprint brief 3: N was the dial_position_vocabulary row count for
-// (archetype, dimension); the vocabulary rows have a 1:1 correspondence with
-// this archetype's dial slots (coffee_dial_slot), so N is now getSlots(archetype).length.
-// v_archetype_dimension_comparison is still keyed by the display label, so the
-// hand-typed ARCHETYPE_LABEL map is replaced with archetypeLabel().
-export async function getArchetypeBucketWidth(archetype: string, dimensionId: number): Promise<number | null> {
-  const rangeResult = await db.query(
-    `SELECT vc.target_min, vc.target_max
-     FROM v_archetype_dimension_comparison vc
-     JOIN coffee_dimensions cd ON cd.name = vc.dimension
-     WHERE vc.archetype = $1 AND cd.id = $2`,
-    [await archetypeLabel(archetype), dimensionId]
-  );
-  if (rangeResult.rowCount === 0) return null;
-  const { target_min: targetMin, target_max: targetMax } = rangeResult.rows[0];
-  if (targetMin === null || targetMax === null) return null;
-
-  const n = (await getSlots(archetype)).length;
-  if (n === 0) return null;
-
-  return (Number(targetMax) - Number(targetMin)) / n;
-}
+// getArchetypeBucketWidth (the archetype_vector targets' range / N slots) was
+// removed by coffee presentation brief 3 (2026-10-24, Dana's go): the
+// suggestion uses bands only and the admin hop suggestions read
+// param('hop_suggestion_gap'). Nothing in this module reads archetype_vector.
 
 export interface HopConflict {
   conflicting_coffee: string;
@@ -40,19 +17,27 @@ export interface DialSuggestion {
   // brief 5a dropped the vocabulary id (dial_position_vocabulary no longer
   // exists) — this is the only suggested-position id now, and the only thing
   // dial_position_signal.suggested_slot_id is written from.
-  suggested_slot_id: number;
-  suggested_label: string;
-  suggested_sort_order: number;
+  // Coffee presentation brief 3 (2026-10-24), decision 2: null, with its
+  // label and sort order, when a slot of the archetype has no band.
+  suggested_slot_id: number | null;
+  suggested_label: string | null;
+  suggested_sort_order: number | null;
   avg_score: number;
   session_count: number;
   is_outlier: boolean;
   dimension_name: string;
   hop_conflict?: HopConflict;
   // Cupping evidence brief 1 (Dana, 2026-10-17): what the suggested slot rests
-  // on — 'spec_band' when every active slot of the archetype has
-  // spec_band_lo/hi, else the archetype_vector targets split evenly across the
-  // slots. Written into dial_position_signal.notes by recordCuppingSignal.
-  basis: string;
+  // on. Since coffee presentation brief 3 the only basis is 'spec_band' (every
+  // active slot of the archetype has spec_band_lo/hi); null when there is no
+  // suggestion. The archetype_vector fallback is gone.
+  basis: string | null;
+  /** 'no_band' when an active slot of the archetype lacks spec_band_lo/hi, so nothing is suggested */
+  reason: 'no_band' | null;
+  /** the sort orders of the active slots without a band, ascending (empty when every slot has one) */
+  missingBandSlots: number[];
+  /** the archetype's label, for the signal's notes */
+  archetype_label: string;
 }
 
 export interface AvgCuppingScore {
@@ -61,7 +46,11 @@ export interface AvgCuppingScore {
 }
 
 export const BASIS_SPEC_BAND = 'spec_band';
-export const BASIS_ARCHETYPE_VECTOR = 'archetype_vector (May 2026 targets)';
+
+/** dial_position_signal.notes when nothing is suggested (decision 2). */
+export function noBandNote(missingBandSlots: number[], archetypeLabel: string): string {
+  return `no suggestion: slot(s) ${missingBandSlots.join(', ')} of ${archetypeLabel} have no band`;
+}
 
 // Shared by getDialSuggestion, findHopConflict, hop validation, and hop suggestions —
 // one answer to "what does this coffee's merged cupping data say about this dimension."
@@ -181,61 +170,46 @@ export async function getDialSuggestion(coffeeId: number): Promise<DialSuggestio
   const n = slots.length;
   if (n === 0) return null;
 
-  let suggestedSlot: (typeof slots)[number] | undefined;
-  let suggestedSortOrder: number;
-  let isOutlier: boolean;
-  let basis: string;
-
   // Cupping evidence brief 1, decision 8 (Dana, 2026-10-17): band-first. When
   // every active slot of the archetype carries spec_band_lo/hi, the suggestion
   // is the slot whose band contains the midpoint (the nearest band when none
-  // does, flagged as an outlier). Otherwise the archetype_vector targets
-  // (v_archetype_dimension_comparison, the May 2026 targets) split evenly
-  // across the slots, unchanged. brief 3's slot_spec_check reads the bands
-  // only, so the two readings differ until the bands are set, then agree.
+  // does, flagged as an outlier). Coffee presentation brief 3 (2026-10-24),
+  // decision 2 ("show only data we have, including bands"): otherwise there is
+  // no suggestion, reason 'no_band' with the slots that lack one. The
+  // archetype_vector fallback (the May 2026 targets split evenly across the
+  // slots) is gone; the pooled midpoint is still returned, as evidence.
   const active = slots.filter((s) => s.is_active);
-  const banded = active.length > 0 && active.every((s) => s.spec_band_lo !== null && s.spec_band_hi !== null);
-  if (banded) {
+  if (active.length === 0) return null;
+  const missingBandSlots = active
+    .filter((s) => s.spec_band_lo === null || s.spec_band_hi === null)
+    .map((s) => s.sort_order)
+    .sort((a, b) => a - b);
+
+  let suggestedSlot: (typeof slots)[number] | null = null;
+  let isOutlier = false;
+  if (missingBandSlots.length === 0) {
     const distance = (s: (typeof active)[number]) =>
       avgScore < Number(s.spec_band_lo) ? Number(s.spec_band_lo) - avgScore
         : avgScore > Number(s.spec_band_hi) ? avgScore - Number(s.spec_band_hi) : 0;
     const ranked = [...active].sort((a, b) => distance(a) - distance(b) || a.sort_order - b.sort_order);
     suggestedSlot = ranked[0];
-    suggestedSortOrder = suggestedSlot.sort_order;
     isOutlier = distance(suggestedSlot) > 0;
-    basis = BASIS_SPEC_BAND;
-  } else {
-    const rangeResult = await db.query(
-      `SELECT vc.target_min, vc.target_max
-       FROM v_archetype_dimension_comparison vc
-       JOIN coffee_dimensions cd ON cd.name = vc.dimension
-       WHERE vc.archetype = $1 AND cd.id = $2`,
-      [await archetypeLabel(archetype), dimensionId]
-    );
-    if (rangeResult.rowCount === 0) return null;
-    const { target_min: targetMin, target_max: targetMax } = rangeResult.rows[0];
-    if (targetMin === null || targetMax === null) return null;
-
-    const bucketWidth = (Number(targetMax) - Number(targetMin)) / n;
-    const rawBucket = Math.floor((Number(avgScore) - Number(targetMin)) / bucketWidth) + 1;
-    suggestedSortOrder = Math.min(Math.max(rawBucket, 1), n);
-    isOutlier = rawBucket < 1 || rawBucket > n;
-    suggestedSlot = slots.find((s) => s.sort_order === suggestedSortOrder);
-    basis = BASIS_ARCHETYPE_VECTOR;
   }
-  if (!suggestedSlot) return null;
 
   const hopConflict = await findHopConflict(coffeeId, archetype, dimensionId, Number(avgScore));
 
   return {
-    suggested_slot_id: suggestedSlot.id,
-    suggested_label: suggestedSlot.position_label,
-    suggested_sort_order: suggestedSortOrder,
+    suggested_slot_id: suggestedSlot?.id ?? null,
+    suggested_label: suggestedSlot?.position_label ?? null,
+    suggested_sort_order: suggestedSlot?.sort_order ?? null,
     avg_score: Number(avgScore),
     session_count: score.session_count,
     is_outlier: isOutlier,
     dimension_name: dimensionName,
-    basis,
+    basis: suggestedSlot ? BASIS_SPEC_BAND : null,
+    reason: suggestedSlot ? null : 'no_band',
+    missingBandSlots,
+    archetype_label: archetypeRow.label,
     ...(hopConflict ? { hop_conflict: hopConflict } : {}),
   };
 }
@@ -244,15 +218,18 @@ export async function getDialSuggestion(coffeeId: number): Promise<DialSuggestio
 // dial_position_signal so it accumulates history as new sessions get merged.
 // Never writes to coffee_slot_assignment — reuses getDialSuggestion so all
 // of its null-guards (no archetype, is_archetype = false, no cupping data,
-// no archetype_vector coverage, no slot found) apply here too.
+// no active slot) apply here too.
 //
 // Cupping evidence brief 1 (2026-10-18): called only by
 // cuppingService.refreshDialSignal (lint:cupping). Every call first
 // supersedes the coffee's current cupping signal(s), whatever archetype they
 // were recorded under (an archetype change must not leave the old one
-// current), then inserts the new one when there is a suggestion; with
-// { retract: true }, or when there is no suggestion, it inserts nothing.
+// current), then inserts the new one when getDialSuggestion answers; with
+// { retract: true }, or when it answers null, it inserts nothing.
 // notes carries the suggestion's basis.
+// Coffee presentation brief 3 (2026-10-24), decision 2: a 'no_band' answer is
+// still recorded (the pooled midpoint is evidence) with suggested_slot_id
+// NULL and notes "no suggestion: slot(s) <n, n> of <archetype> have no band".
 export async function recordCuppingSignal(coffeeId: number, opts: { retract?: boolean } = {}): Promise<void> {
   const suggestion = opts.retract ? null : await getDialSuggestion(coffeeId);
 
@@ -271,10 +248,13 @@ export async function recordCuppingSignal(coffeeId: number, opts: { retract?: bo
   // Cupping evidence brief 6, decision 4 (2026-10-21): the midpoint is the
   // pooled one (same read as before); the notes say what it was pooled from.
   const range = suggestion && dimensionId ? await getMergedRange(coffeeId, dimensionId) : null;
+  const head = suggestion
+    ? suggestion.reason === 'no_band' ? noBandNote(suggestion.missingBandSlots, suggestion.archetype_label) : suggestion.basis
+    : null;
   const notes = suggestion
     ? range && range.n_sessions_pooled
-      ? `${suggestion.basis}; pooled ${range.n_sessions_pooled} sessions (ratio ${range.rank_ratio}, half-life ${range.half_life_days} d), latest s${range.session_id}`
-      : suggestion.basis
+      ? `${head}; pooled ${range.n_sessions_pooled} sessions (ratio ${range.rank_ratio}, half-life ${range.half_life_days} d), latest s${range.session_id}`
+      : head
     : null;
 
   // Catalog Blueprint brief 2 (2026-09-14) — last pool-level BEGIN/COMMIT in

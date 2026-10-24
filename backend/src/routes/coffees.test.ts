@@ -146,30 +146,14 @@ describe('Bloom Dial door map (Part 19 §A)', () => {
   });
 });
 
-describe('GET /api/coffees/archetype-stats', () => {
-  it('returns dimension rows (null-safe) for a valid archetype', async () => {
+// GET /api/coffees/archetype-stats removed by coffee presentation brief 3
+// (Dana's go, 2026-10-24): no caller; it served the May 2026 targets.
+describe('GET /api/coffees/archetype-stats (removed)', () => {
+  it('no longer serves the archetype targets', async () => {
     const res = await fetch(`${baseUrl}/archetype-stats?archetype=chocolate_nutty`);
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.archetype).toBe('chocolate_nutty');
-    expect(body.archetypeLabel).toBe('Chocolate & Nutty');
-    expect(Array.isArray(body.dimensions)).toBe(true);
-    expect(body.dimensions.length).toBeGreaterThan(0);
-    for (const dim of body.dimensions) {
-      expect(dim).toHaveProperty('avgActual'); // present even when null — not omitted
-      expect(dim).toHaveProperty('coffeeCount');
-      expect(typeof dim.coffeeCount).toBe('number');
-    }
-  });
-
-  it('400s on an unknown archetype instead of returning an empty/misleading 200', async () => {
-    const res = await fetch(`${baseUrl}/archetype-stats?archetype=not_a_real_archetype`);
-    expect(res.status).toBe(400);
-  });
-
-  it('400s when archetype is missing entirely', async () => {
-    const res = await fetch(`${baseUrl}/archetype-stats`);
-    expect(res.status).toBe(400);
+    const body = await res.json().catch(() => null);
+    expect(res.status).not.toBe(200);
+    expect(body?.dimensions).toBeUndefined();
   });
 });
 

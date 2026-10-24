@@ -8,7 +8,7 @@ import { voiceHasRoasterMaterial } from '../services/claude.js';
 import { isClaudeGuardBlocked } from '../services/anthropicGuard.js';
 import {
   getArchetypes, archetypeLabel, getCoffee, getCoffees, getHomeSlot, getSlots, getSellableSlots, getHops, getSizes, getAnchorSize,
-  getCategoryCoffees, getCoffeeRetailPrices,
+  getCategoryCoffees, getCoffeeRetailPrices, getArchetypeOrder,
 } from '../services/catalogReads.js';
 import { getCustomerDescriptors } from '../services/cuppingReads.js';
 // Cupping evidence brief 1 (2026-10-18): the numeric dimensions of a coffee's
@@ -143,15 +143,19 @@ export async function fetchCoffeeDataForContent(coffeeId: string | number) {
 // force=false: only generate fields that are currently null in the DB
 // force=true:  regenerate both (admin refresh) — EXCEPT story when
 //              story_admin_edited is true, which bulk regenerate always skips.
+// storyOnly:   leave three_voice_story alone (coffee presentation brief 3:
+//              load/regenerateStories.ts regenerates the story by itself).
+// storyRun is this pass's story attempt (attempts, each reject), or null.
 export async function generateAndStoreAllContent(
   coffeeId: string | number,
-  options: { force?: boolean } = {}
+  options: { force?: boolean; storyOnly?: boolean } = {}
 ): Promise<{
   threeVoiceStory: string | null;
   story: string | null;
   storyPublished: boolean;
+  storyRun?: { passed: boolean; attempts: number; rejects: string[]; text: string } | null;
 }> {
-  const { force = false } = options;
+  const { force = false, storyOnly = false } = options;
 
   // Check what is already cached
   const cachedResult = await db.query(
@@ -170,7 +174,7 @@ export async function generateAndStoreAllContent(
   // refresh) ignores these flags and always retries — see the flag-write
   // logic further down, which resets a flag to false on a successful
   // forced retry.
-  const needsStory    = force || (!cached.three_voice_story && !cached.three_voice_story_generation_failed);
+  const needsStory    = !storyOnly && (force || (!cached.three_voice_story && !cached.three_voice_story_generation_failed));
   // Admin-edited story content is never auto-regenerated over (spec item 3) —
   // this is the one field `force` does not override.
   const needsStoryText = !cached.story_admin_edited && (force || (!cached.story && !cached.story_generation_failed));
@@ -184,9 +188,8 @@ export async function generateAndStoreAllContent(
   }
 
   const data = await fetchCoffeeDataForContent(coffeeId);
+  // the label only gates whether there is enough to write a story; it is never the coffee's name
   const archetypeLabelStr = data.coffee.archetype ? await archetypeLabel(data.coffee.archetype) : null;
-  // Never the coffee's raw internal name — see fetchCoffeeDataForContent comment above.
-  const safeName = data.displayName ?? archetypeLabelStr ?? 'This coffee';
 
   const dimensionParams = data.dimensions.map((r: any) => ({
     dimension:       r.dimension,
@@ -196,17 +199,13 @@ export async function generateAndStoreAllContent(
     scale_max_label: r.scale_max_label,
   }));
 
-  // Cupping evidence brief 6, C4 (2026-10-21): the words come from the
-  // customer voice: the roaster's first, then customers'; never our cupping
-  // words. Coffee presentation brief 1: signature then accent, each capped by
-  // its parameter (getCustomerDescriptors); the story takes them in that order.
-  const topDescriptors = data.descriptors.map(r => r.descriptor);
-
   // HOME_TASK_5 — skip gracefully when there's truly no usable signal (the
   // coffee-16 "Chocolate" case from S38: no archetype, no cupping data). No
   // data, no story, no error — same spirit as three_voice_story's own
-  // sufficiency gate just below.
-  const hasEnoughDataForStory = archetypeLabelStr !== null || dimensionParams.length > 0 || topDescriptors.length > 0;
+  // sufficiency gate just below. Coffee presentation brief 3 (2026-10-24),
+  // decision 4: the story's words are the roaster's voice (data.voice,
+  // signature then accent), no longer the flat descriptor list.
+  const hasEnoughDataForStory = archetypeLabelStr !== null || dimensionParams.length > 0 || data.descriptors.length > 0;
 
   // Part 16 §D1 — input gate: with nothing to write from, skip the call
   // entirely rather than let the model improvise or apologize (the live bug
@@ -243,8 +242,10 @@ export async function generateAndStoreAllContent(
   }
 
   // Dana's prod-go rules (2026-10-23): the three texts never name the coffee
-  // by its archetype, so they take the display name, else "this coffee" (the
-  // story keeps safeName, unchanged).
+  // by its archetype, so they take the display name, else "this coffee".
+  // Coffee presentation brief 3, decision 4: the story too (it took the
+  // display name, else the archetype label, until then). Never the coffee's
+  // raw internal name, see fetchCoffeeDataForContent above.
   const voiceName = data.displayName ?? 'this coffee';
 
   // Run only what is needed, in parallel
@@ -255,9 +256,10 @@ export async function generateAndStoreAllContent(
       : skipped,
     needsStoryText && hasEnoughDataForStory
       ? toNullIfBlocked(generateCoffeeStoryWithRetry(
-          { displayName: safeName, archetype: archetypeLabelStr, origin: data.coffee.origin ?? null, process: data.coffee.process ?? null, dimensions: dimensionParams, topDescriptors },
-          // D4: the same per-coffee leak tokens join the story's reject list
-          { rawCoffeeName: data.coffee.name ?? null, roasterNames: data.roasterNames, leakTokens: data.leakTokens }
+          { displayName: voiceName, origin: data.coffee.origin ?? null, process: data.coffee.process ?? null, dimensions: dimensionParams, voice: data.voice, archetypeLabels: data.archetypeLabels },
+          // D4: the same per-coffee leak tokens join the story's reject list;
+          // brief 3: and the archetype labels, for the category check
+          { rawCoffeeName: data.coffee.name ?? null, roasterNames: data.roasterNames, leakTokens: data.leakTokens, archetypeLabels: data.archetypeLabels }
         ))
       : Promise.resolve(null),
   ]);
@@ -326,7 +328,10 @@ export async function generateAndStoreAllContent(
   // guardGenerated, so this is a harmless no-op for it — no double DB write.
   const sanitizedStory = await sanitizeStoredField(coffeeId, 'three_voice_story', threeVoiceStory);
 
-  return { threeVoiceStory: sanitizedStory, story, storyPublished };
+  return {
+    threeVoiceStory: sanitizedStory, story, storyPublished,
+    storyRun: storyResult ? { passed: storyResult.passed, attempts: storyResult.attempts, rejects: storyResult.rejects, text: storyResult.text } : null,
+  };
 }
 
 export interface ContentBackfillResult {
@@ -693,61 +698,20 @@ router.get('/experimental', async (_req, res) => {
 });
 
 // GET /api/coffees/archetype-order?archetype= ─────────────────────────────────
-// Public. Bloom Dial Base Data Part 4, §B3: The Bloom's archetype boxes are
-// ordered by the customer's match, nearest neighbor first — computed here, not
-// hard-coded in the frontend. With a valid, real (is_archetype=true) archetype
-// match: that archetype first, then the other 4 by ascending Euclidean distance
-// over v_archetype_vectors' ideal_score (per shared dimension). No match (missing/
-// invalid param — pre-quiz guest) falls back to a fixed default order, the same
-// 5-archetype order the frontend previously hard-coded in bloomVisuals.ts.
-// Experimental is deliberately excluded from this array — it's placed after the
-// flavor archetypes as a fixed position by the frontend, not personalized.
+// Public. Bloom Dial Base Data Part 4, §B3: the Bloom's archetype boxes are
+// ordered for the customer's match, computed here, not hard-coded in the
+// frontend. Coffee presentation brief 3 (2026-10-24), decision 1: the rule is
+// adjacency, not distance. Her archetype first, then the archetypes adjacent
+// to it in v_coffee_archetype_adjacency (bridge hops, the data behind "Worth
+// exploring") by hop_count desc then avg_confidence desc, then the rest;
+// ties and the rest by coffee_archetype.sort_order. No match (missing or
+// invalid param, a pre-quiz guest): sort_order. catalogReads.getArchetypeOrder
+// holds the rule. Experimental is deliberately excluded from this array: the
+// frontend places it after the flavor archetypes, not personalized.
 router.get('/archetype-order', async (req, res) => {
   try {
-    const requested = typeof req.query.archetype === 'string' ? req.query.archetype : '';
-
-    const archetypes = await getArchetypes();
-    const defaultOrder = archetypes.filter(a => a.is_archetype).sort((a, b) => a.sort_order - b.sort_order).map(a => a.code);
-
-    // Validate against the known real archetypes before ever touching
-    // v_archetype_vectors — archetype is an enum-typed column there too, and
-    // an arbitrary string (garbage input, or a valid-but-non-flavor enum
-    // value like 'experimental') would throw a Postgres cast error rather
-    // than matching zero rows. defaultOrder doubles as the exact "real,
-    // is_archetype=true" allow-list, so membership here is sufficient.
-    if (!(defaultOrder as string[]).includes(requested)) {
-      res.json({ order: defaultOrder });
-      return;
-    }
-
-    const vectorsResult = await db.query(`SELECT archetype, dimension, ideal_score FROM v_archetype_vectors`);
-    const byDisplayName = new Map<string, Map<string, number>>();
-    for (const row of vectorsResult.rows) {
-      if (!byDisplayName.has(row.archetype)) byDisplayName.set(row.archetype, new Map());
-      byDisplayName.get(row.archetype)!.set(row.dimension, Number(row.ideal_score));
-    }
-
-    const matchedVec = byDisplayName.get(await archetypeLabel(requested));
-    if (!matchedVec) {
-      res.json({ order: defaultOrder });
-      return;
-    }
-
-    const others = defaultOrder.filter(a => a !== requested);
-    const withDistance = [];
-    for (const enumValue of others) {
-      const vec = byDisplayName.get(await archetypeLabel(enumValue));
-      let sumSquares = 0;
-      if (vec) {
-        for (const [dimension, idealScore] of matchedVec) {
-          if (vec.has(dimension)) sumSquares += (idealScore - vec.get(dimension)!) ** 2;
-        }
-      }
-      withDistance.push({ enumValue, distance: Math.sqrt(sumSquares) });
-    }
-    withDistance.sort((a, b) => a.distance - b.distance);
-
-    res.json({ order: [requested, ...withDistance.map(d => d.enumValue)] });
+    const requested = typeof req.query.archetype === 'string' ? req.query.archetype : null;
+    res.json({ order: await getArchetypeOrder(requested) });
   } catch (err) {
     console.error('[coffees/archetype-order]', err);
     res.status(500).json({ error: 'Failed to compute archetype order' });
@@ -815,43 +779,9 @@ router.get('/other-categories', async (_req, res) => {
   }
 });
 
-// GET /api/coffees/archetype-stats?archetype= ─────────────────────────────────
-// Public, no auth, roaster-blind — archetype-level aggregate only, never touches
-// coffee identity. Flavor Intelligence Part 1 Decision #3. Backed by
-// v_archetype_dimension_comparison (unchanged this brief — it's target-vs-actual
-// dimension data, not a placement question), keyed by the human label.
-router.get('/archetype-stats', async (req, res) => {
-  try {
-    const archetype = String(req.query.archetype ?? '');
-    const archetypes = await getArchetypes();
-    const found = archetypes.find(a => a.code === archetype);
-    if (!found) { res.status(400).json({ error: 'Unknown or missing archetype' }); return; }
-
-    const result = await db.query(
-      `SELECT dimension, display_order, target_min, target_ideal, target_max, avg_actual, coffee_count
-       FROM v_archetype_dimension_comparison
-       WHERE archetype = $1
-       ORDER BY display_order`,
-      [found.label]
-    );
-    res.json({
-      archetype,
-      archetypeLabel: found.label,
-      dimensions: result.rows.map(r => ({
-        dimension:    r.dimension,
-        displayOrder: r.display_order,
-        targetMin:    r.target_min,
-        targetIdeal:  r.target_ideal,
-        targetMax:    r.target_max,
-        avgActual:    r.avg_actual,
-        coffeeCount:  Number(r.coffee_count),
-      })),
-    });
-  } catch (err) {
-    console.error('[coffees/archetype-stats]', err);
-    res.status(500).json({ error: 'Failed to fetch archetype stats' });
-  }
-});
+// GET /api/coffees/archetype-stats was removed by coffee presentation brief 3
+// (2026-10-24, Dana's go): no caller, and it served the May 2026 targets
+// (v_archetype_dimension_comparison) to the public.
 
 // GET /api/coffees/:id/legacy-slot — resolves a raw coffeeId (the old
 // `?coffee={id}` deep-link contract) to its current {archetype, dialSortOrder}

@@ -329,6 +329,20 @@ export function BasisText({ text }: { text: string }) {
   );
 }
 
+/**
+ * Coffee presentation brief 3 (2026-10-24), decision 2: a slot is suggested
+ * only when every active slot of the archetype has a band. The signal's notes
+ * then begin "no suggestion: slot(s) <n, n> of <archetype> have no band"; that
+ * shows in grey as "no band on slot N", the full line on hover.
+ */
+export function DialSignalBasis({ notes }: { notes: string | null | undefined }) {
+  if (!notes) return null;
+  const m = /^no suggestion: slot\(s\) ([^;]*?) of /.exec(notes);
+  if (!m) return <>{notes}</>;
+  const slots = m[1].split(',').map(s => s.trim()).filter(Boolean);
+  return <span className="text-stone-400" title={notes}>no band on slot{slots.length === 1 ? '' : 's'} {slots.join(', ')}</span>;
+}
+
 export function ArchetypeTab({ archetype: a, calls, onDecideMatch, onDecidePlace, roasterForm, website, homePriority }: {
   archetype: Row | null; calls: Row[]; onDecideMatch?: () => void; onDecidePlace?: () => void;
   /** display only (the workbench has them): the submitted form's version and respondent, the latest website capture, the home priority */
@@ -373,7 +387,7 @@ export function ArchetypeTab({ archetype: a, calls, onDecideMatch, onDecidePlace
           <Def label="Home slot">{a.catalog_home_slot_name ? `${a.catalog_home_slot_name}${homePriority ? ` · priority ${homePriority}` : ''}` : 'not placed'}</Def>
           {a.placement_note ? <Def label="Placement note" wide>{a.placement_note}</Def> : <Def label="Placement note">{null}</Def>}
           <Def label="Band check">{a.slot_spec_check ? String(a.slot_spec_check).replace(/_/g, ' ') : null}</Def>
-          <Def label="Dial signal basis">{a.dial_signal_basis}</Def>
+          <Def label="Dial signal basis"><DialSignalBasis notes={a.dial_signal_basis} /></Def>
           <Def label="Newer evidence than decision">{yesNo(a.evidence_newer_than_decision)}</Def>
           <Def label="Roaster agrees with catalog">{yesNo(a.roaster_agrees_with_catalog)}</Def>
           <Def label="Flag"><FlagChip flag={a.flag} /></Def>

@@ -29,18 +29,59 @@ async function rows<T = Record<string, any>>(sql: string, params: unknown[] = []
 // DB". The views keep each cupper's latest session, so a pinned assertion uses
 // a coffee whose rows still come from that session (Blossom, Tiger Stripe:
 // cupped only in s37), and the later sessions' effect is tested by coffee id.
-const S36 = 36, S37 = 37;
+const S36 = 36, S37 = 37, S39 = 39;
 const TIGER_STRIPE = 2914; // one session (s37)
 const GEOMETRIC = 2915; // two sessions (s37, then the Balance cupping of 2026-10-21)
+// Coffee presentation brief 3 (2026-10-24): brief 7 (6ff867f) cupped Blossom
+// and Volo again (the Earthy / C&N cupping of 2026-10-23, a different session
+// id on test and prod), so their cupper rows in the views now come from that
+// later session. The tests pin the coffee by id, assert the paper values of
+// the old session from the per-session views, and recompute the pooled range
+// from v_coffee_dimension_history with the formula of v_coffee_dimension_range.
+const BLOSSOM = 2916; // s37, then the Earthy / C&N cupping
+const VOLO = 2927; // s39, then the Earthy / C&N cupping
+
+/** v_coffee_dimension_range's pool, in JS: rank weight ratio^rank x time weight 0.5^(days/half-life), shared within a session. */
+async function pooledFromHistory(coffeeId: number, dimensionId: number) {
+  const [p] = await rows(`SELECT param('session_rank_ratio')::float AS ratio, param('session_half_life_days')::float AS half, param('session_gap')::float AS gap`);
+  const hist = (await rows<{ session_id: number; session_date: string; lo: number; hi: number }>(
+    `SELECT session_id, session_date, value_min::float AS lo, value_max::float AS hi FROM v_coffee_dimension_history
+      WHERE coffee_id = $1 AND dimension_id = $2 AND value_min IS NOT NULL AND value_max IS NOT NULL`, [coffeeId, dimensionId]))
+    .map(h => ({ ...h, t: new Date(h.session_date).getTime() }));
+  const sessions = [...new Map(hist.map(h => [h.session_id, h])).values()].sort((a, b) => b.t - a.t || b.session_id - a.session_id);
+  const latest = sessions[0].t;
+  let w = 0, wMin = 0, wMax = 0;
+  const mids: number[] = [];
+  sessions.forEach((s, rank) => {
+    const own = hist.filter(h => h.session_id === s.session_id);
+    const sw = p.ratio ** rank * 0.5 ** ((latest - s.t) / 86_400_000 / p.half);
+    for (const h of own) { w += sw / own.length; wMin += (sw / own.length) * h.lo; wMax += (sw / own.length) * h.hi; }
+    mids.push(own.reduce((a, h) => a + (h.lo + h.hi) / 2, 0) / own.length);
+  });
+  const r2 = (x: number) => Math.round(x * 100) / 100;
+  return { min: r2(wMin / w), max: r2(wMax / w), n: sessions.length, disagree: Math.max(...mids) - Math.min(...mids) > p.gap, latestSession: sessions[0].session_id };
+}
 
 describe('v_evidence_dimension (A1)', () => {
-  it('Joe Bean Blossom Aroma, session 37: the cuppers disagree (Dana 6, Camila 11)', async () => {
+  it('Joe Bean Blossom Aroma: session 37 on paper (Dana 6, Camila 11); the view shows the later session and the pool over both', async () => {
+    const paper = await rows(
+      `SELECT cupper_name, value_min::float AS lo, value_max::float AS hi FROM v_cupping_scores_readable
+        WHERE coffee_id = $1 AND session_id = $2 AND dimension = 'Aroma' AND NOT is_merged ORDER BY cupper_name`, [BLOSSOM, S37]);
+    expect(paper.map(x => [x.cupper_name, x.lo, x.hi])).toEqual([['Camila', 11, 11], ['Dana', 6, 6]]);
+
     const r = await rows(
-      `SELECT cupper_name, cupper_min::float AS lo, cupper_max::float AS hi, cuppers_agree, flag FROM v_evidence_dimension
-        WHERE roaster_id = $1 AND coffee_name = 'Blossom Dark Roast' AND dimension_name = 'Aroma' AND cupper_session_id = $2 ORDER BY cupper_name`, [JOE_BEAN, S37]);
-    expect(r.map(x => [x.cupper_name, x.lo, x.hi])).toEqual([['Camila', 11, 11], ['Dana', 6, 6]]);
-    expect(r.every(x => x.cuppers_agree === false)).toBe(true);
-    expect(r.every(x => ['cuppers_disagree', 'both'].includes(x.flag))).toBe(true);
+      `SELECT dimension_id, cupper_session_id, merged_min::float AS lo, merged_max::float AS hi, n_sessions_pooled, sessions_disagree
+         FROM v_evidence_dimension WHERE coffee_id = $1 AND dimension_name = 'Aroma'`, [BLOSSOM]);
+    expect(r.length).toBe(2);
+    const pool = await pooledFromHistory(BLOSSOM, r[0].dimension_id);
+    expect(pool.n).toBe(2);
+    for (const x of r) {
+      expect(x.cupper_session_id).toBe(pool.latestSession);
+      expect(x.cupper_session_id).not.toBe(S37);
+      expect([x.lo, x.hi]).toEqual([pool.min, pool.max]);
+      expect(x.n_sessions_pooled).toBe(pool.n);
+      expect(x.sessions_disagree).toBe(pool.disagree);
+    }
   });
 
   it('Joe Bean Tiger Stripe Acidity, session 37: the cuppers agree (Dana 4-6, Camila 3)', async () => {
@@ -49,12 +90,27 @@ describe('v_evidence_dimension (A1)', () => {
     expect(r.every(x => x.cuppers_agree === true)).toBe(true);
   });
 
-  it("Utopian Volo: Camila's word_3 rows convert to 0-5 and the scales name word_3", async () => {
-    const r = await rows(`SELECT cupper_scale_code, cupper_min::float AS lo, cupper_max::float AS hi, scale_codes FROM v_evidence_dimension WHERE roaster_id = $1 AND coffee_name = 'Espresso Volo'`, [UTOPIAN]);
-    const word = r.filter(x => x.cupper_scale_code === 'word_3');
+  it("Utopian Volo: Camila's session 39 word_3 rows convert to 0-5; a pool that takes s39 is not all ab_0_15", async () => {
+    const word = await rows(
+      `SELECT value_min::float AS lo, value_max::float AS hi FROM v_cupping_scores_readable
+        WHERE coffee_id = $1 AND session_id = $2 AND cupper_name = 'Camila' AND scale_code = 'word_3' AND value_min IS NOT NULL`, [VOLO, S39]);
     expect(word.length).toBeGreaterThan(0);
     for (const x of word) expect([x.lo, x.hi]).toEqual([0, 5]);
-    for (const x of r) expect(x.scale_codes).toContain('word_3');
+    const hist = await rows(`SELECT DISTINCT dimension_id, scale_codes FROM v_coffee_dimension_history WHERE coffee_id = $1 AND session_id = $2`, [VOLO, S39]);
+    expect(hist.length).toBeGreaterThan(0);
+    for (const h of hist) expect(h.scale_codes).toContain('word_3');
+
+    const r = await rows(
+      `SELECT DISTINCT dimension_id, merged_min::float AS lo, merged_max::float AS hi, all_ab_scale, merged_session_weights
+         FROM v_evidence_dimension WHERE coffee_id = $1`, [VOLO]);
+    expect(r.length).toBeGreaterThan(0);
+    for (const x of r) {
+      const pool = await pooledFromHistory(VOLO, x.dimension_id);
+      expect([x.lo, x.hi]).toEqual([pool.min, pool.max]);
+      const takesS39 = (x.merged_session_weights as Array<{ session_id: number }>).some(s => s.session_id === S39);
+      expect(x.all_ab_scale).toBe(!takesS39);
+    }
+    expect(r.some(x => x.all_ab_scale === false)).toBe(true);
   });
 
   it('Joe Coffee, session 36: one row per coffee x dimension (one cupper), cuppers_agree null', async () => {
@@ -121,13 +177,16 @@ describe('v_evidence_descriptor (A2)', () => {
 });
 
 describe('v_evidence_archetype (A3)', () => {
-  it('Blossom, session 37: Dana earthy, Camila no call; catalog earthy low; the flag follows the form proposal', async () => {
-    const calls = await rows(
-      `SELECT c.cupper_name, c.archetype_call FROM v_evidence_archetype_call c JOIN v_coffee vc ON vc.id = c.coffee_id
-        WHERE vc.roaster_id = $1 AND vc.name = 'Blossom Dark Roast' AND c.session_id = $2 ORDER BY c.cupper_name`, [JOE_BEAN, S37]);
-    expect(calls).toEqual([{ cupper_name: 'Camila', archetype_call: null }, { cupper_name: 'Dana', archetype_call: 'earthy' }]);
-    const [a] = await rows(`SELECT cupper_calls, catalog_archetype, catalog_confidence, roaster_form_proposal, flag FROM v_evidence_archetype WHERE roaster_id = $1 AND coffee_name = 'Blossom Dark Roast'`, [JOE_BEAN]);
-    expect(a.cupper_calls).toEqual({ Dana: 'earthy', Camila: null });
+  it('Blossom: session 37 on paper (Dana earthy, Camila no call); the row carries the latest session\'s calls; catalog earthy low; the flag follows the form proposal', async () => {
+    const paper = await rows(
+      `SELECT cupper_name, archetype_call FROM v_cupping_score WHERE coffee_id = $1 AND session_id = $2 AND NOT is_merged ORDER BY cupper_name`, [BLOSSOM, S37]);
+    expect(paper).toEqual([{ cupper_name: 'Camila', archetype_call: null }, { cupper_name: 'Dana', archetype_call: 'earthy' }]);
+    const [a] = await rows(`SELECT cupper_calls, latest_session_id, catalog_archetype, catalog_confidence, roaster_form_proposal, flag FROM v_evidence_archetype WHERE coffee_id = $1`, [BLOSSOM]);
+    expect(a.latest_session_id).not.toBe(S37);
+    const calls = await rows(`SELECT cupper_name, archetype_call, session_id FROM v_evidence_archetype_call WHERE coffee_id = $1`, [BLOSSOM]);
+    expect(calls.length).toBe(2);
+    for (const c of calls) expect(c.session_id).toBe(a.latest_session_id);
+    expect(a.cupper_calls).toEqual(Object.fromEntries(calls.map(c => [c.cupper_name, c.archetype_call])));
     expect([a.catalog_archetype, a.catalog_confidence]).toEqual(['earthy', 'low']);
     expect(a.flag).toBe(a.roaster_form_proposal && a.roaster_form_proposal !== 'earthy' ? 'roaster_disagrees' : 'none');
   });

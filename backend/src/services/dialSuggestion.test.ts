@@ -1,9 +1,10 @@
 // Cupping evidence brief 1 (2026-10-18), C2 — getDialSuggestion is band-first
-// (decision 8, Dana 2026-10-17): with any band NULL the suggestion rests on
-// the archetype_vector targets split across the slots; with a band on every
-// active slot it is the slot whose band holds the midpoint. The coffee and its
-// merged range are mocked (no fixture rows); the slots are the archetype's
-// real ones, with bands set on copies only, so nothing is written.
+// (decision 8, Dana 2026-10-17): with a band on every active slot it is the
+// slot whose band holds the midpoint. Coffee presentation brief 3
+// (2026-10-24), decision 2: with any band NULL there is no suggestion (reason
+// 'no_band', the slots listed); the archetype_vector fallback is gone. The
+// coffee and its merged range are mocked (no fixture rows); the slots are the
+// archetype's real ones, with bands set on copies only, so nothing is written.
 import 'dotenv/config';
 import { describe, it, expect, afterAll, vi } from 'vitest';
 
@@ -19,7 +20,7 @@ vi.mock('./catalogReads.js', async (importOriginal) => {
 import { db } from '../db/client.js';
 import { getMergedRange } from './cuppingReads.js';
 import { getCoffee, getSlots, getArchetypes } from './catalogReads.js';
-import { getDialSuggestion, BASIS_SPEC_BAND, BASIS_ARCHETYPE_VECTOR } from './dialSuggestion.js';
+import { getDialSuggestion, BASIS_SPEC_BAND } from './dialSuggestion.js';
 
 afterAll(async () => { await db.end(); });
 
@@ -38,14 +39,29 @@ async function setup(midpoint: number) {
 }
 
 describe('getDialSuggestion basis', () => {
-  it('with no bands it rests on the archetype_vector targets', async () => {
+  it('with no bands there is no suggestion: reason no_band, every active slot listed, the midpoint kept', async () => {
     const a = await setup(8);
     const real = await (await vi.importActual<typeof import('./catalogReads.js')>('./catalogReads.js')).getSlots(a.code);
     vi.mocked(getSlots).mockResolvedValue(real.map(s => ({ ...s, spec_band_lo: null, spec_band_hi: null })));
     const s = await getDialSuggestion(FAKE_COFFEE);
     expect(s).not.toBeNull();
-    expect(s!.basis).toBe(BASIS_ARCHETYPE_VECTOR);
-    expect(real.map(r => r.id)).toContain(s!.suggested_slot_id);
+    expect(s!.suggested_slot_id).toBeNull();
+    expect(s!.basis).toBeNull();
+    expect(s!.reason).toBe('no_band');
+    expect(s!.missingBandSlots).toEqual(real.filter(x => x.is_active).map(x => x.sort_order).sort((x, y) => x - y));
+    expect(s!.avg_score).toBe(8);
+  });
+
+  it('with one active slot unbanded: no suggestion, and that slot alone is listed', async () => {
+    const a = await setup(8);
+    const real = await (await vi.importActual<typeof import('./catalogReads.js')>('./catalogReads.js')).getSlots(a.code);
+    const active = real.filter(s => s.is_active).sort((x, y) => x.sort_order - y.sort_order);
+    const gap = active[1];
+    vi.mocked(getSlots).mockResolvedValue(real.map(s => (s.id === gap.id ? { ...s, spec_band_lo: null, spec_band_hi: null } : { ...s, spec_band_lo: 0, spec_band_hi: 15 })));
+    const s = await getDialSuggestion(FAKE_COFFEE);
+    expect(s!.suggested_slot_id).toBeNull();
+    expect(s!.reason).toBe('no_band');
+    expect(s!.missingBandSlots).toEqual([gap.sort_order]);
   });
 
   it('with a band on every active slot it picks the slot whose band holds the midpoint', async () => {
@@ -62,6 +78,8 @@ describe('getDialSuggestion basis', () => {
     expect(s!.basis).toBe(BASIS_SPEC_BAND);
     expect(s!.suggested_slot_id).toBe(active[2].id);
     expect(s!.is_outlier).toBe(false);
+    expect(s!.reason).toBeNull();
+    expect(s!.missingBandSlots).toEqual([]);
   });
 
   it('outside every band: the nearest band, flagged as an outlier', async () => {

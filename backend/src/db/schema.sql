@@ -2866,7 +2866,10 @@ SELECT v.key, v.value, v.note FROM (VALUES
   -- coffee presentation brief 2 (2026-10-24): the compatibility sentence
   ('archetype_profile_min_coffees', 4,   'Compatibility sentence: the fewest active cupped coffees an archetype''s reference profile needs, counted after the coffee on the page is left out, before the sentence renders (applied by compatibilityReads.compareCoffee). Range: integer 1 <= value <= 20.'),
   ('dimension_delta_slight',        1.5, 'Compatibility sentence: a dimension whose midpoint differs from the reference profile''s by at least this much (0 to 15 scale) is named "slightly more / less"; must stay below dimension_delta_significant (checked by evidenceParameterService). Range: numeric 0 < value <= 15.'),
-  ('dimension_delta_significant',   4,   'Compatibility sentence: a dimension whose midpoint differs from the reference profile''s by more than this (0 to 15 scale) is named "significantly more / less"; must stay above dimension_delta_slight (checked by evidenceParameterService). Range: numeric 0 < value <= 15.')
+  ('dimension_delta_significant',   4,   'Compatibility sentence: a dimension whose midpoint differs from the reference profile''s by more than this (0 to 15 scale) is named "significantly more / less"; must stay above dimension_delta_slight (checked by evidenceParameterService). Range: numeric 0 < value <= 15.'),
+  -- coffee presentation brief 3 (2026-10-24, Dana's go): the admin hop
+  -- suggestions' gap, replacing the archetype_vector bucket width
+  ('hop_suggestion_gap',            0.5, 'Admin hop suggestions (GET /api/admin/catalog/hop-suggestions): two coffees of one archetype are suggested as a hop when their pooled midpoints on its dominant dimension differ by at least this (0 to 15 scale). Seeded 0.5, the May 2026 archetype_vector targets'' bucket width for four of five archetypes (Chocolate & Nutty''s was 0.75). Range: numeric 0 < value <= 15.')
 ) AS v(key, value, note)
 WHERE NOT EXISTS (SELECT 1 FROM evidence_parameter p WHERE p.key = v.key);
 

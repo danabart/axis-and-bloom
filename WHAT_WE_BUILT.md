@@ -427,7 +427,8 @@ Migration scripts: `backend/src/db/migrations/`
 | DELETE | `/api/admin/revoke-admin` | Admin | Revoke admin role (sets back to customer) — body: `{ "email": "..." }` |
 | POST | `/api/admin/coffees/:id/refresh-summary` | Admin | Kept for compatibility: since coffee presentation brief 2 (#233) the same force refresh as `refresh-content`; returns `{ summary }` = the coffee's one description (`three_voice_story`) |
 | GET | `/api/coffees/archetypes` | No | Roaster-blind, archetype-grouped, slot-based catalogue — the source of truth for both The Bloom and the Flavor Intelligence page. Each slot includes `isDefault: boolean` (2026-07-12). **Removed 2026-08-02 (#131/HOME Task 5d)**: the old flat `GET /api/coffees` (raw `name`/`roaster` list) — confirmed unreferenced by any frontend page, admin tooling, or test, and the "kept for admin tooling" note above was itself stale; this line is the sole survivor of that entry |
-| GET | `/api/coffees/archetype-stats?archetype=` | No | Per-dimension target range + avg actual cupping score + coffee count for one archetype (2026-07-12) |
+| ~~GET~~ | ~~`/api/coffees/archetype-stats?archetype=`~~ | | Removed by coffee presentation brief 3 (#234, Dana's go): no caller; it served the May 2026 `archetype_vector` targets |
+| GET | `/api/coffees/archetype-order?archetype=` | No | The Bloom's archetype box order. Since #234: own archetype, then adjacent ones (`v_coffee_archetype_adjacency`, hop_count desc, avg_confidence desc), then `sort_order` (`catalogReads.getArchetypeOrder`); unmatched → `sort_order` |
 | GET | `/api/coffees/:id/legacy-slot` | No | Resolves a raw `coffeeId` to `{ archetype, dialSortOrder }` for old `?coffee=` deep links (2026-07-12) |
 | GET | `/api/coffees/:id/flavor-wheel` | No | Flavor descriptors for one coffee aggregated from all 3 sources via `v_collaborative_flavor_wheel` |
 | GET | `/api/coffees/:id/dimensions` | No | Numeric dimension ranges (avg min/max per dimension) from all cupping scores + session overall notes |
@@ -5841,6 +5842,49 @@ Brief: `backend/src/features/coffee_presentation/CLAUDE_CODE_PROMPT_COFFEE_PRESE
 - Dana's note, reworded 2026-10-24 after the dry run showed the form proposes Balanced: "Dana 2026-10-21: C&N light, slot 1; bitterness and a grippy texture, not body. Supersedes our Fruity match from s37 (2026-09-30). Roaster form proposes Balanced, kept as evidence."
 
 **Verified on test:** 16 new tests (view, read, parameters, route over every active coffee × archetype, backfill candidates, refresh-content story-only, loader; TastingNotes rendered for real from the frontend's React, teaser). Lints clean, backend `tsc` and frontend build clean, catalog integrity allPass. Screenshots at 1440: `cp2_reveal_panel_1440.png` (Balanced; no C&N coffee is placed on test) and `cp2_flavor_intelligence_1440.png`.
+
+### 234. Coffee presentation, brief 3: the May targets lose their last readers, the story under the description's rules (2026-10-24)
+
+Brief: `backend/src/features/coffee_presentation/CLAUDE_CODE_PROMPT_COFFEE_PRESENTATION_3.md`. Closing report: `CLOSING_REPORT_3.md` in that folder. No table, view or column change; no catalog write.
+
+**Status: done on test (2026-10-24), waiting for Dana's go for prod.**
+
+**Box order by adjacency (decision 1).** `GET /api/coffees/archetype-order` no longer measures Euclidean distance over `v_archetype_vectors`. New read **`catalogReads.getArchetypeOrder(match)`**:
+- A matched customer's archetype first.
+- Then the archetypes adjacent to it in `v_coffee_archetype_adjacency` (both columns), by `hop_count` desc, then `avg_confidence` desc (null last).
+- Then the rest. Ties and the rest go by `coffee_archetype.sort_order`.
+- Unmatched or invalid: `sort_order`. Same response shape; the frontend is untouched.
+- On test the adjacency view is empty, so every matched order is "own, then `sort_order`" (C&N was C&N > Earthy > Balanced > Fruity > Floral, now C&N > Floral > Fruity > Balanced > Earthy).
+
+**Slot suggestion from bands only (decision 2).** `dialSuggestion.getDialSuggestion` suggests a slot only when every active slot of the archetype has `spec_band_lo/hi`. Otherwise:
+- It returns the pooled midpoint with `suggested_slot_id` null, `reason: 'no_band'` and `missingBandSlots`.
+- `BASIS_ARCHETYPE_VECTOR` and its `v_archetype_dimension_comparison` query are gone.
+- `recordCuppingSignal` still records the signal on every refresh, with `suggested_slot_id` NULL and notes `no suggestion: slot(s) <n, n> of <archetype> have no band; pooled …`.
+- The evidence panel's "Dial signal basis" (Coffees page and Calibration workbench, one shared `ArchetypeTab`) shows "no band on slots 1, 2, 3, 4" in grey.
+- On test no slot has a band: 19 of 22 active coffees went from an `archetype_vector` slot (18 of them "outlier" slot 1) to no suggestion; 3 have no merged score, as before.
+
+**`archetype_vector`** is read only by `v_archetype_vectors` and `v_archetype_dimension_comparison`, and no code reads either view. Dana's go (2026-10-24) removed the last two readers of the comparison view:
+- `GET /api/coffees/archetype-stats` is deleted (no caller).
+- The admin hop suggestions (`GET /api/admin/catalog/hop-suggestions`) read **`param('hop_suggestion_gap')`**, a new `evidence_parameter` row seeded 0.5 (`Range: numeric 0 < value <= 15.`). The old per-archetype bucket width was 0.5 for four archetypes and 0.75 for Chocolate & Nutty, so on test one more C&N pair clears the gap (2906 / 2914, Body 0.72 apart).
+- `dialSuggestion.getArchetypeBucketWidth` is deleted.
+
+`comments.sql` updated: the table, both views, the adjacency views, `evidence_parameter`, and `dial_position_signal.notes` / `suggested_slot_id`.
+
+**The story follows the description's rules (decision 4).**
+- `storyLayer.StoryGenParams` takes `voice` (`getRoasterVoice`) instead of `topDescriptors`. The prompt lists the roaster's signature, accent and cupping-confirmed notes, asks for attribution ("the roaster calls it", "and we tasted it too" only where confirmed), and keeps region-level origin ("the highlands of X").
+- After generation: `contentGuard.normalizeDashes`. The same three tries now also reject:
+  - `styleViolation` (the word "archetype", an archetype label as a category; labels from the database);
+  - our tasting as our own ("our cupping revealed", "we found");
+  - "we tasted" when no roaster note is cupping-confirmed.
+- The generic word "roaster" is let through the configured banned-term list for the full story only. Roaster names, "roastery", farm, co-op, lot and importer still reject.
+- The story names the coffee by its display name, else "this coffee", never the archetype label (2917's old story opened "Chocolate & Nutty pulls from…").
+- `generateAndStoreAllContent` gains `storyOnly` and returns `storyRun` (attempts, rejects).
+
+**`load/regenerateStories.ts`** (`--expect-db`, `--dry-run`): active coffees with `story_admin_edited = false`, force, story only. It prints each story's dash count, the guard rejects and the final text. Test: 22 coffees (none admin-edited), 22 passed, 0 dashes; second run after the "we tasted" check: 3 rejects, all retried and passed.
+
+**Brief 7's `evidenceViews.test.ts` failures fixed:** the three tests pin Blossom (2916) and Volo (2927) by id. They assert s37 / s39 on paper from the per-session views, and recompute the pooled range from `v_coffee_dimension_history` with the view's formula. No view changed.
+
+**Verified on test:** new `src/db/coffeePresentation3.test.ts` (box order over a fixture adjacency through the real SQL, route, no `archetype_vector` in the route file) and `src/services/coffeePresentation3.test.ts` (signal notes, story dashes / attribution / region / snapshot). `dialSuggestion.test.ts` updated. Lints clean, backend `tsc` and frontend build clean, catalog integrity allPass.
 
 ---
 

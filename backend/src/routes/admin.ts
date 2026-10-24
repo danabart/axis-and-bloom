@@ -3,7 +3,7 @@ import { requireAdmin, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
 import { generateAndStoreAllContent } from './coffees.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
-import { getAvgCuppingScore, getArchetypeBucketWidth, getAvgCuppingScoresBatch } from '../services/dialSuggestion.js';
+import { getAvgCuppingScore, getAvgCuppingScoresBatch } from '../services/dialSuggestion.js';
 import {
   CuppingError, createSession, updateSessionHeader, removeEmptySession, addSessionCoffee, updateSessionCoffee,
   saveBrewParams, removeEmptySessionCoffee, saveCupperScore, saveManualMerge, mergeByRule, listCuppers, addCupper,
@@ -2532,9 +2532,13 @@ catalogRouter.get('/graph', async (_req, res) => {
 // that brief's own claim to the contrary — fixed here). Same within-archetype
 // Dial Turn logic: cupping score deltas between coffee pairs sharing an
 // archetype, never auto-creating a hop.
+// Coffee presentation brief 3 (2026-10-24, Dana's go): the gap a pair must
+// clear is param('hop_suggestion_gap'), one value for every archetype; it was
+// the archetype_vector targets' bucket width per archetype (May 2026).
 catalogRouter.get('/hop-suggestions', async (_req, res) => {
   try {
     const archetypes = (await getArchetypes()).filter(a => a.is_archetype && a.dominant_dimension_id);
+    const gap = Number((await db.query(`SELECT param('hop_suggestion_gap') AS gap`)).rows[0].gap);
 
     const suggestions: Array<{
       from_coffee_id: number; from_coffee_name: string;
@@ -2545,8 +2549,6 @@ catalogRouter.get('/hop-suggestions', async (_req, res) => {
 
     for (const a of archetypes) {
       const dimensionId = a.dominant_dimension_id!;
-      const bucketWidth = await getArchetypeBucketWidth(a.code, dimensionId);
-      if (!bucketWidth) continue;
 
       // Roastery lifecycle — never suggest a hop touching an inactive coffee.
       const coffees = await getCoffees({ matchArchetype: a.code, active: true });
@@ -2560,7 +2562,7 @@ catalogRouter.get('/hop-suggestions', async (_req, res) => {
       for (let i = 0; i < scored.length; i++) {
         for (let j = i + 1; j < scored.length; j++) {
           const delta = Math.abs(scored[j].avg_score - scored[i].avg_score);
-          if (delta < bucketWidth) continue;
+          if (delta < gap) continue;
 
           const lower = scored[i].avg_score <= scored[j].avg_score ? scored[i] : scored[j];
           const higher = scored[i].avg_score <= scored[j].avg_score ? scored[j] : scored[i];

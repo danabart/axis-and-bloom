@@ -1,7 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getSommelierConfig } from './sommelierConfig.js';
 import { guardClaudeCall } from './anthropicGuard.js';
-import { looksLikeLeak } from './contentGuard.js';
+import { looksLikeLeak, normalizeDashes, styleViolation } from './contentGuard.js';
+import type { RoasterVoice } from './roasterVoiceReads.js';
 
 // HOME_TASK_5 (§4.4) — "their coffee, explained." A dedicated, independent
 // Anthropic client rather than importing from claude.ts: per the S38
@@ -55,47 +56,79 @@ export function checkStorySpecificityViolations(
   return violations;
 }
 
+// Coffee presentation brief 3 (2026-10-24), decision 4: the story follows the
+// description's rules. Its flavor words are the roaster's voice
+// (roasterVoiceReads.getRoasterVoice: signature then accent, the order the
+// read already gives), attributed ("the roaster calls it"), with "and we
+// tasted it too" only for a note our cupping confirmed; never the old
+// topDescriptors list, never our tasting as our own, never the archetype as a
+// category. Region-level origin stays (HOME_TASK_5, "the highlands of X"): on
+// the story page that is by design, not a leak.
 export interface StoryGenParams {
+  /** the coffee's display name, or "this coffee" (never its catalog name, never an archetype label) */
   displayName: string;
-  archetype: string | null;
   origin: string | null;
   process: string | null;
   dimensions: Array<{ dimension: string; avg_min: number; avg_max: number; scale_min_label: string; scale_max_label: string }>;
-  topDescriptors: string[];
+  voice: Pick<RoasterVoice, 'descriptors'>;
+  /** the archetype labels (from the database), named in the category rule */
+  archetypeLabels: string[];
 }
 
-async function generateOnce(params: StoryGenParams, correctionNote?: string): Promise<string> {
+/** The roaster's notes for the story prompt: signature, accent, the ones our cupping confirmed. */
+function storyVoiceLines(voice: StoryGenParams['voice']): string {
+  const roaster = voice.descriptors.filter(d => d.voice !== 'customer');
+  const signature = roaster.filter(d => d.is_signature).map(d => d.descriptor);
+  const accent = roaster.filter(d => !d.is_signature).map(d => d.descriptor);
+  const confirmed = roaster.filter(d => d.confirmed_by_cupping).map(d => d.descriptor);
+  return [
+    `The roaster's signature notes (the core of the cup, strongest first): ${signature.length ? signature.join(', ') : 'none'}`,
+    `The roaster's accent notes (only ever "a hint of"): ${accent.length ? accent.join(', ') : 'none'}`,
+    confirmed.length ? `Of the roaster's notes, Axis & Bloom's cupping table tasted these too: ${confirmed.join(', ')}` : null,
+  ].filter((s): s is string => s !== null).join('\n');
+}
+
+/** The story's user prompt (exported for the prompt snapshot test). */
+export function buildStoryPrompt(params: StoryGenParams, correctionNote?: string): string {
   const dimLines = params.dimensions
-    .map(d => `  ${d.dimension}: ${d.avg_min}–${d.avg_max}/15 (${d.scale_min_label} → ${d.scale_max_label})`)
+    .map(d => `  ${d.dimension}: ${d.avg_min} to ${d.avg_max} out of 15 (scale from ${d.scale_min_label} to ${d.scale_max_label})`)
     .join('\n');
 
   const correction = correctionNote
-    ? `\n\nYour previous attempt was rejected for this reason: ${correctionNote}. Do not repeat this — region and process only, nothing that pins a specific farm, co-op, lot, estate, importer, or roaster, and never the coffee's own catalog name.`
+    ? `\n\nYour previous attempt was rejected for this reason: ${correctionNote}. Do not repeat this. Region and process only, nothing that pins a specific farm, co-op, lot, estate, importer, or roaster, never the coffee's own catalog name, and every flavor word attributed to the roaster.`
     : '';
 
-  const content = `Write a 120–200 word story for "${params.displayName}"${params.archetype ? `, a ${params.archetype} coffee` : ''} covering: where it's from (region-level only — e.g. "the highlands of X," never a specific farm, co-op, lot, estate, or importer name), how it's processed (in plain language), what that does to the cup (tied to the actual cupping data below), and one thing worth noticing.
+  return `Write a 120 to 200 word story for "${params.displayName}" covering: where it's from (region-level only, e.g. "the highlands of X", never a specific farm, co-op, lot, estate, or importer name), how it's processed (in plain language), what that does to the cup (tied to the structure below), and one thing worth noticing.
 
-${params.origin ? `Origin reference (distill to region-level ONLY — do not repeat any farm, co-op, lot, or estate name verbatim even if present here): ${params.origin}` : ''}
+${params.origin ? `Origin reference (distill to region-level ONLY; do not repeat any farm, co-op, lot, or estate name verbatim even if present here): ${params.origin}` : ''}
 ${params.process ? `Process reference: ${params.process}` : ''}
 
-Cupping data:
+${storyVoiceLines(params.voice)}
+
+Structure on a 0 to 15 scale (the labels are the two extremes; a middle value is moderate):
 ${dimLines || '  (no numeric data)'}
-Top flavor descriptors: ${params.topDescriptors.length ? params.topDescriptors.join(', ') : 'none recorded'}
 
 Rules:
 - Never name a specific farm, co-op, cooperative, estate, lot, or importer.
-- Never name the roaster or any roastery.
-- Refer to it only as "${params.displayName}" or "this coffee" — never the internal catalog name, and never invent a different name or nickname of your own for it.
-- Plain prose only. No title, no heading, no markdown formatting (no "#", no bold) — start directly with the first sentence of the story.
+- Never name the roaster or any roastery ("the roaster" is how you refer to them).
+- Refer to it only as "${params.displayName}" or "this coffee", never the internal catalog name, and never invent a different name or nickname of your own for it.
+- Flavor words: only the roaster's notes listed above, never one of your own. Attribute them to the roaster ("the roaster calls it", "per the roaster"). Where our cupping table tasted one of them too you may add "and we tasted it too"; never present a tasting as Axis & Bloom's own ("our cupping revealed", "we found", "our cuppers noticed" are not allowed).
+- Structure (body, sweetness, acidity, bitterness, finish) may be described plainly, in proportion to the scale; never exaggerate a middle value.
+- Never use the word "archetype", and never put a category word${params.archetypeLabels.length ? ` such as ${params.archetypeLabels.map(l => l.toLowerCase()).join(', ')}` : ''} in front of "coffee", "blend", "cup", "style" or "profile".
+- Say nothing about adding milk or drinking it black (a note's own name, such as milk chocolate, is fine).
+- Never use an em dash or an en dash. Use commas, periods or colons instead.
+- Plain prose only. No title, no heading, no markdown formatting (no "#", no bold); start directly with the first sentence of the story.
 - Warm, specific, editorial voice. No marketing language.
-- 120–200 words.${correction}`;
+- 120 to 200 words.${correction}`;
+}
 
+async function generateOnce(params: StoryGenParams, correctionNote?: string): Promise<string> {
   const response = await guardClaudeCall('coffee_content', 'claude-haiku-4-5-20251001', () =>
     client.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 400,
       system: STORY_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content }],
+      messages: [{ role: 'user', content: buildStoryPrompt(params, correctionNote) }],
     })
   );
 
@@ -105,7 +138,18 @@ Rules:
   // philosophy as the specificity line — a stray leading markdown heading
   // (observed in early backfill output despite the prompt already banning it)
   // would otherwise render as a literal "#" on the public story page.
-  return rawText.replace(/^#{1,6}\s.*\n+/, '').trim();
+  // Decision 4: dashes are replaced after generation, as brief 1 does for the
+  // description (contentGuard.normalizeDashes).
+  return normalizeDashes(rawText.replace(/^#{1,6}\s.*\n+/, '').trim());
+}
+
+/** The generic word the story's attribution needs, exempt from the banned-term list for the full story only. */
+const ATTRIBUTION_WORD = 'roaster';
+
+/** Our tasting presented as our own (decision 4); "and we tasted it too" is allowed. Null when clean. */
+export function ownTastingViolation(text: string): string | null {
+  const m = /\b(our (cupping|cuppers?|tasting|tasters?)( table)? (revealed|found|noticed|showed|picked up)|we found|we noticed|we discovered)\b/i.exec(text);
+  return m ? `our tasting as our own "${m[0]}"` : null;
 }
 
 export interface StoryGenResult {
@@ -113,6 +157,8 @@ export interface StoryGenResult {
   passed: boolean;
   attempts: number;
   violations: string[];
+  /** every rejected attempt's reasons, in order (brief 3: the regeneration loader prints them) */
+  rejects: string[];
 }
 
 // The specificity line, enforced twice (§4.4 item 2): the prompt above bans
@@ -121,29 +167,49 @@ export interface StoryGenResult {
 // repeating the same mistake. Never throws on repeated failure — returns the
 // last attempt with `passed: false` so it's visible in `story_draft` for an
 // admin to fix, and is never promoted to the live `story` field.
+// Coffee presentation brief 3, decision 4: the same three tries also reject
+// an archetype name used as a category or the word "archetype"
+// (contentGuard.styleViolation over `archetypeLabels`, from the database; its
+// milk check is not applied here) and our tasting presented as our own.
 export async function generateCoffeeStoryWithRetry(
   params: StoryGenParams,
-  identity: { rawCoffeeName: string | null; roasterNames: string[]; leakTokens?: string[] },
+  identity: { rawCoffeeName: string | null; roasterNames: string[]; leakTokens?: string[]; archetypeLabels?: string[] },
   maxRetries = 2
 ): Promise<StoryGenResult> {
   let lastText = '';
   let lastViolations: string[] = [];
   let correctionNote: string | undefined;
+  const rejects: string[] = [];
+
+  // The attribution decision 4 asks for ("the roaster calls it") uses the
+  // generic word the configured list bans (HOME_TASK_5); for the full story
+  // that one word is let through. The roaster's names (roasterNames,
+  // leakTokens), "roastery" and the rest of the list still reject.
+  const bannedTerms = getBannedTerms().filter(t => t.toLowerCase() !== ATTRIBUTION_WORD);
 
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
     const text = await generateOnce(params, correctionNote);
-    const violations = checkStorySpecificityViolations(text, identity);
+    const violations = checkStorySpecificityViolations(text, { ...identity, bannedTerms });
+    const style = styleViolation(text, identity.archetypeLabels ?? [], true);
+    if (style) violations.push(`style: ${style}`);
+    const own = ownTastingViolation(text);
+    if (own) violations.push(own);
+    // "and we tasted it too" only where our cupping confirmed a roaster note (test run: 1 of 22 said it with none)
+    if (/\bwe tasted\b/i.test(text) && !params.voice.descriptors.some(d => d.voice !== 'customer' && d.confirmed_by_cupping)) {
+      violations.push('"we tasted" but our cupping confirmed none of the roaster\'s notes');
+    }
     lastText = text;
     lastViolations = violations;
 
     if (violations.length === 0) {
-      return { text, passed: true, attempts: attempt, violations: [] };
+      return { text, passed: true, attempts: attempt, violations: [], rejects };
     }
     correctionNote = violations.join('; ');
+    rejects.push(correctionNote);
     console.warn(`[storyLayer] attempt ${attempt} rejected for "${params.displayName}": ${correctionNote}`);
   }
 
-  return { text: lastText, passed: false, attempts: maxRetries + 1, violations: lastViolations };
+  return { text: lastText, passed: false, attempts: maxRetries + 1, violations: lastViolations, rejects };
 }
 
 // Shared by generateBrewNoteSentence() and generateOrderPlacedLine() (HOME_TASK_6
