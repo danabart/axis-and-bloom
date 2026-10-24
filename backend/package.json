@@ -24,6 +24,7 @@
     "lint:cupping": "node scripts/lint-cupping.mjs",
     "load:cupping-evidence-2": "tsx src/features/cupping_evidence/load/loadCuppingEvidence2.ts",
     "load:cupping-evidence-5": "tsx src/features/cupping_evidence/load/loadCuppingEvidence5.ts",
+    "load:cupping-evidence-7": "tsx src/features/cupping_evidence/load/loadCuppingEvidence7.ts",
     "test": "vitest run",
     "test:db:refresh": "node scripts/refresh-test-db.mjs"
   },

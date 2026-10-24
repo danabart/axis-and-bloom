@@ -5794,6 +5794,20 @@ Brief: `backend/src/features/coffee_presentation/CLAUDE_CODE_PROMPT_COFFEE_PRESE
 
 **Verified on test:** view, read, voice, guard, prompt-snapshot and SignatureLine tests (19 new) pass, and brief 6's (a)–(g) pass with (g) rewritten for the two caps. Both builds are clean, the six lints pass, and the backfill generated all 22 active coffees with 0 leak rejects and 0 failed flags. Full suite: only the six OT-19 failures. The closing report has the rows, the texts and the reveal-panel screenshot.
 
+### 232. Cupping evidence, brief 7: the Earthy / C&N cupping of 2026-10-23 (2026-10-23)
+
+Brief: `backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENCE_7_EARTHY_CUPPING.md`. Closing report: `CLOSING_REPORT_7.md`. Transcription check: `TRANSCRIPTION_CHECK_BRIEF_7_2026-10-23.md`. Data only.
+
+**What it is.** Dana and Camila cupped the dark end of the dial side by side, earthy against chocolate-nutty: Obsidian and Espresso Volo (Utopian), Blossom Dark Roast (Joe Bean), Amsterdam and Big City (Joe Coffee). It is loaded on prod as **session 41**.
+- `load/loadCuppingEvidence7.ts` (`npm run load:cupping-evidence-7`): loader 5's shape, services only, idempotent; the second run says `already loaded` at every step.
+- It wrote 12 cupper word mappings, 5 session coffees with brew rows, 10 cupper rows and 5 rule merges.
+- Disagreements: Obsidian Bitterness and Body; Volo Aroma, Flavor and Finish Length; Blossom Bitterness and Finish Length; Big City Finish Length; Amsterdam none.
+- **Calls:** Dana ruled that her flavor-notes line is her call. Her rows carry earthy (Obsidian), chocolate_nutty (Volo, Amsterdam), chocolate_nutty with position dark (Blossom) and earthy with position light (Big City). Camila's ticks stay call notes, so each merged call is Dana's.
+- **Pooled range and signals:** the pooled range took the session in by itself. Dial signals were re-recorded by the merges for Blossom (slot 15), Amsterdam (slot 24) and Big City, whose suggested slot moved from earthy 15 to 16 (pooled Bitterness 8 → 8.61). None for Obsidian and Volo: session 39's word scale is in their pooled Bitterness, so it is not all `ab_0_15`, the rule working.
+- All five show newer evidence than the decision. Nothing in the catalog changed.
+
+**Verified:** test then prod, identical row for row. Sessions 35–40 unchanged; loader 5 still `already loaded`; catalog integrity passes. `evidenceIntegrity` shows the two known checks; on prod check #6 now also lists Tiger Stripe Espresso (2914), placed and re-assigned on 2026-10-22 without a basis, outside this brief.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)
