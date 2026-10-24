@@ -20,6 +20,15 @@ export function signatureText(rows: SignatureRow[]): string {
   return rows.filter(r => r.is_signature !== false).map(r => r.descriptor).join(', ');
 }
 
+/**
+ * The collapsed position card's teaser: the signature line, or null with no
+ * signature notes. Coffee presentation brief 2 (2026-10-24), B2: always this
+ * line; the coffee's texts never feed the teaser.
+ */
+export function teaserFor(rows: SignatureRow[]): string | null {
+  return signatureText(rows) || null;
+}
+
 /** One "a hint of <family>: <notes>" clause per accent family, families in order of first appearance. */
 export function accentClauses(rows: SignatureRow[]): string[] {
   const families: Array<{ family: string; notes: string[] }> = [];

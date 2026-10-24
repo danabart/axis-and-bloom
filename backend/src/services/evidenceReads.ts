@@ -150,6 +150,33 @@ export async function getWorkbenchCoffee(coffeeId: number): Promise<{
 }
 
 /**
+ * Coffee presentation brief 2 (2026-10-24): the rows composeBasis
+ * (evidenceBasis.ts) takes, the same as the workbench's archetype card reads
+ * from getWorkbenchCoffee (archetype row, calls, the roaster's current
+ * submitted response, the latest website capture's descriptor remarks), on a
+ * caller's runner so a one-off loader and its test can compose a basis inside
+ * a transaction. Read-only.
+ */
+export async function getBasisRows(coffeeId: number, runner: Pick<typeof db, 'query'> = db): Promise<{
+  archetype: Row | null; calls: Row[]; roasterResponse: { version: number | null; respondent_name: string | null } | null; websiteDescriptors: Row[];
+}> {
+  const archetype = await runner.query(`SELECT * FROM v_evidence_archetype WHERE coffee_id = $1`, [coffeeId]);
+  const calls = await runner.query(`SELECT * FROM v_evidence_archetype_call WHERE coffee_id = $1 ORDER BY cupper_name`, [coffeeId]);
+  const response = await getCoffeeHint(coffeeId, {}, runner as typeof db);
+  const website = await runner.query(
+    `SELECT r.id, r.remark, r.said_on FROM v_roastery_remark r
+      WHERE r.coffee_id = $1 AND r.channel = 'website' AND r.topic = 'descriptor' AND r.is_current
+        AND r.said_on = (SELECT max(x.said_on) FROM v_roastery_remark x
+                          WHERE x.coffee_id = r.coffee_id AND x.channel = 'website' AND x.is_current)
+      ORDER BY r.load_dts, r.id`, [coffeeId]);
+  return {
+    archetype: archetype.rows[0] ?? null, calls: calls.rows,
+    roasterResponse: response ? { version: response.version ?? null, respondent_name: response.respondentName ?? null } : null,
+    websiteDescriptors: website.rows,
+  };
+}
+
+/**
  * Brief 6, B (2026-10-21): our cupping notes per SCA node for one coffee,
  * "cocoa · 2 of 2 sessions · Dana, Camila", most shared first. The admin
  * Flavor Wheel's internal branch and the workbench Descriptors tab read this.

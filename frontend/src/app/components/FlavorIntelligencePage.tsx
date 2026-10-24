@@ -297,11 +297,12 @@ export default function FlavorIntelligencePage() {
     }).catch(err => { reportError('[FlavorIntelligencePage/coffee-data]', err); setError('Failed to load coffee data'); setLoading(false); setContentLoading(false); });
   }, [selectedCoffeeId]);
 
-  const { compat, dimCompText } = useCompatibility(selectedArchData?.archetype ?? directCoffee?.archetype ?? null, matchArchetypeId, dimensions);
+  const { compat, dimCompText } = useCompatibility(selectedArchData?.archetype ?? directCoffee?.archetype ?? null, matchArchetypeId, selectedCoffeeId);
   const compareArchetype = compareCoffeeId
     ? displayArchetypes.find(a => a.slots.some(s => s.coffeeId === compareCoffeeId))?.archetype ?? null
     : null;
-  const { compat: compareCompat } = useCompatibility(compareArchetype, matchArchetypeId, compareDimensions);
+  // the compare overlay shows the badge only: no coffee id, so no sentence fetch
+  const { compat: compareCompat } = useCompatibility(compareArchetype, matchArchetypeId, null);
 
   // ── Compare mode (Decision #4) ──────────────────────────────────────────────
   const compareOptions = useMemo(() => (
@@ -505,7 +506,7 @@ export default function FlavorIntelligencePage() {
             Flavor Intelligence
           </h1>
           <p className="font-light max-w-xl" style={{ fontSize: 15.5, color: '#7b7f80', lineHeight: 1.65 }}>
-            Every coffee, seen through three lenses — our cuppers, the roaster, and customers who've ordered it.
+            Every coffee in the roaster's words, with what we tasted too and what customers add.
           </p>
         </motion.div>
       </div>

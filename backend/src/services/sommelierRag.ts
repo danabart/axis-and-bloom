@@ -59,16 +59,16 @@ interface CoffeeRow {
   id: number;
   name: string;
   archetype: string; // match_archetype
-  ai_summary: string | null;
-  surprise_note: string | null;
+  three_voice_story: string | null;
 }
 
-// Editorial-completeness first (has an ai_summary and/or surprise_note),
+// Editorial-completeness first (has its description, three_voice_story, since
+// coffee presentation brief 2; was ai_summary and/or surprise_note),
 // lowest id as the deterministic tiebreak — exact_match's own sort, reused
 // unchanged by the new thread slice (Part B: "id order, editorial-
 // completeness first as exact_match does").
 function editorialSort(a: CoffeeRow, b: CoffeeRow): number {
-  const score = (c: CoffeeRow) => (c.ai_summary != null ? 1 : 0) + (c.surprise_note != null ? 1 : 0);
+  const score = (c: CoffeeRow) => (c.three_voice_story != null ? 1 : 0);
   return score(b) - score(a) || a.id - b.id;
 }
 
@@ -182,8 +182,8 @@ async function buildCatalogText(
     const label = labelText.get(c.id);
     lines.push('---');
     lines.push(`${displayName} — ${archetypeLabelStr}${label ? ` ${label}` : ''}`);
-    lines.push(`Tasting note: ${c.ai_summary ?? 'Not yet available'}`);
-    lines.push(`What's unexpected: ${c.surprise_note ?? 'Not yet available'}`);
+    // Coffee presentation brief 2: the one description the customer reads.
+    lines.push(`Tasting note: ${c.three_voice_story ?? 'Not yet available'}`);
     lines.push(`Key flavors: ${descs.length ? descs.join(', ') : 'Not yet available'}`);
   }
   lines.push('---');
@@ -203,7 +203,7 @@ async function getCandidatePool(): Promise<CoffeeRow[]> {
   const coffees = await getCoffees({ ids: coffeeIds, active: true });
   return coffees
     .filter((c): c is typeof c & { match_archetype: string } => c.match_archetype != null)
-    .map(c => ({ id: c.id, name: c.name, archetype: c.match_archetype, ai_summary: c.ai_summary, surprise_note: c.surprise_note }));
+    .map(c => ({ id: c.id, name: c.name, archetype: c.match_archetype, three_voice_story: c.three_voice_story }));
 }
 
 // Groups the pool by archetype and takes up to `perArchetype` from each
@@ -358,7 +358,7 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
     } else if (ragFocus === 'discovery') {
       // Experimental archetype first.
       fillCoffees = pool.filter(c => c.archetype === 'experimental')
-        .sort((a, b) => (a.ai_summary != null ? 0 : 1) - (b.ai_summary != null ? 0 : 1) || a.id - b.id)
+        .sort((a, b) => (a.three_voice_story != null ? 0 : 1) - (b.three_voice_story != null ? 0 : 1) || a.id - b.id)
         .slice(0, Math.floor(fillBudget / 2));
 
       // Supplement with bridge_archetype hops from the user's current sellable coffees.
@@ -415,7 +415,7 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
         if (!byArchetype.has(c.archetype)) byArchetype.set(c.archetype, []);
         byArchetype.get(c.archetype)!.push(c);
       }
-      const score = (c: CoffeeRow) => (c.ai_summary != null ? 1 : 0) + (c.surprise_note != null ? 1 : 0);
+      const score = (c: CoffeeRow) => (c.three_voice_story != null ? 1 : 0);
       fillCoffees = archetypesInPool
         .map(a => byArchetype.get(a)!.sort((x, y) => score(y) - score(x) || x.id - y.id)[0])
         .slice(0, fillBudget);

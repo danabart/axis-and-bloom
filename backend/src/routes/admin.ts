@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAdmin, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
-import { generateAndStoreSummary, generateAndStoreAllContent } from './coffees.js';
+import { generateAndStoreAllContent } from './coffees.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { getAvgCuppingScore, getArchetypeBucketWidth, getAvgCuppingScoresBatch } from '../services/dialSuggestion.js';
 import {
@@ -995,12 +995,15 @@ router.delete('/revoke-admin', async (req, res) => {
 });
 
 // ── POST /api/admin/coffees/:id/refresh-summary ───────────────────────────────
-// Kept for backward compatibility. Prefer refresh-content.
+// Kept for backward compatibility. Prefer refresh-content. Coffee presentation
+// brief 2 (2026-10-24): ai_summary is no longer generated; this is now the
+// same force refresh as refresh-content, and `summary` carries the one
+// description (three_voice_story).
 router.post('/coffees/:id/refresh-summary', async (req, res) => {
   const { id } = req.params;
   try {
-    const summary = await generateAndStoreSummary(id);
-    res.json({ summary });
+    const content = await generateAndStoreAllContent(id, { force: true });
+    res.json({ summary: content.threeVoiceStory });
   } catch (err) {
     console.error('[admin/refresh-summary]', err);
     res.status(500).json({ error: 'Failed to refresh summary' });
@@ -1008,8 +1011,9 @@ router.post('/coffees/:id/refresh-summary', async (req, res) => {
 });
 
 // ── POST /api/admin/coffees/:id/refresh-content ───────────────────────────────
-// Force-regenerates all three AI content fields (ai_summary, surprise_note,
-// three_voice_story) and updates both Cloud SQL and Firestore.
+// Force-regenerates the coffee's description (three_voice_story) and its story
+// (unless admin-edited). Coffee presentation brief 2: ai_summary and
+// surprise_note are no longer generated.
 router.post('/coffees/:id/refresh-content', async (req, res) => {
   const { id } = req.params;
   try {

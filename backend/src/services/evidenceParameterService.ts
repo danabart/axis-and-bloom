@@ -22,8 +22,13 @@ export interface SaneRange {
   max: number | null; maxInclusive: boolean;
 }
 
-const RANGE = /Range:\s*(integer\s+)?(?:(-?\d+(?:\.\d+)?)\s*(<=|<)\s*)?value(?:\s*(<=|<)\s*(-?\d+(?:\.\d+)?))?/i;
+// "numeric" (coffee presentation brief 2) says the same as no word: any number.
+const RANGE = /Range:\s*(?:(integer)\s+|numeric\s+)?(?:(-?\d+(?:\.\d+)?)\s*(<=|<)\s*)?value(?:\s*(<=|<)\s*(-?\d+(?:\.\d+)?))?/i;
 const CHANGE_SUFFIX = / \| changed .*$/s;
+
+// Coffee presentation brief 2: pairs of keys whose values must stay ordered,
+// [lower, upper], checked against the other key's current value on every change.
+const ORDERED_PAIRS: Array<[string, string]> = [['dimension_delta_slight', 'dimension_delta_significant']];
 
 /** The range a parameter's note declares, or null when it declares none. */
 export function parseSaneRange(note: string | null | undefined): SaneRange | null {
@@ -64,6 +69,16 @@ export async function setParameterInTx(tx: Tx, input: SetParameterInput): Promis
   const range = parseSaneRange(row.note);
   if (!range) throw invalid(`'${key}' declares no sane range in its note; it is not editable here`);
   if (!inSaneRange(value, range)) throw invalid(`${value} is outside the sane range of '${key}' (${RANGE.exec(row.note ?? '')?.[0]})`);
+  for (const [lower, upper] of ORDERED_PAIRS) {
+    if (key !== lower && key !== upper) continue;
+    const other = key === lower ? upper : lower;
+    const o = await tx.query<{ value: string }>(`SELECT value FROM evidence_parameter WHERE key = $1 AND superseded_at IS NULL`, [other]);
+    if (!o.rows[0]) continue;
+    const otherValue = Number(o.rows[0].value);
+    if (key === lower ? value >= otherValue : value <= otherValue) {
+      throw invalid(`'${lower}' must stay below '${upper}' (${other} is ${otherValue})`);
+    }
+  }
   const previousValue = Number(row.value);
   if (previousValue === value) return { key, value, previousValue, unchanged: true };
   const stamp = new Date().toISOString().slice(0, 10);

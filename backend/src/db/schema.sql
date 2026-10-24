@@ -2862,7 +2862,11 @@ SELECT v.key, v.value, v.note FROM (VALUES
   ('customer_voice_max_words', 8,     'Customer voice: the most descriptor words a customer surface shows for one coffee (applied by cuppingReads.getCustomerDescriptors). Range: integer 1 <= value <= 20.'),
   -- coffee presentation brief 1 (2026-10-23): the reveal panel's one line
   ('customer_voice_signature_max', 4, 'Customer voice: the most signature notes (family on the match archetype''s descriptor_families) a customer surface shows for one coffee, in evidence order (applied by cuppingReads.getCustomerDescriptors). Range: integer 1 <= value <= 10.'),
-  ('customer_voice_accent_max',    3, 'Customer voice: the most accent notes (family off the match archetype''s descriptor_families, shown as "a hint of ...") a customer surface shows for one coffee (applied by cuppingReads.getCustomerDescriptors). Range: integer 1 <= value <= 10.')
+  ('customer_voice_accent_max',    3, 'Customer voice: the most accent notes (family off the match archetype''s descriptor_families, shown as "a hint of ...") a customer surface shows for one coffee (applied by cuppingReads.getCustomerDescriptors). Range: integer 1 <= value <= 10.'),
+  -- coffee presentation brief 2 (2026-10-24): the compatibility sentence
+  ('archetype_profile_min_coffees', 4,   'Compatibility sentence: the fewest active cupped coffees an archetype''s reference profile needs, counted after the coffee on the page is left out, before the sentence renders (applied by compatibilityReads.compareCoffee). Range: integer 1 <= value <= 20.'),
+  ('dimension_delta_slight',        1.5, 'Compatibility sentence: a dimension whose midpoint differs from the reference profile''s by at least this much (0 to 15 scale) is named "slightly more / less"; must stay below dimension_delta_significant (checked by evidenceParameterService). Range: numeric 0 < value <= 15.'),
+  ('dimension_delta_significant',   4,   'Compatibility sentence: a dimension whose midpoint differs from the reference profile''s by more than this (0 to 15 scale) is named "significantly more / less"; must stay above dimension_delta_slight (checked by evidenceParameterService). Range: numeric 0 < value <= 15.')
 ) AS v(key, value, note)
 WHERE NOT EXISTS (SELECT 1 FROM evidence_parameter p WHERE p.key = v.key);
 
@@ -6151,6 +6155,33 @@ LEFT JOIN v_coffee_dimension_range r ON r.coffee_id = c.id AND r.dimension_id = 
 GROUP BY a.name, d.name, d.display_order,
          av.min_score, av.ideal_score, av.max_score
 ORDER BY a.name, d.display_order;
+
+-- Coffee presentation brief 2 (2026-10-24), decision 2: an archetype's ACTUAL
+-- profile, the reference the customer's compatibility sentence compares a
+-- coffee to. One row per archetype x dimension over the active coffees whose
+-- current match (coffee_archetype_assignment, superseded_at IS NULL) is that
+-- archetype and that have a pooled midpoint (v_coffee_dimension_range) on the
+-- dimension. No archetype_vector, no md5 join: coffee_dimensions.id
+-- throughout. coffee_ids lets compatibilityReads leave the coffee on the page
+-- out of its own archetype's profile before averaging.
+DROP VIEW IF EXISTS v_archetype_dimension_profile;
+CREATE VIEW v_archetype_dimension_profile AS
+SELECT
+  aa.archetype,
+  r.dimension_id,
+  d.name                                         AS dimension_name,
+  d.display_order,
+  ROUND(AVG(r.midpoint), 2)                      AS avg_midpoint,
+  MIN(r.midpoint)                                AS min_midpoint,
+  MAX(r.midpoint)                                AS max_midpoint,
+  COUNT(DISTINCT r.coffee_id)                    AS coffee_count,
+  array_agg(DISTINCT r.coffee_id ORDER BY r.coffee_id) AS coffee_ids
+FROM coffee_archetype_assignment aa
+JOIN coffees c ON c.id = aa.coffee_id AND c.is_active = true
+JOIN v_coffee_dimension_range r ON r.coffee_id = c.id AND r.midpoint IS NOT NULL
+JOIN coffee_dimensions d ON d.id = r.dimension_id
+WHERE aa.superseded_at IS NULL
+GROUP BY aa.archetype, r.dimension_id, d.name, d.display_order;
 
 -- v_collaborative_flavor_wheel grouped; n_sources = number of distinct
 -- source channels ('internal'/'roastery'/'client') this descriptor was

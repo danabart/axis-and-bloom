@@ -483,6 +483,7 @@ export function DialArchetypeSection({
         key={currentKey}
         isRevealed={isRevealed}
         archetype={data.archetype}
+        coffeeId={currentSlot.isActive ? currentSlot.coffeeId ?? null : null}
         dialSortOrder={currentSlot.dialSortOrder}
         content={cardData.content}
         dimensions={cardData.dimensions}

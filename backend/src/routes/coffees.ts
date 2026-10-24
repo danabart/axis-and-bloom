@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import { db } from '../db/client.js';
-import { getCoffeeSummary, getCoffeeSurpriseNote, getCoffeeThreeVoiceStory } from '../services/claude.js';
+import { getCoffeeThreeVoiceStory } from '../services/claude.js';
 import { resolveBlendForSlot, resolveCoffeeBlend, COLLECTION_DISCOUNT, COLLECTION_MIN_MEMBERS } from '../services/blendResolver.js';
 import { generateCoffeeStoryWithRetry, checkStorySpecificityViolations } from '../services/storyLayer.js';
-import { looksLikeRefusal, looksLikeLeak, bannedTokensFor, generateWithLeakGuard, styleViolation } from '../services/contentGuard.js';
+import { looksLikeRefusal, bannedTokensFor, generateWithLeakGuard, styleViolation } from '../services/contentGuard.js';
 import { voiceHasRoasterMaterial } from '../services/claude.js';
 import { isClaudeGuardBlocked } from '../services/anthropicGuard.js';
 import {
@@ -16,6 +16,7 @@ import { getCustomerDescriptors } from '../services/cuppingReads.js';
 // returned. Coffee presentation brief 1 (2026-10-23): moved to
 // roasterVoiceReads, which every content prompt now reads.
 import { getRoasterVoice, getAwardRemarks, numericDimensionRows } from '../services/roasterVoiceReads.js';
+import { compareCoffee } from '../services/compatibilityReads.js';
 
 // Coffee presentation brief 1, decision 9: generated texts the leak guard
 // rejected (both attempts counted), for the backfill's report.
@@ -134,16 +135,18 @@ export async function fetchCoffeeDataForContent(coffeeId: string | number) {
   };
 }
 
-// ── Generate and store all three AI content fields (+ HOME_TASK_5's story) ────
+// ── Generate and store the coffee's description (+ HOME_TASK_5's story) ──────
+// Coffee presentation brief 2 (2026-10-24), decision 6: one description per
+// coffee, three_voice_story. ai_summary and surprise_note are no longer
+// generated; their columns and current values stay (nothing deleted) and
+// GET /:id/content still returns them for one release.
 // force=false: only generate fields that are currently null in the DB
-// force=true:  regenerate all (admin refresh) — EXCEPT story when
+// force=true:  regenerate both (admin refresh) — EXCEPT story when
 //              story_admin_edited is true, which bulk regenerate always skips.
 export async function generateAndStoreAllContent(
   coffeeId: string | number,
   options: { force?: boolean } = {}
 ): Promise<{
-  aiSummary: string;
-  surpriseNote: string | null;
   threeVoiceStory: string | null;
   story: string | null;
   storyPublished: boolean;
@@ -152,8 +155,7 @@ export async function generateAndStoreAllContent(
 
   // Check what is already cached
   const cachedResult = await db.query(
-    `SELECT ai_summary, surprise_note, three_voice_story, story, story_published, story_admin_edited,
-            ai_summary_generation_failed, surprise_note_generation_failed,
+    `SELECT three_voice_story, story, story_published, story_admin_edited,
             three_voice_story_generation_failed, story_generation_failed
      FROM coffees WHERE id = $1`,
     [coffeeId]
@@ -168,23 +170,14 @@ export async function generateAndStoreAllContent(
   // refresh) ignores these flags and always retries — see the flag-write
   // logic further down, which resets a flag to false on a successful
   // forced retry.
-  const needsSummary  = force || (!cached.ai_summary && !cached.ai_summary_generation_failed);
-  const needsSurprise = force || (!cached.surprise_note && !cached.surprise_note_generation_failed);
   const needsStory    = force || (!cached.three_voice_story && !cached.three_voice_story_generation_failed);
   // Admin-edited story content is never auto-regenerated over (spec item 3) —
   // this is the one field `force` does not override.
   const needsStoryText = !cached.story_admin_edited && (force || (!cached.story && !cached.story_generation_failed));
 
-  if (!needsSummary && !needsSurprise && !needsStory && !needsStoryText) {
-    const [sanitizedSummary, sanitizedSurprise, sanitizedStory] = await Promise.all([
-      sanitizeStoredField(coffeeId, 'ai_summary', cached.ai_summary),
-      sanitizeStoredField(coffeeId, 'surprise_note', cached.surprise_note),
-      sanitizeStoredField(coffeeId, 'three_voice_story', cached.three_voice_story),
-    ]);
+  if (!needsStory && !needsStoryText) {
     return {
-      aiSummary:      sanitizedSummary ?? '',
-      surpriseNote:   sanitizedSurprise,
-      threeVoiceStory: sanitizedStory,
+      threeVoiceStory: await sanitizeStoredField(coffeeId, 'three_voice_story', cached.three_voice_story),
       story:           cached.story,
       storyPublished:  cached.story_published ?? false,
     };
@@ -212,50 +205,15 @@ export async function generateAndStoreAllContent(
   // HOME_TASK_5 — skip gracefully when there's truly no usable signal (the
   // coffee-16 "Chocolate" case from S38: no archetype, no cupping data). No
   // data, no story, no error — same spirit as three_voice_story's own
-  // sourceData.length >= 2 guard just above.
+  // sufficiency gate just below.
   const hasEnoughDataForStory = archetypeLabelStr !== null || dimensionParams.length > 0 || topDescriptors.length > 0;
 
-  // Part 16 §D1 — input gate: getCoffeeSummary/getCoffeeSurpriseNote both
-  // consume the same three inputs (dimensions, topDescriptors, overallNotes);
-  // with all three empty there's nothing to write a real note from, and asking
-  // anyway is exactly how the live bug happened (a coffee with no cupping data
-  // got Claude's refusal text stored verbatim as its surprise_note). Skip the
-  // call entirely rather than let the model improvise or apologize.
-  // getCoffeeThreeVoiceStory already has its own sufficiency gate
-  // (sourceData.length >= 2, below) — this just adds the warning log for it.
-  //
-  // Part 17 §D1 — diagnosis: this OR-based gate let ai_summary AND surprise_note
-  // both through on overallNotes alone (no dimensions, no descriptors) — real
-  // repro, coffee "There's No Place Like Home": overallNotes present, both
-  // structured signals empty, and the live refusal text it got back explicitly
-  // named the thing actually missing ("the cupping notes, origin, processing
-  // method, or roast level"), not overallNotes. getCoffeeSummary's plain
-  // tasting-note framing can honestly work from cupper's prose alone, but
-  // getCoffeeSurpriseNote's ask (claude.ts: "a contradiction... something that
-  // defies the archetype") has nothing to contrast without a real number or
-  // descriptor to point at — overallNotes alone was never actually sufficient
-  // for THIS field, the shared gate just didn't know that. hasSufficientData
-  // (ai_summary, unchanged) stays OR-based; surprise_note gets its own,
-  // stricter bar — dimensions or descriptors only, per Dana's literal spec
-  // ("no descriptors AND no cupping dimensions... regardless of other fields").
-  // Cupping evidence brief 6, ruling 7 (2026-10-21): overallNotes is no longer
-  // an input (our cuppers' prose never reaches a customer prompt), so the
-  // summary needs dimensions or the customer voice's words, like the surprise.
-  // Coffee presentation brief 1, decision 8: with no words, the text is built
-  // from the dimensions and the roaster's remarks / portal answers alone; with
-  // none of those either, nothing is asked (INSUFFICIENT_DATA as today).
-  const hasRoasterMaterial = voiceHasRoasterMaterial(data.voice);
-  const hasSufficientData = dimensionParams.length > 0 || topDescriptors.length > 0 || hasRoasterMaterial;
-  const hasSufficientSurpriseData = hasSufficientData;
+  // Part 16 §D1 — input gate: with nothing to write from, skip the call
+  // entirely rather than let the model improvise or apologize (the live bug
+  // that stored Claude's refusal text verbatim). Coffee presentation brief 1,
   // D2: the three-voice story writes when there is at least one signature
   // note, one roaster remark or one portal answer (getCoffeeThreeVoiceStory).
-  const hasSufficientVoices = hasRoasterMaterial;
-  if (needsSummary && !hasSufficientData) {
-    console.warn(`[coffees/content] insufficient data to generate ai_summary for coffee ${coffeeId}`);
-  }
-  if (needsSurprise && !hasSufficientSurpriseData) {
-    console.warn(`[coffees/content] insufficient data to generate surprise_note for coffee ${coffeeId}`);
-  }
+  const hasSufficientVoices = voiceHasRoasterMaterial(data.voice);
   if (needsStory && !hasSufficientVoices) {
     console.warn(`[coffees/content] insufficient data to generate three_voice_story for coffee ${coffeeId}`);
   }
@@ -291,13 +249,7 @@ export async function generateAndStoreAllContent(
 
   // Run only what is needed, in parallel
   const skipped = Promise.resolve({ text: null as string | null, blocked: false });
-  const [summaryRun, surpriseRun, storyVoiceRun, storyResult] = await Promise.all([
-    needsSummary && hasSufficientData
-      ? generateGuarded('ai_summary', () => getCoffeeSummary({ coffeeName: voiceName, voice: data.voice }))
-      : skipped,
-    needsSurprise && hasSufficientSurpriseData
-      ? generateGuarded('surprise_note', () => getCoffeeSurpriseNote({ coffeeName: voiceName, voice: data.voice }))
-      : skipped,
+  const [storyVoiceRun, storyResult] = await Promise.all([
     needsStory && hasSufficientVoices
       ? generateGuarded('three_voice_story', () => getCoffeeThreeVoiceStory({ coffeeName: voiceName, voice: data.voice }))
       : skipped,
@@ -309,8 +261,7 @@ export async function generateAndStoreAllContent(
         ))
       : Promise.resolve(null),
   ]);
-  const newSummary = summaryRun.text, newSurprise = surpriseRun.text, newStory = storyVoiceRun.text;
-  const summaryBlocked = summaryRun.blocked, surpriseBlocked = surpriseRun.blocked, storyVoiceBlocked = storyVoiceRun.blocked;
+  const newStory = storyVoiceRun.text, storyVoiceBlocked = storyVoiceRun.blocked;
 
   // C3 — a "refused" field is one that was genuinely attempted (needed,
   // had sufficient data, not blocked) and still came back null — the only
@@ -318,13 +269,9 @@ export async function generateAndStoreAllContent(
   // once blocking is ruled out. Distinct from "skipped" (insufficient data
   // — not terminal, worth retrying once real data exists) and "blocked"
   // (not an attempt at all). Drives the terminal-flag writes below.
-  const summaryRefused    = needsSummary  && hasSufficientData         && !summaryBlocked    && newSummary  === null;
-  const surpriseRefused   = needsSurprise && hasSufficientSurpriseData && !surpriseBlocked   && newSurprise === null;
-  const storyVoiceRefused = needsStory    && hasSufficientVoices       && !storyVoiceBlocked && newStory    === null;
+  const storyVoiceRefused = needsStory && hasSufficientVoices && !storyVoiceBlocked && newStory === null;
 
-  const aiSummary      = newSummary      ?? cached.ai_summary      ?? '';
-  const surpriseNote   = newSurprise     ?? cached.surprise_note   ?? null;
-  const threeVoiceStory = newStory       ?? cached.three_voice_story ?? null;
+  const threeVoiceStory = newStory ?? cached.three_voice_story ?? null;
   // "Generate, scan, THEN mark live" — story_draft always gets the latest
   // attempt (even a failed one, for admin visibility); `story` (the only
   // field anything customer-facing reads) and story_published only advance
@@ -354,9 +301,7 @@ export async function generateAndStoreAllContent(
   // false case is what resets a previously-failed flag after an admin's
   // force=true retry succeeds. Never touched when the field wasn't
   // attempted at all (skipped for insufficient data, or blocked).
-  if (needsSummary  && !summaryBlocked)     { updates.push(`ai_summary = $${idx++}`);       values.push(newSummary); updates.push(`ai_summary_generation_failed = $${idx++}`); values.push(summaryRefused); }
-  if (needsSurprise && !surpriseBlocked)    { updates.push(`surprise_note = $${idx++}`);    values.push(newSurprise); updates.push(`surprise_note_generation_failed = $${idx++}`); values.push(surpriseRefused); }
-  if (needsStory    && !storyVoiceBlocked)  { updates.push(`three_voice_story = $${idx++}`); values.push(newStory); updates.push(`three_voice_story_generation_failed = $${idx++}`); values.push(storyVoiceRefused); }
+  if (needsStory && !storyVoiceBlocked) { updates.push(`three_voice_story = $${idx++}`); values.push(newStory); updates.push(`three_voice_story_generation_failed = $${idx++}`); values.push(storyVoiceRefused); }
   if (storyResult) {
     updates.push(`story_draft = $${idx++}`);       values.push(storyResult.text);
     updates.push(`story_generated_at = NOW()`);
@@ -379,13 +324,9 @@ export async function generateAndStoreAllContent(
   // falls through to `cached.x` above; sanitize on the way out regardless of
   // freshness. A field that WAS just generated this pass already passed
   // guardGenerated, so this is a harmless no-op for it — no double DB write.
-  const [sanitizedSummary, sanitizedSurprise, sanitizedStory] = await Promise.all([
-    sanitizeStoredField(coffeeId, 'ai_summary', aiSummary),
-    sanitizeStoredField(coffeeId, 'surprise_note', surpriseNote),
-    sanitizeStoredField(coffeeId, 'three_voice_story', threeVoiceStory),
-  ]);
+  const sanitizedStory = await sanitizeStoredField(coffeeId, 'three_voice_story', threeVoiceStory);
 
-  return { aiSummary: sanitizedSummary ?? '', surpriseNote: sanitizedSurprise, threeVoiceStory: sanitizedStory, story, storyPublished };
+  return { threeVoiceStory: sanitizedStory, story, storyPublished };
 }
 
 export interface ContentBackfillResult {
@@ -419,18 +360,22 @@ export interface ContentBackfillResult {
 // moment a call is blocked (kill-switch / ceiling): every subsequent
 // candidate would block too, so the run ends early and picks back up next
 // time rather than looping through the rest of the list for nothing.
-export async function backfillCoffeeContent(): Promise<ContentBackfillResult> {
-  const candidates = await db.query<{ id: number }>(
+/** The active coffees the backfill would generate for (brief 2: the description or the story missing, not refused). */
+export async function contentBackfillCandidates(runner: Pick<typeof db, 'query'> = db): Promise<number[]> {
+  const r = await runner.query<{ id: number }>(
     `SELECT id FROM coffees
      WHERE is_active = true
        AND (
-            (ai_summary IS NULL AND NOT ai_summary_generation_failed)
-        OR (surprise_note IS NULL AND NOT surprise_note_generation_failed)
-        OR (three_voice_story IS NULL AND NOT three_voice_story_generation_failed)
+            (three_voice_story IS NULL AND NOT three_voice_story_generation_failed)
         OR (story IS NULL AND NOT story_admin_edited AND NOT story_generation_failed)
        )
      ORDER BY id`
   );
+  return r.rows.map(row => row.id);
+}
+
+export async function backfillCoffeeContent(): Promise<ContentBackfillResult> {
+  const candidates = { rows: (await contentBackfillCandidates()).map(id => ({ id })) };
 
   let processed = 0;
   let succeeded = 0;
@@ -460,37 +405,16 @@ export async function backfillCoffeeContent(): Promise<ContentBackfillResult> {
 
 // Coffee presentation brief 1 (2026-10-23), decision 11: after the prompts
 // change, every active coffee gets one more automatic attempt. Clears the
-// three content *_generation_failed flags on active coffees (never the story
-// flag: Dana edits stories by hand); backfillCoffeeContent then regenerates
-// what is null. Run by hand (features/coffee_presentation/load), not by a route.
+// content *_generation_failed flag on active coffees (never the story flag:
+// Dana edits stories by hand); backfillCoffeeContent then regenerates what is
+// null. Brief 2: three_voice_story's flag only (the other two texts are no
+// longer generated). Run by hand (features/coffee_presentation/load), not by a route.
 export async function clearContentGenerationFlags(): Promise<number> {
   const r = await db.query(
-    `UPDATE coffees
-        SET ai_summary_generation_failed = false, surprise_note_generation_failed = false, three_voice_story_generation_failed = false
-      WHERE is_active
-        AND (ai_summary_generation_failed OR surprise_note_generation_failed OR three_voice_story_generation_failed)`
+    `UPDATE coffees SET three_voice_story_generation_failed = false
+      WHERE is_active AND three_voice_story_generation_failed`
   );
   return r.rowCount ?? 0;
-}
-
-// ── Backward-compat wrapper — still used by admin refresh-summary endpoint ────
-export async function generateAndStoreSummary(coffeeId: string | number): Promise<string> {
-  const data = await fetchCoffeeDataForContent(coffeeId);
-
-  // Coffee presentation brief 1: the roaster's voice, and the same leak guard
-  // (one retry) as generateAndStoreAllContent; a second leak stores nothing.
-  let summary = '';
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    summary = await getCoffeeSummary({ coffeeName: data.displayName ?? 'this coffee', voice: data.voice });
-    const leak = looksLikeLeak(summary, data.leakTokens);
-    if (!leak) break;
-    leakRejectCount++;
-    console.warn(`[coffees/refresh-summary] leak guard rejected ai_summary for coffee ${coffeeId} (attempt ${attempt}): contains "${leak}"`);
-    if (attempt === 2) throw new Error(`ai_summary for coffee ${coffeeId} rejected twice by the leak guard`);
-  }
-
-  await db.query(`UPDATE coffees SET ai_summary = $1 WHERE id = $2`, [summary, coffeeId]);
-  return summary;
 }
 
 // GET /api/coffees/archetypes ─────────────────────────────────────────────────
@@ -1074,6 +998,29 @@ router.get('/:id/dimensions', async (req, res) => {
   }
 });
 
+// GET /api/coffees/:id/compatibility?userArchetype=<code> ────────────────────
+// Coffee presentation brief 2 (2026-10-24), A3: the compatibility sentence,
+// compared to the user's archetype's actual coffees (compatibilityReads, the
+// coffee itself left out). Public and roaster-blind: the response carries
+// dimension names and the archetype label only, never a coffee name, roaster
+// or origin. `sentence` is null below param('archetype_profile_min_coffees')
+// reference coffees; the page then shows the badge alone (the badge level
+// stays client-side on v_coffee_archetype_adjacency).
+router.get('/:id/compatibility', async (req, res) => {
+  const coffeeId = Number(req.params.id);
+  const userArchetype = typeof req.query.userArchetype === 'string' ? req.query.userArchetype : '';
+  try {
+    if (!Number.isInteger(coffeeId) || !userArchetype) {
+      res.json({ sentence: null, reason: 'no_reference', coffee_count: 0, divergences: [] });
+      return;
+    }
+    res.json(await compareCoffee(coffeeId, { kind: 'archetype', archetype: userArchetype }));
+  } catch (err) {
+    console.error('[coffees/compatibility]', err);
+    res.status(500).json({ error: 'Failed to compare coffee' });
+  }
+});
+
 // GET /api/coffees/:id/content ────────────────────────────────────────────────
 // C3 (M2 fix) — pure read, NEVER calls Claude. Returns whatever's already
 // cached; a coffee with no generated content yet (or one that's been
@@ -1109,6 +1056,9 @@ router.get('/:id/content', async (req, res) => {
     // sanitizeStoredField above) — this is the exact route the live "There's
     // No Place Like Home" bug reached customers through, and it now has zero
     // path from a bad stored value to a response.
+    // Coffee presentation brief 2 (2026-10-24): aiSummary and surpriseNote are
+    // retired from customer surfaces and nothing renders them; they stay in
+    // this public shape, from the columns as stored, for one release.
     const [aiSummary, surpriseNote, threeVoiceStory] = await Promise.all([
       sanitizeStoredField(id, 'ai_summary', coffee?.ai_summary),
       sanitizeStoredField(id, 'surprise_note', coffee?.surprise_note),

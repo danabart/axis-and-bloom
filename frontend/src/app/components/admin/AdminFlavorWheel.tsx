@@ -37,14 +37,16 @@ interface WheelRow {
   customer_sees?: 'signature' | 'accent' | 'hidden by cap' | 'hidden by tier';
 }
 
-interface PublicContent { aiSummary: string; surpriseNote: string | null; threeVoiceStory: string | null }
+interface PublicContent { threeVoiceStory: string | null }
 
 /**
  * Coffee presentation brief 1, E2 — "What the customer sees": the signature
  * line and accent clauses from the same public read the Bloom page uses
- * (GET /api/coffees/:id/flavor-wheel) and the three stored texts exactly as
- * GET /api/coffees/:id/content serves them, with Regenerate (the existing
- * POST /api/admin/coffees/:id/refresh-content), then a reload.
+ * (GET /api/coffees/:id/flavor-wheel) and the coffee's description exactly as
+ * GET /api/coffees/:id/content serves it, with Regenerate (the existing
+ * POST /api/admin/coffees/:id/refresh-content), then a reload. Brief 2
+ * (2026-10-24): one description per coffee, three_voice_story, under the
+ * header customers see ("In the roaster's words").
  */
 function CustomerSeesBlock({ coffeeId, onRegenerated }: { coffeeId: string; onRegenerated: () => void }) {
   const { user } = useAuth();
@@ -102,11 +104,7 @@ function CustomerSeesBlock({ coffeeId, onRegenerated }: { coffeeId: string; onRe
         {line ? <p className="text-[15px] text-stone-800">{line}</p> : <p className="text-sm text-stone-300">no signature notes</p>}
         {clauses.map(c => <p key={c} className="text-[12.5px] text-stone-500 mt-1">{c}</p>)}
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        {text('Summary (ai_summary)', content?.aiSummary)}
-        {text('Surprise note', content?.surpriseNote)}
-        {text('Three voices', content?.threeVoiceStory)}
-      </div>
+      {text("In the roaster's words (three_voice_story)", content?.threeVoiceStory)}
     </div>
   );
 }

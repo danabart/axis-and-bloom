@@ -94,8 +94,10 @@ router.get('/beat-dial-in-send', requireCronSecret, async (_req, res) => {
 // an admin's explicit POST /api/admin/coffees/:id/refresh-content (requireAdmin).
 // backfillCoffeeContent() (coffees.ts) already goes through the C2 global
 // spend gate on every Claude call it makes (via generateAndStoreAllContent ->
-// getCoffeeSummary/-SurpriseNote/-ThreeVoiceStory/generateCoffeeStoryWithRetry,
-// all guardClaudeCall-wrapped) and stops early the moment a call is blocked.
+// getCoffeeThreeVoiceStory/generateCoffeeStoryWithRetry, all
+// guardClaudeCall-wrapped; coffee presentation brief 2: the summary and
+// surprise note are no longer generated) and stops early the moment a call is
+// blocked.
 // Cloud Scheduler job: daily → GET this path with the same x-cron-secret header.
 router.get('/coffee-content-backfill', requireCronSecret, async (_req, res) => {
   try {

@@ -4,36 +4,10 @@ import { getArchetypes } from '../services/catalogReads.js';
 
 const router = Router();
 
-// GET /api/axis/vectors
-// Returns archetype dimension vectors from v_archetype_vectors, grouped by
-// archetype. Unchanged this brief — target-range data, not a placement
-// question, and v_archetype_vectors itself isn't touched by Part A.
-router.get('/vectors', async (_req, res) => {
-  try {
-    const result = await db.query(`
-      SELECT archetype, dimension, display_order, min_score, ideal_score, max_score
-      FROM v_archetype_vectors
-      ORDER BY archetype, display_order
-    `);
-
-    const map: Record<string, { name: string; dimensions: object[] }> = {};
-    for (const row of result.rows) {
-      if (!map[row.archetype]) map[row.archetype] = { name: row.archetype, dimensions: [] };
-      map[row.archetype].dimensions.push({
-        name:         row.dimension,
-        displayOrder: Number(row.display_order),
-        min:          Number(row.min_score),
-        ideal:        Number(row.ideal_score),
-        max:          Number(row.max_score),
-      });
-    }
-
-    res.json({ archetypes: Object.values(map) });
-  } catch (err) {
-    console.error('[axis/vectors]', err);
-    res.status(500).json({ error: 'Failed to load vectors' });
-  }
-});
+// GET /api/axis/vectors was removed by coffee presentation brief 2
+// (2026-10-24): its only reader was the frontend's compatibility sentence,
+// which now comes from GET /api/coffees/:id/compatibility (the archetype's
+// actual coffees, not the archetype_vector seed hypothesis).
 
 // GET /api/axis/adjacency — which archetypes count as "adjacent" for the
 // compatibility badge's "Worth exploring" tier. Catalog Blueprint brief 3:

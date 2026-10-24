@@ -10,6 +10,8 @@ import { CompatibilityBadge, useCompatibility } from '../coffee-info/useCompatib
 interface RevealedPanelProps {
   isRevealed: boolean;
   archetype: string;
+  /** Coffee presentation brief 2: the coffee whose compatibility sentence the verdict row fetches; null shows the badge alone. */
+  coffeeId: number | null;
   dialSortOrder: number | null;
   content: ContentData | null;
   dimensions: DimensionRow[];
@@ -38,8 +40,8 @@ export const QUIET_LINK_CLASS = 'text-[10.5px] uppercase tracking-[.14em] text-[
  * column.
  *
  * Part 13 (reveal-panel redesign) — new order: verdict (compatibility badge +
- * why-sentence) → Three voices (the only prose left; TastingNotes' surprise-note
- * and Liam's-intake blocks are retired here) → evidence (trimmed cupping bars +
+ * why-sentence) → the description ("In the roaster's words" since coffee
+ * presentation brief 2, the only prose) → evidence (trimmed cupping bars +
  * Signature notes) → footer (actions). Brand type/color language throughout
  * (matches the Bloom Dial above it), 1px hairlines instead of nested rounded
  * cards, no emojis. See PROMPT_reveal_panel_redesign.md.
@@ -56,8 +58,8 @@ export const QUIET_LINK_CLASS = 'text-[10.5px] uppercase tracking-[.14em] text-[
  * every breakpoint and every evidence-presence combination without a
  * JS-computed template per case.
  */
-export function RevealedPanel({ isRevealed, archetype, dialSortOrder, content, dimensions, wheelRows, userArchetype, hideProfileLink = false, prelaunch = false }: RevealedPanelProps) {
-  const { compat, dimCompText } = useCompatibility(archetype, userArchetype, dimensions);
+export function RevealedPanel({ isRevealed, archetype, coffeeId, dialSortOrder, content, dimensions, wheelRows, userArchetype, hideProfileLink = false, prelaunch = false }: RevealedPanelProps) {
+  const { compat, dimCompText } = useCompatibility(archetype, userArchetype, isRevealed ? coffeeId : null);
   const { hasLiamAccess } = useAuth();
   const exploreLink = archetype && dialSortOrder != null ? `/flavor-intelligence?archetype=${archetype}&slot=${dialSortOrder}` : '/flavor-intelligence';
   const hasDimensions = dimensions.length > 0;
@@ -96,7 +98,7 @@ export function RevealedPanel({ isRevealed, archetype, dialSortOrder, content, d
 
             <hr style={RULE_STYLE} />
 
-            {/* ── Row 2+3 · Three voices + Evidence ──
+            {/* ── Row 2+3 · Description + Evidence ──
                 Part 17 §A — on wide panels (≥ ~1200px) prose stops stacking above
                 the evidence grid and instead shares ONE row with it: prose | cupping
                 | signature notes, roughly 40/30/30. Medium keeps today's behavior

@@ -4,7 +4,7 @@ import type { Slot, Hop } from './types';
 import type { ContentData } from '../coffee-info/TastingNotes';
 import type { DimensionRow } from '../coffee-info/DimensionBars';
 import type { WheelRow } from '../coffee-info/CollaborativeFlavorWheel';
-import { signatureText } from '../../lib/signatureLine';
+import { teaserFor } from '../../lib/signatureLine';
 
 /**
  * All fetching/derived state for one position card, extracted out of the
@@ -68,11 +68,10 @@ export function usePositionCardData(slot: Slot, archetype: string, isRevealed: b
   // unavailable" (Pricing update, 2026-07-24 — no hardcoded fallback price).
   const isUnpriced = slot.isActive && slot.prices.length === 0;
   const effectivelyActive = slot.isActive && slot.prices.length > 0 && (availability === null || availableWeights.length > 0);
-  // B2: the surprise note's first sentence when there is one, else the
-  // signature line from the same rows the reveal panel draws.
-  const teaser = content?.surpriseNote
-    ? content.surpriseNote.split(/(?<=[.!?])\s/)[0]
-    : (signatureText(Array.isArray(wheelRows) ? wheelRows : []) || null);
+  // Coffee presentation brief 2 (2026-10-24), B2: always the signature line
+  // from the same rows the reveal panel draws (the surprise-note branch is
+  // gone with the surprise note); see teaserFor.
+  const teaser = teaserFor(Array.isArray(wheelRows) ? wheelRows : []);
   const selectedPrice = slot.prices.find(p => p.weightOz === selectedWeight);
 
   return {

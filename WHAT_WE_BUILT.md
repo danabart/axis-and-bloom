@@ -425,18 +425,19 @@ Migration scripts: `backend/src/db/migrations/`
 | DELETE | `/api/admin/scores/:scoreId` | Admin | Delete a cupping score and all its dimension values + descriptors (CASCADE) |
 | POST | `/api/admin/grant-admin` | Admin | Grant admin role to a user by email — body: `{ "email": "..." }` |
 | DELETE | `/api/admin/revoke-admin` | Admin | Revoke admin role (sets back to customer) — body: `{ "email": "..." }` |
-| POST | `/api/admin/coffees/:id/refresh-summary` | Admin | Force-regenerates and stores the AI tasting note for a coffee — use after new cupping data is added |
+| POST | `/api/admin/coffees/:id/refresh-summary` | Admin | Kept for compatibility: since coffee presentation brief 2 (#233) the same force refresh as `refresh-content`; returns `{ summary }` = the coffee's one description (`three_voice_story`) |
 | GET | `/api/coffees/archetypes` | No | Roaster-blind, archetype-grouped, slot-based catalogue — the source of truth for both The Bloom and the Flavor Intelligence page. Each slot includes `isDefault: boolean` (2026-07-12). **Removed 2026-08-02 (#131/HOME Task 5d)**: the old flat `GET /api/coffees` (raw `name`/`roaster` list) — confirmed unreferenced by any frontend page, admin tooling, or test, and the "kept for admin tooling" note above was itself stale; this line is the sole survivor of that entry |
 | GET | `/api/coffees/archetype-stats?archetype=` | No | Per-dimension target range + avg actual cupping score + coffee count for one archetype (2026-07-12) |
 | GET | `/api/coffees/:id/legacy-slot` | No | Resolves a raw `coffeeId` to `{ archetype, dialSortOrder }` for old `?coffee=` deep links (2026-07-12) |
 | GET | `/api/coffees/:id/flavor-wheel` | No | Flavor descriptors for one coffee aggregated from all 3 sources via `v_collaborative_flavor_wheel` |
 | GET | `/api/coffees/:id/dimensions` | No | Numeric dimension ranges (avg min/max per dimension) from all cupping scores + session overall notes |
-| GET | `/api/coffees/:id/content` | No | AI summary/surprise note/three-voice story, plus `process`/`roastLevel`/`originRegion` (2026-07-12) |
+| GET | `/api/coffees/:id/content` | No | AI summary/surprise note/three-voice story, plus `process`/`roastLevel`/`originRegion` (2026-07-12). Since #233 only `threeVoiceStory` is rendered; `aiSummary`/`surpriseNote` stay in the shape for one release |
+| GET | `/api/coffees/:id/compatibility?userArchetype=<code>` | No | #233: the compatibility sentence vs the user's archetype's actual coffees (leave-one-out, `compatibilityReads`); `{ sentence, reason, coffee_count, divergences }`, roaster-blind |
 | GET | `/api/coffees/:id/ai-summary` | No | Returns cached `ai_summary` from DB if it exists; otherwise generates via Claude haiku, stores, and returns |
 | POST | `/api/admin/lookups` | Admin | Upsert a `lookup_value` row on `(category, value)` — so new dropdown options don't need a code deploy (2026-07-12) |
 | PATCH/DELETE | `/api/admin/lookups/:id` | Admin | Update/delete a `lookup_value` row; `DELETE` returns 409 (not a raw FK error) if still assigned to a coffee (2026-07-12) |
 | PATCH | `/api/admin/coffees/:id` | Admin | Partial update — `process`/`roast_level`/`origin_region` (2026-07-12) |
-| GET | `/api/axis/vectors` | No | Returns all archetype dimension vectors from `v_archetype_vectors`, grouped by archetype name — endpoint exists and is ready; not currently fetched by the public `/the-axis` page (which is static) |
+| ~~GET~~ | ~~`/api/axis/vectors`~~ | | Removed by coffee presentation brief 2 (#233): its only reader was the compatibility sentence, now `GET /api/coffees/:id/compatibility` |
 | POST | `/api/household/create` | Yes | Create a household; caller becomes admin; fails if already in a household |
 | GET | `/api/household/mine` | Yes | Returns current household with members + pending invitations, or `null` if not in one |
 | POST | `/api/household/invite` | Yes (admin) | Invite a member by email — sends branded Resend email with join link; cancels any prior pending invite for the same email |
@@ -5807,6 +5808,35 @@ Brief: `backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENC
 - All five show newer evidence than the decision. Nothing in the catalog changed.
 
 **Verified:** test then prod, identical row for row. Sessions 35–40 unchanged; loader 5 still `already loaded`; catalog integrity passes. `evidenceIntegrity` shows the two known checks; on prod check #6 now also lists Tiger Stripe Espresso (2914), placed and re-assigned on 2026-10-22 without a basis, outside this brief.
+
+### 233. Coffee presentation, brief 2: the sentence reads real coffees, one description per coffee, Fabricator's match (2026-10-24)
+
+Brief: `backend/src/features/coffee_presentation/CLAUDE_CODE_PROMPT_COFFEE_PRESENTATION_2.md`, written after Dana's review of the C&N dial and Flavor Intelligence. Closing report: `CLOSING_REPORT_2.md` in that folder.
+
+**Status: done on test (2026-10-24); prod waits for Dana's go** (deploy, Part C loader dry run then real, verify 2917 and a C&N page, `catalog:md`, commit).
+
+**The compatibility sentence compares a coffee to real coffees.** Before, `useCompatibility.getDimensionComparison` compared the coffee's pooled range to `archetype_vector` (the May 2026 assumed targets), with 1.5 and 4 typed in the component. Every C&N coffee read "significantly less body and significantly less bitterness".
+- New view **`v_archetype_dimension_profile`**: per archetype × dimension, `avg_midpoint`, `min_midpoint`, `max_midpoint`, `coffee_count` and `coffee_ids` over the active coffees whose current match is that archetype (`coffee_archetype_assignment`, `superseded_at IS NULL`) and their pooled midpoints (`v_coffee_dimension_range`). No `archetype_vector`, no `md5` join.
+- **`services/compatibilityReads.ts`**: `getReferenceProfile(reference, { excludeCoffeeId })` and `compareCoffee(coffeeId, reference)`. The reference is `{ kind: 'archetype' }` (built) or `{ kind: 'customer_bags' }` (declared, returns `not_built`). Leave-one-out is recomputed from `coffee_ids` against `v_coffee_dimension_range` in one query. The three sentence shapes are the old function's word for word.
+- **Parameters:** `archetype_profile_min_coffees` 4 (counted after leave-one-out), `dimension_delta_slight` 1.5, `dimension_delta_significant` 4. `evidenceParameterService` keeps slight below significant and now parses `Range: numeric …`.
+- **`GET /api/coffees/:id/compatibility?userArchetype=<code>`** (public, roaster-blind). `useCompatibility` fetches it; null renders the badge alone. `archetypeVectors.ts` and `GET /api/axis/vectors` are removed.
+- On test (22 active coffees): C&N, Balanced and Earthy profiles hold 4 coffees, so their readers see the badge alone on their own archetype's coffees (3 after leave-one-out) and a sentence on the others; Fruity holds 9 (always a sentence), Floral 2 (never). 76 of 110 coffee × reader pairs render.
+- `archetype_vector` keeps no customer-facing *sentence* reader. Still reading it: `dialSuggestion.getDialSuggestion` (review 5.1) and `GET /api/coffees/archetype-order` (the Bloom page's archetype box order, by distance over `v_archetype_vectors`). The catalog comment names both as open.
+
+**One description per coffee: `three_voice_story`.**
+- `generateAndStoreAllContent`, the backfill, `refresh-content` and `refresh-summary` generate the description and the story only. `ai_summary` / `surprise_note` and their values stay; `comments.sql` marks both retired from customer surfaces. `GET /:id/content` still returns them for one release.
+- `clearContentGenerationFlags` touches the description's flag only. `contentBackfillCandidates` is the backfill's candidate read.
+- `TastingNotes` renders the story alone under **In the roaster's words**: no legend, no surprise block or fallback, no "Liam's intake" block (that block was `ai_summary`). The position card's teaser is always the signature line (`signatureLine.teaserFor`). The admin "What the customer sees" block shows the one text. Flavor Intelligence's subtitle now reads "Every coffee in the roaster's words, with what we tasted too and what customers add." (was "seen through three lenses").
+- Liam's RAG reads `three_voice_story` for the `Tasting note:` line and the editorial-completeness order; the "What's unexpected" line is gone.
+- `getCoffeeSummary` / `getCoffeeSurpriseNote` stay in `claude.ts` with no caller (brief 1's prompt-snapshot test still covers them).
+
+**Fabricator (2917) → Chocolate & Nutty.** `features/coffee_presentation/load/setMatch2917.ts` (`--expect-db`, `--dry-run`) goes through `catalogService.setMatchArchetype`:
+- source `cupping`, the session dated 2026-10-21 found by date (s40 on test), confidence medium, Dana's note.
+- The basis is composed by `composeBasis` from `evidenceReads.getBasisRows` (new: the archetype card's rows on any runner), with Dana's note as its rule.
+- It then regenerates the story text and asserts the line. On test the line reads "Hazelnut / a hint of fruity: citrus fruit; a hint of spices: cinnamon" (pass), and a second run skips. `/story` has no dial position on test (2917 is not placed there); prod has the C&N slot 1 placement.
+- Dana's note, reworded 2026-10-24 after the dry run showed the form proposes Balanced: "Dana 2026-10-21: C&N light, slot 1; bitterness and a grippy texture, not body. Supersedes our Fruity match from s37 (2026-09-30). Roaster form proposes Balanced, kept as evidence."
+
+**Verified on test:** 16 new tests (view, read, parameters, route over every active coffee × archetype, backfill candidates, refresh-content story-only, loader; TastingNotes rendered for real from the frontend's React, teaser). Lints clean, backend `tsc` and frontend build clean, catalog integrity allPass. Screenshots at 1440: `cp2_reveal_panel_1440.png` (Balanced; no C&N coffee is placed on test) and `cp2_flavor_intelligence_1440.png`.
 
 ---
 
