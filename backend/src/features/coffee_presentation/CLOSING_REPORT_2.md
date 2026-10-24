@@ -1,7 +1,7 @@
 # Coffee presentation, brief 2: closing report
 
 > Brief: `CLAUDE_CODE_PROMPT_COFFEE_PRESENTATION_2.md` · Run 2026-10-24 on the **test DB** (`axisandbloom_test`) · `WHAT_WE_BUILT.md` #233, `WHAT_WE_BUILT_DB.md`, `SOMMELIER_BUILT.md` S114
-> **Status: test done. Prod not touched; waiting for Dana's go** (deploy, Part C loader dry run then real, verify 2917 and one C&N page, `catalog:md`, commit).
+> **Status: done on prod 2026-10-24** (commit `0f12129`, revision `axis-bloom-backend-00773-r54`; prod results at the end).
 
 ## Where the data differs from the brief
 
@@ -230,3 +230,101 @@ COMMENT ON VIEW v_coffee_dimension_range IS $c$Purpose: Per active coffee and di
 - ~~The note's "roaster classification Fruity" vs the form's Balanced~~: reworded by Dana 2026-10-24 (prod results below).
 - ~~Flavor Intelligence's "three lenses" subtitle~~: replaced on Dana's go 2026-10-24 (prod results below).
 - `getCoffeeSummary` / `getCoffeeSurpriseNote` have no caller; delete them in a later brief together with brief 1's snapshot entries.
+
+## Prod (Dana's go, 2026-10-24)
+
+**Changes first (Dana's go message):**
+1. **Loader note reworded** to "Dana 2026-10-21: C&N light, slot 1; bitterness and a grippy texture, not body. Supersedes our Fruity match from s37 (2026-09-30). Roaster form proposes Balanced, kept as evidence."
+   - Test dry run with it (test already holds the earlier wording; 2917 is chocolate_nutty there, so nothing was written):
+     ```
+     [axisandbloom_test] no active home slot: previewPlacement has no slot to preview
+     [axisandbloom_test] session for 2026-10-21: s40
+     [axisandbloom_test] basis (composeBasis): basis: cupping s40 (Dana=no call, Camila=no call; not blind); roaster form v1 (Kathy Turiano)=balanced_sweet; roaster remarks=none; website=graham cracker, light citrus, Cinnamon
+     [axisandbloom_test] rule required: true | rule stored: Dana 2026-10-21: C&N light, slot 1; bitterness and a grippy texture, not body. Supersedes our Fruity match from s37 (2026-09-30). Roaster form proposes Balanced, kept as evidence.
+       basis: '(json below)'
+     [axisandbloom_test] basis json: {"sessions":[40],"calls":{"Dana":null,"Camila":null},"blind":false,"roaster_present":false,"roaster_form":{"version":1,"respondent":"Kathy Turiano","proposal":"balanced_sweet"},"roaster_remarks":[],"website":["graham cracker","light citrus","Cinnamon"],"merged_range":null,"band":null,"rule":"Dana 2026-10-21: C&N light, slot 1; bitterness and a grippy texture, not body. Supersedes our Fruity match from s37 (2026-09-30). Roaster form proposes Balanced, kept as evidence."}
+     [axisandbloom_test] current match already is chocolate_nutty; nothing written
+     [axisandbloom_test] dry run: nothing written
+     ```
+2. **Flavor Intelligence subtitle** is now "Every coffee in the roaster's words, with what we tasted too and what customers add."
+3. **`archetype_profile_min_coffees`** stays at 4.
+
+**Deploy.**
+- Commit `0f12129` (this brief's 30 files only), pushed to main, revision `axis-bloom-backend-00773-r54`.
+- Boot: "DB schema verified", `[db-comments] applied 1328 statements`. The data catalog reports 2 of 6 checks with findings: the stale `CATALOG.md` (expected before regeneration) and the 22 known dead-table candidates.
+- `/health` 200; `GET /api/axis/vectors` 404.
+- The deployed frontend bundle carries "In the roaster's words", the new subtitle and the `/compatibility` call, and no longer has "three lenses" or `/api/axis/vectors`.
+
+**Part C dry run (prod):**
+
+```
+[axisandbloom] previewPlacement (home slot 24, chocolate_nutty #1) warnings: [{"kind":"band_no_spec"},{"kind":"placement_diverges_from_match","match":"fruity","placement":"chocolate_nutty"}]
+[axisandbloom] current assignment: {
+  archetype: 'fruity',
+  confidence: 'low',
+  source: 'cupping',
+  sessionId: 37
+}
+[axisandbloom] session for 2026-10-21: s40
+[axisandbloom] basis (composeBasis): basis: cupping s40 (Dana=no call, Camila=no call; not blind); roaster form v1 (Kathy Turiano)=balanced_sweet; roaster remarks=none; website=graham cracker, light citrus, Cinnamon
+[axisandbloom] rule required: true | rule stored: Dana 2026-10-21: C&N light, slot 1; bitterness and a grippy texture, not body. Supersedes our Fruity match from s37 (2026-09-30). Roaster form proposes Balanced, kept as evidence.
+[axisandbloom] input: {
+  coffeeId: 2917,
+  archetype: 'chocolate_nutty',
+  confidence: 'medium',
+  source: 'cupping',
+  sessionId: 40,
+  notes: 'Dana 2026-10-21: C&N light, slot 1; bitterness and a grippy texture, not body. Supersedes our Fruity match from s37 (2026-09-30). Roaster form proposes Balanced, kept as evidence.',
+  basis: '(json below)'
+}
+[axisandbloom] basis json: {"sessions":[40],"calls":{"Dana":null,"Camila":null},"blind":false,"roaster_present":false,"roaster_form":{"version":1,"respondent":"Kathy Turiano","proposal":"balanced_sweet"},"roaster_remarks":[],"website":["graham cracker","light citrus","Cinnamon"],"merged_range":null,"band":null,"rule":"Dana 2026-10-21: C&N light, slot 1; bitterness and a grippy texture, not body. Supersedes our Fruity match from s37 (2026-09-30). Roaster form proposes Balanced, kept as evidence."}
+[axisandbloom] dry run: nothing written
+```
+
+**Part C real run (prod, filtered; the input block is as above):**
+
+```
+[axisandbloom] previewPlacement (home slot 24, chocolate_nutty #1) warnings: [{"kind":"band_no_spec"},{"kind":"placement_diverges_from_match","match":"fruity","placement":"chocolate_nutty"}]
+[axisandbloom] current assignment: {
+[axisandbloom] session for 2026-10-21: s40
+[axisandbloom] basis (composeBasis): basis: cupping s40 (Dana=no call, Camila=no call; not blind); roaster form v1 (Kathy Turiano)=balanced_sweet; roaster remarks=none; website=graham cracker, light citrus, Cinnamon
+[axisandbloom] rule required: true | rule stored: Dana 2026-10-21: C&N light, slot 1; bitterness and a grippy texture, not body. Supersedes our Fruity match from s37 (2026-09-30). Roaster form proposes Balanced, kept as evidence.
+[catalog] setMatchArchetype {
+  actor: 'coffee presentation brief 2',
+  warnings: []
+[axisandbloom] setMatchArchetype warnings: []
+[anthropicGuard] aiControls missing from config/sommelier (not yet set, or config not loaded) — using defaults (everything enabled, $20/day global)
+[anthropicGuard] aiControls missing from config/sommelier (not yet set, or config not loaded) — using defaults (everything enabled, $20/day global)
+[anthropicGuard] spend feature=coffee_content model=claude-haiku-4-5-20251001 input=1345 cache_write=0 cache_read=0 output=96 usd_micros=1825
+[anthropicGuard] spend feature=coffee_content model=claude-haiku-4-5-20251001 input=606 cache_write=0 cache_read=0 output=242 usd_micros=1816
+[axisandbloom] regenerated three_voice_story: The roaster calls this blend hazelnut forward with a hint of citrus fruit and cinnamon, and we tasted the hazelnut and citrus fruit too. Beautifully balanced across a moderate body, it drinks equally well black or with milk, and the roaster recommends brewing it however suits you: auto drip, pour over, or espresso all bring out its character. A medium roast with a lingering finish.
+[axisandbloom] /flavor-wheel line: Hazelnut / a hint of fruity: citrus fruit; a hint of spices: cinnamon
+[axisandbloom] line matches the brief (PASS)
+[axisandbloom] /story dialPosition: {"label":"Lighter","sortOrder":1}
+```
+
+- **Assignments for 2917 on prod:** 1210 `fruity` low s37 is kept with `superseded_at`; 1230 `chocolate_nutty` medium s40, `basis.rule` = the reworded note.
+- **Cost:** 2 Claude calls, $0.0036. Like brief 1's loaders, the local run used the guard's default `aiControls` because the Firestore config isn't loaded in a script.
+
+**Checks on prod (live API).**
+- `GET /api/coffees/2917/story`: `archetype` chocolate_nutty, `dialPosition` `{"label":"Lighter","sortOrder":1}` (non-null).
+- `GET /api/coffees/2917/flavor-wheel`: Hazelnut (signature); Citrus Fruit (accent, Fruity); Cinnamon (accent, Spices). That renders "Hazelnut / a hint of fruity: citrus fruit; a hint of spices: cinnamon", as the brief expected.
+- `GET /api/coffees/2917/compatibility?userArchetype=chocolate_nutty`: `below_min_coffees`, 3 reference coffees, so a C&N customer sees the badge alone. With `userArchetype=fruity`: "This coffee's profile sits close to your usual Fruity preference." (8 coffees).
+- **Sentence coverage on prod** (`compareCoffee` over 22 active coffees × 5 reader archetypes):
+  - C&N, Balanced and Earthy readers: 18 of 22 (their profiles hold 4 coffees).
+  - Fruity readers: 22 of 22 (8 coffees).
+  - Floral readers: 0 of 22 (2 coffees).
+  - 76 of 110 in all, the same as test.
+- **C&N reveal panel at 1440:** `cp2_prod_cn_reveal_panel_1440.png`, Coado (2914, the C&N landing coffee): "In the roaster's words", the signature line, the badge row as a guest.
+  - The public domain shows a Cloudflare bot check to headless browsers (not bypassed), and the Firebase URL's pre-launch gate hides `/bloom`.
+  - So the shot is the deployed commit's frontend run locally against the prod API, as a guest, with every non-GET request blocked. The blocked requests were App Check, an anonymous sign-up and one client-error post, so nothing was written to prod.
+- **2917's story-page text** (`coffees.story`, HOME_TASK_5's story layer, regenerated by the same refresh) names Colombia and Mogiana, Brazil, and has one em dash ("leads—bright"). Dana's no-dash and no-place rules apply to the three customer texts, not to the story layer, so this is left as generated and reported here.
+
+**Catalog.** `npm run catalog:md -- --expect-db axisandbloom` gives catalog-hash `dc2b165cf089…`, the same as revision 00773's live hash, so the stale finding clears at the next deploy.
+
+**Remaining open:**
+- `archetype_vector` readers: `dialSuggestion.getDialSuggestion` and `GET /api/coffees/archetype-order`.
+- The sentence renders for 76 of 110 coffee × reader pairs at the minimum of 4 (Dana: keep 4).
+- `evidenceViews.test.ts` needs updating for brief 7's session 41 (3 failures).
+- `getCoffeeSummary` / `getCoffeeSurpriseNote` have no caller.
+- 2917's story-page text (above).

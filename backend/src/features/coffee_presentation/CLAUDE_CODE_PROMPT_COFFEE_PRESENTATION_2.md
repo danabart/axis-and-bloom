@@ -2,7 +2,7 @@
 
 > Folder: `backend/src/features/coffee_presentation/` · Written 2026-10-24 after Dana's review of the C&N dial and Flavor Intelligence on prod · Model: Opus for Part A (the reference-profile read and view), Sonnet for the rest
 > Builds on brief 1 (`CLAUDE_CODE_PROMPT_COFFEE_PRESENTATION_1.md`, live 2026-10-23) and the data-model review `data_catalog/REVIEW_DATA_MODEL_2026-10-17.md` §3.2 and 5.1.
-> Status: done on test 2026-10-24 (`CLOSING_REPORT_2.md`); prod waits for Dana's go.
+> Status: done on prod 2026-10-24 (commit `0f12129`, rev 00773; `CLOSING_REPORT_2.md`).
 
 ## Why (Dana, 2026-10-23/24)
 

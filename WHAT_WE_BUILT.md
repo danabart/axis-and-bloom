@@ -5813,7 +5813,11 @@ Brief: `backend/src/features/cupping_evidence/CLAUDE_CODE_PROMPT_CUPPING_EVIDENC
 
 Brief: `backend/src/features/coffee_presentation/CLAUDE_CODE_PROMPT_COFFEE_PRESENTATION_2.md`, written after Dana's review of the C&N dial and Flavor Intelligence. Closing report: `CLOSING_REPORT_2.md` in that folder.
 
-**Status: done on test (2026-10-24); prod waits for Dana's go** (deploy, Part C loader dry run then real, verify 2917 and a C&N page, `catalog:md`, commit).
+**Status: done on prod (2026-10-24).**
+- Commit `0f12129`, revision `axis-bloom-backend-00773-r54`.
+- 2917 is `chocolate_nutty` (assignment 1230, basis rule = Dana's reworded note); `/story` dialPosition Lighter #1; the flavor-wheel line is as expected.
+- C&N customers on the C&N dial see the badge alone. Prod sentence coverage is 76 of 110 coffee × reader pairs (minimum kept at 4).
+- `CATALOG.md` regenerated from prod (hash `dc2b165cf089`). C&N reveal panel screenshot: `cp2_prod_cn_reveal_panel_1440.png`.
 
 **The compatibility sentence compares a coffee to real coffees.** Before, `useCompatibility.getDimensionComparison` compared the coffee's pooled range to `archetype_vector` (the May 2026 assumed targets), with 1.5 and 4 typed in the component. Every C&N coffee read "significantly less body and significantly less bitterness".
 - New view **`v_archetype_dimension_profile`**: per archetype × dimension, `avg_midpoint`, `min_midpoint`, `max_midpoint`, `coffee_count` and `coffee_ids` over the active coffees whose current match is that archetype (`coffee_archetype_assignment`, `superseded_at IS NULL`) and their pooled midpoints (`v_coffee_dimension_range`). No `archetype_vector`, no `md5` join.
