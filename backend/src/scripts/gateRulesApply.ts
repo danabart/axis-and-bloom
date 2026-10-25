@@ -12,11 +12,15 @@
 // topicKey, keywords: [...], maxMessageChars?, note?, examples?: [{ message,
 // expectation: must_match | must_not_match, expectedLabel }] }. Omitting
 // `examples` on an existing key carries its current examples over. created_by
-// is script:gate-rules-apply. Same --expect-db discipline as catalogMd.ts.
+// is script:gate-rules-apply. Or an object { rules?: [...], examples?: [{
+// ruleKey, message, expectation, expectedLabel, note? }] }: each example is
+// added to its current rule through setExampleInTx (a message the rule
+// already has is superseded by the new row). Same --expect-db discipline as
+// catalogMd.ts.
 import 'dotenv/config';
 import { readFileSync } from 'fs';
 import { db } from '../db/client.js';
-import { setRuleInTx, assertRuleTests, type SetRuleInput } from '../services/sommelierGateRuleService.js';
+import { setRuleInTx, setExampleInTx, assertRuleTests, type SetRuleInput, type SetExampleInput } from '../services/sommelierGateRuleService.js';
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
@@ -33,8 +37,10 @@ async function main(): Promise<void> {
     console.error(`[gate:rules:apply] DATABASE_URL points at '${dbName}', not '${expectDb}'. Refusing.`);
     process.exit(2);
   }
-  const parsed = JSON.parse(readFileSync(file, 'utf8')) as Array<Omit<SetRuleInput, 'createdBy'>> | { rules: Array<Omit<SetRuleInput, 'createdBy'>> };
-  const rules = Array.isArray(parsed) ? parsed : parsed.rules;
+  type RuleEntry = Omit<SetRuleInput, 'createdBy'>;
+  const parsed = JSON.parse(readFileSync(file, 'utf8')) as RuleEntry[] | { rules?: RuleEntry[]; examples?: SetExampleInput[] };
+  const rules = Array.isArray(parsed) ? parsed : parsed.rules ?? [];
+  const examples = Array.isArray(parsed) ? [] : parsed.examples ?? [];
 
   const client = await db.connect();
   try {
@@ -43,9 +49,13 @@ async function main(): Promise<void> {
       const r = await setRuleInTx(client, { ...rule, createdBy: 'script:gate-rules-apply' }, { deferTests: true });
       console.log(`[gate:rules:apply] ${r.key}: row ${r.id}${r.supersededId ? ` (supersedes ${r.supersededId})` : ' (new)'}, ${r.examples} example(s)`);
     }
+    for (const ex of examples) {
+      const r = await setExampleInTx(client, ex);
+      console.log(`[gate:rules:apply] ${ex.ruleKey}: example ${r.id} "${ex.message}" (${ex.expectation}, ${ex.expectedLabel ?? 'judgment'})${r.supersededId ? ` supersedes ${r.supersededId}` : ''}`);
+    }
     await assertRuleTests(client);
     await client.query(dryRun ? 'ROLLBACK' : 'COMMIT');
-    console.log(`[gate:rules:apply] rule tests pass; ${dryRun ? 'dry run, rolled back' : `${rules.length} rule(s) committed`}`);
+    console.log(`[gate:rules:apply] rule tests pass; ${dryRun ? 'dry run, rolled back' : `${rules.length} rule(s), ${examples.length} example(s) committed`}`);
   } catch (err) {
     await client.query('ROLLBACK');
     console.error(`[gate:rules:apply] refused, nothing written: ${err instanceof Error ? err.message : String(err)}`);

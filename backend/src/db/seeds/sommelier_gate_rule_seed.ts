@@ -19,6 +19,9 @@ import { setRuleInTx, assertRuleTests, type SetRuleInput } from '../../services/
 // which_roastery also gets every roaster name from the roaster table at seed
 // time, lower-cased (test roasteries named "Zzz ..." skipped).
 // shipping and returns get no rule: no answer row exists for them.
+// Follow-up (2026-10-25, OT-45): one compound per rule shape on price and
+// do_you_roast; on prod they were added through gate:rules:apply (the seed
+// only writes into an empty table).
 
 export const ORDER_STATUS_ANSWER = {
   key: 'order_status_unavailable',
@@ -61,6 +64,7 @@ export function seedRules(roasterNames: string[]): SeedRule[] {
         mm('Where is your roastery?', 'sourcing'),
         mn('Do you roast darker for espresso, and would that suit me?'),
         mn('Do you roast anything that tastes like blueberries?'),
+        mn('Do you roast it yourself, and how dark should I go for espresso?'),
       ],
     },
     {
@@ -100,6 +104,7 @@ export function seedRules(roasterNames: string[]): SeedRule[] {
         mn('how much is it, and would it suit me for espresso?'),
         mn('How much coffee should I use per cup?'),
         mn('Tell me about the Costa Rica'),
+        mn('How much is the Coado, and is it good for cold brew?'),
       ],
     },
     {

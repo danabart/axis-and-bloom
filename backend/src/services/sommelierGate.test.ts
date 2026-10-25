@@ -8,7 +8,7 @@ import { withRollback } from '../test/withRollback.js';
 import { DEFAULT_SOMMELIER_CONFIG } from '../db/seeds/sommelier_config_seed.js';
 import { seedGateRules } from '../db/seeds/sommelier_gate_rule_seed.js';
 import { seedSommelierAnswers } from '../db/seeds/sommelier_answer_seed.js';
-import { setRuleInTx, retireRuleInTx } from './sommelierGateRuleService.js';
+import { setRuleInTx, retireRuleInTx, setExampleInTx } from './sommelierGateRuleService.js';
 import {
   tryGate, exampleFailures, gatedRuleFor, matchCandidate, parseConfirm, resolveRule, runGateOffline, namesRoaster, buildConfirmPrompt,
   type HaikuCaller, type HaikuCall,
@@ -96,6 +96,18 @@ describe('rule tests (Testing 2)', () => {
       await expect(savepoint(() => setRuleInTx(client, {
         key: 'vitest_rule', priority: 1, resolver: 'catalog_price', topicKey: 'no_topic', keywords: ['x'], createdBy: 'vitest',
       }))).rejects.toThrow(/not a config topic/);
+    });
+  }, 60000);
+
+  it('setExampleInTx adds compound must_not_match examples, and re-adding a message supersedes it', async () => {
+    await withRollback(async ({ client }) => {
+      await seeded(client);
+      const before = (await getExamples(null, client)).length;
+      const a = await setExampleInTx(client, { ruleKey: 'price', message: 'How much is the Clean Fruit, and is it fruity enough for me?', expectation: 'must_not_match', expectedLabel: 'judgment' });
+      expect(a.supersededId).toBeNull();
+      const again = await setExampleInTx(client, { ruleKey: 'price', message: 'How much is the Clean Fruit, and is it fruity enough for me?', expectation: 'must_not_match', expectedLabel: 'judgment' });
+      expect(again.supersededId).toBe(a.id);
+      expect((await getExamples(null, client)).length).toBe(before + 1);
     });
   }, 60000);
 

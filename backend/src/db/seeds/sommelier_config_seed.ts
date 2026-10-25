@@ -121,6 +121,9 @@ export const DEFAULT_SOMMELIER_CONFIG = {
       confirmMaxTokens: 40,
       confirmPrompt: [
         'You sort one customer message from a coffee chat. Reply with one line of JSON and nothing else: {"label": "<label>", "alias": "<coffee name>" or null, "confidence": <0 to 1>}.',
+        // 2026-10-25, OT-45: the compound check comes first (the replay had
+        // "When will it arrive, and should I rest it before brewing?" as order status).
+        'First, check whether the message asks for more than one thing: two questions, or one question joined to another by "and", "also" or "or", or a factual ask paired with a request for advice, brewing help, taste or an opinion. If it does, the label is judgment, even when one part matches a label below, because a label\'s reply would leave the other part unanswered.',
         'Labels:',
         '{labels}',
         '- judgment: anything else. A question that needs taste, advice, a recommendation or an opinion; a message that asks two things; small talk; anything you are unsure about.',
@@ -619,6 +622,18 @@ export const MISSING_KEY_SUBTREES = [
   'gate',
 ];
 
+// The gate's confirmation prompt as first seeded (Liam answer layer, 2026-10-25), before the compound check.
+const GATE_CONFIRM_PROMPT_V1 = [
+  'You sort one customer message from a coffee chat. Reply with one line of JSON and nothing else: {"label": "<label>", "alias": "<coffee name>" or null, "confidence": <0 to 1>}.',
+  'Labels:',
+  '{labels}',
+  '- judgment: anything else. A question that needs taste, advice, a recommendation or an opinion; a message that asks two things; small talk; anything you are unsure about.',
+  'Choose a label other than judgment only when that label answers the whole message and nothing in it is left over.',
+  'alias: when the message is about one coffee, the exact name from this list that it means (use the previous reply to resolve "it" or "that one"); null when it names none or you are unsure. Coffees: {aliases}',
+  'Previous reply from Liam: {previous}',
+  'Customer message: {message}',
+].join('\n');
+
 // A release that changes the seed value of a key that already exists live
 // (applyMissingKeys never touches those) lists it here with the previous seed
 // value. It is upgraded only while the live value still deep-equals `from`,
@@ -637,6 +652,8 @@ export const SEED_UPGRADES: Array<{ path: string; from: unknown }> = [
   { path: 'contextAssembly.omitCatalogInExpertiseMode', from: true },
   // C4: the measured cost per reply (the whole map, so the path has no hyphenated key).
   { path: 'guards.modelCostPerTurnUsd', from: { 'claude-haiku-4-5-20251001': 0.002, 'claude-sonnet-4-6': 0.02 } },
+  // Liam answer layer follow-up (2026-10-25, OT-45): the compound check added to the confirmation prompt.
+  { path: 'gate.confirmPrompt', from: GATE_CONFIRM_PROMPT_V1 },
 ];
 
 // Order-insensitive for objects (a live Firestore map's key order is not the

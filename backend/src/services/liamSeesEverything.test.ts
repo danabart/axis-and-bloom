@@ -203,6 +203,14 @@ describe('config upgrade and cost', () => {
     expect(seedUpgradePaths(DEFAULT_SOMMELIER_CONFIG, DEFAULT_SOMMELIER_CONFIG)).toEqual([]);
   });
 
+  it('gate.confirmPrompt upgrades from the first seed to the compound-first prompt, and never over an edit', () => {
+    const v1 = SEED_UPGRADES.find(u => u.path === 'gate.confirmPrompt')!.from as string;
+    expect(v1).not.toContain('First, check whether the message asks for more than one thing');
+    expect(DEFAULT_SOMMELIER_CONFIG.gate.confirmPrompt).toContain('First, check whether the message asks for more than one thing');
+    expect(seedUpgradePaths(DEFAULT_SOMMELIER_CONFIG, { gate: { confirmPrompt: v1 } })).toContain('gate.confirmPrompt');
+    expect(seedUpgradePaths(DEFAULT_SOMMELIER_CONFIG, { gate: { confirmPrompt: 'Dana wrote this {labels} {message}' } })).not.toContain('gate.confirmPrompt');
+  });
+
   it('an object upgrade matches the live map whatever its key order (Firestore does not keep the seed order)', () => {
     const live = { guards: { modelCostPerTurnUsd: { 'claude-sonnet-4-6': 0.02, 'claude-haiku-4-5-20251001': 0.002 } } };
     expect(seedUpgradePaths(DEFAULT_SOMMELIER_CONFIG, live)).toContain('guards.modelCostPerTurnUsd');
