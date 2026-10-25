@@ -1,5 +1,5 @@
 // Coffee presentation brief 1 (2026-10-23), decision 5: the reveal panel's
-// one line, George Howell style. Pure (no React) so the backend test
+// one line, George Howell style; brief 4: and the collapsed card's teaser. Pure (no React) so the backend test
 // (backend/src/services/signatureLine.test.ts) can load this file by path.
 //
 // Nothing here caps, ranks or relabels: the rows arrive from
@@ -20,13 +20,25 @@ export function signatureText(rows: SignatureRow[]): string {
   return rows.filter(r => r.is_signature !== false).map(r => r.descriptor).join(', ');
 }
 
+/** "a", "a and b", "a, b and c". */
+function spokenList(words: string[]): string {
+  return words.length < 2 ? words.join('') : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
+}
+
 /**
- * The collapsed position card's teaser: the signature line, or null with no
- * signature notes. Coffee presentation brief 2 (2026-10-24), B2: always this
- * line; the coffee's texts never feed the teaser.
+ * The collapsed position card's teaser: every note the customer may hear, or
+ * null with no rows. Coffee presentation brief 2 (2026-10-24), B2: always from
+ * the rows; the coffee's texts never feed the teaser. Brief 4 (2026-10-24),
+ * decision 1: the signature notes, then the accent notes by name as a clause
+ * ("Hazelnut, with citrus fruit and cinnamon"); with no signature rows, the
+ * accent notes alone as a plain list. The caps are the read's (the rows arrive
+ * capped); the family word stays the reveal's "a hint of" line.
  */
 export function teaserFor(rows: SignatureRow[]): string | null {
-  return signatureText(rows) || null;
+  const signature = signatureText(rows);
+  const accents = rows.filter(r => r.is_signature === false).map(r => r.descriptor);
+  if (!signature) return accents.length ? accents.join(', ') : null;
+  return accents.length ? `${signature}, with ${spokenList(accents.map(a => a.toLowerCase()))}` : signature;
 }
 
 /** One "a hint of <family>: <notes>" clause per accent family, families in order of first appearance. */

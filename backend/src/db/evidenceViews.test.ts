@@ -177,7 +177,7 @@ describe('v_evidence_descriptor (A2)', () => {
 });
 
 describe('v_evidence_archetype (A3)', () => {
-  it('Blossom: session 37 on paper (Dana earthy, Camila no call); the row carries the latest session\'s calls; catalog earthy low; the flag follows the form proposal', async () => {
+  it('Blossom: session 37 on paper (Dana earthy, Camila no call); the row carries the latest session\'s calls; catalog chocolate_nutty since brief 4; the flag follows the form proposal', async () => {
     const paper = await rows(
       `SELECT cupper_name, archetype_call FROM v_cupping_score WHERE coffee_id = $1 AND session_id = $2 AND NOT is_merged ORDER BY cupper_name`, [BLOSSOM, S37]);
     expect(paper).toEqual([{ cupper_name: 'Camila', archetype_call: null }, { cupper_name: 'Dana', archetype_call: 'earthy' }]);
@@ -187,8 +187,11 @@ describe('v_evidence_archetype (A3)', () => {
     expect(calls.length).toBe(2);
     for (const c of calls) expect(c.session_id).toBe(a.latest_session_id);
     expect(a.cupper_calls).toEqual(Object.fromEntries(calls.map(c => [c.cupper_name, c.archetype_call])));
-    expect([a.catalog_archetype, a.catalog_confidence]).toEqual(['earthy', 'low']);
-    expect(a.flag).toBe(a.roaster_form_proposal && a.roaster_form_proposal !== 'earthy' ? 'roaster_disagrees' : 'none');
+    // coffee presentation brief 4, decision 5: Blossom's match is chocolate_nutty (was earthy low); the
+    // confidence is what the loader read from the session's calls, so it is read here, not assumed
+    const [cur] = await rows(`SELECT archetype, confidence FROM coffee_archetype_assignment WHERE coffee_id = $1 AND superseded_at IS NULL`, [BLOSSOM]);
+    expect([a.catalog_archetype, a.catalog_confidence]).toEqual(['chocolate_nutty', cur.confidence]);
+    expect(a.flag).toBe(a.roaster_form_proposal && a.roaster_form_proposal !== 'chocolate_nutty' ? 'roaster_disagrees' : 'none');
   });
 
   it('Union: no call from either cupper, no merged call, catalog balanced_sweet low', async () => {

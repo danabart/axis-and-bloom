@@ -1,5 +1,7 @@
 import type { Slot, SlotPrice, CartItem } from './types';
 import { formatPrice, priceLabel } from './types';
+import { CardTags } from '../coffee-info/CardTags';
+import type { CardTag } from '../coffee-info/TastingNotes';
 
 interface PositionCardProps {
   slot: Slot;
@@ -15,6 +17,8 @@ interface PositionCardProps {
   // Phase D: lifted up so the full-width RevealedPanel sibling can use the same
   // data without a second fetch).
   teaser: string | null;
+  /** coffee presentation brief 4: the card's tags (award, best brew), [] when none */
+  tags: CardTag[];
   effectivelyActive: boolean;
   isUnpriced: boolean;
   availableWeights: SlotPrice[];
@@ -26,7 +30,7 @@ interface PositionCardProps {
 /** Collapsed header + commerce row only — the revealed informational layer lives in RevealedPanel.tsx, full-width, below this. */
 export function PositionCard({
   slot, archetype, archetypeLabel, color, isRevealed, onToggleReveal, onAddToCart, onCompare, cardRef,
-  teaser, effectivelyActive, isUnpriced, availableWeights, selectedWeight, setSelectedWeight, selectedPrice,
+  teaser, tags, effectivelyActive, isUnpriced, availableWeights, selectedWeight, setSelectedWeight, selectedPrice,
 }: PositionCardProps) {
   function handleAddToCart() {
     if (!slot.platformName || !selectedPrice) return;
@@ -75,6 +79,7 @@ export function PositionCard({
           <h3 className="text-lg font-normal" style={{ color }}>
             {slot.platformName}
           </h3>
+          <CardTags tags={tags} />
           {teaser && <p className="text-sm font-light mt-1 truncate" style={{ color: '#8a8070' }}>{teaser}</p>}
         </div>
         <span className="text-xs flex-shrink-0" style={{ color: '#a09880' }}>

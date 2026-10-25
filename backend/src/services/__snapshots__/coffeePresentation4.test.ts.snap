@@ -1,0 +1,33 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`masking (decision 3) > the Golden Bean sentence reaches the prompt with the award as one gap (neighbouring gaps collapse, snapshot) 1`] = `"Winner of a […], this classic espresso blend"`;
+
+exports[`the prompts carry the brew line and the gap rule (decisions 3, 4) > story prompt: the portal brews as labels, the brewing remark, both rules (snapshot) 1`] = `
+"Write a 120 to 200 word story for "Classic" covering: where it's from (region-level only, e.g. "the highlands of X", never a specific farm, co-op, lot, estate, or importer name), how it's processed (in plain language), what that does to the cup (tied to the structure below), and one thing worth noticing.
+
+Origin reference (distill to region-level ONLY; do not repeat any farm, co-op, lot, or estate name verbatim even if present here): Huila, Colombia
+Process reference: Washed
+
+The roaster's signature notes (the core of the cup, strongest first): Hazelnut
+The roaster's accent notes (only ever "a hint of"): none
+Brew methods the roaster names: best Espresso; also Pour-over, French press
+What the roaster says about brewing it (paraphrase, do not quote): 18g in, 40g out, a […] favourite
+
+Structure on a 0 to 15 scale (the labels are the two extremes; a middle value is moderate):
+  Body: 8 to 10 out of 15 (scale from thin to heavy)
+
+Rules:
+- Never name a specific farm, co-op, cooperative, estate, lot, or importer.
+- Never name the roaster or any roastery ("the roaster" is how you refer to them).
+- Refer to it only as "Classic" or "this coffee", never the internal catalog name, and never invent a different name or nickname of your own for it.
+- Flavor words: only the roaster's notes listed above, never one of your own. Attribute them to the roaster ("the roaster calls it", "per the roaster"). Where our cupping table tasted one of them too you may add "and we tasted it too"; never present a tasting as Axis & Bloom's own ("our cupping revealed", "we found", "our cuppers noticed" are not allowed).
+- Structure (body, sweetness, acidity, bitterness, finish) may be described plainly, in proportion to the scale; never exaggerate a middle value.
+- Never use the word "archetype", and never put a category word in front of "coffee", "blend", "cup", "style" or "profile".
+- Say nothing about adding milk or drinking it black, and no milk drinks, even if a fact above mentions them (a note's own name, such as milk chocolate, is fine).
+- Name a brew method only if the roaster names it above, in "Brew methods the roaster names" or in one of their own facts; otherwise say nothing about how to brew it.
+- A bracketed gap "[…]" in a fact above is an omitted fact (a name, an award, a place). Never guess at it, never fill it in, never print the brackets.
+- Never use an em dash or an en dash. Use commas, periods or colons instead.
+- Plain prose only. No title, no heading, no markdown formatting (no "#", no bold); start directly with the first sentence of the story.
+- Warm, specific, editorial voice. No marketing language.
+- 120 to 200 words."
+`;

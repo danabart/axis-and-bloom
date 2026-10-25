@@ -9,6 +9,7 @@ import { computeDefaultSortOrder } from './ArchetypeSection';
 import { RevealedPanel } from './RevealedPanel';
 import { DoorBand } from './DoorBand';
 import { usePositionCardData } from './usePositionCardData';
+import { CardTags } from '../coffee-info/CardTags';
 import type { ArchetypeData, CartItem, DoorTarget, Slot } from './types';
 import { slotKey, formatPrice, priceLabel } from './types';
 
@@ -333,14 +334,20 @@ export function DialArchetypeSection({
             <div style={{ minWidth: 0 }}>
               <p className="bd-card-microlabel">{matchMode ? `The ${data.archetypeLabel} classic` : 'On the dial now'}</p>
               <p className="bd-card-name">{currentSlot.platformName ?? 'Coming soon'}</p>
+              {!isPlaceholder && <CardTags tags={cardData.tags} />}
             </div>
           </div>
 
-          <p className="bd-card-teaser">
-            {(!isPlaceholder && cardData.effectivelyActive && cardData.teaser)
-              ? cardData.teaser
-              : `A ${data.archetypeLabel} coffee for this turn of the dial. Its full tasting notes are arriving soon.`}
-          </p>
+          {/* Coffee presentation brief 4 (2026-10-24), decision 1: the teaser is
+              every note the customer may hear; the "arriving soon" line renders
+              only when the coffee has no customer-voice rows at all. The copy
+              stays inline: the Bloom components carry their copy inline today
+              (whyLine, the statuses), there is no copy config to move it to. */}
+          {(!isPlaceholder && cardData.teaser) ? (
+            <p className="bd-card-teaser">{cardData.teaser}</p>
+          ) : (isPlaceholder || !cardData.hasVoiceRows) ? (
+            <p className="bd-card-teaser">{`A ${data.archetypeLabel} coffee for this turn of the dial. Its full tasting notes are arriving soon.`}</p>
+          ) : null}
 
           {isPlaceholder ? (
             <span className="bd-card-status">Coming soon</span>

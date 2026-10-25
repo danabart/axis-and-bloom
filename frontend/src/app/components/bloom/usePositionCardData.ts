@@ -73,9 +73,14 @@ export function usePositionCardData(slot: Slot, archetype: string, isRevealed: b
   // gone with the surprise note); see teaserFor.
   const teaser = teaserFor(Array.isArray(wheelRows) ? wheelRows : []);
   const selectedPrice = slot.prices.find(p => p.weightOz === selectedWeight);
+  // Coffee presentation brief 4 (2026-10-24), decision 2: the card's tags as
+  // the content read gives them (award, best brew); never text of our own.
+  const tags = Array.isArray(content?.tags) ? content.tags : [];
+  // Decision 1: the coffee has customer-voice rows (the "arriving soon" line renders only without any).
+  const hasVoiceRows = Array.isArray(wheelRows) && wheelRows.length > 0;
 
   return {
-    content, dimensions, wheelRows, hops,
+    content, dimensions, wheelRows, hops, tags, hasVoiceRows,
     availableWeights, effectivelyActive, isUnpriced, teaser, selectedPrice,
     selectedWeight, setSelectedWeight,
   };

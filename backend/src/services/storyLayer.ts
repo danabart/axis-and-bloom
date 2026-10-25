@@ -1,7 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getSommelierConfig } from './sommelierConfig.js';
 import { guardClaudeCall } from './anthropicGuard.js';
-import { looksLikeLeak, normalizeDashes, styleViolation } from './contentGuard.js';
+import {
+  looksLikeLeak, normalizeDashes, styleViolation, looksLikeInventedBrew, maskViolation, brewLine, takesItLine, BREW_RULE, GAP_RULE,
+} from './contentGuard.js';
 import type { RoasterVoice } from './roasterVoiceReads.js';
 
 // HOME_TASK_5 (§4.4) — "their coffee, explained." A dedicated, independent
@@ -70,21 +72,33 @@ export interface StoryGenParams {
   origin: string | null;
   process: string | null;
   dimensions: Array<{ dimension: string; avg_min: number; avg_max: number; scale_min_label: string; scale_max_label: string }>;
-  voice: Pick<RoasterVoice, 'descriptors'>;
+  /** brief 4: remarks and portal answers too (masked by the read), for the brew lines and the brew rule */
+  voice: Pick<RoasterVoice, 'descriptors' | 'remarks' | 'portal'>;
   /** the archetype labels (from the database), named in the category rule */
   archetypeLabels: string[];
+  /** brief 4: the brew-method labels (lookup roastery_portal_brew_method, read at generation time) the brew rule checks */
+  brewLabels: string[];
 }
 
-/** The roaster's notes for the story prompt: signature, accent, the ones our cupping confirmed. */
+/**
+ * The roaster's notes for the story prompt: signature, accent, the ones our
+ * cupping confirmed. Coffee presentation brief 4 (2026-10-24), decision 4: and
+ * the brew methods the roaster names (portal answers as lookup labels, then
+ * whatever the brewing remarks say, masked by the read).
+ */
 function storyVoiceLines(voice: StoryGenParams['voice']): string {
   const roaster = voice.descriptors.filter(d => d.voice !== 'customer');
   const signature = roaster.filter(d => d.is_signature).map(d => d.descriptor);
   const accent = roaster.filter(d => !d.is_signature).map(d => d.descriptor);
   const confirmed = roaster.filter(d => d.confirmed_by_cupping).map(d => d.descriptor);
+  const brewing = voice.remarks.brewing ?? [];
   return [
     `The roaster's signature notes (the core of the cup, strongest first): ${signature.length ? signature.join(', ') : 'none'}`,
     `The roaster's accent notes (only ever "a hint of"): ${accent.length ? accent.join(', ') : 'none'}`,
     confirmed.length ? `Of the roaster's notes, Axis & Bloom's cupping table tasted these too: ${confirmed.join(', ')}` : null,
+    brewLine(voice.portal),
+    takesItLine(voice.portal.takesIt),
+    brewing.length ? `What the roaster says about brewing it (paraphrase, do not quote): ${brewing.join(' / ')}` : null,
   ].filter((s): s is string => s !== null).join('\n');
 }
 
@@ -98,7 +112,21 @@ export function buildStoryPrompt(params: StoryGenParams, correctionNote?: string
     ? `\n\nYour previous attempt was rejected for this reason: ${correctionNote}. Do not repeat this. Region and process only, nothing that pins a specific farm, co-op, lot, estate, importer, or roaster, never the coffee's own catalog name, and every flavor word attributed to the roaster.`
     : '';
 
-  return `Write a 120 to 200 word story for "${params.displayName}" covering: where it's from (region-level only, e.g. "the highlands of X", never a specific farm, co-op, lot, estate, or importer name), how it's processed (in plain language), what that does to the cup (tied to the structure below), and one thing worth noticing.
+  // Coffee presentation brief 4 (test run, 2026-10-24): with no origin or no
+  // process on the coffee the model invented both ("the highlands of Central
+  // America", "a washed process"); what is not given is not covered.
+  const covering = [
+    params.origin ? `where it's from (region-level only, e.g. "the highlands of X", never a specific farm, co-op, lot, estate, or importer name)` : null,
+    params.process ? `how it's processed (in plain language)` : null,
+    `what ${params.process ? 'that does to' : 'shapes'} the cup (tied to the structure below)`,
+    'one thing worth noticing',
+  ].filter((s): s is string => s !== null);
+  const unknown = [
+    params.origin ? null : `- Where it is grown is not given: say nothing about its origin (no country, region, altitude, soil or climate).`,
+    params.process ? null : `- How it was processed is not given: say nothing about its processing.`,
+  ].filter((s): s is string => s !== null);
+
+  return `Write a 120 to 200 word story for "${params.displayName}" covering: ${covering.slice(0, -1).join(', ')}, and ${covering[covering.length - 1]}.
 
 ${params.origin ? `Origin reference (distill to region-level ONLY; do not repeat any farm, co-op, lot, or estate name verbatim even if present here): ${params.origin}` : ''}
 ${params.process ? `Process reference: ${params.process}` : ''}
@@ -110,12 +138,16 @@ ${dimLines || '  (no numeric data)'}
 
 Rules:
 - Never name a specific farm, co-op, cooperative, estate, lot, or importer.
-- Never name the roaster or any roastery ("the roaster" is how you refer to them).
+${unknown.length ? `${unknown.join('\n')}\n` : ''}- Never name the roaster or any roastery ("the roaster" is how you refer to them).
 - Refer to it only as "${params.displayName}" or "this coffee", never the internal catalog name, and never invent a different name or nickname of your own for it.
 - Flavor words: only the roaster's notes listed above, never one of your own. Attribute them to the roaster ("the roaster calls it", "per the roaster"). Where our cupping table tasted one of them too you may add "and we tasted it too"; never present a tasting as Axis & Bloom's own ("our cupping revealed", "we found", "our cuppers noticed" are not allowed).
 - Structure (body, sweetness, acidity, bitterness, finish) may be described plainly, in proportion to the scale; never exaggerate a middle value.
 - Never use the word "archetype", and never put a category word${params.archetypeLabels.length ? ` such as ${params.archetypeLabels.map(l => l.toLowerCase()).join(', ')}` : ''} in front of "coffee", "blend", "cup", "style" or "profile".
-- Say nothing about adding milk or drinking it black (a note's own name, such as milk chocolate, is fine).
+${params.voice.portal.takesIt
+    ? '- Mention how it is drunk (milk, black, on its own) only as "How the roaster says it is drunk" above puts it (a note\'s own name, such as milk chocolate, is fine).'
+    : '- Say nothing about adding milk or drinking it black, and no milk drinks, even if a fact above mentions them (a note\'s own name, such as milk chocolate, is fine).'}
+${BREW_RULE}
+${GAP_RULE}
 - Never use an em dash or an en dash. Use commas, periods or colons instead.
 - Plain prose only. No title, no heading, no markdown formatting (no "#", no bold); start directly with the first sentence of the story.
 - Warm, specific, editorial voice. No marketing language.
@@ -170,7 +202,8 @@ export interface StoryGenResult {
 // Coffee presentation brief 3, decision 4: the same three tries also reject
 // an archetype name used as a category or the word "archetype"
 // (contentGuard.styleViolation over `archetypeLabels`, from the database; its
-// milk check is not applied here) and our tasting presented as our own.
+// milk check too since brief 4, Dana's go: milk words only with a takes_it
+// answer) and our tasting presented as our own.
 export async function generateCoffeeStoryWithRetry(
   params: StoryGenParams,
   identity: { rawCoffeeName: string | null; roasterNames: string[]; leakTokens?: string[]; archetypeLabels?: string[] },
@@ -190,10 +223,16 @@ export async function generateCoffeeStoryWithRetry(
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
     const text = await generateOnce(params, correctionNote);
     const violations = checkStorySpecificityViolations(text, { ...identity, bannedTerms });
-    const style = styleViolation(text, identity.archetypeLabels ?? [], true);
+    // Dana's go (2026-10-24): the milk rule too, as for the description (milk words only with a takes_it answer)
+    const style = styleViolation(text, identity.archetypeLabels ?? [], params.voice.portal.takesIt !== null);
     if (style) violations.push(`style: ${style}`);
     const own = ownTastingViolation(text);
     if (own) violations.push(own);
+    // brief 4, decision 4: a brew method the roaster did not name; decision 3: a printed gap
+    const brew = looksLikeInventedBrew(text, params.voice, params.brewLabels);
+    if (brew) violations.push(`brew method "${brew}" the roaster does not name`);
+    const gap = maskViolation(text);
+    if (gap) violations.push(gap);
     // "and we tasted it too" only where our cupping confirmed a roaster note (test run: 1 of 22 said it with none)
     if (/\bwe tasted\b/i.test(text) && !params.voice.descriptors.some(d => d.voice !== 'customer' && d.confirmed_by_cupping)) {
       violations.push('"we tasted" but our cupping confirmed none of the roaster\'s notes');

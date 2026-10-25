@@ -36,6 +36,8 @@ Rules:
 - Never use an em dash or an en dash. Use commas, periods or colons instead.
 - Never use the word "archetype", and never put a category word such as floral, fruity, balanced, earthy or chocolate & nutty in front of "coffee", "blend", "cup", "style" or "profile" ("a fruity coffee", "this balanced blend"). The notes themselves may be named as flavors.
 - Mention how it is drunk (milk, black, on its own, with milk) only if "How the roaster says it is drunk" is listed above; otherwise say nothing about milk or black, even if a fact above mentions it.
+- Name a brew method only if the roaster names it above, in "Brew methods the roaster names" or in one of their own facts; otherwise say nothing about how to brew it.
+- A bracketed gap "[…]" in a fact above is an omitted fact (a name, an award, a place). Never guess at it, never fill it in, never print the brackets.
 
 Be warm and specific. Name actual flavors and textures. No marketing language. Under 80 words. If the data above is genuinely insufficient to write this honestly, respond with exactly: INSUFFICIENT_DATA",
   "Write 1 or 2 sentences surfacing what is surprising or unusual about "The Classic".
@@ -74,6 +76,8 @@ Rules:
 - Never use an em dash or an en dash. Use commas, periods or colons instead.
 - Never use the word "archetype", and never put a category word such as floral, fruity, balanced, earthy or chocolate & nutty in front of "coffee", "blend", "cup", "style" or "profile" ("a fruity coffee", "this balanced blend"). The notes themselves may be named as flavors.
 - Mention how it is drunk (milk, black, on its own, with milk) only if "How the roaster says it is drunk" is listed above; otherwise say nothing about milk or black, even if a fact above mentions it.
+- Name a brew method only if the roaster names it above, in "Brew methods the roaster names" or in one of their own facts; otherwise say nothing about how to brew it.
+- A bracketed gap "[…]" in a fact above is an omitted fact (a name, an award, a place). Never guess at it, never fill it in, never print the brackets.
 
 Be direct and editorial. Do not start with the coffee name. Do not use marketing language. Under 50 words. If the data above is genuinely insufficient to write this honestly, respond with exactly: INSUFFICIENT_DATA",
   "Write 2 to 4 sentences narrating how "The Classic" tastes to the people who know it. The roaster's notes lead; customers add what they notice.
@@ -110,6 +114,8 @@ Rules:
 - Never use an em dash or an en dash. Use commas, periods or colons instead.
 - Never use the word "archetype", and never put a category word such as floral, fruity, balanced, earthy or chocolate & nutty in front of "coffee", "blend", "cup", "style" or "profile" ("a fruity coffee", "this balanced blend"). The notes themselves may be named as flavors.
 - Mention how it is drunk (milk, black, on its own, with milk) only if "How the roaster says it is drunk" is listed above; otherwise say nothing about milk or black, even if a fact above mentions it.
+- Name a brew method only if the roaster names it above, in "Brew methods the roaster names" or in one of their own facts; otherwise say nothing about how to brew it.
+- A bracketed gap "[…]" in a fact above is an omitted fact (a name, an award, a place). Never guess at it, never fill it in, never print the brackets.
 
 Write this as editorial storytelling, not a list. Example style: "The roaster calls it chocolate and almond with a hint of cherry, and the chocolate is one we tasted too." Under 80 words. If the data above is genuinely insufficient to write this honestly, respond with exactly: INSUFFICIENT_DATA",
 ]

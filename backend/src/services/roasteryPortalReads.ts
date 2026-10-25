@@ -109,6 +109,17 @@ async function loadVocabulary(runner: Runner): Promise<PortalVocabulary> {
   };
 }
 
+/**
+ * Coffee presentation brief 4 (2026-10-24): the brew-method lookup
+ * (roastery_portal_brew_method), on the caller's runner and never cached, for
+ * roasterVoiceReads (the voice's brew labels, the card's brew tag) and the
+ * content guard's brew rule. The stored brew_method is the value; customers
+ * only ever see the label.
+ */
+export async function getBrewMethodLabels(runner: Runner = db): Promise<LookupOption[]> {
+  return lookup(runner, 'roastery_portal_brew_method');
+}
+
 /** `fresh: true` bypasses the cache — used by the lineup editors (rare) so a
  * vocabulary change is never validated against a stale list. Always runs on the
  * pool (parallel queries), never on a transaction client. */

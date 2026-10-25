@@ -11,16 +11,18 @@
 // new view: those four views already hold every column.
 //
 // Never in the shape: the roaster's name, coffees.name, coffees.origin, a
-// remark of topic origin, or an award's text. Awards come out as a count; a
-// remark or portal answer that carries an award token, the roaster's name, the
-// raw coffee name or the origin text is withheld whole (it would put the
-// thing the guard rejects into the prompt).
+// remark of topic origin, or an award's text. Awards come out as a count.
+// Coffee presentation brief 4 (2026-10-24), decision 3: a remark or portal
+// answer that carries an award token, the roaster's name, the raw coffee name
+// or the origin text is masked (each token becomes contentGuard.MASK), no
+// longer withheld whole, so "Winner of a 2023 Golden Bean medal, this classic
+// espresso blend" still tells the prompt it is an espresso blend.
 import { db, type Tx } from '../db/client.js';
 import { getCustomerDescriptors, getMergedRanges, type CustomerDescriptor } from './cuppingReads.js';
 import { listRemarks } from './roasteryRemarkReads.js';
-import { getCurrentResponseForCoffee } from './roasteryPortalReads.js';
+import { getCurrentResponseForCoffee, getBrewMethodLabels } from './roasteryPortalReads.js';
 import { getCoffee, getArchetypes } from './catalogReads.js';
-import { styleViolation } from './contentGuard.js';
+import { styleViolation, maskTokens, maskCount } from './contentGuard.js';
 
 type Runner = Tx | typeof db;
 
@@ -41,15 +43,67 @@ type VoiceTopic = (typeof VOICE_TOPICS)[number];
 // The channels a remark reaches the voice from (decision 6: website / table / email).
 const VOICE_CHANNELS = ['website', 'cupping_table', 'email'];
 
+/** A small tag on the card (brief 4, decision 2); the label is data, never frontend text. */
+export interface CardTag { kind: 'award' | 'brew'; label: string }
+
 export interface RoasterVoice {
   descriptors: CustomerDescriptor[];
   remarks: Record<VoiceTopic, string[]>;
   portal: {
     takesIt: string | null; brewNotes: string | null; anythingElse: string | null; roastLevel: string | null;
     blendOrSingle: string | null; isDecaf: boolean | null; proposedArchetype: string | null;
+    /** brief 4: the portal's brew answers as lookup labels, never the stored code */
+    bestBrew: string | null; alsoGoodBrews: string[];
   };
   awards: { count: number };
   dimensions: DimensionRow[];
+  /** brief 4: the card's tags (award, best brew), in that order */
+  tags: CardTag[];
+  /** brief 4: how many fragments were masked across the remarks and portal answers (for the report) */
+  masked: number;
+}
+
+// The lookup groups the card's tags come from. The award tag's wording is the
+// label of lookup coffee_card_tag / award (seeded in schema.sql, admin-editable);
+// the brew tag is the best brew's roastery_portal_brew_method label.
+const CARD_TAG_CATEGORY = 'coffee_card_tag';
+const CARD_TAG_AWARD = 'award';
+// The portal's "none of these" brew answer: a form code, not a method, so it
+// is neither a tag nor a word the brew rule checks.
+const BREW_OTHER = 'other';
+
+/** The brew-method labels the brew rule checks and the voice names (lookup roastery_portal_brew_method, "other" left out). */
+export async function getBrewLabels(runner: Runner = db): Promise<Array<{ value: string; label: string }>> {
+  return (await getBrewMethodLabels(runner)).filter(o => o.value !== BREW_OTHER);
+}
+
+async function cardTags(awardCount: number, bestBrewLabel: string | null, runner: Runner): Promise<CardTag[]> {
+  const tags: CardTag[] = [];
+  if (awardCount > 0) {
+    const r = await runner.query<{ label: string }>(
+      `SELECT label FROM lookup_value WHERE category = $1 AND value = $2`, [CARD_TAG_CATEGORY, CARD_TAG_AWARD]);
+    if (r.rows[0]?.label) tags.push({ kind: 'award', label: r.rows[0].label });
+  }
+  if (bestBrewLabel) tags.push({ kind: 'brew', label: bestBrewLabel });
+  return tags;
+}
+
+function brewLabelsOf(response: { bestBrew: string | null; alsoGoodBrews: string[] } | null, labels: Array<{ value: string; label: string }>) {
+  const labelOf = (v: string | null) => (v ? labels.find(l => l.value === v)?.label ?? null : null);
+  return {
+    bestBrew: labelOf(response?.bestBrew ?? null),
+    alsoGoodBrews: (response?.alsoGoodBrews ?? []).map(labelOf).filter((s): s is string => s !== null),
+  };
+}
+
+/** The card's tags alone (GET /api/coffees/:id/content): the award count and the best brew, without the rest of the voice. */
+export async function getCardTags(coffeeId: number, runner: Runner = db): Promise<CardTag[]> {
+  // in parallel on the pool; one after another on a transaction's single client
+  const [remarkRows, response, labels] = runner === db
+    ? await Promise.all([listRemarks({ coffeeId, currentOnly: true }, runner), getCurrentResponseForCoffee(coffeeId, runner), getBrewLabels(runner)])
+    : [await listRemarks({ coffeeId, currentOnly: true }, runner), await getCurrentResponseForCoffee(coffeeId, runner), await getBrewLabels(runner)];
+  const awardCount = remarkRows.filter((r: any) => r.topic === 'award').length;
+  return cardTags(awardCount, brewLabelsOf(response, labels).bestBrew, runner);
 }
 
 /**
@@ -83,12 +137,6 @@ export async function getAwardRemarks(coffeeId: number, runner: Runner = db): Pr
   return rows.filter((r: any) => r.topic === 'award').map((r: any) => String(r.remark));
 }
 
-function containsAny(text: string, needles: string[]): boolean {
-  const lower = text.toLowerCase();
-  const words = new Set(tokensOf(text));
-  return needles.some(n => (n.includes(' ') ? lower.includes(n) : words.has(n)));
-}
-
 /**
  * The roaster's voice on one coffee. `descriptorsOnly` skips the remarks,
  * portal and dimension reads for callers that take the words alone (Liam's
@@ -97,10 +145,14 @@ function containsAny(text: string, needles: string[]): boolean {
 export async function getRoasterVoice(coffeeId: number, runner: Runner = db, opts: { descriptorsOnly?: boolean } = {}): Promise<RoasterVoice> {
   const empty: RoasterVoice['portal'] = {
     takesIt: null, brewNotes: null, anythingElse: null, roastLevel: null, blendOrSingle: null, isDecaf: null, proposedArchetype: null,
+    bestBrew: null, alsoGoodBrews: [],
   };
   const remarksOut = Object.fromEntries(VOICE_TOPICS.map(t => [t, [] as string[]])) as Record<VoiceTopic, string[]>;
   if (opts.descriptorsOnly) {
-    return { descriptors: await getCustomerDescriptors(coffeeId, runner), remarks: remarksOut, portal: empty, awards: { count: 0 }, dimensions: [] };
+    return {
+      descriptors: await getCustomerDescriptors(coffeeId, runner), remarks: remarksOut, portal: empty, awards: { count: 0 },
+      dimensions: [], tags: [], masked: 0,
+    };
   }
 
   // in parallel on the pool; one after another on a transaction's single client
@@ -110,13 +162,14 @@ export async function getRoasterVoice(coffeeId: number, runner: Runner = db, opt
     () => getCurrentResponseForCoffee(coffeeId, runner),
     () => numericDimensionRows(coffeeId, runner),
     () => getCoffee(coffeeId, runner),
+    () => getBrewLabels(runner),
   ] as const;
   const results: unknown[] = [];
   if (runner === db) results.push(...await Promise.all(reads.map(r => r())));
   else for (const r of reads) results.push(await r());
-  const [descriptors, remarkRows, response, dimensions, coffee] = results as [
+  const [descriptors, remarkRows, response, dimensions, coffee, brewLabels] = results as [
     Awaited<ReturnType<typeof getCustomerDescriptors>>, any[], Awaited<ReturnType<typeof getCurrentResponseForCoffee>>,
-    DimensionRow[], Awaited<ReturnType<typeof getCoffee>>,
+    DimensionRow[], Awaited<ReturnType<typeof getCoffee>>, Array<{ value: string; label: string }>,
   ];
 
   const awards = remarkRows.filter((r: any) => r.topic === 'award');
@@ -129,10 +182,17 @@ export async function getRoasterVoice(coffeeId: number, runner: Runner = db, opt
       .map(s => s.trim().toLowerCase()),
   ];
   // Dana's prod-go rules: a remark that files the coffee under an archetype
-  // ("for lovers of fruity coffees") is withheld too, or the model repeats it.
+  // ("for lovers of fruity coffees") is withheld, or the model repeats it.
+  // Brief 4, decision 3: the banned tokens are masked instead (that rule is
+  // the leak list's; the archetype-category withholding stays as it was).
   const labels = (await getArchetypes(runner)).map(a => a.label);
-  const clean = (s: string | null | undefined) =>
-    (s && s.trim() && !containsAny(s, banned) && !styleViolation(s, labels, true) ? s.trim() : null);
+  let masked = 0;
+  const clean = (s: string | null | undefined) => {
+    if (!s || !s.trim() || styleViolation(s, labels, true)) return null;
+    const text = maskTokens(s.trim(), banned);
+    masked += maskCount(text) - maskCount(s);
+    return text;
+  };
 
   // The latest website capture per roaster (brief 6 C1 rule, as for descriptors).
   const latestWebsite = new Map<string, string>();
@@ -156,9 +216,13 @@ export async function getRoasterVoice(coffeeId: number, runner: Runner = db, opt
     roastLevel: response.roastLevel, blendOrSingle: response.blendOrSingle,
     isDecaf: response.caffeineLevel ? response.caffeineLevel === 'decaf' : response.isDecaf,
     proposedArchetype: response.proposedArchetype,
+    ...brewLabelsOf(response, brewLabels),
   } : empty;
 
-  return { descriptors, remarks: remarksOut, portal, awards: { count: awards.length }, dimensions };
+  return {
+    descriptors, remarks: remarksOut, portal, awards: { count: awards.length }, dimensions,
+    tags: await cardTags(awards.length, portal.bestBrew, runner), masked,
+  };
 }
 
 /** The signature rows' words, in order (already capped by the read): what the one-line surfaces take. */

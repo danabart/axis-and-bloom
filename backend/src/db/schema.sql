@@ -7120,6 +7120,15 @@ INSERT INTO lookup_value (category, value, label, sort_order) VALUES
   ('roastery_portal_takes_it', 'both',  'Works both ways', 3)
 ON CONFLICT (category, value) DO NOTHING;
 
+-- Coffee presentation brief 4 (2026-10-24), decision 2: the wording of the
+-- card's award tag (roasterVoiceReads.getCardTags), shown when the coffee has a
+-- current award remark. The brew tag is the best brew's
+-- roastery_portal_brew_method label, so it needs no row here. Seed only;
+-- admin-editable on the lookups page, never reset.
+INSERT INTO lookup_value (category, value, label, sort_order) VALUES
+  ('coffee_card_tag', 'award', 'Award-winning, per the roaster', 1)
+ON CONFLICT (category, value) DO NOTHING;
+
 -- ── Roastery portal part 2 (2026-10-05): accept answers into the catalog ──────
 -- Portal tables hold what the roaster said and are never edited after submit;
 -- catalog tables hold what Dana decided. Accepting goes only through

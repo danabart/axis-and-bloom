@@ -169,21 +169,24 @@ describe('roasterVoiceReads.getRoasterVoice: roaster-blind (Part C)', () => {
       await c.query(`UPDATE coffees SET origin = $1 WHERE id = $2`, [origin, b.coffeeId]);
       const award = '2023 Golden Bean medal';
       await remark(c, b, 'award', award);
-      await remark(c, b, 'general', 'Winner of a 2023 Golden Bean medal, a classic');   // carries award words: withheld
-      await remark(c, b, 'general', `${b.roasterName} roasts this one every week`);     // carries the roaster's name: withheld
+      // coffee presentation brief 4, decision 3: masked, no longer withheld
+      await remark(c, b, 'general', 'Winner of a 2023 Golden Bean medal, a classic');   // carries award words: masked
+      await remark(c, b, 'general', `${b.roasterName} roasts this one every week`);     // carries the roaster's name: masked
       await remark(c, b, 'general', 'bright and sweet in the cup');
       await remark(c, b, 'origin', 'grown on the slopes by the Zzz family');           // origin topic: never
       await remark(c, b, 'brewing', '18g in, 40g out', 'cupping_table');
 
       const voice = await getRoasterVoice(b.coffeeId, c);
       const json = JSON.stringify(voice);
-      for (const banned of [b.roasterName, b.coffeeName, origin, 'grown on the slopes', award, 'Golden', 'Winner']) {
+      for (const banned of [b.roasterName, b.coffeeName, origin, 'grown on the slopes', award, 'Golden', '2023']) {
         expect(json).not.toContain(banned);
       }
       expect(voice.awards.count).toBe(1);
-      expect(voice.remarks.general).toEqual(['bright and sweet in the cup']);
+      expect([...voice.remarks.general].sort()).toEqual(
+        ['Winner of a […], a classic', '[…] roasts this one every week', 'bright and sweet in the cup'].sort());
       expect(voice.remarks.brewing).toEqual(['18g in, 40g out']);
-      expect(voice.portal).toMatchObject({ takesIt: 'milk', anythingElse: null });
+      expect(voice.portal).toMatchObject({ takesIt: 'milk', anythingElse: '[…] awarded in the espresso category' });
+      expect(voice.masked).toBe(3); // one gap per run of neighbouring tokens
       expect(voice.descriptors.map(d => d.descriptor)).toEqual(['Chocolate', 'Almond', 'Apple', 'Cherry', 'Dried Fruit']);
     });
   });

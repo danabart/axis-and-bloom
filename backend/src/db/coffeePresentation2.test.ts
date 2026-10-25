@@ -251,7 +251,8 @@ describe('one description (B3)', () => {
       await db.query(`INSERT INTO roastery_coffee_descriptors (coffee_id, cupping_note_id) VALUES ($1, $2)`, [coffeeId, node]);
       const out = await coffees.generateAndStoreAllContent(coffeeId, { force: true });
       // coffee presentation brief 3 adds storyRun (the story attempt, for the regeneration loader)
-      expect(Object.keys(out).sort()).toEqual(['story', 'storyPublished', 'storyRun', 'threeVoiceStory']);
+      // and brief 4 descriptionRun (the description's guard outcome)
+      expect(Object.keys(out).sort()).toEqual(['descriptionRun', 'story', 'storyPublished', 'storyRun', 'threeVoiceStory']);
       expect(out.threeVoiceStory).toBe('A stub reply for the description.');
       const row = (await db.query(`SELECT ai_summary, surprise_note, ai_summary_generation_failed, surprise_note_generation_failed, three_voice_story, story_draft FROM coffees WHERE id = $1`, [coffeeId])).rows[0];
       expect(row).toMatchObject({ ai_summary: 'OLD SUMMARY', surprise_note: 'OLD SURPRISE', ai_summary_generation_failed: false, surprise_note_generation_failed: true, three_voice_story: 'A stub reply for the description.' });

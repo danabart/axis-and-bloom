@@ -98,6 +98,10 @@ describe('dial signal with an unbanded slot (decision 2)', () => {
   });
 });
 
+// brief 4: the story's voice carries remarks and portal answers too (empty here)
+const NO_REMARKS = { general: [], brewing: [], roast: [], process: [] };
+const NO_PORTAL = { bestBrew: null, alsoGoodBrews: [], brewNotes: null, anythingElse: null, takesIt: null };
+
 describe('the story under the description\'s rules (decision 4)', () => {
   const voice = {
     descriptors: [
@@ -106,11 +110,12 @@ describe('the story under the description\'s rules (decision 4)', () => {
       { descriptor: 'Cherry', voice: 'roaster_accepted', is_signature: false, confirmed_by_cupping: false },
       { descriptor: 'Caramel', voice: 'customer', is_signature: true, confirmed_by_cupping: false },
     ],
+    remarks: NO_REMARKS, portal: NO_PORTAL,
   } as never;
   const params = {
     displayName: 'Lighter', origin: 'Finca Example, Huila, Colombia', process: 'Washed',
     dimensions: [{ dimension: 'Body', avg_min: 8, avg_max: 10, scale_min_label: 'thin', scale_max_label: 'heavy' }], voice,
-    archetypeLabels: ['Chocolate & Nutty', 'Fruity'],
+    archetypeLabels: ['Chocolate & Nutty', 'Fruity'], brewLabels: [] as string[],
   };
   const identity = { rawCoffeeName: 'Zzz Raw Name', roasterNames: ['Zzz Roastery'], leakTokens: [], archetypeLabels: ['Chocolate & Nutty', 'Fruity'] };
 
@@ -142,7 +147,7 @@ describe('the story under the description\'s rules (decision 4)', () => {
   });
 
   it('"we tasted" is rejected when our cupping confirmed none of the roaster\'s notes', async () => {
-    const unconfirmed = { ...params, voice: { descriptors: [{ descriptor: 'Jasmine', voice: 'roaster_accepted', is_signature: true, confirmed_by_cupping: false }] } as never };
+    const unconfirmed = { ...params, voice: { descriptors: [{ descriptor: 'Jasmine', voice: 'roaster_accepted', is_signature: true, confirmed_by_cupping: false }], remarks: NO_REMARKS, portal: NO_PORTAL } as never };
     h.replies.push('The roaster calls it jasmine, and we tasted it too.', 'The roaster calls it jasmine.');
     const r = await generateCoffeeStoryWithRetry(unconfirmed, identity);
     expect(r).toMatchObject({ passed: true, attempts: 2 });

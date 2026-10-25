@@ -3,7 +3,9 @@ import { db } from '../db/client.js';
 import { getCoffeeThreeVoiceStory } from '../services/claude.js';
 import { resolveBlendForSlot, resolveCoffeeBlend, COLLECTION_DISCOUNT, COLLECTION_MIN_MEMBERS } from '../services/blendResolver.js';
 import { generateCoffeeStoryWithRetry, checkStorySpecificityViolations } from '../services/storyLayer.js';
-import { looksLikeRefusal, bannedTokensFor, generateWithLeakGuard, styleViolation } from '../services/contentGuard.js';
+import {
+  looksLikeRefusal, bannedTokensFor, generateWithLeakGuard, styleViolation, looksLikeInventedBrew, maskViolation,
+} from '../services/contentGuard.js';
 import { voiceHasRoasterMaterial } from '../services/claude.js';
 import { isClaudeGuardBlocked } from '../services/anthropicGuard.js';
 import {
@@ -15,7 +17,7 @@ import { getCustomerDescriptors } from '../services/cuppingReads.js';
 // pooled range in the row shape the dimension readers here have always
 // returned. Coffee presentation brief 1 (2026-10-23): moved to
 // roasterVoiceReads, which every content prompt now reads.
-import { getRoasterVoice, getAwardRemarks, numericDimensionRows } from '../services/roasterVoiceReads.js';
+import { getRoasterVoice, getAwardRemarks, numericDimensionRows, getBrewLabels, getCardTags } from '../services/roasterVoiceReads.js';
 import { compareCoffee } from '../services/compatibilityReads.js';
 
 // Coffee presentation brief 1, decision 9: generated texts the leak guard
@@ -132,6 +134,8 @@ export async function fetchCoffeeDataForContent(coffeeId: string | number) {
     leakTokens:   bannedTokensFor(awardRemarks, roasterNames, coffee.name ?? null),
     // Dana's prod-go rules: archetype names (from the database) never name a category
     archetypeLabels: (await getArchetypes()).map(a => a.label),
+    // coffee presentation brief 4, decision 4: the brew methods the brew rule checks, from the lookup at generation time
+    brewLabels: (await getBrewLabels()).map(o => o.label),
   };
 }
 
@@ -145,17 +149,23 @@ export async function fetchCoffeeDataForContent(coffeeId: string | number) {
 //              story_admin_edited is true, which bulk regenerate always skips.
 // storyOnly:   leave three_voice_story alone (coffee presentation brief 3:
 //              load/regenerateStories.ts regenerates the story by itself).
-// storyRun is this pass's story attempt (attempts, each reject), or null.
+// fields:      which of the two this pass may touch (brief 4: the loader's
+//              --fields story,description); storyOnly is fields ['story'].
+// storyRun is this pass's story attempt (attempts, each reject), or null;
+// descriptionRun the description's guard outcome (brief 4), or null.
 export async function generateAndStoreAllContent(
   coffeeId: string | number,
-  options: { force?: boolean; storyOnly?: boolean } = {}
+  options: { force?: boolean; storyOnly?: boolean; fields?: Array<'story' | 'description'> } = {}
 ): Promise<{
   threeVoiceStory: string | null;
   story: string | null;
   storyPublished: boolean;
   storyRun?: { passed: boolean; attempts: number; rejects: string[]; text: string } | null;
+  descriptionRun?: { text: string | null; reason: string | null; leakRejects: number; styleRejects: number } | null;
 }> {
-  const { force = false, storyOnly = false } = options;
+  const { force = false } = options;
+  const fields = options.fields ?? (options.storyOnly ? ['story'] : ['story', 'description']);
+  const storyOnly = !fields.includes('description');
 
   // Check what is already cached
   const cachedResult = await db.query(
@@ -177,7 +187,7 @@ export async function generateAndStoreAllContent(
   const needsStory    = !storyOnly && (force || (!cached.three_voice_story && !cached.three_voice_story_generation_failed));
   // Admin-edited story content is never auto-regenerated over (spec item 3) —
   // this is the one field `force` does not override.
-  const needsStoryText = !cached.story_admin_edited && (force || (!cached.story && !cached.story_generation_failed));
+  const needsStoryText = fields.includes('story') && !cached.story_admin_edited && (force || (!cached.story && !cached.story_generation_failed));
 
   if (!needsStory && !needsStoryText) {
     return {
@@ -230,9 +240,18 @@ export async function generateAndStoreAllContent(
   // guard (kill-switch / daily ceiling): no attempt at all, nothing written.
   // Before this brief every null here was treated as blocked, so a refused
   // field was neither stored nor flagged; refused and blocked are now apart.
+  // Brief 4: the same three tries also reject a printed mask gap (decision 3)
+  // and a brew method the roaster's voice does not name (decision 4, like the
+  // milk rule).
+  let descriptionRun: { text: string | null; reason: string | null; leakRejects: number; styleRejects: number } | null = null;
+  const brewViolation = (text: string) => {
+    const brew = looksLikeInventedBrew(text, data.voice, data.brewLabels);
+    return brew ? `brew method "${brew}" the roaster does not name` : null;
+  };
   async function generateGuarded(field: string, gen: () => Promise<string | null>): Promise<{ text: string | null; blocked: boolean }> {
     const r = await generateWithLeakGuard(gen, data.leakTokens, isClaudeGuardBlocked,
-      text => styleViolation(text, data.archetypeLabels, data.voice.portal.takesIt !== null));
+      text => styleViolation(text, data.archetypeLabels, data.voice.portal.takesIt !== null) ?? maskViolation(text) ?? brewViolation(text));
+    if (!r.blocked) descriptionRun = { text: r.text, reason: r.reason, leakRejects: r.leakRejects, styleRejects: r.styleRejects };
     leakRejectCount += r.leakRejects;
     if (r.leakRejects) console.warn(`[coffees/content] leak guard rejected ${field} for coffee ${coffeeId} ${r.leakRejects} time(s)`);
     if (r.reason === 'refusal') console.warn(`[coffees/content] rejected generated ${field} for coffee ${coffeeId} — looks like a refusal/meta reply, not content`);
@@ -256,7 +275,7 @@ export async function generateAndStoreAllContent(
       : skipped,
     needsStoryText && hasEnoughDataForStory
       ? toNullIfBlocked(generateCoffeeStoryWithRetry(
-          { displayName: voiceName, origin: data.coffee.origin ?? null, process: data.coffee.process ?? null, dimensions: dimensionParams, voice: data.voice, archetypeLabels: data.archetypeLabels },
+          { displayName: voiceName, origin: data.coffee.origin ?? null, process: data.coffee.process ?? null, dimensions: dimensionParams, voice: data.voice, archetypeLabels: data.archetypeLabels, brewLabels: data.brewLabels },
           // D4: the same per-coffee leak tokens join the story's reject list;
           // brief 3: and the archetype labels, for the category check
           { rawCoffeeName: data.coffee.name ?? null, roasterNames: data.roasterNames, leakTokens: data.leakTokens, archetypeLabels: data.archetypeLabels }
@@ -331,6 +350,7 @@ export async function generateAndStoreAllContent(
   return {
     threeVoiceStory: sanitizedStory, story, storyPublished,
     storyRun: storyResult ? { passed: storyResult.passed, attempts: storyResult.attempts, rejects: storyResult.rejects, text: storyResult.text } : null,
+    descriptionRun,
   };
 }
 
@@ -975,12 +995,16 @@ router.get('/:id/compatibility', async (req, res) => {
 router.get('/:id/content', async (req, res) => {
   const { id } = req.params;
   try {
-    const [coffee, originRegionResult] = await Promise.all([
-      getCoffee(Number(id)),
+    const coffeeId = Number(id);
+    const [coffee, originRegionResult, tags] = await Promise.all([
+      getCoffee(coffeeId),
       db.query<{ origin_region: string | null }>(
         `SELECT lv.label AS origin_region FROM coffees c LEFT JOIN lookup_value lv ON lv.id = c.origin_region_id WHERE c.id = $1`,
         [id]
       ),
+      // Coffee presentation brief 4 (2026-10-24), decision 2: the card's tags
+      // (award, best brew), labels from the lookups; additive to the shape.
+      Number.isInteger(coffeeId) ? getCardTags(coffeeId) : Promise.resolve([]),
     ]);
     // Part 17 §D2 — even a pure cache read is re-validated on the way out (see
     // sanitizeStoredField above) — this is the exact route the live "There's
@@ -1001,6 +1025,7 @@ router.get('/:id/content', async (req, res) => {
       process:         coffee?.process ?? null,
       roastLevel:      coffee?.roast_level ?? null,
       originRegion:    originRegionResult.rows[0]?.origin_region ?? null,
+      tags,
     });
   } catch (err) {
     console.error('[coffees/content]', err);

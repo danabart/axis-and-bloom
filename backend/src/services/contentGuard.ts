@@ -90,6 +90,91 @@ export function looksLikeLeak(text: string, tokens: string[]): string | null {
   return null;
 }
 
+// Coffee presentation brief 4 (2026-10-24), decision 3: a remark or portal
+// answer carrying a banned token is masked, not withheld. Each occurrence of a
+// token (phrases first, so "joe bean roasters" is one gap, not three) becomes
+// MASK; the prompt says a gap is an omitted fact, never to be guessed at.
+export const MASK = '[…]';
+
+/**
+ * `text` with every banned token (whole word or phrase, case-insensitive)
+ * replaced by MASK; neighbouring gaps (only spaces between) collapse into one
+ * (Dana's go, 2026-10-24): "Winner of a […], this classic espresso blend".
+ */
+export function maskTokens(text: string, tokens: string[]): string {
+  let out = text;
+  for (const t of [...tokens].sort((a, b) => b.length - a.length)) {
+    out = out.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(t)}(?![\\p{L}\\p{N}])`, 'giu'), MASK);
+  }
+  const gap = escapeRegExp(MASK);
+  return out.replace(new RegExp(`${gap}(?:\\s+${gap})+`, 'g'), MASK);
+}
+
+/** How many MASK gaps `text` holds. */
+export function maskCount(text: string): number {
+  return text.split(MASK).length - 1;
+}
+
+/** A gap printed in a generated text (the model copied a masked fact). Null when clean. */
+export function maskViolation(text: string): string | null {
+  return text.includes(MASK) || /\[(…|\.\.\.)\]/.test(text) ? 'a masked gap "[…]" was printed' : null;
+}
+
+// Decision 4: a brew method may be named only if the roaster named it. The
+// methods are the labels of lookup roastery_portal_brew_method, read at
+// generation time (roasteryPortalReads.getBrewMethodLabels); a label with
+// alternatives ("Batch brew / drip") is one method, present in the voice when
+// any of its alternatives is, and hyphen or space between words does not
+// matter ("pour-over", "pour over"). The voice is the portal's brew answers
+// and every remark and free-text portal answer the prompt sees.
+export interface BrewVoice {
+  remarks: Record<string, string[]>;
+  portal: { bestBrew: string | null; alsoGoodBrews: string[]; brewNotes: string | null; anythingElse: string | null };
+}
+
+function brewTermRe(term: string): RegExp {
+  const words = term.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  return new RegExp(`(?<![\\p{L}\\p{N}])${words.map(escapeRegExp).join('[\\s-]*')}(?![\\p{L}\\p{N}])`, 'iu');
+}
+
+/** The brew-method label a generated text names that the roaster's voice does not, or null. */
+export function looksLikeInventedBrew(text: string, voice: BrewVoice, brewLabels: string[]): string | null {
+  const said = [
+    voice.portal.bestBrew, ...voice.portal.alsoGoodBrews, voice.portal.brewNotes, voice.portal.anythingElse,
+    ...Object.values(voice.remarks).flat(),
+  ].filter((s): s is string => !!s).join('\n');
+  for (const label of brewLabels) {
+    const terms = label.split('/').map(t => t.trim()).filter(t => /[\p{L}\p{N}]/u.test(t)).map(brewTermRe);
+    if (terms.some(re => re.test(text)) && !terms.some(re => re.test(said))) return label;
+  }
+  return null;
+}
+
+/**
+ * The portal's brew answers (lookup labels) as one prompt line, or null when
+ * the roaster gave none. The description (claude.ts portalFacts) and the story
+ * (storyLayer) share it, with the two rules below.
+ */
+export function brewLine(p: { bestBrew: string | null; alsoGoodBrews: string[] }): string | null {
+  const parts = [
+    p.bestBrew ? `best ${p.bestBrew}` : null,
+    p.alsoGoodBrews.length ? `also ${p.alsoGoodBrews.join(', ')}` : null,
+  ].filter((s): s is string => s !== null);
+  return parts.length ? `Brew methods the roaster names: ${parts.join('; ')}` : null;
+}
+
+/**
+ * The portal's takes_it answer as the prompt line both texts get, or null
+ * (moved from claude.ts portalFacts, Dana's go 2026-10-24: the story keeps the
+ * milk rule the same way the description does).
+ */
+export function takesItLine(takesIt: string | null): string | null {
+  return takesIt ? `How the roaster says it is drunk: ${takesIt === 'both' ? 'black or with milk' : takesIt === 'milk' ? 'with milk' : takesIt}` : null;
+}
+
+export const GAP_RULE = `- A bracketed gap "${MASK}" in a fact above is an omitted fact (a name, an award, a place). Never guess at it, never fill it in, never print the brackets.`;
+export const BREW_RULE = '- Name a brew method only if the roaster names it above, in "Brew methods the roaster names" or in one of their own facts; otherwise say nothing about how to brew it.';
+
 export interface GuardedResult {
   /** the accepted text, or null (refused, empty, leaked twice, or off-style three times) */
   text: string | null;

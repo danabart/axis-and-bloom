@@ -232,6 +232,7 @@ export function ArchetypeSection({
                 onCompare={() => onCompare(data.archetype, data.archetypeLabel, currentSlot)}
                 cardRef={() => {}}
                 teaser={cardData.teaser}
+                tags={cardData.tags}
                 effectivelyActive={cardData.effectivelyActive}
                 isUnpriced={cardData.isUnpriced}
                 availableWeights={cardData.availableWeights}

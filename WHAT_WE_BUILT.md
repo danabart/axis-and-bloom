@@ -432,7 +432,7 @@ Migration scripts: `backend/src/db/migrations/`
 | GET | `/api/coffees/:id/legacy-slot` | No | Resolves a raw `coffeeId` to `{ archetype, dialSortOrder }` for old `?coffee=` deep links (2026-07-12) |
 | GET | `/api/coffees/:id/flavor-wheel` | No | Flavor descriptors for one coffee aggregated from all 3 sources via `v_collaborative_flavor_wheel` |
 | GET | `/api/coffees/:id/dimensions` | No | Numeric dimension ranges (avg min/max per dimension) from all cupping scores + session overall notes |
-| GET | `/api/coffees/:id/content` | No | AI summary/surprise note/three-voice story, plus `process`/`roastLevel`/`originRegion` (2026-07-12). Since #233 only `threeVoiceStory` is rendered; `aiSummary`/`surpriseNote` stay in the shape for one release |
+| GET | `/api/coffees/:id/content` | No | AI summary/surprise note/three-voice story, plus `process`/`roastLevel`/`originRegion` (2026-07-12). Since #233 only `threeVoiceStory` is rendered; `aiSummary`/`surpriseNote` stay in the shape for one release. Since #236 also `tags` (award, best brew; labels from lookups) |
 | GET | `/api/coffees/:id/compatibility?userArchetype=<code>` | No | #233: the compatibility sentence vs the user's archetype's actual coffees (leave-one-out, `compatibilityReads`); `{ sentence, reason, coffee_count, divergences }`, roaster-blind |
 | GET | `/api/coffees/:id/ai-summary` | No | Returns cached `ai_summary` from DB if it exists; otherwise generates via Claude haiku, stores, and returns |
 | POST | `/api/admin/lookups` | Admin | Upsert a `lookup_value` row on `(category, value)` — so new dropdown options don't need a code deploy (2026-07-12) |
@@ -5940,6 +5940,39 @@ Brief: `backend/src/features/ai_agent_liam/brand_prices_cart_cutoff/CLAUDE_CODE_
 **Found, not fixed (out of scope):** on a brand-new account with no orders, Liam opened "Last order was the Coado…". The session context carries no order; the base prompt's opening template ("State where they are now (archetype or last order)") invites it. A prompt fix is outside this brief (only the A5 line may change): OT-38.
 
 **Not done in this pass:** Brief 2's ledger readers and full catalog block, Brief 3's gate (`lookup` delivery has no reader yet; `REQUIRED_ANSWER_KEYS` empty). `maxTurns` 16 is Dana's edit, so the live cutoff was smoke-tested at the live 8. `what_you_get` left as Dana wrote it (check 3 reports it).
+
+### 236. Coffee presentation, brief 4: the card says what the vault knows, remarks masked not withheld, brew methods only from the voice, Blossom's match (2026-10-24)
+
+Brief: `backend/src/features/coffee_presentation/CLAUDE_CODE_PROMPT_COFFEE_PRESENTATION_4.md`. Closing report: `CLOSING_REPORT_4.md` in that folder. No table, view or column change; one catalog write (2916, through the door).
+
+**Status: done on test, waiting for Dana's go before prod.**
+
+**The card (decisions 1, 2).**
+- `lib/signatureLine.teaserFor` lists every note a customer may hear: signature first, then the accents by name ("Hazelnut, with citrus fruit and cinnamon"); accents alone as a plain list; null with no rows. The reveal's "a hint of" line is unchanged.
+- The "arriving soon" sentence renders only for a placeholder or a coffee with no customer-voice rows (copy stays inline, as all Bloom copy is).
+- Card tags: `roasterVoiceReads` returns `tags` (`getCardTags` for the content route):
+  - `Award-winning, per the roaster` when there is an award remark; the text is a new seeded lookup row `coffee_card_tag` / `award`, admin-editable;
+  - the best brew's `roastery_portal_brew_method` label.
+
+  `GET /api/coffees/:id/content` adds `tags`. New `CardTags.tsx` (small caps, grey) renders them on `PositionCard` and the dial card.
+
+**Voice and prompts (decisions 3, 4).**
+- `contentGuard.maskTokens`: a remark or portal answer carrying an award word, the roaster's or coffee's name or the origin is masked with `[…]`, not withheld ("Winner of a […] […] […] […], this classic espresso blend"). The prompts say a gap is never guessed at, and a printed gap is rejected.
+- The voice carries the portal's brew answers as lookup labels. The description and story prompts get "Brew methods the roaster names: best X; also Y" and a brew rule.
+- `contentGuard.looksLikeInventedBrew` rejects a lookup brew method the voice does not name (three tries, then the field fails with the reason). "Other" is left out. Labels are read from the lookup at generation time.
+- Added on the test run: the story no longer asks for an origin or a process the coffee does not have (it invented "the highlands of Central America … washed" for 2914 and 2916).
+
+**Blossom (decision 5).** `load/setMatch2916.ts`: brief 2's plan/run, session found by date (2026-10-23). Confidence is read: high only when every cupper row calls C&N. On test it read **medium**, because Camila's row has no call (only a note). Earthy / low → chocolate_nutty, basis from `composeBasis`, Dana's note.
+
+**Regeneration (decision 7).** `load/regenerateStories.ts --fields story,description`. Test: 22 stories passed (3 "we tasted" rejects retried) and 22 descriptions written; 0 dashes; 3 coffees with masked fragments.
+
+**Divergences (decision 6).** None on test: only 5 active coffees have a home slot there, and all agree. The prod list comes after the go.
+
+**Verified on test:**
+- New `src/services/coffeePresentation4.test.ts` (16) and `src/db/coffeePresentation4.test.ts` (9).
+- Brief 1 to 3 tests updated where the behaviour changed on purpose.
+- Lints, `tsc` and the frontend build clean.
+- The full suite was not clean tonight (another session's uncommitted Liam work, and a slow test DB); see the closing report.
 
 ---
 

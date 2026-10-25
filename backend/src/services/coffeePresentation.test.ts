@@ -47,7 +47,7 @@ const voice = {
     row('Cherry', 'Fruity', false, 3), row('Apple', 'Fruity', false, 4),
   ],
   remarks: { general: ['perfect on its own, or with steamed milk'], brewing: ['18g in, 40g out'], roast: [], process: [] },
-  portal: { takesIt: 'both', brewNotes: null, anythingElse: null, roastLevel: 'medium', blendOrSingle: 'blend', isDecaf: false, proposedArchetype: 'fruity' },
+  portal: { takesIt: 'both', brewNotes: null, anythingElse: null, roastLevel: 'medium', blendOrSingle: 'blend', isDecaf: false, proposedArchetype: 'fruity', bestBrew: null, alsoGoodBrews: [] },
   awards: { count: 1 },
   dimensions: [{ dimension: 'Body', scale_min_label: 'light', scale_max_label: 'heavy', display_order: 7, avg_min: '5.0', avg_max: '9.0', session_count: '2' }],
 };
@@ -156,7 +156,7 @@ describe('the three prompts read the roaster voice (decision 8)', () => {
 
   it('the three-voice story is not asked for when the voice has no signature note, remark or portal answer', async () => {
     const empty = { ...voice, descriptors: [], remarks: { general: [], brewing: [], roast: [], process: [] },
-      portal: { takesIt: null, brewNotes: null, anythingElse: null, roastLevel: null, blendOrSingle: null, isDecaf: null, proposedArchetype: null } };
+      portal: { takesIt: null, brewNotes: null, anythingElse: null, roastLevel: null, blendOrSingle: null, isDecaf: null, proposedArchetype: null, bestBrew: null, alsoGoodBrews: [] } };
     expect(await getCoffeeThreeVoiceStory({ coffeeName: 'The Classic', voice: empty })).toBeNull();
     expect(sent.length).toBe(0);
   });

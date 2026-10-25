@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { getSommelierConfig } from './sommelierConfig.js';
 import { guardClaudeCall, guardClaudeCallMetered } from './anthropicGuard.js';
 import type { RoasterVoice } from './roasterVoiceReads.js';
+import { brewLine, takesItLine, BREW_RULE, GAP_RULE } from './contentGuard.js';
 import { getCurrentAnswers } from './sommelierReads.js';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -669,12 +670,14 @@ export function voiceHasRoasterMaterial(voice: ContentVoice): boolean {
 function portalFacts(voice: ContentVoice): string[] {
   const p = voice.portal;
   return [
-    p.takesIt ? `How the roaster says it is drunk: ${p.takesIt === 'both' ? 'black or with milk' : p.takesIt === 'milk' ? 'with milk' : p.takesIt}` : null,
+    takesItLine(p.takesIt),
     p.brewNotes ? `The roaster's brew notes: ${p.brewNotes}` : null,
     p.anythingElse ? `Anything else the roaster added: ${p.anythingElse}` : null,
     p.roastLevel ? `Roast level: ${p.roastLevel}` : null,
     p.blendOrSingle ? `Blend or single origin: ${p.blendOrSingle}` : null,
     p.isDecaf === null ? null : `Decaf: ${p.isDecaf ? 'yes' : 'no'}`,
+    // coffee presentation brief 4, decision 4 (contentGuard.brewLine, shared with the story)
+    brewLine(p),
   ].filter((s): s is string => s !== null);
 }
 
@@ -720,7 +723,9 @@ const VOICE_RULES = `Rules:
 - Never name the roaster, the coffee's catalog name, a farm, a country, a region or any place, even when a fact above mentions one. If it is award-winning you may say "an award-winning blend, as the roaster tells it" (or coffee); never name an award, a competition, a medal or a year.
 - Never use an em dash or an en dash. Use commas, periods or colons instead.
 - Never use the word "archetype", and never put a category word such as floral, fruity, balanced, earthy or chocolate & nutty in front of "coffee", "blend", "cup", "style" or "profile" ("a fruity coffee", "this balanced blend"). The notes themselves may be named as flavors.
-- Mention how it is drunk (milk, black, on its own, with milk) only if "How the roaster says it is drunk" is listed above; otherwise say nothing about milk or black, even if a fact above mentions it.`;
+- Mention how it is drunk (milk, black, on its own, with milk) only if "How the roaster says it is drunk" is listed above; otherwise say nothing about milk or black, even if a fact above mentions it.
+${BREW_RULE}
+${GAP_RULE}`;
 
 // Coffee presentation brief 1, Dana's prod-go rules (2026-10-23): no dashes,
 // no archetype as a category, milk / black only from the portal's takes_it.

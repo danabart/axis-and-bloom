@@ -56,9 +56,8 @@ describe('position card teaser (B2)', () => {
     { descriptor: 'Hazelnut', family: 'Nutty / Cocoa', is_signature: true },
     { descriptor: 'Citrus Fruit', family: 'Fruity', is_signature: false },
   ];
-  it('is the signature line, with and without a surprise note in the data', () => {
-    expect(line.teaserFor(rows)).toBe(line.signatureText(rows));
-    expect(line.teaserFor(rows)).toBe('Hazelnut');
+  it('is built from the rows (signature first; brief 4 adds the accents), with and without a surprise note in the data', () => {
+    expect(line.teaserFor(rows)).toBe('Hazelnut, with citrus fruit');
     expect(line.teaserFor([])).toBeNull();
     // usePositionCardData builds the teaser from the wheel rows alone: the content (with or without a surprise note) never feeds it
     const hook = readFileSync(path.join(FRONTEND, 'src/app/components/bloom/usePositionCardData.ts'), 'utf8');
