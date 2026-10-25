@@ -121,7 +121,12 @@ function substituteSupport(text: string, cfg: SommelierConfig | null): string {
   return contact ? text.replace(/\{supportContact\}/g, contact) : text;
 }
 
-/** The label lines of the confirmation prompt: an answer label is described by its own text, a resolver by config. */
+/**
+ * The label lines of the confirmation prompt. An answer label is its answer
+ * text, introduced by config gate.answerDescriptions for the answer's kind (a
+ * deflection declines what was asked, so "fully answers" would read it as not
+ * answering a direct guess); a resolver label by gate.resolverDescriptions.
+ */
 export function renderLabelLines(rules: GateRuleRow[], answers: SommelierAnswerRow[], cfg: SommelierConfig | null): string {
   const lines: string[] = [];
   const seen = new Set<string>();
@@ -132,7 +137,8 @@ export function renderLabelLines(rules: GateRuleRow[], answers: SommelierAnswerR
     if (rule.resolver === 'answer') {
       const answer = answers.find(a => a.key === rule.answer_key);
       if (!answer) continue;
-      lines.push(`- ${label}: the customer asks something this reply fully answers: "${substituteSupport(answer.answer_text, cfg).replace(/\{firstName\},?\s*/g, '')}"`);
+      const intro = cfg?.gate?.answerDescriptions?.[answer.kind] ?? cfg?.gate?.answerDescriptions?.default ?? 'the customer asks something this reply fully answers';
+      lines.push(`- ${label}: ${intro}: "${substituteSupport(answer.answer_text, cfg).replace(/\{firstName\},?\s*/g, '')}"`);
     } else {
       lines.push(`- ${label}: the customer ${cfg?.gate?.resolverDescriptions?.[label] ?? label.replace(/_/g, ' ')}`);
     }

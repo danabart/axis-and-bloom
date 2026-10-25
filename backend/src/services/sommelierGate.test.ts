@@ -10,7 +10,7 @@ import { seedGateRules } from '../db/seeds/sommelier_gate_rule_seed.js';
 import { seedSommelierAnswers } from '../db/seeds/sommelier_answer_seed.js';
 import { setRuleInTx, retireRuleInTx } from './sommelierGateRuleService.js';
 import {
-  tryGate, exampleFailures, gatedRuleFor, matchCandidate, parseConfirm, resolveRule, runGateOffline, namesRoaster,
+  tryGate, exampleFailures, gatedRuleFor, matchCandidate, parseConfirm, resolveRule, runGateOffline, namesRoaster, buildConfirmPrompt,
   type HaikuCaller, type HaikuCall,
 } from './sommelierGate.js';
 import { getActiveRules, getExamples, getCurrentAnswers, getTurnsForSession, getUnlabelledModelTurns, type GateRuleRow } from './sommelierReads.js';
@@ -111,6 +111,19 @@ describe('rule tests (Testing 2)', () => {
       expect((await getExamples(before.id, client)).length).toBe(0); // old row's examples are superseded with it
       await retireRuleInTx(client, { key: 'subscription_status', createdBy: 'vitest' });
       expect((await getActiveRules(client)).some(r => r.key === 'subscription_status')).toBe(false);
+    });
+  }, 60000);
+});
+
+describe('the confirmation prompt', () => {
+  it('a deflection label is introduced as declining, a brand label as answering', async () => {
+    await withRollback(async ({ client }) => {
+      const rules = await seeded(client);
+      const prompt = buildConfirmPrompt({ cfg: config(), rules, answers: await getCurrentAnswers(client), aliases: ['Coado'], previous: '', message: 'is it Joe Coffee?' });
+      expect(prompt).toContain('- partner_privacy: the customer asks, or guesses by name, something this reply deliberately declines to tell them (a guessed name that is not one of the coffees listed below counts as asking)');
+      expect(prompt).toMatch(/- sourcing: the customer asks something this reply fully answers: "We do not roast/);
+      expect(prompt).toContain(`A person can check for you: ${SUPPORT}.`);
+      expect(prompt).toContain('Customer message: is it Joe Coffee?');
     });
   }, 60000);
 });

@@ -109,8 +109,9 @@ export const DEFAULT_SOMMELIER_CONFIG = {
     // answers live in tables. enabled = false sends every turn to Sonnet with
     // no deploy (the kill switch). confirmPrompt placeholders: {labels},
     // {aliases}, {previous}, {message}; phrasePrompt: {facts}, {history},
-    // {message}. resolverDescriptions tell the confirmation what a resolver
-    // label means (an answer label is described by its own answer text).
+    // {message}. An answer label is described by its own answer text after
+    // answerDescriptions[kind] (else .default); resolverDescriptions say what
+    // a resolver label means.
     // prefixRebuildMinTokens: a ledger row writing at least this many cache
     // tokens counts as a shared-prefix rebuild on System Health.
     gate: {
@@ -128,6 +129,10 @@ export const DEFAULT_SOMMELIER_CONFIG = {
         'Previous reply from Liam: {previous}',
         'Customer message: {message}',
       ].join('\n'),
+      answerDescriptions: {
+        default: 'the customer asks something this reply fully answers',
+        deflection: 'the customer asks, or guesses by name, something this reply deliberately declines to tell them (a guessed name that is not one of the coffees listed below counts as asking); the reply is still the whole answer',
+      },
       resolverDescriptions: {
         catalog_price: 'asks what a coffee costs, its price, or its sizes and prices',
         catalog_category: 'asks which decaf or half-caf coffees we have',

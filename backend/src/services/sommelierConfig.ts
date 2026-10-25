@@ -110,6 +110,7 @@ export interface SommelierConfig {
     confirmThreshold: number;
     confirmMaxTokens: number;
     confirmPrompt: string;
+    answerDescriptions?: Record<string, string>; // by sommelier_answer kind, plus 'default'
     resolverDescriptions?: Record<string, string>;
     phraseModel: string;
     phraseMaxTokens: number;
