@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-10-24 from database `axisandbloom` · 124 tables · 74 views · 1130 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `eecbf797c680` (full value in the footer).
+Generated 2026-10-25 from database `axisandbloom` · 125 tables · 74 views · 1140 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `85ad1351d6bf` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -25,8 +25,8 @@ Copied verbatim from the top of `backend/src/db/comments.sql`.
 -- (feedback_events, sommelier_evaluations).
 -- firestore: users/{uid} | Purpose: Mirror of the user's name, email and token balance; Cloud SQL is the source of truth. | Writer: routes/users.ts (GET /profile sync, PATCH /profile), tokenService.spendToken/grantTokens, orders token bonus (routes/orders.ts); deleted with all subcollections by staleGuestCleanup | Readers: none
 -- firestore: users/{uid}/sommelier_sessions/{sessionId}/messages | Purpose: Liam chat transcript, one doc per message (role, content, modelUsed, seq, actions, createdAt); the parent session doc is never written. | Writer: routes/sommelier.ts (session open, user turn, assistant reply, daily-cap close) | Readers: routes/sommelier.ts (history for Claude, past-session transcript with SQL fallback)
--- firestore: config/sommelier | Purpose: Sommelier runtime config including aiControls, cached in memory by a live listener. | Writer: seed (db/seeds/sommelier_config_seed.ts, only if absent), routes/admin.ts (PATCH /sommelier/config, POST /sommelier/config-apply, PUT /ai-ops/controls) | Readers: sommelierConfig (get + onSnapshot), routes/admin.ts (config, config-drift, ai-ops)
--- firestore: config/sommelier/audit | Purpose: Audit trail of admin config changes (uid, email, paths or old/new, at). | Writer: routes/admin.ts (config-apply, ai-controls) | Readers: routes/admin.ts (GET /ai-ops, last 30)
+-- firestore: config/sommelier | Purpose: Sommelier runtime config including aiControls, cached in memory by a live listener. | Writer: seed (db/seeds/sommelier_config_seed.ts, only if absent), sommelier_config_seed.applyMissingKeys (every boot, adds only the seed leaves of MISSING_KEY_SUBTREES the live doc lacks, 2026-10-24), routes/admin.ts (PATCH /sommelier/config, POST /sommelier/config-apply, PUT /ai-ops/controls) | Readers: sommelierConfig (get + onSnapshot), routes/admin.ts (config, config-drift, ai-ops)
+-- firestore: config/sommelier/audit | Purpose: Audit trail of admin config changes (uid, email, paths or old/new, at). | Writer: routes/admin.ts (config-apply, ai-controls), sommelier_config_seed.applyMissingKeys (uid deploy) | Readers: routes/admin.ts (GET /ai-ops, last 30)
 -- firestore: config/sommelierCentroids | Purpose: Per-intent 13-dimension feature centroids (DISCOVERY_SEEKER, PROFILE_AMBIGUOUS, TASTE_EVOLUTION, RECOMMENDATION_MISS, CONVERSION, EXPLORATION). | Writer: seed (sommelier_config_seed.ts, only if absent), routes/admin.ts (POST /sommelier/recompute-centroids) | Readers: none beyond the seed's existence check
 -- firestore: admin_stats/brew_profile | Purpose: Admin counters for brew-profile writes, failures and no-ops. | Writer: brewProfile (increment) | Readers: brewProfile.getBrewProfileCounters
 -- firestore: admin_stats/liam_writeback | Purpose: Counter of Liam recommendation write-backs that could not be resolved. | Writer: liamWriteBack (increment) | Readers: liamWriteBack.getLiamWriteBackCounters
@@ -43,7 +43,7 @@ Copied verbatim from the top of `backend/src/db/comments.sql`.
 
 ## Tables
 
-### master (22)
+### master (23)
 
 #### `coffee_archetype`
 
@@ -486,6 +486,27 @@ Words the unmapped-words view ignores because they name a dimension or a texture
 | `word` | text | no | The word, lower-cased; unique. |
 | `since` | date | no | Date the word was added. |
 | `note` | text | yes | Why the word is ignored, when not obvious. |
+
+#### `sommelier_answer`
+
+The brand facts Liam may state (what we are, sourcing, partner privacy, what you get, ordering), one current row per key, edited by an admin with history; no existing object holds customer-facing brand prose (marketing_config is URLs, lookup_value dropdown vocabulary, evidence_parameter numbers, coffees.story and three_voice_story per coffee, Firestore config/sommelier knobs and rules), so a table; an edit supersedes, a retire closes with no successor, nothing updated in place or deleted
+
+- **Writer:** sommelierAnswerService.setAnswerInTx, sommelierAnswerService.retireAnswerInTx; seed
+- **Readers:** sommelierReads (getCurrentAnswers, getAnswer, getAnswersVersion, getAnswerHistory)
+- **Since:** 2026-10-24 (Liam brand answers, prices, cart cutoff brief Rev 3)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key (SERIAL); (key, current) is the natural key, held by the partial unique index sommelier_answer_one_current. |
+| `key` | text | no | Stable answer name in snake_case (what_we_are, how_we_match, sourcing, partner_privacy, what_you_get, ordering); exactly one row per key has superseded_at NULL. A key with no current row means Liam has no such fact. |
+| `kind_id` | integer | no | FK to lookup_value(id) in category sommelier_answer_kind: brand, policy or deflection. |
+| `delivery_id` | integer | no | FK to lookup_value(id) in category sommelier_answer_delivery: prefix (rendered into Liam's cached prompt block), lookup (said verbatim by a later gate, not in the prompt) or both. |
+| `answer_text` | text | no | The answer in customer-facing prose, said by Liam as written; never a roaster name, a price, a size or count, or a coffee alias (sommelierAnswerService refuses those, sommelierIntegrity reports them). |
+| `sort_order` | integer | no | Render order of the row inside Liam's brand facts block (then key); the block must be byte-stable between edits so the shared prompt cache holds. |
+| `since` | timestamp with time zone | no | UTC timestamp the row took effect. |
+| `superseded_at` | timestamp with time zone | yes | UTC timestamp a newer row for the key replaced this one, or the key was retired; NULL marks the current row. The only column ever updated. \| Writer: sommelierAnswerService.setAnswerInTx, sommelierAnswerService.retireAnswerInTx |
+| `note` | text | yes | Why the row was written (the admin's change note, or the seed's), free text; NULL when none was given. |
+| `created_by` | text | no | Who wrote the row: the admin's Firebase uid, or seed for the initial rows. |
 
 ### fact (22)
 
@@ -1337,7 +1358,7 @@ Controlled vocabulary for admin dropdowns and coded fields, one row per (categor
 | column | type | null | comment |
 |---|---|---|---|
 | `id` | integer | no | Surrogate key; coffees.origin_region_id references it. |
-| `category` | text | no | Vocabulary group, for example roast_level, process, blend_or_single, brew_method, origin_region and the roastery_portal_* groups; UNIQUE together with value. |
+| `category` | text | no | Vocabulary group, for example roast_level, process, blend_or_single, brew_method, origin_region, the roastery_portal_* groups and sommelier_answer_kind / sommelier_answer_delivery (Liam brand answers, 2026-10-24); UNIQUE together with value. |
 | `value` | text | no | Stored code within the category (what other tables and the API hold). |
 | `label` | text | no | Display text shown in the UI; may differ from value. |
 | `sort_order` | integer | no | Display position within the category, ascending. |
@@ -3281,7 +3302,7 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `household` | household | household (DELETE, INSERT) | household | — |
 | `household_invitation` | household | household (INSERT, UPDATE) | household | — |
 | `liam_sms_feedback` | none | — | — | — |
-| `lookup_value` | admin, seed | admin (DELETE, INSERT, UPDATE), seed (INSERT, UPDATE) | admin, catalogService, coffees, roasteryPortalReads | — |
+| `lookup_value` | admin, seed | admin (DELETE, INSERT, UPDATE), seed (INSERT, UPDATE) | admin, catalogService, coffees, roasteryPortalReads, sommelierAnswerService, sommelierReads, sommelier_answer_seed | — |
 | `marketing_config` | reportingConfig, seed | reportingConfig (UPDATE), seed (INSERT) | reportingConfig | — |
 | `newsletter_subscriber` | backfill:backfillUnsubscribeTokens, backfill:correct-subscriber-archetypes, newsletter, seed, unsubscribe | backfill:backfillUnsubscribeTokens (UPDATE), backfill:correct-subscriber-archetypes (UPDATE), newsletter (INSERT), seed (UPDATE), unsubscribe (UPDATE) | admin, audit-quiz-emails, auth, backfillClaimedSessionLinks, backfillUnsubscribeTokens, correct-subscriber-archetypes, exportCalibration, mailchimp-backfill, newsletter, newsletterReconcile, quizIntegrity, quizInterpretationBackfill, unsubscribe, users | campaign_funnel_v, campaign_subscriber_archetype_v, v_archetype_distribution, v_customer_calibration, v_newsletter_subscribers, v_subscriber_quiz_results, v_subscribers_weekly |
 | `newsletter_subscriber_backup_20260925` | backfill:correct-subscriber-archetypes | — | — | — |
@@ -3303,7 +3324,7 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `quiz_session_interpretation` | quizSession | quizSession (INSERT, UPDATE) | customerIntegrity, customerReads, exportCalibration, quizInterpretationBackfill, quizSession | v_customer_quiz_current, v_customer_timeline, v_quiz_session_interpretation_history, v_subscriber_quiz_results |
 | `quiz_type` | seed | seed (INSERT) | — | v_quiz_scoring_matrix |
 | `quiz_vector` | none | — | — | — |
-| `roaster` | admin, catalogService | admin (INSERT, UPDATE), catalogService (UPDATE) | admin, axis, behavioralConfidence, catalogImport, catalogIntegrity, catalogReads, catalogService, coffees, cuppingReads, customerReads, evidenceIntegrity, evidenceReads, freeSlots, roasteryPortalReads, roasteryPortalService, roasteryRemarkReads, setMatch2917 | v_coffee, v_roastery_remark |
+| `roaster` | admin, catalogService | admin (INSERT, UPDATE), catalogService (UPDATE) | admin, axis, behavioralConfidence, catalogImport, catalogIntegrity, catalogReads, catalogService, coffees, cuppingReads, customerReads, evidenceIntegrity, evidenceReads, freeSlots, roasteryPortalReads, roasteryPortalService, roasteryRemarkReads, setMatch2917, sommelierIntegrity | v_coffee, v_roastery_remark |
 | `roastery_blend_vector` | none | — | — | — |
 | `roastery_coffee_descriptors` | catalogService, seed | catalogService (INSERT, UPDATE), seed (INSERT) | admin, catalogService, cuppingReads, customerReads, evidenceReads, roasteryPortalReads | v_collaborative_flavor_wheel |
 | `roastery_portal_acceptance` | roasteryPortalService | roasteryPortalService (INSERT) | roasteryPortalReads | v_roastery_portal_progress |
@@ -3322,6 +3343,7 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `roastery_shipment_details` | none | — | — | — |
 | `sensory_lexicon_attribute` | seed | seed (INSERT, UPDATE) | — | — |
 | `sensory_source` | seed | seed (INSERT) | — | — |
+| `sommelier_answer` | seed, sommelierAnswerService | seed (INSERT), sommelierAnswerService (INSERT, UPDATE) | sommelierReads | — |
 | `sommelier_evaluation` | outcomeTracker, sommelier, sommelierEvaluator | outcomeTracker (UPDATE), sommelier (UPDATE), sommelierEvaluator (INSERT) | admin, outcomeTracker | — |
 | `sommelier_messages` | none | — | sommelier | — |
 | `sommelier_sessions` | sommelier | sommelier (DELETE, INSERT, UPDATE) | admin, backfillLiamRecommendations, engagementMetrics, sommelier | — |
@@ -3360,9 +3382,9 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 **Dead candidates, static (22):** `archetype_relationship`, `archetype_tunable_variable`, `cupping_note_dimension_weight`, `customer_order_kind`, `liam_sms_feedback`, `newsletter_subscriber_backup_20260925`, `notification_log`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_vector`, `roastery_blend_vector`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `user_archetype_tuning`, `user_coffee_profile`, `user_lifecycle_event`, `user_payment_detail`, `user_roaster_link`, `user_vector_state`.
 
-**Touched since the reset (124):** `address`, `api_event`, `archetype_relationship`, `archetype_tunable_variable`, `archetype_vector`, `beat_event`, `brew_card_view_event`, `campaign_landing_event`, `catalog_change`, `claude_daily_spend`, `coffee_archetype`, `coffee_archetype_assignment`, `coffee_category`, `coffee_category_assignment`, `coffee_dial_slot`, `coffee_dimensions`, `coffee_hop`, `coffee_retail_price`, `coffee_size`, `coffee_sku`, `coffee_slot_assignment`, `coffee_slot_price`, `coffees`, `company`, `company_gift`, `company_gift_code`, `cupper`, `cupper_calibration_offset`, `cupping_brew_params`, `cupping_note`, `cupping_note_dimension_weight`, `cupping_scale`, `cupping_scale_step`, `cupping_score_descriptors`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`, `cupping_sessions`, `cupping_sheet_format`, `cupping_sheet_line`, `customer_bag_claim`, `customer_brew_profile_change`, `customer_dial_event`, `customer_feedback_descriptor`, `customer_feedback_event`, `customer_identity_link`, `customer_liam_action`, `customer_liam_question`, `customer_liam_recommendation`, `customer_liam_reply`, `customer_order_kind`, `dial_position_signal`, `dial_source_weight`, `evidence_parameter`, `evidence_stop_word`, `household`, `household_invitation`, `liam_sms_feedback`, `lookup_value`, `marketing_config`, `newsletter_subscriber`, `newsletter_subscriber_backup_20260925`, `notification_log`, `order`, `order_line_item`, `qr_scan_event`, `qr_universal_token`, `quiz`, `quiz_answer`, `quiz_answer_archetype_score`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_funnel_event`, `quiz_question`, `quiz_session`, `quiz_session_interpretation`, `quiz_type`, `quiz_vector`, `roaster`, `roastery_blend_vector`, `roastery_coffee_descriptors`, `roastery_portal_acceptance`, `roastery_portal_coffee`, `roastery_portal_dimension`, `roastery_portal_lineup_response`, `roastery_portal_lineup_response_best_seller`, `roastery_portal_link`, `roastery_portal_note_mapping`, `roastery_portal_respondent`, `roastery_portal_response`, `roastery_portal_response_brew`, `roastery_portal_response_dimension`, `roastery_portal_response_note`, `roastery_remark`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `sommelier_evaluation`, `sommelier_messages`, `sommelier_sessions`, `sommelier_sms_feedback`, `subscriber_source`, `subscription`, `token_events`, `transactional_email_log`, `user_archetype_tuning`, `user_bloom_dial_current_position`, `user_brew_card`, `user_coffee_profile`, `user_email`, `user_flavor_feedback`, `user_lifecycle_event`, `user_lifecycle_stage`, `user_lifecycle_state`, `user_payment_detail`, `user_phone`, `user_profile`, `user_roaster_link`, `user_saved_item`, `user_tokens`, `user_type`, `user_vector_state`.
+**Touched since the reset (125):** `address`, `api_event`, `archetype_relationship`, `archetype_tunable_variable`, `archetype_vector`, `beat_event`, `brew_card_view_event`, `campaign_landing_event`, `catalog_change`, `claude_daily_spend`, `coffee_archetype`, `coffee_archetype_assignment`, `coffee_category`, `coffee_category_assignment`, `coffee_dial_slot`, `coffee_dimensions`, `coffee_hop`, `coffee_retail_price`, `coffee_size`, `coffee_sku`, `coffee_slot_assignment`, `coffee_slot_price`, `coffees`, `company`, `company_gift`, `company_gift_code`, `cupper`, `cupper_calibration_offset`, `cupping_brew_params`, `cupping_note`, `cupping_note_dimension_weight`, `cupping_scale`, `cupping_scale_step`, `cupping_score_descriptors`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`, `cupping_sessions`, `cupping_sheet_format`, `cupping_sheet_line`, `customer_bag_claim`, `customer_brew_profile_change`, `customer_dial_event`, `customer_feedback_descriptor`, `customer_feedback_event`, `customer_identity_link`, `customer_liam_action`, `customer_liam_question`, `customer_liam_recommendation`, `customer_liam_reply`, `customer_order_kind`, `dial_position_signal`, `dial_source_weight`, `evidence_parameter`, `evidence_stop_word`, `household`, `household_invitation`, `liam_sms_feedback`, `lookup_value`, `marketing_config`, `newsletter_subscriber`, `newsletter_subscriber_backup_20260925`, `notification_log`, `order`, `order_line_item`, `qr_scan_event`, `qr_universal_token`, `quiz`, `quiz_answer`, `quiz_answer_archetype_score`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_funnel_event`, `quiz_question`, `quiz_session`, `quiz_session_interpretation`, `quiz_type`, `quiz_vector`, `roaster`, `roastery_blend_vector`, `roastery_coffee_descriptors`, `roastery_portal_acceptance`, `roastery_portal_coffee`, `roastery_portal_dimension`, `roastery_portal_lineup_response`, `roastery_portal_lineup_response_best_seller`, `roastery_portal_link`, `roastery_portal_note_mapping`, `roastery_portal_respondent`, `roastery_portal_response`, `roastery_portal_response_brew`, `roastery_portal_response_dimension`, `roastery_portal_response_note`, `roastery_remark`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `sommelier_answer`, `sommelier_evaluation`, `sommelier_messages`, `sommelier_sessions`, `sommelier_sms_feedback`, `subscriber_source`, `subscription`, `token_events`, `transactional_email_log`, `user_archetype_tuning`, `user_bloom_dial_current_position`, `user_brew_card`, `user_coffee_profile`, `user_email`, `user_flavor_feedback`, `user_lifecycle_event`, `user_lifecycle_stage`, `user_lifecycle_state`, `user_payment_detail`, `user_phone`, `user_profile`, `user_roaster_link`, `user_saved_item`, `user_tokens`, `user_type`, `user_vector_state`.
 
 ---
 
-catalog-hash: eecbf797c680e921305ddb76b2bcce3644bbec4e31aba7a8b19a5208506d8849
-lineage-hash: 5c901eadf11e62d524eaa74842c08e4331a4f1ee4f7bfaf4b1db9a60f39414d7
+catalog-hash: 85ad1351d6bfb998a07c3721a868531502843f84570eb63bf54842250ce5b547
+lineage-hash: 0b281e7eb0582bd38afc8ff00243edb97917ef90d60ac78550578946b8669ad7
