@@ -40,6 +40,8 @@ import roasteryRemarkAdminRouter from './routes/roasteryRemarkAdmin.js';
 import evidenceAdminRouter from './routes/evidenceAdmin.js';
 import { runEvidenceIntegrityChecks, formatEvidenceIntegrityLog } from './services/evidenceIntegrity.js';
 import { initSommelierConfig } from './services/sommelierConfig.js';
+import { seedSommelierAnswers } from './db/seeds/sommelier_answer_seed.js';
+import { runSommelierIntegrityChecks, formatSommelierIntegrityLog } from './services/sommelierIntegrity.js';
 import { runQuizIntegrityChecks } from './services/quizIntegrity.js';
 import { runCatalogIntegrityChecks } from './services/catalogIntegrity.js';
 import { runCustomerIntegrityChecks } from './services/customerIntegrity.js';
@@ -282,6 +284,15 @@ async function start() {
     console.error('Sommelier config init error (non-fatal):', err);
   }
 
+  // Liam brand answers (brief Rev 3, A2, 2026-10-24) — insert-only, and only
+  // into an empty sommelier_answer; an admin edit is never undone by a boot.
+  try {
+    const seeded = await seedSommelierAnswers();
+    if (seeded) console.log(`[sommelier-answers] seeded ${seeded} answer(s)`);
+  } catch (err) {
+    console.error('Sommelier answers seed error (non-fatal):', err);
+  }
+
   // Quiz Content Drift Prevention — fire-and-log only. A degraded quiz beats
   // a down site: never throws, never blocks startup, just surfaces failing
   // checks in the deploy logs so they're visible without anyone having to
@@ -345,6 +356,16 @@ async function start() {
     for (const line of formatEvidenceIntegrityLog(report)) console.warn(line);
   } catch (err) {
     console.error('Evidence integrity check error (non-fatal):', err);
+  }
+
+  // Liam brand answers (brief Rev 3, A6) — report only, never blocks the
+  // boot: a current answer naming a roaster, a price/size/count or a coffee
+  // alias goes to the log here and to the System Health card.
+  try {
+    const report = await runSommelierIntegrityChecks();
+    for (const line of formatSommelierIntegrityLog(report)) console.warn(line);
+  } catch (err) {
+    console.error('Sommelier integrity check error (non-fatal):', err);
   }
 
   // 2026-08-15 CRON_SECRET incident hardening — every version of the secret

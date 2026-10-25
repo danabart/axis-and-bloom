@@ -5497,6 +5497,39 @@ CREATE TABLE IF NOT EXISTS sommelier_evaluation (
 );
 CREATE INDEX IF NOT EXISTS idx_sommelier_evaluation_user_created ON sommelier_evaluation (user_id, created_at);
 
+-- Liam brand answers (brief LIAM_BRAND_PRICES_CART_CUTOFF Rev 3, Part A,
+-- 2026-10-24): the brand facts Liam may state, as rows Dana edits in admin.
+-- One current row per key; an edit is a new row that supersedes the old one
+-- (evidence_parameter's since / superseded_at / note vocabulary), a retire
+-- sets superseded_at with no successor. Nothing is updated in place or
+-- deleted. One writer (sommelierAnswerService, plus the insert-only seed
+-- db/seeds/sommelier_answer_seed.ts), one reader (sommelierReads); both
+-- enforced by lint:customer rule 8 and lint:lineage. Kinds and deliveries
+-- are lookup_value categories, never hard-coded enums. Placed here, after
+-- lookup_value, so the two FKs resolve on a fresh database.
+INSERT INTO lookup_value (category, value, label, sort_order) VALUES
+  ('sommelier_answer_kind', 'brand',      'Brand',      1),
+  ('sommelier_answer_kind', 'policy',     'Policy',     2),
+  ('sommelier_answer_kind', 'deflection', 'Deflection', 3),
+  ('sommelier_answer_delivery', 'prefix', 'Prompt prefix',        1),
+  ('sommelier_answer_delivery', 'lookup', 'Lookup only',          2),
+  ('sommelier_answer_delivery', 'both',   'Prompt prefix and lookup', 3)
+ON CONFLICT (category, value) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS sommelier_answer (
+  id            SERIAL PRIMARY KEY,
+  key           TEXT NOT NULL,
+  kind_id       INTEGER NOT NULL REFERENCES lookup_value(id),
+  delivery_id   INTEGER NOT NULL REFERENCES lookup_value(id),
+  answer_text   TEXT NOT NULL,
+  sort_order    INTEGER NOT NULL,
+  since         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  superseded_at TIMESTAMPTZ,
+  note          TEXT,
+  created_by    TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS sommelier_answer_one_current ON sommelier_answer (key) WHERE superseded_at IS NULL;
+
 -- Part C — dead tables, dropped once integrity check 7 (customerIntegrity.ts)
 -- has proved them empty in prod. Confirmed empty 2026-09-27:
 -- user_recommendation_log, user_feedback_event, chat_message. Self-healing
@@ -8717,6 +8750,11 @@ REVOKE UPDATE, DELETE, TRUNCATE ON cupping_score_values, cupping_score_descripto
 REVOKE DELETE, TRUNCATE ON cupping_scores FROM ab_app;
 REVOKE TRUNCATE ON cupping_brew_params FROM ab_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON roastery_remark FROM ab_app;
+-- Liam brand answers (2026-10-24): supersede only. The one UPDATE the writer
+-- makes sets superseded_at; nothing is ever deleted (lint:customer rule 8 is
+-- the code-side half).
+REVOKE UPDATE, DELETE, TRUNCATE ON sommelier_answer FROM ab_app;
+GRANT UPDATE (superseded_at) ON sommelier_answer TO ab_app;
 GRANT SELECT ON v_roastery_remark, v_cupping_session, v_cupping_session_coffee TO reporting_ro;
 
 -- Quiz content is master data with one writer, the V7 seed in this file,

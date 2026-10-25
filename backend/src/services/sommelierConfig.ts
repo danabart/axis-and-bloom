@@ -1,5 +1,5 @@
 import { firestoreDb } from './firebase-admin.js';
-import { seedSommelierConfig, seedSommelierCentroids } from '../db/seeds/sommelier_config_seed.js';
+import { seedSommelierConfig, seedSommelierCentroids, applyMissingKeys } from '../db/seeds/sommelier_config_seed.js';
 
 export interface IntentConfig {
   active: boolean;
@@ -60,6 +60,22 @@ export interface SommelierConfig {
   };
   sessionLimits: {
     maxTurns: number;
+    // Liam brand answers / cutoff brief Rev 3, Part C (2026-10-24). The
+    // customer never sees a number: one notice from warnAtTurnsRemaining
+    // replies left, the closed notice, nothing at the top of a session.
+    warnAtTurnsRemaining?: number;
+    // Liam gets nudges.closing / nudges.last on the last closingTurns replies.
+    closingTurns?: number;
+    nudges?: { closing: string; last: string };
+    customerCopy?: { limitNotice: string; closedNotice: string };
+  };
+  // Part A4 — the rules Liam follows around the brand facts (instructions to
+  // the model, so config, not rows). The facts themselves are rows in
+  // sommelier_answer (sommelierReads.getCurrentAnswers).
+  brandFacts?: {
+    enabled: boolean;
+    cacheSeconds: number;
+    rules: string[];
   };
   tokenEconomy: {
     signupBonus: number;
@@ -248,6 +264,13 @@ export async function initSommelierConfig(): Promise<void> {
   // Seed if not present
   await seedSommelierConfig();
   await seedSommelierCentroids();
+  // Brief Rev 3, A7: new keys a release needs reach the live doc; existing
+  // keys are never touched. Non-fatal: a failure leaves the code defaults.
+  try {
+    await applyMissingKeys();
+  } catch (err) {
+    console.error('[sommelierConfig] applyMissingKeys failed (non-fatal):', err);
+  }
 
   const configRef = firestoreDb.doc('config/sommelier');
 

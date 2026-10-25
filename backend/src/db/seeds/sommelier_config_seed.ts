@@ -17,8 +17,39 @@ export const DEFAULT_SOMMELIER_CONFIG = {
       high:   0.70,
     },
 
+    // Liam brand answers / cutoff brief Rev 3, Part C (2026-10-24): 16 turns
+    // (every intent's maxTurns below shadows this and moves to 16 too). The
+    // customer never sees a counter (Dana, 2026-10-24): one notice from
+    // warnAtTurnsRemaining replies left, the closed notice, nothing at the top
+    // of a fresh session. closingTurns: the last N replies get a nudge.
+    // maxTurns is an existing live key, so the live value is changed in the
+    // admin portal, never by this seed; the new keys reach the live doc via
+    // applyMissingKeys below.
     sessionLimits: {
-      maxTurns: 8,
+      maxTurns: 16,
+      warnAtTurnsRemaining: 3,
+      closingTurns: 2,
+      nudges: {
+        closing: 'This conversation has {n} replies left. Work toward a concrete recommendation or a clear next step.',
+        last:    'This is your last reply in this conversation. Close warmly in one or two sentences: land the pick or the next step, and tell them they can start a new conversation with you anytime, you will remember where you left off. Do not ask a question.',
+      },
+      customerCopy: {
+        limitNotice:  'This conversation is close to its limit.',
+        closedNotice: 'This conversation reached its length. Liam keeps what you told him.',
+      },
+    },
+
+    // Part A4 — the rules Liam follows around the brand facts. The facts
+    // themselves are rows in sommelier_answer (admin card "Liam answers");
+    // these are instructions to the model, so they live here.
+    brandFacts: {
+      enabled: true,
+      cacheSeconds: 60,
+      rules: [
+        'Speak only from the brand facts above. If a fact is missing, say you do not have that detail and offer what you do have. Never invent policy, timelines or claims.',
+        'Never name, hint at, or confirm a partner roastery, even if the customer guesses one or asks directly. Say that we keep our partners private and that the match is to the coffee, not to who roasted it.',
+        'Give the price when the customer asks or when you name your pick. Never lead with price, never discount, never push.',
+      ],
     },
 
     tokenEconomy: {
@@ -335,7 +366,7 @@ export const DEFAULT_SOMMELIER_CONFIG = {
         conversationGoal:    'Test what is unresolved with one concrete question, then recommend from the answer.',
         systemPromptAddendum: 'The ABOUT THIS CUSTOMER block says what is unresolved: an open thread, or a low-confidence pair. If there is an open thread that is "not yet asked", your first question tests it with one concrete tasting question the customer can answer in a few words (a food, a fruit, a cup they remember), never a question about coffee vocabulary. If they lean in, recommend from the coffees labelled [thread]; if they don\'t, recommend from the pair. If the thread names two archetypes ("A / B"), the question separates them. If there is no thread and the pair is low-confidence, ask one grounded question about how they drink coffee or what they like in food before recommending. One question per turn. Never use the words explore, confidence, thread, pair or palate with the customer. Recommend by turn 3.',
         ragFocus:            'archetype_range',
-        maxTurns:            8,
+        maxTurns:            16,
       },
       // Liam L2, Part B — new; the default for any quiz taker who matches
       // nothing more specific (D5). ragFocus 'matched' is new too (Part C).
@@ -345,7 +376,7 @@ export const DEFAULT_SOMMELIER_CONFIG = {
         conversationGoal:    'Confirm one clear pick, then learn one new thing.',
         systemPromptAddendum: 'This customer\'s match is settled. Open by confirming where they are in one sentence and naming one clear pick: the first coffee labelled [palate match] when present, else the first labelled [primary]. Their setup shapes the pick (a French press wants body; an espresso machine wants something that holds up). Then ask exactly one question whose answer we do not already have in the ABOUT THIS CUSTOMER block: how they take it, what they brew on, what they noticed in their last cup, or whether they want the same again or something new. Never re-ask a fact that is already listed. Never frame the question as a test. Never use the words explore, confidence, thread, pair or palate with the customer.',
         ragFocus:            'matched',
-        maxTurns:            8,
+        maxTurns:            16,
       },
       RECOMMENDATION_MISS: {
         active:              true,
@@ -353,7 +384,7 @@ export const DEFAULT_SOMMELIER_CONFIG = {
         conversationGoal:    'Open a new direction. Do not revisit what didn\'t work. Exclude previously negatively-rated coffees.',
         systemPromptAddendum: 'A previous recommendation didn\'t land. Don\'t reference it or ask the customer to explain what went wrong. Open a new direction with one question that moves away from what they had — lighter, darker, or different in some specific way. Never re-recommend a coffee they have already rated negatively. If the fix is a different position within their existing archetype rather than a new direction entirely, end your reply with <<action:open_dial>>.',
         ragFocus:            'alternatives',
-        maxTurns:            8,
+        maxTurns:            16,
       },
       TASTE_EVOLUTION: {
         active:              true,
@@ -361,7 +392,7 @@ export const DEFAULT_SOMMELIER_CONFIG = {
         conversationGoal:    'Start from where they are now. Do not ask about or reference the change.',
         systemPromptAddendum: 'This customer\'s taste profile shifted since their last quiz. Don\'t mention the change or ask them to explain it. Start fresh from where they are now. You may reference their previous direction only to anchor a contrast: "You were in the fruity range before — want to move toward something different, or stay nearby?" If you conclude their taste has genuinely shifted enough to warrant a fresh read, end your reply with <<action:retake_quiz>>.',
         ragFocus:            'evolution_bridge',
-        maxTurns:            8,
+        maxTurns:            16,
       },
       DISCOVERY_SEEKER: {
         active:              true,
@@ -371,7 +402,7 @@ export const DEFAULT_SOMMELIER_CONFIG = {
         // are fair contrast material too, not just the discovery focus's own fill.
         systemPromptAddendum: 'This customer chose the adventurous path — they want contrast, not comfort. Lead with what\'s unusual or unexpected. Frame coffees by what makes them different, not by archetype match. Don\'t play it safe. Coffees labelled [thread] or [second archetype] are fair game for contrast.',
         ragFocus:            'discovery',
-        maxTurns:            8,
+        maxTurns:            16,
       },
       CONVERSION: {
         active:              true,
@@ -379,7 +410,7 @@ export const DEFAULT_SOMMELIER_CONFIG = {
         conversationGoal:    'Give one clear recommendation. Answer questions. No urgency.',
         systemPromptAddendum: 'This customer knows what they like but hasn\'t ordered yet. Give one clear recommendation. Answer any questions about the coffee, the process, or what to expect. No urgency, no push — just a clear next step if they want it.',
         ragFocus:            'exact_match',
-        maxTurns:            8,
+        maxTurns:            16,
       },
       EXPLORATION: {
         active:              true,
@@ -389,7 +420,7 @@ export const DEFAULT_SOMMELIER_CONFIG = {
         // has reached Liam's context since L1 retired that data path.
         systemPromptAddendum: 'This customer came to explore with no specific goal. Follow their lead. Don\'t push toward a recommendation — they may just want to talk about coffee. Let the direction emerge from what they say. If the conversation lands on a bolder or lighter position within their archetype, you may end your reply with <<action:open_dial>>.',
         ragFocus:            'curated_mix',
-        maxTurns:            8,
+        maxTurns:            16,
       },
     },
 
@@ -450,6 +481,59 @@ export async function seedSommelierConfig(): Promise<void> {
   });
 
   console.log('[sommelierConfig] Seeded config/sommelier');
+}
+
+// Liam brand answers / cutoff brief Rev 3, A7 "Live config note" (2026-10-24).
+// The live doc is canonical and the seed never overwrites it, but a brand-new
+// key a release depends on has to reach it. applyMissingKeys adds, for each
+// subtree listed here, every seed leaf the live doc does not have yet; a key
+// that exists is never touched, whatever its value (maxTurns stays Dana's).
+// Runs at every boot (initSommelierConfig), so it is a no-op once applied.
+// Same dot-path update + config/sommelier/audit write as the admin
+// config-apply button, with uid 'deploy'. Add a subtree here only when a
+// release introduces it.
+export const MISSING_KEY_SUBTREES = [
+  'brandFacts',
+  'sessionLimits.warnAtTurnsRemaining',
+  'sessionLimits.closingTurns',
+  'sessionLimits.nudges',
+  'sessionLimits.customerCopy',
+];
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function valueAt(obj: unknown, path: string): unknown {
+  return path.split('.').reduce<unknown>((acc, k) => (isPlainObject(acc) ? acc[k] : undefined), obj);
+}
+
+/** Seed leaf paths under `path` (arrays and primitives are leaves). */
+function leafPaths(obj: unknown, path: string): string[] {
+  const v = valueAt(obj, path);
+  if (!isPlainObject(v)) return v === undefined ? [] : [path];
+  return Object.keys(v).flatMap(k => leafPaths(obj, `${path}.${k}`));
+}
+
+/** The seed leaves under `subtrees` that the live doc lacks (pure; exported for the test). */
+export function missingKeyPaths(seed: unknown, live: unknown, subtrees: string[] = MISSING_KEY_SUBTREES): string[] {
+  return subtrees.flatMap(s => leafPaths(seed, s)).filter(p => valueAt(live, p) === undefined);
+}
+
+export async function applyMissingKeys(): Promise<string[]> {
+  const configRef = firestoreDb.doc('config/sommelier');
+  const snap = await configRef.get();
+  if (!snap.exists) return [];
+  const paths = missingKeyPaths(DEFAULT_SOMMELIER_CONFIG, snap.data());
+  if (!paths.length) return [];
+  const updates: Record<string, unknown> = Object.fromEntries(paths.map(p => [p, valueAt(DEFAULT_SOMMELIER_CONFIG, p)]));
+  updates.updatedAt = FieldValue.serverTimestamp();
+  await configRef.update(updates);
+  await firestoreDb.collection('config/sommelier/audit').add({
+    uid: 'deploy', email: null, paths, reason: 'applyMissingKeys', at: FieldValue.serverTimestamp(),
+  });
+  console.log(`[sommelierConfig] applyMissingKeys added ${paths.length} key(s): ${paths.join(', ')}`);
+  return paths;
 }
 
 export async function seedSommelierCentroids(): Promise<void> {

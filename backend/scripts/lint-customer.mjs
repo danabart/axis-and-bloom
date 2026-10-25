@@ -371,6 +371,48 @@ for (const relPath of files) {
   }
 }
 
+// ── Rule 8: sommelier_answer has one reader, one writer, supersede only ─────
+// Liam brand answers brief Rev 3, A3 (2026-10-24). SELECT (FROM / JOIN)
+// outside services/sommelierReads.ts; INSERT outside
+// services/sommelierAnswerService.ts and the insert-only seed (declared
+// `seed` in comments.sql); any UPDATE whose SET touches a column other than
+// superseded_at; any DELETE. The UPDATE check reads the statement from
+// `UPDATE sommelier_answer` to its WHERE / RETURNING / closing backtick, so
+// a SET split across lines is still seen whole.
+{
+  const READER = 'services/sommelierReads.ts';
+  const WRITERS = new Set(['services/sommelierAnswerService.ts', 'db/seeds/sommelier_answer_seed.ts']);
+  for (const relPath of files) {
+    const text = fileText(relPath);
+    const lines = text.split('\n');
+    lines.forEach((line, i) => {
+      const stripped = stripLineComment(line);
+      if (relPath !== READER && /\b(?:FROM|JOIN)\s+"?sommelier_answer"?\b/i.test(stripped)) {
+        violations.push({ file: relPath, line: i + 1, message: `SELECT from 'sommelier_answer' outside ${READER}` });
+      }
+      if (!WRITERS.has(relPath) && /\bINSERT\s+INTO\s+"?sommelier_answer"?\b/i.test(stripped)) {
+        violations.push({ file: relPath, line: i + 1, message: `INSERT INTO 'sommelier_answer' outside services/sommelierAnswerService.ts (and its seed)` });
+      }
+      if (/\bDELETE\s+FROM\s+"?sommelier_answer"?\b/i.test(stripped) || /\bTRUNCATE\s+(?:TABLE\s+)?"?sommelier_answer"?\b/i.test(stripped)) {
+        violations.push({ file: relPath, line: i + 1, message: `DELETE on 'sommelier_answer' — answers are superseded or retired, never deleted` });
+      }
+    });
+    const updateRe = /\bUPDATE\s+"?sommelier_answer"?\s+SET\b([\s\S]*?)(?:\bWHERE\b|\bRETURNING\b|`|;|$)/gi;
+    let um;
+    while ((um = updateRe.exec(text))) {
+      const assigned = [...um[1].matchAll(/(?:^|,)\s*"?([a-z_][a-z0-9_]*)"?\s*=/gi)].map(m => m[1].toLowerCase());
+      const bad = assigned.filter(c => c !== 'superseded_at');
+      if (!assigned.length || bad.length) {
+        violations.push({
+          file: relPath,
+          line: lineNumberAt(text, um.index),
+          message: `UPDATE on 'sommelier_answer' sets ${bad.length ? bad.join(', ') : 'an unreadable column list'} — only superseded_at may be updated (an edit is a new row)`,
+        });
+      }
+    }
+  }
+}
+
 // ── Report ───────────────────────────────────────────────────────────────────
 if (violations.length) {
   console.error(`lint:customer — ${violations.length} violation(s):\n`);

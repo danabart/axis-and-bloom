@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { reportError } from '../../lib/errorReporter';
 import EvidenceParametersCard from './EvidenceParametersCard';
+import LiamAnswersCard from './LiamAnswersCard';
 
 interface ConfigDiff {
   path: string;
@@ -12,7 +13,17 @@ interface ConfigDiff {
 interface SommelierConfig {
   confidenceWeights: Record<string, number>;
   confidenceThresholds: { medium: number; high: number };
-  sessionLimits: { maxTurns: number };
+  // Brief Rev 3, Part C (2026-10-24): the threshold, nudges and customer
+  // copy are optional until applyMissingKeys has reached the live doc.
+  sessionLimits: {
+    maxTurns: number;
+    warnAtTurnsRemaining?: number;
+    closingTurns?: number;
+    nudges?: { closing: string; last: string };
+    customerCopy?: { limitNotice: string; closedNotice: string };
+  };
+  // Part A4: the rules around the brand facts; the facts are rows (Liam answers card).
+  brandFacts?: { enabled: boolean; cacheSeconds: number; rules: string[] };
   tokenEconomy: { signupBonus: number; orderBonus: number; costPerTurn: number; purchaseEnabled: boolean };
   ragLimits: { maxCoffees: number };
   timeWindows: Record<string, number>;
@@ -164,6 +175,7 @@ export default function AdminSommelierConfig() {
           confidenceWeights: config.confidenceWeights,
           confidenceThresholds: config.confidenceThresholds,
           sessionLimits: config.sessionLimits,
+          ...(config.brandFacts ? { brandFacts: config.brandFacts } : {}),
           tokenEconomy: config.tokenEconomy,
           ragLimits: config.ragLimits,
           timeWindows: config.timeWindows,
@@ -240,6 +252,9 @@ export default function AdminSommelierConfig() {
 
       {/* ── Cupping evidence brief 6, E3: evidence parameters (System Health is read-only by policy) ── */}
       <EvidenceParametersCard />
+
+      {/* ── Liam brand answers brief Rev 3, A7: the brand facts as rows, edit = new row ── */}
+      <LiamAnswersCard />
 
       {/* ── Section 0: Config Source of Truth ── */}
       <section className="mb-8">
@@ -431,8 +446,98 @@ export default function AdminSommelierConfig() {
               onChange={(e) => updateConfig(['sessionLimits', 'maxTurns'], parseInt(e.target.value) || 1)}
             />
           </label>
+          <p className="text-xs text-stone-400 mt-2">
+            Each intent's own max turns (Intent Editor) overrides this number for that intent.
+          </p>
+          {config.sessionLimits.nudges && config.sessionLimits.customerCopy && (
+            <div className="mt-4 pt-4 border-t border-stone-100 space-y-4">
+              <label className="flex items-center justify-between gap-4">
+                <span className="text-sm text-stone-700">Show the "close to its limit" notice from this many replies left</span>
+                <input
+                  type="number"
+                  min="0"
+                  className="w-24 border border-stone-200 rounded px-3 py-1.5 text-sm text-right"
+                  value={config.sessionLimits.warnAtTurnsRemaining ?? 0}
+                  onChange={(e) => updateConfig(['sessionLimits', 'warnAtTurnsRemaining'], parseInt(e.target.value) || 0)}
+                />
+              </label>
+              <label className="flex items-center justify-between gap-4">
+                <span className="text-sm text-stone-700">Liam gets a closing nudge on the last this many replies</span>
+                <input
+                  type="number"
+                  min="0"
+                  className="w-24 border border-stone-200 rounded px-3 py-1.5 text-sm text-right"
+                  value={config.sessionLimits.closingTurns ?? 0}
+                  onChange={(e) => updateConfig(['sessionLimits', 'closingTurns'], parseInt(e.target.value) || 0)}
+                />
+              </label>
+              {([
+                ['nudges', 'closing', 'Nudge to Liam before the last reply ({n} = replies left)'],
+                ['nudges', 'last', 'Nudge to Liam on the last reply'],
+                ['customerCopy', 'limitNotice', 'Customer notice near the end (no numbers)'],
+                ['customerCopy', 'closedNotice', 'Customer notice when the conversation reached its length (no numbers)'],
+              ] as const).map(([group, field, label]) => (
+                <label key={`${group}.${field}`} className="block">
+                  <span className="text-xs text-stone-500">{label}</span>
+                  <textarea
+                    rows={2}
+                    className="mt-1 w-full border border-stone-200 rounded px-3 py-1.5 text-sm"
+                    value={(config.sessionLimits[group] as Record<string, string>)[field]}
+                    onChange={(e) => updateConfig(['sessionLimits', group, field], e.target.value)}
+                  />
+                </label>
+              ))}
+            </div>
+          )}
         </div>
       </section>
+
+      {/* ── Brief Rev 3, A4/A7: brand facts toggle and the rules Liam follows around them ── */}
+      {config.brandFacts && (
+        <section className="mb-8">
+          <h2 className="text-sm font-normal tracking-widest uppercase text-stone-400 mb-4">Brand Facts in Liam's Prompt</h2>
+          <div className="border border-stone-200 rounded-lg p-4 space-y-4">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm text-stone-700">Give Liam the brand facts</p>
+                <p className="text-xs text-stone-400">The facts themselves are edited in the Liam answers card above.</p>
+              </div>
+              <button
+                onClick={() => updateConfig(['brandFacts', 'enabled'], !config.brandFacts!.enabled)}
+                className={`w-9 h-5 rounded-full transition-colors relative ${config.brandFacts.enabled ? 'bg-stone-700' : 'bg-stone-200'}`}
+                aria-label="Toggle brand facts"
+              >
+                <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${config.brandFacts.enabled ? 'left-4' : 'left-0.5'}`} />
+              </button>
+            </div>
+            <div>
+              <p className="text-xs text-stone-500 mb-1">Rules Liam follows around the facts</p>
+              {config.brandFacts.rules.map((rule, i) => (
+                <div key={i} className="flex gap-2 mb-2">
+                  <textarea
+                    rows={2}
+                    className="flex-1 border border-stone-200 rounded px-3 py-1.5 text-sm"
+                    value={rule}
+                    onChange={(e) => updateConfig(['brandFacts', 'rules', String(i)], e.target.value)}
+                  />
+                  <button
+                    onClick={() => updateConfig(['brandFacts', 'rules'], config.brandFacts!.rules.filter((_, j) => j !== i))}
+                    className="text-xs text-stone-400 hover:text-stone-700 self-start mt-2"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={() => updateConfig(['brandFacts', 'rules'], [...config.brandFacts!.rules, ''])}
+                className="text-xs text-stone-600 border-b border-stone-300"
+              >
+                Add a rule
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ── Section 6: RAG Limits ── */}
       <section className="mb-8">

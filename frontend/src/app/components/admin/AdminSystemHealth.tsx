@@ -67,12 +67,20 @@ interface CuppingEvidenceData {
   error?: string;
 }
 
+// Liam brand answers brief Rev 3, A6 (2026-10-24): sommelierIntegrity's checks. Report only.
+interface LiamAnswersData {
+  currentAnswers?: number;
+  checks?: { id: number; name: string; pass: boolean; actual: string; details: string[] }[];
+  error?: string;
+}
+
 interface SystemHealthData {
   callTypes: CallTypeRow[];
   clientErrorSignatures: ClientErrorSignatureRow[];
   retention: { totalRows: number; oldestRowAt: string | null };
   dataCatalog?: DataCatalogData;
   cuppingEvidence?: CuppingEvidenceData;
+  liamAnswers?: LiamAnswersData;
 }
 
 const RUST = '#b05642';
@@ -242,6 +250,31 @@ export default function AdminSystemHealth() {
                     ))}
                 </div>
                 <p className="mt-2 text-xs text-stone-400">Report only. Open Roastery Feedback, then a roastery's Calibration.</p>
+              </>
+            )}
+          </Link>
+        </div>
+      )}
+
+      {/* ── Liam answers (brief Rev 3, A6) ── */}
+      {data.liamAnswers && (
+        <div className="mb-8">
+          <p className={LABEL}>Liam answers</p>
+          <Link to="/admin/sommelier/config" className={`${CARD} border-stone-200 block hover:bg-stone-50`}>
+            {data.liamAnswers.error || !data.liamAnswers.checks ? (
+              <p className="text-xs" style={{ color: RUST }}>{data.liamAnswers.error ?? 'No Liam answers report'}</p>
+            ) : (
+              <>
+                <p className="text-2xl font-normal text-stone-800">{data.liamAnswers.currentAnswers}</p>
+                <p className="text-xs text-stone-400">current brand answers</p>
+                <div className="mt-3 text-xs text-stone-500">
+                  {data.liamAnswers.checks.filter(c => !c.pass).length === 0
+                    ? 'Liam answers integrity: all checks pass.'
+                    : data.liamAnswers.checks.filter(c => !c.pass).map(c => (
+                      <p key={c.id}><span style={{ color: AMBER }}>#{c.id}</span> {c.name}: {c.actual}{c.details.length ? ` (${c.details.slice(0, 3).join('; ')})` : ''}</p>
+                    ))}
+                </div>
+                <p className="mt-2 text-xs text-stone-400">Report only. Edit the answers on the Configuration page, Liam answers card.</p>
               </>
             )}
           </Link>

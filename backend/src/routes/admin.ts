@@ -28,6 +28,9 @@ import { runQuizIntegrityChecks } from '../services/quizIntegrity.js';
 import { runCatalogIntegrityChecks } from '../services/catalogIntegrity.js';
 import { runCustomerIntegrityChecks } from '../services/customerIntegrity.js';
 import { runDataCatalogIntegrityChecks } from '../services/dataCatalogIntegrity.js';
+import { runSommelierIntegrityChecks } from '../services/sommelierIntegrity.js';
+import { getAnswerHistory } from '../services/sommelierReads.js';
+import { setAnswer, retireAnswer, SommelierAnswerError } from '../services/sommelierAnswerService.js';
 import { evidenceSummaryWithIntegrity } from './evidenceAdmin.js';
 import { getDescriptorConsensus } from '../services/evidenceReads.js';
 import { getCustomerDescriptorsAll } from '../services/cuppingReads.js';
@@ -1238,8 +1241,51 @@ router.patch('/sommelier/config', async (req, res) => {
     }
   }
 
+  // Brief Rev 3 (2026-10-24): the session-limit numbers, nudges and customer
+  // copy, and the brandFacts toggle and rules. Customer copy never carries a
+  // number (Dana, 2026-10-24: no counter the customer can see).
+  const limits = body.sessionLimits;
+  if (limits) {
+    for (const k of ['maxTurns', 'warnAtTurnsRemaining', 'closingTurns'] as const) {
+      if (limits[k] !== undefined && (!Number.isInteger(limits[k]) || limits[k] < 0 || (k === 'maxTurns' && limits[k] < 1))) {
+        res.status(400).json({ error: `sessionLimits.${k} must be a whole number${k === 'maxTurns' ? ' of at least 1' : ' (0 or more)'}` });
+        return;
+      }
+    }
+    for (const group of ['nudges', 'customerCopy'] as const) {
+      const g = limits[group];
+      if (g === undefined) continue;
+      if (typeof g !== 'object' || Object.values(g).some(v => typeof v !== 'string' || !v.trim())) {
+        res.status(400).json({ error: `sessionLimits.${group} values must be non-empty text` });
+        return;
+      }
+    }
+    if (limits.customerCopy && Object.values(limits.customerCopy as Record<string, string>).some(v => /\d/.test(v))) {
+      res.status(400).json({ error: 'Customer copy must not contain a number (the customer never sees a counter)' });
+      return;
+    }
+  }
+  const brandFacts = body.brandFacts;
+  if (brandFacts) {
+    if (brandFacts.enabled !== undefined && typeof brandFacts.enabled !== 'boolean') {
+      res.status(400).json({ error: 'brandFacts.enabled must be true or false' });
+      return;
+    }
+    if (brandFacts.cacheSeconds !== undefined && (!Number.isInteger(brandFacts.cacheSeconds) || brandFacts.cacheSeconds < 0)) {
+      res.status(400).json({ error: 'brandFacts.cacheSeconds must be a whole number (0 or more)' });
+      return;
+    }
+    if (brandFacts.rules !== undefined && (!Array.isArray(brandFacts.rules) || brandFacts.rules.some((r: unknown) => typeof r !== 'string' || !r.trim()))) {
+      res.status(400).json({ error: 'brandFacts.rules must be a list of non-empty rules' });
+      return;
+    }
+  }
+
   // Validate intent keys if present
-  const VALID_INTENTS = ['DISCOVERY_SEEKER', 'PROFILE_AMBIGUOUS', 'TASTE_EVOLUTION', 'RECOMMENDATION_MISS', 'CONVERSION', 'EXPLORATION'];
+  // The seed's intents (was a literal list of six that missed MATCHED, added
+  // in Liam L2, so the Intent Editor could not save it; fixed 2026-10-24 so
+  // MATCHED's maxTurns can move to 16 like the others).
+  const VALID_INTENTS = Object.keys(DEFAULT_SOMMELIER_CONFIG.intents);
   if (body.intents) {
     for (const key of Object.keys(body.intents)) {
       if (!VALID_INTENTS.includes(key)) {
@@ -1370,6 +1416,85 @@ router.post('/sommelier/config-apply', async (req: AuthRequest, res) => {
   } catch (err) {
     console.error('[admin/sommelier/config-apply POST]', err);
     res.status(500).json({ error: 'Failed to apply config' });
+  }
+});
+
+// ── Liam answers (brief LIAM_BRAND_PRICES_CART_CUTOFF Rev 3, A7, 2026-10-24) ──
+// The brand facts Liam may state, as sommelier_answer rows. Thin: read
+// through sommelierReads, write through sommelierAnswerService (one
+// transaction, created_by = the admin's uid, the admin's note). An edit is a
+// new row; the old one stays as history. Content rules are the service's.
+function handleAnswerError(err: unknown, res: import('express').Response, where: string): void {
+  if (err instanceof SommelierAnswerError) {
+    res.status(err.status).json({ error: err.message, code: err.code });
+    return;
+  }
+  console.error(`[admin/sommelier/answers ${where}]`, err);
+  res.status(500).json({ error: 'Failed to save the answer' });
+}
+
+router.get('/sommelier/answers', async (_req, res) => {
+  try {
+    const [history, vocab] = await Promise.all([
+      getAnswerHistory(),
+      db.query<{ category: string; value: string; label: string }>(
+        `SELECT category, value, label FROM lookup_value
+          WHERE category IN ('sommelier_answer_kind', 'sommelier_answer_delivery') ORDER BY category, sort_order`
+      ),
+    ]);
+    const current = history.filter(r => r.superseded_at === null)
+      .sort((a, b) => a.sort_order - b.sort_order || a.key.localeCompare(b.key));
+    res.json({
+      answers: current.map(r => ({ ...r, history: history.filter(h => h.key === r.key && h.id !== r.id) })),
+      retired: [...new Set(history.filter(h => !current.some(c => c.key === h.key)).map(h => h.key))],
+      kinds: vocab.rows.filter(v => v.category === 'sommelier_answer_kind').map(({ value, label }) => ({ value, label })),
+      deliveries: vocab.rows.filter(v => v.category === 'sommelier_answer_delivery').map(({ value, label }) => ({ value, label })),
+    });
+  } catch (err) {
+    console.error('[admin/sommelier/answers GET]', err);
+    res.status(500).json({ error: 'Failed to load the answers' });
+  }
+});
+
+// PUT /api/admin/sommelier/answers/:key — supersede the current row.
+router.put('/sommelier/answers/:key', async (req: AuthRequest, res) => {
+  const b = req.body ?? {};
+  try {
+    const result = await setAnswer({
+      key: req.params.key, kind: b.kind, delivery: b.delivery, answerText: b.answerText,
+      sortOrder: b.sortOrder === undefined || b.sortOrder === '' ? undefined : Number(b.sortOrder),
+      note: b.note ?? null, createdBy: req.uid!, expect: 'edit',
+    });
+    res.json(result);
+  } catch (err) {
+    handleAnswerError(err, res, 'PUT');
+  }
+});
+
+// POST /api/admin/sommelier/answers — a new key.
+router.post('/sommelier/answers', async (req: AuthRequest, res) => {
+  const b = req.body ?? {};
+  try {
+    const result = await setAnswer({
+      key: b.key, kind: b.kind, delivery: b.delivery, answerText: b.answerText,
+      sortOrder: b.sortOrder === undefined || b.sortOrder === '' ? undefined : Number(b.sortOrder),
+      note: b.note ?? null, createdBy: req.uid!, expect: 'new',
+    });
+    res.status(201).json(result);
+  } catch (err) {
+    handleAnswerError(err, res, 'POST');
+  }
+});
+
+// DELETE /api/admin/sommelier/answers/:key — retire: the current row gets
+// superseded_at and no successor. Nothing is deleted.
+router.delete('/sommelier/answers/:key', async (req: AuthRequest, res) => {
+  try {
+    const result = await retireAnswer({ key: req.params.key, note: req.body?.note ?? null, createdBy: req.uid! });
+    console.log(`[admin/sommelier/answers] retired '${result.key}' (row ${result.retiredId}) by ${req.uid}${req.body?.note ? `: ${req.body.note}` : ''}`);
+    res.json(result);
+  } catch (err) {
+    handleAnswerError(err, res, 'DELETE');
   }
 });
 
@@ -1978,6 +2103,19 @@ async function cuppingEvidenceSection() {
   }
 }
 
+// Liam brand answers brief Rev 3, A6 (2026-10-24): sommelierIntegrity's
+// checks for the System Health card. Report only; a failure to compute is
+// reported in place.
+async function liamAnswersSection() {
+  try {
+    const r = await runSommelierIntegrityChecks();
+    return { ranAt: r.ranAt, currentAnswers: r.currentAnswers, checks: r.checks.map(c => ({ id: c.id, name: c.name, pass: c.pass, actual: c.actual, details: c.details ?? [] })) };
+  } catch (err) {
+    console.error('[admin/system-health/liam-answers]', err);
+    return { error: 'Failed to run the Liam answers checks' };
+  }
+}
+
 router.get('/system-health', async (_req, res) => {
   try {
     const [callTypeResult, clientErrorResult, retentionResult] = await Promise.all([
@@ -2027,6 +2165,7 @@ router.get('/system-health', async (_req, res) => {
       },
       dataCatalog: await dataCatalogSection(),
       cuppingEvidence: await cuppingEvidenceSection(),
+      liamAnswers: await liamAnswersSection(),
     });
   } catch (err) {
     console.error('[admin/system-health]', err);

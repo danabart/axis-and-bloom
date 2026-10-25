@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { getSommelierConfig } from './sommelierConfig.js';
 import { guardClaudeCall } from './anthropicGuard.js';
 import type { RoasterVoice } from './roasterVoiceReads.js';
+import { getCurrentAnswers } from './sommelierReads.js';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -77,7 +78,7 @@ Guardrails:
 - Caffeine and health: share only general, well-established facts. Never give personal health advice — that includes anything about medication, pregnancy, or children. Defer warmly to a doctor or pharmacist for those specifically.
   Right: "Decaf still has a small amount of caffeine — it's not zero." Then, if it's medical: "That one's really worth asking your doctor about."
   Wrong: giving a specific caffeine-safety verdict for someone's medication, pregnancy, or child.
-- Equipment: speak in categories — what actually matters in a grinder, when an upgrade changes the cup. Never specific current models or prices. You're a sommelier, not a shopping assistant.
+- Equipment: speak in categories — what actually matters in a grinder, when an upgrade changes the cup. Never specific current equipment models or equipment prices. You're a sommelier, not a shopping assistant. Coffee prices from your catalog are fine to give when asked.
 - Origins: speak only from what's actually in front of you — the catalog and story content provided. Never invent a farm, region, or process detail that isn't there. When you don't have detail on a coffee the customer actually named, never assert that it's absent — offer what you do have instead.
   Good: "I don't have that one's full story in front of me — want the short version of the [coffee you do have]?"
   Bad: "Kenya's not in the catalog I'm working from right now." Never say a coffee "isn't in the catalog," "isn't in my system," or any other phrasing that denies the coffee itself — a missing detail is not the same as a missing coffee.
@@ -147,13 +148,57 @@ type SystemPromptParams = {
   storyContext?: string;
   currentCoffeeContext?: string;
   profileLine?: string;
+  /** Brief Rev 3, A4 — renderBrandAnswersBlock()'s output; '' or absent = no block. */
+  brandAnswersBlock?: string;
 };
+
+// Liam brand answers, prices and cutoff brief Rev 3, Part A4 (2026-10-24) —
+// the brand facts block. Pure: the caller (chatWithSommelier) loads the rows
+// (sommelierReads.getCurrentAnswers) and the rules (config brandFacts.rules).
+// Only prefix/both rows, in the order given (sort_order, key). No timestamp,
+// counter or version inside, so the text changes only when a row does and the
+// shared cache rewarms once per edit. No rows = '' = no block at all.
+export function renderBrandAnswersBlock(
+  rows: Array<{ delivery: string; answer_text: string }>,
+  rules: string[] = []
+): string {
+  const facts = rows.filter(r => r.delivery === 'prefix' || r.delivery === 'both');
+  if (!facts.length) return '';
+  const lines = [
+    'WHAT YOU KNOW ABOUT AXIS & BLOOM (the only brand facts you may state):',
+    ...facts.map(r => `- ${r.answer_text}`),
+  ];
+  if (rules.length) lines.push('Rules:', ...rules.map(r => `- ${r}`));
+  return lines.join('\n');
+}
+
+// Part C2 — the turn-limit nudge. turnsRemaining counts this reply: 1 on the
+// last one. Two config nudges on the last closingTurns replies (closing, then
+// last). Without nudges in config (a live doc applyMissingKeys has not
+// reached) the pre-Rev-3 single sentence on the last reply stays, so an old
+// config renders byte-for-byte what it always did.
+function turnLimitNudge(config: SystemPromptParams['config'], turnCount: number, maxTurns: number): string | null {
+  const limits = config?.sessionLimits;
+  const turnsRemaining = maxTurns - turnCount;
+  if (!limits?.nudges) {
+    return turnCount === maxTurns - 1
+      ? 'This is one of the final turns. Work toward a concrete recommendation or clear next step.'
+      : null;
+  }
+  const closingTurns = limits.closingTurns ?? 2;
+  if (turnsRemaining < 1 || turnsRemaining > closingTurns) return null;
+  return turnsRemaining === 1
+    ? limits.nudges.last
+    : limits.nudges.closing.replace(/\{n\}/g, String(turnsRemaining));
+}
 
 // Liam access & cost brief, Part C1 (2026-10-01) — the prompt-cache tiers.
 // Anthropic caches a prompt *prefix* up to each cache_control breakpoint, so
 // a part can only be cached if everything before it is byte-identical on the
 // next call. Assembly order is unchanged; each part is only labelled:
-//   'shared'  — LIAM_BASE_PROMPT, identical for every customer (breakpoint 1).
+//   'shared'  — LIAM_BASE_PROMPT, identical for every customer (breakpoint 1);
+//               since brief Rev 3 (2026-10-24) followed by the brand facts
+//               block, identical for every customer until a row is edited.
 //   'session' — the catalog block (matching) / story block (expertise): the
 //               session's frozen context_data snapshot, byte-identical turn to
 //               turn until the catalog version or the customer's facts change
@@ -179,12 +224,19 @@ type CacheTier = 'shared' | 'session' | 'turn';
 // API call. Both come from this one function, so the text the model receives
 // and the text the old string return gave can't drift apart.
 function assembleSystemPromptParts(params: SystemPromptParams): Array<{ text: string; tier: CacheTier }> {
-  const { session, catalogContext, mode, config, brewProfileContext, storyContext, currentCoffeeContext, profileLine } = params;
+  const { session, catalogContext, mode, config, brewProfileContext, storyContext, currentCoffeeContext, profileLine, brandAnswersBlock } = params;
   const intentCfg = config?.intents?.[session.intent];
   const maxTurns = intentCfg?.maxTurns ?? config?.sessionLimits?.maxTurns ?? 8;
 
   const parts: Array<{ text: string; tier: CacheTier }> = [{ text: LIAM_BASE_PROMPT, tier: 'shared' }];
   const push = (text: string, tier: CacheTier = 'turn') => { parts.push({ text, tier }); };
+
+  // Brief Rev 3, A4 — the brand facts, right after LIAM_BASE_PROMPT in the
+  // shared tier: the same for every customer until an admin edits a row.
+  // Disabled or an empty table = no part at all (byte-identical prompt).
+  if ((config?.brandFacts?.enabled ?? false) && brandAnswersBlock) {
+    push(`\n\n${brandAnswersBlock}`, 'shared');
+  }
 
   // Mode-aware context assembly (§4.6) — the frozen catalog block has no
   // business in a knowledge-dominant turn. Assembly-time only: this never
@@ -244,10 +296,9 @@ function assembleSystemPromptParts(params: SystemPromptParams): Array<{ text: st
   if (brewProfileContext) {
     push(`\n\nWhat you know about their setup: ${brewProfileContext}`);
   }
-  if (session.turnCount === maxTurns - 1) {
-    push(
-      '\n\nThis is one of the final turns. Work toward a concrete recommendation or clear next step.'
-    );
+  const nudge = turnLimitNudge(config, session.turnCount, maxTurns);
+  if (nudge) {
+    push(`\n\n${nudge}`);
   }
 
   // Expertise contract (§4.2) — appended last, only for knowledge-dominant
@@ -439,9 +490,21 @@ export async function chatWithSommelier(params: {
   const mode: SommelierMode = params.mode ?? 'matching';
   const config = getSommelierConfig();
 
+  // Brief Rev 3, A4 — the brand facts block, loaded here so the assembly
+  // below stays synchronous and pure. A read failure leaves Liam without the
+  // block for this turn (logged), never fails the turn.
+  let brandAnswersBlock = '';
+  if (config?.brandFacts?.enabled) {
+    try {
+      brandAnswersBlock = renderBrandAnswersBlock(await getCurrentAnswers(), config.brandFacts.rules ?? []);
+    } catch (err) {
+      console.error('[liam:BRAND_ANSWERS_READ_FAILED] sending the turn without the brand facts block', err);
+    }
+  }
+
   // Part C1 — prompt caching: the same text assembleSystemPrompt() returns,
   // split into cache_control blocks (see assembleSystemPromptBlocks).
-  const system = assembleSystemPromptBlocks({ session, catalogContext, mode, config, brewProfileContext, storyContext, currentCoffeeContext, profileLine });
+  const system = assembleSystemPromptBlocks({ session, catalogContext, mode, config, brewProfileContext, storyContext, currentCoffeeContext, profileLine, brandAnswersBlock });
 
   // C2 Part 2 (M4 fix) — model choice is decided purely by surface, never by
   // message content. chatWithSommelier is the authenticated Liam

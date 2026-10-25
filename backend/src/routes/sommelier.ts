@@ -69,6 +69,23 @@ const sommelierAccountLimiter = rateLimit({
 // "cap"/"limit" — reads as a natural, warm pause, per S32-S34's voice rules.
 const DAILY_CAP_CLOSE_MESSAGE = "That's a good amount of ground for today — let's pick this back up tomorrow.";
 
+// Liam brand answers / cutoff brief Rev 3, C3 (2026-10-24) — the customer's
+// two session notices and the threshold, from config so the copy is config,
+// not a frontend constant (additive on /start). No number in either string:
+// the customer never sees a counter. turnsRemaining keeps coming from the
+// API; Sommelier.tsx uses it only against warnAtTurnsRemaining. Absent in
+// config (before applyMissingKeys reached the live doc) = null, and the page
+// keeps its pre-Rev-3 behavior.
+function sessionCopyFromConfig(config: ReturnType<typeof getSommelierConfig>) {
+  const limits = config?.sessionLimits;
+  if (!limits?.customerCopy || limits.warnAtTurnsRemaining == null) return null;
+  return {
+    warnAtTurnsRemaining: limits.warnAtTurnsRemaining,
+    limitNotice: limits.customerCopy.limitNotice,
+    closedNotice: limits.customerCopy.closedNotice,
+  };
+}
+
 // C2 Part 1 — customer-facing text for a guard block (global kill-switch
 // off, or the daily spend ceiling reached). Distinct, honest surface from
 // DAILY_CAP_CLOSE_MESSAGE above (a per-customer cap on a session that's
@@ -575,6 +592,7 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, requi
   const costPerTurn = config?.tokenEconomy?.costPerTurn ?? 1;
   const maxTurns = config?.intents?.[intent]?.maxTurns ?? config?.sessionLimits?.maxTurns ?? 8;
   const resumeWindowHours = config?.timeWindows?.sessionResumeWindowHours ?? 24;
+  const sessionCopy = sessionCopyFromConfig(config);
 
   try {
     // Token check — only when the meter is gating (§5: off by default; the
@@ -621,6 +639,7 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, requi
           turnCount: s.turn_count,
           turnsRemaining: maxTurns - s.turn_count,
         },
+        sessionCopy,
       });
       return;
     }
@@ -936,6 +955,7 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, requi
       // when ungated rather than a real number that suggests spend happened.
       tokenBalance: newBalance,
       turnsRemaining: maxTurns - 1,
+      sessionCopy,
     });
   } catch (err) {
     console.error('[sommelier/start]', err);
@@ -1023,6 +1043,7 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
         actions: [],
         turnCount: session.turn_count,
         sessionClosed: true,
+        closeReason: 'daily_cap',
         turnsRemaining: 0,
         tokenBalance: null,
         modelUsed: 'guard',
@@ -1283,6 +1304,7 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
       actions,
       turnCount: newTurnCount,
       sessionClosed: shouldClose,
+      ...(shouldClose ? { closeReason: 'turn_limit' } : {}),
       turnsRemaining: maxTurns - newTurnCount,
       // Kept for API back-compat — see the matching note in /start. null when
       // ungated; nothing customer-facing reads this anymore (Sommelier.tsx).

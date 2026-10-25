@@ -48,6 +48,7 @@ interface PastSession {
   started_at: string;
   turn_count: number;
   is_closed: boolean;
+  close_reason?: string | null;
 }
 
 interface ResumableSession {
@@ -55,6 +56,16 @@ interface ResumableSession {
   intent: string;
   turnCount: number;
   turnsRemaining: number;
+}
+
+// Liam brand answers / cutoff brief Rev 3, C3 (2026-10-24) — the two session
+// notices and their threshold, from config via /start (null before the live
+// config has them: the page then behaves as before). The customer never sees
+// a number; turnsRemaining is only compared against the threshold.
+interface SessionCopy {
+  warnAtTurnsRemaining: number;
+  limitNotice: string;
+  closedNotice: string;
 }
 
 interface EvalResult {
@@ -72,6 +83,7 @@ interface StartResult {
   coffeeNames?: string[];
   turnsRemaining?: number;
   resumableSession?: ResumableSession;
+  sessionCopy?: SessionCopy | null;
 }
 
 function formatSessionDate(iso: string): string {
@@ -106,6 +118,9 @@ export default function Sommelier() {
   const [coffeeNames, setCoffeeNames] = useState<string[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionClosed, setSessionClosed] = useState(false);
+  const [closeReason, setCloseReason] = useState<string | null>(null);
+  const [turnsRemaining, setTurnsRemaining] = useState<number | null>(null);
+  const [sessionCopy, setSessionCopy] = useState<SessionCopy | null>(null);
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
   const [resumable, setResumable] = useState<ResumableSession | null>(null);
@@ -191,6 +206,8 @@ export default function Sommelier() {
       setCoffeeNames(data.coffeeNames ?? []);
       setMessages(data.messages ?? []);
       setSessionClosed(past.is_closed);
+      setCloseReason(past.close_reason ?? null);
+      setTurnsRemaining(null);
     } catch (err) {
       reportError('[Sommelier/load-session]', err);
       setMessages([]);
@@ -227,6 +244,7 @@ export default function Sommelier() {
 
     if (!startRes.ok) throw new Error('Failed to start session');
     const data: StartResult = await startRes.json();
+    setSessionCopy(data.sessionCopy ?? null);
 
     if (data.resumableSession && !forceNew) {
       setResumable(data.resumableSession);
@@ -238,6 +256,8 @@ export default function Sommelier() {
     setSessionId(data.sessionId ?? null);
     setIntent(ev.intent);
     setCoffeeNames(data.coffeeNames ?? []);
+    setTurnsRemaining(data.turnsRemaining ?? null);
+    setCloseReason(null);
     setMessages(data.openingMessage ? [{ role: 'assistant', content: data.openingMessage, actions: data.openingActions, messageId: data.openingMessageId }] : []);
     setPhase('chat');
     setTimeout(() => inputRef.current?.focus(), 100);
@@ -300,10 +320,17 @@ export default function Sommelier() {
         setMessages(prev => [...prev, { role: 'assistant', content: 'Something went wrong. Please try again.' }]);
         return;
       }
-      if (res.status === 409) { setSessionClosed(true); return; }
+      if (res.status === 409) {
+        const j = await res.json().catch(() => ({}));
+        if (j.error === 'turn_limit_reached') setCloseReason('turn_limit');
+        setSessionClosed(true);
+        return;
+      }
       if (!res.ok) throw new Error('Message failed');
       const data = await res.json();
       setMessages(prev => [...prev, { role: 'assistant', content: data.reply, actions: data.actions, messageId: data.messageId }]);
+      if (typeof data.turnsRemaining === 'number') setTurnsRemaining(data.turnsRemaining);
+      if (data.closeReason) setCloseReason(data.closeReason);
       if (data.sessionClosed) setSessionClosed(true);
     } catch (err) {
       reportError('[Sommelier/send-message]', err);
@@ -321,6 +348,8 @@ export default function Sommelier() {
       const res = await doFetch(`/api/sommelier/${resumable.sessionId}/messages`);
       const data = res.ok ? await res.json() : { messages: [], coffeeNames: [] };
       setSessionId(resumable.sessionId);
+      setTurnsRemaining(resumable.turnsRemaining);
+      setCloseReason(null);
       setCoffeeNames(data.coffeeNames ?? []);
       setMessages(
         data.messages?.length
@@ -354,6 +383,8 @@ export default function Sommelier() {
     setPhase('loading');
     setMessages([]);
     setSessionClosed(false);
+    setCloseReason(null);
+    setTurnsRemaining(null);
     setSessionId(null);
     try {
       await openSession(evalResult, true, sessionId ?? undefined);
@@ -366,6 +397,12 @@ export default function Sommelier() {
   }
 
   const inputDisabled = sessionClosed || sending;
+  // Brief Rev 3, C3: one plain notice from the threshold on, until the close;
+  // the closed notice only for a session that reached its length (a daily-cap
+  // close keeps its own message, anything else keeps "Conversation ended").
+  const showLimitNotice = !sessionClosed && sessionCopy !== null && turnsRemaining !== null
+    && turnsRemaining <= sessionCopy.warnAtTurnsRemaining;
+  const closedLabel = sessionCopy && closeReason === 'turn_limit' ? sessionCopy.closedNotice : 'Conversation ended';
 
   // ── Sidebar JSX (reused for desktop + mobile drawer) ──────────────────────
   const sidebarJsx = (
@@ -707,7 +744,7 @@ export default function Sommelier() {
                 {sessionClosed && (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4 pt-2">
                     <div className="border-t border-stone-100" />
-                    <p className="text-[10px] uppercase tracking-[0.25em] text-stone-400">Conversation ended</p>
+                    <p className="text-[10px] uppercase tracking-[0.25em] text-stone-400">{closedLabel}</p>
                     <button
                       onClick={handleRestart}
                       className="text-[10px] uppercase tracking-[0.2em] border-b pb-0.5 transition-colors"
@@ -760,6 +797,9 @@ export default function Sommelier() {
                   </svg>
                 </button>
               </div>
+              {showLimitNotice && (
+                <p className="mt-2 text-[10px] uppercase tracking-[0.25em] text-stone-400">{sessionCopy!.limitNotice}</p>
+              )}
             </div>
           </div>
         )}

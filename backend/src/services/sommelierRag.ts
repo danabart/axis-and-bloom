@@ -60,6 +60,21 @@ interface CoffeeRow {
   name: string;
   archetype: string; // match_archetype
   three_voice_story: string | null;
+  // Brief Rev 3, Part B (2026-10-24): the anchor-size slot price, carried
+  // from v_coffee_sellable_slot instead of dropped. null = no sellable price.
+  weight_oz: number | null;
+  size_label: string | null;
+  retail_price_cents: number | null;
+}
+
+// Part B — "Price: $32.00 for 12 oz whole bean". Formatted from the slot
+// price view's cents and coffee_size's label at render time, never copied
+// into context_data; "whole bean" is the bag's form, which the catalog does
+// not model (every bag is whole bean, sommelier_answer what_you_get).
+// Exported for the unit test.
+export function formatPriceLine(c: Pick<CoffeeRow, 'retail_price_cents' | 'size_label'>): string {
+  if (c.retail_price_cents == null || !c.size_label) return 'Price: not yet available';
+  return `Price: $${(c.retail_price_cents / 100).toFixed(2)} for ${c.size_label} whole bean`;
 }
 
 // Editorial-completeness first (has its description, three_voice_story, since
@@ -164,7 +179,7 @@ async function getAdjacentArchetypes(archetypeCodeValue: string): Promise<string
 // derived here; this function only prints whatever it's given, after the
 // archetype label on the coffee's first line, exactly like the existing
 // alias/archetype-label rendering it sits beside.
-async function buildCatalogText(
+export async function buildCatalogText(
   coffees: CoffeeRow[], descriptors: Map<number, string[]>, aliases: Map<number, string>, labelText: Map<number, string> = new Map()
 ): Promise<string> {
   if (!coffees.length) return 'YOUR CURRENT CATALOG — no coffees available at this time.';
@@ -185,6 +200,7 @@ async function buildCatalogText(
     // Coffee presentation brief 2: the one description the customer reads.
     lines.push(`Tasting note: ${c.three_voice_story ?? 'Not yet available'}`);
     lines.push(`Key flavors: ${descs.length ? descs.join(', ') : 'Not yet available'}`);
+    lines.push(formatPriceLine(c));
   }
   lines.push('---');
   return lines.join('\n');
@@ -200,10 +216,22 @@ async function getCandidatePool(): Promise<CoffeeRow[]> {
   const sellable = await getSellableSlots({ weightOz: (await getAnchorSize()).weight_oz }); // D2/S2: anchor size only
   const coffeeIds = [...new Set(sellable.map(s => s.coffee_id))];
   if (!coffeeIds.length) return [];
+  // Brief Rev 3, Part B: the coffee's price is its first sellable slot's
+  // (getSellableSlots' order: slot id, size order), home or guest alike.
+  const priceByCoffee = new Map<number, (typeof sellable)[number]>();
+  for (const s of sellable) if (!priceByCoffee.has(s.coffee_id)) priceByCoffee.set(s.coffee_id, s);
   const coffees = await getCoffees({ ids: coffeeIds, active: true });
   return coffees
     .filter((c): c is typeof c & { match_archetype: string } => c.match_archetype != null)
-    .map(c => ({ id: c.id, name: c.name, archetype: c.match_archetype, three_voice_story: c.three_voice_story }));
+    .map(c => {
+      const slot = priceByCoffee.get(c.id);
+      return {
+        id: c.id, name: c.name, archetype: c.match_archetype, three_voice_story: c.three_voice_story,
+        weight_oz: slot ? Number(slot.weight_oz) : null,
+        size_label: slot?.size_label ?? null,
+        retail_price_cents: slot?.retail_price_cents != null ? Number(slot.retail_price_cents) : null,
+      };
+    });
 }
 
 // Groups the pool by archetype and takes up to `perArchetype` from each
