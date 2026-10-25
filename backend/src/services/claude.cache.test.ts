@@ -77,6 +77,11 @@ const config = {
     },
   },
   sessionLimits: { maxTurns: 8 },
+  // Liam sees everything brief Rev 2 (2026-10-24) flipped this key's default
+  // to false. The frozen legacy reference above assumed the old default
+  // (omit), so the byte-identity cases pin it explicitly: a live config that
+  // still says true renders exactly the pre-cache bytes.
+  contextAssembly: { omitCatalogInExpertiseMode: true },
 } as unknown as Params['config'];
 
 const CATALOG = 'Catalog for this conversation:\n- Crosshatch [primary]: dark chocolate, cedar\n- Uganda [palate match]: cocoa, raisin';
@@ -130,30 +135,37 @@ describe('assembleSystemPromptBlocks — breakpoints (Part C1)', () => {
     catalogContext: CATALOG, mode: 'matching', config, profileLine: PROFILE,
   };
 
-  it('matching: base prompt, then catalog, each with a breakpoint; the rest uncached', () => {
+  // Liam sees everything brief Rev 2 (2026-10-24) re-tiered the prompt: the
+  // catalog joined the base prompt in the shared tier (one cache entry for
+  // every customer) and the profile line (now the full ABOUT THIS CUSTOMER
+  // block) moved from 'turn' to 'session'. The four layout tests below were
+  // rewritten to that layout; the byte-identity cases above are unchanged.
+  it('matching: base prompt + catalog (shared), then the profile (session), each with a breakpoint; the rest uncached', () => {
     const blocks = assembleSystemPromptBlocks(matching);
     expect(blocks).toHaveLength(3);
-    expect(blocks[0]).toEqual({ type: 'text', text: LIAM_BASE_PROMPT, cache_control: { type: 'ephemeral' } });
-    expect(blocks[1]).toEqual({ type: 'text', text: `\n\n${CATALOG}`, cache_control: { type: 'ephemeral' } });
+    expect(blocks[0]).toEqual({ type: 'text', text: `${LIAM_BASE_PROMPT}\n\n${CATALOG}`, cache_control: { type: 'ephemeral' } });
+    expect(blocks[1]).toEqual({ type: 'text', text: `\n\n${PROFILE}`, cache_control: { type: 'ephemeral' } });
     expect(blocks[2].cache_control).toBeUndefined();
-    expect(blocks[2].text.startsWith(`\n\n${PROFILE}`)).toBe(true);
   });
 
-  it('the cached prefix does not change between turns of one session (profile line / turn-only parts sit after it)', () => {
+  it('the shared prefix never changes between turns; the session block only when a fact does', () => {
     const turn1 = assembleSystemPromptBlocks({ ...matching, session: { ...matching.session, turnCount: 1 } });
-    const turn7 = assembleSystemPromptBlocks({ ...matching, session: { ...matching.session, turnCount: 7 }, profileLine: `${PROFILE}\nOpen thread: asked on turn 2`, brewProfileContext: 'V60' });
-    expect(turn7.slice(0, 2)).toEqual(turn1.slice(0, 2));
-    expect(turn7[2].text).not.toBe(turn1[2].text);
+    const turn7same = assembleSystemPromptBlocks({ ...matching, session: { ...matching.session, turnCount: 7 }, brewProfileContext: 'V60' });
+    const turn7fact = assembleSystemPromptBlocks({ ...matching, session: { ...matching.session, turnCount: 7 }, profileLine: `${PROFILE}\nOpen thread: asked on turn 2` });
+    expect(turn7same.slice(0, 2)).toEqual(turn1.slice(0, 2));
+    expect(turn7fact[0]).toEqual(turn1[0]);
+    expect(turn7fact[1].text).not.toBe(turn1[1].text);
   });
 
-  it('expertise without a story: only the base prompt is cached', () => {
+  it('expertise without a story (a config that still omits the catalog): base prompt shared, profile session', () => {
     const blocks = assembleSystemPromptBlocks({ ...matching, mode: 'expertise' });
-    expect(blocks.map(b => !!b.cache_control)).toEqual([true, false]);
+    expect(blocks.map(b => !!b.cache_control)).toEqual([true, true, false]);
+    expect(blocks[0].text).toBe(LIAM_BASE_PROMPT);
   });
 
-  it('expertise with a story: the story block takes breakpoint 2', () => {
+  it('expertise with a story: the story leads the session block', () => {
     const blocks = assembleSystemPromptBlocks({ ...matching, mode: 'expertise', storyContext: STORY });
-    expect(blocks[1]).toEqual({ type: 'text', text: `\n\nTheir coffee, explained:\n${STORY}`, cache_control: { type: 'ephemeral' } });
+    expect(blocks[1]).toEqual({ type: 'text', text: `\n\nTheir coffee, explained:\n${STORY}\n\n${PROFILE}`, cache_control: { type: 'ephemeral' } });
   });
 
   it('never sends a whitespace-only block (empty catalog folds into the block before it)', () => {

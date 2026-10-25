@@ -79,15 +79,17 @@ describe('assembleSystemPrompt — brand facts block (A4)', () => {
     expect(text.startsWith(`${LIAM_BASE_PROMPT}\n\n${block}\n\n`)).toBe(true);
     expect(text).not.toContain('A lookup-only answer');
     const blocks = assembleSystemPromptBlocks(p);
-    expect(blocks[0].text).toBe(`${LIAM_BASE_PROMPT}\n\n${block}`);
-    expect(blocks[0].cache_control).toEqual({ type: 'ephemeral' });
+    // Liam sees everything brief Rev 2: the shared block continues with the
+    // catalog block, and its marker takes promptCache.sharedTtl ('1h' seed).
+    expect(blocks[0].text).toBe(`${LIAM_BASE_PROMPT}\n\n${block}\n\n${p.catalogContext}`);
+    expect(blocks[0].cache_control).toEqual({ type: 'ephemeral', ttl: '1h' });
     expect(blocks.map(b => b.text).join('')).toBe(text);
   });
 
   it('the shared block is identical across customers and turns (the cache prefix holds)', () => {
     const a = assembleSystemPromptBlocks(params(config(), { brandAnswersBlock: block }))[0].text;
     const b = assembleSystemPromptBlocks(params(config(), {
-      brandAnswersBlock: block, profileLine: 'ABOUT THIS CUSTOMER: someone else', catalogContext: 'other', session: { intent: 'EXPLORATION', turnCount: 0, openingContext: 'x' },
+      brandAnswersBlock: block, profileLine: 'ABOUT THIS CUSTOMER: someone else', session: { intent: 'EXPLORATION', turnCount: 0, openingContext: 'x' },
     }))[0].text;
     expect(a).toBe(b);
   });
@@ -134,7 +136,12 @@ describe('assembleSystemPrompt — turn-limit nudges (C2)', () => {
 describe('applyMissingKeys — missingKeyPaths', () => {
   it('adds every seed leaf of the new subtrees the live doc lacks, and nothing that exists', () => {
     const live = { sessionLimits: { maxTurns: 8 }, intents: {} };
-    expect(missingKeyPaths(DEFAULT_SOMMELIER_CONFIG, live).sort()).toEqual([
+    // Brief Rev 3's own subtrees (brandFacts + the session-limit keys); Liam
+    // sees everything Rev 2 adds catalogBlock / customerBlock / promptCache and
+    // brandFacts.supportContact, covered in liamSeesEverything.test.ts.
+    const rev3 = missingKeyPaths(DEFAULT_SOMMELIER_CONFIG, live)
+      .filter(p => /^(brandFacts|sessionLimits)\./.test(p) && p !== 'brandFacts.supportContact');
+    expect(rev3.sort()).toEqual([
       'brandFacts.cacheSeconds', 'brandFacts.enabled', 'brandFacts.rules',
       'sessionLimits.closingTurns', 'sessionLimits.customerCopy.closedNotice', 'sessionLimits.customerCopy.limitNotice',
       'sessionLimits.nudges.closing', 'sessionLimits.nudges.last', 'sessionLimits.warnAtTurnsRemaining',

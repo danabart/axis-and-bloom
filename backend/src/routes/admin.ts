@@ -29,7 +29,8 @@ import { runCatalogIntegrityChecks } from '../services/catalogIntegrity.js';
 import { runCustomerIntegrityChecks } from '../services/customerIntegrity.js';
 import { runDataCatalogIntegrityChecks } from '../services/dataCatalogIntegrity.js';
 import { runSommelierIntegrityChecks } from '../services/sommelierIntegrity.js';
-import { getAnswerHistory } from '../services/sommelierReads.js';
+import { getAnswerHistory, getTurnStats } from '../services/sommelierReads.js';
+import { getCatalogBlock } from '../services/sommelierRag.js';
 import { setAnswer, retireAnswer, SommelierAnswerError } from '../services/sommelierAnswerService.js';
 import { evidenceSummaryWithIntegrity } from './evidenceAdmin.js';
 import { getDescriptorConsensus } from '../services/evidenceReads.js';
@@ -1279,6 +1280,39 @@ router.patch('/sommelier/config', async (req, res) => {
       res.status(400).json({ error: 'brandFacts.rules must be a list of non-empty rules' });
       return;
     }
+    if (brandFacts.supportContact !== undefined && (typeof brandFacts.supportContact !== 'string' || !brandFacts.supportContact.trim())) {
+      res.status(400).json({ error: 'brandFacts.supportContact must be non-empty text' });
+      return;
+    }
+  }
+
+  // Liam sees everything brief Rev 2 (2026-10-24): the catalog block, the
+  // customer block and the shared cache TTL.
+  const isText = (v: unknown) => typeof v === 'string' && v.trim().length > 0;
+  const isCount = (v: unknown, max: number) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= max;
+  const cat = body.catalogBlock;
+  if (cat) {
+    for (const k of ['header', 'fitHeader', 'decafHeader', 'notYetAvailable'] as const) {
+      if (cat[k] !== undefined && !isText(cat[k])) { res.status(400).json({ error: `catalogBlock.${k} must be non-empty text` }); return; }
+    }
+    if (cat.sizesForm !== undefined && typeof cat.sizesForm !== 'string') { res.status(400).json({ error: 'catalogBlock.sizesForm must be text' }); return; }
+    if (cat.template !== undefined && (!Array.isArray(cat.template) || !cat.template.length || cat.template.some((l: unknown) => !isText(l)))) {
+      res.status(400).json({ error: 'catalogBlock.template must be a list of non-empty lines' }); return;
+    }
+    if (cat.storySentences !== undefined && !isCount(cat.storySentences, 20)) { res.status(400).json({ error: 'catalogBlock.storySentences must be a whole number from 0 to 20' }); return; }
+    if (cat.maxTokens !== undefined && !(Number.isInteger(cat.maxTokens) && cat.maxTokens >= 1000)) { res.status(400).json({ error: 'catalogBlock.maxTokens must be a whole number of at least 1000' }); return; }
+  }
+  const cust = body.customerBlock;
+  if (cust) {
+    for (const k of ['quizHistoryCount', 'ordersFullCount', 'feedbackCount', 'sessionsCount'] as const) {
+      if (cust[k] !== undefined && !isCount(cust[k], 50)) { res.status(400).json({ error: `customerBlock.${k} must be a whole number from 0 to 50` }); return; }
+    }
+    if (cust.rules !== undefined && (!Array.isArray(cust.rules) || cust.rules.some((r: unknown) => !isText(r)))) {
+      res.status(400).json({ error: 'customerBlock.rules must be a list of non-empty rules' }); return;
+    }
+  }
+  if (body.promptCache?.sharedTtl !== undefined && !['5m', '1h'].includes(body.promptCache.sharedTtl)) {
+    res.status(400).json({ error: "promptCache.sharedTtl must be '5m' or '1h'" }); return;
   }
 
   // Validate intent keys if present
@@ -2116,6 +2150,26 @@ async function liamAnswersSection() {
   }
 }
 
+// Liam sees everything brief Rev 2, C5 (2026-10-24): the turn ledger over
+// 24 hours and the shared catalog block. Report only; a failure is reported
+// in place. Brief 3 adds the gated share, misses and cost avoided.
+async function liamContextSection() {
+  try {
+    const [stats, block] = await Promise.all([getTurnStats({ sinceHours: 24 }), getCatalogBlock()]);
+    return {
+      turns24h: stats.turns,
+      usdMicros24h: stats.usdMicros,
+      medianUsdMicrosPerTurn: stats.medianUsdMicros,
+      cacheHitRate: stats.cacheHitRate,
+      byRoute: stats.byRoute,
+      catalogBlock: { tokensEstimate: block.tokensEstimate, coffeeCount: block.coffeeIds.length, trimLevel: block.trimLevel, builtAt: block.builtAt },
+    };
+  } catch (err) {
+    console.error('[admin/system-health/liam-context]', err);
+    return { error: 'Failed to read the Liam context numbers' };
+  }
+}
+
 router.get('/system-health', async (_req, res) => {
   try {
     const [callTypeResult, clientErrorResult, retentionResult] = await Promise.all([
@@ -2166,6 +2220,7 @@ router.get('/system-health', async (_req, res) => {
       dataCatalog: await dataCatalogSection(),
       cuppingEvidence: await cuppingEvidenceSection(),
       liamAnswers: await liamAnswersSection(),
+      liamContext: await liamContextSection(),
     });
   } catch (err) {
     console.error('[admin/system-health]', err);

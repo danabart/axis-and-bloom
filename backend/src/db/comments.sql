@@ -24,7 +24,7 @@
 -- (feedback_events, sommelier_evaluations).
 -- firestore: users/{uid} | Purpose: Mirror of the user's name, email and token balance; Cloud SQL is the source of truth. | Writer: routes/users.ts (GET /profile sync, PATCH /profile), tokenService.spendToken/grantTokens, orders token bonus (routes/orders.ts); deleted with all subcollections by staleGuestCleanup | Readers: none
 -- firestore: users/{uid}/sommelier_sessions/{sessionId}/messages | Purpose: Liam chat transcript, one doc per message (role, content, modelUsed, seq, actions, createdAt); the parent session doc is never written. | Writer: routes/sommelier.ts (session open, user turn, assistant reply, daily-cap close) | Readers: routes/sommelier.ts (history for Claude, past-session transcript with SQL fallback)
--- firestore: config/sommelier | Purpose: Sommelier runtime config including aiControls, cached in memory by a live listener. | Writer: seed (db/seeds/sommelier_config_seed.ts, only if absent), sommelier_config_seed.applyMissingKeys (every boot, adds only the seed leaves of MISSING_KEY_SUBTREES the live doc lacks, 2026-10-24), routes/admin.ts (PATCH /sommelier/config, POST /sommelier/config-apply, PUT /ai-ops/controls) | Readers: sommelierConfig (get + onSnapshot), routes/admin.ts (config, config-drift, ai-ops)
+-- firestore: config/sommelier | Purpose: Sommelier runtime config including aiControls, cached in memory by a live listener. | Writer: seed (db/seeds/sommelier_config_seed.ts, only if absent), sommelier_config_seed.applyMissingKeys (every boot, adds only the seed leaves of MISSING_KEY_SUBTREES the live doc lacks, 2026-10-24; and upgrades a SEED_UPGRADES key only while its live value still equals the previous seed), routes/admin.ts (PATCH /sommelier/config, POST /sommelier/config-apply, PUT /ai-ops/controls) | Readers: sommelierConfig (get + onSnapshot), routes/admin.ts (config, config-drift, ai-ops)
 -- firestore: config/sommelier/audit | Purpose: Audit trail of admin config changes (uid, email, paths or old/new, at). | Writer: routes/admin.ts (config-apply, ai-controls), sommelier_config_seed.applyMissingKeys (uid deploy) | Readers: routes/admin.ts (GET /ai-ops, last 30)
 -- firestore: config/sommelierCentroids | Purpose: Per-intent 13-dimension feature centroids (DISCOVERY_SEEKER, PROFILE_AMBIGUOUS, TASTE_EVOLUTION, RECOMMENDATION_MISS, CONVERSION, EXPLORATION). | Writer: seed (sommelier_config_seed.ts, only if absent), routes/admin.ts (POST /sommelier/recompute-centroids) | Readers: none beyond the seed's existence check
 -- firestore: admin_stats/brew_profile | Purpose: Admin counters for brew-profile writes, failures and no-ops. | Writer: brewProfile (increment) | Readers: brewProfile.getBrewProfileCounters
@@ -485,7 +485,7 @@ COMMENT ON COLUMN sommelier_sessions.last_active_at IS $c$Timestamp of the last 
 COMMENT ON COLUMN sommelier_sessions.turn_count IS $c$Number of turns taken so far; default 0.$c$;
 COMMENT ON COLUMN sommelier_sessions.is_closed IS $c$True once the session is closed; default false.$c$;
 COMMENT ON COLUMN sommelier_sessions.close_reason IS $c$Why the session closed. Code writes: turn_limit, daily_cap, user_closed (no CHECK); NULL while open.$c$;
-COMMENT ON COLUMN sommelier_sessions.context_data IS $c$JSONB session state (intent, archetype, openingContext, ragFocus, coffeeIds, catalogText, evaluationId, topicLog and more), rewritten each turn.$c$;
+COMMENT ON COLUMN sommelier_sessions.context_data IS $c$JSONB session state (intent, archetype, openingContext, ragInputs, coffeeIds (every catalog coffee Liam may name, since 2026-10-24), catalogText (the shared catalog block at catalogVersion), fitText and fitCoffeeIds (this customer's FIT block and its coffees), storyCandidates, evaluationId, topicLog and more), rewritten each turn.$c$;
 
 -- ── sommelier_messages ──
 COMMENT ON TABLE sommelier_messages IS $c$Purpose: Legacy pre-Firestore transcript of Liam chat turns, read only as a fallback for sessions created before 2026-06-27 | Class: deprecated | Writer: none | Readers: sommelier.GET /:sessionId/messages (fallback), customerIntegrity | Since: 2026-06-23 (Liam v1)$c$;
@@ -865,9 +865,9 @@ COMMENT ON COLUMN dial_source_weight.source IS $c$Signal source, primary key. On
 COMMENT ON COLUMN dial_source_weight.reliability_weight IS $c$Relative weight of this source in the consensus, a unitless multiplier; 0 means the source is ignored.$c$;
 
 -- ── lookup_value ──
-COMMENT ON TABLE lookup_value IS $c$Purpose: Controlled vocabulary for admin dropdowns and coded fields, one row per (category, value) with a display label and order. | Class: operating | Writer: admin.POST /api/admin/lookups, admin.PATCH /api/admin/lookups/:id, admin.DELETE /api/admin/lookups/:id; seed | Readers: admin.GET /api/admin/lookups, routes/coffees (origin region), catalogService.updateCoffee, roasteryPortalReads, coffees.origin_region_id FK | Since: 2026-05-27$c$;
+COMMENT ON TABLE lookup_value IS $c$Purpose: Controlled vocabulary for admin dropdowns and coded fields, one row per (category, value) with a display label and order. | Class: operating | Writer: admin.POST /api/admin/lookups, admin.PATCH /api/admin/lookups/:id, admin.DELETE /api/admin/lookups/:id; seed | Readers: admin.GET /api/admin/lookups, routes/coffees (origin region), catalogService.updateCoffee, roasteryPortalReads, sommelierAnswerService (answer kinds and deliveries), sommelierTurnService (turn routes), coffees.origin_region_id FK | Since: 2026-05-27$c$;
 COMMENT ON COLUMN lookup_value.id IS $c$Surrogate key; coffees.origin_region_id references it.$c$;
-COMMENT ON COLUMN lookup_value.category IS $c$Vocabulary group, for example roast_level, process, blend_or_single, brew_method, origin_region, the roastery_portal_* groups and sommelier_answer_kind / sommelier_answer_delivery (Liam brand answers, 2026-10-24); UNIQUE together with value.$c$;
+COMMENT ON COLUMN lookup_value.category IS $c$Vocabulary group, for example roast_level, process, blend_or_single, brew_method, origin_region, the roastery_portal_* groups and sommelier_answer_kind / sommelier_answer_delivery (Liam brand answers, 2026-10-24), sommelier_turn_route (the Liam turn ledger's route: model, guard, gate, gate_haiku, 2026-10-24); UNIQUE together with value.$c$;
 COMMENT ON COLUMN lookup_value.value IS $c$Stored code within the category (what other tables and the API hold).$c$;
 COMMENT ON COLUMN lookup_value.label IS $c$Display text shown in the UI; may differ from value.$c$;
 COMMENT ON COLUMN lookup_value.sort_order IS $c$Display position within the category, ascending.$c$;
@@ -1365,6 +1365,33 @@ COMMENT ON COLUMN sommelier_answer.since IS $c$UTC timestamp the row took effect
 COMMENT ON COLUMN sommelier_answer.superseded_at IS $c$UTC timestamp a newer row for the key replaced this one, or the key was retired; NULL marks the current row. The only column ever updated. | Writer: sommelierAnswerService.setAnswerInTx, sommelierAnswerService.retireAnswerInTx$c$;
 COMMENT ON COLUMN sommelier_answer.note IS $c$Why the row was written (the admin's change note, or the seed's), free text; NULL when none was given.$c$;
 COMMENT ON COLUMN sommelier_answer.created_by IS $c$Who wrote the row: the admin's Firebase uid, or seed for the initial rows.$c$;
+
+-- ── sommelier_turn ──
+COMMENT ON TABLE sommelier_turn IS $c$Purpose: The Liam turn ledger, one row per assistant reply (turn 0 is the opening), written after the reply is in Firestore and never read by Liam: which route answered, which model, tokens, cost, latency; no object held one row per turn (claude_daily_spend is a per-day per-feature total, token_events usage_log rows carry only the model, context_data.topicLog is rewritten every turn) | Class: fact | Writer: sommelierTurnService.recordTurn | Readers: sommelierReads (getTurnStats, getTurnsForSession), sommelierIntegrity (check 5 via sommelierReads) | Since: 2026-10-24 (Liam sees everything brief Rev 2, Part C)$c$;
+COMMENT ON COLUMN sommelier_turn.id IS $c$Surrogate primary key (SERIAL); (session_id, turn) is the natural key, held by a UNIQUE constraint.$c$;
+COMMENT ON COLUMN sommelier_turn.session_id IS $c$FK to sommelier_sessions(id): the conversation the reply belongs to.$c$;
+COMMENT ON COLUMN sommelier_turn.turn IS $c$The reply's turn number in the session: 0 is the opening (/start), then the session's turn_count when the message was handled; a daily-cap guard close takes the next number without advancing turn_count.$c$;
+COMMENT ON COLUMN sommelier_turn.user_message_id IS $c$Firestore doc id of the customer message this reply answers (users/{uid}/sommelier_sessions/{session}/messages); NULL on the opening turn.$c$;
+COMMENT ON COLUMN sommelier_turn.assistant_message_id IS $c$Firestore doc id of the reply itself in the same messages collection; sommelierIntegrity check 5 confirms it exists.$c$;
+COMMENT ON COLUMN sommelier_turn.route IS $c$Who answered, a lookup_value value in category sommelier_turn_route: model (Claude), guard (the daily-cap close, no model), gate and gate_haiku (written by the gate brief, Brief 3). Checked by the writer, not a CHECK constraint.$c$;
+COMMENT ON COLUMN sommelier_turn.model IS $c$The Claude model id that produced the reply; NULL for guard and gate rows and when the opening fell back to the canned line.$c$;
+COMMENT ON COLUMN sommelier_turn.rule_id IS $c$Brief 3: the gate rule that answered (sommelier_gate_rule.id once that table exists); NULL until then.$c$;
+COMMENT ON COLUMN sommelier_turn.confirm_label IS $c$Brief 3: the label the gate's confirmation step assigned; NULL until then.$c$;
+COMMENT ON COLUMN sommelier_turn.confirm_confidence IS $c$Brief 3: the confidence (0 to 1) of the gate's confirmation; NULL until then.$c$;
+COMMENT ON COLUMN sommelier_turn.coffee_id IS $c$Brief 3: FK to coffees(id), the coffee a gated turn resolved; NULL until then.$c$;
+COMMENT ON COLUMN sommelier_turn.answer_id IS $c$Brief 3: FK to sommelier_answer(id), the answer row a gated turn said verbatim; NULL until then.$c$;
+COMMENT ON COLUMN sommelier_turn.answers_version IS $c$The highest sommelier_answer.id among the current answers rendered into this turn's prompt prefix; NULL when the brand facts block was off or empty.$c$;
+COMMENT ON COLUMN sommelier_turn.topic IS $c$The topic router's topic for the message (brewing, equipment, ...), NULL when none matched or on the opening turn.$c$;
+COMMENT ON COLUMN sommelier_turn.matched_keyword IS $c$The keyword that matched the topic, NULL when the topic was carried forward (sticky) or none matched.$c$;
+COMMENT ON COLUMN sommelier_turn.sticky IS $c$True when the topic was carried forward from an earlier turn rather than matched in this message.$c$;
+COMMENT ON COLUMN sommelier_turn.mode IS $c$The response contract the turn ran under: matching or expertise (the opening is matching).$c$;
+COMMENT ON COLUMN sommelier_turn.input_tokens IS $c$Uncached input tokens of the Claude call (after the last cache breakpoint); 0 for guard rows.$c$;
+COMMENT ON COLUMN sommelier_turn.cache_read_tokens IS $c$Input tokens served from the prompt cache.$c$;
+COMMENT ON COLUMN sommelier_turn.cache_write_tokens IS $c$Input tokens written to the prompt cache (5-minute and 1-hour writes together).$c$;
+COMMENT ON COLUMN sommelier_turn.output_tokens IS $c$Output tokens of the reply.$c$;
+COMMENT ON COLUMN sommelier_turn.usd_micros IS $c$Cost of the call in integer micro-dollars, the same number anthropicGuard added to claude_daily_spend (rounded up per call); 0 for guard rows.$c$;
+COMMENT ON COLUMN sommelier_turn.latency_ms IS $c$Wall time of the Claude call in milliseconds; NULL for guard rows.$c$;
+COMMENT ON COLUMN sommelier_turn.created_at IS $c$UTC timestamp the row was written (right after the reply reached Firestore).$c$;
 
 -- ── v_customer_identity ──
 COMMENT ON VIEW v_customer_identity IS $c$Purpose: One row per user_profile mapping it to its canonical_user_id by walking customer_identity_link edges (from to to, depth 5, cycle-safe) so linked profiles read as one customer. | Class: view | Writer: none (derived) | Readers: customerReads, engagementMetrics, quizInterpretationBackfill, every other v_customer_* and v_palate_* view | Since: 2026-09-27 (Customer Blueprint C3 Part A1)$c$;

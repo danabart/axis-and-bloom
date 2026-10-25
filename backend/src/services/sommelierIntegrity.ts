@@ -1,7 +1,8 @@
 import { db } from '../db/client.js';
 import type { Tx } from '../db/client.js';
 import { getCoffees, getSlotsForCoffees } from './catalogReads.js';
-import { getCurrentAnswers, type SommelierAnswerRow } from './sommelierReads.js';
+import { getCurrentAnswers, getTurnsForSession, type SommelierAnswerRow } from './sommelierReads.js';
+import { firestoreDb } from './firebase-admin.js';
 
 // ── Liam brand answers (brief Rev 3, Part A6, 2026-10-24) — integrity ───────
 // Clone of catalogIntegrity.ts's shape. Read-only, never writes or repairs;
@@ -121,17 +122,88 @@ function contentCheck(id: 2 | 3 | 4, name: string, rows: SommelierAnswerRow[], v
   };
 }
 
+// ── Check 5 (Liam sees everything brief Rev 2, C5, 2026-10-24) — the turn
+// ledger reconciles with the session and the transcript. For every session
+// active in the window: one ledger row per reply, i.e. rows = turn_count
+// (the opening reply is turn 0 and sets turn_count to 1, so the opening is
+// already counted; the brief's "plus one for the opening" double-counts it),
+// turns 0..turn_count-1 with no gap, and every row's assistant_message_id is
+// a message in the Firestore transcript. Sessions started before the ledger
+// shipped (no rows at all) are skipped, not failed.
+export interface LedgerSession { sessionId: number; uid: string; turnCount: number; startedAt: Date; closeReason?: string | null }
+export interface LedgerReconcileInput {
+  sessions: LedgerSession[];
+  turnsBySession: Map<number, Array<{ turn: number; assistant_message_id: string }>>;
+  transcriptIdsBySession: Map<number, Set<string>>;
+}
+
+export function reconcileLedger(input: LedgerReconcileInput): SommelierIntegrityCheck {
+  const details: string[] = [];
+  let checked = 0;
+  for (const s of input.sessions) {
+    const rows = input.turnsBySession.get(s.sessionId) ?? [];
+    if (!rows.length) continue; // pre-ledger session
+    checked++;
+    // A daily-cap close is a guard reply that does not advance turn_count.
+    const expected = s.turnCount + (s.closeReason === 'daily_cap' ? 1 : 0);
+    if (rows.length !== expected) details.push(`session ${s.sessionId}: ${rows.length} ledger row(s), expected ${expected} (turn_count ${s.turnCount})`);
+    const turns = new Set(rows.map(r => r.turn));
+    for (let t = 0; t < s.turnCount; t++) if (!turns.has(t)) { details.push(`session ${s.sessionId}: no ledger row for turn ${t}`); break; }
+    const ids = input.transcriptIdsBySession.get(s.sessionId);
+    if (ids) {
+      const missing = rows.filter(r => !ids.has(r.assistant_message_id));
+      if (missing.length) details.push(`session ${s.sessionId}: ${missing.length} ledger row(s) whose reply is not in the transcript (turn ${missing.map(m => m.turn).join(', ')})`);
+    }
+  }
+  return {
+    id: 5,
+    name: 'The turn ledger reconciles with the session and the transcript (last 24 hours)',
+    pass: details.length === 0,
+    expected: 'ledger rows = turn_count, every reply in the transcript',
+    actual: details.length === 0 ? `${checked} session(s) reconciled` : `${details.length} problem(s)`,
+    details: details.length ? details : undefined,
+  };
+}
+
+async function loadLedgerReconcileInput(sinceHours: number, runner: Runner): Promise<LedgerReconcileInput> {
+  const sessions = (await runner.query<{ id: number; uid: string; turn_count: number; started_at: Date; close_reason: string | null }>(
+    `SELECT id, uid, turn_count, started_at, close_reason FROM sommelier_sessions WHERE last_active_at >= now() - make_interval(hours => $1)`,
+    [sinceHours]
+  )).rows.map(r => ({ sessionId: r.id, uid: r.uid, turnCount: r.turn_count, startedAt: r.started_at, closeReason: r.close_reason }));
+  const turnsBySession = new Map<number, Array<{ turn: number; assistant_message_id: string }>>();
+  const transcriptIdsBySession = new Map<number, Set<string>>();
+  for (const s of sessions) {
+    const rows = await getTurnsForSession(s.sessionId, runner);
+    turnsBySession.set(s.sessionId, rows.map(r => ({ turn: r.turn, assistant_message_id: r.assistant_message_id })));
+    if (!rows.length) continue;
+    try {
+      const snap = await firestoreDb.collection(`users/${s.uid}/sommelier_sessions/${s.sessionId}/messages`).select().get();
+      transcriptIdsBySession.set(s.sessionId, new Set(snap.docs.map(d => d.id)));
+    } catch (err) {
+      console.error(`[sommelier-integrity] transcript read failed for session ${s.sessionId}`, err);
+    }
+  }
+  return { sessions, turnsBySession, transcriptIdsBySession };
+}
+
 /** Runs on `rows`/`vocab` when given (fixtures), else on the live current rows. */
 export async function runSommelierIntegrityChecks(
-  input: { rows?: SommelierAnswerRow[]; vocab?: AnswerVocabulary; runner?: Runner } = {}
+  input: { rows?: SommelierAnswerRow[]; vocab?: AnswerVocabulary; runner?: Runner; ledger?: LedgerReconcileInput } = {}
 ): Promise<SommelierIntegrityReport> {
   const rows = input.rows ?? await getCurrentAnswers(input.runner);
   const vocab = input.vocab ?? await loadAnswerVocabulary(input.runner);
+  let ledgerCheck: SommelierIntegrityCheck;
+  try {
+    ledgerCheck = reconcileLedger(input.ledger ?? await loadLedgerReconcileInput(24, input.runner ?? db));
+  } catch (err) {
+    ledgerCheck = { id: 5, name: 'The turn ledger reconciles with the session and the transcript (last 24 hours)', pass: false, expected: 'a reconciliation', actual: `could not run: ${err instanceof Error ? err.message : String(err)}` };
+  }
   const checks = [
     checkOneCurrentPerKey(rows),
     contentCheck(2, 'No answer names a roaster (the leak check)', rows, vocab),
     contentCheck(3, 'No answer quotes a price, a size or a count', rows, vocab),
     contentCheck(4, 'No answer names a coffee alias', rows, vocab),
+    ledgerCheck,
   ];
   return { ranAt: new Date().toISOString(), allPass: checks.every(c => c.pass), currentAnswers: rows.length, checks };
 }

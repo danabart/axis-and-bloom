@@ -90,3 +90,75 @@ export async function hasAnyAnswer(runner: Runner = db): Promise<boolean> {
   const r = await runner.query(`SELECT 1 FROM sommelier_answer LIMIT 1`);
   return r.rows.length > 0;
 }
+
+/** MAX(sommelier_answer.id): the answers version a turn's prefix rendered (sommelier_turn.answers_version). */
+export async function getAnswersMaxId(runner: Runner = db): Promise<number | null> {
+  const r = await runner.query<{ max_id: number | null }>(`SELECT MAX(id) AS max_id FROM sommelier_answer`);
+  return r.rows[0]?.max_id ?? null;
+}
+
+// ── Liam sees everything brief Rev 2, Part C3 (2026-10-24) — the turn ledger.
+// The only file that SELECTs sommelier_turn (lint:customer rule 9).
+
+export interface TurnRow {
+  id: number;
+  session_id: number;
+  turn: number;
+  user_message_id: string | null;
+  assistant_message_id: string;
+  route: string;
+  model: string | null;
+  answers_version: number | null;
+  mode: string | null;
+  input_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  output_tokens: number;
+  usd_micros: string; // BIGINT
+  latency_ms: number | null;
+  created_at: Date;
+}
+
+/** Every ledger row of one session, by turn (the reconciliation check, the smoke). */
+export async function getTurnsForSession(sessionId: number, runner: Runner = db): Promise<TurnRow[]> {
+  const r = await runner.query<TurnRow>(
+    `SELECT id, session_id, turn, user_message_id, assistant_message_id, route, model, answers_version, mode,
+            input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, usd_micros, latency_ms, created_at
+       FROM sommelier_turn WHERE session_id = $1 ORDER BY turn`,
+    [sessionId]
+  );
+  return r.rows;
+}
+
+export interface TurnStats {
+  turns: number;
+  usdMicros: number;
+  medianUsdMicros: number | null;
+  cacheHitRate: number | null; // cache_read / (cache_read + input)
+  byRoute: Record<string, number>;
+}
+
+/** The System Health "Liam context" numbers over the last `sinceHours`. */
+export async function getTurnStats({ sinceHours }: { sinceHours: number }, runner: Runner = db): Promise<TurnStats> {
+  const r = await runner.query<{ turns: string; usd: string | null; median: string | null; cache_read: string | null; input: string | null }>(
+    `SELECT COUNT(*) AS turns, SUM(usd_micros) AS usd,
+            percentile_cont(0.5) WITHIN GROUP (ORDER BY usd_micros) FILTER (WHERE route = 'model') AS median,
+            SUM(cache_read_tokens) AS cache_read, SUM(input_tokens) AS input
+       FROM sommelier_turn WHERE created_at >= now() - make_interval(hours => $1)`,
+    [sinceHours]
+  );
+  const routes = await runner.query<{ route: string; n: string }>(
+    `SELECT route, COUNT(*) AS n FROM sommelier_turn WHERE created_at >= now() - make_interval(hours => $1) GROUP BY route`,
+    [sinceHours]
+  );
+  const row = r.rows[0];
+  const cacheRead = Number(row?.cache_read ?? 0);
+  const input = Number(row?.input ?? 0);
+  return {
+    turns: Number(row?.turns ?? 0),
+    usdMicros: Number(row?.usd ?? 0),
+    medianUsdMicros: row?.median === null || row?.median === undefined ? null : Math.round(Number(row.median)),
+    cacheHitRate: cacheRead + input > 0 ? cacheRead / (cacheRead + input) : null,
+    byRoute: Object.fromEntries(routes.rows.map(x => [x.route, Number(x.n)])),
+  };
+}

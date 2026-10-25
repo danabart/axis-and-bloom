@@ -76,6 +76,32 @@ export interface SommelierConfig {
     enabled: boolean;
     cacheSeconds: number;
     rules: string[];
+    // Liam sees everything brief Rev 2, B1 — substituted for {supportContact}.
+    supportContact?: string;
+  };
+  // Liam sees everything brief Rev 2, Part A — the shared-tier catalog block.
+  catalogBlock?: {
+    header: string;
+    template: string[];
+    sizesForm: string;
+    notYetAvailable: string;
+    storySentences: number;
+    maxTokens: number;
+    fitHeader: string;
+    decafHeader: string;
+  };
+  // Part B — the ABOUT THIS CUSTOMER block's counts and the rules rendered
+  // with brandFacts.rules.
+  customerBlock?: {
+    quizHistoryCount: number;
+    ordersFullCount: number;
+    feedbackCount: number;
+    sessionsCount: number;
+    rules: string[];
+  };
+  // Part C4 — the shared breakpoint's cache TTL.
+  promptCache?: {
+    sharedTtl: '5m' | '1h';
   };
   tokenEconomy: {
     signupBonus: number;

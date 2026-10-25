@@ -19,6 +19,8 @@ vi.mock('../services/catalogReads.js', () => ({
 vi.mock('../services/sommelierRag.js', () => ({
   fetchSommelierCoffees: vi.fn(),
   getAliases: vi.fn(),
+  // Liam sees everything brief Rev 2: the shared catalog block.
+  getCatalogBlock: vi.fn(),
 }));
 vi.mock('../services/customerReads.js', () => ({
   getSlotCandidates: vi.fn(),
@@ -64,7 +66,7 @@ vi.mock('../services/sommelierConfig.js', () => ({ getSommelierConfig: vi.fn(() 
 vi.mock('../services/topicRouter.js', () => ({ routeTopic: vi.fn() }));
 
 const { getCatalogVersion } = await import('../services/catalogReads.js');
-const { fetchSommelierCoffees, getAliases } = await import('../services/sommelierRag.js');
+const { fetchSommelierCoffees, getAliases, getCatalogBlock } = await import('../services/sommelierRag.js');
 type CoffeeSlice = 'palate' | 'primary' | 'secondary' | 'thread' | 'focus' | 'had';
 const { getSlotCandidates, getFeedbackCurrent, getBrewProfileCurrent } = await import('../services/customerReads.js');
 const { record } = await import('../services/customerFacts.js');
@@ -102,12 +104,18 @@ describe('refreshCatalogSnapshotIfStale', () => {
 
   it('rebuilds exactly once when the stored version is stale, mutating ctx in place', async () => {
     mockedGetCatalogVersion.mockResolvedValue('2026-09-14T01:00:00.000Z');
-    mockedFetch.mockResolvedValue({ catalogText: 'fresh text', coffeeIds: [5, 6] });
-    mockedDbQuery.mockResolvedValue({ rows: [
-      { id: 5, story: 'Story Five', story_published: true },
-      { id: 6, story: 'Story Six', story_published: false },
-    ] });
-    mockedGetAliases.mockResolvedValue(new Map([[5, 'Alias Five'], [6, 'Alias Six']]));
+    // Rev 2: the catalog text and the story candidates come from the shared
+    // catalog block (an unpublished story is already null there); the RAG
+    // result carries the FIT block and the composed slices.
+    mockedFetch.mockResolvedValue({ fitText: 'fit text', coffeeIds: [5, 6], slices: [{ coffeeId: 5, slice: 'primary' }] });
+    vi.mocked(getCatalogBlock).mockResolvedValue({
+      text: 'fresh text', version: '2026-09-14T01:00:00.000Z', coffeeIds: [5, 6], tokensEstimate: 10, trimLevel: 0, builtAt: '',
+      coffees: [
+        { id: 5, alias: 'Alias Five', story: 'Story Five' },
+        { id: 6, alias: 'Alias Six', story: null },
+      ],
+    } as never);
+    vi.mocked(getBrewProfileCurrent).mockResolvedValue({});
     mockedGetSlotCandidates.mockResolvedValue([{ coffee_id: 5, already_bought: false, last_rating: null }]);
     mockedGetFeedbackCurrent.mockResolvedValue([{ coffeeId: 42, sentiment: 'negative' }]);
 
@@ -136,8 +144,10 @@ describe('refreshCatalogSnapshotIfStale', () => {
       secondaryArchetype: 'fruity', exploreArchetype: null,
       slotCandidates: [{ coffee_id: 5, already_bought: false, last_rating: null }],
       dislikedCoffeeIds: [42],
+      decafOnly: false,
     });
     expect(ctx.catalogText).toBe('fresh text');
+    expect((ctx as { fitText?: string }).fitText).toBe('fit text');
     expect(ctx.coffeeIds).toEqual([5, 6]);
     expect(ctx.catalogVersion).toBe('2026-09-14T01:00:00.000Z');
     expect(ctx.storyCandidates).toEqual([
@@ -178,12 +188,12 @@ describe('refreshSliceIfFactsChanged', () => {
   });
 
   it('triggers when a brew change (or any fact) lands between turns, rebuilding the slice', async () => {
+    // Rev 2: a facts change rebuilds the FIT block and the composed slices;
+    // the catalog text is the shared block and does not move with the facts.
     mockedFetch.mockResolvedValue({
-      catalogText: 'fresh text', coffeeIds: [7],
+      fitText: 'fresh fit', coffeeIds: [7],
       slices: [{ coffeeId: 7, slice: 'palate' }],
     });
-    mockedDbQuery.mockResolvedValue({ rows: [{ id: 7, story: null, story_published: false }] });
-    mockedGetAliases.mockResolvedValue(new Map([[7, 'Alias Seven']]));
 
     const ctx: { factsWatermark?: string; catalogText?: string; coffeeIds?: number[]; slices?: Array<{ coffeeId: number; slice: CoffeeSlice }> } = {
       factsWatermark: '2026-09-28T10:00:00.000Z',
@@ -194,7 +204,8 @@ describe('refreshSliceIfFactsChanged', () => {
     await refreshSliceIfFactsChanged(ctx, 123, 3, profileReads, newWatermark);
 
     expect(mockedFetch).toHaveBeenCalledWith(expect.objectContaining({ dislikedCoffeeIds: [42] }));
-    expect(ctx.catalogText).toBe('fresh text');
+    expect(ctx.catalogText).toBe('stale text');
+    expect((ctx as { fitText?: string }).fitText).toBe('fresh fit');
     expect(ctx.coffeeIds).toEqual([7]);
     expect(ctx.slices).toEqual([{ coffeeId: 7, slice: 'palate' }]);
     expect(ctx.factsWatermark).toBe(newWatermark.toISOString());
@@ -217,12 +228,14 @@ describe('assembleSystemPrompt — profile line (Liam L1, Part C.4)', () => {
     expect(turn3).toContain(PROFILE_LINE);
   });
 
+  // Liam sees everything brief Rev 2 flipped omitCatalogInExpertiseMode's
+  // default to false; a config that still sets it true keeps the omit.
   it('carries the profile line in expertise mode even though the catalog itself is omitted', () => {
     const result = assembleSystemPrompt({
       session: { intent: 'EXPLORATION', turnCount: 2, openingContext: '' },
       catalogContext: 'YOUR CURRENT CATALOG — some coffees',
       mode: 'expertise',
-      config: null,
+      config: { contextAssembly: { omitCatalogInExpertiseMode: true } } as never,
       profileLine: PROFILE_LINE,
     });
 

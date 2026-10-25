@@ -32,10 +32,16 @@ import { getSommelierConfig, type AiFeature, type AiControls } from './sommelier
  *  $3.75 / $0.30 per MTok; Haiku 4.5: $1.25 / $0.10). `cache_control:
  *  { type: 'ephemeral' }` with no ttl is the 5-minute cache, so that is the
  *  write rate used. */
-interface ModelRate { inputUsd: number; outputUsd: number; cacheWriteUsd: number; cacheReadUsd: number }
+//
+//  Liam sees everything brief Rev 2, C4 (2026-10-24): the shared breakpoint
+//  can use the 1-hour TTL, whose write is 2x base input (Sonnet 4.6 $6,
+//  Haiku 4.5 $2 per MTok). cacheWrite1hUsd prices those tokens; without it
+//  a 1-hour write would be costed at the 5-minute rate and the caps would
+//  undercount. Nothing else about the guard changes.
+interface ModelRate { inputUsd: number; outputUsd: number; cacheWriteUsd: number; cacheWrite1hUsd: number; cacheReadUsd: number }
 const MODEL_RATES_PER_MILLION: Record<string, ModelRate> = {
-  'claude-haiku-4-5-20251001': { inputUsd: 1, outputUsd: 5,  cacheWriteUsd: 1.25, cacheReadUsd: 0.10 },
-  'claude-sonnet-4-6':         { inputUsd: 3, outputUsd: 15, cacheWriteUsd: 3.75, cacheReadUsd: 0.30 },
+  'claude-haiku-4-5-20251001': { inputUsd: 1, outputUsd: 5,  cacheWriteUsd: 1.25, cacheWrite1hUsd: 2, cacheReadUsd: 0.10 },
+  'claude-sonnet-4-6':         { inputUsd: 3, outputUsd: 15, cacheWriteUsd: 3.75, cacheWrite1hUsd: 6, cacheReadUsd: 0.30 },
 };
 
 // An admin-configured model override (config/sommelier.modelRouting's
@@ -60,6 +66,9 @@ export interface ClaudeUsage {
   output_tokens: number;
   cache_creation_input_tokens?: number | null;
   cache_read_input_tokens?: number | null;
+  // The write split by TTL (returned by the API; not in this SDK version's
+  // types). Absent = every write is a 5-minute write, as before.
+  cache_creation?: { ephemeral_5m_input_tokens?: number | null; ephemeral_1h_input_tokens?: number | null } | null;
 }
 
 /**
@@ -77,9 +86,14 @@ export interface ClaudeUsage {
 export function computeCostMicros(model: string, usage: ClaudeUsage): number {
   const rate = rateFor(model);
   const scaled = (usd: number) => Math.round(usd * 100);
+  // 1-hour writes at their own rate; the rest of cache_creation_input_tokens
+  // (the 5-minute writes) at the 5-minute rate, exactly as before.
+  const write1h = Math.min(usage.cache_creation?.ephemeral_1h_input_tokens ?? 0, usage.cache_creation_input_tokens ?? 0);
+  const write5m = (usage.cache_creation_input_tokens ?? 0) - write1h;
   const sum =
     (usage.input_tokens ?? 0) * scaled(rate.inputUsd) +
-    (usage.cache_creation_input_tokens ?? 0) * scaled(rate.cacheWriteUsd) +
+    write5m * scaled(rate.cacheWriteUsd) +
+    write1h * scaled(rate.cacheWrite1hUsd) +
     (usage.cache_read_input_tokens ?? 0) * scaled(rate.cacheReadUsd) +
     (usage.output_tokens ?? 0) * scaled(rate.outputUsd);
   return Math.ceil(sum / 100);
@@ -293,6 +307,21 @@ export async function guardClaudeCall<T extends { usage?: ClaudeUsage }>(
   model: string,
   makeCall: () => Promise<T>
 ): Promise<T> {
+  return (await guardClaudeCallMetered(feature, model, makeCall)).response;
+}
+
+/**
+ * Liam sees everything brief Rev 2, C3 (2026-10-24) — the same gate, also
+ * returning the call's usage and the micro-dollar cost it already computed
+ * for claude_daily_spend, so the turn ledger records exactly that number
+ * instead of recomputing it. Additive: guardClaudeCall above is this, minus
+ * the extras; the layers, caps and the spend write are unchanged.
+ */
+export async function guardClaudeCallMetered<T extends { usage?: ClaudeUsage }>(
+  feature: AiFeature,
+  model: string,
+  makeCall: () => Promise<T>
+): Promise<{ response: T; usage: ClaudeUsage | null; usdMicros: number }> {
   // Layer 1 — the infra-level kill switch. Checked first, no reads at all.
   if ((process.env.CLAUDE_ENABLED ?? 'true') === 'false') {
     throw new ClaudeGuardBlockedError('env_disabled', feature);
@@ -335,15 +364,17 @@ export async function guardClaudeCall<T extends { usage?: ClaudeUsage }>(
   // Only a successful call reaches here — an error thrown by makeCall()
   // propagates above this point and is never recorded, satisfying "blocked/
   // failed calls must not increment."
+  let usdMicros = 0;
   try {
     const usage = response.usage;
     if (usage) {
       const costMicros = computeCostMicros(model, usage);
+      usdMicros = costMicros;
       // One line per successful call, token counts and cost only (no
       // content, no uid) — how per-turn cache behaviour is read from the logs.
       console.log(
         `[anthropicGuard] spend feature=${feature} model=${model} input=${usage.input_tokens} ` +
-        `cache_write=${usage.cache_creation_input_tokens ?? 0} cache_read=${usage.cache_read_input_tokens ?? 0} ` +
+        `cache_write=${usage.cache_creation_input_tokens ?? 0} cache_write_1h=${usage.cache_creation?.ephemeral_1h_input_tokens ?? 0} cache_read=${usage.cache_read_input_tokens ?? 0} ` +
         `output=${usage.output_tokens} usd_micros=${costMicros}`
       );
       if (costMicros > 0) await recordSpendMicros(feature, costMicros);
@@ -354,5 +385,5 @@ export async function guardClaudeCall<T extends { usage?: ClaudeUsage }>(
     console.error('[anthropicGuard] failed to record spend for a successful call (response still returned, not retried):', err);
   }
 
-  return response;
+  return { response, usage: response.usage ?? null, usdMicros };
 }

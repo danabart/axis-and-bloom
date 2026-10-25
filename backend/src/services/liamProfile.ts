@@ -1,12 +1,17 @@
 import { db } from '../db/client.js';
 import type { Tx } from '../db/client.js';
 import { getAliases } from './sommelierRag.js';
-import { archetypeCode } from './catalogReads.js';
+import { archetypeCode, archetypeLabel, getSellableSlots } from './catalogReads.js';
+import { getSommelierConfig } from './sommelierConfig.js';
 import { formatBrewProfileSummary, type BrewProfileDoc } from './brewProfile.js';
 import {
   getQuizCurrent, getBrewProfileCurrent, getFeedbackCurrent, getPalateEvidence, getSharedTraits,
   getDominantDimensions, getArchetypeSpread, getThreads, getSlotCandidates, getTimeline,
   distinctSecondary, type QuizCurrentRow, type BrewProfileFieldEntry, type FeedbackCurrentRow, type TimelineEntry,
+  getCustomerIdentity, getQuizHistory, getRecentOrders, getSubscriptionCurrent, getShipsTo, getSavedCoffees,
+  getBrewCardsCurrent, getLiamHistory,
+  type CustomerIdentity, type QuizHistoryEntry, type RecentOrders, type SubscriptionCurrent, type SavedDialItem,
+  type BrewCardCurrent, type LiamSessionHistory,
 } from './customerReads.js';
 
 // ── Liam L1, Part A (2026-09-28) — the profile line: facts, rebuilt every
@@ -93,6 +98,19 @@ export interface ProfileReads {
   // in parallel, before calling the pure line-builder.
   aliasByCoffee: Map<number, string>;
   exploreArchetypeCode: string | null;
+  // Liam sees everything brief Rev 2, Part B (2026-10-24). All optional so a
+  // caller (or a fixture) without them renders exactly the L1 lines.
+  identity?: CustomerIdentity | null;
+  quizHistory?: QuizHistoryEntry[];
+  orders?: RecentOrders;
+  subscription?: SubscriptionCurrent | null;
+  shipsTo?: { city: string | null; state: string | null } | null;
+  saved?: SavedDialItem[];
+  savedSlotAlias?: Map<string, string>;   // 'archetype:sortOrder' -> current slot alias
+  brewCards?: BrewCardCurrent[];
+  liamHistory?: LiamSessionHistory[];
+  archetypeLabels?: Map<string, string>;  // code -> label (older-orders line)
+  counts?: { feedbackCount: number };
 }
 
 const HEADER = 'ABOUT THIS CUSTOMER (facts; rebuilt every turn)';
@@ -240,6 +258,105 @@ function buildPalatePicksLine(slotCandidates: SlotCandidateRow[], aliasByCoffee:
   return `Palate picks (from their bags, in order): ${clauses.join(', ')}`;
 }
 
+// ── Liam sees everything brief Rev 2, Part B — the new lines. Each renders only
+// when its read is non-empty. No status, tracking or delivery date (nothing
+// writes them), no street, no payment data, no internal id.
+function monthYear(value: string | Date): string {
+  const d = value instanceof Date ? value : new Date(value);
+  return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+}
+
+function buildNameLine(identity: CustomerIdentity | null | undefined): string | null {
+  if (!identity?.firstName) return null;
+  const parts = [`Name: ${identity.firstName}`];
+  if (identity.memberSince) parts.push(`member since ${monthYear(identity.memberSince)}`);
+  if (identity.householdMembers > 0) parts.push(`shares a household account with ${identity.householdMembers} other${identity.householdMembers === 1 ? '' : 's'}`);
+  return parts.join('; ');
+}
+
+function buildQuizHistoryLine(history: QuizHistoryEntry[] | undefined): string | null {
+  if (!history?.length) return null;
+  const [current, ...earlier] = history;
+  let line = `Quiz: ${current.archetypeName} (${shortDate(current.completedAt)})`;
+  if (earlier.length) line += `; before that: ${earlier.map(h => `${h.archetypeName} (${monthYear(h.completedAt)})`).join(', ')}`;
+  return line;
+}
+
+function buildFeedbackLine(feedback: FeedbackCurrentRow[], aliasByCoffee: Map<number, string>, limit: number): string | null {
+  const rows = [...feedback].sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()).slice(0, limit);
+  if (!rows.length) return null;
+  const clauses = rows.map(f => {
+    const alias = aliasByCoffee.get(f.coffeeId) ?? 'a coffee';
+    const feel = f.sentiment === 'positive' ? 'liked' : f.sentiment === 'negative' ? 'disliked' : 'mixed';
+    const rating = f.rating !== null ? `, rated ${f.rating}` : '';
+    const words = f.rawText ? `, "${f.rawText.length > 120 ? `${f.rawText.slice(0, 120).trim()}…` : f.rawText}"` : '';
+    return `${alias} (${feel}${rating}${words})`;
+  });
+  return `Feedback (newest first): ${clauses.join('; ')}`;
+}
+
+function buildOrdersLines(orders: RecentOrders | undefined, aliasByCoffee: Map<number, string>, archetypeLabels: Map<string, string>): string[] {
+  if (!orders || (!orders.recent.length && !orders.olderCount)) return [];
+  const lines: string[] = [];
+  if (orders.recent.length) {
+    const clauses = orders.recent.map(o => {
+      const items = o.lines.map(l => {
+        const alias = l.coffeeId !== null ? aliasByCoffee.get(l.coffeeId) ?? 'a coffee' : 'a coffee';
+        const size = l.weightOz !== null ? ` ${l.weightOz} oz` : '';
+        return `${alias}${size} ×${l.quantity}`;
+      });
+      return `${shortDate(o.createdAt)}: ${items.length ? items.join(', ') : 'an order'}`;
+    });
+    lines.push(`Orders (what and when only): ${clauses.join('; ')}`);
+  }
+  if (orders.olderCount) {
+    const top = Object.entries(orders.olderArchetypeCounts).sort((a, b) => b[1] - a[1])[0];
+    lines.push(`${orders.olderCount} earlier order${orders.olderCount === 1 ? '' : 's'}${top ? `, mostly ${archetypeLabels.get(top[0]) ?? top[0]}` : ''}`);
+  }
+  return lines;
+}
+
+function buildSavedLine(saved: SavedDialItem[] | undefined, aliasByCoffee: Map<number, string>, savedSlotAlias: Map<string, string> | undefined): string | null {
+  if (!saved?.length) return null;
+  const names = [...new Set(saved.map(s =>
+    (s.coffeeId !== null ? aliasByCoffee.get(s.coffeeId) : undefined)
+    ?? (s.archetype && s.dialSortOrder !== null ? savedSlotAlias?.get(`${s.archetype}:${s.dialSortOrder}`) : undefined)
+  ).filter((n): n is string => !!n))];
+  return names.length ? `Saved to their profile: ${names.join(', ')}` : null;
+}
+
+function buildBrewCardsLine(cards: BrewCardCurrent[] | undefined, aliasByCoffee: Map<number, string>): string | null {
+  if (!cards?.length) return null;
+  const clauses = cards.map(c => {
+    const params = [c.ratio, c.grindLabel, c.tempC !== null ? `${c.tempC}°C` : null].filter(Boolean).join(', ');
+    return `${aliasByCoffee.get(c.coffeeId) ?? 'a coffee'} on ${c.method.replace(/_/g, ' ')}${params ? `: ${params}` : ''}`;
+  });
+  return `Brew cards: ${clauses.join('; ')}`;
+}
+
+function buildSubscriptionLine(sub: SubscriptionCurrent | null | undefined): string | null {
+  if (!sub) return null;
+  return `Subscription: ${sub.status}${sub.sponsored ? ' (sponsored)' : ''}`;
+}
+
+function buildShipsToLine(shipsTo: { city: string | null; state: string | null } | null | undefined): string | null {
+  if (!shipsTo) return null;
+  const place = [shipsTo.city, shipsTo.state].filter(Boolean).join(', ');
+  return place ? `Ships to: ${place}` : null;
+}
+
+function buildLiamHistoryLine(history: LiamSessionHistory[] | undefined, aliasByCoffee: Map<number, string>): string | null {
+  if (!history?.length) return null;
+  const clauses = history.map(h => {
+    const parts = [shortDate(h.at)];
+    const recs = h.recommendedCoffeeIds.map(id => aliasByCoffee.get(id)).filter((n): n is string => !!n);
+    if (recs.length) parts.push(`recommended ${recs.join(', ')}`);
+    if (h.answers.length) parts.push(`they answered ${h.answers.map(a => `"${a.length > 80 ? `${a.slice(0, 80).trim()}…` : a}"`).join(', ')}`);
+    return parts.join(': ');
+  });
+  return `With Liam before: ${clauses.join('; ')}`;
+}
+
 // Pure — no I/O, no model call, deterministic. Every async lookup this line
 // needs (coffee aliases, the explore archetype's code) is resolved ahead of
 // time by loadProfileReads() below and carried on `reads` itself.
@@ -248,15 +365,24 @@ export function buildProfileLine(reads: ProfileReads): string {
 
   const lines = [
     HEADER,
+    buildNameLine(reads.identity),
     buildMatchLine(quizCurrent),
+    buildQuizHistoryLine(reads.quizHistory),
     buildOpenThreadLine(quizCurrent, threads, exploreArchetypeCode),
     buildBagsLine(evidence, feedbackCurrent, sharedTraits),
     buildLeansLine(dominantDimensions),
     buildDislikedLine(feedbackCurrent, aliasByCoffee),
     buildHadBeforeLine(timeline, feedbackCurrent, aliasByCoffee),
+    reads.counts ? buildFeedbackLine(feedbackCurrent, aliasByCoffee, reads.counts.feedbackCount) : null,
+    ...buildOrdersLines(reads.orders, aliasByCoffee, reads.archetypeLabels ?? new Map()),
+    buildSavedLine(reads.saved, aliasByCoffee, reads.savedSlotAlias),
     brewProfile && Object.keys(brewProfile).length
       ? `Setup: ${formatBrewProfileSummary(brewProfile as unknown as BrewProfileDoc)}`
       : null,
+    buildBrewCardsLine(reads.brewCards, aliasByCoffee),
+    buildSubscriptionLine(reads.subscription),
+    buildShipsToLine(reads.shipsTo),
+    buildLiamHistoryLine(reads.liamHistory, aliasByCoffee),
     buildPalatePicksLine(slotCandidates, aliasByCoffee),
   ].filter((l): l is string => l !== null);
 
@@ -271,7 +397,23 @@ export function buildProfileLine(reads: ProfileReads): string {
 // itself; liamProfile.test.ts passes its own owner transaction so the whole
 // read path — including getAliases(), which needed the same runner threaded
 // through (see sommelierRag.ts) — sees fixture rows that are never committed.
-export async function loadProfileReads(uid: string, runner: Tx | typeof db = db): Promise<ProfileReads> {
+export async function loadProfileReads(uid: string, runner: Tx | typeof db = db, opts: { sessionId?: number | null } = {}): Promise<ProfileReads> {
+  // Rev 2, Part B — the counts live in config (customerBlock.*).
+  const cb = getSommelierConfig()?.customerBlock;
+  const counts = {
+    quizHistory: cb?.quizHistoryCount ?? 3, orders: cb?.ordersFullCount ?? 5,
+    feedback: cb?.feedbackCount ?? 8, sessions: cb?.sessionsCount ?? 3,
+  };
+  const [identity, quizHistory, orders, subscription, shipsTo, saved, brewCards, liamHistory] = await Promise.all([
+    getCustomerIdentity(uid, runner),
+    getQuizHistory(uid, counts.quizHistory + 1, runner),
+    getRecentOrders(uid, counts.orders, runner),
+    getSubscriptionCurrent(uid, runner),
+    getShipsTo(uid, runner),
+    getSavedCoffees(uid, runner),
+    getBrewCardsCurrent(uid, runner),
+    getLiamHistory(uid, counts.sessions, opts.sessionId ?? null, runner),
+  ]);
   const [quizCurrent, brewProfile, feedbackCurrent, evidence, sharedTraits, dominantDimensions, archetypeSpread, threads, slotCandidates, timeline] =
     await Promise.all([
       getQuizCurrent(uid, runner),
@@ -290,14 +432,30 @@ export async function loadProfileReads(uid: string, runner: Tx | typeof db = db)
     ...feedbackCurrent.map(f => f.coffeeId),
     ...slotCandidates.map(c => c.coffee_id),
     ...timeline.filter(t => t.kind === 'order_line' && t.coffeeId !== null).map(t => t.coffeeId!),
+    ...orders.recent.flatMap(o => o.lines.map(l => l.coffeeId)).filter((id): id is number => id !== null),
+    ...saved.map(s => s.coffeeId).filter((id): id is number => id !== null),
+    ...brewCards.map(c => c.coffeeId),
+    ...liamHistory.flatMap(h => h.recommendedCoffeeIds),
   ])];
-  const [aliasByCoffee, exploreArchetypeCode] = await Promise.all([
+  const savedSlotKeys = saved.filter(s => s.coffeeId === null && s.archetype && s.dialSortOrder !== null);
+  const olderArchetypes = Object.keys(orders.olderArchetypeCounts);
+  const [aliasByCoffee, exploreArchetypeCode, savedSlotAlias, archetypeLabels] = await Promise.all([
     getAliases(coffeeIds, runner),
     quizCurrent?.exploreArchetype ? archetypeCode(quizCurrent.exploreArchetype, runner) : Promise.resolve(null),
+    savedSlotKeys.length
+      ? getSellableSlots({}, runner).then(rows => {
+          const m = new Map<string, string>();
+          for (const r of rows) if (r.slot_name && !m.has(`${r.archetype}:${r.sort_order}`)) m.set(`${r.archetype}:${r.sort_order}`, r.slot_name);
+          return m;
+        })
+      : Promise.resolve(new Map<string, string>()),
+    Promise.all(olderArchetypes.map(async code => [code, await archetypeLabel(code, runner)] as const)).then(e => new Map(e)),
   ]);
 
   return {
     quizCurrent, brewProfile, feedbackCurrent, evidence, sharedTraits, dominantDimensions,
     archetypeSpread, threads, slotCandidates, timeline, aliasByCoffee, exploreArchetypeCode,
+    identity, quizHistory, orders, subscription, shipsTo, saved, savedSlotAlias, brewCards, liamHistory, archetypeLabels,
+    counts: { feedbackCount: counts.feedback },
   };
 }

@@ -413,6 +413,31 @@ for (const relPath of files) {
   }
 }
 
+// ── Rule 9: sommelier_turn is an insert-only fact with one door ─────────────
+// Liam sees everything brief Rev 2, C3 (2026-10-24). INSERT only in
+// services/sommelierTurnService.ts; no UPDATE or DELETE / TRUNCATE anywhere;
+// SELECT (FROM / JOIN) only in services/sommelierReads.ts.
+{
+  const READER = 'services/sommelierReads.ts';
+  const WRITER = 'services/sommelierTurnService.ts';
+  for (const relPath of files) {
+    const lines = fileText(relPath).split('\n');
+    lines.forEach((line, i) => {
+      const stripped = stripLineComment(line);
+      if (relPath !== READER && /\b(?:FROM|JOIN)\s+"?sommelier_turn"?\b/i.test(stripped)) {
+        violations.push({ file: relPath, line: i + 1, message: `SELECT from 'sommelier_turn' outside ${READER}` });
+      }
+      if (relPath !== WRITER && /\bINSERT\s+INTO\s+"?sommelier_turn"?\b/i.test(stripped)) {
+        violations.push({ file: relPath, line: i + 1, message: `INSERT INTO 'sommelier_turn' outside ${WRITER}` });
+      }
+      if (/\bUPDATE\s+"?sommelier_turn"?\b/i.test(stripped) || /\bDELETE\s+FROM\s+"?sommelier_turn"?\b/i.test(stripped)
+          || /\bTRUNCATE\s+(?:TABLE\s+)?"?sommelier_turn"?\b/i.test(stripped)) {
+        violations.push({ file: relPath, line: i + 1, message: `UPDATE/DELETE on 'sommelier_turn' — the turn ledger is insert-only` });
+      }
+    });
+  }
+}
+
 // ── Report ───────────────────────────────────────────────────────────────────
 if (violations.length) {
   console.error(`lint:customer — ${violations.length} violation(s):\n`);

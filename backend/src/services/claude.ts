@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getSommelierConfig } from './sommelierConfig.js';
-import { guardClaudeCall } from './anthropicGuard.js';
+import { guardClaudeCall, guardClaudeCallMetered } from './anthropicGuard.js';
 import type { RoasterVoice } from './roasterVoiceReads.js';
 import { getCurrentAnswers } from './sommelierReads.js';
 
@@ -150,7 +150,14 @@ type SystemPromptParams = {
   profileLine?: string;
   /** Brief Rev 3, A4 — renderBrandAnswersBlock()'s output; '' or absent = no block. */
   brandAnswersBlock?: string;
+  /** Liam sees everything brief Rev 2, A2/A3 — the FIT FOR THIS CUSTOMER block (session tier); '' or absent = none. */
+  fitContext?: string;
 };
+
+/** Rev 2, B1 — `{supportContact}` in a rule becomes config brandFacts.supportContact. */
+export function substituteSupportContact(rules: string[], supportContact: string | undefined): string[] {
+  return rules.map(r => (supportContact ? r.replace(/\{supportContact\}/g, supportContact) : r));
+}
 
 // Liam brand answers, prices and cutoff brief Rev 3, Part A4 (2026-10-24) —
 // the brand facts block. Pure: the caller (chatWithSommelier) loads the rows
@@ -199,18 +206,18 @@ function turnLimitNudge(config: SystemPromptParams['config'], turnCount: number,
 //   'shared'  — LIAM_BASE_PROMPT, identical for every customer (breakpoint 1);
 //               since brief Rev 3 (2026-10-24) followed by the brand facts
 //               block, identical for every customer until a row is edited.
-//   'session' — the catalog block (matching) / story block (expertise): the
-//               session's frozen context_data snapshot, byte-identical turn to
-//               turn until the catalog version or the customer's facts change
-//               (refreshCatalogSnapshotIfStale / refreshSliceIfFactsChanged in
-//               routes/sommelier.ts) — breakpoint 2.
-//   'turn'    — everything after it, never cached. The profile line comes
-//               next and is rebuilt every turn (it changes when Liam asks a
-//               thread question, when it's answered, when a brew fact lands),
-//               so nothing after it can sit in a stable prefix. The intent
-//               addendum and goal are stable, but they come after the profile
-//               line as the parts are ordered today — moving them up is a
-//               reorder, left as a follow-up (OPEN_TASKS.md OT-31).
+//               Liam sees everything brief Rev 2 (2026-10-24): then the full
+//               catalog block, identical for every customer until the catalog
+//               changes; this breakpoint takes promptCache.sharedTtl ('1h').
+//   'session' — (Rev 2) the story (expertise turns that ask about a coffee),
+//               the ABOUT THIS CUSTOMER block and the FIT block: rebuilt every
+//               turn from live reads, byte-identical turn to turn until the
+//               customer's facts change (getFactsWatermark) — breakpoint 2,
+//               5 minutes (a 1h entry must come before 5m ones).
+//   'turn'    — everything after it, never cached: the current coffee, the
+//               intent addendum and goal, the opening context, the setup
+//               line, the nudge, the expertise contract (OT-31 covers moving
+//               the stable addendum/goal up).
 type CacheTier = 'shared' | 'session' | 'turn';
 
 // Pure system-prompt assembly (HOME_TASK_2) — split out of chatWithSommelier so
@@ -224,7 +231,7 @@ type CacheTier = 'shared' | 'session' | 'turn';
 // API call. Both come from this one function, so the text the model receives
 // and the text the old string return gave can't drift apart.
 function assembleSystemPromptParts(params: SystemPromptParams): Array<{ text: string; tier: CacheTier }> {
-  const { session, catalogContext, mode, config, brewProfileContext, storyContext, currentCoffeeContext, profileLine, brandAnswersBlock } = params;
+  const { session, catalogContext, mode, config, brewProfileContext, storyContext, currentCoffeeContext, profileLine, brandAnswersBlock, fitContext } = params;
   const intentCfg = config?.intents?.[session.intent];
   const maxTurns = intentCfg?.maxTurns ?? config?.sessionLimits?.maxTurns ?? 8;
 
@@ -238,35 +245,34 @@ function assembleSystemPromptParts(params: SystemPromptParams): Array<{ text: st
     push(`\n\n${brandAnswersBlock}`, 'shared');
   }
 
-  // Mode-aware context assembly (§4.6) — the frozen catalog block has no
-  // business in a knowledge-dominant turn. Assembly-time only: this never
-  // re-queries the RAG/story data, it just chooses what's already in
-  // context_data (§4.4, HOME_TASK_5) — the caller (sommelier.ts) decides
-  // *whether* a story is relevant this turn (my_coffee/origins_process
-  // topics only); this function just injects it, mechanically, when given one.
-  if (mode === 'expertise' && (config?.contextAssembly?.omitCatalogInExpertiseMode ?? true)) {
-    if (storyContext) {
-      // The story layer replaces raw origin/catalog fields for exactly the
-      // topics that ask about the customer's own coffee — never invented,
-      // only what's in the published story (§4.4's "speak only from provided
-      // story/catalog context" guardrail, already in LIAM_BASE_PROMPT above).
-      push(`\n\nTheir coffee, explained:\n${storyContext}`, 'session');
-    }
-    // No story available for this turn's topic — nothing to inject here, the
-    // omit branch. currentCoffeeContext (below) is independent of this branch:
-    // it's the session-wide "which bag is this conversation about" grounding,
-    // not a per-topic story injection.
-  } else {
-    push(`\n\n${catalogContext}`, 'session');
+  // Mode-aware context assembly (§4.6). Liam sees everything brief Rev 2, A4:
+  // the catalog block is the shared catalog now (getCatalogBlock), shared
+  // tier, right after the brand facts; omitCatalogInExpertiseMode's default
+  // flips to false, since dropping it on a brewing turn saves nothing once
+  // it is cached and would change the shared prefix. With the flag still
+  // true (a live doc the seed upgrade has not reached) the old omit branch
+  // stays. The story (a coffee the customer named, my_coffee/origins_process
+  // topics) is session tier, as before.
+  const omitCatalog = mode === 'expertise' && (config?.contextAssembly?.omitCatalogInExpertiseMode ?? false);
+  if (!omitCatalog) {
+    push(`\n\n${catalogContext}`, 'shared');
+  }
+  if (mode === 'expertise' && storyContext) {
+    // Only what's in the published story (§4.4's "speak only from provided
+    // story/catalog context" guardrail, already in LIAM_BASE_PROMPT above).
+    push(`\n\nTheir coffee, explained:\n${storyContext}`, 'session');
   }
 
-  // Liam L1, Part C.4 (2026-09-28) — the structured profile line, injected
-  // every turn in both modes (turn 0 included), right after the catalog
-  // block — even in expertise mode, where the catalog itself is omitted, the
-  // profile line still goes in. Facts, not a model-generated summary; see
-  // services/liamProfile.ts.
+  // Liam L1, Part C.4 — the profile line, now (Rev 2, Part B) the full ABOUT
+  // THIS CUSTOMER block, every turn in both modes (turn 0 included). Facts,
+  // not a model-generated summary; see services/liamProfile.ts. Session tier
+  // since Rev 2: it only changes when a fact does.
   if (profileLine) {
-    push(`\n\n${profileLine}`);
+    push(`\n\n${profileLine}`, 'session');
+  }
+  // Rev 2, A2/A3 — which catalog coffees fit this customer and why.
+  if (fitContext) {
+    push(`\n\n${fitContext}`, 'session');
   }
 
   // HOME_TASK_6 (§3.1, §3.2) — the "current coffee" concept S71 deferred
@@ -334,7 +340,7 @@ export function assembleSystemPrompt(params: SystemPromptParams): string {
  */
 export function assembleSystemPromptBlocks(params: SystemPromptParams): Anthropic.TextBlockParam[] {
   const parts = assembleSystemPromptParts(params);
-  const groups: Array<{ text: string; cache: boolean }> = [];
+  const groups: Array<{ text: string; tier: CacheTier }> = [];
   for (const tier of ['shared', 'session', 'turn'] as const) {
     const text = parts.filter(p => p.tier === tier).map(p => p.text).join('');
     if (!text) continue;
@@ -342,13 +348,19 @@ export function assembleSystemPromptBlocks(params: SystemPromptParams): Anthropi
       groups[groups.length - 1].text += text;
       continue;
     }
-    groups.push({ text, cache: tier !== 'turn' });
+    groups.push({ text, tier });
   }
-  return groups.map(g =>
-    g.cache
-      ? { type: 'text', text: g.text, cache_control: { type: 'ephemeral' } }
-      : { type: 'text', text: g.text }
-  );
+  // Rev 2, C4: the shared breakpoint takes promptCache.sharedTtl. '5m' (or
+  // unset) is the plain ephemeral marker, exactly as before; '1h' adds the
+  // ttl, which this SDK version's types predate (the API accepts it).
+  const sharedTtl = params.config?.promptCache?.sharedTtl;
+  return groups.map(g => {
+    if (g.tier === 'turn') return { type: 'text', text: g.text };
+    const cacheControl = g.tier === 'shared' && sharedTtl === '1h'
+      ? ({ type: 'ephemeral', ttl: '1h' } as unknown as Anthropic.CacheControlEphemeral)
+      : { type: 'ephemeral' as const };
+    return { type: 'text', text: g.text, cache_control: cacheControl };
+  });
 }
 
 // Profile Part 7B — sanitizes a model-supplied save_recipe title. Never
@@ -472,9 +484,16 @@ export async function chatWithSommelier(params: {
   storyContext?: string;
   currentCoffeeContext?: string;
   profileLine?: string;
+  /** Rev 2 — the FIT FOR THIS CUSTOMER block (session tier). */
+  fitContext?: string;
 }): Promise<{
   reply: string;
   modelUsed: string;
+  /** Rev 2, C3 — for the turn ledger: the call's usage, the cost the guard computed, wall time, and MAX(id) of the answers rendered. */
+  usage: import('./anthropicGuard.js').ClaudeUsage | null;
+  usdMicros: number;
+  latencyMs: number;
+  answersVersion: number | null;
   actionTypes: Array<'retake_quiz' | 'open_dial' | 'save_recipe'>;
   /** Profile Part 7B — sanitized title from a titled save_recipe marker, if present. */
   saveRecipeTitle?: string;
@@ -486,17 +505,27 @@ export async function chatWithSommelier(params: {
   /** Liam L3, Part A — <<ask:thread|palate|brew>>. An unknown kind is stripped like any other malformed marker but never resolved. */
   askKind: 'thread' | 'palate' | 'brew' | null;
 }> {
-  const { message, session, catalogContext, history, brewProfileContext, storyContext, currentCoffeeContext, profileLine } = params;
+  const { message, session, catalogContext, history, brewProfileContext, storyContext, currentCoffeeContext, profileLine, fitContext } = params;
   const mode: SommelierMode = params.mode ?? 'matching';
   const config = getSommelierConfig();
 
   // Brief Rev 3, A4 — the brand facts block, loaded here so the assembly
   // below stays synchronous and pure. A read failure leaves Liam without the
-  // block for this turn (logged), never fails the turn.
+  // block for this turn (logged), never fails the turn. Liam sees everything
+  // brief Rev 2: customerBlock.rules render with the brand rules (shared tier,
+  // so an empty customer's block stays today's bytes plus the name line), and
+  // {supportContact} is substituted from brandFacts.supportContact.
   let brandAnswersBlock = '';
+  let answersVersion: number | null = null;
   if (config?.brandFacts?.enabled) {
     try {
-      brandAnswersBlock = renderBrandAnswersBlock(await getCurrentAnswers(), config.brandFacts.rules ?? []);
+      const rows = await getCurrentAnswers();
+      answersVersion = rows.length ? Math.max(...rows.map(r => r.id)) : null;
+      const rules = substituteSupportContact(
+        [...(config.brandFacts.rules ?? []), ...(config.customerBlock?.rules ?? [])],
+        config.brandFacts.supportContact,
+      );
+      brandAnswersBlock = renderBrandAnswersBlock(rows, rules);
     } catch (err) {
       console.error('[liam:BRAND_ANSWERS_READ_FAILED] sending the turn without the brand facts block', err);
     }
@@ -504,7 +533,7 @@ export async function chatWithSommelier(params: {
 
   // Part C1 — prompt caching: the same text assembleSystemPrompt() returns,
   // split into cache_control blocks (see assembleSystemPromptBlocks).
-  const system = assembleSystemPromptBlocks({ session, catalogContext, mode, config, brewProfileContext, storyContext, currentCoffeeContext, profileLine, brandAnswersBlock });
+  const system = assembleSystemPromptBlocks({ session, catalogContext, mode, config, brewProfileContext, storyContext, currentCoffeeContext, profileLine, brandAnswersBlock, fitContext });
 
   // C2 Part 2 (M4 fix) — model choice is decided purely by surface, never by
   // message content. chatWithSommelier is the authenticated Liam
@@ -538,7 +567,11 @@ export async function chatWithSommelier(params: {
     messages.push({ role: 'user', content: 'Begin the conversation.' });
   }
 
-  const response = await guardClaudeCall('liam_chat', modelId, () =>
+  // Rev 2, C3: the metered guard returns the usage and the micro-dollar cost
+  // it already computed for claude_daily_spend; the route writes both to the
+  // turn ledger. Same layers, same caps.
+  const startedAt = Date.now();
+  const { response, usage, usdMicros } = await guardClaudeCallMetered('liam_chat', modelId, () =>
     client.messages.create({
       model: modelId,
       max_tokens: maxTokens,
@@ -546,6 +579,7 @@ export async function chatWithSommelier(params: {
       messages,
     })
   );
+  const latencyMs = Date.now() - startedAt;
 
   const block = response.content[0];
   const rawReply = block.type === 'text' ? block.text : '';
@@ -554,7 +588,10 @@ export async function chatWithSommelier(params: {
   const { reply, actionTypes, saveRecipeTitle, rememberOps, cardMarker, recommendAlias, askKind } =
     parseAndStripMarkers(rawReply, maxMarkers);
 
-  return { reply, modelUsed: modelId, actionTypes, saveRecipeTitle, rememberOps, cardMarker, recommendAlias, askKind };
+  return {
+    reply, modelUsed: modelId, actionTypes, saveRecipeTitle, rememberOps, cardMarker, recommendAlias, askKind,
+    usage, usdMicros, latencyMs, answersVersion,
+  };
 }
 
 export async function getRecommendation(

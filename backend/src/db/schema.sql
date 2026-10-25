@@ -5530,6 +5530,54 @@ CREATE TABLE IF NOT EXISTS sommelier_answer (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS sommelier_answer_one_current ON sommelier_answer (key) WHERE superseded_at IS NULL;
 
+-- Liam turn ledger (brief LIAM_SEES_EVERYTHING Rev 2, Part C, 2026-10-24):
+-- one row per assistant reply (turn 0 = the opening), written after the reply
+-- reaches Firestore, never read by Liam. Measurement only: which route
+-- answered, which model, tokens, cost, latency; Brief 3's gate fills rule_id /
+-- confirm_* / coffee_id / answer_id. Why a table: no object holds one row per
+-- turn (claude_daily_spend is a per-day per-feature total; token_events
+-- usage_log rows carry only the model; context_data.topicLog is rewritten
+-- every turn; the Firestore message has modelUsed only). Insert-only fact:
+-- no UPDATE, no DELETE (anything learned later goes in a separate label
+-- table, Brief 3). One writer (sommelierTurnService.recordTurn), one reader
+-- (sommelierReads); lint:customer rule 9. Route values are a lookup_value
+-- category, checked by the writer, not a CHECK.
+INSERT INTO lookup_value (category, value, label, sort_order) VALUES
+  ('sommelier_turn_route', 'model',      'Model reply',          1),
+  ('sommelier_turn_route', 'guard',      'Guard close (no model)', 2),
+  ('sommelier_turn_route', 'gate',       'Gate answer',          3),
+  ('sommelier_turn_route', 'gate_haiku', 'Gate with Haiku confirm', 4)
+ON CONFLICT (category, value) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS sommelier_turn (
+  id                   SERIAL PRIMARY KEY,
+  session_id           INTEGER NOT NULL REFERENCES sommelier_sessions(id),
+  turn                 SMALLINT NOT NULL,
+  user_message_id      TEXT,
+  assistant_message_id TEXT NOT NULL,
+  route                TEXT NOT NULL,
+  model                TEXT,
+  rule_id              INTEGER,
+  confirm_label        TEXT,
+  confirm_confidence   NUMERIC,
+  coffee_id            INTEGER REFERENCES coffees(id),
+  answer_id            INTEGER REFERENCES sommelier_answer(id),
+  answers_version      INTEGER,
+  topic                TEXT,
+  matched_keyword      TEXT,
+  sticky               BOOLEAN,
+  mode                 TEXT,
+  input_tokens         INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens    INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens   INTEGER NOT NULL DEFAULT 0,
+  output_tokens        INTEGER NOT NULL DEFAULT 0,
+  usd_micros           BIGINT  NOT NULL DEFAULT 0,
+  latency_ms           INTEGER,
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (session_id, turn)
+);
+CREATE INDEX IF NOT EXISTS idx_sommelier_turn_created ON sommelier_turn (created_at);
+
 -- Part C — dead tables, dropped once integrity check 7 (customerIntegrity.ts)
 -- has proved them empty in prod. Confirmed empty 2026-09-27:
 -- user_recommendation_log, user_feedback_event, chat_message. Self-healing
@@ -8755,6 +8803,9 @@ REVOKE UPDATE, DELETE, TRUNCATE ON roastery_remark FROM ab_app;
 -- the code-side half).
 REVOKE UPDATE, DELETE, TRUNCATE ON sommelier_answer FROM ab_app;
 GRANT UPDATE (superseded_at) ON sommelier_answer TO ab_app;
+-- Liam turn ledger (2026-10-24): an insert-only fact, like the customer_*
+-- tables (lint:customer rule 9 is the code-side half).
+REVOKE UPDATE, DELETE, TRUNCATE ON sommelier_turn FROM ab_app;
 GRANT SELECT ON v_roastery_remark, v_cupping_session, v_cupping_session_coffee TO reporting_ro;
 
 -- Quiz content is master data with one writer, the V7 seed in this file,

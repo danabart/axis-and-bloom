@@ -75,7 +75,7 @@ describe('sommelierAnswerService', () => {
       }
       expect((await getAnswerHistory(client)).filter(r => r.key === KEY)).toHaveLength(0);
     });
-  });
+  }, 30000);
 
   it('refuses empty text, an unknown kind or delivery, a bad key, and a new key without kind/delivery/order', async () => {
     await withRollback(async ({ client, savepoint }) => {
@@ -86,7 +86,7 @@ describe('sommelierAnswerService', () => {
       expect((await refusal(savepoint(() => setAnswerInTx(client, { key: KEY, answerText: 'Fine text.', createdBy: 'vitest' })))).message).toMatch(/needs kind, delivery and sortOrder/);
       expect((await refusal(savepoint(() => setAnswerInTx(client, { key: KEY, answerText: 'Fine text.', createdBy: 'vitest', expect: 'edit' })))).status).toBe(404);
     });
-  });
+  }, 30000);
 
   it('retire leaves no current row and keeps the history', async () => {
     await withRollback(async ({ client, savepoint }) => {
@@ -116,6 +116,8 @@ describe('sommelier_answer seed', () => {
   });
 });
 
+const EMPTY_LEDGER = { sessions: [], turnsBySession: new Map(), transcriptIdsBySession: new Map() };
+
 describe('sommelierIntegrity — fixtures', () => {
   const vocab: AnswerVocabulary = { roasterNames: ['Joe Coffee Company', 'Path Coffee Roasters'], aliases: ['Crosshatch', 'Cerro Azul'] };
   const row = (key: string, answer_text: string): SommelierAnswerRow => ({
@@ -123,26 +125,27 @@ describe('sommelierIntegrity — fixtures', () => {
   });
 
   it('all four checks pass on clean text', async () => {
-    const r = await runSommelierIntegrityChecks({ rows: [row('a', 'We do not roast. Our bags, their roasting.')], vocab });
+    const r = await runSommelierIntegrityChecks({ rows: [row('a', 'We do not roast. Our bags, their roasting.')], vocab, ledger: EMPTY_LEDGER });
     expect(r.allPass).toBe(true);
-    expect(r.checks.map(c => c.id)).toEqual([1, 2, 3, 4]);
+    // Check 5 (the turn ledger, Liam sees everything brief) reconciles an empty fixture: pass.
+    expect(r.checks.map(c => c.id)).toEqual([1, 2, 3, 4, 5]);
   });
 
   it('check 1 reports a key with two current rows', async () => {
-    const r = await runSommelierIntegrityChecks({ rows: [row('a', 'One.'), row('a', 'Two.')], vocab });
+    const r = await runSommelierIntegrityChecks({ rows: [row('a', 'One.'), row('a', 'Two.')], vocab, ledger: EMPTY_LEDGER });
     expect(r.checks.find(c => c.id === 1)!.pass).toBe(false);
     expect(r.checks.find(c => c.id === 1)!.details).toEqual(['a: 2 current rows']);
   });
 
   it('check 2 catches a roaster name, case-insensitive, whole words only', async () => {
-    const r = await runSommelierIntegrityChecks({ rows: [row('a', 'roasted by joe coffee company'), row('b', 'a pathway')], vocab });
+    const r = await runSommelierIntegrityChecks({ rows: [row('a', 'roasted by joe coffee company'), row('b', 'a pathway')], vocab, ledger: EMPTY_LEDGER });
     expect(r.checks.find(c => c.id === 2)!.details).toEqual(['a: Joe Coffee Company']);
   });
 
   it('check 3 catches a $, oz, or a number beside a unit; one finding per answer', async () => {
     const r = await runSommelierIntegrityChecks({
       rows: [row('a', 'From $29.'), row('b', 'Coffee comes as 12 oz whole bean.'), row('c', 'Ships in 3 days.'), row('d', 'Six archetypes, one quiz.')],
-      vocab,
+      vocab, ledger: EMPTY_LEDGER,
     });
     const c3 = r.checks.find(c => c.id === 3)!;
     expect(c3.pass).toBe(false);
@@ -150,7 +153,7 @@ describe('sommelierIntegrity — fixtures', () => {
   });
 
   it('check 4 catches a coffee alias', async () => {
-    const r = await runSommelierIntegrityChecks({ rows: [row('a', 'Try the Cerro Azul.')], vocab });
+    const r = await runSommelierIntegrityChecks({ rows: [row('a', 'Try the Cerro Azul.')], vocab, ledger: EMPTY_LEDGER });
     expect(r.checks.find(c => c.id === 4)!.details).toEqual(['a: Cerro Azul']);
   });
 

@@ -3,8 +3,10 @@ import type { Tx } from '../db/client.js';
 import { getSommelierConfig } from './sommelierConfig.js';
 import { getRoasterVoice, signatureWords } from './roasterVoiceReads.js';
 import {
-  archetypeCode, archetypeLabel, getCoffees, getSellableSlots, getSlotsForCoffees, getHops, getAnchorSize,
+  archetypeCode, archetypeLabel, getCoffees, getSellableSlots, getSlotsForCoffees, getHops,
+  getArchetypes, getCategoryCoffees, getCoffeeRetailPrices, getSizes, getCatalogVersion,
 } from './catalogReads.js';
+import { resolveCoffeeBlend } from './blendResolver.js';
 
 // Catalog Blueprint · brief 3 (2026-09-14) — Liam's candidate pool is now
 // D2's rule: every ragFocus draws from v_coffee_sellable_slot at 12oz, joined
@@ -42,16 +44,24 @@ export interface RagParams {
   // review) — this file never re-sorts them.
   slotCandidates?: SlotCandidate[];
   dislikedCoffeeIds?: number[];
+  // Liam sees everything brief Rev 2, A3 — the brew profile's
+  // decaf_constraint: the pool becomes the Decaf-category coffees and the
+  // FIT block leads with catalogBlock.decafHeader.
+  decafOnly?: boolean;
 }
 
 export interface RagResult {
-  catalogText: string;
+  // Rev 2: the session-tier FIT FOR THIS CUSTOMER block (renderFitBlock).
+  // The coffees themselves are the shared catalog block (getCatalogBlock).
+  fitText: string;
+  // Every coffee in the shared catalog block: what Liam may name, and so the
+  // write-back's candidate set (was the 6-coffee slice).
   coffeeIds: number[];
   // Why each coffee is in the catalog — L3's later write-back detection reads
   // this; 'had' is the palate slice's own already-bought coffees (kept
   // distinct from a not-yet-tried 'palate' pick, both rendered with the same
   // "[palate match]" label text plus a "[had before, rated n]" suffix for
-  // 'had' specifically — see buildCatalogText below).
+  // 'had' specifically — see renderFitBlock).
   slices: Array<{ coffeeId: number; slice: CoffeeSlice }>;
 }
 
@@ -60,21 +70,6 @@ interface CoffeeRow {
   name: string;
   archetype: string; // match_archetype
   three_voice_story: string | null;
-  // Brief Rev 3, Part B (2026-10-24): the anchor-size slot price, carried
-  // from v_coffee_sellable_slot instead of dropped. null = no sellable price.
-  weight_oz: number | null;
-  size_label: string | null;
-  retail_price_cents: number | null;
-}
-
-// Part B — "Price: $32.00 for 12 oz whole bean". Formatted from the slot
-// price view's cents and coffee_size's label at render time, never copied
-// into context_data; "whole bean" is the bag's form, which the catalog does
-// not model (every bag is whole bean, sommelier_answer what_you_get).
-// Exported for the unit test.
-export function formatPriceLine(c: Pick<CoffeeRow, 'retail_price_cents' | 'size_label'>): string {
-  if (c.retail_price_cents == null || !c.size_label) return 'Price: not yet available';
-  return `Price: $${(c.retail_price_cents / 100).toFixed(2)} for ${c.size_label} whole bean`;
 }
 
 // Editorial-completeness first (has its description, three_voice_story, since
@@ -174,64 +169,33 @@ async function getAdjacentArchetypes(archetypeCodeValue: string): Promise<string
   }
 }
 
-// Liam L1, Part B — labelText is pre-computed per coffee during composition
-// (fetchSommelierCoffees) from its slice + slot-candidate rating, never
-// derived here; this function only prints whatever it's given, after the
-// archetype label on the coffee's first line, exactly like the existing
-// alias/archetype-label rendering it sits beside.
-export async function buildCatalogText(
-  coffees: CoffeeRow[], descriptors: Map<number, string[]>, aliases: Map<number, string>, labelText: Map<number, string> = new Map()
-): Promise<string> {
-  if (!coffees.length) return 'YOUR CURRENT CATALOG — no coffees available at this time.';
-
-  const lines: string[] = [
-    'YOUR CURRENT CATALOG — Liam may only recommend coffees from this list. Labels say why each is here; never read a label aloud.',
-  ];
-  for (const c of coffees) {
-    const archetypeLabelStr = await archetypeLabel(c.archetype);
-    const descs = descriptors.get(c.id) ?? [];
-    // Alias only — never the roaster name or the coffee's raw internal name (see
-    // SOMMELIER_TASK_6_VOICE.md Step 2b; this previously leaked both directly
-    // into every Liam session's system prompt context).
-    const displayName = aliases.get(c.id) ?? archetypeLabelStr;
-    const label = labelText.get(c.id);
-    lines.push('---');
-    lines.push(`${displayName} — ${archetypeLabelStr}${label ? ` ${label}` : ''}`);
-    // Coffee presentation brief 2: the one description the customer reads.
-    lines.push(`Tasting note: ${c.three_voice_story ?? 'Not yet available'}`);
-    lines.push(`Key flavors: ${descs.length ? descs.join(', ') : 'Not yet available'}`);
-    lines.push(formatPriceLine(c));
-  }
-  lines.push('---');
-  return lines.join('\n');
+// Liam sees everything brief Rev 2, A2 (2026-10-24) — the fit labels, as their
+// own session-tier block: one line per labelled coffee, by alias, in
+// composition order. The coffees themselves are in the shared catalog block;
+// this says which of them fit this customer and why. The decaf header (A3)
+// leads it when the customer drinks decaf only. Empty when nothing is labelled
+// and no header applies.
+export function renderFitBlock(
+  composed: Array<{ id: number }>, aliases: Map<number, string>, labelText: Map<number, string>,
+  opts: { header: string; decafHeader?: string | null }
+): string {
+  const lines = composed.filter(c => labelText.has(c.id)).map(c => `- ${aliases.get(c.id) ?? 'a catalog coffee'} ${labelText.get(c.id)}`);
+  if (!lines.length && !opts.decafHeader) return '';
+  return [opts.header, ...(opts.decafHeader ? [opts.decafHeader] : []), ...lines].join('\n');
 }
 
-// D2 — the one candidate pool every ragFocus draws from: coffees currently
-// sellable at 12oz (v_coffee_sellable_slot), joined to v_coffee for
-// match_archetype/name/summary. A coffee occupying two sellable slots (a
-// guest fulfilling its own slot plus someone else's) only ever appears once
-// here, keyed by coffee id, which is what every focus below actually wants —
-// "is this coffee a real recommendation candidate," not "how many slots."
-async function getCandidatePool(): Promise<CoffeeRow[]> {
-  const sellable = await getSellableSlots({ weightOz: (await getAnchorSize()).weight_oz }); // D2/S2: anchor size only
-  const coffeeIds = [...new Set(sellable.map(s => s.coffee_id))];
-  if (!coffeeIds.length) return [];
-  // Brief Rev 3, Part B: the coffee's price is its first sellable slot's
-  // (getSellableSlots' order: slot id, size order), home or guest alike.
-  const priceByCoffee = new Map<number, (typeof sellable)[number]>();
-  for (const s of sellable) if (!priceByCoffee.has(s.coffee_id)) priceByCoffee.set(s.coffee_id, s);
-  const coffees = await getCoffees({ ids: coffeeIds, active: true });
+// The candidate pool every ragFocus draws from (Rev 2, A1): every coffee the
+// shared catalog block lists (getCatalogBlock), never a slice of it. The dial
+// coffees for a customer without a decaf constraint; the Decaf-category
+// coffees for a decaf-only customer (A3). A coffee only appears once, keyed by
+// coffee id; it needs a match archetype to be composed (an unmatched coffee
+// stays in the catalog block, it just carries no fit label).
+async function getCandidatePool(decafOnly = false): Promise<CoffeeRow[]> {
+  const { coffees } = await getCatalogPool();
   return coffees
-    .filter((c): c is typeof c & { match_archetype: string } => c.match_archetype != null)
-    .map(c => {
-      const slot = priceByCoffee.get(c.id);
-      return {
-        id: c.id, name: c.name, archetype: c.match_archetype, three_voice_story: c.three_voice_story,
-        weight_oz: slot ? Number(slot.weight_oz) : null,
-        size_label: slot?.size_label ?? null,
-        retail_price_cents: slot?.retail_price_cents != null ? Number(slot.retail_price_cents) : null,
-      };
-    });
+    .filter(c => (decafOnly ? c.categories.some(x => x.code === 'decaf') : c.dialPosition !== null))
+    .filter((c): c is typeof c & { archetype: string } => c.archetype !== null)
+    .map(c => ({ id: c.id, name: c.alias, archetype: c.archetype, three_voice_story: c.tastingNote }));
 }
 
 // Groups the pool by archetype and takes up to `perArchetype` from each
@@ -253,12 +217,14 @@ function pickPerArchetype(pool: CoffeeRow[], archetypes: string[], perArchetype:
 }
 
 export async function fetchSommelierCoffees(params: RagParams): Promise<RagResult> {
-  const config = getSommelierConfig();
-  const maxCoffees = config?.ragLimits?.maxCoffees ?? 12;
+  // Rev 2, A2: no slice. ragLimits.maxCoffees is retired (left in config,
+  // ignored): every step below composes over the whole catalog pool, so the
+  // fit labels land on every coffee they apply to.
   const {
     ragFocus, userArchetype, previousArchetype, excludeCoffeeIds = [],
-    secondaryArchetype, exploreArchetype, slotCandidates = [], dislikedCoffeeIds = [],
+    secondaryArchetype, exploreArchetype, slotCandidates = [], dislikedCoffeeIds = [], decafOnly = false,
   } = params;
+  let maxCoffees = Number.MAX_SAFE_INTEGER;
   const userCode = userArchetype ? await archetypeCode(userArchetype) : null;
   // Hoisted so both the generic secondary slice (step 2) and the 'matched'
   // focus's own fill branch (step 4, Liam L2 Part C) can reuse it without a
@@ -279,9 +245,10 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
   const labelText = new Map<number, string>();
 
   try {
-    const poolFull = await getCandidatePool();
+    const poolFull = await getCandidatePool(decafOnly);
     const dislikedSet = new Set(dislikedCoffeeIds);
     const pool = poolFull.filter(c => !dislikedSet.has(c.id));
+    maxCoffees = pool.length;
 
     // 1. Thread slice.
     if (exploreArchetype) {
@@ -473,11 +440,289 @@ export async function fetchSommelierCoffees(params: RagParams): Promise<RagResul
     composed.length = 0;
   }
 
-  const coffees = composed.slice(0, maxCoffees);
-  const coffeeIds = coffees.map((c) => c.id);
-  const [descriptors, aliases] = await Promise.all([getDescriptors(coffeeIds), getAliases(coffeeIds)]);
-  const catalogText = await buildCatalogText(coffees, descriptors, aliases, labelText);
-  const slices = coffees.map(c => ({ coffeeId: c.id, slice: sliceByCoffee.get(c.id)! }));
+  // A3: a decaf-only customer whose archetype has no decaf gets the decaf of
+  // the nearest archetype that has one (v_coffee_archetype_adjacency order).
+  if (decafOnly && userCode && !composed.some(c => c.archetype === userCode)) {
+    try {
+      const pool = (await getCandidatePool(true)).filter(c => !dislikedCoffeeIds.includes(c.id));
+      for (const code of await getAdjacentArchetypes(userCode)) {
+        const nearest = pool.filter(c => c.archetype === code).sort(editorialSort)[0];
+        if (nearest) {
+          if (!composed.some(c => c.id === nearest.id)) composed.push(nearest);
+          sliceByCoffee.set(nearest.id, 'primary');
+          labelText.set(nearest.id, `[nearest decaf to their match: ${await archetypeLabel(code)}]`);
+          break;
+        }
+      }
+    } catch (err) {
+      console.error('[sommelierRag] nearest-decaf lookup failed:', err);
+    }
+  }
 
-  return { catalogText, coffeeIds, slices };
+  const pool = await getCatalogPool();
+  const aliases = new Map(pool.coffees.map(c => [c.id, c.alias]));
+  const cfg = catalogBlockConfig();
+  const fitText = renderFitBlock(composed, aliases, labelText, { header: cfg.fitHeader, decafHeader: decafOnly ? cfg.decafHeader : null });
+  const slices = composed.map(c => ({ coffeeId: c.id, slice: sliceByCoffee.get(c.id)! }));
+
+  return { fitText, coffeeIds: pool.coffees.map(c => c.id), slices };
+}
+
+// ── Liam sees everything brief Rev 2, Part A (2026-10-24) — the full catalog
+// block, shared cache tier ─────────────────────────────────────────────────
+// Every coffee a customer can see on the site: the Bloom Dial's visible
+// coffees (a winner at some active size in v_coffee_sellable_slot, the
+// winner side of v_coffee_visibility) and every active category coffee
+// (decaf, half_caf, flavored, experimental: the /other-categories surface,
+// unpriced ones included, shown "not yet available" as the site does).
+// Every active size with its price. Customer-neutral and byte-stable: one
+// render per catalog version, shared by every session (no fit labels, no
+// decaf header here; those are the session-tier FIT block).
+//
+// Roaster identity is never selected into a row: CatalogCoffee is built field
+// by field from the view rows, never spread from them (v_coffee carries
+// roaster_name and the internal name). The alias is the slot name, else the
+// name the site shows; an alias that contains a roaster name is replaced by
+// "<category> <archetype>" so an internal name can never carry it in.
+
+export const CATEGORY_CODES = ['decaf', 'half_caf', 'flavored', 'experimental'];
+
+export interface CatalogCoffee {
+  id: number;
+  alias: string;
+  archetype: string | null;        // match archetype code
+  archetypeLabel: string | null;
+  categories: Array<{ code: string; label: string }>;
+  dialPosition: string | null;     // the slot's position label, dial coffees only
+  sizes: Array<{ label: string; cents: number }>;
+  tastingNote: string | null;
+  keyFlavors: string[];
+  story: string | null;            // the published story
+}
+
+type CatalogBlockConfig = NonNullable<NonNullable<ReturnType<typeof getSommelierConfig>>['catalogBlock']>;
+
+const DEFAULT_CATALOG_BLOCK: CatalogBlockConfig = {
+  header: 'YOUR CATALOG — every coffee we sell. Recommend only from here. The FIT FOR THIS CUSTOMER block says which of these fit this customer and why; never read a label aloud.',
+  template: ['{alias} — {archetype}{categories}{dial}', 'Sizes: {sizes}', 'Tasting note: {tastingNote}', 'Key flavors: {keyFlavors}', 'Story: {story}'],
+  sizesForm: 'whole bean',
+  notYetAvailable: 'not yet available',
+  storySentences: 2,
+  maxTokens: 14000,
+  fitHeader: 'FIT FOR THIS CUSTOMER (why these catalog coffees fit them; never read a label aloud):',
+  decafHeader: 'This customer drinks decaf only. Recommend only coffees marked Decaf; mention Half-caf only if they ask.',
+};
+
+export function catalogBlockConfig(): CatalogBlockConfig {
+  return { ...DEFAULT_CATALOG_BLOCK, ...(getSommelierConfig()?.catalogBlock ?? {}) };
+}
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function roasterPattern(name: string): RegExp {
+  return new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRe(name.trim())}(?=$|[^\\p{L}\\p{N}])`, 'giu');
+}
+function mentionsRoaster(text: string, roasterNames: string[]): boolean {
+  return roasterNames.some(n => n.trim() && roasterPattern(n).test(text));
+}
+// Belt and braces for prose (story, tasting note): the story layer's banned
+// terms already keep roaster names out, but the catalog block guarantees it
+// itself, longest name first so a name never survives as a fragment.
+function scrubRoasters(text: string | null, roasterNames: string[]): string | null {
+  if (!text) return text;
+  let out = text;
+  for (const n of [...roasterNames].filter(x => x.trim()).sort((a, b) => b.length - a.length)) {
+    out = out.replace(roasterPattern(n), (_m, lead: string) => `${lead}the roaster`);
+  }
+  return out;
+}
+
+/** Every customer-visible coffee, in catalog order: dial coffees by archetype (dial order) and dial position, then category coffees, then id. */
+// `withFlavors: false` skips the roaster-voice read (Key flavors, one read per
+// coffee): the composition pool (fetchSommelierCoffees) needs only ids,
+// archetypes and aliases, and the voice read is the slow part of a build.
+export async function getCatalogCoffees(runner: Tx | typeof db = db, opts: { withFlavors?: boolean } = {}): Promise<CatalogCoffee[]> {
+  const [sellable, categoryRows, archetypes, sizes, retail, roasters] = await Promise.all([
+    getSellableSlots({}, runner),
+    getCategoryCoffees(CATEGORY_CODES, runner),
+    getArchetypes(runner),
+    getSizes(runner),
+    getCoffeeRetailPrices({}, runner),
+    runner.query<{ name: string }>(`SELECT name FROM roaster WHERE name IS NOT NULL`),
+  ]);
+  const roasterNames = roasters.rows.map(r => r.name);
+  const archetypeOrder = new Map<string, number>(archetypes.map(a => [a.code as string, a.sort_order]));
+  const archetypeLabels = new Map<string, string>(archetypes.map(a => [a.code as string, a.label]));
+  const sizeLabel = new Map<number, string>(sizes.map(s => [s.weight_oz, s.label]));
+  const sizeOrder = new Map<number, number>(sizes.map(s => [s.weight_oz, s.sort_order]));
+
+  // Dial coffees: the first winning slot (home before guest), its price per size.
+  const dial = new Map<number, { slotArchetype: string; sortOrder: number; position: string; sizes: Map<number, number> }>();
+  const sortedSellable = [...sellable].sort((a, b) =>
+    (a.role === 'home' ? 0 : 1) - (b.role === 'home' ? 0 : 1) || a.priority - b.priority || a.slot_id - b.slot_id);
+  for (const s of sortedSellable) {
+    const w = Number(s.weight_oz);
+    let d = dial.get(s.coffee_id);
+    if (!d) { d = { slotArchetype: s.archetype, sortOrder: s.sort_order, position: s.position_label, sizes: new Map() }; dial.set(s.coffee_id, d); }
+    if (!d.sizes.has(w)) d.sizes.set(w, Number(s.retail_price_cents));
+  }
+
+  const categoriesByCoffee = new Map<number, Array<{ code: string; label: string; order: number }>>();
+  for (const r of categoryRows) {
+    const list = categoriesByCoffee.get(r.coffee_id) ?? [];
+    if (!list.some(c => c.code === r.category_code)) list.push({ code: r.category_code, label: r.category_label, order: r.category_sort_order });
+    categoriesByCoffee.set(r.coffee_id, list);
+  }
+
+  const ids = [...new Set([...dial.keys(), ...categoriesByCoffee.keys()])];
+  if (!ids.length) return [];
+  const coffees = await getCoffees({ ids, active: true }, runner);
+  const activeIds = coffees.map(c => c.id);
+  const [aliases, descriptors] = await Promise.all([
+    getAliases(activeIds, runner),
+    opts.withFlavors === false ? Promise.resolve(new Map<number, string[]>()) : getDescriptors(activeIds),
+  ]);
+
+  const retailByCoffee = new Map<number, Map<number, number>>();
+  for (const r of retail) {
+    const m = retailByCoffee.get(r.coffee_id) ?? new Map<number, number>();
+    m.set(Number(r.weight_oz), r.retail_price_cents);
+    retailByCoffee.set(r.coffee_id, m);
+  }
+
+  const out: Array<{ coffee: CatalogCoffee; sortKey: number[] }> = [];
+  for (const c of coffees) {
+    const d = dial.get(c.id);
+    const cats = (categoriesByCoffee.get(c.id) ?? []).sort((a, b) => a.order - b.order);
+    // Sizes: a dial coffee's winning-slot prices; a category coffee's own
+    // retail prices where an active SKU sells that size (the site's rule).
+    const sizeCents = new Map<number, number>(d ? d.sizes : []);
+    if (!d) {
+      for (const [w, cents] of retailByCoffee.get(c.id) ?? []) {
+        if (sizeLabel.has(w) && await resolveCoffeeBlend(c.id, w)) sizeCents.set(w, cents);
+      }
+    }
+    const archetype: string | null = c.match_archetype ?? d?.slotArchetype ?? null;
+    const archLabel = archetype ? archetypeLabels.get(archetype) ?? null : null;
+    let alias = aliases.get(c.id) ?? c.name;
+    if (mentionsRoaster(alias, roasterNames)) alias = [cats[0]?.label, archLabel].filter(Boolean).join(' ') || 'This coffee';
+    out.push({
+      coffee: {
+        id: c.id, alias, archetype, archetypeLabel: archLabel,
+        categories: cats.map(({ code, label }) => ({ code, label })),
+        dialPosition: d?.position ?? null,
+        sizes: [...sizeCents.entries()].filter(([w]) => sizeLabel.has(w))
+          .sort((a, b) => (sizeOrder.get(a[0]) ?? 0) - (sizeOrder.get(b[0]) ?? 0))
+          .map(([w, cents]) => ({ label: sizeLabel.get(w)!, cents })),
+        tastingNote: scrubRoasters(c.three_voice_story ?? null, roasterNames),
+        keyFlavors: descriptors.get(c.id) ?? [],
+        story: c.story_published ? scrubRoasters(c.story ?? null, roasterNames) : null,
+      },
+      sortKey: [d ? 0 : 1, archetype ? archetypeOrder.get(archetype) ?? 99 : 99, d ? d.sortOrder : cats[0]?.order ?? 99, c.id],
+    });
+  }
+  out.sort((a, b) => {
+    for (let i = 0; i < a.sortKey.length; i++) if (a.sortKey[i] !== b.sortKey[i]) return a.sortKey[i] - b.sortKey[i];
+    return 0;
+  });
+  return out.map(o => o.coffee);
+}
+
+function firstSentences(text: string, n: number): string {
+  if (n <= 0) return '';
+  return text.replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s+/).slice(0, n).join(' ');
+}
+
+/** Rough token estimate for the guard (about 3.6 characters per token for this prose); the ledger reports the real count. */
+export function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 3.6);
+}
+
+/** Pure render. `storySentences` overrides the config (the token guard's trim levels). */
+export function renderCatalogBlock(coffees: CatalogCoffee[], cfg: CatalogBlockConfig, storySentences = cfg.storySentences): string {
+  if (!coffees.length) return `${cfg.header}\n---\n(no coffees are visible to customers right now)`;
+  const lines = [cfg.header];
+  for (const c of coffees) {
+    const values: Record<string, string> = {
+      alias: c.alias,
+      archetype: c.archetypeLabel ?? '',
+      categories: c.categories.length ? `, ${c.categories.map(x => x.label).join(' / ')}` : '',
+      dial: c.dialPosition ? ` · dial: ${c.dialPosition.toLowerCase()}` : '',
+      sizes: c.sizes.length
+        ? `${c.sizes.map(s => `${s.label} $${(s.cents / 100).toFixed(2)}`).join(' · ')}${cfg.sizesForm ? ` (${cfg.sizesForm})` : ''}`
+        : cfg.notYetAvailable,
+      tastingNote: c.tastingNote ?? '',
+      keyFlavors: c.keyFlavors.join(', '),
+      story: c.story ? firstSentences(c.story, storySentences) : '',
+    };
+    lines.push('---');
+    for (const tpl of cfg.template) {
+      const names = [...tpl.matchAll(/\{(\w+)\}/g)].map(m => m[1]);
+      if (names.length && names.every(n => !values[n])) continue; // every placeholder empty: drop the line
+      lines.push(tpl.replace(/\{(\w+)\}/g, (_m, n: string) => values[n] ?? ''));
+    }
+  }
+  lines.push('---');
+  return lines.join('\n');
+}
+
+export interface CatalogBlock {
+  text: string;
+  version: string;
+  coffeeIds: number[];
+  coffees: CatalogCoffee[];
+  tokensEstimate: number;
+  trimLevel: 0 | 1 | 2;   // 0 = stories at storySentences, 1 = one sentence, 2 = none
+  builtAt: string;
+}
+
+let catalogBlockCache: { block: CatalogBlock; checkedAt: number } | null = null;
+let catalogPoolCache: { version: string; coffees: CatalogCoffee[] } | null = null;
+
+/** The same coffees as the catalog block, without the flavor read; cached per catalog version. */
+export async function getCatalogPool(): Promise<{ version: string; coffees: CatalogCoffee[] }> {
+  const version = await getCatalogVersion();
+  if (catalogBlockCache?.block.version === version) return { version, coffees: catalogBlockCache.block.coffees };
+  if (catalogPoolCache?.version === version) return catalogPoolCache;
+  catalogPoolCache = { version, coffees: await getCatalogCoffees(db, { withFlavors: false }) };
+  return catalogPoolCache;
+}
+const CATALOG_BLOCK_RECHECK_MS = 10 * 60_000;
+
+/**
+ * The shared catalog block, rebuilt when getCatalogVersion() changes (as the
+ * per-session snapshot was) and re-rendered at most every 10 minutes so a
+ * story edit lands without a catalog change; an unchanged catalog renders the
+ * same bytes, so the shared cache entry survives a re-render. Token guard:
+ * over catalogBlock.maxTokens, stories go to one sentence, then none, and
+ * [liam:CATALOG_BLOCK_TRIMMED] is logged; a coffee is never dropped.
+ */
+export async function getCatalogBlock(opts: { force?: boolean } = {}): Promise<CatalogBlock> {
+  const version = await getCatalogVersion();
+  if (!opts.force && catalogBlockCache && catalogBlockCache.block.version === version
+      && Date.now() - catalogBlockCache.checkedAt < CATALOG_BLOCK_RECHECK_MS) {
+    return catalogBlockCache.block;
+  }
+  const cfg = catalogBlockConfig();
+  const coffees = await getCatalogCoffees();
+  let trimLevel: 0 | 1 | 2 = 0;
+  let text = renderCatalogBlock(coffees, cfg);
+  if (estimateTokens(text) > cfg.maxTokens) { trimLevel = 1; text = renderCatalogBlock(coffees, cfg, Math.min(1, cfg.storySentences)); }
+  if (estimateTokens(text) > cfg.maxTokens) { trimLevel = 2; text = renderCatalogBlock(coffees, cfg, 0); }
+  if (trimLevel) console.warn(`[liam:CATALOG_BLOCK_TRIMMED] tokens=${estimateTokens(text)} level=${trimLevel}`);
+  const block: CatalogBlock = {
+    text, version, coffees, coffeeIds: coffees.map(c => c.id),
+    tokensEstimate: estimateTokens(text), trimLevel, builtAt: new Date().toISOString(),
+  };
+  if (!catalogBlockCache || catalogBlockCache.block.text !== text) {
+    console.log(`[liam:CATALOG_BLOCK_BUILT] coffees=${block.coffeeIds.length} tokens~${block.tokensEstimate} level=${trimLevel} version=${version}`);
+  }
+  catalogBlockCache = { block, checkedAt: Date.now() };
+  return block;
+}
+
+/** The last built block's numbers, for the System Health card (never triggers a build). */
+export function getCatalogBlockStatus(): { tokensEstimate: number; trimLevel: number; builtAt: string; version: string; coffeeCount: number } | null {
+  if (!catalogBlockCache) return null;
+  const b = catalogBlockCache.block;
+  return { tokensEstimate: b.tokensEstimate, trimLevel: b.trimLevel, builtAt: b.builtAt, version: b.version, coffeeCount: b.coffeeIds.length };
 }

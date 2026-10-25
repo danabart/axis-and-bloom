@@ -13,10 +13,12 @@ import 'dotenv/config';
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { db } from '../db/client.js';
 import { createCoffee, setMatchArchetype, upsertSku, placeCoffee, setSlotPrice, retireCoffee, type ArchetypeCode } from './catalogService.js';
-import { fetchSommelierCoffees, getAliases, type SlotCandidate } from './sommelierRag.js';
+import { fetchSommelierCoffees, getAliases, getCatalogBlock, type SlotCandidate } from './sommelierRag.js';
 import { freeSlots, freeSlotsInOneArchetype, liveSellableCoffeeIds, type FreeSlot } from '../test/freeSlots.js';
 
 const ACTOR = { actor: 'vitest' };
+// Rev 2: the coffees a ragFocus composed (the FIT block's), not the whole catalog.
+const picked = (r: { slices: Array<{ coffeeId: number }> }) => r.slices.map(s => s.coffeeId);
 const WEIGHT_OZ = 12;
 
 afterAll(async () => {
@@ -64,7 +66,8 @@ describe('fetchSommelierCoffees — candidate pool is v_coffee_sellable_slot at 
 
       const before = await fetchSommelierCoffees({ ragFocus: 'curated_mix', userArchetype: null });
       expect(before.coffeeIds).toContain(coffeeId);
-      expect(before.catalogText).toContain('YOUR CURRENT CATALOG');
+      // Liam sees everything brief Rev 2: coffeeIds is the whole shared catalog block.
+      expect((await getCatalogBlock()).text).toContain('YOUR CATALOG');
 
       await retireCoffee({ coffeeId, reason: 'manual' }, ACTOR);
       const after = await fetchSommelierCoffees({ ragFocus: 'curated_mix', userArchetype: null });
@@ -101,8 +104,10 @@ describe('fetchSommelierCoffees — candidate pool is v_coffee_sellable_slot at 
       await setSlotPrice({ slotId: otherSlot, weightOz: WEIGHT_OZ, retailPriceCents: 1700 }, ACTOR);
 
       const result = await fetchSommelierCoffees({ ragFocus: 'exact_match', userArchetype: targetArchetype });
-      expect(result.coffeeIds).toContain(target.result.coffeeId);
-      expect(result.coffeeIds).not.toContain(other.result.coffeeId);
+      // Liam sees everything brief Rev 2: coffeeIds is the whole catalog Liam
+      // may name; what the focus composed (and labelled) is `slices`.
+      expect(picked(result)).toContain(target.result.coffeeId);
+      expect(picked(result)).not.toContain(other.result.coffeeId);
     } finally {
       await cleanup(roaster, coffeeIds, slotIds);
     }
@@ -171,8 +176,8 @@ describe('fetchSommelierCoffees — Liam L1, Part B: thread/secondary/palate sli
     expect(threadSlices.every(s => state.floral.includes(s.coffeeId))).toBe(true);
     expect(secondarySlices.length).toBe(2); // capped at 2, from 3 secondary candidates
     expect(secondarySlices.every(s => state.secondary.includes(s.coffeeId))).toBe(true);
-    expect(result.catalogText).toContain('[thread: Floral]');
-    expect(result.catalogText).toContain('[second archetype]');
+    expect(result.fitText).toContain('[thread: Floral]');
+    expect(result.fitText).toContain('[second archetype]');
 
     // Both reserved slices precede any focus-fill coffee (palate isn't used
     // in this call, so the first non-thread/secondary slice is 'focus'/'primary').
@@ -204,7 +209,7 @@ describe('fetchSommelierCoffees — Liam L1, Part B: thread/secondary/palate sli
 
     const secondary2Slice = result.slices.find(s => s.coffeeId === state.secondary[2]);
     expect(secondary2Slice?.slice).toBe('had'); // already_bought -> 'had', not plain 'palate'
-    expect(result.catalogText).toContain('[palate match] [had before, rated 5]');
+    expect(result.fitText).toContain('[palate match] [had before, rated 5]');
 
     // Palate slice (index of secondary[2]) precedes any focus-fill coffee.
     const palateIndex = result.slices.findIndex(s => s.coffeeId === state.secondary[2]);
@@ -222,12 +227,12 @@ describe('fetchSommelierCoffees — Liam L1, Part B: thread/secondary/palate sli
 
   it('excludes a disliked coffee even when the focus would otherwise pick it', async () => {
     const withoutDislike = await fetchIsolated({ ragFocus: 'curated_mix', userArchetype: 'earthy' });
-    expect(withoutDislike.coffeeIds).toContain(state.earthy[0]); // curated_mix picks 1 per archetype in the pool
+    expect(picked(withoutDislike)).toContain(state.earthy[0]); // curated_mix picks 1 per archetype in the pool
 
     const withDislike = await fetchIsolated({
       ragFocus: 'curated_mix', userArchetype: 'earthy', dislikedCoffeeIds: [state.earthy[0]],
     });
-    expect(withDislike.coffeeIds).not.toContain(state.earthy[0]);
+    expect(picked(withDislike)).not.toContain(state.earthy[0]);
   }, 20000);
 
   // Liam L2, Part C — the new 'matched' focus.
@@ -240,8 +245,8 @@ describe('fetchSommelierCoffees — Liam L1, Part B: thread/secondary/palate sli
     expect(primaryIndexes.length).toBeGreaterThan(0);
     expect(secondaryIndexes.length).toBeGreaterThan(0);
     expect(Math.max(...primaryIndexes)).toBeLessThan(Math.min(...secondaryIndexes));
-    expect(result.catalogText).toContain('[primary]');
-    expect(result.catalogText).toContain('[second archetype]');
+    expect(result.fitText).toContain('[primary]');
+    expect(result.fitText).toContain('[second archetype]');
   }, 20000);
 
   it('matched focus: a customer with slot candidates gets [palate match] first', async () => {

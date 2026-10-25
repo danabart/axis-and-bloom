@@ -361,8 +361,229 @@ export async function getFactsWatermark(uid: string, runner: Runner = db): Promi
        UNION ALL
        SELECT cil.occurred_at FROM customer_identity_link cil
          JOIN v_customer_identity vci ON vci.user_id = cil.user_id WHERE vci.canonical_user_id = $1
+       -- Liam sees everything brief Rev 2, Part B (2026-10-24): the new
+       -- block lines rebuild mid-session when any of these move.
+       UNION ALL
+       SELECT o.created_at FROM "order" o
+         JOIN v_customer_identity vci ON vci.user_id = o.user_id WHERE vci.canonical_user_id = $1
+       UNION ALL
+       SELECT COALESCE(s.updated_at, s.created_at) FROM subscription s
+         JOIN v_customer_identity vci ON vci.user_id = s.user_id WHERE vci.canonical_user_id = $1
+       UNION ALL
+       SELECT GREATEST(usi.created_at, COALESCE(usi.removed_at, usi.created_at)) FROM user_saved_item usi
+         JOIN v_customer_identity vci ON vci.user_id = usi.user_id WHERE vci.canonical_user_id = $1
+       UNION ALL
+       SELECT ubc.updated_at FROM user_brew_card ubc
+         JOIN v_customer_identity vci ON vci.user_id = ubc.user_id WHERE vci.canonical_user_id = $1
      ) all_facts`,
     [canonicalId]
   );
   return result.rows[0]?.watermark ?? null;
+}
+
+// ── Liam sees everything brief Rev 2, Part B (2026-10-24) ──────────────────
+// The ABOUT THIS CUSTOMER block's new reads. Each resolves through
+// v_customer_identity (every linked profile), selects only what its line
+// prints, and returns nothing a customer would not expect Liam to say back:
+// no street address, no payment data, no internal ids beyond the coffee id
+// the block turns into an alias. Order and subscription reads live here
+// (not in routes) so Brief 3's gate reuses them. Read-only.
+
+export interface CustomerIdentity {
+  firstName: string | null;
+  memberSince: Date | null;   // earliest created_at across linked profiles
+  householdMembers: number;   // other profiles in the same household (0 = none)
+}
+export async function getCustomerIdentity(uid: string, runner: Runner = db): Promise<CustomerIdentity | null> {
+  const canonicalId = await resolveCanonicalUserId(uid, runner);
+  if (!canonicalId) return null;
+  const r = await runner.query<{ first_name: string | null; member_since: Date | null; household_members: string }>(
+    `SELECT (SELECT up.first_name FROM user_profile up WHERE up.id = $1) AS first_name,
+            (SELECT MIN(up.created_at) FROM user_profile up JOIN v_customer_identity vci ON vci.user_id = up.id
+              WHERE vci.canonical_user_id = $1) AS member_since,
+            (SELECT COUNT(*) FROM user_profile other
+              WHERE other.household_id IS NOT NULL
+                AND other.household_id = (SELECT household_id FROM user_profile WHERE id = $1)
+                AND other.id <> $1) AS household_members`,
+    [canonicalId]
+  );
+  const row = r.rows[0];
+  const firstName = row?.first_name?.trim() || null;
+  return { firstName, memberSince: row?.member_since ?? null, householdMembers: Number(row?.household_members ?? 0) };
+}
+
+export interface QuizHistoryEntry { archetypeName: string; completedAt: Date }
+/** Completed, scored quizzes across linked profiles, newest first (the current one included). */
+export async function getQuizHistory(uid: string, limit: number, runner: Runner = db): Promise<QuizHistoryEntry[]> {
+  const canonicalId = await resolveCanonicalUserId(uid, runner);
+  if (!canonicalId) return [];
+  const r = await runner.query<{ archetype_name: string; completed_at: Date }>(
+    `SELECT ca.name AS archetype_name, qs.completed_at
+       FROM quiz_session qs
+       JOIN v_customer_identity vci ON vci.user_id = qs.user_id
+       JOIN coffee_archetype ca ON ca.id = qs.resulting_archetype_id
+      WHERE vci.canonical_user_id = $1 AND qs.completed_at IS NOT NULL
+      ORDER BY qs.completed_at DESC
+      LIMIT $2`,
+    [canonicalId, limit]
+  );
+  return r.rows.map(x => ({ archetypeName: x.archetype_name, completedAt: x.completed_at }));
+}
+
+export interface RecentOrderLine { coffeeId: number | null; weightOz: number | null; quantity: number }
+export interface RecentOrder { createdAt: Date; lines: RecentOrderLine[] }
+export interface RecentOrders {
+  recent: RecentOrder[];                        // newest first, up to `limit`
+  olderCount: number;                           // orders beyond `limit`
+  olderArchetypeCounts: Record<string, number>; // match archetype code -> line count, older orders only
+}
+// Rev 2: what was ordered and when, nothing else. fulfillment_status is
+// written 'pending' at checkout and never updated, there is no tracking
+// column and nothing writes roastery_shipment_details, so no status, tracking
+// or delivery date is selected here (a later brief adds one once lineage.json
+// names a writer).
+export async function getRecentOrders(uid: string, limit: number, runner: Runner = db): Promise<RecentOrders> {
+  const canonicalId = await resolveCanonicalUserId(uid, runner);
+  if (!canonicalId) return { recent: [], olderCount: 0, olderArchetypeCounts: {} };
+  const r = await runner.query<{ order_id: string; created_at: Date; coffee_id: number | null; weight_oz: string | null; quantity: number | null; match_archetype: string | null; rn: string }>(
+    `WITH orders AS (
+       SELECT o.id, o.created_at, ROW_NUMBER() OVER (ORDER BY o.created_at DESC, o.id) AS rn
+         FROM "order" o JOIN v_customer_identity vci ON vci.user_id = o.user_id
+        WHERE vci.canonical_user_id = $1)
+     SELECT o.id AS order_id, o.created_at, sku.coffee_id, sku.weight_oz, oli.quantity, c.match_archetype, o.rn
+       FROM orders o
+       LEFT JOIN order_line_item oli ON oli.order_id = o.id
+       LEFT JOIN coffee_sku sku ON sku.id = oli.blend_id
+       LEFT JOIN v_coffee c ON c.id = sku.coffee_id
+      ORDER BY o.rn, oli.created_at`,
+    [canonicalId]
+  );
+  const recent: RecentOrder[] = [];
+  const byOrder = new Map<string, RecentOrder>();
+  const olderOrders = new Set<string>();
+  const olderArchetypeCounts: Record<string, number> = {};
+  for (const row of r.rows) {
+    if (Number(row.rn) > limit) {
+      olderOrders.add(row.order_id);
+      if (row.match_archetype) olderArchetypeCounts[row.match_archetype] = (olderArchetypeCounts[row.match_archetype] ?? 0) + 1;
+      continue;
+    }
+    let order = byOrder.get(row.order_id);
+    if (!order) { order = { createdAt: row.created_at, lines: [] }; byOrder.set(row.order_id, order); recent.push(order); }
+    if (row.quantity !== null) {
+      order.lines.push({ coffeeId: row.coffee_id, weightOz: row.weight_oz === null ? null : Number(row.weight_oz), quantity: row.quantity });
+    }
+  }
+  return { recent, olderCount: olderOrders.size, olderArchetypeCounts };
+}
+
+export interface SubscriptionCurrent { status: string; sponsored: boolean }
+// Rev 2: status and sponsored only. next_delivery_date and frequency_days are
+// never written; price and payment are not Liam's to say.
+export async function getSubscriptionCurrent(uid: string, runner: Runner = db): Promise<SubscriptionCurrent | null> {
+  const canonicalId = await resolveCanonicalUserId(uid, runner);
+  if (!canonicalId) return null;
+  const r = await runner.query<{ status: string; sponsored: boolean }>(
+    `SELECT s.status, (s.company_gift_id IS NOT NULL OR s.sponsored_expires_at IS NOT NULL) AS sponsored
+       FROM subscription s JOIN v_customer_identity vci ON vci.user_id = s.user_id
+      WHERE vci.canonical_user_id = $1
+      ORDER BY s.updated_at DESC NULLS LAST, s.created_at DESC
+      LIMIT 1`,
+    [canonicalId]
+  );
+  return r.rows[0] ? { status: r.rows[0].status, sponsored: r.rows[0].sponsored } : null;
+}
+
+/** City and state of the default shipping address (never the street). */
+export async function getShipsTo(uid: string, runner: Runner = db): Promise<{ city: string | null; state: string | null } | null> {
+  const canonicalId = await resolveCanonicalUserId(uid, runner);
+  if (!canonicalId) return null;
+  const r = await runner.query<{ city: string | null; state: string | null }>(
+    `SELECT a.city, a.state
+       FROM address a JOIN v_customer_identity vci ON vci.user_id = a.user_id
+      WHERE vci.canonical_user_id = $1 AND a.address_type::text = 'shipping'
+      ORDER BY a.is_default DESC, a.updated_at DESC NULLS LAST
+      LIMIT 1`,
+    [canonicalId]
+  );
+  const row = r.rows[0];
+  return row && (row.city || row.state) ? { city: row.city, state: row.state } : null;
+}
+
+export interface SavedDialItem { archetype: string | null; dialSortOrder: number | null; coffeeId: number | null; savedAt: Date }
+/** Live (not removed) dial-slot saves from the profile's flavor memory, newest first, one per slot. */
+export async function getSavedCoffees(uid: string, runner: Runner = db): Promise<SavedDialItem[]> {
+  const canonicalId = await resolveCanonicalUserId(uid, runner);
+  if (!canonicalId) return [];
+  const r = await runner.query<{ archetype: string | null; dial_sort_order: number | null; coffee_id: number | null; created_at: Date }>(
+    `SELECT DISTINCT ON (usi.ref_id)
+            usi.payload->>'archetype' AS archetype,
+            NULLIF(usi.payload->>'dialSortOrder', '')::int AS dial_sort_order,
+            NULLIF(usi.payload->>'coffeeId', '')::int AS coffee_id,
+            usi.created_at
+       FROM user_saved_item usi JOIN v_customer_identity vci ON vci.user_id = usi.user_id
+      WHERE vci.canonical_user_id = $1 AND usi.kind = 'dial_slot' AND usi.removed_at IS NULL
+      ORDER BY usi.ref_id, usi.created_at DESC`,
+    [canonicalId]
+  );
+  return r.rows
+    .map(x => ({ archetype: x.archetype, dialSortOrder: x.dial_sort_order, coffeeId: x.coffee_id, savedAt: x.created_at }))
+    .sort((a, b) => b.savedAt.getTime() - a.savedAt.getTime());
+}
+
+export interface BrewCardCurrent { coffeeId: number; method: string; ratio: string | null; grindLabel: string | null; tempC: number | null }
+/** The current brew card per coffee and method. */
+export async function getBrewCardsCurrent(uid: string, runner: Runner = db): Promise<BrewCardCurrent[]> {
+  const canonicalId = await resolveCanonicalUserId(uid, runner);
+  if (!canonicalId) return [];
+  const r = await runner.query<{ coffee_id: number; method: string; params: Record<string, unknown> | null }>(
+    `SELECT DISTINCT ON (ubc.coffee_id, ubc.method) ubc.coffee_id, ubc.method, ubc.params
+       FROM user_brew_card ubc JOIN v_customer_identity vci ON vci.user_id = ubc.user_id
+      WHERE vci.canonical_user_id = $1
+      ORDER BY ubc.coffee_id, ubc.method, ubc.updated_at DESC`,
+    [canonicalId]
+  );
+  return r.rows.map(x => ({
+    coffeeId: x.coffee_id, method: x.method,
+    ratio: typeof x.params?.ratio === 'string' ? x.params.ratio : null,
+    grindLabel: typeof x.params?.grindLabel === 'string' ? x.params.grindLabel : null,
+    tempC: typeof x.params?.tempC === 'number' ? x.params.tempC : null,
+  }));
+}
+
+export interface LiamSessionHistory {
+  sessionId: number;
+  at: Date;
+  recommendedCoffeeIds: number[];
+  answers: string[]; // the customer's recorded reply text to Liam's questions, in order
+}
+/** The last `limit` earlier sessions with a recorded recommendation or answered question (L3 write-back facts), newest first. */
+export async function getLiamHistory(uid: string, limit: number, excludeSessionId: number | null = null, runner: Runner = db): Promise<LiamSessionHistory[]> {
+  const canonicalId = await resolveCanonicalUserId(uid, runner);
+  if (!canonicalId) return [];
+  const r = await runner.query<{ session_id: number; at: Date; recommended: number[] | null; answers: string[] | null }>(
+    `WITH recs AS (
+       SELECT clr.session_id, clr.occurred_at, clr.coffee_id
+         FROM customer_liam_recommendation clr JOIN v_customer_identity vci ON vci.user_id = clr.user_id
+        WHERE vci.canonical_user_id = $1 AND clr.session_id IS NOT NULL),
+     replies AS (
+       SELECT clq.session_id, clrep.occurred_at, clrep.reply
+         FROM customer_liam_reply clrep
+         JOIN customer_liam_question clq ON clq.id = clrep.question_id
+         JOIN v_customer_identity vci ON vci.user_id = clrep.user_id
+        WHERE vci.canonical_user_id = $1 AND clq.session_id IS NOT NULL),
+     sessions AS (
+       SELECT session_id, MAX(occurred_at) AS at FROM (
+         SELECT session_id, occurred_at FROM recs UNION ALL SELECT session_id, occurred_at FROM replies) s
+        WHERE ($2::int IS NULL OR session_id <> $2)
+        GROUP BY session_id
+        ORDER BY MAX(occurred_at) DESC
+        LIMIT $3)
+     SELECT s.session_id, s.at,
+            (SELECT array_agg(DISTINCT r.coffee_id) FROM recs r WHERE r.session_id = s.session_id AND r.coffee_id IS NOT NULL) AS recommended,
+            (SELECT array_agg(p.reply ORDER BY p.occurred_at) FROM replies p WHERE p.session_id = s.session_id AND p.reply IS NOT NULL) AS answers
+       FROM sessions s ORDER BY s.at DESC`,
+    [canonicalId, excludeSessionId, limit]
+  );
+  return r.rows.map(x => ({ sessionId: x.session_id, at: x.at, recommendedCoffeeIds: x.recommended ?? [], answers: x.answers ?? [] }));
 }

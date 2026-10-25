@@ -74,6 +74,17 @@ interface LiamAnswersData {
   error?: string;
 }
 
+// Liam sees everything brief Rev 2, C5 (2026-10-24): the turn ledger over 24 hours. Report only.
+interface LiamContextData {
+  turns24h?: number;
+  usdMicros24h?: number;
+  medianUsdMicrosPerTurn?: number | null;
+  cacheHitRate?: number | null;
+  byRoute?: Record<string, number>;
+  catalogBlock?: { tokensEstimate: number; coffeeCount: number; trimLevel: number; builtAt: string };
+  error?: string;
+}
+
 interface SystemHealthData {
   callTypes: CallTypeRow[];
   clientErrorSignatures: ClientErrorSignatureRow[];
@@ -81,7 +92,10 @@ interface SystemHealthData {
   dataCatalog?: DataCatalogData;
   cuppingEvidence?: CuppingEvidenceData;
   liamAnswers?: LiamAnswersData;
+  liamContext?: LiamContextData;
 }
+
+const usd = (micros: number | null | undefined, digits = 2) => (micros === null || micros === undefined ? '—' : `$${(micros / 1_000_000).toFixed(digits)}`);
 
 const RUST = '#b05642';
 const CARD = 'border rounded-lg p-4 bg-white';
@@ -253,6 +267,57 @@ export default function AdminSystemHealth() {
               </>
             )}
           </Link>
+        </div>
+      )}
+
+      {/* ── Liam context (Liam sees everything brief Rev 2, C5) ── */}
+      {data.liamContext && (
+        <div className="mb-8">
+          <p className={LABEL}>Liam context</p>
+          <div className={`${CARD} border-stone-200`}>
+            {data.liamContext.error ? (
+              <p className="text-xs" style={{ color: RUST }}>{data.liamContext.error}</p>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-8">
+                  <div>
+                    <p className="text-2xl font-normal text-stone-800">{data.liamContext.turns24h ?? 0}</p>
+                    <p className="text-xs text-stone-400">replies in 24 h</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-normal text-stone-800">{usd(data.liamContext.usdMicros24h)}</p>
+                    <p className="text-xs text-stone-400">cost in 24 h</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-normal text-stone-800">{usd(data.liamContext.medianUsdMicrosPerTurn, 4)}</p>
+                    <p className="text-xs text-stone-400">median cost per reply</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-normal text-stone-800">
+                      {data.liamContext.cacheHitRate === null || data.liamContext.cacheHitRate === undefined ? '—' : `${Math.round(data.liamContext.cacheHitRate * 100)}%`}
+                    </p>
+                    <p className="text-xs text-stone-400">prompt cache hit rate</p>
+                  </div>
+                  {data.liamContext.catalogBlock && (
+                    <div>
+                      <p className="text-2xl font-normal text-stone-800">{data.liamContext.catalogBlock.coffeeCount}</p>
+                      <p className="text-xs text-stone-400">
+                        coffees in Liam's catalog, ~{data.liamContext.catalogBlock.tokensEstimate.toLocaleString()} tokens
+                        {data.liamContext.catalogBlock.trimLevel ? ` (stories shortened, level ${data.liamContext.catalogBlock.trimLevel})` : ''}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <p className="mt-3 text-xs text-stone-400">
+                  {data.liamContext.catalogBlock ? `Catalog block last built ${new Date(data.liamContext.catalogBlock.builtAt).toLocaleString()}. ` : ''}
+                  {data.liamContext.byRoute && Object.keys(data.liamContext.byRoute).length
+                    ? `By route: ${Object.entries(data.liamContext.byRoute).map(([k, v]) => `${k} ${v}`).join(', ')}. `
+                    : ''}
+                  Report only, from the turn ledger.
+                </p>
+              </>
+            )}
+          </div>
         </div>
       )}
 

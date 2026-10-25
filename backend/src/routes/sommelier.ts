@@ -6,7 +6,8 @@ import { db } from '../db/client.js';
 import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
 import { evaluateSommelier } from '../services/sommelierEvaluator.js';
-import { fetchSommelierCoffees, getAliases, type SlotCandidate, type RagResult } from '../services/sommelierRag.js';
+import { fetchSommelierCoffees, getAliases, getCatalogBlock, type SlotCandidate, type RagResult, type CatalogBlock } from '../services/sommelierRag.js';
+import { recordTurn as recordLedgerTurn } from '../services/sommelierTurnService.js';
 import { loadProfileReads, buildProfileLine } from '../services/liamProfile.js';
 import { getCoffees, archetypeLabel, archetypeCode, getCatalogVersion } from '../services/catalogReads.js';
 import { getTokenBalance, spendToken, logUsage } from '../services/tokenService.js';
@@ -164,6 +165,20 @@ export function resolveStoryForMessage(
 // version refresh (here) and a facts-watermark refresh (/message) re-read the
 // live equivalents rather than reusing these — a stale disliked/slot list
 // would defeat the whole point of refreshing.
+// Liam sees everything brief Rev 2 (2026-10-24) — every coffee in the shared
+// catalog block is a story / alias candidate now (was the 6-coffee slice):
+// Liam may name any of them, so the write-back resolves against all of them.
+export function storyCandidatesFromBlock(block: Pick<CatalogBlock, 'coffees'>): StoryCandidate[] {
+  return block.coffees.map(c => ({ coffeeId: c.id, alias: c.alias, story: c.story }));
+}
+
+// Rev 2, A3 — the brew profile's decaf_constraint, read live (it can be
+// stated mid-conversation and lands through the facts watermark).
+export function isDecafOnly(brewProfile: Record<string, { value: unknown }> | null | undefined): boolean {
+  const v = brewProfile?.decaf_constraint?.value;
+  return v === true || v === 'true';
+}
+
 export interface RagInputs {
   ragFocus: string;
   userArchetype: string | null;
@@ -179,7 +194,8 @@ export async function refreshCatalogSnapshotIfStale(
   uid: string,
   ctx: {
     catalogVersion?: string; ragInputs?: RagInputs;
-    catalogText?: string; coffeeIds?: number[]; storyCandidates?: StoryCandidate[]; slices?: RagResult['slices'];
+    catalogText?: string; fitText?: string; fitCoffeeIds?: number[];
+    coffeeIds?: number[]; storyCandidates?: StoryCandidate[]; slices?: RagResult['slices'];
   },
   sessionId: number
 ): Promise<void> {
@@ -188,9 +204,11 @@ export async function refreshCatalogSnapshotIfStale(
     if (ctx.catalogVersion === currentCatalogVersion) return;
 
     const ragInputs = ctx.ragInputs;
-    const [slotCandidates, negativeRows] = await Promise.all([
+    const [slotCandidates, negativeRows, brewProfileNow, block] = await Promise.all([
       getSlotCandidates(uid),
       getFeedbackCurrent(uid, { sentiment: 'negative' }),
+      getBrewProfileCurrent(uid),
+      getCatalogBlock(),
     ]);
     const refreshed = await fetchSommelierCoffees({
       ragFocus: ragInputs?.ragFocus ?? 'curated_mix',
@@ -201,23 +219,14 @@ export async function refreshCatalogSnapshotIfStale(
       exploreArchetype: ragInputs?.exploreArchetype ?? null,
       slotCandidates: slotCandidates as unknown as SlotCandidate[],
       dislikedCoffeeIds: negativeRows.map(r => r.coffeeId),
+      decafOnly: isDecafOnly(brewProfileNow),
     });
-    let refreshedStoryCandidates: StoryCandidate[] = [];
-    if (refreshed.coffeeIds.length) {
-      const [storyResult, aliasMap] = await Promise.all([
-        db.query(`SELECT id, story, story_published FROM coffees WHERE id = ANY($1::int[])`, [refreshed.coffeeIds]),
-        getAliases(refreshed.coffeeIds),
-      ]);
-      refreshedStoryCandidates = storyResult.rows.map((r: { id: number; story: string | null; story_published: boolean }) => ({
-        coffeeId: r.id,
-        alias: aliasMap.get(r.id) ?? '',
-        story: r.story_published ? r.story : null,
-      }));
-    }
     console.log('[sommelier] catalog snapshot refreshed', { sessionId, from: ctx.catalogVersion ?? null, to: currentCatalogVersion });
-    ctx.catalogText = refreshed.catalogText;
+    ctx.catalogText = block.text;
+    ctx.fitText = refreshed.fitText;
+    ctx.fitCoffeeIds = refreshed.slices.map(x => x.coffeeId);
     ctx.coffeeIds = refreshed.coffeeIds;
-    ctx.storyCandidates = refreshedStoryCandidates;
+    ctx.storyCandidates = storyCandidatesFromBlock(block);
     ctx.slices = refreshed.slices;
     ctx.catalogVersion = currentCatalogVersion;
   } catch (err) {
@@ -237,11 +246,12 @@ export async function refreshCatalogSnapshotIfStale(
 export async function refreshSliceIfFactsChanged(
   ctx: {
     factsWatermark?: string; ragInputs?: RagInputs;
-    catalogText?: string; coffeeIds?: number[]; storyCandidates?: StoryCandidate[]; slices?: RagResult['slices'];
+    catalogText?: string; fitText?: string; fitCoffeeIds?: number[];
+    coffeeIds?: number[]; storyCandidates?: StoryCandidate[]; slices?: RagResult['slices'];
   },
   sessionId: number,
   turnCount: number,
-  profileReads: { feedbackCurrent: Array<{ coffeeId: number; sentiment: string }>; slotCandidates: unknown[] },
+  profileReads: { feedbackCurrent: Array<{ coffeeId: number; sentiment: string }>; slotCandidates: unknown[]; brewProfile?: Record<string, { value: unknown }> },
   factsWatermark: Date | null
 ): Promise<void> {
   const storedWatermark = ctx.factsWatermark ? new Date(ctx.factsWatermark) : null;
@@ -259,23 +269,14 @@ export async function refreshSliceIfFactsChanged(
       exploreArchetype: ragInputs?.exploreArchetype ?? null,
       slotCandidates: profileReads.slotCandidates as unknown as SlotCandidate[],
       dislikedCoffeeIds,
+      decafOnly: isDecafOnly(profileReads.brewProfile),
     });
-    ctx.catalogText = refreshed.catalogText;
+    // Rev 2: the facts move the FIT block (fit labels, decaf); the catalog
+    // block is the shared one and only moves with the catalog version.
+    ctx.fitText = refreshed.fitText;
+    ctx.fitCoffeeIds = refreshed.slices.map(x => x.coffeeId);
     ctx.coffeeIds = refreshed.coffeeIds;
     ctx.slices = refreshed.slices;
-    if (refreshed.coffeeIds.length) {
-      const [storyResult, aliasMap] = await Promise.all([
-        db.query(`SELECT id, story, story_published FROM coffees WHERE id = ANY($1::int[])`, [refreshed.coffeeIds]),
-        getAliases(refreshed.coffeeIds),
-      ]);
-      ctx.storyCandidates = storyResult.rows.map((r: { id: number; story: string | null; story_published: boolean }) => ({
-        coffeeId: r.id,
-        alias: aliasMap.get(r.id) ?? '',
-        story: r.story_published ? r.story : null,
-      }));
-    } else {
-      ctx.storyCandidates = [];
-    }
     ctx.factsWatermark = factsWatermark.toISOString();
     console.log(`[liam:SLICE_REFRESHED] session=${sessionId} turn=${turnCount} reason=facts`);
   } catch (err) {
@@ -702,11 +703,17 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, requi
       secondaryArchetype, exploreArchetype, dislikedCoffeeIds,
       slotCandidateIds: reads.slotCandidates.map(c => c.coffee_id),
     };
-    const ragResult = await fetchSommelierCoffees({
-      ragFocus, userArchetype, previousArchetype: previousArchetypeForRag, excludeCoffeeIds,
-      secondaryArchetype, exploreArchetype, slotCandidates: reads.slotCandidates, dislikedCoffeeIds,
-    });
-    const catalogVersion = await getCatalogVersion();
+    // Liam sees everything brief Rev 2: the shared catalog block (every coffee
+    // a customer can see) plus this customer's FIT block over it.
+    const decafOnly = isDecafOnly(reads.brewProfile);
+    const [ragResult, catalogBlock] = await Promise.all([
+      fetchSommelierCoffees({
+        ragFocus, userArchetype, previousArchetype: previousArchetypeForRag, excludeCoffeeIds,
+        secondaryArchetype, exploreArchetype, slotCandidates: reads.slotCandidates, dislikedCoffeeIds, decafOnly,
+      }),
+      getCatalogBlock(),
+    ]);
+    const catalogVersion = catalogBlock.version;
     const factsWatermark = await getFactsWatermark(req.uid!);
 
     // Brew profile (§4.5, §3.5) — moved ahead of its original spot (just
@@ -725,23 +732,8 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, requi
     // S44-correct join sommelierRag.ts already uses for catalogText, not
     // reinvented here. Cached at session start, same "assembly-time only, no
     // re-query" principle Task 2 established for catalogText.
-    let storyCandidates: StoryCandidate[] = [];
-    if (ragResult.coffeeIds.length) {
-      try {
-        const [storyResult, aliasMap] = await Promise.all([
-          db.query(
-            `SELECT id, story, story_published FROM coffees WHERE id = ANY($1::int[])`,
-            [ragResult.coffeeIds]
-          ),
-          getAliases(ragResult.coffeeIds),
-        ]);
-        storyCandidates = storyResult.rows.map((r: { id: number; story: string | null; story_published: boolean }) => ({
-          coffeeId: r.id,
-          alias: aliasMap.get(r.id) ?? '',
-          story: r.story_published ? r.story : null,
-        }));
-      } catch { /* RAG catalog/alias lookup failed — no candidates, fine */ }
-    }
+    // Rev 2: every catalog coffee, from the shared block (alias + published story).
+    const storyCandidates: StoryCandidate[] = storyCandidatesFromBlock(catalogBlock);
 
     // HOME_TASK_6 (§3.1, §3.2) — resolves S71's deferred "current coffee"
     // concept. entry=bag|card + coffeeId anchors this whole session to one
@@ -788,7 +780,9 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, requi
           ragInputs,
           factsWatermark,
           coffeeIds: ragResult.coffeeIds,
-          catalogText: ragResult.catalogText,
+          catalogText: catalogBlock.text,
+          fitText: ragResult.fitText,
+          fitCoffeeIds: ragResult.slices.map(x => x.coffeeId),
           catalogVersion,
           slices: ragResult.slices,
           storyCandidates,
@@ -846,16 +840,19 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, requi
     let openingCardMarker: { type: 'save' } | { type: 'adjust'; adjustment: string } | undefined;
     let openingRecommendAlias: string | null = null;
     let openingAskKind: 'thread' | 'palate' | 'brew' | null = null;
+    let openingLedger: { usage: Awaited<ReturnType<typeof chatWithSommelier>>['usage']; usdMicros: number; latencyMs: number; answersVersion: number | null } | null = null;
     try {
       const chatResult = await chatWithSommelier({
         message: null,
         session: { intent, turnCount: 0, openingContext: enrichedOpeningContext },
-        catalogContext: ragResult.catalogText,
+        catalogContext: catalogBlock.text,
         history: [],
         brewProfileContext,
         currentCoffeeContext,
         profileLine,
+        fitContext: ragResult.fitText,
       });
+      openingLedger = { usage: chatResult.usage, usdMicros: chatResult.usdMicros, latencyMs: chatResult.latencyMs, answersVersion: chatResult.answersVersion };
       openingMessage = chatResult.reply;
       modelUsed = chatResult.modelUsed;
       openingActionTypes = chatResult.actionTypes;
@@ -886,6 +883,10 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, requi
       logUsage(req.uid!, String(newSessionId), modelUsed).catch(err => console.error('[sommelier/start] logUsage failed:', err));
       checkMonthlySpendAndAlert(req.uid!).catch(err => console.error('[sommelier/start] checkMonthlySpendAndAlert failed:', err));
     }
+    // Liam sees everything brief Rev 2, B1: no quiz on file — the opening turn
+    // carries the existing retake-quiz action link (the rule tells Liam to
+    // say so in one sentence and offer the quiz; this is the link).
+    if (!quizCurrent && !openingActionTypes.includes('retake_quiz')) openingActionTypes = [...openingActionTypes, 'retake_quiz'];
     // The prompt instructs Liam never to use a marker on the opening turn, but
     // resolve defensively anyway rather than assuming the instruction always holds.
     const openingActions = await resolveActions(openingActionTypes, req.uid!, archetypeKey, openingSaveRecipeTitle);
@@ -903,6 +904,14 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, requi
         actions: openingActions,
         createdAt: FieldValue.serverTimestamp(),
       });
+
+    // Rev 2, C3 — the ledger row for the opening turn (turn 0). Never fails the turn.
+    await recordLedgerTurn({
+      sessionId: newSessionId, turn: 0, userMessageId: null, assistantMessageId: openingMsgRef.id,
+      route: 'model', model: modelUsed === 'fallback' ? null : modelUsed,
+      answersVersion: openingLedger?.answersVersion ?? null, mode: 'matching',
+      usage: openingLedger?.usage ?? null, usdMicros: openingLedger?.usdMicros ?? 0, latencyMs: openingLedger?.latencyMs ?? null,
+    });
 
     // Liam L3, Part B — recommend/ask markers become facts once the opening
     // message's own doc id exists. MATCHED and CONVERSION are the two
@@ -938,7 +947,9 @@ router.post('/start', sommelierIpLimiter, requireAuth, blockAnonymousAuth, requi
 
     // Coffee names for the frontend display — aliases only, see
     // resolveCoffeeDisplayNames() above (HOME_TASK_5c).
-    const coffeeNames = await resolveCoffeeDisplayNames(ragResult.coffeeIds);
+    // Rev 2: the strip shows the coffees that fit this customer (the FIT
+    // block's), not the whole catalog Liam can see.
+    const coffeeNames = await resolveCoffeeDisplayNames(ragResult.slices.map(x => x.coffeeId));
 
     res.json({
       sessionId: newSessionId,
@@ -1020,19 +1031,20 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
     const capCheck = await checkDailyCap(req.uid!);
     if (capCheck.hit) {
       const messagesColForClose = firestoreDb.collection(`users/${req.uid}/sommelier_sessions/${sessionId}/messages`);
-      await messagesColForClose.doc().set({
-        role: 'user',
-        content: message,
-        seq: session.turn_count * 2 - 1,
-        createdAt: FieldValue.serverTimestamp(),
-      });
-      await messagesColForClose.add({
+      const capUserMsgRef = messagesColForClose.doc();
+      await capUserMsgRef.set({ role: 'user', content: message, seq: session.turn_count * 2 - 1, createdAt: FieldValue.serverTimestamp() });
+      const capReplyRef = await messagesColForClose.add({
         role: 'assistant',
         content: DAILY_CAP_CLOSE_MESSAGE,
         modelUsed: 'guard',
         seq: session.turn_count * 2,
         actions: [],
         createdAt: FieldValue.serverTimestamp(),
+      });
+      // Rev 2, C3 — the guard close is a reply too: route guard, no model, zero tokens.
+      await recordLedgerTurn({
+        sessionId, turn: session.turn_count, userMessageId: capUserMsgRef.id, assistantMessageId: capReplyRef.id,
+        route: 'guard', model: null,
       });
       await db.query(
         `UPDATE sommelier_sessions SET is_closed = true, close_reason = 'daily_cap', last_active_at = NOW() WHERE id = $1`,
@@ -1109,7 +1121,7 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
     // are cheap; this is the point — a fact captured earlier in *this same*
     // conversation must show up on the very next turn, same reasoning as the
     // brew-profile/current-coffee live reads elsewhere in this handler).
-    const profileReads = await loadProfileReads(req.uid!);
+    const profileReads = await loadProfileReads(req.uid!, undefined, { sessionId });
     const profileLine = buildProfileLine(profileReads);
     logProfileLineDebug(req.uid!, '/message', profileLine);
     const factsWatermark = await getFactsWatermark(req.uid!);
@@ -1194,13 +1206,17 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
           turnCount: session.turn_count,
           openingContext: ctx.openingContext ?? '',
         },
-        catalogContext: ctx.catalogText ?? '',
+        // Rev 2: the shared catalog block, read from the version-keyed
+        // in-memory cache every turn (same bytes as ctx.catalogText until the
+        // catalog changes; refreshCatalogSnapshotIfStale keeps ctx in step).
+        catalogContext: (await getCatalogBlock()).text,
         history,
         mode: topicResult.mode,
         brewProfileContext,
         storyContext,
         currentCoffeeContext,
         profileLine,
+        fitContext: ctx.fitText ?? '',
       });
     } catch (claudeErr) {
       if (isClaudeGuardBlocked(claudeErr)) {
@@ -1234,6 +1250,14 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
       seq: session.turn_count * 2,
       actions,
       createdAt: FieldValue.serverTimestamp(),
+    });
+
+    // Rev 2, C3 — one ledger row per reply, after the reply is in Firestore.
+    await recordLedgerTurn({
+      sessionId, turn: session.turn_count, userMessageId: userMsgRef.id, assistantMessageId: assistantMsgRef.id,
+      route: 'model', model: modelUsed, answersVersion: chatResult.answersVersion,
+      topic: topicResult.topic, matchedKeyword: topicResult.matchedKeyword, sticky: topicResult.sticky, mode: topicResult.mode,
+      usage: chatResult.usage, usdMicros: chatResult.usdMicros, latencyMs: chatResult.latencyMs,
     });
 
     const messageCandidates: AliasCandidate[] = (Array.isArray(ctx.storyCandidates) ? ctx.storyCandidates : [])
@@ -1395,7 +1419,7 @@ router.get('/:sessionId/messages', requireAuth, blockAnonymousAuth, requireLiamA
         .collection(`users/${req.uid}/sommelier_sessions/${sessionId}/messages`)
         .orderBy('seq')
         .get(),
-      resolveCoffeeDisplayNames(ctx.coffeeIds ?? []),
+      resolveCoffeeDisplayNames(ctx.fitCoffeeIds ?? ctx.coffeeIds ?? []),
     ]);
 
     let messages: { role: string; content: string; actions?: SommelierAction[]; messageId?: string }[];

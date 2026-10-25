@@ -23,7 +23,14 @@ interface SommelierConfig {
     customerCopy?: { limitNotice: string; closedNotice: string };
   };
   // Part A4: the rules around the brand facts; the facts are rows (Liam answers card).
-  brandFacts?: { enabled: boolean; cacheSeconds: number; rules: string[] };
+  brandFacts?: { enabled: boolean; cacheSeconds: number; rules: string[]; supportContact?: string };
+  // Liam sees everything brief Rev 2 (2026-10-24): optional until applyMissingKeys reaches the live doc.
+  catalogBlock?: {
+    header: string; template: string[]; sizesForm: string; notYetAvailable: string;
+    storySentences: number; maxTokens: number; fitHeader: string; decafHeader: string;
+  };
+  customerBlock?: { quizHistoryCount: number; ordersFullCount: number; feedbackCount: number; sessionsCount: number; rules: string[] };
+  promptCache?: { sharedTtl: '5m' | '1h' };
   tokenEconomy: { signupBonus: number; orderBonus: number; costPerTurn: number; purchaseEnabled: boolean };
   ragLimits: { maxCoffees: number };
   timeWindows: Record<string, number>;
@@ -176,6 +183,9 @@ export default function AdminSommelierConfig() {
           confidenceThresholds: config.confidenceThresholds,
           sessionLimits: config.sessionLimits,
           ...(config.brandFacts ? { brandFacts: config.brandFacts } : {}),
+          ...(config.catalogBlock ? { catalogBlock: config.catalogBlock } : {}),
+          ...(config.customerBlock ? { customerBlock: config.customerBlock } : {}),
+          ...(config.promptCache ? { promptCache: config.promptCache } : {}),
           tokenEconomy: config.tokenEconomy,
           ragLimits: config.ragLimits,
           timeWindows: config.timeWindows,
@@ -539,12 +549,104 @@ export default function AdminSommelierConfig() {
         </section>
       )}
 
+      {/* ── Liam sees everything brief Rev 2: the catalog block, the customer block, the shared cache TTL ── */}
+      {config.catalogBlock && config.customerBlock && (
+        <section className="mb-8">
+          <h2 className="text-sm font-normal tracking-widest uppercase text-stone-400 mb-4">Liam Context</h2>
+          <div className="border border-stone-200 rounded-lg p-4 space-y-4">
+            <p className="text-xs text-stone-400">
+              Liam sees every coffee customers can see (the catalog block, shared by every conversation) and this customer's facts.
+              Template placeholders: {'{alias} {archetype} {categories} {dial} {sizes} {tastingNote} {keyFlavors} {story}'}; a line whose placeholders are all empty is left out.
+            </p>
+            {config.brandFacts && (
+              <label className="flex items-center justify-between gap-4">
+                <span className="text-sm text-stone-700">Support contact Liam points to</span>
+                <input
+                  className="w-72 border border-stone-200 rounded px-3 py-1.5 text-sm"
+                  value={config.brandFacts.supportContact ?? ''}
+                  onChange={(e) => updateConfig(['brandFacts', 'supportContact'], e.target.value)}
+                />
+              </label>
+            )}
+            <label className="flex items-center justify-between gap-4">
+              <span className="text-sm text-stone-700">Shared prompt cache lifetime</span>
+              <select
+                className="w-24 border border-stone-200 rounded px-2 py-1.5 text-sm bg-white"
+                value={config.promptCache?.sharedTtl ?? '5m'}
+                onChange={(e) => updateConfig(['promptCache', 'sharedTtl'], e.target.value)}
+              >
+                <option value="5m">5 min</option>
+                <option value="1h">1 hour</option>
+              </select>
+            </label>
+            {([
+              ['catalogBlock', 'storySentences', 'Story sentences per coffee'],
+              ['catalogBlock', 'maxTokens', 'Catalog block token limit (stories shorten past it)'],
+              ['customerBlock', 'quizHistoryCount', 'Earlier quiz results shown'],
+              ['customerBlock', 'ordersFullCount', 'Orders shown in full'],
+              ['customerBlock', 'feedbackCount', 'Feedback entries shown'],
+              ['customerBlock', 'sessionsCount', 'Earlier Liam conversations shown'],
+            ] as const).map(([group, field, label]) => (
+              <label key={`${group}.${field}`} className="flex items-center justify-between gap-4">
+                <span className="text-sm text-stone-700">{label}</span>
+                <input
+                  type="number"
+                  min="0"
+                  className="w-24 border border-stone-200 rounded px-3 py-1.5 text-sm text-right"
+                  value={(config[group] as unknown as Record<string, number>)[field]}
+                  onChange={(e) => updateConfig([group, field], parseInt(e.target.value) || 0)}
+                />
+              </label>
+            ))}
+            {([
+              ['header', 'Catalog header'],
+              ['fitHeader', 'Fit block header'],
+              ['decafHeader', 'Decaf-only line'],
+            ] as const).map(([field, label]) => (
+              <label key={field} className="block">
+                <span className="text-xs text-stone-500">{label}</span>
+                <textarea
+                  rows={2}
+                  className="mt-1 w-full border border-stone-200 rounded px-3 py-1.5 text-sm"
+                  value={config.catalogBlock![field]}
+                  onChange={(e) => updateConfig(['catalogBlock', field], e.target.value)}
+                />
+              </label>
+            ))}
+            <label className="block">
+              <span className="text-xs text-stone-500">Catalog line template (one line per row)</span>
+              <textarea
+                rows={5}
+                className="mt-1 w-full border border-stone-200 rounded px-3 py-1.5 text-sm font-mono"
+                value={config.catalogBlock.template.join('\n')}
+                onChange={(e) => updateConfig(['catalogBlock', 'template'], e.target.value.split('\n'))}
+              />
+            </label>
+            <div>
+              <p className="text-xs text-stone-500 mb-1">Rules about the customer facts (shown to Liam with the brand rules; {'{supportContact}'} is filled in)</p>
+              {config.customerBlock.rules.map((rule, i) => (
+                <textarea
+                  key={i}
+                  rows={2}
+                  className="mb-2 w-full border border-stone-200 rounded px-3 py-1.5 text-sm"
+                  value={rule}
+                  onChange={(e) => updateConfig(['customerBlock', 'rules', String(i)], e.target.value)}
+                />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* ── Section 6: RAG Limits ── */}
       <section className="mb-8">
         <h2 className="text-sm font-normal tracking-widest uppercase text-stone-400 mb-4">RAG Limits</h2>
         <div className="border border-stone-200 rounded-lg p-4">
           <label className="flex items-center justify-between gap-4">
-            <span className="text-sm text-stone-700">Max coffees per session</span>
+            <span className="text-sm text-stone-700">
+              Max coffees per session
+              <span className="block text-xs text-stone-400">Retired 2026-10-24: Liam now sees the whole catalog; this number is kept but ignored.</span>
+            </span>
             <input
               type="number"
               min="1"
