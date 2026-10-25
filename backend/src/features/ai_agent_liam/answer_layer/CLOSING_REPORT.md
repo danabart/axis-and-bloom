@@ -123,3 +123,27 @@ The marked test admin is demoted to customer and disabled in Firebase Auth. Sess
 
 ## Process note
 Verifying the pre-existing test failures on a clean checkout, `git worktree remove --force` followed a `node_modules` junction and emptied `backend/node_modules` in the main checkout; restored at once with `npm ci` from the lockfile (378 packages), and every check above was rerun after.
+
+
+## Follow-up: compound questions (OT-45), 2026-10-25
+Commit `3f576d5`, deploy `40196337639`, rev `00788-rfr` (`applyMissingKeys` upgraded `gate.confirmPrompt` through `SEED_UPGRADES`). Full record: `WHAT_WE_BUILT.md` #239.
+
+| Rule | Example (must_not_match, judgment) | On prod |
+| --- | --- | --- |
+| order_status | When will it arrive, and should I rest it before brewing? | #26, already seeded (unchanged) |
+| price | How much is the Coado, and is it good for cold brew? | #49, added through the rule service |
+| do_you_roast | Do you roast it yourself, and how dark should I go for espresso? | #50, added through the rule service |
+
+**Prompt change:** a first instruction in `gate.confirmPrompt`: a message that asks for more than one thing (two questions; joined by "and", "also" or "or"; a factual ask paired with advice, brewing help, taste or an opinion) is `judgment`, even when one part matches a label.
+
+**Real Haiku, as the nightly replay calls it:** the three compounds `judgment` 15/15 (old prompt: the order compound gave order status 1 time in 3). All examples, twice each: 93/96 (old prompt 91/96), no new disagreement.
+
+**Live, gate on (session 64, marked test admin, gate off again right after):**
+
+| Turn | Message | Route | Rule → label (conf.) | Cost |
+| --- | --- | --- | --- | --- |
+| 1 | When will it arrive, and should I rest it before brewing? | model | order_status → judgment (0.95) | $0.004786 |
+| 2 | How much is the Coado, and is it good for cold brew? | model | price → judgment (0.95) | $0.004363 |
+| 3 | Do you roast it yourself, and how dark should I go for espresso? | model | do_you_roast → judgment (0.95) | $0.004966 |
+
+Sonnet answered both halves each time (the support contact then resting advice; $32 then cold brew; "we don't roast" then roast level). `gate.enabled` is false; the test admin is demoted and disabled.

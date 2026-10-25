@@ -6058,6 +6058,15 @@ Brief: `backend/src/features/ai_agent_liam/answer_layer/CLAUDE_CODE_PROMPT_LIAM_
 
 **Found, not fixed:** OPEN_TASKS OT-45 (the nightly replay labels the compound "When will it arrive, and should I rest it before brewing?" as order status, so it would get the deflection verbatim), OT-46 (half-caf and "caffeine free" asks always fall through). The brief's own follow-ups: OT-42 (topics keywords to tables), OT-43 (rule editing in admin), OT-44 (order-status resolver once a writer exists).
 
+### 239. Liam gate: compound questions go to Sonnet (OT-45 follow-up, 2026-10-25)
+
+Follow-up to #238. **Status: done on prod; `gate.enabled` stays false.** Commit `3f576d5`, deploy `40196337639` green, rev `00788-rfr` (boot: `applyMissingKeys added or upgraded 1 key(s): gate.confirmPrompt`, only the known `what_you_get` "oz" finding).
+- **Examples:** "When will it arrive, and should I rest it before brewing?" was already a seeded `must_not_match` / `judgment` example on `order_status` (#26, the one the first replay got wrong), so it stays as it was. Two more of the same shape went in on prod through the rule service (`npm run gate:rules:apply -- … --expect-db axisandbloom`, dry run first; the rule tests ran inside the write): **price** #49 "How much is the Coado, and is it good for cold brew?" and **do_you_roast** #50 "Do you roast it yourself, and how dark should I go for espresso?". Both are in the seed for fresh databases. `gate:rules:apply` now also takes `{ examples: [{ ruleKey, message, expectation, expectedLabel }] }` (through `setExampleInTx`). Prod: 48 current examples.
+- **Prompt:** `gate.confirmPrompt` now checks first whether the message asks for more than one thing (two questions; one joined by "and" / "also" / "or"; a factual ask paired with advice, brewing, taste or an opinion) and answers `judgment` if so. The live key was upgraded through `SEED_UPGRADES` because it still equalled the first seed (an edit by Dana would have been left alone).
+- **Verified against the real Haiku, as the nightly replay calls it** (live rules and answers, no previous turn, the catalog's aliases): the three compounds returned `judgment` 15/15 (5 runs each; before: the order compound returned `order_status_unavailable` in 1 of 3). Every example twice: 93/96 agreement (was 91/96) with no new disagreement; the remaining two are the known "How much is the decaf?" (→ catalog_category, not the price rule's label, so Sonnet anyway) and the borderline "is it utopian?".
+- **Live smoke, gate on** (marked test admin, session 64, gate flipped back off right after, audited): all three compounds → `model`, each with its rule (`order_status`, `price`, `do_you_roast`), label `judgment` at 0.95; Sonnet answered both halves (shipping → the support contact, then resting; $32 and cold brew; we don't roast, then roast level).
+- Tests: `sommelierGate.test.ts` (+1: `setExampleInTx` adds a compound and a repeat supersedes it), `liamSeesEverything.test.ts` (+1: the prompt upgrade applies only over the first seed); 54/54 in the affected files; six lints and the build green.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

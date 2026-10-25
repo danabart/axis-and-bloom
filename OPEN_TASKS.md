@@ -332,7 +332,9 @@ The "Liam Gate Rules" card is read-only. Until a brief adds editing, rules chang
 
 Today it says the `order_status_unavailable` deflection verbatim, because nothing writes `order.fulfillment_status` past checkout's `'pending'` (OT-39). The day a writer exists, `sommelierIntegrity` check 10 reports it (any `order` writer in `lineage.json` besides the checkout INSERT), and the rule gets a customer resolver in its own brief.
 
-### OT-45: the gate's confirmation labels one compound order question as order status (found 2026-10-25, first nightly replay)
+### ✅ OT-45: the gate's confirmation labels one compound order question as order status (found 2026-10-25, first nightly replay)
+
+**Resolved by `WHAT_WE_BUILT.md` #239 (2026-10-25):** `gate.confirmPrompt` checks for a multi-part message before any label; the three compound examples (order_status #26, price #49, do_you_roast #50) return `judgment` 15/15 against the real Haiku and went to Sonnet in the live smoke. The two other replay disagreements below are unchanged (both end at Sonnet or are borderline).
 
 `replay_agreement=43/46`. The disagreement that matters: "When will it arrive, and should I rest it before brewing?" (a must_not_match example, expected judgment) came back `order_status_unavailable`; with the gate on, that customer would get the deflection verbatim and lose the resting question. The other two are safe or borderline ("How much is the decaf?" → catalog_category, which is not the price rule's label, so Sonnet; "is it utopian?" → judgment, which it confirmed live at 0.95). Before turning the gate on, Dana's call: watch the replay number for a few nights, raise `gate.confirmThreshold`, or tighten the confirmation prompt's compound sentence (config, no deploy).
 
