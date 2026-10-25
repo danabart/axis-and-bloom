@@ -299,12 +299,26 @@ Found running the full suite for part 5. Vitest's default include also picks up 
 
 ### OT-37: Liam brand answers — two admin edits for Dana (2026-10-24, `WHAT_WE_BUILT.md` #235)
 
-1. **`maxTurns` 8 → 16.** An existing live key, so the seed does not change it. Configuration → Config Source of Truth: tick only these eight rows (seed 16, live 8) and Apply: `sessionLimits.maxTurns`, `intents.PROFILE_AMBIGUOUS.maxTurns`, `intents.MATCHED.maxTurns`, `intents.RECOMMENDATION_MISS.maxTurns`, `intents.TASTE_EVOLUTION.maxTurns`, `intents.DISCOVERY_SEEKER.maxTurns`, `intents.CONVERSION.maxTurns`, `intents.EXPLORATION.maxTurns`; leave the four OT-27 rows unticked (the panel ticks every row by default). Until then the cutoff runs at 8: the notice from 3 replies left, the closing nudge on reply 7, the last nudge on reply 8.
+1. ✅ **Done 2026-10-24 on Dana's go** (applied by the Liam sees everything session, audited uid `claude-session`, before that brief's prerequisites). **`maxTurns` 8 → 16.** An existing live key, so the seed does not change it. Configuration → Config Source of Truth: tick only these eight rows (seed 16, live 8) and Apply: `sessionLimits.maxTurns`, `intents.PROFILE_AMBIGUOUS.maxTurns`, `intents.MATCHED.maxTurns`, `intents.RECOMMENDATION_MISS.maxTurns`, `intents.TASTE_EVOLUTION.maxTurns`, `intents.DISCOVERY_SEEKER.maxTurns`, `intents.CONVERSION.maxTurns`, `intents.EXPLORATION.maxTurns`; leave the four OT-27 rows unticked (the panel ticks every row by default). Until then the cutoff runs at 8: the notice from 3 replies left, the closing nudge on reply 7, the last nudge on reply 8.
 2. **`what_you_get` says "12 oz"**, which `sommelierIntegrity` check 3 reports (a size in an answer drifts from the catalog). Seeded verbatim as Dana's copy; the Liam answers card will refuse the same text on save. Suggested edit: "Coffee comes whole bean in Axis & Bloom bags, roasted to order. The size and price of each coffee are in your catalog." Until then `[sommelier-integrity] check #3` shows on every boot and on System Health.
 
-### OT-38: Liam invents a "last order" on the opening turn for a customer with none (found 2026-10-24, Liam brand answers smoke)
+### ✅ OT-38: Liam invents a "last order" on the opening turn for a customer with none (found 2026-10-24, Liam brand answers smoke)
+
+**Resolved by `WHAT_WE_BUILT.md` #237 (Liam sees everything):** the ABOUT THIS CUSTOMER block now states "no quiz on file" and carries the real "With Liam before" history, so a brand-new account opens "No quiz on file yet, so I don't have a flavor match for you…" and a returning one opens from its actual earlier picks (both seen live on rev 00782). Original note below.
 
 A brand-new account (0 rows in `"order"`, no quiz) got "Last order was the Coado — chocolate and almond, a little cherry underneath." as Liam's opening. The session context carried no order (`openingContext` was only the register sentence). Likely cause: `LIAM_BASE_PROMPT`'s Opening turn section ("State where they are now (archetype or last order)", template "[What you know about them]…") with nothing known. Not fixed: the brand-answers brief allowed one base-prompt line only. Suggested fix: an opening rule for a customer with no quiz and no order (say what Liam does and ask one direction question, never assert a history), plus an eval case.
+
+### OT-39: the Profile page shows an order status nothing writes (found 2026-10-24, Liam sees everything Task 0)
+
+`GET /api/users/profile` returns each order's `fulfillment_status ?? 'pending'` (`backend/src/routes/users.ts:202`) and the subscription's `next_delivery_date` (`users.ts:385`). `fulfillment_status` is INSERTed `'pending'` at checkout and never updated, and `next_delivery_date` is never written, so the site shows every order as pending forever and no delivery date. Liam was kept from saying either (#237); the profile page still does. Decide whether to hide them until a writer exists.
+
+### OT-40: Liam declines to recommend at all without a quiz (found 2026-10-24, Liam sees everything eval)
+
+The B1 rule "If there is no quiz on file, say so in one sentence and offer the quiz; do not guess an archetype" now works (#237), but asked "just pick something for me", Liam refused to recommend ("Without the quiz I'd just be guessing"). The rule forbids guessing an *archetype*, not recommending from what the customer says they like. Dana to decide whether to add "you may still recommend from what they tell you" to the rule (config `brandFacts.rules`, admin page).
+
+### OT-41: retire `context_data.topicLog` and `token_events` `usage_log` once their readers move to the turn ledger (Liam sees everything, C3)
+
+`sommelier_turn` (#237) now holds one row per reply with topic, mode, model, tokens and cost. `context_data.topicLog` (read by `engagementMetrics`) and `token_events` rows with `reason = 'usage_log'` (read by `sommelierGuards`) are retire candidates once those two readers read `sommelier_turn` instead. Nothing removed yet.
 
 ### OT-19: `quizScoring.test.ts` — 12 pre-existing failures, not touched by Customer Blueprint C1 (found 2026-09-27)
 
@@ -352,4 +366,7 @@ Found running the full `npm test` suite as part of Customer Blueprint C1's Part 
 | 2026-10-05 | OT-35: Unsubscribe sync manual steps — `MAILCHIMP_WEBHOOK_KEY` secret + deploy.yml, token backfill + migration step 3, Mailchimp webhook registration, reconcile `--apply` once, unsubscribe nrmisyak@gmail.com; optional weekly reconcile job | ✅ Done 2026-10-06 (weekly job optional, not scheduled) |
 | 2026-10-06 | OT-36: stale `dist/` test copies (liamProfile, palateReads, lintCatalog) fail under `npm test`, plus the OT-19 quizScoring baseline; suggest excluding `dist/**` in `vitest.config.ts` | Open |
 | 2026-10-24 | OT-37: Liam brand answers — Dana sets `maxTurns` 16 (eight drift rows, not the OT-27 ones) and rewrites `what_you_get` without "12 oz" in the Liam answers card | Open |
-| 2026-10-24 | OT-38: Liam invents a "last order" on the opening turn for a customer with no orders (opening template) | Open |
+| 2026-10-24 | OT-38: Liam invents a "last order" on the opening turn for a customer with no orders (opening template) | ✅ Resolved by #237 |
+| 2026-10-24 | OT-39: the Profile page shows `fulfillment_status` (always pending) and `next_delivery_date` (never written) | Open |
+| 2026-10-24 | OT-40: Liam declines to recommend at all without a quiz; rule wording is Dana's call | Open |
+| 2026-10-24 | OT-41: retire `topicLog` / `token_events usage_log` once `engagementMetrics` and `sommelierGuards` read `sommelier_turn` | Open |
