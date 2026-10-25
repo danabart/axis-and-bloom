@@ -121,7 +121,7 @@ const HEADER = 'ABOUT THIS CUSTOMER (facts; rebuilt every turn)';
 // server/test runner in a negative-UTC-offset timezone shows the wrong
 // calendar day (a real bug caught by liamProfile.test.ts: a fixture row at
 // midnight UTC rendered as the previous evening in Pacific time).
-function shortDate(value: string | Date): string {
+export function shortDate(value: string | Date): string {
   const d = value instanceof Date ? value : new Date(value);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }

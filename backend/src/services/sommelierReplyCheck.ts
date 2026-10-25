@@ -65,11 +65,18 @@ export function runCheck(check: Pick<ReplyCheckRow, 'kind' | 'value'>, reply: st
     case 'must_not_contain':
       return norm(reply).includes(norm(value)) ? { pass: false, detail: `contains "${value}"` } : { pass: true };
     case 'must_contain_answer': {
-      const answer = ctx.answers.find(a => a.key === value);
-      if (!answer) return { pass: false, detail: `answer '${value}' has no current row` };
-      const text = answerText(answer, ctx.supportContact);
-      if (norm(reply).includes(norm(text))) return { pass: true };
-      return { judge: `Does the reply state the same fact as this answer, in any words, without contradicting it: "${text}"?` };
+      // "a|b": any one of the answers passes (follow-up 2026-10-25: sourcing and partner_privacy are both right for "who roasts it").
+      const keys = value.split('|').map(k => k.trim()).filter(Boolean);
+      if (!keys.length) return { pass: false, detail: 'no answer key given' };
+      const texts: string[] = [];
+      for (const key of keys) {
+        const answer = ctx.answers.find(a => a.key === key);
+        if (!answer) return { pass: false, detail: `answer '${key}' has no current row` };
+        texts.push(answerText(answer, ctx.supportContact));
+      }
+      if (texts.some(t => norm(reply).includes(norm(t)))) return { pass: true };
+      if (texts.length === 1) return { judge: `Does the reply state the same fact as this answer, in any words, without contradicting it: "${texts[0]}"?` };
+      return { judge: `Does the reply state the same fact as at least one of these answers, in any words, without contradicting it: ${texts.map(t => `"${t}"`).join(' or ')}?` };
     }
     case 'must_contain_price_of': {
       const coffee = findCoffee(ctx.catalog, value);

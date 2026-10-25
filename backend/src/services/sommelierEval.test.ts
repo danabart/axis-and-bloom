@@ -10,7 +10,7 @@ import { seedSommelierAnswers } from '../db/seeds/sommelier_answer_seed.js';
 import { seedGateRules } from '../db/seeds/sommelier_gate_rule_seed.js';
 import { seedEvals, GLOBAL_CHECKS } from '../db/seeds/sommelier_eval_seed.js';
 import { runCheck, globalFlags, dollarAmountsCents, type CheckContext } from './sommelierReplyCheck.js';
-import { runEvals, addCustomerPhrasings, parseJudge, fixtureReads, compactCatalog } from './sommelierEval.js';
+import { runEvals, addCustomerPhrasings, parseJudge, fixtureReads, fixtureCustomerReads, compactCatalog } from './sommelierEval.js';
 import { getCurrentCases, getPhrasings, getChecks, getAllCurrentChecks, getRunResults, getActiveRules, type ReplyCheckRow, type SommelierAnswerRow } from './sommelierReads.js';
 import { recordTurn } from './sommelierTurnService.js';
 import { runEvalChecks, type EvalCheckInput } from './sommelierIntegrity.js';
@@ -48,6 +48,15 @@ describe('graders (Testing 2)', () => {
     expect(runCheck(chk('must_contain_answer', 'order_status_unavailable'), 'Sure. A person can check for you: help@vitest.example.', CTX)).toEqual({ pass: true });
     expect(runCheck(chk('must_contain_answer', 'sourcing'), 'We don’t roast; partners do.', CTX)).toHaveProperty('judge');
     expect(runCheck(chk('must_contain_answer', 'nope'), 'x', CTX)).toMatchObject({ pass: false });
+  });
+  it('must_contain_answer "a|b" passes on either literal; else one judge question naming both; an unknown key fails', () => {
+    const either = chk('must_contain_answer', 'sourcing|order_status_unavailable');
+    expect(runCheck(either, 'We do not roast. Our bags, their roasting.', CTX)).toEqual({ pass: true });
+    expect(runCheck(either, 'A person can check for you: help@vitest.example.', CTX)).toEqual({ pass: true });
+    const asked = runCheck(either, 'Partners roast it.', CTX);
+    expect(asked).toHaveProperty('judge');
+    expect('judge' in asked && asked.judge).toMatch(/at least one of these answers, in any words, without contradicting it: "We do not roast\. Our bags, their roasting\." or "A person can check/);
+    expect(runCheck(chk('must_contain_answer', 'sourcing|nope'), 'x', CTX)).toMatchObject({ pass: false, detail: "answer 'nope' has no current row" });
   });
   it('must_contain_price_of needs every size, $29 and $29.00 both count', () => {
     expect(runCheck(chk('must_contain_price_of', 'Clean Fruit'), 'It is $29 for 12 oz and $68.00 for 2 lb.', CTX)).toEqual({ pass: true });
@@ -193,6 +202,31 @@ describe('the runner (Testing 3, Sonnet and Haiku stubbed)', () => {
       expect(results.every(r => r.route === 'model')).toBe(true);
     });
   }, 120000);
+
+  it('only: reruns just the named phrasings and says so in the run note', async () => {
+    await withRollback(async ({ client }) => {
+      await seedAll(client);
+      const total = (await getPhrasings(null, client)).length;
+      const chat = chatStub('We do not roast.');
+      const only = [{ caseKey: 'do_you_roast', message: 'do you guys roast your own beans?' }, { caseKey: 'no_quiz_recommend', message: 'PICK ONE FOR ME PLS' }];
+      const summary = await runEvals({ trigger: 'manual', createdBy: 'vitest', only }, {
+        runner: client, haiku: haiku(true), chat: chat.fn, config: evalCfg(), catalog: () => catalogFor(client),
+        fit: async () => ({ fitText: '', coffeeIds: [], slices: [] } as never), roasterNames: async () => ['Utopian'],
+      });
+      expect(summary.phrasings).toBe(2);
+      expect((await getRunResults(summary.runId, client)).map(r => r.case_key).sort()).toEqual(['do_you_roast', 'no_quiz_recommend']);
+      expect(summary.note).toContain(`partial rerun: 2 of ${total} phrasings`);
+    });
+  }, 120000);
+
+  it('the gate reads the fixture orders (customer_orders), newest first, up to the limit', async () => {
+    const fx = fixtureReads(FIXTURES.two_orders_pending, [coffee(1, 'Coado', [['12 oz', 2100]]), coffee(2, 'Classic Balanced', [['12 oz', 1900]])], null);
+    const reads = fixtureCustomerReads(FIXTURES.two_orders_pending, fx.reads.orders);
+    const one = await reads.getRecentOrders('eval:two_orders_pending', 1, null as never);
+    expect(one.recent).toHaveLength(1);
+    expect(one.recent[0].lines[0].coffeeId).toBe(1);
+    expect((await fixtureCustomerReads(FIXTURES.no_quiz).getRecentOrders('x', 2, null as never)).recent).toEqual([]);
+  });
 
   it('stops at evals.maxUsdPerRun and says so in the run note', async () => {
     await withRollback(async ({ client }) => {

@@ -14,7 +14,8 @@
 //   4. coffee resolution (catalog_price): the alias against the session's
 //      candidates, else the session's last recommendation; one coffee only;
 //   5. resolve: a brand answer verbatim, or one catalog/customer row;
-//   6. phrase: data rows become at most two Haiku sentences, sanitized;
+//   6. phrase: data rows become at most two Haiku sentences, sanitized
+//      (customer_orders then appends its answer text verbatim);
 //   7. the route records the turn (Firestore, ledger, write-back skipped).
 // Anything unconfirmed, compound, ambiguous, unparsed or guard-blocked returns
 // { gated: false } and the turn goes to Sonnet exactly as before: every tie
@@ -32,7 +33,8 @@ import {
 import { recordLabel, recordReplay } from './sommelierTurnService.js';
 import { resolveAlias, type AliasCandidate } from './liamWriteBack.js';
 import { getCatalogBlock, getAliases, catalogBlockConfig, type CatalogCoffee } from './sommelierRag.js';
-import { getLastRecommendation, getSubscriptionCurrent, getCustomerIdentity } from './customerReads.js';
+import { getLastRecommendation, getSubscriptionCurrent, getCustomerIdentity, getRecentOrders, type RecentOrders } from './customerReads.js';
+import { shortDate } from './liamProfile.js';
 import { answerContentViolations } from './sommelierIntegrity.js';
 import { parseAndStripMarkers } from './claude.js';
 import { firestoreDb } from './firebase-admin.js';
@@ -42,12 +44,19 @@ type GateConfig = NonNullable<SommelierConfig['gate']>;
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-/** The resolver registry: the code half of lookup category sommelier_gate_resolver. `phrased` resolvers go through Haiku. */
-export const RESOLVERS: Record<string, { phrased: boolean }> = {
-  answer: { phrased: false },
+/**
+ * The resolver registry: the code half of lookup category sommelier_gate_resolver.
+ * `phrased` resolvers go through Haiku; `takesAnswer` ones name a
+ * sommelier_answer key (answer says it verbatim, customer_orders appends it).
+ */
+export const RESOLVERS: Record<string, { phrased: boolean; takesAnswer?: boolean }> = {
+  answer: { phrased: false, takesAnswer: true },
   catalog_price: { phrased: true },
   catalog_category: { phrased: true },
   customer_subscription: { phrased: true },
+  // Answer evals follow-up (2026-10-25, OT-50): what was ordered and when, then
+  // the order_status_unavailable text. No status, tracking or delivery date.
+  customer_orders: { phrased: true, takesAnswer: true },
 };
 export const JUDGMENT = 'judgment';
 const UNPARSED = 'unparsed';
@@ -200,14 +209,15 @@ export interface GateDeps {
   customer?: CustomerReadsForGate;
 }
 
-/** The three customer reads the gate makes; the eval runner substitutes fixture reads (Liam answer evals, C1). */
+/** The customer reads the gate makes; the eval runner substitutes fixture reads (Liam answer evals, C1). */
 export interface CustomerReadsForGate {
   getLastRecommendation: (sessionId: number, runner: Runner) => Promise<number[]>;
   getSubscriptionCurrent: (uid: string, runner: Runner) => Promise<{ status: string; sponsored: boolean } | null>;
   getCustomerIdentity: (uid: string, runner: Runner) => Promise<{ firstName: string | null } | null>;
+  getRecentOrders: (uid: string, limit: number, runner: Runner) => Promise<RecentOrders>;
 }
 // Built at call time, not at module load (a module that mocks customerReads must still load this one).
-const defaultCustomerReads = (): CustomerReadsForGate => ({ getLastRecommendation, getSubscriptionCurrent, getCustomerIdentity });
+const defaultCustomerReads = (): CustomerReadsForGate => ({ getLastRecommendation, getSubscriptionCurrent, getCustomerIdentity, getRecentOrders });
 
 async function loadRoasterNames(runner: Runner): Promise<string[]> {
   const r = await runner.query<{ name: string }>(`SELECT name FROM roaster WHERE name IS NOT NULL`);
@@ -240,6 +250,8 @@ export interface ResolvedRow {
   /** Verbatim reply (resolver answer) or the facts Haiku phrases. */
   text: string;
   phrased: boolean;
+  /** Said verbatim after the phrased sentences (customer_orders: its answer text). */
+  suffix?: string;
   coffeeId: number | null;
   answerId: number | null;
 }
@@ -251,16 +263,42 @@ export async function resolveRule(args: {
   customer?: CustomerReadsForGate;
 }): Promise<ResolvedRow | null> {
   const { rule, cfg } = args;
-  if (rule.resolver === 'answer') {
+  const customer = args.customer ?? defaultCustomerReads();
+  // The rule's answer text, {firstName} and {supportContact} filled in; null when it cannot be said.
+  const answerText = async (): Promise<{ text: string; id: number } | null> => {
     const answer = args.answers.find(a => a.key === rule.answer_key);
     if (!answer) return null;
     let text = substituteSupport(answer.answer_text, cfg);
     if (text.includes('{firstName}')) {
-      const name = (await (args.customer ?? defaultCustomerReads()).getCustomerIdentity(args.uid, args.runner))?.firstName?.trim();
+      const name = (await customer.getCustomerIdentity(args.uid, args.runner))?.firstName?.trim();
       text = name ? text.replace(/\{firstName\}/g, name) : text.replace(/,?\s*\{firstName\}/g, '');
     }
     if (text.includes('{supportContact}')) return null; // no contact configured: never say a placeholder
-    return { text, phrased: false, coffeeId: null, answerId: answer.id };
+    return { text, id: answer.id };
+  };
+  if (rule.resolver === 'answer') {
+    const answer = await answerText();
+    return answer ? { text: answer.text, phrased: false, coffeeId: null, answerId: answer.id } : null;
+  }
+  if (rule.resolver === 'customer_orders') {
+    // What was ordered and when (getRecentOrders selects nothing else), as
+    // catalog aliases, then the answer text verbatim. No orders: the answer alone.
+    const answer = await answerText();
+    if (!answer) return null;
+    const orders = await customer.getRecentOrders(args.uid, cfg?.gate?.recentOrders ?? 2, args.runner);
+    if (!orders.recent.length) return { text: answer.text, phrased: false, coffeeId: null, answerId: answer.id };
+    const aliasById = new Map((await args.coffees()).map(c => [c.id, c.alias] as const));
+    const lines = orders.recent.map(o => {
+      const items = o.lines.map(l => {
+        const alias = (l.coffeeId !== null ? aliasById.get(l.coffeeId) : undefined) ?? 'a coffee';
+        return `${alias}${l.weightOz !== null ? ` ${l.weightOz} oz` : ''} x${l.quantity}`;
+      });
+      return `Ordered ${shortDate(o.createdAt)}: ${items.length ? items.join(', ') : 'an order'}`;
+    });
+    return {
+      text: `The customer's recent orders, newest first (what and when only):\n${lines.join('\n')}`,
+      phrased: true, suffix: answer.text, coffeeId: null, answerId: answer.id,
+    };
   }
   if (rule.resolver === 'catalog_price') {
     if (args.coffeeId === null) return null;
@@ -284,7 +322,7 @@ export async function resolveRule(args: {
     return { text: lines.join('\n'), phrased: true, coffeeId: null, answerId: null };
   }
   if (rule.resolver === 'customer_subscription') {
-    const sub = await (args.customer ?? defaultCustomerReads()).getSubscriptionCurrent(args.uid, args.runner);
+    const sub = await customer.getSubscriptionCurrent(args.uid, args.runner);
     if (!sub) return null;
     return { text: `The customer's subscription status: ${sub.status}${sub.sponsored ? ' (a sponsored subscription)' : ''}`, phrased: true, coffeeId: null, answerId: null };
   }
@@ -419,7 +457,7 @@ export async function tryGate(input: TryGateInput, deps: GateDeps = {}): Promise
     const row = await resolveRule({ rule: candidate.rule, uid: input.uid, message: input.message, coffeeId, answers, coffees, cfg, runner, customer: deps.customer });
     if (!row) return notGated('nothing_to_say', { ...base, usdMicros: spent() });
     const roasterNames = await (deps.roasterNames ?? (() => loadRoasterNames(runner)))();
-    if (namesRoaster(row.text, roasterNames)) {
+    if (namesRoaster(`${row.text}\n${row.suffix ?? ''}`, roasterNames)) {
       console.error(`[liam:GATE] resolver ${candidate.rule.resolver} output named a roaster; sent to the model instead`);
       return notGated('roaster_in_row', { ...base, usdMicros: spent() });
     }
@@ -435,6 +473,7 @@ export async function tryGate(input: TryGateInput, deps: GateDeps = {}): Promise
       calls.push(phrase);
       reply = firstSentences(parseAndStripMarkers(phrase.text, 0).reply, 2);
       if (!reply || namesRoaster(reply, roasterNames)) return notGated(reply ? 'roaster_in_reply' : 'empty_phrase', { ...base, usdMicros: spent() });
+      if (row.suffix) reply = `${reply} ${row.suffix}`;
     }
 
     const answersVersion = answers.length ? Math.max(...answers.map(a => a.id)) : null;

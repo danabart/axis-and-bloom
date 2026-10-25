@@ -69,7 +69,11 @@ async function validateCheck(tx: Tx, c: CheckInput, global: boolean): Promise<{ 
   const checkId = await lookupId(tx, 'sommelier_reply_check_kind', c.kind);
   const value = c.value?.trim() || null;
   if (!NO_VALUE.has(c.kind) && !value) throw invalid(`a ${c.kind} check needs a value`);
-  if (c.kind === 'must_contain_answer' && value && !(await getAnswer(value, tx))) throw invalid(`answer key '${value}' has no current sommelier_answer row`);
+  if (c.kind === 'must_contain_answer' && value) {
+    for (const key of value.split('|').map(k => k.trim())) {
+      if (!key || !(await getAnswer(key, tx))) throw invalid(`answer key '${key}' has no current sommelier_answer row`);
+    }
+  }
   const flagCode = c.flagCode?.trim() || null;
   if (global) {
     if (c.kind === 'judge') throw invalid('a global check runs on every production reply; a judge question cannot be global');

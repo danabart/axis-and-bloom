@@ -28,7 +28,7 @@ import {
   buildProfileLine, sessionRagFromReads, messageTurnContext, storyCandidatesFromBlock, type ProfileReads,
 } from './liamProfile.js';
 import type { BrewProfileDoc } from './brewProfile.js';
-import type { FeedbackCurrentRow, QuizCurrentRow, TimelineEntry } from './customerReads.js';
+import type { FeedbackCurrentRow, QuizCurrentRow, RecentOrders, TimelineEntry } from './customerReads.js';
 import {
   getAnswersMaxId, getChecks, getCurrentAnswers, getCurrentCases, getPhrasings, getGatedTurnsForPhrasings,
   type EvalCaseRow, type EvalPhrasingRow, type ReplyCheckRow,
@@ -124,8 +124,9 @@ export function fixtureReads(fixture: LiamEvalFixture, catalog: CatalogCoffee[],
 }
 
 /** The gate's three customer reads, answered from the fixture (no database). */
-export function fixtureCustomerReads(fixture: LiamEvalFixture): CustomerReadsForGate {
+export function fixtureCustomerReads(fixture: LiamEvalFixture, orders: RecentOrders = { recent: [], olderCount: 0, olderArchetypeCounts: {} }): CustomerReadsForGate {
   return {
+    getRecentOrders: async (_uid, limit) => ({ ...orders, recent: orders.recent.slice(0, limit) }),
     getLastRecommendation: async () => [],
     getSubscriptionCurrent: async () => fixture.subscription,
     getCustomerIdentity: async () => (fixture.identity ? { firstName: fixture.identity.firstName } : null),
@@ -230,7 +231,12 @@ async function loadRoasterNames(runner: Runner): Promise<string[]> {
 }
 
 /** C3. Never throws for a single phrasing; a guard block stops the run (noted). */
-export async function runEvals(opts: { trigger: 'nightly' | 'manual'; createdBy: string }, deps: EvalDeps = {}): Promise<RunSummary> {
+/**
+ * `only` (a manual rerun): just these phrasings, matched by case key and
+ * message (ids change when a case edit supersedes its phrasings); the run
+ * note says it was partial.
+ */
+export async function runEvals(opts: { trigger: 'nightly' | 'manual'; createdBy: string; only?: Array<{ caseKey: string; message: string }> }, deps: EvalDeps = {}): Promise<RunSummary> {
   const cfg = deps.config !== undefined ? deps.config : getSommelierConfig();
   const evals = evalConfig(cfg);
   const runner = deps.runner ?? db;
@@ -279,7 +285,11 @@ export async function runEvals(opts: { trigger: 'nightly' | 'manual'; createdBy:
     work.push({ c, checks: await getChecks(c.id, runner), phrasings: await getPhrasings(c.id, runner), fx, fixtureProblem, profileLine, fitText });
   }
 
-  const items = work.flatMap(w => w.phrasings.map(p => ({ w, p })));
+  const onlyKey = (caseKey: string, message: string) => `${caseKey}|${message.trim().toLowerCase()}`;
+  const wanted = opts.only ? new Set(opts.only.map(o => onlyKey(o.caseKey, o.message))) : null;
+  const allItems = work.flatMap(w => w.phrasings.map(p => ({ w, p })));
+  const items = wanted ? allItems.filter(({ w, p }) => wanted.has(onlyKey(w.c.key, p.message))) : allItems;
+  if (wanted) notes.unshift(`partial rerun: ${items.length} of ${allItems.length} phrasings`);
   const capMicros = Math.round(evals.maxUsdPerRun * 1_000_000);
   let spent = 0;
   let passed = 0;
@@ -305,7 +315,7 @@ export async function runEvals(opts: { trigger: 'nightly' | 'manual'; createdBy:
       const topic = routeTopic(p.message, { currentTopic: null, turnsSinceMatch: 0 });
       const gate = await tryGate(
         { uid: `eval:${fixture.key}`, sessionId: 0, message: p.message, turnCount, maxTurns, ctx: { storyCandidates }, history },
-        { runner: deps.runner, haiku, config: gateConfig, customer: fixtureCustomerReads(fixture), catalogCoffees: async () => block.coffees, roasterNames: async () => ctx.roasterNames },
+        { runner: deps.runner, haiku, config: gateConfig, customer: fixtureCustomerReads(fixture, w.fx.reads.orders), catalogCoffees: async () => block.coffees, roasterNames: async () => ctx.roasterNames },
       );
       let reply: string;
       let route: string;

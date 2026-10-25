@@ -231,10 +231,10 @@ function check(id: number, name: string, expected: string, details: string[], ok
 export function runGateChecks(input: GateCheckInput): SommelierIntegrityCheck[] {
   const { rules, examples, answers, topics } = input;
 
-  // 6 — an answer rule names a key with exactly one current answer row.
+  // 6 — a rule whose resolver takes an answer (answer, customer_orders) names a key with exactly one current answer row.
   const answerCounts = new Map<string, number>();
   for (const a of answers) answerCounts.set(a.key, (answerCounts.get(a.key) ?? 0) + 1);
-  const c6 = rules.filter(r => r.resolver === 'answer').flatMap(r => {
+  const c6 = rules.filter(r => RESOLVERS[r.resolver]?.takesAnswer).flatMap(r => {
     const n = answerCounts.get(r.answer_key ?? '') ?? 0;
     return n === 1 ? [] : [`${r.key}: answer key '${r.answer_key}' has ${n} current row(s)`];
   });
@@ -258,26 +258,27 @@ export function runGateChecks(input: GateCheckInput): SommelierIntegrityCheck[] 
     .filter(k => expertise.has(k.trim().toLowerCase()))
     .map(k => `${r.key}: keyword '${k}' is also a keyword of expertise topic ${expertise.get(k.trim().toLowerCase())}`));
 
-  // 10 — order_status answers verbatim only while nothing but checkout writes
+  // 10 — order_status says no status (an answer verbatim, or customer_orders:
+  // what and when plus that answer) only while nothing but checkout writes
   // orders. lineage.json is table-level: a writer of order other than the
   // checkout INSERT (routes/orders.ts) is reported as a possible
   // fulfillment_status writer, for a person to look at.
   const c10: string[] = [];
   const orderRule = rules.find(r => r.key === 'order_status');
-  if (orderRule?.resolver === 'answer') {
+  if (orderRule?.resolver === 'answer' || orderRule?.resolver === 'customer_orders') {
     if (input.orderWriters === null) c10.push('lineage.json not readable; the order writers are unknown');
     else {
       const others = input.orderWriters.filter(w => !(w.module === 'orders' && w.verbs.every(v => v === 'INSERT')));
-      for (const w of others) c10.push(`order has a writer besides the checkout insert (${w.module}: ${w.verbs.join(', ')}); if it writes fulfillment_status, order_status should become a customer resolver`);
+      for (const w of others) c10.push(`order has a writer besides the checkout insert (${w.module}: ${w.verbs.join(', ')}); if it writes fulfillment_status, order_status could say it`);
     }
   }
 
   return [
-    check(6, 'Every answer rule names a key with exactly one current answer', 'one current answer per rule', c6, `${rules.filter(r => r.resolver === 'answer').length} answer rule(s) resolve`),
+    check(6, 'Every answer rule names a key with exactly one current answer', 'one current answer per rule', c6, `${rules.filter(r => RESOLVERS[r.resolver]?.takesAnswer).length} answer rule(s) resolve`),
     check(7, 'Every rule names a known resolver and a config topic', 'resolver in the registry, topic in config', c7, `${rules.length} rule(s) checked${topics === null ? ' (topics not checked: config/sommelier not loaded)' : ''}`),
     check(8, "Every active rule's examples pass", 'every example routes as expected', c8, `${examples.length} example(s) pass`),
     check(9, 'No rule keyword is an expertise topic keyword', 'no shared keywords', c9, 'none shared'),
-    check(10, 'order_status stays an answer only while checkout is the only order writer', 'no order writer besides checkout', c10, orderRule ? `rule ${orderRule.resolver}; checkout is the only order writer` : 'no order_status rule'),
+    check(10, 'order_status says no status only while checkout is the only order writer', 'no order writer besides checkout', c10, orderRule ? `rule ${orderRule.resolver}; checkout is the only order writer` : 'no order_status rule'),
   ];
 }
 
@@ -314,7 +315,11 @@ export function runEvalChecks(input: EvalCheckInput): SommelierIntegrityCheck[] 
   const where = (ch: ReplyCheckRow) => (ch.case_id === null ? 'global' : caseKey.get(ch.case_id) ?? `case ${ch.case_id}`);
   const c12: string[] = [];
   for (const ch of checks) {
-    if (ch.kind === 'must_contain_answer' && !current.has(ch.value ?? '')) c12.push(`${where(ch)} #${ch.id}: answer key '${ch.value}' has no current row`);
+    if (ch.kind === 'must_contain_answer') {
+      for (const key of (ch.value ?? '').split('|').map(k => k.trim())) {
+        if (!current.has(key)) c12.push(`${where(ch)} #${ch.id}: answer key '${key}' has no current row`);
+      }
+    }
     if (ch.kind === 'must_contain_price_of' && aliases && !aliases.has((ch.value ?? '').trim().toLowerCase())) c12.push(`${where(ch)} #${ch.id}: "${ch.value}" is not in the catalog block`);
     if (TEXT_VALUE_KINDS.has(ch.kind) && !(ch.value ?? '').trim()) c12.push(`${where(ch)} #${ch.id}: ${ch.kind} has no value`);
   }

@@ -123,11 +123,11 @@ export async function setRuleInTx(tx: Tx, input: SetRuleInput, opts: { deferTest
   if (!RESOLVERS[resolver]) throw invalid(`resolver '${resolver}' is not in the code registry (${Object.keys(RESOLVERS).join(', ')})`);
   const resolverId = await lookupId(tx, 'sommelier_gate_resolver', resolver);
   const answerKey = input.answerKey?.trim() || null;
-  if (resolver === 'answer') {
-    if (!answerKey) throw invalid('a rule with resolver answer needs an answerKey');
+  if (RESOLVERS[resolver].takesAnswer) {
+    if (!answerKey) throw invalid(`a rule with resolver ${resolver} needs an answerKey`);
     if (!(await getAnswer(answerKey, tx))) throw invalid(`answerKey '${answerKey}' has no current sommelier_answer row`);
   } else if (answerKey) {
-    throw invalid(`only resolver answer takes an answerKey (got '${answerKey}' with '${resolver}')`);
+    throw invalid(`only resolvers ${Object.keys(RESOLVERS).filter(k => RESOLVERS[k].takesAnswer).join(' and ')} take an answerKey (got '${answerKey}' with '${resolver}')`);
   }
   const topicKey = String(input.topicKey ?? '').trim();
   const topics = knownTopicKeys();

@@ -5594,6 +5594,7 @@ INSERT INTO lookup_value (category, value, label, sort_order) VALUES
   ('sommelier_gate_resolver', 'catalog_price',         'Catalog sizes and prices',   2),
   ('sommelier_gate_resolver', 'catalog_category',      'Catalog category coffees',   3),
   ('sommelier_gate_resolver', 'customer_subscription', 'Customer subscription status', 4),
+  ('sommelier_gate_resolver', 'customer_orders',       'Customer recent orders, then a brand answer', 5),
   ('sommelier_gate_expectation', 'must_match',     'Must be answered by the rule', 1),
   ('sommelier_gate_expectation', 'must_not_match', 'Must go to the model',         2)
 ON CONFLICT (category, value) DO NOTHING;

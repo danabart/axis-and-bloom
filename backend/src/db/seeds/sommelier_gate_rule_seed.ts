@@ -22,6 +22,10 @@ import { setRuleInTx, assertRuleTests, type SetRuleInput } from '../../services/
 // Follow-up (2026-10-25, OT-45): one compound per rule shape on price and
 // do_you_roast; on prod they were added through gate:rules:apply (the seed
 // only writes into an empty table).
+// Answer evals follow-up (2026-10-25, OT-50): order_status moved from resolver
+// answer to customer_orders (what was ordered and when, then the same answer
+// text), so its must_match label is customer_orders; on prod through
+// gate:rules:apply.
 
 export const ORDER_STATUS_ANSWER = {
   key: 'order_status_unavailable',
@@ -81,14 +85,14 @@ export function seedRules(roasterNames: string[]): SeedRule[] {
       ],
     },
     {
-      key: 'order_status', priority: 40, resolver: 'answer', answerKey: 'order_status_unavailable', topicKey: 'other',
+      key: 'order_status', priority: 40, resolver: 'customer_orders', answerKey: 'order_status_unavailable', topicKey: 'other',
       keywords: ['where is my order', "where's my order", 'has it shipped', 'tracking', 'when will it arrive', 'delivery date'],
       examples: [
-        mm('Where is my order?', 'order_status_unavailable'),
-        mm('Has it shipped yet?', 'order_status_unavailable'),
-        mm('Do you have a tracking number for me?', 'order_status_unavailable'),
-        mm('When will it arrive?', 'order_status_unavailable'),
-        mm("What's my delivery date?", 'order_status_unavailable'),
+        mm('Where is my order?', 'customer_orders'),
+        mm('Has it shipped yet?', 'customer_orders'),
+        mm('Do you have a tracking number for me?', 'customer_orders'),
+        mm('When will it arrive?', 'customer_orders'),
+        mm("What's my delivery date?", 'customer_orders'),
         mn('When will it arrive, and should I rest it before brewing?'),
         mn("Where's my order? Also, which coffee should I try next?"),
       ],

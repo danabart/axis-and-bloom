@@ -96,6 +96,13 @@ describe('rule tests (Testing 2)', () => {
       await expect(savepoint(() => setRuleInTx(client, {
         key: 'vitest_rule', priority: 1, resolver: 'catalog_price', topicKey: 'no_topic', keywords: ['x'], createdBy: 'vitest',
       }))).rejects.toThrow(/not a config topic/);
+      // customer_orders needs an answerKey (it says that answer after the orders); catalog_price takes none.
+      await expect(savepoint(() => setRuleInTx(client, {
+        key: 'vitest_rule', priority: 1, resolver: 'customer_orders', topicKey: 'other', keywords: ['x'], createdBy: 'vitest',
+      }))).rejects.toThrow(/resolver customer_orders needs an answerKey/);
+      await expect(savepoint(() => setRuleInTx(client, {
+        key: 'vitest_rule', priority: 1, resolver: 'catalog_price', answerKey: 'sourcing', topicKey: 'matching', keywords: ['x'], createdBy: 'vitest',
+      }))).rejects.toThrow(/only resolvers answer and customer_orders take an answerKey/);
     });
   }, 60000);
 
@@ -134,7 +141,8 @@ describe('the confirmation prompt', () => {
       const prompt = buildConfirmPrompt({ cfg: config(), rules, answers: await getCurrentAnswers(client), aliases: ['Coado'], previous: '', message: 'is it Joe Coffee?' });
       expect(prompt).toContain('- partner_privacy: the customer asks, or guesses by name, something this reply deliberately declines to tell them (a guessed name that is not one of the coffees listed below counts as asking)');
       expect(prompt).toMatch(/- sourcing: the customer asks something this reply fully answers: "We do not roast/);
-      expect(prompt).toContain(`A person can check for you: ${SUPPORT}.`);
+      // order_status is customer_orders now: described by gate.resolverDescriptions, not by its answer text.
+      expect(prompt).toContain('- customer_orders: the customer asks where their order is, whether it has shipped, its tracking, or when it will arrive');
       expect(prompt).toContain('Customer message: is it Joe Coffee?');
     });
   }, 60000);
@@ -199,13 +207,48 @@ describe('routing (Testing 3, Haiku stubbed)', () => {
     });
   }, 60000);
 
-  it('"where is my order?" → the deflection with the support contact filled in', async () => {
+  it('"where is my order?" with no orders → the deflection verbatim, support contact filled in', async () => {
     await withRollback(async ({ client }) => {
       await seeded(client);
       const sid = await sessionFixture(client);
       const out = await tryGate({ uid: 'vitest-gate-uid', sessionId: sid, message: 'Where is my order?', turnCount: 2, maxTurns: 16, ctx: {}, history: [] },
-        { runner: client, haiku: haikuStub(confirmAs('order_status_unavailable')).fn, config: config(), roasterNames: async () => [] });
+        { runner: client, haiku: haikuStub(confirmAs('customer_orders')).fn, config: config(), roasterNames: async () => [] });
       expect(out.gated && out.reply).toBe(`I can't see shipping details from here. A person can check for you: ${SUPPORT}.`);
+      expect(out.gated && out.route).toBe('gate');
+    });
+  }, 60000);
+
+  it('"where is my order?" with orders → Haiku phrases what and when, then the deflection verbatim; no status or tracking reaches the facts', async () => {
+    await withRollback(async ({ client }) => {
+      await seeded(client);
+      const sid = await sessionFixture(client);
+      const [a, b] = await getCatalogCoffees(client);
+      const orders = {
+        recent: [
+          { createdAt: new Date('2026-10-21T14:00:00Z'), lines: [{ coffeeId: a.id, weightOz: 12, quantity: 1 }] },
+          { createdAt: new Date('2026-09-28T09:00:00Z'), lines: [{ coffeeId: b.id, weightOz: 12, quantity: 2 }, { coffeeId: null, weightOz: null, quantity: 1 }] },
+          { createdAt: new Date('2026-08-01T09:00:00Z'), lines: [{ coffeeId: b.id, weightOz: 12, quantity: 1 }] },
+        ],
+        olderCount: 0, olderArchetypeCounts: {},
+      };
+      const limits: number[] = [];
+      const customer = {
+        getLastRecommendation: async () => [], getSubscriptionCurrent: async () => null, getCustomerIdentity: async () => ({ firstName: 'Sam' }),
+        getRecentOrders: async (_uid: string, limit: number) => { limits.push(limit); return { ...orders, recent: orders.recent.slice(0, limit) }; },
+      };
+      const h = haikuStub(confirmAs('customer_orders'), () => `You ordered the ${a.alias} on Oct 21. Before that, two bags of ${b.alias}.`);
+      const out = await tryGate({ uid: 'vitest-gate-uid', sessionId: sid, message: 'Where is my order?', turnCount: 2, maxTurns: 16, ctx: {}, history: [] },
+        { runner: client, haiku: h.fn, config: config(), roasterNames: async () => [], customer, catalogCoffees: async () => [a, b] });
+      expect(out.gated).toBe(true);
+      if (!out.gated) return;
+      expect(out.route).toBe('gate_haiku');
+      expect(out.reply).toBe(`You ordered the ${a.alias} on Oct 21. Before that, two bags of ${b.alias}. I can't see shipping details from here. A person can check for you: ${SUPPORT}.`);
+      expect(limits).toEqual([2]); // gate.recentOrders
+      const facts = h.calls.find(c => c.purpose === 'phrase')!.prompt;
+      expect(facts).toContain(`Ordered Oct 21: ${a.alias} 12 oz x1`);
+      expect(facts).toContain(`Ordered Sep 28: ${b.alias} 12 oz x2, a coffee x1`);
+      expect(facts).not.toContain('Aug 1');
+      for (const word of ['pending', 'tracking', 'shipped', 'deliver']) expect(facts.toLowerCase()).not.toContain(word);
     });
   }, 60000);
 
@@ -298,15 +341,21 @@ describe('redaction (Testing 4: three roasteries, one coffee named after its roa
       const coffees = all.map(c => (ids.includes(c.id) ? { ...c, sizes: [{ label: '12 oz', cents: 1900 }] } : c));
       const answers = await getCurrentAnswers(client);
       const roasterNames = (await client.query<{ name: string }>(`SELECT name FROM roaster`)).rows.map(r => r.name);
+      // customer_orders reads an order of each of the three coffees (the first one named after its roaster).
+      const customer = {
+        getLastRecommendation: async () => [], getSubscriptionCurrent: async () => null, getCustomerIdentity: async () => null,
+        getRecentOrders: async () => ({ recent: [{ createdAt: new Date('2026-10-21T14:00:00Z'), lines: ids.map(coffeeId => ({ coffeeId, weightOz: 12, quantity: 1 })) }], olderCount: 0, olderArchetypeCounts: {} }),
+      };
       const outputs: string[] = [];
       for (const rule of rules) {
         if (rule.resolver === 'customer_subscription') continue; // a status word and a flag; no free text
         for (const coffeeId of rule.resolver === 'catalog_price' ? ids : [null]) {
-          const row = await resolveRule({ rule, uid: 'vitest-gate-uid', message: 'Do you have any decaf?', coffeeId, answers, coffees: async () => coffees, cfg: config(), runner: client });
-          if (row) outputs.push(row.text);
+          const row = await resolveRule({ rule, uid: 'vitest-gate-uid', message: 'Do you have any decaf?', coffeeId, answers, coffees: async () => coffees, cfg: config(), runner: client, customer });
+          if (row) outputs.push(row.text, row.suffix ?? '');
+          if (row && rule.resolver === 'customer_orders') expect(row.text.split(/\n/)).toHaveLength(2);
         }
       }
-      expect(outputs.length).toBeGreaterThanOrEqual(7);
+      expect(outputs.filter(Boolean).length).toBeGreaterThanOrEqual(8);
       for (const text of outputs) for (const n of roasterNames) expect(text.toLowerCase(), `"${text}" names ${n}`).not.toContain(n.toLowerCase());
 
       // A phrased reply that names a roaster is refused (the turn goes to Sonnet).
@@ -352,6 +401,12 @@ describe('integrity checks 6 to 10 and the gated ledger rows (Testing 5)', () =>
   });
   it('10: an order writer besides the checkout insert while order_status is still an answer', () => {
     expect(failing({ ...base(), orderWriters: [{ module: 'orders', verbs: ['INSERT'] }, { module: 'roasteryPortalService', verbs: ['UPDATE'] }] })).toEqual([10]);
+  });
+  it('6 and 10 hold for order_status as customer_orders too', () => {
+    const asOrders = (): GateCheckInput => ({ ...base(), rules: [r('do_you_roast'), r('order_status', { id: 2, priority: 40, resolver: 'customer_orders', answer_key: 'order_status_unavailable', keywords: ['where is my order'] })] });
+    expect(failing(asOrders())).toEqual([]);
+    expect(failing({ ...asOrders(), answers: [answer('sourcing')] })).toEqual([6]);
+    expect(failing({ ...asOrders(), orderWriters: [{ module: 'orders', verbs: ['INSERT'] }, { module: 'roasteryPortalService', verbs: ['UPDATE'] }] })).toEqual([10]);
   });
   it('the seed rules pass 9 against the seed topics (the decaf phrases do not collide with caffeine_decaf)', async () => {
     await withRollback(async ({ client }) => {

@@ -116,6 +116,7 @@ export interface SommelierConfig {
     phraseMaxTokens: number;
     phrasePrompt: string;
     maxMessageChars: number;
+    recentOrders?: number;  // customer_orders: how many recent orders it reads (default 2)
     prefixRebuildMinTokens?: number;
     offline?: { enabled: boolean; model: string; missShareThreshold: number };
   };
