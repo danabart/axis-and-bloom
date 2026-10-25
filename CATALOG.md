@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-10-25 from database `axisandbloom` · 126 tables · 74 views · 1164 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `16473ea43ecd` (full value in the footer).
+Generated 2026-10-25 from database `axisandbloom` · 130 tables · 74 views · 1195 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `413a6526590c` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -43,7 +43,7 @@ Copied verbatim from the top of `backend/src/db/comments.sql`.
 
 ## Tables
 
-### master (23)
+### master (25)
 
 #### `coffee_archetype`
 
@@ -508,7 +508,49 @@ The brand facts Liam may state (what we are, sourcing, partner privacy, what you
 | `note` | text | yes | Why the row was written (the admin's change note, or the seed's), free text; NULL when none was given. |
 | `created_by` | text | no | Who wrote the row: the admin's Firebase uid, or seed for the initial rows. |
 
-### fact (23)
+#### `sommelier_gate_rule`
+
+The Liam gate's rules, one current row per key: keywords that make a customer message a candidate, the resolver that answers it (a brand answer verbatim, catalog prices, catalog category coffees, subscription status) and the priority among rules; not in config/sommelier because config-apply and config-drift work on the code seed and a rule points at a sommelier_answer row, and no existing table maps messages to reads (topics[].keywords pick a prompt mode, not an answer)
+
+- **Writer:** sommelierGateRuleService.setRuleInTx, sommelierGateRuleService.retireRuleInTx
+- **Readers:** sommelierReads (getActiveRules, getGateRulesVersion, hasAnyGateRule, getExamples, getRuleStats, getGateStats); sommelierIntegrity checks 6-10 and the gate via sommelierReads
+- **Since:** 2026-10-25 (Liam answer layer, Part A1)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key (SERIAL); (key, current) is the natural key, held by the partial unique index sommelier_gate_rule_one_current. |
+| `key` | text | no | Stable rule name in snake_case (which_roastery, do_you_roast, what_you_get, order_status, price, decaf, subscription_status); exactly one row per key has superseded_at NULL. |
+| `priority` | integer | no | Lower wins when several active rules' keywords match the same message. |
+| `resolver_id` | integer | no | FK to lookup_value(id) in category sommelier_gate_resolver: answer, catalog_price, catalog_category or customer_subscription; the write door refuses a resolver the code registry (sommelierGate.RESOLVERS) does not have. |
+| `answer_key` | text | yes | For resolver answer: the sommelier_answer key said verbatim (a key, not an id, so an answer edit needs no re-pointing; integrity check 6 proves a current row exists); NULL for the other resolvers. |
+| `topic_key` | text | yes | The config/sommelier topic the rule belongs to (other, matching, caffeine_decaf, ...); integrity check 7 proves it exists in config topics. |
+| `keywords` | text[] | no | Lower-cased substrings; a message is a candidate when it contains one (lower(message).includes(keyword), as the topic router matches). Never equal to a keyword of an expertise topic (integrity check 9). |
+| `max_message_chars` | integer | yes | Longest message, in characters, the rule may gate; NULL means config gate.maxMessageChars. |
+| `since` | timestamp with time zone | no | UTC timestamp the row took effect. |
+| `superseded_at` | timestamp with time zone | yes | UTC timestamp a newer row for the key replaced this one, or the rule was retired; NULL marks the current row. The only column ever updated. \| Writer: sommelierGateRuleService.setRuleInTx, sommelierGateRuleService.retireRuleInTx |
+| `note` | text | yes | Why the row was written, free text; NULL when none was given. |
+| `created_by` | text | no | Who wrote the row: seed for the initial rules, script:gate-rules-apply for the apply script, else the writer's uid. |
+
+#### `sommelier_gate_rule_example`
+
+The gate rules' tests and, later, the matcher's training set: messages a rule must answer (must_match) or must leave to the model (must_not_match), with the label the confirmation should return; every write to a rule or example runs every current example of every active rule and is refused on one mismatch; no existing table holds labelled example messages
+
+- **Writer:** sommelierGateRuleService.setRuleInTx, sommelierGateRuleService.setExampleInTx, sommelierGateRuleService.retireRuleInTx
+- **Readers:** sommelierReads (getExamples, getRuleStats)
+- **Since:** 2026-10-25 (Liam answer layer, Part A2)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key (SERIAL); (rule_id, message, current) is unique through sommelier_gate_rule_example_one_current. |
+| `rule_id` | integer | no | FK to sommelier_gate_rule(id): the rule row the example tests; a rule edit copies its current examples onto the new rule row and supersedes the old ones. |
+| `message` | text | no | A customer message, as a customer would type it. |
+| `expectation_id` | integer | no | FK to lookup_value(id) in category sommelier_gate_expectation: must_match (the rule answers it) or must_not_match (the model does). |
+| `expected_label` | text | yes | The label the confirmation should return for the message: the rule's label (its answer key or resolver name) for must_match, judgment or another rule's label for must_not_match; the nightly replay compares Haiku's label with it. |
+| `since` | timestamp with time zone | no | UTC timestamp the row took effect. |
+| `superseded_at` | timestamp with time zone | yes | UTC timestamp the example was replaced or its rule edited or retired; NULL marks a current example. The only column ever updated. \| Writer: sommelierGateRuleService.setRuleInTx, sommelierGateRuleService.setExampleInTx, sommelierGateRuleService.retireRuleInTx |
+| `note` | text | yes | Why the example exists, free text; NULL when none was given. |
+
+### fact (25)
 
 #### `catalog_change`
 
@@ -1018,13 +1060,30 @@ What a roaster said outside the portal form (cupping table, email, call, visit, 
 | `supersedes_id` | uuid | yes | References roastery_remark.id: the row this one corrects (same roaster); the old row is never touched, and is_current in v_roastery_remark is false for it. |
 | `load_dts` | timestamp with time zone | no | UTC timestamp the row was loaded (system time). |
 
+#### `sommelier_gate_rule_replay`
+
+The nightly replay of every current rule example through the real Haiku confirmation, one row per example per night: whether the model still agrees with the expected label (the model-vs-rules drift number); a fact at the grain example x night, so not sommelier_turn_label
+
+- **Writer:** sommelierTurnService.recordReplay
+- **Readers:** sommelierReads (getRuleStats, getReplayedExampleIds)
+- **Since:** 2026-10-25 (Liam answer layer, Part A4)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key (SERIAL). |
+| `example_id` | integer | no | FK to sommelier_gate_rule_example(id): the example replayed. |
+| `label` | text | no | The label Haiku returned for the example's message (unparsed when unreadable). |
+| `agreed` | boolean | no | True when label equals the example's expected_label. |
+| `labeler_model` | text | no | The Claude model id that replayed (config gate.offline.model at the time). |
+| `replayed_at` | timestamp with time zone | no | UTC timestamp of the replay; one row per example and labeler model per UTC day. |
+
 #### `sommelier_turn`
 
 The Liam turn ledger, one row per assistant reply (turn 0 is the opening), written after the reply is in Firestore and never read by Liam: which route answered, which model, tokens, cost, latency; no object held one row per turn (claude_daily_spend is a per-day per-feature total, token_events usage_log rows carry only the model, context_data.topicLog is rewritten every turn)
 
 - **Writer:** sommelierTurnService.recordTurn
-- **Readers:** sommelierReads (getTurnStats, getTurnsForSession), sommelierIntegrity (check 5 via sommelierReads)
-- **Since:** 2026-10-24 (Liam sees everything brief Rev 2, Part C)
+- **Readers:** sommelierReads (getTurnStats, getTurnsForSession, getRuleStats, getGateStats, getUnlabelledModelTurns), sommelierIntegrity (check 5 via sommelierReads)
+- **Since:** 2026-10-24 (Liam sees everything brief Rev 2, Part C); gate columns filled since 2026-10-25 (Liam answer layer)
 
 | column | type | null | comment |
 |---|---|---|---|
@@ -1033,25 +1092,41 @@ The Liam turn ledger, one row per assistant reply (turn 0 is the opening), writt
 | `turn` | smallint | no | The reply's turn number in the session: 0 is the opening (/start), then the session's turn_count when the message was handled; a daily-cap guard close takes the next number without advancing turn_count. |
 | `user_message_id` | text | yes | Firestore doc id of the customer message this reply answers (users/{uid}/sommelier_sessions/{session}/messages); NULL on the opening turn. |
 | `assistant_message_id` | text | no | Firestore doc id of the reply itself in the same messages collection; sommelierIntegrity check 5 confirms it exists. |
-| `route` | text | no | Who answered, a lookup_value value in category sommelier_turn_route: model (Claude), guard (the daily-cap close, no model), gate and gate_haiku (written by the gate brief, Brief 3). Checked by the writer, not a CHECK constraint. |
-| `model` | text | yes | The Claude model id that produced the reply; NULL for guard and gate rows and when the opening fell back to the canned line. |
-| `rule_id` | integer | yes | Brief 3: the gate rule that answered (sommelier_gate_rule.id once that table exists); NULL until then. |
-| `confirm_label` | text | yes | Brief 3: the label the gate's confirmation step assigned; NULL until then. |
-| `confirm_confidence` | numeric | yes | Brief 3: the confidence (0 to 1) of the gate's confirmation; NULL until then. |
-| `coffee_id` | integer | yes | Brief 3: FK to coffees(id), the coffee a gated turn resolved; NULL until then. |
-| `answer_id` | integer | yes | Brief 3: FK to sommelier_answer(id), the answer row a gated turn said verbatim; NULL until then. |
+| `route` | text | no | Who answered, a lookup_value value in category sommelier_turn_route: model (Sonnet), guard (the daily-cap close, no model), gate (a brand answer said verbatim after a Haiku confirmation) or gate_haiku (a catalog or customer row phrased by Haiku). Checked by the writer, not a CHECK constraint. |
+| `model` | text | yes | The Claude model id that produced the reply: Sonnet on model rows, the gate's Haiku (config gate.confirmModel) on gate and gate_haiku rows; NULL for guard rows and when the opening fell back to the canned line. |
+| `rule_id` | integer | yes | FK to sommelier_gate_rule(id): the rule whose keywords picked this message as a candidate. Set on gated rows, and on model rows whose candidate the confirmation turned down; NULL when no rule matched. |
+| `confirm_label` | text | yes | The label the gate's Haiku confirmation returned (an answer key, a resolver name, or judgment); NULL when no confirmation ran or it failed to parse. |
+| `confirm_confidence` | numeric | yes | The confidence (0 to 1) the gate's confirmation returned; NULL when no confirmation ran. |
+| `coffee_id` | integer | yes | FK to coffees(id): the coffee a gated catalog_price turn resolved; NULL otherwise. |
+| `answer_id` | integer | yes | FK to sommelier_answer(id): the answer row a gate turn said verbatim; NULL otherwise. |
 | `answers_version` | integer | yes | The highest sommelier_answer.id among the current answers rendered into this turn's prompt prefix; NULL when the brand facts block was off or empty. |
 | `topic` | text | yes | The topic router's topic for the message (brewing, equipment, ...), NULL when none matched or on the opening turn. |
 | `matched_keyword` | text | yes | The keyword that matched the topic, NULL when the topic was carried forward (sticky) or none matched. |
 | `sticky` | boolean | yes | True when the topic was carried forward from an earlier turn rather than matched in this message. |
 | `mode` | text | yes | The response contract the turn ran under: matching or expertise (the opening is matching). |
-| `input_tokens` | integer | no | Uncached input tokens of the Claude call (after the last cache breakpoint); 0 for guard rows. |
+| `input_tokens` | integer | no | Uncached input tokens of the reply call (after the last cache breakpoint); on gated rows the Haiku calls summed; 0 for guard rows. |
 | `cache_read_tokens` | integer | no | Input tokens served from the prompt cache. |
 | `cache_write_tokens` | integer | no | Input tokens written to the prompt cache (5-minute and 1-hour writes together). |
 | `output_tokens` | integer | no | Output tokens of the reply. |
-| `usd_micros` | bigint | no | Cost of the call in integer micro-dollars, the same number anthropicGuard added to claude_daily_spend (rounded up per call); 0 for guard rows. |
+| `usd_micros` | bigint | no | Cost of the turn in integer micro-dollars, the same numbers anthropicGuard added to claude_daily_spend (rounded up per call): the reply call plus any gate confirmation call of the same turn (the token columns are the reply call's own; on gated rows, both Haiku calls summed); 0 for guard rows. |
 | `latency_ms` | integer | yes | Wall time of the Claude call in milliseconds; NULL for guard rows. |
 | `created_at` | timestamp with time zone | no | UTC timestamp the row was written (right after the reply reached Firestore). |
+
+#### `sommelier_turn_label`
+
+The nightly labeller's verdict on a model turn: which gate label (or judgment) Haiku gives the customer's message, so a gate label on a Sonnet turn is a miss the keywords did not catch; its own table because sommelier_turn is insert-only, and a relabel by a newer model is a new row
+
+- **Writer:** sommelierTurnService.recordLabel
+- **Readers:** sommelierReads (getRuleStats, getGateStats, getUnlabelledModelTurns)
+- **Since:** 2026-10-25 (Liam answer layer, Part A3)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key (SERIAL). |
+| `turn_id` | integer | no | FK to sommelier_turn(id): the model turn labelled. |
+| `label` | text | no | A gate label (an answer key or a resolver name), judgment, or unparsed when the labeller's output could not be read. |
+| `labeler_model` | text | no | The Claude model id that labelled (config gate.offline.model at the time). |
+| `labeled_at` | timestamp with time zone | no | UTC timestamp the label was written. |
 
 ### operating (65)
 
@@ -1393,7 +1468,7 @@ Controlled vocabulary for admin dropdowns and coded fields, one row per (categor
 | column | type | null | comment |
 |---|---|---|---|
 | `id` | integer | no | Surrogate key; coffees.origin_region_id references it. |
-| `category` | text | no | Vocabulary group, for example roast_level, process, blend_or_single, brew_method, origin_region, the roastery_portal_* groups and sommelier_answer_kind / sommelier_answer_delivery (Liam brand answers, 2026-10-24) and coffee_card_tag (the card's award tag wording, coffee presentation brief 4, 2026-10-24), sommelier_turn_route (the Liam turn ledger's route: model, guard, gate, gate_haiku, 2026-10-24); UNIQUE together with value. |
+| `category` | text | no | Vocabulary group, for example roast_level, process, blend_or_single, brew_method, origin_region, the roastery_portal_* groups and sommelier_answer_kind / sommelier_answer_delivery (Liam brand answers, 2026-10-24) and coffee_card_tag (the card's award tag wording, coffee presentation brief 4, 2026-10-24), sommelier_turn_route (the Liam turn ledger's route: model, guard, gate, gate_haiku, 2026-10-24), sommelier_gate_resolver (answer, catalog_price, catalog_category, customer_subscription) and sommelier_gate_expectation (must_match, must_not_match) (the Liam gate, 2026-10-25); UNIQUE together with value. |
 | `value` | text | no | Stored code within the category (what other tables and the API hold). |
 | `label` | text | no | Display text shown in the UI; may differ from value. |
 | `sort_order` | integer | no | Display position within the category, ascending. |
@@ -3337,7 +3412,7 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `household` | household | household (DELETE, INSERT) | household | — |
 | `household_invitation` | household | household (INSERT, UPDATE) | household | — |
 | `liam_sms_feedback` | none | — | — | — |
-| `lookup_value` | admin, seed | admin (DELETE, INSERT, UPDATE), seed (INSERT, UPDATE) | admin, catalogService, coffees, roasterVoiceReads, roasteryPortalReads, sommelierAnswerService, sommelierReads, sommelierTurnService, sommelier_answer_seed | — |
+| `lookup_value` | admin, seed | admin (DELETE, INSERT, UPDATE), seed (INSERT, UPDATE) | admin, catalogService, coffees, roasterVoiceReads, roasteryPortalReads, sommelierAnswerService, sommelierGateRuleService, sommelierReads, sommelierTurnService, sommelier_answer_seed | — |
 | `marketing_config` | reportingConfig, seed | reportingConfig (UPDATE), seed (INSERT) | reportingConfig | — |
 | `newsletter_subscriber` | backfill:backfillUnsubscribeTokens, backfill:correct-subscriber-archetypes, newsletter, seed, unsubscribe | backfill:backfillUnsubscribeTokens (UPDATE), backfill:correct-subscriber-archetypes (UPDATE), newsletter (INSERT), seed (UPDATE), unsubscribe (UPDATE) | admin, audit-quiz-emails, auth, backfillClaimedSessionLinks, backfillUnsubscribeTokens, correct-subscriber-archetypes, exportCalibration, mailchimp-backfill, newsletter, newsletterReconcile, quizIntegrity, quizInterpretationBackfill, unsubscribe, users | campaign_funnel_v, campaign_subscriber_archetype_v, v_archetype_distribution, v_customer_calibration, v_newsletter_subscribers, v_subscriber_quiz_results, v_subscribers_weekly |
 | `newsletter_subscriber_backup_20260925` | backfill:correct-subscriber-archetypes | — | — | — |
@@ -3359,7 +3434,7 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `quiz_session_interpretation` | quizSession | quizSession (INSERT, UPDATE) | customerIntegrity, customerReads, exportCalibration, quizInterpretationBackfill, quizSession | v_customer_quiz_current, v_customer_timeline, v_quiz_session_interpretation_history, v_subscriber_quiz_results |
 | `quiz_type` | seed | seed (INSERT) | — | v_quiz_scoring_matrix |
 | `quiz_vector` | none | — | — | — |
-| `roaster` | admin, catalogService | admin (INSERT, UPDATE), catalogService (UPDATE) | admin, axis, behavioralConfidence, catalogImport, catalogIntegrity, catalogReads, catalogService, coffees, cuppingReads, customerReads, evidenceIntegrity, evidenceReads, freeSlots, roasteryPortalReads, roasteryPortalService, roasteryRemarkReads, setMatch2917, sommelierIntegrity, sommelierRag | v_coffee, v_roastery_remark |
+| `roaster` | admin, catalogService | admin (INSERT, UPDATE), catalogService (UPDATE) | admin, axis, behavioralConfidence, catalogImport, catalogIntegrity, catalogReads, catalogService, coffees, cuppingReads, customerReads, evidenceIntegrity, evidenceReads, freeSlots, roasteryPortalReads, roasteryPortalService, roasteryRemarkReads, setMatch2917, sommelierGate, sommelierIntegrity, sommelierRag, sommelier_gate_rule_seed | v_coffee, v_roastery_remark |
 | `roastery_blend_vector` | none | — | — | — |
 | `roastery_coffee_descriptors` | catalogService, seed | catalogService (INSERT, UPDATE), seed (INSERT) | admin, catalogService, cuppingReads, customerReads, evidenceReads, roasteryPortalReads | v_collaborative_flavor_wheel |
 | `roastery_portal_acceptance` | roasteryPortalService | roasteryPortalService (INSERT) | roasteryPortalReads | v_roastery_portal_progress |
@@ -3380,10 +3455,14 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `sensory_source` | seed | seed (INSERT) | — | — |
 | `sommelier_answer` | seed, sommelierAnswerService | seed (INSERT), sommelierAnswerService (INSERT, UPDATE) | sommelierReads | — |
 | `sommelier_evaluation` | outcomeTracker, sommelier, sommelierEvaluator | outcomeTracker (UPDATE), sommelier (UPDATE), sommelierEvaluator (INSERT) | admin, outcomeTracker | — |
+| `sommelier_gate_rule` | sommelierGateRuleService | sommelierGateRuleService (INSERT, UPDATE) | sommelierReads | — |
+| `sommelier_gate_rule_example` | sommelierGateRuleService | sommelierGateRuleService (INSERT, UPDATE) | sommelierReads | — |
+| `sommelier_gate_rule_replay` | sommelierTurnService | sommelierTurnService (INSERT) | sommelierReads | — |
 | `sommelier_messages` | none | — | sommelier | — |
-| `sommelier_sessions` | sommelier | sommelier (DELETE, INSERT, UPDATE) | admin, backfillLiamRecommendations, engagementMetrics, sommelier, sommelierIntegrity | — |
+| `sommelier_sessions` | sommelier | sommelier (DELETE, INSERT, UPDATE) | admin, backfillLiamRecommendations, engagementMetrics, sommelier, sommelierIntegrity, sommelierReads | — |
 | `sommelier_sms_feedback` | cron, liamSmsFeedback | cron (INSERT, UPDATE), liamSmsFeedback (INSERT, UPDATE) | cron, liamSmsFeedback | — |
 | `sommelier_turn` | sommelierTurnService | sommelierTurnService (INSERT) | sommelierReads | — |
+| `sommelier_turn_label` | sommelierTurnService | sommelierTurnService (INSERT) | sommelierReads | — |
 | `subscriber_source` | seed | seed (INSERT) | admin, mailchimp-backfill, newsletter | v_newsletter_subscribers, v_subscriber_quiz_results, v_subscribers_weekly |
 | `subscription` | companyGiftRedemption, cron | companyGiftRedemption (INSERT), cron (UPDATE) | catalogService, companyGiftRedemption, cron, customerReads, liamAccess, userSignals, users | — |
 | `token_events` | auth, manual:grant_tokens, orders, tokenService | auth (INSERT), orders (INSERT), tokenService (INSERT) | admin, sommelier, sommelierGuards | — |
@@ -3418,9 +3497,9 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 **Dead candidates, static (22):** `archetype_relationship`, `archetype_tunable_variable`, `cupping_note_dimension_weight`, `customer_order_kind`, `liam_sms_feedback`, `newsletter_subscriber_backup_20260925`, `notification_log`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_vector`, `roastery_blend_vector`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `user_archetype_tuning`, `user_coffee_profile`, `user_lifecycle_event`, `user_payment_detail`, `user_roaster_link`, `user_vector_state`.
 
-**Touched since the reset (126):** `address`, `api_event`, `archetype_relationship`, `archetype_tunable_variable`, `archetype_vector`, `beat_event`, `brew_card_view_event`, `campaign_landing_event`, `catalog_change`, `claude_daily_spend`, `coffee_archetype`, `coffee_archetype_assignment`, `coffee_category`, `coffee_category_assignment`, `coffee_dial_slot`, `coffee_dimensions`, `coffee_hop`, `coffee_retail_price`, `coffee_size`, `coffee_sku`, `coffee_slot_assignment`, `coffee_slot_price`, `coffees`, `company`, `company_gift`, `company_gift_code`, `cupper`, `cupper_calibration_offset`, `cupping_brew_params`, `cupping_note`, `cupping_note_dimension_weight`, `cupping_scale`, `cupping_scale_step`, `cupping_score_descriptors`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`, `cupping_sessions`, `cupping_sheet_format`, `cupping_sheet_line`, `customer_bag_claim`, `customer_brew_profile_change`, `customer_dial_event`, `customer_feedback_descriptor`, `customer_feedback_event`, `customer_identity_link`, `customer_liam_action`, `customer_liam_question`, `customer_liam_recommendation`, `customer_liam_reply`, `customer_order_kind`, `dial_position_signal`, `dial_source_weight`, `evidence_parameter`, `evidence_stop_word`, `household`, `household_invitation`, `liam_sms_feedback`, `lookup_value`, `marketing_config`, `newsletter_subscriber`, `newsletter_subscriber_backup_20260925`, `notification_log`, `order`, `order_line_item`, `qr_scan_event`, `qr_universal_token`, `quiz`, `quiz_answer`, `quiz_answer_archetype_score`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_funnel_event`, `quiz_question`, `quiz_session`, `quiz_session_interpretation`, `quiz_type`, `quiz_vector`, `roaster`, `roastery_blend_vector`, `roastery_coffee_descriptors`, `roastery_portal_acceptance`, `roastery_portal_coffee`, `roastery_portal_dimension`, `roastery_portal_lineup_response`, `roastery_portal_lineup_response_best_seller`, `roastery_portal_link`, `roastery_portal_note_mapping`, `roastery_portal_respondent`, `roastery_portal_response`, `roastery_portal_response_brew`, `roastery_portal_response_dimension`, `roastery_portal_response_note`, `roastery_remark`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `sommelier_answer`, `sommelier_evaluation`, `sommelier_messages`, `sommelier_sessions`, `sommelier_sms_feedback`, `sommelier_turn`, `subscriber_source`, `subscription`, `token_events`, `transactional_email_log`, `user_archetype_tuning`, `user_bloom_dial_current_position`, `user_brew_card`, `user_coffee_profile`, `user_email`, `user_flavor_feedback`, `user_lifecycle_event`, `user_lifecycle_stage`, `user_lifecycle_state`, `user_payment_detail`, `user_phone`, `user_profile`, `user_roaster_link`, `user_saved_item`, `user_tokens`, `user_type`, `user_vector_state`.
+**Touched since the reset (130):** `address`, `api_event`, `archetype_relationship`, `archetype_tunable_variable`, `archetype_vector`, `beat_event`, `brew_card_view_event`, `campaign_landing_event`, `catalog_change`, `claude_daily_spend`, `coffee_archetype`, `coffee_archetype_assignment`, `coffee_category`, `coffee_category_assignment`, `coffee_dial_slot`, `coffee_dimensions`, `coffee_hop`, `coffee_retail_price`, `coffee_size`, `coffee_sku`, `coffee_slot_assignment`, `coffee_slot_price`, `coffees`, `company`, `company_gift`, `company_gift_code`, `cupper`, `cupper_calibration_offset`, `cupping_brew_params`, `cupping_note`, `cupping_note_dimension_weight`, `cupping_scale`, `cupping_scale_step`, `cupping_score_descriptors`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`, `cupping_sessions`, `cupping_sheet_format`, `cupping_sheet_line`, `customer_bag_claim`, `customer_brew_profile_change`, `customer_dial_event`, `customer_feedback_descriptor`, `customer_feedback_event`, `customer_identity_link`, `customer_liam_action`, `customer_liam_question`, `customer_liam_recommendation`, `customer_liam_reply`, `customer_order_kind`, `dial_position_signal`, `dial_source_weight`, `evidence_parameter`, `evidence_stop_word`, `household`, `household_invitation`, `liam_sms_feedback`, `lookup_value`, `marketing_config`, `newsletter_subscriber`, `newsletter_subscriber_backup_20260925`, `notification_log`, `order`, `order_line_item`, `qr_scan_event`, `qr_universal_token`, `quiz`, `quiz_answer`, `quiz_answer_archetype_score`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_funnel_event`, `quiz_question`, `quiz_session`, `quiz_session_interpretation`, `quiz_type`, `quiz_vector`, `roaster`, `roastery_blend_vector`, `roastery_coffee_descriptors`, `roastery_portal_acceptance`, `roastery_portal_coffee`, `roastery_portal_dimension`, `roastery_portal_lineup_response`, `roastery_portal_lineup_response_best_seller`, `roastery_portal_link`, `roastery_portal_note_mapping`, `roastery_portal_respondent`, `roastery_portal_response`, `roastery_portal_response_brew`, `roastery_portal_response_dimension`, `roastery_portal_response_note`, `roastery_remark`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `sommelier_answer`, `sommelier_evaluation`, `sommelier_gate_rule`, `sommelier_gate_rule_example`, `sommelier_gate_rule_replay`, `sommelier_messages`, `sommelier_sessions`, `sommelier_sms_feedback`, `sommelier_turn`, `sommelier_turn_label`, `subscriber_source`, `subscription`, `token_events`, `transactional_email_log`, `user_archetype_tuning`, `user_bloom_dial_current_position`, `user_brew_card`, `user_coffee_profile`, `user_email`, `user_flavor_feedback`, `user_lifecycle_event`, `user_lifecycle_stage`, `user_lifecycle_state`, `user_payment_detail`, `user_phone`, `user_profile`, `user_roaster_link`, `user_saved_item`, `user_tokens`, `user_type`, `user_vector_state`.
 
 ---
 
-catalog-hash: 16473ea43ecddff8125dd9594eddaa47885fd32ec18bd5c0e1d5fae42a95537d
-lineage-hash: b27aed4e4cb1c20e6bd34e2720f19d7ab00c0953ecc46ae270ef17f635a3a11f
+catalog-hash: 413a6526590c3d39225ead0e6ee5d1bdd199717164807ed06dfd35cd45ba9805
+lineage-hash: 924b9a00633ad8f9aeea5501b2bb0c2d4bf4fd05c89f0f9aaa6a64b9ba695c42

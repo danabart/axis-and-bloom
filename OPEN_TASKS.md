@@ -320,6 +320,26 @@ The B1 rule "If there is no quiz on file, say so in one sentence and offer the q
 
 `sommelier_turn` (#237) now holds one row per reply with topic, mode, model, tokens and cost. `context_data.topicLog` (read by `engagementMetrics`) and `token_events` rows with `reason = 'usage_log'` (read by `sommelierGuards`) are retire candidates once those two readers read `sommelier_turn` instead. Nothing removed yet.
 
+### OT-42: move `topics[].keywords` from config to tables (Liam answer layer, decided out of scope 2026-10-25)
+
+The gate's keywords are rows (`sommelier_gate_rule`, with history and tests); the topic router's are still `config/sommelier.topics[].keywords`. Dana (2026-10-16): mappings and stop lists belong in tables. Moving them is its own decision and brief; integrity check 9 already compares the two lists.
+
+### OT-43: gate rule editing in admin (Liam answer layer, 2026-10-25)
+
+The "Liam Gate Rules" card is read-only. Until a brief adds editing, rules change through the seed or `npm run gate:rules:apply -- <rules.json> --expect-db axisandbloom` (through `sommelierGateRuleService`, so the rule tests still run and a failing example rolls the file back).
+
+### OT-44: the `order_status` rule becomes a customer resolver once something writes `fulfillment_status` (Liam answer layer, 2026-10-25)
+
+Today it says the `order_status_unavailable` deflection verbatim, because nothing writes `order.fulfillment_status` past checkout's `'pending'` (OT-39). The day a writer exists, `sommelierIntegrity` check 10 reports it (any `order` writer in `lineage.json` besides the checkout INSERT), and the rule gets a customer resolver in its own brief.
+
+### OT-45: the gate's confirmation labels one compound order question as order status (found 2026-10-25, first nightly replay)
+
+`replay_agreement=43/46`. The disagreement that matters: "When will it arrive, and should I rest it before brewing?" (a must_not_match example, expected judgment) came back `order_status_unavailable`; with the gate on, that customer would get the deflection verbatim and lose the resting question. The other two are safe or borderline ("How much is the decaf?" → catalog_category, which is not the price rule's label, so Sonnet; "is it utopian?" → judgment, which it confirmed live at 0.95). Before turning the gate on, Dana's call: watch the replay number for a few nights, raise `gate.confirmThreshold`, or tighten the confirmation prompt's compound sentence (config, no deploy).
+
+### OT-46: half-caf and "caffeine free" asks always fall through to Sonnet (found 2026-10-25, gate smoke)
+
+The decaf rule's `catalog_category` resolver lists the coffees in the category the message names. No catalog coffee carries `half_caf` today, so "Do you have half caf?" is confirmed and then sent to Sonnet (who answered well), and "caffeine free" names no category code or label. Harmless (each costs one Haiku confirmation, ~$0.0006); either drop those keywords from the rule or map them when half-caf coffees exist.
+
 ### OT-19: `quizScoring.test.ts` — 12 pre-existing failures, not touched by Customer Blueprint C1 (found 2026-09-27)
 
 Found running the full `npm test` suite as part of Customer Blueprint C1's Part I verification (`git status`/`git log` confirm `backend/src/services/quizScoring.ts` and its test have no uncommitted diff and were last touched by commit `8edcac0`, already on `main` — this session never opened either file). **Pre-existing on `main` at `6f34238`, not introduced or touched by C1.** Not fixed here — out of scope for this brief.

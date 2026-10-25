@@ -1798,3 +1798,12 @@ Full diagnosis, evidence, and verification in `WHAT_WE_BUILT.md` #166; the S17 d
 - **Marker fix:** a `decaf_constraint=true` example in the remember instructions (Liam had sent a phrase, which was dropped, so decaf never reached the FIT block).
 - **Ledger:** every reply (opening, message, daily-cap guard) is one `sommelier_turn` row with route, model, tokens, cost, latency, the answers version; Liam never reads it. Median cost per reply on prod: $0.00452 (was $0.00353 with the 6-coffee slice); `guards.modelCostPerTurnUsd` Sonnet now 0.0045.
 - No new intent, routing or model change; `RECOMMENDATION_SYSTEM_PROMPT` untouched; nothing written to customer data from chat beyond the existing markers.
+
+#### S118. The answer layer: a gate in front of Sonnet for simple questions (2026-10-25)
+
+**Pointer entry**, full record in `WHAT_WE_BUILT.md` #238 (`backend/src/features/ai_agent_liam/answer_layer/CLAUDE_CODE_PROMPT_LIAM_ANSWER_LAYER.md`). **Shipped with `gate.enabled` false: Liam behaves exactly as before until Dana turns it on** (Sommelier config page, "Liam Gate").
+- **When on:** after the guards and the topic router, a message containing a rule keyword (seven rules: which roastery, do you roast, what you get, order status, price, decaf, subscription status) gets one Haiku call that confirms it asks exactly that and nothing more; if so the reply is the brand answer word for word, or two Haiku sentences from one row (every size and price of the coffee named or last picked; the decaf list; subscription status). Not the opening, not the last two replies, never a compound or judgment question, never on a tie: those go to Sonnet as today.
+- **What the customer sees:** the same chat; a gated reply counts as a turn. A gated price sentence is not recorded as a recommendation and asks no question.
+- **Measured:** about $0.0007 (verbatim) / $0.001 (phrased) per gated reply against $0.0033 for a Sonnet reply, in a third to half the time.
+- **Nightly:** Sonnet's replies are labelled (a gate label = a miss the keywords did not catch) and every rule example is replayed; System Health shows the gated share, cost avoided, misses and replay agreement.
+- No change to `LIAM_BASE_PROMPT` or the cached blocks beyond one new brand fact (`order_status_unavailable`, the "a person can check" line, already a rule since #237).
