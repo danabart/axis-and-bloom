@@ -5578,6 +5578,82 @@ CREATE TABLE IF NOT EXISTS sommelier_turn (
 );
 CREATE INDEX IF NOT EXISTS idx_sommelier_turn_created ON sommelier_turn (created_at);
 
+-- Liam answer layer, the gate (brief LIAM_ANSWER_LAYER, Part A, 2026-10-25).
+-- Rules map a customer message to a read: keywords pick a candidate, one
+-- Haiku call confirms it, a resolver answers from one row. Rules are not in
+-- config/sommelier: config-apply and config-drift work on the code seed, a
+-- rule points at a sommelier_answer row, and mappings with history belong in
+-- tables (Dana, 2026-10-16). Rules and examples are master data superseded
+-- like sommelier_answer (one writer: sommelierGateRuleService, plus the
+-- insert-only seed db/seeds/sommelier_gate_rule_seed.ts, which goes through
+-- that service); labels and replays are insert-only facts written by
+-- sommelierTurnService. One reader, sommelierReads; lint:customer rule 10.
+-- Resolver and expectation vocabularies are lookup_value categories.
+INSERT INTO lookup_value (category, value, label, sort_order) VALUES
+  ('sommelier_gate_resolver', 'answer',                'Brand answer, verbatim',     1),
+  ('sommelier_gate_resolver', 'catalog_price',         'Catalog sizes and prices',   2),
+  ('sommelier_gate_resolver', 'catalog_category',      'Catalog category coffees',   3),
+  ('sommelier_gate_resolver', 'customer_subscription', 'Customer subscription status', 4),
+  ('sommelier_gate_expectation', 'must_match',     'Must be answered by the rule', 1),
+  ('sommelier_gate_expectation', 'must_not_match', 'Must go to the model',         2)
+ON CONFLICT (category, value) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS sommelier_gate_rule (
+  id                SERIAL PRIMARY KEY,
+  key               TEXT NOT NULL,
+  priority          INTEGER NOT NULL,
+  resolver_id       INTEGER NOT NULL REFERENCES lookup_value(id),
+  answer_key        TEXT,
+  topic_key         TEXT,
+  keywords          TEXT[] NOT NULL,
+  max_message_chars INTEGER,
+  since             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  superseded_at     TIMESTAMPTZ,
+  note              TEXT,
+  created_by        TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS sommelier_gate_rule_one_current ON sommelier_gate_rule (key) WHERE superseded_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS sommelier_gate_rule_example (
+  id             SERIAL PRIMARY KEY,
+  rule_id        INTEGER NOT NULL REFERENCES sommelier_gate_rule(id),
+  message        TEXT NOT NULL,
+  expectation_id INTEGER NOT NULL REFERENCES lookup_value(id),
+  expected_label TEXT,
+  since          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  superseded_at  TIMESTAMPTZ,
+  note           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sommelier_gate_rule_example_rule ON sommelier_gate_rule_example (rule_id);
+CREATE UNIQUE INDEX IF NOT EXISTS sommelier_gate_rule_example_one_current ON sommelier_gate_rule_example (rule_id, message) WHERE superseded_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS sommelier_turn_label (
+  id            SERIAL PRIMARY KEY,
+  turn_id       INTEGER NOT NULL REFERENCES sommelier_turn(id),
+  label         TEXT NOT NULL,
+  labeler_model TEXT NOT NULL,
+  labeled_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_sommelier_turn_label_turn ON sommelier_turn_label (turn_id);
+
+CREATE TABLE IF NOT EXISTS sommelier_gate_rule_replay (
+  id            SERIAL PRIMARY KEY,
+  example_id    INTEGER NOT NULL REFERENCES sommelier_gate_rule_example(id),
+  label         TEXT NOT NULL,
+  agreed        BOOLEAN NOT NULL,
+  labeler_model TEXT NOT NULL,
+  replayed_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_sommelier_gate_rule_replay_example ON sommelier_gate_rule_replay (example_id, replayed_at);
+
+-- sommelier_turn.rule_id (added by Brief 2 before this table existed) now
+-- points at the rule row that was the candidate.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sommelier_turn_rule_id_fkey') THEN
+    ALTER TABLE sommelier_turn ADD CONSTRAINT sommelier_turn_rule_id_fkey FOREIGN KEY (rule_id) REFERENCES sommelier_gate_rule(id);
+  END IF;
+END $$;
+
 -- Part C — dead tables, dropped once integrity check 7 (customerIntegrity.ts)
 -- has proved them empty in prod. Confirmed empty 2026-09-27:
 -- user_recommendation_log, user_feedback_event, chat_message. Self-healing
@@ -8815,6 +8891,11 @@ GRANT UPDATE (superseded_at) ON sommelier_answer TO ab_app;
 -- Liam turn ledger (2026-10-24): an insert-only fact, like the customer_*
 -- tables (lint:customer rule 9 is the code-side half).
 REVOKE UPDATE, DELETE, TRUNCATE ON sommelier_turn FROM ab_app;
+-- Liam gate (2026-10-25): rules and examples are superseded only; labels and
+-- replays are insert-only facts (lint:customer rule 10 is the code-side half).
+REVOKE UPDATE, DELETE, TRUNCATE ON sommelier_gate_rule, sommelier_gate_rule_example FROM ab_app;
+GRANT UPDATE (superseded_at) ON sommelier_gate_rule, sommelier_gate_rule_example TO ab_app;
+REVOKE UPDATE, DELETE, TRUNCATE ON sommelier_turn_label, sommelier_gate_rule_replay FROM ab_app;
 GRANT SELECT ON v_roastery_remark, v_cupping_session, v_cupping_session_coffee TO reporting_ro;
 
 -- Quiz content is master data with one writer, the V7 seed in this file,

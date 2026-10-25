@@ -1,7 +1,13 @@
+import { readFileSync } from 'node:fs';
 import { db } from '../db/client.js';
 import type { Tx } from '../db/client.js';
 import { getCoffees, getSlotsForCoffees } from './catalogReads.js';
-import { getCurrentAnswers, getTurnsForSession, type SommelierAnswerRow } from './sommelierReads.js';
+import {
+  getCurrentAnswers, getTurnsForSession, getActiveRules, getExamples,
+  type SommelierAnswerRow, type GateRuleRow, type GateExampleRow,
+} from './sommelierReads.js';
+import { getSommelierConfig } from './sommelierConfig.js';
+import { RESOLVERS, exampleFailures } from './sommelierGate.js';
 import { firestoreDb } from './firebase-admin.js';
 
 // ── Liam brand answers (brief Rev 3, Part A6, 2026-10-24) — integrity ───────
@@ -9,7 +15,9 @@ import { firestoreDb } from './firebase-admin.js';
 // non-fatal at boot ([sommelier-integrity]), a System Health card, a vitest
 // file. Checks 2-4 are also the content rules sommelierAnswerService enforces
 // on every write (answerContentViolation, below), so a failing row here was
-// written by hand in SQL or by the seed. Brief 3 adds the gate's checks.
+// written by hand in SQL or by the seed. Checks 6-10 are the gate's (Liam
+// answer layer, Part D, 2026-10-25; the brief's gate checks 1-5), and check 5
+// covers the gated ledger rows (the brief's gate check 6).
 // backend/src/features/ai_agent_liam/brand_prices_cart_cutoff/CLAUDE_CODE_PROMPT_LIAM_BRAND_PRICES_CART_CUTOFF.md
 
 type Runner = Tx | typeof db;
@@ -87,8 +95,8 @@ export function answerContentViolations(text: string, vocab: AnswerVocabulary): 
   return out;
 }
 
-// Keys a rule or config names and that must therefore have a current row.
-// Empty until Brief 3 (the gate) names some; check 1 reports duplicates today.
+// Keys config names and that must therefore have a current row. The gate
+// rules' answer keys are checked by check 6 against the live rules.
 export const REQUIRED_ANSWER_KEYS: string[] = [];
 
 function checkOneCurrentPerKey(rows: SommelierAnswerRow[]): SommelierIntegrityCheck {
@@ -133,8 +141,10 @@ function contentCheck(id: 2 | 3 | 4, name: string, rows: SommelierAnswerRow[], v
 export interface LedgerSession { sessionId: number; uid: string; turnCount: number; startedAt: Date; closeReason?: string | null }
 export interface LedgerReconcileInput {
   sessions: LedgerSession[];
-  turnsBySession: Map<number, Array<{ turn: number; assistant_message_id: string }>>;
+  turnsBySession: Map<number, Array<{ turn: number; assistant_message_id: string; route?: string }>>;
   transcriptIdsBySession: Map<number, Set<string>>;
+  /** modelUsed of each transcript message, by session (the gate check: a gated row's reply says gate). */
+  transcriptModelBySession?: Map<number, Map<string, string | null>>;
 }
 
 export function reconcileLedger(input: LedgerReconcileInput): SommelierIntegrityCheck {
@@ -154,12 +164,19 @@ export function reconcileLedger(input: LedgerReconcileInput): SommelierIntegrity
       const missing = rows.filter(r => !ids.has(r.assistant_message_id));
       if (missing.length) details.push(`session ${s.sessionId}: ${missing.length} ledger row(s) whose reply is not in the transcript (turn ${missing.map(m => m.turn).join(', ')})`);
     }
+    // Liam answer layer: a gate / gate_haiku row's reply is tagged modelUsed gate*.
+    const models = input.transcriptModelBySession?.get(s.sessionId);
+    if (models) {
+      const untagged = rows.filter(r => (r.route === 'gate' || r.route === 'gate_haiku')
+        && models.has(r.assistant_message_id) && !String(models.get(r.assistant_message_id) ?? '').startsWith('gate'));
+      if (untagged.length) details.push(`session ${s.sessionId}: ${untagged.length} gated ledger row(s) whose reply is not tagged modelUsed gate (turn ${untagged.map(m => m.turn).join(', ')})`);
+    }
   }
   return {
     id: 5,
     name: 'The turn ledger reconciles with the session and the transcript (last 24 hours)',
     pass: details.length === 0,
-    expected: 'ledger rows = turn_count, every reply in the transcript',
+    expected: 'ledger rows = turn_count, every reply in the transcript, gated replies tagged gate',
     actual: details.length === 0 ? `${checked} session(s) reconciled` : `${details.length} problem(s)`,
     details: details.length ? details : undefined,
   };
@@ -170,25 +187,122 @@ async function loadLedgerReconcileInput(sinceHours: number, runner: Runner): Pro
     `SELECT id, uid, turn_count, started_at, close_reason FROM sommelier_sessions WHERE last_active_at >= now() - make_interval(hours => $1)`,
     [sinceHours]
   )).rows.map(r => ({ sessionId: r.id, uid: r.uid, turnCount: r.turn_count, startedAt: r.started_at, closeReason: r.close_reason }));
-  const turnsBySession = new Map<number, Array<{ turn: number; assistant_message_id: string }>>();
+  const turnsBySession = new Map<number, Array<{ turn: number; assistant_message_id: string; route?: string }>>();
   const transcriptIdsBySession = new Map<number, Set<string>>();
+  const transcriptModelBySession = new Map<number, Map<string, string | null>>();
   for (const s of sessions) {
     const rows = await getTurnsForSession(s.sessionId, runner);
-    turnsBySession.set(s.sessionId, rows.map(r => ({ turn: r.turn, assistant_message_id: r.assistant_message_id })));
+    turnsBySession.set(s.sessionId, rows.map(r => ({ turn: r.turn, assistant_message_id: r.assistant_message_id, route: r.route })));
     if (!rows.length) continue;
     try {
-      const snap = await firestoreDb.collection(`users/${s.uid}/sommelier_sessions/${s.sessionId}/messages`).select().get();
+      const snap = await firestoreDb.collection(`users/${s.uid}/sommelier_sessions/${s.sessionId}/messages`).select('modelUsed').get();
       transcriptIdsBySession.set(s.sessionId, new Set(snap.docs.map(d => d.id)));
+      transcriptModelBySession.set(s.sessionId, new Map(snap.docs.map(d => [d.id, (d.get('modelUsed') as string | undefined) ?? null])));
     } catch (err) {
       console.error(`[sommelier-integrity] transcript read failed for session ${s.sessionId}`, err);
     }
   }
-  return { sessions, turnsBySession, transcriptIdsBySession };
+  return { sessions, turnsBySession, transcriptIdsBySession, transcriptModelBySession };
+}
+
+// ── Checks 6-10 (Liam answer layer, Part D, 2026-10-25) — the gate rules.
+// Report only. Pure over the given input; runSommelierIntegrityChecks loads
+// the live rules, examples, config topics and lineage.json.
+export interface GateCheckInput {
+  rules: GateRuleRow[];
+  examples: GateExampleRow[];
+  answers: SommelierAnswerRow[];
+  /** config/sommelier topics: key -> { mode, keywords }. null = config not loaded. */
+  topics: Record<string, { mode?: string; keywords?: string[] }> | null;
+  defaultMaxChars: number;
+  /** lineage.json's writers of table order (null = lineage.json not readable). */
+  orderWriters: Array<{ module: string; verbs: string[] }> | null;
+}
+
+function check(id: number, name: string, expected: string, details: string[], okActual: string): SommelierIntegrityCheck {
+  return { id, name, pass: details.length === 0, expected, actual: details.length === 0 ? okActual : `${details.length} problem(s)`, details: details.length ? details : undefined };
+}
+
+export function runGateChecks(input: GateCheckInput): SommelierIntegrityCheck[] {
+  const { rules, examples, answers, topics } = input;
+
+  // 6 — an answer rule names a key with exactly one current answer row.
+  const answerCounts = new Map<string, number>();
+  for (const a of answers) answerCounts.set(a.key, (answerCounts.get(a.key) ?? 0) + 1);
+  const c6 = rules.filter(r => r.resolver === 'answer').flatMap(r => {
+    const n = answerCounts.get(r.answer_key ?? '') ?? 0;
+    return n === 1 ? [] : [`${r.key}: answer key '${r.answer_key}' has ${n} current row(s)`];
+  });
+
+  // 7 — a resolver the code registry knows, and a topic config has.
+  const c7 = rules.flatMap(r => [
+    ...(RESOLVERS[r.resolver] ? [] : [`${r.key}: resolver '${r.resolver}' is not in the code registry`]),
+    ...(topics === null ? [] : r.topic_key && topics[r.topic_key] ? [] : [`${r.key}: topic '${r.topic_key}' is not a config topic`]),
+  ]);
+
+  // 8 — every current example passes today (the write door's test).
+  const c8 = exampleFailures(rules, examples, input.defaultMaxChars);
+
+  // 9 — no rule keyword is also a keyword of an expertise topic.
+  const expertise = new Map<string, string>();
+  for (const [key, t] of Object.entries(topics ?? {})) {
+    if (t?.mode !== 'expertise') continue;
+    for (const k of t.keywords ?? []) expertise.set(k.trim().toLowerCase(), key);
+  }
+  const c9 = rules.flatMap(r => r.keywords
+    .filter(k => expertise.has(k.trim().toLowerCase()))
+    .map(k => `${r.key}: keyword '${k}' is also a keyword of expertise topic ${expertise.get(k.trim().toLowerCase())}`));
+
+  // 10 — order_status answers verbatim only while nothing but checkout writes
+  // orders. lineage.json is table-level: a writer of order other than the
+  // checkout INSERT (routes/orders.ts) is reported as a possible
+  // fulfillment_status writer, for a person to look at.
+  const c10: string[] = [];
+  const orderRule = rules.find(r => r.key === 'order_status');
+  if (orderRule?.resolver === 'answer') {
+    if (input.orderWriters === null) c10.push('lineage.json not readable; the order writers are unknown');
+    else {
+      const others = input.orderWriters.filter(w => !(w.module === 'orders' && w.verbs.every(v => v === 'INSERT')));
+      for (const w of others) c10.push(`order has a writer besides the checkout insert (${w.module}: ${w.verbs.join(', ')}); if it writes fulfillment_status, order_status should become a customer resolver`);
+    }
+  }
+
+  return [
+    check(6, 'Every answer rule names a key with exactly one current answer', 'one current answer per rule', c6, `${rules.filter(r => r.resolver === 'answer').length} answer rule(s) resolve`),
+    check(7, 'Every rule names a known resolver and a config topic', 'resolver in the registry, topic in config', c7, `${rules.length} rule(s) checked${topics === null ? ' (topics not checked: config/sommelier not loaded)' : ''}`),
+    check(8, "Every active rule's examples pass", 'every example routes as expected', c8, `${examples.length} example(s) pass`),
+    check(9, 'No rule keyword is an expertise topic keyword', 'no shared keywords', c9, 'none shared'),
+    check(10, 'order_status stays an answer only while checkout is the only order writer', 'no order writer besides checkout', c10, orderRule ? `rule ${orderRule.resolver}; checkout is the only order writer` : 'no order_status rule'),
+  ];
+}
+
+/** lineage.json's writers of table order, or null. */
+export function loadOrderWriters(): Array<{ module: string; verbs: string[] }> | null {
+  try {
+    const lineage = JSON.parse(readFileSync(new URL('../../lineage.json', import.meta.url), 'utf8')) as {
+      tables?: Record<string, { writers?: Array<{ module: string; verbs: string[] }> }>;
+    };
+    return lineage.tables?.order?.writers ?? [];
+  } catch {
+    return null;
+  }
+}
+
+async function loadGateCheckInput(runner: Runner | undefined, answers: SommelierAnswerRow[]): Promise<GateCheckInput> {
+  const cfg = getSommelierConfig();
+  return {
+    rules: await getActiveRules(runner),
+    examples: await getExamples(null, runner ?? db),
+    answers,
+    topics: (cfg?.topics as GateCheckInput['topics']) ?? null,
+    defaultMaxChars: cfg?.gate?.maxMessageChars ?? 160,
+    orderWriters: loadOrderWriters(),
+  };
 }
 
 /** Runs on `rows`/`vocab` when given (fixtures), else on the live current rows. */
 export async function runSommelierIntegrityChecks(
-  input: { rows?: SommelierAnswerRow[]; vocab?: AnswerVocabulary; runner?: Runner; ledger?: LedgerReconcileInput } = {}
+  input: { rows?: SommelierAnswerRow[]; vocab?: AnswerVocabulary; runner?: Runner; ledger?: LedgerReconcileInput; gate?: GateCheckInput } = {}
 ): Promise<SommelierIntegrityReport> {
   const rows = input.rows ?? await getCurrentAnswers(input.runner);
   const vocab = input.vocab ?? await loadAnswerVocabulary(input.runner);
@@ -198,12 +312,19 @@ export async function runSommelierIntegrityChecks(
   } catch (err) {
     ledgerCheck = { id: 5, name: 'The turn ledger reconciles with the session and the transcript (last 24 hours)', pass: false, expected: 'a reconciliation', actual: `could not run: ${err instanceof Error ? err.message : String(err)}` };
   }
+  let gateChecks: SommelierIntegrityCheck[];
+  try {
+    gateChecks = runGateChecks(input.gate ?? await loadGateCheckInput(input.runner, rows));
+  } catch (err) {
+    gateChecks = [{ id: 6, name: 'The gate rules could be checked', pass: false, expected: 'the gate checks', actual: `could not run: ${err instanceof Error ? err.message : String(err)}` }];
+  }
   const checks = [
     checkOneCurrentPerKey(rows),
     contentCheck(2, 'No answer names a roaster (the leak check)', rows, vocab),
     contentCheck(3, 'No answer quotes a price, a size or a count', rows, vocab),
     contentCheck(4, 'No answer names a coffee alias', rows, vocab),
     ledgerCheck,
+    ...gateChecks,
   ];
   return { ranAt: new Date().toISOString(), allPass: checks.every(c => c.pass), currentAnswers: rows.length, checks };
 }

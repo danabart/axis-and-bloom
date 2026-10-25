@@ -867,7 +867,7 @@ COMMENT ON COLUMN dial_source_weight.reliability_weight IS $c$Relative weight of
 -- ── lookup_value ──
 COMMENT ON TABLE lookup_value IS $c$Purpose: Controlled vocabulary for admin dropdowns and coded fields, one row per (category, value) with a display label and order. | Class: operating | Writer: admin.POST /api/admin/lookups, admin.PATCH /api/admin/lookups/:id, admin.DELETE /api/admin/lookups/:id; seed | Readers: admin.GET /api/admin/lookups, routes/coffees (origin region), catalogService.updateCoffee, roasteryPortalReads, roasterVoiceReads (coffee_card_tag, coffee presentation brief 4), sommelierAnswerService (answer kinds and deliveries), sommelierTurnService (turn routes), coffees.origin_region_id FK | Since: 2026-05-27$c$;
 COMMENT ON COLUMN lookup_value.id IS $c$Surrogate key; coffees.origin_region_id references it.$c$;
-COMMENT ON COLUMN lookup_value.category IS $c$Vocabulary group, for example roast_level, process, blend_or_single, brew_method, origin_region, the roastery_portal_* groups and sommelier_answer_kind / sommelier_answer_delivery (Liam brand answers, 2026-10-24) and coffee_card_tag (the card's award tag wording, coffee presentation brief 4, 2026-10-24), sommelier_turn_route (the Liam turn ledger's route: model, guard, gate, gate_haiku, 2026-10-24); UNIQUE together with value.$c$;
+COMMENT ON COLUMN lookup_value.category IS $c$Vocabulary group, for example roast_level, process, blend_or_single, brew_method, origin_region, the roastery_portal_* groups and sommelier_answer_kind / sommelier_answer_delivery (Liam brand answers, 2026-10-24) and coffee_card_tag (the card's award tag wording, coffee presentation brief 4, 2026-10-24), sommelier_turn_route (the Liam turn ledger's route: model, guard, gate, gate_haiku, 2026-10-24), sommelier_gate_resolver (answer, catalog_price, catalog_category, customer_subscription) and sommelier_gate_expectation (must_match, must_not_match) (the Liam gate, 2026-10-25); UNIQUE together with value.$c$;
 COMMENT ON COLUMN lookup_value.value IS $c$Stored code within the category (what other tables and the API hold).$c$;
 COMMENT ON COLUMN lookup_value.label IS $c$Display text shown in the UI; may differ from value.$c$;
 COMMENT ON COLUMN lookup_value.sort_order IS $c$Display position within the category, ascending.$c$;
@@ -1367,31 +1367,73 @@ COMMENT ON COLUMN sommelier_answer.note IS $c$Why the row was written (the admin
 COMMENT ON COLUMN sommelier_answer.created_by IS $c$Who wrote the row: the admin's Firebase uid, or seed for the initial rows.$c$;
 
 -- ── sommelier_turn ──
-COMMENT ON TABLE sommelier_turn IS $c$Purpose: The Liam turn ledger, one row per assistant reply (turn 0 is the opening), written after the reply is in Firestore and never read by Liam: which route answered, which model, tokens, cost, latency; no object held one row per turn (claude_daily_spend is a per-day per-feature total, token_events usage_log rows carry only the model, context_data.topicLog is rewritten every turn) | Class: fact | Writer: sommelierTurnService.recordTurn | Readers: sommelierReads (getTurnStats, getTurnsForSession), sommelierIntegrity (check 5 via sommelierReads) | Since: 2026-10-24 (Liam sees everything brief Rev 2, Part C)$c$;
+COMMENT ON TABLE sommelier_turn IS $c$Purpose: The Liam turn ledger, one row per assistant reply (turn 0 is the opening), written after the reply is in Firestore and never read by Liam: which route answered, which model, tokens, cost, latency; no object held one row per turn (claude_daily_spend is a per-day per-feature total, token_events usage_log rows carry only the model, context_data.topicLog is rewritten every turn) | Class: fact | Writer: sommelierTurnService.recordTurn | Readers: sommelierReads (getTurnStats, getTurnsForSession, getRuleStats, getGateStats, getUnlabelledModelTurns), sommelierIntegrity (check 5 via sommelierReads) | Since: 2026-10-24 (Liam sees everything brief Rev 2, Part C); gate columns filled since 2026-10-25 (Liam answer layer)$c$;
 COMMENT ON COLUMN sommelier_turn.id IS $c$Surrogate primary key (SERIAL); (session_id, turn) is the natural key, held by a UNIQUE constraint.$c$;
 COMMENT ON COLUMN sommelier_turn.session_id IS $c$FK to sommelier_sessions(id): the conversation the reply belongs to.$c$;
 COMMENT ON COLUMN sommelier_turn.turn IS $c$The reply's turn number in the session: 0 is the opening (/start), then the session's turn_count when the message was handled; a daily-cap guard close takes the next number without advancing turn_count.$c$;
 COMMENT ON COLUMN sommelier_turn.user_message_id IS $c$Firestore doc id of the customer message this reply answers (users/{uid}/sommelier_sessions/{session}/messages); NULL on the opening turn.$c$;
 COMMENT ON COLUMN sommelier_turn.assistant_message_id IS $c$Firestore doc id of the reply itself in the same messages collection; sommelierIntegrity check 5 confirms it exists.$c$;
-COMMENT ON COLUMN sommelier_turn.route IS $c$Who answered, a lookup_value value in category sommelier_turn_route: model (Claude), guard (the daily-cap close, no model), gate and gate_haiku (written by the gate brief, Brief 3). Checked by the writer, not a CHECK constraint.$c$;
-COMMENT ON COLUMN sommelier_turn.model IS $c$The Claude model id that produced the reply; NULL for guard and gate rows and when the opening fell back to the canned line.$c$;
-COMMENT ON COLUMN sommelier_turn.rule_id IS $c$Brief 3: the gate rule that answered (sommelier_gate_rule.id once that table exists); NULL until then.$c$;
-COMMENT ON COLUMN sommelier_turn.confirm_label IS $c$Brief 3: the label the gate's confirmation step assigned; NULL until then.$c$;
-COMMENT ON COLUMN sommelier_turn.confirm_confidence IS $c$Brief 3: the confidence (0 to 1) of the gate's confirmation; NULL until then.$c$;
-COMMENT ON COLUMN sommelier_turn.coffee_id IS $c$Brief 3: FK to coffees(id), the coffee a gated turn resolved; NULL until then.$c$;
-COMMENT ON COLUMN sommelier_turn.answer_id IS $c$Brief 3: FK to sommelier_answer(id), the answer row a gated turn said verbatim; NULL until then.$c$;
+COMMENT ON COLUMN sommelier_turn.route IS $c$Who answered, a lookup_value value in category sommelier_turn_route: model (Sonnet), guard (the daily-cap close, no model), gate (a brand answer said verbatim after a Haiku confirmation) or gate_haiku (a catalog or customer row phrased by Haiku). Checked by the writer, not a CHECK constraint.$c$;
+COMMENT ON COLUMN sommelier_turn.model IS $c$The Claude model id that produced the reply: Sonnet on model rows, the gate's Haiku (config gate.confirmModel) on gate and gate_haiku rows; NULL for guard rows and when the opening fell back to the canned line.$c$;
+COMMENT ON COLUMN sommelier_turn.rule_id IS $c$FK to sommelier_gate_rule(id): the rule whose keywords picked this message as a candidate. Set on gated rows, and on model rows whose candidate the confirmation turned down; NULL when no rule matched.$c$;
+COMMENT ON COLUMN sommelier_turn.confirm_label IS $c$The label the gate's Haiku confirmation returned (an answer key, a resolver name, or judgment); NULL when no confirmation ran or it failed to parse.$c$;
+COMMENT ON COLUMN sommelier_turn.confirm_confidence IS $c$The confidence (0 to 1) the gate's confirmation returned; NULL when no confirmation ran.$c$;
+COMMENT ON COLUMN sommelier_turn.coffee_id IS $c$FK to coffees(id): the coffee a gated catalog_price turn resolved; NULL otherwise.$c$;
+COMMENT ON COLUMN sommelier_turn.answer_id IS $c$FK to sommelier_answer(id): the answer row a gate turn said verbatim; NULL otherwise.$c$;
 COMMENT ON COLUMN sommelier_turn.answers_version IS $c$The highest sommelier_answer.id among the current answers rendered into this turn's prompt prefix; NULL when the brand facts block was off or empty.$c$;
 COMMENT ON COLUMN sommelier_turn.topic IS $c$The topic router's topic for the message (brewing, equipment, ...), NULL when none matched or on the opening turn.$c$;
 COMMENT ON COLUMN sommelier_turn.matched_keyword IS $c$The keyword that matched the topic, NULL when the topic was carried forward (sticky) or none matched.$c$;
 COMMENT ON COLUMN sommelier_turn.sticky IS $c$True when the topic was carried forward from an earlier turn rather than matched in this message.$c$;
 COMMENT ON COLUMN sommelier_turn.mode IS $c$The response contract the turn ran under: matching or expertise (the opening is matching).$c$;
-COMMENT ON COLUMN sommelier_turn.input_tokens IS $c$Uncached input tokens of the Claude call (after the last cache breakpoint); 0 for guard rows.$c$;
+COMMENT ON COLUMN sommelier_turn.input_tokens IS $c$Uncached input tokens of the reply call (after the last cache breakpoint); on gated rows the Haiku calls summed; 0 for guard rows.$c$;
 COMMENT ON COLUMN sommelier_turn.cache_read_tokens IS $c$Input tokens served from the prompt cache.$c$;
 COMMENT ON COLUMN sommelier_turn.cache_write_tokens IS $c$Input tokens written to the prompt cache (5-minute and 1-hour writes together).$c$;
 COMMENT ON COLUMN sommelier_turn.output_tokens IS $c$Output tokens of the reply.$c$;
-COMMENT ON COLUMN sommelier_turn.usd_micros IS $c$Cost of the call in integer micro-dollars, the same number anthropicGuard added to claude_daily_spend (rounded up per call); 0 for guard rows.$c$;
+COMMENT ON COLUMN sommelier_turn.usd_micros IS $c$Cost of the turn in integer micro-dollars, the same numbers anthropicGuard added to claude_daily_spend (rounded up per call): the reply call plus any gate confirmation call of the same turn (the token columns are the reply call's own; on gated rows, both Haiku calls summed); 0 for guard rows.$c$;
 COMMENT ON COLUMN sommelier_turn.latency_ms IS $c$Wall time of the Claude call in milliseconds; NULL for guard rows.$c$;
 COMMENT ON COLUMN sommelier_turn.created_at IS $c$UTC timestamp the row was written (right after the reply reached Firestore).$c$;
+-- ── sommelier_gate_rule ──
+COMMENT ON TABLE sommelier_gate_rule IS $c$Purpose: The Liam gate's rules, one current row per key: keywords that make a customer message a candidate, the resolver that answers it (a brand answer verbatim, catalog prices, catalog category coffees, subscription status) and the priority among rules; not in config/sommelier because config-apply and config-drift work on the code seed and a rule points at a sommelier_answer row, and no existing table maps messages to reads (topics[].keywords pick a prompt mode, not an answer) | Class: master | Writer: sommelierGateRuleService.setRuleInTx, sommelierGateRuleService.retireRuleInTx | Readers: sommelierReads (getActiveRules, getGateRulesVersion, hasAnyGateRule, getExamples, getRuleStats, getGateStats); sommelierIntegrity checks 6-10 and the gate via sommelierReads | Since: 2026-10-25 (Liam answer layer, Part A1)$c$;
+COMMENT ON COLUMN sommelier_gate_rule.id IS $c$Surrogate primary key (SERIAL); (key, current) is the natural key, held by the partial unique index sommelier_gate_rule_one_current.$c$;
+COMMENT ON COLUMN sommelier_gate_rule.key IS $c$Stable rule name in snake_case (which_roastery, do_you_roast, what_you_get, order_status, price, decaf, subscription_status); exactly one row per key has superseded_at NULL.$c$;
+COMMENT ON COLUMN sommelier_gate_rule.priority IS $c$Lower wins when several active rules' keywords match the same message.$c$;
+COMMENT ON COLUMN sommelier_gate_rule.resolver_id IS $c$FK to lookup_value(id) in category sommelier_gate_resolver: answer, catalog_price, catalog_category or customer_subscription; the write door refuses a resolver the code registry (sommelierGate.RESOLVERS) does not have.$c$;
+COMMENT ON COLUMN sommelier_gate_rule.answer_key IS $c$For resolver answer: the sommelier_answer key said verbatim (a key, not an id, so an answer edit needs no re-pointing; integrity check 6 proves a current row exists); NULL for the other resolvers.$c$;
+COMMENT ON COLUMN sommelier_gate_rule.topic_key IS $c$The config/sommelier topic the rule belongs to (other, matching, caffeine_decaf, ...); integrity check 7 proves it exists in config topics.$c$;
+COMMENT ON COLUMN sommelier_gate_rule.keywords IS $c$Lower-cased substrings; a message is a candidate when it contains one (lower(message).includes(keyword), as the topic router matches). Never equal to a keyword of an expertise topic (integrity check 9).$c$;
+COMMENT ON COLUMN sommelier_gate_rule.max_message_chars IS $c$Longest message, in characters, the rule may gate; NULL means config gate.maxMessageChars.$c$;
+COMMENT ON COLUMN sommelier_gate_rule.since IS $c$UTC timestamp the row took effect.$c$;
+COMMENT ON COLUMN sommelier_gate_rule.superseded_at IS $c$UTC timestamp a newer row for the key replaced this one, or the rule was retired; NULL marks the current row. The only column ever updated. | Writer: sommelierGateRuleService.setRuleInTx, sommelierGateRuleService.retireRuleInTx$c$;
+COMMENT ON COLUMN sommelier_gate_rule.note IS $c$Why the row was written, free text; NULL when none was given.$c$;
+COMMENT ON COLUMN sommelier_gate_rule.created_by IS $c$Who wrote the row: seed for the initial rules, script:gate-rules-apply for the apply script, else the writer's uid.$c$;
+
+-- ── sommelier_gate_rule_example ──
+COMMENT ON TABLE sommelier_gate_rule_example IS $c$Purpose: The gate rules' tests and, later, the matcher's training set: messages a rule must answer (must_match) or must leave to the model (must_not_match), with the label the confirmation should return; every write to a rule or example runs every current example of every active rule and is refused on one mismatch; no existing table holds labelled example messages | Class: master | Writer: sommelierGateRuleService.setRuleInTx, sommelierGateRuleService.setExampleInTx, sommelierGateRuleService.retireRuleInTx | Readers: sommelierReads (getExamples, getRuleStats) | Since: 2026-10-25 (Liam answer layer, Part A2)$c$;
+COMMENT ON COLUMN sommelier_gate_rule_example.id IS $c$Surrogate primary key (SERIAL); (rule_id, message, current) is unique through sommelier_gate_rule_example_one_current.$c$;
+COMMENT ON COLUMN sommelier_gate_rule_example.rule_id IS $c$FK to sommelier_gate_rule(id): the rule row the example tests; a rule edit copies its current examples onto the new rule row and supersedes the old ones.$c$;
+COMMENT ON COLUMN sommelier_gate_rule_example.message IS $c$A customer message, as a customer would type it.$c$;
+COMMENT ON COLUMN sommelier_gate_rule_example.expectation_id IS $c$FK to lookup_value(id) in category sommelier_gate_expectation: must_match (the rule answers it) or must_not_match (the model does).$c$;
+COMMENT ON COLUMN sommelier_gate_rule_example.expected_label IS $c$The label the confirmation should return for the message: the rule's label (its answer key or resolver name) for must_match, judgment or another rule's label for must_not_match; the nightly replay compares Haiku's label with it.$c$;
+COMMENT ON COLUMN sommelier_gate_rule_example.since IS $c$UTC timestamp the row took effect.$c$;
+COMMENT ON COLUMN sommelier_gate_rule_example.superseded_at IS $c$UTC timestamp the example was replaced or its rule edited or retired; NULL marks a current example. The only column ever updated. | Writer: sommelierGateRuleService.setRuleInTx, sommelierGateRuleService.setExampleInTx, sommelierGateRuleService.retireRuleInTx$c$;
+COMMENT ON COLUMN sommelier_gate_rule_example.note IS $c$Why the example exists, free text; NULL when none was given.$c$;
+
+-- ── sommelier_turn_label ──
+COMMENT ON TABLE sommelier_turn_label IS $c$Purpose: The nightly labeller's verdict on a model turn: which gate label (or judgment) Haiku gives the customer's message, so a gate label on a Sonnet turn is a miss the keywords did not catch; its own table because sommelier_turn is insert-only, and a relabel by a newer model is a new row | Class: fact | Writer: sommelierTurnService.recordLabel | Readers: sommelierReads (getRuleStats, getGateStats, getUnlabelledModelTurns) | Since: 2026-10-25 (Liam answer layer, Part A3)$c$;
+COMMENT ON COLUMN sommelier_turn_label.id IS $c$Surrogate primary key (SERIAL).$c$;
+COMMENT ON COLUMN sommelier_turn_label.turn_id IS $c$FK to sommelier_turn(id): the model turn labelled.$c$;
+COMMENT ON COLUMN sommelier_turn_label.label IS $c$A gate label (an answer key or a resolver name), judgment, or unparsed when the labeller's output could not be read.$c$;
+COMMENT ON COLUMN sommelier_turn_label.labeler_model IS $c$The Claude model id that labelled (config gate.offline.model at the time).$c$;
+COMMENT ON COLUMN sommelier_turn_label.labeled_at IS $c$UTC timestamp the label was written.$c$;
+
+-- ── sommelier_gate_rule_replay ──
+COMMENT ON TABLE sommelier_gate_rule_replay IS $c$Purpose: The nightly replay of every current rule example through the real Haiku confirmation, one row per example per night: whether the model still agrees with the expected label (the model-vs-rules drift number); a fact at the grain example x night, so not sommelier_turn_label | Class: fact | Writer: sommelierTurnService.recordReplay | Readers: sommelierReads (getRuleStats, getReplayedExampleIds) | Since: 2026-10-25 (Liam answer layer, Part A4)$c$;
+COMMENT ON COLUMN sommelier_gate_rule_replay.id IS $c$Surrogate primary key (SERIAL).$c$;
+COMMENT ON COLUMN sommelier_gate_rule_replay.example_id IS $c$FK to sommelier_gate_rule_example(id): the example replayed.$c$;
+COMMENT ON COLUMN sommelier_gate_rule_replay.label IS $c$The label Haiku returned for the example's message (unparsed when unreadable).$c$;
+COMMENT ON COLUMN sommelier_gate_rule_replay.agreed IS $c$True when label equals the example's expected_label.$c$;
+COMMENT ON COLUMN sommelier_gate_rule_replay.labeler_model IS $c$The Claude model id that replayed (config gate.offline.model at the time).$c$;
+COMMENT ON COLUMN sommelier_gate_rule_replay.replayed_at IS $c$UTC timestamp of the replay; one row per example and labeler model per UTC day.$c$;
 
 -- ── v_customer_identity ──
 COMMENT ON VIEW v_customer_identity IS $c$Purpose: One row per user_profile mapping it to its canonical_user_id by walking customer_identity_link edges (from to to, depth 5, cycle-safe) so linked profiles read as one customer. | Class: view | Writer: none (derived) | Readers: customerReads, engagementMetrics, quizInterpretationBackfill, every other v_customer_* and v_palate_* view | Since: 2026-09-27 (Customer Blueprint C3 Part A1)$c$;

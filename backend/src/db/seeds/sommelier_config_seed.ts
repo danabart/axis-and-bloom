@@ -104,6 +104,55 @@ export const DEFAULT_SOMMELIER_CONFIG = {
       sharedTtl: '1h',
     },
 
+    // Liam answer layer (2026-10-25) — the gate in front of Sonnet
+    // (services/sommelierGate.ts). Knobs and prompts here; rules, examples and
+    // answers live in tables. enabled = false sends every turn to Sonnet with
+    // no deploy (the kill switch). confirmPrompt placeholders: {labels},
+    // {aliases}, {previous}, {message}; phrasePrompt: {facts}, {history},
+    // {message}. resolverDescriptions tell the confirmation what a resolver
+    // label means (an answer label is described by its own answer text).
+    // prefixRebuildMinTokens: a ledger row writing at least this many cache
+    // tokens counts as a shared-prefix rebuild on System Health.
+    gate: {
+      enabled: false,
+      confirmModel: 'claude-haiku-4-5-20251001',
+      confirmThreshold: 0.8,
+      confirmMaxTokens: 40,
+      confirmPrompt: [
+        'You sort one customer message from a coffee chat. Reply with one line of JSON and nothing else: {"label": "<label>", "alias": "<coffee name>" or null, "confidence": <0 to 1>}.',
+        'Labels:',
+        '{labels}',
+        '- judgment: anything else. A question that needs taste, advice, a recommendation or an opinion; a message that asks two things; small talk; anything you are unsure about.',
+        'Choose a label other than judgment only when that label answers the whole message and nothing in it is left over.',
+        'alias: when the message is about one coffee, the exact name from this list that it means (use the previous reply to resolve "it" or "that one"); null when it names none or you are unsure. Coffees: {aliases}',
+        'Previous reply from Liam: {previous}',
+        'Customer message: {message}',
+      ].join('\n'),
+      resolverDescriptions: {
+        catalog_price: 'asks what a coffee costs, its price, or its sizes and prices',
+        catalog_category: 'asks which decaf or half-caf coffees we have',
+        customer_subscription: 'asks whether they have a subscription, or its status',
+      },
+      phraseModel: 'claude-haiku-4-5-20251001',
+      phraseMaxTokens: 120,
+      phrasePrompt: [
+        'You are Liam, the Axis & Bloom coffee sommelier, answering one short factual question in a chat.',
+        'Use only the facts below. At most two sentences, warm and plain: no lists, no markdown, no greeting, no sign-off. Do not recommend a coffee and do not add anything the facts do not say. Never name or hint at a roaster.',
+        'Facts:',
+        '{facts}',
+        'Recent conversation:',
+        '{history}',
+        'Customer: {message}',
+      ].join('\n'),
+      maxMessageChars: 160,
+      prefixRebuildMinTokens: 4000,
+      offline: {
+        enabled: true,
+        model: 'claude-haiku-4-5-20251001',
+        missShareThreshold: 0.15,
+      },
+    },
+
     tokenEconomy: {
       signupBonus:     20,
       orderBonus:      10,
@@ -561,6 +610,8 @@ export const MISSING_KEY_SUBTREES = [
   'catalogBlock',
   'customerBlock',
   'promptCache',
+  // Liam answer layer (2026-10-25)
+  'gate',
 ];
 
 // A release that changes the seed value of a key that already exists live

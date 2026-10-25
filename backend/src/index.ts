@@ -41,6 +41,7 @@ import evidenceAdminRouter from './routes/evidenceAdmin.js';
 import { runEvidenceIntegrityChecks, formatEvidenceIntegrityLog } from './services/evidenceIntegrity.js';
 import { initSommelierConfig } from './services/sommelierConfig.js';
 import { seedSommelierAnswers } from './db/seeds/sommelier_answer_seed.js';
+import { seedGateRules } from './db/seeds/sommelier_gate_rule_seed.js';
 import { runSommelierIntegrityChecks, formatSommelierIntegrityLog } from './services/sommelierIntegrity.js';
 import { runQuizIntegrityChecks } from './services/quizIntegrity.js';
 import { runCatalogIntegrityChecks } from './services/catalogIntegrity.js';
@@ -291,6 +292,18 @@ async function start() {
     if (seeded) console.log(`[sommelier-answers] seeded ${seeded} answer(s)`);
   } catch (err) {
     console.error('Sommelier answers seed error (non-fatal):', err);
+  }
+
+  // Liam answer layer (2026-10-25), A6 — the first gate rules, only into an
+  // empty sommelier_gate_rule, through the write door (the rule tests run on
+  // the seed; one failing example rolls the whole seed back). After the
+  // answers seed and initSommelierConfig: a rule needs its answer row and
+  // its config topic.
+  try {
+    const seeded = await seedGateRules();
+    if (seeded.rules) console.log(`[sommelier-gate] seeded ${seeded.rules} rule(s), ${seeded.examples} example(s)${seeded.answerAdded ? ', answer order_status_unavailable' : ''}`);
+  } catch (err) {
+    console.error('Sommelier gate rules seed error (non-fatal):', err);
   }
 
   // Quiz Content Drift Prevention — fire-and-log only. A degraded quiz beats

@@ -13,6 +13,7 @@ import { buildDialInSmsBody, respondToDialInBeat } from '../services/beatEngine.
 import { backfillCoffeeContent } from './coffees.js';
 import { unsubscribeByEmail } from '../features/marketing/unsubscribe.js';
 import { reconcileNewsletter } from '../features/marketing/newsletterReconcile.js';
+import { runGateOffline } from '../services/sommelierGate.js';
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 const router = Router();
@@ -83,6 +84,22 @@ router.get('/beat-dial-in-send', requireCronSecret, async (_req, res) => {
     res.json(result);
   } catch (err) {
     console.error('[cron/beat-dial-in-send]', err);
+    res.status(500).json({ error: 'Cron job failed' });
+  }
+});
+
+// ── GET /api/cron/liam-gate-offline ──────────────────────────────────────────
+// Liam answer layer (2026-10-25), Part C — the nightly labeller. Same secret
+// and daily shape as the jobs above. Labels yesterday's Sonnet turns (a gate
+// label on one is a miss the keywords did not catch), replays every rule
+// example through the real confirmation, logs one [liam:OFFLINE] line. A
+// second run the same day writes nothing new. Off with gate.offline.enabled.
+// Cloud Scheduler job liam-gate-offline: daily 08:00 UTC.
+router.get('/liam-gate-offline', requireCronSecret, async (_req, res) => {
+  try {
+    res.json(await runGateOffline());
+  } catch (err) {
+    console.error('[cron/liam-gate-offline]', err);
     res.status(500).json({ error: 'Cron job failed' });
   }
 });

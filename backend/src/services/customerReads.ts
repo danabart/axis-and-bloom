@@ -494,6 +494,22 @@ export async function getSubscriptionCurrent(uid: string, runner: Runner = db): 
   return r.rows[0] ? { status: r.rows[0].status, sponsored: r.rows[0].sponsored } : null;
 }
 
+// Liam answer layer (2026-10-25), Part B step 4 — "how much is it?" after a
+// pick: the coffee(s) of the session's latest recommended turn, the only
+// reader of customer_liam_recommendation outside the views. Keyed by the
+// session, not the customer (the gate resolves within one conversation).
+// More than one id means the last turn named several: the caller treats
+// that as ambiguous and sends the turn to the model.
+export async function getLastRecommendation(sessionId: number, runner: Runner = db): Promise<number[]> {
+  const r = await runner.query<{ coffee_id: number }>(
+    `SELECT DISTINCT clr.coffee_id FROM customer_liam_recommendation clr
+      WHERE clr.session_id = $1 AND clr.coffee_id IS NOT NULL
+        AND clr.turn = (SELECT MAX(turn) FROM customer_liam_recommendation WHERE session_id = $1 AND coffee_id IS NOT NULL)`,
+    [sessionId]
+  );
+  return r.rows.map(x => x.coffee_id);
+}
+
 /** City and state of the default shipping address (never the street). */
 export async function getShipsTo(uid: string, runner: Runner = db): Promise<{ city: string | null; state: string | null } | null> {
   const canonicalId = await resolveCanonicalUserId(uid, runner);

@@ -103,6 +103,21 @@ export interface SommelierConfig {
   promptCache?: {
     sharedTtl: '5m' | '1h';
   };
+  // Liam answer layer (2026-10-25) — the gate in front of Sonnet (sommelierGate.ts).
+  gate?: {
+    enabled: boolean;
+    confirmModel: string;
+    confirmThreshold: number;
+    confirmMaxTokens: number;
+    confirmPrompt: string;
+    resolverDescriptions?: Record<string, string>;
+    phraseModel: string;
+    phraseMaxTokens: number;
+    phrasePrompt: string;
+    maxMessageChars: number;
+    prefixRebuildMinTokens?: number;
+    offline?: { enabled: boolean; model: string; missShareThreshold: number };
+  };
   tokenEconomy: {
     signupBonus: number;
     orderBonus: number;

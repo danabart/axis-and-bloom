@@ -11,6 +11,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "catalog:md": "tsx src/scripts/catalogMd.ts",
+    "gate:rules:apply": "tsx src/scripts/gateRulesApply.ts",
     "db:comments": "tsx src/scripts/applyComments.ts",
     "db:migrate": "node -e \"import('./src/db/migrate.js').then(m => m.migrate())\"",
     "catalog:import": "tsx src/scripts/catalogImport.ts",

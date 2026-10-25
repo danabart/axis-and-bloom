@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { reportError } from '../../lib/errorReporter';
 import EvidenceParametersCard from './EvidenceParametersCard';
 import LiamAnswersCard from './LiamAnswersCard';
+import LiamGateRulesCard from './LiamGateRulesCard';
 
 interface ConfigDiff {
   path: string;
@@ -31,6 +32,12 @@ interface SommelierConfig {
   };
   customerBlock?: { quizHistoryCount: number; ordersFullCount: number; feedbackCount: number; sessionsCount: number; rules: string[] };
   promptCache?: { sharedTtl: '5m' | '1h' };
+  // Liam answer layer (2026-10-25): the gate's knobs and prompts; optional until applyMissingKeys reaches the live doc.
+  gate?: {
+    enabled: boolean; confirmModel: string; confirmThreshold: number; confirmMaxTokens: number; confirmPrompt: string;
+    phraseModel: string; phraseMaxTokens: number; phrasePrompt: string; maxMessageChars: number;
+    offline?: { enabled: boolean; model: string; missShareThreshold: number };
+  };
   tokenEconomy: { signupBonus: number; orderBonus: number; costPerTurn: number; purchaseEnabled: boolean };
   ragLimits: { maxCoffees: number };
   timeWindows: Record<string, number>;
@@ -186,6 +193,7 @@ export default function AdminSommelierConfig() {
           ...(config.catalogBlock ? { catalogBlock: config.catalogBlock } : {}),
           ...(config.customerBlock ? { customerBlock: config.customerBlock } : {}),
           ...(config.promptCache ? { promptCache: config.promptCache } : {}),
+          ...(config.gate ? { gate: config.gate } : {}),
           tokenEconomy: config.tokenEconomy,
           ragLimits: config.ragLimits,
           timeWindows: config.timeWindows,
@@ -265,6 +273,9 @@ export default function AdminSommelierConfig() {
 
       {/* ── Liam brand answers brief Rev 3, A7: the brand facts as rows, edit = new row ── */}
       <LiamAnswersCard />
+
+      {/* ── Liam answer layer (2026-10-25): the gate's rules, read-only ── */}
+      <LiamGateRulesCard />
 
       {/* ── Section 0: Config Source of Truth ── */}
       <section className="mb-8">
@@ -634,6 +645,92 @@ export default function AdminSommelierConfig() {
                 />
               ))}
             </div>
+          </div>
+        </section>
+      )}
+
+      {/* ── Liam answer layer (2026-10-25): the gate's kill switch, knobs and prompts ── */}
+      {config.gate && (
+        <section className="mb-8">
+          <h2 className="text-sm font-normal tracking-widest uppercase text-stone-400 mb-4">Liam Gate</h2>
+          <div className="border border-stone-200 rounded-lg p-4 space-y-4">
+            <p className="text-xs text-stone-400">
+              Off sends every reply to Sonnet, with no deploy. On: a message that matches a gate rule (see Liam Gate Rules above) is checked by
+              one Haiku call and, when confirmed, answered from one row: a brand answer word for word, or a price, the decaf list or the
+              subscription status in two Haiku sentences. The opening and the closing replies always go to Sonnet.
+            </p>
+            {([
+              ['enabled', 'Gate on'],
+            ] as const).map(([field, label]) => (
+              <label key={field} className="flex items-center justify-between gap-4">
+                <span className="text-sm text-stone-700">{label}</span>
+                <input type="checkbox" checked={config.gate!.enabled} onChange={(e) => updateConfig(['gate', field], e.target.checked)} />
+              </label>
+            ))}
+            {config.gate.offline && (
+              <label className="flex items-center justify-between gap-4">
+                <span className="text-sm text-stone-700">Nightly labeller on (misses and replay agreement on System Health)</span>
+                <input type="checkbox" checked={config.gate.offline.enabled} onChange={(e) => updateConfig(['gate', 'offline', 'enabled'], e.target.checked)} />
+              </label>
+            )}
+            {([
+              ['confirmThreshold', 'Confirmation confidence needed (0 to 1)', '0.05'],
+              ['maxMessageChars', 'Longest message the gate answers (characters)', '1'],
+              ['confirmMaxTokens', 'Confirmation output cap (tokens)', '1'],
+              ['phraseMaxTokens', 'Phrasing output cap (tokens)', '1'],
+            ] as const).map(([field, label, step]) => (
+              <label key={field} className="flex items-center justify-between gap-4">
+                <span className="text-sm text-stone-700">{label}</span>
+                <input
+                  type="number"
+                  min="0"
+                  step={step}
+                  className="w-24 border border-stone-200 rounded px-3 py-1.5 text-sm text-right"
+                  value={config.gate![field]}
+                  onChange={(e) => updateConfig(['gate', field], step === '1' ? parseInt(e.target.value) || 0 : parseFloat(e.target.value) || 0)}
+                />
+              </label>
+            ))}
+            {config.gate.offline && (
+              <label className="flex items-center justify-between gap-4">
+                <span className="text-sm text-stone-700">Miss share of Sonnet spend that justifies Brief 4 (0 to 1)</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="w-24 border border-stone-200 rounded px-3 py-1.5 text-sm text-right"
+                  value={config.gate.offline.missShareThreshold}
+                  onChange={(e) => updateConfig(['gate', 'offline', 'missShareThreshold'], parseFloat(e.target.value) || 0)}
+                />
+              </label>
+            )}
+            {([
+              ['confirmModel', 'Confirmation model'],
+              ['phraseModel', 'Phrasing model'],
+            ] as const).map(([field, label]) => (
+              <label key={field} className="flex items-center justify-between gap-4">
+                <span className="text-sm text-stone-700">{label}</span>
+                <input
+                  className="w-72 border border-stone-200 rounded px-3 py-1.5 text-sm"
+                  value={config.gate![field]}
+                  onChange={(e) => updateConfig(['gate', field], e.target.value)}
+                />
+              </label>
+            ))}
+            {([
+              ['confirmPrompt', 'Confirmation prompt ({labels} {aliases} {previous} {message})'],
+              ['phrasePrompt', 'Phrasing prompt ({facts} {history} {message})'],
+            ] as const).map(([field, label]) => (
+              <label key={field} className="block">
+                <span className="text-xs text-stone-500">{label}</span>
+                <textarea
+                  rows={7}
+                  className="mt-1 w-full border border-stone-200 rounded px-3 py-1.5 text-sm font-mono"
+                  value={config.gate![field]}
+                  onChange={(e) => updateConfig(['gate', field], e.target.value)}
+                />
+              </label>
+            ))}
           </div>
         </section>
       )}

@@ -7,7 +7,8 @@ import { firestoreDb, FieldValue } from '../services/firebase-admin.js';
 import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
 import { evaluateSommelier } from '../services/sommelierEvaluator.js';
 import { fetchSommelierCoffees, getAliases, getCatalogBlock, type SlotCandidate, type RagResult, type CatalogBlock } from '../services/sommelierRag.js';
-import { recordTurn as recordLedgerTurn } from '../services/sommelierTurnService.js';
+import { recordTurn as recordLedgerTurn, type RecordTurnInput } from '../services/sommelierTurnService.js';
+import { tryGate } from '../services/sommelierGate.js';
 import { loadProfileReads, buildProfileLine } from '../services/liamProfile.js';
 import { getCoffees, archetypeLabel, archetypeCode, getCatalogVersion } from '../services/catalogReads.js';
 import { getTokenBalance, spendToken, logUsage } from '../services/tokenService.js';
@@ -1117,18 +1118,10 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
 
     await refreshCatalogSnapshotIfStale(req.uid!, ctx, sessionId);
 
-    // Liam L1, Part C.3 — the profile line is rebuilt every turn (the reads
-    // are cheap; this is the point — a fact captured earlier in *this same*
-    // conversation must show up on the very next turn, same reasoning as the
-    // brew-profile/current-coffee live reads elsewhere in this handler).
-    const profileReads = await loadProfileReads(req.uid!, undefined, { sessionId });
-    const profileLine = buildProfileLine(profileReads);
-    logProfileLineDebug(req.uid!, '/message', profileLine);
-    const factsWatermark = await getFactsWatermark(req.uid!);
-    await refreshSliceIfFactsChanged(ctx, sessionId, session.turn_count, profileReads, factsWatermark);
-
     // Turn-level topic routing (§4.1, HOME_TASK_2) — classifies this message,
     // carrying the previous turn's topic forward (stickiness) until it decays.
+    // Runs before the profile reads (Liam answer layer): the gate needs it,
+    // and a gated turn needs none of those reads.
     const topicResult = routeTopic(message, {
       currentTopic: ctx.currentTopic ?? null,
       turnsSinceMatch: ctx.currentTopicTurnsSinceMatch ?? 0,
@@ -1141,98 +1134,149 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
       sticky: topicResult.sticky,
     };
     const topicLog = Array.isArray(ctx.topicLog) ? [...ctx.topicLog, topicLogEntry] : [topicLogEntry];
+    const topicFields = { topic: topicResult.topic, matchedKeyword: topicResult.matchedKeyword, sticky: topicResult.sticky, mode: topicResult.mode };
 
-    // Brew profile (§4.5, §3.5) — live read every turn (see getBrewProfile()'s
-    // comment), plus the stale-re-confirm nudge (write rule 5): at most once
-    // per session (ctx.staleNudgeSent), only when relevant to this turn's topic.
-    const brewProfile = await getBrewProfile(req.uid!);
-    const staleNudge = getStaleFieldNudge(brewProfile, topicResult.topic, ctx.staleNudgeSent === true);
-    const brewProfileContext = [formatBrewProfileSummary(brewProfile), staleNudge].filter(Boolean).join(' ');
+    // Liam answer layer (2026-10-25), Part B — the gate. A simple question
+    // (a brand answer, a price, the decaf list, subscription status) is
+    // answered from one row after a Haiku confirmation; anything else, and
+    // everything while gate.enabled is false, goes to Sonnet exactly as
+    // before. Never throws (services/sommelierGate.ts).
+    const gateOutcome = await tryGate({ uid: req.uid!, sessionId, message, turnCount: session.turn_count, maxTurns, ctx, history });
 
-    // Story layer (§4.4, HOME_TASK_5), extended by HOME_TASK_5b (Defect 1) —
-    // only on the two topics that ask about the customer's own coffee. Uses
-    // whatever was cached in context_data at session start (see the /start
-    // handler's own comment); no re-query, no "current coffee" concept
-    // invented here (that's HOME_TASK_6's job). Selection now resolves the
-    // coffee the customer actually named against the session's alias-carrying
-    // candidates, rather than always taking the first candidate with a story —
-    // the exact Kenya bug: the strip had Kenya, the customer named Kenya, but
-    // selection ignored the name and picked whichever candidate happened to
-    // be first/have a story.
-    const isMyCoffeeTopic = topicResult.topic === 'my_coffee' || topicResult.topic === 'origins_process';
-    const storyCandidates: StoryCandidate[] = Array.isArray(ctx.storyCandidates) ? ctx.storyCandidates : [];
-    let storyContext: string | undefined;
-    let selectedStoryCoffeeId: number | null = null;
-    if (isMyCoffeeTopic && storyCandidates.length > 0) {
-      const matched = resolveStoryForMessage(message, storyCandidates);
-      // Matched a named coffee: inject its story if it has one; if it doesn't,
-      // no story at all — never substitute a different candidate's story for
-      // the one the customer actually asked about.
-      const fallback = matched ? null : storyCandidates.find(c => c.story) ?? null;
-      const selected = matched ?? fallback;
-      storyContext = selected?.story ?? undefined;
-      selectedStoryCoffeeId = selected?.coffeeId ?? null;
-      console.log(`[storyLayer] turn selected coffeeId=${selectedStoryCoffeeId ?? 'none'} (${matched ? 'named match' : fallback ? 'fallback' : 'no candidate story'}) for session=${sessionId}`);
-    }
+    let reply: string;
+    let modelUsed: string;
+    let actions: Awaited<ReturnType<typeof resolveActions>> = [];
+    let staleNudge: string | null = null;
+    let recommendAlias: string | null = null;
+    let askKind: 'thread' | 'palate' | 'brew' | null = null;
+    let exploreArchetypeCode: string | null = null;
+    let ledger: Omit<RecordTurnInput, 'sessionId' | 'turn' | 'userMessageId' | 'assistantMessageId'>;
 
-    // HOME_TASK_6 (§3.1, §3.2) — rebuilt live every turn, not cached at
-    // session start: the card can change mid-conversation via <<card:adjust>>,
-    // and the very next turn needs to reflect that (same "this same
-    // conversation" reasoning as the brew profile's own live-every-turn read).
-    const entryCoffeeId: number | null = ctx.entryCoffeeId ?? null;
-    const entryMethod: string | null = ctx.entryMethod ?? null;
-    let currentCoffeeContext: string | undefined;
-    if (entryCoffeeId && entryMethod) {
+    if (gateOutcome.gated) {
+      reply = gateOutcome.reply;
+      modelUsed = gateOutcome.modelUsed;
+      ledger = {
+        route: gateOutcome.route, model: gateOutcome.model, answersVersion: gateOutcome.answersVersion, ...topicFields,
+        usage: gateOutcome.usage, usdMicros: gateOutcome.usdMicros, latencyMs: gateOutcome.latencyMs,
+        ruleId: gateOutcome.ruleId, confirmLabel: gateOutcome.confirmLabel, confirmConfidence: gateOutcome.confirmConfidence,
+        coffeeId: gateOutcome.coffeeId, answerId: gateOutcome.answerId,
+      };
+      console.log(`[liam:GATE] session=${sessionId} turn=${session.turn_count} rule=${gateOutcome.ruleKey} route=${gateOutcome.route} usd_micros=${gateOutcome.usdMicros}`);
+    } else {
+      // Liam L1, Part C.3 — the profile line is rebuilt every turn (the reads
+      // are cheap; this is the point — a fact captured earlier in *this same*
+      // conversation must show up on the very next turn, same reasoning as the
+      // brew-profile/current-coffee live reads elsewhere in this handler).
+      const profileReads = await loadProfileReads(req.uid!, undefined, { sessionId });
+      const profileLine = buildProfileLine(profileReads);
+      logProfileLineDebug(req.uid!, '/message', profileLine);
+      const factsWatermark = await getFactsWatermark(req.uid!);
+      await refreshSliceIfFactsChanged(ctx, sessionId, session.turn_count, profileReads, factsWatermark);
+      exploreArchetypeCode = profileReads.exploreArchetypeCode;
+
+      // Brew profile (§4.5, §3.5) — live read every turn (see getBrewProfile()'s
+      // comment), plus the stale-re-confirm nudge (write rule 5): at most once
+      // per session (ctx.staleNudgeSent), only when relevant to this turn's topic.
+      const brewProfile = await getBrewProfile(req.uid!);
+      staleNudge = getStaleFieldNudge(brewProfile, topicResult.topic, ctx.staleNudgeSent === true);
+      const brewProfileContext = [formatBrewProfileSummary(brewProfile), staleNudge].filter(Boolean).join(' ');
+
+      // Story layer (§4.4, HOME_TASK_5), extended by HOME_TASK_5b (Defect 1) —
+      // only on the two topics that ask about the customer's own coffee. Uses
+      // whatever was cached in context_data at session start (see the /start
+      // handler's own comment); no re-query, no "current coffee" concept
+      // invented here (that's HOME_TASK_6's job). Selection now resolves the
+      // coffee the customer actually named against the session's alias-carrying
+      // candidates, rather than always taking the first candidate with a story —
+      // the exact Kenya bug: the strip had Kenya, the customer named Kenya, but
+      // selection ignored the name and picked whichever candidate happened to
+      // be first/have a story.
+      const isMyCoffeeTopic = topicResult.topic === 'my_coffee' || topicResult.topic === 'origins_process';
+      const storyCandidates: StoryCandidate[] = Array.isArray(ctx.storyCandidates) ? ctx.storyCandidates : [];
+      let storyContext: string | undefined;
+      let selectedStoryCoffeeId: number | null = null;
+      if (isMyCoffeeTopic && storyCandidates.length > 0) {
+        const matched = resolveStoryForMessage(message, storyCandidates);
+        // Matched a named coffee: inject its story if it has one; if it doesn't,
+        // no story at all — never substitute a different candidate's story for
+        // the one the customer actually asked about.
+        const fallback = matched ? null : storyCandidates.find(c => c.story) ?? null;
+        const selected = matched ?? fallback;
+        storyContext = selected?.story ?? undefined;
+        selectedStoryCoffeeId = selected?.coffeeId ?? null;
+        console.log(`[storyLayer] turn selected coffeeId=${selectedStoryCoffeeId ?? 'none'} (${matched ? 'named match' : fallback ? 'fallback' : 'no candidate story'}) for session=${sessionId}`);
+      }
+
+      // HOME_TASK_6 (§3.1, §3.2) — rebuilt live every turn, not cached at
+      // session start: the card can change mid-conversation via <<card:adjust>>,
+      // and the very next turn needs to reflect that (same "this same
+      // conversation" reasoning as the brew profile's own live-every-turn read).
+      const entryCoffeeId: number | null = ctx.entryCoffeeId ?? null;
+      const entryMethod: string | null = ctx.entryMethod ?? null;
+      let currentCoffeeContext: string | undefined;
+      if (entryCoffeeId && entryMethod) {
+        try {
+          const userId = await resolveProfileId(req.uid!);
+          const card = userId ? await getCardByMethod(userId, entryCoffeeId, entryMethod) : null;
+          if (card) currentCoffeeContext = await buildCurrentCoffeeContext(entryCoffeeId, entryMethod, card);
+        } catch (err) {
+          console.error('[sommelier/message] current-coffee context rebuild failed:', err);
+        }
+      }
+
+      // C2 Part 1 — a guard block (kill-switch / daily ceiling) must not 500 an
+      // otherwise-successful turn. Roll back the user message just saved above
+      // (same rollback discipline the insufficient-tokens path a few lines up
+      // already uses) and respond gracefully instead of letting this throw
+      // reach the route's outer catch (which would 500).
+      let chatResult: Awaited<ReturnType<typeof chatWithSommelier>>;
       try {
-        const userId = await resolveProfileId(req.uid!);
-        const card = userId ? await getCardByMethod(userId, entryCoffeeId, entryMethod) : null;
-        if (card) currentCoffeeContext = await buildCurrentCoffeeContext(entryCoffeeId, entryMethod, card);
-      } catch (err) {
-        console.error('[sommelier/message] current-coffee context rebuild failed:', err);
+        chatResult = await chatWithSommelier({
+          message,
+          session: {
+            intent: session.intent,
+            turnCount: session.turn_count,
+            openingContext: ctx.openingContext ?? '',
+          },
+          // Rev 2: the shared catalog block, read from the version-keyed
+          // in-memory cache every turn (same bytes as ctx.catalogText until the
+          // catalog changes; refreshCatalogSnapshotIfStale keeps ctx in step).
+          catalogContext: (await getCatalogBlock()).text,
+          history,
+          mode: topicResult.mode,
+          brewProfileContext,
+          storyContext,
+          currentCoffeeContext,
+          profileLine,
+          fitContext: ctx.fitText ?? '',
+        });
+      } catch (claudeErr) {
+        if (isClaudeGuardBlocked(claudeErr)) {
+          await userMsgRef.delete();
+          res.status(503).json({ error: 'liam_unavailable', message: LIAM_UNAVAILABLE_MESSAGE });
+          return;
+        }
+        throw claudeErr; // unexpected error — preserve existing behavior (outer catch, 500)
       }
+      reply = chatResult.reply;
+      modelUsed = chatResult.modelUsed;
+      recommendAlias = chatResult.recommendAlias;
+      askKind = chatResult.askKind;
+      actions = await resolveActions(chatResult.actionTypes, req.uid!, ctx.archetypeKey ?? null, chatResult.saveRecipeTitle);
+      await resolveRemember(req.uid!, chatResult.rememberOps, sessionId, session.turn_count);
+      await resolveCard(chatResult.cardMarker, req.uid!, entryCoffeeId, entryMethod, brewProfile, message);
+      // A candidate the gate turned down is recorded on the model row, and
+      // what its confirmation cost is part of this turn's cost.
+      ledger = {
+        route: 'model', model: modelUsed, answersVersion: chatResult.answersVersion, ...topicFields,
+        usage: chatResult.usage, usdMicros: chatResult.usdMicros + gateOutcome.usdMicros, latencyMs: chatResult.latencyMs,
+        ruleId: gateOutcome.ruleId, confirmLabel: gateOutcome.confirmLabel, confirmConfidence: gateOutcome.confirmConfidence,
+      };
     }
-
-    // C2 Part 1 — a guard block (kill-switch / daily ceiling) must not 500 an
-    // otherwise-successful turn. Roll back the user message just saved above
-    // (same rollback discipline the insufficient-tokens path a few lines up
-    // already uses) and respond gracefully instead of letting this throw
-    // reach the route's outer catch (which would 500).
-    let chatResult: Awaited<ReturnType<typeof chatWithSommelier>>;
-    try {
-      chatResult = await chatWithSommelier({
-        message,
-        session: {
-          intent: session.intent,
-          turnCount: session.turn_count,
-          openingContext: ctx.openingContext ?? '',
-        },
-        // Rev 2: the shared catalog block, read from the version-keyed
-        // in-memory cache every turn (same bytes as ctx.catalogText until the
-        // catalog changes; refreshCatalogSnapshotIfStale keeps ctx in step).
-        catalogContext: (await getCatalogBlock()).text,
-        history,
-        mode: topicResult.mode,
-        brewProfileContext,
-        storyContext,
-        currentCoffeeContext,
-        profileLine,
-        fitContext: ctx.fitText ?? '',
-      });
-    } catch (claudeErr) {
-      if (isClaudeGuardBlocked(claudeErr)) {
-        await userMsgRef.delete();
-        res.status(503).json({ error: 'liam_unavailable', message: LIAM_UNAVAILABLE_MESSAGE });
-        return;
-      }
-      throw claudeErr; // unexpected error — preserve existing behavior (outer catch, 500)
-    }
-    const { reply, modelUsed, actionTypes, saveRecipeTitle, rememberOps, cardMarker, recommendAlias, askKind } = chatResult;
-    const actions = await resolveActions(actionTypes, req.uid!, ctx.archetypeKey ?? null, saveRecipeTitle);
-    await resolveRemember(req.uid!, rememberOps, sessionId, session.turn_count);
-    await resolveCard(cardMarker, req.uid!, entryCoffeeId, entryMethod, brewProfile, message);
 
     if (!gatingEnabled) {
-      logUsage(req.uid!, String(sessionId), modelUsed).catch(err => console.error('[sommelier/message] logUsage failed:', err));
+      // A gated turn counts toward the daily cap and the spend estimate too, under the gate's model.
+      logUsage(req.uid!, String(sessionId), gateOutcome.gated ? gateOutcome.model : modelUsed).catch(err => console.error('[sommelier/message] logUsage failed:', err));
       checkMonthlySpendAndAlert(req.uid!).catch(err => console.error('[sommelier/message] checkMonthlySpendAndAlert failed:', err));
     }
 
@@ -1252,12 +1296,11 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
       createdAt: FieldValue.serverTimestamp(),
     });
 
-    // Rev 2, C3 — one ledger row per reply, after the reply is in Firestore.
+    // Rev 2, C3 — one ledger row per reply, after the reply is in Firestore
+    // (route model, or gate / gate_haiku with the rule and the Haiku cost).
     await recordLedgerTurn({
       sessionId, turn: session.turn_count, userMessageId: userMsgRef.id, assistantMessageId: assistantMsgRef.id,
-      route: 'model', model: modelUsed, answersVersion: chatResult.answersVersion,
-      topic: topicResult.topic, matchedKeyword: topicResult.matchedKeyword, sticky: topicResult.sticky, mode: topicResult.mode,
-      usage: chatResult.usage, usdMicros: chatResult.usdMicros, latencyMs: chatResult.latencyMs,
+      ...ledger,
     });
 
     const messageCandidates: AliasCandidate[] = (Array.isArray(ctx.storyCandidates) ? ctx.storyCandidates : [])
@@ -1272,7 +1315,9 @@ router.post('/:sessionId/message', sommelierIpLimiter, requireAuth, blockAnonymo
       askKind,
       candidates: messageCandidates,
       candidateCoffeeIds: Array.isArray(ctx.coffeeIds) ? ctx.coffeeIds : [],
-      exploreArchetypeCode: profileReads.exploreArchetypeCode,
+      exploreArchetypeCode,
+      // A gated reply is not a recommendation and carries no question.
+      route: gateOutcome.gated ? 'gate' : 'model',
     });
 
     // Updated context_data — carries the topic router's state forward so the

@@ -29,7 +29,7 @@ import { runCatalogIntegrityChecks } from '../services/catalogIntegrity.js';
 import { runCustomerIntegrityChecks } from '../services/customerIntegrity.js';
 import { runDataCatalogIntegrityChecks } from '../services/dataCatalogIntegrity.js';
 import { runSommelierIntegrityChecks } from '../services/sommelierIntegrity.js';
-import { getAnswerHistory, getTurnStats } from '../services/sommelierReads.js';
+import { getAnswerHistory, getTurnStats, getGateStats, getRuleStats, getPrefixHealth, getActiveRules, getExamples, type GateStats } from '../services/sommelierReads.js';
 import { getCatalogBlock } from '../services/sommelierRag.js';
 import { setAnswer, retireAnswer, SommelierAnswerError } from '../services/sommelierAnswerService.js';
 import { evidenceSummaryWithIntegrity } from './evidenceAdmin.js';
@@ -1315,6 +1315,33 @@ router.patch('/sommelier/config', async (req, res) => {
     res.status(400).json({ error: "promptCache.sharedTtl must be '5m' or '1h'" }); return;
   }
 
+  // Liam answer layer (2026-10-25): the gate's knobs and prompts.
+  const gate = body.gate;
+  if (gate) {
+    const isUnit = (v: unknown) => typeof v === 'number' && v >= 0 && v <= 1;
+    const isPositive = (v: unknown) => Number.isInteger(v) && (v as number) > 0;
+    if (gate.enabled !== undefined && typeof gate.enabled !== 'boolean') { res.status(400).json({ error: 'gate.enabled must be true or false' }); return; }
+    for (const k of ['confirmModel', 'phraseModel', 'confirmPrompt', 'phrasePrompt'] as const) {
+      if (gate[k] !== undefined && !isText(gate[k])) { res.status(400).json({ error: `gate.${k} must be non-empty text` }); return; }
+    }
+    for (const k of ['confirmMaxTokens', 'phraseMaxTokens', 'maxMessageChars', 'prefixRebuildMinTokens'] as const) {
+      if (gate[k] !== undefined && !isPositive(gate[k])) { res.status(400).json({ error: `gate.${k} must be a whole number above 0` }); return; }
+    }
+    if (gate.confirmThreshold !== undefined && !isUnit(gate.confirmThreshold)) { res.status(400).json({ error: 'gate.confirmThreshold must be from 0 to 1' }); return; }
+    if (gate.confirmPrompt !== undefined && !['{labels}', '{message}'].every(p => gate.confirmPrompt.includes(p))) {
+      res.status(400).json({ error: 'gate.confirmPrompt must keep {labels} and {message}' }); return;
+    }
+    if (gate.phrasePrompt !== undefined && !['{facts}', '{message}'].every(p => gate.phrasePrompt.includes(p))) {
+      res.status(400).json({ error: 'gate.phrasePrompt must keep {facts} and {message}' }); return;
+    }
+    const off = gate.offline;
+    if (off) {
+      if (off.enabled !== undefined && typeof off.enabled !== 'boolean') { res.status(400).json({ error: 'gate.offline.enabled must be true or false' }); return; }
+      if (off.model !== undefined && !isText(off.model)) { res.status(400).json({ error: 'gate.offline.model must be non-empty text' }); return; }
+      if (off.missShareThreshold !== undefined && !isUnit(off.missShareThreshold)) { res.status(400).json({ error: 'gate.offline.missShareThreshold must be from 0 to 1' }); return; }
+    }
+  }
+
   // Validate intent keys if present
   // The seed's intents (was a literal list of six that missed MATCHED, added
   // in Liam L2, so the Intent Editor could not save it; fixed 2026-10-24 so
@@ -1466,6 +1493,30 @@ function handleAnswerError(err: unknown, res: import('express').Response, where:
   console.error(`[admin/sommelier/answers ${where}]`, err);
   res.status(500).json({ error: 'Failed to save the answer' });
 }
+
+// Liam answer layer (2026-10-25), Part D — the read-only "Liam gate rules"
+// card: active rules, their current examples, the per-rule numbers and the
+// kill switch. Editing rules in admin is a later brief; until then rules
+// change through the seed or `npm run gate:rules:apply` (the write door).
+router.get('/sommelier/gate-rules', async (_req, res) => {
+  try {
+    const [rules, examples, stats] = await Promise.all([getActiveRules(), getExamples(), getRuleStats()]);
+    const gate = getSommelierConfig()?.gate;
+    res.json({
+      enabled: gate?.enabled === true,
+      offlineEnabled: gate?.offline?.enabled === true,
+      rules: rules.map(r => ({
+        key: r.key, priority: r.priority, resolver: r.resolver, answerKey: r.answer_key, topicKey: r.topic_key,
+        keywords: r.keywords, maxMessageChars: r.max_message_chars, since: r.since, note: r.note, createdBy: r.created_by,
+        examples: examples.filter(e => e.rule_id === r.id).map(e => ({ message: e.message, expectation: e.expectation, expectedLabel: e.expected_label })),
+        stats: stats.find(x => x.key === r.key) ?? null,
+      })),
+    });
+  } catch (err) {
+    console.error('[admin/sommelier/gate-rules]', err);
+    res.status(500).json({ error: 'Failed to read the gate rules' });
+  }
+});
 
 router.get('/sommelier/answers', async (_req, res) => {
   try {
@@ -2152,10 +2203,42 @@ async function liamAnswersSection() {
 
 // Liam sees everything brief Rev 2, C5 (2026-10-24): the turn ledger over
 // 24 hours and the shared catalog block. Report only; a failure is reported
-// in place. Brief 3 adds the gated share, misses and cost avoided.
+// in place. The Liam answer layer (2026-10-25, Part D) adds the gate: share
+// of turns gated, cost avoided (gated turns x the 7-day median model turn,
+// minus what the gated turns cost), misses (labelled Sonnet turns whose label
+// is a gate label) and their share of Sonnet spend against
+// gate.offline.missShareThreshold, per-rule numbers, the answers_version lag
+// and shared-prefix rebuilds today.
+function gateShare(g: GateStats): number | null { return g.turns ? g.gatedTurns / g.turns : null; }
+function costAvoided(g: GateStats): number | null {
+  return g.medianModelUsdMicros7d === null ? null : g.gatedTurns * g.medianModelUsdMicros7d - g.gatedUsdMicros;
+}
+async function liamGateSection() {
+  const cfg = getSommelierConfig()?.gate;
+  const [g24, g7, rules, prefix] = await Promise.all([
+    getGateStats({ sinceHours: 24 }), getGateStats({ sinceHours: 168 }), getRuleStats(),
+    getPrefixHealth({ minWriteTokens: cfg?.prefixRebuildMinTokens ?? 4000 }),
+  ]);
+  return {
+    enabled: cfg?.enabled === true,
+    share24h: gateShare(g24),
+    share7d: gateShare(g7),
+    gatedTurns7d: g7.gatedTurns,
+    costAvoided7dUsdMicros: costAvoided(g7),
+    medianModelUsdMicros7d: g7.medianModelUsdMicros7d,
+    labelled7d: g7.labelledModelTurns,
+    misses7d: g7.missTurns,
+    missShareOfSpend7d: g7.modelUsdMicros ? g7.missUsdMicros / g7.modelUsdMicros : null,
+    missShareThreshold: cfg?.offline?.missShareThreshold ?? null,
+    answersVersionLag1h: prefix.answersVersionLag1h,
+    prefixRebuildsToday: prefix.prefixRebuildsToday,
+    rules,
+  };
+}
+
 async function liamContextSection() {
   try {
-    const [stats, block] = await Promise.all([getTurnStats({ sinceHours: 24 }), getCatalogBlock()]);
+    const [stats, block, gate] = await Promise.all([getTurnStats({ sinceHours: 24 }), getCatalogBlock(), liamGateSection()]);
     return {
       turns24h: stats.turns,
       usdMicros24h: stats.usdMicros,
@@ -2163,6 +2246,7 @@ async function liamContextSection() {
       cacheHitRate: stats.cacheHitRate,
       byRoute: stats.byRoute,
       catalogBlock: { tokensEstimate: block.tokensEstimate, coffeeCount: block.coffeeIds.length, trimLevel: block.trimLevel, builtAt: block.builtAt },
+      gate,
     };
   } catch (err) {
     console.error('[admin/system-health/liam-context]', err);

@@ -438,6 +438,63 @@ for (const relPath of files) {
   }
 }
 
+// ── Rule 10: the gate's four tables have one reader and one writer each ─────
+// Liam answer layer (2026-10-25), A5. SELECT (FROM / JOIN) only in
+// services/sommelierReads.ts. INSERT into the two master tables
+// (sommelier_gate_rule, sommelier_gate_rule_example) only in
+// services/sommelierGateRuleService.ts, and their UPDATE may set
+// superseded_at alone; INSERT into the two facts (sommelier_turn_label,
+// sommelier_gate_rule_replay) only in services/sommelierTurnService.ts, and
+// no UPDATE. No DELETE / TRUNCATE on any of the four.
+{
+  const READER = 'services/sommelierReads.ts';
+  const TABLES = [
+    { table: 'sommelier_gate_rule', writer: 'services/sommelierGateRuleService.ts', supersede: true },
+    { table: 'sommelier_gate_rule_example', writer: 'services/sommelierGateRuleService.ts', supersede: true },
+    { table: 'sommelier_turn_label', writer: 'services/sommelierTurnService.ts', supersede: false },
+    { table: 'sommelier_gate_rule_replay', writer: 'services/sommelierTurnService.ts', supersede: false },
+  ];
+  for (const relPath of files) {
+    const text = fileText(relPath);
+    const lines = text.split('\n');
+    for (const { table, writer, supersede } of TABLES) {
+      lines.forEach((line, i) => {
+        const stripped = stripLineComment(line);
+        if (relPath !== READER && new RegExp(`\\b(?:FROM|JOIN)\\s+"?${table}"?\\b`, 'i').test(stripped)) {
+          violations.push({ file: relPath, line: i + 1, message: `SELECT from '${table}' outside ${READER}` });
+        }
+        if (relPath !== writer && new RegExp(`\\bINSERT\\s+INTO\\s+"?${table}"?\\b`, 'i').test(stripped)) {
+          violations.push({ file: relPath, line: i + 1, message: `INSERT INTO '${table}' outside ${writer}` });
+        }
+        if (new RegExp(`\\bDELETE\\s+FROM\\s+"?${table}"?\\b`, 'i').test(stripped) || new RegExp(`\\bTRUNCATE\\s+(?:TABLE\\s+)?"?${table}"?\\b`, 'i').test(stripped)) {
+          violations.push({ file: relPath, line: i + 1, message: `DELETE on '${table}' — gate rows are superseded or inserted, never deleted` });
+        }
+        if (!supersede && new RegExp(`\\bUPDATE\\s+"?${table}"?\\b`, 'i').test(stripped)) {
+          violations.push({ file: relPath, line: i + 1, message: `UPDATE on '${table}' — an insert-only fact` });
+        }
+      });
+      if (!supersede) continue;
+      const updateRe = new RegExp(`\\bUPDATE\\s+"?${table}"?(?:\\s+\\w+)?\\s+SET\\b([\\s\\S]*?)(?:\\bFROM\\b|\\bWHERE\\b|\\bRETURNING\\b|\`|;|$)`, 'gi');
+      let um;
+      while ((um = updateRe.exec(text))) {
+        if (relPath !== writer) {
+          violations.push({ file: relPath, line: lineNumberAt(text, um.index), message: `UPDATE on '${table}' outside ${writer}` });
+          continue;
+        }
+        const assigned = [...um[1].matchAll(/(?:^|,)\s*"?([a-z_][a-z0-9_]*)"?\s*=/gi)].map(m => m[1].toLowerCase());
+        const bad = assigned.filter(c => c !== 'superseded_at');
+        if (!assigned.length || bad.length) {
+          violations.push({
+            file: relPath,
+            line: lineNumberAt(text, um.index),
+            message: `UPDATE on '${table}' sets ${bad.length ? bad.join(', ') : 'an unreadable column list'} — only superseded_at may be updated (an edit is a new row)`,
+          });
+        }
+      }
+    }
+  }
+}
+
 // ── Report ───────────────────────────────────────────────────────────────────
 if (violations.length) {
   console.error(`lint:customer — ${violations.length} violation(s):\n`);

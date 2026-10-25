@@ -203,7 +203,16 @@ export async function recordTurn(params: {
   candidates: AliasCandidate[];
   candidateCoffeeIds: number[];
   exploreArchetypeCode: string | null;
+  /**
+   * Liam answer layer (2026-10-25): 'gate' skips recommendation detection
+   * and question extraction entirely. A gated price sentence that names a
+   * coffee is not a recommendation of it (detectAliases would write a
+   * customer_liam_recommendation row and pollute v_palate_evidence), and a
+   * gated reply never carries an <<ask>>. Default 'model'.
+   */
+  route?: 'model' | 'gate';
 }, runner: Runner = db): Promise<{ openQuestionId: string; openQuestionTurn: number } | null> {
+  if (params.route === 'gate') return null;
   const profileId = await resolveProfileId(params.uid, runner).catch(() => null);
   if (!profileId) return null;
 

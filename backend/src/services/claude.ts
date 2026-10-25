@@ -527,7 +527,12 @@ export async function chatWithSommelier(params: {
         [...(config.brandFacts.rules ?? []), ...(config.customerBlock?.rules ?? [])],
         config.brandFacts.supportContact,
       );
-      brandAnswersBlock = renderBrandAnswersBlock(rows, rules);
+      // Liam answer layer (2026-10-25): an answer row may carry
+      // {supportContact} too (order_status_unavailable), substituted the same way.
+      brandAnswersBlock = renderBrandAnswersBlock(
+        rows.map(r => ({ ...r, answer_text: substituteSupportContact([r.answer_text], config.brandFacts!.supportContact)[0] })),
+        rules,
+      );
     } catch (err) {
       console.error('[liam:BRAND_ANSWERS_READ_FAILED] sending the turn without the brand facts block', err);
     }

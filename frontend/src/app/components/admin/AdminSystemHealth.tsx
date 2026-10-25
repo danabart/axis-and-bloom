@@ -82,8 +82,28 @@ interface LiamContextData {
   cacheHitRate?: number | null;
   byRoute?: Record<string, number>;
   catalogBlock?: { tokensEstimate: number; coffeeCount: number; trimLevel: number; builtAt: string };
+  gate?: LiamGateData;
   error?: string;
 }
+
+// Liam answer layer (2026-10-25), Part D — the gate's numbers on this card.
+interface LiamGateData {
+  enabled: boolean;
+  share24h: number | null;
+  share7d: number | null;
+  gatedTurns7d: number;
+  costAvoided7dUsdMicros: number | null;
+  medianModelUsdMicros7d: number | null;
+  labelled7d: number;
+  misses7d: number;
+  missShareOfSpend7d: number | null;
+  missShareThreshold: number | null;
+  answersVersionLag1h: number;
+  prefixRebuildsToday: number;
+  rules: Array<{ key: string; hits7d: number; hits30d: number; misses7d: number; replayAgreed: number; replayTotal: number }>;
+}
+
+const pct = (v: number | null | undefined) => (v === null || v === undefined ? '—' : `${Math.round(v * 100)}%`);
 
 interface SystemHealthData {
   callTypes: CallTypeRow[];
@@ -315,6 +335,63 @@ export default function AdminSystemHealth() {
                     : ''}
                   Report only, from the turn ledger.
                 </p>
+                {data.liamContext.gate && (() => {
+                  const g = data.liamContext.gate;
+                  const overThreshold = g.missShareOfSpend7d !== null && g.missShareThreshold !== null && g.missShareOfSpend7d >= g.missShareThreshold;
+                  return (
+                    <div className="mt-5 pt-4 border-t border-stone-100">
+                      <p className="text-xs text-stone-500 mb-3">
+                        The gate is <span style={{ color: g.enabled ? undefined : RUST }}>{g.enabled ? 'on' : 'off'}</span> (gate.enabled on the Sommelier config page).
+                      </p>
+                      <div className="flex flex-wrap items-center gap-8">
+                        <div>
+                          <p className="text-2xl font-normal text-stone-800">{pct(g.share24h)} / {pct(g.share7d)}</p>
+                          <p className="text-xs text-stone-400">replies gated, 24 h / 7 d</p>
+                        </div>
+                        <div>
+                          <p className="text-2xl font-normal text-stone-800">{usd(g.costAvoided7dUsdMicros, 4)}</p>
+                          <p className="text-xs text-stone-400">cost avoided, 7 d ({g.gatedTurns7d} gated × {usd(g.medianModelUsdMicros7d, 4)} median)</p>
+                        </div>
+                        <div>
+                          <p className="text-2xl font-normal text-stone-800">{g.misses7d}</p>
+                          <p className="text-xs text-stone-400">misses, 7 d ({g.labelled7d} Sonnet replies labelled)</p>
+                        </div>
+                        <div>
+                          <p className="text-2xl font-normal" style={{ color: overThreshold ? RUST : undefined }}>{pct(g.missShareOfSpend7d)}</p>
+                          <p className="text-xs text-stone-400">of Sonnet spend on misses (Brief 4 at {pct(g.missShareThreshold)})</p>
+                        </div>
+                        <div>
+                          <p className="text-2xl font-normal text-stone-800">{g.answersVersionLag1h} / {g.prefixRebuildsToday}</p>
+                          <p className="text-xs text-stone-400">answers-version lag (1 h) / prefix rebuilds today</p>
+                        </div>
+                      </div>
+                      {g.rules.length > 0 && (
+                        <table className="mt-4 text-xs text-stone-600">
+                          <thead>
+                            <tr className="text-stone-400">
+                              <th className="text-left font-normal pr-6">Rule</th>
+                              <th className="text-right font-normal pr-6">Hits 7 d</th>
+                              <th className="text-right font-normal pr-6">Hits 30 d</th>
+                              <th className="text-right font-normal pr-6">Misses 7 d</th>
+                              <th className="text-right font-normal">Replay agreement</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {g.rules.map(r => (
+                              <tr key={r.key}>
+                                <td className="pr-6">{r.key}</td>
+                                <td className="text-right pr-6">{r.hits7d}</td>
+                                <td className="text-right pr-6" style={{ color: g.enabled && r.hits30d === 0 ? RUST : undefined }}>{r.hits30d}</td>
+                                <td className="text-right pr-6">{r.misses7d}</td>
+                                <td className="text-right">{r.replayTotal ? `${r.replayAgreed}/${r.replayTotal}` : '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  );
+                })()}
               </>
             )}
           </div>
