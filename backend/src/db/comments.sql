@@ -867,7 +867,7 @@ COMMENT ON COLUMN dial_source_weight.reliability_weight IS $c$Relative weight of
 -- ── lookup_value ──
 COMMENT ON TABLE lookup_value IS $c$Purpose: Controlled vocabulary for admin dropdowns and coded fields, one row per (category, value) with a display label and order. | Class: operating | Writer: admin.POST /api/admin/lookups, admin.PATCH /api/admin/lookups/:id, admin.DELETE /api/admin/lookups/:id; seed | Readers: admin.GET /api/admin/lookups, routes/coffees (origin region), catalogService.updateCoffee, roasteryPortalReads, roasterVoiceReads (coffee_card_tag, coffee presentation brief 4), sommelierAnswerService (answer kinds and deliveries), sommelierTurnService (turn routes), coffees.origin_region_id FK | Since: 2026-05-27$c$;
 COMMENT ON COLUMN lookup_value.id IS $c$Surrogate key; coffees.origin_region_id references it.$c$;
-COMMENT ON COLUMN lookup_value.category IS $c$Vocabulary group, for example roast_level, process, blend_or_single, brew_method, origin_region, the roastery_portal_* groups and sommelier_answer_kind / sommelier_answer_delivery (Liam brand answers, 2026-10-24) and coffee_card_tag (the card's award tag wording, coffee presentation brief 4, 2026-10-24), sommelier_turn_route (the Liam turn ledger's route: model, guard, gate, gate_haiku, 2026-10-24), sommelier_gate_resolver (answer, catalog_price, catalog_category, customer_subscription) and sommelier_gate_expectation (must_match, must_not_match) (the Liam gate, 2026-10-25); UNIQUE together with value.$c$;
+COMMENT ON COLUMN lookup_value.category IS $c$Vocabulary group, for example roast_level, process, blend_or_single, brew_method, origin_region, the roastery_portal_* groups and sommelier_answer_kind / sommelier_answer_delivery (Liam brand answers, 2026-10-24) and coffee_card_tag (the card's award tag wording, coffee presentation brief 4, 2026-10-24), sommelier_turn_route (the Liam turn ledger's route: model, guard, gate, gate_haiku, 2026-10-24), sommelier_gate_resolver (answer, catalog_price, catalog_category, customer_subscription) and sommelier_gate_expectation (must_match, must_not_match) (the Liam gate, 2026-10-25), sommelier_eval_kind, sommelier_eval_source, sommelier_reply_check_kind, sommelier_eval_trigger and sommelier_reply_flag (Liam answer evals, 2026-10-25); UNIQUE together with value.$c$;
 COMMENT ON COLUMN lookup_value.value IS $c$Stored code within the category (what other tables and the API hold).$c$;
 COMMENT ON COLUMN lookup_value.label IS $c$Display text shown in the UI; may differ from value.$c$;
 COMMENT ON COLUMN lookup_value.sort_order IS $c$Display position within the category, ascending.$c$;
@@ -1392,6 +1392,7 @@ COMMENT ON COLUMN sommelier_turn.output_tokens IS $c$Output tokens of the reply.
 COMMENT ON COLUMN sommelier_turn.usd_micros IS $c$Cost of the turn in integer micro-dollars, the same numbers anthropicGuard added to claude_daily_spend (rounded up per call): the reply call plus any gate confirmation call of the same turn (the token columns are the reply call's own; on gated rows, both Haiku calls summed); 0 for guard rows.$c$;
 COMMENT ON COLUMN sommelier_turn.latency_ms IS $c$Wall time of the Claude call in milliseconds; NULL for guard rows.$c$;
 COMMENT ON COLUMN sommelier_turn.created_at IS $c$UTC timestamp the row was written (right after the reply reached Firestore).$c$;
+COMMENT ON COLUMN sommelier_turn.reply_flags IS $c$The flag codes (lookup_value category sommelier_reply_flag: roaster_name, price_not_in_catalog, banned_claim) of the global reply checks this reply failed, written in the same INSERT (the check runs on the final reply before the row is written; the reply itself is never blocked or changed); empty when clean or for guard rows. | Writer: sommelierTurnService.recordTurn (values from sommelierReplyCheck.checkProductionReply)$c$;
 -- ── sommelier_gate_rule ──
 COMMENT ON TABLE sommelier_gate_rule IS $c$Purpose: The Liam gate's rules, one current row per key: keywords that make a customer message a candidate, the resolver that answers it (a brand answer verbatim, catalog prices, catalog category coffees, subscription status) and the priority among rules; not in config/sommelier because config-apply and config-drift work on the code seed and a rule points at a sommelier_answer row, and no existing table maps messages to reads (topics[].keywords pick a prompt mode, not an answer) | Class: master | Writer: sommelierGateRuleService.setRuleInTx, sommelierGateRuleService.retireRuleInTx | Readers: sommelierReads (getActiveRules, getGateRulesVersion, hasAnyGateRule, getExamples, getRuleStats, getGateStats); sommelierIntegrity checks 6-10 and the gate via sommelierReads | Since: 2026-10-25 (Liam answer layer, Part A1)$c$;
 COMMENT ON COLUMN sommelier_gate_rule.id IS $c$Surrogate primary key (SERIAL); (key, current) is the natural key, held by the partial unique index sommelier_gate_rule_one_current.$c$;
@@ -1434,6 +1435,75 @@ COMMENT ON COLUMN sommelier_gate_rule_replay.label IS $c$The label Haiku returne
 COMMENT ON COLUMN sommelier_gate_rule_replay.agreed IS $c$True when label equals the example's expected_label.$c$;
 COMMENT ON COLUMN sommelier_gate_rule_replay.labeler_model IS $c$The Claude model id that replayed (config gate.offline.model at the time).$c$;
 COMMENT ON COLUMN sommelier_gate_rule_replay.replayed_at IS $c$UTC timestamp of the replay; one row per example and labeler model per UTC day.$c$;
+
+-- ── sommelier_eval_case ──
+COMMENT ON TABLE sommelier_eval_case IS $c$Purpose: The Liam eval set's questions, one current row per key: what is being asked (by kind), which fixture customer asks it, the coffee and the previous Liam turn it may refer to; no existing object holds a question with its expected answer properties (sommelier_gate_rule_example tests the matcher's routing, not the answer; REGRESSION.md is a hand checklist; the quiz calibration fixture tests the quiz router) | Class: master | Writer: sommelierEvalService.setCaseInTx, sommelierEvalService.retireCaseInTx | Readers: sommelierReads (getCurrentCases, getEvalVersion, hasAnyEvalCase); sommelierIntegrity checks 11-13 via sommelierReads | Since: 2026-10-25 (Liam answer evals, Part A1)$c$;
+COMMENT ON COLUMN sommelier_eval_case.id IS $c$Surrogate primary key (SERIAL); (key, current) is the natural key, held by the partial unique index sommelier_eval_case_one_current.$c$;
+COMMENT ON COLUMN sommelier_eval_case.key IS $c$Stable case name in snake_case (do_you_roast, price_named, order_status, ...); exactly one row per key has superseded_at NULL.$c$;
+COMMENT ON COLUMN sommelier_eval_case.kind_id IS $c$FK to lookup_value(id) in category sommelier_eval_kind: brand, catalog, customer, judgment or safety.$c$;
+COMMENT ON COLUMN sommelier_eval_case.fixture_key IS $c$The invented fixture customer who asks it: a file backend/src/fixtures/liam_eval/<fixture_key>.json, registered in that folder's index.ts (integrity check 13).$c$;
+COMMENT ON COLUMN sommelier_eval_case.catalog_alias IS $c$For catalog cases, the coffee the question is about, by its customer-facing alias in the catalog block (resolved at run time; never a roaster name); NULL otherwise. The brief named it coffee_alias, the name of a dropped legacy table that lint:catalog blocks, so it is catalog_alias.$c$;
+COMMENT ON COLUMN sommelier_eval_case.turn_context IS $c$Optional previous Liam turn, so a phrasing like how much is it? has an it; the runner sends it as one prior exchange. NULL for a first question.$c$;
+COMMENT ON COLUMN sommelier_eval_case.rule_key IS $c$The sommelier_gate_rule key whose gated customer messages become phrasings of this case (price_named takes the price rule's); NULL when no gate rule answers it. Added because case and rule keys are not 1:1.$c$;
+COMMENT ON COLUMN sommelier_eval_case.since IS $c$UTC timestamp the row took effect.$c$;
+COMMENT ON COLUMN sommelier_eval_case.superseded_at IS $c$UTC timestamp a newer row for the key replaced this one, or the case was retired; NULL marks the current row. The only column ever updated. | Writer: sommelierEvalService.setCaseInTx, sommelierEvalService.retireCaseInTx$c$;
+COMMENT ON COLUMN sommelier_eval_case.note IS $c$Why the row was written, free text; NULL when none was given.$c$;
+COMMENT ON COLUMN sommelier_eval_case.created_by IS $c$Who wrote the row: seed, script, or the admin's Firebase uid.$c$;
+
+-- ── sommelier_eval_phrasing ──
+COMMENT ON TABLE sommelier_eval_phrasing IS $c$Purpose: The many ways one eval case is asked: written by hand, or copied verbatim from a customer message the gate answered (from the transcript by the ledger row's user_message_id; may carry a first name, kept for this purpose only); de-duplicated per case, capped per case for customer copies | Class: master | Writer: sommelierEvalService.setPhrasingInTx, sommelierEvalService.retirePhrasingInTx, sommelierEvalService.setCaseInTx, sommelierEvalService.retireCaseInTx | Readers: sommelierReads (getPhrasings, getCustomerPhrasingStats) | Since: 2026-10-25 (Liam answer evals, Part A2)$c$;
+COMMENT ON COLUMN sommelier_eval_phrasing.id IS $c$Surrogate primary key (SERIAL); (case_id, message) is UNIQUE.$c$;
+COMMENT ON COLUMN sommelier_eval_phrasing.case_id IS $c$FK to sommelier_eval_case(id): the case row it asks; a case edit copies its current phrasings onto the new row and supersedes the old ones.$c$;
+COMMENT ON COLUMN sommelier_eval_phrasing.message IS $c$The customer message as it is sent to Liam.$c$;
+COMMENT ON COLUMN sommelier_eval_phrasing.source_id IS $c$FK to lookup_value(id) in category sommelier_eval_source: hand or customer_turn.$c$;
+COMMENT ON COLUMN sommelier_eval_phrasing.source_turn_id IS $c$FK to sommelier_turn(id): the gated customer turn it was copied from, when source is customer_turn; NULL for hand phrasings.$c$;
+COMMENT ON COLUMN sommelier_eval_phrasing.since IS $c$UTC timestamp the row took effect.$c$;
+COMMENT ON COLUMN sommelier_eval_phrasing.superseded_at IS $c$UTC timestamp the phrasing was retired or its case edited or retired; NULL marks a current phrasing. The only column ever updated. | Writer: sommelierEvalService.retirePhrasingInTx, sommelierEvalService.setCaseInTx, sommelierEvalService.retireCaseInTx$c$;
+COMMENT ON COLUMN sommelier_eval_phrasing.note IS $c$Why the phrasing exists (its style: casual, formal, typo, indirect, first name; or that it names a real roaster on purpose), free text.$c$;
+
+-- ── sommelier_reply_check ──
+COMMENT ON TABLE sommelier_reply_check IS $c$Purpose: One vocabulary of reply checks used twice: with case_id, an assertion on that eval case's replies; with case_id NULL, a global check run on every production reply (its hit written as a flag on the sommelier_turn row) and on every eval reply; no existing object holds answer assertions (contentGuard holds the leak detector these checks reuse, not the assertions) | Class: master | Writer: sommelierEvalService.setCheckInTx, sommelierEvalService.retireCheckInTx, sommelierEvalService.setCaseInTx, sommelierEvalService.retireCaseInTx | Readers: sommelierReads (getChecks, getGlobalChecks) | Since: 2026-10-25 (Liam answer evals, Part A3)$c$;
+COMMENT ON COLUMN sommelier_reply_check.id IS $c$Surrogate primary key (SERIAL); eval results list failed checks by this id.$c$;
+COMMENT ON COLUMN sommelier_reply_check.case_id IS $c$FK to sommelier_eval_case(id): the case the assertion belongs to; NULL for a global check (runs in production too).$c$;
+COMMENT ON COLUMN sommelier_reply_check.check_id IS $c$FK to lookup_value(id) in category sommelier_reply_check_kind: must_contain, must_not_contain, must_contain_answer, must_contain_price_of, must_name_catalog_coffee, must_not_name_roaster, price_in_catalog_only, must_not_claim or judge (each implemented once in sommelierReplyCheck.ts).$c$;
+COMMENT ON COLUMN sommelier_reply_check.value IS $c$The check's argument: a literal, a sommelier_answer key, a coffee alias, a banned phrase, or the judge's yes/no question (yes = pass); NULL for kinds without one.$c$;
+COMMENT ON COLUMN sommelier_reply_check.flag_code IS $c$Global checks only: the sommelier_reply_flag code written on sommelier_turn.reply_flags when it fails; NULL on case checks.$c$;
+COMMENT ON COLUMN sommelier_reply_check.since IS $c$UTC timestamp the row took effect.$c$;
+COMMENT ON COLUMN sommelier_reply_check.superseded_at IS $c$UTC timestamp the check was retired or its case edited or retired; NULL marks a current check. The only column ever updated. | Writer: sommelierEvalService.retireCheckInTx, sommelierEvalService.setCaseInTx, sommelierEvalService.retireCaseInTx$c$;
+COMMENT ON COLUMN sommelier_reply_check.note IS $c$Why the check exists, free text.$c$;
+COMMENT ON COLUMN sommelier_reply_check.created_by IS $c$Who wrote the row: seed, script, or the admin's Firebase uid.$c$;
+
+-- ── sommelier_eval_run ──
+COMMENT ON TABLE sommelier_eval_run IS $c$Purpose: One eval run: what it ran against (the reply model, the judge, a hash of the shared prompt tier, the answers and catalog versions, the gate switch) and, once finished, its counts and cost; a fact that gets exactly one UPDATE, by the service that inserted it, when the run ends (the api_event INSERT-then-finish shape) | Class: fact | Writer: sommelierEvalService.startRun, sommelierEvalService.finishRun | Readers: sommelierReads (getLastRun, getRecentRuns, getStaleRuns); sommelierIntegrity check 14 via sommelierReads | Since: 2026-10-25 (Liam answer evals, Part A4)$c$;
+COMMENT ON COLUMN sommelier_eval_run.id IS $c$Surrogate primary key (SERIAL).$c$;
+COMMENT ON COLUMN sommelier_eval_run.trigger_id IS $c$FK to lookup_value(id) in category sommelier_eval_trigger: nightly or manual.$c$;
+COMMENT ON COLUMN sommelier_eval_run.model IS $c$The Claude model the Sonnet replies came from (the live chat model).$c$;
+COMMENT ON COLUMN sommelier_eval_run.judge_model IS $c$The Claude model that answered the judge questions (config evals.judgeModel).$c$;
+COMMENT ON COLUMN sommelier_eval_run.prompt_hash IS $c$sha256 of the shared prompt tier (base prompt, brand facts and rules, catalog block) as rendered for this run; two runs with the same hash ran the same shared prompt.$c$;
+COMMENT ON COLUMN sommelier_eval_run.answers_version IS $c$MAX(sommelier_answer.id) at the start of the run.$c$;
+COMMENT ON COLUMN sommelier_eval_run.catalog_version IS $c$The catalog version (catalogReads.getCatalogVersion) the catalog block was built from.$c$;
+COMMENT ON COLUMN sommelier_eval_run.gate_enabled IS $c$The live gate.enabled switch when the run started (the runner may still exercise the gate: config evals.forceGate).$c$;
+COMMENT ON COLUMN sommelier_eval_run.started_at IS $c$UTC timestamp the run started.$c$;
+COMMENT ON COLUMN sommelier_eval_run.finished_at IS $c$UTC timestamp the run finished; NULL while running, or for a run that died (integrity check 14 reports one older than 2 hours). | Writer: sommelierEvalService.finishRun$c$;
+COMMENT ON COLUMN sommelier_eval_run.phrasings IS $c$Phrasings graded in this run. | Writer: sommelierEvalService.finishRun$c$;
+COMMENT ON COLUMN sommelier_eval_run.passed IS $c$Graded phrasings that passed every check. | Writer: sommelierEvalService.finishRun$c$;
+COMMENT ON COLUMN sommelier_eval_run.failed IS $c$Graded phrasings that failed at least one check. | Writer: sommelierEvalService.finishRun$c$;
+COMMENT ON COLUMN sommelier_eval_run.usd_micros IS $c$Cost of the run in integer micro-dollars (replies, gate calls and judge calls), the same numbers anthropicGuard added to claude_daily_spend. | Writer: sommelierEvalService.finishRun$c$;
+COMMENT ON COLUMN sommelier_eval_run.note IS $c$Why a run ended early or what it skipped (the cost cap evals.maxUsdPerRun, a fixture that failed to load); NULL when it ran everything. Added to the brief's DDL, which asks for the note but had no column. | Writer: sommelierEvalService.finishRun$c$;
+COMMENT ON COLUMN sommelier_eval_run.created_by IS $c$Who started it: cron (nightly), script (npm run liam:evals), or the admin's Firebase uid.$c$;
+
+-- ── sommelier_eval_result ──
+COMMENT ON TABLE sommelier_eval_result IS $c$Purpose: One graded reply per phrasing per run: which route answered (the gate or Sonnet), the reply, pass or fail, which checks failed and the judge's reasons; a graded model reply, which no existing object holds | Class: fact | Writer: sommelierEvalService.recordResult | Readers: sommelierReads (getRunResults, getRecentRuns) | Since: 2026-10-25 (Liam answer evals, Part A5)$c$;
+COMMENT ON COLUMN sommelier_eval_result.id IS $c$Surrogate primary key (SERIAL); (run_id, phrasing_id) is UNIQUE.$c$;
+COMMENT ON COLUMN sommelier_eval_result.run_id IS $c$FK to sommelier_eval_run(id).$c$;
+COMMENT ON COLUMN sommelier_eval_result.phrasing_id IS $c$FK to sommelier_eval_phrasing(id): the phrasing that was asked.$c$;
+COMMENT ON COLUMN sommelier_eval_result.route IS $c$Who answered, the same values as sommelier_turn.route (lookup category sommelier_turn_route): model, gate or gate_haiku.$c$;
+COMMENT ON COLUMN sommelier_eval_result.reply IS $c$The reply text after the production sanitizers (markers stripped).$c$;
+COMMENT ON COLUMN sommelier_eval_result.passed IS $c$True when every global check and every check of the case passed.$c$;
+COMMENT ON COLUMN sommelier_eval_result.failed_check_ids IS $c$The sommelier_reply_check ids that failed (array, like customer_liam_recommendation.candidate_coffee_ids); empty when passed.$c$;
+COMMENT ON COLUMN sommelier_eval_result.judge_notes IS $c$The judge's one-line reason for each failed judge check (unparseable when its output could not be read), and the detail of each failed code check; NULL when passed.$c$;
+COMMENT ON COLUMN sommelier_eval_result.usd_micros IS $c$Cost of this phrasing in integer micro-dollars: the reply call(s) plus its judge calls.$c$;
+COMMENT ON COLUMN sommelier_eval_result.created_at IS $c$UTC timestamp the result was written.$c$;
 
 -- ── v_customer_identity ──
 COMMENT ON VIEW v_customer_identity IS $c$Purpose: One row per user_profile mapping it to its canonical_user_id by walking customer_identity_link edges (from to to, depth 5, cycle-safe) so linked profiles read as one customer. | Class: view | Writer: none (derived) | Readers: customerReads, engagementMetrics, quizInterpretationBackfill, every other v_customer_* and v_palate_* view | Since: 2026-09-27 (Customer Blueprint C3 Part A1)$c$;

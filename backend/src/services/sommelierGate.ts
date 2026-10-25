@@ -164,7 +164,7 @@ export function parseConfirm(text: string): ConfirmParsed | null {
 }
 
 export interface HaikuCall { text: string; usage: ClaudeUsage | null; usdMicros: number; model: string }
-export type HaikuCaller = (args: { model: string; maxTokens: number; prompt: string; purpose: 'confirm' | 'phrase' | 'label' }) => Promise<HaikuCall>;
+export type HaikuCaller = (args: { model: string; maxTokens: number; prompt: string; purpose: 'confirm' | 'phrase' | 'label' | 'judge' }) => Promise<HaikuCall>;
 
 /** One Haiku call through the spend guard (feature liam_chat). Throws ClaudeGuardBlockedError when blocked. */
 export const callHaiku: HaikuCaller = async ({ model, maxTokens, prompt }) => {
@@ -196,7 +196,18 @@ export interface GateDeps {
   catalogCoffees?: () => Promise<CatalogCoffee[]>;
   roasterNames?: () => Promise<string[]>;
   config?: SommelierConfig | null;
+  /** The customer reads the resolvers use (default: customerReads). The eval runner passes its fixture's. */
+  customer?: CustomerReadsForGate;
 }
+
+/** The three customer reads the gate makes; the eval runner substitutes fixture reads (Liam answer evals, C1). */
+export interface CustomerReadsForGate {
+  getLastRecommendation: (sessionId: number, runner: Runner) => Promise<number[]>;
+  getSubscriptionCurrent: (uid: string, runner: Runner) => Promise<{ status: string; sponsored: boolean } | null>;
+  getCustomerIdentity: (uid: string, runner: Runner) => Promise<{ firstName: string | null } | null>;
+}
+// Built at call time, not at module load (a module that mocks customerReads must still load this one).
+const defaultCustomerReads = (): CustomerReadsForGate => ({ getLastRecommendation, getSubscriptionCurrent, getCustomerIdentity });
 
 async function loadRoasterNames(runner: Runner): Promise<string[]> {
   const r = await runner.query<{ name: string }>(`SELECT name FROM roaster WHERE name IS NOT NULL`);
@@ -237,6 +248,7 @@ export interface ResolvedRow {
 export async function resolveRule(args: {
   rule: GateRuleRow; uid: string; message: string; coffeeId: number | null;
   answers: SommelierAnswerRow[]; coffees: () => Promise<CatalogCoffee[]>; cfg: SommelierConfig | null; runner: Runner;
+  customer?: CustomerReadsForGate;
 }): Promise<ResolvedRow | null> {
   const { rule, cfg } = args;
   if (rule.resolver === 'answer') {
@@ -244,7 +256,7 @@ export async function resolveRule(args: {
     if (!answer) return null;
     let text = substituteSupport(answer.answer_text, cfg);
     if (text.includes('{firstName}')) {
-      const name = (await getCustomerIdentity(args.uid, args.runner))?.firstName?.trim();
+      const name = (await (args.customer ?? defaultCustomerReads()).getCustomerIdentity(args.uid, args.runner))?.firstName?.trim();
       text = name ? text.replace(/\{firstName\}/g, name) : text.replace(/,?\s*\{firstName\}/g, '');
     }
     if (text.includes('{supportContact}')) return null; // no contact configured: never say a placeholder
@@ -272,7 +284,7 @@ export async function resolveRule(args: {
     return { text: lines.join('\n'), phrased: true, coffeeId: null, answerId: null };
   }
   if (rule.resolver === 'customer_subscription') {
-    const sub = await getSubscriptionCurrent(args.uid, args.runner);
+    const sub = await (args.customer ?? defaultCustomerReads()).getSubscriptionCurrent(args.uid, args.runner);
     if (!sub) return null;
     return { text: `The customer's subscription status: ${sub.status}${sub.sponsored ? ' (a sponsored subscription)' : ''}`, phrased: true, coffeeId: null, answerId: null };
   }
@@ -300,14 +312,14 @@ export async function candidateAliases(ctx: Record<string, unknown>, runner: Run
 }
 
 /** Step 4: the alias against the candidates (an alias two coffees share is ambiguous), else the session's last recommendation. */
-export async function resolveCoffee(alias: string | null, candidates: AliasCandidate[], sessionId: number, runner: Runner): Promise<number | null> {
+export async function resolveCoffee(alias: string | null, candidates: AliasCandidate[], sessionId: number, runner: Runner, customer: CustomerReadsForGate = defaultCustomerReads()): Promise<number | null> {
   if (alias) {
     const n = alias.trim().toLowerCase();
     const ids = new Set(candidates.filter(c => c.alias.trim().toLowerCase() === n).map(c => c.coffeeId));
     if (ids.size !== 1) return null;
     return resolveAlias(alias, candidates);
   }
-  const last = await getLastRecommendation(sessionId, runner);
+  const last = await customer.getLastRecommendation(sessionId, runner);
   return last.length === 1 ? last[0] : null;
 }
 
@@ -398,13 +410,13 @@ export async function tryGate(input: TryGateInput, deps: GateDeps = {}): Promise
     // Step 4 — coffee resolution (catalog_price only).
     let coffeeId: number | null = null;
     if (candidate.rule.resolver === 'catalog_price') {
-      coffeeId = await resolveCoffee(parsed.alias, candidates, input.sessionId, runner);
+      coffeeId = await resolveCoffee(parsed.alias, candidates, input.sessionId, runner, deps.customer);
       if (coffeeId === null) return notGated('no_coffee', { ...base, usdMicros: spent() });
     }
 
     // Step 5 — resolve.
     const coffees = deps.catalogCoffees ?? (async () => (await getCatalogBlock()).coffees);
-    const row = await resolveRule({ rule: candidate.rule, uid: input.uid, message: input.message, coffeeId, answers, coffees, cfg, runner });
+    const row = await resolveRule({ rule: candidate.rule, uid: input.uid, message: input.message, coffeeId, answers, coffees, cfg, runner, customer: deps.customer });
     if (!row) return notGated('nothing_to_say', { ...base, usdMicros: spent() });
     const roasterNames = await (deps.roasterNames ?? (() => loadRoasterNames(runner)))();
     if (namesRoaster(row.text, roasterNames)) {

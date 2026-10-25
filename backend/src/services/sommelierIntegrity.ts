@@ -4,8 +4,12 @@ import type { Tx } from '../db/client.js';
 import { getCoffees, getSlotsForCoffees } from './catalogReads.js';
 import {
   getCurrentAnswers, getTurnsForSession, getActiveRules, getExamples,
+  getCurrentCases, getPhrasings, getAllCurrentChecks, getStaleRuns,
   type SommelierAnswerRow, type GateRuleRow, type GateExampleRow,
+  type EvalCaseRow, type EvalPhrasingRow, type ReplyCheckRow,
 } from './sommelierReads.js';
+import { getCatalogBlock } from './sommelierRag.js';
+import { fixtureProblems } from '../fixtures/liam_eval/index.js';
 import { getSommelierConfig } from './sommelierConfig.js';
 import { RESOLVERS, exampleFailures } from './sommelierGate.js';
 import { firestoreDb } from './firebase-admin.js';
@@ -17,7 +21,8 @@ import { firestoreDb } from './firebase-admin.js';
 // on every write (answerContentViolation, below), so a failing row here was
 // written by hand in SQL or by the seed. Checks 6-10 are the gate's (Liam
 // answer layer, Part D, 2026-10-25; the brief's gate checks 1-5), and check 5
-// covers the gated ledger rows (the brief's gate check 6).
+// covers the gated ledger rows (the brief's gate check 6). Checks 11-15 are
+// the evals' (Liam answer evals, Part E, 2026-10-25; the brief's 1-5).
 // backend/src/features/ai_agent_liam/brand_prices_cart_cutoff/CLAUDE_CODE_PROMPT_LIAM_BRAND_PRICES_CART_CUTOFF.md
 
 type Runner = Tx | typeof db;
@@ -276,6 +281,80 @@ export function runGateChecks(input: GateCheckInput): SommelierIntegrityCheck[] 
   ];
 }
 
+// ── Checks 11-15 (Liam answer evals, Part E, 2026-10-25) — the eval set.
+// Report only. Pure over the given input; runSommelierIntegrityChecks loads it.
+export interface EvalCheckInput {
+  cases: EvalCaseRow[];
+  phrasings: EvalPhrasingRow[];
+  /** Every current check: the cases' and the global ones (case_id NULL). */
+  checks: ReplyCheckRow[];
+  answers: SommelierAnswerRow[];
+  /** The aliases in the current catalog block (null = the block could not be read). */
+  catalogAliases: string[] | null;
+  /** Runs older than 2 hours with finished_at NULL. */
+  staleRunIds: number[];
+}
+
+/** The check kinds whose value must be non-empty text. */
+const TEXT_VALUE_KINDS = new Set(['must_contain', 'must_not_contain', 'must_not_claim', 'judge']);
+
+export function runEvalChecks(input: EvalCheckInput): SommelierIntegrityCheck[] {
+  const { cases, phrasings, checks, answers } = input;
+  const current = new Set(answers.map(a => a.key));
+  const aliases = input.catalogAliases ? new Set(input.catalogAliases.map(a => a.trim().toLowerCase())) : null;
+  const caseKey = new Map(cases.map(c => [c.id, c.key] as const));
+
+  // 11 — every case has at least one phrasing and one check.
+  const c11 = cases.flatMap(c => [
+    ...(phrasings.some(p => p.case_id === c.id) ? [] : [`${c.key}: no current phrasing`]),
+    ...(checks.some(ch => ch.case_id === c.id) ? [] : [`${c.key}: no current check`]),
+  ]);
+
+  // 12 — every check's value (and every case's coffee alias) resolves.
+  const where = (ch: ReplyCheckRow) => (ch.case_id === null ? 'global' : caseKey.get(ch.case_id) ?? `case ${ch.case_id}`);
+  const c12: string[] = [];
+  for (const ch of checks) {
+    if (ch.kind === 'must_contain_answer' && !current.has(ch.value ?? '')) c12.push(`${where(ch)} #${ch.id}: answer key '${ch.value}' has no current row`);
+    if (ch.kind === 'must_contain_price_of' && aliases && !aliases.has((ch.value ?? '').trim().toLowerCase())) c12.push(`${where(ch)} #${ch.id}: "${ch.value}" is not in the catalog block`);
+    if (TEXT_VALUE_KINDS.has(ch.kind) && !(ch.value ?? '').trim()) c12.push(`${where(ch)} #${ch.id}: ${ch.kind} has no value`);
+  }
+  for (const c of cases) {
+    if (c.catalog_alias && aliases && !aliases.has(c.catalog_alias.trim().toLowerCase())) c12.push(`${c.key}: coffee "${c.catalog_alias}" is not in the catalog block`);
+  }
+  if (!aliases) c12.push('the catalog block could not be read; aliases not checked');
+
+  // 13 — every fixture a case names exists and parses.
+  const c13 = [...new Set(cases.map(c => c.fixture_key))].flatMap(k => fixtureProblems(k));
+
+  // 14 — no run older than 2 hours left unfinished.
+  const c14 = input.staleRunIds.map(id => `run ${id} started more than 2 hours ago and never finished`);
+
+  // 15 — the one global check that must never be retired is there.
+  const c15 = checks.some(ch => ch.case_id === null && ch.kind === 'must_not_name_roaster') ? [] : ['no current global must_not_name_roaster check'];
+
+  return [
+    check(11, 'Every eval case has a phrasing and a check', 'at least one of each per case', c11, `${cases.length} case(s), ${phrasings.length} phrasing(s)`),
+    check(12, 'Every eval check value resolves', 'answer keys current, aliases in the catalog, phrases non-empty', c12, `${checks.length} check(s) resolve`),
+    check(13, 'Every eval fixture exists and parses', 'each named fixture in fixtures/liam_eval', c13, `${new Set(cases.map(c => c.fixture_key)).size} fixture(s) load`),
+    check(14, 'No eval run left unfinished for more than 2 hours', 'finished_at set', c14, 'none'),
+    check(15, 'The global roaster-name check is present', 'a current global must_not_name_roaster', c15, 'present'),
+  ];
+}
+
+async function loadEvalCheckInput(runner: Runner | undefined, answers: SommelierAnswerRow[]): Promise<EvalCheckInput> {
+  const r = runner ?? db;
+  let catalogAliases: string[] | null = null;
+  try { catalogAliases = (await getCatalogBlock()).coffees.map(c => c.alias); } catch { catalogAliases = null; }
+  return {
+    cases: await getCurrentCases(r),
+    phrasings: await getPhrasings(null, r),
+    checks: await getAllCurrentChecks(r),
+    answers,
+    catalogAliases,
+    staleRunIds: (await getStaleRuns(2, r)).map(x => x.id),
+  };
+}
+
 /** lineage.json's writers of table order, or null. */
 export function loadOrderWriters(): Array<{ module: string; verbs: string[] }> | null {
   try {
@@ -302,7 +381,7 @@ async function loadGateCheckInput(runner: Runner | undefined, answers: Sommelier
 
 /** Runs on `rows`/`vocab` when given (fixtures), else on the live current rows. */
 export async function runSommelierIntegrityChecks(
-  input: { rows?: SommelierAnswerRow[]; vocab?: AnswerVocabulary; runner?: Runner; ledger?: LedgerReconcileInput; gate?: GateCheckInput } = {}
+  input: { rows?: SommelierAnswerRow[]; vocab?: AnswerVocabulary; runner?: Runner; ledger?: LedgerReconcileInput; gate?: GateCheckInput; evals?: EvalCheckInput } = {}
 ): Promise<SommelierIntegrityReport> {
   const rows = input.rows ?? await getCurrentAnswers(input.runner);
   const vocab = input.vocab ?? await loadAnswerVocabulary(input.runner);
@@ -318,6 +397,12 @@ export async function runSommelierIntegrityChecks(
   } catch (err) {
     gateChecks = [{ id: 6, name: 'The gate rules could be checked', pass: false, expected: 'the gate checks', actual: `could not run: ${err instanceof Error ? err.message : String(err)}` }];
   }
+  let evalChecks: SommelierIntegrityCheck[];
+  try {
+    evalChecks = runEvalChecks(input.evals ?? await loadEvalCheckInput(input.runner, rows));
+  } catch (err) {
+    evalChecks = [{ id: 11, name: 'The eval set could be checked', pass: false, expected: 'the eval checks', actual: `could not run: ${err instanceof Error ? err.message : String(err)}` }];
+  }
   const checks = [
     checkOneCurrentPerKey(rows),
     contentCheck(2, 'No answer names a roaster (the leak check)', rows, vocab),
@@ -325,6 +410,7 @@ export async function runSommelierIntegrityChecks(
     contentCheck(4, 'No answer names a coffee alias', rows, vocab),
     ledgerCheck,
     ...gateChecks,
+    ...evalChecks,
   ];
   return { ranAt: new Date().toISOString(), allPass: checks.every(c => c.pass), currentAnswers: rows.length, checks };
 }

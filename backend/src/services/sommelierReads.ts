@@ -408,3 +408,294 @@ export async function getPrefixHealth({ minWriteTokens }: { minWriteTokens: numb
   );
   return { answersVersionLag1h: Number(r.rows[0]?.lag ?? 0), prefixRebuildsToday: Number(r.rows[0]?.rebuilds ?? 0) };
 }
+
+// ── Liam answer evals (2026-10-25) — the only file that SELECTs
+// sommelier_eval_case, sommelier_eval_phrasing, sommelier_reply_check,
+// sommelier_eval_run and sommelier_eval_result (lint:customer rule 11).
+// backend/src/features/ai_agent_liam/answer_evals/CLAUDE_CODE_PROMPT_LIAM_ANSWER_EVALS.md
+
+export interface EvalCaseRow {
+  id: number;
+  key: string;
+  kind: string;            // lookup_value.value in sommelier_eval_kind
+  fixture_key: string;
+  catalog_alias: string | null;
+  turn_context: string | null;
+  rule_key: string | null;
+  since: Date;
+  superseded_at: Date | null;
+  note: string | null;
+  created_by: string;
+}
+
+export interface EvalPhrasingRow {
+  id: number;
+  case_id: number;
+  case_key: string;
+  message: string;
+  source: string;          // lookup_value.value in sommelier_eval_source
+  source_turn_id: number | null;
+  since: Date;
+  note: string | null;
+}
+
+export interface ReplyCheckRow {
+  id: number;
+  case_id: number | null;
+  kind: string;            // lookup_value.value in sommelier_reply_check_kind
+  value: string | null;
+  flag_code: string | null;
+  since: Date;
+  note: string | null;
+  created_by: string;
+}
+
+export interface EvalRunRow {
+  id: number;
+  trigger: string;
+  model: string;
+  judge_model: string;
+  prompt_hash: string;
+  answers_version: number;
+  catalog_version: string;
+  gate_enabled: boolean;
+  started_at: Date;
+  finished_at: Date | null;
+  phrasings: number;
+  passed: number;
+  failed: number;
+  usd_micros: string; // BIGINT
+  note: string | null;
+  created_by: string;
+}
+
+export interface EvalResultRow {
+  id: number;
+  run_id: number;
+  phrasing_id: number;
+  case_key: string;
+  message: string;
+  source: string;
+  route: string;
+  reply: string;
+  passed: boolean;
+  failed_check_ids: number[];
+  judge_notes: string | null;
+  usd_micros: string; // BIGINT
+  created_at: Date;
+}
+
+export async function hasAnyEvalCase(runner: Runner = db): Promise<boolean> {
+  const r = await runner.query(`SELECT 1 FROM sommelier_eval_case LIMIT 1`);
+  return r.rows.length > 0;
+}
+
+/** Current cases, by key. */
+export async function getCurrentCases(runner: Runner = db): Promise<EvalCaseRow[]> {
+  const r = await runner.query<EvalCaseRow>(
+    `SELECT c.id, c.key, k.value AS kind, c.fixture_key, c.catalog_alias, c.turn_context, c.rule_key,
+            c.since, c.superseded_at, c.note, c.created_by
+       FROM sommelier_eval_case c JOIN lookup_value k ON k.id = c.kind_id
+      WHERE c.superseded_at IS NULL ORDER BY c.key`
+  );
+  return r.rows;
+}
+
+/** Current phrasings of current cases (of one case row when caseId is given), by case key then id. */
+export async function getPhrasings(caseId: number | null = null, runner: Runner = db): Promise<EvalPhrasingRow[]> {
+  const r = await runner.query<EvalPhrasingRow>(
+    `SELECT p.id, p.case_id, c.key AS case_key, p.message, s.value AS source, p.source_turn_id, p.since, p.note
+       FROM sommelier_eval_phrasing p
+       JOIN sommelier_eval_case c ON c.id = p.case_id
+       JOIN lookup_value s ON s.id = p.source_id
+      WHERE p.superseded_at IS NULL AND c.superseded_at IS NULL AND ($1::int IS NULL OR p.case_id = $1)
+      ORDER BY c.key, p.id`,
+    [caseId]
+  );
+  return r.rows;
+}
+
+const SELECT_CHECK = `
+  SELECT ch.id, ch.case_id, k.value AS kind, ch.value, ch.flag_code, ch.since, ch.note, ch.created_by
+    FROM sommelier_reply_check ch JOIN lookup_value k ON k.id = ch.check_id`;
+
+/** Current checks of one case row, or the global ones (case_id NULL) when caseId is null. Not cached. */
+export async function getChecks(caseId: number | null, runner: Runner = db): Promise<ReplyCheckRow[]> {
+  const r = await runner.query<ReplyCheckRow>(
+    `${SELECT_CHECK} WHERE ch.superseded_at IS NULL AND ch.case_id IS NOT DISTINCT FROM $1 ORDER BY ch.id`,
+    [caseId]
+  );
+  return r.rows;
+}
+
+/** Every current check of a current case, plus the global ones (admin card, integrity). */
+export async function getAllCurrentChecks(runner: Runner = db): Promise<ReplyCheckRow[]> {
+  const r = await runner.query<ReplyCheckRow>(
+    `${SELECT_CHECK}
+      LEFT JOIN sommelier_eval_case c ON c.id = ch.case_id
+      WHERE ch.superseded_at IS NULL AND (ch.case_id IS NULL OR c.superseded_at IS NULL)
+      ORDER BY ch.case_id NULLS FIRST, ch.id`
+  );
+  return r.rows;
+}
+
+/** Changes whenever a reply check is written or retired (the global checks' cache key). */
+export async function getReplyCheckVersion(runner: Runner = db): Promise<string> {
+  const r = await runner.query<{ max_id: number | null; max_closed: Date | null }>(
+    `SELECT MAX(id) AS max_id, MAX(superseded_at) AS max_closed FROM sommelier_reply_check`
+  );
+  const row = r.rows[0];
+  return `${row?.max_id ?? 0}:${row?.max_closed ? new Date(row.max_closed).toISOString() : ''}`;
+}
+
+let globalChecksCache: { version: string; rows: ReplyCheckRow[]; checkedAt: number } | null = null;
+
+/** Drops the in-memory copy; the write door calls it after a commit. */
+export function clearReplyChecksCache(): void { globalChecksCache = null; }
+
+/** The global checks (case_id NULL), cached like the answers and refreshed on version change; a `runner` bypasses the cache. */
+export async function getGlobalChecks(runner?: Runner): Promise<ReplyCheckRow[]> {
+  if (runner) return getChecks(null, runner);
+  const ttlMs = (getSommelierConfig()?.brandFacts?.cacheSeconds ?? 60) * 1000;
+  const now = Date.now();
+  if (globalChecksCache && now - globalChecksCache.checkedAt < ttlMs) return globalChecksCache.rows;
+  const version = await getReplyCheckVersion();
+  if (globalChecksCache && globalChecksCache.version === version) {
+    globalChecksCache.checkedAt = now;
+    return globalChecksCache.rows;
+  }
+  const rows = await getChecks(null);
+  globalChecksCache = { version, rows, checkedAt: now };
+  return rows;
+}
+
+const SELECT_RUN = `
+  SELECT r.id, t.value AS trigger, r.model, r.judge_model, r.prompt_hash, r.answers_version, r.catalog_version,
+         r.gate_enabled, r.started_at, r.finished_at, r.phrasings, r.passed, r.failed, r.usd_micros, r.note, r.created_by
+    FROM sommelier_eval_run r JOIN lookup_value t ON t.id = r.trigger_id`;
+
+/** The most recent finished run, or null. */
+export async function getLastRun(runner: Runner = db): Promise<EvalRunRow | null> {
+  const r = await runner.query<EvalRunRow>(`${SELECT_RUN} WHERE r.finished_at IS NOT NULL ORDER BY r.id DESC LIMIT 1`);
+  return r.rows[0] ?? null;
+}
+
+/** The last `limit` finished runs, newest first (the System Health trend). */
+export async function getRecentRuns(limit: number, runner: Runner = db): Promise<EvalRunRow[]> {
+  const r = await runner.query<EvalRunRow>(`${SELECT_RUN} WHERE r.finished_at IS NOT NULL ORDER BY r.id DESC LIMIT $1`, [limit]);
+  return r.rows;
+}
+
+/** Runs started more than `olderThanHours` ago that never finished (integrity check 14). */
+export async function getStaleRuns(olderThanHours: number, runner: Runner = db): Promise<EvalRunRow[]> {
+  const r = await runner.query<EvalRunRow>(
+    `${SELECT_RUN} WHERE r.finished_at IS NULL AND r.started_at < now() - make_interval(hours => $1) ORDER BY r.id`,
+    [olderThanHours]
+  );
+  return r.rows;
+}
+
+/** Every result of one run with its phrasing and case, failures first. */
+export async function getRunResults(runId: number, runner: Runner = db): Promise<EvalResultRow[]> {
+  const r = await runner.query<EvalResultRow>(
+    `SELECT res.id, res.run_id, res.phrasing_id, c.key AS case_key, p.message, s.value AS source, res.route, res.reply,
+            res.passed, res.failed_check_ids, res.judge_notes, res.usd_micros, res.created_at
+       FROM sommelier_eval_result res
+       JOIN sommelier_eval_phrasing p ON p.id = res.phrasing_id
+       JOIN sommelier_eval_case c ON c.id = p.case_id
+       JOIN lookup_value s ON s.id = p.source_id
+      WHERE res.run_id = $1
+      ORDER BY res.passed, c.key, res.phrasing_id`,
+    [runId]
+  );
+  return r.rows;
+}
+
+/** Production reply flags over the last `hours`, by flag code (and how many replies were checked). */
+export async function getReplyFlagStats(hours: number, runner: Runner = db): Promise<{ replies: number; flagged: number; byFlag: Record<string, number> }> {
+  const totals = await runner.query<{ replies: string; flagged: string }>(
+    `SELECT COUNT(*) AS replies, COUNT(*) FILTER (WHERE cardinality(reply_flags) > 0) AS flagged
+       FROM sommelier_turn WHERE created_at >= now() - make_interval(hours => $1) AND route <> 'guard'`,
+    [hours]
+  );
+  const by = await runner.query<{ flag: string; n: string }>(
+    `SELECT f AS flag, COUNT(*) AS n FROM sommelier_turn, unnest(reply_flags) AS f
+      WHERE created_at >= now() - make_interval(hours => $1) GROUP BY f`,
+    [hours]
+  );
+  return {
+    replies: Number(totals.rows[0]?.replies ?? 0),
+    flagged: Number(totals.rows[0]?.flagged ?? 0),
+    byFlag: Object.fromEntries(by.rows.map(x => [x.flag, Number(x.n)])),
+  };
+}
+
+/** Phrasings copied from customers in the last `days` (System Health). */
+export async function getCustomerPhrasingCount(days: number, runner: Runner = db): Promise<number> {
+  const r = await runner.query<{ n: string }>(
+    `SELECT COUNT(*) AS n FROM sommelier_eval_phrasing p JOIN lookup_value s ON s.id = p.source_id
+      WHERE s.value = 'customer_turn' AND p.since >= now() - make_interval(days => $1)`,
+    [days]
+  );
+  return Number(r.rows[0]?.n ?? 0);
+}
+
+/** Gated turns in [from, to) whose rule key a current case names (rule_key), not yet a phrasing source: C5's nightly copy list. */
+export async function getGatedTurnsForPhrasings(
+  args: { from: Date; to: Date }, runner: Runner = db
+): Promise<Array<{ turn_id: number; session_id: number; uid: string; user_message_id: string; case_id: number; case_key: string }>> {
+  const r = await runner.query<{ turn_id: number; session_id: number; uid: string; user_message_id: string; case_id: number; case_key: string }>(
+    `SELECT t.id AS turn_id, t.session_id, s.uid, t.user_message_id, c.id AS case_id, c.key AS case_key
+       FROM sommelier_turn t
+       JOIN sommelier_sessions s ON s.id = t.session_id
+       JOIN sommelier_gate_rule g ON g.id = t.rule_id
+       JOIN sommelier_eval_case c ON c.rule_key = g.key AND c.superseded_at IS NULL
+      WHERE t.route IN ('gate', 'gate_haiku') AND t.user_message_id IS NOT NULL
+        AND t.created_at >= $1 AND t.created_at < $2
+        AND NOT EXISTS (SELECT 1 FROM sommelier_eval_phrasing p WHERE p.source_turn_id = t.id)
+      ORDER BY t.id`,
+    [args.from, args.to]
+  );
+  return r.rows;
+}
+
+/**
+ * Sonnet turns of the last `days` whose latest label is a gate label of a
+ * rule a current case names, not yet a phrasing: the admin card's "add as
+ * phrasing of …" list. Never added automatically (the label is a guess).
+ */
+export async function getLabelledTurnCandidates(
+  days: number, runner: Runner = db
+): Promise<Array<{ turn_id: number; session_id: number; uid: string; user_message_id: string; label: string; case_key: string; created_at: Date }>> {
+  const r = await runner.query<{ turn_id: number; session_id: number; uid: string; user_message_id: string; label: string; case_key: string; created_at: Date }>(
+    `WITH latest AS (
+       SELECT DISTINCT ON (l.turn_id) l.turn_id, l.label
+         FROM sommelier_turn_label l ORDER BY l.turn_id, l.labeled_at DESC, l.id DESC),
+     rule_labels AS (
+       SELECT g.key, CASE WHEN rv.value = 'answer' THEN g.answer_key ELSE rv.value END AS label
+         FROM sommelier_gate_rule g JOIN lookup_value rv ON rv.id = g.resolver_id
+        WHERE g.superseded_at IS NULL)
+     SELECT t.id AS turn_id, t.session_id, s.uid, t.user_message_id, latest.label, c.key AS case_key, t.created_at
+       FROM sommelier_turn t
+       JOIN latest ON latest.turn_id = t.id
+       JOIN rule_labels rl ON rl.label = latest.label
+       JOIN sommelier_eval_case c ON c.rule_key = rl.key AND c.superseded_at IS NULL
+       JOIN sommelier_sessions s ON s.id = t.session_id
+      WHERE t.route = 'model' AND t.user_message_id IS NOT NULL
+        AND t.created_at >= now() - make_interval(days => $1)
+        AND NOT EXISTS (SELECT 1 FROM sommelier_eval_phrasing p WHERE p.source_turn_id = t.id)
+      ORDER BY t.id DESC`,
+    [days]
+  );
+  return r.rows;
+}
+
+/** One ledger row's session uid and message id (the admin "add as phrasing" door looks the message up by it). */
+export async function getTurnMessageRef(turnId: number, runner: Runner = db): Promise<{ turn_id: number; session_id: number; uid: string; user_message_id: string | null } | null> {
+  const r = await runner.query<{ turn_id: number; session_id: number; uid: string; user_message_id: string | null }>(
+    `SELECT t.id AS turn_id, t.session_id, s.uid, t.user_message_id
+       FROM sommelier_turn t JOIN sommelier_sessions s ON s.id = t.session_id WHERE t.id = $1`,
+    [turnId]
+  );
+  return r.rows[0] ?? null;
+}

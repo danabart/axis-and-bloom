@@ -495,6 +495,60 @@ for (const relPath of files) {
   }
 }
 
+// ── Rule 11: the eval tables have one reader and one writer ─────────────────
+// Liam answer evals (2026-10-25), A7. SELECT (FROM / JOIN) only in
+// services/sommelierReads.ts; INSERT only in services/sommelierEvalService.ts.
+// The three master tables (case, phrasing, reply check) may UPDATE
+// superseded_at alone; sommelier_eval_run may UPDATE only the finish columns
+// (finishRun, its own row); sommelier_eval_result never. No DELETE /
+// TRUNCATE on any of the five.
+{
+  const READER = 'services/sommelierReads.ts';
+  const WRITER = 'services/sommelierEvalService.ts';
+  const TABLES = [
+    { table: 'sommelier_eval_case', allowed: ['superseded_at'] },
+    { table: 'sommelier_eval_phrasing', allowed: ['superseded_at'] },
+    { table: 'sommelier_reply_check', allowed: ['superseded_at'] },
+    { table: 'sommelier_eval_run', allowed: ['finished_at', 'phrasings', 'passed', 'failed', 'usd_micros', 'note'] },
+    { table: 'sommelier_eval_result', allowed: [] },
+  ];
+  for (const relPath of files) {
+    const text = fileText(relPath);
+    const lines = text.split('\n');
+    for (const { table, allowed } of TABLES) {
+      lines.forEach((line, i) => {
+        const stripped = stripLineComment(line);
+        if (relPath !== READER && new RegExp(`\\b(?:FROM|JOIN)\\s+"?${table}"?\\b`, 'i').test(stripped)) {
+          violations.push({ file: relPath, line: i + 1, message: `SELECT from '${table}' outside ${READER}` });
+        }
+        if (relPath !== WRITER && new RegExp(`\\bINSERT\\s+INTO\\s+"?${table}"?\\b`, 'i').test(stripped)) {
+          violations.push({ file: relPath, line: i + 1, message: `INSERT INTO '${table}' outside ${WRITER}` });
+        }
+        if (new RegExp(`\\bDELETE\\s+FROM\\s+"?${table}"?\\b`, 'i').test(stripped) || new RegExp(`\\bTRUNCATE\\s+(?:TABLE\\s+)?"?${table}"?\\b`, 'i').test(stripped)) {
+          violations.push({ file: relPath, line: i + 1, message: `DELETE on '${table}' — eval rows are superseded or inserted, never deleted` });
+        }
+      });
+      const updateRe = new RegExp(`\\bUPDATE\\s+"?${table}"?(?:\\s+\\w+)?\\s+SET\\b([\\s\\S]*?)(?:\\bFROM\\b|\\bWHERE\\b|\\bRETURNING\\b|\`|;|$)`, 'gi');
+      let um;
+      while ((um = updateRe.exec(text))) {
+        if (relPath !== WRITER) {
+          violations.push({ file: relPath, line: lineNumberAt(text, um.index), message: `UPDATE on '${table}' outside ${WRITER}` });
+          continue;
+        }
+        const assigned = [...um[1].matchAll(/(?:^|,)\s*"?([a-z_][a-z0-9_]*)"?\s*=/gi)].map(m => m[1].toLowerCase());
+        const bad = assigned.filter(c => !allowed.includes(c));
+        if (!assigned.length || bad.length) {
+          violations.push({
+            file: relPath,
+            line: lineNumberAt(text, um.index),
+            message: `UPDATE on '${table}' sets ${bad.length ? bad.join(', ') : 'an unreadable column list'} — allowed: ${allowed.length ? allowed.join(', ') : 'nothing (insert-only)'}`,
+          });
+        }
+      }
+    }
+  }
+}
+
 // ── Report ───────────────────────────────────────────────────────────────────
 if (violations.length) {
   console.error(`lint:customer — ${violations.length} violation(s):\n`);

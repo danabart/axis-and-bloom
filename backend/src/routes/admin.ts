@@ -29,9 +29,18 @@ import { runCatalogIntegrityChecks } from '../services/catalogIntegrity.js';
 import { runCustomerIntegrityChecks } from '../services/customerIntegrity.js';
 import { runDataCatalogIntegrityChecks } from '../services/dataCatalogIntegrity.js';
 import { runSommelierIntegrityChecks } from '../services/sommelierIntegrity.js';
-import { getAnswerHistory, getTurnStats, getGateStats, getRuleStats, getPrefixHealth, getActiveRules, getExamples, type GateStats } from '../services/sommelierReads.js';
+import {
+  getAnswerHistory, getTurnStats, getGateStats, getRuleStats, getPrefixHealth, getActiveRules, getExamples, type GateStats,
+  getCurrentCases, getPhrasings, getAllCurrentChecks, getLastRun, getRecentRuns, getRunResults, getReplyFlagStats,
+  getCustomerPhrasingCount, getLabelledTurnCandidates, getTurnMessageRef,
+} from '../services/sommelierReads.js';
 import { getCatalogBlock } from '../services/sommelierRag.js';
 import { setAnswer, retireAnswer, SommelierAnswerError } from '../services/sommelierAnswerService.js';
+import {
+  inTransaction, setCaseInTx, retireCaseInTx, setPhrasingInTx, retirePhrasingInTx, setCheckInTx, retireCheckInTx, SommelierEvalError,
+} from '../services/sommelierEvalService.js';
+import { runEvals } from '../services/sommelierEval.js';
+import { FIXTURE_KEYS } from '../fixtures/liam_eval/index.js';
 import { evidenceSummaryWithIntegrity } from './evidenceAdmin.js';
 import { getDescriptorConsensus } from '../services/evidenceReads.js';
 import { getCustomerDescriptorsAll } from '../services/cuppingReads.js';
@@ -1518,6 +1527,157 @@ router.get('/sommelier/gate-rules', async (_req, res) => {
   }
 });
 
+// ── Liam answer evals (2026-10-25), Part E — the "Liam evals" admin card.
+// Cases, phrasings and checks are edited through sommelierEvalService
+// (supersede, never update); "Run evals now" runs the set once (trigger
+// manual). Labelled Sonnet turns are offered as phrasings, never added on
+// their own (the label is a model's guess).
+function handleEvalError(err: unknown, res: import('express').Response, what: string): void {
+  if (err instanceof SommelierEvalError) { res.status(err.status).json({ error: err.message, code: err.code }); return; }
+  console.error(`[admin/sommelier/evals ${what}]`, err);
+  res.status(500).json({ error: 'Failed to update the Liam evals' });
+}
+
+async function lookupValues(category: string): Promise<Array<{ value: string; label: string }>> {
+  const r = await db.query<{ value: string; label: string }>(`SELECT value, label FROM lookup_value WHERE category = $1 ORDER BY sort_order`, [category]);
+  return r.rows;
+}
+
+async function transcriptMessage(uid: string, sessionId: number, messageId: string): Promise<string | null> {
+  const doc = await firestoreDb.collection(`users/${uid}/sommelier_sessions/${sessionId}/messages`).doc(messageId).get();
+  const content = doc.exists ? (doc.data() as { content?: string }).content : null;
+  return typeof content === 'string' ? content : null;
+}
+
+router.get('/sommelier/evals', async (_req, res) => {
+  try {
+    const [cases, phrasings, checks, lastRun, recentRuns, candidates, checkKinds, caseKinds, flags] = await Promise.all([
+      getCurrentCases(), getPhrasings(), getAllCurrentChecks(), getLastRun(), getRecentRuns(14), getLabelledTurnCandidates(14),
+      lookupValues('sommelier_reply_check_kind'), lookupValues('sommelier_eval_kind'), lookupValues('sommelier_reply_flag'),
+    ]);
+    const offered = await Promise.all(candidates.slice(0, 20).map(async c => ({
+      turnId: c.turn_id, caseKey: c.case_key, label: c.label, at: c.created_at,
+      message: await transcriptMessage(c.uid, c.session_id, c.user_message_id).catch(() => null),
+    })));
+    res.json({
+      cases: cases.map(c => ({ ...c, phrasings: phrasings.filter(p => p.case_id === c.id), checks: checks.filter(ch => ch.case_id === c.id) })),
+      globalChecks: checks.filter(ch => ch.case_id === null),
+      lastRun, recentRuns,
+      lastRunFailures: lastRun ? (await getRunResults(lastRun.id)).filter(r => !r.passed) : [],
+      candidates: offered.filter(o => o.message),
+      fixtures: FIXTURE_KEYS,
+      vocab: { checkKinds, caseKinds, flags },
+    });
+  } catch (err) {
+    console.error('[admin/sommelier/evals GET]', err);
+    res.status(500).json({ error: 'Failed to read the Liam evals' });
+  }
+});
+
+// The config page's "last eval run" line (C4): the last finished run only.
+router.get('/sommelier/evals/last', async (_req, res) => {
+  try {
+    res.json({ lastRun: await getLastRun() });
+  } catch (err) {
+    console.error('[admin/sommelier/evals/last]', err);
+    res.status(500).json({ error: 'Failed to read the last eval run' });
+  }
+});
+
+router.post('/sommelier/evals/run', async (req: AuthRequest, res) => {
+  try {
+    const summary = await runEvals({ trigger: 'manual', createdBy: req.uid! });
+    res.json({ ...summary, failures: (await getRunResults(summary.runId)).filter(r => !r.passed) });
+  } catch (err) {
+    console.error('[admin/sommelier/evals/run]', err);
+    res.status(500).json({ error: 'The eval run failed' });
+  }
+});
+
+router.get('/sommelier/evals/runs/:id', async (req, res) => {
+  try {
+    res.json(await getRunResults(Number(req.params.id)));
+  } catch (err) {
+    console.error('[admin/sommelier/evals/runs]', err);
+    res.status(500).json({ error: 'Failed to read the run' });
+  }
+});
+
+// Create (expect new) or edit (expect edit) a case; an edit carries the
+// case's phrasings and checks over unless the body gives new lists.
+router.post('/sommelier/evals/cases', async (req: AuthRequest, res) => {
+  const b = req.body ?? {};
+  try {
+    const r = await inTransaction(tx => setCaseInTx(tx, {
+      key: b.key, kind: b.kind, fixtureKey: b.fixtureKey, coffeeAlias: b.coffeeAlias ?? null, turnContext: b.turnContext ?? null,
+      ruleKey: b.ruleKey ?? null, note: b.note ?? null, createdBy: req.uid!, expect: b.expect === 'new' ? 'new' : 'edit',
+      phrasings: Array.isArray(b.phrasings) ? b.phrasings : undefined, checks: Array.isArray(b.checks) ? b.checks : undefined,
+    }));
+    res.status(b.expect === 'new' ? 201 : 200).json(r);
+  } catch (err) {
+    handleEvalError(err, res, 'case');
+  }
+});
+
+router.delete('/sommelier/evals/cases/:key', async (req: AuthRequest, res) => {
+  try {
+    res.json(await inTransaction(tx => retireCaseInTx(tx, { key: req.params.key, createdBy: req.uid! })));
+  } catch (err) {
+    handleEvalError(err, res, 'retire case');
+  }
+});
+
+router.post('/sommelier/evals/cases/:key/phrasings', async (req: AuthRequest, res) => {
+  try {
+    res.status(201).json(await inTransaction(tx => setPhrasingInTx(tx, { caseKey: req.params.key, message: req.body?.message, source: 'hand', note: req.body?.note ?? null })));
+  } catch (err) {
+    handleEvalError(err, res, 'phrasing');
+  }
+});
+
+router.delete('/sommelier/evals/phrasings/:id', async (req, res) => {
+  try {
+    res.json(await inTransaction(tx => retirePhrasingInTx(tx, { id: Number(req.params.id) })));
+  } catch (err) {
+    handleEvalError(err, res, 'retire phrasing');
+  }
+});
+
+router.post('/sommelier/evals/checks', async (req: AuthRequest, res) => {
+  const b = req.body ?? {};
+  try {
+    res.status(201).json(await inTransaction(tx => setCheckInTx(tx, {
+      caseKey: b.caseKey ?? null, kind: b.kind, value: b.value ?? null, flagCode: b.flagCode ?? null, note: b.note ?? null, createdBy: req.uid!,
+    })));
+  } catch (err) {
+    handleEvalError(err, res, 'check');
+  }
+});
+
+router.delete('/sommelier/evals/checks/:id', async (req, res) => {
+  try {
+    res.json(await inTransaction(tx => retireCheckInTx(tx, { id: Number(req.params.id) })));
+  } catch (err) {
+    handleEvalError(err, res, 'retire check');
+  }
+});
+
+// "Add as phrasing of …": a labelled Sonnet turn's customer message, copied
+// from the transcript, as a customer_turn phrasing of the chosen case.
+router.post('/sommelier/evals/candidates/:turnId', async (req, res) => {
+  try {
+    const ref = await getTurnMessageRef(Number(req.params.turnId));
+    if (!ref?.user_message_id) { res.status(404).json({ error: 'That turn has no customer message' }); return; }
+    const message = await transcriptMessage(ref.uid, ref.session_id, ref.user_message_id);
+    if (!message) { res.status(404).json({ error: 'The customer message is not in the transcript' }); return; }
+    res.status(201).json(await inTransaction(tx => setPhrasingInTx(tx, {
+      caseKey: req.body?.caseKey, message, source: 'customer_turn', sourceTurnId: ref.turn_id, note: 'added from a labelled Sonnet turn in admin',
+    })));
+  } catch (err) {
+    handleEvalError(err, res, 'candidate');
+  }
+});
+
 router.get('/sommelier/answers', async (_req, res) => {
   try {
     const [history, vocab] = await Promise.all([
@@ -2188,13 +2348,46 @@ async function cuppingEvidenceSection() {
   }
 }
 
+// Liam answer evals (2026-10-25), Part E: the last run (date, model, pass
+// rate, cost) with its failed phrasings, the pass rate over the last 14 runs,
+// production reply flags in 24 h and 7 d by flag code, and the phrasings
+// copied from customers this week. Report only.
+async function liamEvalsHealth() {
+  try {
+    const [runs, flags24h, flags7d, customerPhrasings7d] = await Promise.all([
+      getRecentRuns(14), getReplyFlagStats(24), getReplyFlagStats(168), getCustomerPhrasingCount(7),
+    ]);
+    const last = runs[0] ?? null;
+    const rate = (r: { passed: number; phrasings: number }) => (r.phrasings ? r.passed / r.phrasings : null);
+    return {
+      lastRun: last ? {
+        id: last.id, finishedAt: last.finished_at, trigger: last.trigger, model: last.model, phrasings: last.phrasings,
+        passed: last.passed, failed: last.failed, passRate: rate(last), usdMicros: Number(last.usd_micros), note: last.note,
+      } : null,
+      failures: last ? (await getRunResults(last.id)).filter(x => !x.passed).map(x => ({
+        caseKey: x.case_key, message: x.message, route: x.route, reply: x.reply, failedCheckIds: x.failed_check_ids, notes: x.judge_notes,
+      })) : [],
+      trend: runs.slice().reverse().map(r => ({ id: r.id, at: r.finished_at, passRate: rate(r) })),
+      replyFlags: { h24: flags24h, d7: flags7d },
+      customerPhrasings7d,
+    };
+  } catch (err) {
+    console.error('[admin/system-health/liam-evals]', err);
+    return { error: 'Failed to read the Liam evals' };
+  }
+}
+
 // Liam brand answers brief Rev 3, A6 (2026-10-24): sommelierIntegrity's
 // checks for the System Health card. Report only; a failure to compute is
 // reported in place.
 async function liamAnswersSection() {
   try {
     const r = await runSommelierIntegrityChecks();
-    return { ranAt: r.ranAt, currentAnswers: r.currentAnswers, checks: r.checks.map(c => ({ id: c.id, name: c.name, pass: c.pass, actual: c.actual, details: c.details ?? [] })) };
+    return {
+      ranAt: r.ranAt, currentAnswers: r.currentAnswers,
+      checks: r.checks.map(c => ({ id: c.id, name: c.name, pass: c.pass, actual: c.actual, details: c.details ?? [] })),
+      evals: await liamEvalsHealth(),
+    };
   } catch (err) {
     console.error('[admin/system-health/liam-answers]', err);
     return { error: 'Failed to run the Liam answers checks' };

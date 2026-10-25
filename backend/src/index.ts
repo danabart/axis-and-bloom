@@ -42,6 +42,7 @@ import { runEvidenceIntegrityChecks, formatEvidenceIntegrityLog } from './servic
 import { initSommelierConfig } from './services/sommelierConfig.js';
 import { seedSommelierAnswers } from './db/seeds/sommelier_answer_seed.js';
 import { seedGateRules } from './db/seeds/sommelier_gate_rule_seed.js';
+import { seedEvals } from './db/seeds/sommelier_eval_seed.js';
 import { runSommelierIntegrityChecks, formatSommelierIntegrityLog } from './services/sommelierIntegrity.js';
 import { runQuizIntegrityChecks } from './services/quizIntegrity.js';
 import { runCatalogIntegrityChecks } from './services/catalogIntegrity.js';
@@ -304,6 +305,17 @@ async function start() {
     if (seeded.rules) console.log(`[sommelier-gate] seeded ${seeded.rules} rule(s), ${seeded.examples} example(s)${seeded.answerAdded ? ', answer order_status_unavailable' : ''}`);
   } catch (err) {
     console.error('Sommelier gate rules seed error (non-fatal):', err);
+  }
+
+  // Liam answer evals (2026-10-25), Part D — the first eval cases and the
+  // global reply checks, only into an empty sommelier_eval_case, through the
+  // write door. After the answers seed (checks name answer keys) and
+  // initSommelierConfig (the support contact).
+  try {
+    const seeded = await seedEvals();
+    if (seeded.cases) console.log(`[sommelier-evals] seeded ${seeded.cases} case(s), ${seeded.phrasings} phrasing(s), ${seeded.checks} check(s)`);
+  } catch (err) {
+    console.error('Sommelier evals seed error (non-fatal):', err);
   }
 
   // Quiz Content Drift Prevention — fire-and-log only. A degraded quiz beats

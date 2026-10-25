@@ -181,6 +181,37 @@ export function renderBrandAnswersBlock(
   return lines.join('\n');
 }
 
+// Brief Rev 3, A4 — the brand facts block for a turn. A read failure leaves
+// Liam without the block for this turn (logged), never fails the turn. Liam
+// sees everything brief Rev 2: customerBlock.rules render with the brand rules
+// (shared tier, so an empty customer's block stays today's bytes plus the name
+// line), and {supportContact} is substituted from brandFacts.supportContact.
+// Liam answer evals (2026-10-25): lifted out of chatWithSommelier unchanged,
+// so the eval runner renders the same shared tier (sharedTierText).
+export async function loadBrandAnswersBlock(config: SystemPromptParams['config']): Promise<{ brandAnswersBlock: string; answersVersion: number | null }> {
+  let brandAnswersBlock = '';
+  let answersVersion: number | null = null;
+  if (config?.brandFacts?.enabled) {
+    try {
+      const rows = await getCurrentAnswers();
+      answersVersion = rows.length ? Math.max(...rows.map(r => r.id)) : null;
+      const rules = substituteSupportContact(
+        [...(config.brandFacts.rules ?? []), ...(config.customerBlock?.rules ?? [])],
+        config.brandFacts.supportContact,
+      );
+      // Liam answer layer (2026-10-25): an answer row may carry
+      // {supportContact} too (order_status_unavailable), substituted the same way.
+      brandAnswersBlock = renderBrandAnswersBlock(
+        rows.map(r => ({ ...r, answer_text: substituteSupportContact([r.answer_text], config.brandFacts!.supportContact)[0] })),
+        rules,
+      );
+    } catch (err) {
+      console.error('[liam:BRAND_ANSWERS_READ_FAILED] sending the turn without the brand facts block', err);
+    }
+  }
+  return { brandAnswersBlock, answersVersion };
+}
+
 // Part C2 — the turn-limit nudge. turnsRemaining counts this reply: 1 on the
 // last one. Two config nudges on the last closingTurns replies (closing, then
 // last). Without nudges in config (a live doc applyMissingKeys has not
@@ -326,6 +357,11 @@ function assembleSystemPromptParts(params: SystemPromptParams): Array<{ text: st
 
 export function assembleSystemPrompt(params: SystemPromptParams): string {
   return assembleSystemPromptParts(params).map(p => p.text).join('');
+}
+
+/** The shared tier's text (base prompt, brand facts and rules, catalog block): what the eval run's prompt_hash hashes. */
+export function sharedTierText(params: SystemPromptParams): string {
+  return assembleSystemPromptParts(params).filter(p => p.tier === 'shared').map(p => p.text).join('');
 }
 
 /**
@@ -511,32 +547,9 @@ export async function chatWithSommelier(params: {
   const mode: SommelierMode = params.mode ?? 'matching';
   const config = getSommelierConfig();
 
-  // Brief Rev 3, A4 — the brand facts block, loaded here so the assembly
-  // below stays synchronous and pure. A read failure leaves Liam without the
-  // block for this turn (logged), never fails the turn. Liam sees everything
-  // brief Rev 2: customerBlock.rules render with the brand rules (shared tier,
-  // so an empty customer's block stays today's bytes plus the name line), and
-  // {supportContact} is substituted from brandFacts.supportContact.
-  let brandAnswersBlock = '';
-  let answersVersion: number | null = null;
-  if (config?.brandFacts?.enabled) {
-    try {
-      const rows = await getCurrentAnswers();
-      answersVersion = rows.length ? Math.max(...rows.map(r => r.id)) : null;
-      const rules = substituteSupportContact(
-        [...(config.brandFacts.rules ?? []), ...(config.customerBlock?.rules ?? [])],
-        config.brandFacts.supportContact,
-      );
-      // Liam answer layer (2026-10-25): an answer row may carry
-      // {supportContact} too (order_status_unavailable), substituted the same way.
-      brandAnswersBlock = renderBrandAnswersBlock(
-        rows.map(r => ({ ...r, answer_text: substituteSupportContact([r.answer_text], config.brandFacts!.supportContact)[0] })),
-        rules,
-      );
-    } catch (err) {
-      console.error('[liam:BRAND_ANSWERS_READ_FAILED] sending the turn without the brand facts block', err);
-    }
-  }
+  // Brief Rev 3, A4 — the brand facts block, loaded before the assembly so
+  // the assembly stays synchronous and pure (loadBrandAnswersBlock).
+  const { brandAnswersBlock, answersVersion } = await loadBrandAnswersBlock(config);
 
   // Part C1 — prompt caching: the same text assembleSystemPrompt() returns,
   // split into cache_control blocks (see assembleSystemPromptBlocks).

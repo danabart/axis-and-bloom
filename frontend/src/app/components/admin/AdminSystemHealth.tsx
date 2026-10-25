@@ -71,8 +71,27 @@ interface CuppingEvidenceData {
 interface LiamAnswersData {
   currentAnswers?: number;
   checks?: { id: number; name: string; pass: boolean; actual: string; details: string[] }[];
+  evals?: LiamEvalsHealth;
   error?: string;
 }
+
+// Liam answer evals (2026-10-25), Part E: the last eval run, its failures, the
+// 14-run trend, production reply flags and phrasings copied from customers.
+interface ReplyFlagStats { replies: number; flagged: number; byFlag: Record<string, number> }
+interface LiamEvalsHealth {
+  lastRun?: {
+    id: number; finishedAt: string; trigger: string; model: string; phrasings: number; passed: number; failed: number;
+    passRate: number | null; usdMicros: number; note: string | null;
+  } | null;
+  failures?: Array<{ caseKey: string; message: string; route: string; reply: string; failedCheckIds: number[]; notes: string | null }>;
+  trend?: Array<{ id: number; at: string; passRate: number | null }>;
+  replyFlags?: { h24: ReplyFlagStats; d7: ReplyFlagStats };
+  customerPhrasings7d?: number;
+  error?: string;
+}
+
+const flagList = (f: ReplyFlagStats | undefined) =>
+  !f || !Object.keys(f.byFlag).length ? 'none' : Object.entries(f.byFlag).map(([k, v]) => `${k} ${v}`).join(', ');
 
 // Liam sees everything brief Rev 2, C5 (2026-10-24): the turn ledger over 24 hours. Report only.
 interface LiamContextData {
@@ -420,6 +439,54 @@ export default function AdminSystemHealth() {
               </>
             )}
           </Link>
+          {data.liamAnswers.evals && (() => {
+            const ev = data.liamAnswers.evals;
+            if (ev.error) return <div className={`${CARD} border-stone-200 mt-3`}><p className="text-xs" style={{ color: RUST }}>{ev.error}</p></div>;
+            const last = ev.lastRun;
+            return (
+              <div className={`${CARD} border-stone-200 mt-3`}>
+                <p className="text-xs text-stone-500 mb-3">Answer evals (the eval set run against the real prompt with invented customers; report only)</p>
+                {last ? (
+                  <div className="flex flex-wrap items-center gap-8">
+                    <div>
+                      <p className="text-2xl font-normal text-stone-800">{pct(last.passRate)}</p>
+                      <p className="text-xs text-stone-400">passed, last run ({last.passed}/{last.phrasings})</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-normal text-stone-800">{usd(last.usdMicros, 4)}</p>
+                      <p className="text-xs text-stone-400">cost of that run</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-stone-700">{new Date(last.finishedAt).toLocaleString()}</p>
+                      <p className="text-xs text-stone-400">{last.trigger}, {last.model}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-stone-700">{(ev.trend ?? []).map(t => pct(t.passRate)).join(' · ') || '—'}</p>
+                      <p className="text-xs text-stone-400">pass rate, last {(ev.trend ?? []).length} run(s), oldest first</p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-stone-500">No eval run yet.</p>
+                )}
+                {last?.note && <p className="mt-2 text-xs" style={{ color: AMBER }}>{last.note}</p>}
+                {(ev.failures ?? []).length > 0 && (
+                  <div className="mt-4 space-y-2 text-xs text-stone-600">
+                    {(ev.failures ?? []).map((f, i) => (
+                      <div key={i}>
+                        <p><span style={{ color: RUST }}>{f.caseKey}</span> ({f.route}) “{f.message}”</p>
+                        <p className="text-stone-400">{f.notes ?? 'no note'}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="mt-4 text-xs text-stone-500">
+                  Production reply flags: 24 h {ev.replyFlags?.h24.flagged ?? 0}/{ev.replyFlags?.h24.replies ?? 0} ({flagList(ev.replyFlags?.h24)}),
+                  {' '}7 d {ev.replyFlags?.d7.flagged ?? 0}/{ev.replyFlags?.d7.replies ?? 0} ({flagList(ev.replyFlags?.d7)}).
+                  {' '}Phrasings copied from customers this week: {ev.customerPhrasings7d ?? 0}.
+                </p>
+              </div>
+            );
+          })()}
         </div>
       )}
 

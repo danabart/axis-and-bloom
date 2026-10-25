@@ -44,6 +44,9 @@ export interface RecordTurnInput {
   confirmConfidence?: number | null;
   coffeeId?: number | null;
   answerId?: number | null;
+  // Liam answer evals (2026-10-25): the global reply checks' flag codes
+  // (sommelierReplyCheck.checkProductionReply), written in this same INSERT.
+  replyFlags?: string[];
 }
 
 let routeCache: { at: number; values: Set<string> } | null = null;
@@ -66,8 +69,8 @@ export async function recordTurn(input: RecordTurnInput, runner: Runner = db): P
          (session_id, turn, user_message_id, assistant_message_id, route, model, answers_version,
           topic, matched_keyword, sticky, mode,
           input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, usd_micros, latency_ms,
-          rule_id, confirm_label, confirm_confidence, coffee_id, answer_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+          rule_id, confirm_label, confirm_confidence, coffee_id, answer_id, reply_flags)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
        RETURNING id`,
       [
         input.sessionId, input.turn, input.userMessageId, input.assistantMessageId, input.route,
@@ -76,6 +79,7 @@ export async function recordTurn(input: RecordTurnInput, runner: Runner = db): P
         u.input_tokens ?? 0, u.cache_read_input_tokens ?? 0, u.cache_creation_input_tokens ?? 0, u.output_tokens ?? 0,
         Math.max(0, Math.round(input.usdMicros ?? 0)), input.latencyMs ?? null,
         input.ruleId ?? null, input.confirmLabel ?? null, input.confirmConfidence ?? null, input.coffeeId ?? null, input.answerId ?? null,
+        input.replyFlags ?? [],
       ]
     );
     return r.rows[0]?.id ?? null;

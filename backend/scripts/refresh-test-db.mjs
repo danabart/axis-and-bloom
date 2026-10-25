@@ -182,11 +182,12 @@ if (rmResult.status !== 0) {
 await countRows(TEST_DATABASE_URL, 'AFTER (test db)');
 
 // Liam answer layer (2026-10-25): the gate seeds (rules, examples and the
-// order_status_unavailable answer) on the test database, through the same
-// write door the boot uses. A no-op when the clone already has rules; a
+// order_status_unavailable answer) and, since the Liam answer evals, the eval
+// seed (cases, phrasings, reply checks) on the test database, through the
+// same write doors the boot uses. A no-op when the clone already has rules; a
 // clone that predates the gate tables reports and moves on (npm test
 // applies schema.sql, and the gate test seeds inside its own transaction).
-console.log('[test:db:refresh] Seeding the Liam gate rules...');
+console.log('[test:db:refresh] Seeding the Liam gate rules and eval cases...');
 const gateSeed = spawnSync('npx', ['tsx', 'src/scripts/gateRulesSeed.ts', '--expect-db', TEST_DB], {
   encoding: 'utf8', shell: true, env: { ...process.env, DATABASE_URL: TEST_DATABASE_URL },
 });

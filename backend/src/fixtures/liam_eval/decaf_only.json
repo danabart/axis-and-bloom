@@ -1,0 +1,15 @@
+{
+  "key": "decaf_only",
+  "note": "Invented customer for the Liam evals (no real person): quiz Chocolate & Nutty, drinks decaf only (brew profile decaf_constraint = true).",
+  "intent": "MATCHED",
+  "identity": { "firstName": "Ines", "memberSince": "2026-07-14T00:00:00Z", "householdMembers": 0 },
+  "quiz": { "archetypeName": "Chocolate & Nutty", "secondaryArchetype": null, "completedAt": "2026-07-14T12:00:00Z" },
+  "brewProfile": {
+    "decaf_constraint": { "value": true, "source": "conversation", "capturedAt": "2026-10-18T00:00:00Z" },
+    "brew_methods": { "value": ["french press"], "source": "profile_page", "capturedAt": "2026-07-14T12:00:00Z" }
+  },
+  "orders": [],
+  "feedback": [],
+  "subscription": null,
+  "shipsTo": { "city": "Austin", "state": "TX" }
+}

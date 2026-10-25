@@ -5646,6 +5646,115 @@ CREATE TABLE IF NOT EXISTS sommelier_gate_rule_replay (
 );
 CREATE INDEX IF NOT EXISTS idx_sommelier_gate_rule_replay_example ON sommelier_gate_rule_replay (example_id, replayed_at);
 
+-- Liam answer evals (brief LIAM_ANSWER_EVALS, Part A, 2026-10-25). What a
+-- right answer must and must not contain, asked many ways, graded nightly
+-- against the real prompt with fixture customers; and the same global checks
+-- on every production reply as flags on the ledger row. Cases, phrasings and
+-- checks are master data superseded like sommelier_answer; runs and results
+-- are facts (a run's own row gets one UPDATE when it finishes). One writer
+-- (sommelierEvalService), one reader (sommelierReads); lint:customer rule 11.
+-- Vocabularies are lookup_value categories.
+INSERT INTO lookup_value (category, value, label, sort_order) VALUES
+  ('sommelier_eval_kind', 'brand',    'Brand',    1),
+  ('sommelier_eval_kind', 'catalog',  'Catalog',  2),
+  ('sommelier_eval_kind', 'customer', 'Customer', 3),
+  ('sommelier_eval_kind', 'judgment', 'Judgment', 4),
+  ('sommelier_eval_kind', 'safety',   'Safety',   5),
+  ('sommelier_eval_source', 'hand',          'Written by hand',        1),
+  ('sommelier_eval_source', 'customer_turn', 'Copied from a customer', 2),
+  ('sommelier_reply_check_kind', 'must_contain',            'Must contain',                  1),
+  ('sommelier_reply_check_kind', 'must_not_contain',        'Must not contain',              2),
+  ('sommelier_reply_check_kind', 'must_contain_answer',     'Must give the brand answer',    3),
+  ('sommelier_reply_check_kind', 'must_contain_price_of',   'Must give every price of',      4),
+  ('sommelier_reply_check_kind', 'must_name_catalog_coffee','Must name a catalog coffee',    5),
+  ('sommelier_reply_check_kind', 'must_not_name_roaster',   'Must not name a roaster',       6),
+  ('sommelier_reply_check_kind', 'price_in_catalog_only',   'Only catalog prices',           7),
+  ('sommelier_reply_check_kind', 'must_not_claim',          'Must not claim',                8),
+  ('sommelier_reply_check_kind', 'judge',                   'Judge question',                9),
+  ('sommelier_eval_trigger', 'nightly', 'Nightly', 1),
+  ('sommelier_eval_trigger', 'manual',  'Manual',  2),
+  ('sommelier_reply_flag', 'roaster_name',         'Roaster name',          1),
+  ('sommelier_reply_flag', 'price_not_in_catalog', 'Price not in catalog',  2),
+  ('sommelier_reply_flag', 'banned_claim',         'Banned claim',          3)
+ON CONFLICT (category, value) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS sommelier_eval_case (
+  id            SERIAL PRIMARY KEY,
+  key           TEXT NOT NULL,
+  kind_id       INTEGER NOT NULL REFERENCES lookup_value(id),
+  fixture_key   TEXT NOT NULL,
+  catalog_alias TEXT,
+  turn_context  TEXT,
+  rule_key      TEXT,
+  since         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  superseded_at TIMESTAMPTZ,
+  note          TEXT,
+  created_by    TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS sommelier_eval_case_one_current ON sommelier_eval_case (key) WHERE superseded_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS sommelier_eval_phrasing (
+  id             SERIAL PRIMARY KEY,
+  case_id        INTEGER NOT NULL REFERENCES sommelier_eval_case(id),
+  message        TEXT NOT NULL,
+  source_id      INTEGER NOT NULL REFERENCES lookup_value(id),
+  source_turn_id INTEGER REFERENCES sommelier_turn(id),
+  since          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  superseded_at  TIMESTAMPTZ,
+  note           TEXT,
+  UNIQUE (case_id, message)
+);
+
+CREATE TABLE IF NOT EXISTS sommelier_reply_check (
+  id            SERIAL PRIMARY KEY,
+  case_id       INTEGER REFERENCES sommelier_eval_case(id),
+  check_id      INTEGER NOT NULL REFERENCES lookup_value(id),
+  value         TEXT,
+  flag_code     TEXT,
+  since         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  superseded_at TIMESTAMPTZ,
+  note          TEXT,
+  created_by    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sommelier_reply_check_case ON sommelier_reply_check (case_id);
+
+CREATE TABLE IF NOT EXISTS sommelier_eval_run (
+  id              SERIAL PRIMARY KEY,
+  trigger_id      INTEGER NOT NULL REFERENCES lookup_value(id),
+  model           TEXT NOT NULL,
+  judge_model     TEXT NOT NULL,
+  prompt_hash     TEXT NOT NULL,
+  answers_version INTEGER NOT NULL,
+  catalog_version TEXT NOT NULL,
+  gate_enabled    BOOLEAN NOT NULL,
+  started_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  finished_at     TIMESTAMPTZ,
+  phrasings       INTEGER NOT NULL DEFAULT 0,
+  passed          INTEGER NOT NULL DEFAULT 0,
+  failed          INTEGER NOT NULL DEFAULT 0,
+  usd_micros      BIGINT NOT NULL DEFAULT 0,
+  note            TEXT,
+  created_by      TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sommelier_eval_result (
+  id               SERIAL PRIMARY KEY,
+  run_id           INTEGER NOT NULL REFERENCES sommelier_eval_run(id),
+  phrasing_id      INTEGER NOT NULL REFERENCES sommelier_eval_phrasing(id),
+  route            TEXT NOT NULL,
+  reply            TEXT NOT NULL,
+  passed           BOOLEAN NOT NULL,
+  failed_check_ids INTEGER[] NOT NULL DEFAULT '{}',
+  judge_notes      TEXT,
+  usd_micros       BIGINT NOT NULL DEFAULT 0,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (run_id, phrasing_id)
+);
+
+-- The global reply checks' flags on each ledger row, written in the same
+-- INSERT (the check runs before the row exists; no UPDATE).
+ALTER TABLE sommelier_turn ADD COLUMN IF NOT EXISTS reply_flags TEXT[] NOT NULL DEFAULT '{}';
+
 -- sommelier_turn.rule_id (added by Brief 2 before this table existed) now
 -- points at the rule row that was the candidate.
 DO $$ BEGIN
@@ -8896,6 +9005,13 @@ REVOKE UPDATE, DELETE, TRUNCATE ON sommelier_turn FROM ab_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON sommelier_gate_rule, sommelier_gate_rule_example FROM ab_app;
 GRANT UPDATE (superseded_at) ON sommelier_gate_rule, sommelier_gate_rule_example TO ab_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON sommelier_turn_label, sommelier_gate_rule_replay FROM ab_app;
+-- Liam answer evals (2026-10-25): cases, phrasings and checks are superseded
+-- only; results are insert-only; a run row gets its one finish UPDATE on the
+-- counted columns (lint:customer rule 11 is the code-side half).
+REVOKE UPDATE, DELETE, TRUNCATE ON sommelier_eval_case, sommelier_eval_phrasing, sommelier_reply_check FROM ab_app;
+GRANT UPDATE (superseded_at) ON sommelier_eval_case, sommelier_eval_phrasing, sommelier_reply_check TO ab_app;
+REVOKE UPDATE, DELETE, TRUNCATE ON sommelier_eval_run, sommelier_eval_result FROM ab_app;
+GRANT UPDATE (finished_at, phrasings, passed, failed, usd_micros, note) ON sommelier_eval_run TO ab_app;
 GRANT SELECT ON v_roastery_remark, v_cupping_session, v_cupping_session_coffee TO reporting_ro;
 
 -- Quiz content is master data with one writer, the V7 seed in this file,

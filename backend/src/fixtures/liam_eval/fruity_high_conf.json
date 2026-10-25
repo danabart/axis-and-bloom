@@ -1,0 +1,19 @@
+{
+  "key": "fruity_high_conf",
+  "note": "Invented customer for the Liam evals (no real person): quiz Fruity, one order, one positive feedback, brews on a V60.",
+  "intent": "MATCHED",
+  "identity": { "firstName": "Mara", "memberSince": "2026-08-02T00:00:00Z", "householdMembers": 0 },
+  "quiz": { "archetypeName": "Fruity", "secondaryArchetype": null, "completedAt": "2026-08-02T15:00:00Z" },
+  "brewProfile": {
+    "brew_methods": { "value": ["V60"], "source": "conversation", "capturedAt": "2026-10-20T00:00:00Z" },
+    "takes_it": { "value": "black", "source": "conversation", "capturedAt": "2026-10-20T00:00:00Z" }
+  },
+  "orders": [
+    { "createdAt": "2026-09-01T16:00:00Z", "fulfillmentStatus": "pending", "lines": [{ "coffeeAlias": "Clean Fruit", "weightOz": 12, "quantity": 1 }] }
+  ],
+  "feedback": [
+    { "coffeeAlias": "Clean Fruit", "sentiment": "positive", "rating": 5, "rawText": "Juicy and bright, loved it as a pour-over.", "occurredAt": "2026-09-12T18:00:00Z" }
+  ],
+  "subscription": null,
+  "shipsTo": { "city": "Portland", "state": "OR" }
+}

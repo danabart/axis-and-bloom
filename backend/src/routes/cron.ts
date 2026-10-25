@@ -14,6 +14,8 @@ import { backfillCoffeeContent } from './coffees.js';
 import { unsubscribeByEmail } from '../features/marketing/unsubscribe.js';
 import { reconcileNewsletter } from '../features/marketing/newsletterReconcile.js';
 import { runGateOffline } from '../services/sommelierGate.js';
+import { runEvals, addCustomerPhrasings, evalConfig } from '../services/sommelierEval.js';
+import { getSommelierConfig } from '../services/sommelierConfig.js';
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 const router = Router();
@@ -95,9 +97,23 @@ router.get('/beat-dial-in-send', requireCronSecret, async (_req, res) => {
 // example through the real confirmation, logs one [liam:OFFLINE] line. A
 // second run the same day writes nothing new. Off with gate.offline.enabled.
 // Cloud Scheduler job liam-gate-offline: daily 08:00 UTC.
+// Liam answer evals (2026-10-25), C4/C5: then, when evals.nightly.enabled,
+// yesterday's gated customer messages become phrasings and the eval set runs
+// once (trigger nightly). Never on deploy or config change (unattended spend).
 router.get('/liam-gate-offline', requireCronSecret, async (_req, res) => {
   try {
-    res.json(await runGateOffline());
+    const offline = await runGateOffline();
+    let phrasings = null;
+    let evals = null;
+    if (evalConfig(getSommelierConfig()).nightly.enabled) {
+      const now = new Date();
+      const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+      phrasings = await addCustomerPhrasings({ from: new Date(today.getTime() - 86_400_000), to: today });
+      evals = await runEvals({ trigger: 'nightly', createdBy: 'cron' });
+    } else {
+      console.log('[liam:EVAL] nightly run skipped: evals.nightly.enabled is false');
+    }
+    res.json({ offline, phrasings, evals });
   } catch (err) {
     console.error('[cron/liam-gate-offline]', err);
     res.status(500).json({ error: 'Cron job failed' });

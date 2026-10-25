@@ -1,0 +1,17 @@
+{
+  "key": "two_orders_pending",
+  "note": "Invented customer for the Liam evals (no real person): two orders, both fulfillment_status pending (nothing writes a later status), no feedback.",
+  "intent": "MATCHED",
+  "identity": { "firstName": "Sam", "memberSince": "2026-09-05T00:00:00Z", "householdMembers": 0 },
+  "quiz": { "archetypeName": "Balanced", "secondaryArchetype": null, "completedAt": "2026-09-05T10:00:00Z" },
+  "brewProfile": {
+    "brew_methods": { "value": ["drip"], "source": "profile_page", "capturedAt": "2026-09-05T10:00:00Z" }
+  },
+  "orders": [
+    { "createdAt": "2026-10-21T14:00:00Z", "fulfillmentStatus": "pending", "lines": [{ "coffeeAlias": "Coado", "weightOz": 12, "quantity": 1 }] },
+    { "createdAt": "2026-09-28T09:00:00Z", "fulfillmentStatus": "pending", "lines": [{ "coffeeAlias": "Classic Balanced", "weightOz": 12, "quantity": 2 }] }
+  ],
+  "feedback": [],
+  "subscription": null,
+  "shipsTo": { "city": "Columbus", "state": "OH" }
+}

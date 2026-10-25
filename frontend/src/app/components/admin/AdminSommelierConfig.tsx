@@ -4,6 +4,7 @@ import { reportError } from '../../lib/errorReporter';
 import EvidenceParametersCard from './EvidenceParametersCard';
 import LiamAnswersCard from './LiamAnswersCard';
 import LiamGateRulesCard from './LiamGateRulesCard';
+import LiamEvalsCard, { LastEvalRunLine } from './LiamEvalsCard';
 
 interface ConfigDiff {
   path: string;
@@ -277,6 +278,9 @@ export default function AdminSommelierConfig() {
       {/* ── Liam answer layer (2026-10-25): the gate's rules, read-only ── */}
       <LiamGateRulesCard />
 
+      {/* ── Liam answer evals (2026-10-25): cases, phrasings, checks, runs ── */}
+      <LiamEvalsCard />
+
       {/* ── Section 0: Config Source of Truth ── */}
       <section className="mb-8">
         <div className="flex items-center justify-between gap-4 mb-2">
@@ -518,6 +522,7 @@ export default function AdminSommelierConfig() {
         <section className="mb-8">
           <h2 className="text-sm font-normal tracking-widest uppercase text-stone-400 mb-4">Brand Facts in Liam's Prompt</h2>
           <div className="border border-stone-200 rounded-lg p-4 space-y-4">
+            <LastEvalRunLine />
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-sm text-stone-700">Give Liam the brand facts</p>
@@ -717,6 +722,7 @@ export default function AdminSommelierConfig() {
                 />
               </label>
             ))}
+            <LastEvalRunLine />
             {([
               ['confirmPrompt', 'Confirmation prompt ({labels} {aliases} {previous} {message})'],
               ['phrasePrompt', 'Phrasing prompt ({facts} {history} {message})'],

@@ -119,6 +119,12 @@ describe('sommelier_answer seed', () => {
 const EMPTY_LEDGER = { sessions: [], turnsBySession: new Map(), transcriptIdsBySession: new Map() };
 // Liam answer layer: no gate rules in these fixtures (checks 6-10 have their own in sommelierGate.test.ts).
 const NO_GATE = { rules: [], examples: [], answers: [], topics: {}, defaultMaxChars: 160, orderWriters: [] };
+// Liam answer evals: no eval cases here either (checks 11-15 have their own in sommelierEval.test.ts);
+// check 15 needs the global roaster-name check, so the fixture carries it.
+const NO_EVALS = {
+  cases: [], phrasings: [], answers: [], catalogAliases: [], staleRunIds: [],
+  checks: [{ id: 1, case_id: null, kind: 'must_not_name_roaster', value: null, flag_code: 'roaster_name', since: new Date(), note: null, created_by: 'vitest' }],
+};
 
 describe('sommelierIntegrity — fixtures', () => {
   const vocab: AnswerVocabulary = { roasterNames: ['Joe Coffee Company', 'Path Coffee Roasters'], aliases: ['Crosshatch', 'Cerro Azul'] };
@@ -127,21 +133,21 @@ describe('sommelierIntegrity — fixtures', () => {
   });
 
   it('all four checks pass on clean text', async () => {
-    const r = await runSommelierIntegrityChecks({ rows: [row('a', 'We do not roast. Our bags, their roasting.')], vocab, ledger: EMPTY_LEDGER, gate: NO_GATE });
+    const r = await runSommelierIntegrityChecks({ rows: [row('a', 'We do not roast. Our bags, their roasting.')], vocab, ledger: EMPTY_LEDGER, gate: NO_GATE, evals: NO_EVALS });
     expect(r.allPass).toBe(true);
     // Check 5 (the turn ledger, Liam sees everything brief) reconciles an empty fixture: pass;
-    // checks 6-10 (the gate, Liam answer layer) pass with no rules.
-    expect(r.checks.map(c => c.id)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    // checks 6-10 (the gate, Liam answer layer) pass with no rules; 11-15 (the evals) with no cases.
+    expect(r.checks.map(c => c.id)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
   });
 
   it('check 1 reports a key with two current rows', async () => {
-    const r = await runSommelierIntegrityChecks({ rows: [row('a', 'One.'), row('a', 'Two.')], vocab, ledger: EMPTY_LEDGER, gate: NO_GATE });
+    const r = await runSommelierIntegrityChecks({ rows: [row('a', 'One.'), row('a', 'Two.')], vocab, ledger: EMPTY_LEDGER, gate: NO_GATE, evals: NO_EVALS });
     expect(r.checks.find(c => c.id === 1)!.pass).toBe(false);
     expect(r.checks.find(c => c.id === 1)!.details).toEqual(['a: 2 current rows']);
   });
 
   it('check 2 catches a roaster name, case-insensitive, whole words only', async () => {
-    const r = await runSommelierIntegrityChecks({ rows: [row('a', 'roasted by joe coffee company'), row('b', 'a pathway')], vocab, ledger: EMPTY_LEDGER, gate: NO_GATE });
+    const r = await runSommelierIntegrityChecks({ rows: [row('a', 'roasted by joe coffee company'), row('b', 'a pathway')], vocab, ledger: EMPTY_LEDGER, gate: NO_GATE, evals: NO_EVALS });
     expect(r.checks.find(c => c.id === 2)!.details).toEqual(['a: Joe Coffee Company']);
   });
 
@@ -156,7 +162,7 @@ describe('sommelierIntegrity — fixtures', () => {
   });
 
   it('check 4 catches a coffee alias', async () => {
-    const r = await runSommelierIntegrityChecks({ rows: [row('a', 'Try the Cerro Azul.')], vocab, ledger: EMPTY_LEDGER, gate: NO_GATE });
+    const r = await runSommelierIntegrityChecks({ rows: [row('a', 'Try the Cerro Azul.')], vocab, ledger: EMPTY_LEDGER, gate: NO_GATE, evals: NO_EVALS });
     expect(r.checks.find(c => c.id === 4)!.details).toEqual(['a: Cerro Azul']);
   });
 

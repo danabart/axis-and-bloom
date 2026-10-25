@@ -1,9 +1,10 @@
 import { db } from '../db/client.js';
 import type { Tx } from '../db/client.js';
-import { getAliases } from './sommelierRag.js';
+import { getAliases, type CatalogBlock, type RagParams } from './sommelierRag.js';
 import { archetypeCode, archetypeLabel, getSellableSlots } from './catalogReads.js';
 import { getSommelierConfig } from './sommelierConfig.js';
-import { formatBrewProfileSummary, type BrewProfileDoc } from './brewProfile.js';
+import { formatBrewProfileSummary, getStaleFieldNudge, type BrewProfileDoc } from './brewProfile.js';
+import type { SommelierConfig } from './sommelierConfig.js';
 import {
   getQuizCurrent, getBrewProfileCurrent, getFeedbackCurrent, getPalateEvidence, getSharedTraits,
   getDominantDimensions, getArchetypeSpread, getThreads, getSlotCandidates, getTimeline,
@@ -463,4 +464,127 @@ export async function loadProfileReads(uid: string, runner: Tx | typeof db = db,
     identity, quizHistory, orders, subscription, shipsTo, saved, savedSlotAlias, brewCards, liamHistory, archetypeLabels,
     counts: { feedbackCount: counts.feedback },
   };
+}
+
+// ── Liam answer evals (2026-10-25), Part C1 — the session and turn context as
+// pure functions, so /start, /message and the eval runner
+// (sommelierEval.ts) build the prompt the same way from the same reads.
+// StoryCandidate, resolveStoryForMessage, storyCandidatesFromBlock and
+// isDecafOnly moved here from routes/sommelier.ts unchanged (the route
+// re-exports them); sessionRagFromReads and messageTurnContext are the
+// route's own lines, lifted out without changing a value.
+
+// HOME_TASK_5b (Defect 1 fix) — a session's RAG-selected coffees, each
+// carrying the S44-correct alias display name alongside its published story
+// (null when the coffee has none). The alias is what makes name-matching
+// against the customer's own message possible; `story: null` is a distinct,
+// meaningful state from "no candidate at all" — a coffee can be a legitimate
+// match target (Liam knows it's on the strip) without having story content.
+export interface StoryCandidate {
+  coffeeId: number;
+  alias: string;
+  story: string | null;
+}
+
+// HOME_TASK_5b (Defect 1) — resolves which of the session's story candidates
+// the customer's message is actually asking about, by case-insensitive,
+// whole-word match against each candidate's alias. Exported for testability,
+// same pattern as resolveRemember()/assembleSystemPrompt(). Longest matching
+// alias wins on ties (so "classic decaf" beats "decaf" when both are
+// candidates and the message names the longer one).
+export function resolveStoryForMessage(
+  message: string,
+  candidates: StoryCandidate[]
+): StoryCandidate | null {
+  let best: StoryCandidate | null = null;
+  for (const candidate of candidates) {
+    if (!candidate.alias || candidate.alias.trim().length === 0) continue;
+    const escaped = candidate.alias.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`\\b${escaped}\\b`, 'i');
+    if (re.test(message) && (!best || candidate.alias.length > best.alias.length)) {
+      best = candidate;
+    }
+  }
+  return best;
+}
+
+// Liam sees everything brief Rev 2 (2026-10-24) — every coffee in the shared
+// catalog block is a story / alias candidate now (was the 6-coffee slice):
+// Liam may name any of them, so the write-back resolves against all of them.
+export function storyCandidatesFromBlock(block: Pick<CatalogBlock, 'coffees'>): StoryCandidate[] {
+  return block.coffees.map(c => ({ coffeeId: c.id, alias: c.alias, story: c.story }));
+}
+
+// Rev 2, A3 — the brew profile's decaf_constraint, read live (it can be
+// stated mid-conversation and lands through the facts watermark).
+export function isDecafOnly(brewProfile: Record<string, { value: unknown }> | null | undefined): boolean {
+  const v = brewProfile?.decaf_constraint?.value;
+  return v === true || v === 'true';
+}
+
+/** What /start derives from the reads for the FIT block (fetchSommelierCoffees) and context_data.ragInputs. */
+export interface SessionRag {
+  userArchetype: string | null;
+  secondaryArchetype: string | null;
+  exploreArchetype: string | null;
+  previousArchetypeForRag: string | null;
+  dislikedCoffeeIds: number[];
+  excludeCoffeeIds: number[];
+  ragFocus: string;
+  decafOnly: boolean;
+  ragParams: RagParams;
+}
+
+export function sessionRagFromReads(
+  reads: ProfileReads, intent: string, config: SommelierConfig | null, previousArchetype: string | null
+): SessionRag {
+  const quizCurrent = reads.quizCurrent;
+  const userArchetype = quizCurrent?.archetypeName ?? null;
+  // interpretationSource-gated the same way the old pair-confidence/thread
+  // prose was — a pre-v2.1 interpretation has no meaningful explore concept.
+  // Interpretation v2.2 (Prompt 4B): a secondary equal to the shown archetype (branch-match) pairs nothing.
+  const secondaryArchetype = distinctSecondary(userArchetype, quizCurrent?.secondaryArchetype);
+  const exploreArchetype = quizCurrent?.interpretationSource === 'table' ? quizCurrent.exploreArchetype : null;
+  // The blanket "never show a disliked coffee" rule (rule 1 of Dana's fixture
+  // review), from the same read loadProfileReads() already did.
+  const dislikedCoffeeIds = reads.feedbackCurrent.filter(f => f.sentiment === 'negative').map(f => f.coffeeId);
+  // RECOMMENDATION_MISS's narrower hop exclusion, capped the same way the old
+  // direct getFeedbackCurrent(uid, {sentiment:'negative'}) call was.
+  const excludeCoffeeIds: number[] = intent === 'RECOMMENDATION_MISS' ? dislikedCoffeeIds.slice(0, 10) : [];
+  const ragFocus = config?.intents?.[intent]?.ragFocus ?? 'curated_mix';
+  const previousArchetypeForRag = intent === 'TASTE_EVOLUTION' ? previousArchetype : null;
+  const decafOnly = isDecafOnly(reads.brewProfile);
+  return {
+    userArchetype, secondaryArchetype, exploreArchetype, previousArchetypeForRag, dislikedCoffeeIds, excludeCoffeeIds, ragFocus, decafOnly,
+    ragParams: {
+      ragFocus, userArchetype, previousArchetype: previousArchetypeForRag, excludeCoffeeIds,
+      secondaryArchetype, exploreArchetype, slotCandidates: reads.slotCandidates, dislikedCoffeeIds, decafOnly,
+    },
+  };
+}
+
+/** /message's per-turn context: the brew line with the stale nudge, and the story of the coffee the message names. */
+export function messageTurnContext(args: {
+  message: string; topic: string | null; brewProfile: BrewProfileDoc | null; storyCandidates: StoryCandidate[]; staleNudgeSent: boolean;
+}): { brewProfileContext: string; staleNudge: string | null; storyContext: string | undefined; selectedStoryCoffeeId: number | null; storySelection: string | null } {
+  // Brew profile (§4.5, §3.5) plus the stale-re-confirm nudge (write rule 5):
+  // at most once per session, only when relevant to this turn's topic.
+  const staleNudge = getStaleFieldNudge(args.brewProfile, args.topic, args.staleNudgeSent);
+  const brewProfileContext = [formatBrewProfileSummary(args.brewProfile), staleNudge].filter(Boolean).join(' ');
+  // Story layer (§4.4, HOME_TASK_5/5b) — only on the two topics that ask
+  // about the customer's own coffee; the coffee the customer named, else the
+  // first candidate with a story; a named coffee without a story gets none.
+  const isMyCoffeeTopic = args.topic === 'my_coffee' || args.topic === 'origins_process';
+  let storyContext: string | undefined;
+  let selectedStoryCoffeeId: number | null = null;
+  let storySelection: string | null = null;
+  if (isMyCoffeeTopic && args.storyCandidates.length > 0) {
+    const matched = resolveStoryForMessage(args.message, args.storyCandidates);
+    const fallback = matched ? null : args.storyCandidates.find(c => c.story) ?? null;
+    const selected = matched ?? fallback;
+    storyContext = selected?.story ?? undefined;
+    selectedStoryCoffeeId = selected?.coffeeId ?? null;
+    storySelection = matched ? 'named match' : fallback ? 'fallback' : 'no candidate story';
+  }
+  return { brewProfileContext, staleNudge, storyContext, selectedStoryCoffeeId, storySelection };
 }

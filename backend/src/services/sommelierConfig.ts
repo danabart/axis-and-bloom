@@ -119,6 +119,18 @@ export interface SommelierConfig {
     prefixRebuildMinTokens?: number;
     offline?: { enabled: boolean; model: string; missShareThreshold: number };
   };
+  // Liam answer evals (2026-10-25) — the eval runner and the judge (sommelierEval.ts).
+  evals?: {
+    judgeModel: string;
+    judgeMaxTokens: number;
+    judgePrompt: string;
+    maxUsdPerRun: number;
+    concurrency: number;
+    forceGate: boolean;
+    turnContextMessage: string;
+    maxCustomerPhrasingsPerCase: number;
+    nightly: { enabled: boolean };
+  };
   tokenEconomy: {
     signupBonus: number;
     orderBonus: number;
@@ -299,6 +311,17 @@ export interface SommelierConfig {
 let _config: SommelierConfig | null = null;
 
 export function getSommelierConfig(): SommelierConfig | null {
+  return _config;
+}
+
+/**
+ * Liam answer evals (2026-10-25): one read of the live doc, no seed, no
+ * applyMissingKeys, no listener. For a script (npm run liam:evals) that must
+ * run against the live config without writing to it.
+ */
+export async function loadSommelierConfigReadOnly(): Promise<SommelierConfig | null> {
+  const snap = await firestoreDb.doc('config/sommelier').get();
+  _config = snap.exists ? (snap.data() as SommelierConfig) : null;
   return _config;
 }
 

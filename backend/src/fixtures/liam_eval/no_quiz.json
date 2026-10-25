@@ -1,0 +1,12 @@
+{
+  "key": "no_quiz",
+  "note": "Invented customer for the Liam evals (no real person): nothing on file but a first name.",
+  "intent": "EXPLORATION",
+  "identity": { "firstName": "Theo", "memberSince": "2026-10-20T00:00:00Z", "householdMembers": 0 },
+  "quiz": null,
+  "brewProfile": {},
+  "orders": [],
+  "feedback": [],
+  "subscription": null,
+  "shipsTo": null
+}

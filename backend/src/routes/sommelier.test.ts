@@ -27,7 +27,11 @@ vi.mock('../services/customerReads.js', () => ({
   getFeedbackCurrent: vi.fn(),
   getBrewProfileCurrent: vi.fn(),
 }));
-vi.mock('../services/liamProfile.js', () => ({
+// Liam answer evals (2026-10-25): the pure helpers the route now imports from
+// liamProfile (storyCandidatesFromBlock, isDecafOnly, ...) stay real; only the
+// two reads are mocked.
+vi.mock('../services/liamProfile.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../services/liamProfile.js')>()),
   loadProfileReads: vi.fn(),
   buildProfileLine: vi.fn(),
 }));

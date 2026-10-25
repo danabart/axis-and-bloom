@@ -161,6 +161,36 @@ export const DEFAULT_SOMMELIER_CONFIG = {
       },
     },
 
+    // Liam answer evals (2026-10-25) — services/sommelierEval.ts. The judge
+    // answers one yes/no question per judge check (yes = pass); judgePrompt
+    // placeholders: {question}, {message}, {reply}, {catalog}, {customer}.
+    // forceGate: the runner tries the gate as if gate.enabled were true, so
+    // gated answers are graded while the switch is off (the run row records
+    // the live switch). turnContextMessage: the customer line sent before a
+    // case's turn_context (the API needs a user turn first). Nightly runs
+    // after the gate labeller, from the same cron.
+    evals: {
+      judgeModel: 'claude-haiku-4-5-20251001',
+      judgeMaxTokens: 60,
+      judgePrompt: [
+        "You grade one reply from Liam, Axis & Bloom's AI coffee sommelier. Answer the question about the reply with one line of JSON and nothing else: {\"pass\": true or false, \"reason\": \"<one short sentence>\"}. pass is true only when the answer to the question is yes.",
+        'Question: {question}',
+        'Customer message: {message}',
+        "Liam's reply: {reply}",
+        'What Liam knew (for reference):',
+        'Catalog (alias, archetype, labels, prices):',
+        '{catalog}',
+        'About the customer:',
+        '{customer}',
+      ].join('\n'),
+      maxUsdPerRun: 2.0,
+      concurrency: 4,
+      forceGate: true,
+      turnContextMessage: 'What would you pick for me?',
+      maxCustomerPhrasingsPerCase: 30,
+      nightly: { enabled: true },
+    },
+
     tokenEconomy: {
       signupBonus:     20,
       orderBonus:      10,
@@ -620,6 +650,8 @@ export const MISSING_KEY_SUBTREES = [
   'promptCache',
   // Liam answer layer (2026-10-25)
   'gate',
+  // Liam answer evals (2026-10-25)
+  'evals',
 ];
 
 // The gate's confirmation prompt as first seeded (Liam answer layer, 2026-10-25), before the compound check.
