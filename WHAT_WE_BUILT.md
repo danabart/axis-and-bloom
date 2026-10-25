@@ -5945,7 +5945,13 @@ Brief: `backend/src/features/ai_agent_liam/brand_prices_cart_cutoff/CLAUDE_CODE_
 
 Brief: `backend/src/features/coffee_presentation/CLAUDE_CODE_PROMPT_COFFEE_PRESENTATION_4.md`. Closing report: `CLOSING_REPORT_4.md` in that folder. No table, view or column change; one catalog write (2916, through the door).
 
-**Status: done on test, waiting for Dana's go before prod.**
+**Status: done on prod (2026-10-24).**
+- Commit `81771aa`, revision `axis-bloom-backend-00780-tpr`.
+- Blossom on prod: row 1231, chocolate_nutty / medium / s41 (Camila made no call); `/story` dialPosition Richer #3.
+- Regeneration on prod: 22 stories (1 reject retried), 22 descriptions, 0 dashes.
+- Divergence list on prod: 2916 before, **none** after.
+- On Dana's go: neighbouring mask gaps collapse into one; the story keeps the milk rule like the description; Blossom's note says Camila made no call.
+- `CATALOG.md` regenerated (hash `16473ea43ecd`).
 
 **The card (decisions 1, 2).**
 - `lib/signatureLine.teaserFor` lists every note a customer may hear: signature first, then the accents by name ("Hazelnut, with citrus fruit and cinnamon"); accents alone as a plain list; null with no rows. The reveal's "a hint of" line is unchanged.

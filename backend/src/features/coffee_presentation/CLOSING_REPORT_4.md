@@ -1,7 +1,7 @@
 # Coffee presentation, brief 4: closing report
 
 > Brief: `CLAUDE_CODE_PROMPT_COFFEE_PRESENTATION_4.md` · Run 2026-10-24 on the **test DB** (`axisandbloom_test`) · `WHAT_WE_BUILT.md` #236, `SOMMELIER_BUILT.md` S116
-> **Status: done on test, waiting for Dana's go before prod.** Nothing is committed or deployed.
+> **Status: done on prod 2026-10-24** (commit `81771aa`, revision `axis-bloom-backend-00780-tpr`; prod results at the end).
 
 ## Where the code or the data differs from the brief
 
@@ -228,3 +228,103 @@ Deploy, then:
 5. `catalog:md`, then commit.
 
 **Committing.** `claude.ts`, `schema.sql`, `comments.sql` and `WHAT_WE_BUILT.md` also hold the other session's uncommitted edits. I'll stage only this brief's hunks (index-only staging, no change to their working copy). If those edits get committed first, nothing special is needed.
+
+## Prod (2026-10-24, on Dana's go)
+
+**Deploy.** Commit `81771aa` (only this brief's files; the other session had committed its Liam work as `5bda7e4` by then, so no hunk-scoped staging was needed). The GitHub Actions deploy succeeded, revision `axis-bloom-backend-00780-tpr`. The boot seeded the `coffee_card_tag` / `award` row. Live `GET /api/coffees/2914/content` returns `tags: [Award-winning, per the roaster, Espresso]`.
+
+**Blossom (Part C).**
+- Dry run, then real. The session dated 2026-10-23 is **s41** on prod. Calls: Dana `chocolate_nutty`, Camila none, so confidence **medium**.
+- `previewPlacement` (home slot 1, C&N #3 Richer) warned `band_no_spec` and `placement_diverges_from_match` (earthy vs C&N) before the write.
+- The write gave no warnings. Row **1231**: `chocolate_nutty` / medium / cupping / s41 / your note. Row 1209 (`earthy` / low / s37) is kept, superseded.
+- `/flavor-wheel` line "Dark Chocolate, Brown Sugar, Chocolate / a hint of fruity: cherry"; teaser "Dark Chocolate, Brown Sugar, Chocolate, with cherry"; tags `Batch brew / drip`; `/story` dialPosition **Richer #3** (was null while the match diverged).
+
+**Regeneration (D1).** `--fields story,description`, dry run then real, 22 active coffees, none admin-edited:
+- Story: 22 passed, 1 reject retried ("lot", and "we tasted" with nothing confirmed), 0 dashes.
+- Description: 22 written, 0 failed, 0 dashes.
+- 3 coffees with masked fragments.
+- 2916's story names its process (prod has `washed`) and no origin (prod has none).
+
+**Divergence list (decision 6), prod:**
+- Before the run: one coffee, **2916** There's No Place Like Home, match `earthy`, slot `chocolate_nutty` #3 Richer.
+- After: **none**.
+- 13 active coffees have no home slot, so they cannot diverge: 2906, 2907, 2908, 2909, 2915, 2927, 2928, 2929, 2930, 2931, 2932, 2933, 2935.
+
+**Cards and texts on prod.**
+
+#### 2914 Coado
+
+- Match chocolate_nutty → chocolate_nutty; home slot chocolate_nutty #2 Classic; /story dialPosition {"label":"Classic","sortOrder":2}.
+- Card teaser: before "Almond, Chocolate, Peanuts" → after "Almond, Chocolate, Peanuts, with cherry, apple and dried fruit".
+- Card tags: `Award-winning, per the roaster` · `Espresso`.
+- Masked fragments in the voice: 2.
+- Description before:
+  > The roaster calls this award-winning blend chocolate and almond with a hint of cherry and dried fruit, and we tasted the chocolate and almond too. It carries a moderate body with a lingering finish, and the roaster recommends it black or with steamed milk. Subtle sweetness and restrained acidity let the nutty core shine through, making it equally at home on its own or alongside milk.
+- Description after:
+  > The roaster calls this an award-winning blend built on almond, chocolate, and peanuts, with a hint of cherry and apple threading through. We tasted the almond and chocolate too. It has moderate body and sweetness, with restrained acidity and bitterness, finishing long on the palate. The roaster recommends it as espresso, though it also shines in cold brew, batch brew, or pour-over, and drinks well black or with milk.
+- Story before:
+  > Coado comes from the highlands of Colombia, where altitude and afternoon mist create conditions that slow a coffee cherry's ripening. When the fruit reaches its peak, it's picked and then washed, a process that removes the fruit's outer layers before the beans dry. This cleaning matters: it rinses away some of what would otherwise linger in the cup, leaving behind something quieter and more deliberate. The roaster calls out almond, chocolate, and peanuts as the core flavors here, and we tasted those too. There's a hint of cherry and dried fruit underneath, per the roaster, though they stay restrained. What's worth noticing is the finish. It holds on longer than you might expect from a coffee this understated. The fragrance and aroma are both modest, the sweetness comes through lightly, and the acidity sits moderate rather than bright. The body has some weight to it without feeling heavy. All of this builds toward something that doesn't rush away. It lingers, giving you time to sit with it, to notice how the flavors settle in different parts of your mouth as it cools.
+- Story after:
+  > Water moves through Coado in a deliberate, thorough way. After picking, the beans are washed and dried out gradually, a process that lets the fruit surrounding the seed break down completely before removal. What emerges is a coffee with clarity, one where flavors announce themselves without much fuss. The roaster calls out almond, chocolate, and peanuts as the spine of this cup, and we tasted those too. There's a hint of cherry, apple, and dried fruit threading through, though lightly. The whole thing sits in a moderate middle ground, not aggressive, not whisper-quiet. The body has some weight to it, and the finish lingers in a way that makes you pause before reaching for the next sip. What's worth noticing: this coffee stays composed. The acidity is gentle, the bitterness restrained. It doesn't push or demand attention. Instead it invites you to sit with it black, or with milk if you prefer, and simply notice how the flavors unfold at their own pace. That steadiness is the real story here.
+
+#### 2905 Classic Balanced
+
+- Match balanced_sweet → balanced_sweet; home slot balanced_sweet #2 Balanced; /story dialPosition {"label":"Balanced","sortOrder":2}.
+- Card teaser: before "Caramelized, Cocoa" → after "Caramelized, Cocoa, with brown spice".
+- Card tags: `Batch brew / drip`.
+- Masked fragments in the voice: 0.
+- Description before:
+  > The roaster calls it caramelized and cocoa with a hint of brown spice, and we tasted all three notes too. It's designed to shine both in milk and on its own, with a smooth, balanced body and minimal edge. The roaster recommends it best as drip coffee or espresso, though it takes beautifully to a cortado or cappuccino. Sweetness and subtle flavor sit moderate in the cup, while acidity and bitterness stay low and restrained.
+- Description after:
+  > The roaster calls this blend caramelized and cocoa with a hint of brown spice, and we tasted those notes too. It's smooth and balanced with no sharp edges, drinking equally well black or with milk. The body is moderate and the sweetness restrained, while acidity stays low and bitterness minimal, making for a clean finish. Drip and batch brew are where this blend truly shines.
+- Story before:
+  > This coffee comes from the highlands of Cajamarca, Peru, where it was washed to remove the fruit before drying. That process leaves a cup with understated presence: the fragrance and aroma are gentle, not announcing themselves, and the flavor itself sits somewhere between quiet and moderate. What the roaster calls caramelized and cocoa notes form the heart of this coffee, and we tasted them too. There's a hint of brown spice backing those flavors. The sweetness is mild and steady rather than pronounced. Acidity stays flat and calm, bitterness minimal. The body feels light, almost delicate. One thing worth noticing: the finish doesn't linger. It arrives, settles briefly, then steps away. That brevity isn't a shortcoming here. It's part of the coffee's character, keeping the cup clean and direct. If you're looking for something that doesn't demand attention but rewards it when you give it, this one asks you to slow down just enough to catch what it's offering. It's the kind of coffee that works best when you're actually present for it.
+- Story after:
+  > This coffee comes from the highlands of Peru, where it's been washed after harvest, a process that lets water carry away the fruit and leaves behind the seed's cleaner character. The result sits comfortably in the middle ground: gentle and approachable without being thin or forgettable. The roaster calls it caramelized and cocoa-forward, with a hint of brown spice, and we tasted those notes too. There's a modest sweetness running through it, with almost no sharpness to the acidity. The body feels measured, neither light nor heavy. It finishes quietly, which means the flavors don't linger long after the cup leaves your lips, but that quietness is part of what makes this coffee work so well in different contexts. The roaster suggests it shines in a drip pot, or in milk as a cortado or cappuccino. What's worth noticing: this is the kind of coffee that doesn't demand anything of you. No special technique, no particular moment of day. It's simply there to be drunk, whether black or with milk, and to taste good doing it.
+
+#### 2916 There's No Place Like Home
+
+- Match earthy → chocolate_nutty; home slot chocolate_nutty #3 Richer; /story dialPosition {"label":"Richer","sortOrder":3}.
+- Card teaser: before "(none: the arriving-soon sentence)" → after "Dark Chocolate, Brown Sugar, Chocolate, with cherry".
+- Card tags: `Batch brew / drip`.
+- Masked fragments in the voice: 0.
+- Description before:
+  > The roaster calls this their darkest blend dark chocolate and chocolate with a hint of brown sugar and nutty notes, and we tasted that dark chocolate and brown sugar too. Despite its deep roast, the roaster emphasizes it remains surprisingly sweet and flavorful with a pleasant finish. The cup carries moderate body and bitterness balanced by its sweetness, drinking well black or with milk.
+- Description after:
+  > The roaster calls this their darkest blend dark chocolate, brown sugar, and chocolate with just a hint of cherry, and we tasted that dark chocolate and brown sugar too. Despite the deep roast, the roaster says it's surprisingly sweet and flavorful, finishing with a pleasant, lingering sweetness. The body is substantial and the cup stays with you, while acidity stays restrained. The roaster recommends it black or with milk, and suggests batch brew or drip as the ideal way to experience it.
+- Story before:
+  > This coffee comes from the highlands of Central America, where washed processing gives the cup a clean, direct character. The water removes the fruit surrounding the bean before drying, which strips away distraction and leaves the coffee's true structure to speak for itself. What emerges is substantial. The body carries real weight, and the finish lingers long enough that you notice it fading rather than disappearing. The roaster calls out hints of dark chocolate, brown sugar, and chocolate, and we tasted those too. They're restrained notes, never showy, but they anchor the cup with a gentle richness. Sweetness plays a minor role here. This coffee skews toward bitter and bittersweet rather than sugary, which gives it an honest, unfussy quality. Acidity barely registers. There's no sharp brightness cutting through; instead, the experience is grounded and dense. Worth noticing: this is a coffee that rewards attention without demanding it. Brew it straightforward, pour it into something you like holding, and pay attention to how long that finish actually stays with you. That's where this coffee makes its point.
+- Story after:
+  > There's No Place Like Home arrives clean and purposeful. The roaster washed this coffee, a process that strips away the fruit and lets the bean speak plainly. What emerges is something direct: dark chocolate and brown sugar form the backbone, with a hint of cherry lingering at the edges, and we tasted those core notes too. The cup itself is full-bodied and substantial without heaviness. You'll notice the finish lingers, refusing to disappear quickly from your palate. There's not much acidity to speak of, which gives the whole thing a settled, grounded feeling. The sweetness is moderate, leaning toward savory. What stands out most is how the bitterness sits alongside the chocolate notes without overwhelming them, creating something more complex than either alone. The roaster recommends batch brew or drip, though it's equally at home in an espresso cup or French press. Whether you take it black or with milk, this is a coffee that tastes like itself without apology. There's comfort in that kind of honesty.
+
+#### 2917 Quieta Non Movere
+
+- Match chocolate_nutty → chocolate_nutty; home slot chocolate_nutty #1 Lighter; /story dialPosition {"label":"Lighter","sortOrder":1}.
+- Card teaser: before "Hazelnut" → after "Hazelnut, with citrus fruit and cinnamon".
+- Card tags: `Batch brew / drip`.
+- Masked fragments in the voice: 0.
+- Description before:
+  > The roaster calls this blend hazelnut forward with a hint of citrus fruit and cinnamon, and we tasted the hazelnut and citrus fruit too. Beautifully balanced across a moderate body, it drinks equally well black or with milk, and the roaster recommends brewing it however suits you: auto drip, pour over, or espresso all bring out its character. A medium roast with a lingering finish.
+- Description after:
+  > The roaster calls it hazelnut forward with a hint of citrus fruit and cinnamon, and we tasted the hazelnut and citrus fruit too. It's beautifully balanced with moderate body and sweetness, a gentle acidity, and a lingering finish. The roaster recommends it with milk or black, and says it shines across batch brew, pour-over, and cold brew methods.
+- Story before:
+  > Quieta Non Movere brings together coffees from the highlands of Colombia and the Mogiana region of Brazil, both processed naturally. That method means the fruit stays on the bean as it dries, deepening what ends up in your cup. The roaster calls out hazelnut as the coffee's core character, and we tasted it too. There's a hint of citrus fruit and cinnamon from the roaster's perspective, brightening what would otherwise be a more straightforward cup. The fragrance is notably present when you first open the bag or grind, though the aroma itself settles into something quieter. Flavor builds with a moderate body and restrained sweetness, with acidity that stays muted rather than sharp. What's worth noticing here is how the natural processing shapes the finish. It lingers just enough to let the hazelnut linger with it, a gentle persistence that doesn't demand attention but rewards it. The bitterness stays low, letting those other notes breathe. This is a coffee that doesn't announce itself loudly, but it holds your attention if you let it.
+- Story after:
+  > There's something settled about Quieta Non Movere. It comes from the highlands of Colombia and the Mogiana region of Brazil, processed naturally so that the fruit stays close to the bean, sweet and present. When you brew it, the fragrance is immediate and inviting. The roaster calls out hazelnut as the foundation, with a hint of citrus fruit and cinnamon threading through. We tasted that hazelnut and citrus too, finding them genuine in the cup. The body is moderate, the kind that works whether you're drinking it black or with milk. There's gentle sweetness without heaviness, and the acidity stays calm, letting other flavors settle in. The finish lingers a bit, giving you something to return to. What's worth noticing: this coffee doesn't demand much from you. It works in a batch brewer, a pour-over, or cold brew. It asks only that you pay attention, and it repays you with something straightforward and honest. That's its own kind of richness.
+
+#### 2902 Clean Fruit
+
+- Match fruity → fruity; home slot fruity #1 Mellow; /story dialPosition {"label":"Mellow","sortOrder":1}.
+- Card teaser: before "Coconut" → after "Coconut, with caramelized and chocolate".
+- Card tags: `Pour-over`.
+- Masked fragments in the voice: 0.
+- Description before:
+  > The roaster calls this single-origin a bright cup centered on coconut, with a hint of caramelized sweetness and chocolate. Best enjoyed black, it shines through pour-over and espresso alike, the latter a surprising reveal of the roast's lighter touch. The honey processing lends moderate sweetness and a clean, moderate acidity that keeps the cup lively without harshness, while the delicate body lets the coconut's tropical character come through.
+- Description after:
+  > The roaster calls this single-origin a cup built on coconut, with a hint of caramelized sweetness and chocolate threading through. It's a lighter roast with a delicate body and moderate sweetness that balances a clean, measured brightness. The roaster recommends it black, though it holds its own with milk too. The honey process adds a subtle complexity that rewards attention, whether you're pouring it over or pulling it as espresso.
+- Story before:
+  > Coffee from the highlands of Hidalgo, Mexico arrives at the roaster's bench already shaped by intention. During processing, the fruit stays on the bean through a honey wash, meaning the sticky fruit mucilage remains during drying. This contact transforms the cup: sweetness builds steadily, registering moderate to fairly sweet, while acidity stays measured and composed. The body comes through light and clean, letting those developed notes breathe. The roaster calls it coconut, the foundation of what you'll taste. There's a hint of caramelized underneath, and a hint of chocolate threading through. Nothing heavy or overwhelming, just presence. What's worth noticing: the restraint. When fruit stays on during drying, it can push a cup toward jammy intensity. This one doesn't. Instead, the honey process here becomes a gentle amplifier. The beans were dried with care, and it shows in how sweetness sits alongside brightness without either one drowning the other out. It's the kind of cup where the method becomes visible not through aggression but through balance.
+- Story after:
+  > In the highlands of Hidalgo, coffee cherries ripen in mountain air, and this one was processed with honey still clinging to the bean. That sweetness from the fruit stays with you, making Clean Fruit taste genuinely sweet without feeling heavy. The roaster calls it coconut, and there's a hint of caramelized and chocolate underneath, but the coconut is what hits first and lingers. The cup is bright enough to keep things interesting, moderate acidity that doesn't push hard, while the body stays light and clean. Bitterness barely registers. Drink it black to really taste what the honey processing brought out: that foundational sweetness holding everything up. Here's what catches people: the roaster suggests pour-over, which makes sense. But they also note it's worth trying as espresso, and the surprise there is real. The sweetness concentrates, the lighter body becomes something almost silky, and suddenly this coffee shows you another side of itself. Not every coffee rewards that kind of attention. This one does.
+
+**Catalog.** `CATALOG.md` regenerated from prod (hash `16473ea43ecd`). The diff also carries the other session's `sommelier_turn` table and its Readers lines: deployed in `5bda7e4` but not yet in the catalog, so they come in with this regeneration.

@@ -2,7 +2,7 @@
 
 > Folder: `backend/src/features/coffee_presentation/` · Written 2026-10-24 after Dana's visual review of the C&N and Fruity dials on prod · Model: Sonnet throughout
 > Builds on briefs 1 to 3 (live). Same rules: roaster's words lead, attributed; our cupping only confirms; nothing hard-coded; nothing deleted; one door per table.
-> Status: done on test 2026-10-24, prod on Dana's go (`CLOSING_REPORT_4.md`, `WHAT_WE_BUILT.md` #236).
+> Status: done on prod 2026-10-24 (`81771aa`, rev 00780; `CLOSING_REPORT_4.md`, `WHAT_WE_BUILT.md` #236).
 
 ## Why (Dana, 2026-10-24, on prod)
 
