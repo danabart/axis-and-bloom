@@ -240,9 +240,13 @@ export const DEFAULT_SOMMELIER_CONFIG = {
       monthlySpendCeilingUsd: 5,
       // Planning estimates, not real Anthropic billing figures — tune these
       // against actual invoices once there's a month of real usage data.
+      // Liam sees everything brief Rev 2, C4 (2026-10-24): Sonnet set to the
+      // measured median cost per reply of the 16-turn smoke on rev 00779
+      // ($0.00452, turn ledger; was a $0.02 planning estimate). Haiku is not
+      // used by the chat path, so it was not measured and stays as it was.
       modelCostPerTurnUsd: {
         'claude-haiku-4-5-20251001': 0.002,
-        'claude-sonnet-4-6': 0.02,
+        'claude-sonnet-4-6': 0.0045,
       },
       anomalyMultiplier: 3,
       rateLimits: {
@@ -575,13 +579,25 @@ export const SEED_UPGRADES: Array<{ path: string; from: unknown }> = [
     ],
   },
   { path: 'contextAssembly.omitCatalogInExpertiseMode', from: true },
+  // C4: the measured cost per reply (the whole map, so the path has no hyphenated key).
+  { path: 'guards.modelCostPerTurnUsd', from: { 'claude-haiku-4-5-20251001': 0.002, 'claude-sonnet-4-6': 0.02 } },
 ];
+
+// Order-insensitive for objects (a live Firestore map's key order is not the
+// seed's), order-sensitive for arrays.
+function stableJson(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(stableJson).join(',')}]`;
+  if (v && typeof v === 'object') {
+    return `{${Object.keys(v as Record<string, unknown>).sort().map(k => `${JSON.stringify(k)}:${stableJson((v as Record<string, unknown>)[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(v);
+}
 
 /** The SEED_UPGRADES paths whose live value is still the previous seed value (pure; exported for the test). */
 export function seedUpgradePaths(seed: unknown, live: unknown, upgrades = SEED_UPGRADES): string[] {
   return upgrades
-    .filter(u => JSON.stringify(valueAt(live, u.path)) === JSON.stringify(u.from))
-    .filter(u => JSON.stringify(valueAt(seed, u.path)) !== JSON.stringify(u.from))
+    .filter(u => stableJson(valueAt(live, u.path)) === stableJson(u.from))
+    .filter(u => stableJson(valueAt(seed, u.path)) !== stableJson(u.from))
     .map(u => u.path);
 }
 

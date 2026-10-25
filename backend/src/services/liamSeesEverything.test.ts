@@ -42,7 +42,19 @@ describe('ABOUT THIS CUSTOMER block (Part B)', () => {
       saved: [], brewCards: [], liamHistory: [], counts: { feedbackCount: 8 },
     }));
     const [header, ...rest] = l1.split('\n');
-    expect(rev2).toBe([header, 'Name: Mara; member since Jul 2026', ...rest].join('\n'));
+    // No quiz on file is stated on the name line (B1's no-quiz rule needs the fact).
+    expect(rev2).toBe([header, 'Name: Mara; member since Jul 2026; no quiz on file', ...rest].join('\n'));
+  });
+
+  it('a customer with a quiz gets no "no quiz" note; one without a first name gets it as its own line', () => {
+    const withQuiz = buildProfileLine(emptyReads({
+      identity: { firstName: 'Mara', memberSince: null, householdMembers: 0 },
+      quizHistory: [{ archetypeName: 'Fruity', completedAt: new Date('2026-10-01T00:00:00Z') }],
+    }));
+    expect(withQuiz).toContain('Name: Mara\n');
+    expect(withQuiz).not.toContain('no quiz');
+    const noName = buildProfileLine(emptyReads({ identity: { firstName: null, memberSince: null, householdMembers: 0 }, quizHistory: [] }));
+    expect(noName.split('\n')[1]).toBe('No quiz on file');
   });
 
   it('orders: what and when only — no status, tracking, delivery date, street or id', () => {
@@ -189,6 +201,13 @@ describe('config upgrade and cost', () => {
     const edited = { brandFacts: { rules: ['Dana wrote this'] }, contextAssembly: { omitCatalogInExpertiseMode: true } };
     expect(seedUpgradePaths(DEFAULT_SOMMELIER_CONFIG, edited)).toEqual(['contextAssembly.omitCatalogInExpertiseMode']);
     expect(seedUpgradePaths(DEFAULT_SOMMELIER_CONFIG, DEFAULT_SOMMELIER_CONFIG)).toEqual([]);
+  });
+
+  it('an object upgrade matches the live map whatever its key order (Firestore does not keep the seed order)', () => {
+    const live = { guards: { modelCostPerTurnUsd: { 'claude-sonnet-4-6': 0.02, 'claude-haiku-4-5-20251001': 0.002 } } };
+    expect(seedUpgradePaths(DEFAULT_SOMMELIER_CONFIG, live)).toContain('guards.modelCostPerTurnUsd');
+    const edited = { guards: { modelCostPerTurnUsd: { 'claude-sonnet-4-6': 0.03, 'claude-haiku-4-5-20251001': 0.002 } } };
+    expect(seedUpgradePaths(DEFAULT_SOMMELIER_CONFIG, edited)).not.toContain('guards.modelCostPerTurnUsd');
   });
 
   it('the new subtrees are added as missing keys; supportContact lands inside brandFacts', () => {

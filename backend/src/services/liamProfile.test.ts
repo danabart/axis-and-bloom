@@ -436,11 +436,11 @@ describe('buildProfileLine (Liam L1, Part A) — one per C3 fixture customer', (
   ];
 
   // Liam sees everything brief Rev 2 (2026-10-24) added lines to the block
-  // (Name, Quiz, Feedback, Orders, Saved, Brew cards, Subscription, Ships to,
+  // (Name, No quiz on file, Quiz, Feedback, Orders, Saved, Brew cards, Subscription, Ships to,
   // With Liam before), each only when non-empty. These hand-verified
   // expectations are the L1 lines, so they are compared without the Rev 2
   // lines; the Rev 2 lines are tested in liamSeesEverything.test.ts.
-  const REV2_LINE = /^(Name: |Quiz: |Feedback \(newest first\): |Orders \(what and when only\): |\d+ earlier orders?|Saved to their profile: |Brew cards: |Subscription: |Ships to: |With Liam before: )/;
+  const REV2_LINE = /^(Name: |No quiz on file$|Quiz: |Feedback \(newest first\): |Orders \(what and when only\): |\d+ earlier orders?|Saved to their profile: |Brew cards: |Subscription: |Ships to: |With Liam before: )/;
   for (const { cid, label, expected } of cases) {
     it(`${cid} — ${label}`, async () => {
       const reads = await loadProfileReads(`vitest-${cid}`, tx);

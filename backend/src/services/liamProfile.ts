@@ -266,11 +266,16 @@ function monthYear(value: string | Date): string {
   return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
 }
 
-function buildNameLine(identity: CustomerIdentity | null | undefined): string | null {
-  if (!identity?.firstName) return null;
+// "no quiz on file" is stated as a fact (B1's no-quiz rule needs something to
+// act on: a missing Match line alone let Liam guess an archetype, found in the
+// live eval). It rides on the name line so an empty customer stays the L1
+// bytes plus that one line; without a first name it is its own line.
+function buildNameLine(identity: CustomerIdentity | null | undefined, noQuiz: boolean): string | null {
+  if (!identity?.firstName) return noQuiz && identity ? 'No quiz on file' : null;
   const parts = [`Name: ${identity.firstName}`];
   if (identity.memberSince) parts.push(`member since ${monthYear(identity.memberSince)}`);
   if (identity.householdMembers > 0) parts.push(`shares a household account with ${identity.householdMembers} other${identity.householdMembers === 1 ? '' : 's'}`);
+  if (noQuiz) parts.push('no quiz on file');
   return parts.join('; ');
 }
 
@@ -365,7 +370,7 @@ export function buildProfileLine(reads: ProfileReads): string {
 
   const lines = [
     HEADER,
-    buildNameLine(reads.identity),
+    buildNameLine(reads.identity, !quizCurrent?.archetypeName && !(reads.quizHistory?.length)),
     buildMatchLine(quizCurrent),
     buildQuizHistoryLine(reads.quizHistory),
     buildOpenThreadLine(quizCurrent, threads, exploreArchetypeCode),
