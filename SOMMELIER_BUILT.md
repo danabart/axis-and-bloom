@@ -1807,3 +1807,11 @@ Full diagnosis, evidence, and verification in `WHAT_WE_BUILT.md` #166; the S17 d
 - **Measured:** about $0.0007 (verbatim) / $0.001 (phrased) per gated reply against $0.0033 for a Sonnet reply, in a third to half the time.
 - **Nightly:** Sonnet's replies are labelled (a gate label = a miss the keywords did not catch) and every rule example is replayed; System Health shows the gated share, cost avoided, misses and replay agreement.
 - No change to `LIAM_BASE_PROMPT` or the cached blocks beyond one new brand fact (`order_status_unavailable`, the "a person can check" line, already a rule since #237).
+
+#### S119. Answer evals: is Liam right however a question is asked? (2026-10-25)
+
+**Pointer entry**, full record in `WHAT_WE_BUILT.md` #240 (`backend/src/features/ai_agent_liam/answer_evals/`). Dana: "how I can control his answers to make sure he is consistently giving the right answers no matter how a question is being asked."
+- **Every production reply** (opening, Sonnet, gate) is checked before it is recorded: no roaster name, no $ amount that is not a catalog price, no "we roast" claim. A hit is a flag on the ledger row and a number on System Health; the reply is never blocked or rewritten.
+- **The eval set:** 14 questions, each asked 5 ways by an invented customer (Mara, Theo, Ines, Sam), answered by the real prompt, the real catalog and the real answers (the gate first, as in production), graded by code and by a Haiku judge. Nightly after the labeller, or "Run evals now" on the admin card. Gated customer messages join the set automatically; labelled Sonnet turns are offered.
+- **First run:** 52 of 70 right (74%) for $0.35. What it found is in the closing report and OPEN_TASKS OT-48 to OT-53: the judge's output cap, the no-quiz reply, order status without the order, the order list, decafs offered before they are priced, and Liam naming the support contact "Dana".
+- No change to `LIAM_BASE_PROMPT`, the answers or any config value the replies use; the prompt-building code was split into pure functions with identical output.

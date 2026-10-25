@@ -342,6 +342,34 @@ Today it says the `order_status_unavailable` deflection verbatim, because nothin
 
 The decaf rule's `catalog_category` resolver lists the coffees in the category the message names. No catalog coffee carries `half_caf` today, so "Do you have half caf?" is confirmed and then sent to Sonnet (who answered well), and "caffeine free" names no category code or label. Harmless (each costs one Haiku confirmation, ~$0.0006); either drop those keywords from the rule or map them when half-caf coffees exist.
 
+### OT-47: a `liam_eval` AI feature bucket, if eval spend ever needs its own cap (Liam answer evals, 2026-10-25)
+
+Eval replies, gate calls and judge calls go through the spend guard as `liam_chat` (the brief's choice), so a run's cost counts against Liam's daily cap. A separate `AiFeature` (with its own toggle and daily dollars on the AI Operations page) is the fix if that ever matters; the run row already records each run's cost.
+
+### OT-48: the eval judge's output cap cuts some verdicts off (found 2026-10-25, first eval run)
+
+3 of the first run's 18 failures are `unparseable`: the judge's one-line reason ran past `evals.judgeMaxTokens` (seed 60, the brief's value) and the JSON was cut. A parse failure is a fail by design, so these are harness failures, not Liam's. Raising `evals.judgeMaxTokens` (config, no deploy), or asking for a shorter reason in `evals.judgePrompt`, is Dana's call; not changed.
+
+### OT-49: no-quiz customers get a preference question instead of the quiz offer (found 2026-10-25, first eval run)
+
+`no_quiz_recommend`: 4 of 5 replies say "No quiz on file" and then ask what the customer likes ("bright and fruity, or chocolatey?"); the judge question asks for the quiz to be offered instead of guessing. The B1 rule says "say so in one sentence and offer the quiz". Related to OT-40 (Liam declines to recommend at all without a quiz). Wording is Dana's.
+
+### OT-50: order-status replies do not say what was ordered and when (found 2026-10-25, first eval run)
+
+`order_status`: 4 of 5 point to a person for shipping status but do not name the order; the gate's verbatim `order_status_unavailable` answer cannot. `customerBlock.rules` says Liam "can see what was ordered and when". Either the case's judge question asks for more than Dana wants, or the deflection (an answer row) and the rule should name the order; Dana's call. `what_did_i_order`: 3 of 5 name the coffees but not the two orders with their dates.
+
+### OT-51: the gate lists decafs as available that the catalog cannot sell yet (found 2026-10-25, first eval run)
+
+"do you have any decaf?" (gate_haiku): "we have two decaf options: Nightcap Decaf and Decaf Mexico Veracruz"; both are "not yet available" in the catalog block (no active priced size). `catalog_category` lists every coffee in the category; it could skip, or say, the unpriced ones (a code change to the resolver). The judge also misread the decaf question once ("not every coffee in the catalog carries the Decaf label"); the question could be reworded to "every coffee the reply names".
+
+### OT-52: Liam names the support contact "Dana" (found 2026-10-24 smoke, confirmed 2026-10-25 eval run)
+
+With `brandFacts.supportContact` = `dana@axisandbloomcoffee.com`, Sonnet writes "Dana can check that for you". If a person's name should not appear, a neutral contact address or a rule ("say 'a person on our team'") is the fix; config, Dana's call.
+
+### OT-53: run the evals on a config change once a dev environment exists (Liam answer evals, 2026-10-25)
+
+Not on deploy and not on config change today: both would spend money unattended on production. The config page shows the last run beside the prompt fields so a run follows an edit by hand. With a dev environment, a config change there could trigger a run before the change reaches production.
+
 ### OT-19: `quizScoring.test.ts` — 12 pre-existing failures, not touched by Customer Blueprint C1 (found 2026-09-27)
 
 Found running the full `npm test` suite as part of Customer Blueprint C1's Part I verification (`git status`/`git log` confirm `backend/src/services/quizScoring.ts` and its test have no uncommitted diff and were last touched by commit `8edcac0`, already on `main` — this session never opened either file). **Pre-existing on `main` at `6f34238`, not introduced or touched by C1.** Not fixed here — out of scope for this brief.
