@@ -269,6 +269,11 @@ describe('the production reply check (Testing 4)', () => {
       expect(dirtyFlags).toEqual(['roaster_name']);
       expect(globalFlags(clean, globals, ctx)).toEqual([]);
       expect(globalFlags('Yes, we roast it ourselves for $30.', globals, ctx).sort()).toEqual(['banned_claim', 'price_not_in_catalog']);
+      // Follow-up 2 (2026-10-26, OT-50): a guessed shipping status is a banned_claim.
+      for (const guess of ["Good news, Sam: the Coado is on its way.", 'It has shipped already.', 'Your bag shipped on Oct 22.', 'It was delivered yesterday.', "It's out for delivery."]) {
+        expect(globalFlags(guess, globals, ctx)).toEqual(['banned_claim']);
+      }
+      expect(globalFlags("You ordered the Coado on Oct 21. I can't see shipping details from here.", globals, ctx)).toEqual([]);
       const sid = (await client.query<{ id: number }>(`INSERT INTO sommelier_sessions (uid, intent, turn_count) VALUES ('vitest-eval', 'MATCHED', 2) RETURNING id`)).rows[0].id;
       await recordTurn({ sessionId: sid, turn: 0, userMessageId: null, assistantMessageId: 'a0', route: 'model', replyFlags: dirtyFlags }, client);
       await recordTurn({ sessionId: sid, turn: 1, userMessageId: 'u1', assistantMessageId: 'a1', route: 'model', replyFlags: [] }, client);

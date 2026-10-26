@@ -13,7 +13,7 @@ import 'dotenv/config';
 import { describe, it, expect, afterAll } from 'vitest';
 import { db } from '../db/client.js';
 import { withRollback } from '../test/withRollback.js';
-import { buildProfileLine, type ProfileReads } from './liamProfile.js';
+import { buildProfileLine, shippingStatusLine, type ProfileReads } from './liamProfile.js';
 import { assembleSystemPrompt, assembleSystemPromptBlocks, renderBrandAnswersBlock, substituteSupportContact, LIAM_BASE_PROMPT } from './claude.js';
 import { renderFitBlock } from './sommelierRag.js';
 import { recordTurn } from './sommelierTurnService.js';
@@ -70,6 +70,21 @@ describe('ABOUT THIS CUSTOMER block (Part B)', () => {
     expect(line).toContain('Ships to: Hoboken, NJ');
     expect(line).toContain('Subscription: active (sponsored)');
     expect(line).not.toMatch(/pending|shipped|deliver|tracking|arriv|street/i);
+  });
+
+  it('orders: the shipping status line prints under the orders lines, contact filled; none without orders (follow-up 2, OT-50)', () => {
+    const cfg = { customerBlock: { shippingStatusLine: 'Shipping status: not visible to Liam; {supportContact} can check' }, brandFacts: { supportContact: 'help@example.com' } } as never;
+    const status = shippingStatusLine(cfg);
+    expect(status).toBe('Shipping status: not visible to Liam; help@example.com can check');
+    expect(shippingStatusLine(null)).toBeNull();
+    const withOrders = buildProfileLine(emptyReads({
+      aliasByCoffee: new Map([[7, 'Coado']]),
+      orders: { recent: [{ createdAt: new Date('2026-10-20T12:00:00Z'), lines: [{ coffeeId: 7, weightOz: 12, quantity: 2 }] }], olderCount: 0, olderArchetypeCounts: {} },
+      shippingStatusLine: status,
+    }));
+    expect(withOrders).toContain('Orders (what and when only): Oct 20: Coado 12 oz ×2\nShipping status: not visible to Liam; help@example.com can check');
+    const noOrders = buildProfileLine(emptyReads({ orders: { recent: [], olderCount: 0, olderArchetypeCounts: {} }, shippingStatusLine: status }));
+    expect(noOrders).not.toContain('Shipping status');
   });
 
   it('feedback, saved coffees, brew cards and earlier Liam sessions render by alias', () => {

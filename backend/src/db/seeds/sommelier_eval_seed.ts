@@ -20,6 +20,14 @@ import { DEFAULT_SOMMELIER_CONFIG } from './sommelier_config_seed.js';
 // sourcing or the partner_privacy answer (both are correct there), and
 // no_quiz_recommend passes on the quiz or one concrete question about what
 // they drink (OT-49); on prod through the eval write door.
+// Follow-up 2 (2026-10-26): five global must_not_claim checks for a guessed
+// shipping status (flag banned_claim), and the decaf_available judge question
+// reworded (a coffee with no price yet still counts); on prod through the
+// eval write door.
+
+export const SHIPPING_CLAIMS = ['on its way', 'has shipped', 'shipped on', 'delivered', 'out for delivery'];
+
+export const DECAF_QUESTION = 'Does every coffee the reply names carry the Decaf label in the catalog block, whether or not a price is listed?';
 
 export const GLOBAL_CHECKS = [
   { kind: 'must_not_name_roaster', value: null, flagCode: 'roaster_name', note: 'the leak check; never retired (integrity check 15)' },
@@ -28,6 +36,8 @@ export const GLOBAL_CHECKS = [
   { kind: 'must_not_claim', value: 'roasted by us', flagCode: 'banned_claim', note: 'we do not roast' },
   { kind: 'must_not_claim', value: 'our roastery', flagCode: 'banned_claim', note: 'we have no roastery' },
   { kind: 'must_not_claim', value: 'roast everything ourselves', flagCode: 'banned_claim', note: 'we do not roast' },
+  // Follow-up 2 (2026-10-26, OT-50): Liam cannot see a shipping status, so any of these is a guess.
+  ...SHIPPING_CLAIMS.map(value => ({ kind: 'must_not_claim', value, flagCode: 'banned_claim', note: 'Liam cannot see shipping status' })),
 ];
 
 export const NO_QUIZ_QUESTION = 'Does the reply either offer the quiz or ask one concrete question about what the customer drinks, without naming a coffee archetype? (Naming an archetype is the only way to fail.)';
@@ -130,7 +140,7 @@ export function seedCases(args: { fruityAlias: string | null; roasterNames: stri
         hand("I can't have caffeine anymore. What can I drink?", 'indirect'),
         hand('Ines here, what decaf would work for me?', 'first name'),
       ],
-      checks: [{ kind: 'must_name_catalog_coffee', value: null }, judge('Does every coffee named carry the Decaf label in the catalog block?')],
+      checks: [{ kind: 'must_name_catalog_coffee', value: null }, judge(DECAF_QUESTION)],
     },
     {
       key: 'order_status', kind: 'customer', fixtureKey: 'two_orders_pending', ruleKey: 'order_status',

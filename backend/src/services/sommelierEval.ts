@@ -25,7 +25,7 @@ import { getCatalogBlock, fetchSommelierCoffees, type CatalogBlock, type Catalog
 import { routeTopic } from './topicRouter.js';
 import { tryGate, callHaiku, type HaikuCaller, type CustomerReadsForGate } from './sommelierGate.js';
 import {
-  buildProfileLine, sessionRagFromReads, messageTurnContext, storyCandidatesFromBlock, type ProfileReads,
+  buildProfileLine, sessionRagFromReads, messageTurnContext, storyCandidatesFromBlock, shippingStatusLine, type ProfileReads,
 } from './liamProfile.js';
 import type { BrewProfileDoc } from './brewProfile.js';
 import type { FeedbackCurrentRow, QuizCurrentRow, RecentOrders, TimelineEntry } from './customerReads.js';
@@ -118,6 +118,7 @@ export function fixtureReads(fixture: LiamEvalFixture, catalog: CatalogCoffee[],
     shipsTo: fixture.shipsTo,
     saved: [], savedSlotAlias: new Map(), brewCards: [], liamHistory: [], archetypeLabels: new Map(),
     counts: { feedbackCount: cfg?.customerBlock?.feedbackCount ?? 8 },
+    shippingStatusLine: shippingStatusLine(cfg),
   };
   const brewProfile = Object.keys(fixture.brewProfile).length ? (fixture.brewProfile as unknown as BrewProfileDoc) : null;
   return { fixture, reads, brewProfile, missingAliases: [...missing] };

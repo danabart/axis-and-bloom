@@ -98,6 +98,8 @@ export interface SommelierConfig {
     feedbackCount: number;
     sessionsCount: number;
     rules: string[];
+    // Answer evals follow-up 2 (2026-10-26): printed under the orders lines.
+    shippingStatusLine?: string;
   };
   // Part C4 — the shared breakpoint's cache TTL.
   promptCache?: {

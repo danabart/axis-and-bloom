@@ -112,6 +112,10 @@ export interface ProfileReads {
   liamHistory?: LiamSessionHistory[];
   archetypeLabels?: Map<string, string>;  // code -> label (older-orders line)
   counts?: { feedbackCount: number };
+  // Answer evals follow-up 2 (2026-10-26, OT-50): the line printed under the
+  // orders lines (customerBlock.shippingStatusLine, {supportContact} filled),
+  // so Sonnet has the sentence to say instead of guessing a status.
+  shippingStatusLine?: string | null;
 }
 
 const HEADER = 'ABOUT THIS CUSTOMER (facts; rebuilt every turn)';
@@ -301,7 +305,15 @@ function buildFeedbackLine(feedback: FeedbackCurrentRow[], aliasByCoffee: Map<nu
   return `Feedback (newest first): ${clauses.join('; ')}`;
 }
 
-function buildOrdersLines(orders: RecentOrders | undefined, aliasByCoffee: Map<number, string>, archetypeLabels: Map<string, string>): string[] {
+/** customerBlock.shippingStatusLine with {supportContact} filled in; null when not configured. */
+export function shippingStatusLine(cfg: SommelierConfig | null | undefined): string | null {
+  const line = cfg?.customerBlock?.shippingStatusLine?.trim();
+  if (!line) return null;
+  const contact = cfg?.brandFacts?.supportContact;
+  return contact ? line.replace(/\{supportContact\}/g, contact) : line;
+}
+
+function buildOrdersLines(orders: RecentOrders | undefined, aliasByCoffee: Map<number, string>, archetypeLabels: Map<string, string>, statusLine?: string | null): string[] {
   if (!orders || (!orders.recent.length && !orders.olderCount)) return [];
   const lines: string[] = [];
   if (orders.recent.length) {
@@ -319,6 +331,7 @@ function buildOrdersLines(orders: RecentOrders | undefined, aliasByCoffee: Map<n
     const top = Object.entries(orders.olderArchetypeCounts).sort((a, b) => b[1] - a[1])[0];
     lines.push(`${orders.olderCount} earlier order${orders.olderCount === 1 ? '' : 's'}${top ? `, mostly ${archetypeLabels.get(top[0]) ?? top[0]}` : ''}`);
   }
+  if (statusLine) lines.push(statusLine);
   return lines;
 }
 
@@ -380,7 +393,7 @@ export function buildProfileLine(reads: ProfileReads): string {
     buildDislikedLine(feedbackCurrent, aliasByCoffee),
     buildHadBeforeLine(timeline, feedbackCurrent, aliasByCoffee),
     reads.counts ? buildFeedbackLine(feedbackCurrent, aliasByCoffee, reads.counts.feedbackCount) : null,
-    ...buildOrdersLines(reads.orders, aliasByCoffee, reads.archetypeLabels ?? new Map()),
+    ...buildOrdersLines(reads.orders, aliasByCoffee, reads.archetypeLabels ?? new Map(), reads.shippingStatusLine),
     buildSavedLine(reads.saved, aliasByCoffee, reads.savedSlotAlias),
     brewProfile && Object.keys(brewProfile).length
       ? `Setup: ${formatBrewProfileSummary(brewProfile as unknown as BrewProfileDoc)}`
@@ -405,7 +418,8 @@ export function buildProfileLine(reads: ProfileReads): string {
 // through (see sommelierRag.ts) — sees fixture rows that are never committed.
 export async function loadProfileReads(uid: string, runner: Tx | typeof db = db, opts: { sessionId?: number | null } = {}): Promise<ProfileReads> {
   // Rev 2, Part B — the counts live in config (customerBlock.*).
-  const cb = getSommelierConfig()?.customerBlock;
+  const cfg = getSommelierConfig();
+  const cb = cfg?.customerBlock;
   const counts = {
     quizHistory: cb?.quizHistoryCount ?? 3, orders: cb?.ordersFullCount ?? 5,
     feedback: cb?.feedbackCount ?? 8, sessions: cb?.sessionsCount ?? 3,
@@ -463,6 +477,7 @@ export async function loadProfileReads(uid: string, runner: Tx | typeof db = db,
     archetypeSpread, threads, slotCandidates, timeline, aliasByCoffee, exploreArchetypeCode,
     identity, quizHistory, orders, subscription, shipsTo, saved, savedSlotAlias, brewCards, liamHistory, archetypeLabels,
     counts: { feedbackCount: counts.feedback },
+    shippingStatusLine: shippingStatusLine(cfg),
   };
 }
 

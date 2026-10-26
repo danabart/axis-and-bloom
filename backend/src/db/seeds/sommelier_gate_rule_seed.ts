@@ -26,6 +26,10 @@ import { setRuleInTx, assertRuleTests, type SetRuleInput } from '../../services/
 // answer to customer_orders (what was ordered and when, then the same answer
 // text), so its must_match label is customer_orders; on prod through
 // gate:rules:apply.
+// Answer evals follow-up 2 (2026-10-26, OT-50): order_status gains "any
+// news", "has my order shipped", "shipped yet"; new rule what_did_i_order
+// (resolver customer_orders). Must_match examples are eval phrasings; the
+// compounds stay must_not_match. On prod through gate:rules:apply.
 
 export const ORDER_STATUS_ANSWER = {
   key: 'order_status_unavailable',
@@ -86,15 +90,33 @@ export function seedRules(roasterNames: string[]): SeedRule[] {
     },
     {
       key: 'order_status', priority: 40, resolver: 'customer_orders', answerKey: 'order_status_unavailable', topicKey: 'other',
-      keywords: ['where is my order', "where's my order", 'has it shipped', 'tracking', 'when will it arrive', 'delivery date'],
+      keywords: ['where is my order', "where's my order", 'has it shipped', 'tracking', 'when will it arrive', 'delivery date', 'any news', 'has my order shipped', 'shipped yet'],
       examples: [
         mm('Where is my order?', 'customer_orders'),
         mm('Has it shipped yet?', 'customer_orders'),
         mm('Do you have a tracking number for me?', 'customer_orders'),
         mm('When will it arrive?', 'customer_orders'),
         mm("What's my delivery date?", 'customer_orders'),
+        mm("It's been a few days since I ordered. Any news?", 'customer_orders'),
+        mm('Sam here, has my order shipped?', 'customer_orders'),
+        mn('Any news on new coffees this month?'),
         mn('When will it arrive, and should I rest it before brewing?'),
         mn("Where's my order? Also, which coffee should I try next?"),
+      ],
+    },
+    {
+      // Answer evals follow-up 2 (2026-10-26, OT-50): what was ordered and
+      // when, through the same resolver and answer as order_status. Priority
+      // after order_status, so "has my last order shipped?" stays a status question.
+      key: 'what_did_i_order', priority: 45, resolver: 'customer_orders', answerKey: 'order_status_unavailable', topicKey: 'other',
+      keywords: ['what did i order', 'what did i get', 'bought so far', 'my last order', 'what have i bought', 'i have purchased'],
+      examples: [
+        mm('what did I order before?', 'customer_orders'),
+        mm('Could you remind me which coffees I have purchased?', 'customer_orders'),
+        mm('Sam here, what have I bought so far?', 'customer_orders'),
+        mm('What was in my last order?', 'customer_orders'),
+        mn('Can you recommend something like my last order?'),
+        mn('What did I order before, and what should I try next?'),
       ],
     },
     {

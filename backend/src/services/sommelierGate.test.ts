@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import { withRollback } from '../test/withRollback.js';
 import { DEFAULT_SOMMELIER_CONFIG } from '../db/seeds/sommelier_config_seed.js';
-import { seedGateRules } from '../db/seeds/sommelier_gate_rule_seed.js';
+import { seedGateRules, seedRules } from '../db/seeds/sommelier_gate_rule_seed.js';
 import { seedSommelierAnswers } from '../db/seeds/sommelier_answer_seed.js';
 import { setRuleInTx, retireRuleInTx, setExampleInTx } from './sommelierGateRuleService.js';
 import {
@@ -66,7 +66,7 @@ describe('rule tests (Testing 2)', () => {
   it('the seed rules load and every example passes steps 2 and 3 with the confirmation stubbed', async () => {
     await withRollback(async ({ client }) => {
       const rules = await seeded(client);
-      expect(rules.map(r => r.key).sort()).toEqual(['decaf', 'do_you_roast', 'order_status', 'price', 'subscription_status', 'what_you_get', 'which_roastery']);
+      expect(rules.map(r => r.key).sort()).toEqual(['decaf', 'do_you_roast', 'order_status', 'price', 'subscription_status', 'what_did_i_order', 'what_you_get', 'which_roastery']);
       const examples = await getExamples(null, client);
       expect(exampleFailures(rules, examples, 160)).toEqual([]);
       for (const r of rules) {
@@ -142,7 +142,9 @@ describe('the confirmation prompt', () => {
       expect(prompt).toContain('- partner_privacy: the customer asks, or guesses by name, something this reply deliberately declines to tell them (a guessed name that is not one of the coffees listed below counts as asking)');
       expect(prompt).toMatch(/- sourcing: the customer asks something this reply fully answers: "We do not roast/);
       // order_status is customer_orders now: described by gate.resolverDescriptions, not by its answer text.
-      expect(prompt).toContain('- customer_orders: the customer asks where their order is, whether it has shipped, its tracking, or when it will arrive');
+      // Follow-up 2: one customer_orders line for both order_status and what_did_i_order (labels are deduplicated).
+      expect(prompt).toContain('- customer_orders: the customer asks what they ordered before, where their order is, whether it has shipped, its tracking, or when it will arrive');
+      expect(prompt.match(/- customer_orders:/g)).toHaveLength(1);
       expect(prompt).toContain('Customer message: is it Joe Coffee?');
     });
   }, 60000);
@@ -157,7 +159,14 @@ describe('matching and parsing (pure)', () => {
     expect(gatedRuleFor('how much?', rules, 'b', 160)).toBe('b');
     expect(gatedRuleFor(`how much ${'x'.repeat(200)}`, rules, 'b', 160)).toBeNull();
   });
-  it('parseConfirm reads the first JSON object and treats junk as unparsed', () => {
+  it('follow-up 2 (OT-50): seeded order rules: a status question stays order_status, a history question is what_did_i_order', () => {
+    const rules = seedRules([]).map(r => rule(r.key, r.priority, r.keywords, r.resolver, r.answerKey ?? null));
+    expect(matchCandidate('Any news on my last order?', rules)?.rule.key).toBe('order_status');
+    expect(matchCandidate("It's been a few days since I ordered. Any news?", rules)?.rule.key).toBe('order_status');
+    expect(matchCandidate('Sam here, what have I bought so far?', rules)?.rule.key).toBe('what_did_i_order');
+    expect(matchCandidate('wat did i get last time', rules)).toBeNull();
+  });
+    it('parseConfirm reads the first JSON object and treats junk as unparsed', () => {
     expect(parseConfirm('{"label":"sourcing","alias":null,"confidence":0.93}')).toEqual({ label: 'sourcing', alias: null, confidence: 0.93 });
     expect(parseConfirm('Sure! {"label": "catalog_price", "alias": "Coado", "confidence": 1}')?.alias).toBe('Coado');
     expect(parseConfirm('{"label":"catalog_price","alias":"There')).toBeNull();
