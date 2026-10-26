@@ -5706,6 +5706,15 @@ CREATE TABLE IF NOT EXISTS sommelier_eval_phrasing (
   UNIQUE (case_id, message)
 );
 
+-- Answer evals follow-up 4 (2026-10-26, OT-55): the coffee a copied turn
+-- resolved, so a copied price question is graded on that coffee. Backfill
+-- (idempotent): every copied phrasing still without one takes its source
+-- turn's coffee_id (set only on gated catalog_price turns).
+ALTER TABLE sommelier_eval_phrasing ADD COLUMN IF NOT EXISTS coffee_id INTEGER REFERENCES coffees(id);
+UPDATE sommelier_eval_phrasing p SET coffee_id = t.coffee_id
+  FROM sommelier_turn t
+ WHERE t.id = p.source_turn_id AND p.coffee_id IS NULL AND t.coffee_id IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS sommelier_reply_check (
   id            SERIAL PRIMARY KEY,
   case_id       INTEGER REFERENCES sommelier_eval_case(id),

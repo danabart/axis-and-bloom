@@ -13,6 +13,7 @@ import { runCheck, globalFlags, dollarAmountsCents, type CheckContext } from './
 import { runEvals, addCustomerPhrasings, parseJudge, fixtureReads, fixtureCustomerReads, compactCatalog } from './sommelierEval.js';
 import { getCurrentCases, getPhrasings, getChecks, getAllCurrentChecks, getRunResults, getActiveRules, type ReplyCheckRow, type SommelierAnswerRow } from './sommelierReads.js';
 import { recordTurn } from './sommelierTurnService.js';
+import { setCaseInTx } from './sommelierEvalService.js';
 import { runEvalChecks, type EvalCheckInput } from './sommelierIntegrity.js';
 import { getCatalogCoffees, type CatalogBlock, type CatalogCoffee } from './sommelierRag.js';
 import { assembleSystemPromptBlocks, sharedTierText } from './claude.js';
@@ -63,6 +64,17 @@ describe('graders (Testing 2)', () => {
     expect(runCheck(chk('must_contain_price_of', 'clean fruit'), 'It is $29.00 for 12 oz.', CTX)).toMatchObject({ pass: false, detail: 'missing 2 lb $68.00' });
     expect(runCheck(chk('must_contain_price_of', 'Nightcap Decaf'), 'Not yet.', CTX)).toMatchObject({ pass: false });
     expect(runCheck(chk('must_contain_price_of', 'Ethiopia'), '$29', CTX)).toMatchObject({ pass: false });
+  });
+
+  it('follow-up 4 (OT-55): must_contain_price_of checks the phrasing’s coffee when set, else the alias, else the case’s coffee', () => {
+    const two = { ...CTX, catalog: [...CTX.catalog, { ...CTX.catalog[0], id: 7, alias: 'Coado', sizes: [{ label: '12 oz', cents: 3200 }] }] };
+    // A copied "How much is the Coado?" on a Clean Fruit case: graded on Coado.
+    expect(runCheck(chk('must_contain_price_of', 'Clean Fruit'), 'The Coado is $32.00 for 12 oz.', { ...two, phrasingCoffeeId: 7 })).toEqual({ pass: true });
+    expect(runCheck(chk('must_contain_price_of', 'Clean Fruit'), 'The Coado is $29.00 for 12 oz.', { ...two, phrasingCoffeeId: 7 })).toMatchObject({ pass: false, detail: 'missing 12 oz $32.00' });
+    expect(runCheck(chk('must_contain_price_of', 'Clean Fruit'), 'x', { ...two, phrasingCoffeeId: 99 })).toMatchObject({ pass: false, detail: '"coffee 99" is not in the catalog block' });
+    // No phrasing coffee: the check's alias, as before; no alias: the case's coffee.
+    expect(runCheck(chk('must_contain_price_of', 'Clean Fruit'), 'The Coado is $32.00 for 12 oz.', { ...two, phrasingCoffeeId: null })).toMatchObject({ pass: false });
+    expect(runCheck(chk('must_contain_price_of', ''), '$32 for 12 oz', { ...two, caseCoffeeAlias: 'Coado' })).toEqual({ pass: true });
   });
   it('price_in_catalog_only: against a block with two sizes', () => {
     expect(dollarAmountsCents('$29, $68.00 and $1,200.5')).toEqual([2900, 6800, 120050]);
@@ -170,8 +182,8 @@ describe('the runner (Testing 3, Sonnet and Haiku stubbed)', () => {
       await seedAll(client);
       const cases = await getCurrentCases(client);
       const phrasings = await getPhrasings(null, client);
-      expect(cases.length).toBe(14);
-      expect(phrasings.length).toBeGreaterThanOrEqual(14 * 4);
+      expect(cases.length).toBe(15); // follow-up 4: shipping split into shipping and shipping_terms
+      expect(phrasings.length).toBeGreaterThanOrEqual(15 * 4);
       const before = await counts(client);
       const chat = chatStub('We do not roast. We carefully select the best roasteries across the US to partner with.');
       const summary = await runEvals({ trigger: 'manual', createdBy: 'vitest' }, {
@@ -288,7 +300,7 @@ describe('the production reply check (Testing 4)', () => {
 describe('integrity checks 11 to 15', () => {
   const base = (): EvalCheckInput => ({
     cases: [{ id: 1, key: 'c', kind: 'brand', fixture_key: 'fruity_high_conf', catalog_alias: null, turn_context: null, rule_key: null, since: new Date(), superseded_at: null, note: null, created_by: 'v' }],
-    phrasings: [{ id: 1, case_id: 1, case_key: 'c', message: 'm', source: 'hand', source_turn_id: null, since: new Date(), note: null }],
+    phrasings: [{ id: 1, case_id: 1, case_key: 'c', message: 'm', source: 'hand', source_turn_id: null, coffee_id: null, since: new Date(), note: null }],
     checks: [
       { id: 1, case_id: 1, kind: 'must_contain_answer', value: 'sourcing', flag_code: null, since: new Date(), note: null, created_by: 'v' },
       { id: 2, case_id: null, kind: 'must_not_name_roaster', value: null, flag_code: 'roaster_name', since: new Date(), note: null, created_by: 'v' },
@@ -342,6 +354,24 @@ describe('phrasings grow from customers (C5)', () => {
       expect((await getPhrasings(caseId, client)).filter(p => p.source === 'customer_turn').map(p => p.message)).toEqual(['ya roast these urself?']);
       const second = await addCustomerPhrasings(window, { runner: client, config: evalCfg(), readMessage });
       expect(second).toMatchObject({ candidates: 0, added: 0 });
+    });
+  }, 60000);
+
+  it('follow-up 4 (OT-55): a copied price turn keeps the coffee it resolved, through a case edit', async () => {
+    await withRollback(async ({ client }) => {
+      await seedAll(client);
+      const rule = (await getActiveRules(client)).find(r => r.key === 'price')!;
+      const coffeeId = (await client.query<{ id: number }>(`SELECT id FROM coffees ORDER BY id LIMIT 1`)).rows[0].id;
+      const sid = (await client.query<{ id: number }>(`INSERT INTO sommelier_sessions (uid, intent, turn_count) VALUES ('vitest-eval', 'MATCHED', 2) RETURNING id`)).rows[0].id;
+      await recordTurn({ sessionId: sid, turn: 1, userMessageId: 'u1', assistantMessageId: 'a1', route: 'gate_haiku', ruleId: rule.id, coffeeId }, client);
+      const now = (await client.query<{ now: Date }>(`SELECT now() AS now`)).rows[0].now;
+      await addCustomerPhrasings({ from: now, to: new Date(now.getTime() + 1) }, { runner: client, config: evalCfg(), readMessage: async () => 'how much is that other one?' });
+      const copied = async () => (await getPhrasings(null, client)).find(p => p.case_key === 'price_named' && p.message === 'how much is that other one?');
+      expect((await copied())?.coffee_id).toBe(coffeeId);
+      expect((await getPhrasings(null, client)).filter(p => p.case_key === 'price_named' && p.source === 'hand').every(p => p.coffee_id === null)).toBe(true);
+      const c = (await getCurrentCases(client)).find(x => x.key === 'price_named')!;
+      await setCaseInTx(client, { key: c.key, kind: c.kind, fixtureKey: c.fixture_key, coffeeAlias: c.catalog_alias, ruleKey: c.rule_key, createdBy: 'vitest', expect: 'edit' });
+      expect((await copied())?.coffee_id).toBe(coffeeId);
     });
   }, 60000);
 });

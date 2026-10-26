@@ -435,6 +435,7 @@ export interface EvalPhrasingRow {
   message: string;
   source: string;          // lookup_value.value in sommelier_eval_source
   source_turn_id: number | null;
+  coffee_id: number | null;   // follow-up 4 (OT-55): the coffee the source turn resolved
   since: Date;
   note: string | null;
 }
@@ -504,7 +505,7 @@ export async function getCurrentCases(runner: Runner = db): Promise<EvalCaseRow[
 /** Current phrasings of current cases (of one case row when caseId is given), by case key then id. */
 export async function getPhrasings(caseId: number | null = null, runner: Runner = db): Promise<EvalPhrasingRow[]> {
   const r = await runner.query<EvalPhrasingRow>(
-    `SELECT p.id, p.case_id, c.key AS case_key, p.message, s.value AS source, p.source_turn_id, p.since, p.note
+    `SELECT p.id, p.case_id, c.key AS case_key, p.message, s.value AS source, p.source_turn_id, p.coffee_id, p.since, p.note
        FROM sommelier_eval_phrasing p
        JOIN sommelier_eval_case c ON c.id = p.case_id
        JOIN lookup_value s ON s.id = p.source_id
@@ -643,9 +644,9 @@ export async function getCustomerPhrasingCount(days: number, runner: Runner = db
 /** Gated turns in [from, to) whose rule key a current case names (rule_key), not yet a phrasing source: C5's nightly copy list. */
 export async function getGatedTurnsForPhrasings(
   args: { from: Date; to: Date }, runner: Runner = db
-): Promise<Array<{ turn_id: number; session_id: number; uid: string; user_message_id: string; case_id: number; case_key: string }>> {
-  const r = await runner.query<{ turn_id: number; session_id: number; uid: string; user_message_id: string; case_id: number; case_key: string }>(
-    `SELECT t.id AS turn_id, t.session_id, s.uid, t.user_message_id, c.id AS case_id, c.key AS case_key
+): Promise<Array<{ turn_id: number; session_id: number; uid: string; user_message_id: string; coffee_id: number | null; case_id: number; case_key: string }>> {
+  const r = await runner.query<{ turn_id: number; session_id: number; uid: string; user_message_id: string; coffee_id: number | null; case_id: number; case_key: string }>(
+    `SELECT t.id AS turn_id, t.session_id, s.uid, t.user_message_id, t.coffee_id, c.id AS case_id, c.key AS case_key
        FROM sommelier_turn t
        JOIN sommelier_sessions s ON s.id = t.session_id
        JOIN sommelier_gate_rule g ON g.id = t.rule_id

@@ -19,6 +19,11 @@ export interface CheckContext {
   catalog: CatalogCoffee[];
   answers: SommelierAnswerRow[];
   supportContact?: string | null;
+  // Follow-up 4 (2026-10-26, OT-55), eval only: must_contain_price_of checks
+  // the phrasing's coffee when set (a copied turn's resolved coffee), else the
+  // check's alias, else the case's coffee_alias.
+  phrasingCoffeeId?: number | null;
+  caseCoffeeAlias?: string | null;
 }
 
 export type CheckOutcome =
@@ -79,9 +84,12 @@ export function runCheck(check: Pick<ReplyCheckRow, 'kind' | 'value'>, reply: st
       return { judge: `Does the reply state the same fact as at least one of these answers, in any words, without contradicting it: ${texts.map(t => `"${t}"`).join(' or ')}?` };
     }
     case 'must_contain_price_of': {
-      const coffee = findCoffee(ctx.catalog, value);
-      if (!coffee) return { pass: false, detail: `"${value}" is not in the catalog block` };
-      if (!coffee.sizes.length) return { pass: false, detail: `"${value}" has no price in the catalog block` };
+      const byId = ctx.phrasingCoffeeId != null;
+      const alias = value.trim() || ctx.caseCoffeeAlias?.trim() || '';
+      const coffee = byId ? ctx.catalog.find(c => c.id === ctx.phrasingCoffeeId) : findCoffee(ctx.catalog, alias);
+      const name = byId ? (coffee?.alias ?? `coffee ${ctx.phrasingCoffeeId}`) : alias;
+      if (!coffee) return { pass: false, detail: `"${name}" is not in the catalog block` };
+      if (!coffee.sizes.length) return { pass: false, detail: `"${name}" has no price in the catalog block` };
       const said = new Set(dollarAmountsCents(reply));
       const missing = coffee.sizes.filter(s => !said.has(s.cents));
       return missing.length ? { pass: false, detail: `missing ${missing.map(s => `${s.label} ${fmt(s.cents)}`).join(', ')}` } : { pass: true };

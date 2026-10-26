@@ -15,7 +15,8 @@
 //      candidates, else the session's last recommendation; one coffee only;
 //   5. resolve: a brand answer verbatim, or one catalog/customer row;
 //   6. phrase: data rows become at most two Haiku sentences, sanitized
-//      (customer_orders then appends its answer text verbatim);
+//      (customer_orders is built in code instead: its order sentences, then
+//      its answer text verbatim);
 //   7. the route records the turn (Firestore, ledger, write-back skipped).
 // Anything unconfirmed, compound, ambiguous, unparsed or guard-blocked returns
 // { gated: false } and the turn goes to Sonnet exactly as before: every tie
@@ -47,7 +48,7 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 /**
  * The resolver registry: the code half of lookup category sommelier_gate_resolver.
  * `phrased` resolvers go through Haiku; `takesAnswer` ones name a
- * sommelier_answer key (answer says it verbatim, customer_orders appends it).
+ * sommelier_answer key (answer says it verbatim, customer_orders says it after the order sentences).
  */
 export const RESOLVERS: Record<string, { phrased: boolean; takesAnswer?: boolean }> = {
   answer: { phrased: false, takesAnswer: true },
@@ -56,7 +57,8 @@ export const RESOLVERS: Record<string, { phrased: boolean; takesAnswer?: boolean
   customer_subscription: { phrased: true },
   // Answer evals follow-up (2026-10-25, OT-50): what was ordered and when, then
   // the order_status_unavailable text. No status, tracking or delivery date.
-  customer_orders: { phrased: true, takesAnswer: true },
+  // Follow-up 4 (2026-10-26, OT-56): built in code, not phrased by Haiku.
+  customer_orders: { phrased: false, takesAnswer: true },
 };
 export const JUDGMENT = 'judgment';
 const UNPARSED = 'unparsed';
@@ -246,14 +248,23 @@ export function firstSentences(text: string, n: number): string {
 
 const norm = (s: string) => s.toLowerCase().replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
 
+// Follow-up 4 (OT-56): the seed's customerBlock.orderLineTemplate, used when the live config lacks it.
+export const DEFAULT_ORDER_LINE_TEMPLATE = 'You ordered {alias} on {date}.';
+
+/** One order's lines as "Coado 12 oz", "Classic Balanced 12 oz x2", joined "A, B and C". */
+export function orderItems(lines: Array<{ coffeeId: number | null; weightOz: number | null; quantity: number }>, aliasById: Map<number, string>): string {
+  const items = lines.map(l => {
+    const alias = (l.coffeeId !== null ? aliasById.get(l.coffeeId) : undefined) ?? 'a coffee';
+    return `${alias}${l.weightOz !== null ? ` ${l.weightOz} oz` : ''}${l.quantity > 1 ? ` x${l.quantity}` : ''}`;
+  });
+  if (!items.length) return 'an order';
+  return items.length === 1 ? items[0] : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
 export interface ResolvedRow {
-  /** Verbatim reply (resolver answer) or the facts Haiku phrases. */
+  /** Verbatim reply (resolvers answer and customer_orders) or the facts Haiku phrases. */
   text: string;
   phrased: boolean;
-  /** Said verbatim after the phrased sentences (customer_orders: its answer text). */
-  suffix?: string;
-  /** How many phrased sentences are kept (default 2; customer_orders keeps 1, the order sentence). */
-  sentences?: number;
   coffeeId: number | null;
   answerId: number | null;
 }
@@ -289,27 +300,15 @@ export async function resolveRule(args: {
     if (!answer) return null;
     const orders = await customer.getRecentOrders(args.uid, cfg?.gate?.recentOrders ?? 2, args.runner);
     if (!orders.recent.length) return { text: answer.text, phrased: false, coffeeId: null, answerId: answer.id };
+    // Follow-up 4 (2026-10-26, OT-56): one sentence per order from config
+    // customerBlock.orderLineTemplate, newest first, built here. Haiku listed
+    // two orders oldest first in 5 of 8 replies even when told the order.
     const aliasById = new Map((await args.coffees()).map(c => [c.id, c.alias] as const));
-    const lines = orders.recent.map(o => {
-      const items = o.lines.map(l => {
-        const alias = (l.coffeeId !== null ? aliasById.get(l.coffeeId) : undefined) ?? 'a coffee';
-        return `${alias}${l.weightOz !== null ? ` ${l.weightOz} oz` : ''} x${l.quantity}`;
-      });
-      return `Ordered ${shortDate(o.createdAt)}: ${items.length ? items.join(', ') : 'an order'}`;
-    });
-    return {
-      // The facts say what to do with them: the first eval rerun (2026-10-25) had
-      // Haiku answer "where is my order?" with "I don't have access..." instead
-      // of the orders, and the appended answer then said it twice. Follow-up 3
-      // (2026-10-26): run 7 had "...on September 28th, and before that ...
-      // October 21st", so the order of the lines is now an instruction.
-      text: [
-        'Reply with one sentence that starts "You ordered" and says what the customer ordered and when, from these lines. The lines are listed newest first; state them in that order, newest first. This is all we know about their orders.',
-        ...lines,
-        'Do not mention shipping, status, tracking, delivery or what you can or cannot see: the sentence after yours says that.',
-      ].join('\n'),
-      phrased: true, suffix: answer.text, sentences: 1, coffeeId: null, answerId: answer.id,
-    };
+    const template = cfg?.customerBlock?.orderLineTemplate?.trim() || DEFAULT_ORDER_LINE_TEMPLATE;
+    const sentences = [...orders.recent]
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .map(o => fill(template, { alias: orderItems(o.lines, aliasById), date: shortDate(o.createdAt) }));
+    return { text: [...sentences, answer.text].join(' '), phrased: false, coffeeId: null, answerId: answer.id };
   }
   if (rule.resolver === 'catalog_price') {
     if (args.coffeeId === null) return null;
@@ -468,7 +467,7 @@ export async function tryGate(input: TryGateInput, deps: GateDeps = {}): Promise
     const row = await resolveRule({ rule: candidate.rule, uid: input.uid, message: input.message, coffeeId, answers, coffees, cfg, runner, customer: deps.customer });
     if (!row) return notGated('nothing_to_say', { ...base, usdMicros: spent() });
     const roasterNames = await (deps.roasterNames ?? (() => loadRoasterNames(runner)))();
-    if (namesRoaster(`${row.text}\n${row.suffix ?? ''}`, roasterNames)) {
+    if (namesRoaster(row.text, roasterNames)) {
       console.error(`[liam:GATE] resolver ${candidate.rule.resolver} output named a roaster; sent to the model instead`);
       return notGated('roaster_in_row', { ...base, usdMicros: spent() });
     }
@@ -482,9 +481,8 @@ export async function tryGate(input: TryGateInput, deps: GateDeps = {}): Promise
         prompt: fill(gate.phrasePrompt ?? '', { facts: row.text, history: recent || '(none)', message: input.message }),
       });
       calls.push(phrase);
-      reply = firstSentences(parseAndStripMarkers(phrase.text, 0).reply, row.sentences ?? 2);
+      reply = firstSentences(parseAndStripMarkers(phrase.text, 0).reply, 2);
       if (!reply || namesRoaster(reply, roasterNames)) return notGated(reply ? 'roaster_in_reply' : 'empty_phrase', { ...base, usdMicros: spent() });
-      if (row.suffix) reply = `${reply} ${row.suffix}`;
     }
 
     const answersVersion = answers.length ? Math.max(...answers.map(a => a.id)) : null;

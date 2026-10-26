@@ -100,6 +100,9 @@ export interface SommelierConfig {
     rules: string[];
     // Answer evals follow-up 2 (2026-10-26): printed under the orders lines.
     shippingStatusLine?: string;
+    // Answer evals follow-up 4 (2026-10-26): the gate's customer_orders
+    // sentence, one per order, newest first; {alias} the order's coffees, {date}.
+    orderLineTemplate?: string;
   };
   // Part C4 — the shared breakpoint's cache TTL.
   promptCache?: {

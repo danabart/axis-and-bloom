@@ -24,8 +24,12 @@ import { DEFAULT_SOMMELIER_CONFIG } from './sommelier_config_seed.js';
 // shipping status (flag banned_claim), and the decaf_available judge question
 // reworded (a coffee with no price yet still counts); on prod through the
 // eval write door.
+// Follow-up 4 (2026-10-26, OT-57): shipping split into shipping (region) and
+// shipping_terms (time and cost, not decided); on prod through the write door.
 
 export const SHIPPING_CLAIMS = ['on its way', 'has shipped', 'shipped on', 'delivered', 'out for delivery'];
+
+export const SHIPPING_TERMS_QUESTION = 'Does the reply say shipping is US only, give no delivery time or shipping cost, and point to a person who can check?';
 
 export const DECAF_QUESTION = 'Does every coffee the reply names carry the Decaf label in the catalog block, whether or not a price is listed?';
 
@@ -97,16 +101,22 @@ export function seedCases(args: { fruityAlias: string | null; roasterNames: stri
     {
       // Follow-up 3 (2026-10-26): shipping is decided (US only); was shipping_unknown.
       key: 'shipping', kind: 'brand', fixtureKey: 'fruity_high_conf',
+      phrasings: [hand('do you shp to canada', 'typo')],
+      checks: [{ kind: 'must_contain_answer', value: 'shipping' }],
+    },
+    {
+      // Follow-up 4 (2026-10-26, OT-57): time and cost are not decided; the four
+      // time/cost phrasings moved here from shipping.
+      key: 'shipping_terms', kind: 'brand', fixtureKey: 'fruity_high_conf',
       phrasings: [
         hand('how long does shipping take?', 'casual'),
         hand('What are your shipping times and costs?', 'formal'),
-        hand('do you shp to canada', 'typo'),
         hand('If I order today, when would it get to me?', 'indirect'),
         hand('Mara here, is shipping free?', 'first name'),
       ],
       checks: [
-        { kind: 'must_contain_answer', value: 'shipping' },
         { kind: 'must_not_contain', value: 'business days' },
+        judge(SHIPPING_TERMS_QUESTION),
       ],
     },
     {

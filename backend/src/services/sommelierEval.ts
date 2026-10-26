@@ -334,7 +334,8 @@ export async function runEvals(opts: { trigger: 'nightly' | 'manual'; createdBy:
         });
         reply = r.reply; route = 'model'; usd += r.usdMicros;
       }
-      const graded = await gradeReply({ reply, message: p.message, checks: [...globals, ...w.checks], ctx, customerBlock: w.profileLine, evals, haiku });
+      // Follow-up 4 (OT-55): a copied price question is graded on the coffee its turn resolved.
+      const graded = await gradeReply({ reply, message: p.message, checks: [...globals, ...w.checks], ctx: { ...ctx, phrasingCoffeeId: p.coffee_id ?? null, caseCoffeeAlias: w.c.catalog_alias }, customerBlock: w.profileLine, evals, haiku });
       usd += graded.judgeUsdMicros;
       spent += usd;
       await recordResult({ runId, phrasingId: p.id, route, reply, passed: graded.passed, failedCheckIds: graded.failedCheckIds, judgeNotes: graded.notes, usdMicros: usd }, runner);
@@ -390,7 +391,7 @@ export async function addCustomerPhrasings(
       if (!message) continue;
       const customerCount = (await getPhrasings(row.case_id, tx)).filter(p => p.source === 'customer_turn').length;
       if (customerCount >= evals.maxCustomerPhrasingsPerCase) { out.capped++; continue; }
-      const r = await setPhrasingInTx(tx, { caseKey: row.case_key, message, source: 'customer_turn', sourceTurnId: row.turn_id, note: 'copied from a gated customer turn' });
+      const r = await setPhrasingInTx(tx, { caseKey: row.case_key, message, source: 'customer_turn', sourceTurnId: row.turn_id, coffeeId: row.coffee_id, note: 'copied from a gated customer turn' });
       if (r.id) out.added++; else out.duplicates++;
     }
   };

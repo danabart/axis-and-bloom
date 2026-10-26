@@ -13,7 +13,7 @@ import {
   tryGate, exampleFailures, gatedRuleFor, matchCandidate, parseConfirm, resolveRule, runGateOffline, namesRoaster, buildConfirmPrompt,
   type HaikuCaller, type HaikuCall,
 } from './sommelierGate.js';
-import { getActiveRules, getExamples, getCurrentAnswers, getTurnsForSession, getUnlabelledModelTurns, type GateRuleRow } from './sommelierReads.js';
+import { getActiveRules, getExamples, getCurrentAnswers, getTurnsForSession, getUnlabelledModelTurns, type GateRuleRow, type SommelierAnswerRow } from './sommelierReads.js';
 import { recordTurn as recordLedgerTurn } from './sommelierTurnService.js';
 import { recordTurn as recordWriteBack } from './liamWriteBack.js';
 import { getLastRecommendation } from './customerReads.js';
@@ -239,7 +239,7 @@ describe('routing (Testing 3, Haiku stubbed)', () => {
     });
   }, 60000);
 
-  it('"where is my order?" with orders → Haiku phrases what and when, then the deflection verbatim; no status or tracking reaches the facts', async () => {
+  it('"where is my order?" with orders → the order sentences built in code, newest first, then the deflection verbatim; no Haiku phrasing', async () => {
     await withRollback(async ({ client }) => {
       await seeded(client);
       const sid = await sessionFixture(client);
@@ -257,28 +257,40 @@ describe('routing (Testing 3, Haiku stubbed)', () => {
         getLastRecommendation: async () => [], getSubscriptionCurrent: async () => null, getCustomerIdentity: async () => ({ firstName: 'Sam' }),
         getRecentOrders: async (_uid: string, limit: number) => { limits.push(limit); return { ...orders, recent: orders.recent.slice(0, limit) }; },
       };
-      const h = haikuStub(confirmAs('customer_orders'), () => `You ordered the ${a.alias} on Oct 21. Before that, two bags of ${b.alias}.`);
+      const h = haikuStub(confirmAs('customer_orders'));
       const out = await tryGate({ uid: 'vitest-gate-uid', sessionId: sid, message: 'Where is my order?', turnCount: 2, maxTurns: 16, ctx: {}, history: [] },
         { runner: client, haiku: h.fn, config: config(), roasterNames: async () => [], customer, catalogCoffees: async () => [a, b] });
       expect(out.gated).toBe(true);
       if (!out.gated) return;
-      expect(out.route).toBe('gate_haiku');
-      // One phrased sentence is kept (the order sentence), then the answer verbatim.
-      expect(out.reply).toBe(`You ordered the ${a.alias} on Oct 21. I can't see shipping details from here. A person can check for you: ${SUPPORT}.`);
+      expect(out.route).toBe('gate');
+      expect(out.reply).toBe(`You ordered ${a.alias} 12 oz on Oct 21. You ordered ${b.alias} 12 oz x2 and a coffee on Sep 28. I can't see shipping details from here. A person can check for you: ${SUPPORT}.`);
       expect(limits).toEqual([2]); // gate.recentOrders
-      const facts = h.calls.find(c => c.purpose === 'phrase')!.prompt;
-      expect(facts).toContain(`Ordered Oct 21: ${a.alias} 12 oz x1`);
-      expect(facts).toContain(`Ordered Sep 28: ${b.alias} 12 oz x2, a coffee x1`);
-      expect(facts).not.toContain('Aug 1');
-      // Follow-up 3: the lines come newest first and the facts say to keep that order.
-      expect(facts.indexOf('Ordered Oct 21')).toBeLessThan(facts.indexOf('Ordered Sep 28'));
-      expect(facts).toContain('The lines are listed newest first; state them in that order, newest first.');
-      // The order lines carry what and when only (the framing lines around them tell Haiku to leave shipping alone).
-      const orderLines = facts.split(/\n/).filter(l => l.startsWith('Ordered '));
-      expect(orderLines).toHaveLength(2);
-      for (const word of ['pending', 'tracking', 'shipped', 'deliver', 'status']) expect(orderLines.join(' ').toLowerCase()).not.toContain(word);
+      expect(h.calls.map(c => c.purpose)).toEqual(['confirm']); // Haiku no longer phrases order facts
+      for (const word of ['pending', 'tracking', 'shipped', 'deliver', 'status']) expect(out.reply.split(" I can't see")[0].toLowerCase()).not.toContain(word);
     });
   }, 60000);
+
+  it('follow-up 4 (OT-56): two orders come out newest first every time, whatever order the reads return, from the config template', async () => {
+    const rule = { id: 1, key: 'order_status', priority: 40, resolver: 'customer_orders', answer_key: 'order_status_unavailable', topic_key: 'other', keywords: ['x'], max_message_chars: null } as GateRuleRow;
+    const answers = [{ id: 7, key: 'order_status_unavailable', kind: 'deflection', delivery: 'both', answer_text: 'A person can check: {supportContact}.', sort_order: 7, since: new Date(), superseded_at: null, note: null, created_by: 'v' }] as SommelierAnswerRow[];
+    const coffees = async () => [coffeeFixture(1, 'Coado'), coffeeFixture(2, 'Classic Balanced')];
+    const newer = { createdAt: new Date('2026-10-21T14:00:00Z'), lines: [{ coffeeId: 1, weightOz: 12, quantity: 1 }] };
+    const older = { createdAt: new Date('2026-09-28T09:00:00Z'), lines: [{ coffeeId: 2, weightOz: 12, quantity: 2 }] };
+    const reads = (recent: Array<typeof newer>) => ({
+      getLastRecommendation: async () => [], getSubscriptionCurrent: async () => null, getCustomerIdentity: async () => null,
+      getRecentOrders: async () => ({ recent, olderCount: 0, olderArchetypeCounts: {} }),
+    });
+    const expected = `You ordered Coado 12 oz on Oct 21. You ordered Classic Balanced 12 oz x2 on Sep 28. A person can check: ${SUPPORT}.`;
+    for (let i = 0; i < 20; i++) {
+      const recent = i % 2 ? [older, newer] : [newer, older];
+      const row = await resolveRule({ rule, uid: 'u', message: 'm', coffeeId: null, answers, coffees, cfg: config(), runner: {} as never, customer: reads(recent) as never });
+      expect(row).toMatchObject({ text: expected, phrased: false });
+    }
+    // The template is config: customerBlock.orderLineTemplate.
+    const cfg = { ...config(), customerBlock: { ...(config().customerBlock ?? {}), orderLineTemplate: 'On {date}: {alias}.' } } as SommelierConfig;
+    const row = await resolveRule({ rule, uid: 'u', message: 'm', coffeeId: null, answers, coffees, cfg, runner: {} as never, customer: reads([older, newer]) as never });
+    expect(row?.text).toBe(`On Oct 21: Coado 12 oz. On Sep 28: Classic Balanced 12 oz x2. A person can check: ${SUPPORT}.`);
+  });
 
   it('"how much is the Ethiopia?" → gate_haiku naming every size and price; no recommendation row', async () => {
     await withRollback(async ({ client }) => {
@@ -379,8 +391,8 @@ describe('redaction (Testing 4: three roasteries, one coffee named after its roa
         if (rule.resolver === 'customer_subscription') continue; // a status word and a flag; no free text
         for (const coffeeId of rule.resolver === 'catalog_price' ? ids : [null]) {
           const row = await resolveRule({ rule, uid: 'vitest-gate-uid', message: 'Do you have any decaf?', coffeeId, answers, coffees: async () => coffees, cfg: config(), runner: client, customer });
-          if (row) outputs.push(row.text, row.suffix ?? '');
-          if (row && rule.resolver === 'customer_orders') expect(row.text.split(/\n/).filter(l => l.startsWith('Ordered '))).toHaveLength(1);
+          if (row) outputs.push(row.text);
+          if (row && rule.resolver === 'customer_orders') expect(row.text.match(/You ordered /g)).toHaveLength(1);
         }
       }
       expect(outputs.filter(Boolean).length).toBeGreaterThanOrEqual(8);

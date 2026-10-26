@@ -35,7 +35,8 @@ async function lookupId(tx: Runner, category: string, value: string): Promise<nu
   return r.rows[0].id;
 }
 
-export interface PhrasingInput { message: string; source?: 'hand' | 'customer_turn'; sourceTurnId?: number | null; note?: string | null }
+// coffeeId (follow-up 4, 2026-10-26, OT-55): the coffee the source turn resolved; a copied price question is graded on it.
+export interface PhrasingInput { message: string; source?: 'hand' | 'customer_turn'; sourceTurnId?: number | null; coffeeId?: number | null; note?: string | null }
 export interface CheckInput { kind: string; value?: string | null; flagCode?: string | null; note?: string | null }
 
 export interface SetCaseInput {
@@ -58,9 +59,9 @@ async function insertPhrasing(tx: Tx, caseId: number, p: PhrasingInput): Promise
   if (!message) throw invalid('a phrasing must not be empty');
   const sourceId = await lookupId(tx, 'sommelier_eval_source', p.source ?? 'hand');
   const r = await tx.query<{ id: number }>(
-    `INSERT INTO sommelier_eval_phrasing (case_id, message, source_id, source_turn_id, since, note)
-     VALUES ($1, $2, $3, $4, clock_timestamp(), $5) RETURNING id`,
-    [caseId, message, sourceId, p.sourceTurnId ?? null, p.note?.trim() || null]
+    `INSERT INTO sommelier_eval_phrasing (case_id, message, source_id, source_turn_id, coffee_id, since, note)
+     VALUES ($1, $2, $3, $4, $5, clock_timestamp(), $6) RETURNING id`,
+    [caseId, message, sourceId, p.sourceTurnId ?? null, p.coffeeId ?? null, p.note?.trim() || null]
   );
   return r.rows[0].id;
 }
@@ -127,11 +128,11 @@ export async function setCaseInTx(tx: Tx, input: SetCaseInput): Promise<{ key: s
   let phrasings = input.phrasings;
   let checks = input.checks;
   if (prev) {
-    const oldPhrasings = await tx.query<{ message: string; source: 'hand' | 'customer_turn'; source_turn_id: number | null; note: string | null }>(
+    const oldPhrasings = await tx.query<{ message: string; source: 'hand' | 'customer_turn'; source_turn_id: number | null; coffee_id: number | null; note: string | null }>(
       `UPDATE sommelier_eval_phrasing p SET superseded_at = clock_timestamp()
          FROM lookup_value s
         WHERE s.id = p.source_id AND p.case_id = $1 AND p.superseded_at IS NULL
-        RETURNING p.message, s.value AS source, p.source_turn_id, p.note`,
+        RETURNING p.message, s.value AS source, p.source_turn_id, p.coffee_id, p.note`,
       [prev.id]
     );
     const oldChecks = await tx.query<{ kind: string; value: string | null; note: string | null }>(
@@ -141,7 +142,7 @@ export async function setCaseInTx(tx: Tx, input: SetCaseInput): Promise<{ key: s
         RETURNING k.value AS kind, ch.value, ch.note`,
       [prev.id]
     );
-    phrasings ??= oldPhrasings.rows.map(r => ({ message: r.message, source: r.source, sourceTurnId: r.source_turn_id, note: r.note }));
+    phrasings ??= oldPhrasings.rows.map(r => ({ message: r.message, source: r.source, sourceTurnId: r.source_turn_id, coffeeId: r.coffee_id, note: r.note }));
     checks ??= oldChecks.rows.map(r => ({ kind: r.kind, value: r.value, note: r.note }));
   }
   const seen = new Set<string>();
@@ -184,10 +185,10 @@ export async function setPhrasingInTx(tx: Tx, input: PhrasingInput & { caseKey: 
   const current = await getPhrasings(c.id, tx);
   if (current.some(p => p.message.trim().toLowerCase() === message.toLowerCase())) return { id: null, duplicate: true };
   const r = await tx.query<{ id: number }>(
-    `INSERT INTO sommelier_eval_phrasing (case_id, message, source_id, source_turn_id, since, note)
-     VALUES ($1, $2, (SELECT id FROM lookup_value WHERE category = 'sommelier_eval_source' AND value = $3), $4, clock_timestamp(), $5)
+    `INSERT INTO sommelier_eval_phrasing (case_id, message, source_id, source_turn_id, coffee_id, since, note)
+     VALUES ($1, $2, (SELECT id FROM lookup_value WHERE category = 'sommelier_eval_source' AND value = $3), $4, $5, clock_timestamp(), $6)
      ON CONFLICT (case_id, message) DO NOTHING RETURNING id`,
-    [c.id, message, input.source ?? 'hand', input.sourceTurnId ?? null, input.note?.trim() || null]
+    [c.id, message, input.source ?? 'hand', input.sourceTurnId ?? null, input.coffeeId ?? null, input.note?.trim() || null]
   );
   return r.rows[0] ? { id: r.rows[0].id, duplicate: false } : { id: null, duplicate: true };
 }
