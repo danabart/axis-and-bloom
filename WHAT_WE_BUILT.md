@@ -6086,6 +6086,17 @@ Brief: `backend/src/features/ai_agent_liam/answer_evals/CLAUDE_CODE_PROMPT_LIAM_
 
 **Verified on test:** new `sommelierEval.test.ts` (22: graders per kind incl. `price_in_catalog_only` on two sizes and a roaster name inside another word, fixtures, `sharedTierText` = the cached shared block, the runner over the seed with Sonnet and Haiku stubbed and **row counts of `sommelier_sessions`, `sommelier_turn`, `sommelier_turn_label`, `user_profile` and every `customer_*` table equal before and after**, the cost cap, a judge no, the production flags on a ledger row, checks 11-15, the customer-phrasing copy); `sommelierAnswer.test.ts` (checks 1-15), `sommelier.test.ts` (partial mock of liamProfile). Full suite 993 passed, 7 failed (the 7 pre-existing, verified on a clean HEAD in #238). Six lints, both audits, both builds green.
 
+### 241. Liam answer evals follow-up: the judge's cap, order status names the order, no-quiz and roastery checks (2026-10-25)
+
+Follow-up to #240. **Status: done on prod; `gate.enabled` stays false.** Commits `0e34dc1` and `b969a7f`; deploys `40247132772` (rev `00793-mvr`) and `40248780626` (rev `00794-brz`) green; boot `applyMissingKeys added or upgraded 4 key(s)` (`gate.resolverDescriptions.customer_orders`, `gate.recentOrders`, `evals.judgeMaxTokens`, `brandFacts.rules`), only the known findings. Full record: `answer_evals/CLOSING_REPORT.md` (Follow-up).
+- **OT-48:** `evals.judgeMaxTokens` 60 to 160 (seed and live via `SEED_UPGRADES`); the three unparseable phrasings all graded on rerun (2 pass).
+- **OT-50:** gate resolver **`customer_orders`** (new `sommelier_gate_resolver` lookup row; `RESOLVERS[...].takesAnswer` lets it and `answer` carry an `answer_key`): `getRecentOrders` (what and when, `gate.recentOrders` 2) phrased by Haiku into one "You ordered ..." sentence, then `order_status_unavailable` verbatim (`ResolvedRow.suffix`, `.sentences`); no orders, the answer alone. Prod `order_status` rule moved to it through `gate:rules:apply`. The first rerun showed Haiku answering "where is my order?" with "I don't have access..." from bare order lines, so the resolver's facts now say what to do with them (`b969a7f`). Redaction test extended.
+- **OT-49:** `no_quiz_recommend` passes on the quiz or one concrete question about what they drink, fails only on a named archetype; matching `brandFacts.rules` line.
+- **Who roasts it:** `must_contain_answer` accepts `a|b`; do_you_roast and which_roastery accept sourcing or partner_privacy.
+- Reruns: `runEvals({ only })`, `liam:evals --failed-in <run> [--cases] [--note-match]`.
+- **Full rerun (run 5): 60/70 (85.7%), $0.2288** (run 1 52/70). Remaining 10: decaf (4: the gate lists unpriced decafs twice, OT-51; the judge misreads "Decaf label" three times), Sonnet order status (3, no gate keyword; one says "on its way", a status guess), what_did_i_order (2), recommend_me "surprise me" (1, new).
+- Tests: gate +3 and redaction, eval +3; full suite 997 passed, 7 pre-existing failures (a `comments.sql` `|` found by the format test and reworded).
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

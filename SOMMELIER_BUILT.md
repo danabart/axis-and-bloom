@@ -1815,3 +1815,10 @@ Full diagnosis, evidence, and verification in `WHAT_WE_BUILT.md` #166; the S17 d
 - **The eval set:** 14 questions, each asked 5 ways by an invented customer (Mara, Theo, Ines, Sam), answered by the real prompt, the real catalog and the real answers (the gate first, as in production), graded by code and by a Haiku judge. Nightly after the labeller, or "Run evals now" on the admin card. Gated customer messages join the set automatically; labelled Sonnet turns are offered.
 - **First run:** 52 of 70 right (74%) for $0.35. What it found is in the closing report and OPEN_TASKS OT-48 to OT-53: the judge's output cap, the no-quiz reply, order status without the order, the order list, decafs offered before they are priced, and Liam naming the support contact "Dana".
 - No change to `LIAM_BASE_PROMPT`, the answers or any config value the replies use; the prompt-building code was split into pure functions with identical output.
+
+#### S120. Answer evals follow-up: order status names the order (2026-10-25)
+
+**Pointer entry**, full record in `WHAT_WE_BUILT.md` #241.
+- "Where is my order?" through the gate now says what was ordered and when, then the same "I can't see shipping details from here. A person can check for you" line. Never a status, tracking or delivery date.
+- The judge has room to finish its verdict; the no-quiz question passes on the quiz or one concrete question about what they drink (and the brand rules say so); "who roasts it" passes on either the sourcing or the privacy answer.
+- Full rerun: **60 of 70 (86%)** for $0.23, up from 52. What is left: decafs listed before they are priced, the judge misreading the decaf question, Sonnet's order-status and order-history replies (one guesses "on its way"), and one "surprise me" with no pick.

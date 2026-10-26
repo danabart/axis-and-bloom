@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-10-25 from database `axisandbloom` · 135 tables · 74 views · 1250 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `906c87e08439` (full value in the footer).
+Generated 2026-10-26 from database `axisandbloom` · 135 tables · 74 views · 1250 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `e268db65ba8e` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -562,8 +562,8 @@ The Liam gate's rules, one current row per key: keywords that make a customer me
 | `id` | integer | no | Surrogate primary key (SERIAL); (key, current) is the natural key, held by the partial unique index sommelier_gate_rule_one_current. |
 | `key` | text | no | Stable rule name in snake_case (which_roastery, do_you_roast, what_you_get, order_status, price, decaf, subscription_status); exactly one row per key has superseded_at NULL. |
 | `priority` | integer | no | Lower wins when several active rules' keywords match the same message. |
-| `resolver_id` | integer | no | FK to lookup_value(id) in category sommelier_gate_resolver: answer, catalog_price, catalog_category or customer_subscription; the write door refuses a resolver the code registry (sommelierGate.RESOLVERS) does not have. |
-| `answer_key` | text | yes | For resolver answer: the sommelier_answer key said verbatim (a key, not an id, so an answer edit needs no re-pointing; integrity check 6 proves a current row exists); NULL for the other resolvers. |
+| `resolver_id` | integer | no | FK to lookup_value(id) in category sommelier_gate_resolver: answer, catalog_price, catalog_category, customer_subscription or customer_orders (what was ordered and when, then the answer_key text; answer evals follow-up 2026-10-25); the write door refuses a resolver the code registry (sommelierGate.RESOLVERS) does not have. |
+| `answer_key` | text | yes | For resolvers answer and customer_orders: the sommelier_answer key said verbatim (customer_orders says it after the phrased orders; a key, not an id, so an answer edit needs no re-pointing; integrity check 6 proves a current row exists); NULL for the other resolvers. |
 | `topic_key` | text | yes | The config/sommelier topic the rule belongs to (other, matching, caffeine_decaf, ...); integrity check 7 proves it exists in config topics. |
 | `keywords` | text[] | no | Lower-cased substrings; a message is a candidate when it contains one (lower(message).includes(keyword), as the topic router matches). Never equal to a keyword of an expertise topic (integrity check 9). |
 | `max_message_chars` | integer | yes | Longest message, in characters, the rule may gate; NULL means config gate.maxMessageChars. |
@@ -604,7 +604,7 @@ One vocabulary of reply checks used twice: with case_id, an assertion on that ev
 | `id` | integer | no | Surrogate primary key (SERIAL); eval results list failed checks by this id. |
 | `case_id` | integer | yes | FK to sommelier_eval_case(id): the case the assertion belongs to; NULL for a global check (runs in production too). |
 | `check_id` | integer | no | FK to lookup_value(id) in category sommelier_reply_check_kind: must_contain, must_not_contain, must_contain_answer, must_contain_price_of, must_name_catalog_coffee, must_not_name_roaster, price_in_catalog_only, must_not_claim or judge (each implemented once in sommelierReplyCheck.ts). |
-| `value` | text | yes | The check's argument: a literal, a sommelier_answer key, a coffee alias, a banned phrase, or the judge's yes/no question (yes = pass); NULL for kinds without one. |
+| `value` | text | yes | The check's argument: a literal, a sommelier_answer key (must_contain_answer: several keys joined by a vertical bar pass on any one of them), a coffee alias, a banned phrase, or the judge's yes/no question (yes = pass); NULL for kinds without one. |
 | `flag_code` | text | yes | Global checks only: the sommelier_reply_flag code written on sommelier_turn.reply_flags when it fails; NULL on case checks. |
 | `since` | timestamp with time zone | no | UTC timestamp the row took effect. |
 | `superseded_at` | timestamp with time zone | yes | UTC timestamp the check was retired or its case edited or retired; NULL marks a current check. The only column ever updated. \| Writer: sommelierEvalService.retireCheckInTx, sommelierEvalService.setCaseInTx, sommelierEvalService.retireCaseInTx |
@@ -1578,7 +1578,7 @@ Controlled vocabulary for admin dropdowns and coded fields, one row per (categor
 | column | type | null | comment |
 |---|---|---|---|
 | `id` | integer | no | Surrogate key; coffees.origin_region_id references it. |
-| `category` | text | no | Vocabulary group, for example roast_level, process, blend_or_single, brew_method, origin_region, the roastery_portal_* groups and sommelier_answer_kind / sommelier_answer_delivery (Liam brand answers, 2026-10-24) and coffee_card_tag (the card's award tag wording, coffee presentation brief 4, 2026-10-24), sommelier_turn_route (the Liam turn ledger's route: model, guard, gate, gate_haiku, 2026-10-24), sommelier_gate_resolver (answer, catalog_price, catalog_category, customer_subscription) and sommelier_gate_expectation (must_match, must_not_match) (the Liam gate, 2026-10-25), sommelier_eval_kind, sommelier_eval_source, sommelier_reply_check_kind, sommelier_eval_trigger and sommelier_reply_flag (Liam answer evals, 2026-10-25); UNIQUE together with value. |
+| `category` | text | no | Vocabulary group, for example roast_level, process, blend_or_single, brew_method, origin_region, the roastery_portal_* groups and sommelier_answer_kind / sommelier_answer_delivery (Liam brand answers, 2026-10-24) and coffee_card_tag (the card's award tag wording, coffee presentation brief 4, 2026-10-24), sommelier_turn_route (the Liam turn ledger's route: model, guard, gate, gate_haiku, 2026-10-24), sommelier_gate_resolver (answer, catalog_price, catalog_category, customer_subscription, customer_orders) and sommelier_gate_expectation (must_match, must_not_match) (the Liam gate, 2026-10-25), sommelier_eval_kind, sommelier_eval_source, sommelier_reply_check_kind, sommelier_eval_trigger and sommelier_reply_flag (Liam answer evals, 2026-10-25); UNIQUE together with value. |
 | `value` | text | no | Stored code within the category (what other tables and the API hold). |
 | `label` | text | no | Display text shown in the UI; may differ from value. |
 | `sort_order` | integer | no | Display position within the category, ascending. |
@@ -3616,5 +3616,5 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 ---
 
-catalog-hash: 906c87e08439ff4125e1cda0008c09c4e14c27974dc1abc0bb02328d0dd0c6a2
-lineage-hash: 21da2e018061118f80d98ddf3689ef95884e01ccfe589b5e6c04c1c8c1bab2fa
+catalog-hash: e268db65ba8eaf49a179fe2047501139042075e86a2ed19912f4ec309ec9cdd2
+lineage-hash: 6b561889bddc77430bce9b4f905451222d9ed880157f6275a7244c307b4f6aeb

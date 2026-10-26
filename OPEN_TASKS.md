@@ -348,13 +348,19 @@ Eval replies, gate calls and judge calls go through the spend guard as `liam_cha
 
 ### OT-48: the eval judge's output cap cuts some verdicts off (found 2026-10-25, first eval run)
 
+**Done 2026-10-25 (#241):** `evals.judgeMaxTokens` 160; the three graded on rerun.
+
 3 of the first run's 18 failures are `unparseable`: the judge's one-line reason ran past `evals.judgeMaxTokens` (seed 60, the brief's value) and the JSON was cut. A parse failure is a fail by design, so these are harness failures, not Liam's. Raising `evals.judgeMaxTokens` (config, no deploy), or asking for a shorter reason in `evals.judgePrompt`, is Dana's call; not changed.
 
 ### OT-49: no-quiz customers get a preference question instead of the quiz offer (found 2026-10-25, first eval run)
 
+**Done 2026-10-25 (#241), by Dana's call:** a concrete question about what they drink counts as well as the quiz offer (judge question and a `brandFacts.rules` line); 5/5 in run 5.
+
 `no_quiz_recommend`: 4 of 5 replies say "No quiz on file" and then ask what the customer likes ("bright and fruity, or chocolatey?"); the judge question asks for the quiz to be offered instead of guessing. The B1 rule says "say so in one sentence and offer the quiz". Related to OT-40 (Liam declines to recommend at all without a quiz). Wording is Dana's.
 
 ### OT-50: order-status replies do not say what was ordered and when (found 2026-10-25, first eval run)
+
+**Gate half done 2026-10-25 (#241):** `order_status` is resolver `customer_orders` (what and when, then the deflection verbatim). **Still open:** messages without a gate keyword go to Sonnet, which points to a person without naming the order (run 5: "wheres my cofee", "It's been a few days since I ordered. Any news?"), once guessed a status ("You've got the Coado on its way", `must_not_contain`), and what_did_i_order lists coffees without both orders and dates (2 of 5). More keywords (or the customer block rules) are the levers; Dana's call.
 
 `order_status`: 4 of 5 point to a person for shipping status but do not name the order; the gate's verbatim `order_status_unavailable` answer cannot. `customerBlock.rules` says Liam "can see what was ordered and when". Either the case's judge question asks for more than Dana wants, or the deflection (an answer row) and the rule should name the order; Dana's call. `what_did_i_order`: 3 of 5 name the coffees but not the two orders with their dates.
 
@@ -369,6 +375,10 @@ With `brandFacts.supportContact` = `dana@axisandbloomcoffee.com`, Sonnet writes 
 ### OT-53: run the evals on a config change once a dev environment exists (Liam answer evals, 2026-10-25)
 
 Not on deploy and not on config change today: both would spend money unattended on production. The config page shows the last run beside the prompt fields so a run follows an edit by hand. With a dev environment, a config change there could trigger a run before the change reaches production.
+
+### OT-54: "surprise me" gets a question instead of a pick (found 2026-10-25, eval run 5)
+
+`recommend_me` "Mara here, surprise me." (Sonnet): "You loved the Clean Fruit — same bright, juicy lane or ready to step somewhere new?" The judge wants a pick that is Fruity or a deliberate move from it. Passed in run 1, so it may be variance; watch the nightly runs before changing anything.
 
 ### OT-19: `quizScoring.test.ts` — 12 pre-existing failures, not touched by Customer Blueprint C1 (found 2026-09-27)
 
