@@ -6117,6 +6117,14 @@ Follow-up to #242. **Status: done on prod; `gate.enabled` stays false; recommend
 - **Orders newest first:** the `customer_orders` facts say so; Haiku reversed 5 of 8 two-order replies in run 8 (1 of 6 in run 7) and the judge does not catch it (OT-56).
 - `liam:evals --cases` works alone. **Run 8 (7 cases): 36/43 (83.7%), $0.2154.** Tests 165/165 in the four suites; full suite the 7 known failures.
 
+### 244. Liam answer evals follow-up 4: the phrasing's coffee, order sentences in code, shipping_terms (2026-10-26)
+
+Follow-up to #243. **Status: done on prod; `gate.enabled` stays false; recommend_me untouched.** Commit `be7a2ce` plus the docs and `CATALOG.md` commit; deploy `40371632417` green (rev `00800-j5q`); boot applied the schema and `customerBlock.orderLineTemplate`, `brandFacts.rules`. Full record: `answer_evals/CLOSING_REPORT.md` (Follow-up 4).
+- **OT-55:** `sommelier_eval_phrasing.coffee_id` (FK coffees), filled from `sommelier_turn.coffee_id` by the nightly copy and carried through case edits; `must_contain_price_of` grades the phrasing's coffee when set, else the check's alias, else the case's `coffee_alias`. `schema.sql` backfill: 3 of 14 copied phrasings carry a coffee. "How much is it?" now fails: its turn resolved Coado, the eval context resolves Clean Fruit.
+- **OT-56:** `customer_orders` builds "You ordered {alias} on {date}." per order in code from `customerBlock.orderLineTemplate`, newest first; no Haiku phrasing; `order_status_unavailable` verbatim after. Run 9: all 8 gated order replies newest first.
+- **OT-57:** `brandFacts.rules` line for shipping time and cost (US only, no time, no cost, point to the contact); case `shipping` keeps the region phrasing, new case `shipping_terms` the four time/cost phrasings with `must_not_contain business days` and the judge question.
+- **Run 9 (5 cases): 22/25 (88.0%), $0.1333.** Full suite 1,004 passed, the 7 known failures.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

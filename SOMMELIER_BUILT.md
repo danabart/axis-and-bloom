@@ -1839,3 +1839,10 @@ Full diagnosis, evidence, and verification in `WHAT_WE_BUILT.md` #166; the S17 d
 - "What do you do?" with the gate on gets the what-we-are answer word for word.
 - The price check that failed on "How much is the Coado?" was checking another coffee's price; Coado's $32 is right and every reader uses the same prices.
 - Still open: Haiku lists two orders oldest first more often after being told to keep newest first, and shipping questions about time or cost do not mention US only.
+
+#### S123. Order history said in a fixed sentence, newest first (2026-10-26)
+
+**Pointer entry**, full record in `WHAT_WE_BUILT.md` #244.
+- With the gate on, "where is my order?" and "what did I order?" now get "You ordered Coado 12 oz on Oct 21. You ordered Classic Balanced 12 oz x2 on Sep 28." then the "a person can check" line, always newest first; the sentence is a template Dana can edit in config.
+- Asked about shipping time or cost, Liam says we ship within the US only, gives no time or price, and points to the support contact.
+- A price question copied from a real chat is now checked against the coffee that chat was about.

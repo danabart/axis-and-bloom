@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-10-26 from database `axisandbloom` · 135 tables · 74 views · 1250 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `e268db65ba8e` (full value in the footer).
+Generated 2026-10-26 from database `axisandbloom` · 135 tables · 74 views · 1251 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `9742654ed475` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -534,7 +534,7 @@ The Liam eval set's questions, one current row per key: what is being asked (by 
 
 The many ways one eval case is asked: written by hand, or copied verbatim from a customer message the gate answered (from the transcript by the ledger row's user_message_id; may carry a first name, kept for this purpose only); de-duplicated per case, capped per case for customer copies
 
-- **Writer:** sommelierEvalService.setPhrasingInTx, sommelierEvalService.retirePhrasingInTx, sommelierEvalService.setCaseInTx, sommelierEvalService.retireCaseInTx
+- **Writer:** sommelierEvalService.setPhrasingInTx, sommelierEvalService.retirePhrasingInTx, sommelierEvalService.setCaseInTx, sommelierEvalService.retireCaseInTx; seed
 - **Readers:** sommelierReads (getPhrasings, getCustomerPhrasingCount, getRunResults, getGatedTurnsForPhrasings, getLabelledTurnCandidates)
 - **Since:** 2026-10-25 (Liam answer evals, Part A2)
 
@@ -546,8 +546,9 @@ The many ways one eval case is asked: written by hand, or copied verbatim from a
 | `source_id` | integer | no | FK to lookup_value(id) in category sommelier_eval_source: hand or customer_turn. |
 | `source_turn_id` | integer | yes | FK to sommelier_turn(id): the gated customer turn it was copied from, when source is customer_turn; NULL for hand phrasings. |
 | `since` | timestamp with time zone | no | UTC timestamp the row took effect. |
-| `superseded_at` | timestamp with time zone | yes | UTC timestamp the phrasing was retired or its case edited or retired; NULL marks a current phrasing. The only column ever updated. \| Writer: sommelierEvalService.retirePhrasingInTx, sommelierEvalService.setCaseInTx, sommelierEvalService.retireCaseInTx |
+| `superseded_at` | timestamp with time zone | yes | UTC timestamp the phrasing was retired or its case edited or retired; NULL marks a current phrasing. The only column the app ever updates (coffee_id was also set once, by the schema.sql backfill). \| Writer: sommelierEvalService.retirePhrasingInTx, sommelierEvalService.setCaseInTx, sommelierEvalService.retireCaseInTx |
 | `note` | text | yes | Why the phrasing exists (its style: casual, formal, typo, indirect, first name; or that it names a real roaster on purpose), free text. |
+| `coffee_id` | integer | yes | FK to coffees(id): the coffee the source turn resolved (sommelier_turn.coffee_id, set on gated catalog_price turns), copied by the nightly copy; must_contain_price_of grades the phrasing on it when set. NULL for hand phrasings and turns that resolved no coffee. Added 2026-10-26 (answer evals follow-up 4, OT-55) and backfilled once by schema.sql (idempotent: only rows still NULL) for phrasings copied before then. \| Writer: sommelierEvalService.setPhrasingInTx, sommelierEvalService.setCaseInTx; seed |
 
 #### `sommelier_gate_rule`
 
@@ -3565,7 +3566,7 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `sensory_source` | seed | seed (INSERT) | — | — |
 | `sommelier_answer` | seed, sommelierAnswerService | seed (INSERT), sommelierAnswerService (INSERT, UPDATE) | sommelierReads | — |
 | `sommelier_eval_case` | sommelierEvalService | sommelierEvalService (INSERT, UPDATE) | sommelierReads | — |
-| `sommelier_eval_phrasing` | sommelierEvalService | sommelierEvalService (INSERT, UPDATE) | sommelierReads | — |
+| `sommelier_eval_phrasing` | seed, sommelierEvalService | seed (UPDATE), sommelierEvalService (INSERT, UPDATE) | sommelierReads | — |
 | `sommelier_eval_result` | sommelierEvalService | sommelierEvalService (INSERT) | sommelierReads | — |
 | `sommelier_eval_run` | sommelierEvalService | sommelierEvalService (INSERT, UPDATE) | sommelierReads | — |
 | `sommelier_evaluation` | outcomeTracker, sommelier, sommelierEvaluator | outcomeTracker (UPDATE), sommelier (UPDATE), sommelierEvaluator (INSERT) | admin, outcomeTracker | — |
@@ -3616,5 +3617,5 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 ---
 
-catalog-hash: e268db65ba8eaf49a179fe2047501139042075e86a2ed19912f4ec309ec9cdd2
-lineage-hash: 6b561889bddc77430bce9b4f905451222d9ed880157f6275a7244c307b4f6aeb
+catalog-hash: 9742654ed4751f2d1a3316bab1de8beb056b452757e0ada6958dc7c7404d9cb3
+lineage-hash: ab45fde214030c80562d29bdf4690fcb839a2f8748e8c632d4c57ad76d88480b

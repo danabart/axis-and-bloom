@@ -252,3 +252,38 @@ The `customer_orders` facts now say "The lines are listed newest first; state th
 
 ### Tests
 `sommelierGate.test.ts`: the seed rule list (+ shipping, what_we_are), the deflection line, the shipping and what_we_are label lines in the confirmation prompt, keyword precedence (shipping; the shipping price to `price`; Theo to what_we_are; "What is this? Any decaf?" to decaf; the shipping typo to none), and the orders' newest-first lines and sentence. Gate, eval, profile and answer suites 165/165. Full suite: the 7 known failures (quizScoring 6, `schema.catalog_blueprint` dial_position_signal 1); two 5-second timeouts in a run that also picked up compiled `dist/` tests passed when rerun alone. Six lints and the build green. No table, column or comment change; `CATALOG.md` unchanged.
+
+## Follow-up 4 (2026-10-26): the phrasing's coffee, order sentences in code, shipping_terms
+
+Commit `be7a2ce` (code, schema, comments, seeds, tests), then the docs and `CATALOG.md` commit; deploy `40371632417` green (rev `00800-j5q`). Boot: schema applied (1,251 columns, one new), `applyMissingKeys added or upgraded 2 key(s): customerBlock.orderLineTemplate, brandFacts.rules`; integrity findings only the known ones, plus `CATALOG.md` stale until it was regenerated (hash `9742654e...`). `gate.enabled` still false; recommend_me not touched.
+
+### 1. OT-55: a copied phrasing keeps the coffee its turn resolved
+- `sommelier_eval_phrasing.coffee_id` (INTEGER, nullable, FK `coffees`), in `schema.sql` with its `COMMENT ON` in `comments.sql` (the table's Writer now also names `seed`, for the backfill; `superseded_at`'s comment no longer says it is the only column ever updated).
+- The nightly copy (`addCustomerPhrasings`) takes `sommelier_turn.coffee_id` (`getGatedTurnsForPhrasings` selects it); `setPhrasingInTx` and `setCaseInTx` write it, and a case edit carries it to the new rows.
+- `must_contain_price_of` grades the phrasing's coffee when set (by id in the catalog block), else the check's alias, else the case's `coffee_alias`. The runner passes the phrasing's coffee and the case alias in the check context.
+- **Backfill** (`schema.sql`, idempotent: copied phrasings still NULL take their source turn's `coffee_id`): of 14 copied phrasings, the 3 whose turns resolved a coffee now carry it: price_named "How much is it?" 2914 (Coado), "How much is the Coado?" 2914, "What does the Clean Fruit cost?" 2902. None left with a turn coffee and no phrasing coffee.
+- Tests: the grader (phrasing coffee, unknown id, alias fallback, case-alias fallback); a copied price turn keeps its coffee through the nightly copy and a case edit; hand phrasings stay NULL.
+- **Run 9:** "How much is the Coado?" passes on Coado's $32.00. **"How much is it?" now fails**: its production turn resolved "it" to Coado, so it is graded on Coado, but in the eval the fixture's context makes "it" Clean Fruit and the reply is "$29 for a 12 oz bag". A copied phrasing keeps its coffee but not the production session's context. Not changed (outside this brief): the options are to retire that phrasing or to note it as context-bound.
+
+### 2. OT-56: order sentences built in code
+- `customer_orders` builds one sentence per order from `customerBlock.orderLineTemplate` (seed `You ordered {alias} on {date}.`, added at boot), sorted newest first in code whatever order the reads return; `{alias}` is the order's coffees (`Coado 12 oz`, `Classic Balanced 12 oz x2`, joined "A, B and C"), `{date}` "Oct 21". Then `order_status_unavailable` verbatim, as before. The resolver is no longer phrased (route `gate`, no Haiku phrase call); the `suffix` / `sentences` plumbing from follow-up 1 is gone.
+- Tests: two orders come out newest first 20 times out of 20 with the reads in either order, and the template comes from config; the tryGate test asserts the full reply and that the only Haiku call is the confirmation; the redaction test covers the new text.
+- **Run 9:** all 8 gated order replies are "You ordered Coado 12 oz on Oct 21. You ordered Classic Balanced 12 oz x2 on Sep 28. I can't see shipping details from here. A person can check for you: dana@axisandbloomcoffee.com." order_status 7/7, what_did_i_order 4/5 (the typo phrasing goes to Sonnet, which names one order).
+
+### 3. OT-57: shipping split
+- `brandFacts.rules` gains: "For a question about shipping time or cost, say we ship within the US only, give no delivery time and no shipping cost (neither is decided), and point them to {supportContact}, who can check." (live through `SEED_UPGRADES`; the live list still equalled the previous seed).
+- `shipping` (case 27 supersedes 24) keeps "do you shp to canada" and `must_contain_answer shipping`; it is the case's only region phrasing. The `must_not_contain business days` check moved to shipping_terms.
+- **`shipping_terms`** (new case 28) takes the four time and cost phrasings, with `must_not_contain business days` and the judge question "Does the reply say shipping is US only, give no delivery time or shipping cost, and point to a person who can check?". No `price_in_catalog_only` on the case: it already runs globally.
+- **Run 9:** shipping 1/1 ("We ship within the US only right now. For anything more specific, dana@axisandbloomcoffee.com can help."), shipping_terms 3/4. One pass is lenient: "Mara here, is shipping free?" passed without saying US only ("Shipping cost isn't something I can see from here — Dana can give you the exact details").
+
+### Rerun (run 9, `--cases price_named,order_status,what_did_i_order,shipping,shipping_terms`)
+**22/25 passed (88.0%), $0.1333.** Routes: model 12, gate 8, gate_haiku 5. Failures:
+
+| Case | Route | Message | Note |
+| --- | --- | --- | --- |
+| price_named | model | How much is it? | #14 missing 12 oz $32.00: graded on Coado (its turn's coffee); the eval context makes "it" Clean Fruit ($29) |
+| shipping_terms | model | If I order today, when would it get to me? | #61: no US-only line; "Shipping timelines aren't something I can see from here — dana@... can check" |
+| what_did_i_order | model | wat did i get last time | #23: one order only ("Coado, Oct 21"); no keyword (typo) |
+
+### Tests
+Gate, eval, profile, comments and config suites green after one expected update (the seed now has 15 cases); full suite 1,004 passed with the 7 known failures (quizScoring 6, `schema.catalog_blueprint` dial_position_signal 1), run without `dist/`. Six lints and the build green.

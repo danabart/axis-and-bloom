@@ -386,13 +386,19 @@ Not on deploy and not on config change today: both would spend money unattended 
 
 ### OT-55: price_named grades a copied "How much is the Coado?" against Clean Fruit's price (found 2026-10-26, follow-up 3)
 
+**Done 2026-10-26 (#244):** phrasings carry the coffee their turn resolved (`sommelier_eval_phrasing.coffee_id`). Left: "How much is it?" is graded on Coado (its turn's coffee) while the eval context makes "it" Clean Fruit; retire it or accept it as context-bound.
+
 The nightly copies gated price turns into `price_named` (its `rule_key` is `price`), whose only check is `must_contain_price_of Clean Fruit`. The reply ($32.00, Coado's real price) fails on $29.00. Options: a coffee per phrasing for price checks, a case per coffee, or the copy skipping price turns that name another coffee. No price is wrong (#243).
 
 ### OT-56: the gate's two-order sentence comes out oldest first (found 2026-10-26, follow-up 3)
 
+**Done 2026-10-26 (#244):** the order sentences are built in code from `customerBlock.orderLineTemplate`, newest first; Haiku no longer phrases them. Run 9: 8 of 8 newest first.
+
 The `customer_orders` facts list the orders newest first and, since #243, say to keep that order. Haiku reversed 5 of 8 two-order replies in run 8 (1 of 6 in run 7), sometimes with "and before that" on the newer one. The judge does not catch it. Building the order sentence in code from the lines would make it exact. Gate is off in production.
 
 ### OT-57: shipping time and cost questions do not mention US only (found 2026-10-26, follow-up 3)
+
+**Done 2026-10-26 (#244), by Dana's call:** time and cost are not decided; a `brandFacts.rules` line and a `shipping_terms` case (US only, no time or cost, point to a person). Run 9: 3/4; "If I order today, when would it get to me?" left out US only, and the judge passed "is shipping free?" without it.
 
 The `shipping` case checks `must_contain_answer shipping` on all five phrasings; four ask about time, cost or free shipping, and Sonnet points to Dana without the US-only line (1/5 in run 8). Either those phrasings get their own check ("points to a person for time and cost") or a brand rule asks for the US-only line with any shipping question; Dana's call.
 
