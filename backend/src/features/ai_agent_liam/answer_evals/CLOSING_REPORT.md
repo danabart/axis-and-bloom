@@ -203,3 +203,52 @@ Every remaining failure:
 
 ### Tests
 `liamSeesEverything.test.ts` +1 (the shipping status line under the orders lines, contact filled; none without orders), `sommelierGate.test.ts` +1 (order_status vs what_did_i_order by priority; "wat did i get last time" matches no rule) and the seed rule list and confirmation label, `sommelierEval.test.ts` (the five shipping phrases flag `banned_claim`). Gate, eval and profile suites 138/138; six lints and the build green. No table or comment change, so `CATALOG.md` is unchanged.
+
+## Follow-up 3 (2026-10-26): investigation first, then shipping, what_we_are and the order of the orders
+
+Commit `a030ddf` (code, seeds, tests), then the docs and `liam:evals --cases` commit; deploy `40351721744` green (rev `00798-wcn`); boot `applyMissingKeys added or upgraded 1 key(s): gate.answerDescriptions.deflection`, integrity findings only the known ones. `gate.enabled` still false. recommend_me not touched.
+
+### 1. price_named "How much is the Coado?": findings (no fix needed, no price changed)
+- **Coado is coffee 2914.** Price rows: `coffee_slot_price` slot 23 (chocolate_nutty, sort 2, "Classic"; Coado's only active assignment, role home, priority 1): **12 oz 3200** (row 595, updated 2026-10-22) and **5 lb 18500** (row 11, 2026-07-24). `coffee_retail_price`: **no rows** for 2914. 2 lb: no row in either table. The 5 lb slot price is not sellable (`v_coffee_sellable_slot` has only the 12 oz row), so the catalog block shows 12 oz $32.00 only.
+- **One lookup for all three readers.** The catalog block (`sommelierRag.getCatalogCoffees`) takes a dial coffee's sizes from its first winning sellable slot (`v_coffee_sellable_slot.retail_price_cents`, i.e. `coffee_slot_price`) and a category-only coffee's from `coffee_retail_price`. The gate's `catalog_price` resolver reads `coffee.sizes` from the same block (`deps.catalogCoffees` or `getCatalogBlock()`; the eval runner passes `block.coffees`). `must_contain_price_of` reads `ctx.catalog`, which is `block.coffees` in the runner and `getCatalogBlock().coffees` in production. No change was needed.
+- **No table disagreement.** No active slot assignment anywhere has a `coffee_slot_price` and a `coffee_retail_price` for the same coffee and size with different cents (query over all coffees: 0 rows).
+- **The cause is the eval data.** Case `price_named` has one check, `must_contain_price_of Clean Fruit` (12 oz $29.00). The phrasing "How much is the Coado?" was copied into that case by the 2026-10-26 nightly (from a gated customer turn, because the case's `rule_key` is `price`). The reply "$32.00 for a 12 oz bag" is right for Coado; the grader checks Clean Fruit's price. "How much is it?" (also copied) passes only because the fixture resolves "it" to Clean Fruit. Not fixed (outside this brief's fixes): a coffee per phrasing for price checks, a case per coffee, or the nightly copy skipping price turns that name another coffee. OT-55.
+
+### 2. which_roastery "is it utopian?": trace and fix
+Real-Haiku probe on the fruity_high_conf fixture, gate forced on (writes nothing):
+1. Keyword: matches rule `which_roastery` (priority 10) on "is it utopian" (and "utopian").
+2. Eligibility: 14 characters (cap 160), resolver `answer` known: passes.
+3. Confirmation: **`judgment`**, confidence 0.95, then 0.85 and 0.65 on repeat calls. "is it utopian?" reads as an adjective; "Is it Utopian Coffee?" and "is it path?" both gate as `partner_privacy` (0.92 to 0.95). **This is where it fell out.**
+4. Resolver: not reached.
+
+**Fix (confirmation prompt, config):** `gate.answerDescriptions.deflection` now ends "(a guessed name that is not one of the coffees listed below counts as asking, even a single lower-case word such as "is it acme?")" (a made-up name; no real roaster's name in a prompt). Live through `SEED_UPGRADES`. In-memory probe before the change: "is it utopian?" 4 of 4 `partner_privacy` (0.95 to 1.0); unchanged on "Which roastery style suits a French press best?", "Which roaster would you pick for espresso, and why?", the compound "is it joe? and what grind for v60?" and "Is it utopian or is it just good coffee?" (all `judgment`). Run 8: which_roastery 8/8 ("is it utopian?" through the gate, `partner_privacy` verbatim), is_it_joe 5/5.
+
+**Why Sonnet had no sourcing or privacy line:** Sonnet never sees a roaster name (the catalog block scrubs them and the prompt carries no roaster list, by design), so it reads "utopian" as an adjective, as Haiku did: run 6 "Ha — depends on the cup.", run 7 a Clean Fruit follow-up. The `brandFacts.rules` privacy line applies only to a guess it can recognise. With the gate on, the gate now catches it; with the gate off (production today) Sonnet still answers a bare lower-case guess this way. Not fixed: giving Sonnet the roaster names would be the leak the design avoids.
+
+### 3. Shipping (decided: US only)
+- Answer `shipping` (kind policy, delivery both): "We currently ship within the US only." Prod row 9 through `sommelierAnswerService.setAnswerInTx`. Delivery `both` puts it in every Sonnet prompt's brand facts from the write, gate on or off.
+- Gate rule `shipping` (resolver answer, priority 55, after `price`, so "what's the shipping price?" is the price rule's to refuse): keywords "ship to", "do you ship", "shipping", "international". Must_match: "Do you ship to Canada?", "Do you ship internationally?", "Where do you ship?", "Can you ship to the UK?"; must_not_match: "How long does shipping take?", "Is shipping free?", "What's the shipping status of my order?", "Do you ship to Canada, and which coffee travels best?". Prod row 16. The typo "do you shp to canada" matches no keyword.
+- Eval case `shipping_unknown` (case 5) retired; new case **`shipping`** (24), the same five phrasings, checks `must_contain_answer shipping` and the existing `must_not_contain business days` (kept: still no invented timelines). Seeds: answer and rule in `sommelier_gate_rule_seed.ts` (as `order_status_unavailable` is), the case in `sommelier_eval_seed.ts`.
+- **Run 8: shipping 1/5.** Only "do you shp to canada" passes ("We're US-only right now, unfortunately."). The other four ask about time, cost or free shipping; Sonnet answers "I can't see shipping details from here — Dana can..." without the US-only line, and the check wants the US-only fact in every reply. Either those four belong in a case that asks for "points to a person for time and cost", or the brand rules should say to give the US-only line with any shipping question; Dana's call (OT-57).
+
+### 4. Orders newest first
+The `customer_orders` facts now say "The lines are listed newest first; state them in that order, newest first." (`sommelierGate.ts`; the test asserts the lines' order and the sentence). **It did not hold; it got worse.** Probe: the prompt is right (the Oct 21 line above the Sep 28 line, the instruction present) and Haiku still wrote "You ordered a Classic Balanced 12 oz x2 on Sep 28, and before that a Coado 12 oz x1 on Oct 21." Gated two-order replies: run 7 (before) 1 of 6 reversed; run 8 (after) **5 of 8 reversed**. The judge passes them (order_status 7/7, what_did_i_order 4/5), so the evals do not see it. The gate is off in production. Not changed further (the wording is the brief's): a sentence built in code from the lines, with no Haiku for the order list, would make it exact; OT-56.
+
+### 5. what_we_are
+**There was no `what_we_are` gate rule** (prod had eight; neither the seed nor any brief made one), so "add to its keywords" became a new rule with exactly the two keywords: resolver answer, answer `what_we_are` (delivery prefix; the rule service does not restrict delivery), priority 80 (last, so any more specific rule matches first), keywords "what do you do", "what is this"; must_match "Hi, I'm Theo, new here. What do you do?", "What do you do?", "What is this?"; must_not_match "What is this coffee like?" and the compound "What do you do differently from a roaster, and which coffee should I start with?". Prod row 17. Run 8: what_we_are 4/5; Theo's phrasing now goes through the gate and gets the answer verbatim. The one failure is Sonnet's (no keyword): it leaves out the six archetypes and the Bloom Dial.
+
+### Rerun (run 8, `--cases`, 7 cases)
+`liam:evals --cases a,b` now works on its own (every current phrasing of those cases); before, `--cases` only narrowed `--failed-in`. **36/43 passed (83.7%), $0.2154.** Routes: model 20, gate_haiku 13, gate 10. which_roastery 8/8, is_it_joe 5/5, order_status 7/7, price_named 7/8, what_we_are 4/5, what_did_i_order 4/5, shipping 1/5. Failures:
+
+| Case | Route | Message | Note |
+| --- | --- | --- | --- |
+| price_named | gate_haiku | How much is the Coado? | #14 missing 12 oz $29.00: the check is Clean Fruit's price (finding 1, OT-55) |
+| shipping | model | how long does shipping take? | #54: no US-only line; "I can't see shipping details from here — Dana can tell you..." |
+| shipping | model | What are your shipping times and costs? | #54: same |
+| shipping | model | If I order today, when would it get to me? | #54: same |
+| shipping | model | Mara here, is shipping free? | #54: "We don't publish shipping rates on my end — that's one for Dana..." |
+| what_did_i_order | model | wat did i get last time | #23: one order only ("Coado, October 21st"); no keyword (typo) |
+| what_we_are | model | Could you explain what kind of company Axis & Bloom is? | #11: leaves out the six archetypes and the Bloom Dial |
+
+### Tests
+`sommelierGate.test.ts`: the seed rule list (+ shipping, what_we_are), the deflection line, the shipping and what_we_are label lines in the confirmation prompt, keyword precedence (shipping; the shipping price to `price`; Theo to what_we_are; "What is this? Any decaf?" to decaf; the shipping typo to none), and the orders' newest-first lines and sentence. Gate, eval, profile and answer suites 165/165. Full suite: the 7 known failures (quizScoring 6, `schema.catalog_blueprint` dial_position_signal 1); two 5-second timeouts in a run that also picked up compiled `dist/` tests passed when rerun alone. Six lints and the build green. No table, column or comment change; `CATALOG.md` unchanged.

@@ -5,7 +5,8 @@
 //   npm run liam:evals -- --expect-db axisandbloom        (production, through the proxy)
 //   add --failed-in <runId> to rerun only the phrasings that failed in that run,
 //   narrowed by --cases key1,key2 and/or --note-match <text> (a substring of the
-//   failure's judge note); matched by case key and message.
+//   failure's judge note); matched by case key and message. --cases alone
+//   runs every current phrasing of those cases.
 // Same --expect-db discipline as catalogMd.ts. It spends money: Sonnet for
 // every phrasing, Haiku for the gate and the judge, capped by
 // evals.maxUsdPerRun and the Claude spend guard.
@@ -13,7 +14,7 @@ import 'dotenv/config';
 import { db } from '../db/client.js';
 import { loadSommelierConfigReadOnly } from '../services/sommelierConfig.js';
 import { runEvals } from '../services/sommelierEval.js';
-import { getRunResults } from '../services/sommelierReads.js';
+import { getRunResults, getCurrentCases, getPhrasings } from '../services/sommelierReads.js';
 
 const flag = (name: string) => { const k = process.argv.indexOf(name); return k >= 0 ? process.argv[k + 1] : undefined; };
 
@@ -39,6 +40,14 @@ try {
       .map(r => ({ caseKey: r.case_key, message: r.message }));
     console.log(`[liam:evals] rerunning ${only.length} phrasing(s) that failed in run ${failedIn}`);
     if (!only.length) throw new Error('nothing to rerun');
+  } else if (flag('--cases')) {
+    // Follow-up 3 (2026-10-26): --cases alone reruns every current phrasing of those cases.
+    const cases = flag('--cases')!.split(',').map(c => c.trim()).filter(Boolean);
+    const current = (await getCurrentCases()).filter(c => cases.includes(c.key));
+    const unknown = cases.filter(k => !current.some(c => c.key === k));
+    if (unknown.length) throw new Error(`no current case: ${unknown.join(', ')}`);
+    only = (await Promise.all(current.map(c => getPhrasings(c.id)))).flat().map(p => ({ caseKey: p.case_key, message: p.message }));
+    console.log(`[liam:evals] running ${only.length} phrasing(s) of ${current.length} case(s)`);
   }
   const summary = await runEvals({ trigger: 'manual', createdBy: 'script', only });
   const results = await getRunResults(summary.runId);

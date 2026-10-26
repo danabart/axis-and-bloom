@@ -6107,6 +6107,16 @@ Follow-up to #241. **Status: done on prod; `gate.enabled` stays false.** Commit 
 - **Run 7 (full): 71/83 (85.5%), $0.3734.** The set is 83 since the 2026-10-26 nightly copied 13 gated customer turns in; on run 5's 70 phrasings 61/70 (run 5 60/70); the nightly run 6 on the old config 67/83. order_status 7/7 (was 4/7), what_did_i_order 4/5, decaf 5/6 (was 1/5). Remaining 12 in the closing report.
 - Tests: profile +1, gate +1 and the seed list, eval globals; 138/138 in the three suites; six lints and the build pass.
 
+### 243. Liam answer evals follow-up 3: price trace, roaster guesses, shipping, what_we_are, orders newest first (2026-10-26)
+
+Follow-up to #242. **Status: done on prod; `gate.enabled` stays false; recommend_me untouched.** Commit `a030ddf` plus the docs and `--cases` commit; deploy `40351721744` green (rev `00798-wcn`); boot upgraded `gate.answerDescriptions.deflection`, only the known findings. Full record: `answer_evals/CLOSING_REPORT.md` (Follow-up 3).
+- **Price (finding, no fix):** the catalog block, the gate's `catalog_price` resolver and `must_contain_price_of` all read the catalog block's sizes (`coffee_slot_price` through `v_coffee_sellable_slot` for dial coffees, `coffee_retail_price` for category-only ones). Coado (2914): slot 23 12 oz 3200 and 5 lb 18500 (not sellable); no `coffee_retail_price` rows; no coffee anywhere has the two tables disagreeing. The failure is the eval data: the nightly copied "How much is the Coado?" into `price_named`, whose check is Clean Fruit's price (OT-55).
+- **"is it utopian?":** keyword and eligibility pass; Haiku's confirmation labelled it `judgment` (read as an adjective). `gate.answerDescriptions.deflection` now names a single lower-case guess ("is it acme?"); probe 4/4 `partner_privacy`, negatives and compounds unchanged. Sonnet never sees roaster names, so it cannot recognise the guess either (by design).
+- **Shipping:** answer `shipping` (policy, both) "We currently ship within the US only." and gate rule `shipping` (priority 55, after price); eval case `shipping_unknown` retired, `shipping` with `must_contain_answer shipping`. 1/5 in run 8: four phrasings ask time or cost and Sonnet does not add the US-only line (OT-57).
+- **what_we_are:** no rule existed; new rule with "what do you do", "what is this" (priority 80).
+- **Orders newest first:** the `customer_orders` facts say so; Haiku reversed 5 of 8 two-order replies in run 8 (1 of 6 in run 7) and the judge does not catch it (OT-56).
+- `liam:evals --cases` works alone. **Run 8 (7 cases): 36/43 (83.7%), $0.2154.** Tests 165/165 in the four suites; full suite the 7 known failures.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

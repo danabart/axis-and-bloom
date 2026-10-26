@@ -1830,3 +1830,12 @@ Full diagnosis, evidence, and verification in `WHAT_WE_BUILT.md` #166; the S17 d
 - Any reply that does say one of those shipping words is flagged on its turn record in production (never blocked).
 - "What did I order?" and "any news on my order?" now get the gate's fixed reply: what and when, then the "a person can check" line.
 - Full rerun: 71 of 83. All 7 order-status phrasings pass, 4 of 5 order-history ones.
+
+#### S122. Shipping is US only, and Liam catches a bare roaster guess (2026-10-26)
+
+**Pointer entry**, full record in `WHAT_WE_BUILT.md` #243.
+- Liam now knows the shipping policy ("We currently ship within the US only.") and, with the gate on, says it word for word to "do you ship to Canada?".
+- "is it utopian?" with the gate on now gets the privacy line; before, the check step read "utopian" as an adjective.
+- "What do you do?" with the gate on gets the what-we-are answer word for word.
+- The price check that failed on "How much is the Coado?" was checking another coffee's price; Coado's $32 is right and every reader uses the same prices.
+- Still open: Haiku lists two orders oldest first more often after being told to keep newest first, and shipping questions about time or cost do not mention US only.

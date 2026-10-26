@@ -384,6 +384,18 @@ Not on deploy and not on config change today: both would spend money unattended 
 
 `recommend_me` "Mara here, surprise me." (Sonnet): "You loved the Clean Fruit — same bright, juicy lane or ready to step somewhere new?" The judge wants a pick that is Fruity or a deliberate move from it. Passed in run 1, so it may be variance; watch the nightly runs before changing anything.
 
+### OT-55: price_named grades a copied "How much is the Coado?" against Clean Fruit's price (found 2026-10-26, follow-up 3)
+
+The nightly copies gated price turns into `price_named` (its `rule_key` is `price`), whose only check is `must_contain_price_of Clean Fruit`. The reply ($32.00, Coado's real price) fails on $29.00. Options: a coffee per phrasing for price checks, a case per coffee, or the copy skipping price turns that name another coffee. No price is wrong (#243).
+
+### OT-56: the gate's two-order sentence comes out oldest first (found 2026-10-26, follow-up 3)
+
+The `customer_orders` facts list the orders newest first and, since #243, say to keep that order. Haiku reversed 5 of 8 two-order replies in run 8 (1 of 6 in run 7), sometimes with "and before that" on the newer one. The judge does not catch it. Building the order sentence in code from the lines would make it exact. Gate is off in production.
+
+### OT-57: shipping time and cost questions do not mention US only (found 2026-10-26, follow-up 3)
+
+The `shipping` case checks `must_contain_answer shipping` on all five phrasings; four ask about time, cost or free shipping, and Sonnet points to Dana without the US-only line (1/5 in run 8). Either those phrasings get their own check ("points to a person for time and cost") or a brand rule asks for the US-only line with any shipping question; Dana's call.
+
 ### OT-19: `quizScoring.test.ts` — 12 pre-existing failures, not touched by Customer Blueprint C1 (found 2026-09-27)
 
 Found running the full `npm test` suite as part of Customer Blueprint C1's Part I verification (`git status`/`git log` confirm `backend/src/services/quizScoring.ts` and its test have no uncommitted diff and were last touched by commit `8edcac0`, already on `main` — this session never opened either file). **Pre-existing on `main` at `6f34238`, not introduced or touched by C1.** Not fixed here — out of scope for this brief.
