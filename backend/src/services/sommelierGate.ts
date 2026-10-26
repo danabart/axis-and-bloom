@@ -252,6 +252,8 @@ export interface ResolvedRow {
   phrased: boolean;
   /** Said verbatim after the phrased sentences (customer_orders: its answer text). */
   suffix?: string;
+  /** How many phrased sentences are kept (default 2; customer_orders keeps 1, the order sentence). */
+  sentences?: number;
   coffeeId: number | null;
   answerId: number | null;
 }
@@ -296,8 +298,15 @@ export async function resolveRule(args: {
       return `Ordered ${shortDate(o.createdAt)}: ${items.length ? items.join(', ') : 'an order'}`;
     });
     return {
-      text: `The customer's recent orders, newest first (what and when only):\n${lines.join('\n')}`,
-      phrased: true, suffix: answer.text, coffeeId: null, answerId: answer.id,
+      // The facts say what to do with them: the first eval rerun (2026-10-25) had
+      // Haiku answer "where is my order?" with "I don't have access..." instead
+      // of the orders, and the appended answer then said it twice.
+      text: [
+        'Reply with one sentence that starts "You ordered" and says what the customer ordered and when, from these lines (newest first). This is all we know about their orders.',
+        ...lines,
+        'Do not mention shipping, status, tracking, delivery or what you can or cannot see: the sentence after yours says that.',
+      ].join('\n'),
+      phrased: true, suffix: answer.text, sentences: 1, coffeeId: null, answerId: answer.id,
     };
   }
   if (rule.resolver === 'catalog_price') {
@@ -471,7 +480,7 @@ export async function tryGate(input: TryGateInput, deps: GateDeps = {}): Promise
         prompt: fill(gate.phrasePrompt ?? '', { facts: row.text, history: recent || '(none)', message: input.message }),
       });
       calls.push(phrase);
-      reply = firstSentences(parseAndStripMarkers(phrase.text, 0).reply, 2);
+      reply = firstSentences(parseAndStripMarkers(phrase.text, 0).reply, row.sentences ?? 2);
       if (!reply || namesRoaster(reply, roasterNames)) return notGated(reply ? 'roaster_in_reply' : 'empty_phrase', { ...base, usdMicros: spent() });
       if (row.suffix) reply = `${reply} ${row.suffix}`;
     }

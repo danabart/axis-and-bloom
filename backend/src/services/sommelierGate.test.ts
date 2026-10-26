@@ -242,13 +242,17 @@ describe('routing (Testing 3, Haiku stubbed)', () => {
       expect(out.gated).toBe(true);
       if (!out.gated) return;
       expect(out.route).toBe('gate_haiku');
-      expect(out.reply).toBe(`You ordered the ${a.alias} on Oct 21. Before that, two bags of ${b.alias}. I can't see shipping details from here. A person can check for you: ${SUPPORT}.`);
+      // One phrased sentence is kept (the order sentence), then the answer verbatim.
+      expect(out.reply).toBe(`You ordered the ${a.alias} on Oct 21. I can't see shipping details from here. A person can check for you: ${SUPPORT}.`);
       expect(limits).toEqual([2]); // gate.recentOrders
       const facts = h.calls.find(c => c.purpose === 'phrase')!.prompt;
       expect(facts).toContain(`Ordered Oct 21: ${a.alias} 12 oz x1`);
       expect(facts).toContain(`Ordered Sep 28: ${b.alias} 12 oz x2, a coffee x1`);
       expect(facts).not.toContain('Aug 1');
-      for (const word of ['pending', 'tracking', 'shipped', 'deliver']) expect(facts.toLowerCase()).not.toContain(word);
+      // The order lines carry what and when only (the framing lines around them tell Haiku to leave shipping alone).
+      const orderLines = facts.split(/\n/).filter(l => l.startsWith('Ordered '));
+      expect(orderLines).toHaveLength(2);
+      for (const word of ['pending', 'tracking', 'shipped', 'deliver', 'status']) expect(orderLines.join(' ').toLowerCase()).not.toContain(word);
     });
   }, 60000);
 
@@ -352,7 +356,7 @@ describe('redaction (Testing 4: three roasteries, one coffee named after its roa
         for (const coffeeId of rule.resolver === 'catalog_price' ? ids : [null]) {
           const row = await resolveRule({ rule, uid: 'vitest-gate-uid', message: 'Do you have any decaf?', coffeeId, answers, coffees: async () => coffees, cfg: config(), runner: client, customer });
           if (row) outputs.push(row.text, row.suffix ?? '');
-          if (row && rule.resolver === 'customer_orders') expect(row.text.split(/\n/)).toHaveLength(2);
+          if (row && rule.resolver === 'customer_orders') expect(row.text.split(/\n/).filter(l => l.startsWith('Ordered '))).toHaveLength(1);
         }
       }
       expect(outputs.filter(Boolean).length).toBeGreaterThanOrEqual(8);
