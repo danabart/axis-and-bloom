@@ -1822,3 +1822,11 @@ Full diagnosis, evidence, and verification in `WHAT_WE_BUILT.md` #166; the S17 d
 - "Where is my order?" through the gate now says what was ordered and when, then the same "I can't see shipping details from here. A person can check for you" line. Never a status, tracking or delivery date.
 - The judge has room to finish its verdict; the no-quiz question passes on the quiz or one concrete question about what they drink (and the brand rules say so); "who roasts it" passes on either the sourcing or the privacy answer.
 - Full rerun: **60 of 70 (86%)** for $0.23, up from 52. What is left: decafs listed before they are priced, the judge misreading the decaf question, Sonnet's order-status and order-history replies (one guesses "on its way"), and one "surprise me" with no pick.
+
+#### S121. Order replies say what and when, never a status (2026-10-26)
+
+**Pointer entry**, full record in `WHAT_WE_BUILT.md` #242.
+- Liam's rules now say: for an order, what was ordered and when, never "shipped", "on its way", "delivered" or a date it arrives. The customer facts carry the line he says instead ("Shipping status: not visible to Liam; the support contact can check").
+- Any reply that does say one of those shipping words is flagged on its turn record in production (never blocked).
+- "What did I order?" and "any news on my order?" now get the gate's fixed reply: what and when, then the "a person can check" line.
+- Full rerun: 71 of 83. All 7 order-status phrasings pass, 4 of 5 order-history ones.

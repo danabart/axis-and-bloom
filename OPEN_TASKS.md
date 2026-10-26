@@ -360,11 +360,13 @@ Eval replies, gate calls and judge calls go through the spend guard as `liam_cha
 
 ### OT-50: order-status replies do not say what was ordered and when (found 2026-10-25, first eval run)
 
-**Gate half done 2026-10-25 (#241):** `order_status` is resolver `customer_orders` (what and when, then the deflection verbatim). **Still open:** messages without a gate keyword go to Sonnet, which points to a person without naming the order (run 5: "wheres my cofee", "It's been a few days since I ordered. Any news?"), once guessed a status ("You've got the Coado on its way", `must_not_contain`), and what_did_i_order lists coffees without both orders and dates (2 of 5). More keywords (or the customer block rules) are the levers; Dana's call.
+**Done 2026-10-26 (#242), except one typo phrasing:** Sonnet's rules say what and when, never a status (and a `Shipping status` line in the customer block gives the sentence); five shipping phrases are global `banned_claim` checks in production; `what_did_i_order` gate rule and three more `order_status` keywords. Run 7: order_status 7/7, what_did_i_order 4/5 ("wat did i get last time": no keyword, Sonnet named one order). Earlier: **Gate half done 2026-10-25 (#241):** `order_status` is resolver `customer_orders` (what and when, then the deflection verbatim). **Still open:** messages without a gate keyword go to Sonnet, which points to a person without naming the order (run 5: "wheres my cofee", "It's been a few days since I ordered. Any news?"), once guessed a status ("You've got the Coado on its way", `must_not_contain`), and what_did_i_order lists coffees without both orders and dates (2 of 5). More keywords (or the customer block rules) are the levers; Dana's call.
 
 `order_status`: 4 of 5 point to a person for shipping status but do not name the order; the gate's verbatim `order_status_unavailable` answer cannot. `customerBlock.rules` says Liam "can see what was ordered and when". Either the case's judge question asks for more than Dana wants, or the deflection (an answer row) and the rule should name the order; Dana's call. `what_did_i_order`: 3 of 5 name the coffees but not the two orders with their dates.
 
 ### OT-51: the gate lists decafs as available that the catalog cannot sell yet (found 2026-10-25, first eval run)
+
+**2026-10-26 (#242):** the judge question is reworded to "every coffee the reply names ... whether or not a price is listed"; decaf 5/6 in run 7. Still open: the gate's `catalog_category` reply for "Any decaf options?" said both unpriced decafs are "in stock and ready to brew", and the judge still failed it on price.
 
 "do you have any decaf?" (gate_haiku): "we have two decaf options: Nightcap Decaf and Decaf Mexico Veracruz"; both are "not yet available" in the catalog block (no active priced size). `catalog_category` lists every coffee in the category; it could skip, or say, the unpriced ones (a code change to the resolver). The judge also misread the decaf question once ("not every coffee in the catalog carries the Decaf label"); the question could be reworded to "every coffee the reply names".
 
@@ -377,6 +379,8 @@ With `brandFacts.supportContact` = `dana@axisandbloomcoffee.com`, Sonnet writes 
 Not on deploy and not on config change today: both would spend money unattended on production. The config page shows the last run beside the prompt fields so a run follows an edit by hand. With a dev environment, a config change there could trigger a run before the change reaches production.
 
 ### OT-54: "surprise me" gets a question instead of a pick (found 2026-10-25, eval run 5)
+
+**Wider in run 7 (2026-10-26, #242):** 4 of 5 `recommend_me` phrasings asked "same direction, or ready to try something new?" instead of picking (runs 5 and 6: 1 of 5). Run 7 was the first with the strengthened orders rule in the prompt; one run cannot separate that from variance. Watch the nightly runs.
 
 `recommend_me` "Mara here, surprise me." (Sonnet): "You loved the Clean Fruit — same bright, juicy lane or ready to step somewhere new?" The judge wants a pick that is Fruity or a deliberate move from it. Passed in run 1, so it may be variance; watch the nightly runs before changing anything.
 

@@ -6097,6 +6097,16 @@ Follow-up to #240. **Status: done on prod; `gate.enabled` stays false.** Commits
 - **Full rerun (run 5): 60/70 (85.7%), $0.2288** (run 1 52/70). Remaining 10: decaf (4: the gate lists unpriced decafs twice, OT-51; the judge misreads "Decaf label" three times), Sonnet order status (3, no gate keyword; one says "on its way", a status guess), what_did_i_order (2), recommend_me "surprise me" (1, new).
 - Tests: gate +3 and redaction, eval +3; full suite 997 passed, 7 pre-existing failures (a `comments.sql` `|` found by the format test and reworded).
 
+### 242. Liam order replies on the Sonnet side (OT-50) and the decaf judge question (2026-10-26)
+
+Follow-up to #241. **Status: done on prod; `gate.enabled` stays false.** Commit `fa38ec2`; deploy `40338199246` green (rev `00796-l4m`); boot `applyMissingKeys added or upgraded 3 key(s)` (`customerBlock.shippingStatusLine`, `brandFacts.rules`, `gate.resolverDescriptions.customer_orders`), only the known findings. Full record: `answer_evals/CLOSING_REPORT.md` (Follow-up 2).
+- **Shipping claims flagged:** five global `must_not_claim` checks, flag `banned_claim`: "on its way", "has shipped", "shipped on", "delivered", "out for delivery" (seed `SHIPPING_CLAIMS`; prod checks 45-49 through `setCheckInTx`). Report only, as every global check.
+- **Orders rule:** the `brandFacts.rules` orders line now says what was ordered and when from the Orders line, never a status, a shipping word or a ship/arrival date, and points to the Shipping status line (`ORDERS_RULE`; `SEED_UPGRADES` from the eight-line `BRAND_FACTS_RULES_V3`). The customer block prints `Shipping status: not visible to Liam; {supportContact} can check` under the orders lines when the customer has any (`customerBlock.shippingStatusLine`, `liamProfile.shippingStatusLine()`, used by `loadProfileReads` and the eval fixtures).
+- **Gate:** `order_status` gains "any news", "has my order shipped", "shipped yet" (prod row 12 supersedes 9); new rule **`what_did_i_order`** (resolver `customer_orders`, answer `order_status_unavailable`, priority 45 so a message hitting both stays a status question; prod row 13), keywords "what did i order", "what did i get", "bought so far", "my last order", "what have i bought", "i have purchased". Must_match examples are the eval phrasings; compounds must_not_match. The `customer_orders` confirmation description now includes "what they ordered before" (`SEED_UPGRADES`), or Haiku would label those messages judgment.
+- **decaf_available** judge question: "Does every coffee the reply names carry the Decaf label in the catalog block, whether or not a price is listed?" (prod case 22 supersedes 8).
+- **Run 7 (full): 71/83 (85.5%), $0.3734.** The set is 83 since the 2026-10-26 nightly copied 13 gated customer turns in; on run 5's 70 phrasings 61/70 (run 5 60/70); the nightly run 6 on the old config 67/83. order_status 7/7 (was 4/7), what_did_i_order 4/5, decaf 5/6 (was 1/5). Remaining 12 in the closing report.
+- Tests: profile +1, gate +1 and the seed list, eval globals; 138/138 in the three suites; six lints and the build pass.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)
