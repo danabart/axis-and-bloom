@@ -95,7 +95,8 @@ export function seedCases(args: { fruityAlias: string | null; roasterNames: stri
       checks: [{ kind: 'must_contain_answer', value: 'what_we_are' }],
     },
     {
-      key: 'shipping_unknown', kind: 'brand', fixtureKey: 'fruity_high_conf',
+      // Follow-up 3 (2026-10-26): shipping is decided (US only); was shipping_unknown.
+      key: 'shipping', kind: 'brand', fixtureKey: 'fruity_high_conf',
       phrasings: [
         hand('how long does shipping take?', 'casual'),
         hand('What are your shipping times and costs?', 'formal'),
@@ -104,7 +105,7 @@ export function seedCases(args: { fruityAlias: string | null; roasterNames: stri
         hand('Mara here, is shipping free?', 'first name'),
       ],
       checks: [
-        judge('Does the reply say it does not have shipping details rather than inventing a policy?'),
+        { kind: 'must_contain_answer', value: 'shipping' },
         { kind: 'must_not_contain', value: 'business days' },
       ],
     },

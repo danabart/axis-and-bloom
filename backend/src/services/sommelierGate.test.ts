@@ -66,7 +66,7 @@ describe('rule tests (Testing 2)', () => {
   it('the seed rules load and every example passes steps 2 and 3 with the confirmation stubbed', async () => {
     await withRollback(async ({ client }) => {
       const rules = await seeded(client);
-      expect(rules.map(r => r.key).sort()).toEqual(['decaf', 'do_you_roast', 'order_status', 'price', 'subscription_status', 'what_did_i_order', 'what_you_get', 'which_roastery']);
+      expect(rules.map(r => r.key).sort()).toEqual(['decaf', 'do_you_roast', 'order_status', 'price', 'shipping', 'subscription_status', 'what_did_i_order', 'what_we_are', 'what_you_get', 'which_roastery']);
       const examples = await getExamples(null, client);
       expect(exampleFailures(rules, examples, 160)).toEqual([]);
       for (const r of rules) {
@@ -139,7 +139,10 @@ describe('the confirmation prompt', () => {
     await withRollback(async ({ client }) => {
       const rules = await seeded(client);
       const prompt = buildConfirmPrompt({ cfg: config(), rules, answers: await getCurrentAnswers(client), aliases: ['Coado'], previous: '', message: 'is it Joe Coffee?' });
-      expect(prompt).toContain('- partner_privacy: the customer asks, or guesses by name, something this reply deliberately declines to tell them (a guessed name that is not one of the coffees listed below counts as asking)');
+      expect(prompt).toContain('- partner_privacy: the customer asks, or guesses by name, something this reply deliberately declines to tell them (a guessed name that is not one of the coffees listed below counts as asking, even a single lower-case word such as "is it acme?")');
+      // Follow-up 3: shipping and what_we_are are answer labels, introduced by their answer text.
+      expect(prompt).toContain('- shipping: the customer asks something this reply fully answers: "We currently ship within the US only."');
+      expect(prompt).toMatch(/- what_we_are: the customer asks something this reply fully answers: "Axis & Bloom is a flavor intelligence platform/);
       expect(prompt).toMatch(/- sourcing: the customer asks something this reply fully answers: "We do not roast/);
       // order_status is customer_orders now: described by gate.resolverDescriptions, not by its answer text.
       // Follow-up 2: one customer_orders line for both order_status and what_did_i_order (labels are deduplicated).
@@ -165,6 +168,15 @@ describe('matching and parsing (pure)', () => {
     expect(matchCandidate("It's been a few days since I ordered. Any news?", rules)?.rule.key).toBe('order_status');
     expect(matchCandidate('Sam here, what have I bought so far?', rules)?.rule.key).toBe('what_did_i_order');
     expect(matchCandidate('wat did i get last time', rules)).toBeNull();
+  });
+  it('follow-up 3: shipping and what_we_are keywords; a more specific rule matches first', () => {
+    const rules = seedRules([]).map(r => rule(r.key, r.priority, r.keywords, r.resolver, r.answerKey ?? null));
+    expect(matchCandidate('do you ship to canada?', rules)?.rule.key).toBe('shipping');
+    expect(matchCandidate('Do you ship internationally?', rules)?.rule.key).toBe('shipping');
+    expect(matchCandidate("What's the shipping price?", rules)?.rule.key).toBe('price');
+    expect(matchCandidate("Hi, I'm Theo, new here. What do you do?", rules)?.rule.key).toBe('what_we_are');
+    expect(matchCandidate('What is this? Any decaf?', rules)?.rule.key).toBe('decaf');
+    expect(matchCandidate('do you shp to canada', rules)).toBeNull();
   });
     it('parseConfirm reads the first JSON object and treats junk as unparsed', () => {
     expect(parseConfirm('{"label":"sourcing","alias":null,"confidence":0.93}')).toEqual({ label: 'sourcing', alias: null, confidence: 0.93 });
@@ -258,6 +270,9 @@ describe('routing (Testing 3, Haiku stubbed)', () => {
       expect(facts).toContain(`Ordered Oct 21: ${a.alias} 12 oz x1`);
       expect(facts).toContain(`Ordered Sep 28: ${b.alias} 12 oz x2, a coffee x1`);
       expect(facts).not.toContain('Aug 1');
+      // Follow-up 3: the lines come newest first and the facts say to keep that order.
+      expect(facts.indexOf('Ordered Oct 21')).toBeLessThan(facts.indexOf('Ordered Sep 28'));
+      expect(facts).toContain('The lines are listed newest first; state them in that order, newest first.');
       // The order lines carry what and when only (the framing lines around them tell Haiku to leave shipping alone).
       const orderLines = facts.split(/\n/).filter(l => l.startsWith('Ordered '));
       expect(orderLines).toHaveLength(2);

@@ -18,7 +18,8 @@ import { setRuleInTx, assertRuleTests, type SetRuleInput } from '../../services/
 // "decaffeinated" are keywords of the caffeine_decaf expertise topic.
 // which_roastery also gets every roaster name from the roaster table at seed
 // time, lower-cased (test roasteries named "Zzz ..." skipped).
-// shipping and returns get no rule: no answer row exists for them.
+// shipping and returns get no rule: no answer row exists for them (shipping
+// since follow-up 3, 2026-10-26: answer row and rule, below).
 // Follow-up (2026-10-25, OT-45): one compound per rule shape on price and
 // do_you_roast; on prod they were added through gate:rules:apply (the seed
 // only writes into an empty table).
@@ -30,6 +31,18 @@ import { setRuleInTx, assertRuleTests, type SetRuleInput } from '../../services/
 // news", "has my order shipped", "shipped yet"; new rule what_did_i_order
 // (resolver customer_orders). Must_match examples are eval phrasings; the
 // compounds stay must_not_match. On prod through gate:rules:apply.
+// Answer evals follow-up 3 (2026-10-26): the shipping answer (kind policy,
+// delivery both) and rule, and a what_we_are rule (none existed; Dana's two
+// keywords). On prod through the answer service and gate:rules:apply.
+
+// Answer evals follow-up 3 (2026-10-26): shipping is decided, Dana's words.
+export const SHIPPING_ANSWER = {
+  key: 'shipping',
+  kind: 'policy',
+  delivery: 'both',
+  sortOrder: 8,
+  text: 'We currently ship within the US only.',
+};
 
 export const ORDER_STATUS_ANSWER = {
   key: 'order_status_unavailable',
@@ -134,6 +147,22 @@ export function seedRules(roasterNames: string[]): SeedRule[] {
       ],
     },
     {
+      // Answer evals follow-up 3 (2026-10-26): shipping is decided (US only).
+      // After price, so "what's the shipping price?" is the price rule's to refuse.
+      key: 'shipping', priority: 55, resolver: 'answer', answerKey: SHIPPING_ANSWER.key, topicKey: 'other',
+      keywords: ['ship to', 'do you ship', 'shipping', 'international'],
+      examples: [
+        mm('Do you ship to Canada?', 'shipping'),
+        mm('Do you ship internationally?', 'shipping'),
+        mm('Where do you ship?', 'shipping'),
+        mm('Can you ship to the UK?', 'shipping'),
+        mn('How long does shipping take?'),
+        mn('Is shipping free?'),
+        mn("What's the shipping status of my order?"),
+        mn('Do you ship to Canada, and which coffee travels best?'),
+      ],
+    },
+    {
       key: 'decaf', priority: 60, resolver: 'catalog_category', topicKey: 'caffeine_decaf',
       keywords: ['any decaf', 'decaf options', 'which decaf', 'do you have decaf', 'decaf coffees', 'half caf', 'half-caf', 'caffeine free'],
       examples: [
@@ -157,6 +186,19 @@ export function seedRules(roasterNames: string[]): SeedRule[] {
         mn('Which coffee should go in my subscription next?'),
       ],
     },
+    {
+      // Answer evals follow-up 3 (2026-10-26): the what_we_are answer said
+      // verbatim. Last, so a more specific rule always matches first.
+      key: 'what_we_are', priority: 80, resolver: 'answer', answerKey: 'what_we_are', topicKey: 'other',
+      keywords: ['what do you do', 'what is this'],
+      examples: [
+        mm("Hi, I'm Theo, new here. What do you do?", 'what_we_are'),
+        mm('What do you do?', 'what_we_are'),
+        mm('What is this?', 'what_we_are'),
+        mn('What is this coffee like?'),
+        mn('What do you do differently from a roaster, and which coffee should I start with?'),
+      ],
+    },
   ];
 }
 
@@ -167,6 +209,14 @@ async function seedInTx(tx: Tx): Promise<{ rules: number; examples: number; answ
       key: ORDER_STATUS_ANSWER.key, kind: ORDER_STATUS_ANSWER.kind, delivery: ORDER_STATUS_ANSWER.delivery,
       sortOrder: ORDER_STATUS_ANSWER.sortOrder, answerText: ORDER_STATUS_ANSWER.text,
       note: 'seed: Liam answer layer A6 (2026-10-25), the order_status rule says this verbatim', createdBy: 'seed', expect: 'new',
+    });
+    answerAdded = true;
+  }
+  if (!(await getAnswer(SHIPPING_ANSWER.key, tx))) {
+    await setAnswerInTx(tx, {
+      key: SHIPPING_ANSWER.key, kind: SHIPPING_ANSWER.kind, delivery: SHIPPING_ANSWER.delivery,
+      sortOrder: SHIPPING_ANSWER.sortOrder, answerText: SHIPPING_ANSWER.text,
+      note: 'seed: answer evals follow-up 3 (2026-10-26), shipping decided: US only', createdBy: 'seed', expect: 'new',
     });
     answerAdded = true;
   }

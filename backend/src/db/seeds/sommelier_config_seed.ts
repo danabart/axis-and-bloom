@@ -9,6 +9,11 @@ import { firestoreDb, FieldValue } from '../../services/firebase-admin.js';
 // ordered and when, never a status, a shipping word or a ship or arrival date.
 const ORDERS_RULE = 'For an existing order, say what was ordered and when, from the Orders line in ABOUT THIS CUSTOMER, and nothing more about it: never a status, never a shipping word (shipped, on its way, delivered, out for delivery), never a date it ships or arrives. For where it is, say the Shipping status line in your own words. For payment, refund or account changes, say you can\'t see that part and point them to {supportContact}. Never promise an outcome on their behalf.';
 
+// Answer evals follow-up 3 (2026-10-26): the confirmation prompt's deflection
+// label line. A placeholder name, never a real roaster's, in the example.
+const GATE_DEFLECTION_DESCRIPTION_V1 = 'the customer asks, or guesses by name, something this reply deliberately declines to tell them (a guessed name that is not one of the coffees listed below counts as asking); the reply is still the whole answer';
+const GATE_DEFLECTION_DESCRIPTION = 'the customer asks, or guesses by name, something this reply deliberately declines to tell them (a guessed name that is not one of the coffees listed below counts as asking, even a single lower-case word such as "is it acme?"); the reply is still the whole answer';
+
 export const DEFAULT_SOMMELIER_CONFIG = {
     confidenceWeights: {
       quizStability:       0.30,
@@ -145,7 +150,9 @@ export const DEFAULT_SOMMELIER_CONFIG = {
       ].join('\n'),
       answerDescriptions: {
         default: 'the customer asks something this reply fully answers',
-        deflection: 'the customer asks, or guesses by name, something this reply deliberately declines to tell them (a guessed name that is not one of the coffees listed below counts as asking); the reply is still the whole answer',
+        // Follow-up 3 (2026-10-26): "is it utopian?" read as an adjective
+        // (judgment); the bare lower-case guess is now named.
+        deflection: GATE_DEFLECTION_DESCRIPTION,
       },
       resolverDescriptions: {
         catalog_price: 'asks what a coffee costs, its price, or its sizes and prices',
@@ -725,6 +732,8 @@ export const SEED_UPGRADES: Array<{ path: string; from: unknown }> = [
   // Answer evals follow-up 2 (2026-10-26, OT-50): the orders rule strengthened.
   { path: 'brandFacts.rules', from: BRAND_FACTS_RULES_V3 },
   { path: 'gate.resolverDescriptions.customer_orders', from: 'asks where their order is, whether it has shipped, its tracking, or when it will arrive' },
+  // Answer evals follow-up 3 (2026-10-26): a bare lower-case roaster guess.
+  { path: 'gate.answerDescriptions.deflection', from: GATE_DEFLECTION_DESCRIPTION_V1 },
 ];
 
 // Order-insensitive for objects (a live Firestore map's key order is not the

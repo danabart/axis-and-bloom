@@ -300,9 +300,11 @@ export async function resolveRule(args: {
     return {
       // The facts say what to do with them: the first eval rerun (2026-10-25) had
       // Haiku answer "where is my order?" with "I don't have access..." instead
-      // of the orders, and the appended answer then said it twice.
+      // of the orders, and the appended answer then said it twice. Follow-up 3
+      // (2026-10-26): run 7 had "...on September 28th, and before that ...
+      // October 21st", so the order of the lines is now an instruction.
       text: [
-        'Reply with one sentence that starts "You ordered" and says what the customer ordered and when, from these lines (newest first). This is all we know about their orders.',
+        'Reply with one sentence that starts "You ordered" and says what the customer ordered and when, from these lines. The lines are listed newest first; state them in that order, newest first. This is all we know about their orders.',
         ...lines,
         'Do not mention shipping, status, tracking, delivery or what you can or cannot see: the sentence after yours says that.',
       ].join('\n'),

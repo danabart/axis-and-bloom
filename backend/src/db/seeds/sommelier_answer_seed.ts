@@ -7,8 +7,10 @@ import { hasAnyAnswer } from '../../services/sommelierReads.js';
 // card "Liam answers" afterwards. Insert-only, and only when the table is
 // empty (same rule as sommelier_config_seed.ts): once any row exists, even a
 // retired one, this never writes again, so an admin edit or retire is never
-// undone by a boot. No shipping and no returns row: a missing key means Liam
-// has no such fact (brandFacts.rules covers it); never seed placeholder prose.
+// undone by a boot. No returns row: a missing key means Liam has no such fact
+// (brandFacts.rules covers it); never seed placeholder prose. The shipping row
+// (decided 2026-10-26, US only) is written with its gate rule by
+// sommelier_gate_rule_seed.ts, as order_status_unavailable is.
 // The seed is the one writer besides sommelierAnswerService (declared
 // `seed` in comments.sql; allow-listed in lint:customer rule 8). It does not
 // go through the service's content rules, so sommelierIntegrity reports any
