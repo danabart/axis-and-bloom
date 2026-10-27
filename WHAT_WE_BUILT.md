@@ -6125,6 +6125,14 @@ Follow-up to #243. **Status: done on prod; `gate.enabled` stays false; recommend
 - **OT-57:** `brandFacts.rules` line for shipping time and cost (US only, no time, no cost, point to the contact); case `shipping` keeps the region phrasing, new case `shipping_terms` the four time/cost phrasings with `must_not_contain business days` and the judge question.
 - **Run 9 (5 cases): 22/25 (88.0%), $0.1333.** Full suite 1,004 passed, the 7 known failures.
 
+### 245. Liam answer evals follow-up 5: a copied phrasing keeps the message it answered (2026-10-27)
+
+Follow-up to #244. **Status: done on prod; `gate.enabled` stays false; recommend_me untouched.** Commit `0031bab` plus the docs and `CATALOG.md` commit; deploy `40562529255` green (rev `00802-pz4`, schema applied, 1,252 columns). Full record: `answer_evals/CLOSING_REPORT.md` (Follow-up 5).
+- **`sommelier_eval_phrasing.turn_context`** (TEXT, nullable): the nightly copy (`addCustomerPhrasings`) fills it with the previous assistant message of the source turn: the ledger's previous turn (`turn - 1`, turn 0 being the opening) gives `assistant_message_id`, read from the Firestore transcript. Case edits carry it. The runner sends the phrasing's `turn_context` as the prior exchange when set, else the case's.
+- **Backfill:** `backfillPhrasingTurnContexts` (one case edit per affected case through `setCaseInTx`, since phrasing rows are only superseded) filled all 13 current copied phrasings (the 14 in #244 was a miscount: there are 13 copied turns). Cases superseded: decaf_available 34, do_you_roast 35, order_status 36, price_named 37, which_roastery 38; checks carried over.
+- **Run 11 (`--cases price_named`): 8/8, $0.0790.** "How much is it?" now follows its chat's Coado message and passes on $32.00 (gate_haiku).
+- Tests: the copy reads the previous turn's message and a case edit keeps it; the runner sends a phrasing's own context, else the case's; the backfill fills by case edit with checks carried, and a second run fills nothing. Full suite 1,005 passed; failures are the 7 known plus `lintCatalog.test.ts` timing out at 5 s under full-suite load (passes alone; `lint:catalog` green).
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

@@ -287,3 +287,19 @@ Commit `be7a2ce` (code, schema, comments, seeds, tests), then the docs and `CATA
 
 ### Tests
 Gate, eval, profile, comments and config suites green after one expected update (the seed now has 15 cases); full suite 1,004 passed with the 7 known failures (quizScoring 6, `schema.catalog_blueprint` dial_position_signal 1), run without `dist/`. Six lints and the build green.
+
+## Follow-up 5 (2026-10-27): a copied phrasing keeps the message it answered
+
+Commit `0031bab` (code, schema, comments, tests), then the docs and `CATALOG.md` commit; deploy `40562529255` green (rev `00802-pz4`). Boot: schema applied (1,252 columns, one new); integrity findings only the known ones, plus `CATALOG.md` stale until it was regenerated (hash `c53fc459...`). `gate.enabled` still false; recommend_me not touched.
+
+- **`sommelier_eval_phrasing.turn_context`** (TEXT, nullable), in `schema.sql` with its `COMMENT ON`. The nightly copy reads the source turn's previous assistant message: the ledger row at `turn - 1` (turn 0 is the opening) gives `assistant_message_id`, read from the transcript like the customer message. `setPhrasingInTx` and `setCaseInTx` write it; a case edit carries it.
+- **Runner:** a phrasing's `turn_context`, when set, is the prior exchange (after `evals.turnContextMessage`), instead of the case's.
+- **Backfill** (`backfillPhrasingTurnContexts`, dry run then applied): 13 current copied phrasings, 13 filled, none without a previous ledger turn. There are 13 copied turns in all, so follow-up 4's "14" was a miscount. Phrasing rows are only ever superseded, so it is one case edit per case through `setCaseInTx` (checks carried): decaf_available 34, do_you_roast 35, order_status 36, price_named 37, which_roastery 38.
+- Several contexts are unrelated to the question (do_you_roast's "Where is your roastery?" followed the order-status line). That is what the customer saw, so they stay.
+
+### Rerun (run 11, `--cases price_named`)
+**8/8 passed, $0.0790.** "How much is it?" (gate_haiku), after "Coado. Almond, chocolate, a little cherry in the finish ... $32.00 for 12 oz.": "It's $32.00 for 12 ounces of whole bean." Graded on Coado, passes. The nightly full run 10 (before this change) was 74/83.
+
+### Tests
+New: the copy keeps the previous turn's message through a case edit; the runner sends a phrasing's own context, else the case's; the backfill fills by case edit with checks carried, and a second run fills nothing. Full suite 1,005 passed; failures: the 7 known plus `lintCatalog.test.ts` (both tests timed out at 5 s under full-suite load; pass alone). Five lint scripts, typecheck and the build green.
+

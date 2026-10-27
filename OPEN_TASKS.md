@@ -386,7 +386,7 @@ Not on deploy and not on config change today: both would spend money unattended 
 
 ### OT-55: price_named grades a copied "How much is the Coado?" against Clean Fruit's price (found 2026-10-26, follow-up 3)
 
-**Done 2026-10-26 (#244):** phrasings carry the coffee their turn resolved (`sommelier_eval_phrasing.coffee_id`). Left: "How much is it?" is graded on Coado (its turn's coffee) while the eval context makes "it" Clean Fruit; retire it or accept it as context-bound.
+**Done 2026-10-26 (#244):** phrasings carry the coffee their turn resolved (`sommelier_eval_phrasing.coffee_id`). Left: "How much is it?" is graded on Coado (its turn's coffee) while the eval context makes "it" Clean Fruit; retire it or accept it as context-bound. **That too, 2026-10-27 (#245):** copied phrasings keep the assistant message they answered (`turn_context`); "How much is it?" passes (run 11, price_named 8/8).
 
 The nightly copies gated price turns into `price_named` (its `rule_key` is `price`), whose only check is `must_contain_price_of Clean Fruit`. The reply ($32.00, Coado's real price) fails on $29.00. Options: a coffee per phrasing for price checks, a case per coffee, or the copy skipping price turns that name another coffee. No price is wrong (#243).
 

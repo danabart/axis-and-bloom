@@ -1846,3 +1846,8 @@ Full diagnosis, evidence, and verification in `WHAT_WE_BUILT.md` #166; the S17 d
 - With the gate on, "where is my order?" and "what did I order?" now get "You ordered Coado 12 oz on Oct 21. You ordered Classic Balanced 12 oz x2 on Sep 28." then the "a person can check" line, always newest first; the sentence is a template Dana can edit in config.
 - Asked about shipping time or cost, Liam says we ship within the US only, gives no time or price, and points to the support contact.
 - A price question copied from a real chat is now checked against the coffee that chat was about.
+
+#### S124. Copied eval questions keep what Liam had just said (2026-10-27)
+
+**Pointer entry**, full record in `WHAT_WE_BUILT.md` #245.
+- A question copied from a real chat into the eval set now keeps the Liam message it was answering, so "How much is it?" is asked right after the Coado recommendation it followed, and the price check passes.

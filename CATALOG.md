@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-10-26 from database `axisandbloom` · 135 tables · 74 views · 1251 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `9742654ed475` (full value in the footer).
+Generated 2026-10-27 from database `axisandbloom` · 135 tables · 74 views · 1252 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `c53fc459445c` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -513,7 +513,7 @@ The brand facts Liam may state (what we are, sourcing, partner privacy, what you
 The Liam eval set's questions, one current row per key: what is being asked (by kind), which fixture customer asks it, the coffee and the previous Liam turn it may refer to; no existing object holds a question with its expected answer properties (sommelier_gate_rule_example tests the matcher's routing, not the answer; REGRESSION.md is a hand checklist; the quiz calibration fixture tests the quiz router)
 
 - **Writer:** sommelierEvalService.setCaseInTx, sommelierEvalService.retireCaseInTx
-- **Readers:** sommelierReads (getCurrentCases, hasAnyEvalCase, getPhrasings, getRunResults, getGatedTurnsForPhrasings, getLabelledTurnCandidates); sommelierIntegrity checks 11-13 via sommelierReads
+- **Readers:** sommelierReads (getCurrentCases, hasAnyEvalCase, getPhrasings, getRunResults, getGatedTurnsForPhrasings, getPhrasingsMissingTurnContext, getLabelledTurnCandidates); sommelierIntegrity checks 11-13 via sommelierReads
 - **Since:** 2026-10-25 (Liam answer evals, Part A1)
 
 | column | type | null | comment |
@@ -523,7 +523,7 @@ The Liam eval set's questions, one current row per key: what is being asked (by 
 | `kind_id` | integer | no | FK to lookup_value(id) in category sommelier_eval_kind: brand, catalog, customer, judgment or safety. |
 | `fixture_key` | text | no | The invented fixture customer who asks it: a file backend/src/fixtures/liam_eval/<fixture_key>.json, registered in that folder's index.ts (integrity check 13). |
 | `catalog_alias` | text | yes | For catalog cases, the coffee the question is about, by its customer-facing alias in the catalog block (resolved at run time; never a roaster name); NULL otherwise. The brief named it coffee_alias, the name of a dropped legacy table that lint:catalog blocks, so it is catalog_alias. |
-| `turn_context` | text | yes | Optional previous Liam turn, so a phrasing like how much is it? has an it; the runner sends it as one prior exchange. NULL for a first question. |
+| `turn_context` | text | yes | Optional previous Liam turn, so a phrasing like how much is it? has an it; the runner sends it as one prior exchange, unless the phrasing has its own turn_context. NULL for a first question. |
 | `rule_key` | text | yes | The sommelier_gate_rule key whose gated customer messages become phrasings of this case (price_named takes the price rule's); NULL when no gate rule answers it. Added because case and rule keys are not 1:1. |
 | `since` | timestamp with time zone | no | UTC timestamp the row took effect. |
 | `superseded_at` | timestamp with time zone | yes | UTC timestamp a newer row for the key replaced this one, or the case was retired; NULL marks the current row. The only column ever updated. \| Writer: sommelierEvalService.setCaseInTx, sommelierEvalService.retireCaseInTx |
@@ -532,10 +532,10 @@ The Liam eval set's questions, one current row per key: what is being asked (by 
 
 #### `sommelier_eval_phrasing`
 
-The many ways one eval case is asked: written by hand, or copied verbatim from a customer message the gate answered (from the transcript by the ledger row's user_message_id; may carry a first name, kept for this purpose only); de-duplicated per case, capped per case for customer copies
+The many ways one eval case is asked: written by hand, or copied verbatim from a customer message the gate answered (from the transcript by the ledger row's user_message_id; may carry a first name, kept for this purpose only), with the assistant message it answered as its turn_context; de-duplicated per case, capped per case for customer copies
 
 - **Writer:** sommelierEvalService.setPhrasingInTx, sommelierEvalService.retirePhrasingInTx, sommelierEvalService.setCaseInTx, sommelierEvalService.retireCaseInTx; seed
-- **Readers:** sommelierReads (getPhrasings, getCustomerPhrasingCount, getRunResults, getGatedTurnsForPhrasings, getLabelledTurnCandidates)
+- **Readers:** sommelierReads (getPhrasings, getCustomerPhrasingCount, getRunResults, getGatedTurnsForPhrasings, getPhrasingsMissingTurnContext, getLabelledTurnCandidates)
 - **Since:** 2026-10-25 (Liam answer evals, Part A2)
 
 | column | type | null | comment |
@@ -549,6 +549,7 @@ The many ways one eval case is asked: written by hand, or copied verbatim from a
 | `superseded_at` | timestamp with time zone | yes | UTC timestamp the phrasing was retired or its case edited or retired; NULL marks a current phrasing. The only column the app ever updates (coffee_id was also set once, by the schema.sql backfill). \| Writer: sommelierEvalService.retirePhrasingInTx, sommelierEvalService.setCaseInTx, sommelierEvalService.retireCaseInTx |
 | `note` | text | yes | Why the phrasing exists (its style: casual, formal, typo, indirect, first name; or that it names a real roaster on purpose), free text. |
 | `coffee_id` | integer | yes | FK to coffees(id): the coffee the source turn resolved (sommelier_turn.coffee_id, set on gated catalog_price turns), copied by the nightly copy; must_contain_price_of grades the phrasing on it when set. NULL for hand phrasings and turns that resolved no coffee. Added 2026-10-26 (answer evals follow-up 4, OT-55) and backfilled once by schema.sql (idempotent: only rows still NULL) for phrasings copied before then. \| Writer: sommelierEvalService.setPhrasingInTx, sommelierEvalService.setCaseInTx; seed |
+| `turn_context` | text | yes | The assistant message the source customer turn answered: the previous ledger turn's assistant_message_id (turn - 1; turn 0 is the opening), read from the transcript by the nightly copy. The runner sends it as the prior exchange instead of the case's turn_context, so how much is it? keeps the it it was asked about. NULL for hand phrasings and when the transcript message is missing. Added 2026-10-27 (answer evals follow-up 5); phrasings copied before then were backfilled once by a case edit (backfillPhrasingTurnContexts). \| Writer: sommelierEvalService.setPhrasingInTx, sommelierEvalService.setCaseInTx |
 
 #### `sommelier_gate_rule`
 
@@ -3617,5 +3618,5 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 ---
 
-catalog-hash: 9742654ed4751f2d1a3316bab1de8beb056b452757e0ada6958dc7c7404d9cb3
-lineage-hash: ab45fde214030c80562d29bdf4690fcb839a2f8748e8c632d4c57ad76d88480b
+catalog-hash: c53fc459445cf8056275742132a742fdbf8cacdba844e927922dd9e14799336d
+lineage-hash: 4a02d33ac207f695593ed203e062149bd9cc6b966ba129272d4436ccdf714f89
