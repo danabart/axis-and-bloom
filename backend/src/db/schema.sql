@@ -5715,6 +5715,13 @@ UPDATE sommelier_eval_phrasing p SET coffee_id = t.coffee_id
   FROM sommelier_turn t
  WHERE t.id = p.source_turn_id AND p.coffee_id IS NULL AND t.coffee_id IS NOT NULL;
 
+-- Answer evals follow-up 5 (2026-10-27): the assistant message the copied turn
+-- answered (the previous ledger turn's assistant_message_id, read from the
+-- transcript), so the eval asks the phrasing in the context it was asked in.
+-- Filled by the nightly copy; older copies were backfilled once by a case edit
+-- through sommelierEvalService (the transcript is in Firestore, not SQL).
+ALTER TABLE sommelier_eval_phrasing ADD COLUMN IF NOT EXISTS turn_context TEXT;
+
 CREATE TABLE IF NOT EXISTS sommelier_reply_check (
   id            SERIAL PRIMARY KEY,
   case_id       INTEGER REFERENCES sommelier_eval_case(id),

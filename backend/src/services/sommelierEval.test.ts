@@ -10,10 +10,10 @@ import { seedSommelierAnswers } from '../db/seeds/sommelier_answer_seed.js';
 import { seedGateRules } from '../db/seeds/sommelier_gate_rule_seed.js';
 import { seedEvals, GLOBAL_CHECKS } from '../db/seeds/sommelier_eval_seed.js';
 import { runCheck, globalFlags, dollarAmountsCents, type CheckContext } from './sommelierReplyCheck.js';
-import { runEvals, addCustomerPhrasings, parseJudge, fixtureReads, fixtureCustomerReads, compactCatalog } from './sommelierEval.js';
+import { runEvals, addCustomerPhrasings, backfillPhrasingTurnContexts, parseJudge, fixtureReads, fixtureCustomerReads, compactCatalog } from './sommelierEval.js';
 import { getCurrentCases, getPhrasings, getChecks, getAllCurrentChecks, getRunResults, getActiveRules, type ReplyCheckRow, type SommelierAnswerRow } from './sommelierReads.js';
 import { recordTurn } from './sommelierTurnService.js';
-import { setCaseInTx } from './sommelierEvalService.js';
+import { setCaseInTx, setPhrasingInTx } from './sommelierEvalService.js';
 import { runEvalChecks, type EvalCheckInput } from './sommelierIntegrity.js';
 import { getCatalogCoffees, type CatalogBlock, type CatalogCoffee } from './sommelierRag.js';
 import { assembleSystemPromptBlocks, sharedTierText } from './claude.js';
@@ -231,6 +231,25 @@ describe('the runner (Testing 3, Sonnet and Haiku stubbed)', () => {
     });
   }, 120000);
 
+  it('follow-up 5: a phrasing with its own turn_context is asked after it; one without gets the case’s', async () => {
+    await withRollback(async ({ client }) => {
+      await seedAll(client);
+      const own = 'Coado is $32 for 12 oz. Want the story behind it?';
+      await setPhrasingInTx(client, { caseKey: 'price_it', message: 'how much is it then', source: 'hand', turnContext: own });
+      const caseContext = (await getCurrentCases(client)).find(c => c.key === 'price_it')!.turn_context;
+      expect(caseContext).toBeTruthy();
+      const hand = (await getPhrasings(null, client)).find(p => p.case_key === 'price_it' && p.turn_context === null)!;
+      const chat = chatStub('ok');
+      await runEvals({ trigger: 'manual', createdBy: 'vitest', only: [{ caseKey: 'price_it', message: 'how much is it then' }, { caseKey: 'price_it', message: hand.message }] }, {
+        runner: client, haiku: haiku(true), chat: chat.fn, config: evalCfg({ concurrency: 1 }), catalog: () => catalogFor(client),
+        fit: async () => ({ fitText: '', coffeeIds: [], slices: [] } as never), roasterNames: async () => ['Utopian'],
+      });
+      const sent = (chat.calls as Array<{ message: string; history: Array<{ role: string; content: string }> }>).map(c => [c.message, c.history.at(-1)?.content]);
+      expect(sent).toContainEqual(['how much is it then', own]);
+      expect(sent).toContainEqual([hand.message, caseContext]);
+    });
+  }, 120000);
+
   it('the gate reads the fixture orders (customer_orders), newest first, up to the limit', async () => {
     const fx = fixtureReads(FIXTURES.two_orders_pending, [coffee(1, 'Coado', [['12 oz', 2100]]), coffee(2, 'Classic Balanced', [['12 oz', 1900]])], null);
     const reads = fixtureCustomerReads(FIXTURES.two_orders_pending, fx.reads.orders);
@@ -300,7 +319,7 @@ describe('the production reply check (Testing 4)', () => {
 describe('integrity checks 11 to 15', () => {
   const base = (): EvalCheckInput => ({
     cases: [{ id: 1, key: 'c', kind: 'brand', fixture_key: 'fruity_high_conf', catalog_alias: null, turn_context: null, rule_key: null, since: new Date(), superseded_at: null, note: null, created_by: 'v' }],
-    phrasings: [{ id: 1, case_id: 1, case_key: 'c', message: 'm', source: 'hand', source_turn_id: null, coffee_id: null, since: new Date(), note: null }],
+    phrasings: [{ id: 1, case_id: 1, case_key: 'c', message: 'm', source: 'hand', source_turn_id: null, coffee_id: null, turn_context: null, since: new Date(), note: null }],
     checks: [
       { id: 1, case_id: 1, kind: 'must_contain_answer', value: 'sourcing', flag_code: null, since: new Date(), note: null, created_by: 'v' },
       { id: 2, case_id: null, kind: 'must_not_name_roaster', value: null, flag_code: 'roaster_name', since: new Date(), note: null, created_by: 'v' },
@@ -372,6 +391,48 @@ describe('phrasings grow from customers (C5)', () => {
       const c = (await getCurrentCases(client)).find(x => x.key === 'price_named')!;
       await setCaseInTx(client, { key: c.key, kind: c.kind, fixtureKey: c.fixture_key, coffeeAlias: c.catalog_alias, ruleKey: c.rule_key, createdBy: 'vitest', expect: 'edit' });
       expect((await copied())?.coffee_id).toBe(coffeeId);
+    });
+  }, 60000);
+
+  it('follow-up 5: a copied turn keeps the assistant message it answered (previous ledger turn), through a case edit', async () => {
+    await withRollback(async ({ client }) => {
+      await seedAll(client);
+      const rule = (await getActiveRules(client)).find(r => r.key === 'price')!;
+      const sid = (await client.query<{ id: number }>(`INSERT INTO sommelier_sessions (uid, intent, turn_count) VALUES ('vitest-eval', 'MATCHED', 3) RETURNING id`)).rows[0].id;
+      await recordTurn({ sessionId: sid, turn: 0, userMessageId: null, assistantMessageId: 'a0', route: 'model' }, client);
+      await recordTurn({ sessionId: sid, turn: 1, userMessageId: 'u1', assistantMessageId: 'a1', route: 'model' }, client);
+      await recordTurn({ sessionId: sid, turn: 2, userMessageId: 'u2', assistantMessageId: 'a2', route: 'gate', ruleId: rule.id }, client);
+      const transcript: Record<string, string> = { a0: 'Hi, I am Liam.', u1: 'something fruity?', a1: 'Try Coado: red fruit, clean finish.', u2: 'how much is it?' };
+      const readMessage = async (t: { messageId: string }) => transcript[t.messageId] ?? null;
+      const now = (await client.query<{ now: Date }>(`SELECT now() AS now`)).rows[0].now;
+      await addCustomerPhrasings({ from: now, to: new Date(now.getTime() + 1) }, { runner: client, config: evalCfg(), readMessage });
+      const copied = async () => (await getPhrasings(null, client)).find(p => p.case_key === 'price_named' && p.message === 'how much is it?');
+      expect((await copied())?.turn_context).toBe('Try Coado: red fruit, clean finish.');
+      const c = (await getCurrentCases(client)).find(x => x.key === 'price_named')!;
+      await setCaseInTx(client, { key: c.key, kind: c.kind, fixtureKey: c.fixture_key, coffeeAlias: c.catalog_alias, ruleKey: c.rule_key, createdBy: 'vitest', expect: 'edit' });
+      expect((await copied())?.turn_context).toBe('Try Coado: red fruit, clean finish.');
+    });
+  }, 60000);
+
+  it('follow-up 5 backfill: older copies get their turn_context by one case edit; checks carry over; a second run fills nothing', async () => {
+    await withRollback(async ({ client }) => {
+      await seedAll(client);
+      const rule = (await getActiveRules(client)).find(r => r.key === 'price')!;
+      const sid = (await client.query<{ id: number }>(`INSERT INTO sommelier_sessions (uid, intent, turn_count) VALUES ('vitest-eval', 'MATCHED', 2) RETURNING id`)).rows[0].id;
+      await recordTurn({ sessionId: sid, turn: 0, userMessageId: null, assistantMessageId: 'a0', route: 'model' }, client);
+      const t1 = await recordTurn({ sessionId: sid, turn: 1, userMessageId: 'u1', assistantMessageId: 'a1', route: 'gate', ruleId: rule.id }, client);
+      await setPhrasingInTx(client, { caseKey: 'price_named', message: 'whats it cost', source: 'customer_turn', sourceTurnId: t1! });
+      const before = (await getCurrentCases(client)).find(x => x.key === 'price_named')!;
+      const checksBefore = (await getChecks(before.id, client)).map(k => `${k.kind}=${k.value}`).sort();
+      const out = await backfillPhrasingTurnContexts({ runner: client, createdBy: 'vitest', readMessage: async t => (t.messageId === 'a0' ? 'Hi, I am Liam.' : null) });
+      expect(out).toMatchObject({ filled: 1, cases: ['price_named'] });
+      const after = (await getCurrentCases(client)).find(x => x.key === 'price_named')!;
+      expect(after.id).not.toBe(before.id);
+      expect((await getChecks(after.id, client)).map(k => `${k.kind}=${k.value}`).sort()).toEqual(checksBefore);
+      const ps = await getPhrasings(after.id, client);
+      expect(ps.find(p => p.message === 'whats it cost')?.turn_context).toBe('Hi, I am Liam.');
+      expect(ps.filter(p => p.source === 'hand').every(p => p.turn_context === null)).toBe(true);
+      expect((await backfillPhrasingTurnContexts({ runner: client, createdBy: 'vitest', readMessage: async () => null })).filled).toBe(0);
     });
   }, 60000);
 });

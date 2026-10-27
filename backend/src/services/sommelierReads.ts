@@ -436,6 +436,7 @@ export interface EvalPhrasingRow {
   source: string;          // lookup_value.value in sommelier_eval_source
   source_turn_id: number | null;
   coffee_id: number | null;   // follow-up 4 (OT-55): the coffee the source turn resolved
+  turn_context: string | null; // follow-up 5: the assistant message the source turn answered
   since: Date;
   note: string | null;
 }
@@ -505,7 +506,7 @@ export async function getCurrentCases(runner: Runner = db): Promise<EvalCaseRow[
 /** Current phrasings of current cases (of one case row when caseId is given), by case key then id. */
 export async function getPhrasings(caseId: number | null = null, runner: Runner = db): Promise<EvalPhrasingRow[]> {
   const r = await runner.query<EvalPhrasingRow>(
-    `SELECT p.id, p.case_id, c.key AS case_key, p.message, s.value AS source, p.source_turn_id, p.coffee_id, p.since, p.note
+    `SELECT p.id, p.case_id, c.key AS case_key, p.message, s.value AS source, p.source_turn_id, p.coffee_id, p.turn_context, p.since, p.note
        FROM sommelier_eval_phrasing p
        JOIN sommelier_eval_case c ON c.id = p.case_id
        JOIN lookup_value s ON s.id = p.source_id
@@ -641,14 +642,19 @@ export async function getCustomerPhrasingCount(days: number, runner: Runner = db
   return Number(r.rows[0]?.n ?? 0);
 }
 
-/** Gated turns in [from, to) whose rule key a current case names (rule_key), not yet a phrasing source: C5's nightly copy list. */
+/**
+ * Gated turns in [from, to) whose rule key a current case names (rule_key), not yet a phrasing source: C5's nightly copy list.
+ * previous_assistant_message_id is the ledger's previous turn (turn - 1; turn 0 is the opening) reply: the message the customer answered.
+ */
 export async function getGatedTurnsForPhrasings(
   args: { from: Date; to: Date }, runner: Runner = db
-): Promise<Array<{ turn_id: number; session_id: number; uid: string; user_message_id: string; coffee_id: number | null; case_id: number; case_key: string }>> {
-  const r = await runner.query<{ turn_id: number; session_id: number; uid: string; user_message_id: string; coffee_id: number | null; case_id: number; case_key: string }>(
-    `SELECT t.id AS turn_id, t.session_id, s.uid, t.user_message_id, t.coffee_id, c.id AS case_id, c.key AS case_key
+): Promise<Array<{ turn_id: number; session_id: number; uid: string; user_message_id: string; previous_assistant_message_id: string | null; coffee_id: number | null; case_id: number; case_key: string }>> {
+  const r = await runner.query<{ turn_id: number; session_id: number; uid: string; user_message_id: string; previous_assistant_message_id: string | null; coffee_id: number | null; case_id: number; case_key: string }>(
+    `SELECT t.id AS turn_id, t.session_id, s.uid, t.user_message_id, prev.assistant_message_id AS previous_assistant_message_id,
+            t.coffee_id, c.id AS case_id, c.key AS case_key
        FROM sommelier_turn t
        JOIN sommelier_sessions s ON s.id = t.session_id
+       LEFT JOIN sommelier_turn prev ON prev.session_id = t.session_id AND prev.turn = t.turn - 1
        JOIN sommelier_gate_rule g ON g.id = t.rule_id
        JOIN sommelier_eval_case c ON c.rule_key = g.key AND c.superseded_at IS NULL
       WHERE t.route IN ('gate', 'gate_haiku') AND t.user_message_id IS NOT NULL
@@ -656,6 +662,27 @@ export async function getGatedTurnsForPhrasings(
         AND NOT EXISTS (SELECT 1 FROM sommelier_eval_phrasing p WHERE p.source_turn_id = t.id)
       ORDER BY t.id`,
     [args.from, args.to]
+  );
+  return r.rows;
+}
+
+/**
+ * Current copied phrasings without a turn_context and the transcript ids to
+ * fill it: the previous ledger turn's assistant message of the source turn.
+ * Follow-up 5's one-time backfill list (newer copies are filled by C5).
+ */
+export async function getPhrasingsMissingTurnContext(
+  runner: Runner = db
+): Promise<Array<{ phrasing_id: number; case_key: string; uid: string; session_id: number; previous_assistant_message_id: string | null }>> {
+  const r = await runner.query<{ phrasing_id: number; case_key: string; uid: string; session_id: number; previous_assistant_message_id: string | null }>(
+    `SELECT p.id AS phrasing_id, c.key AS case_key, s.uid, t.session_id, prev.assistant_message_id AS previous_assistant_message_id
+       FROM sommelier_eval_phrasing p
+       JOIN sommelier_eval_case c ON c.id = p.case_id AND c.superseded_at IS NULL
+       JOIN sommelier_turn t ON t.id = p.source_turn_id
+       JOIN sommelier_sessions s ON s.id = t.session_id
+       LEFT JOIN sommelier_turn prev ON prev.session_id = t.session_id AND prev.turn = t.turn - 1
+      WHERE p.superseded_at IS NULL AND p.turn_context IS NULL
+      ORDER BY c.key, p.id`
   );
   return r.rows;
 }

@@ -14,7 +14,8 @@
 // guard still books the cost in claude_daily_spend, as for every call).
 //
 // addCustomerPhrasings() is C5: gated customer messages become phrasings of
-// the case whose rule_key names the gate rule, de-duplicated and capped.
+// the case whose rule_key names the gate rule, de-duplicated and capped, each
+// with the coffee its turn resolved and the assistant message it answered.
 import { createHash } from 'node:crypto';
 import { db, withTransaction, type Tx } from '../db/client.js';
 import { getSommelierConfig, type SommelierConfig } from './sommelierConfig.js';
@@ -30,10 +31,10 @@ import {
 import type { BrewProfileDoc } from './brewProfile.js';
 import type { FeedbackCurrentRow, QuizCurrentRow, RecentOrders, TimelineEntry } from './customerReads.js';
 import {
-  getAnswersMaxId, getChecks, getCurrentAnswers, getCurrentCases, getPhrasings, getGatedTurnsForPhrasings,
+  getAnswersMaxId, getChecks, getCurrentAnswers, getCurrentCases, getPhrasings, getGatedTurnsForPhrasings, getPhrasingsMissingTurnContext,
   type EvalCaseRow, type EvalPhrasingRow, type ReplyCheckRow,
 } from './sommelierReads.js';
-import { finishRun, recordResult, setPhrasingInTx, startRun } from './sommelierEvalService.js';
+import { finishRun, recordResult, setCaseInTx, setPhrasingInTx, startRun } from './sommelierEvalService.js';
 import { runCheck, type CheckContext } from './sommelierReplyCheck.js';
 import { FIXTURES, type LiamEvalFixture } from '../fixtures/liam_eval/index.js';
 import { firestoreDb } from './firebase-admin.js';
@@ -306,8 +307,10 @@ export async function runEvals(opts: { trigger: 'nightly' | 'manual'; createdBy:
       return;
     }
     const { fixture, brewProfile } = w.fx;
-    const history: Array<{ role: 'user' | 'assistant'; content: string }> = w.c.turn_context
-      ? [{ role: 'user', content: evals.turnContextMessage }, { role: 'assistant', content: w.c.turn_context }]
+    // Follow-up 5: a copied phrasing is asked after the message its customer answered; else the case's context.
+    const turnContext = p.turn_context ?? w.c.turn_context;
+    const history: Array<{ role: 'user' | 'assistant'; content: string }> = turnContext
+      ? [{ role: 'user', content: evals.turnContextMessage }, { role: 'assistant', content: turnContext }]
       : [];
     const turnCount = history.length ? 2 : 1;
     const maxTurns = cfg?.intents?.[fixture.intent]?.maxTurns ?? cfg?.sessionLimits?.maxTurns ?? 8;
@@ -365,8 +368,8 @@ export async function runEvals(opts: { trigger: 'nightly' | 'manual'; createdBy:
 
 // ── C5: phrasings grow from customers ────────────────────────────────────────
 
-async function readUserMessage(t: { uid: string; sessionId: number; userMessageId: string }): Promise<string | null> {
-  const doc = await firestoreDb.collection(`users/${t.uid}/sommelier_sessions/${t.sessionId}/messages`).doc(t.userMessageId).get();
+async function readSessionMessage(t: { uid: string; sessionId: number; messageId: string }): Promise<string | null> {
+  const doc = await firestoreDb.collection(`users/${t.uid}/sommelier_sessions/${t.sessionId}/messages`).doc(t.messageId).get();
   const content = doc.exists ? (doc.data() as { content?: string }).content : null;
   return typeof content === 'string' && content.trim() ? content.trim() : null;
 }
@@ -375,27 +378,69 @@ async function readUserMessage(t: { uid: string; sessionId: number; userMessageI
  * Gated customer turns in the window become phrasings (source customer_turn)
  * of the case whose rule_key is the turn's rule, de-duplicated per case
  * (case-insensitive) and capped at evals.maxCustomerPhrasingsPerCase current
- * customer phrasings per case.
+ * customer phrasings per case. Each keeps its turn's coffee and, as
+ * turn_context, the assistant message it answered (the previous ledger turn's
+ * reply, read from the transcript).
  */
 export async function addCustomerPhrasings(
   window: { from: Date; to: Date },
-  deps: { runner?: Tx; config?: SommelierConfig | null; readMessage?: typeof readUserMessage } = {}
+  deps: { runner?: Tx; config?: SommelierConfig | null; readMessage?: typeof readSessionMessage } = {}
 ): Promise<{ candidates: number; added: number; duplicates: number; capped: number }> {
   const evals = evalConfig(deps.config !== undefined ? deps.config : getSommelierConfig());
-  const read = deps.readMessage ?? readUserMessage;
+  const read = deps.readMessage ?? readSessionMessage;
   const rows = await getGatedTurnsForPhrasings(window, deps.runner ?? db);
   const out = { candidates: rows.length, added: 0, duplicates: 0, capped: 0 };
   const apply = async (tx: Tx) => {
     for (const row of rows) {
-      const message = await read({ uid: row.uid, sessionId: row.session_id, userMessageId: row.user_message_id }).catch(() => null);
+      const message = await read({ uid: row.uid, sessionId: row.session_id, messageId: row.user_message_id }).catch(() => null);
       if (!message) continue;
+      const turnContext = row.previous_assistant_message_id
+        ? await read({ uid: row.uid, sessionId: row.session_id, messageId: row.previous_assistant_message_id }).catch(() => null)
+        : null;
       const customerCount = (await getPhrasings(row.case_id, tx)).filter(p => p.source === 'customer_turn').length;
       if (customerCount >= evals.maxCustomerPhrasingsPerCase) { out.capped++; continue; }
-      const r = await setPhrasingInTx(tx, { caseKey: row.case_key, message, source: 'customer_turn', sourceTurnId: row.turn_id, coffeeId: row.coffee_id, note: 'copied from a gated customer turn' });
+      const r = await setPhrasingInTx(tx, { caseKey: row.case_key, message, source: 'customer_turn', sourceTurnId: row.turn_id, coffeeId: row.coffee_id, turnContext, note: 'copied from a gated customer turn' });
       if (r.id) out.added++; else out.duplicates++;
     }
   };
   if (deps.runner) await apply(deps.runner); else await withTransaction(apply);
   console.log(`[liam:EVAL] customer phrasings: candidates=${out.candidates} added=${out.added} duplicates=${out.duplicates} capped=${out.capped}`);
+  return out;
+}
+
+/**
+ * Follow-up 5 (2026-10-27), once: copied phrasings made before turn_context
+ * existed get it from the transcript. Phrasing rows are only ever superseded,
+ * so each case with a filled phrasing is edited through setCaseInTx with its
+ * current phrasings (contexts added) and its checks carried over.
+ */
+export async function backfillPhrasingTurnContexts(
+  deps: { runner?: Tx; readMessage?: typeof readSessionMessage; createdBy: string }
+): Promise<{ missing: number; filled: number; cases: string[] }> {
+  const read = deps.readMessage ?? readSessionMessage;
+  const apply = async (tx: Tx) => {
+    const rows = await getPhrasingsMissingTurnContext(tx);
+    const found = new Map<number, string>();
+    for (const r of rows) {
+      if (!r.previous_assistant_message_id) continue;
+      const text = await read({ uid: r.uid, sessionId: r.session_id, messageId: r.previous_assistant_message_id }).catch(() => null);
+      if (text) found.set(r.phrasing_id, text);
+    }
+    const keys = [...new Set(rows.filter(r => found.has(r.phrasing_id)).map(r => r.case_key))];
+    for (const key of keys) {
+      const c = (await getCurrentCases(tx)).find(x => x.key === key)!;
+      const phrasings = (await getPhrasings(c.id, tx)).map(p => ({
+        message: p.message, source: p.source as 'hand' | 'customer_turn', sourceTurnId: p.source_turn_id, coffeeId: p.coffee_id,
+        turnContext: p.turn_context ?? found.get(p.id) ?? null, note: p.note,
+      }));
+      await setCaseInTx(tx, {
+        key, kind: c.kind, fixtureKey: c.fixture_key, coffeeAlias: c.catalog_alias, turnContext: c.turn_context, ruleKey: c.rule_key,
+        note: 'answer evals follow-up 5: copied phrasings keep the message they answered', createdBy: deps.createdBy, phrasings, expect: 'edit',
+      });
+    }
+    return { missing: rows.length, filled: found.size, cases: keys };
+  };
+  const out = deps.runner ? await apply(deps.runner) : await withTransaction(apply);
+  console.log(`[liam:EVAL] turn_context backfill: missing=${out.missing} filled=${out.filled} cases=${out.cases.join(',') || '-'}`);
   return out;
 }
