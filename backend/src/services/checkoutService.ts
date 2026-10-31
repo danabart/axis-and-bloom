@@ -113,6 +113,32 @@ async function priceForSubscription(cart: ResolvedCart): Promise<ResolvedCart> {
   };
 }
 
+export interface CartQuote {
+  bagCount: number;
+  subtotalCents: number;
+  shippingCents: number;
+  /** The same cart as a subscription: the tier by bag count, no collection discount (null when not asked). */
+  subscription: { frequencyWeeks: number; discountPct: number; discountCents: number; subtotalCents: number } | null;
+}
+
+/**
+ * Commerce 2, C1: POST /api/checkout/quote — the cart summary's numbers from
+ * the server (the frontend never computes a discount): the cart priced as
+ * checkout would price it, and, when asked, as a subscription. Read-only;
+ * the client's prices are checked exactly as at checkout (409 when stale).
+ */
+export async function quoteCart(items: CartItemInput[], subscription: { frequencyWeeks: number } | null): Promise<CartQuote> {
+  const cart = await resolveCart(items);
+  let sub: CartQuote['subscription'] = null;
+  if (subscription) {
+    const weeks = Number(subscription.frequencyWeeks);
+    if (!(await subscriptionFrequencies()).includes(weeks)) throw new CheckoutError(400, 'invalid_frequency', 'Choose one of the delivery frequencies offered.');
+    const pricing = await applySubscriptionPricing(cart.lines.map(l => ({ ...l, fullPriceCents: l.unitPriceCents + l.discountCents })));
+    sub = { frequencyWeeks: weeks, discountPct: pricing.discountPct, discountCents: pricing.discountCents, subtotalCents: pricing.subtotalCents };
+  }
+  return { bagCount: cart.bagCount, subtotalCents: cart.subtotalCents, shippingCents: cart.shippingCents, subscription: sub };
+}
+
 export interface CreateCheckoutInput {
   uid: string;
   email: string | null;

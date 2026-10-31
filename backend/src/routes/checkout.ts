@@ -2,13 +2,14 @@
 //   GET  /rules                    public: shipping fee + free-shipping bag count, for the cart summary line;
 //                                  subscription frequencies + the two discount percentages (Commerce 2)
 //   POST /session                  { items, shippingAddressId?, subscription?: { frequencyWeeks } } → { clientSecret, checkoutSessionId } (Stripe Embedded Checkout)
+//   POST /quote                    public: { items, subscription? } → subtotal, shipping, and the subscription price (Commerce 2)
 //   GET  /session/:id/status       ownership-checked, from our tables only, so the return page reflects the webhook's work
 import { Router, type Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { requireAuth, blockAnonymousAuth, type AuthRequest } from '../middleware/auth.js';
 import { getRealClientIp } from '../middleware/clientIp.js';
 import { commerceParam } from '../services/commerceParameters.js';
-import { createCheckoutSession, getSessionStatus, subscriptionFrequencies, CheckoutError } from '../services/checkoutService.js';
+import { createCheckoutSession, getSessionStatus, subscriptionFrequencies, quoteCart, CheckoutError } from '../services/checkoutService.js';
 import { CartError } from '../services/cartResolver.js';
 
 const router = Router();
@@ -41,6 +42,15 @@ router.get('/rules', async (_req, res) => {
       subscriptionDiscountPct2PlusBags: await commerceParam('subscription_discount_pct_2plus_bags'),
     });
   } catch (err) { sendError(res, err, 'rules'); }
+});
+
+// Commerce 2, C1: public (the cart drawer shows it signed out too), read-only.
+const quoteLimiter = rateLimit({ windowMs: 60 * 1000, max: 60, keyGenerator: getRealClientIp, standardHeaders: true, legacyHeaders: false });
+router.post('/quote', quoteLimiter, async (req, res) => {
+  try {
+    const { items, subscription } = req.body ?? {};
+    res.json(await quoteCart(items, subscription && typeof subscription === 'object' ? { frequencyWeeks: Number(subscription.frequencyWeeks) } : null));
+  } catch (err) { sendError(res, err, 'quote'); }
 });
 
 router.post('/session', requireAuth, blockAnonymousAuth, sessionLimiter, async (req: AuthRequest, res) => {

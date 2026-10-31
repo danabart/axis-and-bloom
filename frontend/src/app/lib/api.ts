@@ -74,7 +74,32 @@ export type CheckoutItem =
   // re-resolves and re-verifies everything itself.
   | { collection: true; archetype: string; quantity: number; priceCents: number };
 
-export interface CheckoutRules { shippingFeeCents: number; freeShippingMinBags: number }
+export interface CheckoutRules {
+  shippingFeeCents: number;
+  freeShippingMinBags: number;
+  // Commerce 2: the subscribe choice (commerce_parameter, never typed in here).
+  subscriptionFrequencyWeeks: number[];
+  subscriptionDiscountPct1Bag: number;
+  subscriptionDiscountPct2PlusBags: number;
+}
+
+/** Commerce 2: the subscription the cart will start (null = one-time). */
+export interface SubscriptionChoice { frequencyWeeks: number }
+
+export interface CartQuote {
+  bagCount: number;
+  subtotalCents: number;
+  shippingCents: number;
+  subscription: { frequencyWeeks: number; discountPct: number; discountCents: number; subtotalCents: number } | null;
+}
+
+/** POST /api/checkout/quote: the cart's numbers from the server, and the subscription price when one is chosen. */
+export async function quoteCheckout(body: { items: CheckoutItem[]; subscription?: SubscriptionChoice | null }): Promise<CartQuote> {
+  const res = await fetch(`${BASE}/checkout/quote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new CheckoutApiError(res.status, data.error ?? 'quote_failed', data.message ?? 'Could not price the cart.');
+  return data;
+}
 
 export async function getCheckoutRules(): Promise<CheckoutRules> {
   const res = await fetch(`${BASE}/checkout/rules`);
@@ -84,7 +109,7 @@ export async function getCheckoutRules(): Promise<CheckoutRules> {
 
 export interface ShipsTo { street: string; city: string; state: string; postalCode: string; country: string }
 
-export async function createCheckoutSession(body: { items: CheckoutItem[]; shippingAddressId?: string | null }): Promise<{ clientSecret: string; checkoutSessionId: string; shipsTo: ShipsTo }> {
+export async function createCheckoutSession(body: { items: CheckoutItem[]; shippingAddressId?: string | null; subscription?: SubscriptionChoice | null }): Promise<{ clientSecret: string; checkoutSessionId: string; shipsTo: ShipsTo }> {
   const res = await fetch(`${BASE}/checkout/session`, {
     method: 'POST',
     headers: await getHeaders(),
@@ -106,12 +131,35 @@ export interface CheckoutSessionStatus {
     subtotalCents: number; shippingCents: number; taxCents: number; totalCents: number;
     customerLabel: string | null;
   };
+  /** Commerce 2: present when the checkout started a subscription. */
+  subscription?: { frequencyWeeks: number | null; nextDeliveryDate: string | null; discountCents: number };
 }
 
 export async function getCheckoutSessionStatus(sessionId: string): Promise<CheckoutSessionStatus> {
   const res = await fetch(`${BASE}/checkout/session/${encodeURIComponent(sessionId)}/status`, { headers: await getHeaders() });
   if (!res.ok) throw new CheckoutApiError(res.status, 'status_failed', 'Could not read the checkout status');
   return res.json();
+}
+
+// ── Commerce 2 (2026-10-31): subscriptions, read-only (Commerce 3 adds the buttons) ──
+export interface MySubscription {
+  id: string;
+  status: string;
+  statusLabel: string;
+  countsAsSubscriber: boolean;
+  frequencyWeeks: number | null;
+  nextDeliveryDate: string | null;
+  nextCoffees: Array<{ displayName: string; weightOz: number | null; quantity: number }>;
+  followsDial: boolean;
+  bagCount: number;
+  discountPct: number;
+  lastOrderId: string | null;
+}
+
+export async function getMySubscriptions(): Promise<MySubscription[]> {
+  const res = await fetch(`${BASE}/subscriptions/mine`, { headers: await getHeaders() });
+  if (!res.ok) throw new Error('Could not load your subscription');
+  return (await res.json()).subscriptions ?? [];
 }
 
 // Step 04 (A2): shared subscribe call for the firm quiz gate (guest card submit,

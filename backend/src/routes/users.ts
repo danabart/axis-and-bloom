@@ -390,7 +390,8 @@ router.get('/homepage-state', requireAuth, async (req: AuthRequest, res) => {
 
     if (stageCode === 'SUBSCRIBER') {
       const subResult = await db.query(
-        `SELECT s.next_delivery_date
+        // ::text: a calendar date (YYYY-MM-DD), never a midnight timestamp that shifts a day in US time (Commerce 2).
+        `SELECT s.next_delivery_date::text AS next_delivery_date
          FROM subscription s
          JOIN subscription_status st ON st.code = s.status AND st.counts_as_subscriber
          JOIN user_profile up ON (up.id = s.user_id OR up.household_id = s.household_id)

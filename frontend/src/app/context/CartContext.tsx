@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import type { CartItem } from '../components/bloom/types';
+import type { SubscriptionChoice } from '../lib/api';
 
 interface CartContextType {
   cart: CartItem[];
@@ -12,6 +13,9 @@ interface CartContextType {
   checkout: () => void;
   /** Empties the cart (the return page, once the order is confirmed). */
   clear: () => void;
+  /** Commerce 2: the subscription this cart starts (null = a one-time order), chosen in the cart, used at /checkout. */
+  subscription: SubscriptionChoice | null;
+  setSubscription: (s: SubscriptionChoice | null) => void;
 }
 
 const CartContext = createContext<CartContextType | null>(null);
@@ -29,6 +33,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
+  const [subscription, setSubscription] = useState<SubscriptionChoice | null>(null);
 
   function toggleCartOpen() {
     setCartOpen(v => !v);
@@ -76,10 +81,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   function clear() {
     setCart([]);
+    setSubscription(null);
   }
 
   return (
-    <CartContext.Provider value={{ cart, cartOpen, toggleCartOpen, addToCart, removeFromCart, checkout, clear }}>
+    <CartContext.Provider value={{ cart, cartOpen, toggleCartOpen, addToCart, removeFromCart, checkout, clear, subscription, setSubscription }}>
       {children}
     </CartContext.Provider>
   );

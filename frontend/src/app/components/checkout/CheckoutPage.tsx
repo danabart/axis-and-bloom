@@ -5,7 +5,9 @@ import { EmbeddedCheckoutProvider, EmbeddedCheckout } from '@stripe/react-stripe
 import { useCart, toCheckoutItems } from '../../context/CartContext';
 import { getUserProfile, createCheckoutSession, CheckoutApiError, type ShipsTo } from '../../lib/api';
 import { reportError } from '../../lib/errorReporter';
-import { CartLines, ShippingLine, cartSubtotalCents, shippingCentsFor, useCheckoutRules } from '../bloom/CartLines';
+import {
+  CartLines, ShippingLine, SubscribeChoice, SubtotalLine, cartSubtotalCents, shippingCentsFor, useCartQuote, useCheckoutRules,
+} from '../bloom/CartLines';
 import { formatPrice } from '../bloom/types';
 import AddressForm, { type SavedAddress } from '../profile/AddressForm';
 
@@ -31,8 +33,9 @@ const NOT_LIVE_COPY = "Checkout isn't live yet — online ordering opens soon. E
 interface CheckoutErrorState { status: number; code: string; message: string }
 
 export default function CheckoutPage() {
-  const { cart } = useCart();
+  const { cart, subscription } = useCart();
   const rules = useCheckoutRules();
+  const quote = useCartQuote(cart, subscription);
   const [addresses, setAddresses] = useState<SavedAddress[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [addingAddress, setAddingAddress] = useState(false);
@@ -54,7 +57,8 @@ export default function CheckoutPage() {
   }, []);
 
   const items = useMemo(() => toCheckoutItems(cart), [cart]);
-  const itemsKey = JSON.stringify(items);
+  // Commerce 2: a changed subscribe choice is a different Stripe session (different prices).
+  const itemsKey = JSON.stringify([items, subscription]);
 
   // One Stripe session per (cart, ships-to); the server reuses an open one for the same cart.
   useEffect(() => {
@@ -63,7 +67,7 @@ export default function CheckoutPage() {
     if (!PUBLISHABLE_KEY) { setError({ status: 503, code: 'checkout_unavailable', message: NOT_LIVE_COPY }); return; }
     let cancelled = false;
     setCreating(true); setError(null); setClientSecret(null);
-    createCheckoutSession({ items, shippingAddressId: selectedId })
+    createCheckoutSession({ items, shippingAddressId: selectedId, subscription })
       .then(r => { if (!cancelled) { setClientSecret(r.clientSecret); setSessionShipsTo(r.shipsTo); } })
       .catch(err => {
         if (cancelled) return;
@@ -82,7 +86,7 @@ export default function CheckoutPage() {
 
   if (!cart.length) return <Navigate to="/bloom" replace />;
 
-  const subtotal = cartSubtotalCents(cart);
+  const subtotal = subscription ? quote?.subscription?.subtotalCents ?? null : cartSubtotalCents(cart);
   const shipping = shippingCentsFor(cart, rules);
   const selected = addresses?.find(a => a.id === selectedId) ?? null;
 
@@ -95,15 +99,13 @@ export default function CheckoutPage() {
           <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60">Your order</p>
           <div className="flex flex-col gap-4 bg-white/60 border border-[#a33726]/15 p-5">
             <CartLines items={cart} />
+            <SubscribeChoice items={cart} rules={rules} quote={quote} />
             <div className="border-t border-[#e0dcd4] pt-4 flex flex-col gap-2">
-              <div className="flex items-center justify-between text-sm">
-                <span style={{ color: '#8a8070' }}>Subtotal</span>
-                <span style={{ color: '#4a4035' }}>{formatPrice(subtotal)}</span>
-              </div>
+              <SubtotalLine items={cart} quote={quote} subscribed={subscription !== null} />
               <ShippingLine items={cart} rules={rules} />
               <div className="flex items-center justify-between text-sm pt-2">
-                <span style={{ color: '#4a4035' }}>Estimated total</span>
-                <span style={{ color: '#4a4035' }}>{shipping === null ? '…' : formatPrice(subtotal + shipping)}</span>
+                <span style={{ color: '#4a4035' }}>{subscription ? 'First delivery' : 'Estimated total'}</span>
+                <span style={{ color: '#4a4035' }}>{shipping === null || subtotal === null ? '…' : formatPrice(subtotal + shipping)}</span>
               </div>
               <p className="text-xs" style={{ color: '#a09880' }}>Any sales tax is added at payment.</p>
             </div>

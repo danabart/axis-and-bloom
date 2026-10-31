@@ -4,6 +4,7 @@ import { useCart } from '../../context/CartContext';
 import { getCheckoutSessionStatus, type CheckoutSessionStatus } from '../../lib/api';
 import { reportError } from '../../lib/errorReporter';
 import { formatPrice } from '../bloom/types';
+import { formatCalendarDate } from '../../lib/calendarDate';
 
 // Commerce 1, C3 (2026-10-31) — /checkout/return, where Stripe sends the
 // customer after paying. The page reads our own tables only
@@ -70,6 +71,16 @@ export default function CheckoutReturnPage() {
                 <span>Total paid</span><span>{formatPrice(order.totalCents)}</span>
               </div>
             </div>
+            {status?.subscription && (
+              <div className="flex flex-col gap-1 p-5" style={{ backgroundColor: '#f7efe9', border: '1px solid #e6c9bf' }} data-testid="return-subscription">
+                <p className="text-sm" style={{ color: '#4a4035' }}>Your first bag is on its way to being roasted.</p>
+                {status.subscription.nextDeliveryDate && (
+                  <p className="text-sm" style={{ color: '#4a4035' }}>
+                    Next delivery {formatCalendarDate(status.subscription.nextDeliveryDate)}, every {status.subscription.frequencyWeeks} weeks.
+                  </p>
+                )}
+              </div>
+            )}
             {s && (
               <div>
                 <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 mb-2">Ships to</p>

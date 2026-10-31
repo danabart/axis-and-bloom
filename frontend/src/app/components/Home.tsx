@@ -9,6 +9,7 @@ import CompanyGiftRedemption from './CompanyGiftRedemption';
 import { useAuth } from '../context/AuthContext';
 import { getHomepageState } from '../lib/api';
 import { reportError } from '../lib/errorReporter';
+import { formatCalendarDate } from '../lib/calendarDate';
 
 // Mirrors FEEDBACK_NAG_SUPPRESS_DAYS in backend/src/services/userLifecycle.ts —
 // how long the feedback nudge stays hidden after a user dismisses it.
@@ -285,7 +286,7 @@ export default function Home() {
         <>
           <h2 style={q2Headline}>Your subscription is on track.</h2>
           {nextDeliveryDate && (
-            <p style={q2Body}>Next shipment: {new Date(nextDeliveryDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}</p>
+            <p style={q2Body}>Next shipment: {formatCalendarDate(nextDeliveryDate, { month: 'long', day: 'numeric' })}</p>
           )}
           <Link to="/profile" style={q2Primary}>Manage subscription →</Link>
         </>

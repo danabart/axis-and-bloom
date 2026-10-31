@@ -2,8 +2,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Link, useLocation } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
 import type { CartItem } from './types';
-import { formatPrice } from './types';
-import { CartLines, ShippingLine, cartSubtotalCents, useCheckoutRules } from './CartLines';
+import { CartLines, ShippingLine, SubscribeChoice, SubtotalLine, useCartQuote, useCheckoutRules } from './CartLines';
+import { useCart } from '../../context/CartContext';
 
 interface FloatingCartProps {
   items: CartItem[];
@@ -19,8 +19,9 @@ export function FloatingCart({ items, open, onToggle, onRemove, onCheckout, isSi
   const { hasLiamAccess } = useAuth();
   const { pathname } = useLocation();
   const count = items.reduce((sum, i) => sum + i.qty, 0);
-  const totalCents = cartSubtotalCents(items);
   const rules = useCheckoutRules();
+  const { subscription } = useCart();
+  const quote = useCartQuote(items, subscription);
 
   return (
     <>
@@ -90,10 +91,8 @@ export function FloatingCart({ items, open, onToggle, onRemove, onCheckout, isSi
 
             {items.length > 0 && (
               <div className="px-5 py-4 border-t space-y-3" style={{ borderColor: '#e0dcd4' }}>
-                <div className="flex items-center justify-between text-sm">
-                  <span style={{ color: '#8a8070' }}>Subtotal</span>
-                  <span style={{ color: '#4a4035' }}>{formatPrice(totalCents)}</span>
-                </div>
+                <SubscribeChoice items={items} rules={rules} quote={quote} />
+                <SubtotalLine items={items} quote={quote} subscribed={subscription !== null} />
                 <ShippingLine items={items} rules={rules} />
                 {isSignedIn ? (
                   <button

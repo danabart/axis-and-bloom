@@ -23,6 +23,8 @@ import BrewProfileMirror from './profile/BrewProfileMirror';
 import BrewCards from './profile/BrewCards';
 import WorthExploring from './profile/WorthExploring';
 import AddressForm from './profile/AddressForm';
+import SubscriptionSummary from './profile/SubscriptionSummary';
+import { formatCalendarDate } from '../lib/calendarDate';
 
 type Tab = 'memory' | 'orders' | 'settings' | 'family';
 
@@ -397,7 +399,7 @@ export default function Profile() {
       return <p className="text-sm text-[#a33726]/50 tracking-wide mt-6">You haven't tried your match yet — it's below.</p>;
     }
     if (stageCode === 'SUBSCRIBER' && homepageState?.nextDeliveryDate) {
-      return <p className="text-sm text-[#a33726]/50 tracking-wide mt-6">Your next delivery: {new Date(homepageState.nextDeliveryDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}</p>;
+      return <p className="text-sm text-[#a33726]/50 tracking-wide mt-6">Your next delivery: {formatCalendarDate(homepageState.nextDeliveryDate, { month: 'long', day: 'numeric' })}</p>;
     }
     return null;
   }
@@ -692,6 +694,8 @@ export default function Profile() {
             {/* ── Past Orders ── */}
             {activeTab === 'orders' && (
               <motion.div key="orders" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.4 }} className="flex flex-col gap-8 max-w-2xl">
+                {/* Commerce 2: read-only subscription block (Commerce 3 adds the buttons). */}
+                <SubscriptionSummary />
                 {pastOrders.length === 0 ? (
                   <div className="flex flex-col items-start gap-6 py-8">
                     <Package size={32} className="text-[#a33726]/30" strokeWidth={1} />
