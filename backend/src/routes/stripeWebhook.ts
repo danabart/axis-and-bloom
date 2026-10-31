@@ -22,12 +22,36 @@
 //   a completed session this database never created (another environment's;
 //   every endpoint of the account receives every event) → recorded with the
 //   reason, marked processed, 200: never retried
+//
+// Commerce 2 (2026-10-31), subscription renewal invoices (the daily cron
+// creates them with metadata.subscription_id):
+//   invoice.paid → createSubscriptionOrder (renewal order exactly once per
+//     invoice, renewal_charged, next date) → finalizePaidOrder
+//   invoice.payment_failed → markRenewalFailed (past_due) + payment-trouble
+//     email, once per invoice attempt (the cron may have recorded it already)
+//   invoice.marked_uncollectible → lapsed + event + lifecycle refresh
+//   invoice.voided → event only
+//   an invoice without our metadata, or naming a subscription this database
+//   does not have → recorded, processed, 200 (same as an unknown session)
 import type { Request, Response } from 'express';
 import type Stripe from 'stripe';
 import { db } from '../db/client.js';
 import { stripe, STRIPE_ENABLED, STRIPE_WEBHOOK_SECRET } from '../services/stripe.js';
-import { completeCheckoutSession, expireCheckoutSession, recordRefund, UnknownCheckoutSessionError } from '../services/checkoutService.js';
+import {
+  completeCheckoutSession, expireCheckoutSession, recordRefund, createSubscriptionOrder,
+  UnknownCheckoutSessionError, UnknownSubscriptionError,
+} from '../services/checkoutService.js';
 import { finalizePaidOrder } from '../services/orderFinalizer.js';
+import { markRenewalFailed, lapseForUncollectible, recordSubscriptionEvent, subscriptionExists } from '../services/subscriptionService.js';
+import { sendPaymentTroubleEmail } from '../services/subscriptionEmails.js';
+
+/** The subscription a renewal invoice belongs to, when it is one of ours and this database has it; else null (a quiet no-op). */
+async function ourSubscription(invoice: Stripe.Invoice): Promise<string | null> {
+  const id = invoice.metadata?.subscription_id;
+  if (!id) return null;
+  if (!(await subscriptionExists(id))) throw new UnknownSubscriptionError(id, invoice.id ?? '?');
+  return id;
+}
 
 async function handleEvent(event: Stripe.Event): Promise<string> {
   switch (event.type) {
@@ -53,6 +77,41 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
     case 'charge.refunded': {
       const { orderId } = await recordRefund(event.data.object as Stripe.Charge);
       return orderId ? `refund recorded on order ${orderId}` : 'refund for no known order';
+    }
+    case 'invoice.paid': {
+      const invoice = event.data.object as Stripe.Invoice;
+      if (!(await ourSubscription(invoice))) return 'recorded (not a subscription renewal)';
+      const { orderId, created, subscriptionId } = await createSubscriptionOrder(invoice);
+      const fin = await finalizePaidOrder(orderId);
+      return `subscription ${subscriptionId} renewal order ${orderId}${created ? ' created' : ' existed'}${fin.alreadyFinalized ? ', already finalized' : ', finalized'}${fin.failedSteps.length ? ` (failed: ${fin.failedSteps.join(',')})` : ''}`;
+    }
+    case 'invoice.payment_failed': {
+      const invoice = event.data.object as Stripe.Invoice;
+      const subscriptionId = await ourSubscription(invoice);
+      if (!subscriptionId) return 'recorded (not a subscription renewal)';
+      const attempt = invoice.attempt_count || 1;
+      const recorded = await markRenewalFailed({
+        subscriptionId, invoiceId: invoice.id!, attemptCount: attempt, amountCents: invoice.amount_due,
+        note: invoice.last_finalization_error?.message ?? 'invoice.payment_failed', source: 'webhook',
+      });
+      // The failure is recorded; a missing address or a Resend error must not make Stripe retry the event.
+      if (recorded) await sendPaymentTroubleEmail(subscriptionId, invoice.id!, attempt, invoice.amount_due)
+        .catch(err => console.error('[stripe-webhook] payment trouble email failed', subscriptionId, err instanceof Error ? err.message : err));
+      return `subscription ${subscriptionId} renewal failed (attempt ${attempt})${recorded ? '' : ', already recorded'}`;
+    }
+    case 'invoice.marked_uncollectible': {
+      const invoice = event.data.object as Stripe.Invoice;
+      const subscriptionId = await ourSubscription(invoice);
+      if (!subscriptionId) return 'recorded (not a subscription renewal)';
+      await lapseForUncollectible(subscriptionId, invoice.id!);
+      return `subscription ${subscriptionId} lapsed (invoice uncollectible)`;
+    }
+    case 'invoice.voided': {
+      const invoice = event.data.object as Stripe.Invoice;
+      const subscriptionId = await ourSubscription(invoice);
+      if (!subscriptionId) return 'recorded (not a subscription renewal)';
+      await recordSubscriptionEvent({ subscriptionId, kind: 'invoice_voided', stripeInvoiceId: invoice.id, amountCents: invoice.amount_due, source: 'webhook' });
+      return `subscription ${subscriptionId} invoice voided`;
     }
     default:
       return 'recorded';
@@ -87,7 +146,7 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
     res.json({ received: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (err instanceof UnknownCheckoutSessionError) {
+    if (err instanceof UnknownCheckoutSessionError || err instanceof UnknownSubscriptionError) {
       // Another environment's session (every endpoint of the account gets
       // every event): recorded, marked processed with the reason, never retried.
       console.warn(`[stripe-webhook] ${event.type} ${event.id}: ${message}; recorded, not retried`);

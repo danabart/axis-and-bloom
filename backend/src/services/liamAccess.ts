@@ -15,6 +15,11 @@ import { db } from '../db/client.js';
 // passed no longer counts, even if the expiry cron hasn't flipped it to
 // 'lapsed' yet.
 //
+// Commerce 2 (Dana, 2026-10-31): "active" is the statuses whose
+// subscription_status.counts_as_subscriber is true (active, past_due, paused);
+// lapsed and canceled remove access. Sponsored seats are only ever active or
+// lapsed, so company-gift access is unchanged.
+//
 // Fails closed: a query error means no access.
 
 export type LiamAccessReason = 'admin' | 'subscriber';
@@ -33,8 +38,8 @@ export async function hasLiamAccess(uid: string, runner: Runner = db): Promise<L
          COALESCE(ut.name = 'admin', false) AS is_admin,
          EXISTS (
            SELECT 1 FROM subscription s
+           JOIN subscription_status st ON st.code = s.status AND st.counts_as_subscriber
            WHERE (s.user_id = up.id OR s.household_id = up.household_id)
-             AND s.status = 'active'
              AND (s.sponsored_expires_at IS NULL OR s.sponsored_expires_at > now())
          ) AS is_subscriber
        FROM user_profile up

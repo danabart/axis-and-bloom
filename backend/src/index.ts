@@ -40,6 +40,7 @@ import roasteryRemarkAdminRouter from './routes/roasteryRemarkAdmin.js';
 import evidenceAdminRouter from './routes/evidenceAdmin.js';
 import checkoutRouter from './routes/checkout.js';
 import commerceAdminRouter from './routes/commerceAdmin.js';
+import subscriptionsRouter from './routes/subscriptions.js';
 import { handleStripeWebhook } from './routes/stripeWebhook.js';
 import { stripeMode } from './services/stripe.js';
 import { runEvidenceIntegrityChecks, formatEvidenceIntegrityLog } from './services/evidenceIntegrity.js';
@@ -156,6 +157,7 @@ app.use('/api/admin/roastery-remarks', roasteryRemarkAdminRouter);
 app.use('/api/admin/evidence', evidenceAdminRouter);
 // Commerce 1 (2026-10-31): Stripe one-time checkout + its admin parameters.
 app.use('/api/checkout', checkoutRouter);
+app.use('/api/subscriptions', subscriptionsRouter);
 app.use('/api/admin/commerce', commerceAdminRouter);
 
 // Observability Foundation Part B -- central boundary handler, mounted AFTER

@@ -1934,10 +1934,14 @@ COMMENT ON COLUMN subscription_item.weight_oz IS $c$Bag weight in ounces, every 
 COMMENT ON COLUMN subscription_item.quantity IS $c$Bags of this item per delivery; the subscription's bag count (the discount tier and free shipping) is their sum.$c$;
 COMMENT ON COLUMN subscription_item.display_name_at_signup IS $c$House name shown at signup (slot name or category coffee name), never a roaster name.$c$;
 COMMENT ON COLUMN subscription_item.created_at IS $c$UTC timestamp the item was written.$c$;
-COMMENT ON TABLE subscription_event_kind IS $c$Purpose: Lookup of the things that happen to a subscription (started, renewal_charged, renewal_failed, renewal_skipped_paused, renewal_skipped_skip, paused, resumed, skip_requested, frequency_changed, canceled, lapsed, payment_method_updated) | Class: master | Writer: seed | Readers: subscription_event.event_kind FK | Since: 2026-10-31 (Commerce 2)$c$;
+COMMENT ON TABLE subscription_event_kind IS $c$Purpose: Lookup of the things that happen to a subscription (started, renewal_charged, renewal_failed, renewal_skipped_paused, renewal_skipped_skip, paused, resumed, skip_requested, frequency_changed, canceled, lapsed, payment_method_updated, invoice_voided) | Class: master | Writer: seed | Readers: subscription_event.event_kind FK | Since: 2026-10-31 (Commerce 2)$c$;
 COMMENT ON COLUMN subscription_event_kind.id IS $c$Surrogate primary key; code is the natural key.$c$;
 COMMENT ON COLUMN subscription_event_kind.code IS $c$Event kind code, unique.$c$;
 COMMENT ON COLUMN subscription_event_kind.label IS $c$Admin-facing label.$c$;
+COMMENT ON TABLE subscription_event_source IS $c$Purpose: Lookup of who writes a subscription_event (checkout, cron, webhook, admin, customer); a lookup rather than a CHECK list (DEVELOPMENT_GUARDRAILS G2.7) | Class: master | Writer: seed | Readers: subscription_event.source FK | Since: 2026-10-31 (Commerce 2)$c$;
+COMMENT ON COLUMN subscription_event_source.id IS $c$Surrogate primary key; code is the natural key.$c$;
+COMMENT ON COLUMN subscription_event_source.code IS $c$Source code, unique.$c$;
+COMMENT ON COLUMN subscription_event_source.label IS $c$Admin-facing label.$c$;
 COMMENT ON TABLE subscription_event IS $c$Purpose: Everything that happens to a subscription, one insert-only row per event (same shape as order_event): start, each renewal charged or failed, each skipped cycle, lapse, and (Commerce 3) the customer's pause, skip, frequency and card changes | Class: fact | Writer: subscriptionService.recordSubscriptionEvent | Readers: subscriptionService | Since: 2026-10-31 (Commerce 2)$c$;
 COMMENT ON COLUMN subscription_event.id IS $c$Surrogate primary key; with created_at, the order of events.$c$;
 COMMENT ON COLUMN subscription_event.subscription_id IS $c$FK to subscription(id).$c$;
@@ -1947,7 +1951,7 @@ COMMENT ON COLUMN subscription_event.stripe_invoice_id IS $c$Stripe invoice id (
 COMMENT ON COLUMN subscription_event.amount_cents IS $c$Amount charged or attempted, in cents, on a renewal event; the first delivery's total on started.$c$;
 COMMENT ON COLUMN subscription_event.attempt_count IS $c$Stripe's invoice attempt_count on a renewal_failed event (deduplicates the cron's synchronous failure against Stripe's invoice.payment_failed for the same attempt).$c$;
 COMMENT ON COLUMN subscription_event.note IS $c$Free text: the decline message, the unresolved item reason, the skipped cycle date.$c$;
-COMMENT ON COLUMN subscription_event.source IS $c$Who wrote it: checkout, cron, webhook, admin or customer.$c$;
+COMMENT ON COLUMN subscription_event.source IS $c$FK to subscription_event_source(code); who wrote it: checkout, cron, webhook, admin or customer.$c$;
 COMMENT ON COLUMN subscription_event.created_at IS $c$UTC timestamp of the event.$c$;
 COMMENT ON COLUMN "order".subscription_id IS $c$FK to subscription(id); the subscription the order belongs to (first delivery or renewal); NULL for a one-time order (Commerce 2).$c$;
 COMMENT ON COLUMN "order".stripe_invoice_id IS $c$Stripe invoice id (in_...) of a renewal order, unique; the idempotency key of checkoutService.createSubscriptionOrder. NULL for checkout orders.$c$;

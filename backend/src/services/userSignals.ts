@@ -237,10 +237,14 @@ export async function getUserSignals(uid: string): Promise<UserSignals> {
   let hasActiveSubscription = false;
   try {
     const subResult = await db.query(
+      // Commerce 2 (Dana, 2026-10-31): active, past_due and paused count
+      // (subscription_status.counts_as_subscriber); lapsed and canceled do not.
+      // Sponsored seats are only ever active or lapsed, so they read as before.
       `SELECT 1
        FROM subscription s
+       JOIN subscription_status st ON st.code = s.status AND st.counts_as_subscriber
        JOIN user_profile up ON (up.id = s.user_id OR up.household_id = s.household_id)
-       WHERE up.firebase_uid = $1 AND s.status = 'active'
+       WHERE up.firebase_uid = $1
        LIMIT 1`,
       [uid]
     );

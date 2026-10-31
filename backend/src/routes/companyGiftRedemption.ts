@@ -3,6 +3,7 @@ import rateLimit from 'express-rate-limit';
 import { requireAuth, blockAnonymousAuth, type AuthRequest } from '../middleware/auth.js';
 import { getRealClientIp } from '../middleware/clientIp.js';
 import { db } from '../db/client.js';
+import { createSponsoredSubscription } from '../services/subscriptionService.js';
 
 const router = Router();
 
@@ -104,15 +105,13 @@ router.post('/:code/redeem', requireAuth, blockAnonymousAuth, async (req: AuthRe
       [row.id, profile.id]
     );
     await client.query(`UPDATE user_profile SET company_gift_id = $2 WHERE id = $1`, [profile.id, row.company_gift_id]);
-    const subResult = await client.query(
-      `INSERT INTO subscription (user_id, status, company_gift_id, sponsored_expires_at)
-       VALUES ($1, 'active', $2, now() + ($3::text || ' months')::interval)
-       RETURNING id, sponsored_expires_at`,
-      [profile.id, row.company_gift_id, row.sponsorship_months]
-    );
+    // Commerce 2: the one subscription writer, same INSERT, same transaction.
+    const sub = await createSponsoredSubscription(client, {
+      userId: profile.id, companyGiftId: row.company_gift_id, sponsorshipMonths: row.sponsorship_months,
+    });
 
     await client.query('COMMIT');
-    res.json({ ok: true, sponsoredExpiresAt: subResult.rows[0].sponsored_expires_at });
+    res.json({ ok: true, sponsoredExpiresAt: sub.sponsored_expires_at });
   } catch (err) {
     await client.query('ROLLBACK').catch(rollbackErr => console.error('[company-gift-redemption/redeem-rollback]', rollbackErr));
     console.error('[company-gift-redemption/redeem]', err);

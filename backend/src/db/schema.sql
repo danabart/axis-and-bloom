@@ -9276,7 +9276,22 @@ INSERT INTO subscription_event_kind (code, label) VALUES
   ('frequency_changed',      'Frequency changed'),
   ('canceled',               'Canceled'),
   ('lapsed',                 'Lapsed'),
-  ('payment_method_updated', 'Payment method updated')
+  ('payment_method_updated', 'Payment method updated'),
+  ('invoice_voided',         'Renewal invoice voided (by our lapse, or in the Dashboard)')
+ON CONFLICT (code) DO NOTHING;
+
+-- Who wrote an event: a lookup, not a CHECK list (DEVELOPMENT_GUARDRAILS G2.7).
+CREATE TABLE IF NOT EXISTS subscription_event_source (
+  id    SERIAL PRIMARY KEY,
+  code  TEXT UNIQUE NOT NULL,
+  label TEXT NOT NULL
+);
+INSERT INTO subscription_event_source (code, label) VALUES
+  ('checkout', 'The checkout that started the subscription'),
+  ('cron',     'The daily subscription job'),
+  ('webhook',  'A Stripe webhook'),
+  ('admin',    'An admin action'),
+  ('customer', 'The customer, from their profile')
 ON CONFLICT (code) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS subscription_event (
@@ -9288,9 +9303,16 @@ CREATE TABLE IF NOT EXISTS subscription_event (
   amount_cents      INT,
   attempt_count     INT,
   note              TEXT,
-  source            TEXT NOT NULL CHECK (source IN ('checkout', 'cron', 'webhook', 'admin', 'customer')),
+  source            TEXT NOT NULL REFERENCES subscription_event_source(code),
   created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- A database that created the table with the first draft's CHECK list gets the FK instead (no data changes).
+DO $$ BEGIN
+  ALTER TABLE subscription_event DROP CONSTRAINT IF EXISTS subscription_event_source_check;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'subscription_event_source_fkey') THEN
+    ALTER TABLE subscription_event ADD CONSTRAINT subscription_event_source_fkey FOREIGN KEY (source) REFERENCES subscription_event_source(code);
+  END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS idx_subscription_event_subscription ON subscription_event (subscription_id, created_at, id);
 -- Idempotency, enforced: one started per subscription, one renewal_charged
 -- per invoice, one renewal_failed per (invoice, Stripe attempt), so the cron's

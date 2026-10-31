@@ -79,13 +79,15 @@ function quantityOf(item: CartItemInput): number {
   return q;
 }
 
-async function directDisplay(coffeeId: number): Promise<{ displayName: string; archetype: string | null }> {
+/** A category coffee's house name and match archetype (exported for subscription renewals, Commerce 2). */
+export async function directDisplay(coffeeId: number): Promise<{ displayName: string; archetype: string | null }> {
   const [coffee] = await getCoffees({ ids: [coffeeId] });
   const home = await getHomeSlot(coffeeId);
   return { displayName: home?.slot_name ?? coffee?.name ?? 'Coffee', archetype: coffee?.match_archetype ?? null };
 }
 
-async function retailPriceCents(coffeeId: number, weightOz: number): Promise<number | null> {
+/** A category coffee's pricing-table price at a weight, or null (exported for subscription renewals, Commerce 2). */
+export async function retailPriceCents(coffeeId: number, weightOz: number): Promise<number | null> {
   const rows = await getCoffeeRetailPrices();
   return rows.find(r => r.coffee_id === coffeeId && Number(r.weight_oz) === Number(weightOz))?.retail_price_cents ?? null;
 }

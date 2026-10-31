@@ -16,6 +16,8 @@ import { reconcileNewsletter } from '../features/marketing/newsletterReconcile.j
 import { runGateOffline } from '../services/sommelierGate.js';
 import { runEvals, addCustomerPhrasings, evalConfig } from '../services/sommelierEval.js';
 import { getSommelierConfig } from '../services/sommelierConfig.js';
+import { lapseSponsoredSubscription } from '../services/subscriptionService.js';
+import { runSubscriptionDaily } from '../services/subscriptionRenewal.js';
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 const router = Router();
@@ -524,7 +526,8 @@ router.get('/sponsored-subscription-check', requireCronSecret, async (_req, res)
        WHERE s.company_gift_id IS NOT NULL AND s.status = 'active' AND s.sponsored_expires_at < now()`
     );
     for (const row of expiredResult.rows) {
-      await db.query(`UPDATE subscription SET status = 'lapsed', updated_at = now() WHERE id = $1`, [row.subscription_id]);
+      // Commerce 2: the one subscription writer (same UPDATE, plus a lapsed event).
+      await lapseSponsoredSubscription(row.subscription_id);
       const result = await refreshLifecycleState(row.firebase_uid);
       if (result?.transitioned && result.stageCode === 'SPONSORED_LAPSED_NO_PAYMENT') {
         lapsedCount++;
@@ -579,6 +582,24 @@ router.get('/sponsored-subscription-check', requireCronSecret, async (_req, res)
     res.json({ lapsedCount, trialEndingCount });
   } catch (err) {
     console.error('[cron/sponsored-subscription-check]', err);
+    res.status(500).json({ error: 'Cron job failed' });
+  }
+});
+
+// ── GET /api/cron/subscription-daily ─────────────────────────────────────────
+// Commerce 2, B4 (2026-10-31): lapse overdue past_due subscriptions, send the
+// upcoming-delivery emails, charge every paid subscription due today as a
+// Stripe one-off invoice (services/subscriptionRenewal.ts). Idempotent, safe
+// to run twice a day; the invoice.paid webhook writes the orders. Cloud
+// Scheduler job subscription-daily, 06:00 US Eastern (MANUAL_SETUP_IDS.md).
+router.get('/subscription-daily', requireCronSecret, async (_req, res) => {
+  try {
+    const result = await runSubscriptionDaily();
+    const count = (o: string) => result.charges.filter(c => c.outcome === o).length;
+    console.log(`[cron/subscription-daily] ${result.today}: lapsed ${result.lapsed.length}, upcoming ${result.upcomingSent}, charged ${count('charged')}, declined ${count('declined')}, unresolved ${count('unresolved')}, skipped ${count('skipped_paused') + count('skipped_skip')}, already ${count('already_attempted')}, errors ${count('error')}`);
+    res.json(result);
+  } catch (err) {
+    console.error('[cron/subscription-daily]', err);
     res.status(500).json({ error: 'Cron job failed' });
   }
 });

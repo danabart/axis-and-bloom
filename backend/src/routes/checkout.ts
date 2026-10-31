@@ -1,13 +1,14 @@
 // Commerce 1, B5 (2026-10-31) — /api/checkout.
-//   GET  /rules                    public: shipping fee + free-shipping bag count, for the cart summary line
-//   POST /session                  { items, shippingAddressId? } → { clientSecret, checkoutSessionId } (Stripe Embedded Checkout)
+//   GET  /rules                    public: shipping fee + free-shipping bag count, for the cart summary line;
+//                                  subscription frequencies + the two discount percentages (Commerce 2)
+//   POST /session                  { items, shippingAddressId?, subscription?: { frequencyWeeks } } → { clientSecret, checkoutSessionId } (Stripe Embedded Checkout)
 //   GET  /session/:id/status       ownership-checked, from our tables only, so the return page reflects the webhook's work
 import { Router, type Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { requireAuth, blockAnonymousAuth, type AuthRequest } from '../middleware/auth.js';
 import { getRealClientIp } from '../middleware/clientIp.js';
 import { commerceParam } from '../services/commerceParameters.js';
-import { createCheckoutSession, getSessionStatus, CheckoutError } from '../services/checkoutService.js';
+import { createCheckoutSession, getSessionStatus, subscriptionFrequencies, CheckoutError } from '../services/checkoutService.js';
 import { CartError } from '../services/cartResolver.js';
 
 const router = Router();
@@ -34,14 +35,21 @@ router.get('/rules', async (_req, res) => {
     res.json({
       shippingFeeCents: await commerceParam('shipping_fee_cents'),
       freeShippingMinBags: await commerceParam('free_shipping_min_bags'),
+      // Commerce 2: the subscribe choice in the cart (options and discounts, never typed in the frontend).
+      subscriptionFrequencyWeeks: await subscriptionFrequencies(),
+      subscriptionDiscountPct1Bag: await commerceParam('subscription_discount_pct_1_bag'),
+      subscriptionDiscountPct2PlusBags: await commerceParam('subscription_discount_pct_2plus_bags'),
     });
   } catch (err) { sendError(res, err, 'rules'); }
 });
 
 router.post('/session', requireAuth, blockAnonymousAuth, sessionLimiter, async (req: AuthRequest, res) => {
   try {
-    const { items, shippingAddressId } = req.body ?? {};
-    const result = await createCheckoutSession({ uid: req.uid!, email: req.email ?? null, items, shippingAddressId: shippingAddressId ?? null });
+    const { items, shippingAddressId, subscription } = req.body ?? {};
+    const result = await createCheckoutSession({
+      uid: req.uid!, email: req.email ?? null, items, shippingAddressId: shippingAddressId ?? null,
+      subscription: subscription && typeof subscription === 'object' ? { frequencyWeeks: Number(subscription.frequencyWeeks) } : null,
+    });
     res.json({ clientSecret: result.clientSecret, checkoutSessionId: result.checkoutSessionId, shipsTo: result.shipsTo });
   } catch (err) { sendError(res, err, 'session'); }
 });

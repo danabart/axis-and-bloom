@@ -13,12 +13,25 @@
 // Money: cents here and in Stripe; the order's money columns stay in dollars
 // (subtotal, shipping_fee_charged, taxes_collected, transaction_fee,
 // total_amount_paid, unit_price_charged, discount_amount), as they always were.
+//
+// Commerce 2 (2026-10-31): a checkout can start a subscription
+// (subscription: { frequencyWeeks }): the lines are priced by the
+// subscription tier (subscriptionShipment.applySubscriptionPricing, no
+// collection discount), Stripe saves the card for off-session use, and the
+// completion writes the subscription (subscriptionService) in the same
+// transaction as the first delivery's order. Each later cycle is a Stripe
+// invoice; createSubscriptionOrder writes its order from invoice.paid. This
+// module stays the one writer of "order" and order_line_item.
 import { createHash } from 'node:crypto';
 import type Stripe from 'stripe';
 import { db, withTransaction, type Tx } from '../db/client.js';
 import { resolveCart, CartError, type CartItemInput, type ResolvedCart } from './cartResolver.js';
 import { commerceParam, commerceParamText } from './commerceParameters.js';
 import { stripe, STRIPE_ENABLED, getOrCreateStripeCustomer } from './stripe.js';
+import { applySubscriptionPricing } from './subscriptionShipment.js';
+import {
+  createPaidSubscriptionFromCheckout, recordSubscriptionStarted, markRenewalCharged, todayEastern, type SubscriptionIntent,
+} from './subscriptionService.js';
 
 export class CheckoutError extends Error {
   constructor(public status: number, public code: string, message: string) {
@@ -70,11 +83,34 @@ async function resolveIntendedFor(userId: string, householdId: string | null, it
   return target;
 }
 
-function fingerprint(cart: ResolvedCart, shipTo: ShipTo, intendedFor: string): string {
+function fingerprint(cart: ResolvedCart, shipTo: ShipTo, intendedFor: string, intent: SubscriptionIntent | null): string {
   return createHash('sha256').update(JSON.stringify({
     lines: cart.lines.map(l => [l.coffeeSkuId, l.quantity, l.unitPriceCents, l.discountCents, l.source, l.archetype, l.dialSortOrder]),
     shipping: cart.shippingCents, shipTo, intendedFor,
+    // Commerce 2: the same cart as a subscription is a different session.
+    ...(intent ? { subscription: intent.frequencyWeeks } : {}),
   })).digest('hex');
+}
+
+/** The frequencies offered, from commerce_parameter subscription_frequency_weeks ("2,4,6"). */
+export async function subscriptionFrequencies(): Promise<number[]> {
+  return (await commerceParamText('subscription_frequency_weeks')).split(',').map(s => Number(s.trim())).filter(n => Number.isInteger(n) && n > 0);
+}
+
+/**
+ * B3: re-price a resolved cart for a subscription. Every line goes back to
+ * its pricing-table price (a collection member's share of the collection
+ * discount is added back: the two never stack, Dana 2026-10-31) and takes the
+ * subscription tier by total bags. Shipping is unchanged (same bag count,
+ * same rule).
+ */
+async function priceForSubscription(cart: ResolvedCart): Promise<ResolvedCart> {
+  const pricing = await applySubscriptionPricing(cart.lines.map(l => ({ ...l, fullPriceCents: l.unitPriceCents + l.discountCents })));
+  return {
+    ...cart,
+    lines: pricing.lines.map(({ fullPriceCents: _full, ...l }) => l),
+    subtotalCents: pricing.subtotalCents,
+  };
 }
 
 export interface CreateCheckoutInput {
@@ -82,6 +118,8 @@ export interface CreateCheckoutInput {
   email: string | null;
   items: Array<CartItemInput & { intendedForUserId?: string | null }>;
   shippingAddressId?: string | null;
+  /** Commerce 2: start a subscription delivering every frequencyWeeks weeks (one of subscription_frequency_weeks). */
+  subscription?: { frequencyWeeks: number } | null;
 }
 export interface ShipsTo { street: string; city: string; state: string; postalCode: string; country: string }
 /** shipsTo: the snapshot the session ships to (the given address, else the profile's default), so the page can show it even when it could not load the profile. */
@@ -94,10 +132,20 @@ export async function createCheckoutSession(input: CreateCheckoutInput): Promise
   )).rows[0];
   if (!profile) throw new CheckoutError(404, 'profile_not_found', 'User profile not found');
 
+  let intent: SubscriptionIntent | null = null;
+  if (input.subscription) {
+    const weeks = Number(input.subscription.frequencyWeeks);
+    if (!(await subscriptionFrequencies()).includes(weeks)) {
+      throw new CheckoutError(400, 'invalid_frequency', 'Choose one of the delivery frequencies offered.');
+    }
+    intent = { frequencyWeeks: weeks, startsSubscription: true };
+  }
+
   const shipTo = await resolveShipTo(profile.id, input.shippingAddressId);
   const intendedFor = await resolveIntendedFor(profile.id, profile.household_id, input.items ?? []);
-  const cart = await resolveCart(input.items);
-  const print = fingerprint(cart, shipTo, intendedFor);
+  const resolved = await resolveCart(input.items);
+  const cart = intent ? await priceForSubscription(resolved) : resolved;
+  const print = fingerprint(cart, shipTo, intendedFor, intent);
 
   // The same open cart twice within the expiry window reuses its session.
   const open = (await db.query<{ id: string; stripe_checkout_session_id: string | null }>(
@@ -124,11 +172,12 @@ export async function createCheckoutSession(input: CreateCheckoutInput): Promise
     const s = await tx.query<{ id: string }>(
       `INSERT INTO checkout_session
          (user_id, mode, status, cart_fingerprint, subtotal_cents, shipping_cents, bag_count, shipping_address_id,
-          shipping_street, shipping_city, shipping_state, shipping_postal_code, shipping_country, expires_at)
-       VALUES ($1, 'payment', 'open', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          shipping_street, shipping_city, shipping_state, shipping_postal_code, shipping_country, expires_at, subscription_intent)
+       VALUES ($1, $13, 'open', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $14)
        RETURNING id`,
       [profile.id, print, cart.subtotalCents, cart.shippingCents, cart.bagCount, shipTo.id,
-       shipTo.street, shipTo.city, shipTo.state, shipTo.postal_code, shipTo.country, expiresAt]
+       shipTo.street, shipTo.city, shipTo.state, shipTo.postal_code, shipTo.country, expiresAt,
+       intent ? 'subscription' : 'payment', intent ? JSON.stringify(intent) : null]
     );
     for (const l of cart.lines) {
       await tx.query(
@@ -165,7 +214,7 @@ export async function createCheckoutSession(input: CreateCheckoutInput): Promise
           tax_behavior: 'exclusive',
           product_data: {
             name: l.displayName,
-            description: [`${l.weightOz} oz`, l.archetypeLabel].filter(Boolean).join(' · '),
+            description: [`${l.weightOz} oz`, l.archetypeLabel, intent ? `every ${intent.frequencyWeeks} weeks` : null].filter(Boolean).join(' · '),
             tax_code: coffeeTaxCode,
           },
         },
@@ -182,7 +231,12 @@ export async function createCheckoutSession(input: CreateCheckoutInput): Promise
       automatic_tax: { enabled: taxEnabled },
       ...(taxEnabled ? { customer_update: { shipping: 'auto' as const } } : {}),
       metadata: { checkout_session_id: sessionId },
-      payment_intent_data: { metadata: { checkout_session_id: sessionId } },
+      // A subscription checkout saves the card for the renewals our cron
+      // charges off-session; Checkout then offers only reusable methods.
+      payment_intent_data: {
+        metadata: { checkout_session_id: sessionId },
+        ...(intent ? { setup_future_usage: 'off_session' as const } : {}),
+      },
       return_url: `${FRONTEND_URL()}/checkout/return?session_id={CHECKOUT_SESSION_ID}`,
       expires_at: Math.floor(expiresAt.getTime() / 1000),
     }, { idempotencyKey: `checkout_session:${sessionId}` });
@@ -199,16 +253,17 @@ export async function createCheckoutSession(input: CreateCheckoutInput): Promise
 
 // ── complete / expire (the webhook) ──────────────────────────────────────────
 
-async function transactionFeeCents(paymentIntentId: string | null): Promise<number | null> {
-  if (!paymentIntentId) return null;
+/** The charge's Stripe fee (cents) and the PaymentMethod it used (saved off-session on a subscription checkout). */
+async function paymentDetails(paymentIntentId: string | null): Promise<{ feeCents: number | null; paymentMethodId: string | null }> {
+  if (!paymentIntentId) return { feeCents: null, paymentMethodId: null };
   try {
     const pi = await stripe().paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge.balance_transaction'] });
     const charge = pi.latest_charge as Stripe.Charge | null;
     const bt = charge?.balance_transaction as Stripe.BalanceTransaction | null | undefined;
-    return bt && typeof bt === 'object' ? bt.fee : null;
+    return { feeCents: bt && typeof bt === 'object' ? bt.fee : null, paymentMethodId: idOf(pi.payment_method as string | Stripe.PaymentMethod | null) };
   } catch (err) {
-    console.warn('[checkout] balance transaction not retrievable', paymentIntentId, err instanceof Error ? err.message : err);
-    return null;
+    console.warn('[checkout] payment intent not retrievable', paymentIntentId, err instanceof Error ? err.message : err);
+    return { feeCents: null, paymentMethodId: null };
   }
 }
 
@@ -237,7 +292,7 @@ export interface CompleteResult { orderId: string; created: boolean }
  */
 export async function completeCheckoutSession(session: Stripe.Checkout.Session): Promise<CompleteResult> {
   const paymentIntentId = idOf(session.payment_intent as string | Stripe.PaymentIntent | null);
-  const feeCents = await transactionFeeCents(paymentIntentId);
+  const { feeCents, paymentMethodId } = await paymentDetails(paymentIntentId);
 
   return withTransaction(async tx => {
     const existing = await tx.query<{ id: string }>(`SELECT id FROM "order" WHERE stripe_checkout_session_id = $1`, [session.id]);
@@ -248,27 +303,42 @@ export async function completeCheckoutSession(session: Stripe.Checkout.Session):
       [session.id, session.metadata?.checkout_session_id ?? '']
     )).rows[0];
     if (!cs) throw new UnknownCheckoutSessionError(session.id);
+    // Under the session lock: a concurrent delivery that got here first has committed its order.
+    if (cs.order_id) return { orderId: cs.order_id as string, created: false };
+    const lines = await tx.query(`SELECT * FROM checkout_session_line WHERE checkout_session_id = $1 ORDER BY created_at, id`, [cs.id]);
+
+    // Commerce 2: a subscription checkout. "order" is insert-only (D11), so
+    // the subscription exists first and the order carries its id at insert;
+    // the subscription then points at the order (started event, last_order_id).
+    const subscriptionId: string | null = cs.subscription_intent
+      ? await createPaidSubscriptionFromCheckout(tx, cs, lines.rows, { paymentMethodId })
+      : null;
 
     const inserted = await tx.query<{ id: string }>(
       `INSERT INTO "order"
          (user_id, fulfillment_status, subtotal, shipping_fee_charged, taxes_collected, transaction_fee, total_amount_paid,
           currency, shipping_street, shipping_city, shipping_state, shipping_postal_code, shipping_country, shipping_address_id,
-          checkout_session_id, stripe_checkout_session_id, stripe_payment_intent_id, paid_at, fulfillment_roaster_id)
-       VALUES ($1, 'awaiting_manual', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now(), NULL)
+          checkout_session_id, stripe_checkout_session_id, stripe_payment_intent_id, paid_at, fulfillment_roaster_id,
+          is_subscription, subscription_id)
+       VALUES ($1, 'awaiting_manual', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now(), NULL, $17, $18)
        ON CONFLICT (stripe_checkout_session_id) DO NOTHING
        RETURNING id`,
       [cs.user_id, toDollars(cs.subtotal_cents), toDollars(session.total_details?.amount_shipping ?? cs.shipping_cents),
        toDollars(session.total_details?.amount_tax), feeCents === null ? null : toDollars(feeCents), toDollars(session.amount_total),
        (session.currency ?? 'usd').toUpperCase(), cs.shipping_street, cs.shipping_city, cs.shipping_state, cs.shipping_postal_code,
-       cs.shipping_country, cs.shipping_address_id, cs.id, session.id, paymentIntentId]
+       cs.shipping_country, cs.shipping_address_id, cs.id, session.id, paymentIntentId, subscriptionId !== null, subscriptionId]
     );
     if (!inserted.rows[0]) {
+      // Lost a race to a concurrent delivery of the same event. With a
+      // subscription this transaction already wrote one, so it rolls back
+      // (the webhook answers 500, Stripe retries and finds the order).
+      if (subscriptionId) throw new Error(`order for Stripe session ${session.id} was written concurrently; retry`);
       const again = await tx.query<{ id: string }>(`SELECT id FROM "order" WHERE stripe_checkout_session_id = $1`, [session.id]);
       return { orderId: again.rows[0].id, created: false };
     }
     const orderId = inserted.rows[0].id;
+    if (subscriptionId) await recordSubscriptionStarted(tx, subscriptionId, { orderId, amountCents: session.amount_total ?? null });
 
-    const lines = await tx.query(`SELECT * FROM checkout_session_line WHERE checkout_session_id = $1 ORDER BY created_at, id`, [cs.id]);
     for (const l of lines.rows) {
       await tx.query(
         `INSERT INTO order_line_item
@@ -282,9 +352,120 @@ export async function completeCheckoutSession(session: Stripe.Checkout.Session):
       orderId, kind: 'paid', paymentStatus: 'paid', fulfillmentStatus: 'awaiting_manual', stripeRef: paymentIntentId, source: 'webhook',
     }, tx);
     await tx.query(
-      `UPDATE checkout_session SET status = 'complete', completed_at = now(), order_id = $1 WHERE id = $2`, [orderId, cs.id]
+      `UPDATE checkout_session SET status = 'complete', completed_at = now(), order_id = $1, subscription_id = $3 WHERE id = $2`,
+      [orderId, cs.id, subscriptionId]
     );
     return { orderId, created: true };
+  });
+}
+
+// ── subscription renewals (Commerce 2, B5: invoice.paid) ─────────────────────
+
+/**
+ * A paid invoice whose metadata names a subscription this database does not
+ * have (another environment's; every endpoint gets every event). Not
+ * retryable: the webhook records it and answers 200, like an unknown session.
+ */
+export class UnknownSubscriptionError extends Error {
+  constructor(public subscriptionId: string, public invoiceId: string) {
+    super(`no subscription ${subscriptionId} for Stripe invoice ${invoiceId}`);
+    this.name = 'UnknownSubscriptionError';
+  }
+}
+
+export interface RenewalLineMetadata {
+  kind: 'coffee' | 'shipping';
+  coffee_sku_id?: string;
+  coffee_id?: string;
+  display_name?: string;
+  weight_oz?: string;
+  unit_price_cents?: string;
+  discount_cents?: string;
+}
+
+const isUuid = (s: string | undefined) => Boolean(s && /^[0-9a-f-]{36}$/i.test(s));
+
+/**
+ * Write the renewal order for a paid subscription invoice, exactly once:
+ * idempotent on stripe_invoice_id. One transaction: "order"
+ * (is_subscription, subscription_id, stripe_invoice_id, amounts from the
+ * invoice, ships to the profile's current default address), its lines
+ * (order_kind subscription_renewal, house names, the discounted price and the
+ * per-bag discount, from the invoice items' metadata the cron wrote), the paid
+ * order_event, then subscriptionService.markRenewalCharged (renewal_charged,
+ * back to active, next date). The caller runs finalizePaidOrder.
+ */
+export async function createSubscriptionOrder(invoice: Stripe.Invoice): Promise<CompleteResult & { subscriptionId: string }> {
+  const subscriptionId = invoice.metadata?.subscription_id ?? '';
+  const invoiceId = invoice.id!;
+  if (!isUuid(subscriptionId)) throw new UnknownSubscriptionError(subscriptionId, invoiceId);
+  const known = (await db.query(`SELECT 1 FROM subscription WHERE id = $1`, [subscriptionId])).rows.length > 0;
+  if (!known) throw new UnknownSubscriptionError(subscriptionId, invoiceId);
+
+  // Task 0 (0.8): at this API version the PaymentIntent is under
+  // invoice.payments, and tax is total_taxes.
+  const full = await stripe().invoices.retrieve(invoiceId, { expand: ['payments'] });
+  const payment = full.payments?.data.find(p => p.status === 'paid') ?? full.payments?.data[0];
+  const paymentIntentId = idOf(payment?.payment?.payment_intent as string | Stripe.PaymentIntent | undefined);
+  const { feeCents } = await paymentDetails(paymentIntentId);
+  const items = (await stripe().invoiceItems.list({ invoice: invoiceId, limit: 100 })).data;
+  const coffee = items.filter(i => (i.metadata as unknown as RenewalLineMetadata | null)?.kind === 'coffee');
+  const shippingCents = items.filter(i => i.metadata?.kind === 'shipping').reduce((s, i) => s + i.amount, 0);
+  const taxCents = (full.total_taxes ?? []).reduce((s, t) => s + t.amount, 0);
+  const paidAt = full.status_transitions?.paid_at ? new Date(full.status_transitions.paid_at * 1000) : new Date();
+  const cycleDate = full.metadata?.cycle_date ?? todayEastern(paidAt);
+
+  return withTransaction(async tx => {
+    const existing = await tx.query<{ id: string }>(`SELECT id FROM "order" WHERE stripe_invoice_id = $1`, [invoiceId]);
+    if (existing.rows[0]) return { orderId: existing.rows[0].id, created: false, subscriptionId };
+
+    const sub = (await tx.query<{ user_id: string }>(`SELECT user_id FROM subscription WHERE id = $1 FOR UPDATE`, [subscriptionId])).rows[0];
+    // The customer paid: the order is written even without a saved address
+    // (the snapshot is then empty and the admin email shows it).
+    const shipTo = await resolveShipTo(sub.user_id).catch(() => null);
+    const lineRows = coffee.map(i => {
+      const m = i.metadata as unknown as RenewalLineMetadata;
+      return {
+        skuId: m.coffee_sku_id!, displayName: m.display_name ?? null, weightOz: m.weight_oz ? Number(m.weight_oz) : null,
+        quantity: i.quantity, unitCents: Number(m.unit_price_cents), discountCents: Number(m.discount_cents ?? 0),
+      };
+    });
+    const subtotalCents = lineRows.reduce((s, l) => s + l.unitCents * l.quantity, 0);
+
+    const inserted = await tx.query<{ id: string }>(
+      `INSERT INTO "order"
+         (user_id, fulfillment_status, subtotal, shipping_fee_charged, taxes_collected, transaction_fee, total_amount_paid,
+          currency, shipping_street, shipping_city, shipping_state, shipping_postal_code, shipping_country, shipping_address_id,
+          stripe_payment_intent_id, paid_at, fulfillment_roaster_id, is_subscription, subscription_id, stripe_invoice_id)
+       VALUES ($1, 'awaiting_manual', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NULL, true, $16, $17)
+       ON CONFLICT (stripe_invoice_id) DO NOTHING
+       RETURNING id`,
+      [sub.user_id, toDollars(subtotalCents), toDollars(shippingCents), toDollars(taxCents),
+       feeCents === null ? null : toDollars(feeCents), toDollars(full.amount_paid), (full.currency ?? 'usd').toUpperCase(),
+       shipTo?.street ?? null, shipTo?.city ?? null, shipTo?.state ?? null, shipTo?.postal_code ?? null, shipTo?.country ?? null,
+       shipTo?.id ?? null, paymentIntentId, paidAt, subscriptionId, invoiceId]
+    );
+    if (!inserted.rows[0]) {
+      const again = await tx.query<{ id: string }>(`SELECT id FROM "order" WHERE stripe_invoice_id = $1`, [invoiceId]);
+      return { orderId: again.rows[0].id, created: false, subscriptionId };
+    }
+    const orderId = inserted.rows[0].id;
+
+    for (const l of lineRows) {
+      await tx.query(
+        `INSERT INTO order_line_item
+           (order_id, blend_id, quantity, unit_price_charged, discount_amount, intended_for_user_id, order_kind, display_name, weight_oz)
+         VALUES ($1, $2, $3, $4, $5, $6, 'subscription_renewal', $7, $8)`,
+        [orderId, l.skuId, l.quantity, toDollars(l.unitCents), toDollars(l.discountCents), sub.user_id, l.displayName, l.weightOz]
+      );
+    }
+    await recordOrderEvent({
+      orderId, kind: 'paid', paymentStatus: 'paid', fulfillmentStatus: 'awaiting_manual', stripeRef: paymentIntentId ?? invoiceId, source: 'webhook',
+    }, tx);
+    await markRenewalCharged(tx, {
+      subscriptionId, orderId, invoiceId, amountCents: full.amount_paid, cycleDate, paidDate: todayEastern(paidAt),
+    });
+    return { orderId, created: true, subscriptionId };
   });
 }
 
@@ -412,12 +593,14 @@ export interface SessionStatus {
     subtotalCents: number; shippingCents: number; taxCents: number; totalCents: number;
     customerLabel: string | null;
   };
+  /** Commerce 2: present when the checkout started a subscription. */
+  subscription?: { frequencyWeeks: number | null; nextDeliveryDate: string | null; discountCents: number };
 }
 
 /** GET /api/checkout/session/:id/status — our tables only, ownership-checked; :id is ours or Stripe's (cs_...). */
 export async function getSessionStatus(uid: string, id: string): Promise<SessionStatus | null> {
-  const cs = (await db.query<{ status: SessionStatus['status']; order_id: string | null }>(
-    `SELECT cs.status, cs.order_id FROM checkout_session cs JOIN user_profile up ON up.id = cs.user_id
+  const cs = (await db.query<{ id: string; status: SessionStatus['status']; order_id: string | null; subscription_id: string | null }>(
+    `SELECT cs.id, cs.status, cs.order_id, cs.subscription_id FROM checkout_session cs JOIN user_profile up ON up.id = cs.user_id
      WHERE up.firebase_uid = $1 AND (cs.stripe_checkout_session_id = $2 OR cs.id::text = $2)`,
     [uid, id]
   )).rows[0];
@@ -425,7 +608,17 @@ export async function getSessionStatus(uid: string, id: string): Promise<Session
   if (cs.status !== 'complete' || !cs.order_id) return { status: cs.status };
   const o = await getOrderSummary(cs.order_id);
   if (!o) return { status: cs.status };
+  let subscription: SessionStatus['subscription'];
+  if (cs.subscription_id) {
+    const s = (await db.query<{ frequency_weeks: number | null; next_delivery_date: string | null; discount_cents: string | null }>(
+      `SELECT v.frequency_weeks, v.next_delivery_date::text AS next_delivery_date,
+              (SELECT SUM(discount_cents * quantity) FROM checkout_session_line WHERE checkout_session_id = $2) AS discount_cents
+       FROM v_subscription_status v WHERE v.subscription_id = $1`, [cs.subscription_id, cs.id]
+    )).rows[0];
+    if (s) subscription = { frequencyWeeks: s.frequency_weeks, nextDeliveryDate: s.next_delivery_date, discountCents: Number(s.discount_cents ?? 0) };
+  }
   return {
+    ...(subscription ? { subscription } : {}),
     status: 'complete', orderId: o.orderId, finalized: Boolean(o.status.finalizedAt), orderPlacedLine: o.status.orderPlacedLine,
     order: {
       lines: o.lines.map(l => ({ displayName: l.displayName, weightOz: l.weightOz, quantity: l.quantity })),

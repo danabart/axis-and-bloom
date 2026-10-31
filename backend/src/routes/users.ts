@@ -392,8 +392,10 @@ router.get('/homepage-state', requireAuth, async (req: AuthRequest, res) => {
       const subResult = await db.query(
         `SELECT s.next_delivery_date
          FROM subscription s
+         JOIN subscription_status st ON st.code = s.status AND st.counts_as_subscriber
          JOIN user_profile up ON (up.id = s.user_id OR up.household_id = s.household_id)
-         WHERE up.firebase_uid = $1 AND s.status = 'active'
+         WHERE up.firebase_uid = $1
+         ORDER BY s.next_delivery_date NULLS LAST
          LIMIT 1`,
         [req.uid]
       );

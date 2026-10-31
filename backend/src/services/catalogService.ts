@@ -1391,7 +1391,8 @@ export async function buildDeactivationPreview(roasterId: string) {
        LIMIT 1
      ) last_line ON true
      JOIN coffee_sku rb ON rb.id = last_line.blend_id
-     WHERE s.status = 'active' AND rb.roaster_id = $1`,
+     JOIN subscription_status st ON st.code = s.status AND st.counts_as_subscriber -- active, past_due, paused (Commerce 2)
+     WHERE rb.roaster_id = $1`,
     [roasterId]
   );
 
