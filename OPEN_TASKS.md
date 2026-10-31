@@ -425,7 +425,9 @@ Commerce 2 built the data and the renewal engine only. Commerce 3 (`CLAUDE_CODE_
 - **The customer's email on the admin new-order email.**
 - **Liam's status line:** the gate's `customer_subscription` resolver and the customer block print the raw status code (`sub.status`, so "past_due"). Switch both to `subscription_status.customer_label`.
 
-### OT-63: Stripe's one-off invoice retry schedule (Commerce 2, 2026-10-31)
+### OT-63: Stripe's one-off invoice retry schedule (Commerce 2, 2026-10-31) — ✅ Resolved 2026-10-31
+
+Dana, from the Dashboard (Billing → Manage failed payments → Card payments): Smart Retries, up to 8 times within 2 weeks; after all retries fail, the invoice is left past-due (not marked uncollectible). Stripe stops retrying by day 14, before our 21-day lapse, which lapses the subscription and voids the invoice. No code change.
 
 Commerce 2 leaves a declined renewal invoice open with `auto_advance`, so Stripe retries it on the account's Automatic collection schedule. Our job lapses the subscription after `subscription_past_due_lapse_days` (21) and voids the invoice. Dana to record the Dashboard's exact schedule, and what happens after the last retry, in `MANUAL_SETUP_IDS.md` (Task 0.5, step 2a). If Stripe gives up before 21 days with "mark uncollectible", `invoice.marked_uncollectible` lapses the subscription earlier, which is also fine.
 
@@ -487,3 +489,4 @@ Found running the full `npm test` suite as part of Customer Blueprint C1's Part 
 | 2026-10-31 | OT-59: mixed-roaster order split | Open |
 | 2026-10-31 | OT-60: test-mode Stripe events also reach the prod endpoint | Open |
 | 2026-10-31 | OT-61: Liam order_status could read v_order_status | Open (Dana's call) |
+| 2026-10-31 | OT-63: Stripe retry schedule for renewal invoices (Smart Retries, up to 8 within 2 weeks, then left past-due; our 21-day lapse voids it) | ✅ Resolved 2026-10-31 |

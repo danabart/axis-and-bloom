@@ -219,7 +219,7 @@ Written into `launch/00_manual-setup/MANUAL_SETUP_IDS.md` → Stripe → "Commer
 |---|---|
 | 1. The four `invoice.*` events on the sandbox endpoint | ✅ Dana |
 | 2b. Stripe customer emails (failed payment, reminders, finalized invoices) off | ✅ Dana |
-| 2a. Retry schedule | **Not recorded:** both of Dana's replies carried the placeholder `[paste the Dashboard wording]` (OT-63) |
+| 2a. Retry schedule | ✅ Dana: Billing → Manage failed payments → Card payments: Smart Retries, up to 8 times within 2 weeks; after the last retry the invoice is left past-due (not marked uncollectible). Our 21-day lapse voids it (OT-63 closed) |
 | 3. Scheduler job | After the deploy; exact command in the doc |
 
 **Invoice fee:** 0.4% per paid invoice per Stripe's public pricing; account figure to confirm. (stripe.com/invoicing/pricing, read 2026-10-31: Starter 0.4%, Plus 0.5%, no cap shown; the brief's "capped at $2" was from memory.) The card fee on renewal `in_1UWgMi0QYxZQN6jD3b3e7vlF` ($33.50) was $1.27; Stripe Tax's own fee comes on top.
@@ -347,7 +347,7 @@ Run 2026-10-31 in Stripe test mode against a local backend on `axisandbloom_test
 - **Payment-trouble email:** add the update-card link, and when a new card is saved, retry the open invoice (`invoices.pay`) for a past_due subscription.
 - **Admin:** subscriptions from `v_subscription_status` and events from `subscription_event`; orders and refunds as planned.
 - **Liam:** the `customer_subscription` resolver and the customer block should print `customer_label` (OT-62).
-- **Retry schedule:** decide the post-retry outcome once the Dashboard wording is in (OT-63).
+- **Retry schedule:** settled (OT-63): Stripe retries up to 8 times within 2 weeks and leaves the invoice past-due, and our 21-day lapse voids it. Nothing to build.
 
 ## Post-deploy checks
 

@@ -6221,7 +6221,7 @@ Part E found and fixed a reused-idempotency-key bug: keys are now per attempt, a
 
 **Not done in this pass:**
 - Customer self-service buttons and the admin pages (Commerce 3, OT-62).
-- The retry-schedule wording and this account's invoice fee (OT-63).
+- This account's invoice fee. (Retry schedule recorded 2026-10-31: Smart Retries, up to 8 within 2 weeks, then left past-due for our 21-day lapse; OT-63 closed.)
 - The `subscription-daily` Cloud Scheduler job, after the deploy (`MANUAL_SETUP_IDS.md`).
 - `CATALOG.md` from prod after the deploy.
 
