@@ -8971,7 +8971,7 @@ SELECT v.key, v.value_numeric, v.value_text, v.note FROM (VALUES
   ('shipping_fee_cents',              595::numeric, NULL::text, 'Shipping charged, in cents, when the order holds fewer bags than free_shipping_min_bags. Range: integer 0 <= value <= 2000.'),
   ('free_shipping_min_bags',          2,    NULL, 'Bag count at which shipping is free; every line quantity counts one bag per unit, a collection counts its members. Range: integer 1 <= value <= 10.'),
   ('checkout_session_expiry_minutes', 30,   NULL, 'Minutes a Stripe Checkout Session stays open (Stripe minimum 30, maximum 1440). Range: integer 30 <= value <= 1440.'),
-  ('tax_collection_enabled',          1,    NULL, '1 = Stripe Tax computes tax on every charge, 0 = off. Range: integer 0 <= value <= 1.'),
+  ('tax_collection_enabled',          0,    NULL, '1 = Stripe Tax computes tax on every charge, 0 = off. 0 at launch (Dana, 2026-10-31): NJ exempts packaged coffee and there is no nexus in any other state, so Stripe Tax''s $0.50 per transaction buys nothing yet. To turn on: add the state''s registration in Stripe Tax, then set 1. Range: integer 0 <= value <= 1.'),
   ('stripe_tax_code_coffee',          NULL, 'txcd_41050006', 'Stripe product tax code for a bag of coffee ("Coffee Beans or Ground Coffee"; also the account''s preset category, set in the sandbox 2026-10-31). Format: stripe tax code.'),
   ('stripe_tax_code_shipping',        NULL, 'txcd_92010001', 'Stripe tax code for the shipping charge ("Shipping", confirmed against the Tax Codes API 2026-10-31). Format: stripe tax code.'),
   ('admin_alert_email',               NULL, 'dana@axisandbloomcoffee.com', 'Address that receives the per-paid-order email and the fulfillment attention email. Format: email.'),

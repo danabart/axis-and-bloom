@@ -14,7 +14,7 @@ import {
 } from './commerceParameters.js';
 
 const SEEDED: Record<string, number | string> = {
-  shipping_fee_cents: 595, free_shipping_min_bags: 2, checkout_session_expiry_minutes: 30, tax_collection_enabled: 1,
+  shipping_fee_cents: 595, free_shipping_min_bags: 2, checkout_session_expiry_minutes: 30, tax_collection_enabled: 0,
   stripe_tax_code_coffee: 'txcd_41050006', stripe_tax_code_shipping: 'txcd_92010001', admin_alert_email: 'dana@axisandbloomcoffee.com',
   subscription_discount_pct_1_bag: 5, subscription_discount_pct_2plus_bags: 10, subscription_frequency_weeks: '2,4,6',
   collection_discount_pct: 10, collection_min_members: 3,

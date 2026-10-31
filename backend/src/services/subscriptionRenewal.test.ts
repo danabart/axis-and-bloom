@@ -49,6 +49,12 @@ vi.mock('./stripe.js', () => ({
 const shipments: Record<string, any> = {};
 vi.mock('./subscriptionShipment.js', () => ({ resolveSubscriptionShipment: async (id: string) => shipments[id] }));
 vi.mock('./userLifecycle.js', () => ({ refreshLifecycleState: async () => null }));
+// The tax switch is pinned on here (the test DB seeds 0 since 2026-10-31) so
+// the invoice's automatic_tax shape stays covered.
+vi.mock('./commerceParameters.js', async importOriginal => {
+  const real = await importOriginal<typeof import('./commerceParameters.js')>();
+  return { ...real, commerceParam: async (key: string) => key === 'tax_collection_enabled' ? 1 : real.commerceParam(key) };
+});
 const sent: Array<{ to: string; subject: string }> = [];
 vi.mock('../features/marketing/resendEmail.js', () => ({
   sendResendEmail: async (e: { to: string; subject: string }) => { sent.push({ to: e.to, subject: e.subject }); return { ok: true, id: `re_${sent.length}` }; },

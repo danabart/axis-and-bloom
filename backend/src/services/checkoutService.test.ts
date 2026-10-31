@@ -40,6 +40,13 @@ vi.mock('./stripe.js', () => ({
   stripe: () => fakeStripe,
   getOrCreateStripeCustomer: async () => 'cus_vitest',
 }));
+// The tax switch is pinned here, not read from the test DB (seeded 0 since
+// 2026-10-31); every other parameter is the real row.
+const taxSwitch = { value: 1 };
+vi.mock('./commerceParameters.js', async importOriginal => {
+  const real = await importOriginal<typeof import('./commerceParameters.js')>();
+  return { ...real, commerceParam: async (key: string) => key === 'tax_collection_enabled' ? taxSwitch.value : real.commerceParam(key) };
+});
 
 const { db } = await import('../db/client.js');
 const { createCoffee, setMatchArchetype, upsertSku, setCoffeeRetailPrice } = await import('./catalogService.js');
@@ -208,6 +215,30 @@ describe('completeCheckoutSession', () => {
     await recordRefund({ id: 'ch_vitest', payment_intent: o.stripe_payment_intent_id, amount: 2695, amount_refunded: 2695 } as any);
     s = (await db.query(`SELECT payment_status, amount_refunded_cents, customer_label FROM v_order_status WHERE order_id = $1`, [o.id])).rows[0];
     expect(s).toEqual({ payment_status: 'refunded', amount_refunded_cents: 2695, customer_label: 'Refunded' });
+  });
+});
+
+describe('tax switch off (tax_collection_enabled = 0, Dana 2026-10-31)', () => {
+  it('a checkout asks Stripe for no automatic tax, and the order records taxes_collected 0', async () => {
+    taxSwitch.value = 0;
+    try {
+      // Five bags: a cart no other test uses, so no open session is reused.
+      const r = await createCheckoutSession({ uid: UID, email: 'vitest@example.com', items: [item(5)], shippingAddressId: addressId });
+      const { params } = stripeCalls.create.at(-1);
+      expect(params.metadata.checkout_session_id).toBe(r.checkoutSessionId);
+      expect(params.automatic_tax?.enabled ?? false).toBe(false);
+      expect(params.customer_update).toBeUndefined();
+      expect('tax' in fakeStripe).toBe(false); // the fake has no Stripe Tax API: a direct calculation call would throw
+
+      const ours = (await db.query(`SELECT id, stripe_checkout_session_id FROM checkout_session WHERE id = $1`, [r.checkoutSessionId])).rows[0];
+      const done = await completeCheckoutSession(stripeSessionFor(ours.stripe_checkout_session_id, ours.id, { amount_total: 10500, amount_subtotal: 10500,
+        total_details: { amount_tax: 0, amount_shipping: 0, amount_discount: 0 } }));
+      const o = (await db.query(`SELECT taxes_collected, total_amount_paid FROM "order" WHERE id = $1`, [done.orderId])).rows[0];
+      expect(Number(o.taxes_collected)).toBe(0);
+      expect(Number(o.total_amount_paid)).toBe(105);
+    } finally {
+      taxSwitch.value = 1;
+    }
   });
 });
 
