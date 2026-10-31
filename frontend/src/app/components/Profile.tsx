@@ -22,6 +22,7 @@ import ActivityTimeline from './profile/ActivityTimeline';
 import BrewProfileMirror from './profile/BrewProfileMirror';
 import BrewCards from './profile/BrewCards';
 import WorthExploring from './profile/WorthExploring';
+import AddressForm from './profile/AddressForm';
 
 type Tab = 'memory' | 'orders' | 'settings' | 'family';
 
@@ -57,8 +58,6 @@ interface HomepageState {
   usualBlend: { id: string; name: string } | null;
   nextDeliveryDate: string | null;
 }
-
-const EMPTY_ADDRESS = { street: '', city: '', state: '', postalCode: '', country: 'US', addressType: 'shipping' as 'shipping' | 'billing' };
 
 const VALID_TABS: Tab[] = ['memory', 'orders', 'settings', 'family'];
 
@@ -101,12 +100,9 @@ export default function Profile() {
   const [phoneError, setPhoneError]           = useState('');
 
   // Address form state
-  const [showAddressForm, setShowAddressForm] = useState(false);
-  const [addressForm, setAddressForm]         = useState(EMPTY_ADDRESS);
-  const [savingAddress, setSavingAddress]     = useState(false);
-  const [addressError, setAddressError]       = useState('');
+  // The form itself is components/profile/AddressForm.tsx (shared with /checkout, Commerce 1).
+  const [showAddressForm, setShowAddressForm] = useState<'shipping' | 'billing' | null>(null);
   const [addressActionError, setAddressActionError] = useState('');
-  const [sameAsShipping, setSameAsShipping]   = useState(false);
 
   // ── Lifecycle-driven Flavor Memory tab (Profile Part 1) ─────────────────────
   const [homepageState, setHomepageState]       = useState<HomepageState | null>(null);
@@ -334,27 +330,6 @@ export default function Profile() {
     } finally {
       setSavingPhone(false);
     }
-  }
-
-  async function handleAddAddress(e: React.FormEvent) {
-    e.preventDefault();
-    setSavingAddress(true); setAddressError('');
-    try {
-      const token = await user!.getIdToken();
-      const res = await fetch('/api/users/addresses', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ ...addressForm }),
-      });
-      if (!res.ok) throw new Error((await res.json()).error ?? 'Failed');
-      const newAddr = await res.json();
-      setProfile(p => p ? { ...p, addresses: [...p.addresses, newAddr] } : p);
-      setAddressForm(EMPTY_ADDRESS);
-      setShowAddressForm(false);
-    } catch (err: any) {
-      reportError('[Profile/add-address]', err);
-      setAddressError(err.message ?? 'Failed to save address');
-    } finally { setSavingAddress(false); }
   }
 
   async function handleSetDefault(id: string, type: string) {
@@ -735,6 +710,7 @@ export default function Profile() {
                             <p className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60 mb-2 font-normal">Order {order.id}</p>
                             <p className="text-sm text-[#a33726] font-normal">{order.date}</p>
                           </div>
+                          {/* customer_label from the status lookups (v_order_status), Commerce 1: no status word typed here. */}
                           <span className="text-[10px] font-normal px-2 py-1 bg-[#a33726]/10 text-[#a33726] rounded-sm uppercase tracking-[0.1em]">{order.status}</span>
                         </div>
                         <p className="text-lg text-[#a33726]">Total: {order.total}</p>
@@ -819,7 +795,7 @@ export default function Profile() {
                 {/* Addresses — Shipping + Billing */}
                 {(['shipping', 'billing'] as const).map(type => {
                   const typeAddresses = (profile?.addresses ?? []).filter(a => a.address_type === type);
-                  const isThisFormOpen = showAddressForm && addressForm.addressType === type;
+                  const isThisFormOpen = showAddressForm === type;
                   const defaultShipping = (profile?.addresses ?? []).find(a => a.address_type === 'shipping' && a.is_default);
 
                   return (
@@ -861,78 +837,20 @@ export default function Profile() {
 
                       {!isThisFormOpen ? (
                         <button
-                          onClick={() => {
-                            setSameAsShipping(false);
-                            setShowAddressForm(true);
-                            setAddressForm({ ...EMPTY_ADDRESS, addressType: type });
-                            setAddressError('');
-                          }}
+                          onClick={() => setShowAddressForm(type)}
                           className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/50 hover:text-[#a33726] transition-colors border-b border-[#a33726]/20 pb-1 w-fit">
                           + Add {type === 'shipping' ? 'Shipping' : 'Billing'} Address
                         </button>
                       ) : (
-                        <form onSubmit={handleAddAddress} className="flex flex-col gap-4 border border-[#a33726]/15 p-4 bg-white/40">
-
-                          {/* Same as shipping checkbox — billing only */}
-                          {type === 'billing' && defaultShipping && (
-                            <label className="flex items-center gap-2.5 cursor-pointer select-none">
-                              <input
-                                type="checkbox"
-                                checked={sameAsShipping}
-                                onChange={e => {
-                                  const checked = e.target.checked;
-                                  setSameAsShipping(checked);
-                                  if (checked) {
-                                    setAddressForm(f => ({
-                                      ...f,
-                                      street: defaultShipping.street,
-                                      city: defaultShipping.city,
-                                      state: defaultShipping.state,
-                                      postalCode: defaultShipping.postal_code,
-                                      country: defaultShipping.country,
-                                    }));
-                                  } else {
-                                    setAddressForm(f => ({ ...f, street: '', city: '', state: '', postalCode: '', country: 'US' }));
-                                  }
-                                }}
-                                className="accent-[#a33726]"
-                              />
-                              <span className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/60">
-                                Same as my shipping address
-                              </span>
-                            </label>
-                          )}
-
-                          <div>
-                            <label className={labelClass}>Street</label>
-                            <input required value={addressForm.street} onChange={e => setAddressForm(f => ({ ...f, street: e.target.value }))} placeholder="123 Main St" className={inputClass} disabled={sameAsShipping} />
-                          </div>
-                          <div className="flex gap-3">
-                            <div className="flex-1">
-                              <label className={labelClass}>City</label>
-                              <input required value={addressForm.city} onChange={e => setAddressForm(f => ({ ...f, city: e.target.value }))} placeholder="New York" className={inputClass} disabled={sameAsShipping} />
-                            </div>
-                            <div className="w-20">
-                              <label className={labelClass}>State</label>
-                              <input required value={addressForm.state} onChange={e => setAddressForm(f => ({ ...f, state: e.target.value }))} placeholder="NY" maxLength={2} className={inputClass} disabled={sameAsShipping} />
-                            </div>
-                            <div className="w-24">
-                              <label className={labelClass}>ZIP</label>
-                              <input required value={addressForm.postalCode} onChange={e => setAddressForm(f => ({ ...f, postalCode: e.target.value }))} placeholder="10001" className={inputClass} disabled={sameAsShipping} />
-                            </div>
-                          </div>
-                          {addressError && <p className="text-xs text-red-600">{addressError}</p>}
-                          <div className="flex gap-4 pt-2">
-                            <button type="submit" disabled={savingAddress}
-                              className="text-[10px] uppercase tracking-[0.3em] text-[#a33726] border-b border-[#a33726]/40 pb-1 hover:border-[#ee5974] hover:text-[#ee5974] transition-colors disabled:opacity-30">
-                              {savingAddress ? 'Saving…' : 'Save Address'}
-                            </button>
-                            <button type="button" onClick={() => { setShowAddressForm(false); setSameAsShipping(false); setAddressForm(EMPTY_ADDRESS); setAddressError(''); }}
-                              className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/40 hover:text-[#a33726] transition-colors">
-                              Cancel
-                            </button>
-                          </div>
-                        </form>
+                        <AddressForm
+                          addressType={type}
+                          defaultShipping={defaultShipping}
+                          onSaved={newAddr => {
+                            setProfile(p => p ? { ...p, addresses: [...p.addresses, newAddr as any] } : p);
+                            setShowAddressForm(null);
+                          }}
+                          onCancel={() => setShowAddressForm(null)}
+                        />
                       )}
                     </div>
                   );

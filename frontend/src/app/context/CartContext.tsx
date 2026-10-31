@@ -1,12 +1,6 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { useAuth } from './AuthContext';
-import { getUserProfile, placeOrder } from '../lib/api';
-import { reportError } from '../lib/errorReporter';
+import { createContext, useContext, useState, type ReactNode } from 'react';
+import { useNavigate } from 'react-router';
 import type { CartItem } from '../components/bloom/types';
-
-interface Address {
-  id: number; street: string; city: string; state: string; postal_code: string; country: string;
-}
 
 interface CartContextType {
   cart: CartItem[];
@@ -14,9 +8,10 @@ interface CartContextType {
   toggleCartOpen: () => void;
   addToCart: (item: CartItem) => void;
   removeFromCart: (index: number) => void;
-  checkout: () => Promise<void>;
-  checkoutStatus: 'idle' | 'loading' | 'success' | 'error';
-  checkoutMessage: string | null;
+  /** Commerce 1: opens /checkout (no API call; payment happens there). */
+  checkout: () => void;
+  /** Empties the cart (the return page, once the order is confirmed). */
+  clear: () => void;
 }
 
 const CartContext = createContext<CartContextType | null>(null);
@@ -24,32 +19,16 @@ const CartContext = createContext<CartContextType | null>(null);
 /**
  * Shared cart — relocated out of BloomPage.tsx (The Bloom Part 10, Phase B) so
  * any page wrapped in this provider can add to the same cart, not just /bloom.
- * Cart shape and add/remove/checkout behavior are unchanged from before the
- * move; the shipping-address/customer-name lookup that checkout needs is now
- * fetched here directly (its own getUserProfile() call) rather than shared
- * with BloomPage's separate userArchetype fetch, keeping the cart provider
- * self-contained and usable independent of any one page's own state.
+ * Commerce 1 (2026-10-31): checkout() no longer places an order. It closes the
+ * cart and opens /checkout, where the ships-to address is chosen and Stripe
+ * Embedded Checkout takes the payment; the order is written only when Stripe
+ * confirms it (the webhook). The provider now sits inside <BrowserRouter>
+ * (App.tsx) so it can navigate.
  */
 export function CartProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
-
+  const navigate = useNavigate();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
-  const [checkoutStatus, setCheckoutStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
-  const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
-  const [defaultAddress, setDefaultAddress] = useState<Address | null>(null);
-  const [customerName, setCustomerName] = useState<{ first: string; last: string } | null>(null);
-
-  useEffect(() => {
-    if (!user) { setDefaultAddress(null); setCustomerName(null); return; }
-    getUserProfile()
-      .then(p => {
-        setCustomerName({ first: p?.firstName ?? '', last: p?.lastName ?? '' });
-        const addr = (p?.addresses ?? []).find((a: any) => a.address_type === 'shipping') ?? p?.addresses?.[0] ?? null;
-        setDefaultAddress(addr ?? null);
-      })
-      .catch(err => reportError('[CartContext/prefill-checkout]', err));
-  }, [user]);
 
   function toggleCartOpen() {
     setCartOpen(v => !v);
@@ -90,73 +69,17 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setCart(prev => prev.filter((_, i) => i !== index));
   }
 
-  async function checkout() {
-    if (!defaultAddress) {
-      setCheckoutStatus('error');
-      setCheckoutMessage('Add a shipping address in your Profile before checking out.');
-      return;
-    }
-    setCheckoutStatus('loading');
-    setCheckoutMessage(null);
-    try {
-      const result = await placeOrder({
-        // Part 19 §C — collection items send { collection: true, archetype,
-        // quantity, priceCents } and NOTHING about which coffees are in the
-        // set — the backend independently re-resolves the current members and
-        // re-verifies priceCents against its own fresh computation, never
-        // trusting what the cart happened to be showing (server-side
-        // enforcement is mandatory per spec; see orders.ts).
-        items: cart.map(item => {
-          if (item.kind === 'dial') {
-            return {
-              archetype: item.archetype,
-              dialSortOrder: item.dialSortOrder,
-              weightOz: item.weightOz,
-              quantity: item.qty,
-              priceCents: item.retailPriceCents,
-            };
-          }
-          if (item.kind === 'collection') {
-            return {
-              collection: true as const,
-              archetype: item.archetype,
-              quantity: item.qty,
-              priceCents: item.retailPriceCents,
-            };
-          }
-          return {
-            coffeeId: item.coffeeId,
-            weightOz: item.weightOz,
-            quantity: item.qty,
-            priceCents: item.retailPriceCents,
-          };
-        }),
-        shippingAddress: {
-          firstName: customerName?.first || 'Customer',
-          lastName: customerName?.last || '',
-          address1: defaultAddress.street,
-          city: defaultAddress.city,
-          province: defaultAddress.state,
-          zip: defaultAddress.postal_code,
-          country: defaultAddress.country,
-        },
-      });
-      setCheckoutStatus('success');
-      // HOME_TASK_8 (§3.1) — the order-placed beat's one line, Liam's voice,
-      // generated at order time. Falls back to the old static confirmation
-      // if generation failed or the beat is inactive (result.orderPlacedLine
-      // is null in either case) — never a blank confirmation.
-      setCheckoutMessage(result.orderPlacedLine ?? 'Order placed!');
-      setCart([]);
-    } catch (err) {
-      reportError('[CartContext/checkout]', err);
-      setCheckoutStatus('error');
-      setCheckoutMessage("Checkout isn't live yet — online ordering opens soon. Everything up to this point worked.");
-    }
+  function checkout() {
+    setCartOpen(false);
+    navigate('/checkout');
+  }
+
+  function clear() {
+    setCart([]);
   }
 
   return (
-    <CartContext.Provider value={{ cart, cartOpen, toggleCartOpen, addToCart, removeFromCart, checkout, checkoutStatus, checkoutMessage }}>
+    <CartContext.Provider value={{ cart, cartOpen, toggleCartOpen, addToCart, removeFromCart, checkout, clear }}>
       {children}
     </CartContext.Provider>
   );
@@ -166,4 +89,23 @@ export function useCart() {
   const ctx = useContext(CartContext);
   if (!ctx) throw new Error('useCart must be used within CartProvider');
   return ctx;
+}
+
+/**
+ * What POST /api/checkout/session expects for each cart line. Collection items
+ * send { collection: true, archetype, quantity, priceCents } and NOTHING about
+ * which coffees are in the set (Part 19 §C) — the backend re-resolves the
+ * members and re-verifies every price itself; priceCents is what the screen
+ * showed, so a changed price is refused (409) instead of silently charged.
+ */
+export function toCheckoutItems(cart: CartItem[]) {
+  return cart.map(item => {
+    if (item.kind === 'dial') {
+      return { archetype: item.archetype, dialSortOrder: item.dialSortOrder, weightOz: item.weightOz, quantity: item.qty, priceCents: item.retailPriceCents };
+    }
+    if (item.kind === 'collection') {
+      return { collection: true as const, archetype: item.archetype, quantity: item.qty, priceCents: item.retailPriceCents };
+    }
+    return { coffeeId: item.coffeeId, weightOz: item.weightOz, quantity: item.qty, priceCents: item.retailPriceCents };
+  });
 }

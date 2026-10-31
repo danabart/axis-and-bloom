@@ -45,6 +45,12 @@ const NAV_SECTIONS = [
     ],
   },
   {
+    label: 'Commerce',
+    items: [
+      { to: '/admin/commerce', label: 'Commerce parameters' },
+    ],
+  },
+  {
     label: 'Company Gifts',
     items: [
       { to: '/admin/company-gifts', label: 'Company Gifts' },

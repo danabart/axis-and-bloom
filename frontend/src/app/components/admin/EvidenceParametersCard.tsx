@@ -10,16 +10,38 @@ import { reportError } from '../../lib/errorReporter';
 // read-only. Lives on the Configuration page: System Health is read-only by
 // policy (OBSERVABILITY_POLICY.md). The card reloads after a save, so the
 // previous value stays visible and the next Dimensions tab open is re-weighted.
+//
+// Commerce 1, C5 (2026-10-31): generalized to { title, endpoint, ... } so the
+// same card edits commerce_parameter on /admin/commerce
+// (/api/admin/commerce/parameters). The defaults are the evidence card, so
+// the Configuration page's call is unchanged. A text-valued parameter
+// (kind 'text', its note declaring "Format: ...") gets a text input.
 
 interface Parameter {
-  key: string; value: number; since: string; note: string | null;
-  previous_value: number | null; previous_since: string | null;
+  key: string; value: number | string; since: string; note: string | null;
+  previous_value: number | string | null; previous_since: string | null;
+  kind?: 'numeric' | 'text';
 }
 
-const RANGE = /Range:\s*[^.|]*/;
+interface ParametersCardProps {
+  title?: string;
+  /** GET for the list; PUT {endpoint}/:key to save. */
+  endpoint?: string;
+  intro?: string;
+  footer?: string;
+  testId?: string;
+}
+
+const RANGE = /(?:Range|Format):\s*[^.|]*/;
 const describe = (note: string | null) => (note ?? '').replace(/ \| changed .*$/s, '');
 
-export default function EvidenceParametersCard() {
+export default function EvidenceParametersCard({
+  title = 'Evidence parameters',
+  endpoint = '/api/admin/evidence/parameters',
+  intro = 'Cupping evidence thresholds and weights. A save writes a new row that supersedes the current one; nothing is overwritten.',
+  footer = 'A change applies to every coffee at once: the pooled ranges, the session flags and the customer voice are views over these rows, re-read on the next page open.',
+  testId = 'evidence-parameters',
+}: ParametersCardProps = {}) {
   const { user } = useAuth();
   const [rows, setRows] = useState<Parameter[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -28,14 +50,14 @@ export default function EvidenceParametersCard() {
 
   async function load() {
     try {
-      const res = await fetch('/api/admin/evidence/parameters', { headers: { Authorization: `Bearer ${await user!.getIdToken()}` } });
+      const res = await fetch(endpoint, { headers: { Authorization: `Bearer ${await user!.getIdToken()}` } });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: Parameter[] = await res.json();
       setRows(data);
       setDrafts(Object.fromEntries(data.map(p => [p.key, String(p.value)])));
     } catch (err) {
       reportError('[EvidenceParametersCard/load]', err);
-      setMessage({ key: '', text: 'Failed to load the evidence parameters', ok: false });
+      setMessage({ key: '', text: `Failed to load the ${title.toLowerCase()}`, ok: false });
     }
   }
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -44,7 +66,7 @@ export default function EvidenceParametersCard() {
     setBusy(key);
     setMessage(null);
     try {
-      const res = await fetch(`/api/admin/evidence/parameters/${encodeURIComponent(key)}`, {
+      const res = await fetch(`${endpoint}/${encodeURIComponent(key)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await user!.getIdToken()}` },
         body: JSON.stringify({ value: drafts[key], note: 'admin Configuration page' }),
@@ -61,9 +83,9 @@ export default function EvidenceParametersCard() {
   }
 
   return (
-    <section className="mb-10" data-testid="evidence-parameters">
-      <h2 className="text-sm font-medium text-stone-800 mb-1">Evidence parameters</h2>
-      <p className="text-sm text-stone-500 mb-3">Cupping evidence thresholds and weights. A save writes a new row that supersedes the current one; nothing is overwritten.</p>
+    <section className="mb-10" data-testid={testId}>
+      <h2 className="text-sm font-medium text-stone-800 mb-1">{title}</h2>
+      <p className="text-sm text-stone-500 mb-3">{intro}</p>
       <div className="border border-stone-200 rounded-lg bg-white overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -77,7 +99,8 @@ export default function EvidenceParametersCard() {
           <tbody>
             {rows.map(p => {
               const range = RANGE.exec(p.note ?? '')?.[0] ?? null;
-              const desc = describe(p.note).replace(/\s*Range:[^|]*$/, '').trim();
+              const desc = describe(p.note).replace(/\s*(?:Range|Format):[^|]*$/, '').trim();
+              const isText = p.kind === 'text';
               return (
                 <tr key={p.key} className="border-t border-stone-100 align-top">
                   <td className="px-3 py-2 min-w-[16rem]">
@@ -97,8 +120,8 @@ export default function EvidenceParametersCard() {
                     {range ? (
                       <div className="flex items-center gap-2">
                         <input value={drafts[p.key] ?? ''} onChange={e => setDrafts(d => ({ ...d, [p.key]: e.target.value }))}
-                          inputMode="decimal" aria-label={`New value for ${p.key}`}
-                          className="w-24 border border-stone-300 rounded px-2 py-1 text-sm tabular-nums" />
+                          inputMode={isText ? 'text' : 'decimal'} aria-label={`New value for ${p.key}`}
+                          className={`${isText ? 'w-64' : 'w-24 tabular-nums'} border border-stone-300 rounded px-2 py-1 text-sm`} />
                         <button onClick={() => save(p.key)} disabled={busy !== null || drafts[p.key] === String(p.value)}
                           className="px-3 py-1 text-sm border border-stone-300 rounded text-stone-700 hover:bg-stone-50 disabled:opacity-40">
                           {busy === p.key ? 'Saving…' : 'Save'}
@@ -116,7 +139,7 @@ export default function EvidenceParametersCard() {
         </table>
       </div>
       {message && message.key === '' && <p className="text-xs text-red-600 mt-1">{message.text}</p>}
-      <p className="text-xs text-stone-500 mt-2">A change applies to every coffee at once: the pooled ranges, the session flags and the customer voice are views over these rows, re-read on the next page open.</p>
+      <p className="text-xs text-stone-500 mt-2">{footer}</p>
     </section>
   );
 }

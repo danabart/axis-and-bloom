@@ -2,24 +2,25 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Link, useLocation } from 'react-router';
 import { useAuth } from '../../context/AuthContext';
 import type { CartItem } from './types';
-import { formatPrice, formatWeight } from './types';
+import { formatPrice } from './types';
+import { CartLines, ShippingLine, cartSubtotalCents, useCheckoutRules } from './CartLines';
 
 interface FloatingCartProps {
   items: CartItem[];
   open: boolean;
   onToggle: () => void;
   onRemove: (index: number) => void;
+  /** Commerce 1: goes to /checkout (CartContext.checkout); payment happens there. */
   onCheckout: () => void;
-  checkoutStatus: 'idle' | 'loading' | 'success' | 'error';
-  checkoutMessage: string | null;
   isSignedIn: boolean;
 }
 
-export function FloatingCart({ items, open, onToggle, onRemove, onCheckout, checkoutStatus, checkoutMessage, isSignedIn }: FloatingCartProps) {
+export function FloatingCart({ items, open, onToggle, onRemove, onCheckout, isSignedIn }: FloatingCartProps) {
   const { hasLiamAccess } = useAuth();
   const { pathname } = useLocation();
   const count = items.reduce((sum, i) => sum + i.qty, 0);
-  const totalCents = items.reduce((sum, i) => sum + i.retailPriceCents * i.qty, 0);
+  const totalCents = cartSubtotalCents(items);
+  const rules = useCheckoutRules();
 
   return (
     <>
@@ -84,43 +85,7 @@ export function FloatingCart({ items, open, onToggle, onRemove, onCheckout, chec
               {items.length === 0 && (
                 <p className="text-sm" style={{ color: '#a09880' }}>Your cart is empty.</p>
               )}
-              {items.map((item, i) => (
-                <div key={i} className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    {item.kind === 'collection' ? (
-                      <>
-                        {/* Part 19 §C, naming updated by Part 20 — "The {Archetype} Collection ·
-                            {N} coffees", one line, removed/re-added as a whole (never splits
-                            into its members). */}
-                        <p className="text-sm font-normal truncate" style={{ color: '#4a4035' }}>
-                          The {item.archetypeLabel} Collection · {item.memberCount} coffees
-                        </p>
-                        <p className="text-xs" style={{ color: '#a09880' }}>qty {item.qty}</p>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-sm font-normal truncate" style={{ color: '#4a4035' }}>{item.platformName}</p>
-                        <p className="text-xs" style={{ color: '#a09880' }}>
-                          {item.kind === 'dial' ? item.archetypeLabel : item.categoryLabel} · {formatWeight(item.weightOz)} · qty {item.qty}
-                        </p>
-                      </>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-sm" style={{ color: '#4a4035' }}>
-                      {item.kind === 'collection' && item.undiscountedPriceCents > item.retailPriceCents && (
-                        <span className="line-through mr-1.5" style={{ color: '#c8b8a8', fontSize: '0.85em' }}>
-                          {formatPrice(item.undiscountedPriceCents * item.qty)}
-                        </span>
-                      )}
-                      <span style={item.kind === 'collection' ? { color: '#9a2918' } : undefined}>
-                        {formatPrice(item.retailPriceCents * item.qty)}
-                      </span>
-                    </span>
-                    <button onClick={() => onRemove(i)} className="text-xs" style={{ color: '#c8887c' }}>Remove</button>
-                  </div>
-                </div>
-              ))}
+              <CartLines items={items} onRemove={onRemove} />
             </div>
 
             {items.length > 0 && (
@@ -129,28 +94,23 @@ export function FloatingCart({ items, open, onToggle, onRemove, onCheckout, chec
                   <span style={{ color: '#8a8070' }}>Subtotal</span>
                   <span style={{ color: '#4a4035' }}>{formatPrice(totalCents)}</span>
                 </div>
+                <ShippingLine items={items} rules={rules} />
                 {isSignedIn ? (
                   <button
                     onClick={onCheckout}
-                    disabled={checkoutStatus === 'loading'}
-                    className="w-full text-sm px-4 py-2.5 rounded-full text-white disabled:opacity-60"
+                    className="w-full text-sm px-4 py-2.5 rounded-full text-white"
                     style={{ backgroundColor: '#9a2918' }}
                   >
-                    {checkoutStatus === 'loading' ? 'Placing order…' : 'Checkout'}
+                    Checkout
                   </button>
                 ) : (
                   <Link
-                    to="/sign-in?redirect=/bloom"
+                    to="/sign-in?redirect=/checkout"
                     className="block text-center w-full text-sm px-4 py-2.5 rounded-full text-white"
                     style={{ backgroundColor: '#9a2918' }}
                   >
                     Sign in to check out
                   </Link>
-                )}
-                {checkoutMessage && (
-                  <p className="text-xs" style={{ color: checkoutStatus === 'error' ? '#c8887c' : '#7c9e87' }}>
-                    {checkoutMessage}
-                  </p>
                 )}
               </div>
             )}

@@ -54,25 +54,61 @@ export async function sendChatMessage(message: string, context: object) {
   return res.json();
 }
 
-export async function placeOrder(order: {
-  items: Array<
-    | { variantId: string; quantity: number; priceCents?: number }
-    | { archetype: string; dialSortOrder: number; weightOz: number; quantity: number; priceCents?: number }
-    // Direct category coffee, no dial position — Bloom Dial Base Data Part 3, Phase 6.
-    | { coffeeId: number; weightOz: number; quantity: number; priceCents?: number }
-    // "The collection" (Part 19 §C) — a whole archetype's purchasable positions,
-    // one bundle price. No member/weight details sent — the backend
-    // independently re-resolves and re-verifies everything at order time.
-    | { collection: true; archetype: string; quantity: number; priceCents?: number }
-  >;
-  shippingAddress: object;
-}) {
-  const res = await fetch(`${BASE}/orders`, {
+// ── Commerce 1 (2026-10-31): Stripe checkout ─────────────────────────────────
+// placeOrder (POST /api/orders) is retired: the server answers 410. An order is
+// written only when Stripe confirms payment (the webhook).
+
+/** A checkout error with the server's code (409 price_changed/unavailable, 422 shipping_address_required, 503 checkout_unavailable). */
+export class CheckoutApiError extends Error {
+  constructor(public status: number, public code: string, message: string) {
+    super(message);
+    this.name = 'CheckoutApiError';
+  }
+}
+
+export type CheckoutItem =
+  | { archetype: string; dialSortOrder: number; weightOz: number; quantity: number; priceCents: number }
+  // Direct category coffee, no dial position — Bloom Dial Base Data Part 3, Phase 6.
+  | { coffeeId: number; weightOz: number; quantity: number; priceCents: number }
+  // "The collection" (Part 19 §C) — no member/weight details sent; the backend
+  // re-resolves and re-verifies everything itself.
+  | { collection: true; archetype: string; quantity: number; priceCents: number };
+
+export interface CheckoutRules { shippingFeeCents: number; freeShippingMinBags: number }
+
+export async function getCheckoutRules(): Promise<CheckoutRules> {
+  const res = await fetch(`${BASE}/checkout/rules`);
+  if (!res.ok) throw new Error('Failed to load checkout rules');
+  return res.json();
+}
+
+export async function createCheckoutSession(body: { items: CheckoutItem[]; shippingAddressId?: string | null }): Promise<{ clientSecret: string; checkoutSessionId: string }> {
+  const res = await fetch(`${BASE}/checkout/session`, {
     method: 'POST',
     headers: await getHeaders(),
-    body: JSON.stringify(order),
+    body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error('Order failed');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new CheckoutApiError(res.status, data.error ?? 'checkout_failed', data.message ?? 'Checkout failed. Please try again.');
+  return data;
+}
+
+export interface CheckoutSessionStatus {
+  status: 'open' | 'complete' | 'expired';
+  orderId?: string;
+  finalized?: boolean;
+  orderPlacedLine?: string | null;
+  order?: {
+    lines: Array<{ displayName: string | null; weightOz: number | null; quantity: number }>;
+    shipsTo: { street: string | null; city: string | null; state: string | null; postalCode: string | null; country: string | null };
+    subtotalCents: number; shippingCents: number; taxCents: number; totalCents: number;
+    customerLabel: string | null;
+  };
+}
+
+export async function getCheckoutSessionStatus(sessionId: string): Promise<CheckoutSessionStatus> {
+  const res = await fetch(`${BASE}/checkout/session/${encodeURIComponent(sessionId)}/status`, { headers: await getHeaders() });
+  if (!res.ok) throw new CheckoutApiError(res.status, 'status_failed', 'Could not read the checkout status');
   return res.json();
 }
 

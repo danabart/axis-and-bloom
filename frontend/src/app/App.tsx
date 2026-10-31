@@ -29,6 +29,9 @@ import AdminAIOps from './components/admin/AdminAIOps';
 import AdminSystemHealth from './components/admin/AdminSystemHealth';
 import AdminCompanyGifts from './components/admin/AdminCompanyGifts';
 import AdminQrDoor from './components/admin/AdminQrDoor';
+import AdminCommerce from './components/admin/AdminCommerce';
+import CheckoutPage from './components/checkout/CheckoutPage';
+import CheckoutReturnPage from './components/checkout/CheckoutReturnPage';
 import FlavorIntelligencePage from './components/FlavorIntelligencePage';
 import CoffeesRedirect from './components/CoffeesRedirect';
 import BloomPage from './components/BloomPage';
@@ -90,8 +93,9 @@ function ShortLink({ to }: { to: string }) {
 export default function App() {
   return (
     <AuthProvider>
-      <CartProvider>
-        <BrowserRouter>
+      <BrowserRouter>
+        {/* Commerce 1: CartProvider sits inside the router so checkout() can navigate to /checkout. */}
+        <CartProvider>
           <AnalyticsRouteTracker />
           <CampaignQueryReader />
           <ConsentBanner />
@@ -121,6 +125,7 @@ export default function App() {
               <Route path="ai-ops" element={<AdminAIOps />} />
               <Route path="system-health" element={<AdminSystemHealth />} />
               <Route path="company-gifts" element={<AdminCompanyGifts />} />
+              <Route path="commerce" element={<AdminCommerce />} />
             </Route>
 
             {/* ── Roastery portal admin preview (part 5) — the real partner screens with a client that saves
@@ -190,6 +195,10 @@ export default function App() {
                   </PrelaunchGate>
                 }
               />
+              {/* Commerce 1 (2026-10-31): Stripe one-time checkout. Signed in, like /profile;
+                  behind the pre-launch gate until launch. */}
+              <Route path="/checkout" element={<PrelaunchGate><RequireAuth><CheckoutPage /></RequireAuth></PrelaunchGate>} />
+              <Route path="/checkout/return" element={<PrelaunchGate><RequireAuth><CheckoutReturnPage /></RequireAuth></PrelaunchGate>} />
               <Route path="/join-household" element={<PrelaunchGate><JoinHousehold /></PrelaunchGate>} />
               {/* Live deviation from the original spec (Dana, mid-execution): /the-axis
                   is closed too, not kept open as the written prompt listed it. */}
@@ -198,8 +207,8 @@ export default function App() {
               <Route path="/terms" element={<Terms />} />
             </Route>
           </Routes>
-        </BrowserRouter>
-      </CartProvider>
+        </CartProvider>
+      </BrowserRouter>
     </AuthProvider>
   );
 }

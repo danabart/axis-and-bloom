@@ -10,7 +10,7 @@ import { usePrelaunchGated } from '../lib/prelaunch';
 export default function PublicLayout() {
   const { pathname } = useLocation();
   const { user, hasLiamAccess } = useAuth();
-  const { cart, cartOpen, toggleCartOpen, removeFromCart, checkout, checkoutStatus, checkoutMessage } = useCart();
+  const { cart, cartOpen, toggleCartOpen, removeFromCart, checkout } = useCart();
   const gated = usePrelaunchGated();
 
   // When the pre-launch page is active, suppress nav and footer entirely
@@ -52,8 +52,6 @@ export default function PublicLayout() {
           onToggle={toggleCartOpen}
           onRemove={removeFromCart}
           onCheckout={checkout}
-          checkoutStatus={checkoutStatus}
-          checkoutMessage={checkoutMessage}
           isSignedIn={!!user}
         />
       )}

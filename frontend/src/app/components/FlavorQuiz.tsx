@@ -650,7 +650,7 @@ export default function FlavorQuiz() {
   // everywhere else (not a bespoke quiz-only cart UI) restores the
   // confirmation without reversing the "no persistent nav/footer" decision —
   // just cart, still keeping the page otherwise as bare as it was.
-  const { addToCart, cart, cartOpen, toggleCartOpen, removeFromCart, checkout, checkoutStatus, checkoutMessage } = useCart();
+  const { addToCart, cart, cartOpen, toggleCartOpen, removeFromCart, checkout } = useCart();
   const navigate = useNavigate();
 
   // Extracted so the error screen's retry button can re-run it. Checks r.ok
@@ -1484,8 +1484,6 @@ export default function FlavorQuiz() {
             onToggle={toggleCartOpen}
             onRemove={removeFromCart}
             onCheckout={checkout}
-            checkoutStatus={checkoutStatus}
-            checkoutMessage={checkoutMessage}
             isSignedIn={!!user}
           />
         )}
@@ -2100,8 +2098,6 @@ export default function FlavorQuiz() {
           onToggle={toggleCartOpen}
           onRemove={removeFromCart}
           onCheckout={checkout}
-          checkoutStatus={checkoutStatus}
-          checkoutMessage={checkoutMessage}
           isSignedIn={!!user}
         />
       )}
