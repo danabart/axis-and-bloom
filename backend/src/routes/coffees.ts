@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db/client.js';
 import { getCoffeeThreeVoiceStory } from '../services/claude.js';
-import { resolveBlendForSlot, resolveCoffeeBlend, COLLECTION_DISCOUNT, COLLECTION_MIN_MEMBERS } from '../services/blendResolver.js';
+import { resolveBlendForSlot, resolveCoffeeBlend, collectionRules } from '../services/blendResolver.js';
 import { generateCoffeeStoryWithRetry, checkStorySpecificityViolations } from '../services/storyLayer.js';
 import {
   looksLikeRefusal, bannedTokensFor, generateWithLeakGuard, styleViolation, looksLikeInventedBrew, maskViolation,
@@ -519,20 +519,21 @@ async function buildSlotsForArchetype(archetype: string): Promise<Slot[]> {
 // order-time verification (orders.ts) always calls the DB-fresh version in
 // blendResolver.ts instead, which independently re-resolves everything; the two
 // are expected to usually agree but are never assumed to, which is the whole
-// point of §C's server-side enforcement requirement. Same COLLECTION_DISCOUNT/
-// COLLECTION_MIN_MEMBERS constants as the authoritative version — imported, not
-// redeclared, so there is exactly one number a discount-rate change would ever
-// need to touch.
-function computeCollectionOfferFromSlots(slots: Slot[], anchorOz: number) {
+// point of §C's server-side enforcement requirement. Same discount and minimum
+// as the authoritative version: collectionRules() reads the commerce_parameter
+// rows collection_discount_pct / collection_min_members (Commerce 1, decision C),
+// so a rate change is one admin edit and never a deploy.
+async function computeCollectionOfferFromSlots(slots: Slot[], anchorOz: number) {
+  const { discountPct, minMembers } = await collectionRules();
   const members: { dialSortOrder: number; weightOz: number; priceCents: number }[] = [];
   for (const s of slots) {
     if (!s.isActive || !s.prices.length) continue;
     const chosen = s.prices.find(p => p.weightOz === anchorOz) ?? s.prices[0];
     members.push({ dialSortOrder: s.dialSortOrder, weightOz: chosen.weightOz, priceCents: chosen.retailPriceCents });
   }
-  if (members.length < COLLECTION_MIN_MEMBERS) return null;
+  if (members.length < minMembers) return null;
   const sumCents = members.reduce((sum, m) => sum + m.priceCents, 0);
-  const discountedCents = Math.round(sumCents * (1 - COLLECTION_DISCOUNT));
+  const discountedCents = Math.round(sumCents * (1 - discountPct / 100));
   return { memberCount: members.length, sumCents, discountedCents };
 }
 
@@ -659,10 +660,10 @@ router.get('/archetypes', async (_req, res) => {
         // has to know about the hop graph/canonical order itself.
         doors: doorMap[a.code] ?? null,
         // Part 19 §C — display-only preview (see computeCollectionOfferFromSlots's
-        // own comment); null when fewer than COLLECTION_MIN_MEMBERS positions are
+        // own comment); null when fewer than collection_min_members positions are
         // currently purchasable, which is also how the frontend decides whether to
         // render the collection CTA at all.
-        collectionOffer: computeCollectionOfferFromSlots(slots, (await getAnchorSize()).weight_oz),
+        collectionOffer: await computeCollectionOfferFromSlots(slots, (await getAnchorSize()).weight_oz),
       });
     }
 
@@ -709,7 +710,7 @@ router.get('/experimental', async (_req, res) => {
       dimensionScaleMaxLabel: dim?.scale_max_label ?? null,
       slots,
       doors: doorMap['experimental'] ?? null,
-      collectionOffer: computeCollectionOfferFromSlots(slots, (await getAnchorSize()).weight_oz),
+      collectionOffer: await computeCollectionOfferFromSlots(slots, (await getAnchorSize()).weight_oz),
     });
   } catch (err) {
     console.error('[coffees/experimental]', err);

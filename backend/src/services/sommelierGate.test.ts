@@ -421,7 +421,7 @@ describe('integrity checks 6 to 10 and the gated ledger rows (Testing 5)', () =>
     answers: [answer('sourcing'), answer('order_status_unavailable', 2)],
     topics: { other: { mode: 'matching', keywords: [] }, caffeine_decaf: { mode: 'expertise', keywords: ['decaf'] } },
     defaultMaxChars: 160,
-    orderWriters: [{ module: 'orders', verbs: ['INSERT'] }],
+    orderWriters: [{ module: 'checkoutService', verbs: ['INSERT'] }],
   });
   const failing = (input: GateCheckInput) => runGateChecks(input).filter(c => !c.pass).map(c => c.id);
 
@@ -440,13 +440,13 @@ describe('integrity checks 6 to 10 and the gated ledger rows (Testing 5)', () =>
     expect(failing({ ...base(), rules: [...base().rules, r('decaf', { id: 3, priority: 60, resolver: 'catalog_category', answer_key: null, keywords: ['decaf'] })] })).toEqual([9]);
   });
   it('10: an order writer besides the checkout insert while order_status is still an answer', () => {
-    expect(failing({ ...base(), orderWriters: [{ module: 'orders', verbs: ['INSERT'] }, { module: 'roasteryPortalService', verbs: ['UPDATE'] }] })).toEqual([10]);
+    expect(failing({ ...base(), orderWriters: [{ module: 'checkoutService', verbs: ['INSERT'] }, { module: 'roasteryPortalService', verbs: ['UPDATE'] }] })).toEqual([10]);
   });
   it('6 and 10 hold for order_status as customer_orders too', () => {
     const asOrders = (): GateCheckInput => ({ ...base(), rules: [r('do_you_roast'), r('order_status', { id: 2, priority: 40, resolver: 'customer_orders', answer_key: 'order_status_unavailable', keywords: ['where is my order'] })] });
     expect(failing(asOrders())).toEqual([]);
     expect(failing({ ...asOrders(), answers: [answer('sourcing')] })).toEqual([6]);
-    expect(failing({ ...asOrders(), orderWriters: [{ module: 'orders', verbs: ['INSERT'] }, { module: 'roasteryPortalService', verbs: ['UPDATE'] }] })).toEqual([10]);
+    expect(failing({ ...asOrders(), orderWriters: [{ module: 'checkoutService', verbs: ['INSERT'] }, { module: 'roasteryPortalService', verbs: ['UPDATE'] }] })).toEqual([10]);
   });
   it('the seed rules pass 9 against the seed topics (the decaf phrases do not collide with caffeine_decaf)', async () => {
     await withRollback(async ({ client }) => {

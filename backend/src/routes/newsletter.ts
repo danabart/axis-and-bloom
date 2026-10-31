@@ -5,7 +5,7 @@ import { db } from '../db/client.js';
 import { optionalAuth, type AuthRequest } from '../middleware/auth.js';
 import { getRealClientIp } from '../middleware/clientIp.js';
 import { syncMailchimpMember, toArchetypeSlug } from '../features/marketing/mailchimp.js';
-import { sendResendEmail } from '../features/marketing/resendEmail.js';
+import { sendOnce } from '../services/transactionalEmail.js';
 import { renderQuizCompleteEmail } from '../features/marketing/templates/quizCompleteEmail.js';
 import { normalizeCampaign, normalizeVid } from '../features/marketing/campaigns.js';
 import {
@@ -60,29 +60,14 @@ export async function sendQuizCompleteEmailOnce(email: string, firstName: string
   const unsubscribeUrl = buildUnsubscribeUrl(token);
   const oneClickUrl = buildOneClickUnsubscribeUrl(token);
 
-  const claim = await db.query(
-    `INSERT INTO transactional_email_log (email, template)
-     VALUES ($1, $2)
-     ON CONFLICT (email, template) DO NOTHING
-     RETURNING email`,
-    [email, QUIZ_COMPLETE_TEMPLATE],
-  );
-  if (claim.rowCount === 0) return; // already sent
-
+  // Claim, send, release on failure or suppression, record the archetype and
+  // Resend's id: the shared door (services/transactionalEmail.ts, Commerce 1).
   const archetypeSlug = toArchetypeSlug(archetype);
   const { subject, html, text } = renderQuizCompleteEmail(firstName || null, archetypeSlug, unsubscribeUrl);
-  const { ok, id, suppressed } = await sendResendEmail({ to: email, subject, html, text, kind: 'marketing', unsubscribeUrl: oneClickUrl });
-  if (!ok || suppressed) {
-    await db.query(
-      `DELETE FROM transactional_email_log WHERE email = $1 AND template = $2`,
-      [email, QUIZ_COMPLETE_TEMPLATE],
-    );
-    return;
-  }
-  await db.query(
-    `UPDATE transactional_email_log SET archetype = $1, resend_message_id = $2 WHERE email = $3 AND template = $4`,
-    [archetype, id, email, QUIZ_COMPLETE_TEMPLATE],
-  );
+  await sendOnce({
+    to: email, subject, html, text, kind: 'marketing', unsubscribeUrl: oneClickUrl,
+    template: QUIZ_COMPLETE_TEMPLATE, archetype,
+  });
 }
 
 // Quiz Resync Fix Part B1 (2026-09-25) — a post_quiz archetype must be backed

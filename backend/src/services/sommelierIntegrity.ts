@@ -27,6 +27,9 @@ import { firestoreDb } from './firebase-admin.js';
 
 type Runner = Tx | typeof db;
 
+// The module that writes "order" at checkout (lineage.json module name).
+export const CHECKOUT_ORDER_WRITER = 'checkoutService';
+
 export interface SommelierIntegrityCheck {
   id: number;
   name: string;
@@ -261,14 +264,17 @@ export function runGateChecks(input: GateCheckInput): SommelierIntegrityCheck[] 
   // 10 — order_status says no status (an answer verbatim, or customer_orders:
   // what and when plus that answer) only while nothing but checkout writes
   // orders. lineage.json is table-level: a writer of order other than the
-  // checkout INSERT (routes/orders.ts) is reported as a possible
-  // fulfillment_status writer, for a person to look at.
+  // checkout INSERT is reported as a possible fulfillment_status writer, for a
+  // person to look at. Commerce 1 (2026-10-31): the checkout insert is
+  // services/checkoutService.ts (the Stripe webhook's completeCheckoutSession);
+  // "order" stays insert-only (D11) and later order states are order_event rows,
+  // which Liam does not read yet (OPEN_TASKS).
   const c10: string[] = [];
   const orderRule = rules.find(r => r.key === 'order_status');
   if (orderRule?.resolver === 'answer' || orderRule?.resolver === 'customer_orders') {
     if (input.orderWriters === null) c10.push('lineage.json not readable; the order writers are unknown');
     else {
-      const others = input.orderWriters.filter(w => !(w.module === 'orders' && w.verbs.every(v => v === 'INSERT')));
+      const others = input.orderWriters.filter(w => !(w.module === CHECKOUT_ORDER_WRITER && w.verbs.every(v => v === 'INSERT')));
       for (const w of others) c10.push(`order has a writer besides the checkout insert (${w.module}: ${w.verbs.join(', ')}); if it writes fulfillment_status, order_status could say it`);
     }
   }

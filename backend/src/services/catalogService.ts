@@ -1374,8 +1374,8 @@ export async function buildDeactivationPreview(roasterId: string) {
   const openOrdersResult = await db.query(
     `SELECT COUNT(*) AS count FROM order_line_item oli
      JOIN coffee_sku rb ON rb.id = oli.blend_id
-     JOIN "order" o ON o.id = oli.order_id
-     WHERE rb.roaster_id = $1 AND o.fulfillment_status NOT IN ('delivered', 'cancelled')`,
+     JOIN v_order_status s ON s.order_id = oli.order_id
+     WHERE rb.roaster_id = $1 AND NOT COALESCE(s.is_closed, false)`, // closed = the lookup's is_closed (delivered, canceled), Commerce 1
     [roasterId]
   );
 

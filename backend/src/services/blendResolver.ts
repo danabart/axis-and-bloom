@@ -1,5 +1,6 @@
 import { db } from '../db/client.js';
 import { getSlots, getSellableCandidates, getSellableSlots, getSizes } from './catalogReads.js';
+import { commerceParam } from './commerceParameters.js';
 
 // Catalog Blueprint · brief 3 (2026-09-14) — rebuilt onto the views
 // (v_coffee_sellable_candidate / v_coffee_sellable_slot) via catalogReads.ts.
@@ -27,6 +28,11 @@ export interface ResolvedBlend {
   weight_oz: number;
   roaster_sku: string | null;
   shopify_variant_id: string | null;
+  // Commerce 1 (2026-10-31), additive: the slot's house name (what the
+  // customer sees) and the server price at this weight, so checkout prices a
+  // dial line from the DB, never from the client.
+  slot_name: string | null;
+  retail_price_cents: number;
   skipped: SkippedCandidate[];
 }
 
@@ -61,6 +67,8 @@ export async function resolveBlendForSlot(
         weight_oz: weightOz,
         roaster_sku: candidate.roaster_sku,
         shopify_variant_id: candidate.shopify_variant_id,
+        slot_name: candidate.slot_name ?? slot.name ?? null,
+        retail_price_cents: candidate.retail_price_cents!, // is_sellable implies a price
         skipped,
       };
     }
@@ -75,16 +83,22 @@ export async function resolveBlendForSlot(
   return null;
 }
 
-// Part 19 §C — "the collection" (whole-archetype bundle, 10% off). ONE constant,
-// defined here and nowhere else, so backend verification and (indirectly, via
-// what the API returns) frontend display can never drift apart — the frontend
-// never computes this percentage itself, it only ever displays the cents value
-// this module already discounted (see coffees.ts's computeCollectionOfferFromSlots
-// and GET /archetypes's `collectionOffer` field).
-export const COLLECTION_DISCOUNT = 0.10;
-// A "set" of fewer than this reads wrong (Dana's own framing) — also the floor
-// below which the collection CTA is hidden entirely.
-export const COLLECTION_MIN_MEMBERS = 3;
+// Part 19 §C — "the collection" (whole-archetype bundle). The discount and the
+// minimum set size were constants here until Commerce 1 (decision C,
+// 2026-10-31); they are the commerce_parameter rows collection_discount_pct
+// (seeded 10) and collection_min_members (seeded 3: a "set" of fewer reads
+// wrong, Dana's framing, and it is also the floor below which the collection
+// CTA is hidden). Read in one place, here, so backend verification and
+// (indirectly, via what the API returns) frontend display can never drift
+// apart — the frontend never computes this percentage itself, it only ever
+// displays the cents value this module already discounted (see coffees.ts's
+// computeCollectionOfferFromSlots and GET /archetypes's `collectionOffer` field).
+export async function collectionRules(): Promise<{ discountPct: number; minMembers: number }> {
+  return {
+    discountPct: await commerceParam('collection_discount_pct'),
+    minMembers: await commerceParam('collection_min_members'),
+  };
+}
 // Sizes are tried anchor first, then by coffee_size.sort_order (12 oz, 2 lb, 5 lb) — same fallback idea as "the classic" (§B); the list itself comes from getSizes().
 async function collectionWeightsOz(): Promise<number[]> {
   const sizes = await getSizes();
@@ -94,6 +108,8 @@ async function collectionWeightsOz(): Promise<number[]> {
 export interface CollectionMember {
   dialSortOrder: number;
   blendId: string;
+  coffeeId: number;
+  slotName: string | null;
   shopifyVariantId: string | null;
   weightOz: number;
   priceCents: number;
@@ -118,16 +134,18 @@ export async function computeCollectionOffer(archetype: string): Promise<Collect
     for (const slot of sellable) {
       if (seenSortOrders.has(slot.sort_order)) continue; // 12oz already resolved+priced this position
       members.push({
-        dialSortOrder: slot.sort_order, blendId: slot.blend_id, shopifyVariantId: slot.shopify_variant_id,
+        dialSortOrder: slot.sort_order, blendId: slot.blend_id, coffeeId: slot.coffee_id, slotName: slot.slot_name,
+        shopifyVariantId: slot.shopify_variant_id,
         weightOz, priceCents: slot.retail_price_cents,
       });
       seenSortOrders.add(slot.sort_order);
     }
   }
 
-  if (members.length < COLLECTION_MIN_MEMBERS) return null;
+  const { discountPct, minMembers } = await collectionRules();
+  if (members.length < minMembers) return null;
   const sumCents = members.reduce((sum, m) => sum + m.priceCents, 0);
-  const discountedCents = Math.round(sumCents * (1 - COLLECTION_DISCOUNT));
+  const discountedCents = Math.round(sumCents * (1 - discountPct / 100));
   return { members, sumCents, discountedCents };
 }
 

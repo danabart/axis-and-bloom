@@ -1,16 +1,9 @@
 import { Router } from 'express';
 import { requireAuth, blockAnonymousAuth, type AuthRequest } from '../middleware/auth.js';
 import { db } from '../db/client.js';
-import { createOrder } from '../services/shopify.js';
-import { resolveBlendForSlot, resolveCoffeeBlend, computeCollectionOffer } from '../services/blendResolver.js';
-import { firestoreDb } from '../services/firebase-admin.js';
-import { getSommelierConfig } from '../services/sommelierConfig.js';
-import { updateOrderOutcomes } from '../services/outcomeTracker.js';
 import { refreshLifecycleState } from '../services/userLifecycle.js';
 import { computeBehavioralConfidence } from '../services/behavioralConfidence.js';
 import { writeDialPositionSignal } from '../services/dialPositionSignal.js';
-import { dispatchOrderPlacedBeat, dispatchDelayedBeats } from '../services/beatEngine.js';
-import { getBrewProfile } from './sommelier.js';
 import { record } from '../services/customerFacts.js';
 import { latestFeedbackEventForOrder, orderLineForOrder } from '../services/customerReads.js';
 import { getCustomerDescriptors } from '../services/cuppingReads.js';
@@ -18,346 +11,35 @@ import { randomUUID } from 'node:crypto';
 
 const router = Router();
 
-interface ResolvedItem {
-  variantId?: string;
-  blendId?: string;
-  quantity: number;
-  priceCents?: number;
-  resolvedCoffeeName?: string;
-  resolvedRoaster?: string;
-  // Part 19 §C — per-unit discount applied to this line (0 for every non-
-  // collection item). order_line_item.discount_amount existed in the schema
-  // already but was never written to before this — see the comment at its
-  // INSERT below for what "extend the orders flow minimally" meant in practice.
-  discountCents?: number;
-}
-
-router.post('/', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
-  const { items, shippingAddress } = req.body;
-  if (!items?.length || !shippingAddress) { res.status(400).json({ error: 'items and shippingAddress required' }); return; }
-
-  try {
-    const profileResult = await db.query(
-      `SELECT id, household_id FROM user_profile WHERE firebase_uid = $1`,
-      [req.uid]
-    );
-    const userId = profileResult.rows[0]?.id;
-    const buyerHouseholdId: string | null = profileResult.rows[0]?.household_id ?? null;
-    if (!userId) { res.status(404).json({ error: 'User profile not found' }); return; }
-
-    // Customer Blueprint C2, Part A4 — intendedForUserId per line, validated
-    // against the buyer's own profile or a household member. This route
-    // never sets "order".household_id itself (confirmed, Task 0: this whole
-    // file has no reference to it) and there is no company-gift order path
-    // (companyGiftRedemption.ts only ever writes `subscription`, never
-    // `order`/`order_line_item`) — so D7's "neither household nor company-
-    // sponsored" branch is unconditionally true for every order this route
-    // creates today, and the default below always fires unless the client
-    // passes an explicit intendedForUserId.
-    let requestedIntendedForUserId: string | null | undefined;
-    if (req.body.items?.some((it: any) => it.intendedForUserId !== undefined)) {
-      const candidates = new Set((req.body.items as any[]).map(it => it.intendedForUserId).filter(v => v !== undefined));
-      if (candidates.size > 1) {
-        res.status(400).json({ error: 'intendedForUserId must be the same for every line in one order' });
-        return;
-      }
-      requestedIntendedForUserId = [...candidates][0] ?? null;
-      if (requestedIntendedForUserId) {
-        const isSelf = requestedIntendedForUserId === userId;
-        const isHouseholdMember = buyerHouseholdId
-          ? (await db.query(`SELECT 1 FROM user_profile WHERE id = $1 AND household_id = $2`, [requestedIntendedForUserId, buyerHouseholdId])).rows.length > 0
-          : false;
-        if (!isSelf && !isHouseholdMember) {
-          res.status(400).json({ error: 'intendedForUserId must be the buyer or a member of the buyer\'s household' });
-          return;
-        }
-      }
-    }
-    const orderHasHousehold = false; // this route never sets "order".household_id (Task 0 finding)
-    const orderHasCompanyGiftContext = false; // no company-gift order-creation path exists (Task 0 finding)
-    const intendedForUserId: string | null =
-      requestedIntendedForUserId !== undefined
-        ? requestedIntendedForUserId
-        : (!orderHasHousehold && !orderHasCompanyGiftContext ? userId : null);
-
-    // Resolve each item to a concrete roaster_blend before charging or creating anything
-    // downstream. An item can specify a direct blendId/variantId (unchanged, existing
-    // behavior), a Bloom Dial slot — { archetype, dialSortOrder, weightOz } — resolved
-    // server-side via the same priority order set on the Coffees page, trying the
-    // preferred roaster first and falling back automatically if it's unavailable, or
-    // (Bloom Dial Base Data Part 3, Phase 6) a direct category coffee with no dial
-    // position — { coffeeId, weightOz }. See backend/src/services/blendResolver.ts.
-    const resolvedItems: ResolvedItem[] = [];
-    for (const item of items) {
-      if (item.archetype && item.dialSortOrder !== undefined && item.weightOz) {
-        const resolved = await resolveBlendForSlot(item.archetype, item.dialSortOrder, item.weightOz);
-        if (!resolved) {
-          res.status(409).json({
-            error: `No roaster currently available for ${item.archetype} position ${item.dialSortOrder} at ${item.weightOz}oz`,
-          });
-          return;
-        }
-        resolvedItems.push({
-          variantId: resolved.shopify_variant_id ?? undefined,
-          blendId: resolved.blend_id,
-          quantity: item.quantity ?? 1,
-          priceCents: item.priceCents,
-          resolvedCoffeeName: resolved.coffee_name,
-          resolvedRoaster: resolved.roaster,
-        });
-      } else if (item.coffeeId && item.weightOz) {
-        const resolved = await resolveCoffeeBlend(item.coffeeId, item.weightOz);
-        if (!resolved) {
-          res.status(409).json({ error: `This coffee is not currently available at ${item.weightOz}oz` });
-          return;
-        }
-        resolvedItems.push({
-          variantId: resolved.shopify_variant_id ?? undefined,
-          blendId: resolved.blend_id,
-          quantity: item.quantity ?? 1,
-          priceCents: item.priceCents,
-        });
-      } else if (item.collection === true && item.archetype) {
-        // Part 19 §C — server-side enforcement is mandatory: the client never
-        // gets to say which coffees are in the set or what it costs. Both are
-        // re-derived here, fresh, from the exact same computeCollectionOffer()
-        // GET /archetypes uses to show the preview — the only difference is
-        // this call is the one that's actually trusted.
-        const offer = await computeCollectionOffer(item.archetype);
-        if (!offer) {
-          res.status(409).json({
-            error: `${item.archetype} doesn't currently have enough purchasable positions for the Collection offer.`,
-          });
-          return;
-        }
-        // Reject outright on any mismatch (including a missing/non-numeric
-        // priceCents) rather than silently substituting the correct number —
-        // a mismatch means the client's cart is stale (prices changed since
-        // it was added) or was tampered with; either way the customer should
-        // see a clear error and re-add, not get silently charged a different
-        // amount than the screen showed them.
-        if (typeof item.priceCents !== 'number' || item.priceCents !== offer.discountedCents) {
-          res.status(409).json({
-            error: `The ${item.archetype} Collection's price has changed — expected $${(offer.discountedCents / 100).toFixed(2)}, got ${typeof item.priceCents === 'number' ? `$${(item.priceCents / 100).toFixed(2)}` : 'nothing'}. Refresh your cart and try again.`,
-          });
-          return;
-        }
-
-        const quantity = item.quantity ?? 1;
-        // One order_line_item per member coffee (the schema has no "this row
-        // is part of a bundle" concept — see the interface comment above), each
-        // proportionally discounted so the SUM across all members' charged
-        // prices exactly equals the verified discounted total. Rounding
-        // remainder absorbed by the last member rather than distributed, so
-        // the total is never off by a cent either direction.
-        let runningCharged = 0;
-        offer.members.forEach((member, idx) => {
-          const isLast = idx === offer.members.length - 1;
-          const charged = isLast
-            ? offer.discountedCents - runningCharged
-            : Math.round(member.priceCents * (offer.discountedCents / offer.sumCents));
-          if (!isLast) runningCharged += charged;
-          resolvedItems.push({
-            variantId: member.shopifyVariantId ?? undefined,
-            blendId: member.blendId,
-            quantity,
-            priceCents: charged,
-            discountCents: member.priceCents - charged,
-          });
-        });
-      } else {
-        resolvedItems.push({
-          variantId: item.variantId,
-          blendId: item.blendId ?? item.id,
-          quantity: item.quantity ?? 1,
-          priceCents: item.priceCents,
-        });
-      }
-    }
-
-    const subtotal = resolvedItems.reduce((sum, item) => sum + ((item.priceCents ?? 0) / 100) * item.quantity, 0);
-
-    // Create order in Shopify (roastery)
-    const shopifyResult = await createOrder({
-      email: req.email!,
-      items: resolvedItems.map(item => ({ variantId: item.variantId!, quantity: item.quantity })),
-      shippingAddress,
-      note: `Customer UID: ${req.uid}`,
-    });
-
-    // Record locally in "order" + order_line_item (normalized pair — see WHAT_WE_BUILT.md
-    // for why the legacy `orders` table was retired). Shipping address is snapshotted onto
-    // the order at checkout time, not live-referenced, so later address edits/deletes never
-    // rewrite what a past order actually shipped to.
-    const orderResult = await db.query(
-      `INSERT INTO "order"
-         (user_id, external_shopify_order_id, fulfillment_status, subtotal, total_amount_paid,
-          shipping_street, shipping_city, shipping_state, shipping_postal_code, shipping_country, shipping_address_id)
-       VALUES ($1, $2, 'pending', $3, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING id`,
-      [
-        userId,
-        shopifyResult.shopifyOrderId,
-        subtotal,
-        shippingAddress.street ?? shippingAddress.address1 ?? null,
-        shippingAddress.city ?? null,
-        shippingAddress.state ?? shippingAddress.province ?? null,
-        shippingAddress.postalCode ?? shippingAddress.zip ?? null,
-        shippingAddress.country ?? null,
-        shippingAddress.addressId ?? null,
-      ]
-    );
-    const orderId = orderResult.rows[0].id;
-
-    for (const item of resolvedItems) {
-      if (!item.blendId) continue;
-      const unitPrice = (item.priceCents ?? 0) / 100;
-      // Part 19 §C — discount_amount already existed on this table but had
-      // never been written to before this (every line implicitly charged its
-      // full price). Only a collection's member lines ever populate it now
-      // (item.discountCents is undefined/0 for every other kind); this is the
-      // "extend the orders flow minimally" the spec asked for — no new
-      // columns, no new tables, just finally using the one that was already
-      // there for exactly this purpose.
-      const discountAmount = (item.discountCents ?? 0) / 100;
-      // Customer Blueprint C2, Part A4 — intended_for_user_id (D7) and
-      // order_kind. 'gift_redemption'/'subscription_renewal'/'liam_followed'
-      // have no writer yet (Task 0: no code path creates an order through a
-      // company-gift context; renewals wait for Shopify; liam_followed is
-      // L3's job, derived at read time) — 'manual' is the only reachable value.
-      await db.query(
-        `INSERT INTO order_line_item (order_id, blend_id, quantity, unit_price_charged, discount_amount, intended_for_user_id, order_kind)
-         VALUES ($1, $2, $3, $4, $5, $6, 'manual')`,
-        [orderId, item.blendId, item.quantity, unitPrice, discountAmount, intendedForUserId]
-      );
-    }
-
-    // No inventory decrement: we don't hold stock (roasters drop-ship every
-    // order), so a SKU's availability is its is_active switch alone — retired
-    // 2026-09-30 with the rest of stock tracking.
-
-    // HOME_TASK_8 (§3.1) — the order-placed beat. Resolved and generated
-    // synchronously, before the response, since it's injected into the
-    // order-confirmation response itself (spec item 2) — not a fire-and-
-    // forget follow-up like the delayed beats below. Primary coffee only
-    // (resolvedItems[0]), same "first item is the primary coffee" precedent
-    // Task 6's own arrival-card hook and the legacy SMS hook both already used.
-    const primaryBlendId = resolvedItems[0]?.blendId ?? null;
-    let primaryCoffeeId: number | null = null;
-    let orderPlacedLine: string | null = null;
-    if (primaryBlendId) {
-      const blendResult = await db.query(`SELECT coffee_id FROM coffee_sku WHERE id = $1`, [primaryBlendId]);
-      primaryCoffeeId = blendResult.rows[0]?.coffee_id ?? null;
-      if (primaryCoffeeId) {
-        orderPlacedLine = await dispatchOrderPlacedBeat(userId, orderId, primaryCoffeeId).catch(err => {
-          console.error('[beatEngine] order_placed dispatch failed:', err);
-          return null;
-        });
-      }
-    }
-
-    res.json({
-      orderId, shopifyOrderId: shopifyResult.shopifyOrderId, orderName: shopifyResult.orderName,
-      orderPlacedLine,
-      items: resolvedItems.map(item => ({
-        blendId: item.blendId, quantity: item.quantity,
-        ...(item.resolvedCoffeeName ? { resolvedCoffeeName: item.resolvedCoffeeName, resolvedRoaster: item.resolvedRoaster } : {}),
-      })),
-    });
-
-    // Fire-and-forget: award order bonus tokens + update sommelier outcomes.
-    ;(async () => {
-      try {
-        const orderBonus = getSommelierConfig()?.tokenEconomy?.orderBonus ?? 10;
-        const client = await db.connect();
-        try {
-          await client.query('BEGIN');
-          await client.query(
-            `UPDATE user_tokens
-             SET balance = balance + $2, lifetime_earned = lifetime_earned + $2, updated_at = NOW()
-             WHERE uid = $1`,
-            [req.uid, orderBonus]
-          );
-          await client.query(
-            `INSERT INTO token_events (uid, delta, reason, reference_id, balance_after)
-             SELECT $1, $2, 'order_bonus', $3, balance
-             FROM user_tokens WHERE uid = $1`,
-            [req.uid, orderBonus, String(orderId)]
-          );
-          await client.query('COMMIT');
-          const tokenRow = await client.query(`SELECT balance FROM user_tokens WHERE uid = $1`, [req.uid]);
-          if (tokenRow.rows.length) {
-            firestoreDb.doc(`users/${req.uid}`).set(
-              { tokenBalance: tokenRow.rows[0].balance },
-              { merge: true }
-            ).catch(err => console.error('[orders/token-balance-sync]', err));
-          }
-        } catch (err) {
-          await client.query('ROLLBACK').catch(rollbackErr => console.error('[orders/token-bonus-rollback]', rollbackErr));
-          throw err;
-        } finally {
-          client.release();
-        }
-
-        // Update sommelier outcome: orderedWithin7Days / orderedWithin30Days
-        await updateOrderOutcomes(req.uid!, new Date());
-
-        // HOME_TASK_8 (§3.1) — SUPERSEDE CUTOVER, documented per the task's
-        // explicit instruction. The legacy schedulePostDeliveryMessage() call
-        // that used to live here (SMS feedback for orders 1-2, +10 days,
-        // "how are you finding it") is retired as of this task, replaced by
-        // the beat engine's own dial_in beat (default +3 days, a closed
-        // dial-direction question, reply adjusts the brew card). This is a
-        // full cutover, not a per-order conditional: every order from this
-        // deploy forward goes through the beat engine instead, so a customer
-        // can never receive both the dial_in beat and the legacy ask for the
-        // same bag (the literal failure mode this task's supersede audit
-        // checks for). liamSmsFeedback.ts's schedulePostDeliveryMessage()
-        // function itself is untouched and still exported — sessions already
-        // scheduled in sommelier_sms_feedback before this deploy still process
-        // normally via the unchanged processPendingMessages() cron; nothing
-        // here rewrites or cancels historical rows. dispatchDelayedBeats()
-        // also owns what Task 6's arrival-card hook used to call directly
-        // (createArrivalCard) — now gated through the engine's own
-        // active-flag/channel decision and beat_event bookkeeping instead of
-        // an unconditional call.
-        if (primaryCoffeeId) {
-          const coffeeIdForDelayedBeats = primaryCoffeeId;
-          (async () => {
-            try {
-              const brewProfile = await getBrewProfile(req.uid!);
-              await dispatchDelayedBeats({ userId, orderId, coffeeId: coffeeIdForDelayedBeats, brewProfile });
-            } catch (err) {
-              console.error('[beatEngine] delayed beat dispatch failed:', err);
-            }
-          })();
-        }
-
-        // Recompute lifecycle stage now that an order exists — independent write,
-        // same trigger point as the token bonus / SMS scheduling above.
-        refreshLifecycleState(req.uid!).catch(err => {
-          console.error('[orders/lifecycle]', err);
-        });
-      } catch (err) {
-        console.error('[orders/token-bonus]', err);
-      }
-    })();
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Order failed' });
-  }
+// POST /api/orders — retired by Commerce 1 (2026-10-31). Orders are written
+// only when Stripe confirms payment (routes/stripeWebhook.ts →
+// services/checkoutService.completeCheckoutSession), and every post-order side
+// effect it used to fire moved to services/orderFinalizer.ts. The cart goes to
+// /checkout (POST /api/checkout/session). 410 for one release so a stale
+// client gets a clear answer; services/shopify.ts stays untouched until
+// Commerce brief 4.
+router.post('/', requireAuth, blockAnonymousAuth, (_req, res) => {
+  res.status(410).json({ error: 'use_checkout', message: 'Checkout moved: open your cart and choose Checkout.' });
 });
 
+// Order history. State comes from v_order_status (the only read path for
+// order state, Commerce 1): payment status, fulfillment status and the
+// customer's words for it from the lookups; total is what was paid.
 router.get('/', requireAuth, blockAnonymousAuth, async (req: AuthRequest, res) => {
   try {
     const result = await db.query(
-      `SELECT o.id, o.external_shopify_order_id, o.fulfillment_status, o.created_at,
-              COALESCE(SUM(li.unit_price_charged * li.quantity), 0) AS total
+      `SELECT o.id, o.external_shopify_order_id, o.created_at, o.paid_at,
+              s.payment_status, s.fulfillment_status, s.customer_label,
+              o.total_amount_paid AS total,
+              COALESCE(json_agg(json_build_object('display_name', li.display_name, 'weight_oz', li.weight_oz, 'quantity', li.quantity)
+                         ORDER BY li.created_at) FILTER (WHERE li.id IS NOT NULL), '[]') AS lines
        FROM "order" o
        JOIN user_profile up ON up.id = o.user_id
+       JOIN v_order_status s ON s.order_id = o.id
        LEFT JOIN order_line_item li ON li.order_id = o.id
        WHERE up.firebase_uid = $1
-       GROUP BY o.id ORDER BY o.created_at DESC`,
+       GROUP BY o.id, s.payment_status, s.fulfillment_status, s.customer_label
+       ORDER BY o.created_at DESC`,
       [req.uid]
     );
     res.json(result.rows);

@@ -38,6 +38,10 @@ import roasteryPortalRouter from './routes/roasteryPortal.js';
 import roasteryPortalAdminRouter from './routes/roasteryPortalAdmin.js';
 import roasteryRemarkAdminRouter from './routes/roasteryRemarkAdmin.js';
 import evidenceAdminRouter from './routes/evidenceAdmin.js';
+import checkoutRouter from './routes/checkout.js';
+import commerceAdminRouter from './routes/commerceAdmin.js';
+import { handleStripeWebhook } from './routes/stripeWebhook.js';
+import { stripeMode } from './services/stripe.js';
 import { runEvidenceIntegrityChecks, formatEvidenceIntegrityLog } from './services/evidenceIntegrity.js';
 import { initSommelierConfig } from './services/sommelierConfig.js';
 import { seedSommelierAnswers } from './db/seeds/sommelier_answer_seed.js';
@@ -80,6 +84,12 @@ const allowedOrigins = process.env.NODE_ENV === 'production'
   ? prodOrigins
   : [...prodOrigins, process.env.FRONTEND_URL ?? 'http://localhost:5173'];
 app.use(cors({ origin: allowedOrigins, credentials: true }));
+// Commerce 1, B11 (2026-10-31) — the Stripe webhook needs the raw body (its
+// signature is over the exact bytes), so it is registered here, above
+// express.json() and the global IP rate limiter (Stripe's retries must never
+// be throttled). Its path is under the /api/webhooks App Check exemption.
+app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), handleStripeWebhook);
+console.log(`[stripe] mode=${stripeMode()}`);
 app.use(express.json());
 // C17 — keyed on the real visitor IP (see middleware/clientIp.ts), not
 // req.ip directly: behind Cloudflare -> Firebase Hosting -> Cloud Run,
@@ -144,6 +154,9 @@ app.use('/api/admin/roastery-portal', roasteryPortalAdminRouter);
 app.use('/api/admin/roastery-remarks', roasteryRemarkAdminRouter);
 // Cupping evidence brief 3 (2026-10-18): read-only reconciliation reads.
 app.use('/api/admin/evidence', evidenceAdminRouter);
+// Commerce 1 (2026-10-31): Stripe one-time checkout + its admin parameters.
+app.use('/api/checkout', checkoutRouter);
+app.use('/api/admin/commerce', commerceAdminRouter);
 
 // Observability Foundation Part B -- central boundary handler, mounted AFTER
 // every router so it only sees what Express itself routes here: a
