@@ -12,15 +12,20 @@ import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 
 const calls = { invoiceCreate: [] as any[], itemCreate: [] as any[], finalize: [] as any[], pay: [] as any[] };
 let declineCustomer = '';
+let failFinalizeCustomer = '';
+const voidedInvoices: string[] = [];
 let seq = 0;
 const fakeStripe = {
   customers: { update: vi.fn(async () => ({})) },
   invoices: {
     create: vi.fn(async (params: any, opts: any) => { calls.invoiceCreate.push({ params, opts }); return { id: `in_vitest_daily_${calls.invoiceCreate.length}`, status: 'draft' }; }),
     finalizeInvoice: vi.fn(async (id: string, params: any, opts: any) => { calls.finalize.push({ id, params, opts }); return { id, status: 'open' }; }),
+    retrieve: vi.fn(async (id: string) => ({ id, status: 'open', attempt_count: 1, amount_due: 3350 })),
+    voidInvoice: vi.fn(async (id: string) => { voidedInvoices.push(id); return { id, status: 'void' }; }),
     pay: vi.fn(async (id: string, params: any, opts: any) => {
       calls.pay.push({ id, params, opts });
       const invoice = calls.invoiceCreate.find(c => `in_vitest_daily_${calls.invoiceCreate.indexOf(c) + 1}` === id);
+      if (invoice && invoice.params.customer === failFinalizeCustomer) throw Object.assign(new Error('Stripe API unreachable'), { type: 'StripeConnectionError' });
       if (invoice && invoice.params.customer === declineCustomer) {
         throw Object.assign(new Error('Your card was declined.'), { type: 'StripeCardError', code: 'card_declined' });
       }
@@ -113,15 +118,17 @@ describe('runSubscriptionDaily', () => {
       customer: `cus_${s.userId}`, collection_method: 'charge_automatically', auto_advance: false, automatic_tax: { enabled: true },
       default_payment_method: 'pm_vitest', pending_invoice_items_behavior: 'exclude', metadata: { subscription_id: s.id, cycle_date: '2001-01-01' },
     });
-    expect(inv.opts).toEqual({ idempotencyKey: `sub:${s.id}:cycle:2001-01-01:invoice` });
+    expect(inv.opts.idempotencyKey).toMatch(new RegExp(`^sub:${s.id}:cycle:2001-01-01:attempt:\\d+:invoice$`));
     const [coffee, shipping] = calls.itemCreate;
     expect(coffee.params).toMatchObject({ invoice: 'in_vitest_daily_1', quantity: 1, tax_code: 'txcd_41050006', tax_behavior: 'exclusive',
       description: 'Petal Hour · 12 oz · every 4 weeks', metadata: { kind: 'coffee', unit_price_cents: '2755', discount_cents: '145', display_name: 'Petal Hour' } });
     expect(String(coffee.params.unit_amount_decimal)).toBe('2755');
     expect(shipping.params).toMatchObject({ tax_code: 'txcd_92010001', metadata: { kind: 'shipping' } });
     expect(String(shipping.params.unit_amount_decimal)).toBe('595');
-    expect(calls.finalize[0]).toMatchObject({ params: { auto_advance: true }, opts: { idempotencyKey: `sub:${s.id}:cycle:2001-01-01:finalize` } });
-    expect(calls.pay[0]).toMatchObject({ params: { off_session: true }, opts: { idempotencyKey: `sub:${s.id}:cycle:2001-01-01:pay` } });
+    expect(calls.finalize[0]).toMatchObject({ params: { auto_advance: true } });
+    expect(calls.finalize[0].opts.idempotencyKey).toMatch(/:attempt:\d+:finalize$/);
+    expect(calls.pay[0]).toMatchObject({ params: { off_session: true } });
+    expect(calls.pay[0].opts.idempotencyKey).toMatch(/:attempt:\d+:pay$/);
     expect(JSON.stringify(calls)).not.toMatch(/roaster/i);
 
     expect(Number((await db.query(`SELECT count(*) FROM "order"`)).rows[0].count)).toBe(ordersBefore);
@@ -177,5 +184,24 @@ describe('runSubscriptionDaily', () => {
     expect(one.upcomingSent).toBeGreaterThanOrEqual(1);
     expect(two.upcomingSent).toBe(0);
     expect(two.charges.find(c => c.subscriptionId === s.id)).toBeUndefined(); // not due yet
+  });
+
+  it('a non-card failure after finalize: the open invoice is voided, the claim given back; the retry uses fresh keys', async () => {
+    const s = await dueSub('2001-01-05');
+    shipments[s.id] = resolved(s.id, s.userId);
+    failFinalizeCustomer = `cus_${s.userId}`;
+    const r = await runSubscriptionDaily('2001-01-05');
+    const c = r.charges.find(x => x.subscriptionId === s.id);
+    expect(c).toMatchObject({ outcome: 'error', detail: 'Stripe API unreachable' });
+    const first = calls.invoiceCreate.filter(x => x.params.metadata.subscription_id === s.id);
+    expect(first).toHaveLength(1);
+    expect(voidedInvoices).toContain(`in_vitest_daily_${calls.invoiceCreate.indexOf(first[0]) + 1}`);
+    expect((await subRow(s.id))).toMatchObject({ status: 'active', last_charge_attempt_at: null });
+
+    failFinalizeCustomer = '';
+    expect((await runSubscriptionDaily('2001-01-05')).charges.find(x => x.subscriptionId === s.id)).toMatchObject({ outcome: 'charged' });
+    const keys = calls.invoiceCreate.filter(x => x.params.metadata.subscription_id === s.id).map(x => x.opts.idempotencyKey);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
   });
 });

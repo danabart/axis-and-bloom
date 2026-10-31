@@ -70,9 +70,20 @@ async function notPrepared(sub: SubRow, claim: ChargeClaim, reason: string): Pro
   return 'unresolved';
 }
 
-/** Create, finalize and pay this cycle's invoice. Throws Stripe's error on a decline. */
-async function invoiceCycle(sub: SubRow, cycleDate: string, lines: ShipmentLine[], shippingCents: number): Promise<Stripe.Invoice> {
-  const key = (step: string) => `sub:${sub.id}:cycle:${cycleDate}:${step}`;
+/**
+ * Create, finalize and pay this cycle's invoice. Throws Stripe's error on a
+ * decline. `attempt.invoiceId` is set as soon as Stripe has the invoice, so
+ * the caller can void it if a later step fails.
+ *
+ * Idempotency keys are per cycle AND per attempt (the claim's timestamp,
+ * Part E finding): within one attempt a retried call returns the same
+ * object; a later attempt for the same cycle (after a released claim, with a
+ * shipment that may have changed because the customer turned the dial) gets
+ * fresh keys instead of Stripe refusing a reused key with new parameters.
+ */
+async function invoiceCycle(sub: SubRow, claim: ChargeClaim, lines: ShipmentLine[], shippingCents: number, attempt: { invoiceId?: string }): Promise<Stripe.Invoice> {
+  const cycleDate = claim.cycleDate;
+  const key = (step: string) => `sub:${sub.id}:cycle:${cycleDate}:attempt:${claim.attemptAt}:${step}`;
   const taxEnabled = (await commerceParam('tax_collection_enabled')) === 1;
   const coffeeTaxCode = await commerceParamText('stripe_tax_code_coffee');
   const shippingTaxCode = await commerceParamText('stripe_tax_code_shipping');
@@ -101,6 +112,7 @@ async function invoiceCycle(sub: SubRow, cycleDate: string, lines: ShipmentLine[
     description: `Axis & Bloom · every ${sub.frequency_weeks} weeks`,
     metadata: { subscription_id: sub.id, cycle_date: cycleDate },
   }, { idempotencyKey: key('invoice') });
+  attempt.invoiceId = invoice.id;
 
   for (const [i, l] of lines.entries()) {
     const metadata: RenewalLineMetadata = {
@@ -154,26 +166,42 @@ export async function chargeDueSubscription(sub: SubRow, today: string): Promise
     return { outcome: 'error', detail: 'stripe not configured' };
   }
 
+  const attempt: { invoiceId?: string } = {};
   try {
-    const invoice = await invoiceCycle(sub, claim.cycleDate, shipment.lines, shipment.shippingCents);
+    const invoice = await invoiceCycle(sub, claim, shipment.lines, shipment.shippingCents, attempt);
     return { outcome: 'charged', invoiceId: invoice.id };
   } catch (err) {
-    if (isCardError(err)) {
-      // The invoice exists and stays open; Stripe retries it on the
-      // Dashboard schedule. Its id comes from our idempotent create.
-      const invoices = await stripe().invoices.list({ customer: await getOrCreateStripeCustomer(sub.user_id, null), limit: 10 });
-      const inv = invoices.data.find(i => i.metadata?.subscription_id === sub.id && i.metadata?.cycle_date === claim.cycleDate);
-      const message = err instanceof Error ? err.message : String(err);
-      if (inv?.id) {
-        const recorded = await markRenewalFailed({
-          subscriptionId: sub.id, invoiceId: inv.id, attemptCount: inv.attempt_count || 1, amountCents: inv.amount_due, note: message, source: 'cron',
-        });
-        if (recorded) {
-          await sendPaymentTroubleEmail(sub.id, inv.id, inv.attempt_count || 1, inv.amount_due)
-            .catch(e => console.error('[subscription-daily] payment trouble email failed', sub.id, e));
-        }
+    const message = err instanceof Error ? err.message : String(err);
+    if (isCardError(err) && attempt.invoiceId) {
+      // The invoice is finalized and stays open; Stripe retries it on the
+      // Dashboard schedule. The claim stays, so the cron never opens a second one.
+      const inv = await stripe().invoices.retrieve(attempt.invoiceId);
+      const attemptCount = inv.attempt_count || 1;
+      const recorded = await markRenewalFailed({
+        subscriptionId: sub.id, invoiceId: inv.id!, attemptCount, amountCents: inv.amount_due, note: message, source: 'cron',
+      });
+      if (recorded) {
+        await sendPaymentTroubleEmail(sub.id, inv.id!, attemptCount, inv.amount_due)
+          .catch(e => console.error('[subscription-daily] payment trouble email failed', sub.id, e));
       }
-      return { outcome: 'declined', invoiceId: inv?.id, detail: message };
+      return { outcome: 'declined', invoiceId: inv.id, detail: message };
+    }
+    // Any other failure. Before the claim is given back (so the next run
+    // retries with fresh keys), this attempt's invoice must not be able to
+    // collect by itself: an open one is voided; a draft never finalizes on
+    // its own (auto_advance false until finalize). If the void fails, the
+    // claim is kept and admin alerted: a stuck cycle beats a double charge.
+    if (attempt.invoiceId) {
+      try {
+        const inv = await stripe().invoices.retrieve(attempt.invoiceId);
+        if (inv.status === 'paid') return { outcome: 'charged', invoiceId: inv.id, detail: `paid despite: ${message}` };
+        if (inv.status === 'open') await stripe().invoices.voidInvoice(inv.id!);
+      } catch (voidErr) {
+        const reason = `charge attempt failed (${message}) and its invoice ${attempt.invoiceId} could not be voided (${voidErr instanceof Error ? voidErr.message : voidErr}); the cycle is held until checked`;
+        await sendAdminSubscriptionAttentionEmail(sub.id, claim.cycleDate, reason)
+          .catch(e => console.error('[subscription-daily] admin email failed', sub.id, e));
+        throw new Error(reason);
+      }
     }
     await releaseChargeAttempt(sub.id, claim);
     throw err;

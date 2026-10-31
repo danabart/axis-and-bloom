@@ -225,7 +225,8 @@ export async function skipCoveredCycle(subscriptionId: string, cycleDate: string
 
 // ── paid: charge attempts ────────────────────────────────────────────────────
 
-export interface ChargeClaim { cycleDate: string; previousAttemptAt: string | null }
+/** attemptAt: this claim's stamp in epoch ms, part of the attempt's Stripe idempotency keys. */
+export interface ChargeClaim { cycleDate: string; previousAttemptAt: string | null; attemptAt: number }
 
 /**
  * Claim this cycle's one charge attempt (Task 0 finding 3). Atomic: only an
@@ -235,18 +236,19 @@ export interface ChargeClaim { cycleDate: string; previousAttemptAt: string | nu
  * day, or a concurrent one, gets null and charges nothing.
  */
 export async function recordChargeAttempt(subscriptionId: string, today: string, runner: Runner = db): Promise<ChargeClaim | null> {
-  const r = await runner.query<{ cycle_date: string; previous_attempt_at: string | null }>(
+  const r = await runner.query<{ cycle_date: string; previous_attempt_at: string | null; attempt_ms: string }>(
     `WITH old AS (SELECT id, last_charge_attempt_at FROM subscription WHERE id = $1 FOR UPDATE)
      UPDATE subscription s SET last_charge_attempt_at = now(), updated_at = now()
      FROM old
      WHERE s.id = old.id AND s.kind = 'paid' AND s.status = 'active'
        AND s.next_delivery_date <= $2::date
        AND (s.last_charge_attempt_at IS NULL OR (s.last_charge_attempt_at AT TIME ZONE '${BUSINESS_TZ}')::date < s.next_delivery_date)
-     RETURNING s.next_delivery_date::text AS cycle_date, old.last_charge_attempt_at::text AS previous_attempt_at`,
+     RETURNING s.next_delivery_date::text AS cycle_date, old.last_charge_attempt_at::text AS previous_attempt_at,
+               (EXTRACT(EPOCH FROM s.last_charge_attempt_at) * 1000)::bigint::text AS attempt_ms`,
     [subscriptionId, today]
   );
   const row = r.rows[0];
-  return row ? { cycleDate: row.cycle_date, previousAttemptAt: row.previous_attempt_at } : null;
+  return row ? { cycleDate: row.cycle_date, previousAttemptAt: row.previous_attempt_at, attemptAt: Number(row.attempt_ms) } : null;
 }
 
 /** Give a claim back (a non-card error: Stripe unreachable, an item that could not be named), so the next run tries again. */

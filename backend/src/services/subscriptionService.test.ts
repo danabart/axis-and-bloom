@@ -83,7 +83,8 @@ describe('charge attempt claim (one attempt per cycle)', () => {
     const today = svc.todayEastern();
     const s = await paidSub(tx.client, { next_delivery_date: today });
     const first = await svc.recordChargeAttempt(s.id, today, tx.client);
-    expect(first).toEqual({ cycleDate: today, previousAttemptAt: null });
+    expect(first).toMatchObject({ cycleDate: today, previousAttemptAt: null });
+    expect(first!.attemptAt).toBeGreaterThan(Date.now() - 600_000);
     expect(await svc.recordChargeAttempt(s.id, today, tx.client)).toBeNull();
     await svc.releaseChargeAttempt(s.id, first!, tx.client);
     expect(await svc.recordChargeAttempt(s.id, today, tx.client)).not.toBeNull();
