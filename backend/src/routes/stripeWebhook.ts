@@ -19,11 +19,14 @@
 //   checkout.session.async_payment_failed → expireCheckoutSession + log
 //   charge.refunded → refund order_event (amount + full/partial payment status)
 //   anything else (payment_intent.payment_failed, ...) → recorded and marked processed
+//   a completed session this database never created (another environment's;
+//   every endpoint of the account receives every event) → recorded with the
+//   reason, marked processed, 200: never retried
 import type { Request, Response } from 'express';
 import type Stripe from 'stripe';
 import { db } from '../db/client.js';
 import { stripe, STRIPE_ENABLED, STRIPE_WEBHOOK_SECRET } from '../services/stripe.js';
-import { completeCheckoutSession, expireCheckoutSession, recordRefund } from '../services/checkoutService.js';
+import { completeCheckoutSession, expireCheckoutSession, recordRefund, UnknownCheckoutSessionError } from '../services/checkoutService.js';
 import { finalizePaidOrder } from '../services/orderFinalizer.js';
 
 async function handleEvent(event: Stripe.Event): Promise<string> {
@@ -84,6 +87,14 @@ export async function handleStripeWebhook(req: Request, res: Response): Promise<
     res.json({ received: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    if (err instanceof UnknownCheckoutSessionError) {
+      // Another environment's session (every endpoint of the account gets
+      // every event): recorded, marked processed with the reason, never retried.
+      console.warn(`[stripe-webhook] ${event.type} ${event.id}: ${message}; recorded, not retried`);
+      await db.query(`UPDATE stripe_event SET processed_at = now(), error = $2 WHERE stripe_event_id = $1`, [event.id, message]).catch(() => undefined);
+      res.json({ received: true, unknownSession: true });
+      return;
+    }
     console.error(`[stripe-webhook] ${event.type} ${event.id} failed:`, message);
     await db.query(`UPDATE stripe_event SET error = $2 WHERE stripe_event_id = $1`, [event.id, message.slice(0, 2000)]).catch(() => undefined);
     res.status(500).json({ error: 'webhook_handler_failed' });

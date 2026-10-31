@@ -210,6 +210,19 @@ async function transactionFeeCents(paymentIntentId: string | null): Promise<numb
 
 const idOf = (v: string | { id: string } | null | undefined) => (v == null ? null : typeof v === 'string' ? v : v.id);
 
+/**
+ * A completed Stripe session this database never created: the account's
+ * webhook endpoints all receive every event, so a session opened from another
+ * environment (local acceptance runs against the test DB) reaches prod too.
+ * Not retryable: the webhook records it and answers 200.
+ */
+export class UnknownCheckoutSessionError extends Error {
+  constructor(public stripeCheckoutSessionId: string) {
+    super(`no checkout_session for Stripe session ${stripeCheckoutSessionId}`);
+    this.name = 'UnknownCheckoutSessionError';
+  }
+}
+
 export interface CompleteResult { orderId: string; created: boolean }
 
 /**
@@ -230,7 +243,7 @@ export async function completeCheckoutSession(session: Stripe.Checkout.Session):
       `SELECT * FROM checkout_session WHERE stripe_checkout_session_id = $1 OR id::text = $2 FOR UPDATE`,
       [session.id, session.metadata?.checkout_session_id ?? '']
     )).rows[0];
-    if (!cs) throw new Error(`no checkout_session for Stripe session ${session.id}`);
+    if (!cs) throw new UnknownCheckoutSessionError(session.id);
 
     const inserted = await tx.query<{ id: string }>(
       `INSERT INTO "order"
