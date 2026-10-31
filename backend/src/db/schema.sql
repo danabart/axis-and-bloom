@@ -9175,6 +9175,187 @@ LEFT JOIN order_fulfillment_status fs ON fs.code = COALESCE(lf.fulfillment_statu
 -- END COMMERCE 1 block
 -- ═══════════════════════════════════════════════════════════════════════════
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- BEGIN COMMERCE 2 block (2026-10-31): subscriptions (card on file, our
+-- schedule, a Stripe one-off invoice per cycle)
+-- backend/src/features/commerce/CLAUDE_CODE_PROMPT_COMMERCE_2_SUBSCRIPTIONS.md
+--
+-- subscription stays the current-state row (sponsored company-gift seats and
+-- now paid subscriptions); subscription_item holds what the customer signed
+-- up for; subscription_event is its insert-only history (same shape as
+-- order_event). One writer for all three: services/subscriptionService.ts.
+-- Each paid cycle becomes an ordinary "order" through checkoutService, the
+-- one order writer. Placed before the A2 grant loops, like Commerce 1.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- 1. Lookups. counts_as_subscriber is Dana's decision 1 (2026-10-31):
+-- past_due and paused keep Liam access and the SUBSCRIBER stage; lapsed and
+-- canceled remove them. userSignals, liamAccess and users read it, so the
+-- list is data, not code.
+CREATE TABLE IF NOT EXISTS subscription_status (
+  id                   SERIAL PRIMARY KEY,
+  code                 TEXT UNIQUE NOT NULL,
+  label                TEXT NOT NULL,
+  customer_label       TEXT NOT NULL,
+  counts_as_subscriber BOOLEAN NOT NULL DEFAULT false
+);
+INSERT INTO subscription_status (code, label, customer_label, counts_as_subscriber) VALUES
+  ('pending',  'Pending (reserved)',       'Starting',           false),
+  ('active',   'Active',                   'Active',             true),
+  ('past_due', 'Past due (card retrying)', 'Payment needs a look', true),
+  ('paused',   'Paused',                   'Paused',             true),
+  ('canceled', 'Canceled',                 'Canceled',           false),
+  ('lapsed',   'Lapsed',                   'Ended',              false)
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS subscription_kind (
+  id    SERIAL PRIMARY KEY,
+  code  TEXT UNIQUE NOT NULL,
+  label TEXT NOT NULL
+);
+INSERT INTO subscription_kind (code, label) VALUES
+  ('paid',      'Paid by the customer (Stripe card on file)'),
+  ('sponsored', 'Sponsored company gift')
+ON CONFLICT (code) DO NOTHING;
+
+-- 2. subscription additions. kind defaults to sponsored (every row before
+-- this brief is a company-gift seat; Task 0: 0 rows on prod), so the ADD
+-- COLUMN is the backfill. status gets its FK (existing values active/lapsed
+-- are seeded above).
+ALTER TABLE subscription ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'sponsored' REFERENCES subscription_kind(code);
+ALTER TABLE subscription ADD COLUMN IF NOT EXISTS frequency_weeks            INT CHECK (frequency_weeks IS NULL OR frequency_weeks > 0);
+ALTER TABLE subscription ADD COLUMN IF NOT EXISTS archetype                  archetype_enum;
+ALTER TABLE subscription ADD COLUMN IF NOT EXISTS origin_checkout_session_id UUID REFERENCES checkout_session(id);
+ALTER TABLE subscription ADD COLUMN IF NOT EXISTS stripe_payment_method_id   TEXT;
+ALTER TABLE subscription ADD COLUMN IF NOT EXISTS paused_until               DATE;
+ALTER TABLE subscription ADD COLUMN IF NOT EXISTS skip_next_until            DATE;
+ALTER TABLE subscription ADD COLUMN IF NOT EXISTS cancel_at                  DATE;
+ALTER TABLE subscription ADD COLUMN IF NOT EXISTS last_order_id              UUID REFERENCES "order"(id);
+ALTER TABLE subscription ADD COLUMN IF NOT EXISTS last_charge_attempt_at     TIMESTAMPTZ;
+ALTER TABLE subscription ADD COLUMN IF NOT EXISTS failed_attempts            INT NOT NULL DEFAULT 0;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'subscription_status_fkey') THEN
+    ALTER TABLE subscription ADD CONSTRAINT subscription_status_fkey FOREIGN KEY (status) REFERENCES subscription_status(code);
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_subscription_due ON subscription (status, next_delivery_date) WHERE kind = 'paid';
+
+-- 3. What the customer signed up for, one row per cart line. A dial or
+-- collection line keeps its archetype + signup slot (renewals follow the
+-- dial, B2); a category coffee has no archetype and always ships its signup
+-- coffee (Task 0 resolution, Dana 2026-10-31).
+CREATE TABLE IF NOT EXISTS subscription_item (
+  id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  subscription_id        UUID NOT NULL REFERENCES subscription(id),
+  archetype              archetype_enum,
+  signup_slot_id         INT REFERENCES coffee_dial_slot(id),
+  signup_coffee_id       INT REFERENCES coffees(id),
+  weight_oz              NUMERIC NOT NULL,
+  quantity               INT NOT NULL CHECK (quantity > 0),
+  display_name_at_signup TEXT,
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (archetype IS NOT NULL OR signup_coffee_id IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS idx_subscription_item_subscription ON subscription_item (subscription_id);
+
+-- 4. History: insert-only, like order_event.
+CREATE TABLE IF NOT EXISTS subscription_event_kind (
+  id    SERIAL PRIMARY KEY,
+  code  TEXT UNIQUE NOT NULL,
+  label TEXT NOT NULL
+);
+INSERT INTO subscription_event_kind (code, label) VALUES
+  ('started',                'Started at checkout'),
+  ('renewal_charged',        'Renewal charged'),
+  ('renewal_failed',         'Renewal charge failed (or could not be prepared)'),
+  ('renewal_skipped_paused', 'Cycle skipped: paused'),
+  ('renewal_skipped_skip',   'Cycle skipped: skip requested'),
+  ('paused',                 'Paused'),
+  ('resumed',                'Resumed'),
+  ('skip_requested',         'Skip requested'),
+  ('frequency_changed',      'Frequency changed'),
+  ('canceled',               'Canceled'),
+  ('lapsed',                 'Lapsed'),
+  ('payment_method_updated', 'Payment method updated')
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS subscription_event (
+  id                SERIAL PRIMARY KEY,
+  subscription_id   UUID NOT NULL REFERENCES subscription(id),
+  event_kind        TEXT NOT NULL REFERENCES subscription_event_kind(code),
+  order_id          UUID REFERENCES "order"(id),
+  stripe_invoice_id TEXT,
+  amount_cents      INT,
+  attempt_count     INT,
+  note              TEXT,
+  source            TEXT NOT NULL CHECK (source IN ('checkout', 'cron', 'webhook', 'admin', 'customer')),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_subscription_event_subscription ON subscription_event (subscription_id, created_at, id);
+-- Idempotency, enforced: one started per subscription, one renewal_charged
+-- per invoice, one renewal_failed per (invoice, Stripe attempt), so the cron's
+-- synchronous failure and Stripe's invoice.payment_failed for the same
+-- attempt record (and email) once.
+CREATE UNIQUE INDEX IF NOT EXISTS subscription_event_one_started ON subscription_event (subscription_id) WHERE event_kind = 'started';
+CREATE UNIQUE INDEX IF NOT EXISTS subscription_event_one_charge_per_invoice ON subscription_event (stripe_invoice_id) WHERE event_kind = 'renewal_charged';
+CREATE UNIQUE INDEX IF NOT EXISTS subscription_event_one_failure_per_attempt ON subscription_event (stripe_invoice_id, attempt_count) WHERE event_kind = 'renewal_failed' AND stripe_invoice_id IS NOT NULL;
+
+-- 5. "order" / checkout_session additions (written once at insert / at
+-- completion; "order" stays insert-only, D11).
+ALTER TABLE "order" ADD COLUMN IF NOT EXISTS subscription_id   UUID REFERENCES subscription(id);
+ALTER TABLE "order" ADD COLUMN IF NOT EXISTS stripe_invoice_id TEXT UNIQUE;
+ALTER TABLE checkout_session ADD COLUMN IF NOT EXISTS subscription_intent JSONB;
+ALTER TABLE checkout_session ADD COLUMN IF NOT EXISTS subscription_id     UUID REFERENCES subscription(id);
+
+-- 6. Business numbers (only if missing; same note format as Commerce 1).
+INSERT INTO commerce_parameter (key, value_numeric, value_text, note)
+SELECT v.key, v.value_numeric, v.value_text, v.note FROM (VALUES
+  ('subscription_ships_current_dial_position', 1::numeric, NULL::text, '1 = a renewal ships the customer''s current Bloom Dial position for the item''s archetype when they have one; 0 = always the slot chosen at signup. Range: integer 0 <= value <= 1.'),
+  ('subscription_upcoming_notice_days',        3,  NULL, 'Days before a renewal that the upcoming-delivery email goes out (0 = on the day). Range: integer 0 <= value <= 14.'),
+  ('subscription_past_due_lapse_days',         21, NULL, 'Days a renewal may stay unpaid (past_due) after its cycle date before the subscription lapses and the open invoice is voided. Range: integer 7 <= value <= 60.'),
+  ('subscription_charge_hour_local',           6,  NULL, 'Informational: the hour (US Eastern) the Cloud Scheduler job subscription-daily runs; change the job with it. Range: integer 0 <= value <= 23.')
+) AS v(key, value_numeric, value_text, note)
+WHERE NOT EXISTS (SELECT 1 FROM commerce_parameter p WHERE p.key = v.key);
+
+-- 7. One row per subscription, the read path for Profile and admin. The
+-- coffee lined up is the SQL fallback only (signup slot names, else the
+-- signup display names); the dial-aware answer comes from code
+-- (subscriptionShipment.resolveSubscriptionShipment).
+CREATE OR REPLACE VIEW v_subscription_status AS
+SELECT s.id AS subscription_id,
+       s.user_id,
+       s.kind,
+       s.status,
+       st.label AS status_label,
+       st.customer_label,
+       st.counts_as_subscriber,
+       s.frequency_weeks,
+       s.next_delivery_date,
+       s.paused_until,
+       s.skip_next_until,
+       s.cancel_at,
+       s.failed_attempts,
+       s.last_charge_attempt_at,
+       s.last_order_id,
+       s.created_at,
+       COALESCE(it.item_count, 0) AS item_count,
+       COALESCE(it.bag_count, 0) AS bag_count,
+       it.signup_names
+FROM subscription s
+LEFT JOIN subscription_status st ON st.code = s.status
+LEFT JOIN LATERAL (
+  SELECT COUNT(*) AS item_count,
+         SUM(i.quantity) AS bag_count,
+         ARRAY_AGG(COALESCE(ds.name, i.display_name_at_signup) ORDER BY i.created_at, i.id) AS signup_names
+  FROM subscription_item i
+  LEFT JOIN coffee_dial_slot ds ON ds.id = i.signup_slot_id
+  WHERE i.subscription_id = s.id
+) it ON true;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- END COMMERCE 2 block
+-- ═══════════════════════════════════════════════════════════════════════════
+
 -- A2. Prefix-driven grants, re-run every boot. A table's name decides its
 -- privileges, so a customer_* table added later (C2) is immutable from the
 -- boot that creates it, with no grant to remember.
@@ -9279,6 +9460,8 @@ GRANT UPDATE (finished_at, phrasings, passed, failed, usd_micros, note) ON somme
 REVOKE UPDATE, DELETE, TRUNCATE ON order_event FROM ab_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON commerce_parameter FROM ab_app;
 GRANT UPDATE (superseded_at) ON commerce_parameter TO ab_app;
+-- Commerce 2 (2026-10-31): subscription_event is insert-only, like order_event.
+REVOKE UPDATE, DELETE, TRUNCATE ON subscription_event FROM ab_app;
 GRANT SELECT ON v_roastery_remark, v_cupping_session, v_cupping_session_coffee TO reporting_ro;
 
 -- Quiz content is master data with one writer, the V7 seed in this file,
