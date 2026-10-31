@@ -4,8 +4,8 @@ Decided 2026-10-29 (Dana + CTO session). Four briefs, run in order, each testabl
 
 | # | Brief | Delivers |
 |---|---|---|
-| 1 | `CLAUDE_CODE_PROMPT_COMMERCE_1_CHECKOUT.md` | Stripe client, commerce parameters (admin-editable), `checkout_session`, webhook ledger, `finalizePaidOrder`, one-time checkout end to end, manual fulfillment (email per paid order), order confirmation email |
-| 2 | `CLAUDE_CODE_PROMPT_COMMERCE_2_SUBSCRIPTIONS.md` | Subscriptions: saved card + our own renewal schedule, discounts from parameters, each renewal → order through brief 1's finalizer |
+| 1 | `CLAUDE_CODE_PROMPT_COMMERCE_1_CHECKOUT.md` (LIVE in test mode 2026-10-31, `CLOSING_REPORT_1.md`) | Stripe client, commerce parameters (admin-editable), `checkout_session`, webhook ledger, `finalizePaidOrder`, one-time checkout end to end, manual fulfillment (email per paid order), order confirmation email |
+| 2 | `CLAUDE_CODE_PROMPT_COMMERCE_2_SUBSCRIPTIONS.md` | Subscriptions core: card saved at the first checkout, our daily cron charges each cycle as a Stripe one-off invoice (automatic tax), pricing-table price minus 5%/10%, each paid invoice → order through brief 1's finalizer; subscribe choice in the cart; read-only Profile block (written 2026-10-31) |
 | 3 | `CLAUDE_CODE_PROMPT_COMMERCE_3_ADMIN_AND_SELF_SERVICE.md` | `/admin/orders` (refund, mark shipped), Profile subscription panel (cancel, card, frequency, pause, skip), shipping email |
 | 4 | `CLAUDE_CODE_PROMPT_COMMERCE_4_LIVE_CUTOVER.md` | Live keys, $1 purchase + refund, Shopify secrets dropped from the deploy |
 
