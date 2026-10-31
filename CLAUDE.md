@@ -2,6 +2,10 @@
 
 House rules for Claude Code in this repo.
 
+## Development guardrails
+
+- **Read `DEVELOPMENT_GUARDRAILS.md` (repo root) before Task 0 of any brief.** It holds the numbered standing rules (roles and workflow, data model, backend, frontend, tests, docs). A brief cannot relax a rule there; if the two disagree, follow the guardrails file and say so in the closing report. Sessions that write briefs cite rules by number (`G2.5`) in the brief's Guardrails block.
+
 ## Data catalog (data catalog brief 2, Dana, 2026-10-16)
 
 - **Before proposing any new table or view**, read `CATALOG.md` (repo root) and state in the brief why no existing object fits. Dana, 2026-10-13: "before proposing any new table, check what already exists and say why it doesn't fit."
