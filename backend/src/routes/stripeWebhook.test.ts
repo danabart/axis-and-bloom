@@ -18,8 +18,23 @@ const expireCheckoutSession = vi.fn(async () => true);
 const recordRefund = vi.fn(async () => ({ orderId: 'order-1' }));
 const finalizePaidOrder = vi.fn(async () => ({ orderId: 'order-1', alreadyFinalized: false, orderPlacedLine: null, failedSteps: [] }));
 class UnknownCheckoutSessionError extends Error {}
-vi.mock('../services/checkoutService.js', () => ({ completeCheckoutSession, expireCheckoutSession, recordRefund, UnknownCheckoutSessionError }));
+class UnknownSubscriptionError extends Error {
+  constructor(id: string, invoiceId: string) { super(`no subscription ${id} for Stripe invoice ${invoiceId}`); }
+}
+// Commerce 2: renewal invoices.
+const createSubscriptionOrder = vi.fn(async () => ({ orderId: 'order-r1', created: true, subscriptionId: SUB }));
+const SUB = '11111111-2222-3333-4444-555555555555';
+const subscriptionExists = vi.fn(async (id: string) => id === SUB);
+const markRenewalFailed = vi.fn(async () => true);
+const lapseForUncollectible = vi.fn(async () => undefined);
+const recordSubscriptionEvent = vi.fn(async () => 1);
+const sendPaymentTroubleEmail = vi.fn(async () => ({ status: 'sent', id: 're_1' }));
+vi.mock('../services/checkoutService.js', () => ({
+  completeCheckoutSession, expireCheckoutSession, recordRefund, createSubscriptionOrder, UnknownCheckoutSessionError, UnknownSubscriptionError,
+}));
 vi.mock('../services/orderFinalizer.js', () => ({ finalizePaidOrder }));
+vi.mock('../services/subscriptionService.js', () => ({ markRenewalFailed, lapseForUncollectible, recordSubscriptionEvent, subscriptionExists }));
+vi.mock('../services/subscriptionEmails.js', () => ({ sendPaymentTroubleEmail }));
 
 const { handleStripeWebhook } = await import('./stripeWebhook.js');
 const { stripe } = await import('../services/stripe.js');
@@ -128,5 +143,53 @@ describe('POST /api/webhooks/stripe', () => {
     row = (await db.query(`SELECT processed_at, error FROM stripe_event WHERE stripe_event_id = $1`, [ev.id])).rows[0];
     expect(row.processed_at).not.toBeNull();
     expect(row.error).toBeNull();
+  });
+
+  // ── Commerce 2: subscription renewal invoices ──
+  const invoice = (over: Record<string, unknown> = {}) =>
+    ({ id: `in_vitest_${seq}`, object: 'invoice', attempt_count: 1, amount_due: 2755, metadata: { subscription_id: SUB, cycle_date: '2026-11-14' }, ...over });
+
+  it('invoice.paid without our metadata is recorded and processed, nothing else', async () => {
+    const ev = event('invoice.paid', invoice({ metadata: {} }));
+    expect((await send(ev)).status).toBe(200);
+    expect(createSubscriptionOrder).not.toHaveBeenCalled();
+    expect((await db.query(`SELECT processed_at FROM stripe_event WHERE stripe_event_id = $1`, [ev.id])).rows[0].processed_at).not.toBeNull();
+  });
+
+  it('invoice.paid for a subscription this database does not have is a quiet 200, never retried', async () => {
+    const ev = event('invoice.paid', invoice({ metadata: { subscription_id: '99999999-9999-9999-9999-999999999999' } }));
+    const res = await send(ev);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true, unknownSession: true });
+    expect(createSubscriptionOrder).not.toHaveBeenCalled();
+    const row = (await db.query(`SELECT processed_at, error FROM stripe_event WHERE stripe_event_id = $1`, [ev.id])).rows[0];
+    expect(row.processed_at).not.toBeNull();
+    expect(row.error).toMatch(/no subscription/);
+  });
+
+  it('invoice.paid with our metadata → createSubscriptionOrder then finalizePaidOrder, once; the replay is a no-op', async () => {
+    const ev = event('invoice.paid', invoice());
+    expect((await send(ev)).status).toBe(200);
+    expect(createSubscriptionOrder).toHaveBeenCalledTimes(1);
+    expect(finalizePaidOrder).toHaveBeenCalledWith('order-r1');
+    expect(await (await send(ev)).json()).toEqual({ received: true, duplicate: true });
+    expect(createSubscriptionOrder).toHaveBeenCalledTimes(1);
+    expect(finalizePaidOrder).toHaveBeenCalledTimes(1);
+  });
+
+  it('invoice.payment_failed → markRenewalFailed and one email; the same attempt again sends no second email', async () => {
+    await send(event('invoice.payment_failed', invoice({ id: 'in_vitest_fail', attempt_count: 2 })));
+    expect(markRenewalFailed).toHaveBeenCalledWith(expect.objectContaining({ subscriptionId: SUB, invoiceId: 'in_vitest_fail', attemptCount: 2, source: 'webhook' }));
+    expect(sendPaymentTroubleEmail).toHaveBeenCalledTimes(1);
+    markRenewalFailed.mockResolvedValueOnce(false); // already recorded (the cron's synchronous failure, or a resend)
+    await send(event('invoice.payment_failed', invoice({ id: 'in_vitest_fail', attempt_count: 2 })));
+    expect(sendPaymentTroubleEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it('invoice.marked_uncollectible lapses the subscription; invoice.voided records an event', async () => {
+    await send(event('invoice.marked_uncollectible', invoice({ id: 'in_vitest_unc' })));
+    expect(lapseForUncollectible).toHaveBeenCalledWith(SUB, 'in_vitest_unc');
+    await send(event('invoice.voided', invoice({ id: 'in_vitest_void' })));
+    expect(recordSubscriptionEvent).toHaveBeenCalledWith(expect.objectContaining({ subscriptionId: SUB, kind: 'invoice_voided', stripeInvoiceId: 'in_vitest_void' }));
   });
 });

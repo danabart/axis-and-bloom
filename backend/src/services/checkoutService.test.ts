@@ -22,8 +22,19 @@ const fakeStripe = {
       retrieve: vi.fn(async (id: string) => { stripeCalls.retrieve++; return { id, status: 'open', client_secret: 'cs_secret_reused' }; }),
     },
   },
-  paymentIntents: { retrieve: vi.fn(async () => ({ latest_charge: { balance_transaction: { fee: 82 } } })) },
+  paymentIntents: { retrieve: vi.fn(async () => ({ latest_charge: { balance_transaction: { fee: 82 } }, payment_method: 'pm_vitest_saved' })) },
+  // Commerce 2: a paid renewal invoice, as createSubscriptionOrder reads it.
+  invoices: { retrieve: vi.fn(async (id: string) => renewalInvoice(id)) },
+  invoiceItems: { list: vi.fn(async () => ({ data: renewalItems })) },
 };
+let renewalSubscriptionId = '';
+let renewalItems: any[] = [];
+const renewalInvoice = (id: string) => ({
+  id, object: 'invoice', status: 'paid', currency: 'usd', amount_paid: 2590, amount_due: 2590,
+  total_taxes: [{ amount: 0 }], status_transitions: { paid_at: Math.floor(Date.now() / 1000) },
+  metadata: { subscription_id: renewalSubscriptionId, cycle_date: '2026-11-14' },
+  payments: { data: [{ status: 'paid', payment: { type: 'payment_intent', payment_intent: `pi_vitest_${id}` } }] },
+});
 vi.mock('./stripe.js', () => ({
   STRIPE_ENABLED: true,
   stripe: () => fakeStripe,
@@ -33,7 +44,11 @@ vi.mock('./stripe.js', () => ({
 const { db } = await import('../db/client.js');
 const { createCoffee, setMatchArchetype, upsertSku, setCoffeeRetailPrice } = await import('./catalogService.js');
 const { invalidateCommerceParameterCache } = await import('./commerceParameters.js');
-const { createCheckoutSession, completeCheckoutSession, expireCheckoutSession, recordRefund, getSessionStatus, CheckoutError } = await import('./checkoutService.js');
+const {
+  createCheckoutSession, completeCheckoutSession, expireCheckoutSession, recordRefund, getSessionStatus, CheckoutError,
+  createSubscriptionOrder, quoteCart, UnknownSubscriptionError,
+} = await import('./checkoutService.js');
+const { todayEastern } = await import('./subscriptionService.js');
 
 const ACTOR = { actor: 'vitest' };
 const UID = 'vitest-checkout-uid';
@@ -51,8 +66,16 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (userId) {
+    // Commerce 2 fixtures first (subscription ↔ order point at each other).
+    await db.query(`DELETE FROM subscription_event WHERE subscription_id IN (SELECT id FROM subscription WHERE user_id = $1)`, [userId]);
+    await db.query(`UPDATE subscription SET last_order_id = NULL WHERE user_id = $1`, [userId]);
+    await db.query(`UPDATE checkout_session SET subscription_id = NULL WHERE user_id = $1`, [userId]);
     await db.query(`DELETE FROM order_event WHERE order_id IN (SELECT id FROM "order" WHERE user_id = $1)`, [userId]);
     await db.query(`UPDATE checkout_session SET order_id = NULL WHERE user_id = $1`, [userId]);
+    await db.query(`DELETE FROM order_line_item WHERE order_id IN (SELECT id FROM "order" WHERE user_id = $1)`, [userId]);
+    await db.query(`DELETE FROM "order" WHERE user_id = $1`, [userId]);
+    await db.query(`DELETE FROM subscription_item WHERE subscription_id IN (SELECT id FROM subscription WHERE user_id = $1)`, [userId]);
+    await db.query(`DELETE FROM subscription WHERE user_id = $1`, [userId]);
     await db.query(`DELETE FROM order_line_item WHERE order_id IN (SELECT id FROM "order" WHERE user_id = $1)`, [userId]);
     await db.query(`DELETE FROM "order" WHERE user_id = $1`, [userId]);
     await db.query(`DELETE FROM checkout_session_line WHERE checkout_session_id IN (SELECT id FROM checkout_session WHERE user_id = $1)`, [userId]);
@@ -196,5 +219,107 @@ describe('expireCheckoutSession', () => {
     expect(await expireCheckoutSession(stripeId)).toBe(false); // already expired: no-op
     expect((await db.query(`SELECT status, order_id FROM checkout_session WHERE id = $1`, [r.checkoutSessionId])).rows[0]).toEqual({ status: 'expired', order_id: null });
     expect(await getSessionStatus(UID, stripeId)).toEqual({ status: 'expired' });
+  });
+});
+
+// ── Commerce 2 ────────────────────────────────────────────────────────────────
+
+describe('subscription checkout (Commerce 2)', () => {
+  let subscriptionCheckoutId = '';
+  let subscriptionStripeId = '';
+
+  it('an unknown frequency is refused (400 invalid_frequency)', async () => {
+    const err = await createCheckoutSession({ uid: UID, email: 'vitest@example.com', items: [item()], subscription: { frequencyWeeks: 3 } }).then(() => null, e => e);
+    expect(err).toMatchObject({ status: 400, code: 'invalid_frequency' });
+  });
+
+  it('prices the lines by the subscription tier, stores the intent, and asks Stripe to save the card', async () => {
+    const r = await createCheckoutSession({ uid: UID, email: 'vitest@example.com', items: [item()], subscription: { frequencyWeeks: 2 } });
+    subscriptionCheckoutId = r.checkoutSessionId;
+    const cs = (await db.query(`SELECT * FROM checkout_session WHERE id = $1`, [r.checkoutSessionId])).rows[0];
+    subscriptionStripeId = cs.stripe_checkout_session_id;
+    expect(cs).toMatchObject({ mode: 'subscription', subscription_intent: { frequencyWeeks: 2, startsSubscription: true }, subtotal_cents: 1995, shipping_cents: 595 });
+    const line = (await db.query(`SELECT unit_price_cents, discount_cents FROM checkout_session_line WHERE checkout_session_id = $1`, [r.checkoutSessionId])).rows[0];
+    expect(line).toEqual({ unit_price_cents: 1995, discount_cents: 105 }); // 2100 − 5%
+    const { params } = stripeCalls.create.at(-1);
+    expect(params.payment_intent_data).toMatchObject({ setup_future_usage: 'off_session' });
+    expect(params.line_items[0].price_data).toMatchObject({ unit_amount: 1995, product_data: { description: '12 oz · Earthy · every 2 weeks' } });
+    // The one-time cart is a different session from the same cart as a subscription.
+    expect(cs.cart_fingerprint).not.toBe((await db.query(`SELECT cart_fingerprint FROM checkout_session WHERE user_id = $1 AND mode = 'payment' ORDER BY created_at LIMIT 1`, [userId])).rows[0].cart_fingerprint);
+  });
+
+  it('a one-time checkout never sets setup_future_usage', () => {
+    const oneTime = stripeCalls.create.find(c => c.params.metadata.checkout_session_id !== subscriptionCheckoutId);
+    expect(oneTime.params.payment_intent_data.setup_future_usage).toBeUndefined();
+  });
+
+  it('completion writes the subscription, its item and started in the same transaction as the first order; exactly once', async () => {
+    const session = stripeSessionFor(subscriptionStripeId, subscriptionCheckoutId, { amount_total: 2590, amount_subtotal: 1995 });
+    const first = await completeCheckoutSession(session);
+    const second = await completeCheckoutSession(session);
+    expect(second).toEqual({ orderId: first.orderId, created: false });
+
+    const o = (await db.query(`SELECT is_subscription, subscription_id FROM "order" WHERE id = $1`, [first.orderId])).rows[0];
+    expect(o.is_subscription).toBe(true);
+    const subs = (await db.query(
+      `SELECT id, kind, status, frequency_weeks, frequency_days, archetype, stripe_payment_method_id, last_order_id,
+              origin_checkout_session_id, next_delivery_date::text AS next
+       FROM subscription WHERE user_id = $1`, [userId]
+    )).rows;
+    expect(subs).toHaveLength(1);
+    const today = todayEastern();
+    const expectedNext = (await db.query<{ d: string }>(`SELECT ($1::date + 14)::text AS d`, [today])).rows[0].d;
+    expect(subs[0]).toMatchObject({ id: o.subscription_id, kind: 'paid', status: 'active', frequency_weeks: 2, frequency_days: 14,
+      archetype: null, stripe_payment_method_id: 'pm_vitest_saved', last_order_id: first.orderId, origin_checkout_session_id: subscriptionCheckoutId, next: expectedNext });
+    const items = (await db.query(`SELECT archetype, signup_slot_id, signup_coffee_id, weight_oz, quantity, display_name_at_signup FROM subscription_item WHERE subscription_id = $1`, [o.subscription_id])).rows;
+    expect(items).toEqual([{ archetype: null, signup_slot_id: null, signup_coffee_id: coffeeId, weight_oz: '12', quantity: 1, display_name_at_signup: 'Vitest Checkout Coffee' }]);
+    const ev = (await db.query(`SELECT event_kind, order_id, amount_cents, source FROM subscription_event WHERE subscription_id = $1`, [o.subscription_id])).rows;
+    expect(ev).toEqual([{ event_kind: 'started', order_id: first.orderId, amount_cents: 2590, source: 'checkout' }]);
+    expect((await db.query(`SELECT subscription_id FROM checkout_session WHERE id = $1`, [subscriptionCheckoutId])).rows[0].subscription_id).toBe(o.subscription_id);
+    // The first delivery is a normal line (manual), not a renewal.
+    expect((await db.query(`SELECT order_kind FROM order_line_item WHERE order_id = $1`, [first.orderId])).rows[0].order_kind).toBe('manual');
+
+    const status = await getSessionStatus(UID, subscriptionStripeId);
+    expect(status?.subscription).toEqual({ frequencyWeeks: 2, nextDeliveryDate: expectedNext, discountCents: 105 });
+    renewalSubscriptionId = o.subscription_id;
+  });
+
+  it('createSubscriptionOrder writes the renewal order once per invoice (subscription_renewal lines, invoice amounts) and moves the date', async () => {
+    const sku = (await db.query<{ id: string }>(`SELECT id FROM coffee_sku WHERE coffee_id = $1`, [coffeeId])).rows[0].id;
+    renewalItems = [
+      { amount: 1995, quantity: 1, metadata: { kind: 'coffee', coffee_sku_id: sku, coffee_id: String(coffeeId), display_name: 'Vitest Checkout Coffee', weight_oz: '12', unit_price_cents: '1995', discount_cents: '105' } },
+      { amount: 595, quantity: 1, metadata: { kind: 'shipping' } },
+    ];
+    const invoice = { id: `in_vitest_${Date.now()}`, metadata: { subscription_id: renewalSubscriptionId, cycle_date: '2026-11-14' } } as any;
+    const first = await createSubscriptionOrder(invoice);
+    const second = await createSubscriptionOrder(invoice);
+    expect(first.created).toBe(true);
+    expect(second).toEqual({ orderId: first.orderId, created: false, subscriptionId: renewalSubscriptionId });
+
+    const o = (await db.query(`SELECT * FROM "order" WHERE stripe_invoice_id = $1`, [invoice.id])).rows;
+    expect(o).toHaveLength(1);
+    expect(o[0]).toMatchObject({ is_subscription: true, subscription_id: renewalSubscriptionId, stripe_payment_intent_id: `pi_vitest_${invoice.id}`,
+      fulfillment_status: 'awaiting_manual', shipping_street: '1 Vitest Way', checkout_session_id: null });
+    expect([Number(o[0].subtotal), Number(o[0].shipping_fee_charged), Number(o[0].taxes_collected), Number(o[0].total_amount_paid)]).toEqual([19.95, 5.95, 0, 25.9]);
+    const lines = (await db.query(`SELECT order_kind, display_name, quantity, unit_price_charged, discount_amount FROM order_line_item WHERE order_id = $1`, [first.orderId])).rows;
+    expect(lines).toEqual([{ order_kind: 'subscription_renewal', display_name: 'Vitest Checkout Coffee', quantity: 1, unit_price_charged: '19.95', discount_amount: '1.05' }]);
+    const ev = (await db.query(`SELECT event_kind FROM subscription_event WHERE subscription_id = $1 ORDER BY id`, [renewalSubscriptionId])).rows.map(r => r.event_kind);
+    expect(ev).toEqual(['started', 'renewal_charged']);
+    const sub = (await db.query(`SELECT last_order_id, next_delivery_date::text AS next FROM subscription WHERE id = $1`, [renewalSubscriptionId])).rows[0];
+    const today = todayEastern();
+    const expectedNext = (await db.query<{ d: string }>(`SELECT (GREATEST($1::date, '2026-11-14'::date) + 14)::text AS d`, [today])).rows[0].d;
+    expect(sub).toEqual({ last_order_id: first.orderId, next: expectedNext });
+  });
+
+  it('an invoice naming a subscription this database does not have is UnknownSubscriptionError', async () => {
+    const err = await createSubscriptionOrder({ id: 'in_vitest_elsewhere', metadata: { subscription_id: '99999999-9999-9999-9999-999999999999' } } as any).then(() => null, e => e);
+    expect(err).toBeInstanceOf(UnknownSubscriptionError);
+  });
+});
+
+describe('quoteCart (Commerce 2)', () => {
+  it('the one-time numbers, and the subscription price by the tier when asked', async () => {
+    expect(await quoteCart([item()], null)).toEqual({ bagCount: 1, subtotalCents: 2100, shippingCents: 595, subscription: null });
+    expect((await quoteCart([item(2)], { frequencyWeeks: 4 })).subscription).toEqual({ frequencyWeeks: 4, discountPct: 10, discountCents: 420, subtotalCents: 3780 });
   });
 });
