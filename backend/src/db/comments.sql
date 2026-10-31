@@ -22,7 +22,7 @@
 -- cloud-functions do not use Firestore). No firestore.rules file exists in the
 -- repo; firestore.indexes.json indexes only two retired collections
 -- (feedback_events, sommelier_evaluations).
--- firestore: users/{uid} | Purpose: Mirror of the user's name, email and token balance; Cloud SQL is the source of truth. | Writer: routes/users.ts (GET /profile sync, PATCH /profile), tokenService.spendToken/grantTokens, orders token bonus (routes/orders.ts); deleted with all subcollections by staleGuestCleanup | Readers: none
+-- firestore: users/{uid} | Purpose: Mirror of the user's name, email and token balance; Cloud SQL is the source of truth. | Writer: routes/users.ts (GET /profile sync, PATCH /profile), tokenService.spendToken/grantTokens (the order bonus goes through grantTokens from orderFinalizer since Commerce 1, 2026-10-31); deleted with all subcollections by staleGuestCleanup | Readers: none
 -- firestore: users/{uid}/sommelier_sessions/{sessionId}/messages | Purpose: Liam chat transcript, one doc per message (role, content, modelUsed, seq, actions, createdAt); the parent session doc is never written. | Writer: routes/sommelier.ts (session open, user turn, assistant reply, daily-cap close) | Readers: routes/sommelier.ts (history for Claude, past-session transcript with SQL fallback)
 -- firestore: config/sommelier | Purpose: Sommelier runtime config including aiControls, cached in memory by a live listener. | Writer: seed (db/seeds/sommelier_config_seed.ts, only if absent), sommelier_config_seed.applyMissingKeys (every boot, adds only the seed leaves of MISSING_KEY_SUBTREES the live doc lacks, 2026-10-24; and upgrades a SEED_UPGRADES key only while its live value still equals the previous seed), routes/admin.ts (PATCH /sommelier/config, POST /sommelier/config-apply, PUT /ai-ops/controls) | Readers: sommelierConfig (get + onSnapshot), routes/admin.ts (config, config-drift, ai-ops)
 -- firestore: config/sommelier/audit | Purpose: Audit trail of admin config changes (uid, email, paths or old/new, at). | Writer: routes/admin.ts (config-apply, ai-controls), sommelier_config_seed.applyMissingKeys (uid deploy) | Readers: routes/admin.ts (GET /ai-ops, last 30)
@@ -136,7 +136,7 @@ COMMENT ON COLUMN household.primary_billing_user_id IS $c$References user_profil
 COMMENT ON COLUMN household.created_at IS $c$UTC timestamp when the household was created.$c$;
 COMMENT ON COLUMN household.updated_at IS $c$Timestamp set only at insert (default now()); no code updates the household row afterward.$c$;
 -- ── user_profile ──
-COMMENT ON TABLE user_profile IS $c$Purpose: Core customer record keyed to a Firebase uid (real or anonymous guest), holding name, household, role and consent flags | Class: operating | Writer: admin.POST /api/admin/grant-admin, admin.DELETE /api/admin/revoke-admin, auth.POST /api/auth/sync, companyGiftRedemption.POST /api/company-gift-redemption/:code/redeem, household.DELETE /api/household/leave, household.DELETE /api/household/members/:userId, household.POST /api/household/create, household.POST /api/household/join/:token, quiz.POST /api/quiz/results, staleGuestCleanup.purgeStaleAnonymousGuests, users.GET /api/users/profile, users.PATCH /api/users/profile; seed | Readers: v_customer_identity, v_customer_bag_attribution, middleware/auth, users, household, orders, cron, sommelier, +N more | Since: 2026-05-22$c$;
+COMMENT ON TABLE user_profile IS $c$Purpose: Core customer record keyed to a Firebase uid (real or anonymous guest), holding name, household, role and consent flags | Class: operating | Writer: admin.POST /api/admin/grant-admin, admin.DELETE /api/admin/revoke-admin, auth.POST /api/auth/sync, companyGiftRedemption.POST /api/company-gift-redemption/:code/redeem, household.DELETE /api/household/leave, household.DELETE /api/household/members/:userId, household.POST /api/household/create, household.POST /api/household/join/:token, quiz.POST /api/quiz/results, staleGuestCleanup.purgeStaleAnonymousGuests, users.GET /api/users/profile, users.PATCH /api/users/profile, stripe.getOrCreateStripeCustomer; seed | Readers: v_customer_identity, v_customer_bag_attribution, middleware/auth, users, household, orders, cron, sommelier, +N more | Since: 2026-05-22$c$;
 COMMENT ON COLUMN user_profile.id IS $c$Surrogate primary key (UUID); the user_id referenced by nearly every user-scoped table.$c$;
 COMMENT ON COLUMN user_profile.firebase_uid IS $c$Firebase Auth uid, unique; may be an anonymous-auth uid, and the same uid carries forward when a guest converts to a real account.$c$;
 COMMENT ON COLUMN user_profile.first_name IS $c$Customer first name | Writer: auth.POST /sync, users.PATCH /profile$c$;
@@ -144,7 +144,7 @@ COMMENT ON COLUMN user_profile.last_name IS $c$Customer last name | Writer: auth
 COMMENT ON COLUMN user_profile.household_id IS $c$References household.id; NULL when the user is in no household | Writer: household.POST /create, household.POST /join/:token, household.DELETE /leave, household.DELETE /members/:userId$c$;
 COMMENT ON COLUMN user_profile.is_household_admin IS $c$True when the user administers their household (the creator); false otherwise | Writer: household.POST /create, household.DELETE /leave, household.DELETE /members/:userId$c$;
 COMMENT ON COLUMN user_profile.user_type_id IS $c$References user_type.id (admin or customer); NULL is treated as a regular customer | Writer: admin.POST /grant-admin, admin.DELETE /revoke-admin, SQL fns grant_admin and revoke_admin$c$;
-COMMENT ON COLUMN user_profile.stripe_customer_id IS $c$Stripe customer id for the user; reserved for the Stripe payment-capture brief (getOrCreateStripeCustomer reads and writes it), not written yet.$c$;
+COMMENT ON COLUMN user_profile.stripe_customer_id IS $c$Stripe customer id (cus_...) for the user, unique when set (partial index user_profile_stripe_customer_id_key); created on the first checkout and reused after (Commerce 1, 2026-10-31) | Writer: stripe.getOrCreateStripeCustomer$c$;
 COMMENT ON COLUMN user_profile.accepts_marketing IS $c$Class: deprecated | DEPRECATED 2026-10-16: never read or written; marketing consent lives on newsletter_subscriber (subscribed, unsubscribed_at).$c$;
 COMMENT ON COLUMN user_profile.date_of_birth IS $c$Customer date of birth (date, no time zone); used to derive generation for Liam | Writer: users.PATCH /profile$c$;
 COMMENT ON COLUMN user_profile.created_at IS $c$UTC timestamp when the profile was created; stale guest cleanup keys on it.$c$;
@@ -209,14 +209,14 @@ COMMENT ON COLUMN user_payment_detail.is_active IS $c$Boolean, default true: whe
 COMMENT ON COLUMN user_payment_detail.created_at IS $c$UTC timestamp when the row was created.$c$;
 COMMENT ON COLUMN user_payment_detail.updated_at IS $c$UTC timestamp of last update.$c$;
 -- ── user_tokens ──
-COMMENT ON TABLE user_tokens IS $c$Purpose: Per-user Liam token balance and lifetime totals; source of truth for token balance | Class: operating | Writer: auth.POST /api/auth/sync, orders.POST /api/orders, tokenService.spendToken, tokenService.grantTokens; manual:grant_tokens | Readers: tokens, users, orders, tokenService, admin | Since: 2026-06-23$c$;
+COMMENT ON TABLE user_tokens IS $c$Purpose: Per-user Liam token balance and lifetime totals; source of truth for token balance | Class: operating | Writer: auth.POST /api/auth/sync, tokenService.spendToken, tokenService.grantTokens; manual:grant_tokens | Readers: tokens, users, tokenService, admin | Since: 2026-06-23$c$;
 COMMENT ON COLUMN user_tokens.uid IS $c$Firebase uid, primary key; references user_profile.firebase_uid (ON DELETE CASCADE).$c$;
 COMMENT ON COLUMN user_tokens.balance IS $c$Current token balance (integer tokens); never driven negative by spendToken.$c$;
 COMMENT ON COLUMN user_tokens.lifetime_earned IS $c$Total tokens ever granted (integer tokens): signup bonus, order bonus, grants.$c$;
 COMMENT ON COLUMN user_tokens.lifetime_spent IS $c$Total tokens ever spent (integer tokens) | Writer: tokenService.spendToken$c$;
 COMMENT ON COLUMN user_tokens.updated_at IS $c$UTC timestamp of last balance change.$c$;
 -- ── token_events ──
-COMMENT ON TABLE token_events IS $c$Purpose: Append-only audit log of every token earn, spend and usage-log event | Class: operating | Writer: auth.POST /api/auth/sync, orders.POST /api/orders, tokenService.spendToken, tokenService.logUsage, tokenService.grantTokens; manual:grant_tokens | Readers: sommelierGuards, admin, sommelier | Since: 2026-06-23$c$;
+COMMENT ON TABLE token_events IS $c$Purpose: Append-only audit log of every token earn, spend and usage-log event | Class: operating | Writer: auth.POST /api/auth/sync, tokenService.spendToken, tokenService.logUsage, tokenService.grantTokens; manual:grant_tokens | Readers: sommelierGuards, admin, sommelier | Since: 2026-06-23$c$;
 COMMENT ON COLUMN token_events.id IS $c$Serial integer primary key.$c$;
 COMMENT ON COLUMN token_events.uid IS $c$Firebase uid of the user (text); no FK constraint to user_profile.$c$;
 COMMENT ON COLUMN token_events.delta IS $c$Signed token change (integer tokens): positive earn, negative spend, 0 for usage_log.$c$;
@@ -367,27 +367,32 @@ COMMENT ON COLUMN subscription.updated_at IS $c$Timestamp of the last change (ti
 COMMENT ON COLUMN subscription.company_gift_id IS $c$FK to company_gift(id); the sponsoring company for a gifted subscription; NULL for normal subscriptions.$c$;
 COMMENT ON COLUMN subscription.sponsored_expires_at IS $c$UTC timestamp when a sponsored subscription ends (redemption time plus the gift's sponsorship months); NULL for normal subscriptions.$c$;
 -- ── order ──
-COMMENT ON TABLE "order" IS $c$Purpose: One checkout order placed through the site and mirrored to Shopify, with a shipping-address snapshot (immutable fact). | Class: fact | Writer: orders.POST /api/orders | Readers: orders, users, userSignals, qrDoor, catalogService, brewCard, behavioralConfidence, +4 more | Since: 2026-05-22$c$;
+COMMENT ON TABLE "order" IS $c$Purpose: One paid order, written once when Stripe confirms payment (checkout.session.completed webhook) from its checkout_session, with a shipping-address snapshot (immutable fact, D11; every later state is an order_event row, read through v_order_status). | Class: fact | Writer: checkoutService.completeCheckoutSession | Readers: orders, users, userSignals, qrDoor, catalogService, brewCard, behavioralConfidence, +4 more | Since: 2026-05-22$c$;
 COMMENT ON COLUMN "order".id IS $c$Surrogate UUID primary key; referenced by order_line_item.order_id, roastery_shipment_details.order_id and notification_log.order_id.$c$;
 COMMENT ON COLUMN "order".user_id IS $c$FK to user_profile(id); the buyer.$c$;
 COMMENT ON COLUMN "order".household_id IS $c$FK to household(id); never set by any code path (confirmed in Customer Blueprint C2 Task 0), always NULL.$c$;
-COMMENT ON COLUMN "order".external_shopify_order_id IS $c$ID of the matching order in Shopify, returned when the order was created there.$c$;
-COMMENT ON COLUMN "order".fulfillment_status IS $c$Fulfilment state as free text, written as pending at checkout and never updated today; catalogService (open orders per roaster) treats delivered and cancelled as closed, while the Stripe brief plans pending, awaiting_manual, placed, shipped, delivered, canceled, needs_attention; that brief must settle the canceled vs cancelled spelling before any CHECK is added.$c$;
-COMMENT ON COLUMN "order".is_subscription IS $c$True if the order is a subscription renewal, default false; reserved for the Stripe brief (createSubscriptionOrder sets it), never written today.$c$;
-COMMENT ON COLUMN "order".subtotal IS $c$Sum of line prices times quantity in dollars (numeric, not cents), computed at checkout.$c$;
-COMMENT ON COLUMN "order".shipping_fee_charged IS $c$Shipping fee charged to the customer in USD dollars (same unit as total_amount_paid), default 0.00; reserved for the Stripe brief, never written today.$c$;
-COMMENT ON COLUMN "order".taxes_collected IS $c$Sales tax collected in USD dollars (same unit as total_amount_paid), default 0.00; reserved for the Stripe brief (automatic tax), never written today.$c$;
-COMMENT ON COLUMN "order".transaction_fee IS $c$Payment-processing fee in USD dollars (same unit as total_amount_paid), default 0.00; reserved for the Stripe brief (from the balance transaction), never written today.$c$;
-COMMENT ON COLUMN "order".total_amount_paid IS $c$Amount paid in dollars; at checkout it is set equal to subtotal (no shipping or tax added).$c$;
-COMMENT ON COLUMN "order".currency IS $c$ISO currency code of the amounts; always the default USD, never set by code.$c$;
+COMMENT ON COLUMN "order".external_shopify_order_id IS $c$ID of a matching Shopify order; written only by the retired Shopify checkout (POST /api/orders, 410 since Commerce 1, 2026-10-31), NULL for Stripe orders.$c$;
+COMMENT ON COLUMN "order".fulfillment_status IS $c$Legacy at-insert fulfilment value, FK to order_fulfillment_status(code): written once as awaiting_manual by checkoutService.completeCheckoutSession and never changed (D11); pending is the pre-Stripe column default. Readers use v_order_status.fulfillment_status, which follows order_event (Commerce 1, 2026-10-31).$c$;
+COMMENT ON COLUMN "order".is_subscription IS $c$True if the order is a subscription renewal, default false; reserved for Commerce brief 2 (subscriptions), never written yet.$c$;
+COMMENT ON COLUMN "order".subtotal IS $c$Sum of line prices times quantity in dollars (numeric, not cents), after line discounts, before shipping and tax; checkout_session.subtotal_cents / 100.$c$;
+COMMENT ON COLUMN "order".shipping_fee_charged IS $c$Shipping fee charged to the customer in USD dollars (same unit as total_amount_paid), from the Stripe session's total_details.amount_shipping; the fee and the free-shipping bag count are commerce_parameter rows.$c$;
+COMMENT ON COLUMN "order".taxes_collected IS $c$Sales tax collected in USD dollars (same unit as total_amount_paid), from the Stripe session's total_details.amount_tax (Stripe Tax; 0 on coffee in NJ).$c$;
+COMMENT ON COLUMN "order".transaction_fee IS $c$Payment-processing fee in USD dollars (same unit as total_amount_paid), from the charge's balance transaction when Stripe returns it at completion, else NULL.$c$;
+COMMENT ON COLUMN "order".total_amount_paid IS $c$Amount paid in dollars, from the Stripe session's amount_total (subtotal + shipping + tax).$c$;
+COMMENT ON COLUMN "order".currency IS $c$ISO currency code of the amounts, upper case, from the Stripe session (USD).$c$;
 COMMENT ON COLUMN "order".promo_code IS $c$Promo code applied to the order; reserved, never written today (NULL); the Stripe brief decides whether Stripe promotion codes are mirrored here.$c$;
 COMMENT ON COLUMN "order".created_at IS $c$UTC timestamp when the order row was created.$c$;
-COMMENT ON COLUMN "order".updated_at IS $c$UTC timestamp of the last change; no code updates the row after insert.$c$;
+COMMENT ON COLUMN "order".updated_at IS $c$UTC timestamp of the insert; the row is never updated (D11).$c$;
 COMMENT ON COLUMN "order".shipping_street IS $c$Street line of the shipping address snapshot copied at checkout.$c$;
 COMMENT ON COLUMN "order".shipping_city IS $c$City of the shipping address snapshot copied at checkout.$c$;
 COMMENT ON COLUMN "order".shipping_state IS $c$State or province of the shipping address snapshot copied at checkout.$c$;
 COMMENT ON COLUMN "order".shipping_postal_code IS $c$Postal or ZIP code of the shipping address snapshot copied at checkout.$c$;
 COMMENT ON COLUMN "order".shipping_country IS $c$Country of the shipping address snapshot copied at checkout.$c$;
+COMMENT ON COLUMN "order".checkout_session_id IS $c$FK to checkout_session(id); the session the order was paid through (Commerce 1, 2026-10-31).$c$;
+COMMENT ON COLUMN "order".stripe_checkout_session_id IS $c$Stripe Checkout Session id (cs_...), unique; the idempotency key of checkoutService.completeCheckoutSession.$c$;
+COMMENT ON COLUMN "order".stripe_payment_intent_id IS $c$Stripe PaymentIntent id (pi_...), unique; how a charge.refunded webhook finds its order.$c$;
+COMMENT ON COLUMN "order".paid_at IS $c$UTC timestamp Stripe confirmed payment (the completion webhook was processed).$c$;
+COMMENT ON COLUMN "order".fulfillment_roaster_id IS $c$FK to roaster(id); the roastery the order is routed to. NULL = the manual adapter (an email to admin_alert_email); every order is NULL until roaster adapters exist (OPEN_TASKS: ShipStation roaster adapter).$c$;
 COMMENT ON COLUMN "order".shipping_address_id IS $c$FK to address(id); the saved address the snapshot was copied from (convenience pointer only, the snapshot columns are the source of truth).$c$;
 -- ── roastery_shipment_details ──
 COMMENT ON TABLE roastery_shipment_details IS $c$Purpose: Reserved for the Stripe payment-capture brief (features/commerce): tracking and postage details of a roastery shipment for an order, to be written by the admin shipped endpoint; not written yet (0 rows), no code today | Class: operating | Writer: none | Readers: none | Since: 2026-05-22 (as shipment)$c$;
@@ -403,7 +408,7 @@ COMMENT ON COLUMN roastery_shipment_details.estimated_delivery IS $c$UTC timesta
 COMMENT ON COLUMN roastery_shipment_details.created_at IS $c$UTC timestamp when the row was created.$c$;
 COMMENT ON COLUMN roastery_shipment_details.updated_at IS $c$UTC timestamp of the last change.$c$;
 -- ── order_line_item ──
-COMMENT ON TABLE order_line_item IS $c$Purpose: One purchased SKU line of an order, with price paid and who it is for (immutable fact). | Class: fact | Writer: orders.POST /api/orders; seed | Readers: v_customer_bag_attribution, v_customer_timeline, v_palate_evidence, v_palate_recommendation_outcome, orders, qrDoor, users, customerReads, +5 more | Since: 2026-05-22$c$;
+COMMENT ON TABLE order_line_item IS $c$Purpose: One purchased SKU line of an order, with price paid and who it is for (immutable fact), copied from checkout_session_line when the order is written. | Class: fact | Writer: checkoutService.completeCheckoutSession; seed | Readers: v_customer_bag_attribution, v_customer_timeline, v_palate_evidence, v_palate_recommendation_outcome, orders, qrDoor, users, customerReads, +5 more | Since: 2026-05-22$c$;
 COMMENT ON COLUMN order_line_item.id IS $c$Surrogate UUID primary key; referenced by customer fact tables as order_line_item_id.$c$;
 COMMENT ON COLUMN order_line_item.order_id IS $c$FK to "order"(id), ON DELETE CASCADE; the parent order.$c$;
 COMMENT ON COLUMN order_line_item.blend_id IS $c$FK to coffee_sku(id); the SKU purchased (the column keeps its pre-rename name).$c$;
@@ -412,12 +417,14 @@ COMMENT ON COLUMN order_line_item.shipment_id IS $c$FK to roastery_shipment_deta
 COMMENT ON COLUMN order_line_item.quantity IS $c$Number of bags on this line; NOT NULL, default 1.$c$;
 COMMENT ON COLUMN order_line_item.unit_price_charged IS $c$Price per bag charged, in dollars (numeric, not cents).$c$;
 COMMENT ON COLUMN order_line_item.wholesale_cost IS $c$Wholesale cost of the line in USD dollars (same unit as coffee_sku.cost_to_us); reserved for roaster payout reconciliation, never written today.$c$;
-COMMENT ON COLUMN order_line_item.discount_amount IS $c$Discount applied to this line, in dollars; only collection bundle member lines carry a non-zero value (10 percent bundle discount split across members); default 0.00.$c$;
+COMMENT ON COLUMN order_line_item.discount_amount IS $c$Discount applied to this line, in dollars; only collection bundle member lines carry a non-zero value (the collection_discount_pct commerce_parameter split across members); default 0.00.$c$;
 COMMENT ON COLUMN order_line_item.tax_amount_charged IS $c$Sales tax charged on the line in USD dollars, default 0.00; reserved for the Stripe brief, never written today.$c$;
 COMMENT ON COLUMN order_line_item.vendor_payout_status IS $c$Roastery payout state as free text, default pending_invoice; reserved for roaster payout reconciliation, no CHECK until that vocabulary exists, never written today.$c$;
 COMMENT ON COLUMN order_line_item.created_at IS $c$UTC timestamp when the line was created.$c$;
 COMMENT ON COLUMN order_line_item.updated_at IS $c$UTC timestamp of the last change; no code updates the row after insert.$c$;
 COMMENT ON COLUMN order_line_item.order_kind IS $c$FK to customer_order_kind(code); how the line originated, default manual. Code only ever writes manual (gift_redemption, subscription_renewal and liam_followed have no writer yet).$c$;
+COMMENT ON COLUMN order_line_item.display_name IS $c$House name of the coffee at the time of the order (platform name or coffee_alias, never the roaster's coffee name), copied from checkout_session_line; NULL on pre-Stripe rows (Commerce 1, 2026-10-31).$c$;
+COMMENT ON COLUMN order_line_item.weight_oz IS $c$Bag weight in ounces at the time of the order, copied from checkout_session_line; NULL on pre-Stripe rows.$c$;
 -- ── user_lifecycle_stage ──
 COMMENT ON TABLE user_lifecycle_stage IS $c$Purpose: Lookup of business/marketing lifecycle stages a user can be in (flat classification, no enforced sequence). | Class: operating | Writer: seed | Readers: userLifecycle.refreshLifecycleState, users.GET /api/users/homepage-state | Since: 2026-07-07$c$;
 COMMENT ON COLUMN user_lifecycle_stage.id IS $c$Serial integer primary key; referenced by user_lifecycle_state.stage_id and user_lifecycle_event.from_stage_id and to_stage_id.$c$;
@@ -554,11 +561,11 @@ COMMENT ON COLUMN newsletter_subscriber.unsubscribe_token IS $c$Capability token
 COMMENT ON COLUMN newsletter_subscriber.unsubscribed_at IS $c$UTC timestamp of the first unsubscribe; cleared to NULL by a form re-subscribe | Writer: unsubscribe.unsubscribeByToken, unsubscribe.unsubscribeByEmail, newsletter.handleSubscribe$c$;
 COMMENT ON COLUMN newsletter_subscriber.unsubscribe_source IS $c$How the first unsubscribe happened; code writes one of: link, one_click, mailchimp, admin (no CHECK constraint); cleared to NULL by a re-subscribe | Writer: unsubscribe.unsubscribeByToken, unsubscribe.unsubscribeByEmail, newsletter.handleSubscribe$c$;
 -- ── transactional_email_log ──
-COMMENT ON TABLE transactional_email_log IS $c$Purpose: At-most-once claim log for backend-sent transactional email (Resend), one row per recipient and template | Class: operating | Writer: newsletter.sendQuizCompleteEmailOnce, roasteryPortalNotify.notifySubmission | Readers: quizIntegrity, scripts/audit-quiz-emails.mjs | Since: 2026-08-18 (Step 07/C3)$c$;
+COMMENT ON TABLE transactional_email_log IS $c$Purpose: At-most-once claim log for backend-sent transactional email (Resend), one row per recipient and template; every send goes through the one door services/transactionalEmail.ts (Commerce 1, 2026-10-31) | Class: operating | Writer: transactionalEmail.sendOnce | Readers: quizIntegrity, scripts/audit-quiz-emails.mjs | Since: 2026-08-18 (Step 07/C3)$c$;
 COMMENT ON COLUMN transactional_email_log.email IS $c$Recipient address (lowercased for quiz emails); part of the primary key with template. For roastery portal notices it is an admin address, not a subscriber.$c$;
-COMMENT ON COLUMN transactional_email_log.template IS $c$Template key, part of the primary key; quiz_complete_v2 for the quiz-complete email, or roastery-portal-submit: followed by a portal response id. Bumping the key re-enables one send.$c$;
+COMMENT ON COLUMN transactional_email_log.template IS $c$Template key, part of the primary key; quiz_complete_v2 for the quiz-complete email, roastery-portal-submit: followed by a portal response id, or order_confirmation:, admin_new_order: or admin_fulfillment_attention: followed by an order id (Commerce 1). Bumping the key re-enables one send.$c$;
 COMMENT ON COLUMN transactional_email_log.sent_at IS $c$UTC timestamp the send was claimed (set at claim time, before delivery; the claim row is deleted again if delivery fails).$c$;
-COMMENT ON COLUMN transactional_email_log.archetype IS $c$Server-verified archetype baked into the sent quiz email; NULL for rows before 2026-09-25 and for non-quiz templates | Writer: newsletter.sendQuizCompleteEmailOnce$c$;
+COMMENT ON COLUMN transactional_email_log.archetype IS $c$Server-verified archetype baked into the sent quiz email; NULL for rows before 2026-09-25 and for non-quiz templates (the quiz email passes it to transactionalEmail.sendOnce).$c$;
 COMMENT ON COLUMN transactional_email_log.resend_message_id IS $c$Resend's message id for the delivered email; NULL for rows before 2026-09-25 or when Resend returned no id.$c$;
 -- ── coffees ──
 COMMENT ON TABLE coffees IS $c$Purpose: Coffee catalogue master: one row per coffee, owned by one roaster, with metadata, lifecycle flags, QR token and cached AI and story text | Class: master | Writer: admin.PATCH /api/admin/coffees/:id/story, catalogService.createCoffee, catalogService.updateCoffee, catalogService.retireCoffee, catalogService.createCoffeeInTx, catalogService.deactivateRoastery, catalogService.reactivateRoastery, catalogService.restoreCoffee, catalogService.updateCoffeeInTx, coffees.generateAndStoreAllContent, coffees.clearContentGenerationFlags, coffees.sanitizeStoredField, qrDoor.mintTokenForCoffee; seed | Readers: v_coffee, catalogReads, coffees, sommelier, v_archetype_dimension_profile, +11 more | Since: 2026-05-25$c$;
@@ -1815,3 +1822,83 @@ COMMENT ON VIEW v_evidence_roastery_calibration IS $c$Purpose: One row per roast
 COMMENT ON VIEW v_evidence_cupper_calibration IS $c$Purpose: One row per cupper x numeric dimension x blind flag, over every current native-scale cupper row: n, mean range width, signed gap to the other cuppers and disagreements, mean absolute gap to the roaster's rank and the correlation of the two rank vectors (null below param rank_corr_min_n), gap to the catalog on control samples, repeatability across sessions. | Class: view | Writer: none (derived) | Readers: evidenceReads.getRoasteryEvidence (admin Roastery Feedback, Calibration), reporting_ro | Since: 2026-10-18 (cupping evidence brief 3)$c$;
 COMMENT ON VIEW v_evidence_coverage IS $c$Purpose: One row per active catalog coffee: which evidence exists (cuppers, sessions, portal, table and website remarks, customer feedback), n_sources (0 to 5), the catalog assignment and whether it states a basis, evidence_newer_than_decision and flag_unreconciled. What the System Health card reads. | Class: view | Writer: none (derived) | Readers: evidenceReads.getRoasteryEvidence, evidenceReads.getEvidenceSummary (admin System Health), reporting_ro | Since: 2026-10-18 (cupping evidence brief 3)$c$;
 COMMENT ON VIEW v_evidence_unmapped_words IS $c$Purpose: One row per distinct word x source (roaster form, roaster remark, roaster website, cupper notes) that reaches no SCA node: not mapped, not a node's name, not a stop word, never a struck word. The mapping queue. | Class: view | Writer: none (derived) | Readers: evidenceReads.getUnmappedWords, evidenceReads.getEvidenceSummary (admin System Health), reporting_ro | Since: 2026-10-18 (cupping evidence brief 3)$c$;
+-- ── Commerce 1: Stripe one-time checkout (2026-10-31) ──
+COMMENT ON TABLE commerce_parameter IS $c$Purpose: Every business number of checkout and (reserved) subscriptions: shipping_fee_cents, free_shipping_min_bags, checkout_session_expiry_minutes, tax_collection_enabled, stripe_tax_code_coffee, stripe_tax_code_shipping, admin_alert_email, subscription_discount_pct_1_bag, subscription_discount_pct_2plus_bags, subscription_frequency_weeks, collection_discount_pct, collection_min_members; with history, admin-editable in /admin/commerce, read through commerceParameters.commerceParam / commerceParamText (60 s cache), never typed into code; a change supersedes the current row | Class: operating | Writer: commerceParameters.setParameterInTx; seed | Readers: commerceParameters (cartResolver, checkoutService, blendResolver, coffees, fulfillment, orderEmails), commerceAdmin (Commerce parameters card), checkout.GET /api/checkout/rules | Since: 2026-10-31 (Commerce 1)$c$;
+COMMENT ON COLUMN commerce_parameter.id IS $c$Surrogate primary key; (key, since) is the natural key.$c$;
+COMMENT ON COLUMN commerce_parameter.key IS $c$Parameter name; one current row per key (partial unique index commerce_parameter_current).$c$;
+COMMENT ON COLUMN commerce_parameter.value_numeric IS $c$The value when the parameter is a number (cents, a count, a percent or a 0/1 switch, as the note says); NULL for a text parameter (exactly one of value_numeric, value_text is set).$c$;
+COMMENT ON COLUMN commerce_parameter.value_text IS $c$The value when the parameter is text (a Stripe tax code, an email address, a comma-separated list); NULL for a numeric parameter.$c$;
+COMMENT ON COLUMN commerce_parameter.since IS $c$UTC timestamp the value took effect.$c$;
+COMMENT ON COLUMN commerce_parameter.superseded_at IS $c$UTC timestamp a newer value replaced this one; NULL marks the current value. The only column the writer ever updates.$c$;
+COMMENT ON COLUMN commerce_parameter.note IS $c$What the parameter decides, ending with its sane range (Range: ...) for a number or its format (Format: email, integer list, stripe tax code) for text, both enforced by commerceParameters.setParameterInTx; a row written from the admin card appends the change date, the admin uid and the change note.$c$;
+COMMENT ON TABLE order_payment_status IS $c$Purpose: Lookup of an order's payment states (paid, refunded, partially_refunded), with the words Profile shows a customer | Class: master | Writer: seed | Readers: order_event.payment_status FK, v_order_status | Since: 2026-10-31 (Commerce 1)$c$;
+COMMENT ON COLUMN order_payment_status.id IS $c$Surrogate primary key; code is the natural key.$c$;
+COMMENT ON COLUMN order_payment_status.code IS $c$Status code, unique; one of paid, refunded, partially_refunded (spelling follows Stripe).$c$;
+COMMENT ON COLUMN order_payment_status.label IS $c$Admin-facing label.$c$;
+COMMENT ON COLUMN order_payment_status.customer_label IS $c$Customer-facing words for the state, shown on Profile through v_order_status.customer_label; nothing in the frontend types a status word.$c$;
+COMMENT ON TABLE order_fulfillment_status IS $c$Purpose: Lookup of an order's fulfillment states (pending legacy, awaiting_manual, placed, shipped, delivered, canceled, needs_attention), with the words Profile shows a customer and which states close an order | Class: master | Writer: seed | Readers: "order".fulfillment_status FK, order_event.fulfillment_status FK, v_order_status, catalogService (open orders per roaster, via v_order_status.is_closed) | Since: 2026-10-31 (Commerce 1)$c$;
+COMMENT ON COLUMN order_fulfillment_status.id IS $c$Surrogate primary key; code is the natural key.$c$;
+COMMENT ON COLUMN order_fulfillment_status.code IS $c$Status code, unique. pending is the pre-Stripe column default kept for legacy rows; canceled is spelled the Stripe way.$c$;
+COMMENT ON COLUMN order_fulfillment_status.label IS $c$Admin-facing label.$c$;
+COMMENT ON COLUMN order_fulfillment_status.customer_label IS $c$Customer-facing words, such as Paid · being roasted; needs_attention shows the same words as awaiting_manual (an internal problem is never shown to the customer).$c$;
+COMMENT ON COLUMN order_fulfillment_status.is_closed IS $c$True for the states that end an order (delivered, canceled); catalogService counts an order as open while this is false.$c$;
+COMMENT ON TABLE checkout_session IS $c$Purpose: One Stripe Checkout Session we created: a priced cart with a ships-to snapshot waiting for payment, not an order (an order is an immutable paid fact); open until the webhook completes or expires it | Class: operating | Writer: checkoutService.createCheckoutSession, checkoutService.completeCheckoutSession, checkoutService.expireCheckoutSession | Readers: checkoutService, checkout.GET /api/checkout/session/:id/status | Since: 2026-10-31 (Commerce 1)$c$;
+COMMENT ON COLUMN checkout_session.id IS $c$Surrogate UUID primary key; sent to Stripe as metadata.checkout_session_id and in the idempotency key checkout_session:<id>.$c$;
+COMMENT ON COLUMN checkout_session.user_id IS $c$FK to user_profile(id); the buyer.$c$;
+COMMENT ON COLUMN checkout_session.stripe_checkout_session_id IS $c$Stripe Checkout Session id (cs_...), unique; set right after Stripe creates the session.$c$;
+COMMENT ON COLUMN checkout_session.mode IS $c$payment (one-time, Commerce 1) or subscription (reserved for Commerce brief 2).$c$;
+COMMENT ON COLUMN checkout_session.status IS $c$open, complete (an order was written) or expired (Stripe expired it, or an async payment failed).$c$;
+COMMENT ON COLUMN checkout_session.cart_fingerprint IS $c$sha256 of the resolved lines, prices, shipping and address; a second checkout request with the same fingerprint while the session is open reuses it rather than creating another.$c$;
+COMMENT ON COLUMN checkout_session.subtotal_cents IS $c$Sum of line unit price times quantity, in cents, after line discounts, before shipping and tax.$c$;
+COMMENT ON COLUMN checkout_session.shipping_cents IS $c$Shipping charged, in cents: 0 at or above free_shipping_min_bags, else shipping_fee_cents (commerce_parameter, read at creation).$c$;
+COMMENT ON COLUMN checkout_session.bag_count IS $c$Bags in the cart: the sum of line quantities (a collection counts each member).$c$;
+COMMENT ON COLUMN checkout_session.shipping_address_id IS $c$FK to address(id); the saved address the snapshot was copied from.$c$;
+COMMENT ON COLUMN checkout_session.shipping_street IS $c$Street line of the ships-to snapshot, copied onto "order" on completion.$c$;
+COMMENT ON COLUMN checkout_session.shipping_city IS $c$City of the ships-to snapshot.$c$;
+COMMENT ON COLUMN checkout_session.shipping_state IS $c$State of the ships-to snapshot (two letters for US addresses).$c$;
+COMMENT ON COLUMN checkout_session.shipping_postal_code IS $c$Postal or ZIP code of the ships-to snapshot.$c$;
+COMMENT ON COLUMN checkout_session.shipping_country IS $c$Country of the ships-to snapshot (ISO code, US).$c$;
+COMMENT ON COLUMN checkout_session.order_id IS $c$FK to "order"(id); the order written on completion, NULL until then.$c$;
+COMMENT ON COLUMN checkout_session.created_at IS $c$UTC timestamp the session was created.$c$;
+COMMENT ON COLUMN checkout_session.expires_at IS $c$UTC timestamp Stripe expires the session (created_at plus checkout_session_expiry_minutes).$c$;
+COMMENT ON COLUMN checkout_session.completed_at IS $c$UTC timestamp the completion webhook wrote the order; NULL while open or after expiry.$c$;
+COMMENT ON TABLE checkout_session_line IS $c$Purpose: One priced line of a checkout session, resolved and price-checked server side (cartResolver) and copied onto order_line_item when the session completes | Class: operating | Writer: checkoutService.createCheckoutSession | Readers: checkoutService | Since: 2026-10-31 (Commerce 1)$c$;
+COMMENT ON COLUMN checkout_session_line.id IS $c$Surrogate UUID primary key.$c$;
+COMMENT ON COLUMN checkout_session_line.checkout_session_id IS $c$FK to checkout_session(id); the parent session.$c$;
+COMMENT ON COLUMN checkout_session_line.coffee_sku_id IS $c$FK to coffee_sku(id); the resolved SKU (becomes order_line_item.blend_id).$c$;
+COMMENT ON COLUMN checkout_session_line.coffee_id IS $c$FK to coffees(id); the resolved coffee, for the fulfillment email and the beats.$c$;
+COMMENT ON COLUMN checkout_session_line.display_name IS $c$House name at the time (platform name or coffee_alias), the name Stripe shows; never the roaster's coffee name.$c$;
+COMMENT ON COLUMN checkout_session_line.weight_oz IS $c$Bag weight in ounces.$c$;
+COMMENT ON COLUMN checkout_session_line.quantity IS $c$Bags on the line, at least 1.$c$;
+COMMENT ON COLUMN checkout_session_line.unit_price_cents IS $c$Price per bag charged, in cents, after any line discount (the server's price; a client price that differs is refused with 409).$c$;
+COMMENT ON COLUMN checkout_session_line.discount_cents IS $c$Discount per bag, in cents; non-zero only on collection member lines.$c$;
+COMMENT ON COLUMN checkout_session_line.intended_for_user_id IS $c$FK to user_profile(id); who the bag is for, the buyer unless they named a household member.$c$;
+COMMENT ON COLUMN checkout_session_line.order_kind IS $c$FK to customer_order_kind(code); copied onto order_line_item; manual for every one-time checkout.$c$;
+COMMENT ON COLUMN checkout_session_line.source IS $c$Which cart kind produced the line: dial (archetype + position), direct (a category coffee) or collection (one member of a whole-archetype set).$c$;
+COMMENT ON COLUMN checkout_session_line.archetype IS $c$Archetype key of a dial or collection line; NULL for a direct line.$c$;
+COMMENT ON COLUMN checkout_session_line.dial_sort_order IS $c$Dial position of a dial or collection member line; NULL for a direct line.$c$;
+COMMENT ON COLUMN checkout_session_line.created_at IS $c$UTC timestamp the line was written.$c$;
+COMMENT ON TABLE stripe_event IS $c$Purpose: Webhook idempotency ledger: one row per Stripe event received, with the payload and whether it was processed; a duplicate delivery is a no-op. Never purged (nothing-deleted rule): a few rows per order plus the occasional unrelated event, so it grows with orders | Class: operating | Writer: stripeWebhook.handleStripeWebhook | Readers: stripeWebhook | Since: 2026-10-31 (Commerce 1)$c$;
+COMMENT ON COLUMN stripe_event.id IS $c$Surrogate primary key.$c$;
+COMMENT ON COLUMN stripe_event.stripe_event_id IS $c$Stripe event id (evt_...), unique; the idempotency key.$c$;
+COMMENT ON COLUMN stripe_event.type IS $c$Stripe event type, such as checkout.session.completed.$c$;
+COMMENT ON COLUMN stripe_event.received_at IS $c$UTC timestamp of the first delivery.$c$;
+COMMENT ON COLUMN stripe_event.processed_at IS $c$UTC timestamp the handler finished; NULL while unprocessed or after an error (Stripe retries, and the retry processes it).$c$;
+COMMENT ON COLUMN stripe_event.error IS $c$The last handler error message; NULL once processed cleanly.$c$;
+COMMENT ON COLUMN stripe_event.payload IS $c$The full event as Stripe signed it (JSON).$c$;
+COMMENT ON TABLE order_event_kind IS $c$Purpose: Lookup of the things that can happen to an order after payment (paid, finalized, fulfillment_dispatched, fulfillment_placed, fulfillment_failed, fulfillment_needs_attention, shipped, delivered, canceled, refund_partial, refund_full) | Class: master | Writer: seed | Readers: order_event.event_kind FK | Since: 2026-10-31 (Commerce 1)$c$;
+COMMENT ON COLUMN order_event_kind.id IS $c$Surrogate primary key; code is the natural key.$c$;
+COMMENT ON COLUMN order_event_kind.code IS $c$Event kind code, unique.$c$;
+COMMENT ON COLUMN order_event_kind.label IS $c$Admin-facing label.$c$;
+COMMENT ON TABLE order_event IS $c$Purpose: Everything that happens to an order after it is paid, one insert-only row per event (D11 keeps "order" immutable): payment and refund states, finalization (with Liam's order-placed line as its note), fulfillment dispatch, failure and attention; read only through v_order_status | Class: fact | Writer: checkoutService.completeCheckoutSession, checkoutService.recordOrderEvent | Readers: v_order_status, checkoutService (finalized check) | Since: 2026-10-31 (Commerce 1)$c$;
+COMMENT ON COLUMN order_event.id IS $c$Surrogate primary key; with created_at, the order of events (latest wins in v_order_status).$c$;
+COMMENT ON COLUMN order_event.order_id IS $c$FK to "order"(id).$c$;
+COMMENT ON COLUMN order_event.event_kind IS $c$FK to order_event_kind(code); what happened. At most one finalized row per order (unique index order_event_one_finalized), which is finalizePaidOrder's idempotency.$c$;
+COMMENT ON COLUMN order_event.payment_status IS $c$FK to order_payment_status(code); the payment state from this event on, NULL when the event does not change it.$c$;
+COMMENT ON COLUMN order_event.fulfillment_status IS $c$FK to order_fulfillment_status(code); the fulfillment state from this event on, NULL when the event does not change it.$c$;
+COMMENT ON COLUMN order_event.amount_refunded_cents IS $c$Total refunded so far on the order, in cents (Stripe's cumulative charge.amount_refunded), on refund events; NULL otherwise.$c$;
+COMMENT ON COLUMN order_event.stripe_ref IS $c$The Stripe object behind the event (pi_..., ch_..., evt_...), when there is one.$c$;
+COMMENT ON COLUMN order_event.note IS $c$Free text: Liam's order-placed line on the finalized event, the error on a fulfillment_failed event, the adapter reference on fulfillment_placed.$c$;
+COMMENT ON COLUMN order_event.source IS $c$Who wrote it: webhook, finalizer, admin or cron.$c$;
+COMMENT ON COLUMN order_event.created_at IS $c$UTC timestamp of the event.$c$;
+COMMENT ON VIEW v_order_status IS $c$Purpose: One row per order with its current state, the only read path for order state: latest payment status, latest fulfillment status (falling back to the order's at-insert value), the customer label (the payment's when money went back, else the fulfillment's), refunded cents, finalized_at and Liam's order-placed line, all from order_event and the two status lookups | Class: view | Writer: none (view) | Readers: users.GET /api/users/profile (orders), orders.GET /api/orders, catalogService (open orders per roaster), checkoutService.getSessionStatus | Since: 2026-10-31 (Commerce 1)$c$;

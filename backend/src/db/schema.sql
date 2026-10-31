@@ -8931,6 +8931,250 @@ GRANT SELECT ON v_cupping_note_family, v_cupping_sheet_line, v_note_mapping_curr
   v_evidence_descriptor_consensus, v_coffee_customer_descriptor
   TO reporting_ro;
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- BEGIN COMMERCE 1 block (2026-10-31): Stripe one-time checkout
+-- backend/src/features/commerce/CLAUDE_CODE_PROMPT_COMMERCE_1_CHECKOUT.md
+--
+-- Two systems joined by the order: payment (Stripe; checkout_session until
+-- paid, stripe_event as the webhook ledger) and fulfillment (the adapter in
+-- services/fulfillment/). "order" + order_line_item stay insert-only facts
+-- (Customer Blueprint D11, Dana 2026-10-31): every later state of an order is
+-- an order_event row, read through v_order_status. One writer for
+-- checkout_session*, "order", order_line_item and order_event:
+-- services/checkoutService.ts. Business numbers: commerce_parameter.
+--
+-- Placed before the A2 grant loops so ab_app is granted the boot they appear.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- 1. Business numbers. A change is a new row that supersedes the current one
+-- (services/commerceParameters.ts, the only writer), never an UPDATE of a
+-- value; same shape as evidence_parameter plus a text value.
+CREATE TABLE IF NOT EXISTS commerce_parameter (
+  id            SERIAL PRIMARY KEY,
+  key           TEXT NOT NULL,
+  value_numeric NUMERIC,
+  value_text    TEXT,
+  since         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  superseded_at TIMESTAMPTZ,
+  note          TEXT,
+  UNIQUE (key, since),
+  CHECK ((value_numeric IS NULL) <> (value_text IS NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS commerce_parameter_current ON commerce_parameter (key) WHERE superseded_at IS NULL;
+-- Seeded once per key. Numeric notes end with the sane range the writer
+-- enforces ("Range: ..."); text notes end with the format it checks
+-- ("Format: ..."). Tax codes confirmed against GET /v1/tax_codes on
+-- 2026-10-31 (txcd_41050006 "Coffee Beans or Ground Coffee",
+-- txcd_92010001 "Shipping").
+INSERT INTO commerce_parameter (key, value_numeric, value_text, note)
+SELECT v.key, v.value_numeric, v.value_text, v.note FROM (VALUES
+  ('shipping_fee_cents',              595::numeric, NULL::text, 'Shipping charged, in cents, when the order holds fewer bags than free_shipping_min_bags. Range: integer 0 <= value <= 2000.'),
+  ('free_shipping_min_bags',          2,    NULL, 'Bag count at which shipping is free; every line quantity counts one bag per unit, a collection counts its members. Range: integer 1 <= value <= 10.'),
+  ('checkout_session_expiry_minutes', 30,   NULL, 'Minutes a Stripe Checkout Session stays open (Stripe minimum 30, maximum 1440). Range: integer 30 <= value <= 1440.'),
+  ('tax_collection_enabled',          1,    NULL, '1 = Stripe Tax computes tax on every charge, 0 = off. Range: integer 0 <= value <= 1.'),
+  ('stripe_tax_code_coffee',          NULL, 'txcd_41050006', 'Stripe product tax code for a bag of coffee ("Coffee Beans or Ground Coffee"; also the account''s preset category, set in the sandbox 2026-10-31). Format: stripe tax code.'),
+  ('stripe_tax_code_shipping',        NULL, 'txcd_92010001', 'Stripe tax code for the shipping charge ("Shipping", confirmed against the Tax Codes API 2026-10-31). Format: stripe tax code.'),
+  ('admin_alert_email',               NULL, 'dana@axisandbloomcoffee.com', 'Address that receives the per-paid-order email and the fulfillment attention email. Format: email.'),
+  ('subscription_discount_pct_1_bag',     5,  NULL, 'Reserved for Commerce brief 2: subscription discount, in percent, on a delivery of one bag. Range: 0 <= value <= 50.'),
+  ('subscription_discount_pct_2plus_bags', 10, NULL, 'Reserved for Commerce brief 2: subscription discount, in percent, on a delivery of two or more bags. Range: 0 <= value <= 50.'),
+  ('subscription_frequency_weeks',    NULL, '2,4,6', 'Reserved for Commerce brief 2: the delivery frequencies offered, in weeks, comma separated. Format: integer list.'),
+  ('collection_discount_pct',         10,   NULL, 'Discount, in percent, on a whole-archetype Collection (was COLLECTION_DISCOUNT in blendResolver.ts). Range: 0 <= value <= 50.'),
+  ('collection_min_members',          3,    NULL, 'Fewest purchasable positions an archetype needs before the Collection is offered (was COLLECTION_MIN_MEMBERS in blendResolver.ts). Range: integer 2 <= value <= 6.')
+) AS v(key, value_numeric, value_text, note)
+WHERE NOT EXISTS (SELECT 1 FROM commerce_parameter p WHERE p.key = v.key);
+
+-- 2. Status lookups. customer_label is what Profile shows, so no status word
+-- is typed into the frontend. Spelling settled: canceled (Stripe's).
+CREATE TABLE IF NOT EXISTS order_payment_status (
+  id             SERIAL PRIMARY KEY,
+  code           TEXT UNIQUE NOT NULL,
+  label          TEXT NOT NULL,
+  customer_label TEXT NOT NULL
+);
+INSERT INTO order_payment_status (code, label, customer_label) VALUES
+  ('paid',               'Paid',               'Paid'),
+  ('refunded',           'Refunded',           'Refunded'),
+  ('partially_refunded', 'Partially refunded', 'Partly refunded')
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS order_fulfillment_status (
+  id             SERIAL PRIMARY KEY,
+  code           TEXT UNIQUE NOT NULL,
+  label          TEXT NOT NULL,
+  customer_label TEXT NOT NULL,
+  is_closed      BOOLEAN NOT NULL DEFAULT false
+);
+INSERT INTO order_fulfillment_status (code, label, customer_label, is_closed) VALUES
+  ('pending',         'Pending (legacy, pre-Stripe default)', 'Being prepared',       false),
+  ('awaiting_manual', 'Awaiting manual fulfillment',          'Paid · being roasted', false),
+  ('placed',          'Placed with the roaster',              'Paid · being roasted', false),
+  ('shipped',         'Shipped',                              'On its way',           false),
+  ('delivered',       'Delivered',                            'Delivered',            true),
+  ('canceled',        'Canceled',                             'Canceled',             true),
+  ('needs_attention', 'Needs attention',                      'Paid · being roasted', false)
+ON CONFLICT (code) DO NOTHING;
+
+-- "order".fulfillment_status: the at-insert value only (checkoutService
+-- writes awaiting_manual once, never changes it); readers use v_order_status.
+-- Task 0 (2026-10-31): prod has 0 orders, so every row holds a seeded code.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'order_fulfillment_status_fkey') THEN
+    ALTER TABLE "order" ADD CONSTRAINT order_fulfillment_status_fkey
+      FOREIGN KEY (fulfillment_status) REFERENCES order_fulfillment_status(code);
+  END IF;
+END $$;
+
+-- 3. One Stripe Checkout Session we created: a cart waiting for payment.
+-- Not an order (an order is an immutable paid fact). Address snapshot
+-- columns carry the same names as "order"'s, copied onto it on completion.
+CREATE TABLE IF NOT EXISTS checkout_session (
+  id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id                    UUID NOT NULL REFERENCES user_profile(id),
+  stripe_checkout_session_id TEXT UNIQUE,
+  mode                       TEXT NOT NULL DEFAULT 'payment' CHECK (mode IN ('payment', 'subscription')),
+  status                     TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'complete', 'expired')),
+  cart_fingerprint           TEXT NOT NULL,
+  subtotal_cents             INT NOT NULL,
+  shipping_cents             INT NOT NULL,
+  bag_count                  INT NOT NULL,
+  shipping_address_id        UUID REFERENCES address(id),
+  shipping_street            TEXT,
+  shipping_city              TEXT,
+  shipping_state             TEXT,
+  shipping_postal_code       TEXT,
+  shipping_country           TEXT,
+  order_id                   UUID REFERENCES "order"(id),
+  created_at                 TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at                 TIMESTAMPTZ NOT NULL,
+  completed_at               TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_checkout_session_user_open ON checkout_session (user_id, cart_fingerprint) WHERE status = 'open';
+
+CREATE TABLE IF NOT EXISTS checkout_session_line (
+  id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  checkout_session_id  UUID NOT NULL REFERENCES checkout_session(id),
+  coffee_sku_id        UUID NOT NULL REFERENCES coffee_sku(id),
+  coffee_id            INT REFERENCES coffees(id),
+  display_name         TEXT NOT NULL,
+  weight_oz            NUMERIC NOT NULL,
+  quantity             INT NOT NULL CHECK (quantity > 0),
+  unit_price_cents     INT NOT NULL,
+  discount_cents       INT NOT NULL DEFAULT 0,
+  intended_for_user_id UUID REFERENCES user_profile(id),
+  order_kind           TEXT NOT NULL DEFAULT 'manual' REFERENCES customer_order_kind(code),
+  source               TEXT NOT NULL CHECK (source IN ('dial', 'direct', 'collection')),
+  archetype            TEXT,
+  dial_sort_order      INT,
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_checkout_session_line_session ON checkout_session_line (checkout_session_id);
+
+-- 4. Webhook idempotency ledger. One row per Stripe event id, kept forever
+-- (nothing-deleted rule); a few rows per order, so it grows with orders.
+CREATE TABLE IF NOT EXISTS stripe_event (
+  id              SERIAL PRIMARY KEY,
+  stripe_event_id TEXT UNIQUE NOT NULL,
+  type            TEXT NOT NULL,
+  received_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  processed_at    TIMESTAMPTZ,
+  error           TEXT,
+  payload         JSONB NOT NULL
+);
+
+-- 5. "order" / order_line_item additions: identifiers and snapshots written
+-- once at insert. No mutable state on "order" (D11): that is order_event.
+ALTER TABLE "order" ADD COLUMN IF NOT EXISTS checkout_session_id        UUID REFERENCES checkout_session(id);
+ALTER TABLE "order" ADD COLUMN IF NOT EXISTS stripe_checkout_session_id TEXT UNIQUE;
+ALTER TABLE "order" ADD COLUMN IF NOT EXISTS stripe_payment_intent_id   TEXT UNIQUE;
+ALTER TABLE "order" ADD COLUMN IF NOT EXISTS paid_at                    TIMESTAMPTZ;
+ALTER TABLE "order" ADD COLUMN IF NOT EXISTS fulfillment_roaster_id     UUID REFERENCES roaster(id);
+ALTER TABLE order_line_item ADD COLUMN IF NOT EXISTS display_name TEXT;
+ALTER TABLE order_line_item ADD COLUMN IF NOT EXISTS weight_oz    NUMERIC;
+CREATE UNIQUE INDEX IF NOT EXISTS user_profile_stripe_customer_id_key ON user_profile (stripe_customer_id) WHERE stripe_customer_id IS NOT NULL;
+
+-- 6. Everything that happens to an order after it is paid: insert-only.
+CREATE TABLE IF NOT EXISTS order_event_kind (
+  id    SERIAL PRIMARY KEY,
+  code  TEXT UNIQUE NOT NULL,
+  label TEXT NOT NULL
+);
+INSERT INTO order_event_kind (code, label) VALUES
+  ('paid',                        'Paid'),
+  ('finalized',                   'Post-order side effects run'),
+  ('fulfillment_dispatched',      'Sent to the fulfillment adapter'),
+  ('fulfillment_placed',          'Placed with the roaster'),
+  ('fulfillment_failed',          'Fulfillment attempt failed'),
+  ('fulfillment_needs_attention', 'Fulfillment needs attention'),
+  ('shipped',                     'Shipped'),
+  ('delivered',                   'Delivered'),
+  ('canceled',                    'Canceled'),
+  ('refund_partial',              'Partially refunded'),
+  ('refund_full',                 'Fully refunded')
+ON CONFLICT (code) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS order_event (
+  id                    SERIAL PRIMARY KEY,
+  order_id              UUID NOT NULL REFERENCES "order"(id),
+  event_kind            TEXT NOT NULL REFERENCES order_event_kind(code),
+  payment_status        TEXT REFERENCES order_payment_status(code),
+  fulfillment_status    TEXT REFERENCES order_fulfillment_status(code),
+  amount_refunded_cents INT,
+  stripe_ref            TEXT,
+  note                  TEXT,
+  source                TEXT NOT NULL CHECK (source IN ('webhook', 'finalizer', 'admin', 'cron')),
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_order_event_order ON order_event (order_id, created_at, id);
+-- One finalized event per order: finalizePaidOrder's idempotency, enforced.
+CREATE UNIQUE INDEX IF NOT EXISTS order_event_one_finalized ON order_event (order_id) WHERE event_kind = 'finalized';
+
+-- 7. The only read path for order state: one row per order. Latest wins
+-- (created_at, then id); the status labels come from the lookups. The
+-- customer label is the payment's when money went back, else the
+-- fulfillment's.
+CREATE OR REPLACE VIEW v_order_status AS
+SELECT o.id AS order_id,
+       o.user_id,
+       o.created_at,
+       o.paid_at,
+       ps.code AS payment_status,
+       ps.customer_label AS payment_customer_label,
+       fs.code AS fulfillment_status,
+       fs.label AS fulfillment_label,
+       fs.customer_label AS fulfillment_customer_label,
+       fs.is_closed,
+       CASE WHEN ps.code IS NOT NULL AND ps.code <> 'paid' THEN ps.customer_label ELSE fs.customer_label END AS customer_label,
+       COALESCE(rf.amount_refunded_cents, 0) AS amount_refunded_cents,
+       fin.created_at AS finalized_at,
+       fin.note AS order_placed_line
+FROM "order" o
+LEFT JOIN LATERAL (
+  SELECT e.payment_status FROM order_event e
+  WHERE e.order_id = o.id AND e.payment_status IS NOT NULL
+  ORDER BY e.created_at DESC, e.id DESC LIMIT 1
+) lp ON true
+LEFT JOIN LATERAL (
+  SELECT e.fulfillment_status FROM order_event e
+  WHERE e.order_id = o.id AND e.fulfillment_status IS NOT NULL
+  ORDER BY e.created_at DESC, e.id DESC LIMIT 1
+) lf ON true
+LEFT JOIN LATERAL (
+  SELECT e.amount_refunded_cents FROM order_event e
+  WHERE e.order_id = o.id AND e.amount_refunded_cents IS NOT NULL
+  ORDER BY e.created_at DESC, e.id DESC LIMIT 1
+) rf ON true
+LEFT JOIN LATERAL (
+  SELECT e.created_at, e.note FROM order_event e
+  WHERE e.order_id = o.id AND e.event_kind = 'finalized'
+  LIMIT 1
+) fin ON true
+LEFT JOIN order_payment_status ps ON ps.code = lp.payment_status
+LEFT JOIN order_fulfillment_status fs ON fs.code = COALESCE(lf.fulfillment_status, o.fulfillment_status);
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- END COMMERCE 1 block
+-- ═══════════════════════════════════════════════════════════════════════════
+
 -- A2. Prefix-driven grants, re-run every boot. A table's name decides its
 -- privileges, so a customer_* table added later (C2) is immutable from the
 -- boot that creates it, with no grant to remember.
@@ -9029,6 +9273,12 @@ REVOKE UPDATE, DELETE, TRUNCATE ON sommelier_eval_case, sommelier_eval_phrasing,
 GRANT UPDATE (superseded_at) ON sommelier_eval_case, sommelier_eval_phrasing, sommelier_reply_check TO ab_app;
 REVOKE UPDATE, DELETE, TRUNCATE ON sommelier_eval_run, sommelier_eval_result FROM ab_app;
 GRANT UPDATE (finished_at, phrasings, passed, failed, usd_micros, note) ON sommelier_eval_run TO ab_app;
+-- Commerce 1 (2026-10-31): order_event is an insert-only fact, the way
+-- "order" keeps D11 (every later state of an order is a new row); the
+-- commerce_parameter supersede is its writer's one UPDATE (superseded_at).
+REVOKE UPDATE, DELETE, TRUNCATE ON order_event FROM ab_app;
+REVOKE UPDATE, DELETE, TRUNCATE ON commerce_parameter FROM ab_app;
+GRANT UPDATE (superseded_at) ON commerce_parameter TO ab_app;
 GRANT SELECT ON v_roastery_remark, v_cupping_session, v_cupping_session_coffee TO reporting_ro;
 
 -- Quiz content is master data with one writer, the V7 seed in this file,
