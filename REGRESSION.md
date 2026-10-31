@@ -68,3 +68,15 @@ Living checklist of behaviors that must keep working across future changes. Crea
 
 - Any new Firestore query combining an equality filter with a range filter or an `orderBy` on a different field **will silently return nothing if its composite index doesn't exist** — the query throws, and every call site in this codebase catches broadly. Check `gcloud firestore indexes composite list` after adding one, don't assume it "just works" because `tsc` and a happy-path unit test pass.
 - `getAdjacentArchetypes()` — an empty result set from `archetype_relationship` is treated identically to "no adjacency data," not as an error; it will never trigger the hardcoded fallback map.
+
+## Commerce — Stripe one-time checkout (Commerce 1, 2026-10-31)
+
+Test mode until Commerce brief 4. Stripe test cards: `4242 4242 4242 4242` (success), `4000 0000 0000 0002` (decline), `4000 0025 0000 3155` (3D Secure). Full record: `backend/src/features/commerce/CLOSING_REPORT_1.md`.
+
+- [ ] **Success**: cart → `/checkout` → pay with 4242 → exactly one `"order"` row, its lines, a `paid` + `finalized` `order_event`, one admin new-order email, one customer confirmation email; `/checkout/return` shows Liam's line (or the fallback) and the cart empties; Profile → Orders shows "Paid · being roasted" and the real total (dollars, not 1/100).
+- [ ] **Decline**: 4000…0002 → Stripe shows the decline inline, no order, the session expires (`checkout_session.status = expired` after the expiry window).
+- [ ] **Replay**: resend `checkout.session.completed` from the Dashboard → 200 `duplicate: true`, no second order, no second email (`stripe_event` ledger + `order_event_one_finalized`).
+- [ ] **Shipping from data**: 1 bag → `shipping_fee_cents`; `free_shipping_min_bags` bags → free; change `shipping_fee_cents` on `/admin/commerce` → the next checkout charges it, no deploy.
+- [ ] **No roaster name** on the Stripe form, the return page, the customer email or Profile (the admin email is the only place the roaster coffee appears).
+- [ ] `POST /api/orders` answers 410 `use_checkout`; nothing but `checkoutService` writes `"order"` / `order_line_item` / `order_event` (`npm run lint:lineage`).
+- [ ] Boot log shows `[stripe] mode=test` (never `live` before brief 4).

@@ -2,7 +2,7 @@
 
 Brief: `CLAUDE_CODE_PROMPT_COMMERCE_1_CHECKOUT.md` · Session 2026-10-31 · Base commit `f58162c` (main == origin/main), prod rev `00803-9lk`.
 
-Status: **Task 0 done. Task 0.5 written, waiting on Dana.** Parts A–F not started.
+Status: **done in test mode; committed on `main`, not pushed (waiting on Dana's go).** Commits `e6d568f` (A), `b330ecd` (B), `0044099` (C), `2b01436` (D), `790f251` (E fix), plus the docs commit. After the push and first boot: `npm run catalog:md -- --expect-db axisandbloom` and commit `CATALOG.md` (it is generated from prod, which has the Commerce 1 schema only after that boot), then the post-deploy checks at the end of this report.
 
 ---
 
@@ -192,8 +192,110 @@ Written into `launch/00_manual-setup/MANUAL_SETUP_IDS.md` under "Stripe". Waitin
 - `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` in Secret Manager. As of 2026-10-31 07:35 `gcloud secrets list` shows neither.
 - The `VITE_STRIPE_PUBLISHABLE_KEY` value.
 
+**Resolved 2026-10-31:** both secrets exist; the publishable key is `pk_test_51UVkXO…`. The Cloud Run runtime service account (`892123729036-compute@`) has project-level `secretAccessor`, so no per-secret grant was needed. Stripe Tax was `pending` (missing head office): Dana added the head office (Union City, NJ) and an active NJ test registration during Part E.
+
 ---
 
-## Parts A–F
+## Why no existing table fits (Part A, plus Dana's decision A)
 
-_Not started._
+- **`commerce_parameter`:** `evidence_parameter` is the cupping-evidence rule store, read only through the evidence modules and documented as such; `marketing_config` is a three-key URL store with no history. Neither should grow a commerce vocabulary, and commerce needs text values (tax codes, an email, a list), which `evidence_parameter.value NUMERIC NOT NULL` cannot hold.
+- **`order_payment_status` / `order_fulfillment_status` / `order_event_kind`:** `customer_order_kind` is the line's origin (manual, renewal, gift), not a payment or fulfillment state, and has no customer label.
+- **`checkout_session` / `checkout_session_line`:** `"order"` is an immutable paid fact; a cart waiting for payment has a different lifecycle (open, complete, expired) and is mostly never paid. `user_payment_detail` is retired (Stripe holds payment methods); `roastery_shipment_details` stays reserved for brief 3.
+- **`stripe_event`:** no ledger of inbound webhooks exists. `api_event` captures mutating API requests with a redacted body and the response status, one row per request: it has no unique Stripe event id to dedupe on, no processed/error state for retries, and does not keep the full signed payload. The Stripe webhook is registered above `apiEventLog` (raw body), so it is not in `api_event` at all.
+- **`order_event` + `v_order_status` (decision A):** D11 keeps `"order"` insert-only for `ab_app`, so no existing table can hold the order's changing state. `roastery_shipment_details` is per shipment and reserved; `notification_log` is outbound messages. An insert-only event row per state change, read through one view, keeps D11 and gives a history for free.
+
+## Side effects moved (old → new)
+
+From `routes/orders.ts` POST at `f58162c` to `services/orderFinalizer.ts` `finalizePaidOrder` (runs on payment; idempotent on the `finalized` order_event under an advisory lock):
+
+| Side effect | Old (orders.ts @ f58162c) | New |
+|---|---|---|
+| Order-placed beat (Liam's line) | 245–257, before the response | `orderFinalizer.ts`, inside the claim transaction; the line is the `finalized` event's note, read by `/checkout/return` |
+| Order bonus tokens + Firestore `tokenBalance` sync | 271–300, inline SQL on `user_tokens` / `token_events` | `tokenService.grantTokens(uid, orderBonus, 'order_bonus', orderId)` (same SQL, same sync) |
+| `updateOrderOutcomes` | 303 | step `order_outcomes` (paid_at as the order time) |
+| `dispatchDelayedBeats` (+ `getBrewProfile`) | 324–334 | step `delayed_beats` |
+| `refreshLifecycleState` | 338–340 | step `lifecycle` |
+| (new) fulfillment | — | step `fulfillment` → `dispatchFulfillment` (manual adapter: admin email) |
+| (new) confirmation email | — | step `confirmation_email` → `sendOrderConfirmationEmail` |
+| Shopify `createOrder` | 181–186 | gone from the path (`services/shopify.ts` untouched until brief 4) |
+
+`record` (customerFacts), `computeBehavioralConfidence` and `writeDialPositionSignal` were never in the POST (feedback route only) and stay there.
+
+## Webhook event matrix (`routes/stripeWebhook.ts`)
+
+| Event | Handling |
+|---|---|
+| (any) bad signature | 400, nothing recorded |
+| (any) already processed | 200 `{ duplicate: true }`, nothing re-run |
+| `checkout.session.completed`, payment mode, `payment_status=paid` | `completeCheckoutSession` (order exactly once) → `finalizePaidOrder` |
+| `checkout.session.completed`, still unpaid (async method) | recorded, waits for `async_payment_*` |
+| `checkout.session.async_payment_succeeded` | as completed |
+| `checkout.session.async_payment_failed` | session expired + warning |
+| `checkout.session.expired` | session `expired` (no order) |
+| `charge.refunded` | `refund_partial` / `refund_full` order_event with Stripe's cumulative `amount_refunded` |
+| a completed session this DB never created | recorded with the reason, marked processed, 200, **never retried** (Dana's change 2) |
+| anything else (`payment_intent.payment_failed`, …) | recorded, marked processed |
+| handler error | `error` written, 500, Stripe retries; the retry runs it again |
+
+## `commerce_parameter` rows seeded
+
+| key | value | sane range / format |
+|---|---|---|
+| shipping_fee_cents | 595 | integer 0–2000 |
+| free_shipping_min_bags | 2 | integer 1–10 |
+| checkout_session_expiry_minutes | 30 | integer 30–1440 |
+| tax_collection_enabled | 1 | integer 0–1 |
+| stripe_tax_code_coffee | txcd_41050006 | stripe tax code (API: "Coffee Beans or Ground Coffee") |
+| stripe_tax_code_shipping | txcd_92010001 | stripe tax code (API: "Shipping") |
+| admin_alert_email | dana@axisandbloomcoffee.com | email |
+| subscription_discount_pct_1_bag | 5 | 0–50 (brief 2) |
+| subscription_discount_pct_2plus_bags | 10 | 0–50 (brief 2) |
+| subscription_frequency_weeks | 2,4,6 | integer list (brief 2) |
+| collection_discount_pct | 10 | 0–50 (decision C, was COLLECTION_DISCOUNT) |
+| collection_min_members | 3 | integer 2–6 (decision C, was COLLECTION_MIN_MEMBERS) |
+
+## Part E — how each step was verified
+
+Run on 2026-10-31 in Stripe **test mode**, against a local backend on **`axisandbloom_test`** (prod untouched), browser driven through the Chrome extension with Dana signed in as `danabar.mail+checkout1@gmail.com` (customer; kept, per Dana). The Stripe CLI could not be installed (download blocked), so `backend/tmp/stripe-relay.ts` read the account's real events from the Events API and posted them to the local webhook, signed with a local test secret through stripe-node's `generateTestHeaderString`. Stripe's own delivery to the prod URL is therefore a post-deploy check.
+
+| Step | Result |
+|---|---|
+| 4242, 1 bag, Union City NJ | order `3d2003bd…`: $29.00 + $5.95 shipping + $0 tax = $34.95 (fee $1.31); one `order`, one line "Classic Balanced" 12 oz; events paid → finalized (Liam's line) → fulfillment_dispatched (awaiting_manual); `v_order_status` "Paid · being roasted"; admin email to dana@ and confirmation to the customer, both with Resend ids; order_bonus +10 in `token_events`; beats order_placed, arrival_note, dial_in. Return page showed Liam's line, the line, ships-to, $34.95 |
+| 4000 0000 0000 0002 | declined inline by Stripe ("Your credit card was declined…"); no order, no email; `payment_intent.payment_failed` recorded and processed; the session stayed open |
+| 4000 0025 0000 3155 (3DS) | Stripe's test challenge, Complete → order `8a7d757a…`, $34.95, both emails, return page with a second Liam line |
+| Replay `evt_1UWchu0QYxZQN6jDNciRyLWi` | 200 `duplicate: true`; still 2 orders and 4 emails |
+| 2 bags | our summary "Free shipping $0.00"; Stripe "Shipping · Free shipping · Free", total $58.00 |
+| Session expiry | the 2-bag session expired through the Stripe API (as at the 30-minute window) → `checkout.session.expired` → `expired`, no order |
+| `shipping_fee_cents` 595 → 650 | through `commerceParameters.setParameter` (the admin route's door; Dana checks the `/admin/commerce` page on her own account): the running backend served 650 after 15 s, no restart; cart and Stripe showed $6.50 (total $35.50); restored to 595 (another superseding row) |
+| Tax, NJ registration active | coffee: $0, `taxability_reason: product_exempt` under NJ sales tax 6.625%; **shipping line: `amount_tax: 0`** on $5.95; `total_details.amount_tax` 0 |
+| No roaster name | searched for the roaster ("Joe Coffee Company") and its coffee name ("Benchmark") in the Stripe line items, the status route payload (return page), the rendered customer email and the Profile order rows: all clean; only the internal admin email carries them, by design |
+| Standing trio (`launch/REGRESSION.md`) | not run: it checks the live site, so it runs after the deploy |
+
+Found and fixed during Part E: `/checkout` treated a failed profile read as "no saved addresses" and showed the add-address form (a duplicate address per retry). It now creates the session without an address id; the server ships to the default and returns the snapshot (`790f251`). Locally the profile read always fails because `GET /api/users/profile` writes Firestore and the dev write guard blocks it; the order-bonus Firestore sync is blocked the same way (the SQL grant committed). Both are local-only.
+
+Noticed, not changed: Embedded Checkout also offers Cash App Pay, Klarna, Affirm, Bank, Link and Amazon Pay (account payment-method settings; the brief names card, Apple Pay, Google Pay; Bank/Klarna are async and handled by `async_payment_*`). The 3DS page names the merchant "CREATIVE BOX LLC SANDB" (sandbox public details, brief 4).
+
+## Tests
+
+New: `commerceParameters.test.ts`, `cartResolver.test.ts`, `checkoutService.test.ts` (test DB, Stripe mocked; carries orders.stock's "never touches coffee_sku"), `stripeWebhook.test.ts` (incl. the unknown-session case), `orderFinalizer.test.ts`, `fulfillment/fulfillment.test.ts`; `orders.stock.test.ts` now asserts the 410. `sommelierGate.test.ts` expects `checkoutService`. Full suite 1,040 passed; failures: exactly the 7 known (quizScoring 6, schema.catalog_blueprint `dial_position_signal` 1, not fixed per Dana) plus 5 s timeouts under Cloud SQL latency in palateReads / coffeePresentation / cuppingImmutability / customerIntegrity / evidenceViews / sommelierAnswer, which all pass with `--testTimeout=30000` (139/139). `comments.format`, the six lints including `lint:lineage`, typecheck and `vite build` green.
+
+## Anything still creating or reading orders outside `checkoutService`
+
+- **Writers:** none. `checkoutService` is the only writer of `"order"`, `order_line_item`, `order_event`, `checkout_session*` (lineage: no undeclared writers). The SQL seeds and test fixtures write `order_line_item` as before.
+- **State readers:** only through `v_order_status` (`routes/orders.ts` GET, `routes/users.ts` profile, `catalogService` open orders, `checkoutService` status). Nothing reads `"order".fulfillment_status` directly.
+- **Fact readers (dates, lines, coffees; unchanged):** `routes/admin.ts`, `behavioralConfidence`, `brewCard`, `customerIntegrity`, `customerReads`, `customerFacts`, `engagementMetrics`, `qrDoor`, `userSignals`, `sommelierIntegrity` (lineage).
+
+## What brief 2 (subscriptions) will need from this code
+
+- `checkout_session.mode = 'subscription'` is reserved; the first subscription checkout can save the card (`mode: 'setup'` or `payment_intent_data.setup_future_usage`) on the customer `stripe.getOrCreateStripeCustomer` already creates.
+- Each renewal charge should land through the same door: a session-less completion path in `checkoutService` writing `"order"` with `is_subscription = true` and `order_kind = 'subscription_renewal'`, then `finalizePaidOrder` unchanged.
+- The discounts and frequencies are already `commerce_parameter` rows (`subscription_discount_pct_*`, `subscription_frequency_weeks`); `cartResolver.shippingFor` is the shared shipping rule.
+- The renewal cron writes events with `source: 'cron'` (already allowed in `order_event.source`).
+
+## Post-deploy checks (Dana)
+
+1. Push → deploy green → boot log `[stripe] mode=test`, `DB schema verified`.
+2. `npm run catalog:md -- --expect-db axisandbloom`, commit `CATALOG.md`.
+3. One 4242 purchase on prod (`?preview=true`, `/checkout` is behind the pre-launch gate): Stripe's real delivery to `/api/webhooks/stripe` → order, both emails, Profile shows "Paid · being roasted" and the right total.
+4. Stripe Dashboard → the endpoint's delivery log: the local-run events show as 200 `unknownSession` from then on (OT-60).
+5. Standing regression trio on the live site (`launch/REGRESSION.md`) and the new Commerce section of `REGRESSION.md`.

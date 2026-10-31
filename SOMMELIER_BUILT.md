@@ -1851,3 +1851,10 @@ Full diagnosis, evidence, and verification in `WHAT_WE_BUILT.md` #166; the S17 d
 
 **Pointer entry**, full record in `WHAT_WE_BUILT.md` #245.
 - A question copied from a real chat into the eval set now keeps the Liam message it was answering, so "How much is it?" is asked right after the Coado recommendation it followed, and the price check passes.
+
+#### S125. Liam's order-placed line now fires on payment, not on checkout (2026-10-31)
+
+**Pointer entry**, full record in `WHAT_WE_BUILT.md` #246 (Commerce 1, Stripe checkout).
+- The order-placed beat, the delayed beats (arrival note, dial-in), the outcome tracker and the lifecycle refresh run once Stripe confirms payment (`services/orderFinalizer.ts`), never on a checkout attempt; Liam's one line is stored on the order's `finalized` event and shown on `/checkout/return`. Same functions, same arguments as before.
+- The order bonus tokens go through `tokenService.grantTokens` instead of inline SQL.
+- Liam health check 10 now expects `checkoutService` as the checkout writer of `"order"`. Real order states now exist (`v_order_status.customer_label`, e.g. "Paid · being roasted"); `order_status` still answers `order_status_unavailable` until a Liam brief reads them (OPEN_TASKS OT-61, Dana's call).

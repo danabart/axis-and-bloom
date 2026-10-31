@@ -92,8 +92,10 @@ firebase deploy --only firestore:indexes --project axis-and-bloom-prod
 
 ---
 
-### OT-6: Shopify ordering
-The order route (`POST /api/orders`) calls `createOrder()` from `backend/src/services/shopify.ts` which is stubbed. Orders cannot actually be placed until the roastery Shopify account is set up.
+### OT-6: Shopify ordering → Stripe checkout (test mode)
+**Superseded 2026-10-31 by Commerce 1 (WHAT_WE_BUILT #246):** checkout is live in Stripe **test mode** through `/checkout` (Stripe Embedded Checkout); `POST /api/orders` answers 410 `use_checkout`; an order is written only by the Stripe webhook; fulfillment is manual (an email per paid order to `admin_alert_email`) until a roaster adapter exists (OT-58). Live keys: Commerce brief 4. `services/shopify.ts` and the `SHOPIFY_*` secrets stay until brief 4 drops them.
+
+Original note: the order route (`POST /api/orders`) calls `createOrder()` from `backend/src/services/shopify.ts` which is stubbed. Orders cannot actually be placed until the roastery Shopify account is set up.
 
 **When ready:**
 - Set up roastery Shopify account
@@ -402,6 +404,22 @@ The `customer_orders` facts list the orders newest first and, since #243, say to
 
 The `shipping` case checks `must_contain_answer shipping` on all five phrasings; four ask about time, cost or free shipping, and Sonnet points to Dana without the US-only line (1/5 in run 8). Either those phrasings get their own check ("points to a person for time and cost") or a brand rule asks for the US-only line with any shipping question; Dana's call.
 
+### OT-58: ShipStation roaster adapter (Commerce 1, 2026-10-31)
+
+Every paid order goes to the manual adapter (`services/fulfillment/manual.ts`: an email to `admin_alert_email`), including orders whose `"order".fulfillment_roaster_id` is set: `fulfillment/index.ts` `adapterFor` has the `// seam: roaster adapters` comment where a roaster's adapter plugs in. Build the ShipStation adapter (a separate thread, per the commerce README) behind the same `FulfillmentAdapter.placeOrder` contract; it records `fulfillment_placed` through `checkoutService.recordOrderEvent`.
+
+### OT-59: mixed-roaster order split (Commerce 1, 2026-10-31)
+
+One cart can resolve to SKUs from several roasteries (dial slots fall back across roasters). The order is one row with one `fulfillment_roaster_id` (NULL = manual), and the manual email lists each line's roaster. Before roaster adapters place orders automatically, decide how a multi-roaster order splits into shipments (`roastery_shipment_details`, `order_line_item.shipment_id`, both reserved) and what the customer sees.
+
+### OT-60: test-mode Stripe events to the prod endpoint (Commerce 1, 2026-10-31)
+
+The sandbox's one webhook endpoint (`we_1UWaPO0QYxZQN6jDi2Y9lp6q`) points at prod Cloud Run, so every test-mode event, including the local Part E acceptance runs against `axisandbloom_test`, is also delivered there. Before the Commerce 1 deploy prod answers 404 (Stripe retries for up to 3 days and emails about failures); after it, prod records an unknown session's event and answers 200 (`UnknownCheckoutSessionError`). Consider a second, local-only endpoint or the Stripe CLI for dev runs.
+
+### OT-61: Liam's order_status could read v_order_status (Commerce 1, 2026-10-31)
+
+`order_status` answers with `order_status_unavailable` because no fulfillment state was ever written. Commerce 1 writes real states as `order_event` rows (`v_order_status.customer_label`). Liam health check 10 now expects `checkoutService` as the checkout writer; wiring the gate's `customer_orders` resolver to say "Paid · being roasted" is a Liam brief, Dana's call.
+
 ### OT-19: `quizScoring.test.ts` — 12 pre-existing failures, not touched by Customer Blueprint C1 (found 2026-09-27)
 
 Found running the full `npm test` suite as part of Customer Blueprint C1's Part I verification (`git status`/`git log` confirm `backend/src/services/quizScoring.ts` and its test have no uncommitted diff and were last touched by commit `8edcac0`, already on `main` — this session never opened either file). **Pre-existing on `main` at `6f34238`, not introduced or touched by C1.** Not fixed here — out of scope for this brief.
@@ -428,7 +446,7 @@ Found running the full `npm test` suite as part of Customer Blueprint C1's Part 
 | — | OT-3: Phone number UI in Profile | ⏳ Pending |
 | — | OT-4: Twilio wiring | ⏳ Pending (needs roastery account) |
 | — | OT-5: Firestore security rule for config/* | ⏳ Pending |
-| — | OT-6: Shopify ordering | ⏳ Pending (needs roastery account) |
+| 2026-10-31 | OT-6: Shopify ordering → Stripe one-time checkout, test mode (Commerce 1, #246) | ✅ Done in test mode (live keys: Commerce brief 4) |
 | — | OT-7: Orders table migration (old → normalized) | ⏳ Pending |
 | — | OT-8: Apple Sign-In | ⏳ Pending |
 | — | OT-9: Token purchase (Stripe) | ⏳ Pending |
@@ -449,6 +467,10 @@ Found running the full `npm test` suite as part of Customer Blueprint C1's Part 
 | 2026-10-06 | OT-36: stale `dist/` test copies (liamProfile, palateReads, lintCatalog) fail under `npm test`, plus the OT-19 quizScoring baseline; suggest excluding `dist/**` in `vitest.config.ts` | Open |
 | 2026-10-24 | OT-37: Liam brand answers — Dana sets `maxTurns` 16 (eight drift rows, not the OT-27 ones) and rewrites `what_you_get` without "12 oz" in the Liam answers card | Open |
 | 2026-10-24 | OT-38: Liam invents a "last order" on the opening turn for a customer with no orders (opening template) | ✅ Resolved by #237 |
-| 2026-10-24 | OT-39: the Profile page shows `fulfillment_status` (always pending) and `next_delivery_date` (never written) | Open |
+| 2026-10-24 | OT-39: the Profile page shows `fulfillment_status` (always pending) and `next_delivery_date` (never written) | Orders half done 2026-10-31 (Commerce 1: `customer_label` from `v_order_status`, total fixed); `next_delivery_date` open (Commerce brief 2) |
 | 2026-10-24 | OT-40: Liam declines to recommend at all without a quiz; rule wording is Dana's call | Open |
 | 2026-10-24 | OT-41: retire `topicLog` / `token_events usage_log` once `engagementMetrics` and `sommelierGuards` read `sommelier_turn` | Open |
+| 2026-10-31 | OT-58: ShipStation roaster adapter | Open |
+| 2026-10-31 | OT-59: mixed-roaster order split | Open |
+| 2026-10-31 | OT-60: test-mode Stripe events also reach the prod endpoint | Open |
+| 2026-10-31 | OT-61: Liam order_status could read v_order_status | Open (Dana's call) |
