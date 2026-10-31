@@ -42,7 +42,7 @@ router.post('/session', requireAuth, blockAnonymousAuth, sessionLimiter, async (
   try {
     const { items, shippingAddressId } = req.body ?? {};
     const result = await createCheckoutSession({ uid: req.uid!, email: req.email ?? null, items, shippingAddressId: shippingAddressId ?? null });
-    res.json({ clientSecret: result.clientSecret, checkoutSessionId: result.checkoutSessionId });
+    res.json({ clientSecret: result.clientSecret, checkoutSessionId: result.checkoutSessionId, shipsTo: result.shipsTo });
   } catch (err) { sendError(res, err, 'session'); }
 });
 

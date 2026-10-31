@@ -3,7 +3,7 @@ import { Link, Navigate } from 'react-router';
 import { loadStripe } from '@stripe/stripe-js';
 import { EmbeddedCheckoutProvider, EmbeddedCheckout } from '@stripe/react-stripe-js';
 import { useCart, toCheckoutItems } from '../../context/CartContext';
-import { getUserProfile, createCheckoutSession, CheckoutApiError } from '../../lib/api';
+import { getUserProfile, createCheckoutSession, CheckoutApiError, type ShipsTo } from '../../lib/api';
 import { reportError } from '../../lib/errorReporter';
 import { CartLines, ShippingLine, cartSubtotalCents, shippingCentsFor, useCheckoutRules } from '../bloom/CartLines';
 import { formatPrice } from '../bloom/types';
@@ -17,6 +17,10 @@ import AddressForm, { type SavedAddress } from '../profile/AddressForm';
 // the provider, so a 409 (price changed / unavailable), 422 (no address) or
 // 503 (checkout not configured) shows here, inline, in the site's own words.
 // Prices are never decided here: the server re-prices every line.
+// If the profile (the saved addresses) cannot be read, the session is created
+// without an address id: the server ships to the default shipping address and
+// returns that snapshot, shown here; only a 422 (truly no address) opens the
+// form, so a failed read never makes the customer add a duplicate address.
 
 const PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY as string | undefined;
 // loadStripe once, at module level (Stripe's own guidance), only when a key is built in.
@@ -35,6 +39,8 @@ export default function CheckoutPage() {
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [error, setError] = useState<CheckoutErrorState | null>(null);
   const [creating, setCreating] = useState(false);
+  const [profileFailed, setProfileFailed] = useState(false);
+  const [sessionShipsTo, setSessionShipsTo] = useState<ShipsTo | null>(null);
 
   useEffect(() => {
     getUserProfile()
@@ -44,7 +50,7 @@ export default function CheckoutPage() {
         const preferred = shipping.find(a => a.is_default) ?? shipping[0] ?? null;
         setSelectedId(preferred?.id ?? null);
       })
-      .catch(err => { reportError('[Checkout/profile]', err); setAddresses([]); });
+      .catch(err => { reportError('[Checkout/profile]', err); setProfileFailed(true); setAddresses([]); });
   }, []);
 
   const items = useMemo(() => toCheckoutItems(cart), [cart]);
@@ -52,12 +58,13 @@ export default function CheckoutPage() {
 
   // One Stripe session per (cart, ships-to); the server reuses an open one for the same cart.
   useEffect(() => {
-    if (!selectedId || !cart.length) return;
+    if (!cart.length || addresses === null) return;
+    if (!selectedId && !profileFailed) return; // no saved address: the form is showing
     if (!PUBLISHABLE_KEY) { setError({ status: 503, code: 'checkout_unavailable', message: NOT_LIVE_COPY }); return; }
     let cancelled = false;
     setCreating(true); setError(null); setClientSecret(null);
     createCheckoutSession({ items, shippingAddressId: selectedId })
-      .then(r => { if (!cancelled) setClientSecret(r.clientSecret); })
+      .then(r => { if (!cancelled) { setClientSecret(r.clientSecret); setSessionShipsTo(r.shipsTo); } })
       .catch(err => {
         if (cancelled) return;
         if (err instanceof CheckoutApiError) {
@@ -71,7 +78,7 @@ export default function CheckoutPage() {
       .finally(() => { if (!cancelled) setCreating(false); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId, itemsKey]);
+  }, [selectedId, itemsKey, addresses === null, profileFailed]);
 
   if (!cart.length) return <Navigate to="/bloom" replace />;
 
@@ -130,7 +137,20 @@ export default function CheckoutPage() {
                   </button>
                 </div>
               )}
-              {(addresses.length === 0 || addingAddress) && (
+              {profileFailed && !selectedId && !addingAddress && sessionShipsTo && (
+                <div className="flex flex-col gap-3">
+                  <div className="p-4 bg-white/40" style={{ border: '1px solid #a33726' }}>
+                    <p className="text-sm text-[#a33726]">{sessionShipsTo.street}</p>
+                    <p className="text-sm text-[#a33726]/70">{sessionShipsTo.city}, {sessionShipsTo.state} {sessionShipsTo.postalCode}</p>
+                    <p className="text-sm text-[#a33726]/50">{sessionShipsTo.country}</p>
+                  </div>
+                  <button type="button" onClick={() => setAddingAddress(true)}
+                    className="text-[10px] uppercase tracking-[0.2em] text-[#a33726]/50 hover:text-[#a33726] border-b border-[#a33726]/20 pb-1 w-fit">
+                    + Ship somewhere else
+                  </button>
+                </div>
+              )}
+              {((addresses.length === 0 && !profileFailed) || addingAddress) && (
                 <AddressForm
                   addressType="shipping"
                   submitLabel="Ship here"
@@ -152,7 +172,7 @@ export default function CheckoutPage() {
             </p>
           )}
 
-          {selected && !addingAddress && (
+          {(selected || profileFailed) && !addingAddress && (
             <div className="bg-white rounded-lg overflow-hidden min-h-[200px]">
               {creating && !clientSecret && <p className="text-sm text-[#a33726]/60 p-6">Preparing secure payment…</p>}
               {clientSecret && stripePromise && (

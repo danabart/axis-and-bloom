@@ -82,7 +82,9 @@ export async function getCheckoutRules(): Promise<CheckoutRules> {
   return res.json();
 }
 
-export async function createCheckoutSession(body: { items: CheckoutItem[]; shippingAddressId?: string | null }): Promise<{ clientSecret: string; checkoutSessionId: string }> {
+export interface ShipsTo { street: string; city: string; state: string; postalCode: string; country: string }
+
+export async function createCheckoutSession(body: { items: CheckoutItem[]; shippingAddressId?: string | null }): Promise<{ clientSecret: string; checkoutSessionId: string; shipsTo: ShipsTo }> {
   const res = await fetch(`${BASE}/checkout/session`, {
     method: 'POST',
     headers: await getHeaders(),

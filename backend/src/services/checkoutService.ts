@@ -38,6 +38,8 @@ interface ShipTo {
   street: string; city: string; state: string; postal_code: string; country: string;
 }
 
+const shipsToOf = (s: ShipTo): ShipsTo => ({ street: s.street, city: s.city, state: s.state, postalCode: s.postal_code, country: s.country });
+
 async function resolveShipTo(userId: string, shippingAddressId?: string | null): Promise<ShipTo> {
   const r = await db.query<ShipTo>(
     `SELECT id, street, city, state, postal_code, country FROM address
@@ -81,7 +83,9 @@ export interface CreateCheckoutInput {
   items: Array<CartItemInput & { intendedForUserId?: string | null }>;
   shippingAddressId?: string | null;
 }
-export interface CreateCheckoutResult { clientSecret: string; checkoutSessionId: string; reused: boolean }
+export interface ShipsTo { street: string; city: string; state: string; postalCode: string; country: string }
+/** shipsTo: the snapshot the session ships to (the given address, else the profile's default), so the page can show it even when it could not load the profile. */
+export interface CreateCheckoutResult { clientSecret: string; checkoutSessionId: string; reused: boolean; shipsTo: ShipsTo }
 
 export async function createCheckoutSession(input: CreateCheckoutInput): Promise<CreateCheckoutResult> {
   if (!STRIPE_ENABLED) throw new CheckoutError(503, 'checkout_unavailable', 'Checkout is not available yet.');
@@ -105,7 +109,7 @@ export async function createCheckoutSession(input: CreateCheckoutInput): Promise
   if (open) {
     const existing = await stripe().checkout.sessions.retrieve(open.stripe_checkout_session_id!);
     if (existing.status === 'open' && existing.client_secret) {
-      return { clientSecret: existing.client_secret, checkoutSessionId: open.id, reused: true };
+      return { clientSecret: existing.client_secret, checkoutSessionId: open.id, reused: true, shipsTo: shipsToOf(shipTo) };
     }
     if (existing.status === 'expired') await expireCheckoutSession(existing.id);
   }
@@ -185,7 +189,7 @@ export async function createCheckoutSession(input: CreateCheckoutInput): Promise
 
     await db.query(`UPDATE checkout_session SET stripe_checkout_session_id = $1 WHERE id = $2`, [session.id, sessionId]);
     if (!session.client_secret) throw new Error('Stripe returned no client_secret for an embedded session');
-    return { clientSecret: session.client_secret, checkoutSessionId: sessionId, reused: false };
+    return { clientSecret: session.client_secret, checkoutSessionId: sessionId, reused: false, shipsTo: shipsToOf(shipTo) };
   } catch (err) {
     // A session Stripe never opened must not stay open here.
     await db.query(`UPDATE checkout_session SET status = 'expired' WHERE id = $1 AND status = 'open'`, [sessionId]).catch(() => undefined);
