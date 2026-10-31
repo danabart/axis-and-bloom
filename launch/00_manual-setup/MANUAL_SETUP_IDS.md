@@ -59,6 +59,12 @@ $f="$env:TEMP\s.txt"; [IO.File]::WriteAllText($f,(Read-Host "whsec value"));   g
 (Or create them in the Console: Secret Manager → Create secret.)
 The Cloud Run runtime service account needs `roles/secretmanager.secretAccessor` on both. It already has it project-wide if the other secrets resolve; that gets checked before the deploy that adds them.
 
+**Stripe Tax is off at launch** (Dana, 2026-10-31): `commerce_parameter.tax_collection_enabled` = 0, since NJ exempts packaged coffee and there is no nexus in any other state (Tax Basic costs $0.50 per transaction). To turn it on when a state requires it:
+1. Stripe Dashboard → Tax → Registrations: add the state's registration (in the same mode, test or live, as the keys in use).
+2. `/admin/commerce`: set `tax_collection_enabled` to 1. The next checkout and the next renewal invoice compute tax; no deploy.
+
+Fees on this account (Settings → Plans and fees, 2026-10-31): Payments 2.9% + 30¢ per domestic card charge; Invoicing Starter 0.4% per paid one-time invoice, no cap; Tax Basic $0.50 per API transaction; Billing 0.7%, not used.
+
 Mode (test/live) is derived from the key prefix at boot and logged once as `[stripe] mode=test|live|disabled`. Without `STRIPE_SECRET_KEY`, checkout answers 503 `checkout_unavailable` and the cart shows the "not live yet" copy.
 
 ### Commerce 2 — subscriptions (added 2026-10-31)
@@ -78,7 +84,7 @@ $env:CLOUDSDK_PYTHON = "C:\Python313\python.exe"; $s = (gcloud secrets versions 
 ```
 Check: `gcloud scheduler jobs run subscription-daily --location=us-central1 --project=axis-and-bloom-prod`. The Cloud Run log should then show `[cron/subscription-daily]` with counts and a 200. The job is safe to run twice a day: a cycle already attempted is skipped.
 
-Stripe Invoicing fee: the public pricing page (stripe.com/invoicing/pricing, read 2026-10-31) lists Starter at 0.4% per paid invoice and Plus at 0.5%, with no cap shown. The brief's "capped at $2" was from memory. The figure for this account is on Dashboard → Settings → Billing → Invoices; record it here when it is checked. Each renewal also pays the card fee (renewal `in_1UWgMi0QYxZQN6jD3b3e7vlF`, $33.50: $1.27) and the Stripe Tax fee.
+Stripe Invoicing fee, confirmed on this account (Dana, 2026-10-31): Starter, 0.4% per paid one-time invoice, no cap. Each renewal also pays the card fee (renewal `in_1UWgMi0QYxZQN6jD3b3e7vlF`, $33.50: $1.27), and the Stripe Tax fee only while `tax_collection_enabled` = 1 (all fees: Stripe section above).
 
 Note (Task 0, 2026-10-31): `sponsored-subscription-check` and `expire-company-gift-codes` still have no scheduler jobs (OT-13). `gcloud scheduler jobs list` shows only `purge-stale-anonymous-guests`, `liam-gate-offline` and `coffee-content-backfill`.
 

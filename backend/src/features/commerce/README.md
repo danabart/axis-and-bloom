@@ -14,6 +14,7 @@ Standing decisions (Dana, 2026-10-29):
 - Every business number is a `commerce_parameter` row, editable in the admin portal: shipping fee ($5.95 start), free-shipping bag count (2), subscription discounts (5% one bag, 10% two or more bags per delivery), frequencies (2/4/6 weeks), tax switch, alert email.
 - Shipping rule is the same for one-time orders and subscriptions.
 - Tax: the LLC holds an NJ sales tax registration; Stripe Tax computes per charge (packaged coffee is exempt in NJ, so it returns $0 on coffee; other states as nexus is reached).
+  - **Off at launch** (Dana, 2026-10-31): `tax_collection_enabled` = 0, since it costs $0.50 per transaction and returns $0 today. Flip-on procedure in `launch/00_manual-setup/MANUAL_SETUP_IDS.md` → Stripe.
 - Subscriptions do not use Stripe Billing plans: Stripe stores the card, our cron runs the schedule and charges the computed amount each cycle.
 - Roasteries are fulfillment-only; the customer never sees a roaster name. ShipStation plugs into the fulfillment adapter in a separate thread.
 - Test mode throughout briefs 1–3. Live keys only in brief 4, with Dana in the session.

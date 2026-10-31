@@ -222,7 +222,13 @@ Written into `launch/00_manual-setup/MANUAL_SETUP_IDS.md` → Stripe → "Commer
 | 2a. Retry schedule | ✅ Dana: Billing → Manage failed payments → Card payments: Smart Retries, up to 8 times within 2 weeks; after the last retry the invoice is left past-due (not marked uncollectible). Our 21-day lapse voids it (OT-63 closed) |
 | 3. Scheduler job | After the deploy; exact command in the doc |
 
-**Invoice fee:** 0.4% per paid invoice per Stripe's public pricing; account figure to confirm. (stripe.com/invoicing/pricing, read 2026-10-31: Starter 0.4%, Plus 0.5%, no cap shown; the brief's "capped at $2" was from memory.) The card fee on renewal `in_1UWgMi0QYxZQN6jD3b3e7vlF` ($33.50) was $1.27; Stripe Tax's own fee comes on top.
+**Fees, confirmed on this account** (Dana, 2026-10-31, Settings → Plans and fees):
+- Payments: 2.9% + 30¢ per domestic card charge (renewal `in_1UWgMi0QYxZQN6jD3b3e7vlF`, $33.50: $1.27).
+- Invoicing Starter: 0.4% per paid one-time invoice, no cap (the brief's "capped at $2" was from memory). Every renewal pays it.
+- Tax Basic: $0.50 per API transaction, only while `tax_collection_enabled` = 1.
+- Billing: 0.7%, not used.
+
+**Tax switch off at launch** (Dana, 2026-10-31): `tax_collection_enabled` = 0, because NJ exempts packaged coffee and there is no nexus elsewhere, so Stripe Tax's $0.50 per order buys nothing today. Dana set prod to 0; the seed default is now 0 with that note; one test covers a switch-off checkout (WHAT_WE_BUILT #249). The Part E runs above were made with the switch on.
 
 ---
 

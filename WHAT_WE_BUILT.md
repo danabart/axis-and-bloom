@@ -6221,9 +6221,26 @@ Part E found and fixed a reused-idempotency-key bug: keys are now per attempt, a
 
 **Not done in this pass:**
 - Customer self-service buttons and the admin pages (Commerce 3, OT-62).
-- This account's invoice fee. (Retry schedule recorded 2026-10-31: Smart Retries, up to 8 within 2 weeks, then left past-due for our 21-day lapse; OT-63 closed.)
-- The `subscription-daily` Cloud Scheduler job, after the deploy (`MANUAL_SETUP_IDS.md`).
-- `CATALOG.md` from prod after the deploy.
+- Since done (2026-10-31): the account's fees (#249); the retry schedule (Smart Retries, up to 8 within 2 weeks, then left past-due for our 21-day lapse; OT-63 closed); the `subscription-daily` Cloud Scheduler job (created and run once, 200); `CATALOG.md` from prod (`0aaaea0`).
+
+### 249. Commerce fees confirmed; Stripe Tax off at launch (2026-10-31)
+
+**Fees on this account** (Dana, Dashboard → Settings → Plans and fees):
+
+| Product | Fee | Applies to us |
+|---|---|---|
+| Payments | 2.9% + 30¢ per domestic card charge | every checkout and every renewal |
+| Invoicing Starter | 0.4% per paid one-time invoice, no cap | every renewal (each is a one-off invoice) |
+| Tax Basic | $0.50 per API transaction | only while `tax_collection_enabled` = 1 |
+| Billing | 0.7% | not used (no Stripe Billing subscriptions) |
+
+So a $33.50 renewal costs about $1.27 card + $0.13 invoicing, and nothing for tax while the switch is off.
+
+**Decision (Dana):** `tax_collection_enabled` is 0 at launch. NJ exempts packaged coffee and there is no nexus in any other state, so Stripe Tax's $0.50 per order buys nothing today. Dana set the prod row to 0 in `/admin/commerce`.
+- `db/schema.sql`: the seed default is now 0, with that reasoning in the note, so a fresh environment matches prod. The seed only inserts a missing key, so existing databases keep their row. The test DB was set to 0 through `commerceParameters.setParameter` (a superseding row, nothing deleted).
+- Code unchanged: checkout and the renewal invoice already pass `automatic_tax: { enabled }` from the switch, and checkout drops `customer_update` when it is off.
+- Tests: `checkoutService.test.ts` adds a switch-off checkout (no automatic tax requested, no `customer_update`, order `taxes_collected` 0). The switch is pinned in `checkoutService.test.ts` and `subscriptionRenewal.test.ts` rather than read from the test DB; `commerceParameters.test.ts` expects the new seed 0.
+- Flip-on procedure: `MANUAL_SETUP_IDS.md` → Stripe. Regression line: `REGRESSION.md` → Commerce 1.
 
 ---
 
