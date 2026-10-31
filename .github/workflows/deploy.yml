@@ -248,6 +248,8 @@ jobs:
           # they are Secret Manager secrets on the backend (--set-secrets).
           VITE_STRIPE_PUBLISHABLE_KEY: 'pk_test_51UVkXO0QYxZQN6jDZzCgLtB6eEscBgz3TKyncTFIzrSJQAN1vO9NVL391QakNoAOqOBIVYZ9VMgyhEQVVlx6XdLI00IPt5ymKh'
           VITE_PRELAUNCH_MODE: 'true'
+          # Same host as FRONTEND_URL on the backend step; change the two together.
+          VITE_CANONICAL_HOST: www.axisandbloomcoffee.com
           VITE_GA4_ID: 'G-GYC50VYRYN'
           VITE_META_PIXEL_ID: '945138695260153'
         run: npm run build

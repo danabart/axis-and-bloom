@@ -195,10 +195,11 @@ export default function App() {
                   </PrelaunchGate>
                 }
               />
-              {/* Commerce 1 (2026-10-31): Stripe one-time checkout. Signed in, like /profile;
-                  behind the pre-launch gate until launch. */}
+              {/* Commerce 1 (2026-10-31): Stripe one-time checkout. Signed in, like /profile.
+                  /checkout stays behind the pre-launch gate until launch; /checkout/return never is,
+                  a paid customer always sees the confirmation (Checkout UX 1). */}
               <Route path="/checkout" element={<PrelaunchGate><RequireAuth><CheckoutPage /></RequireAuth></PrelaunchGate>} />
-              <Route path="/checkout/return" element={<PrelaunchGate><RequireAuth><CheckoutReturnPage /></RequireAuth></PrelaunchGate>} />
+              <Route path="/checkout/return" element={<RequireAuth><CheckoutReturnPage /></RequireAuth>} />
               <Route path="/join-household" element={<PrelaunchGate><JoinHousehold /></PrelaunchGate>} />
               {/* Live deviation from the original spec (Dana, mid-execution): /the-axis
                   is closed too, not kept open as the written prompt listed it. */}

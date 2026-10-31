@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ShoppingCart, User, Menu, X } from 'lucide-react';
 import { Link, useNavigate, useLocation } from 'react-router';
 import { useAuth } from '../context/AuthContext';
+import { useCart } from '../context/CartContext';
 import { usePrelaunchGated } from '../lib/prelaunch';
 import { brandAssets } from '../../design/assets';
 
@@ -30,6 +31,8 @@ export default function Navigation() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const gated = usePrelaunchGated();
+  const { cart, toggleCartOpen } = useCart();
+  const count = cart.reduce((n, i) => n + i.qty, 0);
   const navLinks = gated ? GATED_LINKS : [...FULL_LINKS, ...(isAdmin ? [{ to: '/admin', label: 'ADMIN' }] : [])];
   const handleSignOut = async () => { await logout(); navigate('/'); setMobileOpen(false); };
 
@@ -157,20 +160,26 @@ export default function Navigation() {
             Sign out
           </button>
         )}
-        <button
-          aria-label="Shopping cart"
-          style={{ position: 'relative', background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: linkColor, display: 'flex', alignItems: 'center', transition: 'color 250ms' }}
-          className="hover:opacity-50"
-        >
-          <ShoppingCart size={17} strokeWidth={1.5} />
-          <span style={{
-            position: 'absolute', top: -7, right: -7,
-            width: 14, height: 14, borderRadius: '50%',
-            backgroundColor: '#ee5974', color: '#f2f1ea',
-            fontSize: 9, lineHeight: '14px', textAlign: 'center',
-            fontFamily: "'Lato', Arial, sans-serif", fontWeight: 400,
-          }}>0</span>
-        </button>
+        {/* Hidden while gated, same rule as PublicLayout's FloatingCart: no door we won't open. */}
+        {!gated && (
+          <button
+            onClick={() => { setMobileOpen(false); toggleCartOpen(); }}
+            aria-label="Shopping cart"
+            style={{ position: 'relative', background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: linkColor, display: 'flex', alignItems: 'center', transition: 'color 250ms' }}
+            className="hover:opacity-50"
+          >
+            <ShoppingCart size={17} strokeWidth={1.5} />
+            {count > 0 && (
+              <span style={{
+                position: 'absolute', top: -7, right: -7,
+                width: 14, height: 14, borderRadius: '50%',
+                backgroundColor: '#ee5974', color: '#f2f1ea',
+                fontSize: 9, lineHeight: '14px', textAlign: 'center',
+                fontFamily: "'Lato', Arial, sans-serif", fontWeight: 400,
+              }}>{count}</span>
+            )}
+          </button>
+        )}
 
         <button
           ref={mobileTriggerRef}

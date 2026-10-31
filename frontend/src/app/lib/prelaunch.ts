@@ -17,8 +17,7 @@ export const PRELAUNCH_MODE = import.meta.env.VITE_PRELAUNCH_MODE === 'true';
 
 /** Routes reachable while PRELAUNCH_MODE is on and the session hasn't
  * bypassed the gate. Everything else redirects to the curtain at "/" via
- * <PrelaunchGate> in App.tsx. In late September the checkout route will be
- * added here — one line, no refactor.
+ * <PrelaunchGate> in App.tsx.
  * "/admin" is enforced by AdminRoute's own requireAdmin check, not wrapped in
  * PrelaunchGate — the gate must not add anything in front of it. "/b/:token"
  * is token-gated and was never wrapped in anything. Both are listed here only
@@ -42,6 +41,7 @@ export const PRELAUNCH_OPEN_ROUTES = [
   '/roastery/:token', // Roastery portal (partner page) — private revocable link, never wrapped in anything; also /roastery/:token/coffee/:id.
   '/ig', // Social short link — forwards to /find-my-flavor?campaign=instagram (already open).
   '/fb', // Social short link — forwards to /find-my-flavor?campaign=facebook (already open).
+  '/checkout/return', // A paid customer must always see the confirmation; Stripe's return_url carries no preview param.
 ] as const;
 
 const BYPASS_KEY = 'abPreview';

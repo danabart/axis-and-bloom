@@ -25,6 +25,11 @@ import type { ArchetypeData, DoorTarget, Slot } from './bloom/types';
 
 const RUST = '#a33726';
 
+// Name screen, signed in (Checkout UX 1): the screen stays so a customer can
+// profile someone in the household; it must not read like being signed out.
+const signedInNameScreenLine = (email: string | null) =>
+  `Signed in as ${email} · profiling yourself or someone in your household`;
+
 // ─── Archetype asset imports ──────────────────────────────────────────────────
 
 import { archetypeAssets, patternAssets, cardAssets, quizAssets, quizResultAssets } from '../../design/assets';
@@ -1527,6 +1532,17 @@ export default function FlavorQuiz() {
             transition={{ duration: 0.7 }}
             style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}
           >
+            {user && !user.isAnonymous && (
+              <p style={{
+                fontSize: '0.68rem',
+                letterSpacing: '0.14em',
+                textTransform: 'uppercase',
+                color: '#7b7f80',
+                margin: '0 0 16px',
+              }}>
+                {signedInNameScreenLine(user.email)}
+              </p>
+            )}
             <h1 style={{
               fontSize: 'clamp(2.8rem, 4.2vw, 4.2rem)',
               color: '#ee5974',
@@ -1584,22 +1600,24 @@ export default function FlavorQuiz() {
               Begin Profile
             </button>
 
-            <a
-              href="/sign-in"
-              style={{
-                fontFamily: 'inherit',
-                fontSize: '0.68rem',
-                letterSpacing: '0.14em',
-                textTransform: 'uppercase',
-                color: '#7b7f80',
-                textDecoration: 'none',
-                transition: 'color 0.2s',
-              }}
-              onMouseEnter={e => (e.currentTarget.style.color = '#9a2918')}
-              onMouseLeave={e => (e.currentTarget.style.color = '#7b7f80')}
-            >
-              Already have a profile? Sign in →
-            </a>
+            {(!user || user.isAnonymous) && (
+              <a
+                href="/sign-in"
+                style={{
+                  fontFamily: 'inherit',
+                  fontSize: '0.68rem',
+                  letterSpacing: '0.14em',
+                  textTransform: 'uppercase',
+                  color: '#7b7f80',
+                  textDecoration: 'none',
+                  transition: 'color 0.2s',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.color = '#9a2918')}
+                onMouseLeave={e => (e.currentTarget.style.color = '#7b7f80')}
+              >
+                Already have a profile? Sign in →
+              </a>
+            )}
           </motion.div>
         </div>
       </div>

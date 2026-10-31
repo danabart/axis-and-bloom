@@ -6153,6 +6153,18 @@ Brief `backend/src/features/commerce/CLAUDE_CODE_PROMPT_COMMERCE_1_CHECKOUT.md`;
 
 **Not done in this pass:** Stripe's real delivery to `/api/webhooks/stripe` and the Profile page render need the deploy (Dana); `CATALOG.md` from prod after the deploy; the standing regression trio on the live site after deploy; subscriptions (brief 2), `/admin/orders`, refunds, mark-shipped (brief 3), live keys (brief 4). The sandbox's public business name shows as "CREATIVE BOX LLC SANDB" on the 3D Secure page (public details, brief 4). OT-58..61 opened.
 
+### 247. Checkout UX 1: the pages around checkout (2026-10-31)
+
+Brief `backend/src/features/commerce/CLAUDE_CODE_PROMPT_CHECKOUT_UX_1.md`; full record `backend/src/features/commerce/CLOSING_REPORT_CHECKOUT_UX_1.md`. Four bugs from the first prod purchase, none in Stripe.
+
+**Files:** `frontend/src/app/components/Navigation.tsx`, `components/FlavorQuiz.tsx`, `App.tsx`, `lib/prelaunch.ts`, new `lib/canonicalHost.ts`, `frontend/src/main.tsx`, `frontend/.env.example`, `.github/workflows/deploy.yml`. No backend, schema or DB change.
+
+The header cart icon now opens the shared drawer, with a real count, and is hidden while gated. `/checkout/return` is out of the pre-launch gate and stays behind sign-in. The site settles on one host at load, from `VITE_CANONICAL_HOST`, so Stripe's return to `FRONTEND_URL` lands on the same origin as the Firebase session and the preview flag. The quiz name screen stays for signed-in customers, who can profile someone in the household, but shows "Signed in as …" instead of the sign-in link.
+
+**Verified:** `vite build` green. `tsc --noEmit` is not green: the same 13 errors before and after, none in a changed file, and the frontend has no typecheck script. Browser checks on local production builds passed, with reads from prod, writes dropped and Firebase answered in the browser. Dana's prod acceptance (real payment and return) is in the closing report.
+
+**Not done in this pass:** listed in the closing report, including the Bloom card's "shipping included" against the cart's $5.95, and the consent banner covering the cart drawer.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

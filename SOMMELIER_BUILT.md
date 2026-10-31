@@ -1858,3 +1858,8 @@ Full diagnosis, evidence, and verification in `WHAT_WE_BUILT.md` #166; the S17 d
 - The order-placed beat, the delayed beats (arrival note, dial-in), the outcome tracker and the lifecycle refresh run once Stripe confirms payment (`services/orderFinalizer.ts`), never on a checkout attempt; Liam's one line is stored on the order's `finalized` event and shown on `/checkout/return`. Same functions, same arguments as before.
 - The order bonus tokens go through `tokenService.grantTokens` instead of inline SQL.
 - Liam health check 10 now expects `checkoutService` as the checkout writer of `"order"`. Real order states now exist (`v_order_status.customer_label`, e.g. "Paid · being roasted"); `order_status` still answers `order_status_unavailable` until a Liam brief reads them (OPEN_TASKS OT-61, Dana's call).
+
+#### S126. Checkout UX 1: no Liam change (2026-10-31)
+
+**Pointer entry**, full record in `WHAT_WE_BUILT.md` #247.
+- No Liam code path changed. `/checkout/return`, which shows Liam's order line, is now outside the pre-launch gate, so a paid customer always reaches that line.
