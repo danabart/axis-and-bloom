@@ -222,7 +222,7 @@ Written into `launch/00_manual-setup/MANUAL_SETUP_IDS.md` → Stripe → "Commer
 | 2a. Retry schedule | **Not recorded:** both of Dana's replies carried the placeholder `[paste the Dashboard wording]` (OT-63) |
 | 3. Scheduler job | After the deploy; exact command in the doc |
 
-**Invoice fee:** the public page stripe.com/invoicing/pricing (read 2026-10-31) shows Starter at 0.4% per paid invoice and Plus at 0.5%, with no cap shown. The brief's "capped at $2" is not on the public page, and the figure for this account (Dashboard → Settings → Billing) was not checked in this session. The card fee on renewal `in_1UWgMi0QYxZQN6jD3b3e7vlF` ($33.50) was $1.27; Stripe Tax's own fee comes on top.
+**Invoice fee:** 0.4% per paid invoice per Stripe's public pricing; account figure to confirm. (stripe.com/invoicing/pricing, read 2026-10-31: Starter 0.4%, Plus 0.5%, no cap shown; the brief's "capped at $2" was from memory.) The card fee on renewal `in_1UWgMi0QYxZQN6jD3b3e7vlF` ($33.50) was $1.27; Stripe Tax's own fee comes on top.
 
 ---
 
