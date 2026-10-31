@@ -2,7 +2,7 @@
 
 # Data catalog
 
-Generated 2026-10-31 from database `axisandbloom` · 143 tables · 75 views · 1329 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `d0c363abcfc1` (full value in the footer).
+Generated 2026-10-31 from database `axisandbloom` · 149 tables · 76 views · 1377 table columns · 0 UNVERIFIED · lint: report only · catalog-hash `4b483154aee4` (full value in the footer).
 
 The database describes itself: every description below is a Postgres `COMMENT ON`, kept in `backend/src/db/comments.sql` and applied at every boot. History and the why stay in `WHAT_WE_BUILT_DB.md`; this file is the what, now.
 
@@ -43,7 +43,7 @@ Copied verbatim from the top of `backend/src/db/comments.sql`.
 
 ## Tables
 
-### master (31)
+### master (35)
 
 #### `coffee_archetype`
 
@@ -658,7 +658,65 @@ One vocabulary of reply checks used twice: with case_id, an assertion on that ev
 | `note` | text | yes | Why the check exists, free text. |
 | `created_by` | text | no | Who wrote the row: seed, script, or the admin's Firebase uid. |
 
-### fact (28)
+#### `subscription_event_kind`
+
+Lookup of the things that happen to a subscription (started, renewal_charged, renewal_failed, renewal_skipped_paused, renewal_skipped_skip, paused, resumed, skip_requested, frequency_changed, canceled, lapsed, payment_method_updated, invoice_voided)
+
+- **Writer:** seed
+- **Readers:** subscription_event.event_kind FK
+- **Since:** 2026-10-31 (Commerce 2)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; code is the natural key. |
+| `code` | text | no | Event kind code, unique. |
+| `label` | text | no | Admin-facing label. |
+
+#### `subscription_event_source`
+
+Lookup of who writes a subscription_event (checkout, cron, webhook, admin, customer); a lookup rather than a CHECK list (DEVELOPMENT_GUARDRAILS G2.7)
+
+- **Writer:** seed
+- **Readers:** subscription_event.source FK
+- **Since:** 2026-10-31 (Commerce 2)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; code is the natural key. |
+| `code` | text | no | Source code, unique. |
+| `label` | text | no | Admin-facing label. |
+
+#### `subscription_kind`
+
+Lookup of who pays for a subscription: paid (the customer's card on file) or sponsored (a company gift)
+
+- **Writer:** seed
+- **Readers:** subscription.kind FK
+- **Since:** 2026-10-31 (Commerce 2)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; code is the natural key. |
+| `code` | text | no | Kind code, unique: paid or sponsored. |
+| `label` | text | no | Admin-facing label. |
+
+#### `subscription_status`
+
+Lookup of a subscription's states (pending reserved, active, past_due, paused, canceled, lapsed), with the words Profile shows a customer and whether the state keeps Liam access and the SUBSCRIBER stage
+
+- **Writer:** seed
+- **Readers:** subscription.status FK, v_subscription_status, userSignals, liamAccess, users
+- **Since:** 2026-10-31 (Commerce 2)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; code is the natural key. |
+| `code` | text | no | Status code, unique; canceled is spelled the Stripe way. pending is reserved (a paid subscription starts active). |
+| `label` | text | no | Admin-facing label. |
+| `customer_label` | text | no | Customer-facing words for the state, shown on Profile through v_subscription_status.customer_label; nothing in the frontend types a status word. |
+| `counts_as_subscriber` | boolean | no | True for the states that keep Liam access and the SUBSCRIBER lifecycle stage: active, past_due and paused (Dana, 2026-10-31); lapsed, canceled and pending do not. |
+
+### fact (29)
 
 #### `catalog_change`
 
@@ -1039,9 +1097,9 @@ Append-only fact of the customer's answer to an open Liam question, stored as it
 
 #### `order`
 
-One paid order, written once when Stripe confirms payment (checkout.session.completed webhook) from its checkout_session, with a shipping-address snapshot (immutable fact, D11; every later state is an order_event row, read through v_order_status).
+One paid order, written once when Stripe confirms payment: a one-time checkout or a subscription's first delivery (checkout.session.completed, from its checkout_session) or a subscription renewal (invoice.paid, from the subscription's items), with a shipping-address snapshot (immutable fact, D11; every later state is an order_event row, read through v_order_status).
 
-- **Writer:** checkoutService.completeCheckoutSession
+- **Writer:** checkoutService.completeCheckoutSession, checkoutService.createSubscriptionOrder
 - **Readers:** orders, users, userSignals, qrDoor, catalogService, brewCard, behavioralConfidence, +4 more
 - **Since:** 2026-05-22
 
@@ -1052,12 +1110,12 @@ One paid order, written once when Stripe confirms payment (checkout.session.comp
 | `household_id` | uuid | yes | FK to household(id); never set by any code path (confirmed in Customer Blueprint C2 Task 0), always NULL. |
 | `external_shopify_order_id` | text | yes | ID of a matching Shopify order; written only by the retired Shopify checkout (POST /api/orders, 410 since Commerce 1, 2026-10-31), NULL for Stripe orders. |
 | `fulfillment_status` | text | yes | Legacy at-insert fulfilment value, FK to order_fulfillment_status(code): written once as awaiting_manual by checkoutService.completeCheckoutSession and never changed (D11); pending is the pre-Stripe column default. Readers use v_order_status.fulfillment_status, which follows order_event (Commerce 1, 2026-10-31). |
-| `is_subscription` | boolean | yes | True if the order is a subscription renewal, default false; reserved for Commerce brief 2 (subscriptions), never written yet. |
+| `is_subscription` | boolean | yes | True when the order belongs to a subscription: its first delivery (written at checkout) and every renewal (written from invoice.paid); default false (Commerce 2, 2026-10-31). |
 | `subtotal` | numeric | yes | Sum of line prices times quantity in dollars (numeric, not cents), after line discounts, before shipping and tax; checkout_session.subtotal_cents / 100. |
 | `shipping_fee_charged` | numeric | yes | Shipping fee charged to the customer in USD dollars (same unit as total_amount_paid), from the Stripe session's total_details.amount_shipping; the fee and the free-shipping bag count are commerce_parameter rows. |
-| `taxes_collected` | numeric | yes | Sales tax collected in USD dollars (same unit as total_amount_paid), from the Stripe session's total_details.amount_tax (Stripe Tax; 0 on coffee in NJ). |
+| `taxes_collected` | numeric | yes | Sales tax collected in USD dollars (same unit as total_amount_paid): the Stripe session's total_details.amount_tax, or for a renewal the sum of the invoice's total_taxes (Stripe Tax; 0 on coffee in NJ). |
 | `transaction_fee` | numeric | yes | Payment-processing fee in USD dollars (same unit as total_amount_paid), from the charge's balance transaction when Stripe returns it at completion, else NULL. |
-| `total_amount_paid` | numeric | yes | Amount paid in dollars, from the Stripe session's amount_total (subtotal + shipping + tax). |
+| `total_amount_paid` | numeric | yes | Amount paid in dollars: the Stripe session's amount_total, or a renewal invoice's amount_paid (subtotal + shipping + tax). |
 | `currency` | text | yes | ISO currency code of the amounts, upper case, from the Stripe session (USD). |
 | `promo_code` | text | yes | Promo code applied to the order; reserved, never written today (NULL); the Stripe brief decides whether Stripe promotion codes are mirrored here. |
 | `created_at` | timestamp with time zone | yes | UTC timestamp when the order row was created. |
@@ -1070,9 +1128,11 @@ One paid order, written once when Stripe confirms payment (checkout.session.comp
 | `shipping_address_id` | uuid | yes | FK to address(id); the saved address the snapshot was copied from (convenience pointer only, the snapshot columns are the source of truth). |
 | `checkout_session_id` | uuid | yes | FK to checkout_session(id); the session the order was paid through (Commerce 1, 2026-10-31). |
 | `stripe_checkout_session_id` | text | yes | Stripe Checkout Session id (cs_...), unique; the idempotency key of checkoutService.completeCheckoutSession. |
-| `stripe_payment_intent_id` | text | yes | Stripe PaymentIntent id (pi_...), unique; how a charge.refunded webhook finds its order. |
+| `stripe_payment_intent_id` | text | yes | Stripe PaymentIntent id (pi_...), unique; how a charge.refunded webhook finds its order. For a renewal, the invoice payment's PaymentIntent (invoice.payments). |
 | `paid_at` | timestamp with time zone | yes | UTC timestamp Stripe confirmed payment (the completion webhook was processed). |
 | `fulfillment_roaster_id` | uuid | yes | FK to roaster(id); the roastery the order is routed to. NULL = the manual adapter (an email to admin_alert_email); every order is NULL until roaster adapters exist (OPEN_TASKS: ShipStation roaster adapter). |
+| `subscription_id` | uuid | yes | FK to subscription(id); the subscription the order belongs to (first delivery or renewal); NULL for a one-time order (Commerce 2). |
+| `stripe_invoice_id` | text | yes | Stripe invoice id (in_...) of a renewal order, unique; the idempotency key of checkoutService.createSubscriptionOrder. NULL for checkout orders. |
 
 #### `order_event`
 
@@ -1097,9 +1157,9 @@ Everything that happens to an order after it is paid, one insert-only row per ev
 
 #### `order_line_item`
 
-One purchased SKU line of an order, with price paid and who it is for (immutable fact), copied from checkout_session_line when the order is written.
+One purchased SKU line of an order, with price paid and who it is for (immutable fact), copied from checkout_session_line when the order is written, or from the subscription's resolved shipment on a renewal.
 
-- **Writer:** checkoutService.completeCheckoutSession; seed
+- **Writer:** checkoutService.completeCheckoutSession, checkoutService.createSubscriptionOrder; seed
 - **Readers:** v_customer_bag_attribution, v_customer_timeline, v_palate_evidence, v_palate_recommendation_outcome, orders, qrDoor, users, customerReads, +5 more
 - **Since:** 2026-05-22
 
@@ -1113,12 +1173,12 @@ One purchased SKU line of an order, with price paid and who it is for (immutable
 | `quantity` | integer | no | Number of bags on this line; NOT NULL, default 1. |
 | `unit_price_charged` | numeric | yes | Price per bag charged, in dollars (numeric, not cents). |
 | `wholesale_cost` | numeric | yes | Wholesale cost of the line in USD dollars (same unit as coffee_sku.cost_to_us); reserved for roaster payout reconciliation, never written today. |
-| `discount_amount` | numeric | yes | Discount applied to this line, in dollars; only collection bundle member lines carry a non-zero value (the collection_discount_pct commerce_parameter split across members); default 0.00. |
+| `discount_amount` | numeric | yes | Discount per bag on this line, in dollars: a collection member's share of collection_discount_pct on a one-time order, or the subscription tier (subscription_discount_pct_1_bag / _2plus_bags) on a subscription order (the two never stack); default 0.00. |
 | `tax_amount_charged` | numeric | yes | Sales tax charged on the line in USD dollars, default 0.00; reserved for the Stripe brief, never written today. |
 | `vendor_payout_status` | text | yes | Roastery payout state as free text, default pending_invoice; reserved for roaster payout reconciliation, no CHECK until that vocabulary exists, never written today. |
 | `created_at` | timestamp with time zone | yes | UTC timestamp when the line was created. |
 | `updated_at` | timestamp with time zone | yes | UTC timestamp of the last change; no code updates the row after insert. |
-| `order_kind` | text | yes | FK to customer_order_kind(code); how the line originated, default manual. Code only ever writes manual (gift_redemption, subscription_renewal and liam_followed have no writer yet). |
+| `order_kind` | text | yes | FK to customer_order_kind(code); how the line originated, default manual. Code writes manual (one-time orders and a subscription's first delivery) and subscription_renewal (each renewal order, Commerce 2); gift_redemption and liam_followed have no writer yet. |
 | `display_name` | text | yes | House name of the coffee at the time of the order (platform name or coffee_alias, never the roaster's coffee name), copied from checkout_session_line; NULL on pre-Stripe rows (Commerce 1, 2026-10-31). |
 | `weight_oz` | numeric | yes | Bag weight in ounces at the time of the order, copied from checkout_session_line; NULL on pre-Stripe rows. |
 
@@ -1313,7 +1373,28 @@ The nightly labeller's verdict on a model turn: which gate label (or judgment) H
 | `labeler_model` | text | no | The Claude model id that labelled (config gate.offline.model at the time). |
 | `labeled_at` | timestamp with time zone | no | UTC timestamp the label was written. |
 
-### operating (69)
+#### `subscription_event`
+
+Everything that happens to a subscription, one insert-only row per event (same shape as order_event): start, each renewal charged or failed, each skipped cycle, lapse, and (Commerce 3) the customer's pause, skip, frequency and card changes
+
+- **Writer:** subscriptionService.recordSubscriptionEvent
+- **Readers:** subscriptionService
+- **Since:** 2026-10-31 (Commerce 2)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | integer | no | Surrogate primary key; with created_at, the order of events. |
+| `subscription_id` | uuid | no | FK to subscription(id). |
+| `event_kind` | text | no | FK to subscription_event_kind(code). At most one started per subscription, one renewal_charged per invoice and one renewal_failed per (invoice, attempt), by partial unique indexes. |
+| `order_id` | uuid | yes | FK to "order"(id); the order a started or renewal_charged event produced. |
+| `stripe_invoice_id` | text | yes | Stripe invoice id (in_...) of a renewal event; NULL for events without an invoice (start, skips, a renewal that could not be prepared). |
+| `amount_cents` | integer | yes | Amount charged or attempted, in cents, on a renewal event; the first delivery's total on started. |
+| `attempt_count` | integer | yes | Stripe's invoice attempt_count on a renewal_failed event (deduplicates the cron's synchronous failure against Stripe's invoice.payment_failed for the same attempt). |
+| `note` | text | yes | Free text: the decline message, the unresolved item reason, the skipped cycle date. |
+| `source` | text | no | FK to subscription_event_source(code); who wrote it: checkout, cron, webhook, admin or customer. |
+| `created_at` | timestamp with time zone | no | UTC timestamp of the event. |
+
+### operating (70)
 
 #### `address`
 
@@ -1467,9 +1548,9 @@ One Stripe Checkout Session we created: a priced cart with a ships-to snapshot w
 | `id` | uuid | no | Surrogate UUID primary key; sent to Stripe as metadata.checkout_session_id and in the idempotency key checkout_session:<id>. |
 | `user_id` | uuid | no | FK to user_profile(id); the buyer. |
 | `stripe_checkout_session_id` | text | yes | Stripe Checkout Session id (cs_...), unique; set right after Stripe creates the session. |
-| `mode` | text | no | payment (one-time, Commerce 1) or subscription (reserved for Commerce brief 2). |
+| `mode` | text | no | payment (one-time, Commerce 1) or subscription (the checkout starts a subscription, Commerce 2; Stripe's own session mode is payment either way, with the card saved for off-session use). |
 | `status` | text | no | open, complete (an order was written) or expired (Stripe expired it, or an async payment failed). |
-| `cart_fingerprint` | text | no | sha256 of the resolved lines, prices, shipping and address; a second checkout request with the same fingerprint while the session is open reuses it rather than creating another. |
+| `cart_fingerprint` | text | no | sha256 of the resolved lines, prices, shipping, address and subscription intent; a second checkout request with the same fingerprint while the session is open reuses it rather than creating another. |
 | `subtotal_cents` | integer | no | Sum of line unit price times quantity, in cents, after line discounts, before shipping and tax. |
 | `shipping_cents` | integer | no | Shipping charged, in cents: 0 at or above free_shipping_min_bags, else shipping_fee_cents (commerce_parameter, read at creation). |
 | `bag_count` | integer | no | Bags in the cart: the sum of line quantities (a collection counts each member). |
@@ -1483,6 +1564,8 @@ One Stripe Checkout Session we created: a priced cart with a ships-to snapshot w
 | `created_at` | timestamp with time zone | no | UTC timestamp the session was created. |
 | `expires_at` | timestamp with time zone | no | UTC timestamp Stripe expires the session (created_at plus checkout_session_expiry_minutes). |
 | `completed_at` | timestamp with time zone | yes | UTC timestamp the completion webhook wrote the order; NULL while open or after expiry. |
+| `subscription_intent` | jsonb | yes | JSON {"frequencyWeeks": N, "startsSubscription": true} when the checkout starts a subscription; NULL for a one-time checkout (Commerce 2). |
+| `subscription_id` | uuid | yes | FK to subscription(id); the subscription created when a subscription checkout completed; NULL otherwise. |
 
 #### `checkout_session_line`
 
@@ -1502,7 +1585,7 @@ One priced line of a checkout session, resolved and price-checked server side (c
 | `weight_oz` | numeric | no | Bag weight in ounces. |
 | `quantity` | integer | no | Bags on the line, at least 1. |
 | `unit_price_cents` | integer | no | Price per bag charged, in cents, after any line discount (the server's price; a client price that differs is refused with 409). |
-| `discount_cents` | integer | no | Discount per bag, in cents; non-zero only on collection member lines. |
+| `discount_cents` | integer | no | Discount per bag, in cents: a collection member's share on a one-time checkout, or the subscription tier on a subscription checkout (never both). |
 | `intended_for_user_id` | uuid | yes | FK to user_profile(id); who the bag is for, the buyer unless they named a household member. |
 | `order_kind` | text | no | FK to customer_order_kind(code); copied onto order_line_item; manual for every one-time checkout. |
 | `source` | text | no | Which cart kind produced the line: dial (archetype + position), direct (a category coffee) or collection (one member of a whole-archetype set). |
@@ -1528,10 +1611,10 @@ Atomic per-UTC-day, per-feature running total of Anthropic API spend that drives
 
 #### `commerce_parameter`
 
-Every business number of checkout and (reserved) subscriptions: shipping_fee_cents, free_shipping_min_bags, checkout_session_expiry_minutes, tax_collection_enabled, stripe_tax_code_coffee, stripe_tax_code_shipping, admin_alert_email, subscription_discount_pct_1_bag, subscription_discount_pct_2plus_bags, subscription_frequency_weeks, collection_discount_pct, collection_min_members; with history, admin-editable in /admin/commerce, read through commerceParameters.commerceParam / commerceParamText (60 s cache), never typed into code; a change supersedes the current row
+Every business number of checkout and subscriptions (shipping fee and free-shipping bag count, session expiry, the tax switch and tax codes, the admin alert email, subscription discounts, frequencies, dial rule, notice, lapse and charge hour, the collection discount and minimum; the keys are listed on the admin card) with history, admin-editable in /admin/commerce, read through commerceParameters.commerceParam / commerceParamText (60 s cache), never typed into code; a change supersedes the current row
 
 - **Writer:** commerceParameters.setParameterInTx; seed
-- **Readers:** commerceParameters (cartResolver, checkoutService, blendResolver, coffees, fulfillment, orderEmails), commerceAdmin (Commerce parameters card), checkout.GET /api/checkout/rules
+- **Readers:** commerceParameters (cartResolver, checkoutService, blendResolver, coffees, fulfillment, orderEmails, subscriptionService, subscriptionShipment, subscriptionRenewal), commerceAdmin (Commerce parameters card), checkout.GET /api/checkout/rules
 - **Since:** 2026-10-31 (Commerce 1)
 
 | column | type | null | comment |
@@ -2398,24 +2481,55 @@ Reference list of where a newsletter signup came from (pre_launch, newsletter, p
 
 #### `subscription`
 
-Recurring-delivery subscription of a user; in current code only company-sponsored subscriptions are created.
+Current state of one recurring-delivery subscription of a user: a company-sponsored seat (kind sponsored) or, since Commerce 2, a paid subscription (kind paid: card saved at the first checkout, our daily cron charges each cycle as a Stripe one-off invoice). What was signed up for is subscription_item; the history is subscription_event; read through v_subscription_status for Profile and admin
 
-- **Writer:** companyGiftRedemption.POST /api/company-gift-redemption/:code/redeem, cron.GET /api/cron/sponsored-subscription-check
-- **Readers:** userSignals, liamAccess, users, catalogService, cron
+- **Writer:** subscriptionService.createSponsoredSubscription, subscriptionService.lapseSponsoredSubscription, subscriptionService.createPaidSubscriptionFromCheckout, subscriptionService.setStatus, subscriptionService.scheduleNext, subscriptionService.recordChargeAttempt, subscriptionService.markRenewalCharged, subscriptionService.markRenewalFailed, subscriptionService.lapseIfOverdue
+- **Readers:** userSignals, liamAccess, users, catalogService, cron, customerReads, companyGiftRedemption, subscriptionService, subscriptionShipment, v_subscription_status
 - **Since:** 2026-05-22
 
 | column | type | null | comment |
 |---|---|---|---|
 | `id` | uuid | no | Surrogate UUID primary key. |
 | `user_id` | uuid | yes | FK to user_profile(id), ON DELETE CASCADE; the subscriber (matched directly, never via household). |
-| `household_id` | uuid | yes | FK to household(id), the household the subscription belongs to; reserved, not written yet (only company-sponsored subscriptions are inserted today, by companyGiftRedemption). |
-| `status` | text | yes | Subscription state, default active. Code writes only: active, lapsed (cron flips expired sponsored rows to lapsed); no CHECK constraint. |
-| `frequency_days` | integer | yes | Days between deliveries, default 30; reserved for the Stripe subscription flow, not written yet (sponsored subscriptions keep the default). |
-| `next_delivery_date` | date | yes | Calendar date of the next scheduled delivery; reserved for the Stripe subscription flow, not written yet (NULL today). |
+| `household_id` | uuid | yes | FK to household(id), the household the subscription belongs to; reserved, not written yet (neither the company-gift seat nor the paid subscription sets it). |
+| `status` | text | yes | FK to subscription_status(code), default active (Commerce 2). Sponsored seats are only ever active or lapsed; paid subscriptions move through active, past_due (a renewal charge failed, Stripe retrying), paused, canceled and lapsed. Whether a status keeps Liam access and the SUBSCRIBER stage is subscription_status.counts_as_subscriber. |
+| `frequency_days` | integer | yes | Days between deliveries, default 30; kept equal to frequency_weeks times 7 on paid subscriptions for older readers (sponsored seats keep the default). frequency_weeks is the source. |
+| `next_delivery_date` | date | yes | Calendar date (US Eastern) of the next charge-and-ship: the daily cron charges a paid subscription on or after it. Moves only when a cycle is paid (or skipped while paused or on a skip), so while past_due it is the unpaid cycle's date; NULL on sponsored seats. |
 | `created_at` | timestamp with time zone | yes | Timestamp when the subscription row was created (timestamptz, default now()). |
-| `updated_at` | timestamp with time zone | yes | Timestamp of the last change (timestamptz); set by the sponsored-subscription cron when a row lapses. |
+| `updated_at` | timestamp with time zone | yes | Timestamp of the last change (timestamptz); every subscriptionService write stamps it (Liam's customer block rebuilds when it moves, customerReads watermark). |
 | `company_gift_id` | uuid | yes | FK to company_gift(id); the sponsoring company for a gifted subscription; NULL for normal subscriptions. |
 | `sponsored_expires_at` | timestamp with time zone | yes | UTC timestamp when a sponsored subscription ends (redemption time plus the gift's sponsorship months); NULL for normal subscriptions. |
+| `kind` | text | no | FK to subscription_kind(code): paid or sponsored, default sponsored (every row before Commerce 2 was a company-gift seat; the column default was the backfill). |
+| `frequency_weeks` | integer | yes | Weeks between deliveries of a paid subscription, one of commerce_parameter subscription_frequency_weeks at signup; NULL on sponsored seats. |
+| `archetype` | archetype_enum | yes | archetype_enum of the first dial or collection line at signup; NULL when the subscription holds only category coffees, and on sponsored seats. |
+| `origin_checkout_session_id` | uuid | yes | FK to checkout_session(id); the checkout that started the subscription and paid its first delivery. |
+| `stripe_payment_method_id` | text | yes | Stripe PaymentMethod id (pm_...) saved off-session at the first checkout; the default_payment_method of every renewal invoice. |
+| `paused_until` | date | yes | Date (US Eastern) up to and including which no cycle is charged; a cycle date it covers is skipped and recorded (renewal_skipped_paused). NULL = not paused. Written by Commerce 3's customer buttons. |
+| `skip_next_until` | date | yes | Date up to and including which the next cycle is skipped (renewal_skipped_skip); NULL = no skip. Written by Commerce 3's customer buttons. |
+| `cancel_at` | date | yes | Date the subscription is to end (reserved for Commerce 3's cancel button); NULL = no cancellation scheduled. |
+| `last_order_id` | uuid | yes | FK to "order"(id); the most recent order the subscription produced (first delivery or renewal). |
+| `last_charge_attempt_at` | timestamp with time zone | yes | UTC timestamp the daily cron last tried to charge a cycle. A cycle is attempted once: the cron skips a row whose last attempt is on or after its next_delivery_date (so a second run the same day never charges twice). |
+| `failed_attempts` | integer | no | Failed renewal charge attempts on the current unpaid cycle (cron and Stripe retries); back to 0 when a cycle is paid. |
+
+#### `subscription_item`
+
+What a paid subscription ships each cycle, one row per checkout line at signup: the archetype and signup slot of a dial or collection line (a renewal follows the customer's current Bloom Dial position, subscriptionShipment) or the signup coffee of a category coffee, with the weight and bag count
+
+- **Writer:** subscriptionService.createPaidSubscriptionFromCheckout
+- **Readers:** subscriptionShipment, v_subscription_status
+- **Since:** 2026-10-31 (Commerce 2)
+
+| column | type | null | comment |
+|---|---|---|---|
+| `id` | uuid | no | Surrogate UUID primary key. |
+| `subscription_id` | uuid | no | FK to subscription(id); the parent subscription. |
+| `archetype` | archetype_enum | yes | archetype_enum of a dial or collection line; NULL for a category coffee (decaf, flavored and the like), which always ships signup_coffee_id (CHECK: archetype or signup_coffee_id is set). |
+| `signup_slot_id` | integer | yes | FK to coffee_dial_slot(id); the dial slot chosen at signup, shipped when the customer has no current dial position for the archetype or subscription_ships_current_dial_position is 0; NULL for a category coffee. |
+| `signup_coffee_id` | integer | yes | FK to coffees(id); snapshot of the coffee the customer saw at signup (internal; never shown, the house name is). |
+| `weight_oz` | numeric | no | Bag weight in ounces, every cycle. |
+| `quantity` | integer | no | Bags of this item per delivery; the subscription's bag count (the discount tier and free shipping) is their sum. |
+| `display_name_at_signup` | text | yes | House name shown at signup (slot name or category coffee name), never a roaster name. |
+| `created_at` | timestamp with time zone | no | UTC timestamp the item was written. |
 
 #### `token_events`
 
@@ -2447,7 +2561,7 @@ At-most-once claim log for backend-sent transactional email (Resend), one row pe
 | column | type | null | comment |
 |---|---|---|---|
 | `email` | text | no | Recipient address (lowercased for quiz emails); part of the primary key with template. For roastery portal notices it is an admin address, not a subscriber. |
-| `template` | text | no | Template key, part of the primary key; quiz_complete_v2 for the quiz-complete email, roastery-portal-submit: followed by a portal response id, or order_confirmation:, admin_new_order: or admin_fulfillment_attention: followed by an order id (Commerce 1). Bumping the key re-enables one send. |
+| `template` | text | no | Template key, part of the primary key; quiz_complete_v2 for the quiz-complete email, roastery-portal-submit: followed by a portal response id, or order_confirmation:, admin_new_order: or admin_fulfillment_attention: followed by an order id (Commerce 1), or subscription_upcoming: followed by a subscription id and the cycle date, or subscription_payment_trouble: followed by the invoice id and the attempt (Commerce 2). Bumping the key re-enables one send. |
 | `sent_at` | timestamp with time zone | no | UTC timestamp the send was claimed (set at claim time, before delivery; the claim row is deleted again if delivery fails). |
 | `archetype` | text | yes | Server-verified archetype baked into the sent quiz email; NULL for rows before 2026-09-25 and for non-quiz templates (the quiz email passes it to transactionalEmail.sendOnce). |
 | `resend_message_id` | text | yes | Resend's message id for the delivered email; NULL for rows before 2026-09-25 or when Resend returned no id. |
@@ -3632,6 +3746,15 @@ Weekly new newsletter subscriber counts broken down by signup source, for the ma
 - **Since:** 2026-07-22
 - **reads:** `newsletter_subscriber`, `subscriber_source`
 
+#### `v_subscription_status`
+
+One row per subscription with its status and customer label, whether it counts as a subscriber, frequency, next delivery date, pause and skip windows, item and bag counts, last order and the signup names (the SQL fallback for the coffee lined up; the dial-aware answer comes from subscriptionShipment)
+
+- **Writer:** none (view)
+- **Readers:** subscriptions route (GET /api/subscriptions/mine), subscriptionService
+- **Since:** 2026-10-31 (Commerce 2)
+- **reads:** `coffee_dial_slot`, `subscription`, `subscription_item`, `subscription_status`
+
 <!-- catalog:brief-3-insertion-point — data catalog brief 3 appends its "Lineage" and "Table activity" sections here. -->
 
 ## Lineage
@@ -3640,7 +3763,7 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 
 | table | declared | static writers | readers (code) | read by views |
 |---|---|---|---|---|
-| `address` | users | users (DELETE, INSERT, UPDATE) | checkoutService, customerReads, users | — |
+| `address` | users | users (DELETE, INSERT, UPDATE) | checkoutService, customerReads, subscriptionRenewal, users | — |
 | `api_event` | apiEventLog | apiEventLog (INSERT, UPDATE) | admin, audit-quiz-emails, catalogReads, customerIntegrity, quizIntegrity | — |
 | `archetype_relationship` | none | — | — | — |
 | `archetype_tunable_variable` | none | — | — | — |
@@ -3656,7 +3779,7 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `coffee_archetype_assignment` | catalogService, seed | catalogService (INSERT, UPDATE), seed (INSERT, UPDATE) | admin, axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, compatibilityReads, cuppingReads, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, freeSlots, orderEmails, roasteryPortalReads, setMatch2916, setMatch2917 | v_archetype_dimension_comparison, v_archetype_dimension_profile, v_coffee, v_roastery_portal_dimension_match |
 | `coffee_category` | catalogService, seed | catalogService (DELETE, INSERT, UPDATE), seed (INSERT) | admin, axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, cuppingReads, customerReads, evidenceIntegrity, evidenceReads, freeSlots, orderEmails, roasteryPortalReads, roasteryPortalService, setMatch2917 | v_coffee |
 | `coffee_category_assignment` | catalogService, seed | catalogService (DELETE, INSERT), seed (INSERT) | admin, axis, behavioralConfidence, catalogIntegrity, catalogReads, catalogService, cuppingReads, customerReads, evidenceIntegrity, evidenceReads, freeSlots, orderEmails, roasteryPortalReads, setMatch2917 | v_coffee |
-| `coffee_dial_slot` | catalogService, seed | catalogService (UPDATE), seed (INSERT) | admin, axis, backfillCustomerFacts, catalogImport, catalogIntegrity, catalogReads, catalogService, cuppingService, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, freeSlots, roasteryPortalReads, setMatch2917, sommelier, sommelierRag, users | v_coffee_hop, v_coffee_sellable_candidate, v_coffee_slot, v_coffee_visibility, v_roastery_portal_dimension_match |
+| `coffee_dial_slot` | catalogService, seed | catalogService (UPDATE), seed (INSERT) | admin, axis, backfillCustomerFacts, catalogImport, catalogIntegrity, catalogReads, catalogService, checkoutService, cuppingService, customerReads, dialSuggestion, evidenceIntegrity, evidenceReads, freeSlots, roasteryPortalReads, setMatch2917, sommelier, sommelierRag, subscriptionService, subscriptionShipment, users | v_coffee_hop, v_coffee_sellable_candidate, v_coffee_slot, v_coffee_visibility, v_roastery_portal_dimension_match, v_subscription_status |
 | `coffee_dimensions` | seed | seed (INSERT, UPDATE) | admin, axis, catalogReads, catalogService, coffees, compatibilityReads, cuppingReads, cuppingService, customerIntegrity, customerReads, evidenceReads, freeSlots, roasteryPortalReads, sommelierRag | v_archetype_dimension_comparison, v_archetype_dimension_profile, v_archetype_vectors, v_coffee_archetype, v_coffee_dimension_history, v_coffee_dimension_range, v_cupping_scores_readable, v_evidence_cupper_calibration, v_evidence_dimension, v_evidence_roastery_calibration, v_roastery_portal_dimension_match |
 | `coffee_hop` | catalogService | catalogService (DELETE, INSERT) | admin, axis, catalogIntegrity, catalogReads, catalogService, dialSuggestion, qrDoor, sommelierRag | v_coffee_hop |
 | `coffee_retail_price` | catalogService | catalogService (INSERT) | catalogReads, catalogService | — |
@@ -3763,11 +3886,17 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `sommelier_turn_label` | sommelierTurnService | sommelierTurnService (INSERT) | sommelierReads | — |
 | `stripe_event` | stripeWebhook | stripeWebhook (INSERT, UPDATE) | stripeWebhook | — |
 | `subscriber_source` | seed | seed (INSERT) | admin, mailchimp-backfill, newsletter | v_newsletter_subscribers, v_subscriber_quiz_results, v_subscribers_weekly |
-| `subscription` | companyGiftRedemption, cron | companyGiftRedemption (INSERT), cron (UPDATE) | catalogService, companyGiftRedemption, cron, customerReads, liamAccess, userSignals, users | — |
+| `subscription` | subscriptionService | subscriptionService (INSERT, UPDATE) | catalogService, checkoutService, companyGiftRedemption, cron, customerReads, liamAccess, subscriptionEmails, subscriptionRenewal, subscriptionService, subscriptionShipment, userSignals, users | v_subscription_status |
+| `subscription_event` | subscriptionService | subscriptionService (INSERT) | subscriptionService | — |
+| `subscription_event_kind` | seed | seed (INSERT) | — | — |
+| `subscription_event_source` | seed | seed (INSERT) | — | — |
+| `subscription_item` | subscriptionService | subscriptionService (INSERT) | checkoutService, subscriptionService, subscriptionShipment | v_subscription_status |
+| `subscription_kind` | seed | seed (INSERT) | — | — |
+| `subscription_status` | seed | seed (INSERT) | catalogService, checkoutService, liamAccess, subscriptionService, userSignals, users | v_subscription_status |
 | `token_events` | auth, manual:grant_tokens, tokenService | auth (INSERT), tokenService (INSERT) | admin, sommelier, sommelierGuards | — |
 | `transactional_email_log` | transactionalEmail | transactionalEmail (DELETE, INSERT, UPDATE) | audit-quiz-emails, quizIntegrity, transactionalEmail | — |
 | `user_archetype_tuning` | none | — | — | — |
-| `user_bloom_dial_current_position` | seed, users | seed (UPDATE), users (INSERT) | catalogIntegrity, catalogService, sommelier, users | — |
+| `user_bloom_dial_current_position` | seed, users | seed (UPDATE), users (INSERT) | catalogIntegrity, catalogService, sommelier, subscriptionShipment, users | — |
 | `user_brew_card` | brewCard, cron | brewCard (INSERT, UPDATE), cron (UPDATE) | brewCard, cron, customerReads, engagementMetrics | — |
 | `user_coffee_profile` | none | — | — | — |
 | `user_email` | auth, users | auth (INSERT), users (INSERT) | admin, cron, household, roasteryPortalReads, staleGuestCleanup, users | — |
@@ -3777,7 +3906,7 @@ Who writes and who reads each table, from the code (`backend/scripts/lineage-sca
 | `user_lifecycle_state` | userLifecycle | userLifecycle (INSERT, UPDATE) | userLifecycle, users | — |
 | `user_payment_detail` | none | — | — | — |
 | `user_phone` | users | users (INSERT, UPDATE) | beatEngine, cron, liamSmsFeedback, users | — |
-| `user_profile` | admin, auth, companyGiftRedemption, household, quiz, seed, staleGuestCleanup, stripe, users | admin (UPDATE), auth (INSERT), companyGiftRedemption (UPDATE), household (UPDATE), quiz (INSERT), seed (UPDATE), staleGuestCleanup (DELETE), stripe (UPDATE), users (INSERT, UPDATE) | admin, auth, backfillCustomerFacts, backfillLiamRecommendations, behavioralConfidence, catalogService, checkoutService, companyGiftRedemption, companyGiftsAdmin, correct-subscriber-archetypes, cron, customerReads, engagementMetrics, evidenceReads, exportCalibration, household, liamAccess, liamSmsFeedback, liamWriteBack, migrateSavedItems, newsletter, orders, outcomeTracker, qr, qrDoor, quizIntegrity, quizInterpretationBackfill, quizSession, roasteryPortalReads, roasteryPortalService, sommelier, sommelierEvaluator, staleGuestCleanup, stripe, userSignals, users | v_customer_bag_attribution, v_customer_identity |
+| `user_profile` | admin, auth, companyGiftRedemption, household, quiz, seed, staleGuestCleanup, stripe, users | admin (UPDATE), auth (INSERT), companyGiftRedemption (UPDATE), household (UPDATE), quiz (INSERT), seed (UPDATE), staleGuestCleanup (DELETE), stripe (UPDATE), users (INSERT, UPDATE) | admin, auth, backfillCustomerFacts, backfillLiamRecommendations, behavioralConfidence, catalogService, checkoutService, companyGiftRedemption, companyGiftsAdmin, correct-subscriber-archetypes, cron, customerReads, engagementMetrics, evidenceReads, exportCalibration, household, liamAccess, liamSmsFeedback, liamWriteBack, migrateSavedItems, newsletter, orders, outcomeTracker, qr, qrDoor, quizIntegrity, quizInterpretationBackfill, quizSession, roasteryPortalReads, roasteryPortalService, sommelier, sommelierEvaluator, staleGuestCleanup, stripe, subscriptionEmails, subscriptionRenewal, subscriptionService, userSignals, users | v_customer_bag_attribution, v_customer_identity |
 | `user_roaster_link` | none | — | — | — |
 | `user_saved_item` | backfill:migrateSavedItems, users | backfill:migrateSavedItems (INSERT), users (INSERT, UPDATE) | customerReads, migrateSavedItems, users | — |
 | `user_tokens` | auth, manual:grant_tokens, tokenService | auth (INSERT), tokenService (UPDATE) | admin, tokenService, tokens, users | — |
@@ -3794,11 +3923,11 @@ Since the database stats_reset (2026-05-21), from `v_data_table_activity`; live 
 
 **Dead candidates, observed (0):** none.
 
-**Dead candidates, static (23):** `archetype_relationship`, `archetype_tunable_variable`, `cupping_note_dimension_weight`, `customer_order_kind`, `liam_sms_feedback`, `newsletter_subscriber_backup_20260925`, `notification_log`, `order_event_kind`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_vector`, `roastery_blend_vector`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `user_archetype_tuning`, `user_coffee_profile`, `user_lifecycle_event`, `user_payment_detail`, `user_roaster_link`, `user_vector_state`.
+**Dead candidates, static (26):** `archetype_relationship`, `archetype_tunable_variable`, `cupping_note_dimension_weight`, `customer_order_kind`, `liam_sms_feedback`, `newsletter_subscriber_backup_20260925`, `notification_log`, `order_event_kind`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_vector`, `roastery_blend_vector`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `subscription_event_kind`, `subscription_event_source`, `subscription_kind`, `user_archetype_tuning`, `user_coffee_profile`, `user_lifecycle_event`, `user_payment_detail`, `user_roaster_link`, `user_vector_state`.
 
-**Touched since the reset (143):** `address`, `api_event`, `archetype_relationship`, `archetype_tunable_variable`, `archetype_vector`, `beat_event`, `brew_card_view_event`, `campaign_landing_event`, `catalog_change`, `checkout_session`, `checkout_session_line`, `claude_daily_spend`, `coffee_archetype`, `coffee_archetype_assignment`, `coffee_category`, `coffee_category_assignment`, `coffee_dial_slot`, `coffee_dimensions`, `coffee_hop`, `coffee_retail_price`, `coffee_size`, `coffee_sku`, `coffee_slot_assignment`, `coffee_slot_price`, `coffees`, `commerce_parameter`, `company`, `company_gift`, `company_gift_code`, `cupper`, `cupper_calibration_offset`, `cupping_brew_params`, `cupping_note`, `cupping_note_dimension_weight`, `cupping_scale`, `cupping_scale_step`, `cupping_score_descriptors`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`, `cupping_sessions`, `cupping_sheet_format`, `cupping_sheet_line`, `customer_bag_claim`, `customer_brew_profile_change`, `customer_dial_event`, `customer_feedback_descriptor`, `customer_feedback_event`, `customer_identity_link`, `customer_liam_action`, `customer_liam_question`, `customer_liam_recommendation`, `customer_liam_reply`, `customer_order_kind`, `dial_position_signal`, `dial_source_weight`, `evidence_parameter`, `evidence_stop_word`, `household`, `household_invitation`, `liam_sms_feedback`, `lookup_value`, `marketing_config`, `newsletter_subscriber`, `newsletter_subscriber_backup_20260925`, `notification_log`, `order`, `order_event`, `order_event_kind`, `order_fulfillment_status`, `order_line_item`, `order_payment_status`, `qr_scan_event`, `qr_universal_token`, `quiz`, `quiz_answer`, `quiz_answer_archetype_score`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_funnel_event`, `quiz_question`, `quiz_session`, `quiz_session_interpretation`, `quiz_type`, `quiz_vector`, `roaster`, `roastery_blend_vector`, `roastery_coffee_descriptors`, `roastery_portal_acceptance`, `roastery_portal_coffee`, `roastery_portal_dimension`, `roastery_portal_lineup_response`, `roastery_portal_lineup_response_best_seller`, `roastery_portal_link`, `roastery_portal_note_mapping`, `roastery_portal_respondent`, `roastery_portal_response`, `roastery_portal_response_brew`, `roastery_portal_response_dimension`, `roastery_portal_response_note`, `roastery_remark`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `sommelier_answer`, `sommelier_eval_case`, `sommelier_eval_phrasing`, `sommelier_eval_result`, `sommelier_eval_run`, `sommelier_evaluation`, `sommelier_gate_rule`, `sommelier_gate_rule_example`, `sommelier_gate_rule_replay`, `sommelier_messages`, `sommelier_reply_check`, `sommelier_sessions`, `sommelier_sms_feedback`, `sommelier_turn`, `sommelier_turn_label`, `stripe_event`, `subscriber_source`, `subscription`, `token_events`, `transactional_email_log`, `user_archetype_tuning`, `user_bloom_dial_current_position`, `user_brew_card`, `user_coffee_profile`, `user_email`, `user_flavor_feedback`, `user_lifecycle_event`, `user_lifecycle_stage`, `user_lifecycle_state`, `user_payment_detail`, `user_phone`, `user_profile`, `user_roaster_link`, `user_saved_item`, `user_tokens`, `user_type`, `user_vector_state`.
+**Touched since the reset (149):** `address`, `api_event`, `archetype_relationship`, `archetype_tunable_variable`, `archetype_vector`, `beat_event`, `brew_card_view_event`, `campaign_landing_event`, `catalog_change`, `checkout_session`, `checkout_session_line`, `claude_daily_spend`, `coffee_archetype`, `coffee_archetype_assignment`, `coffee_category`, `coffee_category_assignment`, `coffee_dial_slot`, `coffee_dimensions`, `coffee_hop`, `coffee_retail_price`, `coffee_size`, `coffee_sku`, `coffee_slot_assignment`, `coffee_slot_price`, `coffees`, `commerce_parameter`, `company`, `company_gift`, `company_gift_code`, `cupper`, `cupper_calibration_offset`, `cupping_brew_params`, `cupping_note`, `cupping_note_dimension_weight`, `cupping_scale`, `cupping_scale_step`, `cupping_score_descriptors`, `cupping_score_values`, `cupping_scores`, `cupping_session_coffees`, `cupping_sessions`, `cupping_sheet_format`, `cupping_sheet_line`, `customer_bag_claim`, `customer_brew_profile_change`, `customer_dial_event`, `customer_feedback_descriptor`, `customer_feedback_event`, `customer_identity_link`, `customer_liam_action`, `customer_liam_question`, `customer_liam_recommendation`, `customer_liam_reply`, `customer_order_kind`, `dial_position_signal`, `dial_source_weight`, `evidence_parameter`, `evidence_stop_word`, `household`, `household_invitation`, `liam_sms_feedback`, `lookup_value`, `marketing_config`, `newsletter_subscriber`, `newsletter_subscriber_backup_20260925`, `notification_log`, `order`, `order_event`, `order_event_kind`, `order_fulfillment_status`, `order_line_item`, `order_payment_status`, `qr_scan_event`, `qr_universal_token`, `quiz`, `quiz_answer`, `quiz_answer_archetype_score`, `quiz_backup_20261008_quiz`, `quiz_backup_20261008_quiz_answer`, `quiz_backup_20261008_quiz_answer_archetype_score`, `quiz_backup_20261008_quiz_question`, `quiz_funnel_event`, `quiz_question`, `quiz_session`, `quiz_session_interpretation`, `quiz_type`, `quiz_vector`, `roaster`, `roastery_blend_vector`, `roastery_coffee_descriptors`, `roastery_portal_acceptance`, `roastery_portal_coffee`, `roastery_portal_dimension`, `roastery_portal_lineup_response`, `roastery_portal_lineup_response_best_seller`, `roastery_portal_link`, `roastery_portal_note_mapping`, `roastery_portal_respondent`, `roastery_portal_response`, `roastery_portal_response_brew`, `roastery_portal_response_dimension`, `roastery_portal_response_note`, `roastery_remark`, `roastery_shipment_details`, `sensory_lexicon_attribute`, `sensory_source`, `sommelier_answer`, `sommelier_eval_case`, `sommelier_eval_phrasing`, `sommelier_eval_result`, `sommelier_eval_run`, `sommelier_evaluation`, `sommelier_gate_rule`, `sommelier_gate_rule_example`, `sommelier_gate_rule_replay`, `sommelier_messages`, `sommelier_reply_check`, `sommelier_sessions`, `sommelier_sms_feedback`, `sommelier_turn`, `sommelier_turn_label`, `stripe_event`, `subscriber_source`, `subscription`, `subscription_event`, `subscription_event_kind`, `subscription_event_source`, `subscription_item`, `subscription_kind`, `subscription_status`, `token_events`, `transactional_email_log`, `user_archetype_tuning`, `user_bloom_dial_current_position`, `user_brew_card`, `user_coffee_profile`, `user_email`, `user_flavor_feedback`, `user_lifecycle_event`, `user_lifecycle_stage`, `user_lifecycle_state`, `user_payment_detail`, `user_phone`, `user_profile`, `user_roaster_link`, `user_saved_item`, `user_tokens`, `user_type`, `user_vector_state`.
 
 ---
 
-catalog-hash: d0c363abcfc1076c2e0aa599f3cdec81228b62b2f034eec564ad10eeb61228f1
-lineage-hash: 388879fbcf26dff7f2c505b83a5dfe6c034391516f856ba5cc2e493aaa9ee391
+catalog-hash: 4b483154aee4d095758f8b63c44e82421026a3fdd372586d3d9af9bf3a45b951
+lineage-hash: 5545ca5fb8ca64495615173c984a493226639cf8ff1436448e0e9e8b5f81a708
