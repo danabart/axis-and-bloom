@@ -75,13 +75,13 @@ Frontend plus one deploy line. No backend file, schema, DB write, table or route
 **The cart lives in memory, so a full page load empties it.** Once a bag is in the cart, move between pages with the site's links, not by typing an address. A badge that drops to nothing after a typed URL is expected.
 
 1. Open `https://axisandbloomcoffee.com/bloom?preview=true` (no www). Expect: the address bar becomes `https://www.axisandbloomcoffee.com/bloom?preview=true` before the page shows, and the site is unlocked. Sign in if asked; a session on the old host does not carry over.
-   - Result:
+   - Result (Dana, prod, 2026-10-31): **passed.** The redirect from the non-www address worked with the preview flag intact.
 2. Add a bag on `/bloom`, then click through to `/the-axis` and `/profile`. On each, the header cart icon opens the drawer and the badge matches the floating button's count. The drawer's Checkout button lands on `/checkout`. At phone width, the icon works with the menu closed and open.
-   - Result:
+   - Result (Dana, prod, 2026-10-31): **passed.** The header cart icon opens the drawer with a live badge.
 3. Pay once with 4242 (one bag). Expect `/checkout/return` with Liam's line, the order line, ships-to and the total. This is the test that was never seen on prod. **If it lands anywhere else, stop and report the address bar and the first screen seen; do not add fixes.**
-   - Result:
+   - Result (Dana, prod, 2026-10-31): **passed.** The 4242 purchase landed on `/checkout/return` with Liam's line, the order line, $34.95 and ships-to.
 4. Signed in, click "Find my flavor". Expect the name screen with the "Signed in as …" line and without "Already have a profile? Sign in →". If the account now has a quiz result, you get the returning-user screen instead, and that is correct. Sign out, open `/find-my-flavor`: the line is gone and the sign-in link is back.
-   - Result:
+   - Result (Dana, prod, 2026-10-31): **passed.** Find my flavor shows the "Signed in as …" line and no sign-in link.
 5. Checks, already run in this session: see the table above. Typecheck is the same 13 existing errors, not green.
 
 ## Observed, not fixed
@@ -94,3 +94,4 @@ Frontend plus one deploy line. No backend file, schema, DB write, table or route
 6. **The cause of bug (c) is still "most likely".** See Task 0 item 3: the curtain does not carry the headline Dana reported, and the starting host of the first purchase is not recorded. Parts B and C cover both routes, and Part E step 3 is the proof.
 7. **Handoff question not answered by this brief:** does the return page work when opened later from an email link? `/checkout/return` now only needs sign-in plus ownership, so it should, but it was not exercised.
 8. **Signed-in customers with a quiz result on the old host:** anyone signed in only on apex or `.web.app` will have to sign in once on `www`. Their old host's session is not carried across.
+9. **The cart drawer shows "Checkout" to an anonymous visitor.** `isSignedIn` is `!!user`, and anonymous visitors have a `user`, so the button sends them to sign-in first.
