@@ -80,3 +80,7 @@ Test mode until Commerce brief 4. Stripe test cards: `4242 4242 4242 4242` (succ
 - [ ] **No roaster name** on the Stripe form, the return page, the customer email or Profile (the admin email is the only place the roaster coffee appears).
 - [ ] `POST /api/orders` answers 410 `use_checkout`; nothing but `checkoutService` writes `"order"` / `order_line_item` / `order_event` (`npm run lint:lineage`).
 - [ ] Boot log shows `[stripe] mode=test` (never `live` before brief 4).
+- [ ] **Header cart** (Checkout UX 1): the icon opens the drawer on every page with the nav, the badge matches the floating button, both are hidden while gated.
+- [ ] **Return page**: `/checkout/return` with no `?preview=true` shows the confirmation signed in, and goes to `/sign-in` with `session_id` kept when signed out; never the curtain.
+- [ ] **One host**: apex and `.web.app` addresses replace themselves with `www`, keeping path, query and hash; `/b/:token` and `/roastery/:token` still open.
+- [ ] **Quiz name screen**: signed in shows "Signed in as …" and no sign-in link; a guest sees the link and no line.

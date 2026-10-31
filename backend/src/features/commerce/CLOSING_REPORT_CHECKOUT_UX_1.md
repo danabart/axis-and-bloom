@@ -55,7 +55,7 @@ Frontend plus one deploy line. No backend file, schema, DB write, table or route
 | `npx tsc --noEmit` in `frontend/` (no `typecheck` script exists) | **Not green: 13 errors, the same 13 as the base commit** (compared with line numbers removed). None in a changed file. |
 | `vite build` | Green |
 | Backend suite | Not run; no backend file changed |
-| Browser, local production build with `VITE_PRELAUNCH_MODE=true` | 34 of 34 on the final runs (below) |
+| Browser, local production build with `VITE_PRELAUNCH_MODE=true` | First script 22 of 24; the other 2 were a test-setup fault and pass in the corrected second script, 10 of 10 (below) |
 
 **Browser checks** used Playwright against throwaway builds outside the repo. Reads came from prod. Writes were dropped, and Firebase was answered inside the browser, so no account or row was created anywhere.
 
@@ -66,7 +66,7 @@ Frontend plus one deploy line. No backend file, schema, DB write, table or route
 - **Canonical host:** on another host the page replaces itself with the canonical address, keeping path, query and hash, and does not render; on the canonical host it stays and renders.
 - **Name screen:** a guest sees the sign-in link and no line; a signed-in user sees the line and no link, on a screen that stays.
 
-**Two failures on the way, both caused by the test setup, not the code.** Blocking Firebase kept `RequireAuth` on "Loading", because the app waits for anonymous sign-in. Stubbing the quiz questions as empty hid the name screen. The results above are from the corrected runs.
+**Two failures on the way, both caused by the test setup, not the code.** Blocking Firebase kept `RequireAuth` on "Loading", because the app waits for anonymous sign-in. Stubbing the quiz questions as empty hid the name screen. The second fault appeared and was fixed within the second script. The list above reflects the corrected runs.
 
 **Not covered locally (Part E covers them):** a real Stripe payment and return, the drawer's signed-in Checkout button reaching `/checkout`, a real signed-in account (that identity was simulated in the browser), and the Cloudflare layer in front of `www` and apex.
 
