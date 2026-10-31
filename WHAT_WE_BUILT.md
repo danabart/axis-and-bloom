@@ -6165,6 +6165,66 @@ The header cart icon now opens the shared drawer, with a real count, and is hidd
 
 **Not done in this pass:** listed in the closing report, including the Bloom card's "shipping included" against the cart's $5.95, and the consent banner covering the cart drawer.
 
+### 248. Commerce 2: subscriptions (card on file, our schedule, invoices per cycle) (2026-10-31)
+
+Brief `backend/src/features/commerce/CLAUDE_CODE_PROMPT_COMMERCE_2_SUBSCRIPTIONS.md`; full record `backend/src/features/commerce/CLOSING_REPORT_2.md`.
+
+**Status:** committed on `main`, not pushed (Dana's go). Test mode only.
+
+**Commits:**
+
+| Commit | Content |
+|---|---|
+| `14afa49` | Task 0 / 0.5 |
+| `dad8a09` | A, schema |
+| `7627fc8` | B, backend |
+| `a2f8ed0` | C, frontend |
+| `3f929ee` | D, tests |
+| `3896fcf` | E fix |
+| `c130e45` | `CLAUDE.md` guardrails pointer (Dana's change, its own commit) |
+| — | plus the docs commit |
+
+`CATALOG.md` is regenerated from prod after the deploy, as in #246.
+
+**Files:**
+- Database: `db/schema.sql` and `db/comments.sql` (Commerce 2 block).
+- New backend services: `subscriptionService.ts`, `subscriptionShipment.ts`, `subscriptionRenewal.ts`, `subscriptionEmails.ts`.
+- New route: `routes/subscriptions.ts`.
+- Changed backend: `checkoutService.ts`, `cartResolver.ts` (two helpers exported), `userSignals.ts`, `liamAccess.ts`, `catalogService.ts`, `routes/checkout.ts`, `stripeWebhook.ts`, `cron.ts`, `companyGiftRedemption.ts`, `users.ts`, `index.ts`.
+- Frontend: `lib/api.ts`, new `lib/calendarDate.ts`, `context/CartContext.tsx`, `bloom/CartLines.tsx`, `bloom/FloatingCart.tsx`, `checkout/CheckoutPage.tsx`, `checkout/CheckoutReturnPage.tsx`, new `profile/SubscriptionSummary.tsx`, `Profile.tsx`, `Home.tsx`.
+
+**How it works:**
+- **No Stripe Billing.** Stripe holds the card, saved off-session at the first checkout (`setup_future_usage`, subscription checkouts only); we run the schedule.
+- **The first delivery is a normal checkout.** It is priced by the subscription tier: 5% for one bag, 10% for two or more, from the pricing tables, never stacked with the collection discount (Dana). It is written as one order with `is_subscription`, and `subscriptionService.createPaidSubscriptionFromCheckout` writes the subscription, one `subscription_item` per line and `started` in the same transaction.
+- **Each later cycle comes from the daily job.** `GET /api/cron/subscription-daily` (Cloud Scheduler `subscription-daily`, 06:00 Eastern) does three things:
+  1. Lapses past_due subscriptions after 21 days, voiding the open invoice.
+  2. Emails the coffee lined up 3 days ahead.
+  3. Charges every due subscription as a Stripe one-off invoice: automatic tax, the saved card, per-line invoice items carrying their house name and price, shipping by the one-time rule, and `auto_advance` switched on only at finalize.
+- **The webhook writes the renewal order.** `invoice.paid` → `checkoutService.createSubscriptionOrder` (exactly once per invoice; lines `subscription_renewal`) → `finalizePaidOrder` as for any order. `invoice.payment_failed` → past_due + one payment-trouble email per Stripe attempt. `invoice.marked_uncollectible` → lapsed. `invoice.voided` → event. An invoice naming a subscription this database does not have answers a quiet 200.
+- **What ships follows the Bloom Dial** for the item's archetype (`subscriptionShipment.resolveSubscriptionShipment`). It falls back to the signup slot, then the archetype's landing default, and an item that cannot be named is never charged (admin email). Switch: `subscription_ships_current_dial_position`.
+- **Liam access widened:** past_due and paused keep Liam access and the SUBSCRIBER stage (`subscription_status.counts_as_subscriber`, Dana's decision 1).
+
+**Also:**
+- `POST /api/checkout/quote` gives the cart a server price for the subscribe choice.
+- The next-delivery date now renders as the same day in US time (Home, Profile, return page). It used to show the previous day once real dates existed.
+- Company-gift create and lapse moved into `subscriptionService` with the SQL unchanged.
+
+**Verified** (test mode, local backend on `axisandbloom_test`, Stripe events relayed from the Events API):
+- **Subscribe, one bag, every 2 weeks:** $27.55 + $5.95 = $33.50, next 11-14, Profile block, return page.
+- **Two bags, every 4 weeks:** $52.20 with free shipping.
+- **Renewal:** invoice `in_1UWgMi0QYxZQN6jD3b3e7vlF` → one `subscription_renewal` order and both emails; a second run the same day charged nothing; tax `product_exempt` $0 on coffee and shipping.
+- **Dial turned:** "Bright & Balanced" at $29.45 (`in_1UWgRK0QYxZQN6jDdFsMxtBW`). With the switch at 0: "Classic Balanced" (`in_1UWgV10QYxZQN6jD64sDifWV`).
+- **Declined card (0341):** past_due, one email, no order, the invoice open for Stripe's retries.
+- **Upcoming notice:** sent once.
+
+Part E found and fixed a reused-idempotency-key bug: keys are now per attempt, and a failed attempt voids its open invoice before retrying. Full suite: 1,087 passed; the 7 known failures (quizScoring 6, schema.catalog_blueprint 1). Six lints, typecheck and `vite build` green.
+
+**Not done in this pass:**
+- Customer self-service buttons and the admin pages (Commerce 3, OT-62).
+- The retry-schedule wording and this account's invoice fee (OT-63).
+- The `subscription-daily` Cloud Scheduler job, after the deploy (`MANUAL_SETUP_IDS.md`).
+- `CATALOG.md` from prod after the deploy.
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)

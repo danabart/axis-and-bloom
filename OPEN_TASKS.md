@@ -416,6 +416,19 @@ One cart can resolve to SKUs from several roasteries (dial slots fall back acros
 
 The sandbox's one webhook endpoint (`we_1UWaPO0QYxZQN6jDi2Y9lp6q`) points at prod Cloud Run, so every test-mode event, including the local Part E acceptance runs against `axisandbloom_test`, is also delivered there. Before the Commerce 1 deploy prod answers 404 (Stripe retries for up to 3 days and emails about failures); after it, prod records an unknown session's event and answers 200 (`UnknownCheckoutSessionError`). Consider a second, local-only endpoint or the Stripe CLI for dev runs.
 
+### OT-62: Commerce 3, subscription self-service and admin (Commerce 2, 2026-10-31)
+
+Commerce 2 built the data and the renewal engine only. Commerce 3 (`CLAUDE_CODE_PROMPT_COMMERCE_3_ADMIN_AND_SELF_SERVICE.md`) adds:
+- **Profile buttons:** pause, skip, change frequency, update card (Stripe SetupIntent), and cancel. The columns already exist (`paused_until`, `skip_next_until`, `cancel_at`), as do the event kinds, `source = customer`, and the dial-aware `GET /api/subscriptions/mine`.
+- **Update-card link in the payment-trouble email.** It says "reply to us" today.
+- **`/admin/orders` and an admin subscriptions view** (`v_subscription_status`): refunds, mark shipped, and the shipping email.
+- **The customer's email on the admin new-order email.**
+- **Liam's status line:** the gate's `customer_subscription` resolver and the customer block print the raw status code (`sub.status`, so "past_due"). Switch both to `subscription_status.customer_label`.
+
+### OT-63: Stripe's one-off invoice retry schedule (Commerce 2, 2026-10-31)
+
+Commerce 2 leaves a declined renewal invoice open with `auto_advance`, so Stripe retries it on the account's Automatic collection schedule. Our job lapses the subscription after `subscription_past_due_lapse_days` (21) and voids the invoice. Dana to record the Dashboard's exact schedule, and what happens after the last retry, in `MANUAL_SETUP_IDS.md` (Task 0.5, step 2a). If Stripe gives up before 21 days with "mark uncollectible", `invoice.marked_uncollectible` lapses the subscription earlier, which is also fine.
+
 ### OT-61: Liam's order_status could read v_order_status (Commerce 1, 2026-10-31)
 
 `order_status` answers with `order_status_unavailable` because no fulfillment state was ever written. Commerce 1 writes real states as `order_event` rows (`v_order_status.customer_label`). Liam health check 10 now expects `checkoutService` as the checkout writer; wiring the gate's `customer_orders` resolver to say "Paid · being roasted" is a Liam brief, Dana's call.

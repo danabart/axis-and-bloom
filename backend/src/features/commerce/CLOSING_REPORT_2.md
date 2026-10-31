@@ -2,7 +2,25 @@
 
 Brief: `CLAUDE_CODE_PROMPT_COMMERCE_2_SUBSCRIPTIONS.md` · Session 2026-10-31 · Base commit `3593c8f` (main == origin/main; prod runs Commerce 1 + Checkout UX 1). Test mode only.
 
-Status: **Task 0 written; Task 0.5 waiting on Dana.**
+Status: **done in test mode; committed on `main`, not pushed (Dana's go).**
+
+| Commit | Content |
+|---|---|
+| `14afa49` | Task 0 / 0.5 |
+| `dad8a09` | A, schema |
+| `7627fc8` | B, backend |
+| `a2f8ed0` | C, frontend |
+| `3f929ee` | D, tests |
+| `3896fcf` | E fix |
+| `c130e45` | Dana's `CLAUDE.md` guardrails pointer, its own commit |
+| — | plus the docs commit |
+
+After the push and first boot:
+1. Run `npm run catalog:md -- --expect-db axisandbloom` and commit `CATALOG.md`.
+2. Create the Cloud Scheduler job (`MANUAL_SETUP_IDS.md`).
+3. Run the post-deploy checks at the end of this report.
+
+`DEVELOPMENT_GUARDRAILS.md` (added to `CLAUDE.md` mid-brief) was read during Part B and the build checked against it. One conflict was found and followed per the guardrails: the brief's `subscription_event.source` CHECK list became a lookup table (G2.7).
 
 ---
 
@@ -179,6 +197,163 @@ The cart fingerprint (`:73–78`) does not include anything subscription-shaped.
 
 ---
 
+### Dana's decisions (2026-10-31)
+
+1. **Status access:** past_due and paused keep Liam access and the SUBSCRIBER stage; lapsed and canceled remove them; sponsored unchanged. This is implemented as `subscription_status.counts_as_subscriber`, read by `userSignals`, `liamAccess`, `users` and `catalogService`.
+2. **No stacking:** a subscription uses only the subscription tier by bag count. The collection discount never applies to a subscription checkout or renewal.
+3. **Task 0 resolutions approved:**
+   - `is_landing_default` as the default-slot column;
+   - a nullable item archetype for category coffees, with the coffee id set;
+   - the real API shapes;
+   - no double charge per cycle;
+   - void the unpaid invoice on lapse.
+4. **Build deviations approved:** the event-source lookup, `invoice_voided`, `auto_advance` only at finalize, the date fix, no collection discount on subscriptions. OT-13 left as noted.
+
+---
+
 ## Task 0.5 — manual setup
 
-Written into `launch/00_manual-setup/MANUAL_SETUP_IDS.md` → Stripe → "Commerce 2". Waiting on Dana for step 1 (the four `invoice.*` events on the sandbox endpoint) and step 2 (the retry schedule and the Stripe emails). Step 3, the scheduler job, comes after the deploy.
+Written into `launch/00_manual-setup/MANUAL_SETUP_IDS.md` → Stripe → "Commerce 2".
+
+| Step | Status |
+|---|---|
+| 1. The four `invoice.*` events on the sandbox endpoint | ✅ Dana |
+| 2b. Stripe customer emails (failed payment, reminders, finalized invoices) off | ✅ Dana |
+| 2a. Retry schedule | **Not recorded:** both of Dana's replies carried the placeholder `[paste the Dashboard wording]` (OT-63) |
+| 3. Scheduler job | After the deploy; exact command in the doc |
+
+**Invoice fee:** the public page stripe.com/invoicing/pricing (read 2026-10-31) shows Starter at 0.4% per paid invoice and Plus at 0.5%, with no cap shown. The brief's "capped at $2" is not on the public page, and the figure for this account (Dashboard → Settings → Billing) was not checked in this session. The card fee on renewal `in_1UWgMi0QYxZQN6jD3b3e7vlF` ($33.50) was $1.27; Stripe Tax's own fee comes on top.
+
+---
+
+## Why no existing object fits (Part A)
+
+`CATALOG.md` was checked before adding anything.
+
+- **`subscription`** stays the current-state row. It has no items, no billing link and no history, and it had two writers.
+- **`order_event`** is per order, not per subscription.
+- **`checkout_session`** is a one-time cart snapshot that ends at payment, while a subscription's lines must outlive it.
+- **`user_payment_detail`** is retired (Stripe holds the card).
+- **New tables, all domain-prefixed (G2.3):**
+  - `subscription_item` (what ships);
+  - `subscription_event` (insert-only history, G2.13);
+  - the lookups `subscription_status`, `subscription_kind`, `subscription_event_kind` and `subscription_event_source` (G2.7);
+  - the view `v_subscription_status` (the read path for Profile and admin).
+
+## Built
+
+**Schema** (`schema.sql` Commerce 2 block, additive and idempotent; `comments.sql` for every new table and column):
+- **`subscription`:** gains `kind`, `frequency_weeks`, `archetype`, `origin_checkout_session_id`, `stripe_payment_method_id`, `paused_until`, `skip_next_until`, `cancel_at`, `last_order_id`, `last_charge_attempt_at` and `failed_attempts`, plus the `status` FK.
+- **`subscription_event`** carries `attempt_count`, a column the brief did not list, so a failure is deduplicated per Stripe attempt. Partial unique indexes:
+  - one `started` per subscription;
+  - one `renewal_charged` per invoice;
+  - one `renewal_failed` per (invoice, attempt).
+
+  It is REVOKE UPDATE/DELETE for `ab_app`.
+- **`"order"`** gains `subscription_id` and `stripe_invoice_id` (UNIQUE).
+- **`checkout_session`** gains `subscription_intent` and `subscription_id`.
+
+**One writer (G2.5):** `subscriptionService` writes `subscription`, `subscription_item` and `subscription_event`.
+- `companyGiftRedemption`'s INSERT and `cron`'s sponsored-lapse UPDATE moved there with the SQL unchanged. Sponsored lapse now also records a `lapsed` event.
+- `checkoutService` stays the one writer of `"order"` and `order_line_item`, with the new `createSubscriptionOrder`.
+- `lint:lineage` is green.
+
+**Prices (G2.16):** every cycle is re-priced from `coffee_slot_price` / `coffee_retail_price`, through the same `resolveBlendForSlot` / `resolveCoffeeBlend` the cart uses. The cart helpers `retailPriceCents` and `directDisplay` are exported rather than copied (G3.9). Stripe never holds a price.
+
+## Webhook event matrix (additions)
+
+| Event | Handling |
+|---|---|
+| `invoice.paid` with our `metadata.subscription_id` | `createSubscriptionOrder` (once per invoice: order + `subscription_renewal` lines + `paid` event + `renewal_charged` + back to active + next date) → `finalizePaidOrder` |
+| `invoice.paid` without our metadata | recorded, processed, nothing else |
+| any `invoice.*` naming a subscription this DB does not have | recorded with the reason, processed, 200 `unknownSession`, never retried |
+| `invoice.payment_failed` | `markRenewalFailed` (past_due, `failed_attempts`+1) + payment-trouble email, once per (invoice, attempt), so the cron's own record of a synchronous decline is not doubled |
+| `invoice.marked_uncollectible` | lapsed + event + lifecycle refresh |
+| `invoice.voided` | `invoice_voided` event |
+
+## `commerce_parameter` rows seeded
+
+| key | value | sane range |
+|---|---|---|
+| subscription_ships_current_dial_position | 1 | integer 0–1 |
+| subscription_upcoming_notice_days | 3 | integer 0–14 |
+| subscription_past_due_lapse_days | 21 | integer 7–60 |
+| subscription_charge_hour_local | 6 | integer 0–23 (informational: the scheduler job's hour) |
+
+`subscription_discount_pct_1_bag` (5), `_2plus_bags` (10) and `subscription_frequency_weeks` (2,4,6) were seeded by Commerce 1 and are now used.
+
+## Deviations from the brief, and why
+
+1. **`subscription_item.archetype` is nullable** with a CHECK (archetype or `signup_coffee_id`), because category coffees have no archetype (Task 0, approved).
+2. **The default slot is `coffee_dial_slot.is_landing_default`** (Task 0, approved).
+3. **`subscription_event.source` is a lookup `subscription_event_source`**, not a CHECK list (G2.7, approved). `invoice_voided` was added to the event kinds (approved).
+4. **Invoices are created with `auto_advance: false`;** `finalizeInvoice(…, { auto_advance: true })` switches it on. A draft left by a crash can never finalize and charge on its own (approved).
+5. **Invoice items use `unit_amount_decimal: Stripe.Decimal.from(…)`** (the SDK's `Decimal`). The PaymentIntent comes from `invoice.payments`, and tax is the sum of `total_taxes` (API `2026-09-30.endive`, Task 0).
+6. **Idempotency keys are per cycle and per attempt:** `sub:<id>:cycle:<date>:attempt:<claim ms>:<step>`, not the brief's `sub:<id>:cycle:<date>`. Part E finding: a second attempt at a cycle (a released claim, or a shipment changed by a dial turn) reused keys, and Stripe refused them as "same key, different parameters". A non-card failure now voids that attempt's open invoice before the claim is released. If the void fails, the cycle is held and admin alerted: a stuck cycle beats a double charge.
+7. **The renewal's next date:** on time it is cycle + N weeks; after a late retry it is paid date + N weeks.
+8. **The subscription discount is rounded per bag,** not "rounded per line, remainder on the first line". Each bag's Stripe unit price is then exactly what it is charged, and first deliveries and renewals round the same way.
+9. **A server quote, `POST /api/checkout/quote`,** shows the subscribed subtotal in the cart and on `/checkout`. The frontend never computes a discount (G2.1/G4.2).
+10. **Profile reads `GET /api/subscriptions/mine`** through `v_subscription_status` plus the dial-aware resolver.
+11. **Date bug fixed on the way.** `Home.tsx` and `Profile.tsx` rendered `nextDeliveryDate` with `new Date(…)`, which shows a Postgres DATE as the previous day in US time. They now use `lib/calendarDate.formatCalendarDate`, and `users.ts` sends YYYY-MM-DD.
+12. **Part E step 5 used `pm_card_chargeCustomerFail` (4000…0341), not the brief's `pm_card_chargeDeclined`.** Stripe declines `chargeDeclined` at attach, so it can never be a saved card; 0341 attaches and then declines on charge.
+13. **The renewal email for the first delivery uses the order confirmation as is** ("Your order is in"). Renewals send the same confirmation and admin emails as any order.
+
+## Part E — acceptance
+
+Run 2026-10-31 in Stripe test mode against a local backend on `axisandbloom_test` (prod untouched). Stripe events came through `backend/tmp/stripe-relay.ts` (the Events API, signed locally), now including `invoice.*`. The cron was called with a local secret. The browser was driven in Dana's tab group, signed in as `danabar.mail+checkout1@gmail.com` (customer). Card payments used Stripe's published test cards; "Pay without Link" was chosen.
+
+| Step | Result |
+|---|---|
+| 1. Subscribe, 1 bag, every 2 weeks, 4242 | cart showed "Make it a subscription · 5% off", $29.00 struck → $27.55; Stripe showed the future-payments mandate; order `63e40778…` `is_subscription`, $27.55 + $5.95 + $0 tax = $33.50, line `manual` with $1.45 discount; subscription `f1ea569f…` `active`, next `2026-11-14`, item balanced_sweet / slot 4 / coffee 2905, `started` event, saved `pm_1UWgKH…`; return page "Next delivery Saturday, November 14, every 2 weeks"; admin and customer emails sent |
+| 2. Two bags, every 4 weeks | $58.00 struck → $52.20, free shipping in the cart and in Stripe; subscription `e12c51d1…` next `2026-11-28`; Profile → Orders showed both subscription blocks (status, every N weeks · bags · % off, next date, lined up, "Change it on your Bloom Dial") |
+| 3. Renewal | date set to today, `subscription-daily` → invoice `in_1UWgMi0QYxZQN6jD3b3e7vlF`, `invoice.paid` → order `7b408e8c…`, line `subscription_renewal` $27.55, total $33.50, fee $1.27, paid → finalized → dispatched, both emails, next back to `2026-11-14`; second run the same day: nothing charged. Stripe: `automatic_tax.status complete`, coffee and shipping lines `product_exempt` $0 (NJ) |
+| 4. Dial rule | the test DB had one sellable Balanced slot, so for this step only "Bright & Balanced" (slot 5) was made sellable in `axisandbloom_test` through `catalogService.placeCoffee` (guest) + `setSlotPrice` ($31.00); dial turned in the browser to slot 5 → invoice `in_1UWgRK0QYxZQN6jDdFsMxtBW`, order line "Bright & Balanced" $29.45 ($1.55 off). Switch to 0 (through `commerceParameters.setParameter`, the admin route's door) → `in_1UWgV10QYxZQN6jD64sDifWV`, line "Classic Balanced" $27.55. Switch restored to 1 |
+| 5. Failure | `pm_card_chargeCustomerFail` attached (`pm_1UWgW30QYxZQN6jD3WApU185`, 0341), subscription pointed at it → `declined`, invoice `in_1UWgWB0QYxZQN6jDbWZgkKkv` open with `auto_advance: true` (Stripe retries), subscription `past_due`, `failed_attempts` 1, one `renewal_failed` (attempt 1, $35.40) although Stripe's `invoice.payment_failed` also arrived, one "About your next delivery" email, no order. Retry schedule: see Task 0.5 |
+| 6. Pause / skip | covered by tests (`subscriptionService.test.ts`, `subscriptionRenewal.test.ts`) |
+| 7. Upcoming notice | date = today + 3 (`2026-11-03`), run → 1 email `subscription_upcoming:e12c51d1…:2026-11-03`, run again → 0 |
+
+**Found and fixed in Part E:** the reused idempotency keys (deviation 6). The first attempt that hit it was harmless: the reused create key returned step 3's paid invoice and the first invoice item was refused, so nothing was charged and the claim was released.
+
+**Noticed, not changed:**
+- `transaction_fee` is NULL on the first-delivery order: Stripe had not settled the balance transaction when the webhook arrived. The renewal order's fee was present. Same behaviour as Commerce 1.
+- Embedded Checkout still offers Cash App Pay and Klarna for subscription checkouts. They are account settings: Checkout hides only methods that cannot be saved.
+- Locally, Profile → Orders says "You haven't placed any orders yet" because the local profile read fails on the Firestore dev guard (Commerce 1 finding). On prod it lists the orders.
+- The test data stays (the throwaway account, its 2 subscriptions, 5 orders, the slot-5 placement and price in the test DB), per the nothing-deleted rule.
+
+## Tests
+
+- **New test files:**
+
+  | File | Tests | Covers |
+  |---|---|---|
+  | `subscriptionShipment.test.ts` | 9 | the fallback chain, category coffee, pricing tiers, per-bag rounding |
+  | `subscriptionService.test.ts` | 10 | scheduleNext with pause/skip, the one-attempt claim, failure per attempt, charge per invoice, the late-paid next date, lapse + void, sponsored create/lapse, decision 1 access |
+  | `subscriptionRenewal.test.ts` | 6 | twice → one invoice and no order, unresolved → no invoice + admin email once, declined → past_due + one email, paused → skipped, non-card failure → void + release + fresh keys, upcoming notice once |
+
+- **Additions to existing files:** `checkoutService.test.ts` (+7: subscription checkout, completion in one transaction exactly once, `createSubscriptionOrder` idempotent, unknown subscription, quote) and `stripeWebhook.test.ts` (+5: the invoice events).
+- **Full suite** (before the Part E fix): 1,087 passed; 7 failed, exactly the known ones (quizScoring 6, schema.catalog_blueprint 1), not fixed per Dana. After the fix, the changed files re-ran green (16/16).
+- **Checks:** `comments.format` / `comments.db`, the six lints, backend `tsc`, `vite build` green. Frontend `tsc` is at the same 13 pre-existing errors.
+
+## What Commerce 3 needs from this
+
+- **Self-service:** write through `subscriptionService` with `source = 'customer'`.
+  - pause: `paused_until` + `paused`
+  - skip: `skip_next_until` + `skip_requested`
+  - frequency: `frequency_weeks` / `frequency_days` + `frequency_changed`
+  - cancel: `cancel_at` + `canceled`, with status
+  - update card: a SetupIntent → `stripe_payment_method_id` + `payment_method_updated`
+
+  The cron already honours the pause and skip windows (`scheduleNext`, `skipCoveredCycle`).
+- **Payment-trouble email:** add the update-card link, and when a new card is saved, retry the open invoice (`invoices.pay`) for a past_due subscription.
+- **Admin:** subscriptions from `v_subscription_status` and events from `subscription_event`; orders and refunds as planned.
+- **Liam:** the `customer_subscription` resolver and the customer block should print `customer_label` (OT-62).
+- **Retry schedule:** decide the post-retry outcome once the Dashboard wording is in (OT-63).
+
+## Post-deploy checks
+
+1. Push → deploy green → boot log shows `[stripe] mode=test`, `DB schema verified`, and `[db-comments]` with no errors.
+2. `npm run catalog:md -- --expect-db axisandbloom`, then commit `CATALOG.md`.
+3. Create the `subscription-daily` Cloud Scheduler job (`MANUAL_SETUP_IDS.md`) and trigger it once with `gcloud scheduler jobs run`. The Cloud Run log should show `[cron/subscription-daily]` with 0 charged on a database with no paid subscriptions.
+4. On prod with `?preview=true`, subscribe with 4242 (1 bag): one order, the subscription block on Profile, the next date on the return page.
+5. `/admin/commerce` shows the four new parameters.
+6. Run the standing regression trio, plus the new subscriptions section of `REGRESSION.md`.

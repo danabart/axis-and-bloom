@@ -67,9 +67,9 @@ Brief: `backend/src/features/commerce/CLAUDE_CODE_PROMPT_COMMERCE_2_SUBSCRIPTION
 
 | # | Step | Owner | Status |
 |---|---|---|---|
-| 1 | Sandbox webhook endpoint `axis-bloom-backend-test` (`we_1UWaPO0QYxZQN6jDi2Y9lp6q`): add the events `invoice.paid`, `invoice.payment_failed`, `invoice.marked_uncollectible`, `invoice.voided` (keep the six Commerce 1 events) | Dana / CTO session | ⏳ |
-| 2a | Settings → Billing → **Automatic collection** (one-off invoices): note the retry schedule for a failed charge (Smart Retries, or the default schedule) and what happens after the last retry (leave open / mark uncollectible / void). `invoice.marked_uncollectible` lapses the subscription; leaving it open lets our own lapse (`subscription_past_due_lapse_days`, 21) void it | Dana | ⏳ |
-| 2b | Settings → **Emails**: Stripe's "failed payment" and "upcoming invoice / renewal reminder" customer emails stay **off**, and so do invoice emails to customers ("Email finalized invoices to customers"). Ours go through Resend | Dana | ⏳ |
+| 1 | Sandbox webhook endpoint `axis-bloom-backend-test` (`we_1UWaPO0QYxZQN6jDi2Y9lp6q`): add the events `invoice.paid`, `invoice.payment_failed`, `invoice.marked_uncollectible`, `invoice.voided` (keep the six Commerce 1 events) | Dana / CTO session | ✅ 2026-10-31 (Dana) |
+| 2a | Settings → Billing → **Automatic collection** (one-off invoices): note the retry schedule for a failed charge (Smart Retries, or the default schedule) and what happens after the last retry (leave open / mark uncollectible / void). `invoice.marked_uncollectible` lapses the subscription; leaving it open lets our own lapse (`subscription_past_due_lapse_days`, 21) void it | Dana | ⏳ wording not recorded yet (OT-63) |
+| 2b | Settings → **Emails**: Stripe's "failed payment" and "upcoming invoice / renewal reminder" customer emails stay **off**, and so do invoice emails to customers ("Email finalized invoices to customers"). Ours go through Resend | Dana | ✅ 2026-10-31 (Dana: failed payment, reminders, finalized invoices off) |
 | 3 | Cloud Scheduler job `subscription-daily`, after the Commerce 2 deploy (command below) | Dana | ⏳ after deploy |
 
 Step 3, in PowerShell (the header value comes straight from Secret Manager, so it is never typed or shown). The schedule is 06:00 US Eastern, matching `commerce_parameter.subscription_charge_hour_local` = 6, which is informational only. Change both together.
@@ -77,6 +77,8 @@ Step 3, in PowerShell (the header value comes straight from Secret Manager, so i
 $env:CLOUDSDK_PYTHON = "C:\Python313\python.exe"; $s = (gcloud secrets versions access latest --secret=CRON_SECRET --project=axis-and-bloom-prod); gcloud scheduler jobs create http subscription-daily --schedule="0 6 * * *" --time-zone="America/New_York" --uri="https://axis-bloom-backend-oiub7eumya-uc.a.run.app/api/cron/subscription-daily" --http-method=GET --headers="x-cron-secret=$s" --attempt-deadline=600s --project=axis-and-bloom-prod --location=us-central1; Remove-Variable s
 ```
 Check: `gcloud scheduler jobs run subscription-daily --location=us-central1 --project=axis-and-bloom-prod`. The Cloud Run log should then show `[cron/subscription-daily]` with counts and a 200. The job is safe to run twice a day: a cycle already attempted is skipped.
+
+Stripe Invoicing fee: the public pricing page (stripe.com/invoicing/pricing, read 2026-10-31) lists Starter at 0.4% per paid invoice and Plus at 0.5%, with no cap shown. The brief's "capped at $2" was from memory. The figure for this account is on Dashboard → Settings → Billing → Invoices; record it here when it is checked. Each renewal also pays the card fee (renewal `in_1UWgMi0QYxZQN6jD3b3e7vlF`, $33.50: $1.27) and the Stripe Tax fee.
 
 Note (Task 0, 2026-10-31): `sponsored-subscription-check` and `expire-company-gift-codes` still have no scheduler jobs (OT-13). `gcloud scheduler jobs list` shows only `purge-stale-anonymous-guests`, `liam-gate-offline` and `coffee-content-backfill`.
 

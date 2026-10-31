@@ -84,3 +84,15 @@ Test mode until Commerce brief 4. Stripe test cards: `4242 4242 4242 4242` (succ
 - [ ] **Return page**: `/checkout/return` with no `?preview=true` shows the confirmation signed in, and goes to `/sign-in` with `session_id` kept when signed out; never the curtain.
 - [ ] **One host**: apex and `.web.app` addresses replace themselves with `www`, keeping path, query and hash; `/b/:token` and `/roastery/:token` still open.
 - [ ] **Quiz name screen**: signed in shows "Signed in as …" and no sign-in link; a guest sees the link and no line.
+
+## Commerce — subscriptions (Commerce 2, 2026-10-31)
+
+Test mode until Commerce brief 4. Full record: `backend/src/features/commerce/CLOSING_REPORT_2.md`. Renewals are Stripe one-off invoices our daily job (`GET /api/cron/subscription-daily`, Cloud Scheduler `subscription-daily`) creates; the `invoice.paid` webhook writes the order.
+
+- [ ] **Subscribe**: cart → "Make it a subscription" → frequency (2/4/6 weeks from `/api/checkout/rules`) → the cart and `/checkout` show the server-quoted price (5% one bag, 10% two or more; never the collection discount on top) → pay with 4242 → one order with `is_subscription`, a `subscription` `active` with `next_delivery_date` = today + N weeks, `started` event; the return page says "Next delivery <date>, every N weeks"; Profile → Orders shows "Your subscription".
+- [ ] **Subscription renewal ships current dial position**: turn the Bloom Dial for the subscription's archetype → the next renewal order's line is that position's house name and price; with `subscription_ships_current_dial_position` = 0 it is the signup slot.
+- [ ] **Renewal cron is idempotent**: run `subscription-daily` twice the same day → one Stripe invoice, one renewal order (`order_kind = subscription_renewal`), both emails once, `next_delivery_date` advanced by the webhook.
+- [ ] **Declined renewal**: past_due, one "About your next delivery" email per Stripe attempt, no order, the invoice stays open for Stripe's retries; Liam access and the SUBSCRIBER stage stay (past_due counts); after `subscription_past_due_lapse_days` the job lapses it and voids the invoice.
+- [ ] **Upcoming notice**: `subscription_upcoming_notice_days` before a delivery, one email with the coffee lined up; a second run sends none.
+- [ ] **Company gift unchanged**: redeeming a code creates an `active` sponsored subscription (kind `sponsored`); the sponsored-subscription check lapses it at expiry with the same email.
+- [ ] Nothing but `subscriptionService` writes `subscription` / `subscription_item` / `subscription_event` (`npm run lint:lineage`).

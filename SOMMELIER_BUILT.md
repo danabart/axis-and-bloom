@@ -1863,3 +1863,10 @@ Full diagnosis, evidence, and verification in `WHAT_WE_BUILT.md` #166; the S17 d
 
 **Pointer entry**, full record in `WHAT_WE_BUILT.md` #247.
 - No Liam code path changed. `/checkout/return`, which shows Liam's order line, is now outside the pre-launch gate, so a paid customer always reaches that line.
+
+#### S127. Commerce 2: who counts as a subscriber for Liam (2026-10-31)
+
+**Pointer entry**, full record in `WHAT_WE_BUILT.md` #248 (subscriptions).
+- **Liam access widened.** Liam access (`liamAccess.hasLiamAccess`) and the SUBSCRIBER lifecycle stage (`userSignals.hasActiveSubscription`) now read `subscription_status.counts_as_subscriber` instead of `status = 'active'`. Active, past_due (a card retry in progress) and paused keep Liam; lapsed and canceled do not (Dana, 2026-10-31). Sponsored seats are only ever active or lapsed, so company-gift access is unchanged. Tested in `subscriptionService.test.ts`.
+- **Renewals fire the same order beats.** Each renewal is an ordinary paid order through `finalizePaidOrder`: the order-placed line, the delayed beats, tokens and the lifecycle refresh run per renewal, as for any order.
+- **Not changed:** the gate's `customer_subscription` resolver and the customer block still print the raw status code. Moving them to `customer_label` is in OPEN_TASKS OT-62.
