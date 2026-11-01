@@ -408,15 +408,31 @@ The `shipping` case checks `must_contain_answer shipping` on all five phrasings;
 
 Every paid order goes to the manual adapter (`services/fulfillment/manual.ts`: an email to `admin_alert_email`), including orders whose `"order".fulfillment_roaster_id` is set: `fulfillment/index.ts` `adapterFor` has the `// seam: roaster adapters` comment where a roaster's adapter plugs in. Build the ShipStation adapter (a separate thread, per the commerce README) behind the same `FulfillmentAdapter.placeOrder` contract; it records `fulfillment_placed` through `checkoutService.recordOrderEvent`.
 
+**ShipStation adapter: tracking webhooks call `shipmentService.markShipped`** (Commerce 3, 2026-11-01). Since #250 a shipment is recorded only by `markShipped(orderId, { carrier, trackingNumber, roasterId, shippedAt })` (today from `/admin/orders`): the shipment row, the `shipped` event and the customer's tracking email once, idempotent per tracking number. ShipStation's ship-notify webhook maps its carrier code to a `shipping_carrier` row and calls the same function; nothing else writes `roastery_shipment_details`. `delivered` / `returned` (`shipping_status`) have no writer yet.
+
+### OT-64: Commerce 4, live cutover (Commerce 3, 2026-11-01)
+
+Brief 4 of the commerce README: live keys with Dana. Needs at least:
+- live secret and publishable keys, a live webhook endpoint with the 10 events (six checkout/charge plus four `invoice.*`) and its signing secret;
+- the live payment-method configuration and the setup-mode card update checked once;
+- `stripeMode()` reporting `live` in the boot log, and Dashboard links in `/admin/orders` pointing at live;
+- `admin_alert_email` and the sender domain checked;
+- a decision on the test data already on prod (test-mode orders, subscriptions and events stay as history; nothing is deleted);
+- OT-60 (test events reaching prod) closed by the cutover.
+
+The full list is in `CLOSING_REPORT_3.md` → "What Commerce 4 needs".
+
 ### OT-59: mixed-roaster order split (Commerce 1, 2026-10-31)
 
-One cart can resolve to SKUs from several roasteries (dial slots fall back across roasters). The order is one row with one `fulfillment_roaster_id` (NULL = manual), and the manual email lists each line's roaster. Before roaster adapters place orders automatically, decide how a multi-roaster order splits into shipments (`roastery_shipment_details`, `order_line_item.shipment_id`, both reserved) and what the customer sees.
+One cart can resolve to SKUs from several roasteries (dial slots fall back across roasters). The order is one row with one `fulfillment_roaster_id` (NULL = manual), and the manual email lists each line's roaster. Before roaster adapters place orders automatically, decide how a multi-roaster order splits into shipments and what the customer sees. Since #250 `roastery_shipment_details` is written (`shipmentService.markShipped`, linked by `order_id`, one shipment per order assumed by `v_order_status`); `order_line_item.shipment_id` stays reserved (D11), so a per-line split needs either a link table or Dana reopening D11.
 
 ### OT-60: test-mode Stripe events to the prod endpoint (Commerce 1, 2026-10-31)
 
 The sandbox's one webhook endpoint (`we_1UWaPO0QYxZQN6jDi2Y9lp6q`) points at prod Cloud Run, so every test-mode event, including the local Part E acceptance runs against `axisandbloom_test`, is also delivered there. Before the Commerce 1 deploy prod answers 404 (Stripe retries for up to 3 days and emails about failures); after it, prod records an unknown session's event and answers 200 (`UnknownCheckoutSessionError`). Consider a second, local-only endpoint or the Stripe CLI for dev runs.
 
-### OT-62: Commerce 3, subscription self-service and admin (Commerce 2, 2026-10-31)
+### OT-62: Commerce 3, subscription self-service and admin (Commerce 2, 2026-10-31) — ✅ Resolved 2026-11-01 (#250)
+
+All five items built in Commerce 3 (`WHAT_WE_BUILT.md` #250, `CLOSING_REPORT_3.md`): Profile buttons with the card update through setup-mode Checkout, the update-card link in the payment-trouble email, `/admin/orders` (refunds, mark shipped, shipping email, retry) and `/admin/subscriptions`, the customer's name, email and drawer link on the admin new-order email, and Liam's status line from `customer_label`.
 
 Commerce 2 built the data and the renewal engine only. Commerce 3 (`CLAUDE_CODE_PROMPT_COMMERCE_3_ADMIN_AND_SELF_SERVICE.md`) adds:
 - **Profile buttons:** pause, skip, change frequency, update card (Stripe SetupIntent), and cancel. The columns already exist (`paused_until`, `skip_next_until`, `cancel_at`), as do the event kinds, `source = customer`, and the dial-aware `GET /api/subscriptions/mine`.
@@ -485,8 +501,10 @@ Found running the full `npm test` suite as part of Customer Blueprint C1's Part 
 | 2026-10-24 | OT-39: the Profile page shows `fulfillment_status` (always pending) and `next_delivery_date` (never written) | Orders half done 2026-10-31 (Commerce 1: `customer_label` from `v_order_status`, total fixed); `next_delivery_date` open (Commerce brief 2) |
 | 2026-10-24 | OT-40: Liam declines to recommend at all without a quiz; rule wording is Dana's call | Open |
 | 2026-10-24 | OT-41: retire `topicLog` / `token_events usage_log` once `engagementMetrics` and `sommelierGuards` read `sommelier_turn` | Open |
-| 2026-10-31 | OT-58: ShipStation roaster adapter | Open |
+| 2026-10-31 | OT-58: ShipStation roaster adapter (tracking webhooks call `shipmentService.markShipped`, #250) | Open |
 | 2026-10-31 | OT-59: mixed-roaster order split | Open |
 | 2026-10-31 | OT-60: test-mode Stripe events also reach the prod endpoint | Open |
 | 2026-10-31 | OT-61: Liam order_status could read v_order_status | Open (Dana's call) |
+| 2026-10-31 | OT-62: Commerce 3, subscription self-service and admin | ✅ Resolved 2026-11-01 (#250) |
 | 2026-10-31 | OT-63: Stripe retry schedule for renewal invoices (Smart Retries, up to 8 within 2 weeks, then left past-due; our 21-day lapse voids it) | ✅ Resolved 2026-10-31 |
+| 2026-11-01 | OT-64: Commerce 4, live cutover | Open |

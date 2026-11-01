@@ -2,7 +2,18 @@
 
 Brief: `CLAUDE_CODE_PROMPT_COMMERCE_3_ADMIN_AND_SELF_SERVICE.md` · Session 2026-10-31 · Base commit `2d9a2f4` (main == origin/main; prod rev `00811-pjt`). Test mode only. `DEVELOPMENT_GUARDRAILS.md` read before Task 0.
 
-Status: **Task 0 written; stopped for Dana** (brief STOP point 1). Nothing changed yet.
+Status: **Parts A–D and F done; Part E runs on prod in test mode with Dana** (her change of plan, 2026-11-01: the local stack was stopped twice under low memory, so acceptance moved to `www.axisandbloomcoffee.com` with `?preview=true`, verified from the prod DB and the Stripe Dashboard). Prod Stripe is the sandbox (`[stripe] mode=test`).
+
+| Commit | Content |
+|---|---|
+| `1f56782` | Task 0 findings |
+| `fef6320` | Dana's Commerce README edit, its own commit |
+| `d834161` | A, schema |
+| `542f1b1` | B, backend |
+| `78eaff9` | Dana's Task 0 decisions; `invoice.*` events confirmed on the endpoint |
+| `c418abe` | C, frontend |
+| `c4c8c1e` | D, tests |
+| — | F, docs (this commit), then `CATALOG.md` from prod after the deploy |
 
 ---
 
@@ -126,3 +137,86 @@ Findings 5–8 and 10 follow the guardrails or the real API, and are built as wr
 4. **Only a full refund cancels fulfillment,** and only when Stripe confirms it (`charge.refunded`), never on the click.
 5. **Both OT-62 items are included:** the update-card link in the payment-trouble email, and the customer wording for Liam's status line.
 6. **Approved as described:** the Stripe reason mapping as a column on the reason table; refund reasons read from Stripe's refund list; the new card named on the retry; the real next date when a cycle is skipped.
+
+---
+
+## Decisions applied
+
+| Decision | Where it is built |
+|---|---|
+| 1. `invoice.*` on the endpoint | Re-read through the API, 10 events. No code. |
+| 2. Auto-resume | `subscriptionService.resumeDuePauses(today)`, step 0 of `runSubscriptionDaily` (`DailyResult.resumed`, logged by `routes/cron.ts`); each resume goes through `resume(…, 'cron')`. |
+| 3. Link by `order_id` | `roastery_shipment_details.order_id` plus unique (`order_id`, `tracking_number`); `v_order_status` takes the latest shipment through a LATERAL on `order_id`; `order_line_item.shipment_id` comment says "reserved (D11)". |
+| 4. Only a full refund cancels, from the webhook | `requestRefund` only asks Stripe. `recordRefund` (on `charge.refunded`) writes `canceled` (source webhook) when the refund is full and the order is `awaiting_manual` / `needs_attention`. |
+| 5. OT-62 extras | Payment-trouble email links to `/profile?tab=orders&card=update` ("Update your card"); `sommelierGate.ts` and `liamProfile.ts` print `customer_label`. |
+| 6. Approved as described | `order_refund_reason.stripe_reason`; `refunds.list({ charge })` for the newest refund's metadata; `invoices.pay(…, { payment_method, off_session })`; `effectiveNextDelivery` in `GET /mine` and `/admin/subscriptions`. |
+
+## Deviations from the brief, and why
+
+1. **Views have one definition each.** `v_order_status` and `v_subscription_status` gained columns at the end. The Commerce 1 and 2 blocks of `schema.sql` held earlier `CREATE OR REPLACE` definitions, which would fail on every boot after the first, because a replace cannot drop columns. Those definitions are now comments pointing to the Commerce 3 block.
+2. **Advisory locks on orders, not `FOR UPDATE`.** `ab_app` has no UPDATE on `"order"` (D11), and `SELECT … FOR UPDATE` needs it. Refunds lock on `pg_advisory_xact_lock(hashtext('refund:<order>'))`, shipments on `'ship:<order>'`.
+3. **The recovery key names the card.** The key is `sub:<id>:recover:<invoice>:<payment method>`, not `sub:<id>:recover:<invoice>`. With the brief's key, the second card (4242) would replay the first card's (0341) declined response for 24 hours.
+4. **The refund route writes nothing itself** (decision 4). The brief had it record `canceled` on the click.
+5. **The Stripe reason mapping is a column** (`order_refund_reason.stripe_reason`, G2.1), not code.
+6. **`subscription` table comment shortened** to 894 characters (the `comments.format` limit is 1,000) to fit the new writer functions.
+7. **Part E on prod, not the local stack** (Dana, 2026-11-01). The low-memory reaper stopped the proxy, backend, relay and Vite twice. Prod runs the sandbox keys, and the sandbox endpoint already delivers to prod, so no relay is needed. Verification reads the prod DB through the Cloud SQL proxy (SELECTs only) and the Stripe sandbox.
+
+## Tests
+
+- New: `subscriptionSelfService.test.ts` (12). It covers:
+  - frequency keeps the date;
+  - skip twice → 409;
+  - pause bounds → 422;
+  - resume reschedules;
+  - auto-resume from cron;
+  - cancel voids the open invoice;
+  - card attach on past_due pays once, is idempotent, and handles declines.
+- New: `commerceAdmin.test.ts` (9). It covers:
+  - `markShipped` idempotent, with the event and email once;
+  - partial and full refund through `charge.refunded`;
+  - full refund on `awaiting_manual` cancels, on shipped does not;
+  - retry fulfillment;
+  - admin reads with the customer email.
+- `stripeWebhook.test.ts` +2: a setup-mode session saves the card and creates no order; an unknown subscription is recorded and answers 200.
+- `checkoutService.test.ts`: the Stripe mock gained `refunds`.
+- **Suite, file by file** (90 files, one vitest process each, 2026-11-01): 79 green. The rest:
+  - Known baseline: `quizScoring` (6) and `schema.catalog_blueprint` (1).
+  - Timeouts only at the 5 s default: `blendResolver` (2), `catalogService` (1) and `sommelierRag` (hook). All three pass with `--testTimeout=30000 --hookTimeout=60000` (7/7, 14/14, 10/10).
+  - Every commerce file is green.
+- Six lints, backend `tsc` and `vite build` are green. Frontend `tsc --noEmit` is at the 13-error baseline (no new errors).
+
+## Part E — acceptance (prod, test mode)
+
+Walked through with Dana on `www.axisandbloomcoffee.com/?preview=true`: Profile steps as `danabar.mail+checkout1@gmail.com`, admin steps as Dana's admin account. Each step is checked in the prod DB (read-only) and the Stripe sandbox. Evidence is filled in step by step below.
+
+| # | Step | Result | Evidence |
+|---|---|---|---|
+| 1a | Frequency 2→4 weeks: next date unchanged, email | pending | |
+| 1b | Skip next: `skip_requested`, Profile shows the cycle after | pending | |
+| 1c | Pause 3 weeks, then resume | pending | |
+| 1d | Cancel: `canceled`, Liam access gone, email | pending | |
+| 2 | Card update on past_due (0341, then 4242): invoice paid, renewal order, `active` | pending | |
+| 3a | `/admin/orders` lists orders with customer emails | pending | |
+| 3b | $5 partial refund → `refund_partial`, cents on `v_order_status`, Stripe refund | pending | |
+| 3c | Full refund on `awaiting_manual` → `refund_full` + `canceled` | pending | |
+| 3d | Mark shipped (USPS): shipment row, `shipped`, email with tracking link, Profile | pending | |
+| 3e | Retry fulfillment on `needs_attention` | pending | |
+| 4 | Admin new-order email: name, email, drawer link | pending | |
+| 5 | No roaster name on Profile or in customer emails | pending | |
+
+## What Commerce 4 needs
+
+- **Live keys and endpoint.**
+  - Live secret and publishable keys in Secret Manager and the frontend build.
+  - A live webhook endpoint with all 10 events: `checkout.session.completed` / `expired` / `async_payment_succeeded` / `async_payment_failed`, `payment_intent.payment_failed`, `charge.refunded`, and the four `invoice.*`. Its signing secret goes in Secret Manager.
+  - The boot log must show `[stripe] mode=live`.
+- **Live payment-method configuration** checked for setup mode (the card update) as well as payment mode.
+- **Dashboard links.** `/admin/orders` builds them from `stripeMode()`, so they switch by themselves; check one after cutover.
+- **Retry schedule.** The live account's Smart Retries setting must match the sandbox (OT-63), or `subscription_past_due_lapse_days` is revisited.
+- **Test data on prod.**
+  - Test-mode orders, subscriptions, refunds and shipments from Commerce 1–3 stay as history (never deleted).
+  - Decide whether admin lists hide them (e.g. a `stripe_mode` read from the payment intent prefix) or whether a cutover date is enough.
+  - Test-mode Stripe customer ids on `user_profile.stripe_customer_id` do not exist in live. `getOrCreateStripeCustomer` must create a live customer for those users instead of reusing the test id.
+- **Fees and tax.** `tax_collection_enabled` stays 0 unless Dana flips it (`MANUAL_SETUP_IDS.md`).
+- **OT-60** (test events reaching prod) closes when prod uses only the live endpoint. Dev runs then need their own sandbox endpoint or the Stripe CLI.
+- **ShipStation (OT-58)** can follow Commerce 4: it only needs to call `shipmentService.markShipped`.

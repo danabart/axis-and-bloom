@@ -97,3 +97,15 @@ Test mode until Commerce brief 4. Full record: `backend/src/features/commerce/CL
 - [ ] **Upcoming notice**: `subscription_upcoming_notice_days` before a delivery, one email with the coffee lined up; a second run sends none.
 - [ ] **Company gift unchanged**: redeeming a code creates an `active` sponsored subscription (kind `sponsored`); the sponsored-subscription check lapses it at expiry with the same email.
 - [ ] Nothing but `subscriptionService` writes `subscription` / `subscription_item` / `subscription_event` (`npm run lint:lineage`).
+
+## Commerce — admin and self-service (Commerce 3, 2026-11-01)
+
+Test mode until Commerce brief 4. Full record: `backend/src/features/commerce/CLOSING_REPORT_3.md`.
+
+- [ ] **Customer skip/pause/cancel** (Profile → subscription panel): change frequency 2→4 weeks → next date unchanged, `frequency_changed` event, one email. Skip → `skip_requested`, Profile shows the cycle after; a second skip answers "already skipped"; on the skipped date the daily job records `renewal_skipped_skip`, charges nothing, advances the date. Pause (date within `subscription_pause_max_weeks`) → `paused`, Profile shows the resume date; Resume → `resumed`, next date rescheduled if it fell inside the pause; a pause whose date passed is resumed by the daily job (`source = cron`). Cancel → `canceled`, open renewal invoice voided, Liam access gone, one email.
+- [ ] **Update card**: on a past_due subscription, "Update your card" (Profile, or the payment-trouble email link) → setup-mode Checkout → `payment_method_updated`; the open invoice is paid with the new card, `invoice.paid` writes one renewal order, status back to `active`. A card that declines after saving (`4000 0000 0000 0341`) leaves it past_due with the card saved.
+- [ ] **Refund partial/full** (`/admin/orders` drawer): a partial refund → Stripe refund, then `refund_partial` with the reason and the cents on `v_order_status`, fulfillment unchanged. A full refund on an `awaiting_manual` order → `refund_full` + `canceled` (source webhook), never on the click; a full refund on a shipped order does not cancel.
+- [ ] **Mark shipped email**: carrier + tracking number → one `roastery_shipment_details` row, a `shipped` event, one customer email with a working tracking link; submitting the same number again changes nothing; Profile → Orders shows "On its way" and the link. No roaster name in the email or on Profile.
+- [ ] **Retry fulfillment** on a `needs_attention` order → `fulfillment_dispatched` (source admin), status `awaiting_manual`; the admin new-order email is not sent twice.
+- [ ] **Admin new-order email** shows the customer's name, email and a link that opens `/admin/orders/<id>`.
+- [ ] Nothing but `shipmentService` writes `roastery_shipment_details` (`npm run lint:lineage`).

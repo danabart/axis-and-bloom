@@ -6242,6 +6242,54 @@ So a $33.50 renewal costs about $1.27 card + $0.13 invoicing, and nothing for ta
 - Tests: `checkoutService.test.ts` adds a switch-off checkout (no automatic tax requested, no `customer_update`, order `taxes_collected` 0). The switch is pinned in `checkoutService.test.ts` and `subscriptionRenewal.test.ts` rather than read from the test DB; `commerceParameters.test.ts` expects the new seed 0.
 - Flip-on procedure: `MANUAL_SETUP_IDS.md` → Stripe. Regression line: `REGRESSION.md` → Commerce 1.
 
+### 250. Commerce 3: admin orders, refunds, shipping, subscription self-service (2026-10-31 → 2026-11-01)
+
+Brief `backend/src/features/commerce/CLAUDE_CODE_PROMPT_COMMERCE_3_ADMIN_AND_SELF_SERVICE.md`; full record `backend/src/features/commerce/CLOSING_REPORT_3.md`.
+
+**Status:** pushed and deployed with Dana's go; Part E (acceptance) runs on prod in test mode with Dana (Dana's change of plan, 2026-11-01: prod instead of the local stack). Test mode only.
+
+**Commits:**
+
+| Commit | Content |
+|---|---|
+| `1f56782` | Task 0 findings |
+| `fef6320` | Commerce README (Dana's edit, its own commit) |
+| `d834161` | A, schema |
+| `542f1b1` | B, backend |
+| `78eaff9` | Dana's Task 0 decisions; `invoice.*` events confirmed on the endpoint |
+| `c418abe` | C, frontend |
+| `c4c8c1e` | D, tests |
+| — | plus the docs commit and `CATALOG.md` from prod |
+
+**Files:**
+- Database: `db/schema.sql` and `db/comments.sql` (Commerce 3 block; `v_order_status` and `v_subscription_status` now have one definition each, in that block).
+- New backend: `services/shipmentService.ts`, `services/commerceAdminReads.ts`.
+- Changed backend: `subscriptionService.ts`, `subscriptionEmails.ts`, `subscriptionRenewal.ts`, `checkoutService.ts`, `orderEmails.ts`, `fulfillment/index.ts`, `customerReads.ts`, `sommelierGate.ts`, `liamProfile.ts`, `routes/subscriptions.ts`, `routes/commerceAdmin.ts`, `routes/stripeWebhook.ts`, `routes/cron.ts`, `routes/users.ts`, `index.ts`.
+- Frontend: new `checkout/StripeEmbeddedCheckout.tsx` (shared by `/checkout` and the card update), `profile/SubscriptionPanel.tsx` (replaces `SubscriptionSummary.tsx`), `admin/AdminOrders.tsx`, `admin/AdminSubscriptions.tsx`; `Profile.tsx`, `CheckoutPage.tsx`, `lib/api.ts`, `App.tsx`, `AdminLayout.tsx`.
+
+**How it works:**
+- **Subscription self-service (Profile).** `POST /api/subscriptions/:id/frequency | skip | pause | resume | cancel`, each through `subscriptionService` under the subscription's lock, an event with `source = customer`, then one confirmation email (`subscription_<kind>:<eventId>`).
+  - Frequency keeps the next date.
+  - Skip marks the next cycle; a second skip before it passes answers 409.
+  - Pause takes a resume date between tomorrow and `subscription_pause_max_weeks` (12) weeks out.
+  - Resume reschedules a next date that fell inside the pause.
+  - Cancel voids an open renewal invoice first.
+  - `GET /api/subscriptions/mine` returns the effective next date (after a skip or a pause), the allowed frequencies, the pause bounds and the actions each status allows.
+- **Pauses end by themselves.** The daily job's first step resumes every pause whose date has passed (`resumeDuePauses`, `source = cron`; Dana's decision 2).
+- **Update card.** `POST /:id/payment-method/session` opens a setup-mode embedded Checkout. Its `checkout.session.completed` (mode `setup`) saves the card on the Stripe customer and the subscription (`payment_method_updated`). On a past_due subscription it pays the open renewal invoice at once with the new card named (`invoices.pay`), and `invoice.paid` writes the renewal order as usual. The payment-trouble email now links to the card update.
+- **`/admin/orders`.** Orders with customer email, status and filters. A drawer shows lines, events, shipment and Stripe Dashboard links (`/admin/orders/:id` opens it directly). From the drawer:
+  - **Refund** (partial or full, with a reason from `order_refund_reason`). The click only asks Stripe. `charge.refunded` records `refund_partial` / `refund_full` with the reason read from Stripe's refund list. A full refund while the order is `awaiting_manual` / `needs_attention` also records `canceled` (Dana's decision 4); a partial refund never cancels.
+  - **Mark shipped** (`shipmentService.markShipped`): carrier from `shipping_carrier`, tracking number. It writes the `roastery_shipment_details` row, a `shipped` event and the customer's shipping email with the tracking link once. Idempotent per tracking number. The order links by `order_id`; `order_line_item.shipment_id` stays reserved (D11, decision 3).
+  - **Retry fulfillment** on `needs_attention` / `awaiting_manual` (`source = admin`).
+- **`/admin/subscriptions`.** `v_subscription_status` with customer, effective next date, card on file, cancel.
+- **Admin new-order email** shows the customer's name, email (primary `user_email`) and a link to the order drawer.
+- **Profile → Orders** shows "On its way" with the carrier's tracking link.
+- **Liam's status line** uses `subscription_status.customer_label`, not the raw code.
+
+**Verified (before the change of plan):** per-file suite, 90 files in one process each: 79 green. The rest were the known baseline (quizScoring 6, schema.catalog_blueprint 1) and three timeout-only files (blendResolver, catalogService, sommelierRag), which pass with longer timeouts. Every commerce file passed. Six lints, backend `tsc`, `vite build` green; frontend `tsc` at its 13-error baseline. Part E evidence: `CLOSING_REPORT_3.md`.
+
+**Not done in this pass:** the ShipStation adapter calling `markShipped` from tracking webhooks (OT-58); Commerce 4, the live cutover (OT-64).
+
 ---
 
 ### The Bloom — content/admin follow-ups (#83, #84)
@@ -6281,4 +6329,4 @@ So a $33.50 renewal costs about $1.27 card + $0.13 invoicing, and nothing for ta
 
 ### Optional
 12. **Apple sign-in** — requires an Apple Developer account ($99/year). Low priority.
-13. **Subscription management UI** — the schema and backend route exist but there's no frontend page yet.
+13. ~~**Subscription management UI**~~ — done, #250: Profile's subscription panel (frequency, skip, pause, resume, cancel, update card) and `/admin/subscriptions`.
